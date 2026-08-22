@@ -298,6 +298,13 @@ internal static partial class ModalFallback
                 VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened — " +
                                       "CLAIMED by the control-board decision dock (no float, no ModalUI " +
                                       "while the claim holds; generic fallback resumes if it breaks).");
+            // ModBuild 196: do not assert a float for a window the tick is about to refuse — a
+            // sub-view of an already-floated screen is presented INSIDE it (the tick prints the
+            // full reason once per window type). See RendersInsideFloatedAncestor.
+            else if (RendersInsideFloatedAncestor(e.Window))
+                VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened as a " +
+                                      "SUB-VIEW of a window that is already floated — presented inside that " +
+                                      "host, not floated on its own and no ModalUI.");
             else
                 VRLog.Info("WorldUI", $"MODAL FALLBACK: window '{e.Window.name}' (ID {e.Id}) opened without a " +
                                       $"VR conversion (room={VRModeStateMachine.TableInFrontOfPlayer}, of which " +
@@ -2082,6 +2089,14 @@ internal static partial class ModalFallback
             // (still tracked in Open: the claim is re-checked every tick, so a
             // broken claim hands the window back here level-triggered).
             if (DecisionDock.ClaimsWindow(window))
+                continue;
+            // ModBuild 196 (the equipment tab): an enrolled window that is nested inside a window
+            // this class has ALREADY floated is a SUB-VIEW of that screen, not a window of its
+            // own — it is drawn and hit-tested inside its host where the game lays it out. Same
+            // "parent wins" rule the catch-all applies, same level-triggered shape (it stays in
+            // Open, so it floats by itself the moment its host stops being one). See
+            // RendersInsideFloatedAncestor for the hierarchy evidence and the map-room scope.
+            if (RendersInsideFloatedAncestor(window))
                 continue;
             OpenWindows.Add(window);
         }

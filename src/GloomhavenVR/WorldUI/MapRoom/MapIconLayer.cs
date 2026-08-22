@@ -142,47 +142,93 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   regression.</item>
 /// </list>
 ///
-/// <para>THE PARTY MARKER IS SCALED ON THE GAME'S OWN TRANSFORM SINCE ModBuild 195, AND THAT IS THE
-/// SECOND GAME-COMPONENT WRITE THIS LAYER MAKES — SAY SO PLAINLY (user report against ModBuild 194,
-/// verbatim: "Der Slider für den 'Gruppen-Marker' verändert nichts. Egal wie ich es umstelle, es
-/// bleibt gleich klein."). THE ModBuild 194 INSTRUMENT ANSWERED ITS OWN QUESTION: its census read
-/// "PartyMarkerScale x1.80 on 1 submesh draw(s), 1 of which could NOT take it" — the refusal fired
-/// on the ONLY draw there is, so the dial was wired correctly and had nothing to act on.</para>
-/// <para>WHY THE DRAW-MATRIX ROUTE COULD NOT BE REPAIRED IN PLACE. 194 re-drew the token with
-/// <c>CommandBuffer.DrawMesh</c> and a conjugated scale matrix, which needs a mesh we can honestly
-/// hand to <c>DrawMesh</c>; the token's single renderer has none (either it is a
-/// <c>SkinnedMeshRenderer</c>, whose <c>sharedMesh</c> is the BIND POSE and would draw a T-posed
-/// figure, or it is a renderer with no <c>MeshFilter</c> at all — the census below now prints WHICH,
-/// by runtime type, so this is never guessed again). Three ways out were weighed:</para>
-/// <list type="number">
-///   <item>A MATRIX OVERLOAD OF <c>DrawRenderer</c>. CHECKED AGAINST THE SHIPPING ASSEMBLY rather
-///   than against memory — the game's own <c>UnityEngine.CoreModule.dll</c> (Unity 2021.3.5f1)
-///   exposes exactly three: <c>DrawRenderer(Renderer, Material)</c>,
-///   <c>(Renderer, Material, int)</c> and <c>(Renderer, Material, int, int)</c>. THERE IS NO MATRIX
-///   PARAMETER IN THIS UNITY VERSION, so the clean answer does not exist here. REJECTED as
-///   unavailable, not as unattractive.</item>
-///   <item><c>SkinnedMeshRenderer.BakeMesh</c> into a scratch mesh, drawn with a matrix. This fixes
-///   ONLY the skinned branch and does nothing for a renderer with no <c>MeshFilter</c>, i.e. it
-///   might not fix this token at all; and the marker ANIMATES (it walks the route during travel,
-///   MapChoreographer → MapMovementFlow), so the bake would have to be re-run EVERY FRAME the token
-///   is in view — a full CPU skinning pass per frame, per eye-independent buffer refill, to change
-///   one number. REJECTED: worse cost, narrower coverage, and it still leaves the "could not take
-///   it" branch reachable.</item>
-///   <item>WRITE <c>PartyToken.transform.localScale</c>. TAKEN. It is the only lever that covers
-///   BOTH branches, it costs one float compare per tick, and the evidence that it is safe was
-///   already on the table and unused: <c>PartyToken</c> is 143 lines that write only
-///   <c>transform.position</c> (:46, :65, :105) and <c>transform.LookAt</c> (:22, :48, :118); its
-///   five callers (<c>MapChoreographer</c>, <c>MapMovementFlow</c>, <c>MapTimedMovementFlow</c>,
-///   <c>MapPointsMovementFlow</c>, <c>IMapFlowConfig</c>) write only <c>transform.position</c>
-///   (MapChoreographer.cs:740, :749, :2739) and read only <c>transform.position</c> for the camera
-///   focal point; and a grep of the WHOLE decompile finds no writer of this transform's
-///   <c>localScale</c> anywhere. Nothing in the game reads its scale either — the zoom-to-party path
-///   drives <c>CameraController.m_ExtraMinimumFOV</c> from a config FOV, never from the token's
-///   bounds. So this is a number with no other writer, the same shape as <c>widthMultiplier</c>
-///   below, and it takes the same protocol.</item>
+/// <para>THE PARTY MARKER IS A PARTICLE SYSTEM, AND THAT IS WHY TWO BUILDS OF TRANSFORM SCALING DID
+/// NOTHING (user report, third round running: "Der Slider für den 'Gruppen-Marker' verändert nichts.
+/// Egal wie ich es umstelle, es bleibt gleich klein."). ModBuild 195's own census FALSIFIED the two
+/// theories that were still on the table, and it did it with numbers rather than with an argument:
+/// it read <c>authored localScale recorded before the first write as (1.00, 1.00, 1.00), target =
+/// that x 2.77, 0 write(s) this tick, last written value (2.77, 2.77, 2.77)</c>. The write LANDED,
+/// it STUCK, the write count fell to zero on a settled frame — so nobody was fighting us, the dial
+/// was reaching the code, and the marker was still small. <b>The transform's scale is simply not
+/// what determines this object's on-screen size.</b> The same line named the reason in its own
+/// renderer census: <c>'P_MapToken' is a ParticleSystemRenderer with NO MeshFilter mesh</c>.</para>
+/// <para>UNITY'S RULE, WHICH IS THE WHOLE BUG. A <c>ParticleSystem</c>'s rendered particle size is
+/// <c>startSize</c> (times the size-over-lifetime curve) times an EMITTER SCALE, and which part of
+/// the transform hierarchy that emitter scale is taken from is a per-system setting,
+/// <c>ParticleSystem.MainModule.scalingMode</c>:
+/// <list type="bullet">
+///   <item><c>Hierarchy</c> — the full <c>lossyScale</c>. A write to the token ROOT reaches the
+///   particles.</item>
+///   <item><c>Local</c> — the system's OWN <c>transform.localScale</c> only. A write to the token
+///   root reaches the particles ONLY when the system sits on the root itself; on a child it is
+///   ignored entirely.</item>
+///   <item><c>Shape</c> — the transform scale is applied to the emission SHAPE (where particles are
+///   born) and NOT to their size. A write to any transform changes nothing about how big the marker
+///   looks. This is the mode that produces the reported symptom exactly.</item>
 /// </list>
+/// So the transform write was never wrong; it was simply inert for this object, and no amount of
+/// re-checking that it landed could have shown that — a state probe cannot see a scaling mode.</para>
+/// <para>THE LEVER THAT ACTUALLY CHANGES THE RENDERED SIZE, and why it is two writes and not one.
+/// See <see cref="ApplyTokenParticleSize"/>:</para>
+/// <list type="number">
+///   <item><c>MainModule.startSizeMultiplier</c> (all three axes when <c>startSize3D</c> is set) —
+///   the size every particle is BORN with, in every scaling mode and every simulation space. This is
+///   the number the picture is actually made of.</item>
+///   <item>THE PARTICLES THAT ARE ALREADY ALIVE, rewritten once per dial change through
+///   <c>GetParticles</c>/<c>SetParticles</c>. <c>startSize</c> only decides the size of particles
+///   emitted AFTER it is written; a marker that is a single long-lived looping particle, or one
+///   emitted in a burst when the map opened, would otherwise never resize at all — the dial would
+///   keep "doing nothing" for a completely different reason than before. This is the half that a
+///   startSize-only fix would have shipped broken.</item>
+///   <item><c>ParticleSystemRenderer.maxParticleSize</c> is RAISED in proportion, never lowered. It
+///   is a SCREEN-SPACE clamp (viewport fraction) that Unity applies after everything else, so an
+///   authored ceiling would silently cap the growth at some distance and read as "it gets bigger and
+///   then stops". Only ever raised, so a dial below 1.0 cannot introduce a clip that was not there.</item>
+/// </list>
+/// <para>NO DOUBLE APPLICATION, MEASURED PER SYSTEM RATHER THAN ASSUMED. The token root's
+/// <c>localScale</c> write is KEPT — it is the correct and only lever for an ordinary
+/// <c>MeshRenderer</c>/<c>SkinnedMeshRenderer</c> child, and this token may not be a particle system
+/// in every save or every future build. For each particle system the code therefore asks whether the
+/// transform ALREADY covers it (<c>Hierarchy</c>, or <c>Local</c> on the root itself) and, if it
+/// does, holds that system's <c>startSizeMultiplier</c> at its AUTHORED value — otherwise a
+/// <c>Hierarchy</c>-mode marker would come out at the dial SQUARED. The scaling mode is printed in
+/// the subtree dump, so which branch was taken is a fact in the log.</para>
+/// <para>AND THE PREMISE IS VERIFIED IN THE LOG BEFORE ANY OF IT — <see cref="LogTokenSubtree"/>
+/// dumps the party token's WHOLE subtree exactly once per adopted token: every transform with its
+/// active state, layer, local and lossy scale, every component by runtime type, every renderer with
+/// its world bounds and whether the head camera's culling mask even contains its layer, and every
+/// particle system's scaling mode, simulation space, start size, render mode and live particle
+/// count. Two rounds were spent on an object that had never been shown to BE the thing the player
+/// sees; this line is what makes "is P_MapToken the marker, or only a glow on top of one?" a fact
+/// instead of an inference.</para>
+/// <para>THE PROOF THAT IT WORKED IS A MEASURED NUMBER, NOT A CLAIM. The census prints the party
+/// marker's WORLD-SPACE BOUNDS EXTENT — the union of its renderers' <c>bounds.size</c>, in world
+/// units and in real millimetres at the rig scale — as it was before the last dial change and as it
+/// is now. That number is produced by the renderer, not by us, and it MUST move when the dial moves.
+/// If a future report says the dial still does nothing, this pair of numbers decides in one line
+/// whether the lever failed or the player is looking at a different object.</para>
+/// <para>WHY NOT A DRAW MATRIX, which is what ModBuild 194 tried. Re-drawing the token with
+/// <c>CommandBuffer.DrawMesh</c> and a conjugated scale matrix needs a mesh we can honestly hand to
+/// <c>DrawMesh</c>, and this renderer has none; a matrix overload of <c>DrawRenderer</c> does not
+/// exist in this Unity (checked against the shipping <c>UnityEngine.CoreModule.dll</c>: the three
+/// overloads are <c>(Renderer, Material)</c>, <c>(Renderer, Material, int)</c> and
+/// <c>(Renderer, Material, int, int)</c>); and a per-frame <c>BakeMesh</c> would fix only a skinned
+/// branch that does not exist here. A particle system's size is not a matrix problem at all — it is
+/// a property of the system, and that is what is written.</para>
+/// <para>THE OWNERSHIP EVIDENCE FOR WRITING THE TRANSFORM AT ALL is unchanged and still holds:
+/// <c>PartyToken</c> is 143 lines that write only <c>transform.position</c> (:46, :65, :105) and
+/// <c>transform.LookAt</c> (:22, :48, :118); its five callers (<c>MapChoreographer</c>,
+/// <c>MapMovementFlow</c>, <c>MapTimedMovementFlow</c>, <c>MapPointsMovementFlow</c>,
+/// <c>IMapFlowConfig</c>) write only <c>transform.position</c> (MapChoreographer.cs:740, :749,
+/// :2739) and read only <c>transform.position</c> for the camera focal point; a grep of the WHOLE
+/// decompile finds no writer of this transform's <c>localScale</c>, and no writer of any of these
+/// systems' <c>startSize</c> either. Nothing in the game reads the token's scale — the zoom-to-party
+/// path drives <c>CameraController.m_ExtraMinimumFOV</c> from a config FOV, never from the token's
+/// bounds.</para>
 /// <para>THE PROTOCOL, WHICH IS THE PART THAT HAS TO BE RIGHT — see <see cref="ApplyTokenScale"/>
-/// and <see cref="RestoreTokenScale"/>:</para>
+/// and <see cref="RestoreTokenScale"/> for the transform, and <see cref="ApplyTokenParticleSize"/>
+/// and <see cref="RestoreTokenParticleSizes"/> for the particle sizes, which follow the SAME four
+/// rules against their own recorded originals:</para>
 /// <list type="number">
 ///   <item>THE ORIGINAL IS RECORDED BEFORE THE FIRST WRITE, once per token transform, at scan time.
 ///   The AUTHORED value is multiplied — not <c>Vector3.one</c> — so a token the artist did not build
@@ -198,11 +244,12 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   this is local presentation on an object the local client already has; nothing goes on the wire,
 ///   and the stand-down restore is what keeps a peer's map untouched.</item>
 /// </list>
-/// <para>THE DRAW IS PLAIN <c>DrawRenderer</c> AGAIN, for every token renderer, exactly as it was
-/// through ModBuild 193. It needs no matrix now: <c>DrawRenderer</c> records the renderer's own
-/// transform, so the scale on the root is already in the picture, and a skinned token skins
-/// correctly because the engine still does the skinning. The 194 mesh-resolution pass is gone from
-/// the draw path and survives only as the census's renderer-kind classification.</para>
+/// <para>THE DRAW IS PLAIN <c>DrawRenderer</c>, for every token renderer, exactly as it was through
+/// ModBuild 193. It needs no matrix: <c>DrawRenderer</c> records the renderer's own transform and
+/// the engine evaluates the renderer's own state at execution time, so whatever the size lever wrote
+/// — a transform scale, a particle start size, or both — is already in the picture, and a skinned
+/// token skins correctly because the engine still does the skinning. The 194 mesh-resolution pass is
+/// gone from the draw path and survives only as the census's renderer-kind classification.</para>
 ///
 /// <para>THE DRAWN ROUTE TAKES A DIAL TOO, AND THAT ONE DOES WRITE A GAME COMPONENT — SAY SO
 /// PLAINLY. READ FROM SOURCE, the route between two map locations is a <c>LineRenderer</c>:
@@ -283,9 +330,10 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// </list></para>
 ///
 /// <para>TEARDOWN: <see cref="Release"/> detaches the buffer from whatever camera holds it, destroys
-/// the mesh and material, and RESTORES every route <c>widthMultiplier</c> it wrote. Apart from that
-/// one documented, recorded-and-restored component write, nothing is ever left on a game object —
-/// the decals, the token and their textures are only READ.</para>
+/// the mesh and material, and RESTORES every route <c>widthMultiplier</c>, the party token's authored
+/// <c>localScale</c> and every particle system's authored start size, screen-space clamp and live
+/// particle sizes. Apart from those documented, recorded-and-restored writes, nothing is ever left on
+/// a game object — the decals and their textures are only READ.</para>
 /// </summary>
 internal sealed class MapIconLayer
 {
@@ -440,7 +488,8 @@ internal sealed class MapIconLayer
     /// and whether it has a <c>MeshFilter</c> mesh, so the next log ANSWERS that question instead of
     /// re-asking it. Nothing in the draw path reads it — since ModBuild 195 the scale rides the
     /// token's transform and every renderer is drawn with plain <c>DrawRenderer</c>, so no renderer
-    /// kind can be refused any more.
+    /// kind can be refused any more — and, since ModBuild 196, it is what SELECTED the working lever:
+    /// a <c>ParticleSystemRenderer</c> means the size lives in the particle system, not in a matrix.
     /// </summary>
     private string _tokenKinds = "<not scanned>";
 
@@ -472,6 +521,73 @@ internal sealed class MapIconLayer
     /// (dial at x1.00) never sets it — the level-triggered write finds the wanted value already
     /// there and returns.</summary>
     private bool _tokenScaleWritten;
+
+    /// <summary>
+    /// What one particle system under the party token looked like BEFORE this layer wrote it, plus
+    /// the factor currently applied to it. See <see cref="ApplyTokenParticleSize"/>.
+    ///
+    /// <para><see cref="Applied"/> is the reason this is a record and not just a pair of originals:
+    /// already-alive particles have to be rescaled by the RATIO between the old factor and the new
+    /// one exactly once per change, and that ratio cannot be recovered from the module's current
+    /// value alone.</para>
+    /// </summary>
+    private struct TokenParticleRecord
+    {
+        internal float SizeX;
+        internal float SizeY;
+        internal float SizeZ;
+        internal float MaxParticleSize;
+        internal float Applied;
+    }
+
+    /// <summary>Every <c>ParticleSystem</c> under the party token, rebuilt per scan — the objects the
+    /// marker dial actually acts on for this token (the census's renderer kind says why).</summary>
+    private readonly List<ParticleSystem> _tokenParticles = new(4);
+
+    /// <summary>The authored size numbers of each of those systems, recorded before the first write.
+    /// A dictionary rather than a list parallel to the scan, for the same reason
+    /// <see cref="_pathOriginalWidth"/> is one: it must survive the rescan that happens every frame
+    /// during the warm-up hold, or the record would be re-taken from OUR OWN written value and the
+    /// restore would become a no-op.</summary>
+    private readonly Dictionary<ParticleSystem, TokenParticleRecord> _tokenParticleOriginals = new(4);
+
+    /// <summary>Scratch for <c>GetParticles</c>/<c>SetParticles</c>. Grown on demand and kept, so a
+    /// dial change costs one array and never one per change.</summary>
+    private ParticleSystem.Particle[]? _particleScratch;
+
+    /// <summary>The token transform whose subtree has already been dumped by
+    /// <see cref="LogTokenSubtree"/>. Identity, not a bool: the game destroys and rebuilds the token
+    /// on a map rebuild and the NEW one is worth dumping again.</summary>
+    private Transform? _tokenDumpedFor;
+
+    /// <summary>The party marker's measured world-space bounds extent right now, and what it was on
+    /// the tick before the last time the applied factor changed — the falsifiable pair the census
+    /// prints. Produced by the RENDERERS, not by us.</summary>
+    private Vector3 _tokenExtentNow;
+
+    /// <inheritdoc cref="_tokenExtentNow"/>
+    private Vector3 _tokenExtentBefore;
+
+    /// <inheritdoc cref="_tokenExtentNow"/>
+    private float _tokenFactorBefore = 1f;
+
+    /// <summary>How many renderers the extent was measured over (0 = nothing drawable, so the extent
+    /// is meaningless and the census says so instead of printing a zero as if it were a size).</summary>
+    private int _tokenExtentRenderers;
+
+    /// <summary>How the particle lever resolved this scan, in words, for the census.</summary>
+    private string _tokenParticleReport = "no ParticleSystem under the token";
+
+    /// <summary>Until when the census may re-print even though its signature has not changed — see
+    /// the comment at its assignment in <see cref="ApplyTokenParticleSize"/>. Unscaled time, and
+    /// <c>0</c> means "not open", which is a state no real <c>Time.unscaledTime</c> reaches after the
+    /// first frame.</summary>
+    private float _extentRecheckUntil;
+
+    /// <summary>How long that window stays open. Long enough for the 0.5 s census throttle to emit
+    /// two or three lines after a dial change, so the extent is printed once the renderer has
+    /// actually rebuilt its bounds.</summary>
+    private const float ExtentRecheckSeconds = 1.5f;
 
     /// <summary>Every route <c>LineRenderer</c> this layer has found, and the <c>widthMultiplier</c>
     /// each one had BEFORE we first wrote it. Kept as a dictionary rather than a list parallel to
@@ -869,7 +985,14 @@ internal sealed class MapIconLayer
         // at record time, so strictly speaking either order would look right — but writing first
         // keeps the recording and the transform in step for any future path that does read the
         // matrix here, and it costs nothing.
+        // MEASURE FIRST, WRITE SECOND. The extent read here is the size the marker had BEFORE this
+        // tick's write, which is exactly what a "before" number has to be for the pair the census
+        // prints to mean anything.
+        Vector3 extentBeforeWrite = MeasureTokenExtent(out int extentRenderers);
         int tokenWrites = ApplyTokenScale(markerScale);
+        tokenWrites += ApplyTokenParticleSize(markerScale, extentBeforeWrite);
+        _tokenExtentNow = extentBeforeWrite;
+        _tokenExtentRenderers = extentRenderers;
         int tokenDraws = DrawToken();
         int pathWrites = ApplyPathWidth(pathScale, head.cullingMask, out int pathDrawing, out int pathSeen);
 
@@ -942,8 +1065,9 @@ internal sealed class MapIconLayer
     /// <para>PLAIN <c>DrawRenderer</c> FOR EVERY RENDERER, WHATEVER KIND IT IS — the same call that
     /// shipped through ModBuild 193, restored at 195 after 194's matrix path proved unable to touch
     /// this particular token at all. There is no size decision left in here: the marker dial is
-    /// applied to the token's own transform by <see cref="ApplyTokenScale"/> before this runs, and
-    /// <c>DrawRenderer</c> records the renderer's own matrix, so the scale is already in the picture.
+    /// applied by <see cref="ApplyTokenScale"/> and <see cref="ApplyTokenParticleSize"/> before this
+    /// runs, and <c>DrawRenderer</c> records the renderer's own state, so the size is already in the
+    /// picture.
     /// That is also why no renderer kind can be refused any more — a <c>SkinnedMeshRenderer</c> skins
     /// correctly here because the ENGINE does the skinning, and a renderer with no <c>MeshFilter</c>
     /// never needed a mesh from us in the first place.</para>
@@ -984,7 +1108,8 @@ internal sealed class MapIconLayer
     /// Put <c>[MapRoom] PartyMarkerScale</c> on the party token's own transform, LEVEL-TRIGGERED, and
     /// return how many writes that actually took this tick (0 or 1).
     ///
-    /// <para>THIS IS THE SECOND — AND LAST — GAME COMPONENT THIS LAYER WRITES, and the class doc
+    /// <para>THIS IS ONE OF THE THREE GAME-COMPONENT PROPERTIES THIS LAYER WRITES (the route
+    /// width and the party marker's particle sizes are the others), and the class doc
     /// carries the whole argument for why <c>PartyToken.transform.localScale</c> is a number with no
     /// other writer in the game and no reader either. What matters here is the protocol:</para>
     /// <list type="number">
@@ -1054,13 +1179,357 @@ internal sealed class MapIconLayer
     }
 
     /// <summary>
+    /// THE LEVER THAT ACTUALLY CHANGES THE PARTY MARKER'S RENDERED SIZE — put
+    /// <c>[MapRoom] PartyMarkerScale</c> on every particle system under the token, LEVEL-TRIGGERED,
+    /// and return how many property writes that took this tick.
+    ///
+    /// <para>The class doc carries the full argument for why the transform's <c>localScale</c> is
+    /// INERT for this object and what Unity's three <c>scalingMode</c>s do. What happens here:</para>
+    /// <list type="number">
+    ///   <item>THE AUTHORED NUMBERS ARE RECORDED BEFORE THE FIRST WRITE, once per system, into
+    ///   <see cref="_tokenParticleOriginals"/> — which survives the every-frame rescan of the warm-up
+    ///   hold, so the record can never be re-taken from our own written value.</item>
+    ///   <item>WHETHER THE TRANSFORM ALREADY COVERS THIS SYSTEM IS MEASURED, NOT ASSUMED. In
+    ///   <c>Hierarchy</c> mode (and in <c>Local</c> mode when the system sits on the token ROOT, the
+    ///   transform <see cref="ApplyTokenScale"/> writes) the emitter scale already carries the dial,
+    ///   so this system is held at its AUTHORED start size — otherwise the marker would come out at
+    ///   the dial SQUARED. In <c>Shape</c> mode, and for a <c>Local</c>-mode system on a child, the
+    ///   transform contributes nothing to particle SIZE and the full dial is applied here.</item>
+    ///   <item>ALREADY-ALIVE PARTICLES ARE REWRITTEN, exactly once per change of the applied factor.
+    ///   <c>startSize</c> decides only how big a particle is BORN; a marker that is one long-lived
+    ///   looping particle would otherwise never change size at all. See
+    ///   <see cref="ScaleLiveParticles"/>.</item>
+    ///   <item>THE SCREEN-SPACE CLAMP IS RAISED, NEVER LOWERED.
+    ///   <c>ParticleSystemRenderer.maxParticleSize</c> is a viewport-fraction ceiling applied after
+    ///   everything else; an authored ceiling would cap the growth and read as "it gets bigger and
+    ///   then stops". Multiplying by <c>max(1, factor)</c> means a dial below 1.0 can never introduce
+    ///   a clip that the game did not already have.</item>
+    ///   <item>AT x1.00 NOTHING IS WRITTEN AT ALL, and <see cref="RestoreTokenParticleSizes"/> puts
+    ///   every recorded number back on stand-down and on teardown.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="scale">The clamped dial value.</param>
+    /// <param name="extentBeforeWrite">The marker's measured extent as it was BEFORE this tick's
+    /// write — latched as the census's "before" number on the tick the factor changes, so the log
+    /// carries a genuine before/after pair rather than two readings of the same state.</param>
+    private int ApplyTokenParticleSize(float scale, Vector3 extentBeforeWrite)
+    {
+        int writes = 0;
+        for (int i = 0; i < _tokenParticles.Count; i++)
+        {
+            ParticleSystem ps = _tokenParticles[i];
+            if (ps == null)
+                continue;
+            ParticleSystem.MainModule main = ps.main;
+            if (!_tokenParticleOriginals.TryGetValue(ps, out TokenParticleRecord rec))
+            {
+                ParticleSystemRenderer? psr = ps.GetComponent<ParticleSystemRenderer>();
+                rec = new TokenParticleRecord
+                {
+                    SizeX = main.startSizeXMultiplier,
+                    SizeY = main.startSizeYMultiplier,
+                    SizeZ = main.startSizeZMultiplier,
+                    MaxParticleSize = psr != null ? psr.maxParticleSize : 0f,
+                    Applied = 1f,
+                };
+                _tokenParticleOriginals[ps] = rec;
+            }
+
+            float want = TransformCoversParticleSize(ps, main) ? 1f : scale;
+
+            // The module write, level-triggered against the LIVE value: a settled frame compares and
+            // writes nothing, so a count that never falls to 0 is the write-war diagnosis for this
+            // property exactly as it is for the route width.
+            if (!Mathf.Approximately(main.startSizeXMultiplier, rec.SizeX * want))
+            {
+                main.startSizeXMultiplier = rec.SizeX * want;
+                writes++;
+            }
+            if (main.startSize3D)
+            {
+                if (!Mathf.Approximately(main.startSizeYMultiplier, rec.SizeY * want))
+                {
+                    main.startSizeYMultiplier = rec.SizeY * want;
+                    writes++;
+                }
+                if (!Mathf.Approximately(main.startSizeZMultiplier, rec.SizeZ * want))
+                {
+                    main.startSizeZMultiplier = rec.SizeZ * want;
+                    writes++;
+                }
+            }
+
+            ParticleSystemRenderer? r = ps.GetComponent<ParticleSystemRenderer>();
+            if (r != null && rec.MaxParticleSize > 0f)
+            {
+                float wantMax = rec.MaxParticleSize * Mathf.Max(1f, want);
+                if (!Mathf.Approximately(r.maxParticleSize, wantMax))
+                {
+                    r.maxParticleSize = wantMax;
+                    writes++;
+                }
+            }
+
+            // THE ONE-SHOT PER CHANGE: rescale the particles that are already in flight. Done last,
+            // and only on a real change of the applied factor, so an idle frame never touches the
+            // particle buffer.
+            if (!Mathf.Approximately(rec.Applied, want))
+            {
+                float ratio = rec.Applied > 0.0001f ? want / rec.Applied : 1f;
+                ScaleLiveParticles(ps, main.startSize3D, ratio);
+                _tokenExtentBefore = extentBeforeWrite;
+                _tokenFactorBefore = rec.Applied;
+                // THE EXTENT CANNOT HAVE MOVED YET on the tick that writes: the renderer's bounds
+                // are rebuilt when the particle system next updates. Hold the census's
+                // change-detection open for a moment so the line prints AGAIN once the measurement
+                // has caught up — otherwise the only line the log would carry for a dial change is
+                // the one in which "before" and "now" are necessarily the same number, which reads
+                // exactly like a lever that did nothing.
+                _extentRecheckUntil = Time.unscaledTime + ExtentRecheckSeconds;
+                rec.Applied = want;
+                _tokenParticleOriginals[ps] = rec;
+            }
+        }
+        return writes;
+    }
+
+    /// <summary>
+    /// Does the token's TRANSFORM scale already carry into this system's particle SIZE? See the class
+    /// doc for Unity's three modes. <c>Hierarchy</c> takes the full <c>lossyScale</c>, so the write
+    /// <see cref="ApplyTokenScale"/> makes on the root reaches it; <c>Local</c> takes only the
+    /// system's own <c>localScale</c>, so it reaches it only when the system IS the root;
+    /// <c>Shape</c> scales where particles are born and never how big they are.
+    /// </summary>
+    private bool TransformCoversParticleSize(ParticleSystem ps, ParticleSystem.MainModule main) =>
+        main.scalingMode == ParticleSystemScalingMode.Hierarchy
+        || (main.scalingMode == ParticleSystemScalingMode.Local
+            && _tokenRoot != null && ReferenceEquals(ps.transform, _tokenRoot));
+
+    /// <summary>
+    /// Multiply the size of every particle that is CURRENTLY ALIVE in <paramref name="ps"/> by
+    /// <paramref name="ratio"/>.
+    ///
+    /// <para>WHY THIS IS NOT OPTIONAL. <c>startSize</c> is read when a particle is EMITTED and never
+    /// again; the size-over-lifetime curve multiplies the value the particle was born with. So a
+    /// system that emitted its particles in a burst when the map opened, or that keeps one looping
+    /// particle alive indefinitely, would keep drawing the old size forever after a
+    /// <c>startSizeMultiplier</c> write — the dial would still appear to do nothing, for a completely
+    /// different reason than the one being fixed. Rewriting the live buffer is what makes the change
+    /// visible on the next frame instead of on the next emission.</para>
+    ///
+    /// <para>Costs one array fill per DIAL CHANGE, never per frame: the caller only reaches this on a
+    /// level change of the applied factor.</para>
+    /// </summary>
+    private void ScaleLiveParticles(ParticleSystem ps, bool size3D, float ratio)
+    {
+        if (Mathf.Approximately(ratio, 1f))
+            return;
+        int count = ps.particleCount;
+        if (count <= 0)
+            return;
+        if (_particleScratch == null || _particleScratch.Length < count)
+            _particleScratch = new ParticleSystem.Particle[Mathf.NextPowerOfTwo(Mathf.Max(count, 16))];
+        int got = ps.GetParticles(_particleScratch);
+        for (int i = 0; i < got; i++)
+        {
+            ParticleSystem.Particle p = _particleScratch[i];
+            if (size3D)
+                p.startSize3D = p.startSize3D * ratio;
+            else
+                p.startSize *= ratio;
+            _particleScratch[i] = p;
+        }
+        ps.SetParticles(_particleScratch, got);
+    }
+
+    /// <summary>
+    /// Put every recorded particle-size number back and forget the records. Returns how many systems
+    /// were still alive to receive it, for the stand-down line.
+    ///
+    /// <para>The live particles are rescaled back by the inverse ratio for the same reason they were
+    /// scaled in the first place: a marker left mid-flight at a modded size would show at that size
+    /// on the flat 2D map, which this feature does not govern.</para>
+    /// </summary>
+    private int RestoreTokenParticleSizes()
+    {
+        int restored = 0;
+        foreach (KeyValuePair<ParticleSystem, TokenParticleRecord> kv in _tokenParticleOriginals)
+        {
+            ParticleSystem ps = kv.Key;
+            if (ps == null)
+                continue;
+            TokenParticleRecord rec = kv.Value;
+            ParticleSystem.MainModule main = ps.main;
+            main.startSizeXMultiplier = rec.SizeX;
+            if (main.startSize3D)
+            {
+                main.startSizeYMultiplier = rec.SizeY;
+                main.startSizeZMultiplier = rec.SizeZ;
+            }
+            ParticleSystemRenderer? r = ps.GetComponent<ParticleSystemRenderer>();
+            if (r != null && rec.MaxParticleSize > 0f)
+                r.maxParticleSize = rec.MaxParticleSize;
+            if (!Mathf.Approximately(rec.Applied, 1f) && rec.Applied > 0.0001f)
+                ScaleLiveParticles(ps, main.startSize3D, 1f / rec.Applied);
+            restored++;
+        }
+        _tokenParticleOriginals.Clear();
+        return restored;
+    }
+
+    /// <summary>
+    /// THE NUMBER THE USER CAN FALSIFY — the party marker's world-space bounds extent, taken as the
+    /// union of its live renderers' own <c>bounds</c>.
+    ///
+    /// <para>It is produced BY THE RENDERER and not by this class: a <c>ParticleSystemRenderer</c>'s
+    /// bounds are the box its currently-alive particles occupy, so this number moves when the picture
+    /// moves and does not move when only a property we wrote moves. That is exactly the property a
+    /// proof needs. The census prints it beside the extent measured before the last dial change, so
+    /// "the dial still does nothing" becomes a comparison of two printed numbers.</para>
+    ///
+    /// <para>Costs one <c>bounds</c> read per token renderer per tick — a handful of floats.</para>
+    /// </summary>
+    private Vector3 MeasureTokenExtent(out int measured)
+    {
+        measured = 0;
+        Bounds union = default;
+        for (int i = 0; i < _tokenRenderers.Count; i++)
+        {
+            Renderer r = _tokenRenderers[i];
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (measured == 0)
+                union = r.bounds;
+            else
+                union.Encapsulate(r.bounds);
+            measured++;
+        }
+        return measured > 0 ? union.size : Vector3.zero;
+    }
+
+    /// <summary>
+    /// DUMP THE PARTY TOKEN'S WHOLE SUBTREE, ONCE PER ADOPTED TOKEN — the premise check that two
+    /// earlier rounds skipped.
+    ///
+    /// <para>WHY IT EXISTS. ModBuild 194 and 195 both acted on an object that had never been shown to
+    /// BE the marker the player sees; 195's census could name the renderer's TYPE but not whether it
+    /// is the whole marker, a glow on top of a separate sprite, or something the head camera does not
+    /// even draw. Everything needed to settle that is cheap and static, so it is printed in full
+    /// rather than sampled: every transform (active state, layer, local and lossy scale), every
+    /// component by runtime type, every renderer (kind, enabled, world bounds, material, and whether
+    /// this head camera's culling mask contains its layer — i.e. whether the GAME draws it as well as
+    /// us), and for every particle system the four properties that decide its rendered size.</para>
+    ///
+    /// <para>Bounded at <see cref="MaxDumpedTransforms"/> so a pathological hierarchy cannot produce
+    /// a megabyte of log, and emitted once per token instance: the game destroys and rebuilds the
+    /// token on a map rebuild, and the new one is worth dumping again.</para>
+    /// </summary>
+    private void LogTokenSubtree(Transform root, Camera head)
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        sb.Append("MAP ROOM PARTY MARKER SUBTREE — the premise check for the marker size dial. ")
+          .Append("Root '").Append(root.name).Append("' (the transform MapChoreographer.m_PartyToken ")
+          .Append("sits on). Read it to answer ONE question before anything else: is the renderer ")
+          .Append("named below the thing the player calls the party marker, or only a glow on top of ")
+          .Append("a separate object? Every renderer's line says whether THIS head camera's culling ")
+          .Append("mask contains its layer — a renderer the mask contains is drawn by the game as ")
+          .Append("well as by our command buffer.");
+
+        var all = new List<Transform>(32);
+        root.GetComponentsInChildren(includeInactive: true, all);
+        int shown = 0;
+        for (int i = 0; i < all.Count && shown < MaxDumpedTransforms; i++)
+        {
+            Transform t = all[i];
+            if (t == null)
+                continue;
+            shown++;
+            int depth = 0;
+            for (Transform? p = t; p != null && p != root; p = p.parent)
+                depth++;
+            sb.Append("\n  ").Append(' ', depth * 2).Append('\'').Append(t.name).Append("' ")
+              .Append(t.gameObject.activeInHierarchy ? "activeInHierarchy" : "INACTIVE")
+              .Append(" L").Append(t.gameObject.layer)
+              .Append(" localScale ").Append(t.localScale.ToString("F3"))
+              .Append(" lossyScale ").Append(t.lossyScale.ToString("F3"))
+              .Append(" | components:");
+            Component[] comps = t.GetComponents<Component>();
+            for (int c = 0; c < comps.Length; c++)
+                sb.Append(' ').Append(comps[c] != null ? comps[c].GetType().Name : "<null>");
+
+            var rend = t.GetComponent<Renderer>();
+            if (rend != null)
+            {
+                bool inMask = (head.cullingMask & (1 << t.gameObject.layer)) != 0;
+                Material? m = rend.sharedMaterial;
+                sb.Append("\n  ").Append(' ', depth * 2)
+                  .Append("  RENDERER ").Append(rend.GetType().Name)
+                  .Append(rend.enabled ? " enabled" : " DISABLED")
+                  .Append(" bounds centre ").Append(rend.bounds.center.ToString("F2"))
+                  .Append(" size ").Append(rend.bounds.size.ToString("F3"))
+                  .Append(" material '").Append(m != null ? m.name : "<none>").Append('\'')
+                  .Append(inMask
+                      ? " — ON a layer this head camera renders, so the GAME draws it too"
+                      : " — NOT on a layer this head camera renders, so it is visible ONLY through "
+                        + "our command buffer");
+                if (rend is ParticleSystemRenderer psr)
+                {
+                    sb.Append("\n  ").Append(' ', depth * 2)
+                      .Append("  PARTICLE RENDERER renderMode=").Append(psr.renderMode)
+                      .Append(" mesh='").Append(psr.mesh != null ? psr.mesh.name : "<none>")
+                      .Append("' alignment=").Append(psr.alignment)
+                      .Append(" minParticleSize=").Append(psr.minParticleSize.ToString("F4"))
+                      .Append(" maxParticleSize=").Append(psr.maxParticleSize.ToString("F4"))
+                      .Append(" (maxParticleSize is a VIEWPORT-FRACTION clamp applied after "
+                              + "everything else — a small one caps the dial by itself)");
+                }
+            }
+
+            var ps = t.GetComponent<ParticleSystem>();
+            if (ps != null)
+            {
+                ParticleSystem.MainModule main = ps.main;
+                sb.Append("\n  ").Append(' ', depth * 2)
+                  .Append("  PARTICLE SYSTEM scalingMode=").Append(main.scalingMode)
+                  .Append(" simulationSpace=").Append(main.simulationSpace)
+                  .Append(" startSize3D=").Append(main.startSize3D)
+                  .Append(" startSize mode=").Append(main.startSize.mode)
+                  .Append(" constant=").Append(main.startSize.constant.ToString("F3"))
+                  .Append(" multiplier=").Append(main.startSizeMultiplier.ToString("F3"))
+                  .Append(" | loop=").Append(main.loop)
+                  .Append(" duration=").Append(main.duration.ToString("F2"))
+                  .Append(" startLifetime=").Append(main.startLifetime.constant.ToString("F2"))
+                  .Append(" particleCount=").Append(ps.particleCount)
+                  .Append(" isPlaying=").Append(ps.isPlaying)
+                  .Append(" isEmitting=").Append(ps.isEmitting)
+                  .Append(" sizeOverLifetime=").Append(ps.sizeOverLifetime.enabled)
+                  .Append(" | THE SIZE LEVER FOR THIS SYSTEM: ")
+                  .Append(TransformCoversParticleSize(ps, main)
+                      ? "the TOKEN TRANSFORM already carries the dial into this system's particle "
+                        + "size (scalingMode covers it), so its startSize is held at the AUTHORED "
+                        + "value and the dial is NOT applied twice"
+                      : "the transform scale does NOT reach this system's particle size, so the dial "
+                        + "is applied to startSizeMultiplier and to the particles already alive");
+            }
+        }
+        if (all.Count > shown)
+            sb.Append("\n  (").Append(all.Count - shown).Append(" further transform(s) not listed — "
+                      + "the dump is capped at ").Append(MaxDumpedTransforms).Append(".)");
+        VRLog.Info(Scope, sb.ToString());
+    }
+
+    /// <summary>Ceiling on the party-token subtree dump. A marker is a handful of objects; anything
+    /// past this is a hierarchy that would drown the log rather than explain it.</summary>
+    private const int MaxDumpedTransforms = 40;
+
+    /// <summary>
     /// Put <paramref name="scale"/> on every route <c>LineRenderer</c> we hold, LEVEL-TRIGGERED, and
     /// report how many writes it actually took, how many routes are drawing anything
     /// (<paramref name="drawing"/>), and how many of those are on a layer the head camera renders
     /// (<paramref name="seenByHead"/>) — the last of which is what decides whether this dial can do
     /// anything at all, because the route is the game's own Renderer and is NOT re-drawn by us.
     ///
-    /// <para>THIS IS THE ONE PLACE THIS CLASS WRITES A GAME COMPONENT, and the class doc states the
+    /// <para>THIS IS ONE OF THE THREE GAME-COMPONENT PROPERTIES THIS CLASS WRITES, and the class doc states the
     /// full argument for why <c>widthMultiplier</c> is a number with no other writer in the game.
     /// The protocol here is the part that has to be right:</para>
     /// <list type="number">
@@ -1258,6 +1727,8 @@ internal sealed class MapIconLayer
                         ^ cityScale.GetHashCode()
                         ^ markerScale.GetHashCode()
                         ^ _tokenKinds.Length * 613
+                        ^ _tokenParticles.Count * 401
+                        ^ _tokenExtentRenderers * 149
                         ^ (_tokenScaleWritten ? 2749 : 0)
                         ^ pathScale.GetHashCode()
                         ^ _pathRenderers.Count * 17
@@ -1268,9 +1739,9 @@ internal sealed class MapIconLayer
                         // of them happens to be non-zero, which is the opposite of a change report.
                         // They are still PRINTED — the throttle is what keeps that affordable.
                         ^ (deferredBakes > 0 ? 7919 : 0);
-        if (_censusPrinted && signature == _censusSignature)
-            return;
         float now = Time.unscaledTime;
+        if (_censusPrinted && signature == _censusSignature && now >= _extentRecheckUntil)
+            return;
         if (_censusPrinted && now < _censusNextAllowed)
             return;
         _censusSignature = signature;
@@ -1301,19 +1772,37 @@ internal sealed class MapIconLayer
             + "City-type quests). "
             + $"{ownerless} drawn icon(s) had NO owning MapLocation; they take the dial of the map on screen. "
             + $"PARTY MARKER: [MapRoom] PartyMarkerScale x{markerScale:F2} on {tokenDraws} submesh draw(s). "
-            + "SINCE ModBuild 195 THIS DIAL WRITES A GAME TRANSFORM — PartyToken.transform.localScale — "
-            + "and that is the SECOND of the two game-component writes this layer makes (the route width is "
-            + "the other). It was moved there because ModBuild 194's draw-matrix route could not touch this "
-            + "token at all: 194 needed a mesh to hand CommandBuffer.DrawMesh, this token's renderer has "
-            + $"none, and Unity {Application.unityVersion}'s CommandBuffer.DrawRenderer has no matrix "
-            + "overload to fall back on (checked against the shipping UnityEngine.CoreModule.dll, not from "
-            + $"memory). WHAT THE TOKEN IS, so this is never guessed again: {_tokenKinds}. "
+            + "SINCE ModBuild 196 THE LEVER IS THE PARTICLE SIZE, NOT THE TRANSFORM. ModBuild 195's own "
+            + "census falsified the transform route with numbers — the write landed, it stuck, and the "
+            + "write count fell to 0 on a settled frame while the marker stayed small — because this "
+            + "marker is a ParticleSystem and Unity's scalingMode decides whether a transform scale "
+            + "reaches particle SIZE at all (in Shape mode it never does). "
+            + $"WHAT THE TOKEN IS, so this is never guessed again: {_tokenKinds}. "
+            + $"WHAT THE DIAL ACTS ON: {_tokenParticleReport}. "
+            + "MEASURED SIZE, WHICH IS THE FALSIFIABLE NUMBER — the marker's world-space bounds extent, "
+            + "produced by the RENDERER and not by us: "
+            + (_tokenExtentRenderers > 0
+                ? $"now {_tokenExtentNow.ToString("F3")} world units "
+                  + $"(= {_tokenExtentNow.x / WorldUnitsPerMetre * 1000f:F1} x "
+                  + $"{_tokenExtentNow.z / WorldUnitsPerMetre * 1000f:F1} mm real at "
+                  + $"{WorldUnitsPerMetre:F0} u/m) over {_tokenExtentRenderers} renderer(s); "
+                  + (_tokenExtentBefore == Vector3.zero
+                      ? "no earlier reading yet — the next dial change latches one"
+                      : $"before the last dial change (at x{_tokenFactorBefore:F2}) it was "
+                        + $"{_tokenExtentBefore.ToString("F3")}")
+                  + ". THIS NUMBER MUST MOVE WHEN THE DIAL MOVES; if it does not, the lever failed, and "
+                  + "if it does while the marker still looks the same size, the object being measured is "
+                  + "not the one being looked at (see the MAP ROOM PARTY MARKER SUBTREE line)"
+                : "not measurable this tick — no enabled, active renderer under the token")
+            + ". "
             + $"OWNERSHIP: authored localScale recorded before the first write as {_tokenOriginalScale}, "
-            + $"target = that x {markerScale:F2}, {tokenWrites} write(s) this tick, "
-            + $"{(_tokenScaleWritten ? $"last written value {_tokenWrittenScale}" : "never written yet (x1.00 wants the authored value, so a default install writes nothing at all)")}, "
-            + "restored on stand-down and on teardown and ONLY while the live value is still the one we "
-            + "wrote. A tokenWrites that never falls to 0 on a settled frame means a second writer of this "
-            + "transform appeared and we are in a write war — that, and not the dial, would be the bug. "
+            + $"target = that x {markerScale:F2}, {tokenWrites} property write(s) this tick across the "
+            + "transform AND the particle systems, "
+            + $"{(_tokenScaleWritten ? $"last written transform value {_tokenWrittenScale}" : "transform never written yet (x1.00 wants the authored value, so a default install writes nothing at all)")}, "
+            + "every recorded number restored on stand-down and on teardown, and the transform ONLY while "
+            + "the live value is still the one we wrote. A write count that never falls to 0 on a settled "
+            + "frame means a second writer appeared and we are in a write war — that, and not the dial, "
+            + "would be the bug. "
             + (_tokenRoot == null
                 ? "NO PARTY TOKEN ON THE CHOREOGRAPHER RIGHT NOW, so this dial has nothing to act on this "
                   + "tick — the scan RAN and found no m_PartyToken. WHAT TO DO ABOUT IT: nothing, if the map "
@@ -1332,7 +1821,7 @@ internal sealed class MapIconLayer
                                      : "found under the MapLocations themselves")}), "
             + $"{pathDrawing} of them drawing anything right now, of which {pathSeen} sit on a layer THIS HEAD "
             + $"CAMERA RENDERS, and {pathWrites} widthMultiplier write(s) this tick. "
-            + "THIS IS THE ONE GAME COMPONENT WRITE THIS LAYER MAKES: the original multiplier is recorded "
+            + "THE ROUTE WIDTH IS ONE OF THE TWO GAME OBJECTS THIS LAYER WRITES: the original multiplier is recorded "
             + "before the first write and restored on stand-down, and the write is level-triggered — so "
             + "pathWrites should be 0 on a settled frame. A pathWrites that never falls to 0 means something "
             + "else started writing widthMultiplier and we are in a write war. "
@@ -1558,6 +2047,7 @@ internal sealed class MapIconLayer
         // us" and "somebody else owns it now" are three different situations and only one of them is
         // a fault, so collapsing them would hide the one that matters.
         string tokenRestore = RestoreTokenScale();
+        int particlesRestored = RestoreTokenParticleSizes();
         Detach();
         if (_cmd != null)
         {
@@ -1582,8 +2072,16 @@ internal sealed class MapIconLayer
         // session lifetime, so it must have session lifetime too, or every re-entry into the room
         // would meter already-baked icons back in two per frame.
         _tokenRenderers.Clear();
+        _tokenParticles.Clear();
         _tokenRoot = null;
+        _tokenDumpedFor = null;
         _tokenKinds = "<not scanned>";
+        _tokenParticleReport = "no ParticleSystem under the token";
+        _tokenExtentNow = Vector3.zero;
+        _tokenExtentBefore = Vector3.zero;
+        _tokenFactorBefore = 1f;
+        _tokenExtentRenderers = 0;
+        _extentRecheckUntil = 0f;
         _pathRenderers.Clear();
         _pathFromFallback = false;
         _locationScratch.Clear();
@@ -1615,9 +2113,12 @@ internal sealed class MapIconLayer
         if (had)
             VRLog.Info(Scope, $"MAP ROOM icon layer released ({reason}) — command buffer detached, mesh and "
                               + $"material destroyed, and {restored} route LineRenderer(s) put back to their "
-                              + "authored widthMultiplier. THIS LAYER WRITES EXACTLY TWO GAME COMPONENTS and "
+                              + "authored widthMultiplier. THIS LAYER WRITES EXACTLY TWO GAME OBJECTS — the "
+                              + "route line renderers and the party token — and "
                               + "both are undone here: the route widths ([MapRoom] PathWidthScale) just named, "
-                              + $"and the party marker ([MapRoom] PartyMarkerScale) — {tokenRestore}. Everything "
+                              + $"and the party marker ([MapRoom] PartyMarkerScale) — {particlesRestored} "
+                              + "particle system(s) put back to their authored startSize, maxParticleSize and "
+                              + $"live particle sizes, and {tokenRestore}. Everything "
                               + "else (the decals, the token's renderers, every texture) was only READ. A route "
                               + "number here below the route count in the last census means renderers were "
                               + "destroyed under us, which is normal on a map rebuild and not a leak. "
@@ -1767,15 +2268,42 @@ internal sealed class MapIconLayer
             if (!ReferenceEquals(_tokenRoot, _tokenScaleOwner))
             {
                 RestoreTokenScale();               // hand the PREVIOUS token back before adopting this one
+                RestoreTokenParticleSizes();       // and its particle sizes, for the same reason
                 _tokenScaleOwner = _tokenRoot;
                 _tokenOriginalScale = _tokenRoot.localScale;
                 _tokenWrittenScale = _tokenOriginalScale;
                 _tokenScaleWritten = false;
+                _tokenExtentBefore = Vector3.zero;
+                _tokenFactorBefore = 1f;
+            }
+
+            // THE SYSTEMS THE DIAL ACTUALLY ACTS ON. includeInactive: true so a system the game has
+            // disabled is still recorded and still restored — a marker that is re-enabled after the
+            // room has stood down must come back at its authored size, not at ours.
+            _tokenParticles.Clear();
+            token.GetComponentsInChildren(includeInactive: true, _tokenParticles);
+            _tokenParticleReport = DescribeTokenParticles();
+
+            // THE PREMISE CHECK, once per token instance. See LogTokenSubtree.
+            if (!ReferenceEquals(_tokenRoot, _tokenDumpedFor) && _cam != null)
+            {
+                _tokenDumpedFor = _tokenRoot;
+                try
+                {
+                    LogTokenSubtree(_tokenRoot, _cam);
+                }
+                catch (System.Exception ex)
+                {
+                    // A dump is diagnostics; it may never be the thing that starves a VR frame.
+                    VRLog.Warn(Scope, $"MAP ROOM party marker subtree dump threw: {ex.Message}");
+                }
             }
         }
         else
         {
             _tokenKinds = "no PartyToken on the MapChoreographer yet";
+            _tokenParticles.Clear();
+            _tokenParticleReport = "no PartyToken on the MapChoreographer yet";
         }
         CollectPathRenderers(choreo);
     }
@@ -1786,9 +2314,10 @@ internal sealed class MapIconLayer
     /// <para>THIS IS THE ANSWER ModBuild 194's LOG COULD NOT GIVE. That build could only say "1 draw
     /// could NOT take the dial" — true, but it left the reader choosing between two causes
     /// (skinned / no <c>MeshFilter</c>) that would have needed different fixes, and the choice cost a
-    /// hardware round trip. The scale no longer depends on the answer, but the answer is still worth
-    /// printing: it is what makes "the marker is one skinned figure" a fact in the log rather than an
-    /// inference, and it is the first thing to look at if the marker ever stops responding again.</para>
+    /// hardware round trip. ITS ANSWER — <c>'P_MapToken' is a ParticleSystemRenderer with NO
+    /// MeshFilter mesh</c> — is what ModBuild 196 acted on: a particle renderer's size does not come
+    /// from a transform, which is why two builds of transform scaling were inert. Keep printing it:
+    /// it is the first thing to look at if the marker ever stops responding again.</para>
     ///
     /// <para>Built at SCAN time and cached in <see cref="_tokenKinds"/>: a runtime type name and a
     /// <c>GetComponent</c> per renderer is nothing once per scan and is not nothing per frame.</para>
@@ -1812,6 +2341,44 @@ internal sealed class MapIconLayer
             bool hasMesh = mf != null && mf.sharedMesh != null;
             sb.Append('\'').Append(r.name).Append("' is a ").Append(r.GetType().Name)
               .Append(hasMesh ? " WITH a MeshFilter mesh" : " with NO MeshFilter mesh");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// NAME EVERY PARTICLE SYSTEM UNDER THE TOKEN AND WHICH LEVER IT TAKES, once per scan, for the
+    /// census. The full properties are in the one-shot subtree dump; this is the one-line form that
+    /// rides along with every census so a later log needs no correlation to say which branch the
+    /// marker dial is on.
+    /// </summary>
+    private string DescribeTokenParticles()
+    {
+        if (_tokenParticles.Count == 0)
+            return "no ParticleSystem under the token — the marker is ordinary geometry and the "
+                   + "token transform's localScale is the whole lever";
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 0; i < _tokenParticles.Count; i++)
+        {
+            ParticleSystem ps = _tokenParticles[i];
+            if (i > 0)
+                sb.Append("; ");
+            if (ps == null)
+            {
+                sb.Append("<destroyed>");
+                continue;
+            }
+            ParticleSystem.MainModule main = ps.main;
+            sb.Append('\'').Append(ps.name).Append("' scalingMode=").Append(main.scalingMode)
+              .Append(" simulationSpace=").Append(main.simulationSpace)
+              .Append(" authored startSize=")
+              .Append((_tokenParticleOriginals.TryGetValue(ps, out TokenParticleRecord rec)
+                          ? rec.SizeX
+                          : main.startSizeXMultiplier).ToString("F3"))
+              .Append(" live=").Append(main.startSizeXMultiplier.ToString("F3"))
+              .Append(" particles=").Append(ps.particleCount)
+              .Append(TransformCoversParticleSize(ps, main)
+                  ? " (TRANSFORM covers this one, so its startSize is left alone)"
+                  : " (the TRANSFORM CANNOT reach this one's size — startSize is the lever)");
         }
         return sb.ToString();
     }

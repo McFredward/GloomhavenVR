@@ -943,6 +943,9 @@ internal static partial class CanvasConversion
         // 2 % dirty band still owes them the slack its rect carries.
         panel.FitContentPadding = s_lastMeasurePadding;
 
+        FitLoopState loop = GetFitLoop(panel);
+        loop.Comparisons++;
+
         // Dirty check (test #14): within 2 % of the current host rect (size AND
         // centering) — nothing to do. Host pivot is centered, so local origin ==
         // rect center and |center| is the content's off-center error directly.
@@ -952,6 +955,55 @@ internal static partial class CanvasConversion
         if (Mathf.Abs(size.x - host.width) <= tolX && Mathf.Abs(size.y - host.height) <= tolY
             && Mathf.Abs(center.x) <= tolX && Mathf.Abs(center.y) <= tolY)
             return true;
+        loop.Deviations++;
+
+        // THE CONVERGED GUARD (see FitLoopState). This exact measurement, against this exact host
+        // size, has already been through ApplyFitConverging once and that apply wrote NOTHING —
+        // neither the host size nor the target position ended anywhere other than where it started.
+        // The apply is a pure function of those two inputs, so a repeat cannot write anything
+        // either; the only thing it would still produce is the forced layout rebuild inside it, and
+        // that rebuild is the one part of an applied fit the GAME's layout can see.
+        //
+        // `force` is exempt for the same reason it is exempt from the damping: it is the one-shot
+        // VERIFY's corrective re-fit — a single, proven, material inconsistency on a window whose
+        // rect is otherwise locked, capped at FitVerifyMaxCorrections per open, so it can neither
+        // loop nor be the churn this guard exists to stop.
+        if (!force && loop.ConvergedValid && HostSizeMatches(host, loop.ConvergedHost)
+            && MeasureMatches(loop.ConvergedSize, loop.ConvergedCenter, size, center))
+        {
+            loop.Suppressed++;
+            if (!loop.ConvergedLogged)
+            {
+                loop.ConvergedLogged = true;
+                VRLog.Info("WorldUI", $"FIT CONVERGED '{panel.HostGo.name}': the content measures " +
+                                      $"{size.x:F0}x{size.y:F0} px at ({center.x:F0},{center.y:F0}) against a " +
+                                      $"{host.width:F0}x{host.height:F0} px host — outside the 2 % dirty band, so " +
+                                      "the fit WANTS to re-apply, but the apply this measurement produces has " +
+                                      "already run and it changed neither the host size nor the target position. " +
+                                      "It is skipped from here on, and with it its " +
+                                      "LayoutRebuilder.ForceRebuildLayoutImmediate: the game's own LayoutGroups " +
+                                      "re-drive their children's anchors and anchoredPosition during that " +
+                                      "rebuild, which is what made elements inside a CONVERGED window twitch once " +
+                                      "per damping interval. The guard is level-triggered — it releases the " +
+                                      "moment the measurement or the host size genuinely changes, so a window " +
+                                      $"whose content grows still re-fits. {DescribeFitLoop(loop)}");
+            }
+            return true;
+        }
+        if (loop.ConvergedValid)
+        {
+            // RELEASE — the growth/shrink path. Logged with BOTH measurements, because this line is
+            // the proof that the guard is level-triggered and not a mute button.
+            VRLog.Info("WorldUI", $"FIT CONVERGED GUARD RELEASED '{panel.HostGo.name}': the measurement moved " +
+                                  $"from {loop.ConvergedSize.x:F0}x{loop.ConvergedSize.y:F0} px at " +
+                                  $"({loop.ConvergedCenter.x:F0},{loop.ConvergedCenter.y:F0}) on a " +
+                                  $"{loop.ConvergedHost.x:F0}x{loop.ConvergedHost.y:F0} px host to " +
+                                  $"{size.x:F0}x{size.y:F0} px at ({center.x:F0},{center.y:F0}) on a " +
+                                  $"{host.width:F0}x{host.height:F0} px host — a real content change, so the fit " +
+                                  $"runs. {DescribeFitLoop(loop)}");
+            loop.ConvergedValid = false;
+            loop.ConvergedLogged = false;
+        }
 
         // Re-fit churn damping (test #17): 'Panel_CombatLog' oscillated 569x138 ↔
         // 569x291 twice a second for minutes (log entries fade in and out) —
@@ -990,7 +1042,36 @@ internal static partial class CanvasConversion
         //
         // ROUND 6: the shift and the resize INTERACT, so they are applied as a converging
         // fixed point instead of a single open-loop step — see ApplyFitConverging.
-        ApplyFitConverging(panel, root, ref size, ref center, out string applyTrace);
+        //
+        // WHAT WAS WRITTEN, MEASURED RATHER THAN ASSUMED (see FitLoopState): the apply's two
+        // outputs are the host SIZE and the target's anchoredPosition, and both are read back
+        // afterwards. The measurement that produced them is kept too, because the guard above needs
+        // the INPUT that provably yielded "no write", not just the fact that there was one.
+        Vector2 wroteHostBefore = new(host.width, host.height);
+        Vector2 wrotePosBefore = panel.Target.anchoredPosition;
+        Vector2 measuredSize = size, measuredCenter = center;
+        ApplyFitConverging(panel, root, ref size, ref center, out string applyTrace,
+            out bool frameReasserted);
+        loop.Applies++;
+        Vector2 wroteHostAfter = new(panel.HostRect.rect.width, panel.HostRect.rect.height);
+        Vector2 wrotePosAfter = panel.Target.anchoredPosition;
+        // A frame re-assertion IS a write (scale/anchors/rotation/depth), and one that the game is
+        // actively fighting — never record that pass as a no-op, or the guard would suppress the
+        // maintenance along with the churn.
+        bool wroteNothing = !frameReasserted
+                            && Mathf.Abs(wroteHostAfter.x - wroteHostBefore.x) <= FitNoWriteEpsilonPx
+                            && Mathf.Abs(wroteHostAfter.y - wroteHostBefore.y) <= FitNoWriteEpsilonPx
+                            && Mathf.Abs(wrotePosAfter.x - wrotePosBefore.x) <= FitNoWriteEpsilonPx
+                            && Mathf.Abs(wrotePosAfter.y - wrotePosBefore.y) <= FitNoWriteEpsilonPx;
+        if (wroteNothing)
+        {
+            loop.NoOpApplies++;
+            loop.ConvergedValid = true;
+            loop.ConvergedLogged = false;
+            loop.ConvergedSize = measuredSize;
+            loop.ConvergedCenter = measuredCenter;
+            loop.ConvergedHost = wroteHostAfter;
+        }
         panel.FitOneShotApplied = true; // item 1: a real resize happened — owner may re-derive its scale
         // Round 3: every APPLIED fit advances the generation. ModalFallback's one-shot followers
         // (5b board-scale re-derivation, 5b-pose re-place) latch on the generation instead of a
@@ -1001,9 +1082,193 @@ internal static partial class CanvasConversion
         VRLog.Info("WorldUI", $"Host rect fit '{panel.HostGo.name}': " +
                               $"{host.width:F0}x{host.height:F0} → {size.x:F0}x{size.y:F0} px " +
                               $"(content offset {center.x:F0},{center.y:F0}) — {DescribeLastMeasure()} — " +
-                              $"{applyTrace} — {DescribeTargetFrame(panel)}.");
+                              $"{applyTrace} — {DescribeTargetFrame(panel)} — " +
+                              (wroteNothing
+                                  ? "WROTE NOTHING (host size and target position ended exactly where they " +
+                                    "started) — this measurement is now guarded and will not be applied again "
+                                  : "WROTE " +
+                                    $"{wroteHostBefore.x:F0}x{wroteHostBefore.y:F0}→{wroteHostAfter.x:F0}x{wroteHostAfter.y:F0} px " +
+                                    $"host, target {wrotePosBefore.x:F0},{wrotePosBefore.y:F0}→" +
+                                    $"{wrotePosAfter.x:F0},{wrotePosAfter.y:F0} ")
+                              + $"— {DescribeFitLoop(loop)}.");
         return true;
     }
+
+    /// <summary>
+    /// Tolerance (px) below which an applied fit is judged to have written NOTHING. Half a pixel:
+    /// the apply writes <c>sizeDelta</c> and <c>anchoredPosition</c> from float measurements, so an
+    /// exact-equality test would be defeated by the last bit, while anything the player could see is
+    /// orders of magnitude above this.
+    /// </summary>
+    private const float FitNoWriteEpsilonPx = 0.5f;
+
+    /// <summary>Host rect size equals the size recorded with a no-op apply, to the pixel.</summary>
+    private static bool HostSizeMatches(Rect host, Vector2 recorded) =>
+        Mathf.Abs(host.width - recorded.x) <= FitNoWriteEpsilonPx
+        && Mathf.Abs(host.height - recorded.y) <= FitNoWriteEpsilonPx;
+
+    // =============================================================================================
+    // THE RE-FIT LOOP INSTRUMENT — and the guard it justifies
+    // =============================================================================================
+    //
+    // THE MEASUREMENT (ModBuild 195 hardware log, .planning/debug/LogOutput.log). Every APPLIED fit
+    // of the session — 159 lines, three windows — split by whether the host SIZE actually changed:
+    //
+    //   'Panel_Modal_New Party display'   11 applied,   0 size-neutral, 11 changed — the equipment /
+    //       perks / ability-card views growing and collapsing the permanent character window:
+    //       328 ↔ 716 ↔ 1066 ↔ 1920 px. This is the growth path, and it must keep working.
+    //   'Panel_Modal_UI Map Esc Menu'      2 applied,   1 size-neutral,  1 changed. The size-neutral
+    //       one is NOT a no-op: it moved the target by (-125,-107) ("rigid re-centre only").
+    //   'Panel_Modal_UI Quest Popup'     146 applied, 142 size-neutral,  4 changed.
+    //
+    // 142 of 146 applied fits on ONE window wrote "512x1015 → 512x1015 px (content offset 0,-174)",
+    // over and over, for as long as the window was open, at the FitRefitMinIntervalSeconds cadence.
+    // That damping interval is the ~1 s period of the user's "the travel button jumps to a different
+    // place for one frame, in a loop".
+    //
+    // WHY A CONVERGED FIT KEPT RE-APPLYING — the fit CHANGES WHAT IT MEASURES, so it can never
+    // settle. The two measurements in that line are taken in two different layout states:
+    //
+    //   * the periodic check measures the window as the game leaves it:  512x667 px at (0,174)
+    //     (the apply trace's own first pass states the input: "#1 host=512x667 shift=0,-174");
+    //   * ApplyFitConverging then calls FlushPendingLayout — LayoutRebuilder.ForceRebuildLayoutImmediate
+    //     on the whole subtree — and re-measures: 512x1015 px at (0,0), which is the size already
+    //     written, so it reports "CONVERGED" and writes the host back to what it was.
+    //
+    // The forced rebuild inflates this window's content by 348 px downward; the game's own layout
+    // relaxes it back before the next frame. Two independent instruments agree that the RELAXED
+    // state is what renders: the hit-rect walk (TickHitRect, which never flushes) reports "DRAWN
+    // CONTENT 590x738 px at (-38,222)" — bottom edge y = -147, exactly the bottom the unflushed fit
+    // measure implies — while the flushed measure claims the content reaches y = -496. And the
+    // settle gate said so from the first frame: on all THREE opens of this window its line reads
+    // "forced rebuild changed the measurement 18x (this check: YES)", i.e. every single check. Every
+    // other window in the session reads 0x or 1x. That counter is the discriminator, and it names
+    // exactly the one window that then looped forever.
+    //
+    // WHAT IS FIXED HERE, AND WHAT IS DELIBERATELY NOT. Not fixed: WHICH of the two layout states
+    // the window should be sized to. That is a sizing decision on a window whose size nobody has
+    // complained about, and it would move the frame, the close-X, the grab bar and the supersample
+    // capture frame of a floated window — the round that clamped a union into the frame it was
+    // trying to see past is the standing warning against touching that lightly. Fixed: the fit no
+    // longer RE-APPLIES a result it has already proven changes nothing. The state stays exactly
+    // where it is today; only the perpetual re-application and its forced rebuild go away.
+    //
+    // WHY LEVEL-TRIGGERED AND NOT A LONGER INTERVAL. Raising FitRefitMinIntervalSeconds makes the
+    // twitch rarer and leaves the cause; and the cause is not a rate at all — it is that the
+    // decision "does this need a re-fit?" was made against a quantity (the freshly measured content)
+    // that the apply itself does not have to move, instead of against what the apply LAST WROTE. So
+    // the guard records the apply's OUTPUTS (host size, target anchoredPosition) around the call and
+    // its INPUTS (measured size, measured center, host size) with them: when the same inputs recur
+    // and the outputs did not move last time, the apply is skipped. Any real change in either input
+    // releases it — which is why the equipment window can still go 328 → 1066 px and back.
+    //
+    // WHAT IT DOES TO THE SAME LOG, replayed decision by decision over all 159 recorded fits (the
+    // guard's own predicate, fed the entry measurement, entry host size and recorded outcome of
+    // every line, with the state reset at each window OPEN because a new panel is a new entry):
+    //
+    //   'Panel_Modal_New Party display'  11 fits → 11 applied,   0 suppressed  (growth untouched)
+    //   'Panel_Modal_UI Map Esc Menu'     2 fits →  2 applied,   0 suppressed
+    //   'Panel_Modal_UI Quest Popup'    146 fits →  9 applied, 137 suppressed, guard released 3x
+    //
+    // and, decisively, ZERO fits that changed the host size or moved the target were suppressed —
+    // the guard cannot suppress one, because the recorded signature is only ever written by an apply
+    // that did neither. ForceRebuildLayoutImmediate calls from this path on the quest window over
+    // that session: 291 → 17.
+
+    /// <summary>
+    /// Per-panel re-fit loop accounting. The counters exist so a hardware log can tell three states
+    /// apart that all look alike from the outside: a fit that CONVERGED (comparisons climbing,
+    /// deviations flat or fully suppressed), one that NEVER RAN (comparisons 0), and one that is
+    /// STILL THRASHING (applies climbing with no-ops among them). Every fit line carries them, so
+    /// there is no separate cadence to read.
+    /// </summary>
+    private sealed class FitLoopState
+    {
+        /// <summary>The host GameObject this entry belongs to (Unity-null once destroyed → pruned).</summary>
+        internal GameObject? Owner;
+
+        /// <summary>Content measurements this panel's fit has evaluated (the denominator).</summary>
+        internal int Comparisons;
+
+        /// <summary>Of those, how many fell OUTSIDE the 2 % dirty band, i.e. asked for a re-fit.</summary>
+        internal int Deviations;
+
+        /// <summary>Deviations that reached <see cref="ApplyFitConverging"/>.</summary>
+        internal int Applies;
+
+        /// <summary>Applies that wrote neither the host size nor the target position.</summary>
+        internal int NoOpApplies;
+
+        /// <summary>Deviations the converged guard skipped (the re-applications that no longer happen).</summary>
+        internal int Suppressed;
+
+        /// <summary>Forced layout rebuilds (<see cref="FlushPendingLayout"/>) charged to this panel —
+        /// the expensive, side-effecting operation this whole section exists to bound.</summary>
+        internal int Flushes;
+
+        /// <summary>True while <see cref="ConvergedSize"/>/<see cref="ConvergedCenter"/>/
+        /// <see cref="ConvergedHost"/> hold an input triple that provably produced no write.</summary>
+        internal bool ConvergedValid;
+
+        /// <summary>Whether the guard's engage line has already been written for this episode.</summary>
+        internal bool ConvergedLogged;
+
+        /// <summary>Measured content size of the apply that wrote nothing.</summary>
+        internal Vector2 ConvergedSize;
+
+        /// <summary>Measured content center of the apply that wrote nothing.</summary>
+        internal Vector2 ConvergedCenter;
+
+        /// <summary>Host rect size the apply that wrote nothing started and ended at.</summary>
+        internal Vector2 ConvergedHost;
+    }
+
+    /// <summary>Fit loop state by host GameObject instance ID (one entry per converted panel).</summary>
+    private static readonly Dictionary<int, FitLoopState> FitLoops = new(8);
+
+    /// <summary>Fallback entry for a panel whose host GameObject is already gone — keeps every call
+    /// site total without a null check of its own; nothing reads it.</summary>
+    private static readonly FitLoopState OrphanFitLoop = new();
+
+    /// <summary>This panel's loop accounting, created on first use. Pruned of dead panels whenever a
+    /// new entry appears (the only moment the dictionary can grow), exactly like
+    /// <see cref="PruneHitRects"/>.</summary>
+    private static FitLoopState GetFitLoop(ConvertedPanel panel)
+    {
+        if (panel.HostGo == null)
+            return OrphanFitLoop;
+        int id = panel.HostGo.GetInstanceID();
+        if (FitLoops.TryGetValue(id, out FitLoopState? entry) && entry != null)
+            return entry;
+        FitLoops[id] = entry = new FitLoopState { Owner = panel.HostGo };
+        PruneFitLoops();
+        return entry;
+    }
+
+    /// <summary>Drop entries whose host GameObject is gone.</summary>
+    private static void PruneFitLoops()
+    {
+        if (FitLoops.Count < 2)
+            return;
+        List<int>? dead = null;
+        foreach (KeyValuePair<int, FitLoopState> pair in FitLoops)
+        {
+            if (pair.Value == null || pair.Value.Owner == null)
+                (dead ??= new List<int>(4)).Add(pair.Key);
+        }
+        if (dead == null)
+            return;
+        for (int i = 0; i < dead.Count; i++)
+            FitLoops.Remove(dead[i]);
+    }
+
+    /// <summary>The instrument's one sentence: comparisons made ALONGSIDE deviations found, so
+    /// "converged", "never ran" and "still thrashing" read as three different lines.</summary>
+    private static string DescribeFitLoop(FitLoopState loop) =>
+        $"fit loop: {loop.Comparisons} comparison(s) made, {loop.Deviations} deviation(s) found, " +
+        $"{loop.Applies} applied ({loop.NoOpApplies} of them wrote nothing), {loop.Suppressed} " +
+        $"re-application(s) suppressed by the converged guard, {loop.Flushes} forced layout " +
+        "rebuild(s) charged to this panel";
 
     /// <summary>
     /// Iterations the fit APPLY may take to converge inside one call. Three is generous: the
@@ -1040,16 +1305,20 @@ internal static partial class CanvasConversion
     ///
     /// <paramref name="size"/>/<paramref name="center"/> are updated to the last applied values so
     /// the caller logs what actually landed, and <paramref name="trace"/> reports every iteration.
+    /// <paramref name="frameReasserted"/> tells the caller whether this apply had to repair the
+    /// conversion frame — a write in its own right, and one the converged guard must never mistake
+    /// for a no-op (see FitLoopState).
     /// </summary>
     private static void ApplyFitConverging(ConvertedPanel panel, RectTransform root,
-        ref Vector2 size, ref Vector2 center, out string trace)
+        ref Vector2 size, ref Vector2 center, out string trace, out bool frameReasserted)
     {
         var sb = new System.Text.StringBuilder(160);
         sb.Append("apply: ");
         // Kill the coupling at its source where we are allowed to: Convert pinned the target's
         // whole frame precisely so the host rect could be resized underneath it and so the measure
         // reads real geometry. The hardware log proves the game re-drives it.
-        if (ReassertConversionFrame(panel, out string frameNote))
+        frameReasserted = ReassertConversionFrame(panel, out string frameNote);
+        if (frameReasserted)
             sb.Append(frameNote).Append("; ");
 
         for (int pass = 1; ; pass++)
@@ -1815,6 +2084,11 @@ internal static partial class CanvasConversion
     {
         if (panel.Target == null)
             return;
+        // COUNTED, because this call is not free and not side-effect-free: it is a full layout pass
+        // over the window's subtree, and uGUI's LayoutGroups re-drive their children's anchors and
+        // anchoredPosition while it runs — the mechanism behind the travel button's one-frame jump.
+        // Every fit line reports the running total per panel (see DescribeFitLoop).
+        GetFitLoop(panel).Flushes++;
         LayoutRebuilder.ForceRebuildLayoutImmediate(panel.Target);
         Canvas.ForceUpdateCanvases();
     }

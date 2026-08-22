@@ -116,6 +116,16 @@ internal static class CardArtGuard
         s_healsSpent.Remove(id); // a fresh adoption gets a fresh heal budget
     }
 
+    /// <summary>
+    /// True when <paramref name="card"/> is a LIVE game widget this client re-hosted onto a VR
+    /// card (<see cref="CardFace.Adopt"/>) — as opposed to a throwaway clone the mod built for
+    /// itself, or a face the game still owns. It is the registry <see cref="NoteAdopted"/> keeps
+    /// for the art guard, published because a second consumer needs the very same question
+    /// answered: <see cref="CardHalfTone"/> must never write to a widget the game is holding.
+    /// </summary>
+    internal static bool IsAdopted(FullAbilityCard? card) =>
+        card != null && s_adopted.Contains(card.GetInstanceID());
+
     /// <summary>Drop a face from the registry (Restore/Yield). Idempotent.</summary>
     internal static void NoteReleased(FullAbilityCard? card)
     {

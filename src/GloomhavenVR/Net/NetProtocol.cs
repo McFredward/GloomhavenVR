@@ -416,7 +416,248 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 195;
+    public const ushort ModBuild = 196;
+    // Build 196: THE 12 ms WAS ONE `FindObjectOfType` CALL, AND THE ITEM OVERLAY WAS NEVER FAINT —
+    // IT WAS UNDERNEATH. (Eight workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE 50 Hz: ONE LINE, AND IT WAS NEVER NEEDED ──────────────────────────────────────
+    // ModBuild 195's 19-phase instrument answered on the first hardware run:
+    //   `ModalFallback.Destinations 12.619ms (99%)` — every other one of the 18 phases under 0.02 ms.
+    // `GuildmasterDestinations.Hud()` was `Object.FindObjectOfType<UIGuildmasterHUD>(true)`, called as
+    // the FIRST statement of Reconcile, before any map-room gate — a whole-scene sweep at 90 Hz.
+    // `UIGuildmasterHUD : Singleton<UIGuildmasterHUD>` has had a static Instance the entire time, and
+    // `MapButtonRail` has asked that way since ModBuild 183; this file was the only one that searched.
+    // THE SHAPE PROVES IT, not just the source: across the session's 33 breakdown lines the cost RISES
+    // 2.63 → 10.9 → 11.2 → 12.6 → 13.2 ms, always with the map room active. A scene sweep gets dearer
+    // as the room loads; a cadence spike does not. Session frametime mean was 18.31–20.82 ms.
+    // Also removed: the mode was read via `FieldInfo.GetValue`, BOXING AN ENUM 90x/s — the likely
+    // source of the 39.6 ms worst frames, and a contradiction of this class's own no-allocation claim.
+    // NOTHING became edge-triggered: once discovery is O(1) there is nothing expensive left to move,
+    // so every reconciler stays level-triggered exactly as in 195 — there is no new edge set that could
+    // be incomplete. 195's ReArmCharacterScreen body is untouched and still runs every tick.
+    // A DISCOVERY BASELINE line now runs the removed call ONCE per map-room entry, times it against the
+    // singleton read, and prints both plus the ratio: the next log proves the fix without trusting us.
+    //
+    // ── (6) THE ITEM OVERLAY WAS NOT TRANSPARENT, IT WAS BEHIND THE ROWS ───────────────────
+    // User: "Die Itemkarten-Overlays im Ausrüstungsmenu sind immer noch nur extrem transparent zu
+    // sehen." The shop's overlays render correctly. The two differ in exactly ONE logged value, and
+    // our own log has been printing it: `MODAL SORTING CONCEDED` names the equipment window and the
+    // party display, and NEVER the shop (which appears 112 times in the same log).
+    // A canvas with overrideSorting is sorted as its OWN entry — sortingLayer, then sortingOrder, then
+    // distance — and NEVER by hierarchy. So `RaiseToWindowTop`, which writes hierarchy, is INERT on
+    // exactly these canvases. And the conceded branch pinned sortingOrder EQUAL to the host's, where
+    // the tie falls to distance — and `Flatten` makes an adopted box coplanar with its host, which
+    // exhausts that tiebreaker too. EQUAL IS NOT A TIE, IT IS A LOSS. Now host + ConcededOrderLift(1):
+    // above the window's content, below the close X (XOrderOffset 2), below the next window (step 16).
+    // The ModBuild 190 ruling is intact — we still concede the flag and own the number; the number was
+    // simply wrong. The photograph could NOT settle this on its own: the measured 0.27x attenuation
+    // fits alpha 0.27 and full alpha behind 73 %-opaque rows equally well. What settled it is that the
+    // card vanishes completely under opaque row bands and bleeds through only where the row art is
+    // thin — the profile of "behind", not of "faint".
+    // The mod's own DrawOrderEvidence had declared this window HEALTHY: it tested `order < host` and
+    // 132 is not below 132. Corrected to `<=`.
+    // THE SWAP MENU IS NOT DIAGNOSED — it was never opened in the logged session, so it is not guessed
+    // at. Two instrument faults that hid it are fixed: log dedup was keyed by KIND, so the working shop
+    // tooltip claimed the key and every equipment/swap measurement was discarded; and the equipment
+    // rows had NO hover attribution at all. A show-watch now classifies each overlay 12 frames later
+    // as destroyed / never enabled / off-window / transparent / displayable, and a judged count of
+    // ZERO is written up as "the patch is missing", never as "nothing is wrong".
+    //
+    // ── (1) THE TRAVEL BUTTON: A LAYOUT GROUP HAS OWNED IT SINCE 190 ───────────────────────
+    // User: "Der Reise-Knopf glitched jede Sekunde für ein Frame an eine andere Stelle … Das Fenster
+    // ist vertikal größer weil unten die Stelle ist wo er immer mal wieder hinblitzt."
+    // Solving the 15 logged placements for the anchor reference they imply: 12 land on Vector2.up
+    // (top-left) to within 0.01 px, 3 on the bottom-centre anchor `Park` writes — and those 3 are each
+    // the FIRST tick of a parking. `anchorMin=anchorMax=Vector2.up` is the literal signature of
+    // `LayoutGroup.SetChildAlongAxisWithScale`, which also writes anchoredPosition to the layout slot;
+    // `Park`'s SetAsLastSibling made us the group's LAST child, i.e. the BOTTOM slot.
+    // uGUI rebuilds in `Canvas.willRenderCanvases`, after LateUpdate; Reconcile runs in Update. So on
+    // any rebuild frame the group writes LAST and we correct it only on the next frame. The ~1 s period
+    // is the rebuild's, damped by the fit's own 1.5 s interval.
+    // THIS SETTLES THE CONTRADICTION ModBuild 195 COULD NOT: the 194 photograph (plaque above the card)
+    // and the runtime numbers (26 mm above the bottom) are BOTH correct — sampled in the two different
+    // anchor states. Both of my earlier build notes were wrong in opposite directions for that reason.
+    // Fix: remove the other writer's authority instead of racing it — a `LayoutElement.ignoreLayout`
+    // while parked, so the rect never enters `rectChildren` at all. And CONCEDE THE FLAG, OWN THE
+    // NUMBER: ApplyPose writes no anchor now, it places the PIVOT and derives anchoredPosition from
+    // whatever anchor the rect carries, so no residual writer can move it by a pixel.
+    // HIS TUNED 0.244 / -0.726 STILL MEAN THE SAME PLACE, and 0/0 is still the ModBuild 190 pose. No
+    // default, clamp or dial range changed. The docs did: every text said Y was measured up from the
+    // BOTTOM edge, which was the frame 190 believed it was writing and never the frame he saw.
+    //
+    // ── THE FIT LOOP THAT DROVE THAT REBUILD ──────────────────────────────────────────────
+    // 159 `Host rect fit` lines: the party display 11 (all real growth, 328 ↔ 1066 — the tab path),
+    // the esc menu 2, and `UI Quest Popup` 146 OF WHICH 142 CHANGED NOTHING (`512x1015 → 512x1015`).
+    // Root cause is not an epsilon: THE FIT CHANGES WHAT IT MEASURES. The periodic check measures the
+    // window as the game leaves it (512x667 at 0,174); the apply then calls
+    // `LayoutRebuilder.ForceRebuildLayoutImmediate` and re-measures 512x1015 at (0,0), declares
+    // CONVERGED, and writes back what was already there. The game's layout relaxes it before the next
+    // frame. The settle gate had been saying so from frame one: this window's line reads `forced
+    // rebuild changed the measurement 18x (this check: YES)` on ALL THREE opens, where every other
+    // window in the session reads 0x or 1x. The hit-rect walk, which never flushes, independently
+    // measures the relaxed state (bottom y=-147, not the flushed -496).
+    // Fix: record the input triple of an apply that wrote NOTHING and skip a later matching deviation
+    // before the forced rebuild. Replayed decision-by-decision over all 159 recorded fits: 137 of the
+    // quest popup's 146 suppressed, guard released 3x, and ZERO fits that changed a size or moved a
+    // target were suppressed — structurally impossible, since only a no-op apply records a signature.
+    // Forced rebuilds on that window drop 291 → 17; steady state for a converged window is now ZERO.
+    //
+    // ── (5) THE CARDS: ONE MISSING CALL, AND A POOL THAT NEVER RESET THE ALPHA ─────────────
+    // User: "Die Handkarten im Fächer haben in den auswählbaren Bereichen eine gräulichere Farbe … in
+    // den Karten-overlays ist das nicht der Fall … es soll keine Divergenz geben."
+    // The game has exactly one dimmer for a card half: `FullAbilityCardAction.SetInteractable` sets the
+    // half's own CanvasGroup alpha to 0.5. Header, title and initiative disc sit OUTSIDE that group,
+    // which is why they never looked wrong. The overlay is initialised through `SetMode(DeckSelection)`
+    // → `SetInteractable(true)`; the fan borrows a POOLED widget through `SetMode(Preview)`, which does
+    // `ToggleFullCard(true)` and nothing else. And `ResetInteractable`, the call the pool return makes,
+    // clears the BOOLEANS and never the alpha — so a pooled widget carries its last dimming forward and
+    // `Instantiate` copies it into the clone verbatim.
+    // The fix runs THE GAME'S OWN `SetInteractable(true)` on mod-owned copies — the identical call the
+    // working path makes, so default-action buttons, element infusions and anything a future patch adds
+    // to that method come along. Written only to objects the mod owns outright (checked twice: not in
+    // the adopted registry AND no AbilityCardUI in the parent chain), change-gated, no restore contract.
+    // THE INTENTIONAL GREYING IS KEPT: the game dims played round cards and the used half, and the
+    // scenario fan and control-board tray use the ADOPTED LIVE widget, so they cannot diverge from the
+    // flat game and are deliberately never written to.
+    // Side effect worth naming: a peer's played card no longer shows a "half already played" dim — but
+    // it never showed it CORRECTLY, since each clone came from a fresh pooled borrow whose dim was pool
+    // leftovers rather than that peer's state.
+    // Ordering fix in `CardFace.Adopt`: `NoteAdopted` moved BEFORE the first mip rescan. Adopt reparents
+    // the face out from under its AbilityCardUI first, so an adopted live widget was briefly
+    // indistinguishable from a clone and the new writer would have touched the game's own widget.
+    //
+    // ── (8) THE EQUIPMENT MENU IS A TAB, AND WE WERE TEARING IT OUT ────────────────────────
+    // User: "Kannst du das Ausrüstungsmenu bitte an das character-UI Fenster anbringen statt dass es ein
+    // eigenes Fenster ist? … Die anderen Elemente öffnen auch richtig in dem Fenster, nur das
+    // Ausrüstungsmenu ist da die Ausnahme."
+    // He is right and the decompile says so: `NewPartyDisplayUI` serialises FIVE side-by-side sub-views
+    // — abilityCardsDisplay, perkManager, characterSelector, itemInventoryDisplay (:82), battleGoalSelector
+    // — under one TryHideCurrentDisplay single-tab discipline. Each aims a `VerticalPointerUI` at the
+    // character row that opened it, copying that button's WORLD Y. THAT is the stray ◇ on the left edge
+    // of the floating window in his screenshot: the pointer, aiming at a row in another window.
+    // Why only this tab flew out: `UIPartyCharacterEquipmentDisplay` carries `[RequireComponent(UIWindow)]`
+    // AND its ID is enrolled in the modal set, and the enrolled poll runs BEFORE the catch-all where the
+    // "parent wins" rule already lives. Perks and the assembly window carry the same component but are
+    // not enrolled, so they fall to the catch-all and render inside correctly.
+    // Fix: a window whose ancestor is a LIVE floated host is refused a float of its own — and "live"
+    // means really floated (ModBuild 184: parent wins needs a REAL parent), so the merchant failure
+    // cannot return. The enrolment stays: it answers "is this a real interactive window", which is still
+    // yes, and was never a placement ruling. The fix is self-proving — if the hierarchy were not what
+    // the log says, the predicate finds no floated ancestor and behaviour is byte-identical to today.
+    // The tab loses its mod-drawn X, which is the point: it is closed by the character row's Items
+    // toggle, like the cards tab. The window grows about its own centre and is NEVER re-posed (193).
+    //
+    // ── (7) GLOOMHAVEN: OUR OWN LOG ARGUED THE DEFECT AWAY ─────────────────────────────────
+    // User: "Beim gloomhaven Symbol auf der World-Map geht das overlay mit dem Laser nicht … und wenn
+    // ich drauf drücke wechselt es auch die map zu der Gloomhaven karte, wie es im flat Spiel auch der
+    // Fall ist." The pick LANDS (the capital has a drawn-icon pad, 53/53 in the census). The block is
+    // `MapLocation.IsSelectable()`, which gates hover AND click.
+    // OUR OWN HOVER VERDICT ENDED: "so this is the game's own rule and the flat game shows nothing here
+    // either." THAT WAS AN EXPLANATION, NOT A MEASUREMENT, AND IT WAS FALSE — `MapChoreographer.cs`
+    // :1263-1274 takes a Headquarters branch straight to `OpenCityMap()`. The sentence had been arguing
+    // a real defect away every time it printed. Rewritten.
+    // For a quest-less Headquarters, IsSelectable needs `UIGuildmasterHUD.IsAvailable(City)`, and
+    // `IsAvailable` = `window.IsVisible && modes[City].IsUnlocked && disableOptionsRequests.Count == 0`
+    // where `UIWindow.IsVisible` is merely `m_CanvasGroup.alpha > 0`. THE MAP ROOM DELIBERATELY DOES NOT
+    // FLOAT THAT HUD (its VR surface is the table rail), so a statement about flat-screen presentation
+    // — one this mod itself owns — was claiming the city is unreachable.
+    // Exactly that one term is conceded. Still enforced and still correctly blocking: IsCampaign,
+    // CurrentMode==WorldMap, modes[City].IsUnlocked (incl. the tutorial's BuyItem step),
+    // disableOptionsRequests, plus OnMapLocationHighlight's own map-initialising/party-moving guard.
+    // THE CONCESSION NEEDS NO EXTRA PROOF: if all four game terms held and the alpha were also true,
+    // IsAvailable would be true, IsSelectable would be true, and the route returns at its FIRST test.
+    // So "route armed" implies "the alpha was the only false term". All five are printed anyway.
+    // The click runs the game's OWN `OnMapLocationSelect` delegate, which returns false — so no
+    // selection, no info panel, exactly as flat. Zero new reflection: GH.Runtime is publicised at build
+    // time, so every access is compile-checked and a game rename breaks the build instead of silently
+    // standing a term down.
+    //
+    // ── (4) THE PARTY MARKER: A TRANSFORM CANNOT RESIZE A PARTICLE ─────────────────────────
+    // Third round on this dial. ModBuild 195's own census had already falsified both live theories:
+    // `last written value (2.77,2.77,2.77)`, `0 write(s) this tick` — the write landed, it stuck, and
+    // nobody fought it. The same line named the cause without being read as one: `'P_MapToken' is a
+    // ParticleSystemRenderer`. A particle's rendered size is `startSize` x an emitter scale, and in
+    // `ScalingMode.Shape` the transform scales only WHERE particles are born, never how big they are.
+    // A STATE PROBE CANNOT SEE A SCALING MODE — which is why two rounds of "the write landed" were all
+    // correct and all useless.
+    // Now writes `startSizeMultiplier`, AND rewrites already-alive particles via GetParticles/SetParticles
+    // (startSize alone affects only future emissions — a looping marker would have stayed the same size,
+    // i.e. the dial would "do nothing" for a brand-new reason), AND raises `maxParticleSize` in
+    // proportion (never lowers it) because that viewport clamp is applied last. Where the transform DOES
+    // cover the size (Hierarchy, or Local on the token root) startSize is held at the authored value, or
+    // the marker would come out at the dial SQUARED.
+    // The census now prints the marker's measured WORLD-SPACE BOUNDS EXTENT in mm, before and after,
+    // re-read 1.5 s later so the "after" is a settled reading. That number comes from the renderer, not
+    // from us, so it must move when the dial moves.
+    // Plus a one-shot subtree dump (components, renderers, culling-mask membership, every particle
+    // system's scalingMode/simulationSpace/startSize/renderMode/mesh) so "is this even the marker?" is
+    // never guessed at again.
+    //
+    // ── (3) THE BROKEN IMAGE ON RELEASE: FOUR EXPLANATIONS FALSIFIED, ROOT CAUSE NOT SETTLED ─
+    // Read off `kaputte_anzeige.jpg` as data:
+    //   * NOT undersampling — the SAME window's SMALLER text renders every character while `Gold:`
+    //     becomes "Go". Minification dims and blurs uniformly; it cannot delete glyphs of one label and
+    //     leave a smaller one perfect. THIS FALSIFIES THIS FILE'S OWN PRIOR DIAGNOSIS for this image.
+    //   * NOT occlusion — gaps sit at character granularity INSIDE words with ink on both sides, and the
+    //     six rows' gaps form no vertical alignment. An occluder is a rectangle.
+    //   * NOT substitution — the colons of `Verstärkungen:` and `Verbesserungen:` sit 12 px apart,
+    //     exactly one character advance. Every character is still in the layout and put no pixels down.
+    //   * NOT the premultiplied-alpha double-multiply — the window body is opaque (17-18 luminance
+    //     inside vs 3 outside), so text on those plates composites at alpha 1.
+    // That leaves TEXT GENERATION, and WHICH of the three cases it is CANNOT be decided without
+    // hardware. No remedy was guessed. What shipped is the instrument that separates them: characters
+    // absent from the atlas, parsed-but-not-visible, and VISIBLE WITH A ZERO-AREA QUAD — which is the
+    // exact shape of the photograph — plus a fourth counter for components drawing no pixels at all.
+    // Repair prefers regenerating the text over re-taking the capture.
+    // Caveat stated in the log itself: TMP does not raise `Font.textureRebuilt`, and this game's labels
+    // are TextMeshProUGUI throughout, so that coincidence counter reads 0 BY CONSTRUCTION; TMP atlases
+    // are fingerprinted separately and that half has detection latency.
+    //
+    // ── ModBuild 193's MOVEMENT SWEEP IS A NET LOSS, AND THE LOG PRICES IT ─────────────────
+    // 22 of 23 late-arrival lines were caught by the ORDINARY cadence; the per-frame motion sweep found
+    // exactly one all session — while costing 1.48-1.94 ms EVERY frame of every drag, on a session whose
+    // frametime mean was 18.31 ms against an 11.11 ms budget. Cadence 1 → 5 frames (still 3x the settled
+    // rate at 1/5 the cost), and the case it was actually aimed at — THE RELEASE — is now covered
+    // outright: a forced re-measure, projection/quad sync, layer sweep and text regeneration on the
+    // frame a window comes to rest, twice, rather than hoping a sweep catches it.
+    // Also refuted from source, so they are never re-tried: the capture already runs every frame moving
+    // or still; the frustum cannot reach a neighbour (private pool layers, `0 other supersampled panel(s)
+    // inside THIS camera's frustum` on 97 % of lines); the resolve is never skipped.
+    //
+    // ── (2)(3) THE OPTIONS MENU ────────────────────────────────────────────────────────────
+    // "Symbolgrößen gehören ins Erweitert Menu!" — all five [MapRoom] size dials moved to
+    // Erweitert ▸ Bild & Darstellung ▸ 3D-Kampagnenkarte, PINNED in reading order because Erweitert
+    // sorts by display name, which would have put "Gloomhaven-Marker" and "Gruppen-Marker" BETWEEN the
+    // world- and city-map dials — splitting exactly the two the ModBuild 190 request exists to compare.
+    // PathWidthScale moved with them or it would have been the one orphan left behind.
+    // The group heading would have read "Map Room" — English, in a German menu, and now the ONLY
+    // signpost to those five. Added `cfg_sec_maproom`.
+    // "Reiseknopf seitlich / Höhe sollten keine Balken sein sondern die pfeile" — both are steppers now,
+    // step 0.01 for BOTH. They had been deriving step from their own span and moved at DIFFERENT rates
+    // (0.02 vs 0.05) for two dials of one pose — the GloveOffsetX fault again. The unit is identical by
+    // construction (fractions of the same window height), so now the step is too.
+    // Honest limitation: the arrows have no hold-to-repeat and no acceleration anywhere in the options
+    // system. Fine for nudging from 0 (~10-25 presses); 300 to cross Y's full range. Not redesigned.
+    // Both German texts called the OTHER dial a "Regler" — the German word for the control he had just
+    // refused. Now "Höhen-Wert" / "Seiten-Wert".
+    //
+    // ── RESIDUALS, STATED RATHER THAN BURIED ───────────────────────────────────────────────
+    // * The 195 canvas-leak fix WORKS (210 GraphicRaycaster refusals, 210 cleanups; `Can't add
+    //   component 'Canvas'` fell 18+ → 2) but `leakedCanvasesCleared` froze at 210 while `taken` ran to
+    //   343 — the ledger's own stated signature for the leak returning by another route. Next round.
+    // * Which layout state the quest popup should be SIZED to is left alone deliberately: the fit sizes
+    //   it to a state that exists only inside its own rebuild. Changing it moves the frame, the X, the
+    //   grab bar and the capture frame of a floated window. The hit rect already follows the real drawn
+    //   content, so input is unaffected. A separate, deliberate decision.
+    // * `IsDestination` runs 5 GetComponent calls per floated window per tick (~0.015 ms). Measured,
+    //   given its own sub-step, deliberately NOT memoised — a cache keyed by UIWindow risks a stale
+    //   entry for a rebuilt window, and that is not a risk worth taking for a number nobody has looked
+    //   at yet.
+    // * `MapLocationInteractor.CollectFrom` uses `includeInactive: false`, so a spawned-but-not-enabled
+    //   location is invisible to input for up to 15 frames. The icon layer already fixed the equivalent
+    //   gap. Not touched.
+    //
     // Build 195: THE MOD HAS BEEN RUNNING AT 50 Hz, AND A RAYCASTER WE ADD BLOCKED A DESTROY THE
     // GAME KEEPS ASKING FOR. (Six workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

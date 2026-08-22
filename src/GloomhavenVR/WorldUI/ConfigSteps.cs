@@ -91,6 +91,31 @@ internal static class ConfigSteps
         // "Min/Max qualifier BEHIND the unit word" shape has shipped a dead dial before and must
         // keep resolving correctly for the day such a key comes back.
 
+        // ---- Karte 3D ▸ der Reise-Knopf, den der Nutzer selbst setzt -----------------------
+        // The travel-confirm button's two placement dials, written down because they became
+        // STEPPERS at ModBuild 196 (user: "sollen keine Schieberegler sein, sondern die Pfeile, wo
+        // man den echten Wert einfach einstellen kann" — see PrefersStepper in
+        // VROptionsTab.4.Curated.cs). Until then they wore a bar and the step never mattered.
+        //
+        // WHY 0.01 AND NOT WHAT THE FALLBACK DERIVES. The unit rule cannot see these keys at all:
+        // the unit word is "WindowHeights", plural, and the Units table matches "Height" as a
+        // suffix — so both fell straight through to a fiftieth of the declared range, which is
+        // 0.02 for X (range 1.0 wide) and 0.05 for Y (range 3.0 wide, snapped by NiceStep). TWO
+        // DIALS OF ONE POSE MOVING BY DIFFERENT AMOUNTS is the exact fault [WristHud] GloveOffsetX
+        // was reported for, and here it comes from nothing but the two clamps having different
+        // widths — the unit is identical by construction (both are fractions of the SAME window
+        // height, which is what their descriptions promise: "gleiche Zahl also gleiche echte
+        // Strecke"). So they are written down together, at the finer of the two.
+        //
+        // 0.01 is the resolution the job needs. The floating quest window is ~0.4 m tall in the map
+        // room, so one press is about 4 mm of button travel — small enough to settle on a placement
+        // rather than straddle it, and 25 presses still cross X's whole useful span (the map edges
+        // sit at about ±0.25, per the German description) instead of the 50-plus a finer step would
+        // cost. The arrows do not repeat when held (VROptionsTab.2.Rows.BuildArrow is a plain
+        // Button.onClick), so every press is a press and the count has to stay humane.
+        ["WorldUI/TravelButtonOffsetXWindowHeights"] = 0.01d,
+        ["WorldUI/TravelButtonOffsetYWindowHeights"] = 0.01d,
+
         // ---- Avatar & Mehrspieler ▸ Dein Auftritt (hand size promoted, overhaul ruling 4) --
         ["Hands/GloveScale"] = 0.05d,
         ["Hands/PlateScale"] = 0.05d,

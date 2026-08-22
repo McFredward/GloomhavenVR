@@ -1312,6 +1312,12 @@ internal static partial class Loc
         // lines above: a brand-new cfg section needs a heading or the generic browser prints the raw
         // English section word in a German menu.
         ["cfg_sec_envsound"] = Pair("Environment sounds", "Umgebungsgeräusche"),
+        // [MapRoom] — the 3D campaign map's own dials (MAP ROOM, WorldUI/MapRoom/*). Same reason as
+        // the three lines above, but it became load-bearing in ModBuild 196: the five icon-size dials
+        // moved off the curated Grafik page onto their own Erweitert group, so this heading is now the
+        // ONLY signpost to them. Deliberately NOT the flat screen's "Weltkarte" key (vr_pt_screen_map)
+        // — that one names the map RE-RENDER subtree and the two would rot together.
+        ["cfg_sec_maproom"] = Pair("3D campaign map", "3D-Kampagnenkarte"),
 
         // ---- SettingsPanel: Leistung — the VR render trade (2026-07 GPU pass) ----
         // Wording rule for this block, from the user ("super verwirrend für den User"): every

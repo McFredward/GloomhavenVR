@@ -108,6 +108,39 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// whatever destination window was floated at that moment. One grep,
 /// <c>CHARACTER SHEET OUTCOME</c>, decides the next report.</para>
 ///
+/// <para>5 — AND IT WAS THE MOD'S MOST EXPENSIVE LINE OF CODE (ModBuild 196). The ModBuild 195
+/// hardware log ranks this class as 99 % of the whole ModalFallback step —
+/// <c>ModalFallback.Destinations 12.619ms (99%), worst 39.64ms</c> against an 11.11 ms budget,
+/// on <c>over-budget 1497/1497 (100.0%)</c> frames, in every one of the 33 breakdown lines of
+/// the session and rising from 2.6 ms to 13.2 ms as the room filled up. avg ≈ steady, so by the
+/// breakdown line's own reading key it was an unbounded sweep or a per-frame engine call, and it
+/// was both: <c>Hud()</c> was <c>Object.FindObjectOfType&lt;UIGuildmasterHUD&gt;(true)</c> — a
+/// walk of every loaded object of that type INCLUDING inactive ones — called unconditionally
+/// from <see cref="TrackHomeMode"/> on every single tick, plus a reflected
+/// <c>FieldInfo.GetValue</c> that boxed an enum 90 times a second.</para>
+///
+/// <para>THE ANSWER IS NOT A CADENCE, IT IS THE RIGHT QUESTION. <c>UIGuildmasterHUD</c> is
+/// declared <c>Singleton&lt;UIGuildmasterHUD&gt;</c> (decompiled UIGuildmasterHUD.cs:18) whose
+/// <c>Instance</c> is a plain static field written in <c>Awake</c> and nulled in
+/// <c>OnDestroy</c> (Singleton.cs) — the same accessor <c>MapButtonRail</c> has always used. And
+/// <c>currentMode</c> has a public accessor, <c>CurrentMode</c> (:122), while the assembly is
+/// publicized at build time anyway (GloomhavenVR.csproj:31), so the reflection bought nothing at
+/// all. The sweep survives ONLY as a bounded fallback for the window in which the singleton is
+/// cold (an inactive HUD never runs <c>Awake</c>): at most one sweep per
+/// <see cref="HudSweepCadenceTicks"/> ticks, cached, and counted out loud in the breakdown line
+/// so a regression to per-frame is one grep away. Nothing became edge-triggered — every
+/// reconciler in this class stays LEVEL-triggered exactly as it was, including the ModBuild 195
+/// re-arm, so there is no new edge set that could be incomplete.</para>
+///
+/// <para>AND THE CLAIM IS MEASURED, NOT ASSERTED. <see cref="MeasureDiscoveryBaselineOnce"/>
+/// times ONE such sweep against the live scene the first tick the room stands, beside the
+/// singleton read it replaced, and prints both — <c>DESTINATIONS DISCOVERY BASELINE</c>.
+/// <see cref="LogSubBreakdown"/> then attributes every millisecond this class spends to a named
+/// sub-step with avg, worst and run count — <c>DESTINATIONS SUB-STEP BREAKDOWN</c>, in the same
+/// 30 s window and the same shape as <c>MODAL TICK BREAKDOWN</c>, on the same
+/// <c>PerfMonitor</c> step machinery, so the two read side by side and the sub-steps also appear
+/// by name on the per-frame <c>[Perf] SPIKE</c> line.</para>
+///
 /// <para>NOT PARALLELISM. The guildmaster modes are a state machine with one active mode
 /// (<c>UpdateCurrentMode</c> exits the current before entering the next, and
 /// <c>toggleGroup.allowSwitchOff</c> is false while a mode is active). Merchant AND temple at the
@@ -129,9 +162,11 @@ internal static class GuildmasterDestinations
     /// <summary>Last guildmaster mode that was NOT a destination — where an X returns to.</summary>
     private static EGuildmasterMode _homeMode = EGuildmasterMode.WorldMap;
 
-    private static bool _reflectionTried;
-    private static FieldInfo? _bannerField;
-    private static FieldInfo? _currentModeField;
+    // (ModBuild 195 kept two cached FieldInfos here — `banner` and `currentMode` — read with
+    //  FieldInfo.GetValue on every tick. Both are gone: the assembly is publicized at build time
+    //  (GloomhavenVR.csproj:31), `CurrentMode` is a public accessor in the game's own source, and a
+    //  reflected read of an enum BOXES, which is 90 allocations a second for a value that is one
+    //  field load away. No MemberInfo of any kind is looked up in this class's per-tick path.)
 
     /// <summary>
     /// IS THIS WINDOW ONE OF THE FIVE DESTINATIONS? Matched by COMPONENT on the window's OWN
@@ -141,30 +176,77 @@ internal static class GuildmasterDestinations
     /// the containment version of this test and both had to be corrected: "related to an X" is a
     /// different question from "IS an X".)
     /// </summary>
-    internal static bool IsDestination(UIWindow? window) =>
-        window != null
-        && (window.GetComponent<UIShopItemWindow>() != null
-            || window.GetComponent<UITempleWindow>() != null
-            || window.GetComponent<UITrainerWindow>() != null
-            || window.GetComponent<UINewEnhancementWindow>() != null
-            || window.GetComponent<UITownRecordsWindow>() != null);
+    /// <para>MEASURED SEPARATELY (ModBuild 196), because it is the one part of this class that runs
+    /// OUTSIDE <see cref="Reconcile"/>: <c>ModalFallback.FirstFloatedDestination</c> calls it once
+    /// per floated window per tick to produce Reconcile's own argument, and that call is billed to
+    /// the parent's <c>ModalFallback.Destinations</c> phase. Without its own entry the sub-step
+    /// breakdown would not add up to the parent's number and the difference would look like a
+    /// mystery. Its run count is therefore normally a MULTIPLE of the tick count. It is deliberately
+    /// NOT memoised yet: five <c>GetComponent</c> calls is a cost worth knowing before it is worth
+    /// caching, and a stale entry for a rebuilt window is a real risk to take for a number nobody has
+    /// looked at.</para>
+    internal static bool IsDestination(UIWindow? window)
+    {
+        long begin = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool hit = window != null
+                   && (window.GetComponent<UIShopItemWindow>() != null
+                       || window.GetComponent<UITempleWindow>() != null
+                       || window.GetComponent<UITrainerWindow>() != null
+                       || window.GetComponent<UINewEnhancementWindow>() != null
+                       || window.GetComponent<UITownRecordsWindow>() != null);
+        Bill(SubIsDestination, System.Diagnostics.Stopwatch.GetTimestamp() - begin);
+        return hit;
+    }
 
     /// <summary>
     /// Level-triggered reconciler, one call per tick from <c>ModalFallback.Tick</c>. Takes the
     /// destination window that is floated right now (or null) and makes the banner agree with it.
     /// Idempotent: a steady state costs two reference compares and no writes.
+    ///
+    /// <para>EVERY SUB-STEP BELOW IS MEASURED (ModBuild 196 — see section 5 of the class doc). The
+    /// boundaries are the same cursor pattern <c>ModalFallback.Tick</c> uses and they feed the same
+    /// <c>PerfMonitor</c> step table, so <c>ModalFallback.Destinations.*</c> shows up both on the
+    /// per-frame <c>[Perf] SPIKE</c> line and, ranked with its own averages, worsts and run counts,
+    /// on <c>DESTINATIONS SUB-STEP BREAKDOWN</c>.</para>
     /// </summary>
     internal static void Reconcile(UIWindow? floated)
     {
-        TrackHomeMode();
+        // One-shot and deliberately OUTSIDE the tick timer: it pays the old per-frame sweep exactly
+        // once, so this tick is not representative of any other and must not pollute the averages.
+        MeasureDiscoveryBaselineOnce();
 
-        // ModBuild 195 — the character screen is re-armed BEFORE anything else, and the outcome of
-        // the last slot click is judged, on every tick. Both are cheap (a singleton read plus four
-        // slots) and both are deliberately independent of whether a destination is floated right
-        // now: the mode outlives the window that set it, which is the entire defect.
-        ReArmCharacterScreen();
-        TickSheetOutcome(floated);
+        long tickBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            EnterSub(SubHomeMode);
+            TrackHomeMode();
 
+            // ModBuild 195 — the character screen is re-armed BEFORE anything else, and the outcome
+            // of the last slot click is judged, on every tick. Both are cheap (a singleton read plus
+            // four slots) and both are deliberately independent of whether a destination is floated
+            // right now: the mode outlives the window that set it, which is the entire defect. They
+            // stay LEVEL-triggered through the ModBuild 196 perf round for exactly that reason: no
+            // edge can be missed if there is no edge.
+            EnterSub(SubReArm);
+            ReArmCharacterScreen();
+
+            EnterSub(SubOutcome);
+            TickSheetOutcome(floated);
+
+            EnterSub(SubBanner);
+            ReconcileBanner(floated);
+        }
+        finally
+        {
+            EndSub();
+            CloseTick(tickBegin);
+        }
+    }
+
+    /// <summary>The banner half of <see cref="Reconcile"/> — split out only so the sub-step cursor
+    /// can close cleanly around it; the body is unchanged from ModBuild 195.</summary>
+    private static void ReconcileBanner(UIWindow? floated)
+    {
         if (!MapRoomDriver.Active)
         {
             ReleaseBanner("map room stood down");
@@ -413,18 +495,20 @@ internal static class GuildmasterDestinations
         return canvas != null && canvas.isRootCanvas;
     }
 
-    /// <summary>Remember the last non-destination mode, so an X returns where the player came from.</summary>
+    /// <summary>Remember the last non-destination mode, so an X returns where the player came from.
+    ///
+    /// <para>ModBuild 196: this method WAS the 12.6 ms. It ran a full
+    /// <c>FindObjectOfType&lt;UIGuildmasterHUD&gt;(true)</c> and a boxing reflected field read on
+    /// every tick to learn a value the game publishes as a public property on a singleton. It is now
+    /// two static field loads and an enum compare, and it is still level-triggered every tick — the
+    /// mode can change from the game's own bar, from a table cap or from an Escape, and there is no
+    /// edge this class can see for all three.</para></summary>
     private static void TrackHomeMode()
     {
-        EnsureReflection();
-        if (_currentModeField == null)
-            return;
         UIGuildmasterHUD? hud = Hud();
         if (hud == null)
             return;
-        object? raw = _currentModeField.GetValue(hud);
-        if (raw is not EGuildmasterMode mode)
-            return;
+        EGuildmasterMode mode = hud.CurrentMode;
         if (mode is EGuildmasterMode.WorldMap or EGuildmasterMode.City)
             _homeMode = mode;
     }
@@ -450,14 +534,29 @@ internal static class GuildmasterDestinations
     {
         try
         {
-            NewPartyCharacterUI[] slots = Object.FindObjectsOfType<NewPartyCharacterUI>(true);
+            // ModBuild 196: ask the party display for ITS OWN slots first. The list is the subject
+            // of the sentence ("PARTY SLOTS"), it is a serialized field read, and it is the same set
+            // ReArmCharacterScreen writes to — so the line now measures exactly what the re-arm
+            // touched instead of every NewPartyCharacterUI loaded in the process. The old
+            // includeInactive sweep is kept for the case where there is no display yet, and the line
+            // says which of the two produced the numbers so the change is never silent.
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            IReadOnlyList<NewPartyCharacterUI>? slots =
+                display != null ? display.CharacterSlots : null;
+            string source = "the party display's own CharacterSlots";
+            if (slots == null || slots.Count == 0)
+            {
+                _slotSweeps++;
+                slots = Object.FindObjectsOfType<NewPartyCharacterUI>(true);
+                source = "a scene sweep (no party display was reachable)";
+            }
             int live = 0;
-            for (int i = 0; i < slots.Length; i++)
+            for (int i = 0; i < slots.Count; i++)
             {
                 if (slots[i] != null && slots[i].IsInteractable)
                     live++;
             }
-            VRLog.Info(Scope, $"PARTY SLOTS after {when}: {live}/{slots.Length} interactable. "
+            VRLog.Info(Scope, $"PARTY SLOTS after {when}: {live}/{slots.Count} interactable, from {source}. "
                               + "READ IT AS A PARTIAL: IsInteractable covers only button/slotInteraction/"
                               + "buttonsCanvasGroup, and the merchant and temple enter selection mode with "
                               + "disableButtons=FALSE — so 4/4 here does NOT mean a character can be opened "
@@ -471,32 +570,67 @@ internal static class GuildmasterDestinations
         }
     }
 
+    /// <summary>The shared guildmaster banner, off the HUD's own serialized reference. Called on
+    /// TRANSITIONS only (acquire and release), never in the steady state — the sweep fallback below
+    /// is therefore a rare cost, and it is cached and counted all the same.</summary>
     private static Transform? Banner()
     {
-        EnsureReflection();
         UIGuildmasterHUD? hud = Hud();
-        if (hud != null && _bannerField?.GetValue(hud) is Component banner && banner != null)
-            return banner.transform;
-        var sweep = Object.FindObjectOfType<UIGuildmasterBanner>(true);
-        return sweep != null ? sweep.transform : null;
+        if (hud != null && hud.banner != null)
+            return hud.banner.transform;
+        if (_bannerFallback != null)
+            return _bannerFallback.transform;
+        _bannerSweeps++;
+        _bannerFallback = Object.FindObjectOfType<UIGuildmasterBanner>(true);
+        return _bannerFallback != null ? _bannerFallback.transform : null;
     }
 
-    private static UIGuildmasterHUD? Hud() => Object.FindObjectOfType<UIGuildmasterHUD>(true);
+    // ------------------------------------------------------------------------- HUD discovery --
 
-    private static void EnsureReflection()
+    /// <summary>Ticks between sweeps while the singleton is cold. 60 ≈ 0.7 s at rig rate: fast
+    /// enough that a HUD which only becomes reachable late is picked up long before the player can
+    /// press a table cap, slow enough that even a permanently cold singleton costs ~1/60th of what
+    /// ModBuild 195 paid. The number is printed in the breakdown line rather than left to a reader
+    /// of this file.</summary>
+    private const int HudSweepCadenceTicks = 60;
+
+    private static UIGuildmasterHUD? _hudFallback;
+    private static int _hudSweepDue;
+    private static int _hudSweeps;
+    private static int _hudSingletonHits;
+    private static UIGuildmasterBanner? _bannerFallback;
+    private static int _bannerSweeps;
+    private static int _slotSweeps;
+
+    /// <summary>
+    /// THE HUD, IN CONSTANT TIME. <c>UIGuildmasterHUD : Singleton&lt;UIGuildmasterHUD&gt;</c>, and
+    /// that base class's <c>Instance</c> is a plain static field set in <c>Awake</c> and cleared in
+    /// <c>OnDestroy</c> — so the singleton is not a cache that can go stale, it is the game's own
+    /// registration. <c>MapButtonRail</c> has asked the same way since ModBuild 183.
+    ///
+    /// <para>THE FALLBACK, AND WHY IT IS BOUNDED RATHER THAN DELETED. A GameObject that is inactive
+    /// at load never runs <c>Awake</c>, so a HUD can exist that the singleton does not know about —
+    /// which is the case the old <c>includeInactive: true</c> sweep covered, and dropping it
+    /// silently would be trading correctness for speed. It is kept, but at most once every
+    /// <see cref="HudSweepCadenceTicks"/> ticks, and its result is cached until the object dies. The
+    /// moment the singleton warms up the cache is dropped and the sweep never runs again.</para>
+    /// </summary>
+    private static UIGuildmasterHUD? Hud()
     {
-        if (_reflectionTried)
-            return;
-        _reflectionTried = true;
-        const BindingFlags Flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        System.Type t = typeof(UIGuildmasterHUD);
-        _bannerField = t.GetField("banner", Flags);
-        _currentModeField = t.GetField("currentMode", Flags);
-        if (_bannerField == null || _currentModeField == null)
-            VRLog.Warn(Scope, "GUILDMASTER WINDOW: UIGuildmasterHUD fields not found by name "
-                              + $"(banner={_bannerField != null}, currentMode={_currentModeField != null}). "
-                              + "The banner falls back to a scene sweep and the X returns to the world map; "
-                              + "if a destination window opens without its background, this line is the reason.");
+        if (Singleton<UIGuildmasterHUD>.IsInitialized)
+        {
+            _hudSingletonHits++;
+            _hudFallback = null;
+            return Singleton<UIGuildmasterHUD>.Instance;
+        }
+        if (_hudFallback != null)
+            return _hudFallback;
+        if (--_hudSweepDue > 0)
+            return null;
+        _hudSweepDue = HudSweepCadenceTicks;
+        _hudSweeps++;
+        _hudFallback = Object.FindObjectOfType<UIGuildmasterHUD>(true);
+        return _hudFallback;
     }
 
     // -------------------------------------------------------- the permanent character screen --
@@ -775,6 +909,337 @@ internal static class GuildmasterDestinations
                + $"switchingCharacter={(FFSNetwork.IsOnline && PlayerRegistry.IsSwitchingCharacter)}.";
     }
 
+    // ==========================================================================================
+    //  SUB-STEP ATTRIBUTION FOR THIS CLASS (ModBuild 196)
+    //
+    //  WHY IT EXISTS. ModBuild 195's MODAL TICK BREAKDOWN did its job perfectly and then stopped
+    //  one level short: it named ModalFallback.Destinations as 99 % of the step and 12.6 ms of an
+    //  11.11 ms budget, and "Destinations" is this whole class. That is four reconcilers behind
+    //  one number, and a perf claim without an attribution is a guess. This is the next level,
+    //  built on the SAME machinery rather than a parallel one:
+    //
+    //    * PerfMonitor.BeginStep/EndStep, so each sub-step is a nested named step under
+    //      "ModalFallback.Destinations." — one grep, 'ModalFallback\.', still finds all of them,
+    //      and the per-frame [Perf] SPIKE line names the guilty sub-step on the frame it blew.
+    //      Nested steps are attributed individually but counted once in the mod total
+    //      (PerfMonitor's depth counter), so the mod share cannot inflate because of this.
+    //    * Its own accumulators as well, printed as ONE ranked line every SubBreakdownSeconds —
+    //      the same 30 s window MODAL TICK BREAKDOWN, [Perf] FRAME and [Perf] STEPS use, so the
+    //      lines read side by side with no correction for different averaging periods.
+    //
+    //  WHAT IT ADDS OVER THE PARENT. A RUN COUNT per sub-step. The parent's phases all run once
+    //  per tick so it never needed one; here it is the whole point — it is what distinguishes
+    //  "cheap" from "did not run", which is the failure mode of every edge-triggered fix, and it
+    //  is what a future round that DOES move one of these onto an edge has to be judged against.
+    //  It also counts the three scene sweeps left in this file by name, so a regression to
+    //  per-frame discovery shows up as a four-digit sweep count instead of as a mystery.
+    //
+    //  COST: two Stopwatch.GetTimestamp() reads per boundary, four boundaries — well under 1 µs
+    //  against 11.11 ms — plus one Info line every 30 s. Allocation-free per tick; the line's
+    //  StringBuilder is static and reused. Unconditional on purpose: a diagnostic that has to be
+    //  switched on is a diagnostic that is off in the log you actually receive.
+    // ==========================================================================================
+
+    private const int SubHomeMode = 0;
+    private const int SubReArm = 1;
+    private const int SubOutcome = 2;
+    private const int SubBanner = 3;
+    private const int SubIsDestination = 4;
+    private const int SubCount = 5;
+
+    /// <summary>What each sub-step covers, so a number can be acted on without reading the method.
+    /// <c>HomeMode</c> the HUD lookup plus the current-mode read that feeds an X's return target;
+    /// <c>ReArm</c> the ModBuild 195 character-screen re-arm over the party display's slots;
+    /// <c>SheetOutcome</c> the CHARACTER SHEET OUTCOME watcher; <c>Banner</c> the banner
+    /// acquire/release reconcile — including, on transitions only, the PARTY SLOTS line;
+    /// <c>IsDestination</c> the five-component identity test the PARENT runs per floated window, the
+    /// only entry here that is not called from <see cref="Reconcile"/>.</summary>
+    private static readonly string[] SubNames =
+    {
+        "ModalFallback.Destinations.HomeMode",
+        "ModalFallback.Destinations.ReArm",
+        "ModalFallback.Destinations.SheetOutcome",
+        "ModalFallback.Destinations.Banner",
+        "ModalFallback.Destinations.IsDestination",
+    };
+
+    private static readonly long[] SubTicks = new long[SubCount];
+    private static readonly long[] SubWorst = new long[SubCount];
+    private static readonly int[] SubRuns = new int[SubCount];
+    private static readonly int[] SubRank = new int[SubCount];
+
+    /// <summary>Open sub-step, or −1. A cursor rather than a using-block for the same reason
+    /// <c>ModalFallback.EnterPhase</c> is one: the body of <see cref="Reconcile"/> keeps its
+    /// original shape, one added line per boundary.</summary>
+    private static int _sub = -1;
+    private static long _subBegin;
+    private static long _subPerfBegin;
+
+    private static long _reconcileTotal;
+    private static long _reconcileWorst;
+    private static int _reconcileTicks;
+    private static float _nextSubBreakdown;
+
+    private const float SubBreakdownSeconds = 30f;
+
+    private static readonly System.Text.StringBuilder SubSb = new(1024);
+
+    /// <summary>Close the open sub-step (if any) and open <paramref name="slot"/>.</summary>
+    private static void EnterSub(int slot)
+    {
+        EndSub();
+        _sub = slot;
+        _subBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        _subPerfBegin = PerfMonitor.BeginStep();
+    }
+
+    /// <summary>Close the open sub-step and fold its duration into both consumers.</summary>
+    private static void EndSub()
+    {
+        int slot = _sub;
+        if (slot < 0)
+            return;
+        _sub = -1;
+        Bill(slot, System.Diagnostics.Stopwatch.GetTimestamp() - _subBegin);
+        PerfMonitor.EndStep(SubNames[slot], _subPerfBegin);
+    }
+
+    /// <summary>Fold one run of <paramref name="slot"/> into this class's own accumulators. Split
+    /// out of <see cref="EndSub"/> so <see cref="IsDestination"/> — which is called from the parent,
+    /// with no cursor open — can be billed by the same rules.</summary>
+    private static void Bill(int slot, long dt)
+    {
+        if (dt < 0L)
+            dt = 0L;
+        SubTicks[slot] += dt;
+        SubRuns[slot]++;
+        if (dt > SubWorst[slot])
+            SubWorst[slot] = dt;
+    }
+
+    /// <summary>Fold this tick into the totals and emit the breakdown when the window is up.</summary>
+    private static void CloseTick(long tickBegin)
+    {
+        long dt = System.Diagnostics.Stopwatch.GetTimestamp() - tickBegin;
+        if (dt > 0L)
+        {
+            _reconcileTotal += dt;
+            if (dt > _reconcileWorst)
+                _reconcileWorst = dt;
+        }
+        _reconcileTicks++;
+
+        float nowT = Time.unscaledTime;
+        if (_nextSubBreakdown <= 0f)
+        {
+            // First tick of a session: start the clock rather than printing a one-tick window.
+            _nextSubBreakdown = nowT + SubBreakdownSeconds;
+        }
+        else if (nowT >= _nextSubBreakdown)
+        {
+            _nextSubBreakdown = nowT + SubBreakdownSeconds;
+            LogSubBreakdown();
+            ResetSubBreakdown();
+        }
+    }
+
+    private static void ResetSubBreakdown()
+    {
+        for (int i = 0; i < SubTicks.Length; i++)
+        {
+            SubTicks[i] = 0L;
+            SubWorst[i] = 0L;
+            SubRuns[i] = 0;
+        }
+        _reconcileTotal = 0L;
+        _reconcileWorst = 0L;
+        _reconcileTicks = 0;
+        _hudSweeps = 0;
+        _hudSingletonHits = 0;
+        _bannerSweeps = 0;
+        _slotSweeps = 0;
+    }
+
+    /// <summary>
+    /// ONE LINE THAT ANSWERS "WHICH PART OF Destinations COSTS THE MILLISECONDS" — every sub-step,
+    /// ranked, with its average per TICK, its average per RUN, its share, its worst single run and
+    /// how many of the window's ticks it ran on; then the discovery counters.
+    /// </summary>
+    private static void LogSubBreakdown()
+    {
+        try
+        {
+            int ticks = _reconcileTicks;
+            if (ticks <= 0)
+                return;
+            double freq = System.Diagnostics.Stopwatch.Frequency;
+            double totalMs = _reconcileTotal * 1000d / freq / ticks;
+
+            int n = SubNames.Length;
+            for (int i = 0; i < n; i++)
+                SubRank[i] = i;
+            for (int i = 1; i < n; i++)
+            {
+                int key = SubRank[i];
+                int j = i - 1;
+                while (j >= 0 && SubTicks[SubRank[j]] < SubTicks[key])
+                {
+                    SubRank[j + 1] = SubRank[j];
+                    j--;
+                }
+                SubRank[j + 1] = key;
+            }
+
+            System.Text.StringBuilder sb = SubSb;
+            sb.Length = 0;
+            sb.Append("DESTINATIONS SUB-STEP BREAKDOWN over ").Append(ticks)
+              .Append(" tick(s): GuildmasterDestinations.Reconcile cost ")
+              .Append(totalMs.ToString("F4"))
+              .Append("ms/tick avg, worst ")
+              .Append((_reconcileWorst * 1000d / freq).ToString("F3"))
+              .Append("ms. Ranked by total time:");
+            for (int r = 0; r < n; r++)
+            {
+                int slot = SubRank[r];
+                int runs = SubRuns[slot];
+                double avgMs = SubTicks[slot] * 1000d / freq / ticks;
+                double perRunMs = runs > 0 ? SubTicks[slot] * 1000d / freq / runs : 0d;
+                double share = totalMs > 1e-9d ? avgMs / totalMs * 100d : 0d;
+                sb.Append(r == 0 ? " " : " | ")
+                  .Append(SubNames[slot]).Append(' ')
+                  .Append(avgMs.ToString("F4")).Append("ms/tick (")
+                  .Append(share.ToString("F0")).Append("%), ran ").Append(runs).Append('/')
+                  .Append(ticks).Append(" tick(s) at ").Append(perRunMs.ToString("F4"))
+                  .Append("ms/run, worst run ")
+                  .Append((SubWorst[slot] * 1000d / freq).ToString("F3")).Append("ms");
+            }
+            sb.Append(" | discovery: the HUD answered from Singleton<UIGuildmasterHUD>.Instance ")
+              .Append(_hudSingletonHits).Append(" time(s) and from a scene sweep ")
+              .Append(_hudSweeps).Append(" time(s) (bounded to one per ")
+              .Append(HudSweepCadenceTicks)
+              .Append(" ticks while the singleton is cold); banner sweeps ").Append(_bannerSweeps)
+              .Append(", party-slot sweeps ").Append(_slotSweeps)
+              .Append(". HOW TO READ THIS LINE. It is the next level down from MODAL TICK "
+                      + "BREAKDOWN's 'ModalFallback.Destinations' entry and uses the same 30 s "
+                      + "window, so the two are directly comparable; the same sub-step names also "
+                      + "appear on the per-frame [Perf] SPIKE line. In ModBuild 195 this whole "
+                      + "class cost 12.619ms/tick avg (worst 39.64ms) — 99% of ModalFallback and "
+                      + "more than the entire 11.11ms frame budget, on 100% of frames — and "
+                      + "ALL of it was HomeMode running "
+                      + "FindObjectOfType<UIGuildmasterHUD>(true) once per tick. So: if HomeMode "
+                      + "is not now the CHEAPEST entry here, the singleton has gone cold and the "
+                      + "sweep count above is non-zero and climbing — that is the regression to "
+                      + "look for, and it is a fact on this line rather than an inference. 'ran "
+                      + "n/m tick(s)' is what separates 'cheap' from 'never ran': every sub-step "
+                      + "in this class is LEVEL-triggered by design, so anything below m here "
+                      + "means a reconciler is being skipped, and for ReArm that means the "
+                      + "ModBuild 195 character-sheet fix is not running. Banner's worst run is "
+                      + "expected to be far above its average — it does real work only when a "
+                      + "destination window opens or closes, and that transition also emits the "
+                      + "PARTY SLOTS line. IsDestination is the ONE entry that is not called from "
+                      + "Reconcile — the parent runs it once per floated window per tick to build "
+                      + "Reconcile's argument — so its run count is normally a multiple of the "
+                      + "tick count, its share above 100% is arithmetic rather than a fault, and "
+                      + "it is the whole of the gap between the ms/tick total on this line and "
+                      + "MODAL TICK BREAKDOWN's ModalFallback.Destinations entry. DESTINATIONS "
+                      + "DISCOVERY BASELINE, printed once per map room, is where the cost of the "
+                      + "call this round replaced is measured directly.");
+            VRLog.Info(Scope, sb.ToString());
+        }
+        catch (System.Exception ex)
+        {
+            // House rule: an instrument may never be the thing that starves VR input.
+            VRLog.Warn(Scope, $"DESTINATIONS SUB-STEP BREAKDOWN could not be composed "
+                              + $"({ex.GetType().Name}: {ex.Message}) — the per-sub-step numbers are "
+                              + "still on the [Perf] STEPS and [Perf] SPIKE lines under their "
+                              + "'ModalFallback.Destinations.' names; only this summary is missing.");
+        }
+    }
+
+    // ------------------------------------------------------------------- the discovery baseline --
+
+    /// <summary>How many singleton reads the baseline averages over. Enough that the timer's own
+    /// resolution cannot dominate, few enough that the whole probe is invisible.</summary>
+    private const int BaselineSingletonReads = 1000;
+
+    private static bool _baselineDone;
+
+    /// <summary>
+    /// MEASURE THE CALL THAT WAS REMOVED, ONCE, AGAINST THE REAL SCENE. A fix whose evidence is
+    /// "FindObjectOfType is known to be slow" is a fix nobody can check. This runs the exact call
+    /// ModBuild 195 made on every tick — <c>Object.FindObjectOfType&lt;UIGuildmasterHUD&gt;(true)</c>,
+    /// includeInactive and all — exactly ONCE, the first tick the map room stands, beside the
+    /// singleton read that replaced it, and prints both numbers and their ratio.
+    ///
+    /// <para>It costs one frame per map room, deliberately, and it is taken OUTSIDE
+    /// <see cref="Reconcile"/>'s own timer so it cannot pollute a single average. It re-arms on
+    /// <see cref="Reset"/>, so a second visit to the room measures the scene as it is then — which
+    /// matters, because the ModBuild 195 log shows this cost RISING from 2.6 ms to 13.2 ms across
+    /// one session as the room filled up.</para>
+    /// </summary>
+    private static void MeasureDiscoveryBaselineOnce()
+    {
+        if (_baselineDone || !MapRoomDriver.Active)
+            return;
+        _baselineDone = true;
+        try
+        {
+            double freq = System.Diagnostics.Stopwatch.Frequency;
+
+            long a = System.Diagnostics.Stopwatch.GetTimestamp();
+            UIGuildmasterHUD? swept = Object.FindObjectOfType<UIGuildmasterHUD>(true);
+            double sweepMs = (System.Diagnostics.Stopwatch.GetTimestamp() - a) * 1000d / freq;
+
+            // The replacement, averaged. `seen` is used in the line below so the loop cannot be
+            // optimised away into a measurement of nothing.
+            UIGuildmasterHUD? seen = null;
+            long b = System.Diagnostics.Stopwatch.GetTimestamp();
+            for (int i = 0; i < BaselineSingletonReads; i++)
+            {
+                if (Singleton<UIGuildmasterHUD>.IsInitialized)
+                    seen = Singleton<UIGuildmasterHUD>.Instance;
+            }
+            double readUs = (System.Diagnostics.Stopwatch.GetTimestamp() - b) * 1e6d / freq
+                            / BaselineSingletonReads;
+
+            bool agree = ReferenceEquals(swept, seen);
+            VRLog.Info(Scope, $"DESTINATIONS DISCOVERY BASELINE: one "
+                              + $"Object.FindObjectOfType<UIGuildmasterHUD>(true) over this scene took "
+                              + $"{sweepMs:F3}ms and found {(swept != null ? "'" + swept.name + "'" : "nothing")}. "
+                              + $"Singleton<UIGuildmasterHUD>.Instance answered the SAME question in "
+                              + $"{readUs:F4}µs ({(readUs > 1e-6d ? (sweepMs * 1000d / readUs).ToString("F0") : "∞")}× "
+                              + $"cheaper) and returned {(agree ? "the same object" : "a DIFFERENT object — read the warning below")}"
+                              + ". READ IT AS THE EVIDENCE FOR ModBuild 196: up to and including "
+                              + "ModBuild 195, GuildmasterDestinations.Reconcile ran that sweep once "
+                              + "per tick from TrackHomeMode, unconditionally and before any map-room "
+                              + "gate, which is why MODAL TICK BREAKDOWN reported "
+                              + "'ModalFallback.Destinations 12.619ms (99%), worst 39.64ms' with "
+                              + "over-budget 1497/1497 (100.0%) — a steady floor above the entire "
+                              + "11.11ms frame budget, not a spike. Multiply the first number above by "
+                              + "the frame rate to see what the room was paying. This probe runs ONCE "
+                              + "per map room and is measured outside the per-tick timer, so it "
+                              + "appears as a single wide frame in ModalFallback.Destinations' WORST "
+                              + "and in no average anywhere. From here on, see DESTINATIONS SUB-STEP "
+                              + "BREAKDOWN every 30s.");
+            if (!agree)
+                VRLog.Warn(Scope, "DESTINATIONS DISCOVERY BASELINE DISAGREES: the scene sweep and the "
+                                  + "singleton named different UIGuildmasterHUD objects. The singleton is "
+                                  + "written in Awake and cleared in OnDestroy, so this can only mean a "
+                                  + "second HUD exists (one of them inactive, hence never awoken). "
+                                  + "TrackHomeMode and the banner now follow the SINGLETON, i.e. the one "
+                                  + "the game itself considers current — which is also the one "
+                                  + "MapButtonRail drives. If the X on a destination window starts "
+                                  + "returning to the wrong mode, or a window opens without its "
+                                  + "background, this line is where to start.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn(Scope, $"DESTINATIONS DISCOVERY BASELINE threw ({ex.GetType().Name}: "
+                              + $"{ex.Message}) — the sub-step breakdown is unaffected, only the "
+                              + "before/after comparison for the ModBuild 196 fix is missing.");
+        }
+    }
+
     /// <summary>Module teardown — forget everything, restoring the banner if we still hold it.</summary>
     internal static void Reset()
     {
@@ -787,5 +1252,12 @@ internal static class GuildmasterDestinations
         _outcomeTicksLeft = 0;
         _outcomeSlotName = string.Empty;
         _outcomeProbeWarned = false;
+        _hudFallback = null;
+        _bannerFallback = null;
+        _hudSweepDue = 0;
+        _sub = -1;
+        _nextSubBreakdown = 0f;
+        _baselineDone = false;
+        ResetSubBreakdown();
     }
 }

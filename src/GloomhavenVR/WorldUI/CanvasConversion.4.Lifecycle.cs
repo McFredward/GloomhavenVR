@@ -645,6 +645,27 @@ internal static partial class CanvasConversion
     /// </summary>
     internal const int ConcedeAfterReclears = 3;
 
+    /// <summary>
+    /// How far ABOVE its host a conceded canvas's <c>sortingOrder</c> is pinned. Until ModBuild 196
+    /// this was 0 — pinned EQUAL — and that was the bug behind "die Itemkarten-Overlays im
+    /// Ausrüstungsmenu sind nur extrem transparent zu sehen": the card was not faint, it was BEHIND
+    /// the window's own rows, and the photograph's ~0.27x attenuation is what an opaque row bleeding
+    /// a little light looks like, not what an alpha of 0.27 looks like.
+    /// <para>WHY EQUAL LOSES. A canvas with <c>overrideSorting</c> is sorted as its OWN entry —
+    /// sortingLayer, then sortingOrder, then distance — and never by hierarchy. So the mod's
+    /// <c>RaiseToWindowTop</c>, which writes hierarchy order, is INERT on exactly these canvases.
+    /// At an equal order the tie falls through to distance, and <c>Flatten</c> makes an adopted box
+    /// exactly coplanar with its host, which exhausts that tiebreaker too. Equal is not a tie here,
+    /// it is a loss. The shop's item overlay renders correctly only because its canvas never had the
+    /// flag forced back on, so it never entered this branch and hierarchy order still decided it.</para>
+    /// <para>WHY +1 AND NOT MORE. It must clear the window's own content and nothing else:
+    /// <see cref="ModalCloseButton.XOrderOffset"/> is +2, so the mod's close X still draws above the
+    /// overlay, and <c>CanvasConversion.8.Order.PanelOrderStep</c> is 16, so a nearer window's whole
+    /// band still wins. This stays a single writer of a single number — the ModBuild 190 ruling
+    /// (concede the flag, own the number) is untouched; only the number is corrected.</para>
+    /// </summary>
+    internal const int ConcededOrderLift = 1;
+
     private static void ReassertAdoptedSorting(ConvertedPanel panel)
     {
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
@@ -659,8 +680,11 @@ internal static partial class CanvasConversion
             // subtree keeps drawing with its window while the game's writer is left alone.
             if (rec.ConcededOverrideSorting)
             {
-                if (panel.HostCanvas != null && nested.sortingOrder != panel.HostCanvas.sortingOrder)
-                    nested.sortingOrder = panel.HostCanvas.sortingOrder;
+                int wantOrder = panel.HostCanvas != null
+                    ? panel.HostCanvas.sortingOrder + ConcededOrderLift
+                    : nested.sortingOrder;
+                if (panel.HostCanvas != null && nested.sortingOrder != wantOrder)
+                    nested.sortingOrder = wantOrder;
                 if (panel.HostCanvas != null && nested.worldCamera != panel.HostCanvas.worldCamera)
                     nested.worldCamera = panel.HostCanvas.worldCamera;
                 continue;
@@ -682,7 +706,7 @@ internal static partial class CanvasConversion
                     rec.ConcededOverrideSorting = true;
                     rec.KeepOverrideSorting = true;
                     if (panel.HostCanvas != null)
-                        nested.sortingOrder = panel.HostCanvas.sortingOrder;
+                        nested.sortingOrder = panel.HostCanvas.sortingOrder + ConcededOrderLift;
                     panel.AdoptedCanvases[i] = rec;
                     VRLog.Info("WorldUI", $"MODAL SORTING CONCEDED: adopted canvas '{nested.name}' in " +
                                           $"'{panel.HostGo.name}' had overrideSorting flipped back ON by a " +

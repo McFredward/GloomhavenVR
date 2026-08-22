@@ -854,9 +854,12 @@ internal static partial class VROptionsTab
             return;
 
         // A slider needs a scalar with both ends known; a vector component or an open-ended number
-        // has no bar to sit on.
+        // has no bar to sit on. …and a handful of bounded scalars ASK for the stepper anyway
+        // (PrefersStepper, VROptionsTab.4.Curated.cs): a bar is a gesture, a stepper is an amount,
+        // and a dial the user tunes to a number he can repeat needs the amount.
         if (item.Kind != ConfigCatalog.ConfigKind.Choice
             && item.HasRange && item.Components == 1 && item.Max > item.Min
+            && !PrefersStepper(item)
             && BuildSliderRow(parent, item, caption, hintKey))
             return;
 

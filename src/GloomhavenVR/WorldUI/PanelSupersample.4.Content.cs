@@ -5,7 +5,9 @@
 // that switching the dial on can never take visible content away from the player.
 
 using System.Collections.Generic;
+using System.Text;
 using GloomhavenVR.Core;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -262,4 +264,398 @@ internal static partial class PanelSupersample
     private static Rect Union(Rect a, Rect b) => Rect.MinMaxRect(
         Mathf.Min(a.xMin, b.xMin), Mathf.Min(a.yMin, b.yMin),
         Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax));
+
+    // ---- CONTENT INTEGRITY: what the window's TEXT is actually able to draw ----------------------
+
+    /// <summary>Work stack for <see cref="MeasureContent"/>. Deliberately NOT
+    /// <see cref="ContentStack"/> or <see cref="Scratch"/>: the frame measurement, the layer sweep and
+    /// this scan all run inside the same LateUpdate and can call each other (the release repair runs
+    /// all three), and sharing one buffer between re-entrant walks is the kind of coupling that
+    /// produces a wrong number once and then never again reproducibly.</summary>
+    private static readonly List<Transform> TextWalk = new(256);
+
+    /// <summary>Scratch for the atlas census sentence.</summary>
+    private static readonly StringBuilder AtlasSb = new(256);
+
+    /// <summary>Cap on regenerations one scan may force, so a repair can never become the spike.</summary>
+    private const int MaxRegeneratePerScan = 256;
+
+    /// <summary>
+    /// <b>THE INSTRUMENT FOR "DIE DARGESTELLTE ANZEIGE IST KAPUTT", AND THE REPAIR IN ONE WALK.</b>
+    ///
+    /// <para><b>WHAT THE PHOTOGRAPH ACTUALLY SHOWS</b> (.planning/debug/kaputte_anzeige.jpg, measured
+    /// off the pixels rather than described): the mercenary window's six stat labels render as
+    /// <i>"Ge n i"</i>, <i>"Go"</i>, <i>"F rt g te"</i>, <i>"Gebun e g st e"</i>, <i>"ers k :"</i>,
+    /// <i>"erb s e :"</i> — individual GLYPHS absent from strings whose LAYOUT is intact. Three
+    /// measurements pin that down and each one kills a candidate cause:
+    /// <list type="number">
+    /// <item>THE ADVANCES ARE FULL WIDTH. The trailing colon of <i>Verstärkungen:</i> (14 characters)
+    /// and of <i>Verbesserungen:</i> (15) sit 12 px apart — one character's advance — so NOTHING was
+    /// substituted, shortened or removed. A text engine that replaced a missing glyph would have
+    /// shifted everything after it. <b>The characters are all still in the layout; their quads put no
+    /// pixels down.</b></item>
+    /// <item>THE GAPS ARE EMPTY, NOT DIM. Peak luminance inside the gap where <i>d h e</i> of
+    /// "Gesundheit" belongs is 24, against a 20 background and a 147 ink. This is not a
+    /// contrast/alpha artifact with a faint residue; the pixels were never written.</item>
+    /// <item>IT IS NOT UNDERSAMPLING, WHICH IS THIS PATH'S OWN PRIOR DIAGNOSIS. The same window's
+    /// SMALLER text — <i>"Schließe sechs Basisspiel-Nebenszenarien ab."</i> — renders every character,
+    /// and the surviving glyphs are at full brightness and crisp. Minification below Nyquist dims and
+    /// blurs uniformly; it does not delete some glyphs of one label and leave a smaller label
+    /// perfect. The ink runs also do NOT line up into vertical stripes across the six rows, which is
+    /// what a sampling-phase artifact would look like.</item>
+    /// </list></para>
+    ///
+    /// <para><b>SO THIS SCAN SEPARATES EXACTLY THE THREE STATES THE ROUND WAS ASKED FOR</b>, per text
+    /// component, with the comparison count on the same line:
+    /// <list type="bullet">
+    /// <item><see cref="Entry.GlyphsNotInAtlas"/> — the font asset does NOT have the character, its
+    /// fallbacks included. Non-zero proves the atlas cannot serve the string, which is the dynamic
+    /// font atlas hypothesis, and it also proves that re-taking the capture is useless.</item>
+    /// <item><see cref="Entry.GlyphsNotVisible"/> — the text engine parsed the character and marked it
+    /// NOT VISIBLE (overflow truncation, missing-glyph replacement, a maxVisibleCharacters clamp).
+    /// The content is genuinely absent and the capture is faithful.</item>
+    /// <item><see cref="Entry.GlyphsBlankQuad"/> — the character is visible and its generated quad has
+    /// zero area: it holds its advance and draws nothing. <b>That is the exact shape of the
+    /// photograph</b>, so a non-zero value here IS the finding and a permanent zero retires the whole
+    /// family.</item>
+    /// </list>
+    /// A fourth state — the capture ran mid-repack, or ahead of the canvas rebuild — is counted at the
+    /// capture instant instead (<see cref="Entry.CapturesDuringFontRebuild"/>,
+    /// <see cref="Entry.CapturesBeforeCanvasUpdate"/>), because that is the only place the answer
+    /// exists.</para>
+    ///
+    /// <para><b>AND IT REPAIRS AS IT GOES.</b> A component that fails any of the three tests (or every
+    /// component, when <paramref name="repairAll"/> — a font atlas repack invalidates meshes that
+    /// still pass every test) re-requests its characters into the atlas and re-generates its mesh on
+    /// the spot. Forcing the regeneration is preferred over re-taking the capture blindly, because a
+    /// stale mesh re-captured is still a stale mesh. The counts reported are the PRE-repair state, so
+    /// the log says what was wrong and not merely that something ran.</para>
+    ///
+    /// <para>Never throws. Bounded by <see cref="MaxGlyphChecksPerScan"/> and
+    /// <see cref="MaxRegeneratePerScan"/>, and a scan that hit either bound says so
+    /// (<see cref="Entry.ContentScanTruncated"/>) rather than letting a truncated scan read clean.</para>
+    /// </summary>
+    private static void MeasureContent(Entry e, bool repairAll = false)
+    {
+        // FAIL SOFT, AND SAY SO. This scan calls into TextMeshPro and into uGUI's text generator on
+        // objects the mod does not own. An exception here must cost this scan and nothing else — it
+        // must NOT reach LateTick's catch, which stands the entire supersample path down and sends
+        // every floated window back to the shimmering direct rendering. A scan that threw is counted
+        // separately so it can never be read as a scan that came back clean.
+        try
+        {
+            MeasureContentCore(e, repairAll);
+        }
+        catch (System.Exception ex)
+        {
+            e.ContentScanFailures++;
+            TextWalk.Clear();
+            AtlasSb.Length = 0;
+            if (!e.ContentScanFailWarned)
+            {
+                e.ContentScanFailWarned = true;
+                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: the content-integrity scan on '{e.Window}' "
+                                  + $"threw ({ex.GetType().Name}: {ex.Message}). THE CONSEQUENCE: this "
+                                  + "window's CONTENT INTEGRITY field is stale from here on and its "
+                                  + "release repair does not regenerate text — the capture, the mip "
+                                  + "chain, the layer isolation and the still-window sharpness are "
+                                  + "all unaffected, and the failure count on the state line keeps a "
+                                  + "failed scan from reading as a clean one.");
+            }
+        }
+    }
+
+    private static void MeasureContentCore(Entry e, bool repairAll)
+    {
+        ConvertedPanel panel = e.Panel;
+        if (panel.HostGo == null)
+            return;
+        float started = Time.realtimeSinceStartup;
+
+        e.ContentScans++;
+        e.TextComponents = 0;
+        e.GlyphsChecked = 0;
+        e.GlyphsNotInAtlas = 0;
+        e.GlyphsNotVisible = 0;
+        e.GlyphsBlankQuad = 0;
+        e.WorstText = string.Empty;
+        e.WorstTextBad = 0;
+        e.WorstTextChecked = 0;
+        e.TextCulled = 0;
+        e.TextClean = 0;
+        e.ContentScanTruncated = false;
+        e.RegeneratedComponents = 0;
+        e.RegeneratedChars = 0;
+        AtlasSb.Length = 0;
+        int atlasesNamed = 0;
+        bool anyRepaired = false;
+
+        TextWalk.Clear();
+        TextWalk.Add(panel.HostGo.transform);
+        while (TextWalk.Count > 0)
+        {
+            int last = TextWalk.Count - 1;
+            Transform t = TextWalk[last];
+            TextWalk.RemoveAt(last);
+            if (t == null || !t.gameObject.activeInHierarchy)
+                continue;
+            if (ReferenceEquals(t, e.CamGo != null ? e.CamGo.transform : null))
+                continue;
+            bool isRoot = ReferenceEquals(t, panel.HostGo.transform);
+            // The same foreign-subtree rule the frame measurement and the layer sweep use, for the
+            // same reason: a real Renderer or a Camera in here belongs to somebody else.
+            if (!isRoot && (t.GetComponent<Renderer>() != null || t.GetComponent<Camera>() != null))
+                continue;
+
+            // ONE GetComponent, not two: a transform carries at most one Graphic, and both text
+            // families derive from it. On the party window this walk visits ~2700 transforms, so the
+            // difference is a whole millisecond of a release frame.
+            var graphic = t.GetComponent<Graphic>();
+            if (graphic is TMP_Text tmp)
+            {
+                if (ScanTmpText(e, tmp, repairAll, ref atlasesNamed))
+                    anyRepaired = true;
+            }
+            else if (graphic is Text legacy && ScanLegacyText(e, legacy, repairAll))
+            {
+                anyRepaired = true;
+            }
+
+            for (int i = t.childCount - 1; i >= 0; i--)
+                TextWalk.Add(t.GetChild(i));
+        }
+        TextWalk.Clear();
+
+        if (atlasesNamed == 0)
+            AtlasSb.Append("no font asset reached");
+        e.AtlasNote = AtlasSb.ToString();
+        AtlasSb.Length = 0;
+
+        // ONE canvas update for the whole batch, and only if anything was actually re-generated: a
+        // ForceUpdateCanvases per component would be N layout passes for one release.
+        if (anyRepaired)
+            Canvas.ForceUpdateCanvases();
+
+        e.ContentScanMs += (Time.realtimeSinceStartup - started) * 1000.0;
+    }
+
+    /// <summary>Scan (and if needed repair) one TextMeshPro component. Returns true if it regenerated.
+    /// <para>The ATLAS test reads the component's requested string, because that is what it ASKS for
+    /// and it is answerable whether or not a mesh was ever generated; the VISIBILITY and QUAD tests
+    /// read <c>textInfo</c>, because that is what it PRODUCED. The two together are what separates
+    /// "the font cannot serve this string" from "the font can and the mesh still draws nothing".</para></summary>
+    private static bool ScanTmpText(Entry e, TMP_Text t, bool repairAll, ref int atlasesNamed)
+    {
+        if (!t.isActiveAndEnabled)
+            return false;
+        string s = t.text;
+        if (string.IsNullOrEmpty(s))
+            return false;
+        e.TextComponents++;
+
+        int bad = 0;
+        int checkedHere = 0;
+        TMP_FontAsset? font = t.font;
+        if (font != null)
+        {
+            NoteTmpAtlas(font, ref atlasesNamed);
+            bool inTag = false;
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                // Crude but sufficient rich-text skip: a '<...>' run is markup, not glyphs, and
+                // counting it would inflate the comparison count with characters nothing draws.
+                if (c == '<') { inTag = true; continue; }
+                if (inTag) { if (c == '>') inTag = false; continue; }
+                if (char.IsWhiteSpace(c) || char.IsControl(c))
+                    continue;
+                if (e.GlyphsChecked >= MaxGlyphChecksPerScan)
+                {
+                    e.ContentScanTruncated = true;
+                    break;
+                }
+                e.GlyphsChecked++;
+                checkedHere++;
+                if (!font.HasCharacter(c, true, false))
+                {
+                    e.GlyphsNotInAtlas++;
+                    bad++;
+                }
+            }
+        }
+
+        TMP_TextInfo info = t.textInfo;
+        if (info != null && info.characterInfo != null)
+        {
+            int n = Mathf.Min(info.characterCount, info.characterInfo.Length);
+            for (int i = 0; i < n; i++)
+            {
+                TMP_CharacterInfo ci = info.characterInfo[i];
+                char c = ci.character;
+                if (char.IsWhiteSpace(c) || char.IsControl(c))
+                    continue;
+                if (!ci.isVisible)
+                {
+                    e.GlyphsNotVisible++;
+                    bad++;
+                    continue;
+                }
+                Vector3 bl = ci.vertex_BL.position;
+                Vector3 tr = ci.vertex_TR.position;
+                float area = Mathf.Abs((tr.x - bl.x) * (tr.y - bl.y));
+                if (area <= DegenerateQuadArea)
+                {
+                    e.GlyphsBlankQuad++;
+                    bad++;
+                }
+            }
+        }
+
+        NoteRendererState(e, t.canvasRenderer);
+
+        if (bad > e.WorstTextBad)
+        {
+            e.WorstTextBad = bad;
+            e.WorstTextChecked = checkedHere;
+            e.WorstText = Describe(t.gameObject.name, s);
+        }
+        if (bad == 0)
+            e.TextClean++;
+
+        if ((!repairAll && bad == 0) || e.RegeneratedComponents >= MaxRegeneratePerScan)
+        {
+            if (e.RegeneratedComponents >= MaxRegeneratePerScan)
+                e.ContentScanTruncated = true;
+            return false;
+        }
+
+        // THE REPAIR, in the order that makes it a repair rather than a retry: put the characters
+        // back in the atlas FIRST (a mesh regenerated against an atlas that still lacks them would
+        // come out exactly as broken), then re-parse and re-generate the mesh.
+        if (font != null && font.atlasPopulationMode == AtlasPopulationMode.Dynamic)
+            font.TryAddCharacters(s, out string _);
+        t.ForceMeshUpdate(true, true);
+        e.RegeneratedComponents++;
+        e.RegeneratedChars += s.Length;
+        return true;
+    }
+
+    /// <summary>Scan (and if needed repair) one legacy uGUI <see cref="Text"/>. The game's own UI is
+    /// TextMeshPro throughout (the hierarchy census in the hardware log reads
+    /// <c>[RectTransform, CanvasRenderer, TextMeshProUGUI, TextLocalizedListener]</c> on every label),
+    /// so this path exists for the mod's own labels and for completeness; it tests glyph availability
+    /// only, because legacy <c>TextGenerator</c> emits four vertices for whitespace as well and a
+    /// zero-area quad there is normal rather than a defect.</summary>
+    private static bool ScanLegacyText(Entry e, Text t, bool repairAll)
+    {
+        if (!t.isActiveAndEnabled)
+            return false;
+        Font? font = t.font;
+        string s = t.text;
+        if (font == null || string.IsNullOrEmpty(s))
+            return false;
+        e.TextComponents++;
+
+        int bad = 0;
+        int checkedHere = 0;
+        for (int i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (char.IsWhiteSpace(c) || char.IsControl(c))
+                continue;
+            if (e.GlyphsChecked >= MaxGlyphChecksPerScan)
+            {
+                e.ContentScanTruncated = true;
+                break;
+            }
+            e.GlyphsChecked++;
+            checkedHere++;
+            if (!font.GetCharacterInfo(c, out CharacterInfo _, t.fontSize, t.fontStyle))
+            {
+                e.GlyphsNotInAtlas++;
+                bad++;
+            }
+        }
+
+        NoteRendererState(e, t.canvasRenderer);
+
+        if (bad > e.WorstTextBad)
+        {
+            e.WorstTextBad = bad;
+            e.WorstTextChecked = checkedHere;
+            e.WorstText = Describe(t.gameObject.name, s);
+        }
+        if (bad == 0)
+            e.TextClean++;
+
+        if ((!repairAll && bad == 0) || e.RegeneratedComponents >= MaxRegeneratePerScan)
+            return false;
+        if (font.dynamic)
+            font.RequestCharactersInTexture(s, t.fontSize, t.fontStyle);
+        t.SetAllDirty();
+        e.RegeneratedComponents++;
+        e.RegeneratedChars += s.Length;
+        return true;
+    }
+
+    /// <summary>
+    /// Fingerprint a TextMeshPro font asset's atlas and detect a REPACK.
+    /// <para>TextMeshPro does NOT raise <see cref="Font.textureRebuilt"/> — that event belongs to the
+    /// legacy dynamic <see cref="Font"/> — so the hook in <see cref="InstallHooks"/> alone would be
+    /// blind to exactly the font family this game uses. Watching the atlas texture COUNT and the atlas
+    /// texture's instance id is the cheapest observation that changes when TMP grows or replaces an
+    /// atlas, and it is recorded into the same counters as the legacy event so one number answers
+    /// "did an atlas move under us".</para>
+    /// </summary>
+    private static void NoteTmpAtlas(TMP_FontAsset font, ref int atlasesNamed)
+    {
+        int id = font.GetInstanceID();
+        Texture atlas = font.atlasTexture;
+        int textureId = atlas != null ? atlas.GetInstanceID() : 0;
+        int count = font.atlasTextureCount;
+        if (TmpAtlasSeen.TryGetValue(id, out (int Count, int TextureId) seen))
+        {
+            if (seen.Count != count || seen.TextureId != textureId)
+            {
+                _fontRebuilds++;
+                _fontRebuildFrame = Time.frameCount;
+                _fontRebuildName = font.name;
+                ArmRebuildRepair();
+            }
+        }
+        TmpAtlasSeen[id] = (count, textureId);
+
+        if (atlasesNamed >= 3)
+            return;
+        if (atlasesNamed > 0)
+            AtlasSb.Append(", ");
+        atlasesNamed++;
+        AtlasSb.Append('\'').Append(font.name).Append("' ").Append(font.atlasPopulationMode)
+               .Append(' ').Append(font.atlasWidth).Append('x').Append(font.atlasHeight)
+               .Append(" x").Append(count).Append(" texture(s)");
+    }
+
+    /// <summary>
+    /// Count a text component that puts NO pixels into the capture for a reason that is not about
+    /// glyphs: uGUI/TMP has culled its <see cref="CanvasRenderer"/>, or its effective alpha is zero.
+    /// <para>Kept separate from every glyph counter on purpose — see <see cref="Entry.TextCulled"/>
+    /// for why "missing from the capture" and "captured and painted over" must not be allowed to
+    /// collapse into one number, and for the plain statement that NOTHING in this scan can see the
+    /// second of those.</para>
+    /// </summary>
+    private static void NoteRendererState(Entry e, CanvasRenderer? cr)
+    {
+        if (cr == null)
+            return;
+        if (cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f)
+            e.TextCulled++;
+    }
+
+    /// <summary>A component name plus the first few characters of its string, for the report. Bounded
+    /// so one pathological label cannot make the state line unreadable.</summary>
+    private static string Describe(string name, string text)
+    {
+        string trimmed = text.Length <= 28 ? text : text.Substring(0, 28) + "...";
+        return name + " (\"" + trimmed.Replace('\n', ' ') + "\")";
+    }
 }

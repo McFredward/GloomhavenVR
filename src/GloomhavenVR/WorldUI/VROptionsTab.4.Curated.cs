@@ -300,52 +300,28 @@ internal static partial class VROptionsTab
                         // Empty caption key: the localized name and the German description
                         // carry the row (see the window block above for the full argument).
                         new("WorldUI", "MapRoomHand", ""),
-                        // THE MAP ROOM'S THREE ICON-SIZE DIALS, on a curated page for the first
-                        // time at ModBuild 193. They were bound at 189 and reachable only through
-                        // the raw catalog, where [MapRoom] is too small a section to earn a heading
-                        // and gets swept into the "Allgemein" collector (ConfigCatalog.Pinned floats
-                        // them to the top of it, which is a rescue, not a home).
+                        // THE MAP ROOM'S FIVE SIZE DIALS USED TO SIT HERE — [MapRoom] IconScale /
+                        // CityIconScale / GloomhavenIconScale / PartyMarkerScale / PathWidthScale,
+                        // promoted onto this page at ModBuild 193 and 194 so the "separat
+                        // justieren" report could compare them side by side.
                         //
-                        // A CURATED ROW IS WHAT THE REPORT NEEDS, not just a nicety. The user asked
-                        // to be able to "separat justieren" the world map's symbols and the
-                        // Gloomhaven city map's symbols — which means comparing two numbers against
-                        // one map at a time. Three dials that only meet at the top of a grab-bag of
-                        // unrelated rows cannot be compared; three consecutive rows directly under
-                        // the switch that builds the room can. They sit under [Rig] Experimental3DMap
-                        // and [WorldUI] MapRoomHand for the same reason those two are adjacent: they
-                        // are properties OF the world that switch chooses, and the whole [MapRoom]
-                        // section folds under it (VROptionsTab.8.Dependencies, DependentSections),
-                        // so on a flat-map install these rows are simply not on screen.
+                        // THEY ARE GONE FROM THE CURATED PAGE AGAIN (user ruling, hardware:
+                        // "Symbolgrößen gehören ins ERWEITERT Menü!"). Nothing is lost by it and
+                        // nothing had to move: Erweitert is the catalog's own index, so every one of
+                        // the five is on Erweitert ▸ "Bild & Darstellung" the moment this list stops
+                        // naming them — and now that [MapRoom] contributes FIVE entries it clears
+                        // ConfigCatalog.MinClusterSize and gets its own heading there instead of
+                        // being swept into the "Allgemein" collector, which is what made a curated
+                        // row the rescue back at 193. The five stay adjacent, in the same reading
+                        // order, one navigation level deeper.
                         //
-                        // World map first, then city map, then the single Gloomhaven marker: that is
-                        // the order the player meets them in (you stand on the world map, you step
-                        // into the city, and the marker is the door between the two).
+                        // They still fold under [Rig] Experimental3DMap wherever they are shown
+                        // (VROptionsTab.8.Dependencies, DependentSections claims the whole [MapRoom]
+                        // section), so on a flat-map install they are off screen exactly as before.
                         //
-                        // Empty caption keys: the localized names in Loc.ConfigNames say which map
-                        // each row is ("Karte 3D: Symbole Weltkarte" / "… Stadtkarte" / "…
-                        // Gloomhaven-Marker") and the German descriptions carry the tooltip — see
-                        // the window block above for the full argument for not writing a second
-                        // copy of the same words here.
-                        new("MapRoom", "IconScale", ""),
-                        new("MapRoom", "CityIconScale", ""),
-                        new("MapRoom", "GloomhavenIconScale", ""),
-                        // AND THE TWO THINGS ON THE MAP THAT ARE NOT SYMBOLS (ModBuild 194, user:
-                        // "Ich will auch die Größe des Markers wo man sich befindet sowie des
-                        // eingezeichneten Weges von einem zum anderen Punkt einstellen können").
-                        // They belong on this page for the same reason the three above do — a size
-                        // dial is tuned by looking at the map and stepping the value, which needs
-                        // the rows to be reachable while the map room is up. Placed AFTER the icons
-                        // rather than interleaved: the icons are one family that is compared against
-                        // each other, and dropping two unrelated objects between them would break
-                        // exactly the comparison the previous report asked for. Marker before route
-                        // because that is the order of the sentence he asked in, and because the
-                        // marker is what you look at first on a map you have just opened.
+                        // DO NOT RE-PROMOTE without a fresh ruling: this is the second placement of
+                        // the same family, and the user named the destination himself.
                         //
-                        // Empty caption keys, same argument as the block above: the localized names
-                        // ("Karte 3D: Gruppen-Marker" / "Karte 3D: Wegbreite") and the German
-                        // descriptions carry the row.
-                        new("MapRoom", "PartyMarkerScale", ""),
-                        new("MapRoom", "PathWidthScale", ""),
                         // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194). He asked
                         // for them BY NAME and BY PLACE: "Geb mir dann im debug menu die offsets um
                         // ihm zu verschieben - ich stell es selber ein." THREE solved placements
@@ -723,6 +699,33 @@ internal static partial class VROptionsTab
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
             && string.Equals(item.Key, "Style", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Bounded numbers that must be edited with the ◀ / ▶ STEPPER even though they have both ends
+    /// declared and would therefore get a slider (see <c>BuildRow</c> in VROptionsTab.2.Rows.cs).
+    ///
+    /// <para>USER RULING (hardware, verbatim): "'Reiseknopf seitlich' und 'Reise-Knopf Höhe' sollen
+    /// keine Schieberegler sein, sondern die Pfeile, wo man den echten Wert einfach einstellen
+    /// kann." He is not describing a preference about bars. He is describing what these two dials
+    /// ARE FOR: three shipped placements of the travel-confirm button were rejected in a row
+    /// (ModBuild 191/192/193), the mod ships the 190 pose, and he sets the offset himself — "ich
+    /// stell es selber ein". That is a job of REPEATING one known amount and reading the number
+    /// back, and the two controls are not equally good at it. A slider's handle maps the whole
+    /// range onto a few centimetres of panel, so a hand at arm's length lands on whatever the ray
+    /// happens to hit and the same value can never be dialled twice; the stepper moves by a written
+    /// amount per press (<see cref="ConfigSteps"/>: 0.01 window heights for both) and the value
+    /// label beside the arrows is the number itself.</para>
+    ///
+    /// <para>THE RANGES ARE NOT TOUCHED and neither are the defaults — both stay 0, which is the
+    /// ModBuild 190 pose he asked to have back. This is the control, and nothing else.</para>
+    ///
+    /// <para>A table rather than a branch, for the reason <see cref="HasSpecialRow"/> is one: the
+    /// row kit stays free of knowledge about individual settings.</para>
+    /// </summary>
+    private static bool PrefersStepper(ConfigCatalog.ConfigItem item) =>
+        string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
+        && (string.Equals(item.Key, "TravelButtonOffsetXWindowHeights", StringComparison.Ordinal)
+            || string.Equals(item.Key, "TravelButtonOffsetYWindowHeights", StringComparison.Ordinal));
 
     private static bool TryBuildSpecialRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption,
                                            string? hintKey)

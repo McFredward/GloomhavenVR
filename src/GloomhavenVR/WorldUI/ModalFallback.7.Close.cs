@@ -732,6 +732,135 @@ internal static partial class ModalFallback
         UIWindowID.PartyAssemblyWindow,
     };
 
+    /// <summary>
+    /// THE PARENT WINS ON THE ENROLLED PATH TOO (ModBuild 196) — the equipment tab.
+    ///
+    /// <para>USER REPORT, verbatim: <i>"Kannst du bitte das Ausrüstungsmenü an das Character-UI
+    /// Fenster hängen statt dass es ein eigenes Fenster ist? Es ist ja quasi ein TAB der rechts an
+    /// den Charakteren hängt wenn man ihn öffnet — genau wie die Karten und die Charakter-Detail-
+    /// Ansicht. Die anderen Elemente öffnen sich korrekt im Fenster; das Ausrüstungsmenü ist die
+    /// Ausnahme."</i></para>
+    ///
+    /// <para>WHAT THE EQUIPMENT PANEL IS, from the decompiled game. <c>NewPartyDisplayUI</c> — the
+    /// map room's character screen — serialises FIVE sub-views side by side
+    /// (NewPartyDisplayUI.cs:70/76/79/82/85): <c>abilityCardsDisplay</c>
+    /// (<c>UIPartyCharacterAbilityCardsDisplay</c>), <c>perkManager</c> (<c>UIPerksWindow</c>),
+    /// <c>characterSelector</c> (<c>UIAdventurePartyAssemblyWindow</c>), <c>itemInventoryDisplay</c>
+    /// (<c>UIPartyCharacterEquipmentDisplay</c>) and <c>battleGoalSelector</c>
+    /// (<c>UIBattleGoalPickerWindow</c>). They are ONE screen's tabs: <c>OnItemsSelected</c> and
+    /// <c>OnCardsSelected</c> are the same method with a different sub-view
+    /// (NewPartyDisplayUI.cs:1028/922), both route through the same <c>TryHideCurrentDisplay</c>
+    /// single-tab discipline, and each sub-view aims a <c>VerticalPointerUI</c> at the character row
+    /// that opened it (UIPartyCharacterEquipmentDisplay.cs:492 <c>verticalPointer.PointAt(sourceUI)</c>,
+    /// which copies the button's WORLD y — a construction that only means anything while the two
+    /// live on the same canvas).</para>
+    ///
+    /// <para>FOUR OF THOSE FIVE ARE PROVEN CHILDREN OF THE FLOATED CHARACTER SCREEN, from the
+    /// ModBuild 195 hardware log (<c>.planning/debug/LogOutput.log</c>) — the party display's own
+    /// host measures them, adopts them, or was shown to strand them:</para>
+    /// <code>
+    ///   Adopted nested canvas 'UI Battle Goal Picker Window' in
+    ///     'GloomhavenVR.Panel_Modal_New Party display'                      ← battleGoalSelector
+    ///   Host rect fit '…Panel_Modal_New Party display': 328x1080 → 1920x1080 px …
+    ///     top (rendered rects): 'New Party display/New UIPerksWindow V…'    ← perkManager
+    ///   Host rect fit '…Panel_Modal_New Party display': 328x1080 → 1066x1080 px …
+    ///     top (rendered rects): 'Character Ability Cards Display Variant/Container'
+    ///                                                                       ← abilityCardsDisplay
+    ///   (ModBuild 184 log, quoted on IsMapRoomPermanent: closing 'New Party display' made
+    ///    'Campaign Adventure Party Assembly Variant' float on its own)       ← characterSelector
+    /// </code>
+    /// <para>The party display's own rect follows them in place — 328x1080 with no tab open,
+    /// 1066x1080 with the cards tab, 716x1080 with the enhancement tab — and its HIT RECT follows
+    /// with it (<c>HIT RECT '…New Party display' … DRAWN CONTENT 716x1080 … GROWN</c>). The fifth
+    /// sub-view, the equipment tab, is the ONLY one enrolled in <see cref="FallbackIds"/>, and the
+    /// enrolled poll runs BEFORE the catch-all where "the parent wins" lives — so it alone was
+    /// pulled out of the screen and re-parented onto a world host of its own
+    /// (<c>MODAL FALLBACK: window 'Character Items Equipment Content' (ID EquipmentItemsPanel)
+    /// opened without a VR conversion … → ModalUI + floating window</c>), which is the second window
+    /// in his screenshot.</para>
+    ///
+    /// <para>WHY IT WAS ENROLLED, AND WHETHER THAT REASON STILL HOLDS. The recorded reason is the
+    /// whole of the annotation on the entry: <i>"MODAL: UIPartyItemInventoryDisplay — equip/remove
+    /// item slots (:136); internal hover is tooltips only, never the window's Show."</i> That is an
+    /// answer to the test #16/#18 question <i>"is this a hover surface that would self-lock, or a
+    /// real interactive window?"</i> — asked of a set the set's own doc-comment scopes to windows
+    /// <i>"that demand user interaction when opened DURING A SCENARIO"</i>. It is a classification,
+    /// not a placement ruling: nothing there says the panel should be its own window, and the map
+    /// room did not exist when it was written. The classification still holds (the panel IS
+    /// interactive and IS not hover-shown) and is left standing — this rule changes only WHERE an
+    /// enrolled window is presented when it turns out to be a sub-view of a screen that is already
+    /// floated.</para>
+    ///
+    /// <para>AND IT NEEDS A REAL PARENT — the ModBuild 184 lesson, which is why this asks for a LIVE
+    /// FLOATED HOST rather than an open one. Suppressing a window because "the parent handles it"
+    /// showed the merchant NOWHERE when the parent was open but permanently un-floatable. Here the
+    /// test is <see cref="IsLiveFloatedHost"/>: an ancestor <c>UIWindow</c> that is in
+    /// <see cref="Converted"/> with a living panel and is not on its way out — i.e. a world-space
+    /// host that demonstrably exists this instant. If no such ancestor is found the window floats
+    /// exactly as it did before, so a hierarchy that is not what the log says costs nothing.</para>
+    ///
+    /// <para>LEVEL-TRIGGERED, like every other rule in this class: the window stays in
+    /// <see cref="Open"/> and this is re-asked every tick, so it floats by itself the moment its
+    /// host stops being one. MAP-ROOM SCOPED for the same reason the catch-all's rule is: in a
+    /// scenario the flat screen composites whatever is not floated, so nesting is not a visual
+    /// problem there and a change would have no report behind it.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing here goes on the wire. It decides which local GameObject a local
+    /// uGUI subtree is drawn under; no game state, no <c>NetProtocol</c> surface.</para>
+    /// </summary>
+    internal static bool RendersInsideFloatedAncestor(UIWindow? window)
+    {
+        if (window == null || !MapRoom.MapRoomDriver.Active)
+            return false;
+        // BLAST-RADIUS BOUND: the pause/Options/Compendium family is EXEMPT. Those are the windows
+        // ModBuild 180's ruling is about ("Anders als in Flat soll es hier möglich sein mehrere
+        // Fenster parallel offen zu haben") — windows the player opens deliberately and stands next
+        // to each other as objects on the table, never tabs of another screen. Reading the game's
+        // hierarchy for them is unnecessary risk: ESCMenu reaches UIOptionsWindow through
+        // Singleton, not a serialized child (ESCMenu.cs:137), and MainOptionOptions re-parents that
+        // window at RUNTIME in the main menu (MainOptionOptions.cs:20-25), i.e. its parent is not a
+        // stable thing to make a placement decision from. This rule exists for sub-views of ONE
+        // screen; it does not get to reinterpret the parallel-windows family.
+        if (NonBlockingMenus.Contains(window.ID) || MultiplayerRosterMenus.Contains(window.ID))
+            return false;
+        for (Transform? t = window.transform.parent; t != null; t = t.parent)
+        {
+            var above = t.GetComponent<UIWindow>();
+            if (above == null || ReferenceEquals(above, window) || !IsLiveFloatedHost(above))
+                continue;
+            if (NestedSubViewLogged.Add(window.name))
+                VRLog.Info("WorldUI", $"MODAL FALLBACK: '{window.name}' (ID {window.ID}) is NOT floated as "
+                                      + $"a window of its own — it is a SUB-VIEW nested inside '{above.name}' "
+                                      + $"(ID {above.ID}), which is already a live floated host, so this "
+                                      + "subtree is drawn and hit-tested INSIDE that window, where the game "
+                                      + "lays it out. The parent wins (ModBuild 181/184), now on the enrolled "
+                                      + "path too (ModBuild 196 — the equipment tab). The host's content fit "
+                                      + "and hit rect grow to include it and shrink again when it closes; the "
+                                      + "host is never re-placed (windows do not move once spawned).");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Is this window a floated world-space host RIGHT NOW — converted, panel alive, and
+    /// not already on its way out under the player's close? See
+    /// <see cref="RendersInsideFloatedAncestor"/> for why "open" is not good enough.</summary>
+    private static bool IsLiveFloatedHost(UIWindow above)
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!ReferenceEquals(wp.Window, above))
+                continue;
+            return wp.Panel.IsAlive && !wp.UserClosing;
+        }
+        return false;
+    }
+
+    /// <summary>Per-window-name latch for the sub-view Info line — one line per window type per
+    /// session (cleared by <c>CatchAllReset</c> alongside the catch-all's own latch).</summary>
+    private static readonly HashSet<string> NestedSubViewLogged = new();
+
     /// <summary>The windows the map room's parallel rule must NOT relax — see
     /// <see cref="MapRoomParallel"/>.</summary>
     private static readonly HashSet<UIWindowID> ConfirmationFamily = new()

@@ -137,6 +137,16 @@ internal static partial class ModalFallback
         // window out for a frame, which is the exact artifact this guard exists to prevent.
         if (IsConverted(window))
             return;
+        // A SUB-VIEW OF AN ALREADY-FLOATED SCREEN IS NEVER CONVERTED, SO IT MUST NEVER BE BLACKED
+        // OUT (ModBuild 196 — the equipment tab). This blackout buys exactly one thing: the frame
+        // between the game's Show() and the mod's conversion, during which a screen-space window
+        // would be drawn flat into the HMD. A window that renders inside a world-space host
+        // (RendersInsideFloatedAncestor) has no such frame — its subtree is already parented under
+        // the host, on the mod layer, so there is nothing flat to suppress. Blacking it out would
+        // instead make it invisible until the PreConvertHideMaxFrames budget expired and then log a
+        // warning about a window that was never meant to float.
+        if (RendersInsideFloatedAncestor(window))
+            return;
 
         PreHiddenWindow? entry = FindPreHidden(window);
         bool fresh = entry == null;

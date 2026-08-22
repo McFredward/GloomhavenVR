@@ -96,7 +96,83 @@ internal static partial class PanelSupersample
           .Append(e.NestedCaptured).Append('/').Append(e.NestedTotal)
           .Append(" nested canvas(es) on the capture layer.");
 
-        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 194. (A) 'ISOLATION' IS THE NEW HEADLINE AND IT "
+        AppendContentIntegrity(e);
+        AppendMotionBudget(e);
+
+        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 196 FIRST. (Z1) 'CONTENT INTEGRITY' IS THE "
+                  + "HEADLINE AND IT DECIDES THE BROKEN-ON-RELEASE REPORT ON ITS OWN. The user, after "
+                  + "195: 'beim Loslassen kann es passieren, dass die dargestellte Anzeige kaputt ist "
+                  + "... bewege ich es nochmal und lasse los, sieht es wieder anders aus'. The "
+                  + "photograph (.planning/debug/kaputte_anzeige.jpg) was MEASURED, not described: "
+                  + "the six stat labels lose individual GLYPHS while their LAYOUT stays exact (the "
+                  + "trailing colons of 'Verstärkungen:' and 'Verbesserungen:' are one character's "
+                  + "advance apart, so nothing was substituted or removed), the gaps read background "
+                  + "luminance (24 against a 20 background and a 147 ink, i.e. empty and not merely "
+                  + "dim), the gaps do NOT line up into vertical stripes across the rows, and the "
+                  + "SAME window's SMALLER text renders every character. THOSE FOUR MEASUREMENTS KILL "
+                  + "THE PRIOR DIAGNOSIS: this is not undersampled rasterization — minification dims "
+                  + "and blurs uniformly, it does not delete some glyphs of one label and leave a "
+                  + "smaller label perfect. What is left is that the characters keep their advances "
+                  + "and their quads put no pixels down. READ THE FIELD LIKE THIS. 'NOT IN THE FONT "
+                  + "ATLAS' non-zero => the font asset genuinely cannot serve the string, the "
+                  + "dynamic-atlas hypothesis is CONFIRMED, and re-taking the capture would be "
+                  + "useless (the repair re-requests the characters instead). 'marked NOT VISIBLE' "
+                  + "non-zero => the text engine itself decided not to draw them (overflow "
+                  + "truncation, a missing-glyph replacement, a maxVisibleCharacters clamp) and the "
+                  + "capture is FAITHFUL — the content really is absent. 'ZERO-AREA quad' non-zero => "
+                  + "the character is visible and draws nothing, which is EXACTLY the photograph, and "
+                  + "that is the finding. ALL THREE ZERO ACROSS A SESSION IN WHICH THE USER SEES THE "
+                  + "DEFECT RETIRES THE WHOLE FAMILY and the next round must look at the composite "
+                  + "(BuildDisplay's premultiplied-alpha note) or at the display sampling, not at the "
+                  + "text. A zero next to '0 glyph lookup(s)' is NOT the same statement — that is an "
+                  + "instrument that never ran, and the lookup count is printed for exactly that "
+                  + "reason. (Z1b) WHAT THIS FIELD DOES NOT MEASURE, STATED SO IT CANNOT BE "
+                  + "OVER-READ. Every glyph counter above measures the TEXT SOURCE — does the glyph "
+                  + "exist, did the layout mark it visible, does its quad have area — which is "
+                  + "upstream of both the capture and the composite. 'put NO pixels into the capture "
+                  + "at all' is the only field that speaks to whether a component draws, and it "
+                  + "catches exactly one cause (a culled CanvasRenderer or zero alpha). NOTHING HERE "
+                  + "CAN SEE A GRAPHIC THAT DREW CORRECTLY AND WAS THEN PAINTED OVER, and to a player "
+                  + "that is indistinguishable from a missing element. That question belongs to the "
+                  + "draw order — the 'display quad sortingOrder' field above and CanvasConversion's "
+                  + "own order ladder — so a clean CONTENT INTEGRITY scan is NOT evidence that "
+                  + "nothing is covering anything. For the record, the photograph this instrument was "
+                  + "built for rules occlusion out on its own: an occluder is a rectangle, and the "
+                  + "measured gaps are at CHARACTER granularity inside words, with ink on both sides "
+                  + "of each gap and no vertical alignment across the six rows. (Z2) 'COINCIDENCE AT THE CAPTURE INSTANT' answers the other two candidate "
+                  + "causes with counts instead of samples: captures that ran on the same frame as an "
+                  + "atlas repack, and captures that ran before uGUI's canvas rebuild. The second is "
+                  + "expected to be permanently 0 and is printed anyway, because a 0 with a "
+                  + "denominator is evidence and an absent line is not. 'ATLAS REPACKS THIS SESSION' "
+                  + "counts BOTH legacy Font.textureRebuilt events AND TextMeshPro atlas changes — TMP "
+                  + "does not raise that event, and this game's labels are TextMeshProUGUI throughout, "
+                  + "so a hook on the legacy event alone would have been blind to the only font family "
+                  + "that matters here. THE TMP HALF OF THAT COUNT HAS A LATENCY and the legacy half "
+                  + "does not: Font.textureRebuilt is an event and is exact to the frame, while a TMP "
+                  + "atlas change is DETECTED by fingerprinting the atlas texture count and id, which "
+                  + "only happens when this scan runs — on every release and once per report. So a "
+                  + "TMP repack is counted, and its repair does run, but its 'same frame as a capture' "
+                  + "coincidence cannot be attributed and will read 0 even when a repack occurred. "
+                  + "Read the REPACK COUNT for TMP and the COINCIDENCE COUNT for the legacy font. "
+                  + "(Z3) 'MOTION BUDGET' IS THE MOVING-FLICKER FIELD AND IT "
+                  + "REPLACES AN ARGUMENT WITH A MEASUREMENT. ModBuild 193's movement remedy — sweep "
+                  + "the capture layer EVERY frame while moving — is falsified as a fix and the 195 "
+                  + "log priced it: of the 23 sweeps that actually found a late transform, 22 ran on "
+                  + "the PERIODIC cadence and exactly ONE on the per-frame motion cadence, while the "
+                  + "sweep itself averaged 1.48-1.94 ms on a session whose frametime reads p50 17.33 "
+                  + "ms, p95 24.98, p99 29.93, max 51.75 against an 11.11 ms budget. Meanwhile the "
+                  + "INSTRUMENT SELF-CHECK field measured real drags at 12, 19, 33, 47, 74, 94, 122 "
+                  + "and 133 RENDERED eye pixels per frame — so a dragged window CANNOT survive a "
+                  + "dropped frame, and the per-frame sweep was spending a tenth of the frame "
+                  + "precisely when the frame could least afford it. The motion cadence is now "
+                  + "5 frames and the release is covered outright by the repair above. READ IT LIKE "
+                  + "THIS: if 'while MOVING' mean/worst is materially worse than 'while STILL' and "
+                  + "'over the threshold' is high, the moving flicker is DROPPED FRAMES against a "
+                  + "window travelling tens of pixels per frame — judder, which no filtering reaches "
+                  + "and which is chased in the frame budget, not on the panel surface. If the two "
+                  + "buckets are indistinguishable, the drag costs nothing extra and the complaint "
+                  + "must be a sampling one after all, which is what field (C) below measures. "
+                  + "(A) 'ISOLATION' WAS THE MODBUILD 194 HEADLINE AND IT "
                   + "ANSWERS THE USER'S REPORT THAT ONE WINDOW WAS DRAWING ANOTHER INSIDE ITSELF "
                   + "(.planning/debug/window_merge.jpg: the floated quest card showing the merchant "
                   + "window's item rows in its own rect). ModBuild 193 resolved ONE capture layer for "
@@ -248,6 +324,95 @@ internal static partial class PanelSupersample
         e.GeometryDirtyEvents = 0;
         e.MotionTicks = 0;
         e.MaxStepWorld = 0f;
+        e.MotionSweeps = 0;
+        e.MotionSweepMs = 0.0;
+        e.StillSweeps = 0;
+        e.StillSweepMs = 0.0;
+        e.MotionFrameSamples = 0;
+        e.MotionFrameMs = 0.0;
+        e.MotionFrameMsMax = 0f;
+        e.MotionFramesOverBudget = 0;
+        e.StillFrameSamples = 0;
+        e.StillFrameMs = 0.0;
+        e.StillFrameMsMax = 0f;
+        e.StillFramesOverBudget = 0;
+    }
+
+    /// <summary>
+    /// THE CONTENT-INTEGRITY FIELD — the ModBuild 196 answer to <i>"beim Loslassen kann es passieren,
+    /// dass die dargestellte Anzeige kaputt ist"</i>. Every number here carries the comparison count
+    /// it came from on the same line, because that is the only way "the instrument never ran",
+    /// "it ran and found nothing" and "it ran and found something" can be told apart in a log.
+    /// </summary>
+    private static void AppendContentIntegrity(Entry e)
+    {
+        int totalBad = e.GlyphsNotInAtlas + e.GlyphsNotVisible + e.GlyphsBlankQuad;
+        Sb.Append(" CONTENT INTEGRITY (the 'kaputte Anzeige' instrument): ").Append(e.ContentScans)
+          .Append(" scan(s) so far at ")
+          .Append((e.ContentScans > 0 ? e.ContentScanMs / e.ContentScans : 0.0).ToString("F2"))
+          .Append(" ms each (").Append(e.ContentScanFailures)
+          .Append(" of them THREW and measured nothing); the LAST scan walked ").Append(e.TextComponents)
+          .Append(" text component(s) and made ").Append(e.GlyphsChecked)
+          .Append(" glyph lookup(s), finding ").Append(totalBad).Append(" defect(s) = ")
+          .Append(e.GlyphsNotInAtlas).Append(" character(s) NOT IN THE FONT ATLAS (fallbacks "
+                  + "searched), ").Append(e.GlyphsNotVisible)
+          .Append(" parsed but marked NOT VISIBLE, ").Append(e.GlyphsBlankQuad)
+          .Append(" visible with a ZERO-AREA quad (threshold ").Append(DegenerateQuadArea.ToString("G3"))
+          .Append(" local units squared); ").Append(e.TextClean).Append(" of ")
+          .Append(e.TextComponents).Append(" component(s) were completely clean and ")
+          .Append(e.TextCulled)
+          .Append(" put NO pixels into the capture at all (CanvasRenderer culled or zero alpha — a "
+                  + "different fault from a missing glyph, and NOT the same as being drawn and then "
+                  + "painted over, which nothing in this scan can see)")
+          .Append(e.ContentScanTruncated
+              ? "; THE SCAN WAS TRUNCATED at " + MaxGlyphChecksPerScan + " lookups / "
+                + MaxRegeneratePerScan + " regenerations, so these are LOWER BOUNDS"
+              : "; the scan ran to completion, so these are totals")
+          .Append(". Worst component: ")
+          .Append(e.WorstTextBad > 0
+              ? e.WorstText + " with " + e.WorstTextBad + " defect(s) of " + e.WorstTextChecked
+                + " lookup(s)"
+              : "none — every component was clean")
+          .Append(". FONT ATLASES behind this window: ").Append(e.AtlasNote)
+          .Append(". REPAIRS: ").Append(e.ReleaseRepairs)
+          .Append(" release repair(s) (2 per release: one ").Append(ReleaseSettleFrames)
+          .Append(" frame(s) after the last change and one at ").Append(ReleaseSecondRepairFrames)
+          .Append("), ").Append(e.RebuildRepairs)
+          .Append(" font-atlas-repack repair(s); the last one re-requested ")
+          .Append(e.RegeneratedChars).Append(" character(s) across ").Append(e.RegeneratedComponents)
+          .Append(" component(s). COINCIDENCE AT THE CAPTURE INSTANT: ").Append(e.CaptureTicks)
+          .Append(" capture(s) examined, of which ").Append(e.CapturesDuringFontRebuild)
+          .Append(" ran on the same frame as a font atlas repack and ")
+          .Append(e.CapturesBeforeCanvasUpdate)
+          .Append(" ran BEFORE uGUI's canvas rebuild for that frame (expect 0 — the capture camera "
+                  + "renders inside the camera loop, which Unity runs after "
+                  + "PostLateUpdate.PlayerUpdateCanvases). ATLAS REPACKS THIS SESSION: ")
+          .Append(_fontRebuilds).Append(_fontRebuilds > 0 ? ", last on '" + _fontRebuildName + "'" : "")
+          .Append('.');
+    }
+
+    /// <summary>
+    /// THE MOTION BUDGET FIELD — what this class costs during a drag, split from what it costs at
+    /// rest, against a stated threshold.
+    /// </summary>
+    private static void AppendMotionBudget(Entry e)
+    {
+        float motionAvg = e.MotionFrameSamples > 0 ? (float)(e.MotionFrameMs / e.MotionFrameSamples) : 0f;
+        float stillAvg = e.StillFrameSamples > 0 ? (float)(e.StillFrameMs / e.StillFrameSamples) : 0f;
+        float motionSweep = e.MotionSweeps > 0 ? (float)(e.MotionSweepMs / e.MotionSweeps) : 0f;
+        float stillSweep = e.StillSweeps > 0 ? (float)(e.StillSweepMs / e.StillSweeps) : 0f;
+        Sb.Append(" MOTION BUDGET (this 10 s window, threshold ").Append(FrameBudgetMs.ToString("F2"))
+          .Append(" ms = one 90 Hz frame): while MOVING, ").Append(e.MotionFrameSamples)
+          .Append(" frame(s) sampled, mean ").Append(motionAvg.ToString("F2")).Append(" ms, worst ")
+          .Append(e.MotionFrameMsMax.ToString("F2")).Append(" ms, ").Append(e.MotionFramesOverBudget)
+          .Append(" over the threshold; while STILL, ").Append(e.StillFrameSamples)
+          .Append(" frame(s) sampled, mean ").Append(stillAvg.ToString("F2")).Append(" ms, worst ")
+          .Append(e.StillFrameMsMax.ToString("F2")).Append(" ms, ").Append(e.StillFramesOverBudget)
+          .Append(" over the threshold. THIS CLASS'S OWN SHARE: ").Append(e.MotionSweeps)
+          .Append(" layer sweep(s) while moving at ").Append(motionSweep.ToString("F2"))
+          .Append(" ms each (cadence ").Append(MovingSweepIntervalFrames).Append(" frame(s)) and ")
+          .Append(e.StillSweeps).Append(" while still at ").Append(stillSweep.ToString("F2"))
+          .Append(" ms each (cadence ").Append(SweepIntervalFrames).Append(" frame(s)).");
     }
 
     /// <summary>

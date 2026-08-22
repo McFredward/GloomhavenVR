@@ -847,14 +847,34 @@ internal static class ConfigCatalog
     /// </summary>
     private static int Pinned(string section, string key)
     {
-        // [MapRoom] contributes only two entries, which is below MinClusterSize — FoldSmallGroups
-        // therefore sweeps them into the topic's "Allgemein" collector, where they would sit
-        // alphabetically among ~20 unrelated rows. Pinning floats both to the TOP of that group, so
-        // "im Debugmenu eine Option ... das ich sie größer machen kann" is the first thing on the
-        // page rather than something to be hunted for. Two entries do not justify inventing a
-        // third to earn a heading.
+        // [MapRoom] ONCE contributed two entries, below MinClusterSize, so FoldSmallGroups swept
+        // them into the topic's "Allgemein" collector and this pin was a rescue: it floated them to
+        // the top of a grab-bag. The section ships FIVE dials now, clears the threshold and owns its
+        // own heading — so the pin has stopped being a rescue and has become what it should have
+        // been all along, THE READING ORDER OF THE FAMILY.
+        //
+        // WHY THE ORDER IS WRITTEN DOWN RATHER THAN LEFT ALPHABETICAL. These five became the only
+        // door to the map dials when the user sent them here ("Symbolgrößen gehören ins ERWEITERT
+        // Menü!", ModBuild 196) — the curated rows on Grafik are gone, see VROptionsTab.4.Curated.
+        // Sorting them by Display splits the two dials the PREVIOUS report exists to compare:
+        // "Symbole Weltkarte" and "Symbole Stadtkarte" would end up two marker rows apart, because
+        // "Gloomhaven-Marker" and "Gruppen-Marker" sort between them. The user asked to be able to
+        // "separat justieren" world-map symbols against city-map symbols, which means seeing both
+        // numbers at once. So: the two icon populations first and adjacent, then the capital's
+        // marker (the door between the two maps), then the two things on the map that are not
+        // symbols, marker before route — the same order the curated page shipped.
         if (section == "MapRoom")
-            return key == "IconScale" ? 0 : 1;
+        {
+            return key switch
+            {
+                "IconScale" => 0,
+                "CityIconScale" => 1,
+                "GloomhavenIconScale" => 2,
+                "PartyMarkerScale" => 3,
+                "PathWidthScale" => 4,
+                _ => 5,
+            };
+        }
         if (section == "Perf")
         {
             return key switch
@@ -1068,6 +1088,7 @@ internal static class ConfigCatalog
         "Elements" => Loc.Mod("cfg_sec_elements"),
         "Haunt" => Loc.Mod("cfg_sec_haunt"),
         "EnvSound" => Loc.Mod("cfg_sec_envsound"),
+        "MapRoom" => Loc.Mod("cfg_sec_maproom"),
         "FigureGrab" => Loc.Mod("figure_offsets"),
         // Reached since per-variant keys group by SECTION rather than by the hand style in their
         // name; without it a German menu would head the block with the English "Hands".

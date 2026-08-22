@@ -126,6 +126,54 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 196** (bundle UNCHANGED — plugin DLL only) — the 12 ms was one `FindObjectOfType` call,
+  and the item overlay was never faint, it was underneath. *(Eight workers.)* **Nothing on the wire.**
+  * **THE 50 Hz WAS ONE LINE.** 195's 19-phase instrument answered on its first hardware run:
+    `ModalFallback.Destinations 12.619ms (99%)`, every other phase under 0.02 ms.
+    `GuildmasterDestinations.Hud()` was `Object.FindObjectOfType<UIGuildmasterHUD>(true)` as the FIRST
+    statement of `Reconcile`, before any map-room gate — a whole-scene sweep at 90 Hz, while
+    `UIGuildmasterHUD : Singleton<>` has had a static `Instance` all along. **The SHAPE proves it, not
+    just the source:** across 33 breakdown lines the cost RISES 2.63 → 13.2 ms with the room active. A
+    scene sweep gets dearer as the room loads; a cadence spike does not. Nothing became edge-triggered —
+    once discovery is O(1) there is nothing expensive left to move, so there is no new edge set that
+    could be incomplete. A DISCOVERY BASELINE runs the removed call once per room entry and prints the
+    ratio, so the next log proves the fix without trusting us.
+  * **EQUAL IS NOT A TIE, IT IS A LOSS.** The equipment item overlay was not transparent — it was
+    BEHIND the rows. A canvas with `overrideSorting` is sorted as its own entry (layer → order →
+    distance) and **never by hierarchy**, so `RaiseToWindowTop` is inert on it; and the conceded branch
+    pinned `sortingOrder` EQUAL to the host, where the tie falls to distance — which `Flatten` has
+    already exhausted by making the box coplanar. Now host + 1. The **photograph could not settle it**:
+    0.27× attenuation fits alpha 0.27 and full alpha behind 73 %-opaque rows equally well; what settled
+    it was the card vanishing completely under opaque bands and bleeding through only where row art is
+    thin. Our own `DrawOrderEvidence` had called the window healthy by testing `order < host`.
+  * **A LAYOUT GROUP HAS OWNED THE TRAVEL BUTTON SINCE 190.** Solving 15 logged placements for the
+    anchor they imply: 12 land on `Vector2.up`, 3 on the bottom-centre anchor `Park` writes — and those
+    3 are each the FIRST tick of a parking. That is `LayoutGroup.SetChildAlongAxisWithScale`, which also
+    writes `anchoredPosition`; uGUI rebuilds AFTER LateUpdate while we write in Update. **This settles
+    the 193-vs-194 contradiction: both were sampled in the two different anchor states, so both of my
+    build notes were wrong in opposite directions.** Fixed by removing the other writer's authority
+    (`LayoutElement.ignoreLayout`) and by placing the PIVOT instead of writing an anchor.
+  * **A FIT THAT CHANGES WHAT IT MEASURES NEVER SETTLES.** 146 fits on the quest popup, **142 of them
+    size-neutral**. The check measures the relaxed layout; the apply calls
+    `ForceRebuildLayoutImmediate`, re-measures the inflated one, declares CONVERGED and writes back what
+    was there. The settle gate had said so from frame one (`forced rebuild changed the measurement 18x`
+    on all three opens, where every other window reads 0x). Forced rebuilds 291 → 17.
+  * **A STATE PROBE CANNOT SEE A SCALING MODE.** Third round on the party marker. 195 had already
+    proved the transform write landed and stuck with nobody fighting it — and the marker stayed small,
+    because `P_MapToken` is a **ParticleSystemRenderer** and in `ScalingMode.Shape` the transform scales
+    only where particles are BORN. Two rounds of "the write landed" were all correct and all useless.
+  * **AN INSTRUMENT MAY NOT EDITORIALISE.** Our hover verdict ended "…the flat game shows nothing here
+    either." False — `MapChoreographer.cs:1263-1274` opens the city map on the capital. That
+    half-sentence had been arguing a real user-reported defect away every time it printed.
+  * **FOUR EXPLANATIONS FALSIFIED, ROOT CAUSE DELIBERATELY NOT SETTLED.** The broken-on-release image is
+    not undersampling (the same window's SMALLER text is perfect while `Gold:` becomes "Go"), not
+    occlusion (character-granularity gaps inside words, no vertical alignment), not substitution (the
+    colons sit exactly one character advance apart), not the α² composite (the plates are opaque). That
+    leaves text generation — and **which** case needs hardware, so no remedy was guessed; the instrument
+    that separates them shipped instead, including "visible glyph with a ZERO-AREA quad".
+  * **193's MOVEMENT SWEEP WAS A NET LOSS:** 22 of 23 late arrivals were caught by the ordinary cadence;
+    the per-frame motion sweep found one all session, at 1.48–1.94 ms every frame of every drag.
+
 - **ModBuild 195** (bundle UNCHANGED — plugin DLL only) — the mod has been running at ~50 Hz, and a
   raycaster we add blocked a destroy the game keeps asking for. *(Six workers.)* **Nothing on the wire.**
   * **THE REGRESSION WAS MINE, INDIRECTLY.** The click was never lost (15 `uGUI click: 'Adventure

@@ -652,6 +652,7 @@ internal static partial class ModalFallback
         UnknownShown.Clear();
         CatchAllWarned.Clear();
         AncestorRefusalWarned.Clear();
+        NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

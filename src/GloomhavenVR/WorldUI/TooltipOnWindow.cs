@@ -502,7 +502,10 @@ internal static class TooltipOnWindow
         + $"homeDead={_raisesDroppedHomeDead} declinedForeign={_raisesDeclinedForeign} "
         + $"bySweep={_raisesReleasedBySweep} showEdgesWithNoWidget={_showEdgesWithNoWidget} "
         + $"flagRepairs={_previewFlagRepairs} leakedCanvasesCleared={_leakedCanvasesCleared} "
-        + $"flattenRecords={Flattened.Count}";
+        + $"flattenRecords={Flattened.Count} | SHOWS judged={_showsJudged} "
+        + $"neverDisplayed={_showsNeverDisplayed} offWindow={_showsOffWindow} "
+        + $"transparent={_showsTransparent} displayable={_showsDisplayable} "
+        + $"awaitingVerdict={ShowWatches.Count}";
 
     // ---- the family table --------------------------------------------------------------------
     // Matched BY COMPONENT TYPE, never by name. UILocalTooltip is listed as the base on purpose:
@@ -543,19 +546,43 @@ internal static class TooltipOnWindow
     private static readonly List<Known> Live = new(16);
     private static int _scanFrame = int.MinValue;
 
-    /// <summary>Kinds whose "matched + placed" evidence line was already written (once per kind per
-    /// session — the steady state of a held hover must not allocate a log line per frame).</summary>
-    private static readonly HashSet<string> PlacedLogged = new();
+    // ---- THE DEDUP KEYS, AND WHY THEY ARE INSTANCE-BASED (ModBuild 196) ------------------------
+    //
+    // EVERY ONE OF THESE USED TO BE KEYED ON THE *KIND* — a compile-time literal — AND THAT MADE THE
+    // INSTRUMENT LIE BY OMISSION. There is one `UIPartyItemInventoryTooltip` in the merchant's window,
+    // one in the character screen's equipment view and one in the item-swap inventory; they are three
+    // separate objects on three separate parents, and they were all sharing the single log key
+    // "UIPartyItemInventoryTooltip (item card hint)". The merchant's is the one that gets hovered
+    // first in a normal session, so it claimed the key, wrote a HEALTHY line — 0 later painters, 0
+    // clippers, order 132 — and every subsequent measurement of the two BROKEN ones was silently
+    // discarded. The ModBuild-195 hardware log therefore contains exactly one item-tooltip evidence
+    // line, it describes the window that works, and it reads as coverage of a family that was
+    // two-thirds broken. That is the "sort -u | head shows the mode, not the distribution" failure
+    // again, and it cost this investigation a whole round.
+    //
+    // The keys below are per OBJECT (and, where the object is shared, per object AND window), so N
+    // distinct widgets produce N lines and a window that was never measured is visibly absent rather
+    // than invisibly overwritten. The sets stay bounded: a session has a handful of tooltip
+    // instances, and instance IDs are ints, so the steady state is still one allocation-free lookup.
 
-    /// <summary>Slot kinds whose "hover produced nothing" verdict was already written.</summary>
-    private static readonly HashSet<string> SilentLogged = new();
+    /// <summary>Widget rect instance IDs whose "matched + placed" evidence line was already written
+    /// (once per WIDGET per session — the steady state of a held hover must not allocate a log line
+    /// per frame, but two different widgets must never share one line).</summary>
+    private static readonly HashSet<int> PlacedLogged = new();
 
-    /// <summary>Kinds whose screen-fit cut was already reported (written from the patch).</summary>
-    private static readonly HashSet<string> CutLogged = new();
+    /// <summary>(slot kind, owning-window instance ID) pairs whose "hover produced nothing" verdict
+    /// was already written. The WINDOW is in the key because the same slot kind appears in several
+    /// windows and only some of them fail.</summary>
+    private static readonly HashSet<(string Kind, int Window)> SilentLogged = new();
 
-    /// <summary>Rect names whose raise was DECLINED because the box is anchor-stretched to its
+    /// <summary>(helper, rect instance ID) pairs whose screen-fit cut was already reported (written
+    /// from the patch). Keyed on the RECT as well as the helper: the four helpers are shared by every
+    /// family, so helper-only keys reported the first rect that happened to ask and nothing else.</summary>
+    private static readonly HashSet<(string Helper, int Rect)> CutLogged = new();
+
+    /// <summary>Rect instance IDs whose raise was DECLINED because the box is anchor-stretched to its
     /// parent (see <see cref="RaiseToWindowTop"/>) — one line each, never per frame.</summary>
-    private static readonly HashSet<string> StretchLogged = new();
+    private static readonly HashSet<int> StretchLogged = new();
 
     // ---- the silent-hover watch ---------------------------------------------------------------
     private static bool _hoverPending;
@@ -575,6 +602,10 @@ internal static class TooltipOnWindow
     private static readonly Vector3[] BoxCorners = new Vector3[4];
     private static readonly Vector3[] WinCorners = new Vector3[4];
     private static readonly List<Transform> SubtreeScratch = new(128);
+
+    /// <summary>Graphics of one tooltip subtree, for the engine half of <see cref="AlphaChain"/>.
+    /// Separate from <see cref="SubtreeScratch"/> because the two are alive at the same time.</summary>
+    private static readonly List<Graphic> SubtreeGraphics = new(64);
 
     /// <summary>
     /// PER-FRAME, AND DELIBERATELY ONLY THE TWO COMPONENTS NO GAME WRITER RE-ASSERTS: local rotation
@@ -617,6 +648,7 @@ internal static class TooltipOnWindow
         }
 
         TickSilentHoverWatch();
+        TickShowWatches();
         TickLedger();
     }
 
@@ -635,7 +667,9 @@ internal static class TooltipOnWindow
         int signature = _raisesTaken * 31 + _raisesReleased * 17 + Raised.Count * 13
                         + _raisesDroppedHomeDead * 7 + _raisesDeclinedForeign * 5
                         + _raisesReleasedBySweep * 3 + _showEdgesWithNoWidget * 11
-                        + _previewFlagRepairs * 19 + _leakedCanvasesCleared * 23;
+                        + _previewFlagRepairs * 19 + _leakedCanvasesCleared * 23
+                        + _showsJudged * 29 + _showsNeverDisplayed * 37 + _showsOffWindow * 41
+                        + _showsTransparent * 43 + _showsDisplayable * 47;
         if (signature == _ledgerSignature)
             return;
         _ledgerSignature = signature;
@@ -670,7 +704,17 @@ internal static class TooltipOnWindow
             + "continues, the canvases are leaking again by some other route and 'Can't add component "
             + "'Canvas' to Full' will be back in the log right beside it. flattenRecords: the size of "
             + "the flatten undo list — bounded by the live pooled subtree, so it plateaus; a number that "
-            + "grows for ever is a prune that stopped working.");
+            + "grows for ever is a prune that stopped working. THE SHOWS BLOCK is the second half and "
+            + "it answers a different question: 'judged' counts item-tooltip show requests that were "
+            + "parked and then judged against the widget's observable state, and the four outcomes "
+            + "after it MUST sum to it. neverDisplayed = the widget was destroyed or never switched on "
+            + "(nothing in this class could have helped). offWindow = it is opaque and active but does "
+            + "not overlap its own window, i.e. the in-plane clamp did not run for it. transparent = "
+            + "it is up, in place, and at alpha ~0 — the EFFECTIVE ALPHA line names the CanvasGroup "
+            + "responsible. displayable = it is up, opaque and on the window, so anything still unseen "
+            + "is DRAW ORDER and the SORTING VERDICT is the answer. A judged count of ZERO while the "
+            + "player reports hovering is not 'nothing wrong': it means the show path was never "
+            + "reached at all, which is a MISSING patch rather than a failing one.");
     }
 
     /// <summary>
@@ -748,7 +792,7 @@ internal static class TooltipOnWindow
         _lastSettleWindow = owner;
         _lastSettleFrame = Time.frameCount;
 
-        if (!PlacedLogged.Add(kind))
+        if (!PlacedLogged.Add(rect.GetInstanceID()))
             return;
         Vector3 lossy = host.lossyScale;
         VRLog.Info(Scope, DrawOrderEvidence(rect, owner, raiseNote));
@@ -809,26 +853,199 @@ internal static class TooltipOnWindow
                    ? $"(its own canvas '{nested!.name}' has overrideSorting TRUE, so that number IS its order)"
                    : $"(inherited from the host — nearest canvas '{(nested != null ? nested.name : "<none>")}' "
                      + "has overrideSorting false, so HIERARCHY order decides)")
-               + $", host canvas order {hostOrder}. "
+               + $", host canvas order {hostOrder}. {SortingVerdict(nested, owner, overriding, drawOrder, hostOrder)} "
                + $"STILL PAINTING AFTER IT inside this window's content: {painters} sibling(s) on its "
                + $"whole ancestor chain up to the window root. CLIPPERS it is still a descendant of "
                + $"(enabled RectMask2D / stencil Mask between it and the host, named): {clippers}. "
+               + AlphaChain(rect, owner) + " "
                + "READ IT LIKE THIS, AND IT ANSWERS THE WHOLE QUESTION WITHOUT GUESSING: 0 later "
-               + "painters + 0 clippers + order at or above the host order = the box is genuinely on "
-               + "top of its window and anything still invisible is NOT a draw-order or clipping "
-               + "problem (look at activity, alpha or the raise being declined). A NON-ZERO painter "
-               + "count means the raise did not reach the top level — the box is still nested inside "
-               + "window content and that content paints over it, which is the ModBuild-190 failure "
-               + "verbatim. A NON-ZERO clipper count naming a scroll VIEWPORT means the box is still "
-               + "cut to that viewport, which for a hint drawn BESIDE its row means cut away "
-               + "entirely; a count naming only the window root itself is benign (that clip is the "
-               + "window frame, and the in-plane clamp already keeps the box inside it). An "
-               + "overrideSorting-TRUE canvas whose order is BELOW the host order is the one outcome "
-               + "this class cannot fix by reparenting — a canvas that overrides sorting ignores "
-               + "hierarchy — and that one does belong to the nested-canvas adoption "
-               + "(CanvasConversion.2.Adopt.cs / ReassertAdoptedSorting's conceded branch). "
+               + "painters + 0 clippers + effective alpha 1.000 + order STRICTLY ABOVE the host order "
+               + "(or hierarchy order with the flag cleared) = the box is genuinely on top of its "
+               + "window and anything still invisible is NOT a draw-order, clipping or alpha problem "
+               + "(look at activity or the raise being declined). A NON-ZERO painter count means the "
+               + "raise did not reach the top level — the box is still nested inside window content "
+               + "and that content paints over it, which is the ModBuild-190 failure verbatim. A "
+               + "NON-ZERO clipper count naming a scroll VIEWPORT means the box is still cut to that "
+               + "viewport, which for a hint drawn BESIDE its row means cut away entirely; a count "
+               + "naming only the window root itself is benign (that clip is the window frame, and "
+               + "the in-plane clamp already keeps the box inside it). AN EFFECTIVE ALPHA BELOW 1 IS "
+               + "READ OFF THE CHAIN ABOVE, WHICH NAMES ITS OWN CULPRIT — that is the whole point of "
+               + "printing the factors rather than the product. "
                + "AND THE DECAY, AS NUMBERS, AT THIS MOMENT: " + RaiseLedger()
                + " — the full reading of every counter is at the RAISE LEDGER line.";
+    }
+
+    /// <summary>
+    /// THE ONE VERDICT THE PREVIOUS VERSION OF THIS LINE GOT WRONG, AND IT PASSED A BROKEN WINDOW AS
+    /// HEALTHY FOR A WHOLE BUILD. The old reading said <i>"an overrideSorting-TRUE canvas whose order
+    /// is BELOW the host order is the one outcome this class cannot fix by reparenting"</i> — strictly
+    /// below. The ModBuild-195 hardware log measures the character screen's item hint at
+    /// <c>order=132 override=True</c> against <c>host order 132</c>: EQUAL, not below, so that sentence
+    /// declared it fine. It is not fine, and the screenshot proves it — every row of the window paints
+    /// over the card.
+    ///
+    /// <para>EQUAL IS A LOSS, NOT A TIE, AND THE REASON IS THAT THESE ARE WORLD-SPACE CANVASES. Unity
+    /// sorts transparent geometry by sortingLayer → sortingOrder → distance, and a nested canvas with
+    /// <c>overrideSorting</c> becomes its OWN entry in that sort rather than part of its parent's
+    /// depth-first walk. At an equal <c>sortingOrder</c> the tie therefore falls through to distance —
+    /// and <see cref="Flatten"/> puts this box exactly COPLANAR with its host by construction, so the
+    /// distance is a tie too and the winner is whatever stable order the renderer already had.
+    /// Hierarchy — the only thing <see cref="RaiseToWindowTop"/> can write — is not consulted at all,
+    /// which is why the raise is INERT for a canvas in this state however many times it is
+    /// re-asserted.</para>
+    ///
+    /// <para>WHO OWNS THE NUMBER, so the next round does not look for it here: the adoption conceded
+    /// the FLAG to a game writer that kept setting it (ModBuild 179, the "flackert stark" write war)
+    /// and took the ORDER instead, pinning it to <c>host.sortingOrder</c> every frame
+    /// (<c>CanvasConversion.ReassertAdoptedSorting</c>, the <c>ConcededOverrideSorting</c> branch).
+    /// Pinning a tooltip EQUAL to its host is what produces this state; the widget's whole contract is
+    /// "draw above my window's content", and equal cannot express that. This class deliberately writes
+    /// neither the flag nor the number — a second per-frame writer of a sorting value is exactly the
+    /// alternating value that made the two MultiPass eyes disagree — so it MEASURES and names the
+    /// owner instead.</para>
+    /// </summary>
+    private static string SortingVerdict(Canvas? nested, ConvertedPanel owner, bool overriding,
+        int drawOrder, int hostOrder)
+    {
+        if (!overriding)
+            return "SORTING VERDICT: OK — the flag is clear, so hierarchy order decides and the raise above is what places this box.";
+
+        bool conceded = false;
+        for (int i = 0; i < owner.AdoptedCanvases.Count; i++)
+        {
+            if (!ReferenceEquals(owner.AdoptedCanvases[i].Canvas, nested))
+                continue;
+            conceded = owner.AdoptedCanvases[i].ConcededOverrideSorting;
+            break;
+        }
+
+        if (drawOrder > hostOrder)
+        {
+            return $"SORTING VERDICT: OK — the flag is set but the order ({drawOrder}) is STRICTLY ABOVE "
+                   + $"the host's ({hostOrder}), so this canvas wins the sort on its own"
+                   + (conceded ? " (adoption state: CONCEDED — the mod owns this number)." : ".");
+        }
+
+        return $"SORTING VERDICT: **THIS BOX CANNOT BE SEEN, AND THE RAISE ABOVE IS INERT** — its own "
+               + $"canvas has overrideSorting TRUE at order {drawOrder} against a host at {hostOrder}, "
+               + $"i.e. {(drawOrder == hostOrder ? "EQUAL TO" : "BELOW")} the window it is supposed to "
+               + "draw on top of. An overriding canvas is sorted as its own entry (sortingLayer -> "
+               + "sortingOrder -> distance) and never by hierarchy, and this box is coplanar with its "
+               + "host, so BOTH tiebreakers are exhausted and the window's own content paints over the "
+               + "card. EQUAL IS A LOSS, NOT A TIE — the previous version of this verdict tested for "
+               + "'below' only and passed exactly this state as healthy. "
+               + (conceded
+                   ? "ADOPTION STATE: CONCEDED — CanvasConversion.ReassertAdoptedSorting's "
+                     + "ConcededOverrideSorting branch is pinning this canvas to host.sortingOrder "
+                     + "every frame because a game writer kept re-setting the flag (ModBuild 179). "
+                     + "THE FIX BELONGS THERE, NOT HERE: that branch must pin a conceded canvas ABOVE "
+                     + "its host, not equal to it. This class writes no sorting value on purpose — a "
+                     + "second per-frame writer is the alternating value that makes the two MultiPass "
+                     + "eyes disagree."
+                   : "ADOPTION STATE: not conceded — the flag is the game's own and the adoption has "
+                     + "not (yet) stopped clearing it; if this line persists, the clear is losing.");
+    }
+
+    /// <summary>
+    /// THE EFFECTIVE ALPHA, AS A PRODUCT WITH ITS FACTORS NAMED — the line that ends the question
+    /// "is the overlay faint, or is it merely being painted over?" without anyone having to guess from
+    /// a photograph. A screenshot cannot separate those two: a card at alpha 0.27 and a card at alpha
+    /// 1.0 under a 73%-opaque row look identical, and the ModBuild-195 round lost time to exactly that
+    /// ambiguity.
+    ///
+    /// <para>TWO INDEPENDENT MEASUREMENTS, ON PURPOSE, because one of them can be wrong. (1) THE
+    /// CHAIN: every <c>CanvasGroup</c> from the widget up to and including the window host, each named
+    /// with its own alpha, multiplied — modelling uGUI's real rule, which is that the walk STOPS at
+    /// the first group with <c>ignoreParentGroups</c> (that group's alpha counts, nothing above it
+    /// does). (2) THE ENGINE'S OWN ANSWER: <c>CanvasRenderer.GetInheritedAlpha()</c> read off the
+    /// widget's actual graphics, which is the number Unity itself multiplied into the vertex colours
+    /// last canvas update. If the two disagree, the CHAIN is the theory and the ENGINE is the fact,
+    /// and the disagreement itself is the finding — it would mean an alpha source this walk does not
+    /// model.</para>
+    ///
+    /// <para>Counts are printed for both, so "found nothing" and "never ran" cannot look alike: how
+    /// many ancestors were walked, how many carried a group, how many graphics were sampled, and the
+    /// LARGEST deviation from 1 that was seen with the name of the object that produced it.</para>
+    /// </summary>
+    private static string AlphaChain(RectTransform rect, ConvertedPanel owner)
+    {
+        // ---- (1) the CanvasGroup chain ----
+        var factors = new List<string>(6);
+        float product = 1f;
+        int ancestors = 0;
+        int groups = 0;
+        float worstGroup = 1f;
+        string worstGroupName = "<none>";
+        string cutNote = string.Empty;
+        Transform? stop = owner.HostRect;
+        Transform? node = rect;
+        while (node != null)
+        {
+            ancestors++;
+            var group = node.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                groups++;
+                product *= group.alpha;
+                factors.Add($"'{node.name}'={group.alpha:F3}");
+                if (group.alpha < worstGroup)
+                {
+                    worstGroup = group.alpha;
+                    worstGroupName = node.name;
+                }
+                if (group.ignoreParentGroups)
+                {
+                    cutNote = $" (the walk STOPS at '{node.name}': it has ignoreParentGroups, so nothing above it counts)";
+                    break;
+                }
+            }
+            if (ReferenceEquals(node, stop))
+                break;
+            node = node.parent;
+        }
+
+        // ---- (2) the engine's own answer, off the widget's real graphics ----
+        SubtreeGraphics.Clear();
+        rect.GetComponentsInChildren(includeInactive: false, SubtreeGraphics);
+        int sampled = 0;
+        float minInherited = 1f;
+        float maxInherited = 0f;
+        string minInheritedName = "<none>";
+        for (int i = 0; i < SubtreeGraphics.Count; i++)
+        {
+            Graphic graphic = SubtreeGraphics[i];
+            if (graphic == null || graphic.canvasRenderer == null)
+                continue;
+            float inherited = graphic.canvasRenderer.GetInheritedAlpha();
+            sampled++;
+            if (inherited < minInherited)
+            {
+                minInherited = inherited;
+                minInheritedName = graphic.name;
+            }
+            if (inherited > maxInherited)
+                maxInherited = inherited;
+        }
+        SubtreeGraphics.Clear();
+
+        string engine = sampled == 0
+            ? "NO ACTIVE GRAPHIC to sample — the widget draws nothing at all right now, which is a "
+              + "finding in itself and is NOT an alpha problem"
+            : $"min {minInherited:F3} on '{minInheritedName}', max {maxInherited:F3}, over {sampled} active graphic(s)";
+
+        return "EFFECTIVE ALPHA (the product, with every factor named — this is the line that decides "
+               + "whether a faint overlay is FAINT or merely PAINTED OVER): CanvasGroup chain from the "
+               + $"box up to the window host = {(factors.Count == 0 ? "no CanvasGroup anywhere on the chain, so the chain contributes exactly 1.000" : string.Join(" x ", factors) + $" = {product:F3}")}{cutNote}; "
+               + $"walked {ancestors} ancestor(s), {groups} of them carrying a CanvasGroup, worst single "
+               + $"factor {worstGroup:F3} on '{worstGroupName}'. ENGINE CROSS-CHECK "
+               + $"(CanvasRenderer.GetInheritedAlpha, i.e. what Unity actually multiplied in): {engine}. "
+               + "READ IT LIKE THIS: chain 1.000 AND engine ~1.000 means THE OVERLAY IS AT FULL "
+               + "OPACITY and any 'transparent' report is really the window's own semi-opaque content "
+               + "drawn OVER it — go to the SORTING VERDICT above, not to an alpha dial. A chain below "
+               + "1 names its own culprit in the factor list, and that name is the fix. Chain 1.000 "
+               + "with an engine value below 1 means an alpha source this walk does not model (a "
+               + "tween mid-flight, a Graphic.color.a, a material) and the disagreement is the finding "
+               + "— do not average them.";
     }
 
     /// <summary>
@@ -960,7 +1177,7 @@ internal static class TooltipOnWindow
         // line below names the widget so the next round can decide deliberately.
         if (rect.anchorMin != rect.anchorMax)
         {
-            if (StretchLogged.Add(rect.name))
+            if (StretchLogged.Add(rect.GetInstanceID()))
             {
                 VRLog.Warn(Scope,
                     $"LOCAL TOOLTIP RAISE DECLINED for '{rect.name}' in "
@@ -1448,12 +1665,16 @@ internal static class TooltipOnWindow
     /// </summary>
     internal static void NoteScreenFitCut(string helper, RectTransform rect, ConvertedPanel owner)
     {
-        // Deduped on the HELPER (a compile-time literal), not on a composed key: this runs on the
-        // game's own placement path — for UILocalTooltip that is every LateUpdate of every shown
-        // hint — so the steady state must be one HashSet lookup and nothing else. Composing the key
-        // would allocate a string per frame, and DescribeKind's four GetComponentInParent walks are
-        // exactly the work that must not happen once the line has been written.
-        if (!CutLogged.Add(helper))
+        // Deduped on (HELPER, RECT INSTANCE) — both halves of the key are cheap value types, so this
+        // runs on the game's own placement path (for UILocalTooltip that is every LateUpdate of every
+        // shown hint) as one allocation-free HashSet lookup, and DescribeKind's four
+        // GetComponentInParent walks still happen only on the frame a line is actually written.
+        // The RECT is in the key since ModBuild 196: the four screen-fit helpers are shared by every
+        // family in the game, so a helper-only key reported whichever rect asked FIRST and then went
+        // silent for ever — the ModBuild-195 log carries exactly one SCREEN-FIT CUT line, for the
+        // quest popup, and says nothing about the merchant or the equipment view even though the cut
+        // fired for both.
+        if (!CutLogged.Add((helper, rect.GetInstanceID())))
             return;
         VRLog.Info(Scope,
             $"SCREEN-FIT CUT: the game's '{helper}' was asked to keep '{rect.name}' "
@@ -1498,6 +1719,9 @@ internal static class TooltipOnWindow
         StretchLogged.Clear();
         ReplacedLogged.Clear();
         ReleasedLogged.Clear();
+        SubtreeGraphics.Clear();
+        ShowWatches.Clear();
+        ShowVerdictLogged.Clear();
         _scanFrame = int.MinValue;
         _hoverPending = false;
         _hoverWindow = null;
@@ -1514,6 +1738,11 @@ internal static class TooltipOnWindow
         _showEdgesWithNoWidget = 0;
         _previewFlagRepairs = 0;
         _leakedCanvasesCleared = 0;
+        _showsJudged = 0;
+        _showsNeverDisplayed = 0;
+        _showsOffWindow = 0;
+        _showsTransparent = 0;
+        _showsDisplayable = 0;
         _ledgerFrame = int.MinValue;
         _ledgerSignature = int.MinValue;
     }
@@ -1653,6 +1882,272 @@ internal static class TooltipOnWindow
         }
     }
 
+    // ---- THE SHOW-EDGE VERDICT (ModBuild 196) --------------------------------------------------
+    //
+    // "In the menu for SWAPPING items I now see NO overlays at all" is a report with FOUR completely
+    // different causes behind it and four completely different fixes: the widget was never created,
+    // it was created and immediately switched off again, it was created and put somewhere off the
+    // window, or it was created in the right place and is fully transparent. Nothing in this class
+    // could tell those apart — SILENT HOVER only fires when NOTHING was placed at all, so a widget
+    // that WAS placed and then went invisible looked exactly like success.
+    //
+    // So every item-tooltip show request is now parked for HoverVerdictFrames and then judged against
+    // the widget's OBSERVABLE state, and the verdict is one of those four names plus a count. That is
+    // deliberately a measurement and not a fix: which of the four it is decides where the fix goes,
+    // and guessing between them is how the last two rounds were spent.
+
+    /// <summary>Effective alpha at or below which a widget is called INVISIBLE rather than faint.
+    /// Not zero: a tween that has been cancelled mid-flight parks at an arbitrary small number, and
+    /// "0.004" and "0" are the same thing to a player.</summary>
+    private const float AlphaInvisibleEpsilon = 0.02f;
+
+    /// <summary>One item-tooltip show request awaiting its verdict.</summary>
+    private struct ShowWatch
+    {
+        public Component Widget;
+        public string Kind;
+        public string What;
+        public int Frame;
+    }
+
+    private static readonly List<ShowWatch> ShowWatches = new(4);
+
+    /// <summary>Show requests judged so far — the denominator every counter below is read against.</summary>
+    private static int _showsJudged;
+
+    /// <summary>(a)/(b): the widget was destroyed, or never became <c>activeInHierarchy</c>.</summary>
+    private static int _showsNeverDisplayed;
+
+    /// <summary>(c): the widget is active and opaque but lies entirely outside its window's rect.</summary>
+    private static int _showsOffWindow;
+
+    /// <summary>(d): the widget is active and on the window but its effective alpha is ~0.</summary>
+    private static int _showsTransparent;
+
+    /// <summary>The widget is active, opaque and on the window — anything still unseen from here is a
+    /// draw-order question, and the SORTING VERDICT answers it.</summary>
+    private static int _showsDisplayable;
+
+    /// <summary>Verdicts already written, keyed on (verdict, widget instance) so each widget states
+    /// its own outcome once and a second widget can never be silenced by the first.</summary>
+    private static readonly HashSet<(string Verdict, int Widget)> ShowVerdictLogged = new();
+
+    /// <summary>
+    /// AN ITEM TOOLTIP WAS ASKED TO SHOW. Parked, not judged: the game's own show path spans several
+    /// frames (<c>Build</c> re-parents, spawns a pooled card, then calls <c>window.Show()</c>, which
+    /// may fade), so judging it on the same frame would report every healthy tooltip as a failure.
+    /// </summary>
+    internal static void NoteTooltipShowRequested(Component? widget, string kind, string what)
+    {
+        if (!WorldUIConfig.ConversionActive || widget == null)
+            return;
+        if (ModalFallback.FindOwningWindow(widget.transform) == null)
+            return; // not on a floated window — vanilla behaviour, and not this class's business
+
+        for (int i = 0; i < ShowWatches.Count; i++)
+        {
+            if (!ReferenceEquals(ShowWatches[i].Widget, widget))
+                continue;
+            // Re-hovering the same widget restarts its clock rather than queueing a second verdict:
+            // the player sweeping down a list would otherwise produce one watch per row.
+            ShowWatch again = ShowWatches[i];
+            again.Kind = kind;
+            again.What = what;
+            again.Frame = Time.frameCount;
+            ShowWatches[i] = again;
+            return;
+        }
+
+        ShowWatches.Add(new ShowWatch
+        {
+            Widget = widget,
+            Kind = kind,
+            What = what,
+            Frame = Time.frameCount,
+        });
+    }
+
+    /// <summary>
+    /// JUDGE THE PARKED SHOW REQUESTS. One of five outcomes per widget, each counted, each logged
+    /// once — so "no overlay at all" stops being a description and becomes a name.
+    /// </summary>
+    private static void TickShowWatches()
+    {
+        for (int i = ShowWatches.Count - 1; i >= 0; i--)
+        {
+            ShowWatch watch = ShowWatches[i];
+            if (watch.Widget != null && Time.frameCount - watch.Frame < HoverVerdictFrames)
+                continue;
+            ShowWatches.RemoveAt(i);
+            _showsJudged++;
+
+            string verdict;
+            string detail;
+            int id;
+
+            if (watch.Widget == null)
+            {
+                _showsNeverDisplayed++;
+                verdict = "(b) CREATED AND DESTROYED";
+                detail = "the widget object no longer exists — the game (or a pool recycle) tore it "
+                         + "down inside the verdict window, so nothing was ever drawn.";
+                id = 0;
+            }
+            else if (!watch.Widget.gameObject.activeInHierarchy)
+            {
+                _showsNeverDisplayed++;
+                verdict = "(a/b) NEVER SWITCHED ON";
+                detail = "the widget exists but is not activeInHierarchy — the game's own show path "
+                         + "declined, or something switched it off again. No placement, raise, alpha "
+                         + "or sorting change in this mod could have made this visible; the cause is "
+                         + "upstream of every line in this class.";
+                id = watch.Widget.GetInstanceID();
+            }
+            else
+            {
+                id = watch.Widget.GetInstanceID();
+                var rect = watch.Widget.transform as RectTransform;
+                ConvertedPanel? owner = rect != null ? ModalFallback.FindOwningWindow(rect) : null;
+                if (rect == null || owner == null || !owner.IsAlive || owner.HostRect == null)
+                {
+                    _showsNeverDisplayed++;
+                    verdict = "(b) LOST ITS WINDOW";
+                    detail = "the widget is active but no longer resolves to a live floated window — "
+                             + "its host died or it was re-parented out of every converted subtree.";
+                }
+                else
+                {
+                    float alpha = MeasuredAlpha(rect, owner, out int sampled);
+                    float overlap = WindowOverlap(rect, owner);
+                    if (alpha <= AlphaInvisibleEpsilon)
+                    {
+                        _showsTransparent++;
+                        verdict = "(d) FULLY TRANSPARENT";
+                        detail = $"effective alpha {alpha:F4} over {sampled} sampled graphic(s) — the "
+                                 + "widget is up and in the right place and is simply not being drawn. "
+                                 + "The EFFECTIVE ALPHA line on this widget's draw-order evidence names "
+                                 + "the CanvasGroup responsible.";
+                    }
+                    else if (overlap <= 0f)
+                    {
+                        _showsOffWindow++;
+                        verdict = "(c) OFF THE WINDOW";
+                        detail = $"the box does not overlap its own window's rect at all (overlap "
+                                 + $"{overlap:F3} m, effective alpha {alpha:F3}) — it was placed, it is "
+                                 + "opaque, and it is somewhere the player is not looking. The in-plane "
+                                 + "clamp in Settle should have prevented this, so a verdict of (c) "
+                                 + "means the clamp did not run for this widget — check that the game's "
+                                 + "placement call for it is actually patched.";
+                    }
+                    else
+                    {
+                        _showsDisplayable++;
+                        verdict = "DISPLAYABLE";
+                        detail = $"active, effective alpha {alpha:F3} over {sampled} graphic(s), "
+                                 + $"overlapping its window by {overlap:F3} m. "
+                                 + (alpha < 0.9f
+                                     ? $"NOTE THE ALPHA: {alpha:F3} is displayable but NOT opaque, and "
+                                       + "'extremely transparent' is exactly what a player calls this. "
+                                       + "The EFFECTIVE ALPHA line on this widget's evidence names the "
+                                       + "CanvasGroup that produced it; fix that before looking at "
+                                       + "sorting."
+                                     : "The overlay is at full opacity, so if the player still sees "
+                                       + "nothing it is a DRAW-ORDER problem and the SORTING VERDICT on "
+                                       + "this widget's evidence line is the answer — there is no alpha "
+                                       + "dial to turn here.");
+                    }
+                }
+            }
+
+            if (!ShowVerdictLogged.Add((verdict, id)))
+                continue;
+
+            VRLog.Info(Scope,
+                $"TOOLTIP SHOW VERDICT {verdict} for '{watch.Kind}' on '{watch.What}' — {detail} "
+                + $"CENSUS AT THIS MOMENT: {_showsJudged} show request(s) judged this session — "
+                + $"{_showsNeverDisplayed} never displayed, {_showsOffWindow} off the window, "
+                + $"{_showsTransparent} fully transparent, {_showsDisplayable} displayable, "
+                + $"{ShowWatches.Count} still awaiting a verdict. READ IT LIKE THIS: these five "
+                + "numbers must sum to the judged count, so a report of 'no overlay at all' can always "
+                + "be attributed to exactly one of them instead of guessed at. A judged count of ZERO "
+                + "while the player reports hovering means the show path was never reached and the "
+                + "patch that feeds this watch is not on the method the window actually calls — that "
+                + "is a different failure from every verdict above and must never be mistaken for one.");
+        }
+    }
+
+    /// <summary>
+    /// The effective alpha as ONE number, for the verdict above. Same rule as <see cref="AlphaChain"/>
+    /// — which prints the same measurement with its factors named — but the ENGINE's answer wins when
+    /// there is one, because <c>GetInheritedAlpha</c> is what Unity actually multiplied in and the
+    /// walk is only a model of it. The BRIGHTEST graphic decides: one deliberately invisible
+    /// decoration inside an otherwise opaque card must not condemn the card.
+    /// </summary>
+    private static float MeasuredAlpha(RectTransform rect, ConvertedPanel owner, out int sampled)
+    {
+        float chain = 1f;
+        Transform? stop = owner.HostRect;
+        Transform? node = rect;
+        while (node != null)
+        {
+            var group = node.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                chain *= group.alpha;
+                if (group.ignoreParentGroups)
+                    break;
+            }
+            if (ReferenceEquals(node, stop))
+                break;
+            node = node.parent;
+        }
+
+        SubtreeGraphics.Clear();
+        rect.GetComponentsInChildren(includeInactive: false, SubtreeGraphics);
+        sampled = 0;
+        float brightest = 0f;
+        for (int i = 0; i < SubtreeGraphics.Count; i++)
+        {
+            Graphic graphic = SubtreeGraphics[i];
+            if (graphic == null || graphic.canvasRenderer == null)
+                continue;
+            sampled++;
+            float inherited = graphic.canvasRenderer.GetInheritedAlpha();
+            if (inherited > brightest)
+                brightest = inherited;
+        }
+        SubtreeGraphics.Clear();
+        return sampled == 0 ? chain : brightest;
+    }
+
+    /// <summary>
+    /// How far the box and its window OVERLAP, in world metres, along the window's own axes — the
+    /// smaller of the two axes, so a box that misses in either direction reads as zero or less.
+    /// Measured in the host's basis for the same reason <see cref="Settle"/>'s clamp is: a world-axis
+    /// answer on a yawed host at map-room rig scale is meaningless.
+    /// </summary>
+    private static float WindowOverlap(RectTransform rect, ConvertedPanel owner)
+    {
+        RectTransform host = owner.HostRect;
+        Quaternion hostRot = host.rotation;
+        Vector3 right = hostRot * Vector3.right;
+        Vector3 up = hostRot * Vector3.up;
+
+        host.GetWorldCorners(WinCorners);
+        rect.GetWorldCorners(BoxCorners);
+        Vector3 winCenter = (WinCorners[0] + WinCorners[2]) * 0.5f;
+        float winHalfW = Vector3.Distance(WinCorners[0], WinCorners[3]) * 0.5f;
+        float winHalfH = Vector3.Distance(WinCorners[0], WinCorners[1]) * 0.5f;
+        Vector3 boxCenter = (BoxCorners[0] + BoxCorners[2]) * 0.5f;
+        float boxHalfW = Mathf.Abs(Vector3.Dot(BoxCorners[3] - BoxCorners[0], right)) * 0.5f;
+        float boxHalfH = Mathf.Abs(Vector3.Dot(BoxCorners[1] - BoxCorners[0], up)) * 0.5f;
+
+        Vector3 off = boxCenter - winCenter;
+        float overlapX = winHalfW + boxHalfW - Mathf.Abs(Vector3.Dot(off, right));
+        float overlapY = winHalfH + boxHalfH - Mathf.Abs(Vector3.Dot(off, up));
+        return Mathf.Min(overlapX, overlapY);
+    }
+
     /// <summary>
     /// A HOVER THAT PRODUCED NOTHING MUST SAY SO. Fires at most once per slot kind and carries the
     /// census that separates the two possible answers: "this window contains no tooltip widget of
@@ -1673,7 +2168,7 @@ internal static class TooltipOnWindow
         // to report.
         if (ReferenceEquals(_lastSettleWindow, window) && _lastSettleFrame >= _hoverFrame)
             return;
-        if (!SilentLogged.Add(_hoverKind))
+        if (!SilentLogged.Add((_hoverKind, window.HostGo != null ? window.HostGo.GetInstanceID() : 0)))
             return;
 
         int total = 0;

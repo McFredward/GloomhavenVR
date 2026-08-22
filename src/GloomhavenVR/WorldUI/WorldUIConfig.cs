@@ -126,14 +126,32 @@ internal static class WorldUIConfig
     // button is a CHILD of the window, so it always travels, scales and occludes with the card the
     // player is already looking at. Presentation only, per client, nothing on the wire.
 
+    // ModBuild 196 CORRECTED THE FRAME BOTH DIALS ARE MEASURED IN, and the correction is worth
+    // stating once here rather than twice below. ModBuild 190 PARKED the container on the window's
+    // bottom-centre anchor, and every text since — these summaries, the two ConfigDescriptions and
+    // the German ones — described that frame. It was never the frame the player saw: the quest
+    // window carries a uGUI LayoutGroup, and its rebuild re-drove the container to Vector2.up
+    // (top-left) on every frame it ran. Twelve of fifteen sampled placements in the ModBuild 195
+    // hardware log solve for the TOP-LEFT reference, three for the bottom-centre one — and the three
+    // are each the first tick of a parking, i.e. the one frame before the group took it back.
+    // That is also what settles the contradiction ModBuild 195 could not: the photograph and the
+    // runtime numbers disagreed because they were sampled in the two different anchor states.
+    // The dials now place the container's PIVOT against the window rect's top-left corner and derive
+    // anchoredPosition from whatever anchor the rect carries, so there is no shared value left for a
+    // second writer to alternate over. The USER-FACING MEANING OF 0/0 IS UNCHANGED — it is still the
+    // pose ModBuild 190 put on screen, so a tuned cfg keeps meaning the same place.
+
     /// <summary>Sideways offset of the map room's travel-confirm button inside the floated quest
-    /// window, in fractions of that window's HEIGHT (+ = right). 0 = the ModBuild 190 pose. Clamped
-    /// by <see cref="MapRoom.MapTravelConfirm.OffsetLimitX"/>; read live.</summary>
+    /// window, in fractions of that window's HEIGHT (+ = right), measured from the window rect's
+    /// LEFT edge, where 0 — the ModBuild 190 pose — sits. The card is half a window height wide, so
+    /// its centre line is +0.25 and its right edge +0.50. Clamped by
+    /// <see cref="MapRoom.MapTravelConfirm.OffsetLimitX"/>; read live.</summary>
     internal static ConfigEntry<float> TravelButtonOffsetXWindowHeights = null!;
 
     /// <summary>Vertical offset of the same button, in fractions of the window's HEIGHT, measured UP
-    /// from the window's BOTTOM edge (which is where 0 — the ModBuild 190 pose — sits; 1.0 is the
-    /// window's top edge). Clamped by <see cref="MapRoom.MapTravelConfirm.OffsetLimitYMin"/> /
+    /// from the window rect's TOP edge (which is where 0 — the ModBuild 190 pose — sits; −1.0 is the
+    /// window's BOTTOM edge). The value that puts the button under the quest information is
+    /// therefore NEGATIVE. Clamped by <see cref="MapRoom.MapTravelConfirm.OffsetLimitYMin"/> /
     /// <see cref="MapRoom.MapTravelConfirm.OffsetLimitYMax"/>; read live.</summary>
     internal static ConfigEntry<float> TravelButtonOffsetYWindowHeights = null!;
 
@@ -454,9 +472,9 @@ internal static class WorldUIConfig
                 "both), positive = to the right. 0 = exactly where the button has sat since it was " +
                 "first put in the window, so nothing moves until you tune it. A fraction and not a " +
                 "pixel count because [WorldUI] WindowLegibility resizes the window: this keeps the " +
-                "button in the same place ON the card at any window size. The card's own side " +
-                "edges are at about ±0.25, and the range reaches half a window width beyond " +
-                "either of them - the button stays a child of the window at every value, so it " +
+                "button in the same place ON the card at any window size. 0 sits on the window " +
+                "rect's LEFT edge; the card is half a window height wide, so its centre line is " +
+                "+0.25 and its right edge +0.50 - the button stays a child of the window at every value, so it " +
                 "always moves, scales and occludes with the card and can never be left behind. " +
                 "Read live: turn it in the headset and the button moves on the next frame. " +
                 "Range -0.5 to 0.5.",
@@ -467,11 +485,12 @@ internal static class WorldUIConfig
             new ConfigDescription(
                 "3D world map: moves the travel/'Quest erneut spielen' CONFIRM BUTTON UP AND DOWN " +
                 "inside the floated quest window. Same unit as the X dial - FRACTIONS OF THE " +
-                "WINDOW'S HEIGHT - but measured UP FROM THE WINDOW'S BOTTOM EDGE, which is where 0 " +
+                "WINDOW'S HEIGHT - but measured UP FROM THE WINDOW'S TOP EDGE, which is where 0 " +
                 "sits: 0 = exactly where the button has sat since it was first put in the window " +
-                "(so nothing moves until you tune it), 1.0 = the window's TOP edge, negative = " +
-                "below the card. The range therefore runs from half a window height under the " +
-                "bottom edge to half a window height over the top one, which covers every point on " +
+                "(so nothing moves until you tune it), -1.0 = the window's BOTTOM edge, so the " +
+                "value that puts the button UNDER the quest information is NEGATIVE. The range " +
+                "reaches half a window height above the top edge and half a window height below " +
+                "the bottom one, which covers every point on " +
                 "the card and a margin all round it; the button stays a child of the window at " +
                 "every value, so it always moves, scales and occludes with the card and can never " +
                 "be left behind. Read live: turn it in the headset and the button moves on the " +

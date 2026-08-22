@@ -728,9 +728,14 @@ internal static partial class Loc
             // können"). Both were written AGAINST ConfigCatalog.MaxDescriptionChars = 620 from the
             // start rather than trimmed afterwards, which is what went wrong with the three above:
             // they shipped at 1062 and 772 collapsed characters and were clipped mid-word in the
-            // headset. Collapsed lengths now: PartyMarkerScale 578, PathWidthScale 585 (measured, not
+            // headset. Collapsed lengths now: PartyMarkerScale 610, PathWidthScale 567 (measured, not
             // estimated: both were extracted from this file and run through ConfigCatalog.Collapse's
             // exact rule, and the same extractor reproduces the three numbers above to the character).
+            // RE-MEASURED at ModBuild 196: this line used to claim 578 and 585, which the same
+            // extractor no longer reproduces — the two texts were edited after they were measured
+            // and the numbers were left behind. Both are still inside the 620 clip, which is why
+            // nothing was ever visibly wrong; a stale measurement is exactly the kind of note that
+            // gets trusted the day it stops being true.
             //
             // The Weg text spends its last sentence on the ONE honest disclosure this feature owes:
             // it is the only map-room setting that changes something on the game's own map object,
@@ -1714,26 +1719,36 @@ internal static partial class Loc
                 + "losgelassene Karten gleiten ins Blatt zurück, und es wird weder etwas an Mitspieler "
                 + "gesendet noch am Spielstand geändert. Aus = kein Blatt und keine Handgelenk-Anzeige; "
                 + "die 3D-Weltkarte bleibt sonst unverändert.",
-            // Same 620-Zeichen rule as MapRoomHand above (collapsed: X = 582, Y = 603). The first
-            // sentence says which knob this is and which way it moves; the unit and its zero come
-            // next, because 0 is the pose the user asked to have restored; the range closes it.
+            // Same 620-Zeichen rule as MapRoomHand above (collapsed after the ModBuild-196 edit:
+            // X = 580, Y = 602). The first sentence says which knob this is and which way it moves;
+            // the unit and its zero come next, because 0 is the pose the user asked to have
+            // restored; the range closes it.
+            //
+            // "REGLER" IS GONE FROM BOTH TEXTS (ModBuild 196). These two are no longer sliders —
+            // the user rejected the bar and asked for the arrows ("sollen keine Schieberegler sein,
+            // sondern die Pfeile", see PrefersStepper in VROptionsTab.4.Curated.cs) — and each text
+            // pointed at the OTHER one by calling it a Regler, which is the German word for exactly
+            // the control he refused. They now point at each other by what they set, not by what
+            // they used to look like. Nothing else in either text changed: the unit, the zero and
+            // both ranges are the same words, because the defaults and the clamps are untouched.
             ["WorldUI/TravelButtonOffsetXWindowHeights"] =
                 "Verschiebt den Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") in der "
                 + "3D-Weltkarte SEITLICH im schwebenden Questfenster. Einheit: Bruchteile der "
-                + "FENSTERHÖHE — dieselbe wie beim Höhen-Regler, gleiche Zahl also gleiche echte "
+                + "FENSTERHÖHE — dieselbe wie beim Höhen-Wert, gleiche Zahl also gleiche echte "
                 + "Strecke —, positiv = nach rechts. 0 = genau dort, wo der Knopf seit dem ersten "
-                + "Einbau ins Fenster sitzt, es ändert sich also nichts, bis du drehst. Bruchteil "
-                + "statt Pixel, damit der Knopf bei jeder Fenstergröße an derselben Stelle auf der "
-                + "Karte bleibt. Die Kartenränder liegen bei etwa ±0.25. Live: der Knopf folgt im "
-                + "nächsten Bild. Bereich -0.5 bis 0.5.",
+                + "Einbau sitzt, es ändert sich nichts, bis du drehst. Bruchteil statt "
+                + "Pixel, damit der Knopf bei jeder Fenstergröße an derselben Stelle auf der Karte "
+                + "bleibt. 0 liegt auf der LINKEN Fensterkante, die Kartenmitte bei +0.25, die "
+                + "rechte Kante bei +0.50. Live: der Knopf folgt im nächsten Bild. "
+                + "Bereich -0.5 bis 0.5.",
             ["WorldUI/TravelButtonOffsetYWindowHeights"] =
                 "Verschiebt denselben Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") HOCH "
-                + "und RUNTER im schwebenden Questfenster. Gleiche Einheit wie der Seiten-Regler — "
-                + "Bruchteile der FENSTERHÖHE —, aber gemessen NACH OBEN AB DER UNTERKANTE des "
+                + "und RUNTER im schwebenden Questfenster. Gleiche Einheit wie beim Seiten-Wert — "
+                + "Bruchteile der FENSTERHÖHE —, aber gemessen NACH OBEN AB DER OBERKANTE des "
                 + "Fensters: 0 = genau dort, wo der Knopf seit dem ersten Einbau sitzt (es ändert "
-                + "sich also nichts, bis du drehst), 1.0 = die Oberkante, negativ = unter der Karte. "
-                + "Der Bereich reicht von einer halben Fensterhöhe unter der Unterkante bis eine "
-                + "halbe über die Oberkante, deckt also die ganze Karte samt Rand ab. Live: der "
+                + "sich also nichts, bis du drehst), -1.0 = die Unterkante. Der Wert, der den Knopf "
+                + "UNTER die Questinfo setzt, ist also NEGATIV. Der Bereich reicht eine halbe "
+                + "Fensterhöhe über die Ober- und eine halbe unter die Unterkante. Live: der "
                 + "Knopf folgt im nächsten Bild. Bereich -1.5 bis 1.5.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "

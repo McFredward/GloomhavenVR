@@ -103,10 +103,26 @@ internal static class MapHoverVerdict
         }
         else if (selectable == false)
         {
+            // ModBuild 196 REWROTE THE SECOND HALF OF THIS SENTENCE, and the reason is worth keeping.
+            // It used to end "...so this is the game's own rule and the flat game shows nothing here
+            // either". That was an EXPLANATION, not a measurement, and it was wrong: the user reported
+            // that the capital does react in the flat game, and MapChoreographer.cs:1263-1274 proves
+            // him right — the Headquarters branch calls OpenCityMap(). The false half-sentence had
+            // been arguing a real defect away every time this line printed. An instrument may report
+            // what it measured; it may not editorialise about code it did not read.
             verdict = "no preview: the game refuses to HIGHLIGHT this location at all "
                       + "(MapLocation.CanHighlight → IsSelectable false). With no LocationQuest a "
-                      + "location is selectable only as an AVAILABLE Headquarters or Store, so this is "
-                      + "the game's own rule and the flat game shows nothing here either";
+                      + "location is selectable only as an AVAILABLE Headquarters or Store — and for "
+                      + "the CAPITAL 'available' resolves to UIGuildmasterHUD.IsAvailable(City), one "
+                      + "term of which is the HUD window's CanvasGroup alpha (UIWindow.IsVisible). "
+                      + "The map room does not float that HUD (its VR surface is the table rail), so "
+                      + "THIS VERDICT IS NOT PROOF THAT THE FLAT GAME SHOWS NOTHING HERE: the flat "
+                      + "game opens the CITY MAP on this symbol (MapChoreographer.cs:1263-1274). Read "
+                      + "the MAP ROOM capital route line for which term actually failed"
+                      + (highlighted
+                          ? " — and note this location IS highlighted, i.e. that route is already "
+                            + "forcing the hover the game refused"
+                          : string.Empty);
         }
         else if (!highlighted)
         {

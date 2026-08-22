@@ -205,11 +205,82 @@ internal static class TooltipWindowPatches
         TooltipOnWindow.NoteSlotHover(__instance, "UIShopItemSlot (merchant item)", hovered);
 
     /// <summary><c>UIPartyItemSlot.OnHovered(bool)</c> — the party inventory's item slot (private;
-    /// the only method of that name on the type).</summary>
+    /// the only method of that name on the type). This is the SWAP menu's row: clicking an equipment
+    /// slot opens <c>UIPartyItemInventoryDisplay</c>, and hovering one of its rows is what the
+    /// 2026-08-22 report ("in the menu for swapping items I now see NO overlays at all") is about.</summary>
     [HarmonyPostfix]
     [HarmonyPatch(typeof(UIPartyItemSlot), nameof(UIPartyItemSlot.OnHovered))]
     private static void NotePartyItemHover(UIPartyItemSlot __instance, bool hovered) =>
         TooltipOnWindow.NoteSlotHover(__instance, "UIPartyItemSlot (party inventory item)", hovered);
+
+    /// <summary>
+    /// <c>UIPartyCharacterEquippementSlot.OnHovered()</c> / <c>.OnUnHovered()</c> — the character
+    /// screen's EQUIPMENT rows (the "Ausrüstung" list), wired from the slot's own
+    /// <c>ExtendedButton.onMouseEnter/onMouseExit</c> (UIPartyCharacterEquippementSlot.cs:138-139) and
+    /// the path that goes on to call <c>itemTooptip.Show(...)</c>
+    /// (UIPartyCharacterEquipmentDisplay.cs:451-465).
+    ///
+    /// <para>THIS FAMILY WAS THE ONE THE REPORT IS ABOUT AND IT HAD NO ATTRIBUTION AT ALL. Only the
+    /// merchant's slot and the swap list's slot were reported, so an equipment hover that raised
+    /// nothing produced no line of any kind — indistinguishable from an equipment hover that was never
+    /// made. Both edges are wired, because a one-sided hover watch reports every pointer that merely
+    /// moved on as a silent failure.</para>
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(UIPartyCharacterEquippementSlot), "OnHovered")]
+    private static void NoteEquipmentSlotHover(UIPartyCharacterEquippementSlot __instance) =>
+        TooltipOnWindow.NoteSlotHover(__instance, "UIPartyCharacterEquippementSlot (equipment row)",
+            hovered: true);
+
+    /// <summary>See <see cref="NoteEquipmentSlotHover"/> — the exit edge, which withdraws the pending
+    /// verdict.</summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(UIPartyCharacterEquippementSlot), "OnUnHovered")]
+    private static void NoteEquipmentSlotUnhover(UIPartyCharacterEquippementSlot __instance) =>
+        TooltipOnWindow.NoteSlotHover(__instance, "UIPartyCharacterEquippementSlot (equipment row)",
+            hovered: false);
+
+    // ---- THE SHOW-EDGE VERDICT (ModBuild 196) -------------------------------------------------
+    //
+    // "No overlays at all" has four possible causes and four different fixes (never created, created
+    // and destroyed, created off-window, created fully transparent), and nothing in this mod could
+    // tell them apart: SILENT HOVER only fires when NOTHING was placed, so a widget that WAS placed
+    // and then went invisible looked exactly like success. These two postfixes park every item-tooltip
+    // show request; TooltipOnWindow.TickShowWatches judges it a dozen frames later against the
+    // widget's observable state and names which of the four it was, with a running census.
+    //
+    // THE SEAM IS THE PRIVATE Build, NOT EITHER PUBLIC Show, and that is the whole reason this one
+    // patch covers all three windows. The type ships TWO Show overloads and the three call sites do
+    // not agree on which they use: the merchant and the swap list call
+    // Show(item, target, boundTo, information, state, service) (UIShopItemInventory.cs:922/943,
+    // UIPartyItemInventoryDisplay.cs:387) while the character screen's equipment view calls
+    // Show(item, target, offset) (UIPartyCharacterEquipmentDisplay.cs:458). Patching one overload
+    // would have produced a census that silently excluded the very window under investigation — the
+    // same shape of blindness the kind-keyed log dedup had. Both overloads funnel into the single
+    // private Build (UIPartyItemInventoryTooltip.cs:157/206/211), so one seam is the whole family and
+    // there is no overload to get wrong.
+
+    /// <summary>
+    /// <c>UIPartyItemInventoryTooltip.Build(...)</c> — the one method both public <c>Show</c>
+    /// overloads funnel into, and therefore the single seam that sees the merchant, the character
+    /// screen's equipment view and the item-SWAP inventory alike. Postfix: it runs after the widget
+    /// has been re-parented, after the pooled <c>ItemCardUI</c> has been spawned and after
+    /// <c>window.Show()</c>, i.e. once the game considers the request finished — which is exactly the
+    /// moment worth parking for a verdict.
+    ///
+    /// <para>The verdict itself is a dozen frames later (<c>TooltipOnWindow.TickShowWatches</c>),
+    /// because the show path is not finished when this returns: <c>UIWindow.Show</c> may fade, and the
+    /// merchant even defers one of its hints by a frame through <c>SkipAFrameAndNotifyNewItemTooltip</c>
+    /// (UIShopItemInventory.cs:973). Judging on this frame would report every healthy tooltip as a
+    /// failure.</para>
+    /// </summary>
+    [HarmonyPostfix]
+    [HarmonyPatch(typeof(UIPartyItemInventoryTooltip), "Build")]
+    private static void NoteItemTooltipBuilt(UIPartyItemInventoryTooltip __instance,
+        RectTransform target) =>
+        TooltipOnWindow.NoteTooltipShowRequested(__instance,
+            "UIPartyItemInventoryTooltip (item card hint)",
+            target != null ? target.name : "<no target>");
 
     /// <summary><c>UITempleShopSlot.Select()</c> — the temple's blessing slot raises its hover from
     /// here (UITempleShopSlot.cs:355-363).</summary>

@@ -632,7 +632,22 @@ internal static partial class PanelSupersample
         e.NestedTotal = nested;
         e.NestedCaptured = Mathf.Min(nestedOnLayer, nested);
         e.Sweeps++;
-        e.SweepMs += (Time.realtimeSinceStartup - sweepStart) * 1000.0;
+        double sweepMs = (Time.realtimeSinceStartup - sweepStart) * 1000.0;
+        e.SweepMs += sweepMs;
+        // Split the cost by what the window was doing, because that is the ONLY way the log can
+        // price the motion cadence against the settled one. ModBuild 195 could only report one
+        // averaged figure, which is why "1.5 ms per sweep" had to be multiplied by hand against
+        // "sweeps every frame while moving" to see the problem.
+        if (IsMoving(e))
+        {
+            e.MotionSweeps++;
+            e.MotionSweepMs += sweepMs;
+        }
+        else
+        {
+            e.StillSweeps++;
+            e.StillSweepMs += sweepMs;
+        }
         if (!initial && moved > 0)
         {
             e.LateJoiners += moved;
@@ -641,9 +656,125 @@ internal static partial class PanelSupersample
                               + "on the game's UI layer; until they are swept they would be MISSING "
                               + "from the capture and drawn straight into the eye instead — which is "
                               + "the ModBuild 192 'manche Elemente ... fehlen im Fenster' report). "
-                              + $"This sweep ran because the window {(IsMoving(e) ? "is MOVING (per-frame "
-                                  + "cadence)" : "reached its periodic cadence")}.");
+                              + $"This sweep ran because the window {(IsMoving(e) ? "is MOVING (the "
+                                  + MovingSweepIntervalFrames + "-frame motion cadence)"
+                                  : "reached its periodic cadence")}. WHICH CADENCE THIS LINE READS "
+                              + "IS THE MEASUREMENT that set MovingSweepIntervalFrames: in the "
+                              + "ModBuild 195 log, 22 of the 23 lines like this one read 'periodic' "
+                              + "and exactly ONE read the motion cadence, which is why the motion "
+                              + "cadence is no longer every frame.");
         }
+    }
+
+    // ---- the frame budget instrument ------------------------------------------------------------
+
+    /// <summary>
+    /// Sample this frame's unscaled duration into the MOTION or the STILL bucket for this window.
+    /// <para>WHY THIS EXISTS, and it is the one measurement the previous three rounds did not have.
+    /// The report's own ModBuild 194 clause says a drag that moves the window several RENDERED eye
+    /// pixels per frame is a JUDDER problem that no filtering can reach. The ModBuild 195 log then
+    /// measured exactly that: the largest single-frame host steps on real drags are 12.39, 18.67,
+    /// 32.70, 46.96, 73.70, 93.77, 122.33 and 132.85 RENDERED eye pixels. At that rate one dropped
+    /// frame is over a hundred pixels of positional error, so whether the frame was DROPPED is the
+    /// whole question — and the session's own frame telemetry reads p50 17.33 ms against an 11.11 ms
+    /// budget. This splits that number by what the window was doing, so the next log can say whether
+    /// a dragged window's frames are worse than a still window's frames and by how much.</para>
+    /// </summary>
+    private static void SampleFrameBudget(Entry e, bool moving)
+    {
+        float ms = Time.unscaledDeltaTime * 1000f;
+        if (ms <= 0f || ms > 1000f)
+            return; // a load spike or a paused frame is not a frame-budget sample
+        if (moving)
+        {
+            e.MotionFrameSamples++;
+            e.MotionFrameMs += ms;
+            if (ms > e.MotionFrameMsMax)
+                e.MotionFrameMsMax = ms;
+            if (ms > FrameBudgetMs)
+                e.MotionFramesOverBudget++;
+        }
+        else
+        {
+            e.StillFrameSamples++;
+            e.StillFrameMs += ms;
+            if (ms > e.StillFrameMsMax)
+                e.StillFrameMsMax = ms;
+            if (ms > FrameBudgetMs)
+                e.StillFramesOverBudget++;
+        }
+    }
+
+    // ---- the repairs ----------------------------------------------------------------------------
+
+    /// <summary>
+    /// Run the two bounded repairs this class owes the "kaputte Anzeige" report, if either is due.
+    ///
+    /// <para><b>THE RELEASE REPAIR.</b> <see cref="ReleaseSettleFrames"/> frames after the last
+    /// pose/scale/rect change — i.e. the instant the window comes to rest after a drag — force ALL
+    /// THREE of the things a settled window's cadence would otherwise get to at its own pace: the
+    /// content frame is re-measured, the capture layer is re-swept, and every text component in the
+    /// subtree re-requests its glyphs and re-generates its mesh. A second pass follows
+    /// <see cref="ReleaseSecondRepairFrames"/> frames later because the content fit can still flip
+    /// the host rect after the release (the ModBuild 195 log's party window walks 328 -> 716 -> 1920
+    /// uGUI px across one session). Two passes per release, never one per frame.</para>
+    ///
+    /// <para><b>THE FONT-REPACK REPAIR.</b> Armed by <see cref="OnFontTextureRebuilt"/> and by the
+    /// TMP atlas check in <see cref="MeasureContent"/>. It regenerates text WITHOUT re-measuring or
+    /// re-sweeping, because a repack changes what the glyphs look like and nothing about where the
+    /// window is.</para>
+    ///
+    /// <para>Both END in a content-integrity scan, so the log records what the repair FOUND and not
+    /// merely that it ran — a repair that never finds anything is a repair that should be deleted,
+    /// and this is how the next round will be able to tell.</para>
+    /// </summary>
+    private static void ServiceRepairs(Entry e)
+    {
+        // A NEW motion event re-arms both stages. Keying the state machine on LastMotionFrame is what
+        // makes "one release costs two repairs" true no matter how long the window then stands still.
+        if (e.ReleaseRepairedMotionFrame != e.LastMotionFrame)
+        {
+            e.ReleaseRepairedMotionFrame = e.LastMotionFrame;
+            e.ReleaseRepairStage = 0;
+        }
+        int sinceMotion = Time.frameCount - e.LastMotionFrame;
+        if (e.ReleaseRepairStage == 0 && sinceMotion >= ReleaseSettleFrames)
+        {
+            e.ReleaseRepairStage = 1;
+            ReleaseRepair(e);
+            return;
+        }
+        if (e.ReleaseRepairStage == 1 && sinceMotion >= ReleaseSecondRepairFrames)
+        {
+            e.ReleaseRepairStage = 2;
+            ReleaseRepair(e);
+            return;
+        }
+
+        if (e.RebuildRepairFrame >= 0 && Time.frameCount >= e.RebuildRepairFrame)
+        {
+            e.RebuildRepairFrame = -1;
+            e.RebuildRepairs++;
+            // repairAll: a repack invalidates the UVs of meshes that still pass every integrity test,
+            // so "nothing measured wrong" is not a reason to leave them alone here.
+            MeasureContent(e, repairAll: true);
+        }
+    }
+
+    private static void ReleaseRepair(Entry e)
+    {
+        e.ReleaseRepairs++;
+        MeasureFrame(e);
+        SyncProjection(e);
+        if (e.DisplayRect != null)
+            e.DisplayRect.sizeDelta = e.Frame.size;
+        SyncDisplayPose(e);
+        Reallocate(e, e.Frame);
+        e.NextSweepFrame = Time.frameCount + SweepIntervalFrames;
+        ApplyCaptureLayer(e, initial: false);
+        // Scan AND repair in one walk: the counts recorded are the PRE-repair state, so the report
+        // says what was wrong at the release rather than only that a repair ran.
+        MeasureContent(e);
     }
 
     /// <summary>
@@ -714,6 +845,14 @@ internal static partial class PanelSupersample
         _hooksInstalled = true;
         Camera.onPreCull += OnPreCull;
         Camera.onPostRender += OnPostRender;
+        // THE TWO EVENTS THAT MAKE THE RELEASE REPORT DECIDABLE. Font.textureRebuilt fires when a
+        // DYNAMIC font atlas is re-packed, which silently invalidates the UVs of every text mesh
+        // already generated against it; Canvas.willRenderCanvases fires when uGUI runs its layout and
+        // graphic rebuild queue for the frame. Recording the FRAME of each is what lets the capture
+        // say whether it ran mid-repack or ahead of the rebuild — see Entry.CapturesDuringFontRebuild
+        // and Entry.CapturesBeforeCanvasUpdate. Both are cheap: one int store per event.
+        Font.textureRebuilt += OnFontTextureRebuilt;
+        Canvas.willRenderCanvases += OnWillRenderCanvases;
     }
 
     private static void UninstallHooks()
@@ -723,6 +862,47 @@ internal static partial class PanelSupersample
         _hooksInstalled = false;
         Camera.onPreCull -= OnPreCull;
         Camera.onPostRender -= OnPostRender;
+        Font.textureRebuilt -= OnFontTextureRebuilt;
+        Canvas.willRenderCanvases -= OnWillRenderCanvases;
+    }
+
+    /// <summary>
+    /// A DYNAMIC FONT ATLAS WAS RE-PACKED. Every text mesh already generated against it now points at
+    /// atlas regions that may hold different glyphs or nothing at all, and a canvas that is not
+    /// re-generated keeps showing those stale UVs. uGUI's own <c>Text</c> subscribes to this event and
+    /// re-generates itself, but only if it <c>IsActive()</c>, and TextMeshPro does not use this event
+    /// at all — so this class arms its OWN repair for every engaged panel rather than trusting either.
+    /// <para>Armed for the NEXT frame, not this one: an atlas being re-packed is usually still being
+    /// filled by the requests that caused the repack, and regenerating inside that would just be
+    /// first in the queue for the next repack.</para>
+    /// </summary>
+    private static void OnFontTextureRebuilt(Font font)
+    {
+        try
+        {
+            _fontRebuilds++;
+            _fontRebuildFrame = Time.frameCount;
+            _fontRebuildName = font != null ? font.name : "(null)";
+            ArmRebuildRepair();
+        }
+        catch
+        {
+            // Never throw out of an engine callback.
+        }
+    }
+
+    private static void OnWillRenderCanvases() => _canvasUpdateFrame = Time.frameCount;
+
+    /// <summary>Ask every live entry to re-request its glyphs and re-generate its text on the next
+    /// LateUpdate. Idempotent: an entry already armed keeps its earlier (never later) due frame.</summary>
+    private static void ArmRebuildRepair()
+    {
+        for (int i = 0; i < Entries.Count; i++)
+        {
+            Entry e = Entries[i];
+            if (e.RebuildRepairFrame < 0)
+                e.RebuildRepairFrame = Time.frameCount + 1;
+        }
     }
 
     /// <summary>
@@ -747,6 +927,16 @@ internal static partial class PanelSupersample
             if (mine != null)
             {
                 mine.LastCaptureStart = Time.realtimeSinceStartup;
+                // THE CAPTURE-COINCIDENCE COUNTERS, recorded at the LAST instant before this camera
+                // culls — i.e. the exact state the captured image is taken from. Every one of them
+                // has a denominator (CaptureTicks) recorded on the same line, so "the instrument
+                // never ran", "it ran and found nothing" and "it ran and found something" are three
+                // different readings and can never print the same character.
+                mine.CaptureTicks++;
+                if (_fontRebuildFrame == Time.frameCount)
+                    mine.CapturesDuringFontRebuild++;
+                if (_canvasUpdateFrame != Time.frameCount)
+                    mine.CapturesBeforeCanvasUpdate++;
                 // THE LAST INSTANT BEFORE THIS CAMERA CULLS. Re-deriving the projection here is what
                 // makes a two-hand resize correct in the frame it happens: orthographicSize is a
                 // WORLD-unit quantity read from the host's lossy scale, and GrabbableModal's own

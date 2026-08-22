@@ -201,6 +201,16 @@ internal sealed class CardFace
 
         owner.LockFullCard = true;
 
+        // REGISTER BEFORE ANY PUMP RUNS, and the order is load-bearing rather than tidy. This
+        // registry is the ONE answer to "is this face a live game widget or a copy the mod built
+        // for itself" (CardArtGuard.IsAdopted), and CardHalfTone — which rides the very same
+        // per-face pump a few lines down — WRITES to a face it believes is a mod-owned copy. The
+        // face has already been re-parented out from under its AbilityCardUI by then, so an
+        // unregistered adopted face is indistinguishable from a clone: registering after the first
+        // Rescan would hand the game's own widget to a writer that must never touch it.
+        CardArtGuard.NoteAdopted(owner.fullAbilityCard);
+        _nextArtTick = Time.unscaledTime + CardArtGuard.TickIntervalSeconds;
+
         Vector2 size = face.rect.size;
         if (size.x > 1f && size.y > 1f)
             FaceSize = size;
@@ -228,13 +238,11 @@ internal sealed class CardFace
         // ca. 1 Sekunde die Variante mit Aliasing" on a character switch).
         _artWatch.Capture(owner.fullAbilityCard);
 
-        // WHITE DECISION-PHASE FACES: from here on this face is re-activated by Maintain
+        // (WHITE DECISION-PHASE FACES: from here on this face is re-activated by Maintain
         // whenever the game's pick-mode UpdateView deactivates it, and every such cycle
-        // re-enters the game's addressable card-art loader. Register it so CardArtGuard can
-        // stop an in-flight load from being restarted (which nulls the action-half sprites)
-        // and can heal/replay afterwards — see CardArtGuard's class doc.
-        CardArtGuard.NoteAdopted(owner.fullAbilityCard);
-        _nextArtTick = Time.unscaledTime + CardArtGuard.TickIntervalSeconds;
+        // re-enters the game's addressable card-art loader. CardArtGuard — registered above,
+        // before the first pump — stops an in-flight load from being restarted (which nulls the
+        // action-half sprites) and heals/replays afterwards; see CardArtGuard's class doc.)
 
         return true;
     }
@@ -534,6 +542,13 @@ internal sealed class CardFace
                 root = ability.RectTransform != null
                     ? ability.RectTransform
                     : ability.transform as RectTransform;
+
+                // THE HALF TONE, on the same pump and for the same reason as the blackout below:
+                // this is the ONE place both ability-face paths already meet (the adopted local
+                // widget and a mod-built clone), so the "greyer in the selectable areas" report is
+                // answered once here instead of in each surface. Writes only to faces the mod owns
+                // outright and measures the rest — see CardHalfTone's class doc.
+                CardHalfTone.Observe(ability);
             }
             else if (item != null)
             {

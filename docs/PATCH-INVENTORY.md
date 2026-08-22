@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**70 patch classes, 113 patched methods.**
+**70 patch classes, 116 patched methods.**
 
 ## Board
 
@@ -128,7 +128,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:45 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:46 |
-| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:1216</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:442 |
+| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:1642</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:588 |
 | `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:70 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |
@@ -170,6 +170,9 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `TooltipUI.ToggleEnable()` | postfix | &nbsp; |
 | &nbsp; | `UIShopItemSlot.OnHovered()` | postfix | &nbsp; |
 | &nbsp; | `UIPartyItemSlot.OnHovered()` | postfix | &nbsp; |
+| &nbsp; | `UIPartyCharacterEquippementSlot.OnHovered()` *(private)* | postfix | &nbsp; |
+| &nbsp; | `UIPartyCharacterEquippementSlot.OnUnHovered()` *(private)* | postfix | &nbsp; |
+| &nbsp; | `UIPartyItemInventoryTooltip.Build()` *(private)* | postfix | &nbsp; |
 | &nbsp; | `UITempleShopSlot.Select()` | postfix | &nbsp; |
 | &nbsp; | `UITempleShopSlot.Deselect()` | postfix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |

@@ -89,21 +89,35 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 //        ALSO REJECTED — which is the whole lesson of this block: three different solves, three
 //        rejections. The mod does not know where he wants the button. He does.
 //
-// SO THE POSITION PATH CONTAINS NO SOLVE AT ALL. There is no content measurement in it, no window
-// edge in it, no inset constant in it. The applied offset is exactly
+// SO THE POSITION PATH CONTAINS NO SOLVE AT ALL. There is no content measurement in it and no inset
+// constant in it. The container's pivot is placed at exactly
 //
-//     anchoredPosition = (OffsetX * windowHeight, OffsetY * windowHeight)
+//     window-local (win.rect.xMin, win.rect.yMax) + (OffsetX * windowHeight, OffsetY * windowHeight)
 //
-// and with the shipped defaults of 0 and 0 that is `Vector2.zero` — the same two floats ModBuild 190
-// wrote, through the same `RectTransform.anchoredPosition` setter, after the same anchors and pivot,
-// in the same place in the same method. Byte for byte.
+// and with the shipped defaults of 0 and 0 that is the window rect's top-left anchor reference,
+// which is the point ModBuild 190 put the button on in every frame it rendered (ModBuild 196
+// measured it; see the block below). The `anchoredPosition` that lands on the rect is whatever
+// expresses that point against the anchor the rect is CARRYING — `Vector2.zero` at the anchors
+// `Park` writes, the same two floats 190's log printed.
 //
-// THE FRAME THE DIALS LIVE IN, stated once. With `anchorMin = anchorMax = (0.5, 0)` the anchor
-// reference point in the WINDOW'S local space is `(win.rect.center.x, win.rect.yMin)` — the middle
-// of the window's bottom edge. With `pivot = (0.5, 1)` the container's local origin is its own pivot
-// point, so `anchoredPosition` is precisely the offset from that bottom-edge anchor to the container.
-// +x is the window's own RIGHT, +y is the window's own UP. The container carries identity rotation
-// and unit scale, so the dials move the button in the plane of the card and nowhere else.
+// THE FRAME THE DIALS LIVE IN, stated once, AND CORRECTED AT ModBuild 196 AGAINST HARDWARE — see
+// the "ONE-FRAME RELAPSE" block below for the arithmetic that forced the correction. The dials place
+// the container's PIVOT POINT at the window-local point
+//
+//     (win.rect.xMin + OffsetX * windowHeight,  win.rect.yMax + OffsetY * windowHeight)
+//
+// i.e. the zero of BOTH dials is the window rect's TOP-LEFT corner, +x is the window's own RIGHT and
+// +y is the window's own UP. That is not a new decision: it is the reference point the container has
+// actually carried in every rendered frame since ModBuild 190 (the game's own layout group re-anchors
+// it to `Vector2.up` before the first frame the player ever sees), so 0/0 is byte-for-byte the pose
+// 190 PUT ON SCREEN. The container carries identity rotation and unit scale, so the dials move the
+// button in the plane of the card and nowhere else.
+//
+// THE ANCHORS ARE NO LONGER ASSUMED — THEY ARE READ. `anchoredPosition` is meaningless without the
+// anchor it is measured from, so the applied value is computed every tick as
+// `wantedPivot - anchorReference(live anchorMin/anchorMax)`. Whatever anchor the container is
+// carrying, the button lands on the same window-local point, and this class never writes an anchor
+// after the park — which is what makes an anchor fight impossible rather than merely unlikely.
 //
 // THE UNIT IS FRACTIONS OF THE WINDOW'S OWN HEIGHT, and the reason is the one dial the user already
 // owns: [WorldUI] WindowLegibility rescales the floated windows, and he resizes them. A pixel offset
@@ -125,25 +139,24 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // one local unit is 0.1734 / 198 m = 0.876 mm real. That makes the card 448 mm wide and 894 mm tall
 // in front of the player's face, and the clamps
 //
-//     OffsetX  in  -0.5 … +0.5  window heights  =  -447 … +447 mm  (the card's side edges are at
-//                                                  ±0.25 = ±224 mm, so either extreme is half a
-//                                                  window WIDTH outside the edge)
-//     OffsetY  in  -1.5 … +1.5  window heights  = -1341 … +1341 mm  (0 is the window RECT's bottom
-//                                                  edge and +1.0 = +894 mm is its top edge)
+//     OffsetX  in  -0.5 … +0.5  window heights  =  -447 … +447 mm  (0 is the card's LEFT edge, the
+//                                                  card is 0.50 window heights wide so its centre
+//                                                  line is +0.25 and its right edge +0.50)
+//     OffsetY  in  -1.5 … +1.5  window heights  = -1341 … +1341 mm  (0 is the window RECT's TOP
+//                                                  edge and -1.0 = -894 mm is its bottom edge)
 //
 // cover the whole card and a generous margin all round it.
 //
-// THE Y RANGE WAS ASYMMETRIC (-0.5) THROUGH ModBuild 194 AND IS SYMMETRIC NOW, AND WHAT CHANGED IS
-// THE PREMISE, NOT THE TASTE. 194 argued: "the ZERO of this axis is an EDGE and not a centre; a
-// symmetric ±1 would waste half its travel under the floor". THE ModBuild 194 PHOTOGRAPH
-// (bestsätigungsknopf.jpg) REFUTES THE PREMISE: with both dials at 0 — i.e. the button sitting
-// exactly ON the window rect's bottom edge — the button appears ABOVE the quest card's information.
-// So the information extends BELOW the rect that this axis measures from, which is ordinary uGUI (a
-// child Graphic is not clipped to its parent's rect without a Mask or RectMask2D, and the quest
-// popup has neither). Zero is an INTERIOR point of the visible card, the card exists on both sides
-// of it, and an axis whose zero is interior must be able to travel both ways. Nothing below the rect
-// is "under the floor" — the container is a child of the window at every value and moves, scales,
-// occludes and goes home with it, which is the same bound the whole box already had.
+// THE Y RANGE WAS ASYMMETRIC (-0.5) THROUGH ModBuild 194 AND IS SYMMETRIC NOW, AND ModBuild 196
+// FINALLY NAMES WHY. 194 argued: "the ZERO of this axis is the card's BOTTOM edge, so a symmetric
+// range would waste half its travel under the floor". 195 widened it anyway because the ModBuild 194
+// PHOTOGRAPH showed the button ABOVE the card's information at 0/0, which 195 could only explain by
+// the card drawing outside its own rect. 196 measured the truth: ZERO IS THE TOP EDGE. The button at
+// 0/0 is above the information because it is above the card's TOP, reaching underneath the
+// information genuinely costs most of a window height of downward travel, and the widened -1.5 is
+// what makes the user's own -0.726 reachable at all. Nothing below the rect is "under the floor" —
+// the container is a child of the window at every value and moves, scales, occludes and goes home
+// with it, which is the same bound the whole box already had.
 //
 // NOTHING IN THAT BOX IS UNREACHABLE, which is the standing bound on any dial. The extremes trace a
 // box that is the window's own outline grown by half a window height (447 mm) on every side, and the
@@ -168,6 +181,85 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // same raycaster) and it inherits the floated modals' exemption from the game's UI lock. 192 had to
 // re-acquire every one of those on a host of its own, and it still did not look like part of the
 // window, because it was not.
+//
+// ===========================================================================================
+// ModBuild 196 — THE ONE-FRAME RELAPSE. THE PARENT WINDOW HAS A uGUI LAYOUT GROUP, AND SINCE 190
+// IT — NOT THIS CLASS — HAS OWNED THE CONTAINER'S ANCHORS.
+// ===========================================================================================
+//
+// "Der Reise-Knopf glitcht jede Sekunde für einen Frame an eine andere Stelle. Man sieht ihn
+//  ständig kurz von seiner Stelle verschwinden, kurz weiter UNTEN erscheinen, und wieder da sein.
+//  Und das in einer Schleife. Das Fenster ist vertikal GRÖSSER, weil die Stelle wo er ständig
+//  hinblitzt unten ist."
+//
+// MEASURED, NOT INFERRED. The ModBuild 195 placement line prints, in the SAME frame and the SAME
+// space, both the applied `anchoredPosition` and the union of the button's painted Graphics in
+// WINDOW-LOCAL coordinates. Fifteen such samples were taken on hardware. Solve each one for the
+// anchor reference point the pair implies (content = anchorRef + anchoredPosition + C, with the
+// container's own content offset C = (-153.5, +30) fixed by the first sample):
+//
+//   * THREE samples land on (0, -510.5) = the reference for `anchorMin = anchorMax = (0.5, 0)`,
+//     the anchors this class writes in `Park`. All three are the FIRST placement line of a parking
+//     — the tick `Park` ran on.
+//   * TWELVE samples land on (-256, +510.5) = the reference for `anchorMin = anchorMax = (0, 1)`,
+//     which is `Vector2.up`. Every one of them is a later tick of the same parking. Twelve of the
+//     twelve match to within 0.01 px on both axes.
+//
+// `anchorMin = anchorMax = Vector2.up` is the literal signature of every uGUI LayoutGroup:
+// `LayoutGroup.SetChildAlongAxisWithScale` writes exactly those two lines on each of its
+// `rectChildren` — AND, in the same call, writes the child's `anchoredPosition` to its layout slot.
+// So the parent 'UI Quest Popup' carries a layout group, `Park`'s `SetAsLastSibling` made this
+// container its LAST layout child, and from the first rebuild onwards the group owns the anchors.
+//
+// THAT IS THE WHOLE BUG, both halves of it:
+//
+//   THE FLASH. uGUI rebuilds layout in `Canvas.willRenderCanvases`, i.e. AFTER LateUpdate;
+//   `Reconcile` runs from `MapRoomDriver.TickActive` in Update. On any frame the group rebuilds it
+//   therefore writes LAST and the button is drawn at the group's own slot — the bottom of the
+//   layout, because we made it the last sibling — and our write does not correct it until the NEXT
+//   frame. One frame, at the bottom, in a loop. The loop's period is the rebuild's: among other
+//   sources, CanvasConversion's re-fit calls `LayoutRebuilder.ForceRebuildLayoutImmediate` on this
+//   very subtree and its own damping (`FitRefitMinIntervalSeconds`) lets that happen at most once
+//   every 1.5 s — the "jede Sekunde" in the report. The ModBuild 195 log shows 146 applied re-fits
+//   of this one window, every one of them a no-op that re-ran.
+//
+//   THE WINDOW GROWING. The floated window's capture/hit frame is the union of the host rect and
+//   the MEASURED DRAWN CONTENT of the subtree (CanvasConversion.3.Fit). That sweep runs on its own
+//   cadence, so it eventually samples a rebuild frame, measures the button at the bottom slot and
+//   bakes it in — "the window is vertically larger because the spot it flashes to is at the
+//   bottom". Fixed at the SOURCE: with the relapse gone the button is never AT that pose, so there
+//   is nothing for the measurement to find. Nothing clamps the measurement.
+//
+// AND IT SETTLES THE CONTRADICTION ModBuild 195 COULD NOT. That header recorded two pieces of
+// evidence that "disagree about where the button is": the ModBuild 194 photograph showing the plaque
+// ABOVE the card's top edge, and the runtime numbers putting it 26 mm above the card's BOTTOM edge.
+// Both are correct. They were sampled in different anchor states — the log line the numbers came
+// from is a FIRST-placement line (anchors still ours, bottom edge), the photograph is of a steady
+// frame (anchors `Vector2.up`, top edge). The 195 header's own worry that it was choosing between
+// two irreconcilable measurements was really a two-state bug reporting both of its states.
+//
+// THE FIX, AND WHY IT IS NOT A WRITE WAR — the standing project rule.
+//
+//   1. THE OTHER WRITER'S AUTHORITY IS REMOVED, NOT CONTESTED. A `LayoutElement` with
+//      `ignoreLayout = true` goes on the container while it is parked. `LayoutGroup`'s own
+//      `CalculateLayoutInputHorizontal` skips every child that carries an `ILayoutIgnorer` with
+//      that flag set — the rect never enters `rectChildren`, `SetChildAlongAxisWithScale` is never
+//      called on it, and `m_Tracker.Clear()` releases the properties it had been driving. The group
+//      keeps laying out its own children exactly as before; it simply stops counting one that was
+//      never its child until we put it there. Recorded and restored on unpark like everything else
+//      (destroyed if we added it, `ignoreLayout` written back if the container already had one).
+//   2. THE ANCHORS ARE CONCEDED AND THE NUMBER IS OWNED. Even with (1) in place this class no
+//      longer writes an anchor after the park: the wanted pose is a window-local POINT and the
+//      applied `anchoredPosition` is derived from whatever anchor the rect is carrying this tick.
+//      A second writer that re-anchors the container therefore cannot move the button at all — it
+//      changes a number this class recomputes — so there is no state left for two writers to
+//      alternate over. (`Park` still sets the anchors once, to `Vector2.up`: the value the container
+//      has actually carried in every rendered frame since 190, so 0/0 writes `Vector2.zero` and the
+//      log line reads exactly as 190's did.)
+//   3. IT IS PROVEN, NOT ASSUMED. A drift watch compares the rect against what we last wrote on
+//      every tick and reports the COUNT OF COMPARISONS alongside the count of deviations, the
+//      largest one in real millimetres, and the name of the layout component found on the parent.
+//      "0 deviations" and "never ran" can therefore never look the same — see `ReportDrift`.
 //
 // ===========================================================================================
 // THE ONE-FRAME FLASH — THE 193 FIX IS KEPT, WITH ONE OF ITS TWO MECHANISMS RETIRED ON PURPOSE
@@ -230,8 +322,14 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 //   container's sweep puts at window-local y = -480.5 .. -415.5). By THAT measurement the button is
 //   already directly under the information, which the user says it is not.
 //
-// Both cannot be right, and the mod does not get to pick. So this build ships the three things that
-// make the next report decide it in ONE round instead of arguing it in four:
+// ModBuild 196 SETTLED IT: BOTH ARE RIGHT, AND THAT WAS THE BUG. The two numbers were sampled in
+// two different anchor states of the same container — the runtime line is a FIRST-placement line,
+// taken on the one tick per parking on which the anchors are still the ones Park writes, while the
+// photograph is of a steady frame, in which the parent window's layout group had long since
+// re-anchored the container to Vector2.up and moved it one whole window height up. Neither
+// measurement was wrong and neither instrument was lying; the SUBJECT had two states. See the
+// ModBuild 196 block above. The three things 195 shipped to decide it all still stand and all still
+// help, so they are kept:
 //
 //   1. THE Y CLAMP IS WIDENED to -1.5 (see OffsetLimitYMin) so the target is REACHABLE whichever
 //      account is true. If the photograph is right, reaching below the card needs roughly a whole
@@ -266,7 +364,8 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 //
 // The container's home is recorded ONCE, before the first move: parent, sibling index, anchorMin,
 // anchorMax, pivot, anchoredPosition, localRotation, localScale — plus the CanvasGroup's alpha and
-// blocksRaycasts if it had one, or the fact that we added it. All of it is written back verbatim on
+// blocksRaycasts and the LayoutElement's ignoreLayout if it had them, or the fact that we added
+// them (both are DESTROYED again on unpark when they were ours). All of it is written back verbatim on
 // unpark, on stand-down and on teardown, and the transform half only WHILE THE OBJECT IS STILL
 // PARENTED UNDER OUR HOST: the game re-parents its own UI freely, and taking an object back from
 // wherever it has since put it is the write war again. THE HOLD IS RELEASED UNCONDITIONALLY though,
@@ -318,38 +417,39 @@ internal static class MapTravelConfirm
     // class doc for the millimetre figures and for why nothing inside these bounds is unreachable.
 
     /// <summary>Sideways travel of the confirm button, in fractions of the quest window's own
-    /// HEIGHT, either way from the window's centre line. ±0.5 ≈ ±447 mm at the measured rig scale —
-    /// half a window WIDTH beyond either side edge of the card.</summary>
+    /// HEIGHT, either way from the window rect's LEFT edge (ModBuild 196 named the reference that
+    /// has been in force since 190; the number and the range are unchanged). ±0.5 ≈ ±447 mm at the
+    /// measured rig scale, and the card is 0.50 window heights wide, so the range spans the card
+    /// from its left edge to its right edge and half a card further either way.</summary>
     internal const float OffsetLimitX = 0.5f;
 
     /// <summary>
-    /// Lowest vertical offset, in fractions of the window's height, measured UP from the window's
-    /// BOTTOM edge (which is where 0 sits). -1.5 ≈ 1341 mm below that edge.
+    /// Lowest vertical offset, in fractions of the window's height, measured UP from the window
+    /// rect's TOP edge (which is where 0 sits — see the ModBuild 196 block in the class doc: the
+    /// bottom edge was the frame this file BELIEVED it was writing in, the top edge is the one it
+    /// has actually been drawing in since 190, and the user's tuned values are measured from it).
+    /// -1.5 ≈ 1341 mm below that edge, i.e. half a card below the card's bottom edge.
     ///
-    /// <para>WIDENED AT ModBuild 195 FROM -0.5, AND THE PREMISE THAT SET -0.5 IS WHAT CHANGED. The
-    /// ModBuild 194 bound was argued from "0 is the card's BOTTOM edge, so travel below it is travel
-    /// under the floor — a symmetric range would waste half its reach". THE PHOTOGRAPH
-    /// (bestsätigungsknopf.jpg, ModBuild 194) REFUTES THAT: the button sits at Y = 0, i.e. exactly on
-    /// the window RECT's bottom edge, and it appears ABOVE the quest card's information — so the
-    /// information the user is reading extends BELOW the rect that the Y axis measures from. That is
-    /// ordinary uGUI: a child Graphic is not clipped to its parent's rect without a Mask or a
-    /// RectMask2D, and the quest popup has neither, so the rect is a layout frame and NOT the outline
-    /// of what is drawn. Zero is therefore an INTERIOR point of the visible card, not its lower
-    /// boundary, and an axis whose zero is interior needs travel on both sides of it. -1.5 mirrors
-    /// the +1.5 above so the two directions reach equally far from that zero; the default is still 0
-    /// and no behaviour changes until a dial is turned.</para>
+    /// <para>WIDENED AT ModBuild 195 FROM -0.5, AND ModBuild 196 EXPLAINS WHY THAT WAS RIGHT FOR A
+    /// REASON 195 COULD NOT SEE. 195 kept the premise "0 is the card's bottom edge" and widened the
+    /// range because the ModBuild 194 PHOTOGRAPH showed the button ABOVE the card's information at
+    /// 0/0, which it could only explain as the card drawing outside its own rect. The real reason is
+    /// simpler and is now measured: 0 IS THE TOP EDGE, so the button at 0/0 is above the card because
+    /// it is above the card's TOP, and reaching underneath the information genuinely costs most of a
+    /// window height of downward travel. The widened bound is what makes the user's own -0.726
+    /// reachable at all. The default is still 0 and no behaviour changes until a dial is turned.</para>
     ///
     /// <para>STILL BOUNDED, and by the same argument the class doc makes for every value in the box:
     /// the container never stops being a CHILD of the quest window, so at -1.5 it is 1341 mm below
-    /// the window's rect bottom and still moving, scaling, occluding and going home with the card,
+    /// the window's rect top and still moving, scaling, occluding and going home with the card,
     /// still hit by the raycaster that already hits the window, and still carrying blocksRaycasts
     /// whenever it is visible. No value of this dial removes the button, changes what it does, or
     /// touches game state.</para>
     /// </summary>
     internal const float OffsetLimitYMin = -1.5f;
 
-    /// <summary>Highest vertical offset, same frame and unit. +1.0 is the window's TOP edge, so
-    /// +1.5 ≈ 447 mm above it.</summary>
+    /// <summary>Highest vertical offset, same frame and unit. 0 is the window rect's TOP edge, so
+    /// +1.5 ≈ 1341 mm above it — one and a half cards clear of the card's own top.</summary>
     internal const float OffsetLimitYMax = 1.5f;
 
     // ---- the other constants ---------------------------------------------------------------------
@@ -381,6 +481,15 @@ internal static class MapTravelConfirm
     /// a reason to print.</summary>
     private const float ResolveLogIntervalSeconds = 1.5f;
 
+    /// <summary>
+    /// Seconds between DRIFT WATCH lines. Long on purpose: this instrument answers "is anything
+    /// still writing this rect behind us", and that question is answered by a COUNT over many
+    /// frames, not by a per-frame trace. The first line of a parking always prints — even with
+    /// nothing to report — because "0 deviations in 340 comparisons" and "the watch never ran" must
+    /// never look the same in a log.
+    /// </summary>
+    private const float DriftReportIntervalSeconds = 8f;
+
     /// <summary>Graphic sink for the log's content sweep — reused, so it allocates nothing.</summary>
     private static readonly List<Graphic> ContentGraphics = new(32);
 
@@ -399,6 +508,43 @@ internal static class MapTravelConfirm
     private static Vector2 _homeAnchoredPos;
     private static Quaternion _homeLocalRotation = Quaternion.identity;
     private static Vector3 _homeLocalScale = Vector3.one;
+
+    // ---- the layout seam (ModBuild 196) ---------------------------------------------------------
+    //
+    // The one component that takes the container out of the parent window's layout group entirely.
+    // See the ModBuild 196 block in the class doc for the fifteen hardware samples that proved a
+    // layout group owns this rect; the point of this member is that the fix is a REMOVAL of the
+    // other writer's authority, not a race against it.
+
+    private static LayoutElement? _layoutIgnore;
+    private static bool _layoutIgnoreAdded;
+    private static bool _layoutIgnoreHome;
+
+    /// <summary>What the parent window carries that could drive this rect, resolved once per park
+    /// and printed in the diagnostics — so a future report names the writer instead of implying
+    /// one.</summary>
+    private static string _layoutOwner = "<not resolved>";
+
+    // ---- the drift watch (ModBuild 196) ---------------------------------------------------------
+
+    /// <summary>The pose this class last WROTE OR VERIFIED, and the anchors it was measured
+    /// against. Compared on the next tick, before anything is written, so a foreign write in
+    /// between is caught rather than silently overwritten.</summary>
+    private static Vector2 _wrotePos;
+    private static Vector2 _wroteAnchorMin;
+    private static Vector2 _wroteAnchorMax;
+    private static Vector2 _wrotePivot;
+    private static bool _wroteValid;
+
+    private static int _watchComparisons;
+    private static int _watchPosDeviations;
+    private static int _watchAnchorDeviations;
+    private static int _watchPivotDeviations;
+    private static float _watchWorstDeviation;
+    private static Vector2 _watchWorstActual;
+    private static Vector2 _watchWorstExpected;
+    private static float _watchNextReportAt = float.PositiveInfinity;
+    private static bool _watchReportedOnce;
 
     // ---- the hold-down that replaces 192's render-hidden host ----------------------------------
 
@@ -444,8 +590,9 @@ internal static class MapTravelConfirm
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
                           + "invention), and the game's real Reisen/Abbrechen buttons are parked INSIDE "
-                          + "the floated quest window at the ModBuild 190 pose (anchoredPosition = zero "
-                          + "against the window's bottom-edge anchor), movable from there with the live "
+                          + "the floated quest window at the ModBuild 190 pose (the container's pivot on "
+                          + "the window rect's top-left anchor reference — the point 190 actually drew "
+                          + "it at, measured at ModBuild 196), movable from there with the live "
                           + "[WorldUI] TravelButtonOffsetXWindowHeights / …YWindowHeights dials. Travel "
                           + "now commits through that button and through nothing else.");
     }
@@ -582,6 +729,11 @@ internal static class MapTravelConfirm
 
         EnsureHold(options);
         SetHidden(true);
+        // BEFORE THE REPARENT, so the parent's layout group never sees a rebuild with this rect in
+        // its children. See the ModBuild 196 block: this is what takes the anchors and the
+        // anchoredPosition out of the group's hands instead of racing it for them.
+        EnsureLayoutIgnore(options);
+        _layoutOwner = DescribeLayoutOwner(win, options);
 
         _host = questWindow;
         _posed = false;
@@ -591,17 +743,25 @@ internal static class MapTravelConfirm
         _loggedDials = Vector2.zero;
         _wasActive = options.activeInHierarchy;
         _activeSince = Time.unscaledTime;
+        ResetDriftWatch();
 
-        // THE ModBuild 190 SEQUENCE, IN ITS ORIGINAL ORDER — compare git show ac270f4 on this file.
-        // Bottom-centre anchor with a top-edge pivot, so that anchoredPosition is a plain offset from
-        // (win.rect.center.x, win.rect.yMin) to the container's own local origin, which is what makes
-        // the two dials a pair of multiplications and no matrix work. The ApplyPose call stands where
-        // 190's `rect.anchoredPosition = Vector2.zero` stood and writes that same value while both
-        // dials are 0. Every one of these is recorded above and written back verbatim on unpark.
+        // THE ModBuild 190 SEQUENCE, IN THE ORDER IT HAS ALWAYS HAD, WITH THE ANCHOR CORRECTED TO
+        // THE ONE 190 ACTUALLY DREW WITH (ModBuild 196). 190 through 195 wrote (0.5, 0) here, and
+        // the container carried that value for exactly one tick per parking: the parent window's
+        // uGUI layout group re-anchored it to `Vector2.up` on its first rebuild and kept it there
+        // for every rendered frame after — fifteen hardware samples in the class doc, twelve of them
+        // solving to (0, 1) to within 0.01 px. Writing `Vector2.up` here is therefore not a new
+        // placement; it is the SAME PLACEMENT 190 put on screen, written down honestly, so that
+        // 0/0 puts `Vector2.zero` on the rect (exactly as 190's log line read) and the frame no
+        // longer changes underneath the dials one tick after the park. With the LayoutElement above
+        // in place nothing re-drives it, and ApplyPose does not depend on it either — it derives the
+        // offset from whatever anchor the rect is carrying, so this line sets a starting value and
+        // never has to defend it. Every property is recorded above and written back verbatim on
+        // unpark.
         rect.SetParent(win, worldPositionStays: false);
         rect.SetAsLastSibling();
-        rect.anchorMin = new Vector2(0.5f, 0f);
-        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.anchorMin = Vector2.up;
+        rect.anchorMax = Vector2.up;
         rect.pivot = new Vector2(0.5f, 1f);
         ApplyPose(rect, win, out _, out _, out _);
         rect.localRotation = Quaternion.identity;
@@ -631,7 +791,7 @@ internal static class MapTravelConfirm
     /// </summary>
     private static void Unpark(string why)
     {
-        if (_host == null && _hold == null)
+        if (_host == null && _hold == null && _layoutIgnore == null)
         {
             // Nothing parked. Still clear the one-per-visit diagnostic latches, so a second visit
             // re-reports a failure instead of failing silently.
@@ -643,6 +803,9 @@ internal static class MapTravelConfirm
         UIWindow? host = _host;
         _host = null;
         ReleaseHold();
+        ReleaseLayoutIgnore();
+        ResetDriftWatch();
+        _watchNextReportAt = float.PositiveInfinity;
 
         _posed = false;
         _placementLogged = false;
@@ -682,8 +845,10 @@ internal static class MapTravelConfirm
         VRLog.Info(Scope, $"MAP TRAVEL CONFIRM: travel options handed back to their own home ({why}) — "
                           + "parent, sibling index, anchors, pivot, anchoredPosition, local rotation and "
                           + "local scale all restored verbatim from the record taken before the first "
-                          + "move, and the hold-down (CanvasGroup alpha / blocksRaycasts) released or "
-                          + "destroyed. Nothing of ours is left on the game's object.");
+                          + "move; the hold-down (CanvasGroup alpha / blocksRaycasts) and the layout "
+                          + "opt-out (LayoutElement.ignoreLayout) released or destroyed. Nothing of ours "
+                          + "is left on the game's object, and its own HUD lays it out again as it "
+                          + "always did.");
     }
 
     // ---- the hold-down: 192's render-hidden host, done on a parented container --------------------
@@ -739,6 +904,90 @@ internal static class MapTravelConfirm
         cg.blocksRaycasts = _holdHomeBlocksRaycasts;
     }
 
+    // ---- the layout seam: taking the container OUT of the parent's layout group ------------------
+
+    /// <summary>
+    /// THE FIX FOR THE ONE-FRAME RELAPSE. Put a <see cref="LayoutElement"/> with
+    /// <c>ignoreLayout = true</c> on the container, recording what was there before.
+    ///
+    /// <para>WHY THIS AND NOT A PER-FRAME CORRECTION. uGUI's <c>LayoutGroup</c> builds its child
+    /// list in <c>CalculateLayoutInputHorizontal</c> and SKIPS every child carrying an
+    /// <c>ILayoutIgnorer</c> whose <c>ignoreLayout</c> is set — the rect never enters
+    /// <c>rectChildren</c>, <c>SetChildAlongAxisWithScale</c> (the method that writes
+    /// <c>anchorMin = anchorMax = Vector2.up</c> AND <c>anchoredPosition</c> on a layout child) is
+    /// never called on it, and the group's <c>DrivenRectTransformTracker</c> is cleared of it. That
+    /// is the seam that stops the other writer, which is the standing house rule: a value the game
+    /// re-writes every rebuild must not be re-written back every frame.</para>
+    ///
+    /// <para>NOTHING ELSE CHANGES FOR THE GAME. The flag only means "do not lay this rect out"; the
+    /// group keeps laying out its OWN children exactly as before, and this container was never one
+    /// of them until <see cref="Park"/> put it there. On unpark the component is destroyed (if we
+    /// added it) or its flag written back (if the container already had one), so the flat HUD lays
+    /// it out again precisely as it always did.</para>
+    /// </summary>
+    private static void EnsureLayoutIgnore(GameObject options)
+    {
+        if (_layoutIgnore != null && _layoutIgnore.gameObject == options)
+        {
+            _layoutIgnore.ignoreLayout = true;
+            return;
+        }
+        ReleaseLayoutIgnore();
+        LayoutElement? le = options.GetComponent<LayoutElement>();
+        _layoutIgnoreAdded = le == null;
+        if (le == null)
+            le = options.AddComponent<LayoutElement>();
+        _layoutIgnoreHome = le.ignoreLayout;
+        le.ignoreLayout = true;
+        _layoutIgnore = le;
+    }
+
+    /// <summary>Give the layout opt-out back exactly as it was found, or destroy the one we
+    /// added.</summary>
+    private static void ReleaseLayoutIgnore()
+    {
+        LayoutElement? le = _layoutIgnore;
+        bool added = _layoutIgnoreAdded;
+        _layoutIgnore = null;
+        _layoutIgnoreAdded = false;
+        if (le == null)
+            return;
+        if (added)
+        {
+            Object.Destroy(le);
+            return;
+        }
+        le.ignoreLayout = _layoutIgnoreHome;
+    }
+
+    /// <summary>
+    /// NAME THE WRITER. Resolved once per park and printed in the diagnostics, so a report of "it
+    /// still flashes" can say WHAT is driving the rect instead of leaving the next round to guess
+    /// — the same bar the class doc sets for every other number on the placement line.
+    /// </summary>
+    private static string DescribeLayoutOwner(RectTransform win, GameObject options)
+    {
+        var group = win.GetComponent<LayoutGroup>();
+        var fitter = win.GetComponent<ContentSizeFitter>();
+        var own = options.GetComponent<LayoutGroup>();
+        string parent = group != null
+            ? $"the quest window carries a {group.GetType().Name} — THAT is the component that writes "
+              + "anchorMin/anchorMax = Vector2.up and anchoredPosition on its layout children, and it "
+              + "is why this container needs the LayoutElement opt-out"
+            : "the quest window carries NO LayoutGroup of its own (if the rect still drifts, the "
+              + "writer is further up the chain or is not a layout component at all — the drift watch "
+              + "below says whether it drifts at all)";
+        string sizer = fitter != null
+            ? $"; it also carries a ContentSizeFitter ({fitter.GetType().Name}), which sizes it from "
+              + "the same layout the opt-out removes this container from"
+            : "";
+        string mine = own != null
+            ? $"; the container itself carries a {own.GetType().Name} for its OWN buttons, which is "
+              + "untouched — the opt-out is about the container's place in its PARENT's layout"
+            : "";
+        return parent + sizer + mine;
+    }
+
     /// <summary>
     /// THE ANTI-FLASH GATE. The container is drawn only while the game has it shown AND a pose has
     /// been written for the window rect it is sitting in — so there is no frame in which the button
@@ -780,7 +1029,8 @@ internal static class MapTravelConfirm
 
     /// <summary>
     /// The two dials, read LIVE and clamped to the same bounds the bind site advertises. Fractions of
-    /// the quest window's own height; +x is the window's right, +y is up from its bottom edge.
+    /// the quest window's own height, measured from the window rect's TOP-LEFT corner; +x is the
+    /// window's right, +y is its up.
     /// </summary>
     private static Vector2 Dials()
     {
@@ -803,22 +1053,168 @@ internal static class MapTravelConfirm
                                   out Vector2 want, out Vector2 dials, out float windowHeight)
     {
         dials = Dials();
-        windowHeight = Mathf.Abs(win.rect.height);
+        Rect frame = win.rect;
+        windowHeight = Mathf.Abs(frame.height);
         want = Vector2.zero;
         // A window whose rect has no height yet (a uGUI layout is not final on the frame a window is
-        // floated) has nothing for a FRACTION to be a fraction of. Zero dials are exempt, because
-        // zero times anything is the pose we want anyway; anything else waits, and the hold-down in
-        // TickVisibility keeps the button off-screen while it does.
-        if (windowHeight <= 0f && (dials.x != 0f || dials.y != 0f))
+        // floated) has nothing for a FRACTION to be a fraction of, AND no edge for the dials' zero
+        // to sit on. That tick writes nothing and the hold-down in TickVisibility keeps the button
+        // off-screen while it waits; the reveal deadline bounds the wait.
+        if (windowHeight <= 0f)
         {
             _posed = false;
             return false;
         }
-        want = new Vector2(dials.x * windowHeight, dials.y * windowHeight);
+
+        // THE POSE IS A WINDOW-LOCAL POINT, NOT AN anchoredPosition (ModBuild 196). The zero of both
+        // dials is the window rect's TOP-LEFT corner — the anchor reference the container has
+        // actually carried in every rendered frame since ModBuild 190 (class doc, fifteen samples).
+        Vector2 wantPivot = new(frame.xMin + dials.x * windowHeight,
+                                frame.yMax + dials.y * windowHeight);
+
+        // ANCHORS ARE READ, NEVER RE-WRITTEN. anchoredPosition means nothing without the anchor it
+        // is measured from, so the number that lands on the rect is derived from the anchor the rect
+        // is CARRYING this tick. A second writer that re-anchors the container therefore cannot move
+        // the button by a single pixel — it changes an input this line recomputes — and there is no
+        // shared value left for two writers to alternate over. The one case that cannot be handled
+        // by arithmetic is a STRETCHED anchor (anchorMin != anchorMax), because that also changes
+        // the container's own rect SIZE and with it where its children draw; that is corrected, and
+        // the drift watch counts it.
+        if (rect.anchorMin != rect.anchorMax)
+        {
+            rect.anchorMin = rect.anchorMax = Vector2.up;
+            _watchAnchorDeviations++;
+        }
+        Vector2 reference = AnchorReference(frame, rect.anchorMin, rect.anchorMax);
+        want = wantPivot - reference;
         if ((rect.anchoredPosition - want).sqrMagnitude > OffsetEpsilon * OffsetEpsilon)
             rect.anchoredPosition = want;   // SKIPPED when the rect already carries the answer
+
+        _wrotePos = rect.anchoredPosition;
+        _wroteAnchorMin = rect.anchorMin;
+        _wroteAnchorMax = rect.anchorMax;
+        _wrotePivot = rect.pivot;
+        _wroteValid = true;
         _posed = true;
         return true;
+    }
+
+    /// <summary>
+    /// The point in <paramref name="frame"/>'s own local space that a child's
+    /// <c>anchoredPosition</c> is measured FROM, for the given (equal) anchors: <c>rect.min +
+    /// anchor * rect.size</c>. With <c>anchorMin == anchorMax</c> this is exact and the child's
+    /// pivot lands at <c>reference + anchoredPosition</c>, which is the identity the whole placement
+    /// is built on.
+    /// </summary>
+    private static Vector2 AnchorReference(Rect frame, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        Vector2 a = (anchorMin + anchorMax) * 0.5f;
+        return new Vector2(frame.xMin + a.x * frame.width, frame.yMin + a.y * frame.height);
+    }
+
+    // ---- the drift watch: PROOF that nothing writes this rect behind us -------------------------
+
+    /// <summary>Start a fresh watch window. Called on every park and unpark, so the counts always
+    /// belong to one parking of one window and can never blend two.</summary>
+    private static void ResetDriftWatch()
+    {
+        _wroteValid = false;
+        _watchComparisons = 0;
+        _watchPosDeviations = 0;
+        _watchAnchorDeviations = 0;
+        _watchPivotDeviations = 0;
+        _watchWorstDeviation = 0f;
+        _watchWorstActual = Vector2.zero;
+        _watchWorstExpected = Vector2.zero;
+        _watchReportedOnce = false;
+        _watchNextReportAt = Time.unscaledTime + DriftReportIntervalSeconds;
+    }
+
+    /// <summary>
+    /// ONE COMPARISON, TAKEN BEFORE THIS TICK WRITES ANYTHING. Whatever the rect carries now is what
+    /// the LAST frame left on it — our own value if nobody else touched it, somebody else's if they
+    /// did. The comparison count is incremented on every single tick, so a silent instrument and a
+    /// clean one are distinguishable in the log by construction.
+    /// </summary>
+    private static void WatchDrift(RectTransform rect)
+    {
+        if (!_wroteValid)
+            return;
+        _watchComparisons++;
+        Vector2 now = rect.anchoredPosition;
+        float dev = (now - _wrotePos).magnitude;
+        if (dev > OffsetEpsilon)
+        {
+            _watchPosDeviations++;
+            if (dev > _watchWorstDeviation)
+            {
+                _watchWorstDeviation = dev;
+                _watchWorstActual = now;
+                _watchWorstExpected = _wrotePos;
+            }
+        }
+        if (rect.anchorMin != _wroteAnchorMin || rect.anchorMax != _wroteAnchorMax)
+            _watchAnchorDeviations++;
+        if (rect.pivot != _wrotePivot)
+            _watchPivotDeviations++;
+    }
+
+    /// <summary>
+    /// THE LINE THAT MAKES THE ModBuild 196 FIX FALSIFIABLE. It prints the number of COMPARISONS
+    /// first, then the deviations, so the three outcomes are three different lines: "N comparisons,
+    /// 0 deviations" (the fix holds), "N comparisons, K deviations" (a writer is still there, and
+    /// the worst one is quoted in real millimetres with the component that most likely wrote it),
+    /// and no line at all (the watch never ran — which now means the container was never parked and
+    /// active, not that all is well).
+    ///
+    /// <para>Rate-limited to <see cref="DriftReportIntervalSeconds"/>, and after the first line of a
+    /// parking it only prints when there is something to report. A healthy build therefore costs one
+    /// line per quest window and then nothing.</para>
+    /// </summary>
+    private static void ReportDrift(UIWindow host, GameObject options, float mmPerLocal)
+    {
+        float now = Time.unscaledTime;
+        if (now < _watchNextReportAt)
+            return;
+        bool anything = _watchPosDeviations > 0 || _watchAnchorDeviations > 0
+                        || _watchPivotDeviations > 0;
+        _watchNextReportAt = now + DriftReportIntervalSeconds;
+        if (_watchReportedOnce && !anything)
+            return;
+        bool first = !_watchReportedOnce;
+        _watchReportedOnce = true;
+
+        string verdict = anything
+            ? $"A SECOND WRITER IS STILL THERE. anchoredPosition differed from the value this class "
+              + $"last wrote on {_watchPosDeviations} of {_watchComparisons} frames (worst "
+              + $"{_watchWorstDeviation:F1} local units = {_watchWorstDeviation * mmPerLocal:F0} mm "
+              + $"real: expected {_watchWorstExpected}, found {_watchWorstActual}); the anchors "
+              + $"changed under us {_watchAnchorDeviations} time(s) and the pivot "
+              + $"{_watchPivotDeviations} time(s). A deviation on a MINORITY of frames is the "
+              + "one-frame relapse: uGUI rebuilds layout in Canvas.willRenderCanvases, AFTER this "
+              + "class has run in Update, so a layout write always draws once before we correct it. "
+              + "REPORT THIS LINE — the anchors are already immune (the pose is derived from "
+              + "whatever anchor is live), so a surviving anchoredPosition deviation means the "
+              + "LayoutElement opt-out did not reach this writer"
+            : $"CLEAN: anchoredPosition matched the value this class last wrote on all "
+              + $"{_watchComparisons} frames compared, and neither the anchors nor the pivot moved. "
+              + "Nothing else is writing this rect, so the button cannot relapse for a frame — which "
+              + "is also why the window's drawn-content measurement can no longer find it at the "
+              + "bottom of the card and grow the frame to reach it";
+        string span = first ? "first" : "repeat";
+        VRLog.Info(Scope, $"MAP TRAVEL CONFIRM drift watch ('{options.name}' in '{host.name}', "
+                          + $"{span} report, covering the {_watchComparisons} tick(s) since the "
+                          + $"previous one — at least {DriftReportIntervalSeconds:F0} s of them) — "
+                          + $"{verdict}.\n"
+                          + $"  layout    : {_layoutOwner}.\n"
+                          + $"  opt-out   : LayoutElement.ignoreLayout is "
+                          + $"{(_layoutIgnore != null && _layoutIgnore.ignoreLayout ? "ON" : "NOT ON")} "
+                          + $"({(_layoutIgnoreAdded ? "added by the mod, destroyed on unpark" : "the container's own component, its flag restored on unpark")}).");
+        _watchComparisons = 0;
+        _watchPosDeviations = 0;
+        _watchAnchorDeviations = 0;
+        _watchPivotDeviations = 0;
+        _watchWorstDeviation = 0f;
     }
 
     /// <summary>
@@ -832,8 +1228,15 @@ internal static class MapTravelConfirm
         if (options.transform is not RectTransform rect || host.transform is not RectTransform win)
             return;
 
+        // BEFORE THE WRITE. Whatever the rect carries at this instant is what the previous frame
+        // left on it, so this is the only place a foreign write can be seen at all — one tick later
+        // our own value is back on it and the evidence is gone.
+        WatchDrift(rect);
+
         if (!ApplyPose(rect, win, out Vector2 want, out Vector2 dials, out float windowHeight))
             return;
+
+        ReportDrift(host, options, Mathf.Abs(win.lossyScale.y) / RigScale() * 1000f);
 
         // LOG ONLY WHEN THERE IS SOMETHING NEW TO SAY, and only while the button is actually on
         // screen — the numbers a tuner needs (where the button ended up) do not exist for a container
@@ -1029,6 +1432,7 @@ internal static class MapTravelConfirm
               + "it, and where the rect ends is NOT where the card ends"
             : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
         string holdHow = _hidden ? "HELD DOWN (alpha 0)" : "revealed";
+        Vector2 anchorRef = AnchorReference(win.rect, rect.anchorMin, rect.anchorMax);
         string poseHow = dials == Vector2.zero
             ? "BOTH DIALS AT 0, so this is byte-for-byte the ModBuild 190 pose the user asked for"
             : "offset from the ModBuild 190 pose by the two dials";
@@ -1051,35 +1455,50 @@ internal static class MapTravelConfirm
             $"MAP TRAVEL CONFIRM placement — INSIDE the quest window '{host.name}', {poseHow}.\n"
             + $"  dials     : [WorldUI] TravelButtonOffsetXWindowHeights = {dials.x:F3}, "
             + $"TravelButtonOffsetYWindowHeights = {dials.y:F3} (fractions of the WINDOW'S HEIGHT; "
-            + $"+x = right, +y = up from the window's BOTTOM edge). Clamped to {-OffsetLimitX:F2}…"
-            + $"{OffsetLimitX:F2} and {OffsetLimitYMin:F2}…{OffsetLimitYMax:F2}. Read live, every "
-            + "tick — turn them and the button moves on the next frame.\n"
+            + "+x = right, +y = up, and the ZERO OF BOTH IS THE WINDOW RECT'S TOP-LEFT CORNER — "
+            + "ModBuild 196 measured that this, and not the bottom-centre this file used to claim, "
+            + "is the reference the button has actually been placed from since ModBuild 190). "
+            + $"Clamped to {-OffsetLimitX:F2}…{OffsetLimitX:F2} and {OffsetLimitYMin:F2}…"
+            + $"{OffsetLimitYMax:F2}. Read live, every tick — turn them and the button moves on the "
+            + "next frame.\n"
             + $"  window    : rect {win.rect} (height {windowHeight:F1} local units), lossyScale "
             + $"{win.lossyScale.y:F4} WORLD units per local unit; rig scale {rigScale:F2} WORLD units "
             + $"per REAL metre, so one local unit is {mmPerLocalY:F3} mm real and the whole card is "
             + $"{windowHeight * mmPerLocalY:F0} mm tall. 0.1 on either dial = {mmPerTenth:F0} mm.\n"
             + $"  container : '{options.name}' rect {rect.rect} — the flat HUD bar's own rect, moved "
-            + "here whole. Its TOP-edge pivot sits on the window's bottom-edge anchor at "
-            + "anchoredPosition = zero, which is exactly what ModBuild 190 wrote.\n"
-            + $"  applied   : anchoredPosition = {want} = (dial.x, dial.y) x {windowHeight:F1}. "
-            + $"Nothing else is in this number — no content measurement, no window edge, no inset. "
-            + $"The container is currently {holdHow}.\n"
+            + $"here whole. Live anchors {rect.anchorMin}..{rect.anchorMax}, pivot {rect.pivot}; "
+            + $"the anchor reference those put in window-local space is {anchorRef}, and the "
+            + "container's pivot is placed at reference + anchoredPosition. THE ANCHORS ARE READ AND "
+            + "NEVER RE-WRITTEN, so if a game component re-anchors this rect the offset below simply "
+            + "recomputes and the button does not move.\n"
+            + $"  applied   : anchoredPosition = {want}, putting the container's pivot at "
+            + $"{anchorRef + want} in window-local space = the window rect's top-left corner "
+            + $"({win.rect.xMin:F1}, {win.rect.yMax:F1}) plus (dial.x, dial.y) x {windowHeight:F1}. "
+            + "Nothing else is in this number — no content measurement, no inset. The container is "
+            + $"currently {holdHow}.\n"
+            + $"  layout    : {_layoutOwner}. The container carries a LayoutElement with ignoreLayout "
+            + $"= {(_layoutIgnore != null && _layoutIgnore.ignoreLayout ? "TRUE" : "NOT SET")}, which "
+            + "is what keeps that group from writing this rect's anchors and anchoredPosition on "
+            + "every rebuild — the ModBuild 195 one-frame relapse.\n"
             + $"  button    : {btnWhere}.\n"
             + $"  moved     : {movedHow}.\n"
             + $"  content   : {contentHow} — EVIDENCE ONLY: the visible-graphic sweep 191 and 193 "
             + "solved their placements from still runs, but nothing it returns can reach "
             + "anchoredPosition. It is here so this line can say where the button ended up.\n"
             + $"  info block: {infoHow}.\n"
-            + $"  {Recommendation(haveButton, btnContent, haveInfo, info, want, windowHeight)}\n"
-            + "  TUNING    : both dials are 0 = the ModBuild 190 pose, whole. Y is measured UP from "
-            + "the window RECT's bottom edge, which the 'info block' line above shows is a point "
-            + "INSIDE the visible card and not its lower boundary — so the value you want may well be "
-            + $"NEGATIVE, and the range reaches {OffsetLimitYMin:F2} for exactly that reason. "
-            + $"The card's side edges are near X = ±{0.5f * Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2}. "
+            + $"  {Recommendation(haveButton, btnContent, haveInfo, info, dials, windowHeight)}\n"
+            + "  TUNING    : both dials are 0 = the ModBuild 190 pose, whole — which ModBuild 196 "
+            + "measured to be the window rect's TOP-LEFT corner, not its bottom-centre, so 0/0 puts "
+            + "the button just above the card's top edge exactly as the ModBuild 194 photograph "
+            + "shows it. Y is measured UP from the TOP edge, so the value that puts the button under "
+            + $"the information is NEGATIVE and near -0.7; the range reaches {OffsetLimitYMin:F2} for "
+            + "exactly that reason. The card spans X = 0.00 (its LEFT edge) to X = "
+            + $"{Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2} (its right edge), "
+            + $"so its centre line is X = {0.5f * Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2}. "
             + "THIS LINE PRINTS ON EVERY DIAL CHANGE, at most every "
-            + $"{ResolveLogIntervalSeconds:F1} s — so a line that repeats forever at an UNCHANGED "
-            + "dial setting is not tuning noise, it is a second writer fighting us for "
-            + "anchoredPosition, and THAT is the bug to chase.");
+            + $"{ResolveLogIntervalSeconds:F1} s. Whether anything is still fighting us for this "
+            + "rect is no longer a guess from how often this line repeats — the 'drift watch' line "
+            + "counts it directly, comparisons included.");
     }
 
     /// <summary>
@@ -1108,14 +1527,18 @@ internal static class MapTravelConfirm
     ///   <c>Δx = info.center.x - button.center.x</c>. The 191 rejection named the x axis explicitly
     ///   ("auch auf der x-achse verschoben"), so it is derived rather than left at 0.</item>
     /// </list>
-    /// <para>The suggested dials are then <c>(want + Δ) / windowHeight</c>, in the same unit the two
-    /// dials already use. IF EITHER FALLS OUTSIDE ITS CLAMP THE LINE SAYS SO INSTEAD OF QUIETLY
+    /// <para>The suggested dials are then <c>dial + Δ / windowHeight</c>, in the same unit the two
+    /// dials already use — a distance in window heights added to a distance in window heights, which
+    /// needs no reference point and therefore cannot be wrong about which edge the dials measure
+    /// from. (Through ModBuild 195 this added Δ to the applied <c>anchoredPosition</c> instead, which
+    /// was only right while the anchor was the one this file believed it had written.)
+    /// IF EITHER FALLS OUTSIDE ITS CLAMP THE LINE SAYS SO INSTEAD OF QUIETLY
     /// PRINTING AN UNREACHABLE NUMBER — a suggestion that cannot be entered is worse than none,
     /// because it looks like the dial is broken.</para>
     /// </summary>
     private static string Recommendation(bool haveButton, Rect btnContent,
                                          bool haveInfo, Rect info,
-                                         Vector2 want, float windowHeight)
+                                         Vector2 dials, float windowHeight)
     {
         const string Head = "suggested : ";
         if (windowHeight <= 0f)
@@ -1126,12 +1549,15 @@ internal static class MapTravelConfirm
                    + "nothing to measure, and a suggestion from half a measurement is a guess. The "
                    + "dials still work; this line is the only thing missing.";
 
-        // Where the container's origin has to end up for the two conditions in the doc to hold,
-        // expressed straight back into the dials' own frame. `want` is the anchoredPosition the
-        // container is CURRENTLY carrying, so adding the measured delta to it is the answer with no
-        // second reference point and no re-derivation of the anchor.
-        float dialX = (want.x + (info.center.x - btnContent.center.x)) / windowHeight;
-        float dialY = (want.y + (info.yMin - btnContent.yMax)) / windowHeight;
+        // Where the container has to move for the two conditions in the doc to hold, expressed
+        // straight back into the dials' own frame. ModBuild 196 states it as CURRENT DIAL + MEASURED
+        // DELTA / window height, which needs no reference point at all: a dial is a distance in
+        // window heights, the measured delta is a distance in the same space, and one is added to
+        // the other. (Through 195 this added the delta to the applied anchoredPosition, which was
+        // only correct while the anchor happened to be the one the dials were documented against —
+        // and hardware proved it was not.)
+        float dialX = dials.x + (info.center.x - btnContent.center.x) / windowHeight;
+        float dialY = dials.y + (info.yMin - btnContent.yMax) / windowHeight;
         float clampedX = Mathf.Clamp(dialX, -OffsetLimitX, OffsetLimitX);
         float clampedY = Mathf.Clamp(dialY, OffsetLimitYMin, OffsetLimitYMax);
         bool outOfRange = !Mathf.Approximately(dialX, clampedX) || !Mathf.Approximately(dialY, clampedY);

@@ -242,6 +242,10 @@ internal sealed class MapLocationInteractor
         _hoverFrame = int.MinValue;
         _verdictDone = false;
         _refusedLoggedAt = float.NegativeInfinity;
+        // The next room is entitled to its own capital-terms measurement: the guildmaster HUD, the
+        // city's unlock state and the option locks are all things that change between rooms.
+        _capitalTermsLogged.Clear();
+        _capitalForced = false;
 
         if (_maskTaken)
         {
@@ -628,6 +632,20 @@ internal sealed class MapLocationInteractor
         _hoverHow = how;
         _verdictDone = false;
 
+        // UNDO A FORCED HIGHLIGHT FIRST, AND ONLY ONE THIS CLASS FORCED. The game's own
+        // OnPointerExit would in fact undo it too — UnHighlight is NOT gated on IsSelectable
+        // (MapLocation.cs:370-377), so it is the one half of the pair the capital could always
+        // reach — but the undo is done explicitly and unconditionally here so that a highlight
+        // this mod put up can never survive the pointer leaving. The second pass through
+        // UnHighlight below is idempotent: it re-writes the same two false flags and re-runs the
+        // same Highlight(false, …).
+        if (_capitalForced)
+        {
+            _capitalForced = false;
+            if (had != null)
+                CapitalHover(had, active: false);
+        }
+
         try
         {
             if (had != null)
@@ -643,6 +661,12 @@ internal sealed class MapLocationInteractor
             if (want != null)
             {
                 want.OnPointerEnter(null);
+                // THE CAPITAL, AND NOTHING ELSE. OnPointerEnter above is a no-op for it because
+                // IsSelectable() is false on one term this mod itself broke — see
+                // CapitalRouteAllowed. For every other location this test costs one enum compare
+                // and returns.
+                if (CapitalRouteAllowed(want) && CapitalHover(want, active: true))
+                    _capitalForced = true;
                 StateMachineEnterHover(want);
             }
             else if (had != null)
@@ -955,6 +979,208 @@ internal sealed class MapLocationInteractor
         nav.StateMachine.Enter(CampaignMapStateTag.WorldMap);
     }
 
+    // ---- THE CAPITAL (Gloomhaven) -------------------------------------------------------------
+
+    /// <summary>
+    /// THE ONE TERM THIS MOD BROKE, AND NOTHING ELSE (ModBuild 196). User: <i>"Bei dem Gloomhaven
+    /// Symbol auf der Weltkarte (die Stadt) funktioniert das Overlay nicht mit dem Laser. Alle
+    /// anderen Symbole reagieren, Gloomhaven nicht. […] und wenn ich draufdrücke soll es die Karte
+    /// auf die Gloomhaven-Stadtkarte umschalten, so wie im Flat-Spiel."</i>
+    ///
+    /// <para>THE PICK LANDS — this is not an input gap. The ModBuild 195 log has the capital hovered
+    /// through its drawn-icon pad at 168.7 world units and refused downstream:
+    /// <c>selectable=False, highlighted=False, hasPreview=True</c>. Both halves of the report hang
+    /// off that ONE method: hover is <c>OnPointerEnter</c> → <c>CanHighlight()</c> →
+    /// <c>IsSelectable()</c> (decompiled MapLocation.cs:253-262, :310-332) and click is
+    /// <c>OnPointerClick</c> → <c>Select()</c> → <c>IsSelectable()</c> (:278-291, :660-668).</para>
+    ///
+    /// <para>For a Headquarters with no <c>LocationQuest</c> (MapLocation.cs:325) that method reads
+    /// <c>IsCampaign &amp;&amp; type==Headquarters &amp;&amp; CurrentMode==WorldMap &amp;&amp;
+    /// (IsAvailable(City) || IsChoosingLinkedQuestOption())</c>, and
+    /// <c>UIGuildmasterHUD.IsAvailable</c> (UIGuildmasterHUD.cs:753-759) is
+    /// <c>window.IsVisible &amp;&amp; modes[mode].IsUnlocked &amp;&amp;
+    /// disableOptionsRequests.Count == 0</c>. <c>UIWindow.IsVisible</c> is merely
+    /// <c>m_CanvasGroup.alpha &gt; 0</c> (UIWindow.cs:305-315) — a statement about FLAT-SCREEN
+    /// presentation. In the map room the guildmaster HUD is deliberately not floated, because its VR
+    /// surface is the table rail (<see cref="MapButtonRail"/>), so its alpha says nothing whatsoever
+    /// about whether the city is reachable. <b>That one term is conceded here and only that one.</b>
+    /// <c>modes[City].IsUnlocked</c> ("the city is unlocked", CityMapMode.cs:6-20, which also honours
+    /// the tutorial's BuyItem step) and <c>disableOptionsRequests</c> ("options are locked while a
+    /// result processes") are genuine game state and are measured and honoured unchanged. If either
+    /// of those is what is false, this route REFUSES and the log says which — see
+    /// <see cref="ReportCapitalTerms"/>.</para>
+    ///
+    /// <para>AND <c>IsSelectable()</c> ITSELF IS MEASURED FIRST: if it returns true the ordinary path
+    /// already works and this does nothing at all. Nothing here can change what a location that the
+    /// game is willing to select does.</para>
+    /// </summary>
+    private bool CapitalRouteAllowed(MapLocation loc)
+    {
+        if (_capitalRouteStoodDown || loc == null)
+            return false;
+        if (loc.MapLocationType != MapLocation.EMapLocationType.Headquarters)
+            return false;
+        try
+        {
+            // GH.Runtime is publicized at build time, so every private member below is a direct,
+            // compile-checked access — a game update that renames one breaks the BUILD instead of
+            // silently standing a term down. The runtime proof that this works for GH.Runtime's
+            // privates is two screens up: Rescan reads MapChoreographer.m_VillagesParent /
+            // m_ScenariosParent the same way, and the 195 log shows all 41 locations arriving
+            // through them.
+            if (loc.IsSelectable())
+                return false;   // the ordinary path works for this location — never touch it
+
+            MapRuleLibrary.State.CMapState? map = MapRuleLibrary.Adventure.AdventureState.MapState;
+            bool campaign = map != null && map.IsCampaign;
+            UIGuildmasterHUD? hud = Singleton<UIGuildmasterHUD>.IsInitialized
+                ? Singleton<UIGuildmasterHUD>.Instance
+                : null;
+            bool worldMap = hud != null && hud.CurrentMode == EGuildmasterMode.WorldMap;
+            bool cityUnlocked = hud != null
+                                && hud.modes != null
+                                && hud.modes.TryGetValue(EGuildmasterMode.City, out GuildmasterMode city)
+                                && city != null
+                                && city.IsUnlocked;
+            int optionLocks = hud != null && hud.disableOptionsRequests != null
+                ? hud.disableOptionsRequests.Count
+                : -1;
+            bool hudVisible = hud != null && hud.window != null && hud.window.IsVisible;
+
+            bool allowed = campaign && worldMap && cityUnlocked && optionLocks == 0;
+            ReportCapitalTerms(loc, allowed, campaign, worldMap, cityUnlocked, optionLocks, hudVisible);
+            return allowed;
+        }
+        catch (System.Exception ex)
+        {
+            // NEVER FAIL OPEN. A member that is no longer there (or a Singleton that threw) means the
+            // terms could not be measured, and an unmeasured rule is not a passed rule.
+            _capitalRouteStoodDown = true;
+            VRLog.Warn(Scope, "MAP ROOM capital route STOOD DOWN — the game-rule terms behind "
+                              + $"MapLocation.IsSelectable could not be measured: {ex.Message}. "
+                              + "CONSEQUENCE: the Gloomhaven city symbol goes back to doing nothing on "
+                              + "hover and on click, exactly as in ModBuild 195. That is the safe "
+                              + "failure: this route exists only to concede UIGuildmasterHUD's "
+                              + "CanvasGroup alpha, and it may not concede a rule it cannot read.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// ONE line per map-room session naming WHICH of the measured terms was false. The whole fix
+    /// rests on the claim that the only broken term is the HUD window's alpha; if a future round
+    /// finds it is not, this line says so on the first hover instead of costing another build.
+    /// </summary>
+    private void ReportCapitalTerms(MapLocation loc, bool allowed, bool campaign, bool worldMap,
+                                    bool cityUnlocked, int optionLocks, bool hudVisible)
+    {
+        string terms = $"IsCampaign={campaign}, CurrentMode==WorldMap={worldMap}, "
+                       + $"modes[City].IsUnlocked={cityUnlocked}, disableOptionsRequests="
+                       + (optionLocks < 0 ? "unreadable" : optionLocks.ToString())
+                       + $", window.IsVisible={hudVisible}";
+        // ONE LINE PER DISTINCT MEASUREMENT, not one per session. Two of these terms are
+        // transient — disableOptionsRequests fills while a result processes, and the city's unlock
+        // can change mid-session — so a single first-hover line could record a refusal the room
+        // then grew out of and never correct itself. The set is bounded by the four terms'
+        // combinations, so this cannot flood.
+        if (!_capitalTermsLogged.Add((allowed ? "armed|" : "refused|") + terms))
+            return;
+        if (allowed)
+        {
+            VRLog.Info(Scope, $"MAP ROOM capital route ARMED for '{loc.name}' — MapLocation.IsSelectable "
+                              + $"is false while every GAME rule behind it holds ({terms}). The only "
+                              + "failing term is UIGuildmasterHUD's own window alpha, i.e. "
+                              + "UIWindow.IsVisible, and that is a statement about flat-screen "
+                              + "presentation this mod deliberately owns: the HUD is not floated in the "
+                              + "map room because its VR surface is the table rail (MapButtonRail). So "
+                              + "that ONE term is conceded and no other. Hover reproduces "
+                              + "OnPointerEnter's own three lines, and a press calls the game's own "
+                              + "MapChoreographer.OnMapLocationSelect — the very delegate installed as "
+                              + "m_OnClickAction — which opens the city map and returns false, so the "
+                              + "capital is still never SELECTED and still gets no info panel. That is "
+                              + "the flat game's behaviour, not an invention."
+                              + (hudVisible
+                                  ? " NOTE: window.IsVisible measured TRUE here, so the alpha term was "
+                                    + "NOT the blocker this time — IsSelectable must be failing on "
+                                    + "something this line cannot see (a Store branch cast, or a "
+                                    + "changed rule). Read this line first next round."
+                                  : string.Empty));
+        }
+        else
+        {
+            VRLog.Info(Scope, $"MAP ROOM capital route REFUSED for '{loc.name}' — MapLocation.IsSelectable "
+                              + $"is false and so is a GAME rule behind it ({terms}). Only the HUD "
+                              + "window's alpha may be conceded here; 'the city is not unlocked' and "
+                              + "'options are locked while a result processes' are real state and are "
+                              + "honoured. The symbol therefore stays inert, and correctly so — the flat "
+                              + "game would refuse the same click.");
+        }
+    }
+
+    /// <summary>
+    /// Reproduce what <c>MapLocation.OnPointerEnter</c> / <c>UnHighlight</c> do once
+    /// <c>IsSelectable()</c> has passed — and NOTHING more (MapLocation.cs:253-262, :370-377).
+    ///
+    /// <para>The enter direction is the game's three lines verbatim: ask the highlight delegate,
+    /// and only if it agrees set <c>m_MouseInCollider</c> / <c>m_IsHighlighted</c> and call the
+    /// private <c>Highlight(active, isSelected)</c>. That single call IS the whole visible response —
+    /// node scale × 1.2, the highlight material swap, <c>OnMapLocationHighlight</c> again (the game
+    /// double-calls it too, :255 then :553) and <c>UpdateMarkers</c> (:525-555). The delegate is
+    /// <c>MapChoreographer.OnMapLocationHighlight</c>, PUBLIC at MapChoreographer.cs:1304, and for a
+    /// Headquarters on the world map it refuses only while the map is initialising or moving
+    /// (:1388-1393) — a rule worth keeping, which is why it is asked rather than bypassed.</para>
+    ///
+    /// <para>The exit direction asks the delegate for fidelity but puts the state back down
+    /// REGARDLESS of its answer. A highlight this mod forced up must never outlive the pointer: if
+    /// the choreographer happened to be mid-move at that instant the game's own <c>UnHighlight</c>
+    /// would leave the capital enlarged for the rest of the session, and unlike a normal location
+    /// nothing else here would ever take it down again. <c>Highlight(false, …)</c> is safe in that
+    /// state — it re-enters the same refusing delegate, which early-outs.</para>
+    /// </summary>
+    private bool CapitalHover(MapLocation loc, bool active)
+    {
+        if (loc == null)
+            return false;
+        global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+        try
+        {
+            bool agreed = choreo != null && choreo.OnMapLocationHighlight(loc, active);
+            if (active && !agreed)
+            {
+                VRLog.Debug(Scope, $"MAP ROOM capital hover on '{loc.name}' was refused by "
+                                   + "MapChoreographer.OnMapLocationHighlight (map initialising, party "
+                                   + "moving, or no choreographer) — left alone, exactly as the game's "
+                                   + "own OnPointerEnter would leave it.");
+                return false;
+            }
+            loc.m_MouseInCollider = active;
+            loc.m_IsHighlighted = active;
+            loc.Highlight(active, loc.IsSelected);
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            _capitalRouteStoodDown = true;
+            VRLog.Warn(Scope, $"MAP ROOM capital hover threw on '{loc.name}' ({(active ? "enter" : "exit")}): "
+                              + $"{ex.Message}. The capital route is stood down for the rest of this "
+                              + "session — the symbol reverts to doing nothing rather than being left "
+                              + "half-highlighted.");
+            return false;
+        }
+    }
+
+    /// <summary>True while this hover's highlight was forced by <see cref="CapitalHover"/>, so the
+    /// exit undoes only what it put up.</summary>
+    private bool _capitalForced;
+
+    /// <summary>Measurements already reported by <see cref="ReportCapitalTerms"/> this room
+    /// session — one line per distinct outcome, not one per session.</summary>
+    private readonly HashSet<string> _capitalTermsLogged = new();
+
+    /// <summary>Set when a member behind the route could not be reached or a call threw. Static: a
+    /// game version that moved one of these will not un-move it on the next room.</summary>
+    private static bool _capitalRouteStoodDown;
+
     /// <summary>
     /// The click. One dispatch, through the game's own handler chain — see the class doc on why
     /// this and not <c>Select()</c> directly.
@@ -963,6 +1189,48 @@ internal sealed class MapLocationInteractor
     {
         if (loc == null)
             return;
+
+        // THE CAPITAL TAKES THE GAME'S OWN CLICK DELEGATE, NOT A SYNTHESISED CLICK. A
+        // pointerClickHandler here would reach Select(), which gates on the same IsSelectable() that
+        // is refusing this location, so it would do nothing — which is ModBuild 195's report. What the
+        // flat game runs on this symbol is MapChoreographer.OnMapLocationSelect (MapChoreographer.cs:
+        // 1220), the delegate installed as m_OnClickAction at :603/:2897: for a Headquarters on the
+        // world map it calls OpenCityMap() and RETURNS FALSE (:1263-1274). Returning false is why
+        // Select() never sets m_IsSelected — the capital is correctly never "selected" and never gets
+        // an info panel; it just switches the map. Calling it is therefore not a shortcut past a
+        // guard, it IS the guarded path: OnMapLocationSelect re-checks m_Initialised, m_IsMoving,
+        // MovingToLocation, IsCampaign and CurrentMode itself before it does anything.
+        if (CapitalRouteAllowed(loc))
+        {
+            global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+            if (choreo == null)
+            {
+                VRLog.Warn(Scope, $"MAP ROOM capital click on '{loc.name}' ({source}) could not run — no "
+                                  + "MapChoreographer this frame. Nothing was dispatched.");
+                return;
+            }
+            try
+            {
+                choreo.OnMapLocationSelect(loc, active: true);
+                // Deliberately NOT recorded as _selected: this location is never selected (the
+                // delegate returns false before m_IsSelected is set), so arming TickDeselect on it
+                // would chase a selection that does not exist.
+                VRLog.Info(Scope, $"MAP ROOM capital CLICK on '{loc.name}' ({source}) — routed through "
+                                  + "MapChoreographer.OnMapLocationSelect(active: true), the game's own "
+                                  + "m_OnClickAction delegate, because MapLocation.Select() gates on the "
+                                  + "same IsSelectable() that only the HUD window's alpha is failing. For "
+                                  + "a Headquarters on the world map that delegate opens the CITY MAP and "
+                                  + "returns false, so no selection and no info panel is created — the "
+                                  + "flat game does exactly this. The map will rebuild its locations, and "
+                                  + "the next rescan (≤15 frames) picks them up.");
+            }
+            catch (System.Exception ex)
+            {
+                VRLog.Warn(Scope, $"MAP ROOM capital click on '{loc.name}' threw: {ex}");
+            }
+            return;
+        }
+
         EventSystem? es = EventSystem.current;
         var data = new PointerEventData(es!) { button = PointerEventData.InputButton.Left };
         try

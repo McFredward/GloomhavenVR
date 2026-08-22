@@ -153,6 +153,53 @@ namespace GloomhavenVR.WorldUI;
 /// run" (<see cref="Entry.MotionTicks"/>).</item>
 /// </list></para>
 ///
+/// <para><b>MODBUILD 196 — THE BROKEN-ON-RELEASE IMAGE IS NOT UNDERSAMPLING, AND THE MOVEMENT
+/// REMEDY WAS PAYING FOR ITSELF OUT OF THE FRAME BUDGET.</b> Two findings, one of which retires this
+/// file's own prior diagnosis for one specific symptom.
+/// <list type="number">
+/// <item><b>THE "KAPUTTE ANZEIGE" IS PER-GLYPH DROPOUT WITH THE LAYOUT INTACT, WHICH UNDERSAMPLING
+/// CANNOT PRODUCE.</b> The user, after 195: <i>"Beim Loslassen kann es passieren, dass die
+/// dargestellte Anzeige kaputt ist ... bewege ich es nochmal und lasse los, sieht es wieder anders
+/// aus."</i> The photograph (.planning/debug/kaputte_anzeige.jpg) was MEASURED off the pixels rather
+/// than described, and four measurements each kill a candidate. (i) THE ADVANCES ARE FULL WIDTH: the
+/// trailing colons of <i>Verstärkungen:</i> (14 characters) and <i>Verbesserungen:</i> (15) sit one
+/// character's advance apart, so nothing was substituted, shortened or removed — every character is
+/// still in the layout and its quad simply put no pixels down. (ii) THE GAPS ARE EMPTY, NOT DIM: peak
+/// luminance where <i>d h e</i> of "Gesundheit" belongs is 24, against a 20 background and a 147 ink,
+/// so this is not a contrast or alpha artifact with a faint residue. (iii) THE SAME WINDOW'S SMALLER
+/// TEXT IS PERFECT: <i>"Schließe sechs Basisspiel-Nebenszenarien ab."</i> renders every character
+/// while <i>Gold:</i> renders "Go" — minification below Nyquist dims and blurs uniformly and cannot
+/// delete some glyphs of one label while leaving a smaller label whole. (iv) THE GAPS DO NOT ALIGN:
+/// the ink runs of the six rows form no vertical stripes, which is what a sampling-phase artifact
+/// would look like, and gaps sit INSIDE words with ink on both sides, which is what rules occlusion
+/// out (an occluder is a rectangle). WHAT THAT LEAVES is a text-generation fault, and
+/// <see cref="MeasureContent"/> is the instrument that decides which one from the log alone: glyphs
+/// the font asset does not have, characters the layout marked not visible, and characters that are
+/// visible with a zero-area quad are three separate counters, each printed next to the number of
+/// lookups it came from. The repair prefers FORCING THE REGENERATION — re-request the characters into
+/// the atlas, then re-parse and re-generate the mesh — over re-taking the capture, because a stale
+/// mesh re-captured is still a stale mesh. It runs twice per release and once per detected atlas
+/// repack, never per frame. NOTE WHAT IT CANNOT SEE: it measures the text SOURCE, so a graphic that
+/// drew correctly and was then painted over is invisible to it; that question belongs to the draw
+/// order, and the report says so rather than letting a clean scan read as "nothing is covering
+/// anything".</item>
+/// <item><b>THE PER-FRAME MOTION SWEEP CAUGHT ONE ARRIVAL AND COST A TENTH OF EVERY DRAG FRAME.</b>
+/// ModBuild 193 swept the capture layer EVERY frame while a window moved. The ModBuild 195 log prices
+/// it in two independent numbers: of the 23 sweeps that actually moved a late transform, <b>22 ran on
+/// the periodic cadence and exactly ONE on the per-frame motion cadence</b> (the log line names its
+/// own cadence), while the sweep itself averaged 1.48–1.94 ms — on a session reading <c>frametime
+/// mean 18.31 p50 17.33 p95 24.98 p99 29.93 max 51.75 ms</c> against an 11.11 ms budget, of which
+/// <c>logic</c> is 14–16 ms. At the same time the INSTRUMENT SELF-CHECK field measured real drags at
+/// 12, 19, 33, 47, 74, 94, 122 and 133 RENDERED eye pixels per frame, which is the case its own
+/// ModBuild 194 clause identifies as JUDDER rather than sampling: at that rate a dropped frame is
+/// over a hundred pixels of positional error. So the movement remedy was spending ~10 % of the
+/// main-thread frame on the one activity the user reports as broken, and buying one arrival with it.
+/// The motion cadence is now <see cref="MovingSweepIntervalFrames"/>, the release is covered outright
+/// and unconditionally by <see cref="ReleaseSettleFrames"/>, and the state line now reports frame
+/// time split into MOTION and STILL buckets against a stated 11.11 ms threshold so the next round can
+/// price this instead of arguing about it.</item>
+/// </list></para>
+///
 /// <para>LAYER OWNERSHIP IS TAKEN WHOLE, never shared. While a panel is supersampled this class is
 /// the ONLY writer of its subtree's layers: <see cref="OwnsPanelLayers"/> stands
 /// <c>CanvasConversion.ApplyModLayer</c> down for exactly those panels (the two re-assert call sites
@@ -321,8 +368,8 @@ internal static partial class PanelSupersample
 
     /// <summary>
     /// While a window is being MOVED, RESIZED or RE-FACED — and for this many frames after the last
-    /// change — the capture-layer sweep runs EVERY frame instead of on
-    /// <see cref="SweepIntervalFrames"/>.
+    /// change — the capture-layer sweep runs on the faster <see cref="MovingSweepIntervalFrames"/>
+    /// cadence instead of on <see cref="SweepIntervalFrames"/>.
     ///
     /// <para>WHY, read from source. <c>GrabbableModal.ThrottleDiagWhileMoving</c> sets
     /// <c>ConvertedPanel.Diagnostic = false</c> for up to a second at a time WHILE the host pose is
@@ -340,6 +387,74 @@ internal static partial class PanelSupersample
     /// </summary>
     private const int SweepAfterMotionFrames = 30;
 
+    /// <summary>
+    /// Layer-sweep cadence WHILE the window is inside its motion window, in frames.
+    ///
+    /// <para><b>THIS NUMBER USED TO BE 1, AND THE ModBuild 195 HARDWARE LOG RETIRED THAT.</b> ModBuild
+    /// 193 swept EVERY frame while a window moved, on the argument in
+    /// <see cref="SweepAfterMotionFrames"/> — a pooled child born mid-drag would otherwise sit on the
+    /// game's UI layer for tens of frames. The argument is sound; the CADENCE was not, and the log
+    /// says so in two independent numbers.
+    /// <list type="number">
+    /// <item><b>THE PER-FRAME CADENCE CAUGHT ONE ARRIVAL IN A WHOLE SESSION.</b> Every sweep that
+    /// actually moved a late transform prints which cadence it ran on. Of the 23 such lines in the
+    /// ModBuild 195 log, <b>22 read "reached its periodic cadence" and exactly ONE read "is MOVING
+    /// (per-frame cadence)"</b>. So the arrivals this class exists to catch are not, in practice,
+    /// born during drags at all — they are born when a window repopulates, and the 15-frame cadence
+    /// catches them.</item>
+    /// <item><b>AND IT COSTS 1.5 ms OF A FRAME THAT IS ALREADY OVER BUDGET.</b> The same log reports
+    /// the sweep at 1.48–1.94 ms EACH (its own averaged field) on the party window, and the session's
+    /// frame telemetry reads <c>frametime mean 18.31 p50 17.33 p95 24.98 p99 29.93 max 51.75 ms</c>
+    /// against an 11.11 ms budget at 90 Hz, of which <c>logic</c> is 14–16 ms. Sweeping per frame
+    /// therefore spent ~10 % of the main-thread frame on the one activity that the user reports as
+    /// broken, and it did so ONLY while the window moved — i.e. it made the drag frame the worst
+    /// frame in the session. A window dragged at the measured 30–133 RENDERED eye pixels per frame
+    /// cannot survive a dropped frame: one missed frame is 30–133 px of positional error, which is
+    /// the "flackern beim Verschieben" the movement remedy was supposed to fix.</item>
+    /// </list></para>
+    ///
+    /// <para>FIVE frames keeps three times the settled cadence's coverage for a fifth of the
+    /// per-frame cost, and the case the per-frame cadence was really aimed at — the RELEASE — is now
+    /// covered outright and unconditionally by <see cref="ReleaseSettleFrames"/>, which sweeps,
+    /// re-measures and re-generates the moment the window comes to rest whether or not a cadence is
+    /// due. The report prints the sweep count and cost split into MOTION and STILL frames so the next
+    /// round can price this change instead of arguing about it.</para>
+    /// </summary>
+    private const int MovingSweepIntervalFrames = 5;
+
+    /// <summary>
+    /// Frames of stillness after the last pose/scale/rect change at which the RELEASE REPAIR runs:
+    /// one forced content re-measure, one forced layer sweep and one forced text regeneration, all
+    /// unconditional. This is the answer to <i>"beim Loslassen kann es passieren, dass die
+    /// dargestellte Anzeige kaputt ist"</i> — the moment a window stops moving is exactly the moment
+    /// its content fit has finished, its pooled children have arrived and its glyphs are final, and
+    /// it is the only moment at which repairing all three costs nothing per frame.
+    /// <para>TWO frames, not zero: the content fit and the release re-face both write in the same
+    /// frame the grab ends, and repairing before they land would repair the wrong state.</para>
+    /// </summary>
+    private const int ReleaseSettleFrames = 2;
+
+    /// <summary>A SECOND release repair this many frames after the first. The content fit can trim a
+    /// window a few frames after the release (the log's host rect flips 328 -> 716 -> 1920 uGUI px on
+    /// one window in one session), and a repair that ran before that flip repaired the previous
+    /// layout. Cheap: it is two passes per release, not per frame.</para></summary>
+    private const int ReleaseSecondRepairFrames = 12;
+
+    /// <summary>The per-frame budget a 90 Hz headset gives, in milliseconds. Used ONLY as the
+    /// threshold the motion/still frame-time instrument reports against, so "N of M motion frames
+    /// were over budget" is a statement with a stated bar rather than an adjective.</summary>
+    private const float FrameBudgetMs = 1000f / 90f;
+
+    /// <summary>Hard ceiling on how many GLYPH lookups one content-integrity scan may make, across
+    /// every text component of one panel. The party window carries ~2700 transforms; an unbounded
+    /// character scan on the report cadence would be a spike of its own. When the ceiling bites the
+    /// report says so, so a truncated scan can never be mistaken for a clean one.</summary>
+    private const int MaxGlyphChecksPerScan = 6000;
+
+    /// <summary>Zero-area threshold for a generated glyph quad, in the text object's own local units.
+    /// A quad below this cannot put a pixel anywhere at any resolution.</summary>
+    private const float DegenerateQuadArea = 1e-6f;
+
     // ---- state -------------------------------------------------------------------------------
 
     private static readonly List<Entry> Entries = new(MaxPanels);
@@ -356,6 +471,35 @@ internal static partial class PanelSupersample
     private static readonly HashSet<int> Refused = new(4);
 
     private static bool _hooksInstalled;
+
+    // ---- CONTENT-INTEGRITY HOOKS (ModBuild 196) -----------------------------------------------
+    // The three states the "kaputte Anzeige" report has to be able to tell apart, and the only
+    // reason these are static rather than per-entry: a font atlas repack and a canvas update are
+    // PROCESS-wide events, and a per-entry copy of them would say the same thing N times.
+
+    /// <summary>Frame number of the last <see cref="Font.textureRebuilt"/> (a DYNAMIC font atlas was
+    /// re-packed, which invalidates every already-generated text mesh that samples it) or of the last
+    /// TMP atlas change this class detected. -1000 = never.</summary>
+    private static int _fontRebuildFrame = -1000;
+
+    /// <summary>How many font atlas repacks this session — legacy <see cref="Font"/> events plus
+    /// detected TMP atlas-texture changes. Printed with the coincidence counts so "no repack
+    /// happened" and "repacks happened and no capture coincided" are different sentences.</summary>
+    private static int _fontRebuilds;
+
+    /// <summary>Name of the font whose atlas was re-packed last, for the report.</summary>
+    private static string _fontRebuildName = string.Empty;
+
+    /// <summary>Frame number of the last <see cref="Canvas.willRenderCanvases"/>, i.e. the last frame
+    /// uGUI actually ran its layout + graphic rebuild queue. A capture taken on a frame where this is
+    /// NOT the current frame ran BEFORE the canvas finished rebuilding — failure mode (b).</summary>
+    private static int _canvasUpdateFrame = -1000;
+
+    /// <summary>Atlas fingerprints of every <see cref="TMPro.TMP_FontAsset"/> this class has seen, so
+    /// a TMP repack (which does NOT raise <see cref="Font.textureRebuilt"/>) is still detectable.
+    /// Keyed by font asset instance id; the value is (atlasTextureCount, atlasTexture instance id).</summary>
+    private static readonly Dictionary<int, (int Count, int TextureId)> TmpAtlasSeen = new(8);
+
     private static bool _noLayerLogged;
     private static bool _noHeadLogged;
     private static bool _errorLogged;
@@ -519,6 +663,144 @@ internal static partial class PanelSupersample
         internal int NestedTotal;
         internal int NestedCaptured;
         internal bool MipWarned;
+
+        // ---- CONTENT INTEGRITY: the three states the release report must separate ---------------
+        // The user, still open after ModBuild 195: "beim Loslassen kann es passieren, dass die
+        // dargestellte Anzeige kaputt ist ... bewege ich es nochmal und lasse los, sieht es wieder
+        // anders aus". The photograph (.planning/debug/kaputte_anzeige.jpg) shows PER-GLYPH dropout
+        // with the layout intact: 'Gesundheit:' renders as "Ge n i", 'Verbesserungen:' as "erb s e
+        // :", while the SAME window's smaller quest line renders every character. Measured off that
+        // image rather than assumed: the surviving glyphs sit exactly where a full-width layout puts
+        // them (the trailing ':' of 'Verstärkungen:' and of 'Verbesserungen:' are 12 px apart for one
+        // extra character, i.e. NOTHING was substituted or removed), the gaps read background
+        // luminance (max 24 against a 20 background and a 147 ink), and the gaps do NOT line up into
+        // vertical stripes across the six rows. So: the character ADVANCES are correct and the glyph
+        // QUADS put no pixels down. These counters exist to decide WHY, from the log alone.
+
+        /// <summary>How many times the capture ran while this entry existed — the denominator for
+        /// every coincidence count below. Zero here means the instrument never ran, which is a
+        /// different statement from "it ran and found nothing".</summary>
+        internal int CaptureTicks;
+
+        /// <summary>(a) Captures taken on the same frame as a font atlas repack. A non-zero value is
+        /// the ONLY thing that makes "the capture caught the atlas mid-flight" a live explanation.</summary>
+        internal int CapturesDuringFontRebuild;
+
+        /// <summary>(b) Captures taken on a frame in which <see cref="Canvas.willRenderCanvases"/> had
+        /// NOT yet fired, i.e. before uGUI rebuilt the layout and the graphics for that frame.
+        /// EXPECTED ZERO — the capture camera renders inside the camera loop, which Unity runs after
+        /// <c>PostLateUpdate.PlayerUpdateCanvases</c>. A non-zero value overturns that reading.</summary>
+        internal int CapturesBeforeCanvasUpdate;
+
+        /// <summary>Content-integrity scans made (<see cref="MeasureContent"/>). The comparison count
+        /// that makes every number below readable.</summary>
+        internal int ContentScans;
+        internal double ContentScanMs;
+
+        /// <summary>Content scans that THREW. Counted so a scan that failed can never be read as a
+        /// scan that came back clean — the same rule as every other instrument in this file.</summary>
+        internal int ContentScanFailures;
+        internal bool ContentScanFailWarned;
+
+        /// <summary>Text components found by the last scan, and the glyph lookups it made.</summary>
+        internal int TextComponents;
+        internal int GlyphsChecked;
+
+        /// <summary>(c-1) Characters the text asks for that its font asset does NOT have, fallbacks
+        /// included. This is the direct test of the dynamic-font-atlas hypothesis: non-zero means the
+        /// atlas genuinely cannot serve the string and no amount of re-capturing will help.</summary>
+        internal int GlyphsNotInAtlas;
+
+        /// <summary>(c-2) Non-whitespace characters the text layout marked NOT VISIBLE — the text
+        /// engine itself decided not to draw them (overflow truncation, a missing-glyph replacement,
+        /// a maxVisibleCharacters clamp).</summary>
+        internal int GlyphsNotVisible;
+
+        /// <summary>(c-3) Non-whitespace characters that ARE visible but whose generated quad has
+        /// (near) zero area, i.e. they hold their advance and put no pixels down. THAT IS THE EXACT
+        /// SHAPE OF THE PHOTOGRAPH, so this is the counter that confirms or kills it.</summary>
+        internal int GlyphsBlankQuad;
+
+        /// <summary>The worst single text component of the last scan, so the log names a suspect
+        /// instead of only a total.</summary>
+        internal string WorstText = string.Empty;
+        internal int WorstTextBad;
+        internal int WorstTextChecked;
+
+        /// <summary>(c-4) Text components uGUI/TMP has switched OFF at the renderer: the
+        /// <see cref="CanvasRenderer"/> reports <c>cull</c>, or its effective alpha is zero. Those put
+        /// no pixels into the CAPTURE at all, for reasons that have nothing to do with glyphs.
+        ///
+        /// <para><b>THIS COUNTER EXISTS TO KEEP TWO INDISTINGUISHABLE-LOOKING FAULTS APART.</b> "An
+        /// element is missing from the capture" and "an element IS in the capture and something is
+        /// painted over it" look identical to a player and can look identical to a probe that only
+        /// asks whether an object was captured. Everything else in this scan measures the TEXT SOURCE
+        /// — whether the glyph exists, whether the layout marked it visible, whether its quad has
+        /// area — which is upstream of BOTH. This one field is the only one that speaks to whether
+        /// the component draws at all. Neither this scan nor any other field here can see a graphic
+        /// that drew correctly and was then painted over: that question is answered by the draw order,
+        /// i.e. by the ISOLATION field's sortingOrder and by CanvasConversion's own order ladder, not
+        /// here. The report says so in as many words so a future round cannot read a clean scan as
+        /// "nothing is covering anything".</para></summary>
+        internal int TextCulled;
+
+        /// <summary>Text components the last scan found completely clean. Printed as "K of M", so a
+        /// scan that found nothing is visibly a scan that CHECKED something.</summary>
+        internal int TextClean;
+
+        /// <summary>The scan hit <see cref="MaxGlyphChecksPerScan"/> — it is a LOWER BOUND, not a
+        /// total, and the report says so rather than letting a truncated scan read as a clean one.</summary>
+        internal bool ContentScanTruncated;
+
+        /// <summary>What the font assets behind this window are, measured not assumed: population
+        /// mode, atlas size, atlas count. A STATIC atlas cannot repack, which kills the whole
+        /// hypothesis for that window by construction.</summary>
+        internal string AtlasNote = string.Empty;
+
+        // ---- the repairs ------------------------------------------------------------------------
+
+        /// <summary>Release repairs run (forced re-measure + forced sweep + forced text
+        /// regeneration on the frame the window comes to rest).</summary>
+        internal int ReleaseRepairs;
+
+        /// <summary>Text regenerations forced by a font atlas repack, as opposed to by a release.</summary>
+        internal int RebuildRepairs;
+
+        /// <summary>Text components whose glyphs were re-requested and whose mesh was re-generated by
+        /// the last repair, and how many characters were re-requested.</summary>
+        internal int RegeneratedComponents;
+        internal int RegeneratedChars;
+
+        /// <summary>The <see cref="LastMotionFrame"/> the release repair has already been run for, so
+        /// one release costs exactly two repairs and never one per frame.</summary>
+        internal int ReleaseRepairedMotionFrame = -1000;
+        internal int ReleaseRepairStage;
+
+        /// <summary>Frame at (or after) which a font-atlas repack repair is due. -1 = none armed.</summary>
+        internal int RebuildRepairFrame = -1;
+
+        // ---- MOTION BUDGET: what this class costs during a drag, split from what it costs at rest -
+        // ModBuild 193's movement remedy (sweep every frame while moving) is FALSIFIED as a fix and
+        // the ModBuild 195 log priced it: 22 of the 23 sweeps that actually found a late transform
+        // ran on the PERIODIC cadence and exactly one on the per-frame motion cadence, while the
+        // sweep itself averaged 1.48-1.94 ms on a frame whose measured p50 is 17.33 ms against an
+        // 11.11 ms budget. These fields make that trade visible per report window instead of once.
+        internal int MotionSweeps;
+        internal double MotionSweepMs;
+        internal int StillSweeps;
+        internal double StillSweepMs;
+
+        /// <summary>Frames sampled while this window was inside its motion window, the total and worst
+        /// unscaled frame time over them, and how many exceeded <see cref="FrameBudgetMs"/>.</summary>
+        internal int MotionFrameSamples;
+        internal double MotionFrameMs;
+        internal float MotionFrameMsMax;
+        internal int MotionFramesOverBudget;
+
+        internal int StillFrameSamples;
+        internal double StillFrameMs;
+        internal float StillFrameMsMax;
+        internal int StillFramesOverBudget;
     }
 
     // ---- public seams -------------------------------------------------------------------------
@@ -658,19 +940,39 @@ internal static partial class PanelSupersample
                 }
                 SyncGeometry(e);
                 SyncVisibility(e);
-                // THE MOVEMENT FIX. While the window is moving (and for SweepAfterMotionFrames
-                // after), sweep every frame: that is exactly the interval in which the panel's own
-                // per-frame nested-canvas adoption is throttled OFF by
+
+                bool moving = IsMoving(e);
+                SampleFrameBudget(e, moving);
+
+                // THE MOVEMENT CADENCE. While the window is moving (and for SweepAfterMotionFrames
+                // after), sweep on the faster MovingSweepIntervalFrames cadence: that is the interval
+                // in which the panel's own per-frame nested-canvas adoption is throttled OFF by
                 // GrabbableModal.ThrottleDiagWhileMoving, so a child born mid-drag would otherwise
                 // stay on the game's UI layer — missing from the capture and double-drawn into the
-                // eye. See SweepAfterMotionFrames for the full chain.
-                if (IsMoving(e) || Time.frameCount >= e.NextSweepFrame)
+                // eye. It is a CADENCE and no longer every frame, because the ModBuild 195 log priced
+                // per-frame sweeping at 1.5 ms of a 17 ms frame and measured that it caught exactly
+                // ONE of the session's 23 real arrivals; see MovingSweepIntervalFrames.
+                if (Time.frameCount >= e.NextSweepFrame)
                 {
-                    e.NextSweepFrame = Time.frameCount + SweepIntervalFrames;
+                    e.NextSweepFrame = Time.frameCount
+                                       + (moving ? MovingSweepIntervalFrames : SweepIntervalFrames);
                     ApplyCaptureLayer(e, initial: false);
                 }
+
+                // THE RELEASE REPAIR and the FONT-REPACK REPAIR — both unconditional, both bounded,
+                // and both aimed squarely at "die dargestellte Anzeige ist kaputt". See ReleaseRepair.
+                ServiceRepairs(e);
+
                 if (report)
+                {
+                    // Scan on the report cadence as well as on every release, so the CONTENT
+                    // INTEGRITY field is never a stale reading from the last time the window was
+                    // touched. The window in the user's photograph had been STANDING STILL when the
+                    // pause menu opened next to it, so "it only moved ten minutes ago" must not mean
+                    // "measured ten minutes ago". Once per 10 s per panel, ~1 ms.
+                    MeasureContent(e);
                     Report(e);
+                }
             }
         }
         catch (System.Exception ex)

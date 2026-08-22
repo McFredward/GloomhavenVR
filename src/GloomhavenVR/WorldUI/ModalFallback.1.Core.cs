@@ -317,6 +317,21 @@ internal static partial class ModalFallback
         UIWindowID.PartyPanel,
         // MODAL: UIPartyItemInventoryDisplay — equip/remove item slots (:136);
         // internal hover is tooltips only, never the window's Show.
+        //
+        // ModBuild 196 — MEMBERSHIP HERE IS A CLASSIFICATION, NOT A PLACEMENT RULING, AND THIS
+        // ENTRY WAS BEING READ AS BOTH. The annotation above answers the test #16/#18 question
+        // ("hover surface that would self-lock, or a real interactive window?") for a set this
+        // doc-comment scopes to windows that demand interaction DURING A SCENARIO. It never said
+        // the equipment panel should be its own window, and the 3D map room did not exist when it
+        // was written — but the enrolled poll floats whatever is listed here, and it runs BEFORE
+        // the catch-all where "the parent wins" lives. So the equipment TAB of the map room's
+        // character screen was the one sub-view of that screen pulled out of it and re-parented
+        // onto a world host of its own, while the cards/perks/battle-goal/assembly tabs (none of
+        // them listed here) correctly rendered inside it. User report, 2026-08-22 + screenshot
+        // .planning/debug/items_transparenz.jpg. The entry STAYS — the classification is still
+        // true and still governs the scenario and the flat game — and the placement is decided by
+        // ModalFallback.7.Close.cs's RendersInsideFloatedAncestor instead, which carries the
+        // decompiled + hardware-log evidence for the nesting.
         UIWindowID.EquipmentItemsPanel,
         // Unconverted confirmation variants + multiplayer panels — confirm/cancel
         // buttons each (audit: all flow/network-shown, none hover-driven).

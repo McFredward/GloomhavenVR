@@ -97,6 +97,7 @@ internal sealed class CardsModule : IVRModule
         CardsSignals.Clear();
         CardActionQueue.Clear();
         CardArtGuard.Reset();
+        CardHalfTone.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }
 }
