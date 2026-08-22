@@ -33,6 +33,22 @@ internal enum EnvSoundClip
     /// see <c>EnvSoundBank</c>'s THE CANDLE.</summary>
     Flutter,
 
+    /// <summary>THE CELLAR'S OWN AIR — the low, dull body of a closed masonry room, with the faint
+    /// hiss a hard-walled space returns above it. Looped, 11 s, UNGATED: it is the one thing in
+    /// either room that plays with no element up at all. Its band (230..520 Hz, three poles each
+    /// way) is deliberately BELOW the candle flutter's 470..1050, so the room sits under the flames
+    /// rather than beside them. NOT the wind: 11.5% of its energy is under 200 Hz against the wind
+    /// bed's 53.2%, and it has no gust at all. See <c>EnvSoundBank</c>'s THE ROOM ITSELF.</summary>
+    Stone,
+
+    /// <summary>THE NIGHT WOOD'S OWN AIR — a low leaf-and-water wash with the litter ticking in it.
+    /// Looped, 13 s, UNGATED, and NOT the Air-gated <see cref="Bed"/>: the leaves' RUSTLE is the
+    /// wind and stays behind the Air gate, while this is the still air that is there on a windless
+    /// night. 11.7% under 200 Hz and 0.68 octaves of spread against the wind bed's 53.2% and 1.10 —
+    /// the same pair of measurements that separated the candle from the draught. See
+    /// <c>EnvSoundBank</c>'s THE ROOM ITSELF.</summary>
+    Marsh,
+
     /// <summary>The convective column of a real fire — the low, breathy rush. Looped, 6 s, and its
     /// own clip rather than <see cref="Bed"/> because a fire PULSES and a draught does not; see
     /// <c>EnvSoundBank.MakeRoar</c>.</summary>
@@ -114,13 +130,19 @@ internal enum EnvSoundClip
 /// a listener's report ("the drip sounds wrong") mean the same thing on the machine that has to fix
 /// it.</para>
 ///
-/// <para><b>COST.</b> One shared 8 s wind bed, the candles' 7 s flutter, the fire's 6 s roar, and
-/// nineteen shorter clips (fifteen named plus the drip's, the crackle's and the ember's extra
-/// realisations) at the output sample rate, mono. The DEVICE's own figure was 21 clips / ~7.0 MB /
-/// 127 ms at 48 kHz for ModBuild 152 (Player.log:720); ModBuild 153 adds the 7 s flutter for about
-/// +1.3 MB, so 22 clips and ~8.3 MB. The <see cref="Build"/> log line prints the real figure for the
-/// device's own rate rather than this estimate. Generated once per session on the frame the
-/// room is first placed, and never touched again.
+/// <para><b>COST.</b> One shared 8 s wind bed, the candles' 7 s flutter, the fire's 6 s roar, the
+/// two ROOM TONES (11 s and 13 s), and nineteen shorter clips (fifteen named plus the drip's, the
+/// crackle's and the ember's extra realisations) at the output sample rate, mono. The DEVICE's own
+/// figure was 21 clips / ~7.0 MB / 127 ms at 48 kHz for ModBuild 152 (Player.log:720); ModBuild 153
+/// adds the 7 s flutter for about +1.3 MB, so 22 clips and ~8.3 MB, and ModBuild 154 adds the stone
+/// (2.1 MB) and the marsh (2.5 MB) for 24 clips and ~12.9 MB. THAT LAST STEP IS THE BIGGEST SINGLE
+/// ADDITION THIS BANK HAS EVER MADE and it is worth stating why it is taken: a room tone plays for
+/// the WHOLE scenario, so it is the one clip class where a short buffer is actually findable, and
+/// the lengths are the smallest whole seconds coprime with the other four continuous buffers in each
+/// room (see <see cref="StoneSeconds"/>). The mod runs on the PC in every supported setup — the
+/// headset is a display — so this is desktop RAM, not headset RAM. The <see cref="Build"/> log line
+/// prints the real figure for the device's own rate rather than this estimate. Generated once per
+/// session on the frame the room is first placed, and never touched again.
 /// ModBuild 149 gives back the ice clip's 0.42 s and its ~0.70 ms of build time entirely (the
 /// sound is DELETED, see the ruling block below) and spends about +0.35 ms of it again on the
 /// bookshelf's rebuilt impact. Mono is not a saving but a REQUIREMENT: Unity refuses to spatialise
@@ -170,6 +192,14 @@ internal static class EnvSoundBank
     /// in it. Looped, 7 s. See <see cref="MakeFlutter"/>, and see THE CANDLE below for the user
     /// report that took the candles off <see cref="Bed"/>.</summary>
     internal static AudioClip? Flutter { get; private set; }
+
+    /// <summary>THE CELLAR'S AIR — the body of a closed masonry room plus its hiss ceiling. Looped,
+    /// 11 s. See <see cref="MakeStone"/> and THE ROOM ITSELF below.</summary>
+    internal static AudioClip? Stone { get; private set; }
+
+    /// <summary>THE NIGHT WOOD'S AIR — a low leaf-and-water wash with the litter in it. Looped,
+    /// 13 s. See <see cref="MakeMarsh"/> and THE ROOM ITSELF below.</summary>
+    internal static AudioClip? Marsh { get; private set; }
 
     /// <summary>THE FIRE'S CONVECTIVE COLUMN — the low, breathy rush. Looped, 6 s. See
     /// <see cref="MakeRoar"/>, and see THE FIRE below for why the fire could not go on riding
@@ -320,6 +350,8 @@ internal static class EnvSoundBank
     {
         EnvSoundClip.Bed => Bed,
         EnvSoundClip.Flutter => Flutter,
+        EnvSoundClip.Stone => Stone,
+        EnvSoundClip.Marsh => Marsh,
         EnvSoundClip.Drip => Drip,
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
@@ -359,6 +391,8 @@ internal static class EnvSoundBank
 
             Bed = MakeBed(rate);
             Flutter = MakeFlutter(rate);
+            Stone = MakeStone(rate);
+            Marsh = MakeMarsh(rate);
             Roar = MakeRoar(rate);
             Crackle = MakeCrackles(rate);   // fills _crackles and hands back element 0
             Ember = MakeEmbers(rate);       // fills _embers  and hands back element 0
@@ -412,7 +446,8 @@ internal static class EnvSoundBank
         // Every clip made by Finish is in _made, Bed included — so the ONE loop below destroys
         // everything exactly once. A separate "kill the bed first" step used to live here and was
         // a double-destroy waiting to happen.
-        Bed = null; Flutter = null; Drip = null; Squeak = null; Skitter = null;
+        Bed = null; Flutter = null; Stone = null; Marsh = null;
+        Drip = null; Squeak = null; Skitter = null;
         Rumble = null; Chirr = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
         Roar = null; Crackle = null; Ember = null;
@@ -1395,6 +1430,390 @@ internal static class EnvSoundBank
         return Finish("Flutter", d, rate);
     }
 
+    // =============================================================================================
+    //  THE ROOM ITSELF — ModBuild 154, and it is the first sound in this bank that belongs to no
+    //  OBJECT. Two beds: the cellar's stone air and the night wood's.
+    // =============================================================================================
+    //
+    //  USER REQUEST, 2026-08-22, verbatim:
+    //
+    //      "In Szenarios gibt es immer die dortigen Hintergrundgeräusche deswegen ist mir die Stille
+    //       vorher nie aufgefallen. Im Keller scheint es constant geräusche zu geben, im Wald
+    //       hingegen ist es absolut still. Ich will für beide eine dezente Hintergrundgeräuschkullise
+    //       die zu der Umgebung passt. Diese soll deaktivierbar sein."
+    //
+    //  WHY THE WOOD WAS SILENT, read out of the source and then MEASURED rather than assumed. With
+    //  no infusion up, EVERY other emitter in the swamp is paused by its own gate: 'Leaves' returns
+    //  a literal zero from WindBed (EnvSound.cs:1590-1596), 'Rumble' is 1.30 x ElementMood.Live(3)
+    //  = 0, and the three fire sites return a literal zero from FireBed. The one source left playing
+    //  is 'Night' — and it was inaudible for THREE compounding reasons, none of which is a level bug
+    //  on its own:
+    //
+    //    1. IT CARRIES THE LOWEST GAIN IN THE FILE. 0.050, against the draught's 0.075, the
+    //       candles' 0.055 and the Earth rumble's 0.100.
+    //    2. ITS CLIP AND ITS FILTER CONTRADICT EACH OTHER. MakeChirr bands the buffer to
+    //       2200..6500 Hz (HighPass 2200 / LowPass 6500, below) — and EnvSound.BuildSwamp created
+    //       the bed WITHOUT `lowPassHz: 0`, so it also got the default runtime AudioLowPassFilter at
+    //       BedLowPassHz = 1150 Hz. A one-pole 1150 Hz corner is -6.5 dB at 2200 and -15.3 dB at
+    //       6500, i.e. it attenuates the clip's ENTIRE band. The replica measures the finished
+    //       emitter at a 20 ms/200 Hz-HP level of 0.050 against the candle bed's 0.190 — the chirr
+    //       was being played through a filter designed to remove exactly what it is made of.
+    //    3. IT HAS NO SLOW TEMPORAL STRUCTURE AT ALL. Its three modulators are at 17.3, 23.9 and
+    //       31.1 Hz, and THE CANDLE's own FlutterHz note states the boundary: above roughly 20 Hz an
+    //       amplitude modulation stops being heard as flutter and starts being heard as ROUGHNESS.
+    //       So what was left after (2) was stationary dark hiss — the single easiest signal for the
+    //       ear to adapt out, and the reason a level argument alone would have missed this.
+    //
+    //  AND WHY THE CELLAR IS "CONSTANT GERÄUSCHE": its three ungated 'Flame<n>' beds play Flutter,
+    //  470..1050 Hz — the band a headset speaker is most efficient in — with a measured 7.46 dB
+    //  envelope swing whose modulation is 56% inside 1-8 Hz. It is the one continuous emitter in
+    //  either room that is both in an efficient band AND temporally salient. His sentence is
+    //  therefore an accurate description of the shipped build and not a defect report, which is why
+    //  THE CANDLE'S LEVEL IS NOT TOUCHED BY THIS ROUND — see EnvSound.CandleBedGain.
+    //
+    //  WHAT A ROOM TONE PHYSICALLY IS, because "background ambience" is not a specification:
+    //
+    //    * THE CELLAR is a closed masonry box. Its air is still; what a listener hears is the
+    //      room's own noise floor — convective drift and structure-borne rumble filtered by hard
+    //      walls that absorb the top of the band and return the low-mid — plus a faint HISS the
+    //      hard surfaces send back. Two layers, one buffer. MakeStone.
+    //    * THE NIGHT WOOD has no walls, so it has no body of its own; what it has is air draining
+    //      through leaf litter and over water, which is a broader, slightly brighter wash, and the
+    //      LITTER, which ticks. MakeMarsh.
+    //
+    //  THE BAND IS CHOSEN AGAINST THE CANDLE, NOT AGAINST A PREFERENCE. The brief is that the room
+    //  must sit UNDER the flames rather than compete with them, and "under" is a spectrum statement:
+    //  the stone's body is 230..520 Hz (three poles each way) and the candle's is 470..1050, so they
+    //  meet only in their skirts. The wood's is 210..1000, which is wider because a wood is.
+    //
+    //  MEASURED, off the finished buffers by the replica in .planning/envsound-replica/room.py,
+    //  which reproduces bank.py's published Fall table exactly and is the same harness THE CANDLE
+    //  and THE FIRE were measured on. "Draught" is the shared bed through its runtime 1150 Hz low
+    //  pass, i.e. what the player is actually handed.
+    //
+    //    energy by band     0-200  200-500  500-1k    1-2k    2-5k   5-24k    audible spread
+    //    Draught (Bed)      53.2%    22.0%   13.2%    7.9%    3.2%    0.5%    598 Hz / 1.10 oct
+    //    Candle (Flutter)    1.1%    26.7%   54.5%   16.8%    0.9%    0.0%    660 Hz / 0.66 oct
+    //    Stone              11.5%    67.6%   16.4%    0.9%    0.6%    3.0%    403 Hz / 0.86 oct
+    //    Marsh              11.7%    53.0%   30.0%    5.1%    0.2%    0.0%    455 Hz / 0.68 oct
+    //
+    //  THE TWO NUMBERS THAT SETTLE "DOES IT READ AS WIND" — and they have to be answered, because
+    //  the user has ruled TWICE that there is no wind sound without an Air infusion ("Wind Geräusch
+    //  nur wenn auch Wind aktiv ist, sonst kein Geräusch") and these two beds are the first
+    //  continuous air this feature has ever played with the Air element down. They are THE CANDLE's
+    //  own pair, applied again:
+    //    * 0-200 Hz: 11.5% and 11.7% against the draught's 53.2%. The draught's whole BODY is in a
+    //      band neither of these occupies — that is the aperture the wind is coming through, and a
+    //      room has none.
+    //    * SPREAD: 0.86 and 0.68 octaves against the draught's 1.10. A draught is a RUSH; these are
+    //      BANDS.
+    //  ...and a third that is not spectral and is the strongest of them: THE GUST. EnvSound.WindBed
+    //  gives the draught a runtime contour of 0.55..1.00 plus a full Air term — 5.2 dB of gusting
+    //  before the element even enters. These two beds get 0.86..1.00 and 0.84..1.00 from
+    //  EnvSound.RoomTone, i.e. 1.3 and 1.5 dB. Nothing that moves that little is air being pushed.
+    //
+    //  LEVEL, delivered, at a typical 4 PERCEIVED metres (the 20 ms/200 Hz-HP window times the gain
+    //  times the mean runtime contour times Unity's min/d rolloff — i.e. what reaches the ear,
+    //  BEFORE the master dial's 0.75 and the player's own two volume sliders):
+    //
+    //                        gain   20ms/HP  rolloff  delivered   vs draught   under a game cue
+    //    Draught (Air up)    0.075    0.187     0.30    0.00747      0.0 dB         -42.5 dB
+    //    Candle (each)       0.055    0.190     0.15    0.00135    -14.9 dB         -57.4 dB
+    //    Chirr  SHIPPED      0.050    0.050     0.75    0.00169    -12.9 dB         -55.4 dB
+    //    Chirr  CORRECTED    0.075    0.092     0.75    0.00464     -4.1 dB         -46.7 dB
+    //    Stone               0.035    0.203     1.00    0.00660     -1.1 dB         -43.6 dB
+    //    Marsh               0.035    0.185     1.00    0.00597     -1.9 dB         -44.5 dB
+    //
+    //  THE ROOM TONES ARE LOUDER THAN A CANDLE BED AT ANY DISTANCE PAST ABOUT 1.5 m, AND THAT IS
+    //  NOT THE BRIEF BEING BROKEN. A candle bed's rolloff minimum is 0.6 perceived metres, so it is
+    //  a NEAR-FIELD sound that is already 15 dB down by the time the player is standing at the
+    //  table — the same arithmetic EnvSound.FireMinMeters spells out and the reason the fire had to
+    //  be given a 3.0 m minimum. A room tone is the opposite kind of object: it is flat across the
+    //  whole room by construction. So "sit under the candle flutter" is honoured as a SPECTRUM
+    //  (230..520 against 470..1050) and as a CHARACTER (stationary against a 7.46 dB flutter), and
+    //  where it matters most — leaning over a candle — the flutter still wins by about 15 dB.
+    //
+    //  AND THE "NEVER MASK" BUDGET IS NOT SPENT. Absolute 1-5 kHz energy (the buffer's share of the
+    //  band times the square of its gain — a share is not a level):
+    //    Draught 1.32e-05 | Chirr corrected 5.95e-06 | Candle 3.91e-06 | Marsh 6.87e-07 |
+    //    Stone 2.21e-07.
+    //  The stone bed puts 17.8 dB LESS into the speech band than a single candle bed and the marsh
+    //  7.5 dB less; the corrected chirr stays 3.5 dB under the draught, which is the loudest
+    //  continuous bed this file already ships and the one the user has judged twice without ever
+    //  calling it intrusive. Everything here also ducks to 0.35 while the game makes any sound.
+    //
+    //  REJECTED:
+    //    * A BAKED ENVELOPE ON EITHER BED, the way the roar and the flutter have one. It was the
+    //      first design and it is the one that would have re-opened the wind report. A swell at a
+    //      few tenths of a hertz IS what moving air sounds like, and a bed that swells with the Air
+    //      element down is a wind with no wind. Both beds are stationary instead, and the slow
+    //      contour is applied at runtime by EnvSound.RoomTone at 1.3-1.5 dB — deliberately too
+    //      shallow to be a gust and far too slow (19.37 s and 22.13 s) to be a flame.
+    //    * A TONAL COMPONENT — a pair of close sines beating, the way MakeRumble builds the Earth's
+    //      settling. It is the cheapest way to make a small room sound enclosed and it is exactly
+    //      the DRONE that EnvSound.BuildCellar's own comment rules out ("a permanent subsonic rumble
+    //      in a cellar would be a drone, not an atmosphere"). The rumble gets away with it because
+    //      it is gated on Earth and therefore rare; a permanent bed cannot.
+    //    * DERIVING THE STONE BED FROM `Bed` AT A LOWER LEVEL AND A DIFFERENT FILTER. The runtime
+    //      AudioLowPassFilter is ONE pole, so the 53.2% of the draught's energy that lives under
+    //      200 Hz cannot be removed at runtime at all — this feature has no runtime high pass — and
+    //      the result would be the draught, quieter, playing permanently in a room where the user
+    //      has twice ruled that the draught may not play. THE CANDLE rejected the same shortcut for
+    //      the same reason one round earlier.
+    //    * SCHEDULING THE LEAF LITTER AS ONE-SHOTS. The technically purer answer (nothing recurs
+    //      with the buffer) and rejected on THE CANDLE's cost argument exactly: a scheduler, a Voice
+    //      reference, teardown state and wire vectors, for a tick that measures +2.3 dB over the
+    //      wash's own 8 ms level. The ticks are baked and the loop argument is answered by
+    //      MEASUREMENT instead — see MarshTickMix.
+    //    * GIVING THE CELLAR LITTER OF ITS OWN. A stone room's discrete events are the DRIP and the
+    //      RAT, and both already exist as scheduled one-shots placed on their own nodes. A third
+    //      baked tick layer would be a sound with no object in the one room where the objects are
+    //      already sounded.
+
+    /// <summary>Length of the stone bed's loop. ELEVEN seconds, and the number is chosen for item 6
+    /// of <see cref="EnvSound"/>'s class doc rather than for the ear: the cellar's other continuous
+    /// buffers are the draught's 8 s, the candles' 7 s, the roar's 6 s and the Earth rumble's 6 s,
+    /// and 11 is the smallest whole-second length coprime with all four — so no two of the room's
+    /// wraps coincide inside three minutes. (Nothing recognisable is IN this buffer to find; the
+    /// property is free and worth taking anyway.)</summary>
+    private const float StoneSeconds = 11f;
+
+    /// <summary>The stone body's pink-noise corners and their weights, as <see cref="MakeBed"/>'s
+    /// and <see cref="MakeRoar"/>'s are. Between the two: lower than the fire's 90/420/1500, because
+    /// what radiates here is a ten-metre room and not a half-metre flame, and higher than the
+    /// draught's 40/320/2600, because the draught's lowest octaves come from air moving through an
+    /// APERTURE and a sealed room has none.</summary>
+    private static readonly float[] StonePink = { 60f, 240f, 900f };
+    private static readonly float[] StonePinkMix = { 0.58f, 0.30f, 0.12f };
+
+    /// <summary>THE STONE BODY'S BAND. Three poles at 230 Hz off the bottom and three at 520 off the
+    /// top.
+    ///
+    /// <para>THE FLOOR IS THE HARDWARE, the lesson ModBuild 150 paid 72.7% of a bookshelf's energy
+    /// for: a Quest 3 speaker returns essentially nothing under about 200 Hz, so a room tone authored
+    /// down at the box's real axial modes (343/(2 x 10.5 m) = 16 Hz, and its first few multiples)
+    /// would be a bed the player owns and cannot hear. THREE poles rather than the flutter's two
+    /// because pink noise is rising as it goes down: two poles left 26.1% of the buffer under
+    /// 200 Hz, three leave 11.5%.</para>
+    ///
+    /// <para>THE CEILING IS THE CANDLE. 520 Hz is below <see cref="FlutterLoHz"/> = 470's own
+    /// shoulder, so the room's body ends where the flames' band begins and the two overlap only in
+    /// their skirts. That is what "sit under the candle flutter" means as a number, and it is also
+    /// what keeps a CONTINUOUS layer out of the 1-4 kHz speech band the class doc protects: the
+    /// finished buffer measures 0.9% between 1 and 2 kHz.</para></summary>
+    private const float StoneLoHz = 230f;
+    private const float StoneHiHz = 520f;
+    private const int StoneLoPoles = 3;
+    private const int StoneHiPoles = 3;
+
+    /// <summary>
+    /// THE HISS CEILING — the second layer, and the one that stops the bed being a muffled hum.
+    ///
+    /// <para>A hard-walled room returns its own broadband noise floor to the listener; a body with no
+    /// top at all reads as something covered over rather than as a space. It is an INDEPENDENT noise
+    /// stream (its own <see cref="Rng"/>) rather than a second filtering of the body, because a
+    /// filtered copy is perfectly correlated with what it sits on and would sum coherently instead of
+    /// widening — the same argument <c>EnvSound.AddBed</c>'s start offset rests on.</para>
+    ///
+    /// <para>4-8 kHz, TWO poles each way, and the band is chosen to MISS the class doc's protected
+    /// 1-4 kHz rather than to please the ear: the ceiling is above the speech band, so the mix below
+    /// buys air without spending any of the "never mask" budget. The finished buffer puts 3.0% of its
+    /// energy above 5 kHz and 1.5% in 1-5 kHz total.</para>
+    ///
+    /// <para>0.14 OF THE BODY, mixed before the filters' output is normalised. It is small on purpose:
+    /// hiss is the one thing in a continuous bed that fatigues, and this is a bed that plays for a
+    /// whole scenario.</para></summary>
+    private const float StoneHissLoHz = 4000f;
+    private const float StoneHissHiHz = 8000f;
+    private const int StoneHissPoles = 2;
+    private const float StoneHissMix = 0.14f;
+
+    /// <summary>The stone bed's peak. 0.72, against the flutter's 0.70 and the draught's 0.85 —
+    /// which means nothing on its own: <see cref="Normalise"/> sets a PEAK and the ear hears an
+    /// average, and the two are 13 dB apart on a noise bed. The number that decides how loud this is
+    /// heard is <c>EnvSound.StoneBedGain</c>, and the delivered-level table above is what it was
+    /// chosen against.</summary>
+    private const float StonePeak = 0.72f;
+
+    private const uint StoneSeed = 0x5704E000u;
+
+    /// <summary>
+    /// THE CELLAR'S AIR. A pink body inside the room's own band with an independent hiss ceiling
+    /// mixed over it. Stationary — the slow breathing is <c>EnvSound.RoomTone</c>'s, at runtime, for
+    /// the reason THE ROOM ITSELF's rejected list gives.
+    /// </summary>
+    private static AudioClip MakeStone(int rate)
+    {
+        int n = (int)(rate * StoneSeconds);
+        var d = new float[n];
+
+        // ---- THE BODY. MakeBed's three summed one-poles, at this room's corners.
+        var r = new Rng(StoneSeed);
+        float k1 = 1f - Mathf.Exp(-2f * Mathf.PI * StonePink[0] / rate);
+        float k2 = 1f - Mathf.Exp(-2f * Mathf.PI * StonePink[1] / rate);
+        float k3 = 1f - Mathf.Exp(-2f * Mathf.PI * StonePink[2] / rate);
+        float a1 = 0f, a2 = 0f, a3 = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float w = r.Next();
+            a1 += k1 * (w - a1);
+            a2 += k2 * (w - a2);
+            a3 += k3 * (w - a3);
+            d[i] = a1 * StonePinkMix[0] + a2 * StonePinkMix[1] + a3 * StonePinkMix[2];
+        }
+        for (int p = 0; p < StoneLoPoles; p++)
+            HighPass(d, rate, StoneLoHz);
+        for (int p = 0; p < StoneHiPoles; p++)
+            LowPass(d, rate, StoneHiHz);
+        // Normalised BEFORE the ceiling is added, so StoneHissMix is a ratio of two known-unity
+        // signals rather than of whatever the filters happened to leave. A mix whose meaning depends
+        // on the sample rate is a mix nobody can reason about — SoftClip's argument exactly.
+        Normalise(d, 1f);
+
+        // ---- THE HISS CEILING, from its own stream. A SECOND buffer, and it is the one place this
+        // file spends a temporary: the ceiling has to be filtered and normalised on its own before it
+        // can be mixed at a stated ratio, and folding it into `d` would need the body kept somewhere
+        // anyway. 11 s of mono float is 2.1 MB, freed on the next collection.
+        var h = new float[n];
+        var hr = new Rng(StoneSeed ^ 0x48155000u);
+        for (int i = 0; i < n; i++)
+            h[i] = hr.Next();
+        for (int p = 0; p < StoneHissPoles; p++)
+            HighPass(h, rate, StoneHissLoHz);
+        for (int p = 0; p < StoneHissPoles; p++)
+            LowPass(h, rate, StoneHissHiHz);
+        Normalise(h, 1f);
+        for (int i = 0; i < n; i++)
+            d[i] += h[i] * StoneHissMix;
+
+        LoopFade(d, rate / 2);
+        Normalise(d, StonePeak);
+        return Finish("Stone", d, rate);
+    }
+
+    /// <summary>Length of the marsh bed's loop. THIRTEEN seconds. Coprime with the wood's other
+    /// continuous buffers (the leaves' 8 s, the insects' 7 s, the roar's 6 s, the rumble's 6 s) for
+    /// <see cref="StoneSeconds"/>'s reason, and two seconds longer than the cellar's because unlike
+    /// the stone bed this one carries baked EVENTS — <see cref="MarshTicks"/> — and a buffer with
+    /// events in it is a buffer the ear can in principle find.</summary>
+    private const float MarshSeconds = 13f;
+
+    /// <summary>The wash's pink corners. Above the stone's 60/240/900, because a wood has no walls to
+    /// absorb the top and leaves scatter high frequencies rather than swallowing them — the finished
+    /// buffer's audible centroid is 455 Hz against the stone's 403.</summary>
+    private static readonly float[] MarshPink = { 80f, 340f, 1300f };
+    private static readonly float[] MarshPinkMix = { 0.50f, 0.32f, 0.18f };
+
+    /// <summary>THE WASH'S BAND. Two poles at 210 Hz off the bottom (the hardware floor again) and
+    /// three at 1000 off the top.
+    ///
+    /// <para>WIDER THAN THE STONE'S 230..520 ON PURPOSE: a wood is not a box, so there is no
+    /// enclosure to give it a body and no candle band to stay out of — what it has to stay out of is
+    /// the INSECTS, and they live at 2200..6500 Hz. The two layers of the wood therefore sit either
+    /// side of a two-octave gap, which is why the room reads as depth rather than as one noise.</para>
+    ///
+    /// <para>AND THE RUNTIME FILTER IS OFF FOR THIS BED (<c>EnvSound.AddBed</c>'s <c>lowPassHz: 0</c>,
+    /// the same call the fire and the candles make). Three poles from 1000 Hz is -18 dB/oct against
+    /// the runtime filter's one pole at 1150; at 3 kHz that is -41 dB against -8.6. Nothing is given
+    /// up in the band the class doc protects — 5.1% of the buffer is between 1 and 2 kHz and 0.2%
+    /// between 2 and 5 — and one AudioLowPassFilter stops being evaluated per DSP block.</para></summary>
+    private const float MarshLoHz = 210f;
+    private const float MarshHiHz = 1000f;
+    private const int MarshLoPoles = 2;
+    private const int MarshHiPoles = 3;
+
+    /// <summary>THE LEAF LITTER. How many little dry events are laid into the buffer and the window
+    /// they land in — a leaf giving way under its own weight, a drop coming off a branch, something
+    /// small moving in the dark. It is <see cref="FlutterTicks"/>'s wick applied to a wood, through
+    /// the same <see cref="EnvSoundSchedule.SlipTrain"/> at shrink 1 (a wood has no cascade) and a
+    /// heavy jitter, so the loop TERMINATES BY CONSTRUCTION exactly as every other caller of it
+    /// does.</summary>
+    private const int MarshTicks = 22;
+    private const float MarshTickFirst = 0.11f;
+    private const float MarshTickLast = 12.85f;
+    private const float MarshTickSpread = 1f;
+    private const float MarshTickJitter = 0.95f;
+
+    /// <summary>One tick's decay, the power law on its size, and how loud the layer is against the
+    /// wash.
+    ///
+    /// <para><b>THE MIX IS WHERE THE LOOP ARGUMENT IS SETTLED, AND IT IS SETTLED BY MEASUREMENT</b> —
+    /// <see cref="FlutterTickMix"/>'s paragraph, re-run on this buffer. Item 6 of the class doc
+    /// forbids a recognisable EVENT inside a looping bed, so the ticks were measured against the
+    /// wash's own 8 ms level: the MEDIAN tick is +2.3 dB over it, i.e. inside the noise's own
+    /// fluctuation and not an event at all, and exactly ONE of the twenty-two exceeds +5 dB, the
+    /// loudest reaching +5.1. The buffer's crest factor is 13.4 dB — below the flutter's 15.2 — which
+    /// matters because the peak is what <see cref="Normalise"/> sets the WHOLE BED's level from: a
+    /// loud tick would buy itself by making the whole wood quieter.</para>
+    ///
+    /// <para>1.6 ms of decay against the wick's 0.8: wet leaf litter is a softer, deader radiator than
+    /// a wax bead, so it pats rather than clicks. The exponent is this file's standing one —
+    /// <c>u^1.5</c> is the inverse CDF of a size distribution where the small vastly outnumber the
+    /// large — and the ticks go through the same band filters as the wash, so they are dull little
+    /// pats from inside the same wood rather than sparks over it.</para></summary>
+    private const float MarshTickTau = 0.0016f;
+    private const float MarshTickExponent = 1.5f;
+    private const float MarshTickMix = 1.4f;
+
+    /// <summary>The marsh bed's peak. See <see cref="StonePeak"/>: the peak is not the level.</summary>
+    private const float MarshPeak = 0.68f;
+
+    private const uint MarshSeed = 0x3A25E000u;
+
+    /// <summary>
+    /// THE NIGHT WOOD'S AIR. A pink wash inside the wood's band with the leaf litter laid into it.
+    /// Stationary, like <see cref="MakeStone"/> and for the same reason: a bed that SWELLS with the
+    /// Air element down would be a wind the user has twice ruled must not exist.
+    /// </summary>
+    private static AudioClip MakeMarsh(int rate)
+    {
+        int n = (int)(rate * MarshSeconds);
+        var d = new float[n];
+
+        var r = new Rng(MarshSeed);
+        float k1 = 1f - Mathf.Exp(-2f * Mathf.PI * MarshPink[0] / rate);
+        float k2 = 1f - Mathf.Exp(-2f * Mathf.PI * MarshPink[1] / rate);
+        float k3 = 1f - Mathf.Exp(-2f * Mathf.PI * MarshPink[2] / rate);
+        float a1 = 0f, a2 = 0f, a3 = 0f;
+        for (int i = 0; i < n; i++)
+        {
+            float w = r.Next();
+            a1 += k1 * (w - a1);
+            a2 += k2 * (w - a2);
+            a3 += k3 * (w - a3);
+            d[i] = a1 * MarshPinkMix[0] + a2 * MarshPinkMix[1] + a3 * MarshPinkMix[2];
+        }
+
+        // ---- the litter. Laid in BEFORE the band filters, deliberately: a tick that went in after
+        // them would be a broadband click over a filtered wash, i.e. the one thing that would make it
+        // an EVENT. Through the same filters it is a dull pat from inside the same wood.
+        var ticks = new float[MarshTicks];
+        EnvSoundSchedule.SlipTrain(ticks, MarshTickFirst, MarshTickLast,
+                                   shrink: MarshTickSpread, jitter: MarshTickJitter,
+                                   seed: MarshSeed);
+        int tickLen = (int)(rate * 0.008f);
+        var tr = new Rng(MarshSeed ^ 0x7C1C0000u);
+        for (int k = 0; k < MarshTicks; k++)
+        {
+            int at = (int)(ticks[k] * rate);
+            float amp = Mathf.Pow(Mathf.Abs(tr.Next()), MarshTickExponent) * MarshTickMix;
+            for (int i = 0; i < tickLen && at + i < n; i++)
+            {
+                float tt = i / (float)rate;
+                d[at + i] += tr.Next() * Mathf.Exp(-tt / MarshTickTau) * amp;
+            }
+        }
+
+        for (int p = 0; p < MarshLoPoles; p++)
+            HighPass(d, rate, MarshLoHz);
+        for (int p = 0; p < MarshHiPoles; p++)
+            LowPass(d, rate, MarshHiHz);
+
+        LoopFade(d, rate / 2);
+        Normalise(d, MarshPeak);
+        return Finish("Marsh", d, rate);
+    }
+
     // ---- one-shots ------------------------------------------------------------------------------
 
     // =============================================================================================
@@ -1821,7 +2240,19 @@ internal static class EnvSoundBank
     }
 
     /// <summary>The swamp at night: noise amplitude-modulated at insect rates. Three modulators at
-    /// non-commensurate rates so the texture never settles into a pulse.</summary>
+    /// non-commensurate rates so the texture never settles into a pulse.
+    ///
+    /// <para><b>THE BUFFER IS UNCHANGED BY ModBuild 154 AND ITS FILTER IS NOT, and the distinction is
+    /// the whole of why the wood was silent.</b> The band below is 2200..6500 Hz — and until this
+    /// round <c>EnvSound.BuildSwamp</c> created the bed without <c>lowPassHz: 0</c>, so it ALSO got
+    /// the default runtime <c>AudioLowPassFilter</c> at <c>EnvSound.BedLowPassHz</c> = 1150 Hz, whose
+    /// one pole is -6.5 dB at 2200 and -15.3 dB at 6500. Every hertz this generator produces was
+    /// being attenuated by a filter that exists to keep BODY out of the speech band, on the one clip
+    /// in the bank that has no body. The corner moves to <c>EnvSound.InsectLowPassHz</c> = 3000 Hz —
+    /// which still trims the 4-6.5 kHz hiss tail, because that is the part a headset speaker returns
+    /// hardest and the ear tires of fastest — and the clip itself is left exactly as it was, so the
+    /// next hardware report is judging a level and a filter and not a third new sound. See THE ROOM
+    /// ITSELF.</para></summary>
     private static AudioClip MakeChirr(int rate)
     {
         int n = rate * 7;

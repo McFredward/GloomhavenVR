@@ -42,13 +42,21 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// <para><b>HOW "GENAUSO WIE JETZT" IS HELD.</b> This is a <i>sprite assignment on the existing
 /// graphic</i>, never a new GameObject: the RectTransform, its anchors, its parent canvas and
 /// sorting order, the <c>Image.color</c> (so any CanvasGroup / colour fade still drives it), the
-/// material and every animator on the object all stay exactly as the scene authored them. The one
-/// property this patch does change beyond the sprite is <c>preserveAspect = true</c> (with
-/// <c>type = Simple</c>, which is what <c>preserveAspect</c> requires): the new wordmark reads
-/// "GLOOMHAVEN VR" on one line and is therefore WIDER per unit of height than the original, and
-/// letterboxing it inside the authored rect is the only way to keep it in the same screen box
-/// without stretching the letters. Both aspects are logged so a follow-up round can judge the
-/// result from a Player.log instead of a screenshot.</para>
+/// material and every animator on the object all stay exactly as the scene authored them.</para>
+///
+/// <para><b>THE RECT IS RESIZED, AND ModBuild 220 GOT THIS WRONG.</b> 220 kept the authored rect
+/// and set <c>preserveAspect</c>, which fits the sprite INSIDE it — so the whole wordmark shrank to
+/// make room for the VR. USER CORRECTION (2026-08-22, verbatim): <i>"Das Logo ist ja das originale
+/// Logo nur mit der 'VR' ergänzung - Es sollte daher die selben Seitenvehältnisse haben bzw nur
+/// leicht breiter da das VR breiter ist. Aber der 'Gloomhaven' Schriftzug sollte 1:1 genau an der
+/// Stelle sein, an dem das originale Logo war."</i> The artwork is the game's own wordmark with VR
+/// appended, so GLOOMHAVEN must keep the original's size and position and the VR must hang past it.
+/// <see cref="MainMenuLogoPlacement.PlaceOnBand"/> therefore GROWS the rect by the ratio of the sprite's height to its
+/// GLOOMHAVEN band and offsets it so the band lands on the box the old sprite drew in; the sprite
+/// is never stretched, because the new rect is made exactly the sprite's own aspect. The measured
+/// band constants and the arithmetic are documented on <see cref="MainMenuLogoPlacement"/>,
+/// and every number is logged so the result can be judged from a
+/// Player.log rather than only from a photograph.</para>
 ///
 /// <para><b>WHERE THE BYTES LIVE — and why not the bundle.</b> The PNG ships as an
 /// <c>EmbeddedResource</c> inside the plugin DLL (<c>GloomhavenVR.Assets.GloomhavenVR_logo.png</c>,
@@ -65,8 +73,8 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// <c>Resources.FindObjectsOfTypeAll&lt;Sprite&gt;()</c> — the same art may be atlased and shared,
 /// and a name match is not identity; (b) instantiating our own Image next to the original and
 /// disabling it — a new object inherits none of the scene's layout or fade wiring, which is
-/// exactly what "genauso wie jetzt" forbids; (c) resizing the RectTransform to our aspect —
-/// it is hand-authored screen furniture and a mod has no business moving it.</para>
+/// exactly what "genauso wie jetzt" forbids; (c) fitting the sprite inside the authored rect
+/// (what 220 shipped) — it shrinks the wordmark, which is the correction above.</para>
 ///
 /// <para><b>MULTIPLAYER:</b> presentation only. No wire traffic, no session state read or written,
 /// and the swap is identical for host and client. Desktop-flat play with the mod installed simply
@@ -221,9 +229,17 @@ internal static class MainMenuLogoSwap
 
         if (graphic is Image image)
         {
+            if (ReferenceEquals(image.sprite, sprite))
+                return true; // already ours — never grow the rect twice
+
             string wasSprite = image.sprite != null ? image.sprite.name : "<none>";
             Rect wasRect = image.sprite != null ? image.sprite.rect : default;
             Image.Type wasType = image.type;
+            bool wasPreserve = image.preserveAspect;
+
+            // WHERE THE OLD WORDMARK ACTUALLY DREW, in this RectTransform's own local space. That
+            // box — not the rect — is what "an der Stelle, an dem das originale Logo war" means.
+            Rect oldBox = MainMenuLogoPlacement.DrawnBox(rect, wasRect, wasPreserve, wasType);
 
             image.sprite = sprite;
             // Unity's overrideSprite GETTER falls back to `sprite`, so an active override is
@@ -234,17 +250,22 @@ internal static class MainMenuLogoSwap
             // UIInputFieldLayoutExtension.cs:239, UIHighlightTransition.cs:239) — none of them is
             // a static logo.
             image.overrideSprite = null;
-            // preserveAspect only applies to Simple and Filled; the wordmark is never 9-sliced.
+            // Simple + preserveAspect OFF: the rect is about to be made exactly the sprite's own
+            // aspect, so the sprite fills it with no letterboxing and rect == drawn box. Letting
+            // preserveAspect fit inside the rect is what shrank the wordmark in ModBuild 220.
             image.type = Image.Type.Simple;
-            image.preserveAspect = true;
+            image.preserveAspect = false;
             image.SetAllDirty();
+
+            string placement = MainMenuLogoPlacement.PlaceOnBand(image, oldBox, newAspect, origin);
 
             VRLog.Info(Scope,
                 $"{origin}: Image '{image.name}' sprite '{wasSprite}' " +
                 $"({wasRect.width:F0}x{wasRect.height:F0}, aspect {(wasRect.height > 0.001f ? wasRect.width / wasRect.height : 0f):F3}) " +
                 $"→ '{sprite.name}' ({sprite.rect.width:F0}x{sprite.rect.height:F0}, aspect {newAspect:F3}); " +
-                $"rect {rect.width:F0}x{rect.height:F0} (aspect {hostAspect:F3}) UNCHANGED, type {wasType}→Simple, " +
-                "preserveAspect on. Colour, material, anchors and canvas order untouched.");
+                $"old drawn box {oldBox.width:F1}x{oldBox.height:F1} at ({oldBox.xMin:F1},{oldBox.yMin:F1}) " +
+                $"(preserveAspect was {wasPreserve}, type {wasType}). {placement} " +
+                "Colour, material, parent, canvas order and every sibling untouched.");
             return true;
         }
 
@@ -274,6 +295,7 @@ internal static class MainMenuLogoSwap
         VRLog.Warn(Scope, $"{origin}: '{graphic.name}' is a {graphic.GetType().Name}, which this patch cannot skin.");
         return false;
     }
+
 
     /// <summary>
     /// The second candidate, resolved without a per-frame cost (this runs once per menu load).
@@ -400,4 +422,193 @@ internal static class MainMenuLogoSwap
     }
 
     private static string Describe(GameObject? go) => go == null ? "<null>" : $"'{go.name}'";
+}
+
+/// <summary>
+/// Where the new wordmark is put, so that GLOOMHAVEN keeps the size and position the game's own
+/// logo had and only the VR extension hangs past it. Split out of <see cref="MainMenuLogoSwap"/>
+/// for a mechanical reason: that class carries <c>[HarmonyPatch]</c>, and the Harmony analyzer
+/// reads every struct-typed parameter of every method in such a class as a patch argument
+/// (Harmony003, "non-ref patch parameter modified"). These helpers take <c>Rect</c>s, so they live
+/// next door instead of being contorted to please the analyzer.
+/// </summary>
+internal static class MainMenuLogoPlacement
+{
+    private const string Scope = "MenuLogo";
+
+    // ---- constants of the shipped artwork -------------------------------------------------------
+    //
+    // USER CORRECTION (2026-08-22, verbatim), which is what this whole section exists for: "Das Logo
+    // ist ja das originale Logo nur mit der 'VR' ergänzung - Es sollte daher die selben
+    // Seitenvehältnisse haben bzw nur leicht breiter da das VR breiter ist. Aber der 'Gloomhaven'
+    // Schriftzug sollte 1:1 genau an der Stelle sein, an dem das originale Logo war."
+    //
+    // MEASURED off Assets/GloomhavenVR_logo.png (1024x179 RGBA) at alpha > 0.08, by taking each
+    // column's first and last covered row. The wordmark's own band is rows 4..127 and holds flat
+    // across the whole GLOOMHAVEN run; from column 838 the bottom drops away to row 168 — that is
+    // the VR's descending flourish, and it is the ONLY reason the shipped PNG is taller than the
+    // original artwork. Measuring at 0.02 / 0.25 / 0.50 instead moves these by at most one pixel
+    // (0.6 % of the band), so the numbers are not threshold-sensitive.
+    //
+    // THEY ARE FRACTIONS OF THE SPRITE, NOT PIXELS, on purpose: a future re-export at another
+    // resolution keeps working as long as the composition is unchanged, and a re-export that MOVES
+    // the wordmark inside the canvas is a change to these four numbers and to nothing else.
+
+    /// <summary>Top of the GLOOMHAVEN band, as a fraction of sprite height from the TOP edge.</summary>
+    private const float BandTop = 4f / 179f;
+
+    /// <summary>Bottom of the GLOOMHAVEN band (exclusive), as a fraction of sprite height from the
+    /// top edge. Everything below this is the VR's flourish and is allowed to hang past where the
+    /// original logo ended.</summary>
+    private const float BandBottom = 128f / 179f;
+
+    /// <summary>Left edge of the wordmark, as a fraction of sprite width. Non-zero only because the
+    /// crop keeps an 8 px margin for the rim glow.</summary>
+    private const float BandLeft = 4f / 1024f;
+
+    /// <summary>Height of the GLOOMHAVEN band as a fraction of the sprite's height — the number the
+    /// whole placement turns on: the new rect is this much TALLER than the box the old wordmark
+    /// drew in, so that the band inside it comes out the original size.</summary>
+    private const float BandHeight = BandBottom - BandTop;
+
+    /// <summary>
+    /// The box a sprite's artwork actually drew in, inside <paramref name="rect"/>, in the
+    /// RectTransform's own local space.
+    ///
+    /// <para>With <c>preserveAspect</c> off (or on a tiled/sliced Image, where it does nothing) the
+    /// sprite is stretched across the whole rect and the answer is the rect. With it on, uGUI fits
+    /// the sprite inside the rect and CENTRES it — that fitted box, not the rect, is where the
+    /// player saw the logo, and it is what the new placement has to reproduce.</para>
+    /// </summary>
+    internal static Rect DrawnBox(Rect rect, Rect spriteRect, bool preserveAspect, Image.Type type)
+    {
+        bool fits = preserveAspect && (type == Image.Type.Simple || type == Image.Type.Filled);
+        if (!fits || spriteRect.width <= 0.001f || spriteRect.height <= 0.001f
+            || rect.width <= 0.001f || rect.height <= 0.001f)
+            return rect;
+
+        float aspect = spriteRect.width / spriteRect.height;
+        float w = rect.width;
+        float h = w / aspect;
+        if (h > rect.height)
+        {
+            h = rect.height;
+            w = h * aspect;
+        }
+        return new Rect(rect.center.x - w * 0.5f, rect.center.y - h * 0.5f, w, h);
+    }
+
+    /// <summary>
+    /// Resize and move the RectTransform so that the sprite's GLOOMHAVEN band covers
+    /// <paramref name="oldBox"/> exactly, letting the VR extension hang to the right and a little
+    /// below — which is precisely what the user asked for.
+    ///
+    /// <para>THE ARITHMETIC. The band is <see cref="BandHeight"/> of the sprite's height, so the
+    /// new rect must be <c>oldBox.height / BandHeight</c> tall (≈ 1.44×) for the band inside it to
+    /// come out at the original height; the width follows from the sprite's own aspect, so nothing
+    /// is ever stretched. The rect is then offset so the band's top-left corner sits on
+    /// <c>oldBox</c>'s top-left. Net effect: the wordmark is the size and position it always was
+    /// and the rect around it is bigger — the opposite of ModBuild 220, which kept the rect and
+    /// shrank the wordmark into it.</para>
+    ///
+    /// <para>A CONSISTENCY CHECK THAT COSTS NOTHING AND WOULD CATCH A WRONG ASSUMPTION. If the new
+    /// artwork really is the game's own wordmark plus VR, then the old box's aspect IS the band's
+    /// aspect, which puts the band's right edge at <c>oldAspect · BandHeight / spriteAspect</c> of
+    /// the sprite width. Independently measured, the VR's first column is at 0.818 and the N runs
+    /// on underneath it, so anything in roughly 0.82..1.00 corroborates the assumption. A value
+    /// outside 0.70..1.02 does not, and says so in the log rather than quietly mis-scaling.</para>
+    ///
+    /// <para>WHY THE RECT MAY BE TOUCHED AT ALL, when the ModBuild 220 note said it must not be:
+    /// that rule was mine, not the user's, and his correction overrides it. It is still refused in
+    /// the one case where it would be destructive — a rect driven by a layout system, where the
+    /// size we write is not the size that survives the next layout pass. There the old fit-inside
+    /// behaviour is kept and the refusal is logged.</para>
+    /// </summary>
+    /// <returns>One sentence for the swap's log line, stating what was done or why it was not.</returns>
+    internal static string PlaceOnBand(Image image, Rect oldBox, float newAspect, string origin)
+    {
+        RectTransform rt = image.rectTransform;
+
+        if (newAspect <= 0.001f || oldBox.height <= 0.001f || oldBox.width <= 0.001f)
+        {
+            image.preserveAspect = true;
+            return "PLACEMENT SKIPPED — the old drawn box or the new aspect is degenerate; fell back "
+                   + "to fitting inside the authored rect, so the wordmark will be smaller than the "
+                   + "original.";
+        }
+
+        if (image.GetComponent<UnityEngine.UI.ContentSizeFitter>() != null
+            || image.GetComponent<UnityEngine.UI.LayoutElement>() != null
+            || (rt.parent != null && rt.parent.GetComponent<UnityEngine.UI.LayoutGroup>() != null))
+        {
+            image.preserveAspect = true;
+            VRLog.Warn(Scope,
+                $"{origin}: the logo's rect is driven by a layout component, so it was NOT resized — "
+                + "a size written here would be overwritten on the next layout pass and the result "
+                + "would flicker between two placements. The wordmark is fitted inside the authored "
+                + "rect instead and will therefore be SMALLER than the game's own logo. To fix it "
+                + "properly the placement has to move to the layout element that owns the size.");
+            return "PLACEMENT REFUSED (layout-driven rect) — fitted inside instead.";
+        }
+
+        float oldAspect = oldBox.width / oldBox.height;
+        float impliedBandRight = oldAspect * BandHeight / newAspect;
+
+        float h2 = oldBox.height / BandHeight;
+        float w2 = h2 * newAspect;
+
+        // The band's top-left inside the new rect, and the offset that puts it on the old box's.
+        float targetXMin = oldBox.xMin - BandLeft * w2;
+        float targetYMin = (oldBox.yMax + BandTop * h2) - h2;
+
+        Vector2 pivot = rt.pivot;
+        string anchors = CollapseAnchors(rt);
+
+        Vector2 delta = new Vector2(targetXMin + pivot.x * w2, targetYMin + pivot.y * h2);
+        rt.sizeDelta = new Vector2(w2, h2);
+        rt.anchoredPosition += delta;
+
+        string verdict = impliedBandRight is > 0.70f and < 1.02f
+            ? $"consistent with the artwork (VR starts at 0.818 of the width and the N runs on under it)"
+            : "OUT OF RANGE — the new artwork is probably NOT the game's wordmark plus VR, or the "
+              + "original logo asset carries padding this patch cannot see. The wordmark will be "
+              + "the wrong size; the fix is the four Band* constants";
+
+        return $"rect {oldBox.width:F1}x{oldBox.height:F1} → {w2:F1}x{h2:F1} (×{h2 / oldBox.height:F3}), "
+               + $"moved by ({delta.x:F1},{delta.y:F1}), {anchors} The GLOOMHAVEN band now covers the "
+               + $"old drawn box exactly and the VR hangs past it. Implied band right edge "
+               + $"{impliedBandRight:F3} of sprite width: {verdict}.";
+    }
+
+    /// <summary>
+    /// Turn stretched anchors into point anchors WITHOUT moving the rect, so that
+    /// <c>sizeDelta</c> means "size" and <c>anchoredPosition</c> means "position".
+    ///
+    /// <para>A stretched rect takes its size from the parent, so writing a size into
+    /// <c>sizeDelta</c> there would mean "parent size PLUS this" and would move with every parent
+    /// resize. Collapsing first is the standard fix and is exactly reversible on the next scene
+    /// load, because the scene re-instantiates the object.</para>
+    /// </summary>
+    /// <returns>A clause for the log naming what was done to the anchors.</returns>
+    private static string CollapseAnchors(RectTransform rt)
+    {
+        if (rt.anchorMin == rt.anchorMax)
+            return "anchors were already a point and are unchanged;";
+
+        if (rt.parent is not RectTransform parent)
+            return "anchors are stretched but the parent is not a RectTransform, so they were left "
+                   + "alone — the placement may drift if the parent resizes;";
+
+        Vector2 size = rt.rect.size;
+        Vector3 lp = rt.localPosition;
+        Rect pr = parent.rect;
+        var anchor = new Vector2(0.5f, 0.5f);
+        var anchorPoint = new Vector2(pr.xMin + anchor.x * pr.width, pr.yMin + anchor.y * pr.height);
+
+        rt.anchorMin = anchor;
+        rt.anchorMax = anchor;
+        rt.sizeDelta = size;
+        rt.anchoredPosition = new Vector2(lp.x - anchorPoint.x, lp.y - anchorPoint.y);
+        return "stretched anchors were collapsed to the parent's centre at the same rect;";
+    }
 }

@@ -463,6 +463,30 @@ internal static partial class Loc
                 + "absichtlich weit unter der Lautstärke des Spiels gedeckelt: die Umgebung darf nie mit "
                 + "Sprache oder den Hinweistönen des Spiels konkurrieren. Ohne jede Wirkung, solange "
                 + "„Umgebungsgeräusche“ aus ist. Wirkt sofort.",
+            ["EnvSound/AmbienceBed"] =
+                "Eine durchgehende, leise GRUNDKULISSE unter allem anderen — das Geräusch, das der Raum "
+                + "selbst macht, wenn gerade nichts passiert. Im Keller ist das der tiefe, dumpfe Körper "
+                + "eines geschlossenen Gemäuers mit einem feinen Rauschen darüber; im Nachtwald die stille "
+                + "Luft im Laub, und darunter hörbar die Insekten am Boden. Sie läuft OHNE jede "
+                + "Element-Infusion — genau das tut der Rest der Kulisse nämlich nicht: der Tropfen, die "
+                + "Ratte, das Feuer, der Wind und das Grollen sind allesamt Ereignisse oder Antworten auf "
+                + "Elemente, und deshalb war der Wald bisher völlig still, solange nichts geschah. DAS IST "
+                + "KEIN WIND und es reagiert nicht auf Luft — der Luftzug am Fenster und das Rascheln im "
+                + "Blätterdach bleiben die einzigen, die das tun, und sie bleiben stumm, solange keine "
+                + "Luft-Infusion aktiv ist. Bewusst tiefer angesetzt als die Kerzenflammen, damit sie unter "
+                + "ihnen liegt statt mit ihnen zu konkurrieren, und sie senkt sich mit allem anderen ab, "
+                + "sobald das Spiel einen Ton macht. AUS lässt jedes andere Umgebungsgeräusch exakt so, wie "
+                + "es ist, und kostet nichts: die beiden Quellen werden pausiert, nicht bloß "
+                + "stummgeschaltet. Ohne jede Wirkung, solange „Umgebungsgeräusche“ aus ist. Wirkt sofort.",
+            ["EnvSound/AmbienceBedGain"] =
+                "Wie laut die durchgehende Grundkulisse ist, zusätzlich zu „Lautstärke der Umgebung“. "
+                + "1 = wie vorgesehen, also ungefähr der Pegel, den der Luftzug am Fenster bei wehendem "
+                + "Wind erreicht — und rund 44 dB unter einem Spielgeräusch bei voller Lautstärke, noch "
+                + "bevor deine eigenen Audio-Einstellungen überhaupt greifen. Kleiner ist dezenter; 0 "
+                + "entspricht dem Ausschalten von „Grundgeräuschkulisse“, nur dass die Insekten im Wald "
+                + "auf ihrem korrigierten Pegel bleiben. Selbst am Maximum bleibt die Grundkulisse unter "
+                + "dem lautesten Dauergeräusch, das die Umgebung machen kann. Ohne Wirkung, solange "
+                + "„Grundgeräuschkulisse“ oder „Umgebungsgeräusche“ aus ist. Wirkt sofort.",
             // ---- [Stereo] ----
             ["Stereo/RenderMode"] =
                 "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "

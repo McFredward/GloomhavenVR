@@ -361,6 +361,23 @@ internal static partial class VROptionsTab
                         // (VROptionsTab.8.Dependencies).
                         new("EnvSound", "Enabled", "vr_o_envsound"),
                         new("EnvSound", "Gain", "vr_o_envsound_amt"),
+                        // THE ROOM TONE and its volume (user request, 2026-08-22: "Ich will für
+                        // beide eine dezente Hintergrundgeräuschkullise die zu der Umgebung passt.
+                        // Diese soll deaktivierbar sein."). Directly under the two rows above,
+                        // because it IS the environment sound — a second switch inside the same
+                        // feature, and the row order says so.
+                        //
+                        // NO CAPTION KEY, which is deliberate and not an omission: an empty key
+                        // makes VROptionsTab.2.Rows fall back to the catalog's display name and to
+                        // the bound description, and BOTH of those are already localized for these
+                        // two entries (Loc.ConfigNames "EnvSound/AmbienceBed*",
+                        // Loc.ConfigDescriptions.German the same pair). A curated caption exists to
+                        // rescue rows whose programmer name reads badly in a player menu; adding a
+                        // third copy of a name that is already correct in both languages would be a
+                        // second place for the German to drift. Same reason the two
+                        // TravelButtonOffset rows above carry none.
+                        new("EnvSound", "AmbienceBed", ""),
+                        new("EnvSound", "AmbienceBedGain", ""),
                         new("Rig", "ForwardRendering", "vr_o_forward"),
                         // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
                         // 2026-08-13): off built no rig at all outside a scenario — the main

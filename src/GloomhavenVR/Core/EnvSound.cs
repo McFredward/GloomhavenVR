@@ -33,6 +33,19 @@ namespace GloomhavenVR.Core;
 /// (it is still the switch and nothing else); the sound is made here, from the schedule
 /// <see cref="Haunt.Resolve"/> now exposes.</para>
 ///
+/// <para><b>USER REQUEST, 2026-08-22, verbatim</b> — the ROOM ITSELF, which nothing above covers:
+/// "In Szenarios gibt es immer die dortigen Hintergrundgeräusche deswegen ist mir die Stille vorher
+/// nie aufgefallen. Im Keller scheint es constant geräusche zu geben, im Wald hingegen ist es absolut
+/// still. Ich will für beide eine dezente Hintergrundgeräuschkullise die zu der Umgebung passt. Diese
+/// soll deaktivierbar sein." Every sound in the request at the top of this doc is a THING HAPPENING
+/// IN A PLACE — a drop landing, a rat crossing, a shelf falling, an element answering — so with
+/// nothing happening and nothing infused the environment had no sound at all. ModBuild 154 adds the
+/// place: two continuous room tones (see THE ROOM ITSELF and <see cref="RoomTone"/>) on a switch of
+/// their own, <c>[EnvSound] AmbienceBed</c>, because "diese soll deaktivierbar sein" asks for one and
+/// <see cref="Enabled"/> would have made the answer "then you lose the drip too". The same round
+/// fixes the wood's insect floor, which had been played through a filter that removed its entire
+/// band since the feature shipped — see THE INSECT FLOOR.</para>
+///
 /// <para><b>TWO LATER RULINGS OVERRIDE PARTS OF THE REQUEST ABOVE, and the request is quoted
 /// verbatim rather than edited so that the override reads as an override.</b></para>
 /// <list type="number">
@@ -218,6 +231,40 @@ internal static class EnvSound
     /// sees the key; they see the localized display name.</summary>
     internal static ConfigEntry<float> Gain = null!;
 
+    /// <summary>
+    /// THE CONTINUOUS ROOM TONE — the cellar's stone air, the wood's night air, and the insect floor
+    /// at the level it was always meant to be at. A SECOND switch, under the feature's own toggle.
+    ///
+    /// <para><b>USER REQUEST, 2026-08-22, verbatim.</b> "In Szenarios gibt es immer die dortigen
+    /// Hintergrundgeräusche deswegen ist mir die Stille vorher nie aufgefallen. Im Keller scheint es
+    /// constant geräusche zu geben, im Wald hingegen ist es absolut still. Ich will für beide eine
+    /// dezente Hintergrundgeräuschkullise die zu der Umgebung passt. Diese soll deaktivierbar
+    /// sein."</para>
+    ///
+    /// <para><b>WHY IT IS ITS OWN SWITCH AND NOT PART OF <see cref="Enabled"/>.</b> The last sentence
+    /// asks for one ("Diese soll deaktivierbar sein"), and <see cref="Enabled"/> would not answer it:
+    /// that toggle removes the drip, the rat, the fire, the candles and the haunt cues as well, so a
+    /// player who wants the room's EVENTS without a continuous bed under them — or who finds any
+    /// permanent noise tiring, which is the single most common reason an ambience gets switched off —
+    /// would have to give up the whole feature. The two are also different KINDS of sound: everything
+    /// else here is a thing happening in a place, and this is the place itself.</para>
+    ///
+    /// <para><b>OFF IS EXACTLY THE ModBuild 153 BUILD.</b> Not "quieter" and not "the beds muted": the
+    /// two room-tone sources fade out and are PAUSED by <see cref="TickBeds"/>'s existing zero path,
+    /// and the insect bed goes back to its shipped 0.050 gain and its shipped 1150 Hz corner — see
+    /// <see cref="NightBed"/> and <see cref="TickBeds"/>'s filter re-assert. Live in both directions,
+    /// with no rebuild: nothing here is read at build time.</para>
+    /// </summary>
+    internal static ConfigEntry<bool> AmbienceBed = null!;
+
+    /// <summary>How loud the room tone is, on top of <see cref="Gain"/>. Its own dial because it is
+    /// the ONE level in this feature that nobody working on it can judge and that the user will want
+    /// to move first: a bed that plays for a whole scenario is the thing a listener is most likely to
+    /// want a little more or a little less of, and without this the answer would be a rebuild. It
+    /// multiplies the two room-tone beds and nothing else — see <see cref="RoomTone"/> for why the
+    /// insect correction is deliberately NOT on it.</summary>
+    internal static ConfigEntry<float> AmbienceBedGain = null!;
+
     private static bool _bound;
 
     /// <summary>
@@ -263,6 +310,33 @@ internal static class EnvSound
                 + "well below the game's own level on purpose: the environment is never allowed to "
                 + "compete with speech or the game's cues. Has no effect at all while 'Enabled' is "
                 + "off. Applies live.",
+                new AcceptableValueRange<float>(0f, 2f)));
+
+        AmbienceBed = file.Bind("EnvSound", "AmbienceBed", Defaults.EnvSoundAmbienceBed,
+            "A CONTINUOUS, QUIET ROOM TONE under everything else — the sound the room itself makes "
+            + "when nothing is happening in it. In the cellar that is the low, dull body of a closed "
+            + "masonry space with a faint hiss over it; in the night forest it is the still air in "
+            + "the leaf litter, with the insects on the ground audible under it. It plays with NO "
+            + "element infusion at all, which is what the rest of the ambience does not: the drip, "
+            + "the rat, the fire, the wind and the rumble are all events or element responses, so "
+            + "with nothing happening the forest used to be completely silent. THIS IS NOT WIND and "
+            + "it does not answer the Air element — the draught at the window and the rustle in the "
+            + "canopy are still the only things that do, and they are still silent unless an Air "
+            + "infusion is up. Deliberately lower in pitch than the candle flames so it sits under "
+            + "them rather than competing, and it ducks with everything else whenever the game makes "
+            + "a sound. OFF leaves every other environment sound exactly as it is and costs nothing: "
+            + "the two sources are paused, not merely muted. Has no effect at all while 'Enabled' is "
+            + "off. Applies live.");
+
+        AmbienceBedGain = file.Bind("EnvSound", "AmbienceBedGain", Defaults.EnvSoundAmbienceBedGain,
+            new ConfigDescription(
+                "How loud the continuous room tone is, on top of 'Gain'. 1 = as designed, which is "
+                + "about the level the window draught reaches while a wind is blowing, and roughly "
+                + "44 dB under a game sound at full volume before your own audio options are applied "
+                + "at all. Lower is subtler; 0 is the same as switching 'AmbienceBed' off, except "
+                + "that the forest's insects stay at their corrected level. Even at the maximum the "
+                + "room tone stays under the loudest continuous sound the environment can make. Has "
+                + "no effect while 'AmbienceBed' or 'Enabled' is off. Applies live.",
                 new AcceptableValueRange<float>(0f, 2f)));
     }
 
@@ -385,6 +459,16 @@ internal static class EnvSound
     /// legitimate emitter somebody adds. Two spare is a budget; and the ACTUAL protection against a
     /// crowd was never this number but <see cref="MaxEmitterGain"/>, the duck and
     /// <see cref="AudioSource.priority"/> 200, all three of which are unchanged.</para>
+    ///
+    /// <para><b>ModBuild 154 SPENDS ONE OF THE TWO SPARE AND THE CAP IS DELIBERATELY NOT RAISED.</b>
+    /// The room tone is ONE source per room (see <see cref="RoomToneMinMeters"/> — it is the room,
+    /// so it is one object), which takes the cellar to 9 + 3 = <b>12 of 14</b> and the swamp to
+    /// 7 + 3 = 10. That is the budget being used as a budget: the file's own test is
+    /// <c>Beds.Count + OneShotVoices &gt;= MaxVoices</c>, so the cellar can still take one more bed
+    /// before <see cref="AddBed"/> starts refusing, and raising the number to keep two spare would
+    /// be raising a cap to preserve a habit rather than to admit an emitter. The instruction the
+    /// paragraph above leaves for the next round stands unchanged: raise it WITH A REASON, or take
+    /// an existing bed out.</para>
     ///
     /// <para>AND A REFUSAL IS NOW LOGGED. Until ModBuild 152 <see cref="AddBed"/> returned in silence
     /// when the cap was reached, which is the same silent path a missing node takes — the exact class
@@ -550,6 +634,201 @@ internal static class EnvSound
     /// sites get.</param>
     private static float CandleBed(float periodSeconds) =>
         0.72f + 0.28f * Lfo(periodSeconds) + CandleFireLift * Mathf.Clamp01(ElementMood.Live(0));
+
+    // ---- the room itself -----------------------------------------------------------------------------
+    //
+    // USER REQUEST, 2026-08-22, verbatim:
+    //
+    //     "In Szenarios gibt es immer die dortigen Hintergrundgeräusche deswegen ist mir die Stille
+    //      vorher nie aufgefallen. Im Keller scheint es constant geräusche zu geben, im Wald hingegen
+    //      ist es absolut still. Ich will für beide eine dezente Hintergrundgeräuschkullise die zu
+    //      der Umgebung passt. Diese soll deaktivierbar sein."
+    //
+    // WHAT HE IS DESCRIBING IS THE SHIPPED BUILD, EXACTLY, AND IT IS READABLE OUT OF THE TWO ROOM
+    // BUILDERS. With no infusion up:
+    //   * THE CELLAR plays three ungated Flame<n> beds on EnvSoundClip.Flutter (BuildCellar) and
+    //     NOTHING ELSE — Draught is zeroed by WindBed, Rumble by ElementMood.Live(3) = 0, the three
+    //     fire sites by FireBed, and each of those four sources is PAUSED by TickBeds. Flutter is
+    //     470..1050 Hz with a measured 7.46 dB envelope swing, 56% of it inside 1-8 Hz. That is
+    //     "constant Geräusche": the one continuous emitter in either room that is both in a band a
+    //     headset speaker is efficient in AND temporally salient.
+    //   * THE WOOD plays the Night chirr and NOTHING ELSE, for the same four reasons — and the chirr
+    //     was inaudible for three of its own, all three of which are fixed here rather than papered
+    //     over with a gain. See EnvSoundBank's THE ROOM ITSELF for the measurements; in one line, its
+    //     clip is banded to 2200..6500 Hz and it was being played through the DEFAULT runtime low
+    //     pass at BedLowPassHz = 1150, which attenuates its entire band.
+    //
+    // THE CANDLE FLUTTER'S LEVEL IS DELIBERATELY NOT TOUCHED, and this is a decision rather than an
+    // omission because the obvious reading of his second sentence is that the cellar is too busy:
+    //   * HE DID NOT REPORT IT AS A DEFECT. "Im Keller SCHEINT ES ... zu geben" is the contrast that
+    //     explains the first sentence — why the silence never struck him — and the request that
+    //     follows is "für BEIDE eine dezente Hintergrundgeräuschkullise", i.e. ADD to both, not cut
+    //     one. This file has a written scar about the other reading: see COMMENT IS NOT CONSENT in
+    //     the project notes, and ModBuild 153, three of whose four "fixes" were faults already
+    //     documented as intentional.
+    //   * AND CHANGING IT WOULD SPEND THE NEXT HARDWARE ROUND. CandleBedGain's own doc holds the
+    //     level fixed across the ModBuild 153 clip rebuild for exactly this reason: "the clip under
+    //     it is new and the level must not be, or the next hardware report cannot say which of the
+    //     two it is judging." A round that adds a bed UNDER the candles and moves the candles in the
+    //     same edit reproduces that mistake with the roles swapped.
+    //   If the cellar does come back as too busy, the fix is one number — CandleBedGain — and it is
+    //   named here so nobody has to go looking for it.
+
+    /// <summary>
+    /// A room tone's level, 0..2, for both rooms. ONE function, so the cellar's stone air and the
+    /// wood's night air cannot drift into being two different ideas — they are the same object (the
+    /// room, heard) at two spectra, which is the argument <see cref="WindBed"/> rests on for the two
+    /// winds.
+    ///
+    /// <para><b>RETURNS EXACTLY ZERO WHEN THE SWITCH IS OFF</b>, which is what <see cref="TickBeds"/>
+    /// tests to PAUSE the source. That is the whole of "deaktivierbar": not a mute, not a gain of
+    /// zero — the source leaves the mix, so no future rounding, filter tail or spatialiser can put a
+    /// hum back into a room the player switched it off in, and it stops costing a spatialised voice.
+    /// It is also why the switch is live in both directions with no rebuild: the level is read here,
+    /// per frame, exactly like every element gate.</para>
+    ///
+    /// <para><b>THE CONTOUR IS SHALLOW ON PURPOSE AND IT IS THE WIND RULING THAT MAKES IT SO.</b>
+    /// 0.86..1.00 is 1.3 dB, against <see cref="WindBed"/>'s 0.55..1.00 plus a full Air term — 5.2 dB
+    /// of gusting before the element enters. The user has ruled twice that there is no wind sound
+    /// without an Air infusion, and these are the first continuous beds this feature has ever played
+    /// with Air down; a bed that SWELLED would be a wind whatever its spectrum said. Slow, too:
+    /// <see cref="StoneLfoSeconds"/>/<see cref="MarshLfoSeconds"/> are the two longest periods in the
+    /// file and are non-commensurate with every other one in it and with both buffers — item 6 of the
+    /// class doc.</para>
+    ///
+    /// <para><b>AND THE DIAL IS CLAMPED HERE RATHER THAN TRUSTED.</b> <see cref="AmbienceBedGain"/>
+    /// has an AcceptableValueRange, but a hand-edited cfg is not bound by one (BepInEx clamps on
+    /// read, and a value written while the game is closed reaches this the same as any other) — and
+    /// this product is the one number in the feature a player is most likely to type by hand. At the
+    /// dial's maximum the bed reaches <see cref="StoneBedGain"/> x 2 = 0.070, still under the
+    /// draught's 0.075 and well under <see cref="MaxEmitterGain"/>, so the dial cannot be turned into
+    /// a problem — the same property <see cref="MasterCeiling"/> gives the master.</para>
+    /// </summary>
+    /// <param name="periodSeconds">This room's slow LFO period.</param>
+    private static float RoomTone(float periodSeconds)
+    {
+        if (!AmbienceBed.Value)
+            return 0f;
+        float dial = Mathf.Clamp(AmbienceBedGain.Value, 0f, 2f);
+        return dial * (RoomToneFloor + (1f - RoomToneFloor) * Lfo(periodSeconds));
+    }
+
+    /// <summary>How far the room tone's slow contour may fall. 0.86, i.e. 1.3 dB — see
+    /// <see cref="RoomTone"/> for why it is this shallow and not deeper.</summary>
+    private const float RoomToneFloor = 0.86f;
+
+    /// <summary>The two rooms' breathing periods. The longest in the file by a factor of more than
+    /// two on <see cref="FireBed"/>'s slowest site (17.53 s), and non-commensurate with every period
+    /// in it and with the 11 s and 13 s buffers they ride — so nothing in either room ever comes into
+    /// phase with the room itself.</summary>
+    private const float StoneLfoSeconds = 19.37f;
+    private const float MarshLfoSeconds = 22.13f;
+
+    /// <summary>
+    /// WHAT THE TWO ROOM TONES ARE PLAYED AT. Equal, and deliberately ONE pair of numbers for one
+    /// idea, exactly as <see cref="RoomTone"/> is one function.
+    ///
+    /// <para><b>0.035 IS DERIVED, against the one continuous bed in this file the user has judged
+    /// twice and never called intrusive: the window draught.</b> Delivered at a typical 4 perceived
+    /// metres — the loudest 20 ms RMS through a 200 Hz high pass (this project's stand-in for what a
+    /// Quest 3 actually returns), times the gain, times the mean runtime contour, times Unity's
+    /// <c>min/d</c> rolloff — the draught with a full Air infusion reaches 0.00747 and this reaches
+    /// 0.00660, i.e. <b>1.1 dB under it</b>. It errs quiet in the one direction that matters: unlike
+    /// the draught, this bed is PERMANENT. The full table is in <c>EnvSoundBank</c>'s THE ROOM
+    /// ITSELF, measured by the replica in <c>.planning/envsound-replica/room.py</c>.</para>
+    ///
+    /// <para>FOR SCALE, and because a decibel against another bed is not what "dezent" means: at the
+    /// default dial the master is 0.75, so a room tone reaches <b>0.0050</b> on Unity's 0..1 scale
+    /// against 1.0 for a game cue at full level — <b>46 dB under it</b>, and 55 dB under while the
+    /// duck is in (which it is whenever the game is making any sound at all). At the reporting user's
+    /// own settings (game volume 0.64, master 0.480) it is 0.0032.</para>
+    ///
+    /// <para>IT IS LOUDER THAN A CANDLE BED PAST ABOUT 1.5 m AND THAT IS NOT THE BRIEF BREAKING. A
+    /// candle bed's rolloff minimum is 0.6 perceived m, so it is a near-field sound and is already
+    /// 15 dB down by the time the player is standing at the table — the same arithmetic
+    /// <see cref="FireMinMeters"/> spells out at length. "Under the candle flutter" is therefore
+    /// honoured as a SPECTRUM (230..520 Hz against 470..1050) and as a CHARACTER (stationary against
+    /// a 7.46 dB flutter); where it matters most, leaning over a candle, the flutter still wins by
+    /// about 15 dB.</para></summary>
+    private const float StoneBedGain = 0.035f;
+    private const float MarshBedGain = 0.035f;
+
+    /// <summary>
+    /// THE ROOM TONE'S ROLLOFF, and it is the one emitter in this feature that is meant NOT to be
+    /// locatable.
+    ///
+    /// <para>5.5 perceived metres of minimum against the Earth rumble's 2 and the fire's 3. Unity's
+    /// logarithmic curve is FLAT inside the minimum, and the head sits 2-7.6 perceived m from the
+    /// room's centre in every session measured so far (see <see cref="FireMinMeters"/>'s table), so
+    /// across almost the whole playable volume this bed does not change at all as the player moves —
+    /// which is what a room tone is. 60 m of maximum is far outside either room and simply says "the
+    /// curve is honest everywhere inside it".</para>
+    ///
+    /// <para><b>AND ITS SPREAD IS 180 DEGREES, WHICH NOTHING ELSE HERE DOES.</b>
+    /// <see cref="NewVoice"/> gives every source 25 — a hair of width so an object is not a pinpoint
+    /// — because the user's standing ruling is "verortbar von seinen entsprechenden Quellen". This
+    /// bed has no source to be locatable from: it is the room. At 180 the spatialiser contributes
+    /// equally to both ears, so the tone has no direction and no near side, and a player turning
+    /// their head hears no pan. A room tone that swung across the head as you turned would be the
+    /// disembodied bed the whole feature is built to avoid, arrived at from the other end.</para></summary>
+    private const float RoomToneMinMeters = 5.5f;
+    private const float RoomToneMaxMeters = 60f;
+    private const float RoomToneSpread = 180f;
+
+    // ---- the insect floor ----------------------------------------------------------------------------
+    //
+    // THE WOOD'S ONE UNGATED BED, AND WHY IT COULD NOT BE HEARD. Not a level bug — three separate
+    // things, and a round that had only raised the gain would have shipped a louder inaudible bed:
+    //   1. gain 0.050, the lowest in the file;
+    //   2. EnvSoundClip.Chirr is banded to 2200..6500 Hz by its generator, and BuildSwamp created the
+    //      bed WITHOUT `lowPassHz: 0` — so it also carried the default runtime AudioLowPassFilter at
+    //      BedLowPassHz = 1150 Hz, whose single pole is -6.5 dB at 2200 and -15.3 dB at 6500. The
+    //      clip and the filter were fighting each other over the bed's entire band. Measured: the
+    //      finished emitter's 20 ms/200 Hz-HP window is 0.050 against the candle bed's 0.190;
+    //   3. its three modulators are at 17.3/23.9/31.1 Hz, and above roughly 20 Hz an amplitude
+    //      modulation stops being heard as flutter and becomes ROUGHNESS — the boundary EnvSoundBank's
+    //      FlutterHz names. So what survived (2) was stationary dark hiss, which is the single easiest
+    //      signal for the ear to adapt out.
+    // (2) IS THE ONE THAT MADE IT SILENT AND IT IS A DEFECT, NOT A DESIGN. It is fixed by moving the
+    // corner, not by removing the filter: 4-6.5 kHz is the part a headset returns hardest and the ear
+    // tires of fastest, and a permanent bed is exactly where that matters.
+
+    /// <summary>The corner the insect bed's runtime low pass moves to while the room tone is on.
+    /// 3000 Hz — a single pole, so -1.0 dB at the clip's 2200 Hz floor, -3 dB at 3000 and -7.0 dB at
+    /// its 6500 Hz ceiling: the crickets' own body is passed and the hiss tail above 4 kHz is still
+    /// trimmed. With the switch OFF the corner goes back to <see cref="BedLowPassHz"/> and the bed is
+    /// bit-for-bit the ModBuild 153 emitter again; see <see cref="TickBeds"/>, which re-asserts it
+    /// per frame rather than at build, so the switch is live.</summary>
+    private const float InsectLowPassHz = 3000f;
+
+    /// <summary>What the room-tone switch lifts the insect bed by, as a multiplier on its unchanged
+    /// <see cref="NightBedGain"/>. 1.5 takes 0.050 to 0.075 — the draught's gain, and the ceiling
+    /// rather than a preference: with the corner correction it puts <b>5.95e-06</b> of absolute
+    /// energy into the 1-5 kHz band the class doc protects, against the draught bed's 1.32e-05. So
+    /// the loudest the wood's insects can ever be is 3.5 dB under the loudest continuous bed this
+    /// file already ships, and they duck like everything else.
+    ///
+    /// <para><b>IT IS BINARY WITH THE SWITCH AND IS NOT ON <see cref="AmbienceBedGain"/>, which is a
+    /// decision.</b> This is a CORRECTION of a defect (a clip fighting its own filter), not a new
+    /// bed: putting it on a 0..2 dial would let intermediate positions reintroduce the defect by
+    /// degrees, and a player who wants the whole ambience quieter already has <see cref="Gain"/>.
+    /// The dial moves the two ROOM TONES, which are the thing that is genuinely a matter of
+    /// taste.</para></summary>
+    private const float InsectAmbienceLift = 1.5f;
+
+    /// <summary>The insect bed's gain. UNCHANGED at 0.050 across this round, deliberately: the lift
+    /// above is a named multiplier rather than a new literal here, so that switching the room tone
+    /// off restores the shipped emitter exactly and a diff shows one number for one decision.</summary>
+    private const float NightBedGain = 0.050f;
+
+    /// <summary>
+    /// The insect floor's level, 0..2. NOT GATED ON ANYTHING — a night wood has insects whether or
+    /// not the room is infused, and this bed has played (inaudibly) in every build that shipped it.
+    /// It NEVER RETURNS ZERO, so unlike the two room tones it is never paused: switching the room
+    /// tone off makes the wood quiet again, not silent.
+    /// </summary>
+    private static float NightBed() =>
+        (0.80f + 0.20f * Lfo(13.77f)) * (AmbienceBed.Value ? InsectAmbienceLift : 1f);
 
     // ---- the fire ------------------------------------------------------------------------------------
     //
@@ -766,6 +1045,19 @@ internal static class EnvSound
         internal EnvSoundClip Clip;
         internal bool AirGated;                       // its level is zero unless Air is up
         internal bool FireLit;                        // its level rises with a Fire infusion
+
+        // ---- THE TWO LOW-PASS CORNERS, because one of them depends on a setting the player can
+        // move mid-scenario. Every bed but the insects' sets both to the same number and the
+        // re-assert in TickBeds is then a comparison that never fires; the insect bed sets 3000 and
+        // 1150, so [EnvSound] AmbienceBed takes effect on the next frame rather than on the next
+        // rebuild. 0 means NO FILTER — the fire's, the candles' and the room tones' case.
+        //
+        // WHY THE VOICE CARRIES IT RATHER THAN THE ROOM BUILDER OWNING A SPECIAL CASE: a per-bed
+        // exception written into BuildSwamp would be invisible from every log this file emits, and
+        // "which emitter is playing through which filter" is the exact question that made the wood
+        // silent for the whole life of the feature.
+        internal float LowPassOnHz;                   // corner while the room tone is on
+        internal float LowPassOffHz;                  // ...and while it is off
 
         /// <summary>True for the emitters that play the WIND buffer, which is the one clip in the
         /// bank with a user ruling attached to it ("Wind Geräusch nur wenn auch Wind aktiv ist").
@@ -1085,6 +1377,20 @@ internal static class EnvSound
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
                () => 1.30f * ElementMood.Live(3),
                clipName: EnvSoundClip.Rumble, airGated: false, fireLit: false);
+
+        // THE ROOM ITSELF (ModBuild 154). The stone air, at the room root for the rumble's reason
+        // and with none of its reservations: this bed is the one thing in the cellar that plays with
+        // NOTHING infused, and it is not a drone because it has no tone in it at all — see
+        // EnvSoundBank's THE ROOM ITSELF for why a beating sine pair was rejected outright.
+        //
+        // NO RUNTIME LOW PASS, for the candles' and the fire's reason: the band (230..520 Hz, three
+        // poles each way, plus a 4-8 kHz hiss ceiling) is baked, and the 1150 Hz single pole this
+        // would add would take the ceiling off and do nothing whatever to the body.
+        AddBed("Stone", room.transform, EnvSoundBank.Bank(EnvSoundClip.Stone),
+               StoneBedGain, RoomToneMinMeters, RoomToneMaxMeters,
+               () => RoomTone(StoneLfoSeconds),
+               clipName: EnvSoundClip.Stone, airGated: false, fireLit: false,
+               lowPassHz: 0f, spreadDegrees: RoomToneSpread);
     }
 
     private static void BuildSwamp(GameObject room)
@@ -1105,11 +1411,31 @@ internal static class EnvSound
 
         // THE GROUND. Night insects. This is the swamp's floor, so it is the one sound the player
         // is inside rather than beside — a wide rolloff, deliberately.
+        //
+        // THE FILTER IS THE FIX HERE, NOT THE GAIN, and until ModBuild 154 this call passed neither.
+        // EnvSoundClip.Chirr is banded to 2200..6500 Hz by its own generator; this line used to let
+        // AddBed default to BedLowPassHz = 1150, so the bed carried a one-pole low pass that is
+        // -6.5 dB at the clip's floor and -15.3 dB at its ceiling — a filter attenuating the whole of
+        // what the clip is made of. That, its 0.050 gain (the lowest in the file) and its 17-31 Hz
+        // modulators (roughness, not flutter) are the three reasons the wood was "absolut still". See
+        // THE INSECT FLOOR.
+        //
+        // A MISSING GROUND NODE IS LOUD NOW. `Find` returning null here is the WispWisp path exactly:
+        // this is the room's only ungated emitter besides the marsh bed, and a wood with no insects
+        // in it is not a quiet wood, it is a renamed node.
         Transform? ground = Find(room.transform, "Ground", "RoomGeo");
         if (ground != null)
-            AddBed("Night", ground, EnvSoundBank.Bank(EnvSoundClip.Chirr), 0.050f, 3f, 30f,
-                   () => 0.80f + 0.20f * Lfo(13.77f),
-                   clipName: EnvSoundClip.Chirr, airGated: false, fireLit: false);
+            AddBed("Night", ground, EnvSoundBank.Bank(EnvSoundClip.Chirr), NightBedGain, 3f, 30f,
+                   NightBed,
+                   clipName: EnvSoundClip.Chirr, airGated: false, fireLit: false,
+                   lowPassHz: InsectLowPassHz, lowPassOffHz: BedLowPassHz);
+        else
+            VRLog.Warn("Core", "ENV SOUND bed 'Night' NOT CREATED — no 'Ground' or 'RoomGeo' node "
+                               + "under the wood. That is the INSECT FLOOR, and with the room tone "
+                               + "it is one of only two emitters in this room that play with no "
+                               + "element infusion up: without it the wood is silent at rest again, "
+                               + "which is the whole of the 2026-08-22 user report. If the bake "
+                               + "renamed the node, rename it here.");
 
         // THERE IS NO WISP BED, and this note is here so nobody re-derives one from the clip.
         // The wood used to carry three free-standing halos — WispWisp, WispLantern, WispFar — and
@@ -1130,6 +1456,25 @@ internal static class EnvSound
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
                () => 1.30f * ElementMood.Live(3),
                clipName: EnvSoundClip.Rumble, airGated: false, fireLit: false);
+
+        // THE ROOM ITSELF (ModBuild 154). The night air — the still, low wash of a wood that is not
+        // being blown through, with the leaf litter baked into it.
+        //
+        // IT IS NOT THE 'Leaves' BED ABOVE AND MUST NEVER BECOME IT. That one is the wind: it plays
+        // EnvSoundClip.Bed, it is hard-zeroed by the Air gate, and the user has ruled twice that it
+        // may not be audible without an Air infusion. This is the air that is there on a windless
+        // night, on a clip of its own, with 11.7% of its energy under 200 Hz against the wind
+        // buffer's 53.2% and 0.68 octaves of spread against 1.10 — the same two measurements that
+        // separated the candle from the draught one round earlier — and with a runtime contour of
+        // 1.5 dB against the draught's 5.2 dB of gusting. See EnvSoundBank's THE ROOM ITSELF.
+        //
+        // NO RUNTIME LOW PASS: the band (210..1000 Hz, three poles off the top) is baked and is
+        // -18 dB/oct where the runtime filter is -6.
+        AddBed("Marsh", room.transform, EnvSoundBank.Bank(EnvSoundClip.Marsh),
+               MarshBedGain, RoomToneMinMeters, RoomToneMaxMeters,
+               () => RoomTone(MarshLfoSeconds),
+               clipName: EnvSoundClip.Marsh, airGated: false, fireLit: false,
+               lowPassHz: 0f, spreadDegrees: RoomToneSpread);
     }
 
     /// <summary>
@@ -1216,10 +1561,20 @@ internal static class EnvSound
     /// down — i.e. it goes through <see cref="WindBed"/>. Every wind-clip bed must set it.</param>
     /// <param name="fireLit">True if a Fire infusion raises this bed. Recorded so the log can answer
     /// "what got louder when I infused Fire" without anybody reading the source.</param>
+    /// <param name="lowPassOffHz">The corner to use instead while <c>[EnvSound] AmbienceBed</c> is
+    /// OFF, or a negative number for "the same as <paramref name="lowPassHz"/>", which is what every
+    /// bed but the insects' passes. It exists because the insect bed's corner is a SETTING and not a
+    /// property of the room — see <see cref="InsectLowPassHz"/> — and because a filter written once
+    /// at build time could not follow a switch the player is allowed to move mid-scenario.</param>
+    /// <param name="spreadDegrees">Override for <see cref="AudioSource.spread"/>, or 0 to keep
+    /// <see cref="NewVoice"/>'s 25. ONE caller passes anything: the room tone, at
+    /// <see cref="RoomToneSpread"/>, because it is the only emitter here that is not supposed to be
+    /// locatable. See that constant for why that is not a violation of "verortbar".</param>
     private static Voice? AddBed(string name, Transform at, AudioClip? clip, float gain,
                                  float minMeters, float maxMeters, System.Func<float> modulate,
                                  EnvSoundClip clipName, bool airGated, bool fireLit,
-                                 float lowPassHz = BedLowPassHz)
+                                 float lowPassHz = BedLowPassHz, float lowPassOffHz = -1f,
+                                 float spreadDegrees = 0f)
     {
         if (clip == null)
         {
@@ -1264,8 +1619,12 @@ internal static class EnvSound
 
         var v = NewVoice(name, at, clip, gain, minMeters, maxMeters, loop: true,
                          lowPass: lowPassHz > 0f);
+        v.LowPassOnHz = lowPassHz;
+        v.LowPassOffHz = lowPassOffHz < 0f ? lowPassHz : lowPassOffHz;
         if (v.LowPass != null)
-            v.LowPass.cutoffFrequency = lowPassHz;
+            v.LowPass.cutoffFrequency = AmbienceBed.Value ? v.LowPassOnHz : v.LowPassOffHz;
+        if (spreadDegrees > 0f)
+            v.Source.spread = spreadDegrees;
         v.Modulate = modulate;
         v.NodeName = at.name;
         v.Clip = clipName;
@@ -1410,12 +1769,32 @@ internal static class EnvSound
 
         float air = Mathf.Clamp01(ElementMood.Live(2));
 
+        // THE ROOM-TONE SWITCH, READ ONCE PER FRAME. It is read here rather than at build because
+        // the player may move it inside a running scenario and the class doc's own promise for every
+        // dial in this feature is "applies live". Nothing below rebuilds anything: the two room-tone
+        // beds' modulators return a literal zero and the existing pause path takes them out of the
+        // mix, and the insect bed's low-pass corner is re-asserted a few lines down.
+        bool ambience = AmbienceBed.Value;
+
         float master = Master();
         for (int i = 0; i < Beds.Count; i++)
         {
             Voice v = Beds[i];
             float m = v.Modulate != null ? Mathf.Clamp(v.Modulate(), 0f, 2f) : 1f;
             float want = v.BaseGain * m * master;
+
+            // A BED WHOSE FILTER IS A SETTING. Only the insect floor has two corners today (3000 Hz
+            // with the room tone on, its shipped 1150 with it off — see InsectLowPassHz), so for
+            // every other bed this is one float comparison that never fires. Written as a general
+            // rule rather than as an `if (v.Name == "Night")` for the reason the Clip/AirGated/FireLit
+            // trio exists: a per-emitter exception buried in a room builder is invisible from every
+            // log this file writes, and that invisibility is exactly what kept the wood silent.
+            if (v.LowPass != null && v.LowPassOnHz != v.LowPassOffHz)
+            {
+                float corner = ambience ? v.LowPassOnHz : v.LowPassOffHz;
+                if (v.LowPass.cutoffFrequency != corner)
+                    v.LowPass.cutoffFrequency = corner;
+            }
 
             // ================= THE ASSERTION THIS FEATURE HAS EARNED TWICE ============================
             //
@@ -1532,6 +1911,19 @@ internal static class EnvSound
               .Append(v.Source.isPlaying ? " PLAYING" : " paused")
               .Append("] ");
         }
+
+        // THE ROOM TONE, ON EVERY GATE LINE. It is the only emitter here that is supposed to be
+        // audible on a frame where NOTHING is infused, so a reader comparing two of these lines has
+        // to be able to see that it did not move — a room tone that rose with an element would be the
+        // ModBuild 152 fault in a new place.
+        sb.Append("ROOM TONE: ").Append(AmbienceBed.Value ? "ON" : "OFF")
+          .Append(", dial ").Append(Mathf.Clamp(AmbienceBedGain.Value, 0f, 2f).ToString("F2"))
+          .Append(" — the Stone/Marsh bed answers NO element and must read the same on both sides "
+                  + "of any gate edge; the insect floor is lifted x")
+          .Append(InsectAmbienceLift.ToString("F2"))
+          .Append(" and filtered at ")
+          .Append((AmbienceBed.Value ? InsectLowPassHz : BedLowPassHz).ToString("F0"))
+          .Append(" Hz while it is on. ");
 
         // The one sentence a reader should not have to assemble themselves.
         int windBeds = 0;
@@ -3185,6 +3577,56 @@ internal static class EnvSound
           .Append("not a function of the clock — same rate, same seats, same distribution, ")
           .Append("different instants, and nothing in the picture it could be early or late ")
           .Append("against.");
+
+        // THE ROOM TONE, SAID AT BUILD — because it is the ONLY emitter in either room that is
+        // supposed to be audible with nothing infused, and because "the room is silent" is a report
+        // this feature has already received once and could not answer from a log. The line states
+        // whether the bed exists, what it is playing, and what it should sound like, so a listener's
+        // "I still hear nothing" separates a missing source from a level that is too low.
+        sb.Append(" ROOM TONE: ");
+        if (!AmbienceBed.Value)
+        {
+            sb.Append("SWITCHED OFF ([EnvSound] AmbienceBed = false). The Stone/Marsh source above ")
+              .Append("is created but its level is a literal zero, so the first TickBeds PAUSES it ")
+              .Append("and it is not in the mix at all — this line is written one frame before that ")
+              .Append("happens. The insect floor is back at its shipped gain and its shipped ")
+              .Append(BedLowPassHz.ToString("F0")).Append(" Hz corner. This is the ModBuild 153 ")
+              .Append("environment exactly — with no infusion up the wood is silent again, which is ")
+              .Append("the state the 2026-08-22 report is about and is here the player's choice.");
+        }
+        else
+        {
+            sb.Append("ON, dial ").Append(Mathf.Clamp(AmbienceBedGain.Value, 0f, 2f).ToString("F2"))
+              .Append(". ").Append(style == SkyStyle.Cellar ? "Stone" : "Marsh")
+              .Append(" at gain ")
+              .Append((style == SkyStyle.Cellar ? StoneBedGain : MarshBedGain).ToString("F3"))
+              .Append(" on the ROOM ROOT with a ").Append(RoomToneMinMeters.ToString("F1"))
+              .Append(" m minimum and spread ").Append(RoomToneSpread.ToString("F0"))
+              .Append(" degrees — deliberately NOT locatable, because it is the room and not a thing ")
+              .Append("in it, and flat across the whole playable volume because a room tone that ")
+              .Append("changed as you walked would not be one. It answers NO element and it is NOT ")
+              .Append("the wind: it plays a clip of its own, so the wind-clip census above still ")
+              .Append("reads 0 with Air down. Its runtime contour is ")
+              .Append(RoomToneFloor.ToString("F2")).Append("..1.00 (")
+              .Append((20f * Mathf.Log10(1f / RoomToneFloor)).ToString("F1"))
+              .Append(" dB) over ")
+              .Append((style == SkyStyle.Cellar ? StoneLfoSeconds : MarshLfoSeconds).ToString("F2"))
+              .Append(" s, against the draught's 5.2 dB of gusting — too shallow to be air being ")
+              .Append("pushed. If this line says ON and the room is still silent, the fault is a ")
+              .Append("LEVEL and [EnvSound] AmbienceBedGain is the dial; if the bed is missing from ")
+              .Append("the list above, the bank failed and said so on its own line.");
+            if (style == SkyStyle.SwampNight)
+                sb.Append(" INSECTS: the Night bed is lifted x").Append(InsectAmbienceLift.ToString("F2"))
+                  .Append(" (gain ").Append(NightBedGain.ToString("F3")).Append(" -> ")
+                  .Append((NightBedGain * InsectAmbienceLift).ToString("F3"))
+                  .Append(") and its runtime low pass moved from ").Append(BedLowPassHz.ToString("F0"))
+                  .Append(" Hz to ").Append(InsectLowPassHz.ToString("F0"))
+                  .Append(" Hz. THE FILTER IS THE BIGGER HALF: EnvSoundClip.Chirr is banded to ")
+                  .Append("2200..6500 Hz by its own generator and every build before ModBuild 154 ")
+                  .Append("played it through a one-pole 1150 Hz corner, i.e. -6.5 dB at the clip's ")
+                  .Append("floor and -15.3 dB at its ceiling. That, and not the gain, is why the ")
+                  .Append("wood was \"absolut still\".");
+        }
 
         // THE BOOKCASE, SAID AT BUILD RATHER THAN AT THE FIRST EVENT. Its cues are the loudest thing
         // this feature makes and their position comes off ONE node; if that node is missing, the bang

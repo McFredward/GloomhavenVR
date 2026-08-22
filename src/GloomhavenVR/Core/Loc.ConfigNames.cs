@@ -421,6 +421,8 @@ internal static partial class Loc
             ["Haunt/Frequency"] = Pair("Easter egg frequency", "Häufigkeit der Easter-Eggs"),
             ["EnvSound/Enabled"] = Pair("Environment sounds", "Umgebungsgeräusche"),
             ["EnvSound/Gain"] = Pair("Environment volume", "Lautstärke der Umgebung"),
+            ["EnvSound/AmbienceBed"] = Pair("Room tone", "Grundgeräuschkulisse"),
+            ["EnvSound/AmbienceBedGain"] = Pair("Room tone volume", "Lautstärke der Grundkulisse"),
 
             // ---- [WallFade] — see-through wall tuning ---------------------------------------
             ["WallFade/OnFraction"] = Pair("Fade at coverage", "Ausblenden ab Deckung"),

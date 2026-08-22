@@ -416,7 +416,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 220;
+    public const ushort ModBuild = 221;
+    // Build 221: THE ROOM TONE, AND THE LOGO PUT BACK WHERE IT BELONGS. Nothing on the wire.
+    //
+    //   #1 A CONTINUOUS ROOM TONE IN BOTH ROOMS. User, verbatim: "In Szenarios gibt es immer die
+    //   dortigen Hintergrundgeräusche deswegen ist mir die Stille vorher nie aufgefallen. Im Keller
+    //   scheint es constant geräusche zu geben, im Wald hingegen ist es absolut still. Ich will für
+    //   beide eine dezente Hintergrundgeräuschkullise die zu der Umgebung passt. Diese soll
+    //   deaktivierbar sein."
+    //   WHY THE WOOD WAS SILENT, MEASURED: with no infusion every other swamp emitter returns a
+    //   LITERAL zero and TickBeds pauses it — Leaves through WindBed, Rumble through
+    //   1.30*ElementMood.Live(3), all three fire sites through FireBed. The one source still playing
+    //   was 'Night', and it was inaudible for THREE compounding reasons, not one: gain 0.050 (the
+    //   lowest in the file); the clip and its filter fighting each other (MakeChirr bands the buffer
+    //   to 2200-6500 Hz, but the bed was created without lowPassHz:0 so AddBed's default 1150 Hz
+    //   corner attenuated its ENTIRE band, -6.5 dB at 2200 and -15.3 dB at 6500); and AM rates of
+    //   17.3/23.9/31.1 Hz, above this file's own ~20 Hz flutter boundary, so what survived read as
+    //   stationary hiss. A round that had only raised the gain would have shipped a LOUDER INAUDIBLE
+    //   BED. Corner 1150 -> 3000 Hz and gain x1.5: +9.2 dB, with the clip itself untouched so the
+    //   next report judges a level and a filter rather than a third new sound.
+    //   THE CELLAR'S "CONSTANT NOISE" IS THE THREE CANDLE BEDS and was deliberately NOT reduced: he
+    //   wrote it as the CONTRAST that explains why he never noticed the silence, and the request that
+    //   follows is add to both. CandleBedGain is held fixed across builds on purpose so the next
+    //   hardware report stays attributable; it is named in the new comment as the one number to move
+    //   if the cellar does come back too busy.
+    //   THE TWO NEW CLIPS: EnvSoundClip.Stone (11 s, pink 230-520 Hz plus an independent 4-8 kHz
+    //   hiss ceiling — the body of a closed masonry space) and EnvSoundClip.Marsh (13 s, pink
+    //   210-1000 Hz with 22 baked leaf-litter ticks at a median +2.3 dB over the wash). NEITHER CAN
+    //   READ AS WIND, which is a standing two-time ruling: 0-200 Hz energy 11.5 %/11.7 % against the
+    //   draught's 53.2 %, spectral spread 0.86/0.68 against 1.10 octaves, and a runtime contour of
+    //   1.3 dB against WindBed's 5.2 dB of gusting. A baked envelope was the first design and was
+    //   REJECTED — a bed that swells with Air down IS a wind with no wind. A tonal component was
+    //   rejected as a drone. Both sit at the room root at spread 180 deg, 5.5..60 m: the room tone is
+    //   the one emitter here deliberately NOT locatable, because it is the room and not a thing in
+    //   it. Level 0.035, derived against the window draught (-1.1 / -1.9 dB) — the one continuous bed
+    //   the user has judged twice without calling it intrusive — and the stone puts 17.8 dB LESS into
+    //   the 1-5 kHz speech band than a single candle.
+    //   Dials: [EnvSound] AmbienceBed (on) and AmbienceBedGain (1, 0..2), both folding under
+    //   [EnvSound] Enabled. OFF is the 153 build exactly, live and with no rebuild: RoomTone returns
+    //   a hard 0 so the existing pause path takes both sources out of the mix, and the insect corner
+    //   is re-asserted per frame from the voice's own on/off pair.
+    //
+    //   #5b THE LOGO — 220 SHRANK IT, AND THAT WAS WRONG. 220 kept the authored rect and set
+    //   preserveAspect, which FITS the sprite inside the rect; since the new wordmark is wider per
+    //   unit of height, the whole of GLOOMHAVEN got smaller to make room for the VR. USER CORRECTION,
+    //   verbatim: "Das Logo ist ja das originale Logo nur mit der 'VR' ergänzung - Es sollte daher
+    //   die selben Seitenvehältnisse haben bzw nur leicht breiter da das VR breiter ist. Aber der
+    //   'Gloomhaven' Schriftzug sollte 1:1 genau an der Stelle sein, an dem das originale Logo war."
+    //   The artwork is the game's own wordmark with VR appended, so the RECT is what must grow, not
+    //   the letters that must shrink. Measured off the shipped PNG (1024x179, alpha > 0.08, per
+    //   column first and last covered row): the GLOOMHAVEN band is rows 4..127 and holds flat across
+    //   the whole run; from column 838 the bottom falls away to row 168, which is the VR's descending
+    //   flourish and the only reason the sprite is taller than the original artwork. So the band is
+    //   0.693 of the sprite height, the new rect is made 1/0.693 = 1.44x the box the OLD sprite drew
+    //   in, and it is offset so the band's top-left lands on that box's top-left. The sprite is never
+    //   stretched (the rect is made exactly its aspect) and preserveAspect is now OFF.
+    //   A FREE CONSISTENCY CHECK RIDES ALONG: if the artwork really is the game's wordmark plus VR
+    //   then the old drawn box's aspect IS the band's, which puts the band's right edge at
+    //   oldAspect*0.693/spriteAspect of the sprite width. Independently, the VR's first column is at
+    //   0.818 and the N runs on underneath it — so 0.82..1.00 corroborates and anything outside
+    //   0.70..1.02 says in the log that the assumption failed, instead of quietly mis-scaling.
+    //   Refused in the one destructive case: a rect driven by a layout component, where the size we
+    //   write would not survive the next layout pass. There the old fit-inside behaviour stands and
+    //   the refusal is logged.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 220: TWO OF THE FIVE NEW TASKS. Nothing on the wire; both are local presentation.
     //
     //   #4 A CLICK ON A CHARACTER SELECTS, AND NOTHING ELSE. User, verbatim: "Ich möchte das ein

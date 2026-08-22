@@ -150,6 +150,13 @@ internal static partial class VROptionsTab
         //      never read, so there is nothing left for it to be the volume of.
         ["EnvSound/Gain"] = new("EnvSound", "Enabled", On),
 
+        // ---- ...and the room tone's own volume folds under the room tone, one level deeper, for
+        //      the same literal reason: Core/EnvSound.RoomTone returns a hard 0 on its first line
+        //      when 'AmbienceBed' is off, so the dial is multiplied into nothing and the two
+        //      sources are PAUSED rather than merely silent. The parent row itself needs no entry:
+        //      it is a switch, not a tuning, and it already reads as one under 'Enabled'.
+        ["EnvSound/AmbienceBedGain"] = new("EnvSound", "AmbienceBed", On),
+
         // ---- Brett & Karten: THE NAMED CASE — the pitch window only exists in the
         //      "Begrenzt mit Neigung" scheme (BoardMoveMode.LimitedPitch, whose own enum doc names
         //      BoardPitchMin/Max as the window it clamps to). All six per-board keys, so the pair
