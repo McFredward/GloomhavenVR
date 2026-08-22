@@ -946,6 +946,15 @@ internal static partial class CanvasConversion
         FitLoopState loop = GetFitLoop(panel);
         loop.Comparisons++;
 
+        // THE FIXED-SIZE WINDOW (user report 2026-08-22 — see the region below for the measurement
+        // and the trade). Deliberately ABOVE the dirty check, the damping and the converged guard:
+        // for the one window this matches, the whole growth path is replaced rather than tuned, so
+        // it can neither reach the guard nor be affected by it. Every other window falls through
+        // and behaves byte-for-byte as it did before.
+        if (IsFixedSizeWindow(panel))
+            return ApplyFixedFit(panel, root, size, center);
+        ReleaseFixedFit(panel);
+
         // Dirty check (test #14): within 2 % of the current host rect (size AND
         // centering) — nothing to do. Host pivot is centered, so local origin ==
         // rect center and |center| is the content's off-center error directly.
@@ -1106,6 +1115,510 @@ internal static partial class CanvasConversion
     private static bool HostSizeMatches(Rect host, Vector2 recorded) =>
         Mathf.Abs(host.width - recorded.x) <= FitNoWriteEpsilonPx
         && Mathf.Abs(host.height - recorded.y) <= FitNoWriteEpsilonPx;
+
+    // =============================================================================================
+    // THE FIXED-SIZE WINDOW — ONE SIZE, AND THE SUB-VIEWS FITTED INTO IT
+    // =============================================================================================
+    //
+    // USER REPORT (2026-08-22, translated): "The character UI constantly changes its SIZE depending
+    // on which submenu is open — that should not happen. Instead the SUBMENUS should adapt to a
+    // FIXED size."
+    //
+    // WE CAUSED IT. ModBuild 196 stopped tearing the equipment view out into a window of its own, so
+    // ALL FIVE of NewPartyDisplayUI's side-by-side sub-views now open inside the map room's
+    // permanent character screen — which is what he asked for, and which is why the resizes became
+    // constant and obvious.
+    //
+    // WHAT THE FIVE SUB-VIEWS ACTUALLY NEED, measured off the ModBuild 196 hardware log
+    // (.planning/debug/LogOutput.log, every 'Host rect fit …New Party display' line with its top
+    // contributors). The HEIGHT is 1080 px in every single state — the window's own authored frame
+    // bounds it — so the report is entirely about WIDTH:
+    //
+    //   no sub-view (the permanent character column)   328 px   'Party Display UI' 300x1080
+    //   enhancement cards                              716 px   'Enhance Ability Cards …' 368 px
+    //   equipment                                      860 px   'Character Items Equipment …' 512 px
+    //   equipment + party inventory column            1136 px   two 512 px columns side by side
+    //   ability cards                                 1066 px   scroll viewport 722 px
+    //   perks                                         1920 px   'New UIPerksWindow Variant' 1620x1080
+    //                                                           (mostly a full-screen 'Blur' plate;
+    //                                                            its real content column is 512 px)
+    //   character selector                            1920 px   'Campaign … Assembly Variant' 1620 px
+    //                                                           with a 1477 px 'Character3D/RawImage'
+    //   battle goals                                   NOT MEASURED — it was never opened in the
+    //                                                  logged session (it is a scenario-start view).
+    //                                                  It is a full-screen UIBattleGoalPickerWindow
+    //                                                  like the perks one, so it is assumed to want
+    //                                                  the same 1920 px and is handled by the same
+    //                                                  scale-to-fit branch. If a later log shows it
+    //                                                  fitting differently, the FIXED FIT line names
+    //                                                  the width it asked for.
+    //
+    // Transients seen in the same log and deliberately NOT designed for: the equipment view ramps
+    // 860→896→…→1148 and 1132→…→1485 while its inventory column slides in, and once spiked to
+    // 1899 px for a moment. Those are animation frames, not sizes the window needs.
+    //
+    // WHY 1143 px AND NOT 1920, WHICH IS THE OBVIOUS CHOICE. The host width does not only decide how
+    // wide the frame is — it decides how LARGE EVERYTHING IN THE WINDOW IS DRAWN, because
+    // ModalFallback.DeriveWindowScale caps a floated window's physical width at
+    // `ModalTargetWidthMeters × WindowLegibility` and shrinks the panel to get there:
+    //
+    //     extraScale = min(WindowScaleFactor × legibility,  targetWidthMeters × legibility / (px × mpp))
+    //
+    // The logged panel scales prove the breakpoint exactly: 0.173 at 328/716/860/1066/1136 px, then
+    // 0.169 at 1173, 0.163 at 1213, … 0.133 at 1485, 0.103 at 1920 — i.e. the world width is pinned
+    // at ~1.00 m from ~1143 px upward and every pixel of host beyond that is paid for by shrinking
+    // the CONTENT. The legibility dial cancels out of the breakpoint (it multiplies both terms), so
+    // 1143 px = targetWidthMeters / (WindowScaleFactor × CanvasScaleMm) = 0.8 / (0.7 × 0.001) is the
+    // widest fixed size that costs no apparent size at all. Pinning at 1920 instead would draw the
+    // permanently-visible character column — the state the window is in most of the time — at 60 %
+    // of today's size and put this panel back at roughly 1.9 authored pixels per rendered pixel,
+    // which is the sampling band ModBuild 189's legibility dial was raised to escape and which this
+    // panel cannot buy back (PanelSupersample is deliberately OFF for it).
+    //
+    // THE COST, STATED RATHER THAN HIDDEN. 1143 px is bigger than five of the seven measured states,
+    // so the window is MOSTLY EMPTY when a narrow sub-view (or none) is up: the character column is
+    // 328 px of a 1143 px frame. That empty space is unavoidable in ANY fixed size — the states span
+    // 328…1920 px, a factor of 5.9 — and it is what "the window keeps one size" buys. It is placed
+    // to the RIGHT of the content, never around it: see the left-alignment note on
+    // <see cref="ApplyFixedFit"/>.
+    //
+    // AND THE PACKING SIDE OF IT, WHICH IS A REAL COST TOO. The map room reserves an angular slot per
+    // window. This one claimed 45° at spawn (its pre-fit 1920 px rect) and then fitted down to 328 px
+    // ≈ 13°, so the packer has been reserving a slot for a window that GROWS back to 45° the moment a
+    // tab opens — the ModBuild 195 "the merchant spawned on top of the permanent character screen"
+    // overlap. A permanently 1.00 m wide window makes the claim honest, and it also makes it
+    // permanent: inside the measured ±32° usable cone, a 45° window centred at 0° leaves ~9.5° on
+    // each side, so a second window will overlap it at this reading distance. That was already true
+    // whenever a tab was open; it is now true always.
+    //
+    // WHAT "THE SUB-VIEWS ADAPT" MEANS MECHANICALLY, AND WHAT IT COSTS. Content that does not fit the
+    // fixed host is SCALED DOWN into it (a uniform localScale on the conversion target), not clipped
+    // and not left to spill. Only the two full-screen sub-views ever reach that branch: they land at
+    // ~0.58, i.e. ~0.51 of authored size once the panel scale is applied — which is what they are
+    // drawn at TODAY (0.521 at a 1920 px host), so those two views lose nothing and the other five
+    // states gain back the 1.68x they used to lose whenever a wide tab was open. Scaling is chosen
+    // over letting them spill because the perks view's own 512 px content column would otherwise
+    // render ~76 px OUTSIDE the window frame, and over clipping because clipping hides content.
+    //
+    // WHY THE ModBuild 196 CONVERGED GUARD IS NOT REOPENED. This branch never calls
+    // <see cref="ApplyFitConverging"/> and never calls <see cref="FlushPendingLayout"/> — the two
+    // things the perpetual re-fit loop was made of. Its settled state is a pure comparison: the host
+    // already IS the fixed size, the content already sits where it is put, and the content scale is
+    // already the one the measurement asks for, so the pass returns having written nothing and
+    // measured nothing it could disturb. The guard's own code and every other window's path are
+    // untouched.
+
+    /// <summary>
+    /// The fixed host WIDTH (uGUI px) of a fixed-size window: the widest host that still renders its
+    /// content at the full legibility scale. See the region note above for the derivation
+    /// (<c>ModalTargetWidthMeters / (WindowScaleFactor × CanvasScaleMm)</c> = 0.8 / (0.7 × 0.001)),
+    /// for why the legibility dial cancels out of it, and for what 1920 would have cost instead.
+    /// A window whose own authored frame is narrower than this keeps its frame width — the clamp
+    /// only ever removes size, never invents it.
+    /// </summary>
+    private const float FixedFitMaxWidthPx = 1143f;
+
+    /// <summary>Sanity bounds on the captured fixed size, so a frame caught mid-layout can never
+    /// pin the window at a nonsense rect. Below the minimum the capture is simply postponed.</summary>
+    private const float FixedFitMinWidthPx = 512f;
+    private const float FixedFitMinHeightPx = 256f;
+    private const float FixedFitMaxHeightPx = 2160f;
+
+    /// <summary>Floor on the content scale-to-fit factor. A measurement that asked for less than
+    /// this is a broken measurement, not a sub-view: the window would be unreadable, so the content
+    /// is left at the floor and spills instead (the hit rect follows it — see TickHitRect).</summary>
+    private const float FixedFitMinContentScale = 0.30f;
+
+    /// <summary>Content-scale change below which nothing is written (1 %).</summary>
+    private const float FixedFitScaleEpsilon = 0.01f;
+
+    /// <summary>Content shift (px) below which nothing is written.</summary>
+    private const float FixedFitShiftEpsilonPx = 1f;
+
+    /// <summary>
+    /// Consecutive fit checks a NEW layout candidate (content scale + alignment shift) must repeat
+    /// before it is written. The fit samples every <see cref="FitCheckIntervalFrames"/> frames
+    /// (~0.4 s), so this is ~0.8 s — and it is what keeps the equipment view's slide-in animation
+    /// (which measured 1132→1173→1213→…→1485 px, a DIFFERENT value on every sample) and its
+    /// one-frame 1899 px spike from ever rescaling the window: a ramp never repeats a value, and a
+    /// spike is usually not even sampled. A real tab change parks at one width and passes on the
+    /// second sample. The FIRST fit of a window's life is exempt (it must land before the reveal).
+    /// </summary>
+    private const int FixedFitSettleChecks = 2;
+
+    /// <summary>How often a settled fixed-size window restates its counters, so a hardware log can
+    /// tell "never ran" (no line at all) from "stable" from "still resizing".</summary>
+    private const float FixedFitStableLogSeconds = 20f;
+
+    /// <summary>
+    /// IS THIS THE MAP ROOM'S PERMANENT CHARACTER SCREEN — the one window this whole region applies
+    /// to. Nothing else in the game is touched: every other converted window keeps the growth path
+    /// (a host that hugs its visible content and re-fits when that content changes), which is what
+    /// the story box, the quest popup, the merchant, the pause menu and every HUD conversion need.
+    ///
+    /// <para>IS-A, NOT RELATED-TO — the house rule this repo has broken twice.
+    /// <c>GetComponent</c> on the converted root's OWN GameObject: <c>NewPartyDisplayUI</c> caches
+    /// <c>window = GetComponent&lt;UIWindow&gt;()</c> in its own Awake (decompiled
+    /// NewPartyDisplayUI.cs:277), so the two components share one GameObject by construction and
+    /// "the UIWindow that carries a NewPartyDisplayUI" IS the character screen's window root. A
+    /// name match would not survive localisation, "(Clone)" or a prefab-variant rename.</para>
+    ///
+    /// <para>AND ONLY WHILE THE MAP ROOM STANDS: <see cref="ModalFallback.IsMapRoomPermanent"/> is
+    /// the same predicate that makes this window un-closable, so the fixed size applies exactly to
+    /// the presentation the user is describing. On the flat screen, in a scenario, and with VR off,
+    /// nothing here runs at all.</para>
+    /// </summary>
+    private static bool IsFixedSizeWindow(ConvertedPanel panel)
+    {
+        if (panel.Target == null || panel.HostRect == null)
+            return false;
+        if (panel.Target.GetComponent<NewPartyDisplayUI>() == null)
+            return false;
+        var window = panel.Target.GetComponent<UIWindow>();
+        return window != null && ModalFallback.IsMapRoomPermanent(window);
+    }
+
+    /// <summary>Per-panel state of the fixed-size fit — the captured size, the content scale we
+    /// ourselves wrote, the settle gate, and the counters every log line carries.</summary>
+    private sealed class FixedFitState
+    {
+        /// <summary>Host GameObject this entry belongs to (Unity-null once destroyed → pruned).</summary>
+        internal GameObject? Owner;
+
+        /// <summary>The fixed host size, captured ONCE and never re-derived — that is what makes
+        /// "one size" a guarantee rather than a tendency.</summary>
+        internal Vector2 Size;
+
+        internal bool SizeCaptured;
+
+        /// <summary>The uniform scale WE wrote on the conversion target (1 = untouched). Read by
+        /// <see cref="ReassertConversionFrame"/> so the frame guard maintains this value instead of
+        /// fighting it back to 1 every frame.</summary>
+        internal float ContentScale = 1f;
+
+        /// <summary>Candidate of the previous check, and how many consecutive checks it has held —
+        /// the settle gate (see <see cref="FixedFitSettleChecks"/>).</summary>
+        internal float PendingScale = 1f;
+        internal Vector2 PendingShift;
+        internal int PendingChecks;
+
+        internal int Comparisons;
+        internal int Deviations;
+        internal int Deferred;
+        internal int HostWrites;
+        internal int ScaleWrites;
+        internal int Shifts;
+
+        internal float LastLogTime = float.NegativeInfinity;
+    }
+
+    /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
+    private static readonly Dictionary<int, FixedFitState> FixedFits = new(2);
+
+    /// <summary>Fallback entry for a panel whose host is already gone — nothing reads it.</summary>
+    private static readonly FixedFitState OrphanFixedFit = new();
+
+    private static FixedFitState GetFixedFit(ConvertedPanel panel)
+    {
+        if (panel.HostGo == null)
+            return OrphanFixedFit;
+        int id = panel.HostGo.GetInstanceID();
+        if (FixedFits.TryGetValue(id, out FixedFitState? entry) && entry != null)
+            return entry;
+        FixedFits[id] = entry = new FixedFitState { Owner = panel.HostGo };
+        PruneFixedFits();
+        return entry;
+    }
+
+    /// <summary>Drop entries whose host GameObject is gone (same pattern as the fit-loop table).</summary>
+    private static void PruneFixedFits()
+    {
+        if (FixedFits.Count < 2)
+            return;
+        List<int>? dead = null;
+        foreach (KeyValuePair<int, FixedFitState> pair in FixedFits)
+        {
+            if (pair.Value == null || pair.Value.Owner == null)
+                (dead ??= new List<int>(2)).Add(pair.Key);
+        }
+        if (dead == null)
+            return;
+        for (int i = 0; i < dead.Count; i++)
+            FixedFits.Remove(dead[i]);
+    }
+
+    /// <summary>
+    /// The uniform scale the fixed-size fit has DELIBERATELY written on this panel's conversion
+    /// target (1 for every other panel, and for a fixed-size panel whose content fits). It exists so
+    /// <see cref="ReassertConversionFrame"/> — which runs every frame for modal hosts and whose
+    /// whole job is to undo a scale the GAME drove (ModBuild 23: the target found at 0.14) — can
+    /// tell our own scale from that drift instead of fighting it back to 1 sixty times a second.
+    /// Looked up rather than stored on the panel because this lane does not own ConvertedPanel.cs.
+    /// </summary>
+    private static float FitContentScale(ConvertedPanel panel)
+    {
+        if (panel.HostGo == null)
+            return 1f;
+        return FixedFits.TryGetValue(panel.HostGo.GetInstanceID(), out FixedFitState? fx) && fx != null
+            ? fx.ContentScale
+            : 1f;
+    }
+
+    /// <summary>
+    /// HAND A PANEL BACK TO THE GROWTH PATH. Called on every fit of a panel that is NOT (or is no
+    /// longer) a fixed-size window — in practice the moment the map room is torn down under a
+    /// character screen that is somehow still converted. Without it the entry would keep answering
+    /// <see cref="FitContentScale"/> with a scale nobody maintains any more, and the per-frame frame
+    /// guard would hold the window at that scale forever. Costs one dictionary lookup on a table
+    /// that is empty for every other window in the game.
+    /// </summary>
+    private static void ReleaseFixedFit(ConvertedPanel panel)
+    {
+        if (FixedFits.Count == 0 || panel.HostGo == null)
+            return;
+        int id = panel.HostGo.GetInstanceID();
+        if (!FixedFits.TryGetValue(id, out FixedFitState? fx) || fx == null)
+            return;
+        FixedFits.Remove(id);
+        if (panel.Target != null && Mathf.Abs(fx.ContentScale - 1f) > FixedFitScaleEpsilon)
+        {
+            panel.Target.localScale = Vector3.one;
+            VRLog.Info("WorldUI", $"FIXED FIT RELEASED '{panel.HostGo.name}': this window is no longer the " +
+                                  "map room's permanent character screen, so its content scale " +
+                                  $"({fx.ContentScale:F3}) is restored to 1 and the normal growth fit takes " +
+                                  $"over. fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} " +
+                                  $"deviation(s) found, {fx.HostWrites} host-size write(s), {fx.ScaleWrites} " +
+                                  "content-scale write(s).");
+        }
+    }
+
+    /// <summary>
+    /// THE FIXED-SIZE FIT. Replaces the growth path for the one window
+    /// <see cref="IsFixedSizeWindow"/> matches: the host rect is pinned to a size captured once, and
+    /// the content is fitted INTO it instead of the other way round. See the region note above for
+    /// the measurement, the choice of size and the trade that was accepted.
+    ///
+    /// <para>THREE THINGS ARE WRITTEN, EACH ONLY WHEN IT IS WRONG:</para>
+    /// <list type="number">
+    /// <item>the HOST SIZE, once, at the first fit (and never again — nothing else writes it);</item>
+    /// <item>a uniform CONTENT SCALE on the conversion target, only when the measured content does
+    /// not fit the fixed host, so a full-screen sub-view lands inside the frame instead of spilling
+    /// out of it;</item>
+    /// <item>the target's anchoredPosition, to LEFT-ALIGN the content in the fixed host (and centre
+    /// it vertically).</item>
+    /// </list>
+    ///
+    /// <para>WHY LEFT-ALIGNED AND NOT CENTRED — and this is the part that makes a mostly-empty
+    /// window bearable. The character COLUMN is the leftmost element of the union in every measured
+    /// state (the log's top-contributor lists show 'Party Display UI' at the left edge with the
+    /// cards, the equipment and the perks views all extending to its right). Centring the union
+    /// would slide that column left and right across the frame every time a tab opened — a fixed
+    /// frame with moving content, which is the same complaint in a different costume. Pinning the
+    /// union's LEFT edge keeps the column exactly where it is, permanently, and every sub-view opens
+    /// into the empty space to its right: the window becomes a board that things appear on.</para>
+    ///
+    /// <para>THE HOST IS NEVER RE-POSED BY THIS (ModBuild 193 ruling, "windows must not move once
+    /// spawned"). Nothing here touches the host transform; the two position writes are the target's
+    /// anchoredPosition INSIDE the host. The applied-fit generation — which is what re-arms
+    /// ModalFallback's pose re-place — is advanced only when the HOST SIZE itself changed, i.e. once
+    /// per window life, before the reveal. A tab change re-scales and re-aligns content inside a
+    /// host that keeps its rect, so it cannot re-arm a placement at all.</para>
+    /// </summary>
+    private static bool ApplyFixedFit(ConvertedPanel panel, RectTransform root,
+        Vector2 size, Vector2 center)
+    {
+        FixedFitState fx = GetFixedFit(panel);
+        fx.Comparisons++;
+
+        if (!fx.SizeCaptured)
+        {
+            // The window's OWN authored frame is the reference — the same rect the growth path
+            // clamps its union into — capped at the width beyond which the panel would only shrink
+            // its own content (see FixedFitMaxWidthPx).
+            Rect frame = panel.Target.rect;
+            if (frame.width < FixedFitMinWidthPx || frame.height < FixedFitMinHeightPx)
+                return true; // frame not laid out yet; measured fine, retry on the next check
+            fx.Size = new Vector2(
+                Mathf.Clamp(frame.width, FixedFitMinWidthPx, FixedFitMaxWidthPx),
+                Mathf.Clamp(frame.height, FixedFitMinHeightPx, FixedFitMaxHeightPx));
+            fx.SizeCaptured = true;
+        }
+
+        // The measure and both writes below are expressed in the conversion frame, so it is repaired
+        // BEFORE anything reads the measurement — exactly as ApplyFitConverging does, and one step
+        // earlier, because a corrected frame invalidates the size/center we were handed. The height
+        // cap is excluded: this window is not in the capped family and the fixed height bounds it.
+        // On a healthy panel (the steady-state guard re-asserts every frame for modal hosts) this is
+        // six compares and no writes, and the re-measure never runs.
+        if (ReassertConversionFrame(panel, out _, includeHeightCap: false)
+            && TryMeasureContent(panel, root, out Vector2 freshSize, out Vector2 freshCenter))
+        {
+            size = freshSize;
+            center = freshCenter;
+        }
+
+        Rect host = panel.HostRect.rect;
+        float scale = fx.ContentScale;
+
+        // What the content WOULD measure with no fit scale on it — the measure reads world corners,
+        // so everything it reports is already multiplied by whatever scale we last wrote.
+        Vector2 need = size / Mathf.Max(scale, 0.01f);
+        float wantScale = Mathf.Clamp(
+            Mathf.Min(1f, Mathf.Min(fx.Size.x / Mathf.Max(need.x, 1f), fx.Size.y / Mathf.Max(need.y, 1f))),
+            FixedFitMinContentScale, 1f);
+        Vector2 shift = FixedFitShift(fx, size, center);
+
+        bool hostWrong = Mathf.Abs(host.width - fx.Size.x) > FitNoWriteEpsilonPx
+                         || Mathf.Abs(host.height - fx.Size.y) > FitNoWriteEpsilonPx;
+        bool scaleWrong = Mathf.Abs(wantScale - scale) > FixedFitScaleEpsilon;
+        bool shiftWrong = Mathf.Abs(shift.x) > FixedFitShiftEpsilonPx
+                          || Mathf.Abs(shift.y) > FixedFitShiftEpsilonPx;
+
+        if (!hostWrong && !scaleWrong && !shiftWrong)
+        {
+            // SETTLED — and settled here means "nothing was written and nothing was disturbed":
+            // no ApplyFitConverging, no ForceRebuildLayoutImmediate, so the ModBuild 196 re-fit loop
+            // has nothing to run on.
+            fx.PendingChecks = 0;
+            fx.PendingScale = scale;
+            fx.PendingShift = Vector2.zero;
+            LogFixedFit(panel, fx, need, wantScale, "STABLE", string.Empty, throttled: true);
+            return true;
+        }
+
+        fx.Deviations++;
+
+        // The settle gate — one candidate must repeat before it is written. Exempt on the very first
+        // fit of this window's life: that one runs pre-reveal and must land before the window pops
+        // in, exactly like the undamped first fit of the growth path.
+        bool first = !panel.FitMeasuredOnce;
+        if (!first)
+        {
+            bool same = Mathf.Abs(wantScale - fx.PendingScale) <= FixedFitScaleEpsilon
+                        && Mathf.Abs(shift.x - fx.PendingShift.x) <= FixedFitShiftEpsilonPx
+                        && Mathf.Abs(shift.y - fx.PendingShift.y) <= FixedFitShiftEpsilonPx;
+            fx.PendingChecks = same ? fx.PendingChecks + 1 : 1;
+            fx.PendingScale = wantScale;
+            fx.PendingShift = shift;
+            if (fx.PendingChecks < FixedFitSettleChecks)
+            {
+                fx.Deferred++;
+                // Throttled, so a window that defers FOREVER (a sub-view whose measurement never
+                // repeats) still says so instead of going silent — the third state the counters
+                // exist to separate.
+                LogFixedFit(panel, fx, need, wantScale, "DEFERRED", string.Empty, throttled: true);
+                return true; // measured fine — the candidate has simply not repeated yet
+            }
+        }
+        fx.PendingChecks = 0;
+
+        var wrote = new System.Text.StringBuilder(96);
+        if (hostWrong)
+        {
+            wrote.Append($"host {host.width:F0}x{host.height:F0} → {fx.Size.x:F0}x{fx.Size.y:F0} px");
+            panel.HostRect.sizeDelta = fx.Size;
+            fx.HostWrites++;
+        }
+        if (scaleWrong)
+        {
+            // A uniform scale about the target's own (centred) pivot. It changes no layout rect, so
+            // it needs no layout rebuild — the measure reads world corners, which are already
+            // current — and clipping is unaffected because every clipper scales with its children.
+            // That is why this branch charges ZERO forced rebuilds to the panel.
+            panel.Target.localScale = Vector3.one * wantScale;
+            fx.ContentScale = wantScale;
+            fx.ScaleWrites++;
+            wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
+                 .Append($"content scale {scale:F3} → {wantScale:F3} (the sub-view asks for " +
+                         $"{need.x:F0}x{need.y:F0} px in a {fx.Size.x:F0}x{fx.Size.y:F0} px window)");
+            // Re-derive the alignment in the geometry that now exists: the scale moved the content.
+            if (TryMeasureContent(panel, root, out Vector2 nextSize, out Vector2 nextCenter))
+            {
+                size = nextSize;
+                center = nextCenter;
+                shift = FixedFitShift(fx, size, center);
+                shiftWrong = Mathf.Abs(shift.x) > FixedFitShiftEpsilonPx
+                             || Mathf.Abs(shift.y) > FixedFitShiftEpsilonPx;
+            }
+        }
+        if (shiftWrong)
+        {
+            // Target-local, inside the host. The host transform is never touched — see the ruling
+            // quoted in this method's doc.
+            panel.Target.anchoredPosition += shift;
+            fx.Shifts++;
+            wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
+                 .Append($"content re-aligned by {shift.x:F0},{shift.y:F0} px (left edge pinned, " +
+                         "vertically centred)");
+        }
+
+        // What the surfaces that pin this host by a rect EDGE must subtract — derived, never
+        // assumed: with a fixed host the slack is whatever the fixed size leaves around the content.
+        panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
+        panel.FitOneShotApplied = true;
+        if (hostWrong)
+        {
+            // ONLY a host-size change re-derives the window's world scale and re-arms the pose
+            // re-place. A content re-scale or re-alignment leaves the host rect exactly as it was,
+            // so it must not advance the generation — that is what keeps a tab change from being
+            // able to ask for a placement at all.
+            panel.FitAppliedGeneration++;
+        }
+        LogFixedFit(panel, fx, need, fx.ContentScale, "APPLIED", wrote.ToString(), throttled: false);
+        return true;
+    }
+
+    /// <summary>The target shift that pins the measured union's LEFT edge to the fixed host's left
+    /// edge (plus the measure's own padding) and centres it vertically. See
+    /// <see cref="ApplyFixedFit"/> for why left and not centre.</summary>
+    private static Vector2 FixedFitShift(FixedFitState fx, Vector2 size, Vector2 center)
+    {
+        // The measured size carries the fit padding on both sides; the union's own left edge is
+        // therefore center - size/2 + padding.
+        float unionMinX = center.x - size.x * 0.5f + s_lastMeasurePadding.x;
+        float wantMinX = -fx.Size.x * 0.5f + s_lastMeasurePadding.x;
+        return new Vector2(wantMinX - unionMinX, -center.y);
+    }
+
+    /// <summary>
+    /// THE FIXED-SIZE FIT'S INSTRUMENT. One line per applied change, plus a restatement every
+    /// <see cref="FixedFitStableLogSeconds"/> while nothing changes — so a hardware log tells three
+    /// states apart that look identical from the outside: NEVER RAN (no such line at all for this
+    /// window), STABLE (comparisons climbing, host writes stuck at 1, deviations flat), and STILL
+    /// RESIZING (host writes climbing). The comparison count is always printed next to the deviation
+    /// count for exactly that reason.
+    /// </summary>
+    private static void LogFixedFit(ConvertedPanel panel, FixedFitState fx, Vector2 need,
+        float scale, string verdict, string wrote, bool throttled)
+    {
+        float now = Time.unscaledTime;
+        if (throttled && now - fx.LastLogTime < FixedFitStableLogSeconds)
+            return;
+        fx.LastLogTime = now;
+
+        // The window's REAL width, measured off the host transform rather than re-derived from the
+        // placement constants this file does not own — so if the FixedFitMaxWidthPx derivation ever
+        // stops matching DeriveWindowScale, this number says so instead of the code assuming it.
+        float rig = RigUnitsPerMetre();
+        float unit = panel.HostGo != null ? panel.HostGo.transform.lossyScale.x : 0f;
+        string physical = rig > 0f && unit > 0f
+            ? $"{fx.Size.x * unit / rig:F2} x {fx.Size.y * unit / rig:F2} m"
+            : "physical size unknown (no rig scale yet)";
+
+        VRLog.Info("WorldUI",
+            $"FIXED FIT '{(panel.HostGo != null ? panel.HostGo.name : "?")}' {verdict}: host pinned at " +
+            $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}; the sub-view on screen needs " +
+            $"{need.x:F0}x{need.y:F0} px at scale 1, so it is drawn at content scale {scale:F3}" +
+            (scale >= 0.999f
+                ? " (it fits — the spare width is empty frame to the right of the character column)"
+                : " (SCALED TO FIT — this is a full-screen sub-view; it is drawn at about the size " +
+                  "it had before this window stopped resizing)") +
+            (wrote.Length > 0 ? $"; wrote {wrote}" : "; wrote nothing") +
+            $". fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
+            $"{fx.Deferred} deferred by the settle gate, {fx.HostWrites} host-size write(s), " +
+            $"{fx.ScaleWrites} content-scale write(s), {fx.Shifts} re-alignment(s) — the host size is " +
+            "written ONCE and the host is never re-posed.");
+    }
 
     // =============================================================================================
     // THE RE-FIT LOOP INSTRUMENT — and the guard it justifies
@@ -1422,12 +1935,18 @@ internal static partial class CanvasConversion
 
         // 1. SCALE — the round-7 headline. A drifted scale corrupts the measure itself (the union
         //    is read through world corners), so it is corrected before anything else looks at it.
+        //    THE REFERENCE IS NOT ALWAYS 1: the fixed-size window deliberately scales its target to
+        //    fit a full-screen sub-view into a host that must not resize (see FitContentScale). This
+        //    guard runs every frame for modal hosts, so comparing against a hard-coded 1 would turn
+        //    that fit into a write war and undo it sixty times a second. Every other panel reads
+        //    1 here and is byte-for-byte unchanged.
+        float want = FitContentScale(panel);
         Vector3 scale = t.localScale;
-        if (Mathf.Abs(scale.x - 1f) > 0.001f || Mathf.Abs(scale.y - 1f) > 0.001f
-            || Mathf.Abs(scale.z - 1f) > 0.001f)
+        if (Mathf.Abs(scale.x - want) > 0.001f || Mathf.Abs(scale.y - want) > 0.001f
+            || Mathf.Abs(scale.z - want) > 0.001f)
         {
-            t.localScale = Vector3.one;
-            sb.Append($"localScale was ({scale.x:F2},{scale.y:F2},{scale.z:F2}) → 1");
+            t.localScale = Vector3.one * want;
+            sb.Append($"localScale was ({scale.x:F2},{scale.y:F2},{scale.z:F2}) → {want:F3}");
         }
 
         // 2. ROTATION + 3. DEPTH — a converted panel is a flat plane coplanar with its host. A

@@ -126,6 +126,44 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 197** (bundle UNCHANGED — plugin DLL only) — the window never moved, every edge did; and
+  the grey was a shader term nobody reset. *(Seven workers.)* **Nothing on the wire.**
+  * **196's PERF FIX IS CONFIRMED ON HARDWARE:** ModalFallback 12.692 → **0.032 ms**, session frametime
+    mean 18.31 → **11.15 ms**, p50 17.33 → **11.09** against an 11.11 ms budget. The map room holds 90 Hz.
+  * **"THE POSITION FLIPS" AND "THE SIZE CHANGES" ARE ONE DEFECT.** All nine pose-writing paths were
+    enumerated and **none fired**: the diag is change-gated at **0.05 mm**, and across 1,149 snapshots
+    every position change is bracketed by its own grab/release lines — the quest log sat on one
+    coordinate for **714 seconds**. What moves is the rect: 860 ↔ 896 ↔ 932 ↔ … ↔ 1899 px in seconds,
+    the drawn window swinging 0.29×0.95 m ↔ 1.00×0.56 m. **About a stationary centre, every edge moves**
+    (top −19 cm, each side +35 cm). A pose lock shipped anyway so the ruling holds by construction.
+  * **A FIXED SIZE IS A SAMPLING DECISION, NOT A LAYOUT ONE.** 1143 px, derived: the host width also
+    sets how large content is DRAWN, and the logged panel scales locate the breakpoint exactly (0.173
+    up to 1136 px, then 0.169 / 0.163 / … / 0.103 at 1920). Pinning at the widest sub-view would draw
+    the permanently visible character column at **60 %** of today's size, back in the band the
+    legibility dial was raised to escape. Cost stated: a permanent 45° arc claim.
+  * **A MULTIPLY CANNOT RAISE GREEN FROM 17 TO 32.** My own reading of the card photo — "the whole card,
+    probably scene lighting" — was **falsified by measurement**: title bar, ornament and frame rail all
+    identical, only the action-plate FILL collapsed. It is a desaturation, `lerp(overlay, luminance, 0.85)`,
+    which kills the entire tint/alpha/CanvasGroup family at once. Cause: `CardEffects._GreyOut`, whose
+    rest value is written in exactly one place that a mod-built clone never reaches. **ModBuild 196 fixed
+    a real but different defect and its own log said so** (`corrections written 0` across 55 censuses).
+  * **A REMEDY GATED BEHIND ITS OWN INSTRUMENT NEVER RAN.** 196's release text-repair returns before
+    regenerating when its defect count is zero — and it was zero in all 236 readings, on windows with up
+    to 297 components. **So "no improvement" carried zero information.** Worse, every 196 counter read
+    the LAYOUT record, written before any mesh exists, while the photograph's signature is collapsed
+    ATLAS UVs. Nothing in 196 read a single UV.
+  * **THE MOVING FLICKER IS JUDDER, NOT ALIASING**, and no fourth sampling remedy was shipped. Captures
+    are 1:1 with frames (894/894) so a dragged window takes the identical path to the still one; drag
+    frames are not measurably worse than still frames; window travel reaches **32.9 rendered eye px per
+    frame**, and reprojection compensates head motion, not a window moving under the player's hand.
+  * **THE GAME HAS NO TABLE.** `TOTAL 0 renderer(s)` besides the parchment slab, and `decompiled/` has no
+    table/bench/chair field anywhere. So the bench arrangement is honestly split: footprint MEASURED at
+    runtime, seat dimensions AUTHORED from our own spec, count and orientation **from the user's own
+    sentence** — not from geometry. The survey instrument ships with the prop so "nothing to measure" is
+    itself a measurement.
+  * **THE APPEND WAS THE GAME'S:** `HandAbilityCardIDs.Add(id)` always lands at the end, and the mod
+    followed it on BOTH paths — so 195's animation did not cause the ordering bug, it inherited it.
+
 - **ModBuild 196** (bundle UNCHANGED — plugin DLL only) — the 12 ms was one `FindObjectOfType` call,
   and the item overlay was never faint, it was underneath. *(Eight workers.)* **Nothing on the wire.**
   * **THE 50 Hz WAS ONE LINE.** 195's 19-phase instrument answered on its first hardware run:

@@ -200,6 +200,55 @@ namespace GloomhavenVR.WorldUI;
 /// price this instead of arguing about it.</item>
 /// </list></para>
 ///
+/// <para><b>MODBUILD 197 — THE ModBuild 196 INSTRUMENT WAS SOUND AND ITS REMEDY NEVER RAN, AND
+/// BOTH OF THOSE ARE READ OFF ITS OWN LOG.</b> The user, after 196: <i>"das Flackerproblem WÄHREND
+/// DER BEWEGUNG ist noch da — inklusive der möglichen kaputten Darstellung, wenn man nach der
+/// Bewegung ABRUPT loslässt."</i> ABRUPT is a new word and it is a claim about release VELOCITY.
+/// This round changed the METHOD rather than the hypothesis, and it produced four findings.
+/// <list type="number">
+/// <item><b>THE GLYPH SCAN RAN, WORKED, AND MEASURES THE WRONG QUANTITY.</b> Its whole output was
+/// counted rather than sampled: <b>236 readings — 152 reading <c>0 not-in-atlas / 0 not-visible /
+/// 0 zero-area</c> and 84 reading exactly one parsed-but-not-visible — with 0 atlas repacks, in a
+/// session containing real drags and up to 140 release repairs on one window.</b> The photograph
+/// shows dozens of missing glyphs across six rows. So the instrument is not blind and it is not
+/// coincidence-limited; it is measuring something upstream of the fault. Every ModBuild 196 counter
+/// reads <see cref="TMPro.TMP_CharacterInfo"/>, which is the LAYOUT RECORD the text engine writes
+/// before any mesh exists. <see cref="ScanTmpMesh"/> is the new measurement and it reads the vertex
+/// and UV arrays that are actually uploaded. A glyph whose four atlas UVs have collapsed onto one
+/// texel keeps its full advance, keeps a full-area quad, reports <c>isVisible</c>, exists in the
+/// atlas — and draws a flat SDF value, i.e. no ink. That is the photograph's exact signature, and
+/// <b>nothing before this build read a single UV</b>.</item>
+/// <item><b>THE RELEASE REPAIR WAS A NO-OP FOR TEXT.</b> ModBuild 196's own documentation said it
+/// forces every text component to re-request its glyphs and re-generate its mesh. It regenerates
+/// only components its scan marked bad (<c>if ((!repairAll &amp;&amp; bad == 0) || ...) return
+/// false;</c>), and that count is permanently zero — so across 236 state lines it re-generated <b>at
+/// most ONE component per release, and 151 lines read zero</b>, on windows carrying up to 297 text
+/// components and 4600 glyphs. THE USER REPORTING NO IMPROVEMENT IS THEREFORE THE EXPECTED RESULT
+/// AND CARRIES NO INFORMATION about the text hypothesis. <see cref="ReleaseRepair"/> now passes
+/// <c>repairAll</c>; the report cadence's scan still does not, so a settled window costs what it
+/// costs today.</item>
+/// <item><b>A DRAGGED WINDOW IS FULLY SUPERSAMPLED, WHICH KILLS "IT SWITCHES OFF WHILE I DRAG".</b>
+/// The ModBuild 196 log's capture counts are 1:1 with its frame counts (894 captures against 894
+/// sampled frames in a report window), <see cref="CaptureIntervalFrames"/> is 1, and
+/// <see cref="ResolveAndMip"/> runs in the capture camera's own <c>onPostRender</c>. So the moving
+/// case takes the identical path to the still case the user has already accepted as fixed. That is
+/// now a COUNT rather than an argument from source: see <c>AppendCapturePath</c>, which splits
+/// captures and resolves into MOTION and STILL buckets and carries three expected-zero falsifiers.</item>
+/// <item><b>THE MOVING CASE LOOKS LIKE JUDDER, AND THE ModBuild 196 LOG ALREADY SAYS SO.</b> Its
+/// MOTION BUDGET field measured 18 report windows with real drags: while MOVING mean 11.05–11.27 ms
+/// and 48–50 % of frames over the 11.11 ms budget, while STILL mean 11.09–13.03 ms and 45–50 % over.
+/// <b>The drag frames are not measurably worse than the still frames</b> — the ModBuild 196 throttle
+/// of the motion sweep worked and this class no longer costs anything extra during a drag. What
+/// remains is that the whole session sits ON the budget with half its frames just over it, while the
+/// same log measures real drags at up to 32.9 RENDERED eye pixels of window travel per frame. A
+/// re-shown frame during a drag is therefore tens of pixels of positional error on a high-contrast
+/// edge, and the compositor cannot correct it: reprojection compensates HEAD motion, not a window
+/// travelling under the player's hand. <see cref="Entry.DragDroppedFrames"/> counts that directly
+/// against <see cref="DroppedFrameMs"/> and the RELEASE line prints it next to the travel per frame,
+/// because the PRODUCT of those two is what the eye reads as flicker. If it is judder, the remedy is
+/// not on the panel surface at all and this class should stop being asked for one.</item>
+/// </list></para>
+///
 /// <para>LAYER OWNERSHIP IS TAKEN WHOLE, never shared. While a panel is supersampled this class is
 /// the ONLY writer of its subtree's layers: <see cref="OwnsPanelLayers"/> stands
 /// <c>CanvasConversion.ApplyModLayer</c> down for exactly those panels (the two re-assert call sites
@@ -454,6 +503,25 @@ internal static partial class PanelSupersample
     /// <summary>Zero-area threshold for a generated glyph quad, in the text object's own local units.
     /// A quad below this cannot put a pixel anywhere at any resolution.</summary>
     private const float DegenerateQuadArea = 1e-6f;
+
+    /// <summary>
+    /// Zero-area threshold for a glyph's ATLAS UV rectangle, in normalised atlas units squared.
+    /// <para>Sized against the real numbers rather than picked: this game's labels draw from a
+    /// 2048x1024 'Sarala-Regular SDF' atlas, where even a full stop occupies roughly 10x10 atlas
+    /// texels = 0.0049 x 0.0098 = 4.8e-5 in UV area, and a body glyph is an order of magnitude
+    /// larger. 1e-9 is therefore four orders below the smallest legitimate glyph and far above
+    /// single-precision noise on values of that size, so a quad counted here is one whose four UVs
+    /// have genuinely collapsed onto a single atlas point.</para>
+    /// </summary>
+    private const float DegenerateUvArea = 1e-9f;
+
+    /// <summary>
+    /// A frame this long counts as a DROPPED frame during a drag: the display had to show the
+    /// previous image again. 1.5 budgets, i.e. 16.67 ms at 90 Hz — comfortably above ordinary
+    /// v-sync jitter around 11.11 ms and below two whole frames, so it counts a miss and not a
+    /// wobble. Reported with the comparison count and the worst value on the same line.
+    /// </summary>
+    private const float DroppedFrameMs = FrameBudgetMs * 1.5f;
 
     // ---- state -------------------------------------------------------------------------------
 
@@ -775,6 +843,124 @@ internal static partial class PanelSupersample
         /// one release costs exactly two repairs and never one per frame.</summary>
         internal int ReleaseRepairedMotionFrame = -1000;
         internal int ReleaseRepairStage;
+
+        /// <summary>Text components the release repair actually re-generated, and what that cost in
+        /// milliseconds. ModBuild 196 reported the regeneration as if it always ran; it did not (see
+        /// <see cref="ReleaseRepair"/>), so from ModBuild 197 the count and the cost are both
+        /// measured and both printed.</summary>
+        internal int ReleaseRegenComponents;
+        internal double ReleaseRegenMs;
+
+        // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------
+        // The user, after 196: "das Flackerproblem WÄHREND DER BEWEGUNG ist noch da — inklusive der
+        // möglichen kaputten Darstellung, wenn man nach der Bewegung ABRUPT loslässt". ABRUPT is a
+        // new word and it is a measurement request: the broken image correlates with letting go AT
+        // SPEED, not with letting go. Nothing in ModBuild 196 measured the release EVENT — only the
+        // aggregate number of repairs — so "the gate opened late", "the gate never opened" and "the
+        // gate opened on time and the repair found nothing" all printed the same character. These
+        // fields are per DRAG, reset when a new drag begins, and are printed at the release edge.
+
+        /// <summary>Frame the current (or last) drag began, i.e. the first motion frame after a
+        /// stretch of stillness. -1000 = no drag seen yet.</summary>
+        internal int DragStartFrame = -1000;
+
+        /// <summary>Frames in the current/last drag that carried a pose, scale or rect change.</summary>
+        internal int DragMotionFrames;
+
+        /// <summary>Largest single-frame world-space host step inside the current/last drag.</summary>
+        internal float DragMaxStepWorld;
+
+        /// <summary>The LAST single-frame world step before the hand let go — the "abrupt" number.
+        /// A release at speed has a large value here; a release from a standstill has ~0. Read next
+        /// to <see cref="DragMaxStepWorld"/>: the two being equal means the drag was still
+        /// accelerating when it ended.</summary>
+        internal float DragLastStepWorld;
+
+        /// <summary>Frames inside the current/last drag whose unscaled duration exceeded
+        /// <see cref="DroppedFrameMs"/> — i.e. frames on which the headset showed the previous image
+        /// again while the window was travelling. The judder counter.</summary>
+        internal int DragDroppedFrames;
+
+        /// <summary>Worst unscaled frame time inside the current/last drag, ms.</summary>
+        internal float DragWorstFrameMs;
+
+        /// <summary>Releases whose settle gate opened in this report window, and the largest number
+        /// of frames any of them took from the last motion frame to the gate. A gate that never opens
+        /// (the "stillness gate versus an external writer" failure) is a zero here in a window whose
+        /// MOTION count is non-zero — those two used to be unrelatable.</summary>
+        internal int ReleasesThisWindow;
+        internal int ReleaseGateFramesMax;
+
+        /// <summary>Longest unbroken run of motion frames in this report window. If a window's pose
+        /// is rewritten every frame by somebody else, this equals the whole window and no release can
+        /// ever be detected — which is the shape the memory "a settle gate never opens for state
+        /// someone else rewrites each frame" describes.</summary>
+        internal int LongestMotionRun;
+        internal int CurrentMotionRun;
+
+        // ---- WHAT PATH A DRAGGED FRAME ACTUALLY TAKES (ModBuild 197) -----------------------------
+        // The honest question for the moving flicker is whether a dragged window is supersampled AT
+        // ALL while it moves, or whether something short-circuits to the raw canvas. Before this
+        // build the log carried ONE capture count and one resolve was implied by it; neither was
+        // split by what the window was doing, so the question could only be answered by reading the
+        // source. These four pairs answer it with counts over a drag.
+
+        /// <summary>Captures taken while the window was inside its motion window / at rest.</summary>
+        internal int MotionCaptures;
+        internal int StillCaptures;
+
+        /// <summary>Resolve+mip passes that actually ran while moving / at rest. A capture without a
+        /// matching resolve means the quad showed the PREVIOUS frame's resolved image.</summary>
+        internal int MotionResolves;
+        internal int StillResolves;
+
+        /// <summary>Frames on which the quad was showing the RAW multisampled capture target instead
+        /// of the resolved, mipped one (the <see cref="MipFallback"/> path). Expected 0.</summary>
+        internal int RawQuadFrames;
+
+        /// <summary>Frames on which the panel was visible and the capture camera was NOT enabled, so
+        /// no capture was taken at all for a frame the eye then drew the quad on. Expected 0.</summary>
+        internal int CameraOffWhileVisible;
+
+        /// <summary>Resolves whose source and destination targets disagreed in size, i.e. the target
+        /// was re-allocated between the capture and the resolve. Expected 0; a non-zero value is the
+        /// "the capture, not the content, is what breaks" finding.</summary>
+        internal int ResolveSizeMismatch;
+
+        // ---- THE SUBMITTED MESH, WHICH ModBuild 196 NEVER LOOKED AT ------------------------------
+        // ModBuild 196's scan reads TMP_CharacterInfo — the LAYOUT record written while the text is
+        // being laid out. The photograph's fault (full advances, correct quad geometry, no ink) is
+        // downstream of that: it lives in the vertex/UV arrays that were actually written into the
+        // mesh and uploaded. A glyph whose four UVs collapsed to a point samples ONE atlas texel and
+        // puts down a flat SDF value, i.e. NOTHING, while every counter 196 owned still reads clean.
+        // That is why 236 readings of a working instrument found nothing.
+
+        /// <summary>Glyph quads whose MESH data was examined — the denominator for the four counters
+        /// below, and the number that separates "the mesh instrument never ran" from "it ran".</summary>
+        internal int MeshQuadsChecked;
+
+        /// <summary>Visible characters whose layout says they were laid out but whose vertex index is
+        /// past the end of the mesh that was actually generated: the quad was never written.</summary>
+        internal int MeshMissingQuads;
+
+        /// <summary>Visible characters whose MESH quad (not the layout record) has ~zero area.</summary>
+        internal int MeshDegenerateQuads;
+
+        /// <summary>Visible characters whose ATLAS UV rectangle has ~zero area (threshold
+        /// <see cref="DegenerateUvArea"/>): the quad samples a single atlas point and draws a flat
+        /// value, which is ink-free at any resolution. THE PHOTOGRAPH'S EXACT SHAPE.</summary>
+        internal int MeshDegenerateUv;
+
+        /// <summary>Visible characters whose atlas UVs fall outside [0,1] — a stale UV against a
+        /// re-packed or replaced atlas. Also ink-free, for a different reason.</summary>
+        internal int MeshUvOutOfRange;
+
+        /// <summary>Visible characters with a non-finite vertex or UV.</summary>
+        internal int MeshNonFinite;
+
+        /// <summary>Worst single component of the last mesh scan, so the log names a suspect.</summary>
+        internal string MeshWorst = string.Empty;
+        internal int MeshWorstBad;
 
         /// <summary>Frame at (or after) which a font-atlas repack repair is due. -1 = none armed.</summary>
         internal int RebuildRepairFrame = -1;

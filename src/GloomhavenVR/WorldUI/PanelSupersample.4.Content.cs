@@ -383,6 +383,14 @@ internal static partial class PanelSupersample
         e.WorstTextChecked = 0;
         e.TextCulled = 0;
         e.TextClean = 0;
+        e.MeshQuadsChecked = 0;
+        e.MeshMissingQuads = 0;
+        e.MeshDegenerateQuads = 0;
+        e.MeshDegenerateUv = 0;
+        e.MeshUvOutOfRange = 0;
+        e.MeshNonFinite = 0;
+        e.MeshWorst = string.Empty;
+        e.MeshWorstBad = 0;
         e.ContentScanTruncated = false;
         e.RegeneratedComponents = 0;
         e.RegeneratedChars = 0;
@@ -511,6 +519,11 @@ internal static partial class PanelSupersample
             }
         }
 
+        // THE SUBMITTED MESH — the measurement ModBuild 196 did not make, and the reason 236 clean
+        // readings did not settle anything. Everything above reads the LAYOUT; this reads what was
+        // actually written into the vertex and UV arrays that get uploaded.
+        int meshBad = ScanTmpMesh(e, t, info);
+
         NoteRendererState(e, t.canvasRenderer);
 
         if (bad > e.WorstTextBad)
@@ -519,8 +532,14 @@ internal static partial class PanelSupersample
             e.WorstTextChecked = checkedHere;
             e.WorstText = Describe(t.gameObject.name, s);
         }
-        if (bad == 0)
+        if (meshBad > e.MeshWorstBad)
+        {
+            e.MeshWorstBad = meshBad;
+            e.MeshWorst = Describe(t.gameObject.name, s);
+        }
+        if (bad == 0 && meshBad == 0)
             e.TextClean++;
+        bad += meshBad;
 
         if ((!repairAll && bad == 0) || e.RegeneratedComponents >= MaxRegeneratePerScan)
         {
@@ -539,6 +558,135 @@ internal static partial class PanelSupersample
         e.RegeneratedChars += s.Length;
         return true;
     }
+
+    /// <summary>
+    /// <b>THE SUBMITTED MESH — THE ONE PLACE THE PHOTOGRAPH'S FAULT CAN LIVE AND ModBuild 196 COULD
+    /// NOT LOOK.</b>
+    ///
+    /// <para><b>WHY THIS EXISTS AND WHY THE PREVIOUS INSTRUMENT WAS NOT WRONG, ONLY SHORT.</b>
+    /// ModBuild 196 shipped a three-way scan and the full ModBuild 196 hardware log was then counted
+    /// rather than sampled: <b>236 readings, of which 152 read <c>0 / 0 / 0</c> and 84 read exactly
+    /// one character parsed-but-not-visible. Zero characters missing from the atlas, zero zero-area
+    /// quads, zero atlas repacks, in a session with real drags and up to 140 release repairs on one
+    /// window.</b> The photograph shows dozens of missing glyphs across six rows. A working
+    /// instrument that never sees the defect is measuring the wrong quantity, and this is the
+    /// quantity it was measuring: every counter in <see cref="ScanTmpText"/> reads
+    /// <see cref="TMP_CharacterInfo"/>, which is the LAYOUT RECORD the text engine writes while it
+    /// lays the string out. Its <c>isVisible</c> flag and its <c>vertex_BL/TR</c> positions are
+    /// decided BEFORE anything is written into a mesh.</para>
+    ///
+    /// <para><b>WHAT IS DOWNSTREAM OF IT, AND MATCHES THE PHOTOGRAPH EXACTLY.</b> The glyph the eye
+    /// sees is four vertices and four UVs in <c>textInfo.meshInfo[m]</c>, uploaded to the
+    /// <see cref="CanvasRenderer"/>. Three things can go wrong there while every layout counter stays
+    /// clean, and all three produce full advances with no ink — which is precisely what was measured
+    /// off the image (the trailing colons of <i>Verstärkungen:</i> and <i>Verbesserungen:</i> exactly
+    /// one advance apart, gaps at background luminance, no vertical alignment across rows):
+    /// <list type="number">
+    /// <item>THE QUAD WAS NEVER WRITTEN. The character's <c>vertexIndex</c> points past the end of
+    /// the mesh that was actually generated — the layout ran further than the mesh did.</item>
+    /// <item>THE ATLAS UV RECTANGLE COLLAPSED. Four identical UVs sample ONE atlas texel, so an SDF
+    /// shader draws a flat distance value over the whole quad: full geometry, full advance, no ink.
+    /// <b>Nothing in ModBuild 196 read a single UV.</b></item>
+    /// <item>THE UVs POINT OUTSIDE THE ATLAS, i.e. they are stale against a texture that moved.</item>
+    /// </list>
+    /// A non-finite vertex is counted as a fourth: the GPU discards such a triangle silently.</para>
+    ///
+    /// <para><b>HOW TO READ IT.</b> <see cref="Entry.MeshQuadsChecked"/> is the denominator and is
+    /// printed on the same line as every count, so "the mesh instrument never ran" can never again
+    /// look like "the mesh is clean" — the mistake this whole round exists to stop repeating. If
+    /// these counters stay at zero through a session in which the user sees the defect, then the
+    /// fault is not in the text at ANY level, source or mesh, and the next round must stop looking at
+    /// text: what remains is the capture path (measured by the CAPTURE PATH field) and frame pacing
+    /// (measured by MOTION BUDGET and by the RELEASE line's dropped-frame count).</para>
+    ///
+    /// <para>Cost: four vector reads per visible character, inside a walk that already visits every
+    /// character. Bounded by the same <see cref="MaxGlyphChecksPerScan"/> budget as the rest.</para>
+    /// </summary>
+    private static int ScanTmpMesh(Entry e, TMP_Text t, TMP_TextInfo? info)
+    {
+        if (info == null || info.characterInfo == null || info.meshInfo == null)
+            return 0;
+        int bad = 0;
+        int n = Mathf.Min(info.characterCount, info.characterInfo.Length);
+        for (int i = 0; i < n; i++)
+        {
+            TMP_CharacterInfo ci = info.characterInfo[i];
+            if (!ci.isVisible || char.IsWhiteSpace(ci.character) || char.IsControl(ci.character))
+                continue;
+            int m = ci.materialReferenceIndex;
+            if (m < 0 || m >= info.meshInfo.Length)
+            {
+                e.MeshQuadsChecked++;
+                e.MeshMissingQuads++;
+                bad++;
+                continue;
+            }
+            TMP_MeshInfo mi = info.meshInfo[m];
+            Vector3[] verts = mi.vertices;
+            Vector2[] uvs = mi.uvs0;
+            int v = ci.vertexIndex;
+            e.MeshQuadsChecked++;
+            // "Written into the mesh" is decided by vertexCount, NOT by the array length: TMP keeps
+            // its vertex arrays allocated at the high-water mark of every string this component has
+            // ever held, so an array long enough to index proves nothing about this generation.
+            if (verts == null || uvs == null || v < 0 || v + 3 >= mi.vertexCount
+                || v + 3 >= verts.Length || v + 3 >= uvs.Length)
+            {
+                e.MeshMissingQuads++;
+                bad++;
+                continue;
+            }
+
+            Vector3 p0 = verts[v], p1 = verts[v + 1], p2 = verts[v + 2], p3 = verts[v + 3];
+            Vector2 u0 = uvs[v], u1 = uvs[v + 1], u2 = uvs[v + 2], u3 = uvs[v + 3];
+            if (!Finite(p0) || !Finite(p1) || !Finite(p2) || !Finite(p3)
+                || !Finite(u0) || !Finite(u1) || !Finite(u2) || !Finite(u3))
+            {
+                e.MeshNonFinite++;
+                bad++;
+                continue;
+            }
+
+            float minX = Mathf.Min(Mathf.Min(p0.x, p1.x), Mathf.Min(p2.x, p3.x));
+            float maxX = Mathf.Max(Mathf.Max(p0.x, p1.x), Mathf.Max(p2.x, p3.x));
+            float minY = Mathf.Min(Mathf.Min(p0.y, p1.y), Mathf.Min(p2.y, p3.y));
+            float maxY = Mathf.Max(Mathf.Max(p0.y, p1.y), Mathf.Max(p2.y, p3.y));
+            if ((maxX - minX) * (maxY - minY) <= DegenerateQuadArea)
+            {
+                e.MeshDegenerateQuads++;
+                bad++;
+                continue;
+            }
+
+            float uMinX = Mathf.Min(Mathf.Min(u0.x, u1.x), Mathf.Min(u2.x, u3.x));
+            float uMaxX = Mathf.Max(Mathf.Max(u0.x, u1.x), Mathf.Max(u2.x, u3.x));
+            float uMinY = Mathf.Min(Mathf.Min(u0.y, u1.y), Mathf.Min(u2.y, u3.y));
+            float uMaxY = Mathf.Max(Mathf.Max(u0.y, u1.y), Mathf.Max(u2.y, u3.y));
+            if ((uMaxX - uMinX) * (uMaxY - uMinY) <= DegenerateUvArea)
+            {
+                e.MeshDegenerateUv++;
+                bad++;
+                continue;
+            }
+            // Half a texel of slack on each side: TMP writes glyph UVs with a padding inset and a
+            // legitimate edge glyph can sit fractionally outside [0,1] without sampling anything it
+            // should not, since both targets clamp.
+            const float slack = 0.001f;
+            if (uMinX < -slack || uMinY < -slack || uMaxX > 1f + slack || uMaxY > 1f + slack)
+            {
+                e.MeshUvOutOfRange++;
+                bad++;
+            }
+        }
+        return bad;
+    }
+
+    private static bool Finite(Vector3 v) =>
+        !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z)
+          || float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z));
+
+    private static bool Finite(Vector2 v) =>
+        !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsInfinity(v.x) || float.IsInfinity(v.y));
 
     /// <summary>Scan (and if needed repair) one legacy uGUI <see cref="Text"/>. The game's own UI is
     /// TextMeshPro throughout (the hierarchy census in the hardware log reads

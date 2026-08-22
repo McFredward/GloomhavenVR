@@ -187,6 +187,7 @@ internal sealed class CardFan
             Current = null;
         ClearFingertipHover();
         _cards.Clear();
+        _authoredOrder.Clear(); // the order described objects that are about to be destroyed
         // The leaving cards are children of the root this is about to destroy, so there is nothing
         // left to fly or to hand back — drop the bookkeeping rather than report dead objects to the
         // driver. Its pending face restore is gated on HasLeavingCards, which now reads false.
@@ -424,6 +425,11 @@ internal sealed class CardFan
             if (cards[i] != null)
                 StampMembership(cards[i]);
         }
+        // Remember the order we were TOLD, so a card that later comes back through Add lands where
+        // its publisher put it instead of on the right-hand end (see _authoredOrder). Snapshotted
+        // rather than aliased: the caller reuses its buffer every rebuild.
+        _authoredOrder.Clear();
+        _authoredOrder.AddRange(_cards);
         if (IsOpen)
         {
             // instant during an exchange: the swap-in blend below drives every incoming card's
@@ -472,14 +478,62 @@ internal sealed class CardFan
         }
     }
 
-    /// <summary>Return a card to the fan (release outside a drop zone) — animated.</summary>
+    /// <summary>
+    /// The order the fan was last TOLD to be in — a snapshot of the incoming list of the most
+    /// recent <see cref="SetCards"/>, and the fan's only memory of where a card belongs.
+    ///
+    /// <para>WHY IT EXISTS (user report 2026-08-22, the second face of "added cards appear at the
+    /// right edge"): <see cref="Add"/> is the RETURN-HOME seam — a card the player lifted out to
+    /// read and let go of again, an inspect release, a refused drop — and it used to APPEND. In a
+    /// scenario that was invisible, because <c>CardsDriver.Rebuild</c> runs at very nearly every
+    /// frame and re-publishes the whole list a moment later. In the MAP ROOM there is no such
+    /// heartbeat: its source publishes only when the loadout signature moves
+    /// (<c>MapRoomHand.Reconcile</c>), so a card taken out for a look and put back stayed at the
+    /// right edge until the player next ticked a card in the party screen. Same visible defect,
+    /// different route into it.</para>
+    ///
+    /// <para>THIS IS NOT A SORT, and deliberately so: the fan is a layout, it holds no card
+    /// identity and it must never decide an order of its own. It restores the order it was GIVEN —
+    /// by the game's own initiative-sorted widget list in a scenario (through
+    /// <c>CardsDriver.FillHandFan</c>, plus the player's own drag-reorder in
+    /// <c>ReorderFanBuffer</c>, which this must not undo either) and by the initiative-sorted
+    /// loadout in the map room. Whatever the publisher meant, a returning card goes back into it.</para>
+    /// </summary>
+    private readonly List<VRCard> _authoredOrder = new(16);
+
+    /// <summary>
+    /// Where <paramref name="card"/> belongs in the CURRENT list, according to
+    /// <see cref="_authoredOrder"/>: the number of cards presently in the fan that the published
+    /// order puts BEFORE it. A card the last publish never named (or a fan that has never been
+    /// published to) answers <c>_cards.Count</c> — the append this method replaces, which stays the
+    /// honest answer when there is no order to restore. Allocation-free; n is a hand.
+    /// </summary>
+    private int HomeIndexFor(VRCard card)
+    {
+        int slot = _authoredOrder.IndexOf(card);
+        if (slot < 0)
+            return _cards.Count;
+        int before = 0;
+        for (int i = 0; i < slot; i++)
+        {
+            VRCard c = _authoredOrder[i];
+            if (c != null && _cards.Contains(c))
+                before++;
+        }
+        return before < _cards.Count ? before : _cards.Count;
+    }
+
+    /// <summary>Return a card to the fan (release outside a drop zone) — animated, and back into
+    /// its OWN place rather than onto the right-hand end (see <see cref="_authoredOrder"/>). The
+    /// cards on either side glide apart to open the gap, because <see cref="Relayout"/> below runs
+    /// with <c>instant: false</c> exactly as it always has — only the index changed.</summary>
     internal void Add(VRCard card)
     {
         // A card cannot be a fan card and an outgoing card at once — if this one is mid-exit, it
         // turns around from where it is (RescueFromLeaving states the invariant).
         RescueFromLeaving(card);
         if (!_cards.Contains(card))
-            _cards.Add(card);
+            _cards.Insert(HomeIndexFor(card), card);
         // Fan entry = gate-hand veto (general rule 2026-08-04, see SetCards / VRCard.AllowsGateHand):
         // a void-released card re-enters the fan HERE, often frames before the next Rebuild
         // re-stamps zones — without this the fan-owning hand could hover/grab its own fan card.

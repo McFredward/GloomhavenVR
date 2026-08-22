@@ -46,6 +46,12 @@ MIRRORS=(
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
   "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth WorldUI/ButtonCluster.cs:FingertipRadius Cards/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
+  # ModBuild 197: the map room's "table" is not an object — the game's map scene contains only the
+  # parchment slab (measured: MAP SCENE REPORT prints TOTAL 0 renderer(s) besides it). Both sites
+  # therefore DEFINE the table as the parchment's world AABB widened by this rim. MapLocationInteractor
+  # tests the laser against that footprint; MapRoomBenches stands the benches at its ends. If the two
+  # drift, the table the ray hits stops being the table the furniture is arranged around.
+  "map room table rim : WorldUI/MapRoom/MapLocationInteractor.cs:TableRimMeters WorldUI/MapRoom/MapRoomBenches.cs:TableRimMeters"
   # Thumbstick scrolling exists at THREE sites, one per UI presentation: converted
   # world-space canvases (RayUguiDriver), the floated results window (ModalFallback) and
   # the flat composite that carries the main menu (FlatScreen). Same gesture, same felt

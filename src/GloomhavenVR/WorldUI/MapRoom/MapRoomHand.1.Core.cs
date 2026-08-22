@@ -577,15 +577,58 @@ internal sealed partial class MapRoomHand
     }
 
     /// <summary>
-    /// Resolve <paramref name="character"/>'s loadout IDs to the card models, in the order the
-    /// player's own selection put them in (<c>HandAbilityCardIDs</c>'s order, which is append order
-    /// from UIPartyCharacterAbilityCardsDisplay.OnAbilityCardSelect) rather than pool order.
+    /// Resolve <paramref name="character"/>'s loadout IDs to the card models, and put them in the
+    /// order the fan must DRAW them: ascending INITIATIVE, left to right.
     ///
     /// <para>This is <c>CMapCharacter.HandAbilityCards</c> (CMapCharacter.cs:141) written without
     /// its <c>.Single(...)</c>: that LINQ throws for a character whose class is not in
     /// <c>CharacterClassManager.Classes</c>, and an exception on this path would cost VR input.
     /// <c>CharacterClassManager.Find</c> (CharacterClassManager.cs:68) is the game's own
     /// case-insensitive lookup over the same list.</para>
+    ///
+    /// <para>THE ORDER, AND WHY IT IS NO LONGER THE LIST'S OWN (user report 2026-08-22: "Die
+    /// Kartenreihenfolge soll von links nach rechts nach der INITIATIVE der Karten sortiert sein —
+    /// und ist es am Anfang auch. Aber wenn man Karten HINZUFÜGT, tauchen sie immer am RECHTEN RAND
+    /// auf statt sich einzusortieren").</para>
+    ///
+    /// <para>ROOT CAUSE, read from the game's source and not inferred: the list this reads,
+    /// <c>CMapCharacter.HandAbilityCardIDs</c>, is APPEND-ORDERED. Ticking a card in the party
+    /// screen runs <c>UIPartyCharacterAbilityCardsDisplay.OnAbilityCardSelect</c>, whose whole
+    /// mutation is <c>HandAbilityCardIDs.Add(cardUI.AbilityCard.ID)</c> (:536) — the new id lands at
+    /// the END, always. So did the card, in both of this file's update paths alike (the full
+    /// <see cref="RebuildFan"/> and the single-card <see cref="UpdateFanCards"/> diff, which builds
+    /// its new set "in loadout order"). The start looked right only because a fresh loadout is
+    /// seeded by <c>CMapCharacter.SetCards</c> walking the class' AbilityCardsPool in pool order,
+    /// and the FLAT game never renders this list as a row at all — its selection screen is a
+    /// scrollable grid of the whole pool with the chosen ones marked, so there was no game order to
+    /// inherit. The only place the game DOES lay a hand out left to right is the scenario
+    /// (<c>CardsHandUI.SortCards</c> -> <c>cardsUI.Sort()</c> -> <c>AbilityCardUI.CompareTo</c>,
+    /// AbilityCardUI.cs:1295), and its final term is exactly
+    /// <c>abilityCard.Initiative.CompareTo(other.abilityCard.Initiative)</c>. THAT is the key fed
+    /// here, so the map-room fan and the scenario fan order a hand by the same number rather than by
+    /// two implementations that merely look alike.</para>
+    ///
+    /// <para>THE TIE-BREAK IS THE CARD ID, ascending, and it is chosen for a property the selection
+    /// order cannot offer: the resulting order is a pure FUNCTION OF THE SET. Two cards of one class
+    /// may share an initiative, and with an id tie-break adding, removing or re-adding any OTHER
+    /// card can never reorder them — where a "keep selection order" tie-break would have moved a
+    /// re-ticked card past its equal-initiative twin, because a deselect+select round trip appends
+    /// its id at the end (OnAbilityCardDeselect removes at :558, OnAbilityCardSelect re-appends at
+    /// :536). It is also identical on every client, which the selection order is not: a peer's
+    /// <c>CardInventoryToken</c> replay (NewPartyDisplayUI.cs:1993-2002) rebuilds the list in the
+    /// SENDER's append order. The sort itself is a stable insertion sort — n is at most
+    /// <see cref="MaxCards"/> — so even if two cards ever shared BOTH numbers the rest of the hand
+    /// would still not move. <c>List.Sort</c> is deliberately not used: it is an unstable introsort.</para>
+    ///
+    /// <para>A CARD WITH NO INITIATIVE cannot reach this list: every entry is a
+    /// <c>CAbilityCard</c> resolved out of the class' AbilityCardsPool and
+    /// <c>CBaseAbilityCard.Initiative</c> is a plain non-nullable int. The rest cards, which are the
+    /// one hand entry in this game that HAS no initiative, are not ability cards and never enter a
+    /// loadout (the scenario fan filters them separately, <c>CardsDriver.FillHandFan</c>'s
+    /// <c>widget.IsLongRest</c> skip). The unresolvable case is therefore "the model went missing",
+    /// and it is handled where it can actually happen — see <c>CardsDriver.FanInitiative</c>, which
+    /// reports such a card as <c>?</c> and excludes it from the sortedness verdict rather than
+    /// inventing a number for it.</para>
     /// </summary>
     private static void ResolveLoadout(CMapCharacter character, List<CAbilityCard> into)
     {
@@ -612,12 +655,46 @@ internal sealed partial class MapRoomHand
                     }
                 }
             }
+
+            SortByInitiative(into);
         }
         catch (System.Exception ex)
         {
             into.Clear();
             VRLog.Debug(Scope, $"Map-room hand: loadout resolution failed ({ex.Message}) — empty fan.");
         }
+    }
+
+    /// <summary>
+    /// Order a resolved loadout the way the fan draws it: ascending initiative, card id as the
+    /// tie-break. STABLE insertion sort (see <see cref="ResolveLoadout"/> for why stability is a
+    /// requirement here and not a preference); allocation-free, and n never exceeds
+    /// <see cref="MaxCards"/>.
+    /// </summary>
+    private static void SortByInitiative(List<CAbilityCard> cards)
+    {
+        for (int i = 1; i < cards.Count; i++)
+        {
+            CAbilityCard card = cards[i];
+            int j = i - 1;
+            while (j >= 0 && Precedes(card, cards[j]))
+            {
+                cards[j + 1] = cards[j];
+                j--;
+            }
+            cards[j + 1] = card;
+        }
+    }
+
+    /// <summary>Does <paramref name="a"/> belong strictly LEFT of <paramref name="b"/> in the fan?
+    /// The game's own hand comparison (<c>AbilityCardUI.CompareTo</c>'s final term) plus the id
+    /// tie-break. STRICT on purpose: equal keys report false, which is what keeps the insertion sort
+    /// above stable.</summary>
+    private static bool Precedes(CAbilityCard a, CAbilityCard b)
+    {
+        if (a.Initiative != b.Initiative)
+            return a.Initiative < b.Initiative;
+        return a.ID < b.ID;
     }
 
     /// <summary>

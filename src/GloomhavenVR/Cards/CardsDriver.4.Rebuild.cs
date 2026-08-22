@@ -104,6 +104,17 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void UpdateFanInsertion()
     {
+        // THE ORDER WATCH, and it lives here because this is a per-frame call that runs for BOTH
+        // fans and sits AFTER Rebuild in the same Update (CardsDriver.2.Update.cs:546 vs :716).
+        // That ordering is what makes it a backstop rather than a competitor: a publish has already
+        // logged the change with the reason that caused it, so this finds the same signature and
+        // stays silent — and it only speaks for a change NO publish announced. Those are real and
+        // are exactly the second face of the 2026-08-22 order report: CardFan.Add (a card coming
+        // home from an inspect grab) and CardFan.Remove (a pluck) both move the list without one.
+        // Free when nothing moved: LogFanOrder's first act is its own allocation-free signature gate.
+        LogFanOrder(OffScenarioFanActive ? "map-room hand" : "scenario hand",
+            "a change no publish announced — a card was plucked out of the fan or came home to it");
+
         // Only the REAL hand fan reorders (CardsSelection). Pick-mode "fans" (discard/burnt piles)
         // reuse the same _fan but must not telegraph a reorder gap — their releases route through
         // HandlePickRelease, never the commit path.
@@ -185,6 +196,176 @@ internal sealed partial class CardsDriver
         _fanOrder.Insert(insertAt, id);
         _fan.Add(card);
         _dirty = true;
+    }
+
+    // ------------------------------------------------------- fan order diagnostic --
+    //
+    // USER REPORT 2026-08-22: "Die Kartenreihenfolge soll von links nach rechts nach der INITIATIVE
+    // der Karten sortiert sein — und ist es am Anfang auch. Aber wenn man Karten HINZUFÜGT, tauchen
+    // sie immer am RECHTEN RAND auf statt sich einzusortieren."
+    //
+    // THE INSTRUMENT THAT WOULD HAVE CAUGHT IT, and the one this build has to be judged on. It
+    // prints the fan's cards IN DRAW ORDER with the number they are supposed to be ordered by, and
+    // then answers the question directly — sorted, or not, and where it broke.
+    //
+    // IT ALSO PRINTS HOW MANY COMPARISONS IT ACTUALLY MADE, and that is the point of the line rather
+    // than a decoration. A verdict with no comparisons behind it (one card, or a hand whose cards
+    // all failed to resolve a key) is NOT evidence of a sorted fan, and this project has already
+    // shipped a "clean" reading that meant "the probe never ran" — see the standing note about a
+    // scan that only logs on success. So a hand that could not be checked says NOT CHECKED, with
+    // the count, and can never be mistaken for a pass.
+    //
+    // ONE LINE PER CHANGE: deduped on the rendered content, so the near-per-frame Rebuild is silent
+    // while every genuine add / remove / reorder / character swap emits exactly once.
+
+    /// <summary>The last fan-order line rendered — the SECOND belt of the change dedupe, behind the
+    /// allocation-free signature below. It only ever catches a line the signature called new and
+    /// that reads identically anyway (a label that changed and changed back).</summary>
+    private string? _lastOrderLine;
+
+    /// <summary>
+    /// Cheap change signature of the fan's ORDER — the gate the string building sits behind.
+    /// <see cref="Rebuild"/> runs at very nearly every frame while a character is being watched, so
+    /// a diagnostic that composed its line first and compared afterwards would allocate a
+    /// StringBuilder and a dozen strings per frame. Same rule as <c>CardFan</c>'s: a diagnostic goes
+    /// BEHIND its gate, never in front of it. Allocation-free.
+    /// </summary>
+    private int _lastOrderSig;
+
+    /// <summary>
+    /// The initiative the fan orders <paramref name="card"/> by, or <see cref="NoInitiative"/> when
+    /// it cannot be resolved. THE SAME NUMBER IN BOTH WORLDS, from the two places it can live:
+    /// <list type="bullet">
+    /// <item>A SCENARIO card carries the game's own <c>AbilityCardUI</c>, so the key is
+    /// <c>GameCard.AbilityCard.Initiative</c> — literally the field the game's own hand comparison
+    /// ends on (<c>AbilityCardUI.CompareTo</c>, AbilityCardUI.cs:1295), which is why the scenario
+    /// fan is in initiative order without this mod sorting anything: <c>CardsGameApi.GetCards</c>
+    /// reads <c>CardsHandUI.cardsUI</c>, and that list is kept sorted by <c>SortCards</c>.</item>
+    /// <item>An OFF-SCENARIO (map-room) card carries NO widget by construction, so its key comes
+    /// from <see cref="OffScenarioFanInitiatives"/>, published index-aligned with
+    /// <see cref="OffScenarioFanCards"/> by the source that owns those models.</item>
+    /// </list>
+    /// Matched by REFERENCE against the live source list rather than by index into the fan: the fan
+    /// legitimately diverges from the published list between a <c>CardFan.Remove</c> and the next
+    /// publish, and an index would then read a neighbour's number.
+    /// </summary>
+    private static int FanInitiative(VRCard? card)
+    {
+        if (card == null)
+            return NoInitiative;
+        AbilityCardUI? widget = card.GameCard;
+        if (widget != null && widget.AbilityCard != null)
+            return widget.AbilityCard.Initiative;
+        IReadOnlyList<VRCard>? source = OffScenarioFanCards;
+        IReadOnlyList<int>? keys = OffScenarioFanInitiatives;
+        if (source == null || keys == null)
+            return NoInitiative;
+        int n = source.Count < keys.Count ? source.Count : keys.Count;
+        for (int i = 0; i < n; i++)
+        {
+            if (ReferenceEquals(source[i], card))
+                return keys[i];
+        }
+        return NoInitiative;
+    }
+
+    /// <summary>A card's short label for the order line: the game's own card name where the card
+    /// carries a widget, otherwise the object name the source gave it (which for a map-room card
+    /// already carries its id).</summary>
+    private static string FanCardLabel(VRCard? card)
+    {
+        if (card == null)
+            return "<null>";
+        AbilityCardUI? widget = card.GameCard;
+        if (widget != null && !string.IsNullOrEmpty(widget.CardName))
+            return widget.CardName;
+        return card.name;
+    }
+
+    /// <summary>
+    /// Print the fan's card list IN DRAW ORDER with each card's initiative, plus the sortedness
+    /// verdict and the number of comparisons behind it. Called after every seam that changes what
+    /// the fan holds; deduped on content, so it is one line per real change.
+    /// </summary>
+    /// <param name="fan">Which fan this is — "scenario hand" or "map-room hand".</param>
+    /// <param name="reason">What just changed, in the user's vocabulary.</param>
+    private void LogFanOrder(string fan, string reason)
+    {
+        IReadOnlyList<VRCard> cards = _fan.Cards;
+        int n = cards.Count;
+
+        // THE GATE (allocation-free), see _lastOrderSig: identity AND key of every card in draw
+        // order, so a reorder, an add, a removal and a re-keyed card all move it — and a steady
+        // per-frame rebuild does not.
+        int sig = 17;
+        unchecked
+        {
+            sig = sig * 31 + n;
+            sig = sig * 31 + fan.Length;
+            for (int i = 0; i < n; i++)
+            {
+                VRCard c = cards[i];
+                sig = sig * 31 + (c != null ? c.GetInstanceID() : 0);
+                sig = sig * 31 + FanInitiative(c);
+            }
+            if (sig == 0)
+                sig = 1;   // 0 is the never-logged seed; a real signature must not collide with it
+        }
+        if (sig == _lastOrderSig)
+            return;
+        _lastOrderSig = sig;
+
+        var sb = new System.Text.StringBuilder(160);
+        int known = 0;       // cards whose initiative resolved
+        int compared = 0;    // adjacent pairs actually compared
+        int breakAt = -1;    // first draw index that sits left of a smaller initiative
+        int prev = NoInitiative;
+        for (int i = 0; i < n; i++)
+        {
+            VRCard card = cards[i];
+            int init = FanInitiative(card);
+            if (i > 0)
+                sb.Append("  ");
+            sb.Append(FanCardLabel(card)).Append('(');
+            if (init == NoInitiative)
+                sb.Append('?');
+            else
+                sb.Append(init);
+            sb.Append(')');
+            if (init == NoInitiative)
+                continue;
+            known++;
+            if (prev != NoInitiative)
+            {
+                compared++;
+                if (init < prev && breakAt < 0)
+                    breakAt = i;
+            }
+            prev = init;
+        }
+
+        string verdict = n == 0
+            ? "EMPTY — no cards, nothing to order."
+            : compared == 0
+            ? $"NOT CHECKED — 0 comparison(s) were possible ({known} of {n} card(s) resolved an "
+              + "initiative, and two are needed for one comparison). This is NOT the same claim as "
+              + "SORTED: nothing was verified. For a one-card hand that is the honest answer; for a "
+              + "fuller one it means the keys did not resolve, which is itself the finding."
+            : breakAt >= 0
+                ? $"NOT SORTED — {compared} comparison(s) made, and the one at draw index {breakAt} "
+                  + $"failed: '{FanCardLabel(cards[breakAt])}' sits RIGHT of a higher initiative. "
+                  + "A card that lands at the right edge instead of its place is exactly this."
+                : $"SORTED ascending — {compared} comparison(s) made across {known} of {n} card(s).";
+
+        string line = $"Fan order [{fan}]: n={n}, {verdict}\n  draw order (left to right): "
+                      + (n == 0 ? "<empty>" : sb.ToString());
+        if (line == _lastOrderLine)
+            return;   // nothing about the fan's order moved since the last line
+        _lastOrderLine = line;
+        VRLog.Info("Cards", line + $"\n  after: {reason}. The number in brackets is the card's "
+            + "INITIATIVE — a scenario card's comes off the game's own AbilityCardUI.AbilityCard, a "
+            + "map-room card's off the loadout model its source published. '?' means the key could "
+            + "not be resolved for that card; it is excluded from the verdict, never guessed at.");
     }
 
     // ------------------------------------------------------------------ rebuild --
@@ -833,6 +1014,14 @@ internal sealed partial class CardsDriver
         // handSwap: not "the list changed" but "this is the OTHER character's hand" — CardFan turns
         // that into the exchange wipe instead of a plain relayout. See the swap-edge block above.
         _fan.SetCards(_fanBuffer, handSwap);
+        // ORDER PROOF for the scenario hand. Nothing above sorts it and nothing needs to: the
+        // widget list this was filled from (CardsGameApi.GetCards -> CardsHandUI.cardsUI) is kept
+        // in the game's own hand order, whose final term IS the initiative — and ReorderFanBuffer
+        // then applies the PLAYER's own drag-reorder on top, which is a deliberate override and
+        // will legitimately read NOT SORTED. That is the one case where a failing verdict here is
+        // correct, and it is why this reports rather than corrects.
+        LogFanOrder("scenario hand", $"a hand rebuild (mode={mode}"
+            + (handSwap ? ", character exchange" : "") + ")");
         _tray.SetVisible(trayVisible);
         // READ-ONLY FOCUS, slot cards: told BEFORE the content for the same reason as the fan. The
         // round-card dock is the ONE zone that arms real input on its cards — fingertip HalfZone

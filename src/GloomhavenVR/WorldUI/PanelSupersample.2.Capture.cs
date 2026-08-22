@@ -75,7 +75,10 @@ internal static partial class PanelSupersample
             rt.anisoLevel = 0;
             rt.wrapMode = TextureWrapMode.Clamp;
             if (rt.Create())
+            {
+                ClearRt(rt);
                 return rt;
+            }
             Object.Destroy(rt);
             if (msaa <= 1)
                 break;
@@ -113,7 +116,10 @@ internal static partial class PanelSupersample
             wrapMode = TextureWrapMode.Clamp,
         };
         if (rt.Create() && rt.mipmapCount > 1)
+        {
+            ClearRt(rt);
             return rt;
+        }
         int got = rt.mipmapCount;
         rt.Release();
         Object.Destroy(rt);
@@ -125,6 +131,35 @@ internal static partial class PanelSupersample
                           + "moves, because the eye minifies an unfiltered texture. Input, geometry "
                           + "and MSAA are unaffected.");
         return null;
+    }
+
+    /// <summary>
+    /// Clear a freshly created render target to transparent black.
+    ///
+    /// <para><b>WHY THIS IS NOT COSMETIC.</b> Unity does NOT clear a render target on
+    /// <c>Create()</c>; its contents are whatever that VRAM last held. Every allocation on this path
+    /// is immediately handed to the display quad — <see cref="Reallocate"/> points
+    /// <c>DisplayImage.texture</c> at the new target in the same statement block that destroys the
+    /// old one — so any frame in which the capture camera does not render (the panel is hidden for
+    /// that frame, the camera is disabled, the resolve is skipped because one of the pair is null)
+    /// shows uninitialised memory instead of the window. That is a rare window, but a re-allocation
+    /// happens exactly at the moment this round is investigating: the content fit flips a released
+    /// window's host rect and the target follows. Two <c>GL.Clear</c>s per allocation close it
+    /// outright, and <see cref="Entry.CameraOffWhileVisible"/> measures how often the window they
+    /// cover is actually open.</para>
+    /// </summary>
+    private static void ClearRt(RenderTexture rt)
+    {
+        RenderTexture? previous = RenderTexture.active;
+        try
+        {
+            RenderTexture.active = rt;
+            GL.Clear(true, true, new Color(0f, 0f, 0f, 0f));
+        }
+        finally
+        {
+            RenderTexture.active = previous;
+        }
     }
 
     /// <summary>Give <paramref name="e"/> a mipped display target for its current capture size, or
@@ -412,8 +447,35 @@ internal static partial class PanelSupersample
 
         if (moved || turned || rescaled || resized)
         {
+            // THE DRAG BOUNDARY (ModBuild 197). A change arriving after the motion window has fully
+            // lapsed is a NEW drag, so the per-drag accumulators start over here. Everything the
+            // release edge prints — how long the drag was, how fast it was going when the hand let
+            // go, how many of its frames were dropped — is accumulated between this reset and the
+            // settle gate in ServiceRepairs.
+            if (!IsMoving(e))
+            {
+                e.DragStartFrame = Time.frameCount;
+                e.DragMotionFrames = 0;
+                e.DragMaxStepWorld = 0f;
+                e.DragDroppedFrames = 0;
+                e.DragWorstFrameMs = 0f;
+            }
             e.LastMotionFrame = Time.frameCount;
             e.MotionFrames++;
+            e.DragMotionFrames++;
+            // THE ABRUPT NUMBER: the step on the LAST frame that moved. A hand that stops before it
+            // lets go leaves ~0 here; a hand still travelling leaves the drag's full speed, and the
+            // release edge prints both this and the drag's largest step so the two are comparable.
+            e.DragLastStepWorld = step;
+            if (step > e.DragMaxStepWorld)
+                e.DragMaxStepWorld = step;
+            e.CurrentMotionRun++;
+            if (e.CurrentMotionRun > e.LongestMotionRun)
+                e.LongestMotionRun = e.CurrentMotionRun;
+        }
+        else
+        {
+            e.CurrentMotionRun = 0;
         }
         if (!rescaled && !resized)
             return false;
@@ -521,6 +583,14 @@ internal static partial class PanelSupersample
             e.Cam.enabled = visible && due;
         if (e.DisplayGo != null && e.DisplayGo.activeSelf != visible)
             e.DisplayGo.SetActive(visible);
+        // THE PATH COUNTER (ModBuild 197). A frame in which the quad IS shown and no capture is
+        // taken is a frame in which the eye draws the previous capture — the honest answer to "is a
+        // dragged window supersampled at all, or does something short-circuit". Expected 0 while
+        // CaptureIntervalFrames is 1; printed with its denominator so a 0 is evidence.
+        if (visible && !due)
+            e.CameraOffWhileVisible++;
+        if (visible && e.MipFallback)
+            e.RawQuadFrames++;
     }
 
     // ---- the layer sweep ----------------------------------------------------------------------
@@ -693,6 +763,15 @@ internal static partial class PanelSupersample
                 e.MotionFrameMsMax = ms;
             if (ms > FrameBudgetMs)
                 e.MotionFramesOverBudget++;
+            // THE JUDDER COUNTER, per drag. Over-budget is not the same statement as DROPPED: a
+            // frame at 11.2 ms against an 11.11 ms budget is v-sync jitter, while a frame past
+            // DroppedFrameMs is one the headset had to fill by showing the previous image again —
+            // and at the drag speeds this class measures, that is tens of rendered pixels of
+            // positional error on a high-contrast edge, which is what the eye reads as flicker.
+            if (ms > DroppedFrameMs)
+                e.DragDroppedFrames++;
+            if (ms > e.DragWorstFrameMs)
+                e.DragWorstFrameMs = ms;
         }
         else
         {
@@ -741,7 +820,11 @@ internal static partial class PanelSupersample
         if (e.ReleaseRepairStage == 0 && sinceMotion >= ReleaseSettleFrames)
         {
             e.ReleaseRepairStage = 1;
+            e.ReleasesThisWindow++;
+            if (sinceMotion > e.ReleaseGateFramesMax)
+                e.ReleaseGateFramesMax = sinceMotion;
             ReleaseRepair(e);
+            ReportRelease(e, sinceMotion);
             return;
         }
         if (e.ReleaseRepairStage == 1 && sinceMotion >= ReleaseSecondRepairFrames)
@@ -761,6 +844,30 @@ internal static partial class PanelSupersample
         }
     }
 
+    /// <summary>
+    /// <b>MODBUILD 197 MAKES THE ModBuild 196 RELEASE REPAIR ACTUALLY REGENERATE TEXT.</b> Its own
+    /// documentation said it forces <i>"every text component in the subtree to re-request its glyphs
+    /// and re-generate its mesh"</i>. It did not, and the hardware log says so in one number: across
+    /// 236 state lines the largest regeneration this repair ever performed was <b>one character
+    /// across one component</b>, and 151 of those lines read <c>0 character(s) across 0
+    /// component(s)</c> — on windows carrying up to 297 text components and 4600 glyphs.
+    ///
+    /// <para>THE CAUSE was a gate, not a failure: <c>ScanTmpText</c> returns without regenerating
+    /// whenever its own defect count is zero (<c>if ((!repairAll &amp;&amp; bad == 0) || ...) return
+    /// false;</c>), and that count is zero in every reading this session produced. So the repair was
+    /// conditioned on the very instrument ModBuild 196 shipped to find out whether the condition was
+    /// the right one. The user reporting "no improvement" is therefore the expected outcome and NOT
+    /// evidence about the text hypothesis: the remedy never ran.</para>
+    ///
+    /// <para>THE RELEASE REPAIR NOW PASSES <c>repairAll</c>. The report cadence's scan does not — a
+    /// settled window must keep costing what it costs today — so the regeneration is bounded to two
+    /// passes per release, capped by <c>MaxRegeneratePerScan</c>, and its cost is measured into
+    /// <see cref="Entry.ReleaseRegenMs"/> and printed. THE CONSEQUENCE IF IT IS TOO EXPENSIVE: the
+    /// release frame gets longer, which the RELEASE line reports per release; the lever is that cap.
+    /// THE CONSEQUENCE FOR THE NEXT ROUND EITHER WAY: if the broken image survives a release on which
+    /// every text component in the window was genuinely re-parsed and re-generated, the text-source
+    /// family is dead outright rather than untested.</para>
+    /// </summary>
     private static void ReleaseRepair(Entry e)
     {
         e.ReleaseRepairs++;
@@ -774,7 +881,103 @@ internal static partial class PanelSupersample
         ApplyCaptureLayer(e, initial: false);
         // Scan AND repair in one walk: the counts recorded are the PRE-repair state, so the report
         // says what was wrong at the release rather than only that a repair ran.
-        MeasureContent(e);
+        float regenStart = Time.realtimeSinceStartup;
+        MeasureContent(e, repairAll: true);
+        e.ReleaseRegenComponents = e.RegeneratedComponents;
+        e.ReleaseRegenMs = (Time.realtimeSinceStartup - regenStart) * 1000.0;
+    }
+
+    /// <summary>
+    /// <b>ONE LINE PER RELEASE — the instrument this symptom did not have.</b>
+    ///
+    /// <para>THE USER'S NEW WORD IS <i>ABRUPT</i>: <i>"das Flackerproblem WÄHREND DER BEWEGUNG ist
+    /// noch da — inklusive der möglichen kaputten Darstellung, wenn man nach der Bewegung ABRUPT
+    /// loslässt"</i>. That is a claim about the release VELOCITY, and nothing in ModBuild 196 could
+    /// confirm or deny it: the state line carried only a cumulative repair count on a 10-second
+    /// cadence, so a gate that opened late, a gate that never opened and a gate that opened on time
+    /// and found nothing all printed the same character.</para>
+    ///
+    /// <para>WHAT THIS LINE DECIDES, and each field carries the comparison it is read against:
+    /// <list type="number">
+    /// <item>WAS THE RELEASE ABRUPT? The drag's LAST single-frame step next to its LARGEST, both in
+    /// rendered eye pixels. A hand that slowed before letting go leaves a last step far below the
+    /// largest; a hand still travelling leaves them equal. If the broken image really does correlate
+    /// with abruptness, these two numbers are where it shows.</item>
+    /// <item>DID THE SETTLE GATE OPEN, AND WHEN? The frames from the last change to this repair,
+    /// against <see cref="ReleaseSettleFrames"/>. A gate that opens exactly on the threshold is a
+    /// gate that works; one that opens tens of frames late means somebody kept writing the pose after
+    /// the hand let go, which is this project's "a stillness gate never opens for state someone else
+    /// rewrites each frame". THE LONGEST MOTION RUN is printed with it, because a gate that never
+    /// opens at all produces no line here and only that field would show why.</item>
+    /// <item>HOW MANY BROKEN FRAMES THE EYE ALREADY SAW. The repair runs in the LateUpdate of the
+    /// frame the gate opens, so the eye has ALREADY drawn every frame since the hand let go with
+    /// whatever state the release left behind. That number is printed, because it bounds what a
+    /// repair on this schedule can ever fix: a defect the user sees for 2 frames and a defect that
+    /// persists are different reports, and this instrument cannot be read as the second one.</item>
+    /// <item>WHAT THE SCAN FOUND AT THAT EXACT INSTANT, with its comparison count, its worst value
+    /// and its threshold on the same line — including the MESH counters, which are new and which are
+    /// the only ones that can see the photograph's fault (see <see cref="ScanTmpMesh"/>).</item>
+    /// <item>WHETHER THE DRAG WAS DROPPING FRAMES. The count, the worst frame time and the
+    /// <see cref="DroppedFrameMs"/> threshold, so the moving complaint can be read as judder or not
+    /// from the same line as the release.</item>
+    /// </list></para>
+    /// </summary>
+    private static void ReportRelease(Entry e, int gateFrames)
+    {
+        // The world -> rendered-eye-pixel bridge is measured by SamplingSentence, i.e. on the 10 s
+        // report cadence. Before the first report of a freshly engaged panel it is 0, and dividing
+        // by a floor would print a number thousands of times too large. A release that lands in that
+        // gap says so instead, because an unlabelled wrong number is worse than a missing one.
+        bool scaled = e.WorldPerAuthoredPx > 1e-9f && e.AuthoredPerRenderedPx > 1e-6f;
+        float perAuthored = Mathf.Max(e.WorldPerAuthoredPx, 1e-9f);
+        float perRendered = Mathf.Max(e.AuthoredPerRenderedPx, 1e-6f);
+        float lastPx = scaled ? e.DragLastStepWorld / perAuthored / perRendered : -1f;
+        float maxPx = scaled ? e.DragMaxStepWorld / perAuthored / perRendered : -1f;
+        string pxNote = scaled
+            ? string.Empty
+            : " (the RENDERED eye px figures read -1 because the world-to-eye-pixel scale has not "
+              + "been measured yet — it is derived once per 10 s report and this release landed "
+              + "before this panel's first one; the world-unit figures are exact regardless)";
+        int meshBad = e.MeshMissingQuads + e.MeshDegenerateQuads + e.MeshDegenerateUv
+                      + e.MeshUvOutOfRange + e.MeshNonFinite;
+        int glyphBad = e.GlyphsNotInAtlas + e.GlyphsNotVisible + e.GlyphsBlankQuad;
+        VRLog.Info(Scope,
+            $"PANEL SUPERSAMPLE RELEASE '{e.Window}': the drag ran {e.DragMotionFrames} frame(s) "
+            + $"({Time.frameCount - e.DragStartFrame} frame(s) wall) and the settle gate opened "
+            + $"{gateFrames} frame(s) after the last change, against a threshold of "
+            + $"{ReleaseSettleFrames}. ABRUPTNESS (the user's own word, measured): the LAST "
+            + $"single-frame host step before the hand let go was {e.DragLastStepWorld:F4} world "
+            + $"units = {lastPx:F2} RENDERED eye px, against this drag's LARGEST step of "
+            + $"{e.DragMaxStepWorld:F4} = {maxPx:F2} RENDERED eye px and a detector epsilon of "
+            + $"{e.MotionEpsWorld:F4} world units{pxNote} — the two being equal means the window was "
+            + "still travelling at full speed when it was released, and a last step far below the "
+            + "largest means the hand slowed first. THE EYE HAS ALREADY DRAWN "
+            + $"{gateFrames} frame(s) of the released image before this repair ran, and will draw "
+            + $"{ReleaseSecondRepairFrames - gateFrames} more before the second pass, so a defect "
+            + "this repair removes is one the player still sees for that long; a defect the player "
+            + "reports as PERSISTING is one this repair did not remove at all. WHAT THE SCAN FOUND "
+            + $"AT THIS INSTANT: {glyphBad} text-source defect(s) out of {e.GlyphsChecked} glyph "
+            + $"lookup(s) across {e.TextComponents} component(s) ({e.GlyphsNotInAtlas} not in the "
+            + $"atlas, {e.GlyphsNotVisible} not visible, {e.GlyphsBlankQuad} zero-area layout quad at "
+            + $"threshold {DegenerateQuadArea:G3}); and {meshBad} SUBMITTED-MESH defect(s) out of "
+            + $"{e.MeshQuadsChecked} quad(s) examined ({e.MeshMissingQuads} never written into the "
+            + $"mesh, {e.MeshDegenerateQuads} zero-area in the mesh, {e.MeshDegenerateUv} with a "
+            + $"collapsed atlas UV rect at threshold {DegenerateUvArea:G3}, {e.MeshUvOutOfRange} "
+            + $"sampling outside the atlas, {e.MeshNonFinite} non-finite)"
+            + (e.MeshWorstBad > 0 ? $", worst: {e.MeshWorst} with {e.MeshWorstBad}" : ", no worst")
+            + $". THE REPAIR THEN RE-GENERATED {e.ReleaseRegenComponents} of {e.TextComponents} "
+            + $"component(s) in {e.ReleaseRegenMs:F2} ms (cap {MaxRegeneratePerScan}) — ModBuild 196 "
+            + "re-generated at most ONE component per release because it gated the regeneration on "
+            + "the defect count, which is permanently zero; this pass is unconditional, so if the "
+            + "broken image survives it the text-source family is falsified rather than untested. "
+            + $"FRAME PACING DURING THIS DRAG: {e.DragDroppedFrames} of {e.DragMotionFrames} "
+            + $"frame(s) exceeded {DroppedFrameMs:F2} ms (worst {e.DragWorstFrameMs:F2} ms, budget "
+            + $"{FrameBudgetMs:F2} ms), i.e. that many frames on which the headset re-showed the "
+            + $"previous image while the window was travelling up to {maxPx:F2} rendered px per "
+            + "frame — that product, not the panel's filtering, is what a JUDDER reading of the "
+            + "moving complaint rests on. LONGEST UNBROKEN MOTION RUN this report window: "
+            + $"{e.LongestMotionRun} frame(s); if that ever equals the whole window, no release can "
+            + "be detected at all and this line would simply be absent.");
     }
 
     /// <summary>
@@ -933,6 +1136,12 @@ internal static partial class PanelSupersample
                 // never ran", "it ran and found nothing" and "it ran and found something" are three
                 // different readings and can never print the same character.
                 mine.CaptureTicks++;
+                // Split by what the window is doing, so "was this window supersampled WHILE IT
+                // MOVED" is a count and not an argument from the source.
+                if (IsMoving(mine))
+                    mine.MotionCaptures++;
+                else
+                    mine.StillCaptures++;
                 if (_fontRebuildFrame == Time.frameCount)
                     mine.CapturesDuringFontRebuild++;
                 if (_canvasUpdateFrame != Time.frameCount)
@@ -1034,9 +1243,22 @@ internal static partial class PanelSupersample
         RenderTexture? previous = RenderTexture.active;
         try
         {
+            // THE CAPTURE-SIDE FALSIFIER (ModBuild 197). "The capture, not the content, is what
+            // breaks" needs a measurement, and this is the cheapest one that can find it: a resolve
+            // whose source and destination disagree in size is a target that was re-allocated
+            // between the capture and the resolve, and the blit then stretches one frame's image
+            // across the other's texels. Expected 0 — Reallocate replaces BOTH targets together,
+            // inside a LateUpdate, before the camera loop — and printed with its denominator so the
+            // zero is evidence rather than an absent line.
+            if (e.Rt.width != e.MipRt.width || e.Rt.height != e.MipRt.height)
+                e.ResolveSizeMismatch++;
             Graphics.Blit(e.Rt, e.MipRt);
             e.MipRt.GenerateMips();
             e.MipCount = e.MipRt.mipmapCount;
+            if (IsMoving(e))
+                e.MotionResolves++;
+            else
+                e.StillResolves++;
         }
         finally
         {

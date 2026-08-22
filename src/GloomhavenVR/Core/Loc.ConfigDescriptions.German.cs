@@ -1735,21 +1735,19 @@ internal static partial class Loc
                 "Verschiebt den Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") in der "
                 + "3D-Weltkarte SEITLICH im schwebenden Questfenster. Einheit: Bruchteile der "
                 + "FENSTERHÖHE — dieselbe wie beim Höhen-Wert, gleiche Zahl also gleiche echte "
-                + "Strecke —, positiv = nach rechts. 0 = genau dort, wo der Knopf seit dem ersten "
-                + "Einbau sitzt, es ändert sich nichts, bis du drehst. Bruchteil statt "
-                + "Pixel, damit der Knopf bei jeder Fenstergröße an derselben Stelle auf der Karte "
-                + "bleibt. 0 liegt auf der LINKEN Fensterkante, die Kartenmitte bei +0.25, die "
-                + "rechte Kante bei +0.50. Live: der Knopf folgt im nächsten Bild. "
-                + "Bereich -0.5 bis 0.5.",
+                + "Strecke —, positiv = nach rechts. 0 = MITTIG UNTER DER QUESTINFO: der Nullpunkt "
+                + "ist die gemessene Mitte der Questinfo und wandert mit ihr, nicht mehr die linke "
+                + "Fensterkante. Ein vor ModBuild 197 eingestellter Wert maß von woanders und "
+                + "gehört auf 0 zurück. ±0.25 reicht von der linken bis zur rechten Kartenkante. "
+                + "Live: der Knopf folgt im nächsten Bild. Bereich -0.25 bis 0.25.",
             ["WorldUI/TravelButtonOffsetYWindowHeights"] =
                 "Verschiebt denselben Bestätigungsknopf (\"Reisen\" / \"Quest erneut spielen\") HOCH "
                 + "und RUNTER im schwebenden Questfenster. Gleiche Einheit wie beim Seiten-Wert — "
-                + "Bruchteile der FENSTERHÖHE —, aber gemessen NACH OBEN AB DER OBERKANTE des "
-                + "Fensters: 0 = genau dort, wo der Knopf seit dem ersten Einbau sitzt (es ändert "
-                + "sich also nichts, bis du drehst), -1.0 = die Unterkante. Der Wert, der den Knopf "
-                + "UNTER die Questinfo setzt, ist also NEGATIV. Der Bereich reicht eine halbe "
-                + "Fensterhöhe über die Ober- und eine halbe unter die Unterkante. Live: der "
-                + "Knopf folgt im nächsten Bild. Bereich -1.5 bis 1.5.",
+                + "Bruchteile der FENSTERHÖHE —, gemessen NACH OBEN AB DEM UNTEREN ENDE DER "
+                + "QUESTINFO. 0 = die Oberkante des Knopfes liegt genau auf dem Ende der Info, also "
+                + "DIREKT DARUNTER — bei kurzen wie bei langen Questtexten, denn der Nullpunkt wird "
+                + "laufend gemessen. Negativ = tiefer. Ein vor ModBuild 197 eingestellter Wert maß "
+                + "von der Fenster-Oberkante und gehört auf 0 zurück. Bereich -0.6 bis 0.6.",
             ["WorldUI/PanelMipBake"] =
                 "Aliasing-Nachzügler zu [Cards] FaceMipBake: auch die Texturen, die die INITIATIVLEISTE "
                 + "(RawImage-Porträts + Rahmen-/Linien-Sprites) und die Mouseover-HINWEISBOX abtasten, liefert "

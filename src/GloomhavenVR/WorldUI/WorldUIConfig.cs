@@ -469,15 +469,16 @@ internal static class WorldUIConfig
                 "3D world map: moves the travel/'Quest erneut spielen' CONFIRM BUTTON SIDEWAYS " +
                 "inside the floated quest window. The unit is FRACTIONS OF THAT WINDOW'S HEIGHT " +
                 "(the same unit as the Y dial, so the same number means the same real distance on " +
-                "both), positive = to the right. 0 = exactly where the button has sat since it was " +
-                "first put in the window, so nothing moves until you tune it. A fraction and not a " +
-                "pixel count because [WorldUI] WindowLegibility resizes the window: this keeps the " +
-                "button in the same place ON the card at any window size. 0 sits on the window " +
-                "rect's LEFT edge; the card is half a window height wide, so its centre line is " +
-                "+0.25 and its right edge +0.50 - the button stays a child of the window at every value, so it " +
-                "always moves, scales and occludes with the card and can never be left behind. " +
-                "Read live: turn it in the headset and the button moves on the next frame. " +
-                "Range -0.5 to 0.5.",
+                "both), positive = to the right. 0 = HORIZONTALLY CENTRED ON THE QUEST " +
+                "INFORMATION: since ModBuild 197 the zero is the MEASURED centre of what the card " +
+                "is painting and it moves with the quest, not the window rect's left edge. Any " +
+                "value tuned before ModBuild 197 was measured from somewhere else and belongs back " +
+                "at 0. A fraction and not a pixel count because [WorldUI] WindowLegibility resizes " +
+                "the window. The card is half a window height wide, so the range reaches its left " +
+                "and right edges and no further - the button stays a child of the window at every " +
+                "value, so it always moves, scales and occludes with the card and can never be " +
+                "left behind. Read live: turn it in the headset and the button moves on the next " +
+                "frame. Range -0.25 to 0.25.",
                 new AcceptableValueRange<float>(-MapRoom.MapTravelConfirm.OffsetLimitX,
                                                 MapRoom.MapTravelConfirm.OffsetLimitX)));
         TravelButtonOffsetYWindowHeights = _file.Bind("WorldUI", "TravelButtonOffsetYWindowHeights",
@@ -485,16 +486,16 @@ internal static class WorldUIConfig
             new ConfigDescription(
                 "3D world map: moves the travel/'Quest erneut spielen' CONFIRM BUTTON UP AND DOWN " +
                 "inside the floated quest window. Same unit as the X dial - FRACTIONS OF THE " +
-                "WINDOW'S HEIGHT - but measured UP FROM THE WINDOW'S TOP EDGE, which is where 0 " +
-                "sits: 0 = exactly where the button has sat since it was first put in the window " +
-                "(so nothing moves until you tune it), -1.0 = the window's BOTTOM edge, so the " +
-                "value that puts the button UNDER the quest information is NEGATIVE. The range " +
-                "reaches half a window height above the top edge and half a window height below " +
-                "the bottom one, which covers every point on " +
-                "the card and a margin all round it; the button stays a child of the window at " +
-                "every value, so it always moves, scales and occludes with the card and can never " +
-                "be left behind. Read live: turn it in the headset and the button moves on the " +
-                "next frame. Range -1.5 to 1.5.",
+                "WINDOW'S HEIGHT - but measured UP FROM THE BOTTOM EDGE OF THE QUEST INFORMATION, " +
+                "which is where 0 sits: at 0 the top of the button's content lies exactly on the " +
+                "end of the information, i.e. DIRECTLY UNDERNEATH IT, for a short quest and a long " +
+                "one alike, because that edge is re-measured live from what the card is painting. " +
+                "Negative = lower, positive = higher. Any value tuned before ModBuild 197 was " +
+                "measured from the window's fixed TOP edge and belongs back at 0. The range covers " +
+                "the card in both directions from that point; the button stays a child of the " +
+                "window at every value, so it always moves, scales and occludes with the card and " +
+                "can never be left behind. Read live: turn it in the headset and the button moves " +
+                "on the next frame. Range -0.6 to 0.6.",
                 new AcceptableValueRange<float>(MapRoom.MapTravelConfirm.OffsetLimitYMin,
                                                 MapRoom.MapTravelConfirm.OffsetLimitYMax)));
         // Tooltips / ActionElementHints: always on — user ruling 2026-08-13. The flat game raises

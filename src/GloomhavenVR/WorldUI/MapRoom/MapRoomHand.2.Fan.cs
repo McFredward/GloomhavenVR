@@ -99,6 +99,21 @@
 // lets go. This is the same standing rule CardFan.StampMembership and CardFan.BeginSwapOut both
 // state from their side ("while a card IsHeld this code writes nothing a hold depends on").
 //
+// ─── MODBUILD 196: THE FAN READS LEFT-TO-RIGHT BY INITIATIVE ──────────────────────────────────
+// USER REPORT, VERBATIM (2026-08-22): "Die Kartenreihenfolge soll von links nach rechts nach der
+// INITIATIVE der Karten sortiert sein — und ist es am Anfang auch. Aber wenn man Karten HINZUFÜGT,
+// tauchen sie immer am RECHTEN RAND auf statt sich einzusortieren."
+//
+// The order this file publishes was ALWAYS the order of CMapCharacter.HandAbilityCardIDs, and that
+// list is append-ordered by the game's own party screen (OnAbilityCardSelect does
+// HandAbilityCardIDs.Add, UIPartyCharacterAbilityCardsDisplay.cs:536). So a joining card landed at
+// the right edge on BOTH paths — the full RebuildFan and the single-card diff alike; the diff was
+// not the cause, it merely inherited it. The fix is one sort at the one place the models are
+// resolved (MapRoomHand.ResolveLoadout, which carries the whole argument, the key, the tie-break
+// and the reading of the game's own comparison). NOTHING about the animations moved: a joining card
+// is now BUILT at its sorted index, so the same VRCard.PlayAppear dusts it in where it belongs and
+// the same Relayout(instant: false) glides its neighbours apart to make room.
+//
 // ─── THE INSPECTION-ONLY GUARANTEE, IN ITS NEW SHAPE ──────────────────────────────────────────
 // USER RULING: "Zwar kann man sonst nicht damit interagieren, aber so kann man sich die aktuell
 // ausgewählten Karten vor einem Szenario nochmal anschauen."
@@ -468,7 +483,13 @@ internal sealed partial class MapRoomHand
     /// <item>BUILD THE NEW SET IN LOADOUT ORDER. Each wanted ID claims the first unclaimed slab that
     /// carries it (so a duplicate ID, which the game does not produce today, cannot claim one slab
     /// twice); an unclaimed ID gets a brand-new <see cref="BuildCard"/>. The card's PLACE therefore
-    /// follows the player's own selection order, exactly as <see cref="RebuildFan"/> does.</item>
+    /// follows <c>_loadout</c>, which since ModBuild 196 is INITIATIVE ORDER and no longer the
+    /// player's append order — see <c>MapRoomHand.ResolveLoadout</c> for the report that changed it
+    /// and the tie-break it chose. A joining card is consequently built at its SORTED index here,
+    /// which is what makes it materialize in its place: <c>CardFan.SetCards -&gt;
+    /// Relayout(instant: false)</c> glides the cards on either side apart around it and
+    /// <c>VRCard.PlayAppear</c> (which seeds itself at the card's asserted HOME) dusts it in there.
+    /// The animation is untouched — only where it plays moved.</item>
     /// <item>EVERY UNCLAIMED SLAB HAS LEFT. It is handed to <c>CardsDriver.OffScenarioFanLeave</c>
     /// (fan exit + crumble) and retired — unless the player is HOLDING it, in which case it stays
     /// published and the diff runs again on the next poll.</item>
@@ -816,9 +837,49 @@ internal sealed partial class MapRoomHand
     private void Publish(bool swap)
     {
         CardsDriver.OffScenarioFanCards = _cards.Count > 0 ? _cards : null;
+        PublishInitiatives();
         if (swap)
             CardsDriver.OffScenarioFanSwap = true;
         CardsDriver.RequestRebuild();
+    }
+
+    /// <summary>The initiative of each published card, index-aligned with <see cref="_cards"/> —
+    /// see <see cref="PublishInitiatives"/>.</summary>
+    private readonly List<int> _initiatives = new(MaxCards);
+
+    /// <summary>
+    /// Hand the driver the SORT KEY behind the published order, index-aligned with the card list.
+    ///
+    /// <para>WHY THE DRIVER NEEDS IT AT ALL: a map-room card deliberately never calls
+    /// <c>VRCard.AttachGameCard</c> (that is the basis of the inspection-only guarantee stated in
+    /// this file's header), so <c>VRCard.GameCard</c> is null for its whole life and the driver —
+    /// which reads a scenario card's initiative straight off <c>GameCard.AbilityCard</c> — has no
+    /// way to ask. This list is what lets <c>CardsDriver.FanInitiative</c> answer for BOTH fans, so
+    /// its order diagnostic is one implementation rather than two.</para>
+    ///
+    /// <para>It is DERIVED, never maintained: rebuilt from <see cref="_cardModels"/> (which is
+    /// already appended in lockstep with <see cref="_cards"/>) at every publish, so it cannot become
+    /// a fifth lockstep invariant to get wrong. A card whose model is missing publishes
+    /// <see cref="NoInitiative"/>, which the driver renders as <c>?</c> and excludes from its
+    /// sortedness verdict rather than treating as a number.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing here goes near the wire. The initiative is a LOCAL number used by
+    /// a LOCAL layout and a LOCAL log line; card identity still never leaves this machine.</para>
+    /// </summary>
+    private void PublishInitiatives()
+    {
+        _initiatives.Clear();
+        if (_cards.Count == 0)
+        {
+            CardsDriver.OffScenarioFanInitiatives = null;
+            return;
+        }
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            CAbilityCard? model = i < _cardModels.Count ? _cardModels[i] : null;
+            _initiatives.Add(model != null ? model.Initiative : CardsDriver.NoInitiative);
+        }
+        CardsDriver.OffScenarioFanInitiatives = _initiatives;
     }
 
     // ==========================================================================================

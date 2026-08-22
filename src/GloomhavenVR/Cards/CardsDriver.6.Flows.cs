@@ -2103,6 +2103,29 @@ internal sealed partial class CardsDriver
     internal static bool OffScenarioFanSwap;
 
     /// <summary>
+    /// The INITIATIVE of each card in <see cref="OffScenarioFanCards"/>, index-aligned with it
+    /// (null = the source published none). The one thing an off-scenario card cannot be asked for
+    /// directly: it carries no <c>AbilityCardUI</c> by construction (see the inspection-only
+    /// guarantee above), so <c>VRCard.GameCard</c> — where a scenario card's initiative is read
+    /// from — is null for its whole life.
+    ///
+    /// <para>Consumed ONLY by <see cref="FanInitiative"/>, i.e. only by the order diagnostic. The
+    /// driver does NOT re-sort with it: the publishing source owns the fan's order (the map room
+    /// sorts its loadout in <c>MapRoomHand.ResolveLoadout</c>, the scenario inherits the game's own
+    /// <c>cardsUI.Sort()</c>), and a second sorting authority here could only ever drift from the
+    /// first. This is the instrument, not the mechanism.</para>
+    ///
+    /// <para>MULTIPLAYER: local only. An initiative is a number about a card the local player is
+    /// looking at; nothing here is sent, and card identity never goes on the wire.</para>
+    /// </summary>
+    internal static IReadOnlyList<int>? OffScenarioFanInitiatives;
+
+    /// <summary>Sentinel for "this card's initiative could not be resolved" — never a real
+    /// initiative. Published by a source that lost a card's model, rendered as <c>?</c> and
+    /// EXCLUDED from the sortedness verdict by <see cref="LogFanOrder"/>.</summary>
+    internal const int NoInitiative = int.MinValue;
+
+    /// <summary>
     /// The bundled <c>CardBacking</c> prefab the factory builds every scenario card on, or null
     /// (procedural fallback). Exposed so an off-scenario source's cards are built from the SAME
     /// asset — a map-room card whose back differs from a scenario card's is exactly the "it does
@@ -2119,6 +2142,7 @@ internal sealed partial class CardsDriver
     internal static void DropOffScenarioFan(string reason)
     {
         OffScenarioFanCards = null;
+        OffScenarioFanInitiatives = null;
         OffScenarioFanSwap = false;
         Instance?.ReleaseOffScenarioFan(reason);
     }
@@ -2183,6 +2207,13 @@ internal sealed partial class CardsDriver
         // APPEAR does (Rebuild, "Issue 2 APPEAR", CardsDriver.4.Rebuild.cs:853-864): PlayAppear
         // snaps the card to its HOME, so the layout must already have asserted one.
         MaterializeNewOffScenarioCards(swap);
+        // ORDER PROOF for the map-room hand — the fan the 2026-08-22 report is about. The order is
+        // the SOURCE's (MapRoomHand.ResolveLoadout sorts the loadout by initiative before it builds
+        // or diffs anything), so a NOT SORTED verdict here names a source that stopped sorting, not
+        // a layout that stopped obeying.
+        LogFanOrder("map-room hand", swap
+            ? "a character exchange on the loadout fan"
+            : "a loadout publish (grep 'MAP-ROOM HAND DIFF' for which card joined or left)");
         _offScenarioLast.Clear();
         _offScenarioLast.AddRange(_fanBuffer);
         _placementRefusal = "the off-scenario (map-room) fan is inspection-only by construction — "
@@ -2279,6 +2310,10 @@ internal sealed partial class CardsDriver
             if (leaving != null)
                 leaving.gameObject.SetActive(false);
         });
+        // The fan's content changed OUTSIDE a publish (CardFan.Remove above), so the order line is
+        // emitted here too — otherwise the last thing the log said about this fan would still name
+        // the card that is now crumbling away.
+        LogFanOrder("map-room hand", $"'{card.name}' left the loadout and is crumbling out");
     }
 
     /// <summary>
@@ -2346,6 +2381,7 @@ internal sealed partial class CardsDriver
             _liveGrabs.Remove(card);
             _fanOriginCards.Remove(card);
         }
+        OffScenarioFanInitiatives = null;   // the keys pointed at cards nobody holds any more
         _fanBuffer.Clear();
         _offScenarioLast.Clear();   // the next adoption is a FIRST one again: no join storm
         _fan.SetCards(_fanBuffer);

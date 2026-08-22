@@ -89,29 +89,50 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 //        ALSO REJECTED — which is the whole lesson of this block: three different solves, three
 //        rejections. The mod does not know where he wants the button. He does.
 //
-// SO THE POSITION PATH CONTAINS NO SOLVE AT ALL. There is no content measurement in it and no inset
-// constant in it. The container's pivot is placed at exactly
+// THE POSITION PATH CARRIED NO SOLVE AT ALL THROUGH ModBuild 196, AND ModBuild 197 PUTS ONE BACK
+// ON PURPOSE — BECAUSE THE USER ASKED FOR THE REFERENCE FRAME TO MOVE. See the ModBuild 197 block
+// below for the ruling and the hardware that backs it. Through 196 the container's pivot went to
 //
 //     window-local (win.rect.xMin, win.rect.yMax) + (OffsetX * windowHeight, OffsetY * windowHeight)
 //
-// and with the shipped defaults of 0 and 0 that is the window rect's top-left anchor reference,
-// which is the point ModBuild 190 put the button on in every frame it rendered (ModBuild 196
-// measured it; see the block below). The `anchoredPosition` that lands on the rect is whatever
-// expresses that point against the anchor the rect is CARRYING — `Vector2.zero` at the anchors
-// `Park` writes, the same two floats 190's log printed.
+// — a FIXED frame, the window rect's top-left corner, which is where ModBuild 190 drew the button in
+// every frame it rendered. That frame is exactly what he rejected at 197: the window rect is a
+// CONSTANT 512x1021 for this card whatever quest is in it, while the quest information inside it is
+// 742, 815 or 863 px tall depending on the text, so one tuned pair of numbers cannot sit under both
+// a short quest and a long one. From 197 the zero MOVES WITH THE INFORMATION.
 //
-// THE FRAME THE DIALS LIVE IN, stated once, AND CORRECTED AT ModBuild 196 AGAINST HARDWARE — see
-// the "ONE-FRAME RELAPSE" block below for the arithmetic that forced the correction. The dials place
-// the container's PIVOT POINT at the window-local point
+// THE FRAME THE DIALS LIVE IN, ModBuild 197. The dials place the container's PIVOT POINT at
 //
-//     (win.rect.xMin + OffsetX * windowHeight,  win.rect.yMax + OffsetY * windowHeight)
+//     _anchorPivot + (OffsetX * windowHeight, OffsetY * windowHeight)
 //
-// i.e. the zero of BOTH dials is the window rect's TOP-LEFT corner, +x is the window's own RIGHT and
-// +y is the window's own UP. That is not a new decision: it is the reference point the container has
-// actually carried in every rendered frame since ModBuild 190 (the game's own layout group re-anchors
-// it to `Vector2.up` before the first frame the player ever sees), so 0/0 is byte-for-byte the pose
-// 190 PUT ON SCREEN. The container carries identity rotation and unit scale, so the dials move the
-// button in the plane of the card and nowhere else.
+// where `_anchorPivot` is the window-local point at which the container's pivot has to sit for
+//
+//   * the TOP edge of the button's own painted content to lie exactly on the BOTTOM edge of the
+//     quest information's painted content, and
+//   * the button's painted content to be horizontally CENTRED on the information's.
+//
+// So 0/0 means "directly underneath the quest information, centred on it" — the thing he has asked
+// for across five builds — and it means that for a short quest and a long one alike, because both
+// terms of it are measured every fifth of a second from what is actually on the card. +x is still
+// the window's own RIGHT and +y its own UP, the unit is still fractions of the WINDOW'S HEIGHT, and
+// the container still carries identity rotation and unit scale, so the dials still move the button
+// in the plane of the card and nowhere else.
+//
+// HIS TUNED NUMBERS DO NOT SURVIVE THIS, AND THAT IS SAID OUT LOUD RATHER THAN PAPERED OVER. He runs
+// TravelButtonOffsetX = 0.244 / OffsetY = -0.726 against the OLD fixed frame. The zero has moved
+// roughly three quarters of a window height down and a quarter of one across, so those two numbers
+// now mean something else entirely and must go back to 0/0. They are NOT auto-migrated — a dropped
+// cfg value is always against the newest build and is taken verbatim, so silently rewriting his file
+// would break the one rule that makes his drops trustworthy. Instead `ZeroMovedNotice` prints ONE
+// line, once per session, at Warn level while either dial is still non-zero, naming both values and
+// saying what to set them to.
+//
+// AND THE NEW ZERO IS NOT A POSE HE HAS TO ACCEPT ON FAITH — IT IS WHERE HE HIMSELF PUT IT. From the
+// ModBuild 196 hardware line (Player.log:4970, window rect 512x1021, one local unit = 0.875 mm):
+// his tuned pair placed the button's painted content at window-local x-centre -7.0, y -201.3..-136.3.
+// The 197 zero places it at x-centre 0.0 (the information's centre, frame-clamped — see below) and
+// y -219.7..-154.7 (its top on the information's bottom). That is 6 mm sideways and 16 mm down from
+// the pose he tuned by hand and accepted. The frame changed; the place did not.
 //
 // THE ANCHORS ARE NO LONGER ASSUMED — THEY ARE READ. `anchoredPosition` is meaningless without the
 // anchor it is measured from, so the applied value is computed every tick as
@@ -133,40 +154,45 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // width for x would make two numbers that look alike mean two different distances, which is exactly
 // the mixed-units bug class this project has already shipped once.
 //
-// THE CLAMPS, AND WHAT THEY ARE IN REAL MILLIMETRES. From the one hardware line this file has
-// (ModBuild 191's): the quest window's rect is 512 x 1021 local units at lossyScale 0.1734 world
-// units per local unit, and the map room runs at a rig scale of ~198 world units per REAL metre, so
-// one local unit is 0.1734 / 198 m = 0.876 mm real. That makes the card 448 mm wide and 894 mm tall
-// in front of the player's face, and the clamps
+// THE CLAMPS, RE-DERIVED AT ModBuild 197 AGAINST THE MOVING ZERO, AND TIGHTENED RATHER THAN WIDENED.
+// From the ModBuild 196 hardware line: the quest window's rect is 512 x 1021 local units at
+// lossyScale 0.1734 world units per local unit, and the map room runs at a rig scale of ~198 world
+// units per REAL metre, so one local unit is 0.1734 / 198 m = 0.875 mm real. That makes the card
+// 448 mm wide and 893 mm tall in front of the player's face, and the clamps are now
 //
-//     OffsetX  in  -0.5 … +0.5  window heights  =  -447 … +447 mm  (0 is the card's LEFT edge, the
-//                                                  card is 0.50 window heights wide so its centre
-//                                                  line is +0.25 and its right edge +0.50)
-//     OffsetY  in  -1.5 … +1.5  window heights  = -1341 … +1341 mm  (0 is the window RECT's TOP
-//                                                  edge and -1.0 = -894 mm is its bottom edge)
+//     OffsetX  in  -0.25 … +0.25 window heights  =  -223 … +223 mm
+//     OffsetY  in  -0.60 … +0.60 window heights  =  -536 … +536 mm
 //
-// cover the whole card and a generous margin all round it.
+// WHY THOSE TWO NUMBERS, and why the old ±0.50 / ±1.50 would now be travel into nowhere:
 //
-// THE Y RANGE WAS ASYMMETRIC (-0.5) THROUGH ModBuild 194 AND IS SYMMETRIC NOW, AND ModBuild 196
-// FINALLY NAMES WHY. 194 argued: "the ZERO of this axis is the card's BOTTOM edge, so a symmetric
-// range would waste half its travel under the floor". 195 widened it anyway because the ModBuild 194
-// PHOTOGRAPH showed the button ABOVE the card's information at 0/0, which 195 could only explain by
-// the card drawing outside its own rect. 196 measured the truth: ZERO IS THE TOP EDGE. The button at
-// 0/0 is above the information because it is above the card's TOP, reaching underneath the
-// information genuinely costs most of a window height of downward travel, and the widened -1.5 is
-// what makes the user's own -0.726 reachable at all. Nothing below the rect is "under the floor" —
-// the container is a child of the window at every value and moves, scales, occludes and goes home
-// with it, which is the same bound the whole box already had.
+//   THE OLD RANGES EXISTED TO REACH THE TARGET. Under the fixed top-left frame the button started
+//   ABOVE the card's top edge and getting it under the information cost most of a window height of
+//   downward travel — that is the entire reason ModBuild 195 widened Y to -1.5, and it is why the
+//   user's own value is -0.726. From 197 the ZERO IS the target, so that journey is no longer part
+//   of the dial's job and the range that paid for it is dead travel.
 //
-// NOTHING IN THAT BOX IS UNREACHABLE, which is the standing bound on any dial. The extremes trace a
-// box that is the window's own outline grown by half a window height (447 mm) on every side, and the
-// button is still a CHILD of the window: it moves, scales, occludes, floats and goes home with it,
-// so no dial value can strand it somewhere in the world, behind the player, or under the table while
-// the window is elsewhere. It is hit by the same raycaster and the same laser that already hit the
-// window the player is looking at, and its CanvasGroup carries blocksRaycasts whenever it is
-// visible, so it is clickable everywhere inside that box. And a setting may only make OPTIONAL
-// content optional: these are PLACEMENT dials for content that is always present — no value of
-// either one removes the confirm button, changes what it does, or affects game state.
+//   X = ±0.25 IS EXACTLY THE CARD. The zero is the information's horizontal centre, the card is
+//   512 px = 0.2507 window heights wide, so ±0.25 reaches its LEFT edge and its RIGHT edge and
+//   essentially nothing beyond. There is no sideways position ON the card this dial cannot express
+//   and no value of it that walks the button off the side.
+//
+//   Y = ±0.60 SPANS THE CARD IN BOTH DIRECTIONS FROM A ZERO THAT IS ALREADY WHERE HE WANTS IT.
+//   Measured: on the SHORT quest the information's bottom edge sat 356 px above the card's own
+//   bottom edge and on the LONG one 189 px above it, so -0.35 already puts the button's top on the
+//   card's bottom edge in the worst of those cases and -0.60 (613 px) carries it a further 257 px
+//   (225 mm) clear below the card; +0.60 lifts it 613 px back up over the information, past its
+//   middle on every quest measured. Every placement anybody has argued for in builds 190-196 is
+//   inside that, and it is half a window height LESS rope than 196 handed out.
+//
+// NOTHING IN THAT BOX IS UNREACHABLE, which is the standing bound on any dial, and the box is now
+// SMALLER than the one 196 shipped. The button is still a CHILD of the window at every value: it
+// moves, scales, occludes, floats and goes home with it, so no dial value can strand it somewhere in
+// the world, behind the player, or under the table while the window is elsewhere. It is hit by the
+// same raycaster and the same laser that already hit the window the player is looking at, and its
+// CanvasGroup carries blocksRaycasts whenever it is visible, so it is clickable everywhere inside
+// that box. And a setting may only make OPTIONAL content optional: these are PLACEMENT dials for
+// content that is always present — no value of either one removes the confirm button, changes what
+// it does, or affects game state.
 //
 // READ LIVE, LEVEL-TRIGGERED. Both dials are read on every tick of `Reconcile` (MapRoomDriver calls
 // it once per frame while the room stands), the wanted offset is recomputed, and it is WRITTEN ONLY
@@ -181,6 +207,97 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 // same raycaster) and it inherits the floated modals' exemption from the game's UI lock. 192 had to
 // re-acquire every one of those on a host of its own, and it still did not look like part of the
 // window, because it was not.
+//
+// ===========================================================================================
+// ModBuild 197 — THE ZERO MOVES WITH THE INFORMATION. A FIXED FRAME CANNOT SIT UNDER A VARIABLE
+// BLOCK OF TEXT, AND THE LOG HAD ALREADY MEASURED BY HOW MUCH.
+// ===========================================================================================
+//
+// ModBuild 196 WORKED — "Das Flackern des Reisen-Buttons hat aufgehört." The LayoutElement opt-out
+// and the pivot-placement both stand and neither is touched here. What he asked for next is a
+// change of REFERENCE FRAME and nothing else:
+//
+//   "Die Position ist jetzt allerdings absolut FIXIERT — die verschiedenen Questinfos sind
+//    unterschiedlich LANG. Ich will die offsets RELATIV ZUM UNTEREN ENDE DER QUESTINFO, so dass er
+//    immer darunter liegt. Bei besonders langen Questinfos sitzt er jetzt DARÜBER."
+//
+// THAT IS A MEASURED FACT AND NOT AN IMPRESSION — the ModBuild 196 hardware log contains the whole
+// proof, in CanvasConversion's own fit lines for this one window in one session:
+//
+//     Player.log:4991  union 590x742 px, bottom edge at host y = -356, target anchored (0,-155)
+//     Player.log:5623  union 590x863 px, bottom edge at host y = -416, target anchored (0,-094)
+//     Player.log:5670  union 590x815 px, bottom edge at host y = -392, target anchored (0,-118)
+//     Player.log:5737  union 590x742 px, bottom edge at host y = -356, target anchored (0,-155)
+//
+// Convert each bottom edge into the WINDOW'S own local space (subtract the target's anchored y, the
+// only thing that separates the two frames) and the card's painted content ends at window-local
+// y = -201, -322, -274, -201.
+//
+// AND THE FIRST AND LAST OF THOSE ARE NOT THE INFORMATION AT ALL — THEY ARE THE BUTTON. That fit
+// does not exclude the travel container the way this class does, and Player.log:4970 puts the
+// button's own painted content at window-local y = -201.3..-136.3 at the user's dials. So on the
+// SHORT quest the lowest thing on the card IS the button, and this class's own sweep (which excludes
+// it) measures the information ending at y = -154.7. On the LONG quest the card reaches -322 with
+// the button still at -201.3: 121 px = 106 mm of information hanging BELOW the button. That is the
+// complaint, in numbers, from a log taken before the complaint was made — "bei besonders langen
+// Questinfos sitzt er DARÜBER". The information's bottom edge travels from -154.7 to -322 across one
+// session, 167 px = 146 mm real, while the window's own rect never moves at all: every one of those
+// four lines carries "target frame 512x1021 px". A dial measured from that rect is measured from
+// something that does not know how long the quest is, which is exactly what he is asking to change.
+//
+// WHAT "THE QUEST INFORMATION" RESOLVES TO, stated so it can be falsified rather than believed. It
+// is the union of the ACTIVE, VISIBLE, UNCLIPPED `Graphic`s under the floated quest window, with the
+// travel container itself excluded, INTERSECTED WITH THE WINDOW'S OWN RECT. Four decisions in that
+// sentence, each with a reason:
+//
+//   GRAPHICS, NOT RECTS, because a uGUI card is full of layout groups and empty spacers whose rects
+//   are far larger than anything drawn in them — the window's own 512x1021 rect being the first of
+//   them. A `Graphic` is the only component that PAINTS.
+//
+//   THE CONTAINER IS EXCLUDED, or the answer would chase itself: the container is a CHILD of the
+//   window, so a sweep that counted it would measure the button as part of the information the
+//   button is supposed to sit under, and every frame would move it further down.
+//
+//   UNCLIPPED IS NEW AT 197 AND IT IS LOAD-BEARING FOR THE LONG QUESTS THIS BUILD IS ABOUT. The
+//   information block contains an `Information/Scroll View`, and a scrolling description's Text
+//   graphic is routinely far TALLER than the viewport that shows it. An unclipped sweep would take
+//   the full text extent, decide the information ends hundreds of pixels below the card, and drive
+//   the button off the bottom of the world — a new failure mode, appearing on exactly the long
+//   quests he is complaining about. So the sweep now honours `CanvasRenderer.cull` and intersects
+//   every graphic with the rect of each enabled `RectMask2D`/`Mask` between it and the window. What
+//   is measured is what is VISIBLE, which is the same rule CanvasConversion's fit already applies
+//   ("rejected ... 0 clipped out" on the lines above).
+//
+//   INTERSECTED WITH THE WINDOW'S RECT, and this one is settled by his own tuning. The raw union on
+//   the ModBuild 196 line reaches x = -577 — 321 px to the LEFT of a card that is only 512 px wide,
+//   from graphics faint enough that CanvasConversion's stricter fit rejects 20 of them outright. Its
+//   centre is therefore x = -160, and the "suggested" line built on it asked for X = 0.094. The
+//   user, tuning by eye, chose 0.244, which puts the button's content centre at x = -7.0 — the
+//   CARD'S centre, 134 mm away from the raw union's. Clamp the union to the card and its centre is
+//   x = 0.0 and the same suggestion becomes X = 0.251. His hand and the clamped measurement agree to
+//   0.007 window heights (6 mm); his hand and the unclamped one disagree by 0.157 (134 mm). The
+//   clamp is not tidiness, it is the difference between reproducing his judgement and overruling it.
+//
+// WHICH LAYOUT STATE IS MEASURED, because this window has two and only one of them renders. A hard
+// fact from the CanvasConversion lane: a measurement taken INSIDE
+// `LayoutRebuilder.ForceRebuildLayoutImmediate` reports an INFLATED subtree that is never drawn.
+// This class never calls it. `Reconcile` runs once per frame from `MapRoomDriver.TickActive` in
+// Update, and the sweep reads `GetWorldCorners` — the transforms uGUI left behind after the LAST
+// COMPLETED layout pass, i.e. the state that was on screen in the previous frame. The placement line
+// says so explicitly and prints the age of the measurement it used, so "which state was that" is
+// never again a thing anybody has to work out from context.
+//
+// THE SOLVE IS A FIXED POINT, NOT A FEEDBACK LOOP. The anchor is `information's bottom/centre` minus
+// `the container's own pivot-to-content offset`, and that second term is invariant under translation
+// — moving the container moves its pivot and its painted content by exactly the same vector, which
+// is what a parent translation IS. So re-solving after a write reproduces the same answer with zero
+// gain; the button cannot walk. (The one input that can genuinely change is the container's internal
+// layout — the label going from "Reisen" to "Quest erneut spielen" makes it wider — and that settles
+// in one step.)
+//
+// COST: the two sweeps are ~50 graphics over ~180 transforms, and they run at most every
+// `AnchorRefreshIntervalSeconds` (0.2 s), not per frame. Between refreshes the placement costs the
+// same one compare it cost at 196. The information does not change faster than the quest does.
 //
 // ===========================================================================================
 // ModBuild 196 — THE ONE-FRAME RELAPSE. THE PARENT WINDOW HAS A uGUI LAYOUT GROUP, AND SINCE 190
@@ -417,50 +534,67 @@ internal static class MapTravelConfirm
     // class doc for the millimetre figures and for why nothing inside these bounds is unreachable.
 
     /// <summary>Sideways travel of the confirm button, in fractions of the quest window's own
-    /// HEIGHT, either way from the window rect's LEFT edge (ModBuild 196 named the reference that
-    /// has been in force since 190; the number and the range are unchanged). ±0.5 ≈ ±447 mm at the
-    /// measured rig scale, and the card is 0.50 window heights wide, so the range spans the card
-    /// from its left edge to its right edge and half a card further either way.</summary>
-    internal const float OffsetLimitX = 0.5f;
+    /// HEIGHT, either way from the QUEST INFORMATION'S horizontal centre (ModBuild 197 moved the
+    /// zero there; through 196 it was the window rect's left edge). ±0.25 ≈ ±223 mm at the measured
+    /// rig scale, and the card is 512 px = 0.2507 window heights wide, so this range reaches the
+    /// card's left edge and its right edge and essentially nothing beyond: every sideways position
+    /// ON the card is expressible and no value walks the button off the side.
+    ///
+    /// <para>TIGHTENED AT ModBuild 197 FROM ±0.50. The old range was half a card wider on each side
+    /// because the zero used to be the card's LEFT EDGE and the dial had to carry the button across
+    /// the whole card before it could be trimmed. With the zero on the information's centre that
+    /// journey is already made.</para></summary>
+    internal const float OffsetLimitX = 0.25f;
 
     /// <summary>
-    /// Lowest vertical offset, in fractions of the window's height, measured UP from the window
-    /// rect's TOP edge (which is where 0 sits — see the ModBuild 196 block in the class doc: the
-    /// bottom edge was the frame this file BELIEVED it was writing in, the top edge is the one it
-    /// has actually been drawing in since 190, and the user's tuned values are measured from it).
-    /// -1.5 ≈ 1341 mm below that edge, i.e. half a card below the card's bottom edge.
+    /// Lowest vertical offset, in fractions of the window's height, measured UP from the QUEST
+    /// INFORMATION'S BOTTOM EDGE — the moving zero ModBuild 197 introduced, where 0 puts the top of
+    /// the button's painted content exactly on the bottom of the information's. -0.6 ≈ 536 mm below
+    /// that edge.
     ///
-    /// <para>WIDENED AT ModBuild 195 FROM -0.5, AND ModBuild 196 EXPLAINS WHY THAT WAS RIGHT FOR A
-    /// REASON 195 COULD NOT SEE. 195 kept the premise "0 is the card's bottom edge" and widened the
-    /// range because the ModBuild 194 PHOTOGRAPH showed the button ABOVE the card's information at
-    /// 0/0, which it could only explain as the card drawing outside its own rect. The real reason is
-    /// simpler and is now measured: 0 IS THE TOP EDGE, so the button at 0/0 is above the card because
-    /// it is above the card's TOP, and reaching underneath the information genuinely costs most of a
-    /// window height of downward travel. The widened bound is what makes the user's own -0.726
-    /// reachable at all. The default is still 0 and no behaviour changes until a dial is turned.</para>
+    /// <para>TIGHTENED AT ModBuild 197 FROM -1.5, WHICH IS THE OPPOSITE OF WHAT 195 DID AND FOR THE
+    /// SAME REASON. 195 widened this bound to -1.5 so the button could REACH the information from a
+    /// zero that sat above the card's top edge, and that is what made the user's -0.726 possible at
+    /// all. From 197 the zero IS the information's bottom edge, so the whole journey the widened
+    /// bound paid for is already made and the rest of it is dead travel a tuner can get lost in.
+    /// MEASURED: on the ModBuild 196 hardware line the information's bottom edge sat 355 px above
+    /// the card's own bottom edge, so -0.35 already lands the button's top on the card's bottom
+    /// edge and -0.60 carries it 226 mm clear below the card. Nothing anybody has argued for since
+    /// ModBuild 190 lies outside that.</para>
     ///
     /// <para>STILL BOUNDED, and by the same argument the class doc makes for every value in the box:
-    /// the container never stops being a CHILD of the quest window, so at -1.5 it is 1341 mm below
-    /// the window's rect top and still moving, scaling, occluding and going home with the card,
-    /// still hit by the raycaster that already hits the window, and still carrying blocksRaycasts
-    /// whenever it is visible. No value of this dial removes the button, changes what it does, or
-    /// touches game state.</para>
+    /// the container never stops being a CHILD of the quest window, so at -0.6 it is 536 mm below
+    /// the information and still moving, scaling, occluding and going home with the card, still hit
+    /// by the raycaster that already hits the window, and still carrying blocksRaycasts whenever it
+    /// is visible. No value of this dial removes the button, changes what it does, or touches game
+    /// state.</para>
     /// </summary>
-    internal const float OffsetLimitYMin = -1.5f;
+    internal const float OffsetLimitYMin = -0.6f;
 
-    /// <summary>Highest vertical offset, same frame and unit. 0 is the window rect's TOP edge, so
-    /// +1.5 ≈ 1341 mm above it — one and a half cards clear of the card's own top.</summary>
-    internal const float OffsetLimitYMax = 1.5f;
+    /// <summary>Highest vertical offset, same frame and unit. 0 is the quest information's BOTTOM
+    /// edge, so +0.6 ≈ 536 mm above it — back up over the information, past its middle on every
+    /// quest measured so far.</summary>
+    internal const float OffsetLimitYMax = 0.6f;
 
     // ---- the other constants ---------------------------------------------------------------------
 
     /// <summary>
-    /// Alpha below which a Graphic is not counted as visible CONTENT in the LOG's content sweep. uGUI
+    /// Alpha below which a Graphic is not counted as visible CONTENT in the content sweeps. uGUI
     /// bars routinely carry a full-width fully transparent Image as a raycast blocker, and reporting
-    /// the whole HUD bar's width as "what the player sees" would make the evidence line useless.
-    /// Nothing derived from this reaches the placement.
+    /// the whole HUD bar's width as "what the player sees" would make both the evidence line and the
+    /// ModBuild 197 zero wrong in the same direction.
     /// </summary>
     private const float MinVisibleAlpha = 0.02f;
+
+    /// <summary>
+    /// Seconds between re-measurements of the ModBuild 197 anchor (the information's bottom edge and
+    /// centre, and the container's own pivot-to-content offset). NOT per frame: the two sweeps walk
+    /// ~180 transforms and the thing they measure changes when the QUEST changes, not when the frame
+    /// does. A fifth of a second is far below the time it takes a window to re-fit and far above the
+    /// frame rate, so the button follows a new quest visibly at once and costs nothing in between.
+    /// The first tick after a park always measures, whatever this says.
+    /// </summary>
+    private const float AnchorRefreshIntervalSeconds = 0.2f;
 
     /// <summary>How far the dialled offset must move before it is written (container-local uGUI
     /// units). Sub-pixel churn is not worth a transform write, and a rect rewritten every frame is
@@ -490,11 +624,17 @@ internal static class MapTravelConfirm
     /// </summary>
     private const float DriftReportIntervalSeconds = 8f;
 
-    /// <summary>Graphic sink for the log's content sweep — reused, so it allocates nothing.</summary>
+    /// <summary>Graphic sink for the content sweeps — reused, so it allocates nothing.</summary>
     private static readonly List<Graphic> ContentGraphics = new(32);
 
     /// <summary>World-corner scratch for the same sweep.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    /// <summary>A SECOND corner scratch, for the clip rects of the mask ancestors. It cannot share
+    /// <see cref="CornerScratch"/>: the graphic's own corners are still being folded into the union
+    /// while the mask walk runs, and one buffer for two readers is the aliasing bug this repo has
+    /// already shipped once in a blit chain.</summary>
+    private static readonly Vector3[] MaskCornerScratch = new Vector3[4];
 
     // ---- the park record (written ONCE, before the first move) ---------------------------------
 
@@ -554,6 +694,50 @@ internal static class MapTravelConfirm
     private static bool _holdHomeBlocksRaycasts = true;
     private static bool _hidden;
 
+    // ---- the moving zero (ModBuild 197) ----------------------------------------------------------
+    //
+    // Everything below is the answer to "where is the bottom of the quest information THIS quest",
+    // carried between ticks so the two sweeps do not have to run per frame. See the ModBuild 197
+    // block in the class doc for what the subject is, why it is clipped and frame-clamped, and why
+    // re-solving it after a write reproduces the same answer instead of walking.
+
+    /// <summary>The window-local point the container's PIVOT sits on when both dials are 0 — i.e.
+    /// the pose at which the button's painted content has its TOP edge on the information's BOTTOM
+    /// edge and is horizontally CENTRED on it.</summary>
+    private static Vector2 _anchorPivot;
+
+    /// <summary>False until the two sweeps have both succeeded at least once for this parking. While
+    /// it is false NO POSE IS WRITTEN and the hold-down keeps the button off screen — the same rule
+    /// a window with no height already had, and bounded by the same reveal deadline.</summary>
+    private static bool _anchorValid;
+
+    private static float _anchorNextRefreshAt;
+    private static float _anchorResolvedAt = float.NegativeInfinity;
+
+    // The measurement the live anchor was solved from, kept so the placement line describes the
+    // SAME numbers the pose was computed from rather than a fresh sweep taken later in the tick.
+    private static Rect _anchorInfoRaw;
+    private static Rect _anchorInfo;
+    private static Rect _anchorButton;
+    private static int _anchorInfoCounted;
+    private static int _anchorInfoSkipped;
+    private static int _anchorInfoClipped;
+    private static int _anchorButtonCounted;
+    private static int _anchorButtonSkipped;
+    private static int _anchorButtonClipped;
+
+    /// <summary>Why the last refresh did not produce an anchor, or "resolved". Printed, so "the zero
+    /// could not be measured" and "the zero is stale" are different lines in a log.</summary>
+    private static string _anchorWhy = "never measured yet";
+
+    /// <summary>How far the information's bottom edge moved the last time the anchor changed, in
+    /// window-local units — the number that makes "it follows the quest length" falsifiable.</summary>
+    private static float _anchorLastMoveY;
+
+    /// <summary>One-shot per session: the dials' zero changed meaning at ModBuild 197 and any tuned
+    /// value from an earlier build is now measured from somewhere else.</summary>
+    private static bool _zeroNoticeLogged;
+
     // ---- placement state ------------------------------------------------------------------------
 
     /// <summary>A pose has been written for the current window rect. This — and NOT any content
@@ -590,11 +774,15 @@ internal static class MapTravelConfirm
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
                           + "invention), and the game's real Reisen/Abbrechen buttons are parked INSIDE "
-                          + "the floated quest window at the ModBuild 190 pose (the container's pivot on "
-                          + "the window rect's top-left anchor reference — the point 190 actually drew "
-                          + "it at, measured at ModBuild 196), movable from there with the live "
-                          + "[WorldUI] TravelButtonOffsetXWindowHeights / …YWindowHeights dials. Travel "
-                          + "now commits through that button and through nothing else.");
+                          + "the floated quest window DIRECTLY UNDER THE QUEST INFORMATION — since "
+                          + "ModBuild 197 that is a MEASURED, MOVING reference (the bottom edge and "
+                          + "horizontal centre of what the card is actually painting, re-read four "
+                          + "times a second), so the placement holds for a short quest and a long one "
+                          + "alike. Movable from there with the live [WorldUI] "
+                          + "TravelButtonOffsetXWindowHeights / …YWindowHeights dials, whose ZERO IS "
+                          + "THAT POINT — any value tuned against ModBuild 196 or earlier was measured "
+                          + "from the window's fixed top-left corner instead and has to go back to 0. "
+                          + "Travel now commits through that button and through nothing else.");
     }
 
     /// <summary>
@@ -663,7 +851,15 @@ internal static class MapTravelConfirm
             _wasActive = active;
             _activeSince = Time.unscaledTime;
             if (active)
+            {
                 _revealForcedLogged = false;
+                // THE ONE EVENT WORTH JUMPING THE CADENCE FOR (ModBuild 197). The container's own
+                // painted content cannot be measured while the game has it switched off, so the
+                // measurement that was standing while it was hidden is the stalest one there is —
+                // and this is the exact instant the player is about to look at the button. Re-measure
+                // on this tick rather than up to 0.2 s into it.
+                _anchorNextRefreshAt = float.NegativeInfinity;
+            }
         }
 
         PlaceButton(questWindow, options, mgr);
@@ -675,10 +871,11 @@ internal static class MapTravelConfirm
             var btn = mgr != null ? _travelButton?.GetValue(mgr) as Component : null;
             VRLog.Info(Scope, "MAP TRAVEL CONFIRM: the game's travel options were moved from "
                               + $"'{(_optionsHome != null ? _optionsHome.name : "<none>")}' INTO the floated "
-                              + $"quest window '{questWindow.name}' at the ModBuild 190 pose (user ruling: "
-                              + "\"Mach die Position des Quest Buttons ganz rückgängig wie es das erste mal "
-                              + "war\"), offset from there only by the two [WorldUI] TravelButtonOffset "
-                              + "dials — both 0 by default, which is that pose exactly. The button itself "
+                              + $"quest window '{questWindow.name}', placed DIRECTLY UNDER THE QUEST "
+                              + "INFORMATION (user ruling, ModBuild 197: \"Ich will die offsets relativ "
+                              + "zum unteren Ende der Questinfo, so dass er immer darunter liegt\"), "
+                              + "offset from there only by the two [WorldUI] TravelButtonOffset "
+                              + "dials — both 0 by default, which is that placement exactly. The button itself "
                               + $"is '{(btn != null ? btn.name : "<not found>")}' — the SAME ExtendedButton "
                               + "the flat game uses, so its label (Reisen / Quest erneut spielen), its "
                               + "interactable state and every guard behind OnTravelButtonClick are the "
@@ -744,6 +941,7 @@ internal static class MapTravelConfirm
         _wasActive = options.activeInHierarchy;
         _activeSince = Time.unscaledTime;
         ResetDriftWatch();
+        ResetAnchor("a new parking — the information has not been measured in this window yet");
 
         // THE ModBuild 190 SEQUENCE, IN THE ORDER IT HAS ALWAYS HAD, WITH THE ANCHOR CORRECTED TO
         // THE ONE 190 ACTUALLY DREW WITH (ModBuild 196). 190 through 195 wrote (0.5, 0) here, and
@@ -758,14 +956,22 @@ internal static class MapTravelConfirm
         // offset from whatever anchor the rect is carrying, so this line sets a starting value and
         // never has to defend it. Every property is recorded above and written back verbatim on
         // unpark.
+        //
+        // ONE REORDERING AT ModBuild 197, AND IT CHANGES NO END STATE. The rotation and the scale are
+        // now written BEFORE `ApplyPose` instead of after it. Every one of these writes is
+        // unconditional and none of them reads another, so the container ends this method in exactly
+        // the state it ended it in at 196 — but `ApplyPose` now MEASURES the container's painted
+        // content, and a measurement taken while the container still carried the flat HUD's own scale
+        // or rotation would solve the zero against a shape that is about to change. The sweep must
+        // see the final one.
         rect.SetParent(win, worldPositionStays: false);
         rect.SetAsLastSibling();
         rect.anchorMin = Vector2.up;
         rect.anchorMax = Vector2.up;
         rect.pivot = new Vector2(0.5f, 1f);
-        ApplyPose(rect, win, out _, out _, out _);
         rect.localRotation = Quaternion.identity;
         rect.localScale = Vector3.one;
+        ApplyPose(rect, win, out _, out _, out _);
         return true;
     }
 
@@ -805,6 +1011,7 @@ internal static class MapTravelConfirm
         ReleaseHold();
         ReleaseLayoutIgnore();
         ResetDriftWatch();
+        ResetAnchor("the container was unparked");
         _watchNextReportAt = float.PositiveInfinity;
 
         _posed = false;
@@ -1011,13 +1218,15 @@ internal static class MapTravelConfirm
                 VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: the travel options are being revealed although no "
                                   + "placement could be written for them (deadline "
                                   + $"{ShowDeadlineSeconds * 1000f:F0} ms since the game enabled them). "
-                                  + "THE CAUSE IS ALWAYS THE SAME ONE: the floated quest window's rect "
-                                  + "reports no height, so a non-zero [WorldUI] TravelButtonOffset dial "
-                                  + "has nothing to be a fraction OF and the offset would land somewhere "
-                                  + "arbitrary. CONSEQUENCE: the button is showing wherever it last stood "
-                                  + "rather than where the dials say. A button that never appears would be "
-                                  + "the worse failure, so visibility wins. Set both dials back to 0 to "
-                                  + "get the ModBuild 190 pose, which needs no window height at all.");
+                                  + "THERE ARE EXACTLY TWO CAUSES AND THE PLACEMENT LINE NAMES WHICH: "
+                                  + "either the floated quest window's rect reports no height, so a dial "
+                                  + "has nothing to be a fraction OF; or the quest information's bottom "
+                                  + "edge — the ModBuild 197 zero — could not be measured yet, which the "
+                                  + $"'zero' field of that line spells out ({_anchorWhy}). CONSEQUENCE: "
+                                  + "the button is showing wherever it last stood rather than where the "
+                                  + "dials say. A button that never appears would be the worse failure, "
+                                  + "so visibility wins. It corrects itself on the first tick either "
+                                  + "measurement succeeds; if this line repeats, REPORT IT.");
             }
         }
         bool wantVisible = active && ready;
@@ -1029,7 +1238,8 @@ internal static class MapTravelConfirm
 
     /// <summary>
     /// The two dials, read LIVE and clamped to the same bounds the bind site advertises. Fractions of
-    /// the quest window's own height, measured from the window rect's TOP-LEFT corner; +x is the
+    /// the quest window's own height, measured from the ModBuild 197 zero — the point at which the
+    /// button's painted content sits directly under the quest information, centred on it; +x is the
     /// window's right, +y is its up.
     /// </summary>
     private static Vector2 Dials()
@@ -1043,10 +1253,9 @@ internal static class MapTravelConfirm
     }
 
     /// <summary>
-    /// Write the dialled offset onto the parked container. NO SOLVE, NO MEASUREMENT — with both dials
-    /// at 0 this writes <c>Vector2.zero</c>, which is the ModBuild 190 pose the user asked to have
-    /// back, and no other input can change that. Level-triggered: the write is skipped whenever the
-    /// rect already carries the wanted value, so a steady state costs one compare.
+    /// Write the dialled offset onto the parked container, measured from the ModBuild 197 moving
+    /// zero. Level-triggered: the write is skipped whenever the rect already carries the wanted
+    /// value, so a steady state costs one compare (and, four times a second, two content sweeps).
     /// </summary>
     /// <returns>True when the container now carries the dialled offset.</returns>
     private static bool ApplyPose(RectTransform rect, RectTransform win,
@@ -1057,20 +1266,30 @@ internal static class MapTravelConfirm
         windowHeight = Mathf.Abs(frame.height);
         want = Vector2.zero;
         // A window whose rect has no height yet (a uGUI layout is not final on the frame a window is
-        // floated) has nothing for a FRACTION to be a fraction of, AND no edge for the dials' zero
-        // to sit on. That tick writes nothing and the hold-down in TickVisibility keeps the button
-        // off-screen while it waits; the reveal deadline bounds the wait.
+        // floated) has nothing for a FRACTION to be a fraction of. That tick writes nothing and the
+        // hold-down in TickVisibility keeps the button off-screen while it waits; the reveal deadline
+        // bounds the wait.
         if (windowHeight <= 0f)
         {
             _posed = false;
             return false;
         }
 
-        // THE POSE IS A WINDOW-LOCAL POINT, NOT AN anchoredPosition (ModBuild 196). The zero of both
-        // dials is the window rect's TOP-LEFT corner — the anchor reference the container has
-        // actually carried in every rendered frame since ModBuild 190 (class doc, fifteen samples).
-        Vector2 wantPivot = new(frame.xMin + dials.x * windowHeight,
-                                frame.yMax + dials.y * windowHeight);
+        // THE ZERO IS MEASURED, NOT A WINDOW EDGE (ModBuild 197). Refreshed on a cadence, never per
+        // frame, and it is the ONE input that decides where 0/0 lands. Until it has been measured
+        // once for this parking nothing is written at all — a pose from an unmeasured zero would be
+        // the "confident wrong placement" that got 191, 192 and 193 rejected, and the hold-down plus
+        // the reveal deadline already cover the wait.
+        MaybeRefreshAnchor(win, rect, frame);
+        if (!_anchorValid)
+        {
+            _posed = false;
+            return false;
+        }
+
+        // THE POSE IS A WINDOW-LOCAL POINT, NOT AN anchoredPosition (ModBuild 196, unchanged).
+        Vector2 wantPivot = new(_anchorPivot.x + dials.x * windowHeight,
+                                _anchorPivot.y + dials.y * windowHeight);
 
         // ANCHORS ARE READ, NEVER RE-WRITTEN. anchoredPosition means nothing without the anchor it
         // is measured from, so the number that lands on the rect is derived from the anchor the rect
@@ -1110,6 +1329,178 @@ internal static class MapTravelConfirm
     {
         Vector2 a = (anchorMin + anchorMax) * 0.5f;
         return new Vector2(frame.xMin + a.x * frame.width, frame.yMin + a.y * frame.height);
+    }
+
+    // ---- the moving zero: WHERE THE QUEST INFORMATION ENDS (ModBuild 197) ------------------------
+
+    /// <summary>Forget the measured zero. Called on every park and unpark, so an anchor can never be
+    /// carried from one window — or one quest's parking — into another.</summary>
+    private static void ResetAnchor(string why)
+    {
+        _anchorValid = false;
+        _anchorNextRefreshAt = float.NegativeInfinity;
+        _anchorResolvedAt = float.NegativeInfinity;
+        _anchorPivot = Vector2.zero;
+        _anchorInfoRaw = default;
+        _anchorInfo = default;
+        _anchorButton = default;
+        _anchorInfoCounted = 0;
+        _anchorInfoSkipped = 0;
+        _anchorInfoClipped = 0;
+        _anchorButtonCounted = 0;
+        _anchorButtonSkipped = 0;
+        _anchorButtonClipped = 0;
+        _anchorLastMoveY = 0f;
+        _anchorWhy = why;
+    }
+
+    /// <summary>
+    /// Re-measure the zero if it is due, and keep the last good one otherwise.
+    ///
+    /// <para>THE CADENCE IS THE POINT. The two sweeps below walk every Graphic under the window; the
+    /// thing they measure changes when the QUEST changes, which is many thousands of frames apart.
+    /// Running them per frame would buy nothing and cost a per-frame walk of ~180 transforms in a
+    /// room whose Update budget is already the one the perf line complains about.</para>
+    ///
+    /// <para>A FAILED REFRESH NEVER CLEARS A GOOD ANCHOR. The container is switched off by the game
+    /// whenever no location is staged, and a sweep of an inactive subtree finds nothing; treating
+    /// that as "the information moved to the origin" would throw the button across the card every
+    /// time he deselects a location. Failure keeps the last measurement and says so in
+    /// <see cref="_anchorWhy"/>.</para>
+    /// </summary>
+    private static void MaybeRefreshAnchor(RectTransform win, RectTransform rect, Rect frame)
+    {
+        float now = Time.unscaledTime;
+        // THE CADENCE BINDS FAILURES TOO, deliberately. The container is switched off whenever no
+        // location is staged, and a sweep of an inactive subtree finds nothing — so "retry until it
+        // works" would mean two full Graphic walks EVERY FRAME for as long as the player has the
+        // quest window open without a location selected, in a room whose Update budget is already the
+        // one the perf line complains about. A failed attempt therefore waits like a successful one.
+        // The first attempt of a parking is exempt (Park leaves the deadline at -inf), and 0.2 s is
+        // inside the ShowDeadlineSeconds reveal bound, so nothing is held down any longer for it.
+        if (now < _anchorNextRefreshAt)
+            return;
+        _anchorNextRefreshAt = now + AnchorRefreshIntervalSeconds;
+
+        if (!TryContentBounds(win, rect, excludeRoot: null, out Rect btn,
+                              out int btnCounted, out int btnSkipped, out int btnClipped))
+        {
+            _anchorWhy = "the container has no visible Graphic this tick (the game usually has it "
+                         + "switched off when no location is staged) — the previous zero is kept";
+            return;
+        }
+        if (!TryContentBounds(win, win, excludeRoot: rect, out Rect infoRaw,
+                              out int infoCounted, out int infoSkipped, out int infoClipped))
+        {
+            _anchorWhy = "the quest window has no visible Graphic outside the button itself — the "
+                         + "previous zero is kept";
+            return;
+        }
+
+        // FRAME-CLAMPED, and the class doc carries the hardware that settles it: the raw union of
+        // this card reaches 321 px to the LEFT of a 512 px card, from graphics faint enough that
+        // CanvasConversion's own fit throws twenty of them away. Intersecting with the card is what
+        // makes the horizontal zero agree with the position the user tuned by hand (6 mm) instead of
+        // disagreeing with it (134 mm). The vertical side of the clamp almost never bites — the
+        // information's bottom edge measured 355 px INSIDE the card — and when it does it saturates
+        // the zero at the card's own bottom edge rather than sending the button after content drawn
+        // past it.
+        Rect info = Rect.MinMaxRect(Mathf.Max(infoRaw.xMin, frame.xMin),
+                                    Mathf.Max(infoRaw.yMin, frame.yMin),
+                                    Mathf.Min(infoRaw.xMax, frame.xMax),
+                                    Mathf.Min(infoRaw.yMax, frame.yMax));
+        if (info.width <= 0f || info.height <= 0f)
+        {
+            _anchorWhy = "the information's visible union does not overlap the window's own rect at "
+                         + "all, so clamping it to the card leaves nothing to measure — the previous "
+                         + "zero is kept";
+            return;
+        }
+
+        // THE CONTAINER'S OWN PIVOT-TO-CONTENT OFFSET, which is what makes this a fixed point rather
+        // than a feedback loop: translating the container moves its pivot and its painted content by
+        // the SAME vector, so this difference does not depend on where the container currently is,
+        // and re-solving after a write reproduces the same answer with zero gain.
+        //
+        // THE PIVOT IS READ FROM THE TRANSFORM, NOT REBUILT FROM THE ANCHORS. `RectTransform.position`
+        // IS the pivot's world position, so this is exact whatever anchors the rect carries — where
+        // `anchorReference + anchoredPosition` is only exact while anchorMin == anchorMax, and the
+        // one thing this file has learned the hard way is that a second writer can re-anchor this
+        // rect between two of our ticks. Same reason the painted content is read from world corners.
+        Vector3 pivotLocal = win.InverseTransformPoint(rect.position);
+        float contentTopFromPivot = btn.yMax - pivotLocal.y;
+        float contentCentreFromPivot = btn.center.x - pivotLocal.x;
+
+        Vector2 solved = new(info.center.x - contentCentreFromPivot,
+                             info.yMin - contentTopFromPivot);
+
+        _anchorLastMoveY = _anchorValid ? solved.y - _anchorPivot.y : 0f;
+        _anchorPivot = solved;
+        _anchorValid = true;
+        _anchorResolvedAt = now;
+        _anchorInfoRaw = infoRaw;
+        _anchorInfo = info;
+        _anchorButton = btn;
+        _anchorInfoCounted = infoCounted;
+        _anchorInfoSkipped = infoSkipped;
+        _anchorInfoClipped = infoClipped;
+        _anchorButtonCounted = btnCounted;
+        _anchorButtonSkipped = btnSkipped;
+        _anchorButtonClipped = btnClipped;
+        _anchorWhy = "resolved";
+    }
+
+    /// <summary>
+    /// ONE LINE, ONCE PER SESSION: the dials' ZERO changed meaning at ModBuild 197, so any value
+    /// tuned against an earlier build now points somewhere else.
+    ///
+    /// <para>WHY THIS AND NOT AN AUTOMATIC MIGRATION. A dropped cfg value in this project is always
+    /// measured against the newest build and is taken verbatim — that is the rule that makes a
+    /// dropped value trustworthy at all. A build that quietly rewrote the user's numbers would break
+    /// it for every future drop, and it would have to GUESS a window height and a quest length to do
+    /// the arithmetic with. So the mod states the change and he decides, which is also the standing
+    /// ruling for this whole file: "ich stell es selber ein".</para>
+    ///
+    /// <para>Warn rather than Info while either dial is non-zero, because in that state the button
+    /// really is in the wrong place and the line is the only thing that explains why.</para>
+    /// </summary>
+    private static void ZeroMovedNotice(Vector2 dials, float windowHeight, float mmPerLocalY)
+    {
+        if (_zeroNoticeLogged)
+            return;
+        _zeroNoticeLogged = true;
+        if (dials == Vector2.zero)
+        {
+            VRLog.Info(Scope, "MAP TRAVEL CONFIRM: the two [WorldUI] TravelButtonOffset dials are at "
+                              + "0/0 and their ZERO MOVED at ModBuild 197 — it is no longer the quest "
+                              + "window's fixed top-left corner but the BOTTOM EDGE OF THE QUEST "
+                              + "INFORMATION, measured live from what the card is actually painting. "
+                              + "0/0 therefore now means 'the button's content sits directly under the "
+                              + "information, centred on it', for a short quest and a long one alike. "
+                              + "Nothing to do.");
+            return;
+        }
+        VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: YOUR TUNED TRAVEL-BUTTON OFFSETS ARE MEASURED FROM A "
+                          + "NEW ZERO. [WorldUI] TravelButtonOffsetXWindowHeights = "
+                          + $"{dials.x:F3} and TravelButtonOffsetYWindowHeights = {dials.y:F3} were "
+                          + "tuned against ModBuild 196, whose zero was the quest window's FIXED "
+                          + "top-left corner. ModBuild 197 moved the zero onto the BOTTOM EDGE OF THE "
+                          + "QUEST INFORMATION (your own request: the offsets should be relative to "
+                          + "the end of the quest info so the button always lies underneath it), "
+                          + "which is roughly three quarters of a window height further down and a "
+                          + "quarter of one across. THOSE TWO NUMBERS THEREFORE NOW MEAN SOMETHING "
+                          + "ELSE and are pushing the button "
+                          + $"{dials.x * windowHeight * mmPerLocalY:F0} mm sideways and "
+                          + $"{dials.y * windowHeight * mmPerLocalY:F0} mm vertically AWAY from "
+                          + "'directly underneath'. SET BOTH BACK TO 0 — 0/0 is now exactly the "
+                          + "placement you asked for, and on the hardware line this build was "
+                          + "derived from it lands within 6 mm sideways and 16 mm below the pose you "
+                          + "tuned by hand. Nothing was migrated for you on purpose: a value you drop "
+                          + "is always taken verbatim against the newest build, and a build that "
+                          + "rewrote your config would break that. The ranges also tightened, to "
+                          + $"±{OffsetLimitX:F2} and {OffsetLimitYMin:F2}…{OffsetLimitYMax:F2}, "
+                          + "because the travel the old range paid for is the travel the new zero "
+                          + "already makes.");
     }
 
     // ---- the drift watch: PROOF that nothing writes this rect behind us -------------------------
@@ -1273,19 +1664,22 @@ internal static class MapTravelConfirm
     }
 
     /// <summary>
-    /// The union of the ACTIVE, VISIBLE Graphics under <paramref name="sweepRoot"/>, expressed in
-    /// <paramref name="frame"/>'s local space, optionally skipping everything under
-    /// <paramref name="excludeRoot"/>. EVIDENCE ONLY — nothing it returns reaches
-    /// <c>anchoredPosition</c>; see <see cref="LogPlacement"/> for the two things it is used for and
-    /// for the standing rule that the DIALS decide the pose and this measurement never does.
+    /// The union of the ACTIVE, VISIBLE, UNCLIPPED Graphics under <paramref name="sweepRoot"/>,
+    /// expressed in <paramref name="frame"/>'s local space, optionally skipping everything under
+    /// <paramref name="excludeRoot"/>.
     ///
-    /// <para>IT IS CALLED TWICE PER LOGGED TICK, WITH THE SAME FRAME AND DIFFERENT ROOTS, and that is
-    /// the whole point of the parameters. Once on the CONTAINER, to say where the button's own
-    /// painted pixels ended up; once on the WINDOW with the container excluded, to say where the
-    /// quest card's INFORMATION is. Both answers land in the WINDOW'S local space — the frame the two
-    /// dials are defined in — so the difference between them is directly a dial value, with no
-    /// assumption at all about the container's own rotation or scale (which the log would otherwise
-    /// have had to take on trust from <c>Park</c>).</para>
+    /// <para>SINCE ModBuild 197 THIS IS ON THE WRITE PATH, which it never was before. Through 196 it
+    /// filled in the log line and nothing it returned could reach <c>anchoredPosition</c>; the user
+    /// then asked for the offsets to be measured from the END OF THE QUEST INFORMATION, and that is a
+    /// measurement or it is nothing. Everything it answers is still printed on the placement line, so
+    /// a wrong placement can still be blamed on the sweep with numbers rather than argued about.</para>
+    ///
+    /// <para>IT IS CALLED TWICE PER REFRESH, WITH THE SAME FRAME AND DIFFERENT ROOTS, and that is the
+    /// whole point of the parameters. Once on the CONTAINER, to say where the button's own painted
+    /// pixels are; once on the WINDOW with the container excluded, to say where the quest card's
+    /// INFORMATION is. Both answers land in the WINDOW'S local space — the frame the two dials are
+    /// defined in — so the difference between them is directly a dial value, with no assumption at
+    /// all about the container's own rotation or scale.</para>
     ///
     /// <para>THE EXCLUSION IS LOAD-BEARING, not tidiness: the container is a CHILD of the window
     /// since ModBuild 190, so a sweep of the window that did not skip it would measure the button as
@@ -1297,17 +1691,27 @@ internal static class MapTravelConfirm
     /// MEASURED rather than read off the window. A Graphic is the only component that PAINTS, so the
     /// union of the enabled, non-transparent, non-degenerate ones is "what the player can see".</para>
     ///
+    /// <para>CLIPPING IS HONOURED, NEW AT ModBuild 197 AND LOAD-BEARING FOR EXACTLY THE LONG QUESTS
+    /// THIS BUILD IS ABOUT. The information block contains an <c>Information/Scroll View</c>, and a
+    /// scrolling description's Text graphic is routinely far taller than the viewport showing it. An
+    /// unclipped union would decide the information ends hundreds of pixels below the card and drive
+    /// the button off the bottom of the world. So a Graphic whose <c>CanvasRenderer</c> uGUI has
+    /// already culled is dropped, and every surviving one is intersected with the rect of each
+    /// enabled <c>RectMask2D</c>/<c>Mask</c> between it and the frame. What is measured is what is
+    /// VISIBLE — the same rule CanvasConversion's own host-rect fit applies.</para>
+    ///
     /// <para>Corner-based, not rect-based: a child may sit several transforms deep, so its rect is in
     /// ITS parent's space. <c>GetWorldCorners</c> + <c>InverseTransformPoint</c> lands every corner in
     /// the frame with no assumption about the chain between them.</para>
     /// </summary>
     private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
                                          Transform? excludeRoot, out Rect content,
-                                         out int counted, out int skipped)
+                                         out int counted, out int skipped, out int clipped)
     {
         content = default;
         counted = 0;
         skipped = 0;
+        clipped = 0;
         ContentGraphics.Clear();
         sweepRoot.GetComponentsInChildren(includeInactive: false, ContentGraphics);
         float xMin = float.PositiveInfinity, yMin = float.PositiveInfinity;
@@ -1331,21 +1735,98 @@ internal static class MapTravelConfirm
                 skipped++;
                 continue;
             }
+            // uGUI's own verdict first: RectMask2D sets this on a child it has clipped away
+            // entirely, so it costs one field read and settles the common case.
+            CanvasRenderer cr = g.canvasRenderer;
+            if (cr != null && cr.cull)
+            {
+                clipped++;
+                continue;
+            }
             rt.GetWorldCorners(CornerScratch);
+            float gxMin = float.PositiveInfinity, gyMin = float.PositiveInfinity;
+            float gxMax = float.NegativeInfinity, gyMax = float.NegativeInfinity;
             for (int c = 0; c < 4; c++)
             {
                 Vector3 p = frame.InverseTransformPoint(CornerScratch[c]);
-                if (p.x < xMin) xMin = p.x;
-                if (p.x > xMax) xMax = p.x;
-                if (p.y < yMin) yMin = p.y;
-                if (p.y > yMax) yMax = p.y;
+                if (p.x < gxMin) gxMin = p.x;
+                if (p.x > gxMax) gxMax = p.x;
+                if (p.y < gyMin) gyMin = p.y;
+                if (p.y > gyMax) gyMax = p.y;
             }
+            if (!ClipToMasks(frame, rt, ref gxMin, ref gyMin, ref gxMax, ref gyMax))
+            {
+                clipped++;
+                continue;
+            }
+            if (gxMin < xMin) xMin = gxMin;
+            if (gxMax > xMax) xMax = gxMax;
+            if (gyMin < yMin) yMin = gyMin;
+            if (gyMax > yMax) yMax = gyMax;
             counted++;
         }
         if (counted == 0)
             return false;
         content = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
         return true;
+    }
+
+    /// <summary>
+    /// Intersect one graphic's frame-space box with every enabled <c>RectMask2D</c>/<c>Mask</c>
+    /// between it and <paramref name="frame"/> (inclusive), and report whether anything is left.
+    ///
+    /// <para>The walk stops AT the frame, because a mask above the quest window clips the window as a
+    /// whole and moving the button would not escape it — while a mask INSIDE the window (the
+    /// description's scroll viewport) is precisely the thing that decides where the readable
+    /// information ends.</para>
+    ///
+    /// <para>A <c>Mask</c> is treated as its own rect, which is the approximation uGUI itself makes
+    /// for a rectangular sprite and errs on the side of measuring LESS. A mask sitting on the
+    /// graphic's own object never clips that graphic — it is what draws the stencil — so it is
+    /// skipped.</para>
+    /// </summary>
+    private static bool ClipToMasks(RectTransform frame, RectTransform rt,
+                                    ref float xMin, ref float yMin, ref float xMax, ref float yMax)
+    {
+        Transform? t = rt;
+        while (t != null)
+        {
+            if (t.TryGetComponent(out RectMask2D rectMask) && rectMask.enabled
+                && rectMask.rectTransform != null)
+                IntersectWithRect(frame, rectMask.rectTransform,
+                                  ref xMin, ref yMin, ref xMax, ref yMax);
+            if (t.TryGetComponent(out Mask mask) && mask.enabled && mask.rectTransform != null
+                && !ReferenceEquals(mask.rectTransform, rt))
+                IntersectWithRect(frame, mask.rectTransform, ref xMin, ref yMin, ref xMax, ref yMax);
+            if (xMax <= xMin || yMax <= yMin)
+                return false;
+            if (ReferenceEquals(t, frame))
+                break;
+            t = t.parent;
+        }
+        return xMax > xMin && yMax > yMin;
+    }
+
+    /// <summary>Fold one clipper's frame-space box into the running one.</summary>
+    private static void IntersectWithRect(RectTransform frame, RectTransform clipper,
+                                          ref float xMin, ref float yMin,
+                                          ref float xMax, ref float yMax)
+    {
+        clipper.GetWorldCorners(MaskCornerScratch);
+        float cxMin = float.PositiveInfinity, cyMin = float.PositiveInfinity;
+        float cxMax = float.NegativeInfinity, cyMax = float.NegativeInfinity;
+        for (int c = 0; c < 4; c++)
+        {
+            Vector3 p = frame.InverseTransformPoint(MaskCornerScratch[c]);
+            if (p.x < cxMin) cxMin = p.x;
+            if (p.x > cxMax) cxMax = p.x;
+            if (p.y < cyMin) cyMin = p.y;
+            if (p.y > cyMax) cyMax = p.y;
+        }
+        if (cxMin > xMin) xMin = cxMin;
+        if (cyMin > yMin) yMin = cyMin;
+        if (cxMax < xMax) xMax = cxMax;
+        if (cyMax < yMax) yMax = cyMax;
     }
 
     /// <summary>
@@ -1412,30 +1893,61 @@ internal static class MapTravelConfirm
         // walks string literals with a single-quote-depth reader), and a tool that mis-parses this
         // file reports its Harmony patch as unregistered. Not worth the saved locals.
         //
+        // THE LINE REPORTS THE MEASUREMENT THE POSE WAS COMPUTED FROM, NOT A FRESH ONE (ModBuild 197).
+        // Through 196 this method took its own two sweeps, which was harmless while nothing they
+        // returned could reach the transform; now that the zero IS the measurement, a second sweep
+        // taken later in the tick could disagree with the one the button was placed by and the log
+        // would be describing a pose that was never written. Both rects below are the cached ones,
+        // with the age of the measurement printed beside them.
+        //
         // BOTH SWEEPS ARE TAKEN IN THE WINDOW'S OWN LOCAL SPACE — the frame the dials are defined in
         // — so the two rects below and the anchoredPosition above are all in the same units and can
-        // simply be subtracted. 194 measured the container in CONTAINER-local space, which was
-        // correct but not comparable to anything else on the line.
-        bool haveButton = TryContentBounds(win, rect, excludeRoot: null,
-                                           out Rect btnContent, out int counted, out int skipped);
+        // simply be subtracted.
+        bool haveButton = _anchorValid;
+        bool haveInfo = _anchorValid;
+        Rect btnContent = _anchorButton;
+        Rect info = _anchorInfo;
+        float measuredAgeMs = _anchorResolvedAt > float.NegativeInfinity
+            ? (Time.unscaledTime - _anchorResolvedAt) * 1000f
+            : -1f;
         string contentHow = haveButton
-            ? $"{counted} visible Graphic(s) ({skipped} skipped as disabled/transparent/zero-sized), "
+            ? $"{_anchorButtonCounted} visible Graphic(s) ({_anchorButtonSkipped} skipped as "
+              + $"disabled/transparent/zero-sized, {_anchorButtonClipped} clipped away by a mask), "
               + $"union in WINDOW-LOCAL space {btnContent}"
             : "NOT MEASURABLE — no visible Graphic in the container";
-        bool haveInfo = TryContentBounds(win, win, excludeRoot: rect,
-                                         out Rect info, out int infoCounted, out int infoSkipped);
         string infoHow = haveInfo
-            ? $"{infoCounted} visible Graphic(s) ({infoSkipped} skipped as disabled/transparent/"
-              + "zero-sized or belonging to the button itself), union in WINDOW-LOCAL space "
-              + $"{info}. COMPARE THAT WITH THE WINDOW RECT ABOVE: uGUI does not clip a child to its "
-              + "parent's rect without a Mask, so the card's information can and does extend outside "
-              + "it, and where the rect ends is NOT where the card ends"
+            ? $"{_anchorInfoCounted} visible Graphic(s) ({_anchorInfoSkipped} skipped as disabled/"
+              + $"transparent/zero-sized or belonging to the button itself, {_anchorInfoClipped} "
+              + "clipped away by a mask — that last count is the scrolling description's viewport "
+              + "doing its job, and without it a long quest would push this rect hundreds of px "
+              + $"below the card). RAW union {_anchorInfoRaw}, CLAMPED to the window's own rect "
+              + $"{info} — the clamp is what makes the horizontal zero agree with the position the "
+              + "user tuned by hand; see the ModBuild 197 block. THE BOTTOM EDGE OF THIS RECT IS THE "
+              + $"ZERO OF THE Y DIAL: window-local y = {info.yMin:F1}, i.e. "
+              + $"{(info.yMin - win.rect.yMin) * mmPerLocalY:F0} mm above the card's own bottom edge "
+              + $"and {(win.rect.yMax - info.yMin) * mmPerLocalY:F0} mm below its top. IT MOVES WITH "
+              + "THE QUEST: a longer information block puts it lower and the button follows"
             : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
+        string measuredHow = _anchorValid
+            ? $"{_anchorWhy}, {measuredAgeMs:F0} ms ago (re-measured at most every "
+              + $"{AnchorRefreshIntervalSeconds:F2} s). Taken in Update from GetWorldCorners, i.e. "
+              + "from the LAST COMPLETED uGUI layout — the state that was on screen — and NOT from "
+              + "inside a LayoutRebuilder.ForceRebuildLayoutImmediate, which this class never calls "
+              + "and which is known to report an inflated subtree that never renders"
+            : $"NO ZERO MEASURED: {_anchorWhy}";
+        float infoMovedMm = _anchorLastMoveY * mmPerLocalY;
+        string movedZeroHow = Mathf.Abs(_anchorLastMoveY) > OffsetEpsilon
+            ? $"THE INFORMATION'S BOTTOM EDGE MOVED {_anchorLastMoveY:F1} local units "
+              + $"({infoMovedMm:F0} mm real, negative = further down) since the previous measurement, "
+              + "and the button moved with it. That is the ModBuild 197 behaviour working: a longer "
+              + "or shorter quest text changes this number and the placement follows it"
+            : "the information's bottom edge has not moved since the previous measurement";
         string holdHow = _hidden ? "HELD DOWN (alpha 0)" : "revealed";
         Vector2 anchorRef = AnchorReference(win.rect, rect.anchorMin, rect.anchorMax);
         string poseHow = dials == Vector2.zero
-            ? "BOTH DIALS AT 0, so this is byte-for-byte the ModBuild 190 pose the user asked for"
-            : "offset from the ModBuild 190 pose by the two dials";
+            ? "BOTH DIALS AT 0, so the button's content top edge is ON the quest information's bottom "
+              + "edge and centred on it — 'direkt unter der Info', for this quest's length"
+            : "offset from 'directly under the quest information' by the two dials";
         float mmPerTenth = 0.1f * windowHeight * mmPerLocalY;
 
         // WHAT THE LAST TURN OF A DIAL ACTUALLY DID, in the unit the user judges in. The first line
@@ -1455,12 +1967,16 @@ internal static class MapTravelConfirm
             $"MAP TRAVEL CONFIRM placement — INSIDE the quest window '{host.name}', {poseHow}.\n"
             + $"  dials     : [WorldUI] TravelButtonOffsetXWindowHeights = {dials.x:F3}, "
             + $"TravelButtonOffsetYWindowHeights = {dials.y:F3} (fractions of the WINDOW'S HEIGHT; "
-            + "+x = right, +y = up, and the ZERO OF BOTH IS THE WINDOW RECT'S TOP-LEFT CORNER — "
-            + "ModBuild 196 measured that this, and not the bottom-centre this file used to claim, "
-            + "is the reference the button has actually been placed from since ModBuild 190). "
+            + "+x = right, +y = up, and since ModBuild 197 the ZERO OF BOTH IS THE QUEST "
+            + "INFORMATION'S BOTTOM EDGE AND HORIZONTAL CENTRE — a MOVING reference that is "
+            + "re-measured from what the card is painting, so 0/0 is 'directly underneath' for a "
+            + "short quest and a long one alike. It is NOT the window rect's top-left corner any "
+            + "more, which is what 196 used and what any value tuned before this build was measured "
+            + "from). "
             + $"Clamped to {-OffsetLimitX:F2}…{OffsetLimitX:F2} and {OffsetLimitYMin:F2}…"
-            + $"{OffsetLimitYMax:F2}. Read live, every tick — turn them and the button moves on the "
-            + "next frame.\n"
+            + $"{OffsetLimitYMax:F2} (tightened at 197 from ±0.50 / -1.50…1.50: the travel the old "
+            + "range paid for is the travel the new zero already makes). Read live, every tick — "
+            + "turn them and the button moves on the next frame.\n"
             + $"  window    : rect {win.rect} (height {windowHeight:F1} local units), lossyScale "
             + $"{win.lossyScale.y:F4} WORLD units per local unit; rig scale {rigScale:F2} WORLD units "
             + $"per REAL metre, so one local unit is {mmPerLocalY:F3} mm real and the whole card is "
@@ -1472,111 +1988,104 @@ internal static class MapTravelConfirm
             + "NEVER RE-WRITTEN, so if a game component re-anchors this rect the offset below simply "
             + "recomputes and the button does not move.\n"
             + $"  applied   : anchoredPosition = {want}, putting the container's pivot at "
-            + $"{anchorRef + want} in window-local space = the window rect's top-left corner "
-            + $"({win.rect.xMin:F1}, {win.rect.yMax:F1}) plus (dial.x, dial.y) x {windowHeight:F1}. "
-            + "Nothing else is in this number — no content measurement, no inset. The container is "
-            + $"currently {holdHow}.\n"
+            + $"{anchorRef + want} in window-local space = the measured zero "
+            + $"({_anchorPivot.x:F1}, {_anchorPivot.y:F1}) plus (dial.x, dial.y) x {windowHeight:F1}. "
+            + $"The container is currently {holdHow}.\n"
+            + $"  zero      : {measuredHow}.\n"
+            + $"  zero moved: {movedZeroHow}.\n"
             + $"  layout    : {_layoutOwner}. The container carries a LayoutElement with ignoreLayout "
             + $"= {(_layoutIgnore != null && _layoutIgnore.ignoreLayout ? "TRUE" : "NOT SET")}, which "
             + "is what keeps that group from writing this rect's anchors and anchoredPosition on "
             + "every rebuild — the ModBuild 195 one-frame relapse.\n"
             + $"  button    : {btnWhere}.\n"
             + $"  moved     : {movedHow}.\n"
-            + $"  content   : {contentHow} — EVIDENCE ONLY: the visible-graphic sweep 191 and 193 "
-            + "solved their placements from still runs, but nothing it returns can reach "
-            + "anchoredPosition. It is here so this line can say where the button ended up.\n"
+            + $"  content   : {contentHow} — this is one of the two rects the zero above is solved "
+            + "from: the button's own painted pixels. If the placement looks wrong, these numbers "
+            + "and the ones on the next line are what to doubt.\n"
             + $"  info block: {infoHow}.\n"
-            + $"  {Recommendation(haveButton, btnContent, haveInfo, info, dials, windowHeight)}\n"
-            + "  TUNING    : both dials are 0 = the ModBuild 190 pose, whole — which ModBuild 196 "
-            + "measured to be the window rect's TOP-LEFT corner, not its bottom-centre, so 0/0 puts "
-            + "the button just above the card's top edge exactly as the ModBuild 194 photograph "
-            + "shows it. Y is measured UP from the TOP edge, so the value that puts the button under "
-            + $"the information is NEGATIVE and near -0.7; the range reaches {OffsetLimitYMin:F2} for "
-            + "exactly that reason. The card spans X = 0.00 (its LEFT edge) to X = "
-            + $"{Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2} (its right edge), "
-            + $"so its centre line is X = {0.5f * Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2}. "
-            + "THIS LINE PRINTS ON EVERY DIAL CHANGE, at most every "
-            + $"{ResolveLogIntervalSeconds:F1} s. Whether anything is still fighting us for this "
-            + "rect is no longer a guess from how often this line repeats — the 'drift watch' line "
-            + "counts it directly, comparisons included.");
+            + $"  {ZeroCheck(haveButton, btnContent, haveInfo, info, dials, windowHeight)}\n"
+            + "  TUNING    : 0/0 now means the button's content sits DIRECTLY UNDER the quest "
+            + "information and centred on it, whatever that quest's length — that is the whole "
+            + "change in ModBuild 197 and it is why any value tuned before this build has to go back "
+            + "to 0. From there the dials are nudges: -0.05 on Y opens a "
+            + $"{0.05f * windowHeight * mmPerLocalY:F0} mm breathing gap under the information, "
+            + $"0.1 on either dial = {mmPerTenth:F0} mm. The card is "
+            + $"{Mathf.Abs(win.rect.width) / Mathf.Max(windowHeight, 0.0001f):F2} window heights "
+            + $"wide, so X = ±{OffsetLimitX:F2} reaches its left and right edges and no further. "
+            + "THIS LINE PRINTS ON EVERY DIAL CHANGE AND WHENEVER THE MEASURED ZERO MOVES, at most "
+            + $"every {ResolveLogIntervalSeconds:F1} s. Whether anything is still fighting us for "
+            + "this rect is no longer a guess from how often this line repeats — the 'drift watch' "
+            + "line counts it directly, comparisons included.");
+        ZeroMovedNotice(dials, windowHeight, mmPerLocalY);
     }
 
     /// <summary>
-    /// THE TWO NUMBERS TO TYPE IN TO GET "DIREKTER UNTER DER INFO" — printed, never applied.
+    /// THE RESIDUAL. Through ModBuild 196 this method printed the two numbers the user had to TYPE IN
+    /// to get "direkter UNTER der Info"; at 197 those two numbers ARE the zero, so the same arithmetic
+    /// becomes a self-check on the placement instead of a suggestion for the user.
     ///
-    /// <para>USER RULING, ModBuild 195, verbatim: "Immer noch ist der Bestätigungsknopf in der
-    /// Questinfo an der falschen Stelle. Siehe bestätigungsknopf.jpg - er soll direkter UNTER der
-    /// info sein." AND the standing ruling from 194 that he does the moving himself. Those two are
-    /// only compatible one way: the mod supplies the MEASUREMENT he cannot take from inside a headset
-    /// and he supplies the DECISION. So this returns a line of text. Nothing in it reaches
-    /// <c>anchoredPosition</c>, nothing in it changes a default, and setting both dials to 0 still
-    /// gives the ModBuild 190 pose exactly — his first instruction is not silently reversed by the
-    /// existence of a suggestion in a log file.</para>
+    /// <para>WHAT IT PROVES. The suggestion is <c>dial + (measured delta) / windowHeight</c>. Under
+    /// the 197 anchor the measured delta is exactly <c>-dial * windowHeight</c> — the anchor is
+    /// defined so that it is — so a healthy build prints (0.000, 0.000) AT ANY DIAL SETTING. Anything
+    /// else means the zero the pose was written from and the content that is actually on screen
+    /// disagree, and the residual says by how much and in which direction. That is a stronger
+    /// instrument than the suggestion was: it is a claim that can FAIL, printed on every line, rather
+    /// than a number nobody can check from inside a headset.</para>
     ///
-    /// <para>THE DERIVATION, which is arithmetic on two measured rects and contains no invented
-    /// constant. Both rects are in the WINDOW'S local space. Translating the container by Δ moves its
-    /// whole painted subtree by the same Δ — that is what a parent translation IS, and it holds
-    /// whatever the container's own scale and rotation are, which is why the sweep is taken in the
-    /// window's frame rather than the container's. Then "directly under the information" is:</para>
+    /// <para>THE DERIVATION IS UNCHANGED and contains no invented constant. Both rects are in the
+    /// WINDOW'S local space. Translating the container by Δ moves its whole painted subtree by the
+    /// same Δ — that is what a parent translation IS, and it holds whatever the container's own scale
+    /// and rotation are, which is why the sweeps are taken in the window's frame rather than the
+    /// container's. "Directly under the information" is:</para>
     /// <list type="bullet">
     ///   <item>VERTICALLY: the TOP edge of the button's painted content lands on the BOTTOM edge of
     ///   the information's painted content — <c>Δy = info.yMin - button.yMax</c>. Zero gap, because
     ///   any gap would be a number nobody measured; "directly under" is the literal reading of
-    ///   "direkter UNTER", and a breathing space is one more downward nudge he can add by eye.</item>
+    ///   "direkter UNTER", and a breathing space is one downward nudge he can add by eye.</item>
     ///   <item>HORIZONTALLY: the button's painted content is centred on the information's —
     ///   <c>Δx = info.center.x - button.center.x</c>. The 191 rejection named the x axis explicitly
     ///   ("auch auf der x-achse verschoben"), so it is derived rather than left at 0.</item>
     /// </list>
-    /// <para>The suggested dials are then <c>dial + Δ / windowHeight</c>, in the same unit the two
-    /// dials already use — a distance in window heights added to a distance in window heights, which
-    /// needs no reference point and therefore cannot be wrong about which edge the dials measure
-    /// from. (Through ModBuild 195 this added Δ to the applied <c>anchoredPosition</c> instead, which
-    /// was only right while the anchor was the one this file believed it had written.)
-    /// IF EITHER FALLS OUTSIDE ITS CLAMP THE LINE SAYS SO INSTEAD OF QUIETLY
-    /// PRINTING AN UNREACHABLE NUMBER — a suggestion that cannot be entered is worse than none,
-    /// because it looks like the dial is broken.</para>
     /// </summary>
-    private static string Recommendation(bool haveButton, Rect btnContent,
-                                         bool haveInfo, Rect info,
-                                         Vector2 dials, float windowHeight)
+    private static string ZeroCheck(bool haveButton, Rect btnContent,
+                                    bool haveInfo, Rect info,
+                                    Vector2 dials, float windowHeight)
     {
-        const string Head = "suggested : ";
+        const string Head = "zero check: ";
         if (windowHeight <= 0f)
             return Head + "NOT DERIVABLE this tick — the window rect reports no height, so a fraction "
                    + "of it is not a distance. Nothing is wrong; look at the next line.";
         if (!haveButton || !haveInfo)
             return Head + "NOT DERIVABLE this tick — one of the two content sweeps above found "
-                   + "nothing to measure, and a suggestion from half a measurement is a guess. The "
-                   + "dials still work; this line is the only thing missing.";
+                   + "nothing to measure, so there is nothing to check the placement against. The "
+                   + "last measured zero is still in force; this line is the only thing missing.";
 
-        // Where the container has to move for the two conditions in the doc to hold, expressed
-        // straight back into the dials' own frame. ModBuild 196 states it as CURRENT DIAL + MEASURED
-        // DELTA / window height, which needs no reference point at all: a dial is a distance in
-        // window heights, the measured delta is a distance in the same space, and one is added to
-        // the other. (Through 195 this added the delta to the applied anchoredPosition, which was
-        // only correct while the anchor happened to be the one the dials were documented against —
-        // and hardware proved it was not.)
-        float dialX = dials.x + (info.center.x - btnContent.center.x) / windowHeight;
-        float dialY = dials.y + (info.yMin - btnContent.yMax) / windowHeight;
-        float clampedX = Mathf.Clamp(dialX, -OffsetLimitX, OffsetLimitX);
-        float clampedY = Mathf.Clamp(dialY, OffsetLimitYMin, OffsetLimitYMax);
-        bool outOfRange = !Mathf.Approximately(dialX, clampedX) || !Mathf.Approximately(dialY, clampedY);
-        string reach = outOfRange
-            ? " — BUT AT LEAST ONE OF THOSE IS OUTSIDE THE DIAL'S RANGE (X clamps to "
-              + $"±{OffsetLimitX:F2}, Y to {OffsetLimitYMin:F2}…{OffsetLimitYMax:F2}), so it cannot be "
-              + $"entered as it stands: the reachable best is ({clampedX:F3}, {clampedY:F3}). REPORT "
-              + "THIS LINE — the clamp is a constant in MapTravelConfirm and widening it is a "
-              + "one-line change, but it must not be widened on a guess"
-            : " — both are inside the dials' ranges, so they can be typed in as they stand";
-        return Head
-               + "to put the button DIRECTLY UNDER THE QUEST INFORMATION — its content's top edge on "
-               + "the information's bottom edge, and horizontally centred on it — set [WorldUI] "
-               + $"TravelButtonOffsetXWindowHeights = {dialX:F3} and TravelButtonOffsetYWindowHeights "
-               + $"= {dialY:F3}" + reach + ". THAT IS A SUGGESTION AND NOTHING ELSE: it is not "
-               + "applied, it is not a default, and 0/0 still gives the ModBuild 190 pose you asked "
-               + "to have back. It is derived only from the two measured content rects on the lines "
-               + "above (delta = info.yMin - button.yMax vertically, info.centre - button.centre "
-               + "sideways, zero gap), so if it looks wrong the sweep is what to doubt, not the dial.";
+        // The residual: where the button would still have to go to be exactly under the information,
+        // expressed in the dials' own unit. Under the ModBuild 197 anchor this is (0,0) by
+        // construction at any dial setting — see the doc above.
+        float residualX = dials.x + (info.center.x - btnContent.center.x) / windowHeight;
+        float residualY = dials.y + (info.yMin - btnContent.yMax) / windowHeight;
+        bool clean = Mathf.Abs(residualX) * windowHeight <= OffsetEpsilon
+                     && Mathf.Abs(residualY) * windowHeight <= OffsetEpsilon;
+        if (clean)
+            return Head + "PASS — the button's painted content is exactly where the dials say it "
+                   + "should be relative to the quest information (residual "
+                   + $"{residualX:F3}, {residualY:F3} window heights, i.e. under half a uGUI unit on "
+                   + "both axes). At 0/0 that means its top edge is ON the information's bottom edge "
+                   + "and it is centred on it; at any other dial pair it means the offset from that "
+                   + "point is exactly the pair you set.";
+        return Head + "RESIDUAL — the button is NOT where the measured zero plus the dials say it "
+               + $"should be: it is still {residualX:F3} window heights "
+               + $"({residualX * windowHeight:F1} local units) sideways and {residualY:F3} "
+               + $"({residualY * windowHeight:F1} local units) vertically away from 'the dialled "
+               + "offset from directly-under-the-information'. This should be 0/0 at ANY dial setting "
+               + "— it is a self-check, not a suggestion — so a non-zero value means the zero the "
+               + "pose was written from and the content now on screen disagree. The most likely "
+               + "causes, in order: the information moved between the last measurement and this frame "
+               + "(look at the 'zero' line's age above; it settles on the next refresh), or the "
+               + "container's own internal layout changed because the button's label did (Reisen vs "
+               + "Quest erneut spielen; that settles in one step too). A residual that PERSISTS "
+               + "across several lines is a real fault — REPORT THIS LINE.";
     }
 
     /// <summary>World units per real metre at the current rig scale, or 1 when there is no rig.

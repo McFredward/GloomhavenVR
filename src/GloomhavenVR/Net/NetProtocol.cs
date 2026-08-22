@@ -416,7 +416,204 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 196;
+    public const ushort ModBuild = 197;
+    // Build 197: THE WINDOW NEVER MOVED — EVERY EDGE DID; AND THE GREY WAS A SHADER TERM NOBODY
+    // RESET. (Seven workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── ModBuild 196's PERF FIX IS CONFIRMED ON HARDWARE ───────────────────────────────────
+    // ModalFallback 12.692 ms -> 0.032 ms/frame. Session frametime mean 18.31 -> 11.15 ms, p50
+    // 17.33 -> 11.09 ms against an 11.11 ms budget, over-budget 100% -> ~49%. The map room now
+    // holds 90 Hz. `Destinations` no longer ranks in the top two phases.
+    //
+    // ── (3) THE POSE NEVER MOVED. EVERY EDGE DID. ─────────────────────────────────────────
+    // User: "Die Character-UI ändert konstant seine Größe je nachdem welches Submenu geöffnet ist …
+    // Auch die Position flippt manchmal wenn sich neue Overlays öffnen."
+    // THOSE ARE ONE DEFECT, NOT TWO. All nine paths that can write a floated window's world pose were
+    // enumerated and NONE fired: `MODAL DIAG` is change-gated at 0.01 world units = 0.05 mm at scale
+    // 198.12, and across 1,149 snapshots every position change for the three floated windows is
+    // bracketed by its own grab/release lines. `Quest Log Manager` sat at exactly
+    // (28.66, 226.43, -99.95) for 714 SECONDS. What fired is the SIZE: the equipment tab alone drives
+    // 860 -> 896 -> 860 -> 896 -> 932 -> … -> 1899 -> 860 px in a few seconds, and the drawn window
+    // swings between 0.29x0.95 m and 1.00x0.56 m. About a STATIONARY CENTRE that is the top edge
+    // dropping ~19 cm and each side edge moving out ~35 cm. The centre stands still and every edge
+    // moves — which is exactly what "die Position springt" looks like.
+    // A pose lock shipped anyway so the ruling holds by construction, not by luck: any pose write to a
+    // revealed, ungrabbed window that no placement path announced is REVERTED and its caller named.
+    // Bounded at 8 corrections, then it concedes and says so (ModBuild 179's write-war rule). Frame
+    // stamps use a -1_000_000 sentinel, NOT int.MinValue — `now - int.MinValue` overflows negative and
+    // passes every recency test, which would have made the lock report "the player is holding it"
+    // forever. And "a size change cannot move a window" is no longer an assertion: the DRAWN CENTRE is
+    // measured across every size change and the verdict line reports how many were checked.
+    //
+    // ── (3) THE FIXED SIZE IS 1143 px, AND THE NUMBER IS DERIVED ──────────────────────────
+    // Height is 1080 px in every state, so this is purely a width problem. The five sub-views measure
+    // 328 (no tab) / 716 (enhance) / 860 (equipment) / 1066 (cards) / 1920 (perks, selector); battle
+    // goals was NEVER OPENED in the logged session and is stated as unmeasured rather than guessed.
+    // NOT 1920, though that is the widest. The host width also sets how large everything is DRAWN,
+    // because DeriveWindowScale caps the physical width and shrinks the panel to get there. The logged
+    // panel scales prove the breakpoint: 0.173 at 328/716/860/1066/1136 px, then 0.169 at 1173, 0.163
+    // at 1213, 0.133 at 1485, 0.103 at 1920. From ~1143 px up the window is pinned at ~1.00 m and every
+    // further pixel is paid for by shrinking content. 1143 = 0.8 / (0.7 x 0.001), and the legibility
+    // dial cancels out of that breakpoint because it multiplies both terms.
+    // At 1920 the PERMANENTLY VISIBLE character column would be drawn at 60 % of today's size — back in
+    // the sampling band ModBuild 189's legibility dial was raised to escape, and this panel cannot buy
+    // it back because PanelSupersample is deliberately off for it.
+    // The two full-screen sub-views scale to 0.595 = 0.521 of authored after the panel scale, i.e.
+    // EXACTLY what they are drawn at today; the other five states get back the 1.68x they used to lose.
+    // LEFT-aligned, not centred: the character column is the leftmost element in every state, and
+    // centring the union would slide it across the frame on every tab change — the same complaint in a
+    // different costume.
+    // COSTS, STATED: empty frame to the right of the column when no tab is open; and the map-room arc
+    // claim becomes a PERMANENT 45° instead of 45°-only-while-a-tab-is-open, so a second window
+    // overlaps it at the current reading distance. That was already true whenever a tab was open.
+    //
+    // ── (2) THE TRAVEL BUTTON: THE WINDOW DOES NOT KNOW HOW LONG THE QUEST IS ─────────────
+    // User: "Die verschiedenen Quest-Infos sind verschieden lang … ich möchte dass die offsets relativ
+    // zum unteren Ende der Questinfos sind." The window rect is a CONSTANT 512x1021 on four separate
+    // fit lines, so no window-fixed zero could ever have done this. The information's measured bottom
+    // edge: -154.7 (short quest), -274 (medium), -322 (long) — 167 px = 146 mm of travel in ONE
+    // session. His complaint is in the ModBuild 196 log as a number, taken BEFORE he made it: on the
+    // long quest 121 px = 106 mm of information hangs BELOW the button.
+    // The zero is now the measured bottom edge of what the card is PAINTING. Two decisions in that
+    // measurement, both checked against his own hand:
+    //   * CLIPPING IS HONOURED. An unclipped union would take a scrolled description's FULL text height
+    //     and drive the button hundreds of px below the card — a new failure mode on exactly the long
+    //     quests he is complaining about.
+    //   * THE UNION IS CLAMPED to the window rect. Raw, it reaches x = -577, i.e. 321 px left of a
+    //     512 px card, from graphics so faint the conversion's own fit throws 20 of them away; its
+    //     centre is x = -160. His hand-tuned X = 0.244 puts the content centre at x = -7.0. HIS HAND
+    //     AGREES WITH THE CLAMPED MEASUREMENT TO 6 mm AND DISAGREES WITH THE RAW ONE BY 134 mm.
+    // 0/0 now means: the button's content TOP edge on the information's BOTTOM edge, centred on it.
+    // HIS TUNED VALUES ARE NOW WRONG AND ARE DELIBERATELY NOT AUTO-MIGRATED — a dropped cfg is his,
+    // and silently rewriting it would break that rule. A one-shot WARN names both values and says to
+    // set them to 0. The consolation is measured: 0/0 lands 6 mm sideways and 16 mm down from the pose
+    // he tuned by hand and accepted. The frame changed; the place did not.
+    // The clamps are TIGHTER, not wider: ±0.50 -> ±0.25 and -1.50…1.50 -> -0.60…0.60. The old range
+    // existed only to carry the button from above the card down to the information — the journey the
+    // new zero now makes by itself. The old `suggested` line became a RESIDUAL SELF-CHECK that must
+    // print (0.000, 0.000) at any dial setting: a claim that can fail, not a suggestion.
+    //
+    // ── (4) THE GREY IS A SHADER TERM, AND MY OWN READING OF THE PHOTO WAS WRONG ──────────
+    // I told the user the difference looked like the WHOLE card and was probably scene lighting on a
+    // lit shader. THE MEASUREMENT FALSIFIED THAT, and his original wording was literally correct.
+    // Sampling matched features at the same on-screen size (~320 px, so no mip term):
+    //   title bar   overlay (184.5,63.9,58.3) vs fan (179.9,65.7,61.9)   IDENTICAL
+    //   ornament    (198,150,146) vs (191,162,158)                       identical within 4 %
+    //   frame rail  (55,6,2) vs (50,3,0)                                 IDENTICAL
+    //   ACTION PLATE FILL  (105.9,16.8,27.9) vs (46.7,31.5,33.2)         COLLAPSED
+    // It is a DESATURATION confined to the two action plates, fitting lerp(overlay, luminance 36.5,
+    // 0.85) to a count or two on every channel. A MULTIPLY CANNOT RAISE GREEN FROM 17 TO 32 — so no
+    // tint, no alpha and no CanvasGroup can produce it, which kills that whole family at once.
+    // Cause: the game's `CardEffects._GreyOut` (the spent-card wash) on `GUI/AbilityCard_Shd`. Its rest
+    // value is written in exactly ONE place, `CardEffects.RestoreCard()`, reachable only via Awake ->
+    // Initialize. A mod-built front never gets it, for two independent reasons on the same object:
+    // `TryPooledClone` spawns with activate:false under an INACTIVE holder so Awake never runs, and
+    // `StripFragileEffects` then destroys `CardEffects` outright (correctly — its `_PosAndBounds`
+    // renders a detached world-space card deep black). The overlay is the game's LIVE widget, so it
+    // activates, mints a per-image material and calls RestoreCard. That one call is the whole
+    // difference — and it PREDICTS the header result, because only the plates ship with the FX
+    // material, which is why the title bar measured identical.
+    // ModBuild 196 WAS THE WRONG SUBJECT, and its own log says so: 55 censuses, `corrections written
+    // 0`, every clone half already at alpha 1.00 / interactable 20/20. The half-alpha dimming it
+    // describes is real in the flat game; it just was not what he photographed. Kept anyway.
+    // Writes land on a PRIVATE COPY, never on the shared `GUI_CardEffect_Mat` — zeroing that asset
+    // would silently un-grey the flat game's discard pile with no restore contract. One copy per
+    // distinct source material, capped at 32 with a logged refusal. `_PosAndBounds` is measured and
+    // deliberately NOT written: a reconstructed screen-space rect is exactly the guess
+    // `StripFragileEffects` exists to avoid. Not through an MPB — `Material.SetFloat` on a real
+    // material, and the census reads the value back, so "written" and "consumed" are not assumed.
+    // The scenario fan is UNAFFECTED (it adopts the game's live widget, so Initialize ran) — confirmed
+    // against a 2026-08-15 photo measuring its plates at (83,2,15) vs the overlay's (92,10,15).
+    //
+    // ── (5) THE APPEND IS THE GAME'S, AND THE ANIMATION DID NOT CAUSE IT ──────────────────
+    // `UIPartyCharacterAbilityCardsDisplay.OnAbilityCardSelect` does `HandAbilityCardIDs.Add(id)` — the
+    // new id always lands at the END — and the mod followed that order faithfully on BOTH paths. So a
+    // full rebuild would have put the card at the right edge too: ModBuild 195's one-card diff did not
+    // cause this, it inherited it. It looked right at the start only because a fresh loadout is seeded
+    // by walking the class's card pool in pool order.
+    // The initiative was available at insert time all along, and the game's OWN comparison was used
+    // (`AbilityCardUI.CompareTo`, whose final term is `Initiative.CompareTo`) rather than a parallel
+    // one. Tie-break: ascending initiative, then ascending card ID, via a STABLE insertion sort —
+    // `List.Sort` is an unstable introsort and was deliberately not used. Card ID and not selection
+    // order, so the result is a PURE FUNCTION OF THE SET: re-ticking any other card can never reorder
+    // two cards that share an initiative, and every client agrees.
+    // THE ANIMATION IS UNTOUCHED — only the index the card is built at moved, so neighbours glide apart
+    // and `PlayAppear` dusts it in AT its home. The user asked for that animation to survive.
+    // SECOND FACE OF THE SAME BUG, unreported: `CardFan.Add` — the return-home seam after lifting a
+    // card out to read it — also appended. Invisible in a scenario because the list is re-published
+    // nearly every frame; in the MAP ROOM there is no such heartbeat, so a card put back stayed at the
+    // right edge until the next loadout edit. It now restores the publisher's position — deliberately
+    // NOT a sort, because the fan is a layout and must not undo a scenario drag-reorder.
+    //
+    // ── (1) MY OWN ModBuild 196 REMEDY NEVER RAN ──────────────────────────────────────────
+    // `ScanTmpText` returns BEFORE regenerating whenever its own defect count is zero — and that count
+    // was zero in every reading. Counted across the whole log: 152 lines read `0 character(s) across 0
+    // component(s)` and 84 read `1 across 1`, on windows carrying up to 297 text components and 4,600
+    // glyphs. SO THE USER'S "NO IMPROVEMENT" CARRIES ZERO INFORMATION: the remedy was gated behind the
+    // instrument shipped to test whether the gate was right. It now regenerates unconditionally.
+    // AND THE INSTRUMENT WAS STRUCTURALLY BLIND TO THE PHOTOGRAPH. Every 196 counter reads
+    // `TMP_CharacterInfo` — the LAYOUT record, written before any mesh exists. The photograph's
+    // signature (full advances, full-area quads, isVisible true, glyph in the atlas, no ink) is what a
+    // glyph whose four ATLAS UVs collapsed onto one texel produces: it samples one texel, draws a flat
+    // SDF value, draws nothing. NOTHING IN 196 READ A SINGLE UV. `ScanTmpMesh` now reads the submitted
+    // mesh: unwritten quads, zero-area mesh quads, collapsed UV rects (1e-9 atlas units², four orders
+    // below the smallest real glyph), UVs outside the atlas, non-finite data.
+    // THE DRAG HYPOTHESIS IS DEAD: captures are 1:1 with frames (75,022 -> 74,128 = 894 captures
+    // against 894 sampled frames), CaptureIntervalFrames is 1, and ResolveAndMip runs unconditionally
+    // in the capture camera's own onPostRender. A dragged frame takes the IDENTICAL path to the still
+    // frame he accepted as fixed. Nothing short-circuits to the raw canvas.
+    // VERDICT ON THE MOVING CASE: JUDDER, NOT ALIASING. Moving frames mean 11.05-11.27 ms vs still
+    // 11.09-13.03 ms — drag frames are not measurably worse — while window travel reaches 32.9 rendered
+    // eye px per frame. A re-shown frame is then tens of pixels of positional error on a high-contrast
+    // edge, and reprojection CANNOT fix it: it compensates head motion, not a window travelling under
+    // the player's hand. No filtering on the panel surface reaches that. A FOURTH SAMPLING REMEDY WAS
+    // DELIBERATELY NOT SHIPPED.
+    // One real hole closed: freshly created render targets are now GL.Clear'ed. Unity does not clear on
+    // Create(), and Reallocate hands the new target to the display quad in the same block that destroys
+    // the old one — so any frame without a capture showed UNINITIALISED VRAM.
+    //
+    // ── (6) THE BENCHES — AND THE GAME HAS NO TABLE ───────────────────────────────────────
+    // User: "neben dem Tisch-Asset auf dem die Karten liegen [sind] auch Sitzbänke daneben".
+    // MEASURED: the game's map scene has NO table and NO benches as objects. `MAP SCENE REPORT` prints
+    // `worldMap: 'GH_Campaign_Map' … renderers=1` and `TOTAL 0 renderer(s)` besides the parchment — the
+    // map is a single 190x0.13x238-unit slab. `MapChoreographer` carries no table/bench/seat/chair
+    // field, and a repo-wide grep of `decompiled/` finds only `BenchedCharacter` (a party member on the
+    // bench, not furniture). Two existing comments already said the wood under the parchment is
+    // ENVIRONMENT geometry.
+    // So the arrangement splits honestly: the table footprint and top plane are MEASURED at runtime
+    // (the parchment's AABB widened by the room's own 0.20 m rim — the same definition MapRoomSeat,
+    // MapButtonRail and MapLocationInteractor already use); the seat height, depth and plank sizes are
+    // AUTHORED from the project's own furniture spec; and the COUNT AND ORIENTATION come from the
+    // user's own sentence at the start of this feature ("ein Tisch mit Bänken an beiden Enden"), not
+    // from geometry. 2 benches, 96 triangles, one mesh, one material, ONE DRAW CALL, no collider (they
+    // must not enter the laser's pick path), no Update after the one-shot build.
+    // `SurveyNeighbours` ships with the prop: it lists every NON-MOD renderer near the map and below
+    // its top plane, excluded by layer. "There was nothing to measure" is now itself a measurement.
+    // Legs are cut 0.20 m BELOW the tracking floor on purpose — the room floor and the player's floor
+    // are 0.12 m apart (plan risk #5, still open), and a buried leg is invisible where a floating one
+    // is not. A runtime winding gate (signed volume + per-triangle normal check) reports PASSED/FAILED,
+    // because seven meshes have shipped wound against the side they are seen from.
+    // Nothing on the wire: both clients build byte-identical benches from game-scene state plus the
+    // local rig scale. `Seats`/`SeatFacings` publish four bench places in a deterministic order, which
+    // is the shape phase 8's seat assignment needs — assignment itself is NOT built.
+    // NOTE FOR A LATER ROUND: `MapTable.prefab` (a table WITH benches, 384 verts) is already in the
+    // bundle and has never been spawned.
+    //
+    // ── RESIDUALS, STATED RATHER THAN BURIED ──────────────────────────────────────────────
+    // * `RefloatOpenWindows` still re-places a revealed, never-grabbed window on every HMD doff/don,
+    //   including the two permanent map-room windows. Under a strict reading of "einmal gespawned sind
+    //   sie fix" that violates the ruling; the user has never reported a doff/don jump, so it is
+    //   sanctioned-but-LOGGED rather than changed unilaterally. One line makes it refuse.
+    // * The perks sub-view's 1620 px is mostly a full-screen Blur BACKDROP, not content. Excluding
+    //   full-screen dim/blur plates from the fit union would drop its real need to ~850 px and let it
+    //   render at full size — but that changes the measure for every window. Separate round.
+    // * `MaxContentExpansion`: a user who dials the travel button's Y to -0.60 puts it ~630 px below
+    //   the host rect and could push past the supersample capture expansion. Not a problem at 0/0.
+    // * The unconditional text regeneration could cost ~10-25 ms on the two release frames of a
+    //   297-component window. It runs 2 frames AFTER the window stops, so it cannot add positional
+    //   error, and `ReleaseRegenMs` prints it.
+    //
     // Build 196: THE 12 ms WAS ONE `FindObjectOfType` CALL, AND THE ITEM OVERLAY WAS NEVER FAINT —
     // IT WAS UNDERNEATH. (Eight workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

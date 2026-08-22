@@ -97,9 +97,52 @@ internal static partial class PanelSupersample
           .Append(" nested canvas(es) on the capture layer.");
 
         AppendContentIntegrity(e);
+        AppendCapturePath(e);
         AppendMotionBudget(e);
 
-        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 196 FIRST. (Z1) 'CONTENT INTEGRITY' IS THE "
+        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 197 FIRST, AND IT RETIRES THE ModBuild 196 "
+                  + "HEADLINE BELOW RATHER THAN EXTENDING IT. (Y1) THE ModBuild 196 GLYPH SCAN RAN, "
+                  + "IT WORKED, AND IT MEASURES THE WRONG QUANTITY. Its whole output was counted "
+                  + "rather than sampled: 236 readings, 152 of them '0 not in atlas / 0 not visible / "
+                  + "0 zero-area' and 84 of them exactly one parsed-but-not-visible, with 0 atlas "
+                  + "repacks, in a session containing real drags and up to 140 release repairs on one "
+                  + "window. The photograph shows dozens of missing glyphs across six rows. A working "
+                  + "instrument that never coincides with the defect is measuring something else, and "
+                  + "the something else is named: every ModBuild 196 counter reads "
+                  + "TMP_CharacterInfo, which is the LAYOUT RECORD written before any mesh exists. "
+                  + "THE NEW 'SUBMITTED MESH' FIELD reads the vertex and UV arrays that are actually "
+                  + "uploaded. A glyph whose four atlas UVs have collapsed onto one texel keeps its "
+                  + "full advance, keeps a full-area quad, reports isVisible, exists in the atlas — "
+                  + "and draws a flat SDF value, i.e. NOTHING. That is the photograph's exact "
+                  + "signature and no ModBuild 196 counter could see it. IF THE MESH COUNTERS ALSO "
+                  + "STAY AT ZERO through a session in which the user sees the defect, then the fault "
+                  + "is not in the text at ANY level and the remaining fields — CAPTURE PATH and "
+                  + "MOTION BUDGET — are where the next round must look; text is then finished as a "
+                  + "hypothesis. (Y2) THE RELEASE REPAIR WAS A NO-OP FOR TEXT AND THE LOG SAYS SO. "
+                  + "ModBuild 196 documented it as forcing a regeneration of every text component on "
+                  + "release. Its regeneration is gated on the defect count, which is permanently "
+                  + "zero, so across 236 lines it re-generated at most ONE component and usually "
+                  + "none, on windows carrying up to 297 components. The user reporting 'no "
+                  + "improvement' is therefore the EXPECTED result and carries no information about "
+                  + "the text hypothesis at all. From this build the release pass is unconditional "
+                  + "and its component count and cost are printed, so the next report either shows "
+                  + "the defect surviving a genuine full regeneration — which kills the family — or "
+                  + "shows it gone. (Y3) 'PANEL SUPERSAMPLE RELEASE' IS A SEPARATE LINE, ONE PER "
+                  + "RELEASE, and it is where the user's new word ABRUPT is answered: it prints the "
+                  + "LAST single-frame host step before the hand let go next to the drag's LARGEST, "
+                  + "both in rendered eye pixels, plus how many frames the settle gate took against "
+                  + "its threshold and how many frames of the released image the eye had ALREADY "
+                  + "drawn before any repair ran. That last number bounds what a repair on this "
+                  + "schedule can ever fix. (Y4) THE TWO SYMPTOMS ARE SEPARATE AND MUST NOT BE "
+                  + "MERGED. 'Flackern beim Verschieben' is about a window in motion; 'kaputte "
+                  + "Anzeige beim Loslassen' is about a window at rest afterwards. The CAPTURE PATH "
+                  + "field settles the first one's precondition — if captures and resolves while "
+                  + "MOVING equal the moving frame count, a dragged window takes exactly the same "
+                  + "path as the still window the user has already accepted as fixed, so 'the "
+                  + "supersampling switches off while I drag' is dead and what is left for the moving "
+                  + "case is either sub-pixel sampling (field C) or JUDDER (MOTION BUDGET and the "
+                  + "RELEASE line's dropped-frame count). "
+                  + "NOW THE MODBUILD 196 CLAUSES. (Z1) 'CONTENT INTEGRITY' IS THE "
                   + "HEADLINE AND IT DECIDES THE BROKEN-ON-RELEASE REPORT ON ITS OWN. The user, after "
                   + "195: 'beim Loslassen kann es passieren, dass die dargestellte Anzeige kaputt ist "
                   + "... bewege ich es nochmal und lasse los, sieht es wieder anders aus'. The "
@@ -336,6 +379,9 @@ internal static partial class PanelSupersample
         e.StillFrameMs = 0.0;
         e.StillFrameMsMax = 0f;
         e.StillFramesOverBudget = 0;
+        e.ReleasesThisWindow = 0;
+        e.ReleaseGateFramesMax = 0;
+        e.LongestMotionRun = 0;
     }
 
     /// <summary>
@@ -373,6 +419,25 @@ internal static partial class PanelSupersample
               ? e.WorstText + " with " + e.WorstTextBad + " defect(s) of " + e.WorstTextChecked
                 + " lookup(s)"
               : "none — every component was clean")
+          .Append(". SUBMITTED MESH (ModBuild 197 — the layer above measures the text SOURCE and "
+                  + "this one measures what was actually written into the vertex and UV arrays the "
+                  + "eye samples; nothing before this build read a single UV): ")
+          .Append(e.MeshQuadsChecked).Append(" glyph quad(s) examined, finding ")
+          .Append(e.MeshMissingQuads + e.MeshDegenerateQuads + e.MeshDegenerateUv
+                  + e.MeshUvOutOfRange + e.MeshNonFinite)
+          .Append(" defect(s) = ").Append(e.MeshMissingQuads)
+          .Append(" laid out but NEVER WRITTEN into the generated mesh, ")
+          .Append(e.MeshDegenerateQuads).Append(" zero-area IN THE MESH (threshold ")
+          .Append(DegenerateQuadArea.ToString("G3")).Append("), ").Append(e.MeshDegenerateUv)
+          .Append(" with a COLLAPSED ATLAS UV RECT (threshold ")
+          .Append(DegenerateUvArea.ToString("G3"))
+          .Append(" atlas units squared — such a quad samples ONE texel, draws a flat SDF value and "
+                  + "puts NO ink down at full advance and full geometry, which is the photograph "
+                  + "exactly), ").Append(e.MeshUvOutOfRange)
+          .Append(" sampling OUTSIDE the atlas, ").Append(e.MeshNonFinite)
+          .Append(" non-finite. Worst: ")
+          .Append(e.MeshWorstBad > 0 ? e.MeshWorst + " with " + e.MeshWorstBad + " defect(s)"
+                                     : "none — every mesh quad was clean")
           .Append(". FONT ATLASES behind this window: ").Append(e.AtlasNote)
           .Append(". REPAIRS: ").Append(e.ReleaseRepairs)
           .Append(" release repair(s) (2 per release: one ").Append(ReleaseSettleFrames)
@@ -380,7 +445,22 @@ internal static partial class PanelSupersample
           .Append("), ").Append(e.RebuildRepairs)
           .Append(" font-atlas-repack repair(s); the last one re-requested ")
           .Append(e.RegeneratedChars).Append(" character(s) across ").Append(e.RegeneratedComponents)
-          .Append(" component(s). COINCIDENCE AT THE CAPTURE INSTANT: ").Append(e.CaptureTicks)
+          .Append(" component(s), and the last RELEASE repair re-generated ")
+          .Append(e.ReleaseRegenComponents).Append(" component(s) in ")
+          .Append(e.ReleaseRegenMs.ToString("F2"))
+          .Append(" ms (ModBuild 196 gated this on the defect count and therefore re-generated at "
+                  + "most ONE component per release across its whole log; ModBuild 197 makes the "
+                  + "release pass unconditional, so a broken image that survives it FALSIFIES the "
+                  + "text-source family instead of leaving it untested). RELEASES this report "
+                  + "window: ").Append(e.ReleasesThisWindow)
+          .Append(", the slowest settle gate opening ").Append(e.ReleaseGateFramesMax)
+          .Append(" frame(s) after the last change against a threshold of ").Append(ReleaseSettleFrames)
+          .Append("; longest unbroken motion run ").Append(e.LongestMotionRun)
+          .Append(" frame(s) of ").Append(e.MotionTicks)
+          .Append(" (a run equal to the whole window means the pose is being rewritten every frame "
+                  + "by another writer and NO release can ever be detected — the 'a stillness gate "
+                  + "never opens for state someone else rewrites each frame' case). COINCIDENCE AT "
+                  + "THE CAPTURE INSTANT: ").Append(e.CaptureTicks)
           .Append(" capture(s) examined, of which ").Append(e.CapturesDuringFontRebuild)
           .Append(" ran on the same frame as a font atlas repack and ")
           .Append(e.CapturesBeforeCanvasUpdate)
@@ -389,6 +469,44 @@ internal static partial class PanelSupersample
                   + "PostLateUpdate.PlayerUpdateCanvases). ATLAS REPACKS THIS SESSION: ")
           .Append(_fontRebuilds).Append(_fontRebuilds > 0 ? ", last on '" + _fontRebuildName + "'" : "")
           .Append('.');
+    }
+
+    /// <summary>
+    /// <b>THE CAPTURE PATH FIELD (ModBuild 197) — WHAT A DRAGGED FRAME ACTUALLY DOES, IN COUNTS.</b>
+    ///
+    /// <para>Three rounds have argued about whether the moving flicker is a sampling problem on this
+    /// path or something else, and every one of them had to answer "is a dragged window supersampled
+    /// AT ALL, or does something short-circuit to the raw canvas?" by reading the source. This field
+    /// answers it with counts over a drag: captures taken while moving against captures taken while
+    /// still, the resolve+mip pass that must follow each one, and the three ways the eye could end up
+    /// looking at something other than a freshly resolved mipped target.</para>
+    ///
+    /// <para>READ IT LIKE THIS. Captures-while-moving should equal the moving frame count in MOTION
+    /// BUDGET and resolves should equal captures; if they do, the dragged window took exactly the
+    /// same path as the still window that the user has already accepted as fixed, and the moving
+    /// complaint CANNOT be "the supersampling switches off while I drag". The three expected-zero
+    /// counters each name a different way it could still break: a frame where the quad was visible
+    /// and no capture was due, a frame where the quad showed the raw multisampled target instead of
+    /// the mipped one, and a resolve whose source and destination had different sizes because the
+    /// target was re-allocated between them.</para>
+    /// </summary>
+    private static void AppendCapturePath(Entry e)
+    {
+        Sb.Append(" CAPTURE PATH (cumulative; the question is whether a DRAGGED window takes the "
+                  + "same path as a still one): ").Append(e.MotionCaptures)
+          .Append(" capture(s) taken while MOVING and ").Append(e.StillCaptures)
+          .Append(" while STILL, followed by ").Append(e.MotionResolves).Append(" and ")
+          .Append(e.StillResolves)
+          .Append(" resolve+mip pass(es) respectively (a capture without a matching resolve leaves "
+                  + "the quad showing the PREVIOUS frame's image). EXPECTED-ZERO COUNTERS: ")
+          .Append(e.CameraOffWhileVisible)
+          .Append(" frame(s) on which the quad was visible and no capture was due (cadence ")
+          .Append(CaptureIntervalFrames).Append(" frame(s)), ").Append(e.RawQuadFrames)
+          .Append(" frame(s) on which the quad showed the RAW multisampled capture target instead of "
+                  + "the resolved mipped one, ").Append(e.ResolveSizeMismatch)
+          .Append(" resolve(s) whose source and destination differed in size (= the target was "
+                  + "re-allocated between the capture and the resolve, which would stretch one "
+                  + "frame's image across another's texels).");
     }
 
     /// <summary>

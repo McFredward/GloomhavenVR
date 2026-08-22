@@ -996,6 +996,18 @@ internal static partial class ModalFallback
                                   + "moves nothing (user ruling), and only the player's own grab "
                                   + "can move it.");
         }
+
+        // ANNOUNCE THE WRITE THAT IS ABOUT TO HAPPEN (ModBuild 197). This method computes a pose; it
+        // is its CALLERS that write it — PlaceAtHmd (spawn), RefloatOpenWindows (presence regain)
+        // and TickPoseRePlaceOne (the one pre-reveal re-place). Announcing HERE covers all three
+        // from the one funnel they share, so none of them needs a line of its own and none of them
+        // can be forgotten. On a window that is not yet revealed this is a no-op (the lock is not
+        // armed); on a revealed one it is what distinguishes the sanctioned doff/don rescue from an
+        // anonymous writer, which the lock refuses. See PanelPoseWatch.
+        PanelPoseWatch.Announce(self, PanelPoseWatch.Writer.Placement,
+            replay.HasValue
+                ? "the one pre-reveal re-place at the final fitted geometry"
+                : "a spawn / presence-regain refloat placement");
         return true;
     }
 
@@ -1312,9 +1324,26 @@ internal static partial class ModalFallback
     /// </summary>
     private static void TickPoseRePlace()
     {
+        // THE POSE LOCK'S TICK (ModBuild 197). Runs here and nowhere else, for one reason that has
+        // to hold: this method is called from ModalFallback.Tick step 5b-pose, i.e. AFTER step 5's
+        // grab follow (Grab.Tick copies the mod-owned frame onto the game-owned host) and after the
+        // hover-card pose pass. Sampling any earlier would read a pose that is still one writer
+        // short of the one the player is about to be shown. See PanelPoseWatch for the ruling, the
+        // three verdict lines and why the GRAB FRAME rather than the host is the subject.
+        PanelPoseWatch.BeginTick();
+        // The story window is the ONE window a remote player may legitimately move (wire record 19,
+        // Net.RemoteStorySync mirrors their grab onto its frame). Resolved once per tick through the
+        // same lookup the sync itself uses, so the two cannot disagree about which window that is.
+        GrabbableModal? storyGrab = TryGetStoryGrab(out GrabbableModal? sg) ? sg : null;
+        float watchScale = PanelLayout.WorldScale;
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
+            PanelPoseWatch.Track(wp.Panel, wp.Grab,
+                revealed: !wp.Panel.RevealPending,
+                poseOwnedExternally: wp.HoverCard || wp.Panel.PoseOwnedExternally,
+                peerOwned: wp.Grab != null && ReferenceEquals(wp.Grab, storyGrab),
+                worldScale: watchScale);
             // Round 3 (first-open size bug): a one-shot VERIFY correction re-fits a committed rect
             // that turned out not to contain its own content. That advances the panel's applied-fit
             // generation, which RE-ARMS this latch so the placement is replayed against the
@@ -1336,8 +1365,16 @@ internal static partial class ModalFallback
         // Part 10: the GlobalErrorMessage float is NOT a UIWindow and therefore has no WindowPanel
         // record — it carries its own anchor/latch pair so the identical re-place applies to it.
         if (_errorPanel != null)
+        {
+            PanelPoseWatch.Track(_errorPanel, _errorGrab,
+                revealed: !_errorPanel.RevealPending,
+                poseOwnedExternally: _errorPanel.PoseOwnedExternally,
+                peerOwned: false, worldScale: watchScale);
             TickPoseRePlaceOne(_errorPanel, _errorGrab, null, _errorExtraScale,
                 scalePending: false, ref _errorSpawnAnchor, ref _errorPoseRePlaceDone);
+        }
+        // Retire (and print the ONE verdict line for) every window that stopped floating this tick.
+        PanelPoseWatch.EndTick();
     }
 
     /// <summary>
@@ -1415,6 +1452,20 @@ internal static partial class ModalFallback
         wp.Grab.SetExtraScale(refit);
         Rect rect = wp.Panel.HostRect != null ? wp.Panel.HostRect.rect : default;
         float mpp = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        // ARM THE SIZE-CHANGE ASSERTION (ModBuild 197, user report: "die POSITION springt wenn neue
+        // Overlays aufgehen"). This lane changes how BIG the window is drawn, never where it stands,
+        // and the mechanism that guarantees it is structural rather than intentional: the host's
+        // RectTransform pivot is (0.5,0.5) (CanvasConversion.Convert), the content fit converges the
+        // measured content centre to the host's own origin (ApplyFitConverging), and
+        // GrabbableModal.SyncHostToFrame writes `host.position = frame.position` UNCONDITIONALLY
+        // every Update and every LateUpdate — so a localScale or sizeDelta change can only ever grow
+        // the window about its own centre. Structural is not the same as proven, and the character
+        // window's rect swings between 328 and 1920 px every time a sub-view opens, so the next
+        // sample MEASURES it: if the pose moves in the frame after this write, the lock says so in
+        // millimetres and names this lane. Silent when it does not, which is the expected case.
+        PanelPoseWatch.NoteSizeChange(wp.Panel,
+            $"the board-relative scale re-derivation, extraScale {before:F3} → {refit:F3} at rect "
+            + $"{rect.width:F0}x{rect.height:F0} px");
         VRLog.Info("WorldUI", "MODAL WINDOW SIZE: "
                               + $"'{(wp.Window != null ? wp.Window.name : "<menu>")}' re-scaled to its "
                               + $"FITTED rect {rect.width:F0}x{rect.height:F0} px (extraScale "
@@ -1453,6 +1504,14 @@ internal static partial class ModalFallback
         }
         if (!panel.RevealPending)
         {
+            // ROUTED THROUGH THE SHARED LOCK (ModBuild 197) rather than kept as a private guard
+            // clause: the refusal is then logged ONCE per window naming this caller, in the same
+            // POSE LOCK family every other refusal in the mod prints, and the verdict line at the
+            // end of the float carries the totals. The behaviour is byte-for-byte what it was — a
+            // revealed window is never re-placed — the difference is that the refusal is now
+            // VISIBLE in a hardware log instead of being a silent early return.
+            PanelPoseWatch.MayMove(panel, "ModalFallback.TickPoseRePlaceOne (the one pre-reveal "
+                                          + "re-place, arriving after the reveal deadline fired)");
             LatchPoseRePlace(panel, ref done, "skipped — the window was already revealed " +
                                               "(deadline path); a re-place would be a VISIBLE jump");
             return;
@@ -1540,6 +1599,12 @@ internal static partial class ModalFallback
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released ({reason}) — restored to its 2D home.");
         }
         Converted.Clear();
+        // Flush the pose lock in the same breath: a bulk release (scenario exit, VR off) may be the
+        // last thing that ever happens to these windows, and the per-window POSE WATCH verdict must
+        // not be lost just because ModalFallback.Tick is never called again. Mark-and-sweep with
+        // nothing marked retires and reports every tracked window.
+        PanelPoseWatch.BeginTick();
+        PanelPoseWatch.EndTick();
     }
 
     private static void LogPollTransition(ref bool state, bool now, string what)

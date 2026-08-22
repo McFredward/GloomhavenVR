@@ -47,6 +47,25 @@ internal static class MapRoomSeat
     internal const float TableTopHeightMeters = 0.78f;
 
     /// <summary>
+    /// Height of a BENCH SEAT above the same tracking floor, real metres — the room's second piece
+    /// of furniture height, kept beside <see cref="TableTopHeightMeters"/> so the two can never
+    /// drift apart in two different files.
+    ///
+    /// <para>0.45 m is MEASURED furniture, not a number that looked right: it is the seat height the
+    /// cellar's stool was rescaled to (<c>BuildEnvironmentRooms.StoolSeatH</c>, whose own log line
+    /// says "a real stool and a real table are 0.45 and 0.75, i.e. 60 %") and the one
+    /// <c>BuildMapTable</c> then used for the map table's benches. <see cref="MapRoomBenches"/> is
+    /// the only reader.</para>
+    ///
+    /// <para>IT IS NOT AN INPUT TO <see cref="Solve"/>, AND THAT IS THE POINT. This class's contract
+    /// is that the player's eye line is fixed by <see cref="TableTopHeightMeters"/> alone —
+    /// "Phase 1 already stands the player as though the table were there, so Phase 2 cannot change
+    /// the player's eye line". Adding furniture must therefore add a constant here and change
+    /// nothing else, which is exactly what this is.</para>
+    /// </summary>
+    internal const float SeatHeightMeters = 0.45f;
+
+    /// <summary>
     /// Standing clearance between the map's own EDGE and the player, real metres — the same
     /// quantity <c>SpawnRing.EdgeClearanceMeters</c> is for the scenario board. Small enough that
     /// the near edge is within arm's reach (Phase 4 wants to poke icons), large enough that the
