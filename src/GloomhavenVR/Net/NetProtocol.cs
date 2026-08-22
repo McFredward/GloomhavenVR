@@ -416,7 +416,79 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 208;
+    public const ushort ModBuild = 209;
+    // Build 209: EVERY VERDICT WAS TRUE OF A BAND THAT DOES NOT CONTAIN THE DEFECT.
+    // (One worker plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── WHAT 208 SETTLED, AND IT IS A REAL RESULT ───────────────────────────────────────
+    //     RESOLVE BLIT VERIFIED                x82  (all of them)
+    //     MIP CHAIN VERDICT: MIP CHAIN VERIFIED x80
+    //     MIP CHAIN VERDICT: MIP CHAIN DEFECTIVE x2
+    // and the two defective readings are noise by the instrument's OWN rule: `1 glyph(s) … (0 of 104
+    // at mip 1, 1 of 101 at mip 2)`, a single 'o', against a CONTROL of 5 glyphs going the other way.
+    // A finding smaller than its own control is not a finding.
+    // So the capture camera's rasterisation, the resolve blit, and THE MIP LEVELS THE EYE ACTUALLY
+    // SAMPLES are all correct. The path from the text geometry to the texture the quad reads is
+    // measured and clean.
+    //
+    // ── AND WHY THAT PROVES NOTHING YET. THIS IS MY MISTAKE AND IT WAS IN EVERY LOG LINE ─
+    // Every census in the session reported the same strip:
+    //     strip 668x2992 at x=2932        — 142 readings, x NEVER MOVED ONCE
+    // 668 of 4040 texels is 16.5 % of the width, and at x=2932 it sits over authored x ~1466..1800 of
+    // a 2020 px frame: THE RIGHT-HAND EDGE. The user's screenshot shows the damage in the MIDDLE
+    // column — the mercenary picker, 'SÖLDNER' rendering as 'LDNER', 'Reich Ratsch' as 'R tch Ratsch',
+    // 'Scream' as 'Sc e' — at roughly authored x 600..820.
+    // **THE CENSUS HAS NEVER ONCE LOOKED AT WHERE THE REPORTED DAMAGE IS.** Every "the capture is
+    // correct" verdict was true — of a band that does not contain the defect. I treated the strip
+    // width as a cost question and never checked its POSITION, though it was printed on every line I
+    // quoted. The cause: the seed centred the strip on the busiest component, which is a property of
+    // the WINDOW and not of the census, so it resolved to the same band for ever.
+    //
+    // ── WHAT SHIPPED ────────────────────────────────────────────────────────────────────
+    // THE STRIP ROAMS. A per-window band cursor walks a tiling of the frame; successive censuses cover
+    // successive bands until the whole width has been seen, then wrap. Bands with no glyph quad are
+    // stepped over and counted; a band is NEVER skipped for having read clean before, because the
+    // complaint is that the picture breaks intermittently.
+    //  * THE BANDS OVERLAP BY HALF A STRIP, and that is load-bearing rather than tidy. A glyph is
+    //    censused only when its quad lies WHOLLY inside the strip, so an abutting tiling creates a NEW
+    //    blind spot at every boundary — and on this window that is not hypothetical: the damaged
+    //    middle column is texels 1200..1640 and an abutting 668-texel tiling puts a boundary at 1336,
+    //    straight through it. At a 334-texel stride any ink run up to 167 authored px is guaranteed
+    //    wholly inside at least one band. Band 3 (texels 1002..1670 = authored 501..835) covers the
+    //    reported damage.
+    //  * COVERAGE IS NOW A FIRST-CLASS FIELD and the header says so before the verdict is read:
+    //    "THE VERDICT, AND IT IS A VERDICT ABOUT ONE BAND OF THIS WINDOW". Until every content-bearing
+    //    band has been seen the line states, in its own sentence, that N % of the content-bearing
+    //    width has not been read by any census and that nothing follows about it in EITHER direction.
+    //    The exact error I made is now structurally impossible to repeat from the log.
+    //  * A PER-BAND LEDGER: what each band last said, how many censuses it has had, and which bands
+    //    HOLD TEXT AND HAVE NEVER BEEN COVERED.
+    //  * The release-edge census is AIMED at the busiest component outside the current band, so the
+    //    most interesting moment is not spent on an arbitrary strip.
+    //
+    // ── THREE THINGS THAT ASSUMED A FIXED STRIP, ALL FOUND BY THE WORKER ────────────────
+    // Each would have silently poisoned the roam:
+    //  1. THE DEFERRAL CURSOR WAS GLOBAL. `GlyphCursor` carried a resume index across censuses, which
+    //     was meaningful only because a static window rebuilt a near-identical glyph list every time.
+    //     Resuming at index 40 in a DIFFERENT band's 90 glyphs would leave that band's first 40
+    //     unjudged and call the remainder a continuation. Now one cursor per band.
+    //  2. THE RELEASE-EDGE / SETTLED PAIR WAS IMPLICITLY A SAME-PLACE COMPARISON. "Transient versus
+    //     latched" only means anything over one region, and the roam would have handed the settled
+    //     reading a different band. It is now aimed back at the release-edge band BY COMPONENT NAME,
+    //     because a release re-fit can move every coordinate (the ModBuild 195 log walks a window
+    //     328 → 716 → 1920 uGUI px), with the band's authored centre as the fallback.
+    //  3. NEAR-EDGE AND AMBIGUOUS COUNTS WILL RISE, AND THAT IS NOT A FINDING. The old strip was
+    //     centred on the busiest component, so its text sat in the interior by construction; a tiled
+    //     boundary can bisect a label. The line says so and points at the overlapping neighbour that
+    //     holds the label whole.
+    // Also on the record: a quad is filed under ONE band, so "no glyph quad calls it home" must be
+    // read as *covered elsewhere or empty*, never as *nobody looks here*. The log says this too.
+    //
+    // COST IS UNCHANGED BY CONSTRUCTION and the line states why: the same stripW x RtH request under
+    // every band, band selection charged to the existing BuildMs, the same stage budgets and the same
+    // 6 ms per-frame pool. A busier band DEFERS more; it does not cost more.
+    //
     // Build 208: THE CENSUS READ MIP 0. THE EYE DOES NOT READ MIP 0.
     // (One worker plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

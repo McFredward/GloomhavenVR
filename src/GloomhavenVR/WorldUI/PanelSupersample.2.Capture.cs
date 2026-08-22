@@ -2582,8 +2582,70 @@ internal static partial class PanelSupersample
     /// <para>The price is that only <see cref="MaxInkCensusTexels"/> / RtH texels of WIDTH fit — about
     /// 668 on this window's 2992-texel-tall target, i.e. ~334 authored px at the shipped factor 2.
     /// Glyphs outside the strip are COUNTED and named as excluded, never silently dropped.</para>
+    ///
+    /// <para><b>AND UNTIL ModBuild 209 THE STRIP NEVER MOVED, WHICH IS THE GAP THAT DOMINATED
+    /// EVERYTHING ELSE THE INSTRUMENT SAID.</b> See <see cref="MaxInkBands"/>.</para>
     /// </summary>
     private const int MinInkStripTexels = 64;
+
+    /// <summary>
+    /// <b>THE STRIP ROAMS (ModBuild 209). THE 208 SESSION PRINTED "strip 668x2992 at x=2932" 142 TIMES
+    /// AND x NEVER CHANGED ONCE.</b>
+    ///
+    /// <para>668 of 4040 texels is 16.5 % of the window's width, and x=2932 puts it over authored
+    /// x ~1466..1800 of a 2020 px frame — the RIGHT-HAND EDGE. The damage in the user's photograph
+    /// (<c>kaputt.jpg</c>: 'SÖLDNER' drawn as 'LDNER', 'Reich Ratsch' as 'R tch Ratsch', 'Scream' as
+    /// 'Sc e') is in the MIDDLE COLUMN, at roughly authored x 600..820. Every "the capture is correct"
+    /// verdict this instrument has ever produced was therefore correct ABOUT A BAND THAT DOES NOT
+    /// CONTAIN THE DEFECT. That is not a competing hypothesis; it is missing coverage, and no amount
+    /// of sharpening the judgement inside one fixed strip could have found it.</para>
+    ///
+    /// <para><b>WHY x NEVER MOVED.</b> ModBuild 205 centred the strip on the component with the most
+    /// glyph quads. That component is a property of the WINDOW, not of the census, so a settled window
+    /// re-elects the same seed every single time — the rule was deterministic, and deterministic in
+    /// exactly the way that guarantees a blind spot rather than exposing one.</para>
+    ///
+    /// <para><b>THE FIX IS COVERAGE OVER THE SEQUENCE, NOT A BIGGER REQUEST.</b> The frame width is
+    /// tiled into BANDS of one strip width each, a per-window cursor walks them, and successive
+    /// censuses take successive bands until the whole width has been seen, then wrap. The readback
+    /// budget per census is untouched — <see cref="MaxInkCensusTexels"/> still bounds one request and
+    /// the same 6 ms per-frame pool still bounds the delivery — so this changes WHERE a census reads
+    /// and not HOW MUCH, which is the one property that must not regress.</para>
+    ///
+    /// <para><b>THE BANDS OVERLAP BY HALF A STRIP, AND ABUTTING THEM WOULD HAVE BUILT A FRESH BLIND
+    /// SPOT INTO THE FIX.</b> A glyph is censused only when its quad is WHOLLY inside the strip (a
+    /// half-clipped quad has no honest verdict and this file refuses to invent one), so under an
+    /// abutting tiling a label straddling a boundary would be excluded from BOTH neighbours and no
+    /// census could ever see it. On the very window this change is about that is not hypothetical: the
+    /// damaged middle column sits at authored x 600..820, i.e. texels 1200..1640 at this window's rate
+    /// of 2.0, and an abutting tiling of 668-texel bands puts a boundary at 1336 — straight through it.
+    /// The stride is therefore <c>stripW / 2</c>: consecutive strips overlap by half their width, and
+    /// any run of ink up to half a strip wide (334 texels, 167 authored px here) is GUARANTEED to fall
+    /// wholly inside at least one band. The price is twice as many bands to walk, paid out of a session
+    /// that produced 142 censuses.</para>
+    ///
+    /// <para><b>A BAND WITH NO GLYPH QUADS IS SKIPPED, A BAND THAT CAME BACK CLEAN IS NOT.</b> The
+    /// candidate walk builds its glyph list over the WHOLE frame before the band is chosen, so the
+    /// per-band content histogram is free and a census is never spent on empty margin. Skipping a band
+    /// because a PREVIOUS pass found it clean would be a different thing entirely and is forbidden:
+    /// the complaint is that the picture freezes and breaks intermittently, so a defect that comes and
+    /// goes must keep being re-sampled. The skipped-as-empty count is printed.</para>
+    ///
+    /// <para><b>ROW ORDER IS NOT A PROPERTY OF THE BAND.</b> The orientation self-check decides once
+    /// per window (ModBuild 208) and a roaming strip must not invalidate that decision — it does not:
+    /// row order is a property of the GRAPHICS API and the TEXTURE LAYOUT, identical for every sub-rect
+    /// of the same texture, and the sub-rect this file asks for is full-height at y=0 under every band
+    /// (see above), so the placement ambiguity the full-height rule removes stays removed no matter
+    /// what x is. The cheap 2,500-sample confirmation keeps running per plane per census and still
+    /// refuses the census outright if it ever decides the other way; it correlates the mesh prediction
+    /// and the measurement OVER THE SAME BAND, so both sides move together.</para>
+    ///
+    /// <para>128 bands is the ceiling and it is derived rather than picked: <see cref="MaxRtDimension"/>
+    /// is 4096, the narrowest strip is <see cref="MinInkStripTexels"/> = 64 and the stride is half of
+    /// that, so <c>(4096 - 64) / 32 + 1 = 127</c> positions is the finest the tiling can ever get.
+    /// The window this round is about needs 12.</para>
+    /// </summary>
+    private const int MaxInkBands = 128;
 
     /// <summary>Text components the candidate walk will consider at all. The party window carries up
     /// to 297; this bounds the build cost and the surplus is reported as skipped.</summary>
@@ -3305,6 +3367,68 @@ internal static partial class PanelSupersample
         internal int RtW, RtH;
         internal int StripX, StripW, StripH;
 
+        // ---- THE ROAMING BAND AND ITS COVERAGE LEDGER (ModBuild 209) ----------------------------
+        // See MaxInkBands. Every field here is per WINDOW and survives across censuses; the strip
+        // geometry above is per census and is derived from BandIndex.
+
+        /// <summary>The band this reading covered, and the tiling it was chosen from. The tiling is
+        /// re-derived every census from the LIVE target width and strip width, because both can change
+        /// under a re-allocation, and the ledger below is reset when they do.</summary>
+        internal int BandIndex, BandCount, BandW;
+
+        /// <summary>The distance between consecutive bands' strips, HALF a strip width, so the strips
+        /// overlap and no label can fall between two of them and be censused by neither. See
+        /// <see cref="MaxInkBands"/>.</summary>
+        internal int BandStride;
+
+        /// <summary>Where the roam resumes. Advanced past the band this census took, so a settled
+        /// window walks the whole width instead of re-electing the same seed for ever.</summary>
+        internal int BandCursor;
+
+        /// <summary>Whether THIS census got as far as choosing a band. A build that failed before the
+        /// choice leaves <see cref="BandIndex"/> pointing at the PREVIOUS census's band, and writing an
+        /// outcome into the ledger there would attribute one band's silence to another.</summary>
+        internal bool BandSelected;
+
+        /// <summary>The band in AUTHORED px (host-local uGUI, the space the user's screenshot and every
+        /// layout number in this class are in) and the component that owns most of its glyphs. The
+        /// authored range is what makes the line comparable against the photograph at all.</summary>
+        internal float BandAuthoredLo, BandAuthoredHi;
+        internal string BandDominantComp = string.Empty;
+
+        /// <summary>Bands passed over on THIS census because no glyph quad of the whole frame falls in
+        /// them — margin, not content. Never a band skipped for having read clean before.</summary>
+        internal int BandsSkippedEmpty;
+
+        /// <summary>How the band was chosen, in one clause, printed on the line. A reading whose band
+        /// was AIMED is a different kind of evidence from one that came up in the roam and the line
+        /// must not blur the two.</summary>
+        internal string BandAimRule = string.Empty;
+
+        /// <summary>The one-shot aim a caller may set before arming. Component name wins over authored
+        /// x, authored x wins over the busiest-elsewhere rule, and any of them loses to the roam if the
+        /// band it resolves to holds no glyph quads at all. Cleared as soon as it is consumed — it
+        /// forces the NEXT census and no others.</summary>
+        internal string AimComponent = string.Empty;
+        internal float AimAuthoredX = float.NaN;
+        internal bool AimBusiestOther;
+        internal string AimWhy = string.Empty;
+
+        /// <summary>The geometry the coverage ledger below was built for. A re-allocation changes the
+        /// tiling, which makes every stored band index mean a different piece of the window, so the
+        /// ledger is thrown away rather than silently re-interpreted — and the line says so.</summary>
+        internal int CoverRtW, CoverStripW;
+        internal int CoverResets;
+
+        /// <summary>THE COVERAGE LEDGER. Per band: how many censuses covered it, whether it has ever
+        /// held a glyph quad, how many glyphs the last reading there judged, and that reading's
+        /// verdict. One line must be able to answer "which parts of this window have ever been looked
+        /// at, and what did they say" — until 209 no line in this class could.</summary>
+        internal readonly int[] BandVisits = new int[MaxInkBands];
+        internal readonly bool[] BandHasContent = new bool[MaxInkBands];
+        internal readonly int[] BandJudged = new int[MaxInkBands];
+        internal readonly string[] BandVerdict = new string[MaxInkBands];
+
         internal readonly List<InkGlyph> Glyphs = new(MaxInkCensusGlyphs);
         internal readonly List<InkComponent> Comps = new(16);
 
@@ -3482,8 +3606,21 @@ internal static partial class PanelSupersample
         /// an index into a list that is only approximately the same one — the walk order is stable but
         /// the window's own content is not. The line therefore prints the RANGE that was judged and
         /// the count deferred, and never claims that a rotation covered the window exactly.</para>
+        ///
+        /// <para><b>AND IT IS PER BAND SINCE ModBuild 209, WHICH THE ROAMING STRIP MADE NECESSARY.</b>
+        /// A deferral means "the rest of THIS list", and with a roaming strip the next census's list
+        /// is a different band's glyphs — resuming at index 40 of a band that has 90 would have left
+        /// that band's first 40 glyphs unjudged and called the remainder a continuation. So each band
+        /// carries its own resume point in <see cref="BandGlyphCursor"/>: returning to a band picks up
+        /// where its own last reading stopped, and a band being read for the first time starts at 0.
+        /// This field is the value for the band that was just read, kept because the line prints
+        /// it.</para>
         /// </summary>
         internal int GlyphCursor;
+
+        /// <summary>Where judging resumes IN EACH BAND. See <see cref="GlyphCursor"/>. Reset with the
+        /// coverage ledger, because a re-allocation makes every band index mean something else.</summary>
+        internal readonly int[] BandGlyphCursor = new int[MaxInkBands];
 
         /// <summary>The cursor this census's planes all started from. Every plane of one census must
         /// judge the SAME glyphs or the level comparison would compare different subsets, so the
@@ -3537,6 +3674,12 @@ internal static partial class PanelSupersample
     private static readonly float[] InkRing = new float[128];
     private static readonly float[] InkBandPredicted = new float[InkBands];
     private static readonly float[] InkBandMeasured = new float[InkBands];
+
+    // The per-band CONTENT histogram of the roaming strip (ModBuild 209). Nothing to do with InkBands
+    // above, which are the HORIZONTAL slices of the orientation self-check's vertical ink profile:
+    // these are the VERTICAL tiles of the frame's WIDTH that the strip walks. Two different axes and
+    // two different jobs; the names are kept apart deliberately.
+    private static readonly int[] InkBandGlyphCount = new int[MaxInkBands];
     private static readonly List<float> InkDevInk = new(MaxInkCensusGlyphs);
     private static readonly List<float> InkDevEmpty = new(MaxInkCensusGlyphs);
     private static readonly List<float> InkScratch = new(4096);
@@ -3561,11 +3704,45 @@ internal static partial class PanelSupersample
         c.Armed++;
     }
 
+    /// <summary>
+    /// <b>AIM THE NEXT CENSUS AT A PARTICULAR PART OF THE WINDOW (ModBuild 209).</b> One-shot: the aim
+    /// is consumed by the next <see cref="BuildInkCensus"/> and cleared there, so it forces exactly one
+    /// reading and the roam resumes after it.
+    ///
+    /// <para>Three ways in, in priority order. <paramref name="component"/> is a GameObject name
+    /// (ordinal, case-insensitive, substring) — preferred whenever the caller knows what it wants to
+    /// look at, because a name survives a layout that moved between two readings and a coordinate does
+    /// not. <paramref name="authoredX"/> is a HOST-LOCAL uGUI x, the same space
+    /// <see cref="Entry.Frame"/> and every glyph quad in this file live in, and it is the fallback for
+    /// when only a position is known. With neither, the band containing the busiest component that is
+    /// NOT the band just read is chosen — which is the cheap "go somewhere that matters and somewhere
+    /// new" rule, and the one the release edge uses.</para>
+    ///
+    /// <para>An aim NEVER overrides the emptiness rule: if the band it resolves to holds no glyph quad
+    /// at all, the roam takes over and the line says the aim missed. Aiming a census at blank margin
+    /// would waste the most interesting moment this instrument gets.</para>
+    /// </summary>
+    private static void AimInkCensus(Entry e, string? component, float authoredX, string why)
+    {
+        InkCensus c = InkOf(e);
+        c.AimComponent = component ?? string.Empty;
+        c.AimAuthoredX = authoredX;
+        c.AimBusiestOther = string.IsNullOrEmpty(c.AimComponent) && float.IsNaN(authoredX);
+        c.AimWhy = why;
+    }
+
     /// <summary>Arm the two release readings: one at the release edge itself and one
     /// <see cref="InkSettleFrames"/> frames later. Called from <see cref="ReportRelease"/>, i.e. on
-    /// the exact frame the settle gate opened.</summary>
+    /// the exact frame the settle gate opened.
+    ///
+    /// <para>ModBuild 209 AIMS the release-edge reading (see <see cref="AimInkCensus"/>) rather than
+    /// letting the roam decide it. The release edge is the single most informative moment this
+    /// instrument gets — it is the frame the user's "the picture FREEZES" complaint is about — and
+    /// spending it on whichever band the cursor happened to reach would be a waste of it.</para></summary>
     private static void ArmInkCensusForRelease(Entry e)
     {
+        AimInkCensus(e, null, float.NaN,
+                     "the RELEASE EDGE is aimed, not roamed: it is the moment the complaint is about");
         ArmInkCensus(e, "the RELEASE EDGE (the frame the settle gate opened)");
         InkOf(e).SettleFrame = Time.frameCount + InkSettleFrames;
     }
@@ -3581,6 +3758,24 @@ internal static partial class PanelSupersample
         if (c.SettleFrame >= 0 && Time.frameCount >= c.SettleFrame)
         {
             c.SettleFrame = -1;
+            // ---- THE ONE PLACE A ROAMING STRIP COULD HAVE BROKEN AN EXISTING READING ------------
+            // The release-edge census and this one exist to be COMPARED — transient against latched.
+            // That comparison is only meaningful over THE SAME PART OF THE WINDOW, and with the strip
+            // roaming the cursor would have handed this reading a different band and the pair would
+            // have silently become a comparison of two different places. So the settled reading is
+            // aimed back at whatever the release-edge reading actually covered: by the NAME of the
+            // component that owned most of that band's glyphs where there is one (a release can
+            // re-fit the host rect — the ModBuild 195 log walks a window 328 -> 716 -> 1920 uGUI px
+            // across one session — so a name is the robust handle and a coordinate is not), and by the
+            // band's authored centre otherwise.
+            AimInkCensus(e,
+                         c.BandDominantComp.Length > 0 ? c.BandDominantComp : null,
+                         c.BandDominantComp.Length > 0
+                             ? float.NaN
+                             : (c.BandAuthoredLo + c.BandAuthoredHi) * 0.5f,
+                         "the SETTLED reading is aimed back at the band the release-edge reading "
+                         + "covered, because transient-against-latched is only a comparison at all if "
+                         + "both readings looked at the same part of the window");
             ArmInkCensus(e, $"{InkSettleFrames} frame(s) AFTER the release edge (the SETTLED reading — "
                             + "the user reports the picture FREEZING on release, so this reading and "
                             + "the release-edge one are what decide transient against latched)");
@@ -3633,6 +3828,47 @@ internal static partial class PanelSupersample
     /// <summary>Drop a window's census state, releasing the budget first. Called from
     /// <see cref="StandDown"/>: a readback still in flight then finds no record and discards itself,
     /// which is correct, but the budget it charged must not go with it.</summary>
+    /// <summary>
+    /// Write this census's outcome into the coverage ledger of the band it covered (ModBuild 209).
+    /// Called from BOTH report paths: a census that produced no reading still has to be recorded as
+    /// having LOOKED, or the ledger would report a band as never covered when in truth it was covered
+    /// and answered nothing — the same silent truncation every other counter in this region forbids.
+    /// </summary>
+    private static void NoteInkBandOutcome(InkCensus c, string verdict, int judged)
+    {
+        if (!c.BandSelected || c.BandIndex < 0 || c.BandIndex >= MaxInkBands)
+            return;
+        c.BandVerdict[c.BandIndex] = verdict;
+        c.BandJudged[c.BandIndex] = judged;
+    }
+
+    /// <summary>How much of this window's width the SEQUENCE of censuses has now seen. The denominator
+    /// is the bands that hold a drawable glyph quad AS OF THIS CENSUS, not the bands the tiling has:
+    /// a band over blank margin holds no text and there is nothing there for any census to answer
+    /// about, so counting it would make full coverage unreachable by construction and the number
+    /// meaningless. The numerator is historical — a band counts as covered if ANY census since engage
+    /// read it — so the pair means "of the window as it stands, this much has been looked at".
+    /// </summary>
+    private static void InkCoverage(InkCensus c, out int covered, out int withContent, out int emptyBands)
+    {
+        covered = 0;
+        withContent = 0;
+        emptyBands = 0;
+        for (int b = 0; b < c.BandCount && b < MaxInkBands; b++)
+        {
+            if (c.BandHasContent[b])
+            {
+                withContent++;
+                if (c.BandVisits[b] > 0)
+                    covered++;
+            }
+            else
+            {
+                emptyBands++;
+            }
+        }
+    }
+
     private static void ReleaseInkCensus(string window)
     {
         if (InkCensuses.TryGetValue(window, out InkCensus c))
@@ -3691,8 +3927,13 @@ internal static partial class PanelSupersample
 
         // Every plane of one census must judge the SAME glyphs or the level comparison would compare
         // different subsets of the window. The cursor is therefore frozen here and only advanced when
-        // the census is complete.
-        c.CensusCursor = c.Glyphs.Count > 0 ? c.GlyphCursor % c.Glyphs.Count : 0;
+        // the census is complete. It comes from THIS BAND's own resume point (ModBuild 209) — see
+        // InkCensus.GlyphCursor for why a single shared cursor stopped meaning anything the moment
+        // the strip started to roam.
+        int bandResume = c.BandSelected && c.BandIndex >= 0 && c.BandIndex < MaxInkBands
+            ? c.BandGlyphCursor[c.BandIndex]
+            : 0;
+        c.CensusCursor = c.Glyphs.Count > 0 ? bandResume % c.Glyphs.Count : 0;
         c.PlanesOutstanding = 0;
         c.PlanesRequested = 0;
         c.PlanesFailed = 0;
@@ -3927,6 +4168,8 @@ internal static partial class PanelSupersample
         c.ComponentsHiddenByGroup = 0;
         c.ComponentsHiddenByGroupOnly = 0;
         c.WalkTruncated = false;
+        c.BandSelected = false;
+        c.BandsSkippedEmpty = 0;
 
         ConvertedPanel panel = e.Panel;
         RectTransform? host = panel.HostRect;
@@ -4014,20 +4257,26 @@ internal static partial class PanelSupersample
             return false;
         }
 
-        // ---- the strip: full height, width bounded by the readback budget, centred on the busiest
-        // component so the census lands where the most text is.
+        // ---- the strip: full height, width bounded by the readback budget, and ROAMING in x --------
+        // ModBuild 205-208 centred it on the busiest component, which is a property of the WINDOW and
+        // not of the census, so it re-elected the same x on all 142 readings of the 208 session and
+        // 83.5 % of the window's width was never looked at once. See MaxInkBands.
         int stripW = Mathf.Clamp(MaxInkCensusTexels / Mathf.Max(e.RtH, 1), MinInkStripTexels, e.RtW);
-        int seed = 0;
-        for (int i = 1; i < InkCandidateComps.Count; i++)
-        {
-            if (InkCandidateComps[i].Count > InkCandidateComps[seed].Count)
-                seed = i;
-        }
-        int stripX = Mathf.Clamp(Mathf.RoundToInt(InkCandidateComps[seed].CentreX - stripW * 0.5f),
-                                 0, Mathf.Max(0, e.RtW - stripW));
+        // HALF-STRIP STRIDE, so consecutive bands overlap and no label can fall between two of them.
+        // See MaxInkBands — this is the difference between a roam that covers the width and a roam
+        // that covers the width except for a boundary through the middle column.
+        int stride = Mathf.Max(1, stripW / 2);
+        int bandCount = Mathf.Clamp(Mathf.CeilToInt((e.RtW - stripW) / (float)stride) + 1,
+                                    1, MaxInkBands);
+        int stripX = SelectInkBand(e, c, stripW, stride, bandCount);
         c.StripX = stripX;
         c.StripW = stripW;
         c.StripH = e.RtH;
+        c.BandAuthoredLo = frame.xMin + stripX / Mathf.Max(c.RateX, 1e-6f);
+        c.BandAuthoredHi = frame.xMin + (stripX + stripW) / Mathf.Max(c.RateX, 1e-6f);
+        if (c.BandVisits[c.BandIndex] == 0)
+            c.BandVerdict[c.BandIndex] = "covered, no reading reported yet";
+        c.BandVisits[c.BandIndex]++;
 
         // ---- keep the glyphs that fall wholly inside it -----------------------------------------
         for (int i = 0; i < InkCandidateComps.Count; i++)
@@ -4095,7 +4344,9 @@ internal static partial class PanelSupersample
         if (c.Glyphs.Count == 0)
         {
             why = $"every one of this window's glyph quads fell OUTSIDE the {stripW}x{e.RtH}-texel "
-                  + $"census strip at x={stripX} ({c.GlyphsOutsideStrip} excluded), or outside the "
+                  + $"census strip at x={stripX} — BAND {c.BandIndex} of {c.BandCount}, authored x "
+                  + $"{c.BandAuthoredLo:F0}..{c.BandAuthoredHi:F0}, chosen because {c.BandAimRule} — "
+                  + $"({c.GlyphsOutsideStrip} excluded), or outside the "
                   + $"COMMITTED CAPTURE FRAME itself ({c.GlyphsOutsideFrame} — those are CROPPED and "
                   + "legitimately absent from the picture, which is a finding about the frame and not "
                   + "about the capture). The strip is "
@@ -4105,6 +4356,223 @@ internal static partial class PanelSupersample
             return false;
         }
         return true;
+    }
+
+    /// <summary>The band that OWNS a level-0 texel x under the current overlapping tiling: the one
+    /// whose strip is most nearly centred on it, which is the band most likely to hold a glyph there
+    /// WHOLLY. With overlapping strips several bands can contain a given x and picking the
+    /// best-centred one is what keeps the content histogram from marking a band as content-bearing
+    /// when a neighbour already covers that text with room to spare.</summary>
+    private static int BandOfTexelX(float texelX, int stripW, int stride, int bandCount)
+        => Mathf.Clamp(Mathf.RoundToInt((texelX - stripW * 0.5f) / Mathf.Max(stride, 1)),
+                       0, bandCount - 1);
+
+    /// <summary>The level-0 x of a band's strip. Clamped into the target, so the last band or two
+    /// overlap their predecessor rather than running off the edge.</summary>
+    private static int BandStripX(int band, int stripW, int stride, int rtW)
+        => Mathf.Clamp(band * stride, 0, Mathf.Max(0, rtW - stripW));
+
+    /// <summary>
+    /// <b>CHOOSE THIS CENSUS'S BAND, AND KEEP THE LEDGER THAT SAYS WHICH PARTS OF THE WINDOW HAVE EVER
+    /// BEEN LOOKED AT (ModBuild 209).</b> Returns the level-0 <c>stripX</c>.
+    ///
+    /// <para>Called after the candidate walk and BEFORE the keep-what-falls-inside loop, which is what
+    /// makes the content histogram free: <see cref="InkCandidates"/> already holds every drawable glyph
+    /// quad of the WHOLE frame at this point, not just the strip's, so counting them per band costs one
+    /// pass over a list that had to be built anyway.</para>
+    ///
+    /// <para>The rules, in the order they are tried, and all of them printed on the line:</para>
+    /// <list type="number">
+    /// <item>A one-shot AIM from the caller (<see cref="AimInkCensus"/>), unless the band it resolves
+    /// to holds no glyph quad — an aim at blank margin is refused rather than honoured.</item>
+    /// <item>Otherwise the ROAM: from the cursor, the first band that holds a glyph quad, wrapping.
+    /// Empty bands are counted as skipped and named as such. A band is NEVER skipped for having read
+    /// clean before — the complaint is intermittent, so a clean band has to keep being re-sampled.</item>
+    /// <item>If not one band in the frame holds a glyph quad, the cursor's own band is taken and the
+    /// downstream "every quad fell outside" refusal reports it honestly.</item>
+    /// </list>
+    /// </summary>
+    private static int SelectInkBand(Entry e, InkCensus c, int stripW, int stride, int bandCount)
+    {
+        // ---- the tiling, and the ledger that indexes it -----------------------------------------
+        // A re-allocation changes RtW or the strip width, and then band 3 of the old tiling and band 3
+        // of the new one are different pieces of the window. Re-interpreting the ledger across that
+        // would make the coverage claim a lie, so it is discarded and the discard is counted.
+        if (c.CoverRtW != e.RtW || c.CoverStripW != stripW || c.BandCount != bandCount)
+        {
+            for (int b = 0; b < MaxInkBands; b++)
+            {
+                c.BandVisits[b] = 0;
+                c.BandHasContent[b] = false;
+                c.BandJudged[b] = 0;
+                c.BandVerdict[b] = string.Empty;
+                c.BandGlyphCursor[b] = 0;
+            }
+            if (c.CoverRtW != 0)
+                c.CoverResets++;
+            c.CoverRtW = e.RtW;
+            c.CoverStripW = stripW;
+            c.BandCursor = 0;
+            c.BandIndex = 0;
+        }
+        c.BandCount = bandCount;
+        c.BandW = stripW;
+        c.BandStride = stride;
+
+        // ---- which bands carry content, AS OF THIS CENSUS ----------------------------------------
+        // Recomputed every time rather than accumulated, and that is what makes "the whole width has
+        // been seen" reachable: a band whose text has since been destroyed or scrolled away would
+        // otherwise sit in the coverage denominator for ever, never be selected (it is empty now) and
+        // hold the claim open permanently. The question the line answers is "is the window AS IT
+        // STANDS fully covered", and this is that question's denominator.
+        //
+        // Each quad is filed under the band whose strip is most nearly CENTRED on it, which under the
+        // half-strip overlap is the band that holds it wholly if any does — so a band marked empty
+        // here is 'blank margin or already covered by a neighbour', never 'nobody looks here'.
+        for (int b = 0; b < bandCount; b++)
+        {
+            InkBandGlyphCount[b] = 0;
+            c.BandHasContent[b] = false;
+        }
+        for (int i = 0; i < InkCandidates.Count; i++)
+        {
+            InkGlyph g = InkCandidates[i];
+            if (g.X0 < 0f || g.X1 > e.RtW || g.Y0 < 0f || g.Y1 > e.RtH)
+                continue;   // CROPPED by the committed frame — see InkCensus.GlyphsOutsideFrame.
+            int b = BandOfTexelX((g.X0 + g.X1) * 0.5f, stripW, stride, bandCount);
+            InkBandGlyphCount[b]++;
+            c.BandHasContent[b] = true;
+        }
+
+        // ---- the one-shot aim -------------------------------------------------------------------
+        int aimed = -1;
+        string aimNote = string.Empty;
+        if (c.AimComponent.Length > 0)
+        {
+            int best = -1;
+            for (int i = 0; i < InkCandidateComps.Count; i++)
+            {
+                if (InkCandidateComps[i].Name.IndexOf(c.AimComponent,
+                        System.StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                if (best < 0 || InkCandidateComps[i].Count > InkCandidateComps[best].Count)
+                    best = i;
+            }
+            if (best >= 0)
+            {
+                aimed = BandOfTexelX(InkCandidateComps[best].CentreX, stripW, stride, bandCount);
+                aimNote = $"AIMED BY NAME at '{InkCandidateComps[best].Name}' ("
+                          + $"{InkCandidateComps[best].Count} glyph quad(s))";
+            }
+            else
+            {
+                aimNote = $"the aim at component '{c.AimComponent}' MISSED — this window's subtree has "
+                          + "no censusable component of that name right now";
+            }
+        }
+        else if (!float.IsNaN(c.AimAuthoredX))
+        {
+            float tx = (c.AimAuthoredX - e.Frame.xMin) * c.RateX;
+            aimed = BandOfTexelX(tx, stripW, stride, bandCount);
+            aimNote = $"AIMED BY POSITION at authored x={c.AimAuthoredX:F0} host-local uGUI px "
+                      + $"(texel x={tx:F0})";
+        }
+        else if (c.AimBusiestOther)
+        {
+            int best = -1;
+            for (int i = 0; i < InkCandidateComps.Count; i++)
+            {
+                if (BandOfTexelX(InkCandidateComps[i].CentreX, stripW, stride, bandCount) == c.BandIndex)
+                    continue;
+                if (best < 0 || InkCandidateComps[i].Count > InkCandidateComps[best].Count)
+                    best = i;
+            }
+            if (best >= 0)
+            {
+                aimed = BandOfTexelX(InkCandidateComps[best].CentreX, stripW, stride, bandCount);
+                aimNote = "AIMED at the BUSIEST COMPONENT NOT IN THE BAND JUST READ — '"
+                          + InkCandidateComps[best].Name + $"', {InkCandidateComps[best].Count} glyph "
+                          + $"quad(s), band {aimed} against band {c.BandIndex} last time";
+            }
+            else
+            {
+                aimNote = "the busiest-elsewhere aim found NO component outside the band just read, so "
+                          + "there was nowhere else worth aiming at";
+            }
+        }
+
+        // ---- aim, else roam ---------------------------------------------------------------------
+        int chosen;
+        int skipped = 0;
+        string rule;
+        if (aimed >= 0 && InkBandGlyphCount[aimed] > 0)
+        {
+            chosen = aimed;
+            rule = aimNote + " — " + c.AimWhy;
+        }
+        else
+        {
+            if (aimed >= 0)
+            {
+                aimNote += ", but band " + aimed + " holds no glyph quad this census, so the aim was "
+                           + "REFUSED rather than spent on blank margin";
+            }
+            chosen = -1;
+            for (int k = 0; k < bandCount; k++)
+            {
+                int b = (c.BandCursor + k) % bandCount;
+                if (InkBandGlyphCount[b] > 0)
+                {
+                    chosen = b;
+                    break;
+                }
+                skipped++;
+            }
+            if (chosen < 0)
+            {
+                chosen = Mathf.Clamp(c.BandCursor, 0, bandCount - 1);
+                skipped = 0;
+                rule = $"the ROAM found NO band of the {bandCount} holding a single drawable glyph "
+                       + $"quad, so it took the cursor's own band {chosen}; the refusal below says "
+                       + "what that means";
+            }
+            else
+            {
+                rule = $"the ROAM: the cursor stood at band {c.BandCursor} and band {chosen} is the "
+                       + $"first from there holding content ({skipped} empty band(s) stepped over)";
+            }
+            if (aimNote.Length > 0)
+                rule = aimNote + "; " + rule;
+        }
+
+        c.BandsSkippedEmpty = skipped;
+        c.BandSelected = true;
+        c.BandIndex = chosen;
+        c.BandCursor = (chosen + 1) % bandCount;
+        c.BandAimRule = rule;
+
+        // ONE SHOT. An aim forces the NEXT census and no others — a sticky aim would re-create the
+        // fixed strip this whole change exists to remove.
+        c.AimComponent = string.Empty;
+        c.AimAuthoredX = float.NaN;
+        c.AimBusiestOther = false;
+        c.AimWhy = string.Empty;
+
+        // The band's dominant component, kept so the SETTLED reading can be aimed back at this band
+        // BY NAME thirty frames later, when a release re-fit may have moved every coordinate.
+        c.BandDominantComp = string.Empty;
+        int dom = -1;
+        for (int i = 0; i < InkCandidateComps.Count; i++)
+        {
+            if (BandOfTexelX(InkCandidateComps[i].CentreX, stripW, stride, bandCount) != chosen)
+                continue;
+            if (dom < 0 || InkCandidateComps[i].Count > InkCandidateComps[dom].Count)
+                dom = i;
+        }
+        if (dom >= 0)
+            c.BandDominantComp = InkCandidateComps[dom].Name;
+
+        return BandStripX(chosen, stripW, stride, e.RtW);
     }
 
     /// <summary>Record one text component's visible glyph quads in texel space. Reads the SUBMITTED
@@ -4499,6 +4967,9 @@ internal static partial class PanelSupersample
         c.GlyphCursor = c.Glyphs.Count > 0
             ? (c.CensusCursor + covered) % c.Glyphs.Count
             : 0;
+        // Filed against the band that was actually read — a deferral is "the rest of THIS band".
+        if (c.BandSelected && c.BandIndex >= 0 && c.BandIndex < MaxInkBands)
+            c.BandGlyphCursor[c.BandIndex] = c.GlyphCursor;
         c.LastMipLost = c.MipLost1 + c.MipLost2;
 
         c.Completed++;

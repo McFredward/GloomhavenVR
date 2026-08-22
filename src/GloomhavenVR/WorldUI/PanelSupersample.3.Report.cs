@@ -509,6 +509,17 @@ internal static partial class PanelSupersample
         // census, so it is handed back HERE rather than in a callback.
         EndInkCensus(c);
 
+        // ModBuild 209: this reading goes into the band's ledger BEFORE the line is built, so the
+        // ledger printed below shows this census against the band it covered rather than the one
+        // before it. The three verdicts are already final at this point — FinishInkPlane builds them
+        // ahead of this call precisely so the report only has to print.
+        NoteInkBandOutcome(c,
+            (c.TotalEmpty > 0
+                ? $"{c.TotalEmpty} EMPTY of {c.TotalJudged} judged ({c.TotalInk} with ink)"
+                : $"every one of {c.TotalJudged} judged glyph(s) had INK")
+            + "; " + InkHeadline(c.MipVerdict) + "; " + InkHeadline(c.BlitVerdict),
+            c.TotalJudged);
+
         // Worst first — the components with the most EMPTY glyphs are the ones the next round works
         // on. The COUNTS are always complete; only the sentences are capped, and the line says by how
         // much (this project has shipped five remedies that quietly covered part of their subject).
@@ -528,7 +539,9 @@ internal static partial class PanelSupersample
           .Append(": ").Append(c.Reason).Append(" — requested on frame ").Append(c.RequestFrame)
           .Append(", delivered on frame ").Append(c.DeliveredFrame).Append(" (")
           .Append(c.DeliveredFrame - c.RequestFrame)
-          .Append(" frame(s) later; AsyncGPUReadback, so the GPU was never stalled). THE VERDICT: ")
+          .Append(" frame(s) later; AsyncGPUReadback, so the GPU was never stalled). THE VERDICT, AND "
+                  + "IT IS A VERDICT ABOUT ONE BAND OF THIS WINDOW — read COVERAGE below before "
+                  + "generalising a single word of it: ")
           .Append(c.TotalGlyphs).Append(" glyph quad(s) the SUBMITTED MESH says are there, ")
           .Append(c.TotalInk).Append(" WITH INK in the captured texture, ").Append(c.TotalEmpty)
           .Append(" EMPTY, across ").Append(c.Comps.Count).Append(" text component(s)")
@@ -540,6 +553,7 @@ internal static partial class PanelSupersample
               : string.Empty)
           .Append('.');
 
+        AppendInkCoverage(c);
         AppendInkPlanes(e, c);
 
         int named = 0;
@@ -767,7 +781,16 @@ internal static partial class PanelSupersample
                   + "correlating the ink bands the mesh predicts against the ink bands measured, over ")
           .Append(InkBands).Append(" bands, needing at least ")
           .Append(InkOrientMinCorrelation.ToString("F2")).Append(" correlation and a ")
-          .Append(InkOrientMinMargin.ToString("F2")).Append(" margin.");
+          .Append(InkOrientMinMargin.ToString("F2")).Append(" margin. THE ROAMING STRIP DOES NOT "
+                  + "DISTURB THIS, and it is confirmed rather than assumed: row order is a property of "
+                  + "the GRAPHICS API and the TEXTURE LAYOUT, identical for every sub-rect of one "
+                  + "texture, so it is not a property of the band; the sub-rect asked for is "
+                  + "full-height at y=0 under EVERY band, so the placement ambiguity the full-height "
+                  + "rule removes stays removed at any x; and the once-per-window decision is held "
+                  + "across bands while the cheap per-plane confirmation keeps running and still "
+                  + "refuses the census outright if it ever decides the other way. The confirmation "
+                  + "correlates prediction against measurement OVER THE SAME BAND, so both sides of "
+                  + "it move together when the strip does.");
 
         Sb.Append(" THE MAPPING, from the same two values SyncProjection uses: the capture frame is ")
           .Append(c.FrameW.ToString("F0")).Append('x').Append(c.FrameH.ToString("F0"))
@@ -803,7 +826,11 @@ internal static partial class PanelSupersample
           .Append(c.RtW).Append(" (the ").Append(MaxInkCensusTexels)
           .Append("-texel readback budget divided by the target's height, i.e. ")
           .Append((c.StripW * c.StripH * 4f / (1024f * 1024f)).ToString("F1"))
-          .Append(" MB per request); ").Append(c.GlyphsOutsideFrame)
+          .Append(" MB per request) — BAND ").Append(c.BandIndex).Append(" of ").Append(c.BandCount)
+          .Append(", AND IT ROAMS (ModBuild 209), so the quads counted as outside it below are outside "
+                  + "THIS READING and not outside the instrument: the COVERAGE block above says which "
+                  + "of them a previous census has already looked at and which none has. ")
+          .Append(c.GlyphsOutsideFrame)
           .Append(" glyph quad(s) fell outside the COMMITTED CAPTURE FRAME itself and are therefore "
                   + "CROPPED — legitimately absent from the picture and NEVER a defect. That is the "
                   + "authoritative crop test and it needs no cooperation from any other lane: the "
@@ -843,7 +870,16 @@ internal static partial class PanelSupersample
         // the delivery frame against an 11.11 ms budget — an instrument that exists to measure a
         // rendering complaint was causing 2-4x frame overruns of its own. Every stage now has a
         // millisecond budget, a cursor and a printed deferral count.
-        Sb.Append(" COST, BOUNDED: ").Append(c.BuildMs.ToString("F2"))
+        Sb.Append(" COST, BOUNDED — AND THE ROAMING STRIP DOES NOT TOUCH IT, which is stated here with "
+                  + "the numbers next to it rather than asserted: the band changes WHERE a census "
+                  + "reads and not HOW MUCH. The request is the same ").Append(c.StripW).Append('x')
+          .Append(c.StripH).Append(" texels under every band (the width is still ")
+          .Append(MaxInkCensusTexels).Append(" / RtH), band selection is one pass over a candidate "
+                  + "list the walk had to build anyway and is charged to the BUILD figure below where "
+                  + "it is visible, and the judging and search stages keep the same per-stage budgets "
+                  + "and the same mod-wide per-frame pool — so a band holding more glyphs defers more, "
+                  + "it does not cost more. ")
+          .Append(c.BuildMs.ToString("F2"))
           .Append(" ms to build the glyph list on the request frame; ")
           .Append(c.JudgeMsTotal.ToString("F2")).Append(" ms of judging summed over ")
           .Append(c.PlanesLanded).Append(" plane(s), WORST SINGLE PLANE ")
@@ -868,11 +904,17 @@ internal static partial class PanelSupersample
                   + "re-deriving a row order that is constant for the session; it is now decided once "
                   + "per window and merely confirmed afterwards. WHAT WAS DEFERRED, never silently: ")
           .Append(c.TotalDeferred)
-          .Append(" glyph(s) were left unjudged by the millisecond budget and are carried to the next "
-                  + "census, which resumes at glyph ").Append(c.GlyphCursor).Append(" of ")
+          .Append(" glyph(s) were left unjudged by the millisecond budget and are carried to the NEXT "
+                  + "CENSUS OF THIS BAND, which resumes at glyph ").Append(c.GlyphCursor).Append(" of ")
           .Append(c.TotalGlyphs).Append(" (this census started at ").Append(c.CensusCursor)
-          .Append("; the cursor advances by the LEAST any plane covered, so no band of glyphs can "
-                  + "fall between two censuses uncompared). THE SEARCH: ").Append(c.SearchNote)
+          .Append("; the cursor advances by the LEAST any plane covered, so no run of glyphs can fall "
+                  + "between two censuses uncompared). THE CURSOR IS PER BAND SINCE ModBuild 209 and "
+                  + "that is not a detail: a deferral means 'the rest of THIS list', and once the "
+                  + "strip roams the next census's list is a DIFFERENT band's glyphs — resuming at "
+                  + "index " + c.GlyphCursor + " of a band that has never been read would have left "
+                  + "its first " + c.GlyphCursor + " glyph(s) unjudged and called the remainder a "
+                  + "continuation. Each band therefore carries its own resume point and a band read "
+                  + "for the first time starts at 0. THE SEARCH: ").Append(c.SearchNote)
           .Append(". THE GATE ON IT — the search exists only to decide whether a glyph EMPTY at its "
                   + "predicted place is absent or displaced, so it is skipped when nothing is empty "
                   + "and skipped when the PREVIOUS census located the loss in the mip chain (this "
@@ -972,6 +1014,128 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>
+    /// <b>COVERAGE, AS A FIRST-CLASS NUMBER ON EVERY LINE (ModBuild 209).</b>
+    ///
+    /// <para>The 208 session printed "strip 668x2992 at x=2932" 142 times and every one of its clean
+    /// verdicts was clean about 16.5 % of the window's width — the right-hand edge — while the damage
+    /// in the user's photograph sits in the middle column. A line that states a verdict without
+    /// stating what it looked at is how eight rounds of correct measurements produced no answer, so
+    /// this block is not an addendum: until the whole width has been seen, it is the clause that
+    /// bounds every other sentence on the line.</para>
+    /// </summary>
+    private static void AppendInkCoverage(InkCensus c)
+    {
+        InkCoverage(c, out int covered, out int withContent, out int emptyBands);
+        bool whole = withContent > 0 && covered >= withContent;
+        float widthPct = c.RtW > 0 ? c.StripW * 100f / c.RtW : 0f;
+        float frameW = c.RateX > 1e-6f ? c.RtW / c.RateX : 0f;
+
+        Sb.Append(" COVERAGE — READ THIS BEFORE THE VERDICT ABOVE: this reading covered BAND ")
+          .Append(c.BandIndex).Append(" of ").Append(c.BandCount).Append(", texels x=").Append(c.StripX)
+          .Append("..").Append(c.StripX + c.StripW).Append(" of ").Append(c.RtW)
+          .Append(", i.e. AUTHORED x ").Append(c.BandAuthoredLo.ToString("F0")).Append("..")
+          .Append(c.BandAuthoredHi.ToString("F0")).Append(" of ").Append(frameW.ToString("F0"))
+          .Append(" host-local uGUI px — ").Append(widthPct.ToString("F1"))
+          .Append(" % of the window's width. THE AIMING RULE: ").Append(c.BandAimRule).Append(". ")
+          .Append(c.BandsSkippedEmpty)
+          .Append(" band(s) were stepped over as EMPTY (not one drawable glyph quad of the whole "
+                  + "frame falls in them, so a census there would have read blank margin); a band is "
+                  + "NEVER skipped for having read CLEAN before, because the complaint is that the "
+                  + "picture breaks intermittently and a clean band has to keep being re-sampled.");
+
+        Sb.Append(" SINCE ENGAGE this window has covered ").Append(covered).Append(" of the ")
+          .Append(withContent).Append(" band(s) that hold a glyph quad AS OF THIS CENSUS (the "
+                  + "denominator is the window as it stands and the numerator is historical, so a "
+                  + "band whose text has since been scrolled away cannot hold the claim open for "
+                  + "ever; ")
+          .Append(c.BandCount).Append(" band(s) in the tiling, ").Append(c.BandW)
+          .Append(" texels each at a ").Append(c.BandStride)
+          .Append("-texel stride — the strips OVERLAP BY HALF A STRIP on purpose, because a glyph is "
+                  + "censused only when its quad is WHOLLY inside one and abutting bands would have "
+                  + "excluded every label straddling a boundary from BOTH of them; any run of ink up "
+                  + "to ").Append(c.BandStride)
+          .Append(" texels wide is guaranteed to sit wholly inside at least one band — ")
+          .Append(emptyBands)
+          .Append(" of them hold no glyph quad of their own right now, ").Append(c.CoverResets)
+          .Append(" ledger reset(s) because a re-allocation changed the tiling and a stored band index "
+                  + "would then have meant a different piece of the window). ")
+          .Append(whole
+              ? "THE WHOLE WIDTH HAS NOW BEEN SEEN at least once, so the per-band ledger below — and "
+                + "not this line's verdict on its own — is what speaks for the window; the verdict "
+                + "above is still a verdict about band " + c.BandIndex + " and the ledger is where a "
+                + "defect that lives somewhere else will show."
+              : "THE WHOLE WIDTH HAS NOT BEEN SEEN YET. NO VERDICT ON THIS LINE IS A VERDICT ABOUT "
+                + "THIS WINDOW: " + (100f - (withContent > 0 ? covered * 100f / withContent : 0f))
+                    .ToString("F0")
+                + " % of the content-bearing width has not been read by any census since engage, and "
+                + "nothing above or below follows about that part of the picture in EITHER direction "
+                + "— it is not evidence that it is intact and it is not evidence that it is broken.");
+
+        // ---- THE LEDGER: which parts have ever been looked at, and what did they say -------------
+        // The authored ranges are computed under THIS census's mapping (RateX and the frame origin at
+        // request time). The ledger is discarded whenever the target width or the strip width moves,
+        // so the tiling behind these indices is the current one; a frame that changed width without
+        // changing the target would shift the authored numbers of past readings by that ratio, which
+        // is why the TEXEL range is printed as the primary and the authored range as the translation.
+        Sb.Append(" THE BANDS, AND WHAT EACH HAS SAID — 'no glyph quad calls it home' below means "
+                  + "blank margin OR text whose quads sit more centrally in an overlapping neighbour "
+                  + "and are censused there instead, because each quad is filed under the band its "
+                  + "centre is nearest; it never means that nothing looks at those texels:");
+        for (int b = 0; b < c.BandCount && b < MaxInkBands; b++)
+        {
+            int bx = BandStripX(b, c.BandW, c.BandStride, c.RtW);
+            float lo = c.FrameAtRequest.xMin + (c.RateX > 1e-6f ? bx / c.RateX : 0f);
+            float hi = c.FrameAtRequest.xMin + (c.RateX > 1e-6f ? (bx + c.BandW) / c.RateX : 0f);
+            Sb.Append(" #").Append(b).Append(b == c.BandIndex ? " (THIS READING)" : string.Empty)
+              .Append(" texels ").Append(bx).Append("..").Append(bx + c.BandW)
+              .Append(" = authored ").Append(lo.ToString("F0")).Append("..").Append(hi.ToString("F0"))
+              .Append(": ");
+            if (!c.BandHasContent[b])
+            {
+                Sb.Append("no glyph quad calls it home as of this census")
+                  .Append(c.BandVisits[b] > 0
+                      ? $", though {c.BandVisits[b]} census(es) DID read it earlier, last saying: "
+                        + (c.BandVerdict[b].Length > 0 ? c.BandVerdict[b] : "(nothing recorded)")
+                      : string.Empty)
+                  .Append(';');
+                continue;
+            }
+            if (c.BandVisits[b] == 0)
+            {
+                Sb.Append("HOLDS TEXT AND HAS NEVER BEEN COVERED — no census has looked here since "
+                          + "engage;");
+                continue;
+            }
+            Sb.Append(c.BandVisits[b]).Append(" census(es), last said: ")
+              .Append(c.BandVerdict[b].Length > 0 ? c.BandVerdict[b] : "(nothing recorded)")
+              .Append(" over ").Append(c.BandJudged[b]).Append(" judged glyph(s);");
+        }
+
+        // A CONSEQUENCE OF ROAMING THAT MUST NOT BE READ AS A FINDING. The old fixed strip was CENTRED
+        // on the busiest component, so that component's text sat in the strip's interior by
+        // construction. A tiled band has boundaries that fall wherever they fall, and one can bisect a
+        // label — which raises the near-edge and AMBIGUOUS counts above without anything at all having
+        // changed in the picture. The counters that carry it already exist and are already printed;
+        // this sentence exists so their rise is attributed to the tiling rather than to the capture.
+        Sb.Append(" READ THE NEAR-EDGE AND AMBIGUOUS COUNTS ABOVE AGAINST THIS: a tiled band's "
+                  + "boundary can cut through a label, where the old fixed strip was centred on the "
+                  + "busiest component and put it in the interior by construction. A glyph within one "
+                  + "advance of a band edge is not a clean reading whichever bucket it fell in, it is "
+                  + "counted and named as such, and the half-strip overlap GUARANTEES that a "
+                  + "neighbouring band holds that label whole — it is in the ledger above. Compare the "
+                  + "two rather than concluding from this one.");
+
+        // The band is what a NEXT reading needs in order to be comparable with this one, so it is
+        // stated rather than left to be reconstructed from the cursor arithmetic.
+        Sb.Append(" The band the ROAM will resume at is #").Append(c.BandCursor)
+          .Append(", and the busiest component in the band just read is '")
+          .Append(c.BandDominantComp.Length > 0 ? c.BandDominantComp : "(none)")
+          .Append("' — which is what the SETTLED reading is aimed back at by NAME, so that the "
+                  + "release-edge and settled pair stays a comparison of ONE part of the window rather "
+                  + "than becoming a comparison of two different ones now that the strip roams.");
+    }
+
+    /// <summary>
     /// <b>THE FOUR PLANES SIDE BY SIDE ON ONE LINE — the shape that makes ModBuild 208 readable in a
     /// glance.</b> A plane that could not be read prints WHY in the same position a count would have
     /// been, because "mip 2 lost every glyph" and "mip 2 does not exist" must never look alike.
@@ -1045,6 +1209,11 @@ internal static partial class PanelSupersample
         // here. If it did not, MaxInkCensusesInFlight = 1 would mean ONE refusal silences the
         // instrument for the rest of the session — while every line still claimed it was armed.
         EndInkCensus(c);
+
+        // ModBuild 209: a refusal is recorded in the band's ledger too, and NoteInkBandOutcome writes
+        // nothing at all when this census never got as far as choosing a band — otherwise one band's
+        // silence would be filed against the band the PREVIOUS census read.
+        NoteInkBandOutcome(c, "NOT ANSWERABLE — " + InkHeadline(why), 0);
         c.Unanswerable++;
         float now = Time.unscaledTime;
         bool sameReason = string.Equals(c.LastUnanswerable, why, System.StringComparison.Ordinal);
@@ -1065,6 +1234,22 @@ internal static partial class PanelSupersample
                           + $"re-allocation, {c.Threw} threw. Nothing about the capture, the mip chain, "
                           + "the layer isolation, input or multiplayer is affected by this instrument "
                           + "either way — it only reads.");
+    }
+
+    /// <summary>The headline of a verdict — everything up to the em-dash that introduces its
+    /// reasoning — for the per-band coverage ledger, where one census's full three verdicts would make
+    /// the line unreadable at seven bands. Every verdict this class builds is written headline-first
+    /// for exactly this reason ("MIP CHAIN VERIFIED — ...", "RESOLVE BLIT LOSES INK — ..."), so the
+    /// truncation keeps the judgement and drops only the argument behind it.</summary>
+    private static string InkHeadline(string verdict)
+    {
+        if (string.IsNullOrEmpty(verdict))
+            return "(nothing recorded)";
+        int i = verdict.IndexOf(" — ", System.StringComparison.Ordinal);
+        string s = i > 0 ? verdict.Substring(0, i) : verdict;
+        s = s.Replace('\n', ' ').Replace('\r', ' ');
+        const int max = 72;
+        return s.Length <= max ? s : s.Substring(0, max) + "...";
     }
 
     /// <summary>The string a component is named by on the census line, trimmed so one very long label
