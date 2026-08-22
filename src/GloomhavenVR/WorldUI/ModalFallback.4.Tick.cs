@@ -1766,7 +1766,7 @@ internal static partial class ModalFallback
     /// <c>Raycast</c> the raycaster and sticky-visibility re-asserts; <c>GrabFollow</c> the grab
     /// frame follow and the hover-card pose; <c>Destinations</c> the guildmaster banner
     /// reconcile; the three <c>Probe.*</c> phases the ModBuild 182/185/186 flicker instruments
-    /// (Probe.RenderTarget additionally drives PanelSamplingProbe → EyeFrameProbe → PanelMipBake,
+    /// (Probe.RenderTarget additionally drives PanelSamplingProbe → the eye-pixel probe → PanelMipBake,
     /// so a large number there is a probe-family number, not one class); <c>Scroll</c> the
     /// results-window stick scroll; <c>Refit</c> the fitted-scale re-derivation and the one
     /// pre-reveal pose re-place; <c>ChainPose</c> the level-message chain store; <c>MenuGuard</c>
@@ -2337,11 +2337,10 @@ internal static partial class ModalFallback
         // the ruling is quoted in full at the registry.)
         EnterPhase(PhaseProbeFlicker);
         // The flicker instrument (ModBuild 182): armed exactly while floated panels exist, so it
-        // costs nothing in a scenario with none and nothing in the menu. See PanelFlickerProbe for
+        // costs nothing in a scenario with none and nothing in the menu. See the panel-state probe for
         // why the next round needs a measurement rather than a fourth hypothesis.
-        PanelFlickerProbe.Sync(Converted.Count > 0);
         EnterPhase(PhaseProbeCameraOrder);
-        // ModBuild 185: the measurement PanelFlickerProbe's silence pointed at — see
+        // ModBuild 185: the measurement the panel-state probe's silence pointed at — see
         // CameraOrderProbe. Armed on the same condition; TickApply performs any correction the
         // last judged frame asked for, here in Update and never inside the render loop.
         CameraOrderProbe.Sync(Converted.Count > 0);

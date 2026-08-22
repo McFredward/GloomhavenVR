@@ -14,7 +14,7 @@ namespace GloomhavenVR.WorldUI;
 /// floated panel instead of its C# state, and the first that carries a REFERENCE COLUMN.
 ///
 /// <para>WHY A NEW CLASS AND NOT MORE OF <see cref="RenderTargetProbe"/>. Rounds 1-7 all measured
-/// state: <see cref="PanelFlickerProbe"/> (three silent hardware sessions — the floated panels are
+/// state: the ModBuild 182 panel-state probe (since removed) (three silent hardware sessions — the floated panels are
 /// steady in both eyes), <see cref="CameraOrderProbe"/> (one camera-order shape for a whole session,
 /// ZERO cameras between the two eye passes — both eyes read the same finished RenderTexture) and
 /// <see cref="RenderTargetProbe"/> (3665 ticks, 0 alternations on the image, its texture, its writer
@@ -206,7 +206,7 @@ internal static class PanelSamplingProbe
     // =====================================================================================
     // THE HAND-OFF TO THE EYE PROBE (ModBuild 191).
     //
-    // <see cref="EyeFrameProbe"/> reads back the PIXELS the eye actually receives over a 64x64
+    // the ModBuild 191 eye-pixel probe (since removed) reads back the PIXELS the eye actually receives over a 64x64
     // window of one surface. Which surface it should look at is exactly the question this class
     // already answers every scan: the WORST-minified graphic on a floated panel is the one the user
     // reports, and the BEST-sampled graphic on the same canvas is the reference column that does
@@ -310,7 +310,7 @@ internal static class PanelSamplingProbe
     {
         internal readonly string Name;
         internal readonly string Kind;
-        /// <summary>The graphic's own rect — published to <see cref="EyeFrameProbe"/> so the pixel
+        /// <summary>The graphic's own rect — published to the ModBuild 191 eye-pixel probe (since removed) so the pixel
         /// probe samples the very surface this line names, not one it picked for itself.</summary>
         internal readonly RectTransform? Rect;
         internal readonly float TexelsW;
@@ -357,8 +357,6 @@ internal static class PanelSamplingProbe
         // method is already called from it on exactly the right condition. It is called FIRST and
         // OUTSIDE the scan throttle below: the eye probe needs a per-frame arm/disarm edge (its
         // work happens on Camera.onPreRender, not here), whereas this class only re-measures every
-        // ScanIntervalFrames. See EyeFrameProbe.
-        EyeFrameProbe.Tick(wanted);
 
         if (!wanted)
         {
@@ -427,7 +425,6 @@ internal static class PanelSamplingProbe
     /// a ScriptEngine hot reload cannot leave a game window wearing our baked sprites.</summary>
     internal static void Shutdown()
     {
-        EyeFrameProbe.Shutdown();
         _armed = false;
         _lastScanFrame = -1;
         RestoreAll("module shutdown");

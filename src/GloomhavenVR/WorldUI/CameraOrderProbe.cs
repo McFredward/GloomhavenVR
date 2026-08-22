@@ -9,7 +9,7 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// THE FLICKER, ROUND 5 — MEASURE THE CAMERA RENDER ORDER, AND FIX WHAT THE MEASUREMENT NAMES.
 ///
-/// <para>WHY THIS AND NOT ANOTHER PANEL THEORY. <see cref="PanelFlickerProbe"/> (ModBuild 182) ran
+/// <para>WHY THIS AND NOT ANOTHER PANEL THEORY. the ModBuild 182 panel-state probe (since removed) (ModBuild 182) ran
 /// a full hardware session and printed NOTHING: across every floated panel, neither eye pass
 /// disagreed with the other inside a frame nor did successive frames alternate, on canvas enabled,
 /// sortingOrder, overrideSorting, renderMode, worldCamera, layer, host activity or host pose. That
@@ -100,7 +100,7 @@ internal static class CameraOrderProbe
                               + "head camera's two MultiPass eye passes. It logs each distinct order "
                               + "SHAPE once (so the log says what the order was even when nothing is "
                               + "wrong), and names any offender before hoisting it below the head. This "
-                              + "is the measurement PanelFlickerProbe's silence pointed at: the panels' "
+                              + "is the measurement the panel-state probe's silence pointed at: the panels' "
                               + "state is steady, so the flicker is in the texture, not the arrangement.");
         }
         else

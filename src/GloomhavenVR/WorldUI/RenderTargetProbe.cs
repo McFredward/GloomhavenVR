@@ -64,7 +64,7 @@ namespace GloomhavenVR.WorldUI;
 /// character is what blinks, that is where it will show.</para>
 ///
 /// <para>WHAT REMAINS SETTLED FROM EARLIER ROUNDS, so nothing here re-opens it:
-/// <see cref="PanelFlickerProbe"/> ran three hardware sessions silent (the floated panels' own
+/// the ModBuild 182 panel-state probe (since removed) ran three hardware sessions silent (the floated panels' own
 /// state is steady), and <see cref="CameraOrderProbe"/> logged exactly one camera-order shape for a
 /// whole session with ZERO cameras between the two eye passes (both eyes sample the same pixels).
 /// Whatever the flicker is, it is temporal and identical in both eyes.</para>
@@ -449,7 +449,7 @@ internal static class RenderTargetProbe
             VRLog.Warn(Scope, $"RENDER TARGET ALTERNATION {where}. The value LEFT and CAME BACK within "
                               + "three ticks — this is the flicker signature, not a state change. Both "
                               + "eyes see the same texture (CameraOrderProbe) and the panel around it is "
-                              + "steady (PanelFlickerProbe), so this field is a live explanation for what "
+                              + "steady (the panel-state probe), so this field is a live explanation for what "
                               + "he reports. Alternation #"
                               + $"{w.Alternations} on this image; see the next BASELINE line for the rate.");
             return;

@@ -13,293 +13,39 @@ namespace GloomhavenVR.WorldUI;
 // that allocates, renders or re-layers; part 3 is the measurement and the log line.
 
 /// <summary>
-/// THE FLICKER, ROUND 10 — the first build that stops trying to make the panel's HUNDREDS of
-/// point-sampled graphics behave and instead turns the whole window into ONE band-limited texture.
+/// <b>ONE FLOATED WINDOW, ONE BAND-LIMITED TEXTURE.</b> A converted window's canvas is rendered by a
+/// private orthographic camera into its own mip-mapped, multisampled render target, and a single quad
+/// shows that target where the canvas would have drawn. Only the canvas LAYER moves; pose, rect,
+/// <c>Canvas.enabled</c>, the <c>GraphicRaycaster</c> and the poke registration all stay exactly as
+/// they were, so input and multiplayer are untouched by construction.
 ///
-/// <para>WHAT NINE ROUNDS ESTABLISHED, so this class does not re-litigate any of it. The panels'
-/// C# state is steady and both MultiPass eye passes agree on it (<see cref="PanelFlickerProbe"/>);
-/// no camera renders between the two eye passes, so both eyes read identical RenderTexture content
-/// (<see cref="CameraOrderProbe"/>); the source RenderTexture content is bit-identical frame to
-/// frame, 567/567 readbacks (<see cref="RenderTargetProbe"/>); and ModBuild 189/190 mip-baked every
-/// mipless texture a floated window samples — the hardware log reads "mips=10 Trilinear aniso 8,
-/// MIP-BAKED" — and the user reports the flicker UNCHANGED. Texture-space shimmer of mipped IMAGES
-/// is therefore measured out.</para>
+/// <para><b>WHY IT EXISTS.</b> A floated window is MINIFIED in the eye — hundreds of point-sampled
+/// graphics resampled through fewer pixels than they were authored at. The sub-texel phase is constant
+/// while the window is still (it reads as sharp) and sweeps every frame while it is carried (it reads
+/// as shimmer). Turning this on ended that: the user, ModBuild 193, <i>"Durchbruch beim Flackern!"</i>.
+/// A window that cannot claim a private capture layer is REFUSED and keeps direct rendering, which is
+/// also the dial's OFF behaviour.</para>
 ///
-/// <para>WHAT IS LEFT IS NOT A TEXTURE PROBLEM AT ALL, and no mip chain can ever reach it.
-/// <see cref="PanelSamplingProbe"/>'s hardware line: <i>"PANEL SAMPLING 'UI Shop Item Window':
-/// host 1920x1080 uGUI px drawn into 1032x605 rendered px = panel scale 1.86 authored px per
-/// rendered px … 475 graphic(s) … 474 at or above 1.35x minification"</i>, ranging 0.47–1.93 across
-/// one session as the head moved. At 1.86 authored pixels per rendered pixel the uGUI GEOMETRY
-/// itself — quad edges, sliced-sprite borders, and above all MIPLESS SDF TEXT, which draws from a
-/// font atlas through TMP's own shader and was never a mip-bake candidate — is RASTERIZED below
-/// Nyquist. A 1 px authored stroke is asked to land on 0.54 of a rendered pixel, and whether it
-/// survives is decided anew by sub-pixel head motion every frame. That is the reported
-/// "es flackert", and the user's own screenshot shows its frozen form: "H LDE DIE 2 E",
-/// "esundheit", every tens digit gone from the stat column (.planning/debug/flackern.jpg, read in
-/// full at <see cref="PanelSamplingProbe"/>). Nothing but SUPERSAMPLING fixes undersampled
-/// rasterization, and making the window physically bigger is not available: 1:1 on a 1920 px window
-/// needs ~57° of view, i.e. a ~1.3 m slab at arm's length, which the user has already rejected.</para>
+/// <para><b>THE PIECES.</b> Part 1 is the argument, the state and the lifecycle; part 2 allocates,
+/// renders and re-layers; part 3 is the report; part 4 measures the capture frame and the content fit;
+/// part 5 owns the per-panel layer pool that keeps two windows from drawing into each other.</para>
 ///
-/// <para>THE MOVE. Render the floated window's canvas with a dedicated ORTHOGRAPHIC camera into a
-/// RenderTexture AT (or above) its AUTHORED resolution, with MSAA, and generate a mip chain after
-/// every capture. Display THAT texture on a mod-owned quad at the window's exact world pose, with
-/// trilinear filtering and anisotropic filtering. The rasterization then happens at 1:1 (or better)
-/// where a 1 px stroke really is 1 px, and the only thing the eye minifies is a single, properly
-/// band-limited texture — the same trade every offline renderer makes. Text shimmer, geometry
-/// shimmer and any per-pixel screen-space rivalry go together, because there is no longer a
-/// per-pixel race between 475 graphics and the eye's sample grid; there is one texture fetch.</para>
+/// <para><b>TWO CONSTRAINTS THAT LOOK LIKE DETAILS AND ARE NOT.</b> A RenderTexture cannot be
+/// multisampled AND mip-mapped — <c>Create()</c> returns true and silently drops the mips — so the
+/// capture and the display are two targets with a resolve between them. And the per-axis rate is
+/// quantised: the achievable factor is <c>MaxRtDimension / frame.width</c> rounded down to
+/// <see cref="RateQuantum"/>, so a frame 32 px wider can cost a whole quantum of sharpness.</para>
 ///
-/// <para><b>MODBUILD 198 — THE SENTENCE ABOVE IS WHERE THIS CLASS WENT WRONG, AND THE ModBuild 197
-/// LOG MEASURES IT.</b> <i>"The rasterization then happens at 1:1 (or better) … and the only thing
-/// the eye minifies is a single, properly band-limited texture."</i> The first half was shipped and
-/// the second half does not follow from it. At 1:1 the capture holds ONE texel per authored pixel,
-/// and the log's own sampling field says the eye then draws that window at 1.0 to 2.2 authored
-/// pixels per RENDERED pixel — so the texture IS minified, and the only band-limited thing available
-/// is mip LEVEL 1, which trilinear does not fully reach until 2 texels per rendered pixel. At factor
-/// 1.0 the eye therefore keeps reading unfiltered LEVEL 0 — 45 of the 70 ModBuild 197 state lines at
-/// half weight or more, 19 of them at 90 % or more, and factor measured as exactly 1.00 on every
-/// single line. <b>The "supersample" path was supersampling nothing.</b></para>
-///
-/// <para>THE SYMPTOM THAT FOLLOWS IS THE ONE THE USER KEEPS REPORTING, both halves of it. A bilinear
-/// fetch at ~1 texel per pixel has a sub-texel PHASE; its response at Nyquist runs from full contrast
-/// at phase 0 to ZERO at phase 0.5. Still window = one fixed phase = looks sharp and fixed. Window in
-/// the hand = the phase sweeps every frame = the same alias pattern crawls = <i>"the ORIGINAL flicker
-/// problem is BACK as soon as you have the window IN YOUR HAND"</i>. Release = the phase LOCKS =
-/// <i>"the state as it was during the flickering gets FROZEN, which can lead to certain elements not
-/// being displayed"</i>, and a second release lands on a different phase, which is his ModBuild 195
-/// <i>"bewege ich es nochmal und lasse los, sieht es wieder anders aus"</i>. The fix and the whole
-/// derivation are at <see cref="BandLimitFactor"/>; the instrument that decides it from one line of
-/// log is the RESAMPLE VERDICT field.</para>
-///
-/// <para>AND IT EXPLAINS WHY THREE ROUNDS OF CAPTURE-SIDE COUNTERS FOUND NOTHING. They were right:
-/// captures equal resolves exactly, moving and still; the quad never showed the raw target; no
-/// resolve ever mismatched; and captures continue at ~900 per 10 s report window after a release, so
-/// nothing about the TEXTURE is stale or frozen. The defect is one step later, between the finished
-/// texture and the eye, where no capture counter can see it.</para>
-///
-/// <para><b>MODBUILD 193 — THE PATH WORKS, AND THE 192 LOG NAMED ITS OWN THREE DEFECTS.</b> The
-/// user's verdict on 192: <i>"Durchbruch beim Flackern! Die Option 'Fenster scharf zeichnen' hat
-/// das Flackern beendet. Allerdings tritt das flackern dann noch auf während dessen man das Fenster
-/// verschiebt. Wenn man es dann mit in der Bewegung loslässt, werden manche Elemente nicht richtig
-/// dargestellt oder andere fehlen im Fenster."</i> So the diagnosis above is confirmed for a still
-/// window, and three things were still wrong — each of which the 192 log had already printed:
-/// <list type="number">
-/// <item><b>THE MIP CHAIN WAS NEVER BUILT.</b> Every state line read <c>mips 1 NONE</c> and the
-/// class's own falsifier fired twice. CAUSE, read from the Unity contract and confirmed by the log:
-/// a RenderTexture cannot be MULTISAMPLED and MIPMAPPED at the same time. <see cref="CreateRt"/>
-/// asked for both (<c>antiAliasing = 4</c> and <c>useMipMap = true</c>), <c>Create()</c> returned
-/// TRUE — so no allocation failure was logged — and the mip request was silently dropped;
-/// <c>GenerateMips()</c> on a multisampled target is likewise a no-op. The win the user felt was
-/// therefore MSAA plus 1:1 rasterization ALONE, with the eye still minifying an unfiltered texture
-/// by up to 2.29x (the 192 line's own "RT texels per rendered pixel"). Unfiltered minification is
-/// invisible while the head and the window are still — the alias pattern is frozen — and turns into
-/// crawl the moment either moves, which is exactly the residual "flackert beim Verschieben". THE
-/// FIX: two targets. The camera renders into a multisampled capture target; that target is resolved
-/// with a <c>Graphics.Blit</c> into a single-sample MIPPED display target immediately after the
-/// capture, and the mip chain is generated THERE. The RawImage shows the mipped one. The state line
-/// now reports <c>mipmapCount</c> READ BACK FROM THE TEXTURE, and the Warn stays as the falsifier.</item>
-/// <item><b>CONTENT WAS BEING CROPPED.</b> <i>"'New Party display' draws content larger than its
-/// host frame (1920x1080 vs 328x1080 uGUI px)"</i>. The capture framed the host rect exactly, so
-/// anything the window drew proud of that rect was cut out of the image — content the player COULD
-/// see before the dial was switched on. THE RULE APPLIED: a user must never lose visible content to
-/// this path, so the frame is now the UNION of the host rect and the measured drawn content
-/// (<see cref="Entry.Frame"/>, <see cref="MeasureFrame"/>). WHAT IT COSTS: the "OFF and ON geometry
-/// are identical" promise becomes "identical whenever the content fits the host rect, and otherwise
-/// ON shows MORE — never less". That is the correct direction: OFF also showed that content.</item>
-/// <item><b>THE CAP WAS SET FROM AN ESTIMATE, NOT A MEASUREMENT</b> — see <see cref="MaxPanels"/>
-/// for the reconciled arithmetic and the new numbers.</item>
-/// </list></para>
-///
-/// <para>THIS IS PRIOR ART IN THIS CODEBASE, NOT AN INVENTION. <see cref="FlatScreen"/> already
-/// renders the game's flat UI into a RenderTexture and shows it on a world quad, and the RT
-/// descriptor is reused verbatim from that family: <c>FlatScreenStereo.CreateColorRt</c>, which
-/// forces <c>D24_UNorm_S8_UInt</c> whenever a depth buffer is asked for. That stencil buffer is not
-/// cosmetic here — uGUI <see cref="Mask"/> is a STENCIL effect, and a floated window without a
-/// stencil buffer loses every masked scroll viewport in it.</para>
-///
-/// <para><b>INPUT IS NOT TOUCHED, AND THAT IS THE WHOLE REASON THIS DESIGN WAS CHOSEN.</b> The
-/// floated-panel raycast path is: <c>RayUguiDriver.Tick</c> iterates the registered host canvases
-/// (<c>RayUguiDriver.cs:123-149</c>), intersects the aim ray with each host RectTransform's WORLD
-/// CORNERS (<c>TryIntersect</c>, <c>RayUguiDriver.cs:607-638</c>), converts the world hit to a
-/// screen point through <c>canvas.worldCamera</c> (<c>ToScreen</c>, <c>RayUguiDriver.cs:665-669</c>)
-/// and hands it to <c>UguiPointer.TryRaycast</c> → <see cref="GraphicRaycaster"/>
-/// (<c>UguiPointer.cs:135-206</c>). Not one step of that reads which CAMERA draws the panel. So the
-/// host canvas is left exactly where it is, at its world pose, enabled, registered and raycastable;
-/// only its LAYER changes, and layers are invisible to every line above. Hover, press, drag, scroll,
-/// the depth-aware portrait pick and the settings fall-through all keep working byte for byte.</para>
-///
-/// <para>THE ALTERNATIVE WAS REJECTED FOR A CONCRETE REASON. FlatScreen's model (option b: render
-/// into the RT and map the quad-hit UV back to RT-camera screen coordinates) works there because the
-/// game's flat UI is a SCREEN-SPACE canvas whose GraphicRaycaster already thinks in screen pixels
-/// and whose RT is Screen-sized, so an RT pixel IS a screen pixel
-/// (<c>FlatScreen.6.Pointer.cs:74-87</c> → <c>DirectClick</c> at <c>:486-542</c>). A floated panel is
-/// the opposite: it is a WORLD-SPACE canvas, and to make its raycast go through the capture camera
-/// the mod would have to re-point <c>HostCanvas.worldCamera</c> at that camera — a value
-/// <c>CanvasConversion.Tick</c> RE-ASSERTS to the head camera every single frame
-/// (<c>CanvasConversion.4.Lifecycle.cs:241-242</c>). That is a per-frame write war with a file this
-/// lane does not own, and this project has already paid for one of those ("Don't win a write war":
-/// the game re-set <c>overrideSorting</c>, the guard re-cleared it, the value ALTERNATED and the
-/// MultiPass eyes disagreed). Option (a) needs no such fight.</para>
-///
-/// <para>HIDING THE PANEL FROM THE EYE — the one mutation that is not free, and how it avoids the
-/// same trap. A world-space canvas is drawn by EVERY camera whose culling mask contains its layer,
-/// so layer culling is the only mechanism that can show it to the capture camera and not to the eye.
-/// The head camera's mask cannot simply be edited: <c>VRRigDriver.TickHeadCullingMask</c> re-writes
-/// it every frame from the anchor camera's mask, which in a scenario is 0xFFFFFFFF — every layer
-/// (<c>VRRigDriver.HeadCamera.cs:137-171</c>). So the bit is cleared in
-/// <see cref="Camera.onPreCull"/> and restored in <see cref="Camera.onPostRender"/>, i.e. INSIDE
-/// each camera's own render and symmetrically for both MultiPass eye passes — the identical idiom
-/// <c>FlatScreenStereo</c> already uses for its per-eye texture swap. Nothing observes an
-/// alternating value: VRRigDriver's per-frame write always sees the mask it wrote.</para>
-///
-/// <para><b>MODBUILD 194 — ONE CAPTURE LAYER PER PANEL, AND THE MOTION INSTRUMENT WAS NEVER BLIND.</b>
-/// Two findings, one of which corrects a premise this file used to state.
-/// <list type="number">
-/// <item><b>THE SHARED CAPTURE LAYER WAS PUTTING ONE WINDOW INSIDE ANOTHER.</b> The user:
-/// <i>"Das Quest Window hat ein komisches Problem wenn es vor dem Händler-Window ist — ist es nah
-/// genug am Händler-Window dran, stellt es teile davon dar."</i> ModBuild 193 resolved ONE capture
-/// layer for the whole mod and gave every per-panel camera <c>cullingMask = 1 &lt;&lt; thatLayer</c>,
-/// so each camera drew EVERY supersampled panel inside its own frustum into its own target — and
-/// that frustum is as deep as the window is tall (<see cref="SyncProjection"/>), on windows that
-/// stand side by side on an arc. Each panel now owns a PRIVATE layer out of a pool for as long as it
-/// is engaged; the pool, the census, the three rejected alternatives and the falsifier that measures
-/// how often 193 was firing all live in PanelSupersample.5.Isolation.cs. Its price is stated there
-/// too: the pool is smaller than <see cref="MaxPanels"/>, so <see cref="EffectiveMaxPanels"/> is the
-/// real cap and a window beyond it is REFUSED rather than made to share.</item>
-/// <item><b>THE ModBuild 193 MOTION DETECTOR WORKED — THAT HYPOTHESIS IS DEAD.</b> It was suspected
-/// of never firing, which would have meant every movement remedy in 193 was gated off. The hardware
-/// log falsifies that outright: of its 226 <c>PANEL SUPERSAMPLE</c> state lines, 23 carry a non-zero
-/// motion count — 1, 2, 12, 21, 27, 29, 35, 38, 49, 55, 64, 69, 104, 132, 235, 290, 308, 542 frames
-/// in a ten-second window (a 900-frame window at 90 Hz), with several reading <c>currently MOVING</c>
-/// and one showing 14 re-allocations. So <see cref="NoticeGeometry"/> saw the drags, the per-frame
-/// layer sweep DID run while moving, the forced re-measure DID run and the reallocation check DID
-/// run — and the user's verdict was <i>"Am Flackern beim Verschieben hat sich nichts geändert"</i>.
-/// Those three remedies are therefore FALSIFIED as the cause of the moving shimmer, not untested.
-/// The detector is now self-falsifying instead of merely correct: it reports how many comparisons it
-/// made, the largest single-frame step it saw and the epsilon it tested against, in world units AND
-/// in authored pixels, so "0 motion frames" can never again be confused with "the instrument did not
-/// run" (<see cref="Entry.MotionTicks"/>).</item>
-/// </list></para>
-///
-/// <para><b>MODBUILD 196 — THE BROKEN-ON-RELEASE IMAGE IS NOT UNDERSAMPLING, AND THE MOVEMENT
-/// REMEDY WAS PAYING FOR ITSELF OUT OF THE FRAME BUDGET.</b> Two findings, one of which retires this
-/// file's own prior diagnosis for one specific symptom.
-/// <list type="number">
-/// <item><b>THE "KAPUTTE ANZEIGE" IS PER-GLYPH DROPOUT WITH THE LAYOUT INTACT, WHICH UNDERSAMPLING
-/// CANNOT PRODUCE.</b> The user, after 195: <i>"Beim Loslassen kann es passieren, dass die
-/// dargestellte Anzeige kaputt ist ... bewege ich es nochmal und lasse los, sieht es wieder anders
-/// aus."</i> The photograph (.planning/debug/kaputte_anzeige.jpg) was MEASURED off the pixels rather
-/// than described, and four measurements each kill a candidate. (i) THE ADVANCES ARE FULL WIDTH: the
-/// trailing colons of <i>Verstärkungen:</i> (14 characters) and <i>Verbesserungen:</i> (15) sit one
-/// character's advance apart, so nothing was substituted, shortened or removed — every character is
-/// still in the layout and its quad simply put no pixels down. (ii) THE GAPS ARE EMPTY, NOT DIM: peak
-/// luminance where <i>d h e</i> of "Gesundheit" belongs is 24, against a 20 background and a 147 ink,
-/// so this is not a contrast or alpha artifact with a faint residue. (iii) THE SAME WINDOW'S SMALLER
-/// TEXT IS PERFECT: <i>"Schließe sechs Basisspiel-Nebenszenarien ab."</i> renders every character
-/// while <i>Gold:</i> renders "Go" — minification below Nyquist dims and blurs uniformly and cannot
-/// delete some glyphs of one label while leaving a smaller label whole. (iv) THE GAPS DO NOT ALIGN:
-/// the ink runs of the six rows form no vertical stripes, which is what a sampling-phase artifact
-/// would look like, and gaps sit INSIDE words with ink on both sides, which is what rules occlusion
-/// out (an occluder is a rectangle). WHAT THAT LEAVES is a text-generation fault, and
-/// <see cref="MeasureContent"/> is the instrument that decides which one from the log alone: glyphs
-/// the font asset does not have, characters the layout marked not visible, and characters that are
-/// visible with a zero-area quad are three separate counters, each printed next to the number of
-/// lookups it came from. The repair prefers FORCING THE REGENERATION — re-request the characters into
-/// the atlas, then re-parse and re-generate the mesh — over re-taking the capture, because a stale
-/// mesh re-captured is still a stale mesh. It runs twice per release and once per detected atlas
-/// repack, never per frame. NOTE WHAT IT CANNOT SEE: it measures the text SOURCE, so a graphic that
-/// drew correctly and was then painted over is invisible to it; that question belongs to the draw
-/// order, and the report says so rather than letting a clean scan read as "nothing is covering
-/// anything".</item>
-/// <item><b>THE PER-FRAME MOTION SWEEP CAUGHT ONE ARRIVAL AND COST A TENTH OF EVERY DRAG FRAME.</b>
-/// ModBuild 193 swept the capture layer EVERY frame while a window moved. The ModBuild 195 log prices
-/// it in two independent numbers: of the 23 sweeps that actually moved a late transform, <b>22 ran on
-/// the periodic cadence and exactly ONE on the per-frame motion cadence</b> (the log line names its
-/// own cadence), while the sweep itself averaged 1.48–1.94 ms — on a session reading <c>frametime
-/// mean 18.31 p50 17.33 p95 24.98 p99 29.93 max 51.75 ms</c> against an 11.11 ms budget, of which
-/// <c>logic</c> is 14–16 ms. At the same time the INSTRUMENT SELF-CHECK field measured real drags at
-/// 12, 19, 33, 47, 74, 94, 122 and 133 RENDERED eye pixels per frame, which is the case its own
-/// ModBuild 194 clause identifies as JUDDER rather than sampling: at that rate a dropped frame is
-/// over a hundred pixels of positional error. So the movement remedy was spending ~10 % of the
-/// main-thread frame on the one activity the user reports as broken, and buying one arrival with it.
-/// The motion cadence is now <see cref="MovingSweepIntervalFrames"/>, the release is covered outright
-/// and unconditionally by <see cref="ReleaseSettleFrames"/>, and the state line now reports frame
-/// time split into MOTION and STILL buckets against a stated 11.11 ms threshold so the next round can
-/// price this instead of arguing about it.</item>
-/// </list></para>
-///
-/// <para><b>MODBUILD 197 — THE ModBuild 196 INSTRUMENT WAS SOUND AND ITS REMEDY NEVER RAN, AND
-/// BOTH OF THOSE ARE READ OFF ITS OWN LOG.</b> The user, after 196: <i>"das Flackerproblem WÄHREND
-/// DER BEWEGUNG ist noch da — inklusive der möglichen kaputten Darstellung, wenn man nach der
-/// Bewegung ABRUPT loslässt."</i> ABRUPT is a new word and it is a claim about release VELOCITY.
-/// This round changed the METHOD rather than the hypothesis, and it produced four findings.
-/// <list type="number">
-/// <item><b>THE GLYPH SCAN RAN, WORKED, AND MEASURES THE WRONG QUANTITY.</b> Its whole output was
-/// counted rather than sampled: <b>236 readings — 152 reading <c>0 not-in-atlas / 0 not-visible /
-/// 0 zero-area</c> and 84 reading exactly one parsed-but-not-visible — with 0 atlas repacks, in a
-/// session containing real drags and up to 140 release repairs on one window.</b> The photograph
-/// shows dozens of missing glyphs across six rows. So the instrument is not blind and it is not
-/// coincidence-limited; it is measuring something upstream of the fault. Every ModBuild 196 counter
-/// reads <see cref="TMPro.TMP_CharacterInfo"/>, which is the LAYOUT RECORD the text engine writes
-/// before any mesh exists. <see cref="ScanTmpMesh"/> is the new measurement and it reads the vertex
-/// and UV arrays that are actually uploaded. A glyph whose four atlas UVs have collapsed onto one
-/// texel keeps its full advance, keeps a full-area quad, reports <c>isVisible</c>, exists in the
-/// atlas — and draws a flat SDF value, i.e. no ink. That is the photograph's exact signature, and
-/// <b>nothing before this build read a single UV</b>.</item>
-/// <item><b>THE RELEASE REPAIR WAS A NO-OP FOR TEXT.</b> ModBuild 196's own documentation said it
-/// forces every text component to re-request its glyphs and re-generate its mesh. It regenerates
-/// only components its scan marked bad (<c>if ((!repairAll &amp;&amp; bad == 0) || ...) return
-/// false;</c>), and that count is permanently zero — so across 236 state lines it re-generated <b>at
-/// most ONE component per release, and 151 lines read zero</b>, on windows carrying up to 297 text
-/// components and 4600 glyphs. THE USER REPORTING NO IMPROVEMENT IS THEREFORE THE EXPECTED RESULT
-/// AND CARRIES NO INFORMATION about the text hypothesis. <see cref="ReleaseRepair"/> now passes
-/// <c>repairAll</c>; the report cadence's scan still does not, so a settled window costs what it
-/// costs today.</item>
-/// <item><b>A DRAGGED WINDOW IS FULLY SUPERSAMPLED, WHICH KILLS "IT SWITCHES OFF WHILE I DRAG".</b>
-/// The ModBuild 196 log's capture counts are 1:1 with its frame counts (894 captures against 894
-/// sampled frames in a report window), <see cref="CaptureIntervalFrames"/> is 1, and
-/// <see cref="ResolveAndMip"/> runs in the capture camera's own <c>onPostRender</c>. So the moving
-/// case takes the identical path to the still case the user has already accepted as fixed. That is
-/// now a COUNT rather than an argument from source: see <c>AppendCapturePath</c>, which splits
-/// captures and resolves into MOTION and STILL buckets and carries three expected-zero falsifiers.</item>
-/// <item><b>THE MOVING CASE LOOKS LIKE JUDDER, AND THE ModBuild 196 LOG ALREADY SAYS SO.</b> Its
-/// MOTION BUDGET field measured 18 report windows with real drags: while MOVING mean 11.05–11.27 ms
-/// and 48–50 % of frames over the 11.11 ms budget, while STILL mean 11.09–13.03 ms and 45–50 % over.
-/// <b>The drag frames are not measurably worse than the still frames</b> — the ModBuild 196 throttle
-/// of the motion sweep worked and this class no longer costs anything extra during a drag. What
-/// remains is that the whole session sits ON the budget with half its frames just over it, while the
-/// same log measures real drags at up to 32.9 RENDERED eye pixels of window travel per frame. A
-/// re-shown frame during a drag is therefore tens of pixels of positional error on a high-contrast
-/// edge, and the compositor cannot correct it: reprojection compensates HEAD motion, not a window
-/// travelling under the player's hand. <see cref="Entry.DragDroppedFrames"/> counts that directly
-/// against <see cref="DroppedFrameMs"/> and the RELEASE line prints it next to the travel per frame,
-/// because the PRODUCT of those two is what the eye reads as flicker. If it is judder, the remedy is
-/// not on the panel surface at all and this class should stop being asked for one.</item>
-/// </list></para>
-///
-/// <para>LAYER OWNERSHIP IS TAKEN WHOLE, never shared. While a panel is supersampled this class is
-/// the ONLY writer of its subtree's layers: <see cref="OwnsPanelLayers"/> stands
-/// <c>CanvasConversion.ApplyModLayer</c> down for exactly those panels (the two re-assert call sites
-/// in CanvasConversion.4.Lifecycle.cs), and this class runs the same sweep on the same cadence with
-/// the same rule — a subtree carrying a real <see cref="Renderer"/> or <see cref="Camera"/> is
-/// skipped WHOLE. That rule is not a nicety: relayering the live 3D character rig is a bug this
-/// project has already shipped and reverted ("CanvasRenderer is not a Renderer" — the preview camera
-/// stopped seeing its subject and the head camera drew the raw model in the world, twice). Every
-/// moved transform's original layer is recorded before the first write and restored on stand-down,
-/// on release and on teardown — and only while the transform is still on OUR layer, so a restore
-/// can never fight <c>CanvasConversion.Release</c>'s own restore whichever runs first.</para>
-///
-/// <para>MULTIPLAYER: THIS CANNOT DESYNC ANYTHING. Everything here is a local RENDERING choice —
-/// a camera, a RenderTexture, a quad and a culling bit. No game state is read for a decision, no
-/// game method is patched, nothing is written that another client could observe, and nothing goes on
-/// the wire. The dial is per-installation and two clients running different values see identical
-/// game state; the only difference is how sharp their own windows look. The mod's version handshake
-/// (<c>NetProtocol.ModBuild</c>) is untouched by this lane.</para>
-///
-/// <para>DEGRADATION: every failure path stands the whole thing down and says so once, naming the
-/// consequence. No capture layer available, no head camera, an RT that will not allocate, a rect
-/// that will not measure — each ends in the panel keeping TODAY's direct rendering, which is exactly
-/// the OFF behaviour. Nothing throws out of a tick.</para>
+/// <para><b>THE DEFECT THIS CLASS CHASED FOR SIXTEEN BUILDS WAS NOT IN THIS CLASS.</b> ModBuild
+/// 203-216 measured mesh, atlas, sub-meshes, alpha, cull, the CanvasGroup chain, layer, frustum,
+/// sorting, the mip chain, the resolve blit and the sampling rate — every one of them correct, and the
+/// picture still lost whole elements. The cause was a <c>Custom/SimpleGrabPassBlur</c> under
+/// <c>UI Item Confirmation Box</c> covering 99 % of the sub-view: a GrabPass shader grabs the
+/// framebuffer it is being drawn into and paints a blurred copy back, which inside a render-to-texture
+/// pass is the capture target MID-RENDER. It hid from every instrument because its inherited alpha is
+/// 0.000 and they all classified visibility by alpha — <b>a graphic with a non-stock material is not
+/// governed by the alpha uGUI writes into its vertex colour.</b> Fixed in
+/// <c>NeutraliseGrabPassBlur</c>; the diagnostic apparatus built to find it has been removed.</para>
 /// </summary>
 internal static partial class PanelSupersample
 {
@@ -853,7 +599,6 @@ internal static partial class PanelSupersample
     /// exists only so a pathological window cannot turn a per-frame compare loop into a spike. When
     /// it bites, <see cref="Entry.CullPairsTruncated"/> says so and every count below it is a LOWER
     /// BOUND — the standing rule that a truncated instrument must never read clean.</summary>
-    private const int MaxCullPairs = 512;
 
     /// <summary>How many latched sub-meshes the report names in full. The COUNT is always printed
     /// with its denominator; only the sentences are capped.</summary>
@@ -1134,92 +879,6 @@ internal static partial class PanelSupersample
             Parent = parent;
             Sub = sub;
         }
-    }
-
-    /// <summary>
-    /// <b>WHY A GRAPHIC PUT NO PIXELS INTO THE CAPTURE — one disjoint reason, in the order uGUI itself
-    /// applies them.</b> The order matters and is not arbitrary: a component can be culled AND inside a
-    /// zero-alpha group, and reporting the second when the first is what stopped it would send the next
-    /// round after the wrong writer. First reason wins, and it is the one printed.
-    /// </summary>
-    private enum DrawReason : byte
-    {
-        /// <summary>It drew. The only value that is not an exclusion.</summary>
-        Drawn = 0,
-
-        /// <summary>No CanvasRenderer at all — not a drawable graphic.</summary>
-        NoRenderer = 1,
-
-        /// <summary><c>CanvasRenderer.cull</c> is set. THE ONE THIS BUILD IS HUNTING: uGUI's
-        /// <c>RectMask2D</c> sets it on graphics whose rect falls outside the clip rectangle, and it is
-        /// a per-graphic switch that hits an Image exactly as it hits a label — which is what the
-        /// user's "es betrifft auch bilder/symbole" requires of any surviving hypothesis.</summary>
-        Culled = 2,
-
-        /// <summary>The graphic's own authored <c>Graphic.color.a</c> is at zero.</summary>
-        OwnAlpha = 3,
-
-        /// <summary><c>CanvasRenderer.GetAlpha()</c> is at zero — somebody wrote the renderer alpha.</summary>
-        RendererAlpha = 4,
-
-        /// <summary><c>CanvasRenderer.GetInheritedAlpha()</c> is at zero AND the independently measured
-        /// <c>CanvasGroup</c> chain agrees that it should be — a legitimately hidden panel.</summary>
-        InheritedAlpha = 5,
-
-        /// <summary>
-        /// <b>THE ONE THIS BUILD EXISTS FOR: the renderer's inherited alpha is at zero while the
-        /// CanvasGroup chain above it, measured independently by walking the transforms, says the
-        /// graphic is FULLY VISIBLE.</b>
-        ///
-        /// <para>uGUI propagates alpha down to each <c>CanvasRenderer</c> during its rebuild. A renderer
-        /// holding a stale zero draws NOTHING while every other test passes: it is not culled, its own
-        /// colour is opaque, its mesh is intact, its material and atlas are fine, and nothing above it
-        /// is faded. That is character for character the state eight builds of census measured and
-        /// could not explain — and it takes an Image exactly as it takes a label, which is what the
-        /// user's "es betrifft auch bilder/symbole" requires.</para>
-        ///
-        /// <para>The ModBuild 210 ledger named the graphics that came BACK from this state on the party
-        /// window — 'Portrait', 'XP bar', 'Title', 'Icon', 'Shield', 'Shadow', 'Separator Image',
-        /// 'RawImage', 'Party Name' — 215 resumptions over 24 censuses with ZERO losses, which is the
-        /// signature of graphics that were already stuck when the ledger first saw them. What 210 could
-        /// NOT say is whether the group chain agreed, because the classifier tested inherited alpha
-        /// BEFORE the group chain and returned on the first hit. That ordering flaw is why this value
-        /// exists.</para>
-        /// </summary>
-        StaleInheritedAlpha = 9,
-
-        /// <summary>The measured product of the <c>CanvasGroup</c> chain up to the host is at zero. A
-        /// legitimately hidden panel lands here, which is why the ledger reports TRANSITIONS and not a
-        /// count: most of this window is supposed to be in this state.</summary>
-        GroupAlpha = 6,
-
-        /// <summary>An enclosing mask or scroll viewport clips it away entirely.</summary>
-        ClippedOut = 7,
-
-        /// <summary>The GameObject or the behaviour is switched off.</summary>
-        Inactive = 8,
-    }
-
-    /// <summary>One graphic's last known draw state, kept across censuses so a CHANGE can be reported.
-    /// See <see cref="Entry.DrawLedger"/> for why a transition and not a count is the finding.</summary>
-    private struct DrawLedgerEntry
-    {
-        /// <summary>Name, kept so a transition can be reported after the object itself has gone.</summary>
-        internal string Name;
-
-        /// <summary>Concrete component type — 'Image', 'RawImage', 'TextMeshProUGUI' … The user's report
-        /// distinguishes text from images, so the verdict must be able to as well.</summary>
-        internal string Kind;
-
-        internal DrawReason Reason;
-
-        /// <summary>Host-local centre of the graphic, so a lost element can be placed in the picture and
-        /// compared against the band the ink census happened to be reading.</summary>
-        internal float CentreX, CentreY;
-
-        /// <summary>The census generation this record was last touched on. An entry that stops being
-        /// visited has left the hierarchy and is evicted rather than reported as lost for ever.</summary>
-        internal int SeenGen;
     }
 
     /// <summary>One supersampled panel: everything allocated for it and everything to hand back.</summary>
@@ -1743,116 +1402,9 @@ internal static partial class PanelSupersample
         internal int ReleaseRegenComponents;
         internal double ReleaseRegenMs;
 
-        // ---- THE DRAW-STATE LEDGER (ModBuild 210) ------------------------------------------------
-        // WHY THIS EXISTS, AND WHY EVERY INSTRUMENT BEFORE IT WAS LOOKING AT THE WRONG POPULATION.
-        // Eight builds of ink census measured TMP_Text and nothing else. The user, asked directly
-        // whether the photograph loses images as well as text, answered: "es betrifft auch
-        // bilder/symbole! Die auch random je nachdem wann man loslässt da sind oder verschwinden es
-        // betrifft NICHT nur text". An Image is not a TMP_Text, so NO census this project has ever run
-        // could see the elements he is describing. The population had to become every MaskableGraphic.
-        //
-        // AND THE SECOND HALF OF THE BLIND SPOT, which is worse: CollectInkCandidate EXCLUDES a
-        // component whose CanvasRenderer says it does not draw (cull flag or any alpha at zero) and
-        // counts it into one collapsed number. The ModBuild 209 log reads "155 text component(s) were
-        // excluded" on 39 of 49 readings, with no split by reason and no names. If the defect IS that
-        // a graphic stops drawing, then the broken elements were being DISCARDED by the instrument and
-        // the healthy remainder reported as clean — which is exactly the shape of every clean reading
-        // this project has collected. See the memory "the blind spot is the lead".
-        //
-        // WHAT THE LEDGER DOES: it remembers, per graphic and across censuses, whether that graphic was
-        // DRAWN or EXCLUDED and for which reason. A count cannot answer the user's report, because 155
-        // components legitimately belong to closed sub-views and are SUPPOSED to be excluded. A
-        // TRANSITION can: a graphic that was drawn at the release edge and is excluded thirty frames
-        // later is the disappearing element, named, with the reason it stopped drawing. Keyed by a
-        // stable hierarchy-path hash rather than by instance id, because a rebuild can replace the
-        // object while the element on screen is the same element to the user.
-        internal readonly Dictionary<int, DrawLedgerEntry> DrawLedger = new Dictionary<int, DrawLedgerEntry>();
-
-        /// <summary>Transitions the last census found, already formatted. Held rather than printed
-        /// immediately because the census that finds them is issued from the capture camera's
-        /// onPostRender and the report is written on the ordinary cadence.</summary>
-        internal string DrawLedgerNote = string.Empty;
-        internal int DrawLedgerLost, DrawLedgerGained, DrawLedgerTracked, DrawLedgerEvicted;
-
-        // ---- THE PHASE CENSUS (ModBuild 214) -----------------------------------------------------
-        //
-        // THE USER'S OWN ACCOUNT, and it reframes eight builds of measurement: "Es flackert extrem
-        // dauerhaft wenn Supersampling aus ist. Wenn es an ist ist exakt das selbe Flackern nur da
-        // wenn ich greife - ansonsten wird ein Stand 'eingefroren' (aber Animationen bleiben
-        // sichtbar). D.h. das Flackern kommt daher das die Elemente ständig kurz sichtbar sind und
-        // dann wieder nicht."
-        //
-        // So the elements are NOT missing. They are being switched on and off, continuously, and the
-        // flicker IS that switching. The supersampler never fixed it: it photographs the window once
-        // per frame and therefore freezes ONE PHASE of the oscillation. Carrying the window shifts
-        // the phase, which is why the flicker comes back only while it is grabbed.
-        //
-        // AND THAT IS WHY EVERY CENSUS SO FAR SAID THE STATE WAS PERFECTLY STABLE. The ink census is
-        // issued from the capture camera's own onPostRender — the SAME instant the capture is taken —
-        // so it samples in lockstep with the thing that freezes the picture. It read DREW = 217 on
-        // 47 of 47 readings while the eye was watching elements come and go. A sampler synchronised
-        // to the artefact cannot see the artefact.
-        //
-        // WHAT THIS MEASURES INSTEAD: the same cached set of Graphics, re-read at EVERY camera's
-        // onPreCull in the frame — our capture camera and both MultiPass eye passes among them — and
-        // compared. If the drawn set differs between two samples of ONE frame, the state oscillates
-        // inside the frame and that is the defect, named. If every sample of every frame agrees, the
-        // oscillation is not in uGUI's state at all and the next round goes to the draw call.
-
-        /// <summary>The graphics the last census walk found, cached so a phase sample costs no walk.
-        /// Bounded by <c>MaxPhaseGraphics</c>; a subset is enough to detect a set that flips.</summary>
-        internal readonly List<Graphic> PhaseGraphics = new(256);
-
-        /// <summary>The frame the current comparison belongs to, and the first sample taken in it.</summary>
-        internal int PhaseFrame = -1;
-        internal int PhaseFirstDrew;
-        internal int PhaseFirstSig;
-        internal string PhaseFirstCam = string.Empty;
-
-        /// <summary>Samples taken, frames in which two samples DISAGREED, the worst count difference
-        /// seen, and the pair of cameras that produced it. Cumulative since engage.</summary>
-        internal int PhaseSamples, PhaseFrames, PhaseDisagreeFrames, PhaseWorstDelta;
-        internal int PhaseLastDisagreeFrame = -1;
-
-        // ---- THE FRAME-TO-FRAME HALF (ModBuild 215) ----------------------------------------------
-        // ModBuild 214 compared samples WITHIN one frame and answered cleanly: 1 disagreement in 4382
-        // samples over 626 frames, i.e. every camera of a frame sees the same drawn set. That closes
-        // "the two eyes disagree" and leaves the question the user actually asked open, because "die
-        // Elemente sind ständig kurz sichtbar und dann wieder nicht" is a statement about SUCCESSIVE
-        // frames, not about cameras. Comparing frame N against frame N-1 costs nothing extra — the
-        // samples are already being taken — and it is split by MOVING vs STILL, because his report is
-        // precisely that the two behave differently: still freezes, carried flickers.
-        internal readonly System.Collections.Generic.List<bool> PhasePrevDrawn = new(256);
-        internal int PhasePrevFrame = -1;
-        internal int PhaseFrameCompares, PhaseFrameChanges;
-        internal int PhaseMovingCompares, PhaseMovingChanges;
-        internal int PhaseStillCompares, PhaseStillChanges;
-        internal int PhaseWorstFlips;
-        internal string PhaseFlipNote = string.Empty;
-
-        // ---- THE TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN OBJECT (ModBuild 216) -------
-        // Everything about uGUI's own state is now measured and constant: the drawn set is identical
-        // between every camera of a frame (214: 1 in 4382) and between consecutive frames while the
-        // window is carried (215: 0 of 258). Sampling is measured and falsified too — raising
-        // WindowLegibility to 1.00 lifted the rate from 2.06-2.12 to 2.4-3.0 texels per eye pixel and
-        // the user reports the symptom unchanged. So the graphics are asked to draw, they are asked
-        // identically every frame, and they are sampled well enough — and the render target still
-        // comes back missing their ink.
-        //
-        // A camera draws an object if and only if THREE things hold: the object draws at all (done),
-        // its LAYER is in the camera's culling mask, and its geometry is inside the FRUSTUM. The last
-        // two have never been read by any instrument in this class. The layer sweep counts what IT
-        // moved, which is not the same question as what the layer IS at capture time, and the frame
-        // measurement bounds the CONTENT, which is not the same question as whether each graphic is
-        // inside the bound it produced.
-        internal int PhaseWrongLayer, PhaseOutsideFrame;
-        internal string PhaseLayerNote = string.Empty, PhaseFrameNote = string.Empty;
-
-        /// <summary>GrabPass-shader graphics whose material this panel has dropped, cumulative, and
-        /// the first few by name. See the ModBuild 217 block in NoteDrawState.</summary>
+        /// <summary>GrabPass-shader graphics this panel has switched off, cumulative since engage.
+        /// See <c>NeutraliseGrabPassBlur</c> — this was the Character sub-view's whole defect.</summary>
         internal int GrabPassNeutralised;
-        internal string GrabPassNote = string.Empty;
-        internal string PhaseWorstNote = string.Empty;
 
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------
         // The user, after 196: "das Flackerproblem WÄHREND DER BEWEGUNG ist noch da — inklusive der
@@ -2261,42 +1813,7 @@ internal static partial class PanelSupersample
         internal int TextCulledInheritedAlpha;
         internal string TextCulledNote = string.Empty;
 
-        /// <summary>THE PAIR CACHE the per-frame invariant repair walks: every (TextMeshProUGUI,
-        /// TMP_SubMeshUI child) pair found by the last collection. Re-collected by every content scan
-        /// and by the two forced release-edge collections; entries whose objects have died are skipped
-        /// (Unity's fake-null) and dropped at the next collection.</summary>
-        internal readonly List<CullPair> CullPairs = new(32);
-
-        /// <summary>The pair cache hit <see cref="MaxCullPairs"/>: every count derived from it is a
-        /// LOWER BOUND and the line says so.</summary>
-        internal bool CullPairsTruncated;
-
-        /// <summary>Frame the pair cache was last collected on, and how the collection was reached —
-        /// so a stale cache can never be read as a fresh measurement.</summary>
-        internal int CullPairsFrame = -1000;
-        internal string CullPairsSource = "never collected";
         internal int CullPairCollections;
-        internal double CullPairCollectMs;
-
-        /// <summary>Invariant checks made (one per pair per frame) and what they cost. The check is a
-        /// boolean COMPARE; only a mismatch writes. Printed as a per-frame cost against the 11.11 ms
-        /// budget, because "unconditional and every frame" is a claim that has to be priced.</summary>
-        internal long CullChecks;
-        internal int CullCheckFrames;
-        internal double CullCheckMs;
-
-        /// <summary>SUB-MESHES THE INVARIANT ACTUALLY CORRECTED, since engage and in this report
-        /// window. This going from N to 0 across a session IS the fix working, and it is the number
-        /// the next hardware log is read on.</summary>
-        internal int CullRepairs;
-        internal int CullRepairsThisWindow;
-
-        /// <summary>Of those, how many were the LATCH direction specifically (parent NOT culled, child
-        /// culled → child un-culled). The other direction (parent culled, child not) is TMP's
-        /// intended state being restored and is counted separately, because the two say completely
-        /// different things about what went wrong.</summary>
-        internal int CullRepairsUnhid;
-        internal int CullRepairsHid;
 
         /// <summary>The last correction, named: which sub-mesh, under which parent, in which
         /// direction, on which frame.</summary>
@@ -2307,31 +1824,15 @@ internal static partial class PanelSupersample
         // A frozen state is exactly "at release == settled and both above baseline", and no previous
         // instrument could express that sentence at all.
 
-        /// <summary>LATCHED pairs seen by the last invariant pass, counted BEFORE the write — child
-        /// culled, parent NOT culled. It is deliberately NOT "pairs left culled": a child culled
-        /// because its parent is culled is TMP working, and counting it would bury the defect in
-        /// legitimate state. The four readings below are snapshots of this.</summary>
-        internal int CullLive;
-
-        /// <summary>Was the host held by a hand on the previous invariant pass? The edge detector for
-        /// the four readings; read from <c>ConvertedPanel.GuardHostHeld</c>, which
-        /// <c>GrabbableModal</c> writes every frame.</summary>
-        internal bool CullHeldLast;
-
         internal int CullBaseline = -1;
         internal int CullDragMin = -1;
         internal int CullDragMax = -1;
-        internal int CullDragSamples;
         internal int CullAtRelease = -1;
         internal int CullSettled = -1;
 
         /// <summary>Frame at which the SETTLED reading is due (a forced pair collection plus one
         /// invariant pass). -1 = none armed.</summary>
         internal int CullSettleFrame = -1;
-
-        /// <summary>Grabs seen by the edge detector — the denominator that separates "no reading" from
-        /// "no grab happened".</summary>
-        internal int CullGrabs;
 
         // ---- THE CAPTURE-FRAME HYSTERESIS (ModBuild 204) ---------------------------------------
 
@@ -2631,7 +2132,6 @@ internal static partial class PanelSupersample
                 // band-limit floor, and twice besides). This one is a compare over a cached pair list
                 // — see RepairSubMeshCull for the two decompiled quotations that make it a repair of a
                 // TMP invariant rather than a policy of ours.
-                ServiceSubMeshCull(e);
 
                 // THE SUB-VIEW BURST, ahead of the ordinary cadence so a burst frame is never
                 // followed by a redundant periodic sweep on the same frame (it re-arms NextSweepFrame
@@ -2671,7 +2171,6 @@ internal static partial class PanelSupersample
                     // rather than more fields on Report's line for a practical reason: each one has to
                     // carry its own HOW TO READ IT paragraph, and the state line is already at the
                     // limit of what a reader can hold.
-                    ReportSubMeshCull(e);
                     ReportCaptureFrame(e);
                 }
             }
@@ -2999,7 +2498,6 @@ internal static partial class PanelSupersample
         // already latched when it opens — which is the user's "mittlerweile taucht es auch initial
         // kaputt auf wenn man das Fenster öffnet" — must not stay broken for ten seconds waiting for
         // an instrument. One walk, once, at engage.
-        RefreshCullPairs(e, "engage");
 
         string frameNote = e.ExpandX > 0.5f || e.ExpandY > 0.5f
             ? $" The capture frame was GROWN past the host rect by {e.ExpandX:F0}x{e.ExpandY:F0} uGUI "

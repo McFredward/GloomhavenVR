@@ -178,7 +178,6 @@ internal static partial class Defaults
     // check-wire-coverage.py's BOARD_SECTIONS, and an EXEMPT entry outside those sections is reported
     // STALE by that same script. Nothing a peer can see from their side of the table changes.
     internal const float PanelMipLodOffset = 0.0f;          // => [WorldUI] PanelMipLodOffset
-    internal const bool PanelRepairInheritedAlpha = true;   // => [WorldUI] PanelRepairInheritedAlpha
     internal const bool NeutraliseGrabPassBlur = true;      // => [WorldUI] NeutraliseGrabPassBlur
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx

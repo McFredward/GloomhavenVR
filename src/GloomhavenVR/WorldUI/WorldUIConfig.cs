@@ -183,9 +183,6 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> PanelMipLodOffset = null!;
 
-    /// <summary>Write a supersampled window's stale CanvasRenderer inherited alphas back to what the
-    /// CanvasGroup chain says they should be. See <c>DrawReason.StaleInheritedAlpha</c>.</summary>
-    internal static ConfigEntry<bool> PanelRepairInheritedAlpha = null!;
 
     /// <summary>Drop the material of any GrabPass-shader graphic inside a floated window, exactly as
     /// the game's own UIBlurDisabler does in SimplifiedUI mode. See the ModBuild 217 block in
@@ -566,18 +563,6 @@ internal static class WorldUIConfig
                 "place but switched off, exactly as the game itself does when you enable its Simplified " +
                 "UI option, so the room shows through the window instead of a white backdrop. Turn " +
                 "it off if you want the blur back."));
-
-        PanelRepairInheritedAlpha = _file.Bind("WorldUI", "PanelRepairInheritedAlpha",
-            Defaults.PanelRepairInheritedAlpha,
-            new ConfigDescription(
-                "Repairs elements that randomly stay INVISIBLE in a floated window after you drag " +
-                "and release it - missing labels, missing icons, missing character boxes. The cause " +
-                "is a CanvasRenderer left holding an inherited alpha of 0 while the CanvasGroup " +
-                "chain above it says the element is fully visible: two values for the same thing " +
-                "that uGUI failed to keep in step. The repair writes the second into the first, and " +
-                "ONLY when they disagree - an element the game means to hide reads 0 on both and is " +
-                "never touched, so this cannot reveal a closed sub-view. Turn it off if something " +
-                "appears that should not; the mod's log names every element it repaired."));
 
         PanelMipLodOffset = _file.Bind("WorldUI", "PanelMipLodOffset",
             Defaults.PanelMipLodOffset,
