@@ -416,7 +416,88 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 206;
+    public const ushort ModBuild = 207;
+    // Build 207: THE CENSUS BORROWED THE BLIND SPOT IT WAS BUILT TO ESCAPE.
+    // (One worker plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── WHAT 206 SETTLED, AND IT IS REAL PROGRESS ───────────────────────────────────────
+    // MAPPING VERDICT: VERIFIED x28, MIXED x16, DISPLACED x1, and PART 1's mean ink centroid reads
+    // -0.54, -0.33, -0.55, -0.50 texels on every reading — sub-texel, far inside the 1.5-texel bar.
+    // THE MAPPING IS RIGHT. An EMPTY verdict is not an artefact of where the census looks, and the
+    // "the ink is thirty texels to the left" branch is closed.
+    //
+    // ── AND THREE REASONS IT COULD NOT REACH A FINDING ──────────────────────────────────
+    //
+    // 1. A FLAT SCORE FIELD WAS BEING READ AS "MAYBE OUTSIDE THE WINDOW". PART 2 almost never reached
+    //    a fate: `OF 21 EMPTY: 0 absent, 0 offset, 21 AMBIGUOUS`, the same at 19 and at 130, with the
+    //    reason `the best offset sits ON the search-window boundary`. Of course it did — when there is
+    //    no ink anywhere in the window the field is flat and the argmax lands arbitrarily, very often
+    //    on an edge. So GENUINELY ABSENT was nearly unreachable and the instrument could not deliver
+    //    the verdict it exists for. Now: both scores (at the fit and at zero offset) are printed on
+    //    EVERY searched component; a field whose best offset finds ink in fewer than 25 % of the
+    //    component's glyphs is FLAT and the empties are ABSENT wherever the argmax fell; a boundary
+    //    fit disqualifies only when it beats zero offset by a real margin. The window went from my
+    //    too-small +/-1 advance x +/-1 line to +/-4 x +/-3, swept coarse-to-fine (17x17 at half-advance
+    //    steps, then 9x9 inside the winning cell) because one grid cannot be both that wide and
+    //    sub-advance sharp — widening 206's single grid would have made its step 0.67 of an advance,
+    //    coarser than the thing being widened for. The window is clamped to the room the component
+    //    actually has inside the strip and the CLAMPED size is what gets printed, so the line says
+    //    what was searched and not what was asked for.
+    //
+    // 2. DIM CAPTURE IS ITS OWN FAILURE AND WAS BEING POOLED WITH MISSING GLYPHS. One 206 reading
+    //    carries `INKED median 39.6/255, strip background 16.5/255` against 195-208 / 0-8 everywhere
+    //    else — the whole picture at about a fifth of its intensity, which is what a fade does and is
+    //    NOT what a scattered subset of missing glyphs looks like. It now has its own named verdict,
+    //    checked before the mapping verdicts, with both bars sized from the DISTRIBUTION and not from
+    //    that outlier, and the sentence says in its own words that one line of that shape is an
+    //    outlier and not the family. I had read it as the answer and checked the distribution before
+    //    saying so: every other broken reading sits at full intensity. This project has promoted an
+    //    extreme to the operating point three times (the WORST texels-per-px field, the top-3
+    //    contributor line, the 0.23-magnified claim); it will not be a fourth.
+    //
+    // 3. **THE ONE THAT MATTERS: THE CENSUS'S ONLY EXCLUSION WAS THE OTHER INSTRUMENT'S TEST.**
+    //    It excluded a component using the CanvasRenderer triple — cull / GetAlpha / GetInheritedAlpha
+    //    — which is exactly what NoteRendererState reads. It looked equivalent to the ModBuild 204
+    //    split because it WAS the 204 split, and a census that reuses another instrument's test
+    //    inherits whatever that test is blind to. That matters here because 204 measured
+    //    `155-216 of 216 text component(s) at inherited alpha 0`, and the EMPTY components 206 named
+    //    are 'Party Name', 'XP Amount Levelup', 'XP Amount', 'Level text' — several of which plausibly
+    //    belong to panels that are legitimately hidden. A component hidden by a CanvasGroup draws
+    //    nothing CORRECTLY, and counting it as EMPTY is the instrument inventing its own finding.
+    //    NOW MEASURED INDEPENDENTLY: the census walks transform by transform from the component to the
+    //    host, multiplying every enabled CanvasGroup.alpha and terminating at ignoreParentGroups
+    //    exactly as uGUI does. It does not consult GetInheritedAlpha at all — that value is maintained
+    //    by the canvas during its own render pass, and trusting it is precisely how a hidden component
+    //    slips through.
+    //    THE DECIDING NUMBER IS `ComponentsHiddenByGroupOnly`: components the chain walk excluded that
+    //    the renderer test would have let through. Non-zero means the ModBuild 205 and 206 EMPTY counts
+    //    are inflated by that many components' worth, and the line prints a RETRACTION PREFIX saying so
+    //    before anything else. It is a prefix and not a terminal branch on purpose: THIS census
+    //    excludes them, so its own counts are clean, and suppressing the line would throw away a good
+    //    reading in order to report a historical one.
+    //    Plus, for every component that produced an EMPTY glyph: all four alphas (colour.a, renderer
+    //    alpha, inherited alpha, CanvasGroup chain product) with the groups named and their values. At
+    //    a lowest effective alpha of 1.000 that field IS the proof that the empties come from fully
+    //    visible components. Below 0.5 the verdict returns ARTEFACT in those words.
+    //
+    // ── HOW TO READ THE NEXT LOG, IN ORDER ──────────────────────────────────────────────
+    //   (1) `ComponentsHiddenByGroupOnly` — non-zero and the 205/206 headline numbers are retracted.
+    //   (2) the ALPHA EVIDENCE field — anything under 1.000 and the count is not clean.
+    //   (3) the DIM CAPTURE branch — if it fires, that reading is a different bug and must not be
+    //       pooled with the others.
+    //   (4) only then GENUINELY ABSENT / FOUND OFFSET / AMBIGUOUS, which can now actually be reached.
+    //
+    // COST: up to 289 + 81 offsets x glyphs x 16 coarse samples, ~820k texel reads and ~4 ms on a
+    // 139-glyph reading, on the DELIVERY frame two frames after the release edge and never on the
+    // release frame itself. Flat-field components skip the fine stage, which is the common case for
+    // exactly the components that dominated the 206 log.
+    //
+    // STILL TRUE, AND WORTH REPEATING: this build does not fix anything. Four fixes built on inference
+    // have failed in a row (the sibling-canvas tie, the over-paint plates, the TMP cull latch, and my
+    // own 204 band-limit regression). The remaining unknowns are now three named numbers instead of a
+    // hypothesis, and the next log picks between them.
+    //
     // Build 206: THE INK IS NOT WHERE THE MESH SAYS — NOW FIND OUT WHETHER IT IS ELSEWHERE OR NOWHERE.
     // (One worker plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

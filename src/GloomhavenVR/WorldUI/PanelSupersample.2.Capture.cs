@@ -2632,18 +2632,97 @@ internal static partial class PanelSupersample
     //       it does not (a best offset a full advance away is a LATTICE ALIAS, not a finding) the
     //       report says so instead of claiming a displacement.
 
-    /// <summary>Offsets per axis in the joint registration search (so up to 169 candidate offsets),
-    /// spanning +/- one glyph advance in X and +/- one line height in Y around the predicted position.
-    /// Odd on purpose so the ZERO offset is exactly the middle sample and the search always contains
-    /// the null hypothesis.</summary>
-    private const int InkSearchSteps = 13;
+    /// <summary>
+    /// <b>THE SEARCH WINDOW, IN THE COMPONENT'S OWN UNITS — and ModBuild 206's was too small.</b>
+    /// FOUR glyph advances either side in X and THREE line heights either side in Y, against 206's one
+    /// and one.
+    ///
+    /// <para><b>WHAT THE 206 LOG SHOWED.</b> Almost every EMPTY glyph came back AMBIGUOUS with the
+    /// reason <i>"the best offset sits ON the search-window boundary"</i> — 'Party Name', 'XP Amount
+    /// Levelup', 'XP Amount', 'Level text', 21 of 21, 19 of 19, 130 of 130. A boundary argmax is what
+    /// you get from a window that is too small AND, far more often here, from a FLAT field: if there is
+    /// no ink anywhere in the window the score is the same everywhere and the argmax lands wherever the
+    /// scan order left it, very often an edge. 206 read both of those as "the true match may lie
+    /// outside", which made GENUINELY ABSENT nearly unreachable — the instrument could not deliver the
+    /// verdict it exists for. <see cref="InkFlatFieldFraction"/> is the other half of that fix.</para>
+    /// </summary>
+    private const float InkSearchSpanAdvances = 4f;
+    private const float InkSearchSpanLines = 3f;
+
+    /// <summary>
+    /// <b>THE SEARCH IS COARSE-TO-FINE, because a wide window and a sub-advance resolution cannot both
+    /// come out of one grid.</b> Stage 1 sweeps the whole window at half-advance steps; stage 2 refines
+    /// inside one stage-1 cell at about an eighth of an advance. Widening 206's single 13x13 grid to
+    /// four advances without this would have made its step 0.67 of an advance — coarser than the
+    /// displacement being hunted, i.e. a wider window that could no longer see the thing it was widened
+    /// for.
+    /// <para>Stage 2 is SKIPPED outright when stage 1's field is flat (see
+    /// <see cref="InkFlatFieldFraction"/>), which is the common case for a fully dark component and is
+    /// what keeps the cost of the wider window off the frame.</para>
+    /// </summary>
+    private const int InkCoarseSteps = 17;
+    private const int InkFineSteps = 9;
 
     /// <summary>Interior samples per axis used INSIDE the search (so 16 per glyph per offset, against
-    /// <see cref="InkInnerSamples"/>'s 144 for the verdict itself). The search only has to find where
-    /// the ink IS; the fine grid then re-judges nothing, because the classification is taken from the
-    /// coarse score at the fitted offset. 169 offsets x 16 samples x 139 glyphs is ~376k texel reads,
-    /// which is the whole measured cost of this addition.</summary>
+    /// <see cref="InkInnerSamples"/>'s 144 for the verdict itself). The search only has to FIND where
+    /// the ink is — a whole-string fit aggregates over many glyphs, so a missed stem here and there
+    /// does not move it — and the final per-glyph judgement at the fitted offset then re-tests on the
+    /// full grid, so FOUND/ABSENT is measured to the same standard as INKED/EMPTY.</summary>
     private const int InkSearchCoarseSamples = 4;
+
+    /// <summary>
+    /// <b>THE FLAT-FIELD BAR: below this fraction of a component's glyphs passing at the BEST offset in
+    /// the whole window, the field has no peak at all and the component is GENUINELY ABSENT — whatever
+    /// the argmax did.</b> 0.25.
+    ///
+    /// <para>This is the fix for 206's central failure. A flat field means "there is no ink anywhere
+    /// within four advances and three lines of where the mesh says this text is", which is the
+    /// strongest possible form of ABSENT — and 206 classified exactly that as AMBIGUOUS because the
+    /// arbitrary argmax of a flat field usually lands on an edge. The bar is expressed in the
+    /// component's OWN glyph count rather than as an absolute, because a 3-glyph label and a 40-glyph
+    /// sentence cannot share one number: at 0.25 a 17-glyph string needs 5 of its glyphs to find ink
+    /// somewhere in the window before the field counts as having a peak worth chasing.</para>
+    /// </summary>
+    private const float InkFlatFieldFraction = 0.25f;
+
+    /// <summary>
+    /// How much better than the ZERO offset a boundary fit must score before it is believed to be a
+    /// real peak being cut off by the window — as a fraction of the component's glyph count. Below it,
+    /// a boundary argmax is noise and the component falls through to the flat-field or the no-fit
+    /// branch instead of being written off as ambiguous. ModBuild 206 had no such test: ANY boundary
+    /// argmax disqualified the component.
+    /// </summary>
+    private const float InkMaterialGainFraction = 0.15f;
+
+    /// <summary>
+    /// <b>A DIM CAPTURE IS NOT MISSING GLYPHS, AND THE VERDICT MUST NEVER CONFLATE THE TWO.</b> The
+    /// INKED median must fall below this AND the strip background must rise above
+    /// <see cref="InkDimBackground"/> before a reading is called dim.
+    ///
+    /// <para>Sized against the ModBuild 206 log's own distribution rather than against its outlier —
+    /// which is the point. ONE reading of that session carried <c>INKED median 39.6/255, background
+    /// 16.5/255</c> with 130 EMPTY, and it is tempting to promote that to "the whole capture is fading
+    /// out". THE OTHER BROKEN READINGS DO NOT AGREE: they sit at INKED 195-208 and background ~8,
+    /// indistinguishable from the clean ones. So the dim case is real and it is ONE outlier, not the
+    /// family — this project has made the promote-one-extreme-to-the-operating-point mistake three
+    /// times and this constant exists so the next reader does not have to dig the numbers out to avoid
+    /// the fourth. 96/255 sits between the outlier's 39.6 and the family's 195; 12/255 sits between the
+    /// family's ~8 and the outlier's 16.5.</para>
+    /// </summary>
+    private const float InkDimInkMedian = 96f / 255f;
+    private const float InkDimBackground = 12f / 255f;
+
+    /// <summary>Effective alpha at or below which a component is treated as NOT DRAWN. Matches
+    /// <c>NoteRendererState</c>'s own bar exactly, so this census and the ModBuild 204 split cannot
+    /// disagree about where the line is — only, if they disagree at all, about what they measured.</summary>
+    private const float InkAlphaFloor = 0.004f;
+
+    /// <summary>CanvasGroups the alpha-chain walk will name in the report per component. The PRODUCT is
+    /// always exact; only the naming is capped.</summary>
+    private const int MaxInkGroupsNamed = 4;
+
+    /// <summary>Components whose full alpha evidence the line prints. The counts are always complete.</summary>
+    private const int MaxInkAlphaNamed = 4;
 
     /// <summary>Glyphs whose component may be given a joint registration search in one census. Beyond
     /// this the remaining components' EMPTY glyphs are reported as NOT SEARCHED rather than as
@@ -2734,6 +2813,13 @@ internal static partial class PanelSupersample
         internal int First;
         internal int Count;
         internal float CentreX;
+
+        // ---- the alpha evidence (ModBuild 207) --------------------------------------------------
+        internal float OwnAlpha;
+        internal float CrAlpha;
+        internal float InheritedAlpha;
+        internal float GroupAlpha;
+        internal string GroupNote;
     }
 
     /// <summary>One censused component and what the readback found for it.</summary>
@@ -2782,6 +2868,41 @@ internal static partial class PanelSupersample
         internal float FitDx, FitDy;
         internal int FitPassAtBest, FitPassAtZero;
         internal string FitNote = string.Empty;
+
+        /// <summary>The searched window in texels, per side, and whether the score field turned out to
+        /// be FLAT (no offset in the whole window found ink in a meaningful share of this component's
+        /// glyphs). Both are printed on every component that was searched, because ModBuild 206 could
+        /// not show whether a field had a peak at all.</summary>
+        internal float SpanX, SpanY;
+        internal bool FlatField;
+
+        // ---- THE ALPHA EVIDENCE (ModBuild 207) --------------------------------------------------
+        // The check that decides whether anything this census has found is real. If a component is
+        // hidden by a CanvasGroup alpha 0 somewhere above it, it draws nothing CORRECTLY, and counting
+        // its glyphs as EMPTY would make the whole finding an artefact of this instrument's own
+        // exclusion test. The ModBuild 204 split reported 155-216 of 216 text components at inherited
+        // alpha 0 on this very window, first named 'Gold Warning' — so the population that COULD be
+        // wrongly censused is most of the window, and "my test looks equivalent to theirs" is not
+        // good enough. These four numbers are printed for the components that produced EMPTY glyphs,
+        // so a reader can see that the empties are fully visible rather than take it on trust.
+
+        /// <summary>The component's own <c>Graphic.color.a</c>.</summary>
+        internal float OwnAlpha;
+
+        /// <summary>Its <c>CanvasRenderer.GetAlpha()</c> and <c>GetInheritedAlpha()</c> — the two
+        /// values <c>NoteRendererState</c> reads, so the two instruments can be compared directly.</summary>
+        internal float CrAlpha;
+        internal float InheritedAlpha;
+
+        /// <summary>THE PRODUCT OF EVERY <see cref="CanvasGroup"/> BETWEEN THIS COMPONENT AND THE HOST,
+        /// measured directly by walking the transform chain. Deliberately INDEPENDENT of
+        /// <see cref="InheritedAlpha"/>: that value is maintained by the canvas during its render pass
+        /// and can be stale or absent, and a census that trusted it would inherit its blind spots. A
+        /// disagreement between the two is itself the finding and is counted.</summary>
+        internal float GroupAlpha;
+
+        /// <summary>The groups found, named with their alphas — evidence rather than a number.</summary>
+        internal string GroupNote = string.Empty;
     }
 
     /// <summary>Per-window census state: what is armed, what is in flight, and every counter the line
@@ -2897,9 +3018,42 @@ internal static partial class PanelSupersample
         internal double FitDxSum, FitDySum;
         internal int FitLatticeAlias, FitNoFit;
 
+        /// <summary>Fitted offsets of the components that came back LATTICE ALIAS. ModBuild 206 threw
+        /// these away because the classification stays ambiguous; the OFFSET is informative anyway —
+        /// five components fitting the same alias is a very different reading from five fitting five
+        /// different ones.</summary>
+        internal int AliasCount;
+        internal double AliasDxSum, AliasDySum;
+
         /// <summary>THE ONE-SENTENCE VERDICT, chosen by the numbers rather than left to the reader.</summary>
         internal string MappingVerdict = "not measured yet";
         internal string FitNote = string.Empty;
+
+        // ---- THE ALPHA EVIDENCE, censused (ModBuild 207) -----------------------------------------
+
+        /// <summary>
+        /// <b>COMPONENTS EXCLUDED BY THE CANVASGROUP CHAIN THAT THE RENDERER TEST WOULD HAVE LET
+        /// THROUGH — THE NUMBER THAT DECIDES WHETHER ANY PREVIOUS FINDING WAS REAL.</b>
+        /// <para>A non-zero value means ModBuild 205/206 censused components that are legitimately
+        /// hidden and counted their glyphs as EMPTY, i.e. the headline EMPTY numbers of those builds
+        /// are inflated by exactly this many components' worth. The verdict says so in those words
+        /// rather than leaving it to be inferred from a counter.</para>
+        /// </summary>
+        internal int ComponentsHiddenByGroupOnly;
+
+        /// <summary>Components excluded by the CanvasGroup chain in total (including the ones the
+        /// renderer test would also have caught) — the denominator that makes the number above
+        /// readable.</summary>
+        internal int ComponentsHiddenByGroup;
+
+        /// <summary>The per-component alpha evidence for the components that produced EMPTY glyphs,
+        /// named. This is the proof that the empties are NOT hidden components.</summary>
+        internal string AlphaNote = string.Empty;
+
+        /// <summary>The lowest effective alpha (own x renderer x inherited x group product) among the
+        /// components that produced EMPTY glyphs. If this is not ~1, the empties are partly a
+        /// visibility artefact and the verdict says so.</summary>
+        internal float EmptyLowestAlpha = 1f;
 
         // ---- since engage -----------------------------------------------------------------------
         internal int Armed, Issued, Completed, Errors;
@@ -2935,8 +3089,9 @@ internal static partial class PanelSupersample
     // The mapping self-check's per-glyph working set, indexed in lockstep with InkCensus.Glyphs.
     private static readonly float[] InkGlyphBg = new float[MaxInkCensusGlyphs];
     private static readonly bool[] InkGlyphInked = new bool[MaxInkCensusGlyphs];
-    private static readonly float[] InkSearchScores = new float[InkSearchSteps * InkSearchSteps];
     private static readonly StringBuilder InkFitSb = new(512);
+    private static readonly StringBuilder InkGroupSb = new(256);
+    private static readonly StringBuilder InkAlphaSb = new(512);
 
     /// <summary>Arm a census for this window. It is ISSUED later in the same frame, from the capture
     /// camera's own <see cref="Camera.onPostRender"/> — i.e. after <see cref="ResolveAndMip"/> has
@@ -3135,6 +3290,8 @@ internal static partial class PanelSupersample
         c.GlyphsOutsideFrame = 0;
         c.GlyphsSubMeshTransform = 0;
         c.ComponentsNotDrawn = 0;
+        c.ComponentsHiddenByGroup = 0;
+        c.ComponentsHiddenByGroupOnly = 0;
         c.WalkTruncated = false;
 
         ConvertedPanel panel = e.Panel;
@@ -3247,6 +3404,11 @@ internal static partial class PanelSupersample
                 Name = cand.Name,
                 Text = cand.Text,
                 MeshGlyphs = cand.MeshGlyphs,
+                OwnAlpha = cand.OwnAlpha,
+                CrAlpha = cand.CrAlpha,
+                InheritedAlpha = cand.InheritedAlpha,
+                GroupAlpha = cand.GroupAlpha,
+                GroupNote = cand.GroupNote ?? string.Empty,
             };
             int compIndex = c.Comps.Count;
             comp.FirstGlyph = c.Glyphs.Count;
@@ -3325,13 +3487,36 @@ internal static partial class PanelSupersample
         // decide. Same three disjoint reasons NoteRendererState uses, collapsed here because the
         // census only needs "does it draw at all" — the split is already reported by that field.
         CanvasRenderer cr = t.canvasRenderer;
-        if (cr == null || cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f
-            || t.color.a <= 0.004f)
+        if (cr == null)
         {
             c.ComponentsNotDrawn++;
             return;
         }
-        if (clipEmpty)
+        float ownAlpha = t.color.a;
+        float crAlpha = cr.GetAlpha();
+        float inheritedAlpha = cr.GetInheritedAlpha();
+        bool rendererHides = cr.cull || crAlpha <= InkAlphaFloor || inheritedAlpha <= InkAlphaFloor
+                             || ownAlpha <= InkAlphaFloor;
+
+        // ---- THE CANVASGROUP CHAIN, MEASURED DIRECTLY (ModBuild 207) -----------------------------
+        // The check that decides whether anything this census has found is real. See
+        // InkComponent.GroupAlpha for why it does NOT trust CanvasRenderer.GetInheritedAlpha(): that
+        // value is maintained by the canvas during its render pass, and a census built on it inherits
+        // whatever it is blind to. The ModBuild 204 split measured 155-216 of 216 text components on
+        // THIS window at inherited alpha 0 — so the population that could be wrongly censused is most
+        // of the window, and any disagreement between the two tests is a defect in this instrument
+        // that would show up as EMPTY glyphs, which is the one answer it must not invent.
+        float groupAlpha = InkGroupChainAlpha(t.transform, host, out string groupNote);
+        bool groupHides = groupAlpha <= InkAlphaFloor;
+        if (groupHides)
+        {
+            c.ComponentsHiddenByGroup++;
+            // THE DECISIVE COUNTER: hidden by a group and NOT caught by the renderer test, i.e. a
+            // component ModBuild 205/206 would have censused and counted as EMPTY.
+            if (!rendererHides)
+                c.ComponentsHiddenByGroupOnly++;
+        }
+        if (rendererHides || groupHides || clipEmpty)
         {
             c.ComponentsNotDrawn++;
             return;
@@ -3447,7 +3632,57 @@ internal static partial class PanelSupersample
             First = first,
             Count = count,
             CentreX = sumX / count,
+            OwnAlpha = ownAlpha,
+            CrAlpha = crAlpha,
+            InheritedAlpha = inheritedAlpha,
+            GroupAlpha = groupAlpha,
+            GroupNote = groupNote,
         });
+    }
+
+    /// <summary>
+    /// The product of every <see cref="CanvasGroup"/> alpha between <paramref name="from"/> and
+    /// <paramref name="host"/> inclusive, measured by walking the transform chain — independently of
+    /// <c>CanvasRenderer.GetInheritedAlpha()</c>, which is what makes it evidence rather than a
+    /// restatement.
+    /// <para>A group with <c>ignoreParentGroups</c> TERMINATES the walk, because that is exactly what
+    /// uGUI does with it; a disabled group contributes nothing, for the same reason. Both are read off
+    /// the component rather than assumed, and the groups found are named in
+    /// <paramref name="note"/> with their alphas so a surprising product can be traced to an object
+    /// instead of argued about.</para>
+    /// </summary>
+    private static float InkGroupChainAlpha(Transform from, RectTransform host, out string note)
+    {
+        note = string.Empty;
+        float alpha = 1f;
+        int named = 0;
+        InkGroupSb.Length = 0;
+        Transform? t = from;
+        // Bounded by the hierarchy depth and by the host, and by a hard step count in case a future
+        // re-parent ever puts the host outside this component's ancestry.
+        for (int guard = 0; t != null && guard < 64; guard++)
+        {
+            var group = t.GetComponent<CanvasGroup>();
+            if (group != null && group.enabled)
+            {
+                alpha *= Mathf.Clamp01(group.alpha);
+                if (named < MaxInkGroupsNamed)
+                {
+                    named++;
+                    if (InkGroupSb.Length > 0)
+                        InkGroupSb.Append(", ");
+                    InkGroupSb.Append(t.name).Append(' ').Append(group.alpha.ToString("F3"));
+                }
+                if (group.ignoreParentGroups)
+                    break;
+            }
+            if (ReferenceEquals(t, host))
+                break;
+            t = t.parent;
+        }
+        note = InkGroupSb.Length > 0 ? InkGroupSb.ToString() : "no CanvasGroup between it and the host";
+        InkGroupSb.Length = 0;
+        return alpha;
     }
 
     /// <summary>
@@ -3660,6 +3895,9 @@ internal static partial class PanelSupersample
             reset.FitPassAtBest = 0;
             reset.FitPassAtZero = 0;
             reset.FitNote = string.Empty;
+            reset.SpanX = 0f;
+            reset.SpanY = 0f;
+            reset.FlatField = false;
         }
         c.TotalGlyphs = c.Glyphs.Count;
         c.TotalInk = 0;
@@ -3739,10 +3977,59 @@ internal static partial class PanelSupersample
         InkScratch.AddRange(InkDevEmpty);
         c.MedDevEmpty = InkMedian(InkScratch);
 
+        // ---- THE ALPHA EVIDENCE FOR THE COMPONENTS THAT PRODUCED EMPTIES ------------------------
+        BuildInkAlphaEvidence(c);
         // ---- REQUIREMENT 2: SEARCH A NEIGHBOURHOOD BEFORE DECLARING EMPTY -----------------------
         FitInkComponents(data, c);
         BuildMappingVerdict(c);
         return true;
+    }
+
+    /// <summary>
+    /// <b>THE CHECK THAT DECIDES WHETHER ANY OF THIS IS REAL.</b> For every component that produced an
+    /// EMPTY glyph, record its own <c>Graphic.color.a</c>, its <c>CanvasRenderer</c> alpha, its
+    /// inherited alpha and the product of every <see cref="CanvasGroup"/> between it and the host.
+    ///
+    /// <para>A component hidden by a CanvasGroup alpha 0 somewhere above it draws nothing CORRECTLY,
+    /// and if this census's exclusion test and the ModBuild 204 renderer split disagree even slightly,
+    /// some of them are being censused and counted as EMPTY — which would make the whole finding an
+    /// artefact of this instrument. The population at risk is not hypothetical: the 204 split measured
+    /// <b>155-216 of 216 text components on this very window at inherited alpha 0</b>, first named
+    /// 'Gold Warning', and the components the 206 census named as EMPTY — 'Party Name', 'XP Amount
+    /// Levelup', 'XP Amount', 'Level text' — belong to panels that may legitimately be hidden.</para>
+    ///
+    /// <para>So the numbers are PRINTED rather than asserted. If the empties are alpha-0 components,
+    /// the verdict says the finding is an artefact in exactly those words. If they are all at 1.000,
+    /// that is the proof that the empties are fully visible components whose ink is missing.</para>
+    /// </summary>
+    private static void BuildInkAlphaEvidence(InkCensus c)
+    {
+        c.EmptyLowestAlpha = 1f;
+        InkAlphaSb.Length = 0;
+        int named = 0;
+        for (int i = 0; i < c.Comps.Count; i++)
+        {
+            InkComponent comp = c.Comps[i];
+            if (comp.Empty == 0)
+                continue;
+            float effective = comp.OwnAlpha * comp.CrAlpha * comp.InheritedAlpha * comp.GroupAlpha;
+            if (effective < c.EmptyLowestAlpha)
+                c.EmptyLowestAlpha = effective;
+            if (named >= MaxInkAlphaNamed)
+                continue;
+            named++;
+            InkAlphaSb.Append(" '").Append(comp.Name).Append("': colour.a ")
+                      .Append(comp.OwnAlpha.ToString("F3")).Append(", CanvasRenderer alpha ")
+                      .Append(comp.CrAlpha.ToString("F3")).Append(", inherited alpha ")
+                      .Append(comp.InheritedAlpha.ToString("F3"))
+                      .Append(", CanvasGroup chain product ")
+                      .Append(comp.GroupAlpha.ToString("F3")).Append(" (").Append(comp.GroupNote)
+                      .Append("), effective ").Append(effective.ToString("F3")).Append('.');
+        }
+        c.AlphaNote = InkAlphaSb.Length > 0
+            ? InkAlphaSb.ToString()
+            : " (no component produced an EMPTY glyph, so there is nothing to prove visible.)";
+        InkAlphaSb.Length = 0;
     }
 
     /// <summary>
@@ -3779,7 +4066,9 @@ internal static partial class PanelSupersample
         c.FitNoFit = 0;
         InkFitSb.Length = 0;
 
-        const int half = (InkSearchSteps - 1) / 2;
+        c.AliasCount = 0;
+        c.AliasDxSum = 0;
+        c.AliasDySum = 0;
         int searched = 0;
         int named = 0;
 
@@ -3799,130 +4088,162 @@ internal static partial class PanelSupersample
             }
             searched += comp.GlyphCount;
 
-            float stepX = Mathf.Max(1f, comp.AdvanceX / half);
-            float stepY = Mathf.Max(1f, comp.LineY / half);
-            int best = -1;
-            float bestScore = -1f;
-            int offsetsUnavailable = 0;
-            for (int j = 0; j < InkSearchSteps; j++)
+            // ---- THE WINDOW, in this component's own units, CLAMPED TO WHAT THE STRIP CAN SERVE --
+            // Widening the window from one advance to four makes strip-edge clipping four times as
+            // likely, and an offset that runs off the strip is unavailable — so a naive widening would
+            // have re-created ModBuild 206's "everything is ambiguous" through a different door. The
+            // window is therefore clamped to the room this component actually has inside the strip,
+            // and the CLAMPED size is what gets printed: the line says what was searched, not what was
+            // asked for.
+            float gMinX = float.MaxValue, gMaxX = float.MinValue;
+            float gMinY = float.MaxValue, gMaxY = float.MinValue;
+            for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
             {
-                float dy = (j - half) * stepY;
-                for (int i = 0; i < InkSearchSteps; i++)
-                {
-                    float dx = (i - half) * stepX;
-                    int pass = 0;
-                    bool offClipped = false;
-                    for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
-                    {
-                        float s = InkQuadScore(data, c, c.Glyphs[gi], dx, dy, InkSearchCoarseSamples,
-                                               InkGlyphBg[gi], out _, out _, out bool clipped);
-                        if (clipped)
-                            offClipped = true;
-                        if (s >= InkThreshold)
-                            pass++;
-                    }
-                    int slot = j * InkSearchSteps + i;
-                    // AN OFFSET THAT RAN OFF THE STRIP IS UNAVAILABLE, NOT UNSUCCESSFUL. Scoring it 0
-                    // would make "no ink there" and "we could not look there" the same character, and
-                    // it must never be able to WIN — a partly-clipped quad scores low for the wrong
-                    // reason. Marked -1 and counted; only if too many of the window is unavailable is
-                    // the whole fit disqualified, so one glyph near a strip edge no longer poisons a
-                    // whole component the way the first cut of this search did.
-                    InkSearchScores[slot] = offClipped ? -1f : pass;
-                    if (offClipped)
-                    {
-                        offsetsUnavailable++;
-                        continue;
-                    }
-                    if (pass > bestScore)
-                    {
-                        bestScore = pass;
-                        best = slot;
-                    }
-                }
+                InkGlyph gq = c.Glyphs[gi];
+                if (gq.X0 < gMinX) gMinX = gq.X0;
+                if (gq.X1 > gMaxX) gMaxX = gq.X1;
+                if (gq.Y0 < gMinY) gMinY = gq.Y0;
+                if (gq.Y1 > gMaxY) gMaxY = gq.Y1;
             }
-            bool windowMostlyUnavailable =
-                best < 0 || offsetsUnavailable > InkSearchSteps * InkSearchSteps * 2 / 5;
-            if (windowMostlyUnavailable)
+            float roomX = Mathf.Min(gMinX - c.StripX, c.StripX + c.StripW - gMaxX);
+            float roomY = Mathf.Min(gMinY, c.StripH - gMaxY);
+            comp.SpanX = Mathf.Min(comp.AdvanceX * InkSearchSpanAdvances, Mathf.Max(0f, roomX));
+            comp.SpanY = Mathf.Min(comp.LineY * InkSearchSpanLines, Mathf.Max(0f, roomY));
+            if (comp.SpanX < comp.AdvanceX * 0.5f || comp.SpanY < comp.LineY * 0.5f)
             {
                 comp.Ambiguous += comp.Empty;
                 c.EmptyAmbiguous += comp.Empty;
-                comp.FitNote = $"{offsetsUnavailable} of {InkSearchSteps * InkSearchSteps} candidate "
-                               + "offsets ran off the census strip, so the search window is mostly "
-                               + "unavailable and no fit can be trusted";
-                if (named < MaxInkComponentsReported)
-                {
-                    named++;
-                    InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote)
-                            .Append('.');
-                }
+                comp.FitNote = $"the census strip leaves only {roomX:F0}x{roomY:F0} texels of room "
+                               + "around this component's glyphs, under half a glyph advance "
+                               + $"({comp.AdvanceX:F1}) or half a line ({comp.LineY:F1}), so there is "
+                               + "no window to search in and neither absence nor displacement can be "
+                               + "established for it. This is a STRIP BUDGET outcome, not a finding";
+                NameInkFit(comp, ref named);
                 continue;
             }
 
-            int zeroSlot = half * InkSearchSteps + half;
-            comp.FitPassAtZero = Mathf.Max(0, (int)InkSearchScores[zeroSlot]);
-            comp.FitPassAtBest = (int)bestScore;
-            int bi = best % InkSearchSteps, bj = best / InkSearchSteps;
-            comp.FitDx = (bi - half) * stepX;
-            comp.FitDy = (bj - half) * stepY;
+            // ---- STAGE 1: the whole window at half-advance steps ---------------------------------
+            float coarseX = Mathf.Max(1f, comp.SpanX * 2f / (InkCoarseSteps - 1));
+            float coarseY = Mathf.Max(1f, comp.SpanY * 2f / (InkCoarseSteps - 1));
+            bool usable = InkSearchGrid(data, c, comp, 0f, 0f, coarseX, coarseY, InkCoarseSteps,
+                                        out float bdx, out float bdy, out int bestPass,
+                                        out bool onBorder, out int unavailable);
+            // The SCORE AT ZERO is measured explicitly and always, so the line can show whether the
+            // field has a peak at all. ModBuild 206 printed it only on the paths that reached a fit,
+            // which is precisely the set of readings that did NOT need it.
+            comp.FitPassAtZero = Mathf.Max(0, InkScoreAt(data, c, comp, 0f, 0f));
+            comp.FitPassAtBest = bestPass;
+            comp.FitDx = bdx;
+            comp.FitDy = bdy;
 
-            // ---- is this fit usable? Three disqualifications, each named -------------------------
-            // (Off-strip offsets are NOT among them any more: they are scored -1 above, cannot win,
-            // and disqualify the component only when they take out most of the window. A dead guard
-            // that reads as a live one is how an instrument comes to look stricter than it is.)
-            bool onBorder = bi == 0 || bi == InkSearchSteps - 1 || bj == 0 || bj == InkSearchSteps - 1;
-            bool subAdvance = Mathf.Abs(comp.FitDx) <= comp.AdvanceX * InkSubAdvanceFraction
-                              && Mathf.Abs(comp.FitDy) <= comp.LineY * InkSubAdvanceFraction;
-            bool better = comp.FitPassAtBest > comp.FitPassAtZero;
-            string? disqualified = null;
-            if (onBorder)
-                disqualified = "the best offset sits ON the search-window boundary, so the true match "
-                               + "may lie outside it";
-            else if (!subAdvance)
+            if (!usable)
             {
-                c.FitLatticeAlias++;
-                disqualified = $"the best offset ({comp.FitDx:F1},{comp.FitDy:F1} texels) is a LATTICE "
-                               + $"ALIAS — a whole advance ({comp.AdvanceX:F1}) or line "
-                               + $"({comp.LineY:F1}) away, i.e. the string re-registered onto its own "
-                               + "neighbouring letters, which an is-there-ink test cannot tell from "
-                               + "the truth";
+                comp.Ambiguous += comp.Empty;
+                c.EmptyAmbiguous += comp.Empty;
+                comp.FitNote = $"{unavailable} of {InkCoarseSteps * InkCoarseSteps} candidate offsets "
+                               + "ran off the census strip, so the search window is mostly unavailable "
+                               + $"and no fit can be trusted ({comp.FitPassAtBest} pass at the best "
+                               + $"available offset, {comp.FitPassAtZero} at zero)";
+                NameInkFit(comp, ref named);
+                continue;
             }
-            else if (!better)
+
+            // ---- THE FLAT-FIELD TEST — ModBuild 207's central fix --------------------------------
+            // If nothing in the whole window finds ink in a meaningful share of this component's
+            // glyphs, the score field has NO PEAK: the argmax is arbitrary and lands wherever the scan
+            // order left it, very often an edge. ModBuild 206 read that as "the true match may lie
+            // outside the window" and returned AMBIGUOUS, which made GENUINELY ABSENT nearly
+            // unreachable — 21 of 21, 19 of 19 and 130 of 130 EMPTY glyphs classified as nothing at
+            // all. A flat field is "nothing here", and it is the STRONGEST form of absent: no ink
+            // within four glyph advances and three line heights of where the mesh says this text is.
+            int flatBar = Mathf.Max(1, Mathf.CeilToInt(comp.GlyphCount * InkFlatFieldFraction));
+            if (bestPass < flatBar)
+            {
+                comp.FlatField = true;
+                comp.Absent += comp.Empty;
+                c.EmptyAbsent += comp.Empty;
+                comp.FitNote = $"FLAT FIELD — the best offset anywhere in the searched "
+                               + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window finds ink in only "
+                               + $"{comp.FitPassAtBest} of {comp.GlyphCount} glyph(s) "
+                               + $"({comp.FitPassAtZero} at the predicted position), below the "
+                               + $"{flatBar}-glyph bar, so there is NO PEAK to chase and the argmax "
+                               + "carries no information wherever it landed. Its EMPTY glyphs have no "
+                               + "ink within four glyph advances and three line heights of where the "
+                               + "mesh says they are: GENUINELY ABSENT";
+                NameInkFit(comp, ref named);
+                continue;
+            }
+
+            // A boundary argmax only means "the peak may be cut off" when there IS a peak — i.e. when
+            // it scores MATERIALLY better than the null hypothesis. Otherwise it is noise on a nearly
+            // flat field and must not disqualify the component.
+            int materialBar = Mathf.Max(1, Mathf.CeilToInt(comp.GlyphCount * InkMaterialGainFraction));
+            bool better = bestPass - comp.FitPassAtZero >= materialBar;
+            if (onBorder && better)
+            {
+                comp.Ambiguous += comp.Empty;
+                c.EmptyAmbiguous += comp.Empty;
+                comp.FitNote = $"a REAL peak is being cut off: the best offset ({comp.FitDx:F1},"
+                               + $"{comp.FitDy:F1}) sits on the boundary of the searched "
+                               + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window and scores "
+                               + $"{comp.FitPassAtBest} of {comp.GlyphCount} against "
+                               + $"{comp.FitPassAtZero} at zero, a gain of "
+                               + $"{comp.FitPassAtBest - comp.FitPassAtZero} over a {materialBar} bar, "
+                               + "so the true match may lie further out and the window needs widening "
+                               + "again";
+                NameInkFit(comp, ref named);
+                continue;
+            }
+            if (!better)
             {
                 c.FitNoFit++;
-                disqualified = $"no offset beats the predicted position ({comp.FitPassAtBest} glyph(s) "
-                               + $"pass at the best offset against {comp.FitPassAtZero} at zero), so "
-                               + "there is nowhere else the ink is";
+                comp.Absent += comp.Empty;
+                c.EmptyAbsent += comp.Empty;
+                comp.FitNote = "the predicted position IS the best registration in the whole searched "
+                               + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window ({comp.FitPassAtZero} "
+                               + $"of {comp.GlyphCount} pass there, and the best offset anywhere "
+                               + $"manages {comp.FitPassAtBest}, under the {materialBar}-glyph "
+                               + "material-gain bar), so its EMPTY glyphs are genuinely absent from "
+                               + "the capture";
+                NameInkFit(comp, ref named);
+                continue;
             }
 
-            if (disqualified != null)
+            // ---- STAGE 2: refine inside the winning stage-1 cell ---------------------------------
+            // A window four advances wide cannot also resolve a fraction of an advance out of one
+            // grid, so the coarse pass locates the cell and this pass resolves inside it.
+            if (InkSearchGrid(data, c, comp, bdx, bdy, coarseX * 2f / (InkFineSteps - 1),
+                              coarseY * 2f / (InkFineSteps - 1), InkFineSteps,
+                              out float fdx2, out float fdy2, out int finePass, out _, out _))
             {
-                // NOT "absent": we could not establish either answer, and saying absent would be the
-                // instrument choosing the conclusion the coordinator is trying to test.
-                if (!better && !onBorder && subAdvance)
-                {
-                    // The one case that IS informative: the predicted position is the best position
-                    // there is, so the empties really have no ink anywhere in a whole advance around
-                    // them. That is genuinely absent.
-                    comp.Absent += comp.Empty;
-                    c.EmptyAbsent += comp.Empty;
-                    comp.FitNote = "the predicted position IS the best registration in the whole "
-                                   + $"search window ({comp.FitPassAtZero} of {comp.GlyphCount} pass "
-                                   + "there and no offset does better), so its EMPTY glyphs are "
-                                   + "genuinely absent from the capture";
-                }
-                else
-                {
-                    comp.Ambiguous += comp.Empty;
-                    c.EmptyAmbiguous += comp.Empty;
-                    comp.FitNote = disqualified;
-                }
-                if (named < MaxInkComponentsReported)
-                {
-                    named++;
-                    InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote)
-                            .Append('.');
-                }
+                comp.FitDx = fdx2;
+                comp.FitDy = fdy2;
+                comp.FitPassAtBest = Mathf.Max(bestPass, finePass);
+            }
+
+            bool subAdvance = Mathf.Abs(comp.FitDx) <= comp.AdvanceX * InkSubAdvanceFraction
+                              && Mathf.Abs(comp.FitDy) <= comp.LineY * InkSubAdvanceFraction;
+            if (!subAdvance)
+            {
+                // THE ALIAS OFFSET IS REPORTED ANYWAY (ModBuild 207). The classification stays
+                // ambiguous — an is-there-ink test genuinely cannot separate a one-advance shift from
+                // the truth in running text — but five components fitting the SAME alias and five
+                // fitting five different ones are completely different readings, and ModBuild 206
+                // discarded the number that tells them apart.
+                c.FitLatticeAlias++;
+                c.AliasCount++;
+                c.AliasDxSum += comp.FitDx;
+                c.AliasDySum += comp.FitDy;
+                comp.Ambiguous += comp.Empty;
+                c.EmptyAmbiguous += comp.Empty;
+                comp.FitNote = $"LATTICE ALIAS at ({comp.FitDx:F1},{comp.FitDy:F1}) texels — a whole "
+                               + $"advance ({comp.AdvanceX:F1}) or line ({comp.LineY:F1}) away, i.e. "
+                               + "the string re-registered onto its own neighbouring letters, which an "
+                               + "is-there-ink test cannot tell from the truth. THE OFFSET IS PRINTED "
+                               + "ANYWAY because it is informative even though the classification "
+                               + $"stays ambiguous: {comp.FitPassAtBest} of {comp.GlyphCount} pass "
+                               + $"there against {comp.FitPassAtZero} at zero";
+                NameInkFit(comp, ref named);
                 continue;
             }
 
@@ -3973,18 +4294,92 @@ internal static partial class PanelSupersample
             }
             comp.FitNote = $"registers best at ({comp.FitDx:F1},{comp.FitDy:F1}) texels, where "
                            + $"{comp.FitPassAtBest} of {comp.GlyphCount} glyph(s) find ink against "
-                           + $"{comp.FitPassAtZero} at the predicted position";
-            if (named < MaxInkComponentsReported)
-            {
-                named++;
-                InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote).Append('.');
-            }
+                           + $"{comp.FitPassAtZero} at the predicted position, over a searched "
+                           + $"{comp.SpanX:F0}x{comp.SpanY:F0}-texel window";
+            NameInkFit(comp, ref named);
         }
 
         if (c.FitCount == 0)
             c.FitDxLow = c.FitDxHigh = c.FitDyLow = c.FitDyHigh = 0f;
         c.FitNote = InkFitSb.Length > 0 ? InkFitSb.ToString() : " (no component needed a fit.)";
         InkFitSb.Length = 0;
+    }
+
+    /// <summary>Append one component's fit sentence to the report, up to the naming cap. The COUNTS are
+    /// always complete; only the sentences are capped.</summary>
+    private static void NameInkFit(InkComponent comp, ref int named)
+    {
+        if (named >= MaxInkComponentsReported)
+            return;
+        named++;
+        InkFitSb.Append(" '").Append(comp.Name).Append("': ").Append(comp.FitNote).Append('.');
+    }
+
+    /// <summary>
+    /// One grid of the joint registration search, centred on (<paramref name="centreDx"/>,
+    /// <paramref name="centreDy"/>). Returns false when too much of the grid ran off the census strip
+    /// for any fit to be trusted.
+    /// <para>An offset that ran off the strip is UNAVAILABLE, not unsuccessful: it can never win, and
+    /// it is counted rather than scored zero, because "no ink there" and "we could not look there" must
+    /// not print the same character.</para>
+    /// </summary>
+    private static bool InkSearchGrid(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                      InkComponent comp, float centreDx, float centreDy,
+                                      float stepX, float stepY, int steps,
+                                      out float bestDx, out float bestDy, out int bestPass,
+                                      out bool onBorder, out int unavailable)
+    {
+        int half = (steps - 1) / 2;
+        bestDx = centreDx;
+        bestDy = centreDy;
+        bestPass = -1;
+        onBorder = false;
+        unavailable = 0;
+        int bi = half, bj = half;
+        for (int j = 0; j < steps; j++)
+        {
+            float dy = centreDy + (j - half) * stepY;
+            for (int i = 0; i < steps; i++)
+            {
+                float dx = centreDx + (i - half) * stepX;
+                int pass = InkScoreAt(data, c, comp, dx, dy);
+                if (pass < 0)
+                {
+                    unavailable++;
+                    continue;
+                }
+                if (pass > bestPass)
+                {
+                    bestPass = pass;
+                    bestDx = dx;
+                    bestDy = dy;
+                    bi = i;
+                    bj = j;
+                }
+            }
+        }
+        onBorder = bi == 0 || bi == steps - 1 || bj == 0 || bj == steps - 1;
+        return bestPass >= 0 && unavailable <= steps * steps * 2 / 5;
+    }
+
+    /// <summary>How many of <paramref name="comp"/>'s glyphs find ink with the whole string shifted by
+    /// (<paramref name="dx"/>, <paramref name="dy"/>) texels, or -1 when any of them ran off the census
+    /// strip at that offset. Uses the search's coarse sample grid; the final per-glyph judgement at the
+    /// fitted offset re-tests on the full grid.</summary>
+    private static int InkScoreAt(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                  InkComponent comp, float dx, float dy)
+    {
+        int pass = 0;
+        for (int gi = comp.FirstGlyph; gi < comp.FirstGlyph + comp.GlyphCount; gi++)
+        {
+            float s = InkQuadScore(data, c, c.Glyphs[gi], dx, dy, InkSearchCoarseSamples,
+                                   InkGlyphBg[gi], out _, out _, out bool clipped);
+            if (clipped)
+                return -1;
+            if (s >= InkThreshold)
+                pass++;
+        }
+        return pass;
     }
 
     /// <summary>
@@ -3994,6 +4389,29 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void BuildMappingVerdict(InkCensus c)
     {
+        // THE RETRACTION PREFIX, and it is deliberately a PREFIX and not a terminal branch. If this
+        // census found components that the ModBuild 205/206 exclusion test would have let through, then
+        // THOSE builds' EMPTY numbers are inflated — but THIS census excluded them, so its own counts
+        // are clean and suppressing them would throw away a good reading to report a historical one.
+        // The line has to say both things: retract the old number, and give today's.
+        string prefix = c.ComponentsHiddenByGroupOnly > 0
+            ? $"RETRACT THE ModBuild 205/206 NUMBERS FIRST — {c.ComponentsHiddenByGroupOnly} text "
+              + "component(s) in this window are HIDDEN BY A CANVASGROUP and were NOT caught by the "
+              + "CanvasRenderer alpha test that those builds used as their only exclusion. They draw "
+              + "nothing CORRECTLY, so every glyph of theirs that those builds reported as EMPTY was "
+              + "the instrument's own artefact and their headline EMPTY counts are inflated by exactly "
+              + $"that much ({c.ComponentsHiddenByGroup} component(s) excluded by the chain walk in "
+              + "total on this census). THIS census excludes them, so everything that follows is "
+              + "clean. THEN: "
+            : string.Empty;
+        c.MappingVerdict = prefix + BuildMappingVerdictBody(c);
+    }
+
+    /// <summary>The verdict itself — see <see cref="BuildMappingVerdict"/>, which prepends the
+    /// retraction prefix when this census's exclusion test caught something the previous builds' did
+    /// not.</summary>
+    private static string BuildMappingVerdictBody(InkCensus c)
+    {
         float mdx = c.CentroidCount > 0 ? (float)(c.CentroidDxSum / c.CentroidCount) : 0f;
         float mdy = c.CentroidCount > 0 ? (float)(c.CentroidDySum / c.CentroidCount) : 0f;
         float mag = Mathf.Sqrt(mdx * mdx + mdy * mdy);
@@ -4002,24 +4420,73 @@ internal static partial class PanelSupersample
         float fdy = c.FitCount > 0 ? (float)(c.FitDySum / c.FitCount) : 0f;
         float rateX = Mathf.Max(c.RateX, 1e-4f), rateY = Mathf.Max(c.RateY, 1e-4f);
 
+        // ---- THE THREE SIGNAL NUMBERS, carried into EVERY branch (ModBuild 207) ------------------
+        // The ModBuild 206 log had one reading at INKED median 39.6/255 against a background of
+        // 16.5/255 with 130 EMPTY, next to readings at 195-208 / ~8 that were otherwise identical. Two
+        // completely different failures — a DIM CAPTURE and a scattered subset at full intensity — and
+        // the numbers that separate them had to be dug out of two other fields. They go in the verdict
+        // now, on every branch, so the next reader cannot miss the difference.
+        string signal = $"INKED median {(c.MedDevInk >= 0f ? c.MedDevInk * 255f : -1f):F1}/255, EMPTY "
+                        + $"median {(c.MedDevEmpty >= 0f ? c.MedDevEmpty * 255f : -1f):F1}/255, strip "
+                        + $"background {c.Background * 255f:F1}/255";
+
+        // ---- THE ARTEFACT CHECK THAT DOES invalidate this census's own numbers -------------------
+        // A component that is SUBSTANTIALLY transparent draws faint glyphs LEGITIMATELY, so empties
+        // coming out of one are not a statement about the capture path at all. (The CanvasGroup-only
+        // exclusions are handled as a prefix by the caller: those components were excluded HERE, so
+        // they contaminate the previous builds' numbers and not these.)
+        if (c.TotalEmpty > 0 && c.EmptyLowestAlpha < 0.5f)
+        {
+            return $"ARTEFACT — the lowest effective alpha among the components that produced EMPTY "
+                   + $"glyphs is {c.EmptyLowestAlpha:F3}, not 1.000, so at least one of them is "
+                   + "SUBSTANTIALLY TRANSPARENT and its glyphs are legitimately faint rather than "
+                   + "missing. The ALPHA EVIDENCE field names them with all four of their alphas; "
+                   + "until the empties come from fully opaque components the headline number is not a "
+                   + "statement about the capture path. " + signal + ".";
+        }
+        string alphaCaveat = c.TotalEmpty > 0 && c.EmptyLowestAlpha < 0.99f
+            ? $" CAVEAT: the lowest effective alpha among the EMPTY components is "
+              + $"{c.EmptyLowestAlpha:F3} rather than 1.000, so their ink is slightly attenuated by "
+              + "design; the ALPHA EVIDENCE field names them."
+            : string.Empty;
+
+        // ---- A DIM CAPTURE IS A DIFFERENT BUG AND MUST SAY SO IN THOSE WORDS ---------------------
+        if (c.MedDevInk >= 0f && c.MedDevInk < InkDimInkMedian && c.Background > InkDimBackground)
+        {
+            return
+                $"A DIM CAPTURE, NOT MISSING GLYPHS — the ink median has COLLAPSED to "
+                + $"{c.MedDevInk * 255f:F1}/255 (below the {InkDimInkMedian * 255f:F0}/255 bar; a "
+                + "healthy reading on this window is 195-208) AND the strip background has RISEN to "
+                + $"{c.Background * 255f:F1}/255 (above the {InkDimBackground * 255f:F0}/255 bar; "
+                + "healthy is ~8). Both moved together, which is what a fade or a wash does to a whole "
+                + $"picture and is NOT what a scattered subset of missing glyphs looks like. The "
+                + $"{c.TotalEmpty} EMPTY glyph(s) on this line are glyphs whose contrast fell under "
+                + "the ink threshold, not glyphs that are absent, and this reading must NEVER be "
+                + "pooled with the full-intensity ones. READ THE DISTRIBUTION BEFORE ACTING ON IT: in "
+                + "the ModBuild 206 session exactly ONE reading looked like this and every other "
+                + "broken reading sat at full intensity, so a single line of this shape is an outlier "
+                + "and not the family — this project has promoted an extreme to the operating point "
+                + "three times already.";
+        }
+
         if (c.CentroidCount == 0)
         {
-            c.MappingVerdict = "UNDECIDED, because NOT ONE glyph in this census was judged INKED, so "
+            return "UNDECIDED, because NOT ONE glyph in this census was judged INKED, so "
                                + "there is no ink anywhere to measure a centroid against and the "
                                + "mapping cannot be checked at all. Read that as a finding in its own "
                                + "right before reading it as an instrument failure: a whole strip of "
                                + "predicted text with no ink under any of it is either a completely "
                                + "displaced capture or a completely blank one, and the ORIENTATION and "
-                               + "band figures above say which is more likely.";
-            return;
+                               + "band figures above say which is more likely. " + signal + ".";
         }
         string centroid = $"mean ink centroid {mdx:F2},{mdy:F2} texels = "
                           + $"{mdx / rateX:F2},{mdy / rateY:F2} authored px over {c.CentroidCount} "
-                          + $"INKED glyph(s), against a {InkMappingVerifiedTexels:F1}-texel bar";
+                          + $"INKED glyph(s), against a {InkMappingVerifiedTexels:F1}-texel bar; "
+                          + signal + alphaCaveat;
 
         if (c.TotalEmpty == 0)
         {
-            c.MappingVerdict = mag <= InkMappingVerifiedTexels
+            return mag <= InkMappingVerifiedTexels
                 ? $"MAPPING VERIFIED — the ink sits where the mesh says ({centroid}) and there were no "
                   + "EMPTY glyphs at all in this census, so this reading contains no evidence of any "
                   + "defect anywhere in the capture path."
@@ -4028,23 +4495,25 @@ internal static partial class PanelSupersample
                   + "which happens to be small enough that every quad still catches its own ink; a "
                   + "reading with EMPTY glyphs and this same centroid would be a displacement, not "
                   + "missing ink.";
-            return;
         }
         if (classified == 0)
         {
-            c.MappingVerdict = $"UNDECIDED, because all {c.TotalEmpty} EMPTY glyph(s) fell outside "
+            return $"UNDECIDED, because all {c.TotalEmpty} EMPTY glyph(s) fell outside "
                                + "what the neighbourhood search could classify "
                                + $"({c.EmptyNotSearched} not searched at all because the cap bit). "
-                               + $"The centroid still reads {centroid}.";
-            return;
+                               + $"The centroid still reads {centroid}. NOTE, because ModBuild 206 "
+                               + "reached this state on nearly every reading and it was an INSTRUMENT "
+                               + "fault, not a finding: a flat score field is now classified GENUINELY "
+                               + "ABSENT rather than ambiguous, so if this line still says UNDECIDED "
+                               + "the cause is the search cap or the strip edge and the counts above "
+                               + "say which.";
         }
         float foundFrac = c.EmptyFoundOffset / (float)classified;
         float absentFrac = c.EmptyAbsent / (float)classified;
 
         if (foundFrac >= InkVerdictMajority)
         {
-            c.MappingVerdict =
-                $"MAPPING DISPLACED by ({fdx:F1},{fdy:F1}) texels = ({fdx / rateX:F2},{fdy / rateY:F2}) "
+            return $"MAPPING DISPLACED by ({fdx:F1},{fdy:F1}) texels = ({fdx / rateX:F2},{fdy / rateY:F2}) "
                 + $"authored px — the EMPTY verdicts above are THAT DISPLACEMENT, not missing ink. "
                 + $"{c.EmptyFoundOffset} of {classified} classified EMPTY glyph(s) were found at the "
                 + $"fitted offset, {c.EmptyAbsent} were absent there too, {c.EmptyAmbiguous} could not "
@@ -4058,20 +4527,16 @@ internal static partial class PanelSupersample
                 + "the offset across the three moments and across windows: an instrument error is the "
                 + "SAME offset on every reading of every window, while a capture displacement moves "
                 + "with the drag and is what the user sees.";
-            return;
         }
         if (absentFrac >= InkVerdictMajority && mag <= InkMappingVerifiedTexels)
         {
-            c.MappingVerdict =
-                $"MAPPING VERIFIED — the ink sits where the mesh says ({centroid}), and "
+            return $"MAPPING VERIFIED — the ink sits where the mesh says ({centroid}), and "
                 + $"{c.EmptyAbsent} of {classified} classified EMPTY glyph(s) had no ink ANYWHERE "
                 + "within a whole glyph advance and a whole line height of their predicted position. "
                 + "SO EMPTY MEANS ABSENT: those glyphs are genuinely not in the captured texture, and "
                 + "the loss is at or before rasterisation into the render target.";
-            return;
         }
-        c.MappingVerdict =
-            $"MIXED — {c.EmptyFoundOffset} of {classified} classified EMPTY glyph(s) were FOUND at a "
+        return $"MIXED — {c.EmptyFoundOffset} of {classified} classified EMPTY glyph(s) were FOUND at a "
             + $"fitted offset, {c.EmptyAbsent} were genuinely ABSENT and {c.EmptyAmbiguous} could not "
             + $"be classified, with {centroid}"
             + (c.FitCount > 0

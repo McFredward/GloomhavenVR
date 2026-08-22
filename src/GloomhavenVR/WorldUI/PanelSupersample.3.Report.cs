@@ -642,9 +642,61 @@ internal static partial class PanelSupersample
           .Append(c.FitDyHigh.ToString("F1")).Append(" texels; ").Append(c.FitLatticeAlias)
           .Append(" component(s) fitted a LATTICE ALIAS (an offset a whole advance or line away, "
                   + "which an is-there-ink test cannot tell from the truth in running text, so it is "
-                  + "reported as ambiguous and never as a displacement) and ").Append(c.FitNoFit)
-          .Append(" found NOTHING better than the predicted position. PER COMPONENT:")
+                  + "reported as ambiguous and never as a displacement")
+          .Append(c.AliasCount > 0
+              ? $", MEAN ALIAS OFFSET ({c.AliasDxSum / c.AliasCount:F1},"
+                + $"{c.AliasDySum / c.AliasCount:F1}) texels — printed anyway, because five components "
+                + "fitting the SAME alias and five fitting five different ones are completely "
+                + "different readings and ModBuild 206 discarded the number that tells them apart"
+              : string.Empty)
+          .Append(") and ").Append(c.FitNoFit)
+          .Append(" found NOTHING better than the predicted position. THE SEARCH ITSELF: the window is "
+                  + "+/- ").Append(InkSearchSpanAdvances.ToString("F0"))
+          .Append(" glyph advance(s) in X and +/- ").Append(InkSearchSpanLines.ToString("F0"))
+          .Append(" line height(s) in Y (ModBuild 206 searched ONE of each, and almost every EMPTY "
+                  + "glyph came back 'the best offset sits ON the search-window boundary'), swept "
+                  + "coarse-to-fine as a ").Append(InkCoarseSteps).Append('x').Append(InkCoarseSteps)
+          .Append(" grid at half-advance steps and then a ").Append(InkFineSteps).Append('x')
+          .Append(InkFineSteps).Append(" refinement inside the winning cell — a window this wide and a "
+                  + "sub-advance resolution cannot come out of one grid, and the per-component window "
+                  + "in TEXELS is printed with each fit below. A FLAT score field (best offset finding "
+                  + "ink in under ").Append((InkFlatFieldFraction * 100f).ToString("F0"))
+          .Append(" % of the component's glyphs anywhere in that window) is now classified GENUINELY "
+                  + "ABSENT rather than ambiguous: a flat field means 'nothing here', not 'maybe "
+                  + "outside', and reading it the other way is what made ABSENT nearly unreachable in "
+                  + "ModBuild 206. A boundary argmax is only called ambiguous when it beats the ZERO "
+                  + "offset by at least ").Append((InkMaterialGainFraction * 100f).ToString("F0"))
+          .Append(" % of the glyph count, i.e. when there really is a peak being cut off. EVERY "
+                  + "searched component prints BOTH its best score and its score at ZERO offset, so a "
+                  + "field with no peak is visible as such. PER COMPONENT:")
           .Append(c.FitNote);
+
+        // ---- THE ALPHA EVIDENCE (ModBuild 207) --------------------------------------------------
+        // The check that decides whether anything above is real, printed as evidence rather than
+        // asserted as a conclusion. See BuildInkAlphaEvidence for the whole argument.
+        Sb.Append(" ALPHA EVIDENCE — IS EVERY 'EMPTY' COMPONENT ACTUALLY SUPPOSED TO BE DRAWN? A "
+                  + "component hidden by a CanvasGroup alpha 0 above it draws nothing CORRECTLY, and "
+                  + "counting its glyphs as EMPTY would make this whole finding the instrument's own "
+                  + "artefact. That population is not hypothetical: the ModBuild 204 split measured "
+                  + "155-216 of 216 text components on THIS window at inherited alpha 0, first named "
+                  + "'Gold Warning', and the components ModBuild 206 named as EMPTY — 'Party Name', "
+                  + "'XP Amount Levelup', 'XP Amount', 'Level text' — belong to panels that may "
+                  + "legitimately be hidden. THE EXCLUSION IS NOW MEASURED TWO WAYS AND THEY ARE "
+                  + "COMPARED: ").Append(c.ComponentsHiddenByGroup)
+          .Append(" component(s) were excluded by walking the CanvasGroup chain to the host directly, "
+                  + "of which ").Append(c.ComponentsHiddenByGroupOnly)
+          .Append(" would NOT have been caught by the CanvasRenderer alpha test that ModBuild 205 and "
+                  + "206 used as their only exclusion. THAT SECOND NUMBER IS THE ONE THAT MATTERS: "
+                  + "non-zero means those builds censused hidden components and their EMPTY counts are "
+                  + "inflated by exactly that much. The chain walk is deliberately INDEPENDENT of "
+                  + "CanvasRenderer.GetInheritedAlpha() — that value is maintained by the canvas during "
+                  + "its own render pass, and a census built on it inherits whatever it is blind to. "
+                  + "THE COMPONENTS THAT PRODUCED EMPTY GLYPHS, each with its own colour alpha, its "
+                  + "CanvasRenderer alpha, its inherited alpha and its CanvasGroup chain product "
+                  + "(lowest effective alpha among them ")
+          .Append(c.EmptyLowestAlpha.ToString("F3"))
+          .Append("; anything below 1.000 means an EMPTY verdict is partly a visibility artefact and "
+                  + "the verdict says so):").Append(c.AlphaNote);
 
         Sb.Append(" ORIENTATION SELF-CHECK: ").Append(c.Orientation)
           .Append(". This is MEASURED and not assumed because AsyncGPUReadback returns the source "
@@ -715,7 +767,9 @@ internal static partial class PanelSupersample
           .Append(") or per-census (").Append(MaxInkCensusGlyphs).Append(") glyph cap, ")
           .Append(c.ComponentsNotDrawn)
           .Append(" text component(s) were excluded because the renderer had switched them off (cull "
-                  + "flag, own/inherited/authored alpha 0) or a mask hid them entirely, ")
+                  + "flag, own/inherited/authored alpha 0), a CANVASGROUP CHAIN above them multiplied "
+                  + "out to zero, or a mask hid them entirely — see the ALPHA EVIDENCE field, which "
+                  + "is what decides whether the EMPTY counts on this line are real at all, ")
           .Append(c.ComponentsSkippedCap).Append(" text component(s) of ").Append(c.ComponentsFound)
           .Append(" hit the ").Append(MaxInkCandidateComponents).Append("-component cap")
           .Append(c.WalkTruncated
@@ -778,7 +832,11 @@ internal static partial class PanelSupersample
                   + "single digits. If that median is at or near zero, the ink at the predicted place "
                   + "is not faint, it is NOT THERE — which leaves exactly two live possibilities, and "
                   + "the verdict below picks between them: the ink is somewhere else (displacement), "
-                  + "or it was never drawn (absence).");
+                  + "or it was never drawn (absence). NOTE the distinction from the DIM CAPTURE case "
+                  + "the verdict can also name: that one is about the INKED median COLLAPSING while "
+                  + "the background RISES, i.e. the whole picture fading. This one is about the EMPTY "
+                  + "median, i.e. whether the gaps are faint or bare. They are different readings of "
+                  + "different numbers and only one of them was ever chased.");
 
         // ---- REQUIREMENT 4: THE VERDICT, LAST AND IN ONE SENTENCE, CHOSEN BY THE NUMBERS ---------
         Sb.Append(" MAPPING VERDICT: ").Append(c.MappingVerdict);
