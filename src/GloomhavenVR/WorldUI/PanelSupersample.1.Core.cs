@@ -1813,6 +1813,22 @@ internal static partial class PanelSupersample
         /// seen, and the pair of cameras that produced it. Cumulative since engage.</summary>
         internal int PhaseSamples, PhaseFrames, PhaseDisagreeFrames, PhaseWorstDelta;
         internal int PhaseLastDisagreeFrame = -1;
+
+        // ---- THE FRAME-TO-FRAME HALF (ModBuild 215) ----------------------------------------------
+        // ModBuild 214 compared samples WITHIN one frame and answered cleanly: 1 disagreement in 4382
+        // samples over 626 frames, i.e. every camera of a frame sees the same drawn set. That closes
+        // "the two eyes disagree" and leaves the question the user actually asked open, because "die
+        // Elemente sind ständig kurz sichtbar und dann wieder nicht" is a statement about SUCCESSIVE
+        // frames, not about cameras. Comparing frame N against frame N-1 costs nothing extra — the
+        // samples are already being taken — and it is split by MOVING vs STILL, because his report is
+        // precisely that the two behave differently: still freezes, carried flickers.
+        internal readonly System.Collections.Generic.List<bool> PhasePrevDrawn = new(256);
+        internal int PhasePrevFrame = -1;
+        internal int PhaseFrameCompares, PhaseFrameChanges;
+        internal int PhaseMovingCompares, PhaseMovingChanges;
+        internal int PhaseStillCompares, PhaseStillChanges;
+        internal int PhaseWorstFlips;
+        internal string PhaseFlipNote = string.Empty;
         internal string PhaseWorstNote = string.Empty;
 
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------

@@ -3895,6 +3895,8 @@ internal static partial class PanelSupersample
     private static readonly List<int> InkSearchOrder = new(MaxInkCandidateComponents);
     private static readonly StringBuilder InkPlateSb = new(512);
     private static readonly StringBuilder InkRepairSb = new(512);
+    private static readonly StringBuilder PhaseFlipSb = new(512);
+    private static readonly List<bool> PhaseDrawn = new(MaxPhaseGraphics);
 
     // ---- THE DRAW-STATE LEDGER (ModBuild 210) ---------------------------------------------------
     //
@@ -3934,16 +3936,17 @@ internal static partial class PanelSupersample
     private static int SamplePhase(Entry e, out int signature)
     {
         int drew = 0;
+        PhaseDrawn.Clear();
         unchecked
         {
             int sig = 17;
             for (int i = 0; i < e.PhaseGraphics.Count; i++)
             {
                 Graphic g = e.PhaseGraphics[i];
-                if (g == null)
-                    continue;
-                bool draws = ClassifyDraw(g, e.Panel.HostRect!, clipEmpty: false, out float _)
-                             == DrawReason.Drawn;
+                bool draws = g != null
+                             && ClassifyDraw(g, e.Panel.HostRect!, clipEmpty: false, out float _)
+                                == DrawReason.Drawn;
+                PhaseDrawn.Add(draws);
                 if (draws)
                 {
                     drew++;
@@ -3953,6 +3956,62 @@ internal static partial class PanelSupersample
             signature = sig;
         }
         return drew;
+    }
+
+    /// <summary>
+    /// <b>DID THE DRAWN SET CHANGE SINCE THE PREVIOUS SAMPLED FRAME?</b> The half ModBuild 214 did not
+    /// build. Its within-frame comparison answered cleanly — every camera of a frame agrees — which
+    /// closes "the two eyes see different pictures" and leaves the user's actual sentence untouched:
+    /// <i>"die Elemente sind ständig kurz sichtbar und dann wieder nicht"</i> is about SUCCESSIVE
+    /// frames. Split by MOVING vs STILL because his report is exactly that the two differ: a still
+    /// window freezes, a carried one flickers.
+    /// </summary>
+    private static void ComparePhaseFrames(Entry e, bool moving)
+    {
+        if (e.PhasePrevFrame >= 0 && e.PhasePrevDrawn.Count == PhaseDrawn.Count)
+        {
+            int flips = 0;
+            PhaseFlipSb.Length = 0;
+            int named = 0;
+            for (int i = 0; i < PhaseDrawn.Count; i++)
+            {
+                if (PhaseDrawn[i] == e.PhasePrevDrawn[i])
+                    continue;
+                flips++;
+                if (named < MaxDrawStateNamed && i < e.PhaseGraphics.Count
+                    && e.PhaseGraphics[i] != null)
+                {
+                    named++;
+                    PhaseFlipSb.Append(" '").Append(e.PhaseGraphics[i].gameObject.name).Append("' (")
+                               .Append(e.PhaseGraphics[i].GetType().Name).Append(") -> ")
+                               .Append(PhaseDrawn[i] ? "ON" : "OFF").Append(';');
+                }
+            }
+            e.PhaseFrameCompares++;
+            if (moving)
+                e.PhaseMovingCompares++;
+            else
+                e.PhaseStillCompares++;
+            if (flips > 0)
+            {
+                e.PhaseFrameChanges++;
+                if (moving)
+                    e.PhaseMovingChanges++;
+                else
+                    e.PhaseStillChanges++;
+                if (flips >= e.PhaseWorstFlips)
+                {
+                    e.PhaseWorstFlips = flips;
+                    e.PhaseFlipNote = $"{flips} graphic(s) changed between two consecutive sampled "
+                                      + $"frames while the window was {(moving ? "MOVING" : "STILL")}:"
+                                      + PhaseFlipSb;
+                }
+            }
+            PhaseFlipSb.Length = 0;
+        }
+        e.PhasePrevDrawn.Clear();
+        e.PhasePrevDrawn.AddRange(PhaseDrawn);
+        e.PhasePrevFrame = Time.frameCount;
     }
 
     /// <summary>
@@ -3983,6 +4042,9 @@ internal static partial class PanelSupersample
             e.PhaseFirstDrew = drew;
             e.PhaseFirstSig = sig;
             e.PhaseFirstCam = cam.name;
+            // Frame-to-frame on the FIRST sample of the frame only, so the comparison is always
+            // like-for-like: the same point in the camera order, one frame apart.
+            ComparePhaseFrames(e, IsMoving(e));
         }
         else if (sig != e.PhaseFirstSig)
         {

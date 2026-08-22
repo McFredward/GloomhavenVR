@@ -1046,7 +1046,27 @@ internal static partial class PanelSupersample
           .Append(e.PhaseWorstDelta > 0
               ? $" — WORST: {e.PhaseWorstNote}."
               : ".")
-          .Append(" HOW TO READ IT, both ways, so a zero is evidence and not silence: a NON-ZERO "
+          .Append(" FRAME TO FRAME, WHICH IS THE HALF ModBuild 214 DID NOT BUILD and is the one the "
+                  + "user's sentence is actually about — \"ständig kurz sichtbar und dann wieder "
+                  + "nicht\" is a statement about SUCCESSIVE FRAMES, not about cameras. The 214 log "
+                  + "answered the within-frame question cleanly (1 disagreement in 4382 samples over "
+                  + "626 frames), which closes 'the two eyes see different pictures' and leaves this "
+                  + "one open. Compared on the FIRST sample of each sampled frame, so it is always "
+                  + "like-for-like — the same point in the camera order, one frame apart — and SPLIT "
+                  + "BY MOTION, because his report is precisely that the two differ: ")
+          .Append(e.PhaseFrameChanges).Append(" of ").Append(e.PhaseFrameCompares)
+          .Append(" comparison(s) saw the drawn set CHANGE; while MOVING ")
+          .Append(e.PhaseMovingChanges).Append(" of ").Append(e.PhaseMovingCompares)
+          .Append(", while STILL ").Append(e.PhaseStillChanges).Append(" of ")
+          .Append(e.PhaseStillCompares).Append('.')
+          .Append(e.PhaseWorstFlips > 0 ? " WORST: " + e.PhaseFlipNote : string.Empty)
+          .Append(" THE READING THAT WOULD LOCATE THE DEFECT: a high change rate while MOVING against "
+                  + "a near-zero one while STILL is the user's report expressed as two numbers, and "
+                  + "the named graphics are then the writer's own list. Change rates that are equal "
+                  + "and low in both mean the drawn set is not what oscillates at all. A high rate "
+                  + "while STILL would contradict his account and would mean this instrument, not the "
+                  + "window, is what moves.")
+          .Append(" HOW TO READ THE WITHIN-FRAME NUMBER, both ways, so a zero is evidence and not silence: a NON-ZERO "
                   + "disagreement count is the defect located — uGUI's own state changes between two "
                   + "cameras of one frame, the eye passes see different pictures, and the next round "
                   + "goes after the writer that moves it. A ZERO with a large sample count means the "

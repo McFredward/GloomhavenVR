@@ -416,7 +416,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 214;
+    public const ushort ModBuild = 215;
+    // Build 215: THE 214 CENSUS ANSWERED ITS QUESTION AND IT WAS THE WRONG HALF OF THE QUESTION.
+    // Within one frame, every camera sees the same drawn set: 1 disagreement in 4382 samples over
+    // 626 sampled frames. That is a clean negative and it closes "the two MultiPass eyes see
+    // different pictures" for good. But the user's sentence — "die Elemente sind ständig kurz
+    // sichtbar und dann wieder nicht" — is about SUCCESSIVE FRAMES, and 214 never compared two.
+    //
+    // 215 adds that half, at no extra sampling cost: the drawn set of the first sample of each
+    // sampled frame is compared against the previous sampled frame's, SPLIT BY MOVING VS STILL,
+    // because his report is precisely that the two behave differently (still freezes, carried
+    // flickers). The graphics that flipped are NAMED, so a positive reading is a writer's list and
+    // not a rate.
+    //
+    // ALSO CLOSED THIS ROUND, all from the 214 hardware log: sorting (1 conceded canvas at 101
+    // against a host at 100, no alternation), layers (0 late joiners over hundreds of sweeps),
+    // draw state (DREW = 215 on every party-window reading). And the per-camera Canvas.enabled
+    // exclusion that would have explained a whole sub-tree blinking was checked in the source and is
+    // NOT IMPLEMENTED — it was rejected at design time in favour of the layer pool, so it cannot be
+    // the writer either.
+    //
+    // STILL AN INSTRUMENT ONLY. No remedy, for the second build running.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 214: THE ELEMENTS ARE NOT MISSING — THEY ARE BEING SWITCHED ON AND OFF, AND THE FLICKER
     // IS THAT SWITCHING. The user, and this reframes eight builds of measurement: "Es flackert extrem
     // dauerhaft wenn Supersampling aus ist. Wenn es an ist ist exakt das selbe Flackern nur da wenn
