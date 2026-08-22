@@ -763,6 +763,17 @@ internal static class GuildmasterDestinations
     private static bool _outcomeProbeWarned;
 
     /// <summary>
+    /// Last seen <c>classToggle.isOn</c> of the selected slot — the RISING EDGE of this is what now
+    /// arms the outcome watch. See <see cref="TickSheetOutcome"/>'s ARMED BY paragraph for why the
+    /// arming moved off the slot click.
+    ///
+    /// <para><c>null</c> means "no selected slot to read", which is deliberately NOT the same as
+    /// <c>false</c>: a selection appearing with the toggle already on must not be read as an edge.
+    /// </para>
+    /// </summary>
+    private static bool? _lastClassOn;
+
+    /// <summary>
     /// DID THE CLICK DO ANYTHING? (ModBuild 195 — the guard.) The old
     /// <see cref="ReportPartySlots"/> line reported a PRECONDITION and reported it green in the very
     /// log in which the feature was dead, because <c>IsInteractable</c> reads the three fields the
@@ -770,14 +781,33 @@ internal static class GuildmasterDestinations
     /// what the feature needs agrees with every broken build ([[instrument-measures-one-term]]), so
     /// this one measures the END STATE instead.
     ///
-    /// <para>ARMED BY: <c>NewPartyDisplayUI.SelectedUISlot</c> changing to a slot that HAS a
-    /// character. That is the click the report is about. It is a poll rather than the game's
-    /// <c>NewCharacterSelected</c> event on purpose — this class already ticks once per frame and a
-    /// subscription would have to survive the display being destroyed and rebuilt between rooms.
-    /// The one case it cannot see is a re-click on the ALREADY selected slot (the selection does not
-    /// change, and in selection mode <c>DISABLE_TOGGLE_OFF_CHARACTER</c> keeps it from even
-    /// deselecting); that case is uninteresting once the sheet is open and it is stated here so the
-    /// absence of a line is never read as a pass.</para>
+    /// <para><b>ARMED BY — RE-KEYED IN ModBuild 220, AND THE OLD KEY WOULD NOW BE WRONG ON EVERY
+    /// CLICK.</b> Until 220 this armed on <c>NewPartyDisplayUI.SelectedUISlot</c> changing to a slot
+    /// that HAS a character, because a slot click was what opened the sheet. USER REQUEST
+    /// (2026-08-22, verbatim): <i>"Ich möchte das ein Klick auf den Character nur den aktuell
+    /// ausgewählten Character für die Handkarten ändert nicht direct das Characterinfo-Sub-Menu
+    /// öffnet, das soll wirklich nur dann passieren, wenn man auf das entsprechende Symbol (das 1.
+    /// mit der abgebildeten 'Person') in der Leiste klickt."</i>
+    /// <c>WorldUI/Patches/CharacterClickSelectsOnly</c> implements that by lowering
+    /// <c>autoOpenDefaultPanel</c> around <c>NewPartyCharacterUI.OnClick</c>, so a slot click now
+    /// takes the game's own <c>SetAllTogglesOff</c> branch and opens NOTHING — by design. An
+    /// instrument still keyed on the slot click would therefore have warned <c>DID NOT OPEN</c> on
+    /// every single character click and would have read as a regression report for a feature working
+    /// exactly as asked.</para>
+    ///
+    /// <para>It is now armed by the RISING EDGE of the selected slot's <c>classToggle.isOn</c> — the
+    /// person icon, which is the one gesture that is still supposed to open the sheet
+    /// (<c>OnClickAssign</c> → <c>NewPartyDisplayUI.OnCharacterPickerSelected</c> →
+    /// <c>CharacterSelector.Show</c>). Rising edge and not level: the toggle stays on for as long as
+    /// the sheet is open, so a level test would re-arm every tick and judge the same open window
+    /// dozens of times.</para>
+    ///
+    /// <para>It is a poll rather than the game's <c>NewCharacterSelected</c> event on purpose — this
+    /// class already ticks once per frame and a subscription would have to survive the display being
+    /// destroyed and rebuilt between rooms. Two cases it deliberately cannot see, stated here so the
+    /// absence of a line is never read as a pass: the toggle being turned on by the game rather than
+    /// by the player (an edge is an edge, and it is judged the same way), and a slot click, which no
+    /// longer promises anything to measure.</para>
     ///
     /// <para>RESOLVED BY: <c>UIAdventurePartyAssemblyWindow.window.IsOpen</c> — the window the log
     /// knows as <c>Campaign Adventure Party Assembly Variant</c> (ID <c>PartyAssemblyWindow</c>),
@@ -801,6 +831,7 @@ internal static class GuildmasterDestinations
             if (display == null)
             {
                 _lastSelectedSlot = null;
+                _lastClassOn = null;
                 _outcomeTicksLeft = 0;
                 return;
             }
@@ -808,19 +839,31 @@ internal static class GuildmasterDestinations
             NewPartyCharacterUI? selected = display.SelectedUISlot;
             if (!ReferenceEquals(selected, _lastSelectedSlot))
             {
+                // The SELECTION changed. Since ModBuild 220 that promises nothing on its own (see
+                // the ARMED BY paragraph), so it arms nothing — it only re-baselines the toggle
+                // latch, and it re-baselines it to the toggle's CURRENT value so that a slot which
+                // arrives with the person icon already lit is not mistaken for a fresh press.
                 _lastSelectedSlot = selected;
-                // A slot with a character in it just became the selection: that is the click whose
-                // outcome the report is about. An empty/available slot opens the recruit picker
-                // instead, which is a different question and is deliberately not watched here.
-                bool watchable = selected != null && selected.Data != null;
-                _outcomeTicksLeft = watchable ? OutcomeWatchTicks : 0;
-                _outcomeSlotName = watchable ? SlotLabel(selected!) : string.Empty;
+                _lastClassOn = ReadClassOn(selected);
+                _outcomeTicksLeft = 0;
+                _outcomeSlotName = string.Empty;
+                return;
+            }
+
+            bool? classOn = ReadClassOn(selected);
+            bool rising = classOn == true && _lastClassOn == false;
+            _lastClassOn = classOn;
+
+            if (rising && selected != null && selected.Data != null)
+            {
+                _outcomeTicksLeft = OutcomeWatchTicks;
+                _outcomeSlotName = SlotLabel(selected);
                 // NEVER JUDGE ON THE ARMING TICK. The sheet may still be standing open for the
-                // PREVIOUS character at this instant: in selection mode a slot click runs
-                // SetAllTogglesOff → OnCharacterPickerSelected(false) → TryHideCurrentDisplay, and
-                // that close lands in the same frame as the selection change. Reading IsOpen here
-                // would report the outgoing window as this click's success — the exact shape of
-                // false pass this instrument exists to stop being possible.
+                // PREVIOUS character at this instant: a slot click runs SetAllTogglesOff →
+                // OnCharacterPickerSelected(false) → TryHideCurrentDisplay, and that close can land
+                // in the same frame. Reading IsOpen here would report the outgoing window as this
+                // press's success — the exact shape of false pass this instrument exists to stop
+                // being possible.
                 return;
             }
 
@@ -831,7 +874,7 @@ internal static class GuildmasterDestinations
             {
                 _outcomeTicksLeft = 0;
                 VRLog.Info(Scope, $"CHARACTER SHEET OUTCOME for {_outcomeSlotName}: OPENED. The party "
-                                  + "assembly window (the character display) is open, so the slot click did "
+                                  + "assembly window (the character display) is open, so the PERSON ICON did "
                                   + "what the player asked. This is the OUTCOME, not a precondition — the "
                                   + "'PARTY SLOTS n/m interactable' line above measures something the shop's "
                                   + "selection mode never touches and was green through the whole build in "
@@ -846,9 +889,11 @@ internal static class GuildmasterDestinations
             VRLog.Warn(Scope, $"CHARACTER SHEET OUTCOME for {_outcomeSlotName}: DID NOT OPEN within "
                               + $"{OutcomeWatchTicks} ticks. {DescribeSlotGates(slot)} Floated guildmaster "
                               + $"destination right now: {(floated != null ? "'" + floated.name + "'" : "none")}. "
-                              + "READ IT AS: the character became the party display's selection and the party "
+                              + "READ IT AS: the PERSON ICON on that slot was switched on and the party "
                               + "assembly window ('Campaign Adventure Party Assembly Variant', ID "
-                              + "PartyAssemblyWindow) is still closed. autoOpen=False or selectionDisabled=True "
+                              + "PartyAssemblyWindow) is still closed. A plain click on the character opens "
+                              + "nothing BY DESIGN since ModBuild 220 and is not watched here at all; this "
+                              + "line is only ever about the icon. autoOpen=False or selectionDisabled=True "
                               + "means a guildmaster mode still owns the display and the ModBuild 195 re-arm "
                               + "did not undo it; everything green here means the cause is past the toggle and "
                               + "not in GuildmasterDestinations.");
@@ -864,6 +909,18 @@ internal static class GuildmasterDestinations
                                   + "CHARACTER SHEET OUTCOME lines from here on proves nothing.");
             }
         }
+    }
+
+    /// <summary>The selected slot's person-icon state, or <c>null</c> when there is no slot or no
+    /// toggle to read. Null rather than false on purpose — see <see cref="_lastClassOn"/>: an absent
+    /// reading must never combine with a later <c>true</c> into a rising edge that never happened.
+    /// </summary>
+    private static bool? ReadClassOn(NewPartyCharacterUI? slot)
+    {
+        if (slot == null)
+            return null;
+        UnityEngine.UI.Toggle? toggle = slot.classToggle;
+        return toggle != null ? toggle.isOn : (bool?)null;
     }
 
     /// <summary>Is the party assembly window (the character sheet the report is about) open? Reached

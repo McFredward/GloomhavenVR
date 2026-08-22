@@ -416,7 +416,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 219;
+    public const ushort ModBuild = 220;
+    // Build 220: TWO OF THE FIVE NEW TASKS. Nothing on the wire; both are local presentation.
+    //
+    //   #4 A CLICK ON A CHARACTER SELECTS, AND NOTHING ELSE. User, verbatim: "Ich möchte das ein
+    //   Klick auf den Character nur den aktuell ausgewählten Character für die Handkarten ändert
+    //   nicht direct das Characterinfo-Sub-Menu öffnet, das soll wirklich nur dann passieren, wenn
+    //   man auf das entsprechende Symbol (das 1. mit der abgebildeten 'Person') in der Leiste
+    //   klickt." NewPartyCharacterUI.OnClick selects the character (:811-812) and THEN forces
+    //   classToggle.isOn = true (:821) whenever autoOpenDefaultPanel is set — and classToggle IS the
+    //   person icon (→ OnClickAssign → OnCharacterPickerSelected → CharacterSelector.Show).
+    //   THE FLAG IS NOT OURS TO HOLD: the game re-asserts it at NewPartyDisplayUI:1495 and OUR OWN
+    //   GuildmasterDestinations.ReArmCharacterScreen raises it once per tick for as long as the map
+    //   room stands. Forcing it false would have been a write war against ourselves at ~72 Hz. So
+    //   WorldUI/Patches/CharacterClickSelectsOnly lowers it in a PREFIX and raises it in the POSTFIX
+    //   of that one call: the flag is conceded, only the read at :817 is owned
+    //   ([[dont-win-a-write-war]]). The card fan is unaffected — MapRoomHand.ResolveCharacter reads
+    //   PartyDisplay.SelectedUISlot.Data, which InvokeOnCharacterSelected writes BEFORE the auto-open
+    //   block and with no reference to any toggle, so clicking character B still moves the hand cards
+    //   to B.
+    //   AND THE INSTRUMENT WAS RE-KEYED IN THE SAME COMMIT. GuildmasterDestinations.TickSheetOutcome
+    //   armed on "the selection changed" and warned DID NOT OPEN if the sheet stayed shut — a premise
+    //   this change retires, so it would have warned on EVERY character click and read as a
+    //   regression report for a feature working exactly as asked. It now arms on the RISING EDGE of
+    //   the selected slot's classToggle, i.e. on the person icon, which is the one gesture still
+    //   promising to open anything.
+    //
+    //   #5 THE MAIN-MENU LOGO IS THE GLOOMHAVENVR WORDMARK. User, verbatim: "ich möchte von dir,
+    //   dass du im Hauptmenu das original Logo damit ersetzt (so das es genauso aussieht wie jetzt
+    //   nur mit dem neuen Logo)." A sprite assignment on the scene's OWN Image under
+    //   MainMenuUIManager._logo — no new GameObject, so rect, anchors, canvas order, colour fades,
+    //   material and any animator stay exactly as authored. preserveAspect is the one extra property
+    //   set: his wordmark is aspect 5.72, far wider than the original, so it is fitted into the
+    //   authored rect rather than stretched. The art is an EmbeddedResource in this DLL
+    //   (Assets/GloomhavenVR_logo.png, RGBA 1024x179) — the bundle would have been its natural home
+    //   but a rebuild would cost him a full reinstall for a logo. The source PNG had NO ALPHA
+    //   CHANNEL; the silhouette is a border flood fill, so the 84,271 dark pixels INSIDE the
+    //   letterforms stay opaque (a luminance key would have eaten every one of them).
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 219: THE CLEAN-UP. Sixteen builds of diagnostic apparatus for the Character/Perks
     // sub-view defect are removed now that the cause is found, fixed and CONFIRMED ON HARDWARE
     // ("PROBLEM ERFOLGREICH GELÖST"). Gone: the ink census and its four readback planes, the glyph

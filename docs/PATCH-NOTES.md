@@ -67,3 +67,44 @@ setters) — no interaction.
 
 See `docs/INTERFACES-P2.md` §4 — the state machine is the single source of truth;
 modules must not toggle interactors directly.
+
+## `CharacterClickSelectsOnly` — a character click selects, and nothing more
+
+Added 2026-08-22 on the user's request: *"Ich möchte das ein Klick auf den Character nur den
+aktuell ausgewählten Character für die Handkarten ändert nicht direct das Characterinfo-Sub-Menu
+öffnet, das soll wirklich nur dann passieren, wenn man auf das entsprechende Symbol (das 1. mit der
+abgebildeten 'Person') in der Leiste klickt."*
+
+| Patched method | Module | Type | Effect / gate |
+|---|---|---|---|
+| `NewPartyCharacterUI.OnClick()` | WorldUI | prefix | lower `autoOpenDefaultPanel` for this one call, so `OnClick` takes the game's own `classToggle.group.SetAllTogglesOff()` branch (`NewPartyCharacterUI.cs:834`) instead of `classToggle.isOn = true` (`:821`). Gated on `WorldUIConfig.ConversionActive` **and** `slot.Data != null` **and** `!MapFTUEManager.IsPlaying` **and** `!InputManager.GamePadInUse` **and** the flag being `true` already. |
+| `NewPartyCharacterUI.OnClick()` | WorldUI | postfix | raise the flag again — the mod never holds it. |
+
+**Why a scoped swap and not a write on the flag.** `autoOpenDefaultPanel` has three writers: the
+field initialiser (`true`, `:252`), `NewPartyDisplayUI.EnableSelectionMode` / `DisableSelectionMode`
+(`:1417` / `:1495`), and — decisively — **our own**
+`WorldUI/MapRoom/GuildmasterDestinations.ReArmCharacterScreen`, which is level-triggered once per
+tick for as long as the map room stands and puts the flag back to `true` on every slot that has it
+off. A permanent `false` would be re-raised ~72×/s by mod code and would trip that class's own
+`CHARACTER SCREEN RE-ARM STUCK` warning. So the flag is conceded and only the *read* at `:817` is
+owned: the value is lowered inside the same synchronous call that reads it, after every possible
+external write and before any next one. When the game (or our re-arm) calls the setter with `true`,
+nothing happens — that is the steady state between clicks.
+
+**Cross-subsystem cost — one instrument's premise is now false.**
+`GuildmasterDestinations.TickSheetOutcome` arms on `NewPartyDisplayUI.SelectedUISlot` changing to a
+slot with a character and warns `CHARACTER SHEET OUTCOME … DID NOT OPEN` when the party-assembly
+window is still closed 30 ticks later. That premise — "a slot click should open the sheet" — is
+exactly what this change retires, so the watcher now warns on **every** character click in the map
+room. `CharacterClickSelectsOnly` names the consequence in its own suppression line so the two can
+never be read apart, but the watcher must be re-keyed onto the person icon (`classToggle`) by the
+lane that owns `WorldUI/MapRoom/*`.
+
+**What is deliberately unchanged.** The selection itself
+(`InvokeOnCharacterSelected`, `OnClick:812`) runs first and untouched, so
+`NewPartyDisplayUI.SelectedUISlot` still moves — which is what `MapRoomHand` resolves the card fan
+from (never `cardsToggle` / `CardWindowSelected`), and what the merchant/temple/enhancement
+`onCharacterSelectedCallback` (`NewPartyDisplayUI.cs:886`) still fires on. The empty-slot recruit
+path (`OnClick:837-856`), the multiplayer assign-role button (`OnClickAssignRole`), the FTUE and the
+gamepad flow are all outside the gate. Every panel the auto-open could have opened — the class/info
+sheet and the battle goal — stays one click away on its own icon in the same row.

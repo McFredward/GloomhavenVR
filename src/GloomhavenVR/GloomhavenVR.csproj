@@ -12,6 +12,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Art shipped INSIDE the plugin DLL (user request 2026-08-22 #5, the main-menu wordmark —
+      see WorldUI/Patches/MainMenuLogoSwap.cs). The asset bundle would be the natural home, but it
+      has been byte-identical at 70,218,494 bytes since ModBuild 172 and every install since is
+      plugin-DLL-only; rebuilding it would cost the user a full reinstall for a logo. LogicalName
+      is pinned so a folder rename cannot silently change the manifest name the loader asks for.
+    -->
+    <EmbeddedResource Include="Assets\GloomhavenVR_logo.png"
+                      LogicalName="GloomhavenVR.Assets.GloomhavenVR_logo.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
     <PackageReference Include="BepInEx.Core" Version="5.*" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />

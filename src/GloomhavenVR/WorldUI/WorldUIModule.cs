@@ -84,6 +84,22 @@ internal sealed class WorldUIModule : IVRModule
         // Base type on purpose: the campaign override reaches it through base. and keeps its own
         // delete-button bookkeeping. See PartyPreviewStorm.
         VRSession.Harmony?.PatchAll(typeof(Patches.PartyPreviewStorm));
+        // User request 2026-08-22: "Ich möchte das ein Klick auf den Character nur den aktuell
+        // ausgewählten Character für die Handkarten ändert nicht direct das Characterinfo-Sub-Menu
+        // öffnet, das soll wirklich nur dann passieren, wenn man auf das entsprechende Symbol (das
+        // 1. mit der abgebildeten 'Person') in der Leiste klickt." NewPartyCharacterUI.OnClick
+        // selects the character (:812) and THEN force-opens the class panel (:821) whenever
+        // autoOpenDefaultPanel is set. The flag is not ours to hold — GuildmasterDestinations
+        // re-arms it to true once per tick for as long as the map room stands — so the patch lowers
+        // it for the duration of one click only and raises it again. See CharacterClickSelectsOnly.
+        VRSession.Harmony?.PatchAll(typeof(Patches.CharacterClickSelectsOnly));
+        // User request 2026-08-22 #5: "ich möchte von dir, dass du im Hauptmenu das original Logo
+        // damit ersetzt (so das es genauso aussieht wie jetzt nur mit dem neuen Logo)". A sprite
+        // assignment on the scene's own Image under MainMenuUIManager._logo — no new GameObject,
+        // so rect/anchors/canvas order/colour fades all stay as authored. The artwork is an
+        // EmbeddedResource in this DLL (the asset bundle stays byte-identical on purpose).
+        // See MainMenuLogoSwap.
+        VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)
