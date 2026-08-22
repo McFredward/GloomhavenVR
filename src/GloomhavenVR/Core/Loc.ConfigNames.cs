@@ -82,8 +82,13 @@ internal static partial class Loc
 
             // ---- [Rig] / [Compat] — picture & world -----------------------------------------
             ["Rig/SpawnInCircle"] = Pair("Free seat at the board", "Freier Platz am Brett"),
-            ["Rig/VoidColor"] = Pair("Void colour around menus", "Leerraum-Farbe um Menüs"),
-            ["Rig/ForwardRendering"] = Pair("Forward rendering", "Forward-Rendering"),
+            // "Rig/VoidColor" and "Rig/ForwardRendering" ARE GONE from this table: both keys were
+            // UNBOUND at ModBuild 224 (2026-08-22 settings audit, question (a)) and are constants
+            // now — Color.black in Rig/VRRigDriver and Plugin.ForwardRendering. Same for
+            // "Stereo/RenderMode", "WorldUI/ScreenLayerSplit", "WorldUI/SuppressPhysicalMouse",
+            // "RenderQuality/ViewportScaleFallback", "RenderQuality/RebuildRigOnMsaaChange" and the
+            // five [HexHighlight] entries further down. Twelve dead names, removed together at the
+            // audit's (b)/(c) pass, because a name here is how a reader decides a setting EXISTS.
             ["Compat/DisablePostProcessing"] = Pair("Disable post-processing", "Post-Processing aus"),
             ["Compat/DisableVolumetricFog"] = Pair("Volumetric fog off", "Volumennebel aus"),
             ["Compat/DisableComponents"] = Pair("Disabled components", "Deaktivierte Teile"),
@@ -111,10 +116,20 @@ internal static partial class Loc
             ["Comfort/TableScaleDefault25Applied"] = Pair("Internal marker", "Interne Marke"),
             // The turn stick's forward axis as world up/down (user request 2026-08-15). Named after
             // the STICK rather than after "flight", because that is the thing the player is looking
-            // for on the row: which controller grows a new function. The [Comfort] Flight* family
-            // deliberately has no line in this table — those four rows carry hand-written curated
-            // captions instead — so this one does not disturb a convention by having one.
+            // for on the row: which controller grows a new function.
             ["Comfort/TurnStickVertical"] = Pair("Up/down on turn stick", "Hoch/Runter am Drehstick"),
+            // THE FLIGHT FAMILY, FOUR NAMES, ADDED BY THE 2026-08-22 SETTINGS AUDIT (§3.4). They
+            // had none, on the argument that the four rows carry hand-written curated captions on
+            // the Komfort tab — which is true and is exactly why the gap was invisible. THE SAME
+            // FOUR ENTRIES ALSO APPEAR ON ERWEITERT ▸ BEWEGUNG & WELT, where nothing supplies a
+            // caption, so a German menu captioned them "Flight Enabled", "Flight Direction",
+            // "Flight Hand", "Flight Max Speed" — the spaced-out English key, in a German menu, on
+            // four rows a player is meant to use. The words below are the curated captions
+            // (Loc "vr_o_flight*"), kept identical on purpose: one row, one name, both doors.
+            ["Comfort/FlightEnabled"] = Pair("Stick flight", "Stick-Flug"),
+            ["Comfort/FlightDirection"] = Pair("Flight direction", "Flugrichtung"),
+            ["Comfort/FlightMaxSpeed"] = Pair("Flight speed", "Fluggeschwindigkeit"),
+            ["Comfort/FlightHand"] = Pair("Flight hand", "Flug-Hand"),
 
             // ---- [Hands] — hand models, seat & laser ----------------------------------------
             ["Hands/PrimaryHand"] = Pair("Dominant hand", "Dominante Hand"),
@@ -169,11 +184,12 @@ internal static partial class Loc
                 Pair("Follow the character at turn", "Automatisch zum Character am Zug"),
             ["Board/AoeFlickThreshold"] = Pair("AoE turn: stick min", "AoE-Drehen: Schwelle"),
             ["Board/AoeRepeatInterval"] = Pair("AoE turn: repeat (s)", "AoE-Drehen: Takt (s)"),
-            ["HexHighlight/SwapStableShader"] = Pair("Stable hex shader", "Stabiler Hex-Shader"),
-            ["HexHighlight/StableZTest"] = Pair("Hex decal: ZTest", "Hex-Dekal: ZTest"),
-            ["HexHighlight/StableDepthBias"] = Pair("Hex decal: depth bias", "Hex-Dekal: Tiefen-Bias"),
-            ["HexHighlight/KillBorderFlame"] = Pair("Fallback: flame off", "Fallback: Randflamme aus"),
-            ["HexHighlight/KillCrosshair"] = Pair("Fallback: crosshair off", "Fallback: Fadenkreuz aus"),
+            // FIVE [HexHighlight] NAMES ARE GONE — SwapStableShader, StableZTest, StableDepthBias,
+            // KillBorderFlame, KillCrosshair. The KEYS were UNBOUND at ModBuild 224 (the 2026-08-22
+            // settings audit, question (a)) and are constants in Board/HexHighlightFix now, so
+            // there is nothing left for a name to caption. A name table entry for a key nothing
+            // binds is not harmless: it is the one place a reader looks to find out whether a
+            // setting exists, and it would answer yes.
             ["HexHighlight/LogMaterialDump"] = Pair("Log hex material", "Hex-Material ins Log"),
             ["SelectionReady/Enabled"] = Pair("Selection reminder pulse", "Auswahl-Erinnerung"),
 
@@ -236,6 +252,12 @@ internal static partial class Loc
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
             ["FigureGrab/PickRadiusMillimeters"] =
                 Pair("Figure: grab range at the hand (mm)", "Figur: Greifradius an der Hand (mm)"),
+            // ADDED BY THE 2026-08-22 SETTINGS AUDIT (§3.4) — it was the one offered [FigureGrab]
+            // row with no line here, so a German menu captioned it "Stretch Reach Millimeters".
+            // Named after the GESTURE it opens (the two-hand resize), because "Reichweite" alone
+            // reads as the grab radius two rows up.
+            ["FigureGrab/StretchReachMillimeters"] =
+                Pair("Figure: resize reach (mm)", "Figur: Greifweite Größe (mm)"),
             ["FigureGrab/StretchScaleMin"] =
                 Pair("Figure: min size in hand", "Figur: Mindestgröße in Hand"),
             ["FigureGrab/StretchScaleMax"] =
@@ -284,6 +306,36 @@ internal static partial class Loc
             ["Cards/WantedSlotHint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
             ["Cards/CardDust"] = Pair("Card dust burst", "Karten-Staubwolke"),
             ["Cards/GameCardParticles"] = Pair("Game card particles", "Karten-Partikel (Spiel)"),
+            // THE PER-PILE PAIR, SIX ROWS, NAMED ONE BY ONE — and the two wildcards below them are
+            // the fallback, not the answer (2026-08-22 settings audit, §3.4).
+            //
+            // THE BUG THAT HID THIS: both wildcards were written long ago and NEITHER COULD EVER
+            // BE REACHED, because Loc.FamilyKey only knew hand-style prefixes and control-board
+            // suffixes — "_Items" / "_Discard" / "_Burnt" resolved to nothing, so all six rows fell
+            // back to the spaced-out key ("Fan Step Degrees_ Items") in a German menu. FamilyKey
+            // knows the pile suffixes now (Loc.ConfigDescriptions.cs), which also makes the two
+            // German DESCRIPTIONS behind these keys live for the first time.
+            //
+            // WHY EXACT NAMES AND NOT JUST THE WILDCARD, unlike every other family in this table:
+            // a per-board or per-style wildcard is safe because the pane shows exactly ONE variant
+            // and its heading says which. The pile kinds are NOT a player-chosen variant — all
+            // three rows of each pair are on screen together (VROptionsTab.7.TopicTrees ▸ "Stapel
+            // & Fächer") — so one shared name would print "Stapel: Spreizung (°)" three times in a
+            // row with nothing to tell them apart. The exact key is tried first, so these win.
+            ["Cards/FanStepDegrees_Items"] =
+                Pair("Items pile: spread (°)", "Gegenstände-Stapel: Spreizung (°)"),
+            ["Cards/FanStepDegrees_Discard"] =
+                Pair("Discard pile: spread (°)", "Ablage-Stapel: Spreizung (°)"),
+            ["Cards/FanStepDegrees_Burnt"] =
+                Pair("Burnt pile: spread (°)", "Verbrannt-Stapel: Spreizung (°)"),
+            ["Cards/FanRadiusFactor_Items"] =
+                Pair("Items pile: radius (x)", "Gegenstände-Stapel: Radius (x)"),
+            ["Cards/FanRadiusFactor_Discard"] =
+                Pair("Discard pile: radius (x)", "Ablage-Stapel: Radius (x)"),
+            ["Cards/FanRadiusFactor_Burnt"] =
+                Pair("Burnt pile: radius (x)", "Verbrannt-Stapel: Radius (x)"),
+            // The fallback, for a pile kind added later: it is named, if generically, from the day
+            // it binds rather than showing an English key until someone notices.
             ["Cards/FanStepDegrees_*"] = Pair("Pile fan: spread (°)", "Stapel: Spreizung (°)"),
             ["Cards/FanRadiusFactor_*"] = Pair("Pile fan: radius (x)", "Stapel: Radius (x)"),
             ["Cards/BoardMinWidthMeters"] = Pair("Board: min width (m)", "Brett: min. Breite (m)"),
@@ -407,12 +459,25 @@ internal static partial class Loc
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------
             ["MixedReality/Enabled"] = Pair("Mixed Reality", "Mixed Reality an"),
             ["MixedReality/KeyColor"] = Pair("Key colour", "Key-Farbe"),
-            ["Stereo/RenderMode"] = Pair("Stereo render mode", "Stereo-Rendermodus"),
+            // THE FOUR FOG-OF-WAR BACKING DIALS, NAMED BY THE 2026-08-22 SETTINGS AUDIT (§3.4).
+            // Seven [MixedReality] entries had no line here and showed a spaced-out English key in
+            // a German menu; three of the seven stopped being offered at all in the same audit
+            // (OpaquePreviewTiles, UnseenRegionMembership, UnseenBackingDebugColors — their own
+            // descriptions say "not offered in the VR menu"), and these four are what is left.
+            //
+            // They are millimetre-scale geometry of the dark backing behind the unseen region and
+            // are Erweitert-only material, but "Erweitert" is not "unnamed": an offered row shows a
+            // caption whatever page it is on, and an English key in a German menu is a defect. The
+            // names say WHICH of the three backing pieces each one moves — fill, wafer, curtain —
+            // because that is the only thing distinguishing four numbers that all read "MR: …".
+            ["MixedReality/UnseenSkirtScale"] = Pair("MR: gap fill width", "MR: Fugenfüllung Breite"),
+            ["MixedReality/UnseenWaferDrop"] = Pair("MR: gap backing depth", "MR: Fugenboden Tiefe"),
+            ["MixedReality/UnseenRimInset"] = Pair("MR: edge curtain inset", "MR: Randvorhang Versatz"),
+            ["MixedReality/UnseenRimTopClearance"] =
+                Pair("MR: edge curtain top gap", "MR: Randvorhang Abstand oben"),
             ["RenderQuality/MsaaLevel"] = Pair("MSAA level", "MSAA-Stufe"),
             ["RenderQuality/ForceAnisotropic"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
             ["RenderQuality/EyeResolutionScale"] = Pair("Resolution per eye", "Auflösung pro Auge"),
-            ["RenderQuality/ViewportScaleFallback"] = Pair("Viewport-scale fallback", "Viewport-Ersatzskala"),
-            ["RenderQuality/RebuildRigOnMsaaChange"] = Pair("Rebuild rig on MSAA", "Rig-Neubau bei MSAA"),
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
             ["Sky/Style"] = Pair("Environment", "Umgebung"),
             ["Elements/EnvironmentResponse"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
@@ -504,7 +569,6 @@ internal static partial class Loc
             ["WorldUI/ShowIntro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
             ["WorldUI/ScreenWidth"] = Pair("2D screen: width (m)", "2D-Schirm: Breite (m)"),
             ["WorldUI/ScreenDistance"] = Pair("2D screen: distance (m)", "2D-Schirm: Abstand (m)"),
-            ["WorldUI/SuppressPhysicalMouse"] = Pair("Disable real mouse", "Echte Maus deaktivieren"),
             ["WorldUI/MapWindOpacity"] = Pair("Map clouds opacity", "Karte: Wolken-Deckkraft"),
             ["WorldUI/DragUnlockDegrees"] = Pair("Unlock click at (°)", "Klick lösen ab (°)"),
             ["WorldUI/DragUnlockSeconds"] = Pair("Unlock click after (s)", "Klick lösen nach (s)"),
@@ -524,7 +588,6 @@ internal static partial class Loc
             ["WorldUI/HexHintSide"] = Pair("Hex hint: sideways", "Feld-Hinweis: seitlich"),
             ["WorldUI/ModalStyle"] = Pair("Window style", "Fenster-Stil"),
             ["WorldUI/ManualScreenChordSeconds"] = Pair("Rescue chord: hold (s)", "Notgriff: halten (s)"),
-            ["WorldUI/ScreenLayerSplit"] = Pair("Screen in two layers", "Bildschirm zweilagig"),
             ["WorldUI/LoadingIndicator"] = Pair("Loading indicator", "Ladeanzeige beim Laden"),
             ["WorldUI/DevShowAllPanels"] = Pair("Dev: show all panels", "Dev: alle Tafeln zeigen"),
             ["WorldUI/DevForceConvert"] = Pair("Dev: force conversion", "Dev: Zwangsumwandlung"),

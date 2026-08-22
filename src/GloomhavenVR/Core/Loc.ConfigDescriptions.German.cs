@@ -473,17 +473,15 @@ internal static partial class Loc
             // THE ROOM TONES, DELETED. The German for what replaced them (the resting draught,
             // the intermittent insect chorus, the roaming night calls) is inside
             // "EnvSound/Enabled" above, which is the switch that now owns all of it.
-            // ---- [Stereo] ----
-            ["Stereo/RenderMode"] =
-                "OpenXR-Stereo-Rendermodus, wird beim Erzeugen der XR-Session angewandt (erfordert einen "
-                + "Spielneustart). MultiPass rendert die Szene einmal pro Auge und ist der EINZIGE Modus, der "
-                + "in diesem Spiel korrekt rendert. SinglePassInstanced würde die Kosten des Szenendurchlaufs "
-                + "etwa halbieren, aber die ausgelieferten Shader dieses Spiels enthalten keine "
-                + "Stereo-Varianten (per Disassembly aus resources.assets belegt — siehe tools/ShaderDisasm/), "
-                + "die Bundle-Shader des Mods ebenfalls nicht, und der Stereo-Flatscreen des Mods hängt am "
-                + "Vertrag von zwei Durchläufen pro Bild — das Ergebnis ist ein schwarzes oder doppeltes "
-                + "rechtes Auge plus Mono-Menüs. Angeboten zum Testen eines künftigen stereo-fähigen "
-                + "Shader-Bundles, nicht als Leistungseinstellung.",
+            // TWELVE GERMAN DESCRIPTIONS WERE REMOVED FROM THIS FILE at the 2026-08-22 settings
+            // audit's (b)/(c) pass, together with their name-table entries: [Stereo] RenderMode,
+            // [Rig] VoidColor + ForwardRendering, [RenderQuality] ViewportScaleFallback +
+            // RebuildRigOnMsaaChange, [WorldUI] ScreenLayerSplit + SuppressPhysicalMouse and the
+            // five [HexHighlight] shader/fallback dials. All twelve KEYS WERE UNBOUND at ModBuild
+            // 224 by the audit's question (a) — each value is a constant in the code that reads it
+            // now — so there is no row left to hover. A translation for a setting that does not
+            // exist is not inert: this file and the name table are where a reader checks whether
+            // one does. Nothing else was removed; every UNBOUND key that still binds kept its text.
             // ---- [WallFade] ----
             ["WallFade/OnFraction"] =
                 "Eine Wand wird ausgeblendet, sobald sie mindestens diesen (EMA-geglätteten) Anteil der im "
@@ -515,6 +513,40 @@ internal static partial class Loc
                 + "Wand-Ausblendungen. Empfänger-Einstellung: Die eigenen Ausblendungen werden immer "
                 + "gesendet; jeder Spieler entscheidet mit diesem Schalter nur, was ER sieht — Umschalten "
                 + "mitten in der Sitzung braucht keine Neuverhandlung. Live änderbar.",
+            // ---- [PeerBoardFade] ----
+            // Sechs Nachträge des Einstellungs-Audits vom 2026-08-22: Die Sektion kam mit
+            // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.
+            // Ihre Modus-Zeile ist seither kuratiert (Avatar & Mehrspieler ▸ Zusammen spielen),
+            // die fünf Schwellen stehen unter Erweitert ▸ Mehrspieler.
+            ["PeerBoardFade/Mode"] =
+                "Was das Kontrollbrett eines MITSPIELERS tut, solange es zwischen dir und dem "
+                + "Spielfeld steht. Off = bisheriges Verhalten (es wird nichts gemessen und nichts "
+                + "geschrieben). Transparent = es blendet auf die Rest-Deckkraft ab, solange es einen "
+                + "Teil des Bretts verdeckt, das du gerade ansiehst. Hidden = es verschwindet, "
+                + "solange es das tut. REIN LOKAL: Der Besitzer und alle anderen sehen sein Brett "
+                + "genau wie bisher, und es geht nichts über die Leitung. Wirkt UNTER [Net] "
+                + "RemoteBoards: Es kann ein Brett nur unsichtbarer machen, nie sichtbarer. Dein "
+                + "eigenes Brett ist nie betroffen.",
+            ["PeerBoardFade/OccludedAlpha"] =
+                "Rest-Deckkraft eines verdeckenden Mitspieler-Bretts im Modus Transparent: 0 = "
+                + "unsichtbar (wie Hidden), 1 = massiv (wie Off). Live änderbar; begrenzt auf 0-0.95.",
+            ["PeerBoardFade/OnFraction"] =
+                "Ein Mitspieler-Brett weicht, sobald es mindestens diesen (EMA-geglätteten) Anteil "
+                + "der gerade IN DEINEM SICHTFELD liegenden Spielfeld-Stichproben verdeckt — 0.12 = "
+                + "das Brett verdeckt ein Achtel der Karte, die du ansiehst (obere Schwelle des "
+                + "Schmitt-Triggers). Live änderbar; begrenzt auf 0.02-0.95.",
+            ["PeerBoardFade/OffFraction"] =
+                "Ist das Brett einmal gewichen, bleibt es es, solange der geglättete Anteil der "
+                + "Abdeckung auf oder über diesem Wert liegt (untere Schwelle des Schmitt-Triggers). "
+                + "Live änderbar; begrenzt auf 0.01-0.95 und nie über OnFraction.",
+            ["PeerBoardFade/ExitDwellMovedSeconds"] =
+                "Sekunden, die die Abdeckung unter OffFraction bleiben muss, bevor das Brett "
+                + "zurückkommt, wenn sich die PERSPEKTIVE zuletzt geändert hat (echte Kopfbewegung, "
+                + "Neuzentrieren des Rigs, oder der Besitzer verschiebt sein Brett). Live änderbar.",
+            ["PeerBoardFade/ExitDwellStationarySeconds"] =
+                "Wartezeit bis zum Zurückkommen, solange sich der Kopf zuletzt nur GEDREHT hat — "
+                + "eine Drehung allein soll ein Brett fast nie zurückbringen. Live änderbar; nie "
+                + "unter ExitDwellMovedSeconds.",
             // ---- [Comfort] ----
             ["Comfort/WorldGrabEnabled"] =
                 "Tisch-Manipulation über den Griff: ein Griff (abseits greifbarer Objekte) zieht den Tisch, "
@@ -547,6 +579,38 @@ internal static partial class Loc
                 "Gierwinkel in Grad pro Schritt beim stufenweisen Drehen (typisch 30 oder 45).",
             ["Comfort/SmoothTurnSpeed"] = "Geschwindigkeit des stufenlosen Drehens in Grad pro Sekunde.",
             ["Comfort/TurnHand"] = "Welcher Thumbstick dreht. Dominant folgt [Hands] PrimaryHand.",
+            // DER STICK-FLUG, FÜNF ÜBERSETZUNGEN, NACHGETRAGEN beim Einstellungs-Audit vom
+            // 2026-08-22 (§3.4). Alle fünf sind kuratierte Zeilen im Komfort-Tab UND normale
+            // Zeilen unter Erweitert ▸ Bewegung & Welt — im Erweitert-Menü ohne Eintrag hier
+            // stand der englische Bind-Text unter einer deutschen Zeile.
+            ["Comfort/FlightEnabled"] =
+                "Stick-Flug: Den Thumbstick der Flug-Hand nach vorn drücken, um durch die Szene zu "
+                + "fliegen, nach hinten für rückwärts, seitlich für seitliches Schweben. Aus = dieser "
+                + "Stick tut nichts, genau wie vor dieser Funktion. Das Drehen liest dieselbe "
+                + "SEITWÄRTS-Achse: Stehen Fliegen und Drehen auf derselben Hand, behält das Drehen "
+                + "die Achse und das seitliche Schweben entfällt; vor/zurück fliegt immer. Mit den "
+                + "Auslieferungswerten liegen beide auf verschiedenen Händen (rechts drehen, links "
+                + "fliegen) und funktionieren gleichzeitig.",
+            ["Comfort/FlightDirection"] =
+                "Wonach sich der Flug richtet. Kopf = die Blickrichtung des Headsets samt Neigung — "
+                + "du fliegst dorthin, wohin du schaust. Hand = der Zielstrahl der dominanten Hand, "
+                + "derselbe Strahl, den der Laser zeichnet — du kannst also in eine Richtung fliegen "
+                + "und in eine andere schauen.",
+            ["Comfort/FlightMaxSpeed"] =
+                "Fluggeschwindigkeit bei VOLLEM Stick-Ausschlag, in scheinbaren Metern pro Sekunde — "
+                + "also Meter so, wie das Diorama für dich aussieht, nicht in Welteinheiten. Den "
+                + "Tisch zu zoomen ändert deshalb nie, wie schnell sich das Fliegen anfühlt. "
+                + "Teilausschlag geht quadratisch ein: kleine Stöße schleichen, voller Ausschlag ist "
+                + "genau dieser Wert. Maximum 3 (Nutzer-Entscheid 2026-08-13).",
+            ["Comfort/FlightHand"] =
+                "Welcher Thumbstick fliegt. Dominant folgt [Hands] PrimaryHand.",
+            ["Comfort/TurnStickVertical"] =
+                "Den DREH-Stick nach vorn drücken, um zu steigen, nach hinten, um zu sinken — "
+                + "senkrecht hoch und runter, mit derselben Geschwindigkeit wie FlightMaxSpeed. Das "
+                + "Drehen behält die Seitwärts-Achse und wird davon nie blockiert: Ein Stoß muss "
+                + "deutlich senkrechter als seitlich sein (etwa 56 Grad), bevor er überhaupt hebt — "
+                + "ein diagonaler Stoß bei 45 Grad ist also reines Drehen. Braucht einen Stick an "
+                + "der Dreh-Hand; aus = dieser Stick dreht nur, wie bisher.",
             // Comfort/TableHeightOffset ist ENTFALLEN (Nutzer-Entscheid 2026-08: durch das freie
             // Bewegen — Stick-Flug und Welt-Greifen — wird die Tischhöhe nicht mehr gebraucht).
             // Kein Eintrag mehr nötig: der Schlüssel wird nirgends mehr gebunden.
@@ -588,6 +652,17 @@ internal static partial class Loc
                 + "EyeResolutionScale weiter unten ab — beide bekämpfen Geometrie-Aliasing und ihre "
                 + "Sampleanzahlen multiplizieren sich; 8x auf einem stark supersampelten Ziel ist die teure "
                 + "Hälfte einer schon größtenteils erledigten Arbeit.",
+            // Nachgetragen beim Einstellungs-Audit vom 2026-08-22: eine kuratierte Zeile im
+            // Bild-Tab, deren Hilfetext bis dahin englisch war.
+            ["RenderQuality/PixelLightCount"] =
+                "Höchstzahl der PRO-PIXEL-Lichter (-1 = den Wert des Spiels unangetastet lassen, so "
+                + "wird ausgeliefert). Im eingebauten Forward-Renderer kostet jedes Pro-Pixel-Licht "
+                + "ab dem zweiten einen ZUSÄTZLICHEN VOLLEN DRAW CALL für jeden Renderer, den es "
+                + "berührt — gemessen wurden 4 Pro-Pixel-Lichter gegen ~1500 sichtbare Renderer. "
+                + "Lichter jenseits dieser Zahl leuchten weiter, aber PRO VERTEX, was keinen "
+                + "zusätzlichen Durchgang kostet. DER HANDEL IST ECHT UND SICHTBAR: Der Lichtabfall "
+                + "von Punktlichtern auf Wänden und Böden wird flacher, und dieser Dungeon wird von "
+                + "16 Punktlichtern beleuchtet. Das Spiel bietet dafür keinen Regler, der Mod schon.",
             ["RenderQuality/ForceAnisotropic"] =
                 "Erzwingt anisotrope Texturfilterung für ALLE Texturen (plus eine globale Aniso-Untergrenze). "
                 + "Verringert das Flimmern in der Ferne auf flach zum Blick liegenden Texturen — "
@@ -604,20 +679,6 @@ internal static partial class Loc
                 + "SHADER-/TEXTUR-Flimmern (Glanzfunkeln, Subpixel-Details), an das MSAA als "
                 + "Geometriekanten-Glättung nicht herankommt; unter 1 werden Texturdetails weicher, bevor "
                 + "Kanten weicher werden. Wirkt sofort.",
-            ["RenderQuality/ViewportScaleFallback"] =
-                "Wenn EyeResolutionScale die Größe der Augentextur nicht verändert (manche OpenXR-Anbieter "
-                + "handeln die Swapchain einmal beim Sessionstart aus und ignorieren sie danach), wird auf "
-                + "XRSettings.renderViewportScale ausgewichen: das rendert in einen Teilbereich der bestehenden "
-                + "Swapchain und wird überall beachtet. Entschieden wird das durch ZURÜCKLESEN DER BELEGUNG, "
-                + "nicht durch Raten, und die Zeile [Rig] EYE-TARGET DIAG nennt, welcher Hebel gegriffen hat. "
-                + "Aus = es wird nur eyeTextureResolutionScale genutzt (bei so einem Anbieter tut der "
-                + "Auflösungsregler dann stillschweigend nichts — nur für A/B).",
-            ["RenderQuality/RebuildRigOnMsaaChange"] =
-                "Baut das VR-Rig bei jeder Änderung der MSAA-Stufe ab und neu auf. Notausgang für "
-                + "OpenXR-Anbieter, die Sampleanzahlen nur beim Sessionstart neu aushandeln. Die Frage, für die "
-                + "dies ursprünglich geschrieben wurde — ob MSAA überhaupt greift —, ist beantwortet (es "
-                + "greift; im Headset sichtbar wirksam), also ist dies kein Diagnosewerkzeug mehr. Verursacht "
-                + "bei jeder MSAA-Änderung einen kurzen Reset der Ansicht; im normalen Spiel aus lassen.",
             // ---- [General] ----
             ["General/Enabled"] =
                 "Hauptschalter. Auf false gesetzt läuft das Spiel völlig unverändert (der Mod tut nichts).",
@@ -853,23 +914,6 @@ internal static partial class Loc
                 + "sich gegen die schwarze Leere abzuheben — der Hand-Shader ist unbeleuchtet (in der Leere "
                 + "gibt es keine Lichter; beleuchtete Shader werden dort schwarz gerendert). Die linke Hand "
                 + "bekommt automatisch einen leicht kühlen Farbstich, damit die Seiten unterscheidbar bleiben.",
-            // ---- [Rig] ----
-            ["Rig/VoidColor"] =
-                "Clear Color der Kopfkamera des Mods — die Leere rund um den schwebenden Menü-Bildschirm und "
-                + "außerhalb des Dioramas. Standard ist reines Schwarz. Zum DEBUGGEN ein dunkles Grau setzen "
-                + "(z. B. 1F2126FF): Grau unterscheidet \"Kamera rendert, aber Inhalt fehlt\" von \"Kamera tot "
-                + "/ rendert nicht\" (tiefschwarz), was in Berichten aus dem Headset unbezahlbar ist.",
-            ["Rig/ForwardRendering"] =
-                "Rendert die Kopfkamera des Mods in FORWARD statt im DeferredShading des Spiels. Das ist die "
-                + "Lösung dafür, dass transparente Effekte (Feuer-/Fackelschein, Hex-Auswahlring, Lebensbalken) "
-                + "in VR DURCH Wände gerendert werden: der Renderer für den Himmels-Tiefen-Reset (Queue 1999, "
-                + "ZTest Always) hat keinen Deferred-Pass und läuft auf einer Deferred-Kamera daher im "
-                + "Forward-Opaque-Fallback NACH den Wänden, löscht deren Tiefe und lässt den Transparenten "
-                + "nichts, wogegen sie testen könnten. Forward-Rendering stellt die strikte Queue-Reihenfolge "
-                + "wieder her (Reset 1999 läuft VOR den Wänden 2000, die Wände überschreiben ihn), sodass der "
-                + "Tiefenpuffer die Wände behält und Transparente korrekt verdeckt werden. NUR abschalten, wenn "
-                + "die Forward-Beleuchtung falsch aussieht (Deferred verarbeitet viele dynamische Lichter pro "
-                + "Pixel; Forward hat ein Lichter-Limit pro Objekt).",
             // ---- [Dev] ----
             ["Dev/Enabled"] =
                 "Entwicklermodus: verbindet den VR-Eventbus und die Handsimulation auch ohne Headset und "
@@ -1716,6 +1760,23 @@ internal static partial class Loc
             ["WorldUI/WristHud"] =
                 "Kompakter Charakterstatus (LP/EP/Zustände/Gold) am nicht-dominanten Handgelenk, per Hinsehen "
                 + "aktiviert.",
+            // Zwei Nachträge des Einstellungs-Audits vom 2026-08-22 (§3.4): beide sind angebotene
+            // Zeilen, beide hatten nur den englischen Bind-Text.
+            ["WorldUI/LoadingIndicator"] =
+                "Während das flache Spiel seinen Ladebildschirm zeigt (Szenenwechsel, "
+                + "Szenariostart), schwebt der spieleigene DREHENDE LADERING — nur das Symbol, nicht "
+                + "die Hinweis-/Fortschrittsseite — vor dem Headset in der schwarzen Leere, der "
+                + "schwebende 2D-Schirm wird solange ausgeblendet, und Unitys Hintergrund-Ladepriorität "
+                + "wird gesenkt, damit Kopf und Hände flüssiger bleiben (das Laden dauert dafür etwas "
+                + "länger). Einzelne Standbilder von einem Frame bleiben.",
+            ["WorldUI/NeutraliseGrabPassBlur"] =
+                "Entfernt den bildschirmfüllenden WEICHZEICHNER aus schwebenden Fenstern. Das Spiel "
+                + "zeichnet ihn mit einem Shader, der DEN BILDPUFFER GREIFT, in den er gerade "
+                + "gezeichnet wird, und eine unscharfe Kopie darüber malt — in VR heißt das, das "
+                + "Fenster wird mit einer unscharfen Kopie seiner eigenen halbfertigen Darstellung "
+                + "überlagert, pro Auge, in jedem Frame. Das Protokoll des Mods misst eine solche "
+                + "Grafik, die 99 % des Charakterfensters bedeckt und 272 seiner 764 sichtbaren "
+                + "Elemente übermalt. Aus = der Weichzeichner kommt zurück.",
             // Written to fit the tooltip: the config browser clips a description at 620 Zeichen
             // (ConfigCatalog.MaxDescriptionChars) and this table's ONLY reader is that UI — the
             // config FILE shows the English text from the bind site. So the whole of what a
@@ -1867,11 +1928,6 @@ internal static partial class Loc
                 + "den Schlüssel \"FlatScreenWidth\" von vor Test #6 (1.4 m wirkte auf 1.6 m Entfernung zu "
                 + "klein).",
             ["WorldUI/ScreenDistance"] = "Abstand vom Kopf zur schwebenden 2D-Leinwand in echten Metern.",
-            ["WorldUI/SuppressPhysicalMouse"] =
-                "Deaktiviert während des VR-Betriebs die physische Desktop-Maus im InputSystem, damit ihre "
-                + "(veraltete) Desktop-Position keine Karten-/Menüelemente mehr hinter deinem Rücken überfahren "
-                + "oder auswählen kann — nur der VR-Laser steuert den Zeiger. Beim Beenden von VR wird die Maus "
-                + "wieder aktiviert.",
             ["WorldUI/MapWindOpacity"] =
                 "Deckkraft der treibenden Wind-/Wolken-Ambiente-Partikel auf der Kampagnenkarte (0..1). Die "
                 + "flache Kartenkamera des Spiels bearbeitet/maskiert sie per Post-Processing, sodass sie "
@@ -1973,14 +2029,6 @@ internal static partial class Loc
             ["WorldUI/ManualScreenChordSeconds"] =
                 "Haltedauer (Sekunden) von A/X der nicht-dominanten Hand für das manuelle Umschalten der "
                 + "Leinwand.",
-            ["WorldUI/ScreenLayerSplit"] =
-                "Rendert die schwebende 2D-Leinwand als ZWEI Ebenen (Hardware-Test #18): die UI-Kameras des "
-                + "Spiels — deren Screen-Space-Camera-Canvases immer nur über ihre zugewiesene Kamera rendern, "
-                + "weshalb Stereo-Spiegelkameras sie nie reproduzieren können und das Menü einäugig wurde — "
-                + "zeichnen auf ein transparentes \"Glas\"-Quad, das beiden Augen identisch in der "
-                + "Leinwandebene gezeigt wird, während 3D-Szenenkameras und Videos einige cm dahinter eine "
-                + "Hintergrundebene mit augenweiser Stereotiefe rendern. Aus (oder bei jedem Fehler): Rückfall "
-                + "auf eine einzelne RT — eine flache Mono-Leinwand in beiden Augen, nie einäugig.",
             // ---- [SettingsPanel] ----
             ["Keyboard/AutoCapitalise"] =
                 "Schreibt den ersten Buchstaben jedes Wortes groß und den Rest klein. Die Tastatur "
@@ -2385,6 +2433,16 @@ internal static partial class Loc
             ["Board/HoverHaptics"] =
                 "Haptischer Impuls in der zeigenden Hand, sobald der Zielpunkt auf ein neues gültiges Ziel "
                 + "auf dem Spielbrett wandert.",
+            // Nachgetragen beim Einstellungs-Audit vom 2026-08-22: die Zeile ist seither eine
+            // kuratierte Komfort-Zeile ("die Kamera bewegt sich von selbst" ist DIE klassische
+            // VR-Komfort-Beschwerde) und hatte als einzige dort keinen deutschen Hilfetext.
+            ["Board/AutoFocusOnTurn"] =
+                "Kommt EINER DEINER Charaktere an die Reihe, wechselt die Ansicht automatisch zu ihm, "
+                + "statt bei dem zu bleiben, den du zuletzt angesehen hast. Greift einmal pro "
+                + "Zugübergabe: Schaust du danach bewusst jemand anderen an, bleibt das bis zum "
+                + "nächsten Charakter so. Rührt nie die Ansicht eines Mitspielers an und ändert nie, "
+                + "wer am Zug ist. Aus = die Ansicht bleibt, wo du sie hingestellt hast, und der rote "
+                + "„falscher Charakter“-Ring bittet dich, selbst zurückzuklicken.",
             ["Board/AoeFlickThreshold"] =
                 "Waagerechte Auslenkung des Thumbsticks (0.2-0.95), die ein aktives AoE-Muster um einen "
                 + "Schritt von 60 Grad dreht (links = gegen den Uhrzeigersinn, rechts = im Uhrzeigersinn).",
@@ -2397,6 +2455,16 @@ internal static partial class Loc
                 "Greife eine Figur vom Spielbrett (Held ODER Monster) mit dem TRIGGER in die Hand, um sie aus "
                 + "der Nähe zu betrachten — reine Immersion, keine Auswirkung auf das Spiel. Loslassen setzt "
                 + "sie zurück auf ihr Feld auf dem Spielbrett.",
+            // Nachgetragen beim Einstellungs-Audit vom 2026-08-22 (§3.4) — die einzige angebotene
+            // [FigureGrab]-Zeile ohne deutschen Namen UND ohne deutschen Hilfetext.
+            ["FigureGrab/StretchReachMillimeters"] =
+                "Während eine Hand eine Figur HÄLT: wie nah der Greifpunkt deiner ANDEREN Hand an "
+                + "diese Figur heran muss, damit Trigger-Halten und Ziehen sie in der Größe ändert "
+                + "(nach außen = größer, nach innen = kleiner) — in echten MILLIMETERN AN DEINER "
+                + "HAND, dieselbe Einheit wie der Greifradius, sodass Zoomen nie das Gefühl ändert. "
+                + "Bewusst weiter als der Greifradius: Die Figur ist in deiner eigenen Hand, es gibt "
+                + "keine Nachbarfigur, von der sie zu unterscheiden wäre. Innerhalb dieser Zone "
+                + "gehört der Trigger der Geste; eine angepeilte Karte behält ihren eigenen Griff.",
             ["FigureGrab/PickRadiusMillimeters"] =
                 "Wie nah dein GREIFPUNKT (die Stelle zwischen Daumen und Zeigefinger, an der eine gehaltene "
                 + "Figur sitzt) an eine Figur heran muss, damit sie als die zu greifende aufleuchtet — in "
@@ -2522,34 +2590,6 @@ internal static partial class Loc
                 + "gemeinsamen alten Eintrag, aus dem er beim ersten Lauf befüllt wurde). Live änderbar — eine "
                 + "gehaltene Figur wird sofort neu ausgerichtet.",
             // ---- [HexHighlight] ----
-            ["HexHighlight/SwapStableShader"] =
-                "Ersetzt den OmniDecal_Shd der Feld-Hervorhebung durch den stereostabilen "
-                + "GloomhavenVR/HexDecalStable des Mods (gleiche Optik, keine Tiefenrekonstruktion im "
-                + "Bildschirmraum — beseitigt die \"Spiegelung\" pro Auge, die bei Kopfbewegungen mitschwimmt). "
-                + "Fehlt der Shader in einem älteren Bundle, greifen stattdessen die Kill*-Regler darunter.",
-            ["HexHighlight/StableZTest"] =
-                "ZTest (UnityEngine.Rendering.CompareFunction) für das stabile Hex-Decal. 4 = LEqual "
-                + "(Standard): der Shader gibt pro Pixel die echte Tiefe des Bodenpunkts aus (SV_Depth), sodass "
-                + "Figuren auf dem Feld und Wände davor die Hervorhebung wie normale Geometrie verdecken. 8 = "
-                + "Always: Originalverhalten — die Hervorhebung zeichnet durch alles hindurch (Rückfalloption "
-                + "auf dem Gerät, falls die Tiefenausgabe Ärger macht). Wird bei jedem Zustandswechsel der "
-                + "Hervorhebung neu gesetzt, Änderungen greifen also sofort.",
-            ["HexHighlight/StableDepthBias"] =
-                "Zur Kamera hin wirkender Versatz im Tiefenpuffer-Raum, der auf die ausgegebene Tiefe des "
-                + "stabilen Hex-Decals addiert wird. Verhindert Z-Fighting-Flimmern gegen die Bodenplatte, auf "
-                + "der die Hervorhebung liegt. Leicht erhöhen, wenn die Hervorhebung flimmert oder ausfällt; "
-                + "Richtung 0 senken, wenn sie sichtbar über den untersten Rand der Figurensockel läuft.",
-            ["HexHighlight/KillBorderFlame"] =
-                "RÜCKFALL (nur genutzt, wenn der Tausch auf den stabilen Shader aus oder nicht verfügbar "
-                + "ist): setzt _BorderFlameIntensity auf den Materialien der Feld-Hervorhebung (OmniDecal_Shd) "
-                + "auf null. Entfernt die animierte Randflammen-Schicht — jene im Bildschirmraum "
-                + "tiefenprojizierte Schicht, die in VR bei Kopfbewegungen mitschwimmt. Weiße Füllung und "
-                + "Randlinie bleiben erhalten.",
-            ["HexHighlight/KillCrosshair"] =
-                "RÜCKFALL (nur genutzt, wenn der Tausch auf den stabilen Shader aus oder nicht verfügbar "
-                + "ist): setzt _CrossHair auf null. Entfernt die pulsierende Zielrahmen-/Fadenkreuz-Grafik, die "
-                + "während der Zielauswahl INNERHALB des Felds projiziert wird — dieselbe mitschwimmende "
-                + "Projektion.",
             ["HexHighlight/LogMaterialDump"] =
                 "Protokolliert Shader-Namen und die vollständige Eigenschaftsliste des Materials der "
                 + "Feld-Hervorhebung für die ersten paar gesehenen Materialien (Belege zum Feinjustieren der "
@@ -2578,6 +2618,12 @@ internal static partial class Loc
                 "Zeigt dich selbst in einem Spiegel, der vor deinem Kopf schwebt, damit du deine gewählte "
                 + "Maske + Hände sehen kannst. Nur lokale kosmetische Vorschau — unabhängig vom Netzwerk, "
                 + "funktioniert auch im Einzelspieler. Umschaltbar in der VR-Einstellungstafel.",
+            ["Net/NameTags"] =
+                "Schwebendes Namensschild über der Kopfmaske jedes entfernten VR-Spielers: sein "
+                + "Benutzername plus sein Steam-Bild, gelesen aus der spieleigenen Spielerliste (es "
+                + "wird nichts zusätzlich über das Netzwerk geschickt). Skaliert mit dem Weltzoom des "
+                + "jeweiligen Spielers und bleibt so an seinem Avatar. Rein lokale Darstellung; wirkt "
+                + "sofort — AUS blendet alle Schilder ohne Neustart aus.",
             ["Net/VersionGuard"] =
                 "Mod-Versionsabgleich im Mehrspieler: Spielt ein anderer MODIFIZIERTER Spieler einen anderen "
                 + "Mod-Build, erscheint ein Dialog mit der Wahl, als Flat-Spieler beizutreten (VR bleibt lokal "

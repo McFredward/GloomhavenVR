@@ -55,7 +55,12 @@ internal static class PeerBoardFadeTuning
         if (_file != null)
             return;
         ConfigFile config = _file = ModuleConfig.Create("boardfade");
-        FadeMode = config.Bind("PeerBoardFade", "Mode", PeerBoardFadeMode.Off,
+        // THE SIX DEFAULTS LIVE IN Defaults/Defaults.Net.cs, not here (2026-08-22 settings audit,
+        // §6 "Housekeeping"): scripts/rebase-defaults.py maps a tuned cfg entry onto exactly one
+        // annotated Defaults line and reports anything it cannot map rather than guessing, so a
+        // literal at this call site would make every [PeerBoardFade] key UNMAPPED and silently
+        // lose the user's tuning at the next re-base. The values are unchanged.
+        FadeMode = config.Bind("PeerBoardFade", "Mode", Defaults.PeerBoardFade_Mode,
             "What a MITSPIELER's control board does while it stands between you and the play " +
             "field. Off = today's behaviour (nothing is measured or written). Transparent = it " +
             "fades to OccludedAlpha while it hides part of the board you are looking at. Hidden " +
@@ -63,23 +68,24 @@ internal static class PeerBoardFadeTuning
             "player still see their board exactly as before, and nothing goes on the wire. " +
             "Composes UNDER the [Net] RemoteBoards mode: this can only ever make a board that " +
             "mode already draws LESS visible, never more. Your OWN board is never affected.");
-        OccludedAlpha = config.Bind("PeerBoardFade", "OccludedAlpha", 0.25f,
+        OccludedAlpha = config.Bind("PeerBoardFade", "OccludedAlpha", Defaults.PeerBoardOccludedAlpha,
             "Residual opacity of an occluding peer board in Transparent mode: 0 = invisible " +
             "(same as Hidden), 1 = solid (same as Off). Live; clamped 0-0.95.");
-        OnFraction = config.Bind("PeerBoardFade", "OnFraction", 0.12f,
+        OnFraction = config.Bind("PeerBoardFade", "OnFraction", Defaults.PeerBoardOnFraction,
             "A peer board yields when it hides at least this (EMA-smoothed) fraction of the " +
             "play-field sample points currently IN YOUR VIEW — 0.12 = the board covers an " +
             "eighth of the map you are looking at (Schmitt trigger high bar). Live; clamped " +
             "0.02-0.95.");
-        OffFraction = config.Bind("PeerBoardFade", "OffFraction", 0.05f,
+        OffFraction = config.Bind("PeerBoardFade", "OffFraction", Defaults.PeerBoardOffFraction,
             "Once yielded, the board stays yielded while the smoothed coverage fraction stays " +
             "at or above this (Schmitt trigger low bar). Live; clamped 0.01-0.95 and never " +
             "above OnFraction.");
-        ExitDwellMoved = config.Bind("PeerBoardFade", "ExitDwellMovedSeconds", 2.5f,
+        ExitDwellMoved = config.Bind("PeerBoardFade", "ExitDwellMovedSeconds", Defaults.PeerBoardExitDwellMoved,
             "Seconds the coverage must stay below OffFraction before the board comes back when " +
             "the PERSPECTIVE recently changed (real head translation / rig recenter / the owner " +
             "moving their board). Live.");
-        ExitDwellStationary = config.Bind("PeerBoardFade", "ExitDwellStationarySeconds", 7f,
+        ExitDwellStationary = config.Bind("PeerBoardFade", "ExitDwellStationarySeconds",
+            Defaults.PeerBoardExitDwellStationary,
             "Come-back dwell while the head has only ROTATED recently — rotation alone should " +
             "almost never bring a board back. Live; never below ExitDwellMovedSeconds.");
     }

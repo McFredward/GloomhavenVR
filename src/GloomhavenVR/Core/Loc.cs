@@ -427,7 +427,19 @@ internal static partial class Loc
         // ["cat_panels"], "Avatar" reuses ["avatar"]. The two keys the restructure retired —
         // ["display"] and ["performance"] — are gone with the tabs they named, so a dead key cannot
         // suggest a tab that no longer exists.)
-        ["cat_graphics"] = Pair("Graphics", "Grafik"),
+        // "BILD", NOT "GRAFIK" (2026-08-22 settings audit, question (c): "Überprüfe die Kategorien
+        // und ordne sie eventuell neu wenn du denkst das es intuitiver und Userfreundlicher wäre").
+        // The tab used to hold the picture AND the world AND the mod's whole sound surface — twenty
+        // rows of six families under one heading called "Darstellung". The world and the sound are
+        // the "Umgebung & Ton" tab below; what is left really is only the picture, so the label says
+        // so. The KEY stays "cat_graphics" — a text-only rename, exactly like cat_debug →
+        // "Erweitert" — so nothing that references the tab has to move.
+        ["cat_graphics"] = Pair("Picture", "Bild"),
+        // THE NEW TAB (same audit, same question). Two lines, broken at the "&" for the same reason
+        // cat_boardcards and cat_avatar_mp are: the 210 px sub-tab column fits its captions by
+        // shrinking, and a long single line shrinks to the floor. "Umgebung &" / "Ton" reads as one
+        // name. One-word tab names stay single-line.
+        ["cat_environment"] = Pair("World &\nsound", "Umgebung &\nTon"),
         // "ERWEITERT", NOT "DEBUG" (2026-08 menu overhaul, audit 05 S1, user ruling "Setze
         // erstmal alle Vorschläge zu den Settings deinerseits so um"): the view holds everyday
         // settings' deep twins — resolution, panel switches, the 2D screen — not developer
@@ -812,6 +824,11 @@ internal static partial class Loc
 
 
         // Section headers inside the mod's tab of the game options window.
+        // UNREFERENCED since the 2026-08-22 settings audit emptied the section (its two rows,
+        // [Core] EnableGraphicsJobs and AutoRestartForGraphicsJobs, are on Erweitert ▸ System &
+        // Start). Kept, not deleted: it is one line, it costs nothing, and the heading comes back
+        // the moment a genuine everyday performance row exists — which is more likely here than
+        // for any other retired section key in this file.
         ["vr_sec_performance"] = Pair("Performance", "Leistung"),
         ["vr_sec_panels"] = Pair("Panels & readouts", "Tafeln & Anzeigen"),
         // ["vr_sec_cards"] ("Karten & Brett") is GONE (2026-08 overhaul, audit 05 S6): the
@@ -830,10 +847,26 @@ internal static partial class Loc
         ["sec_visibility"] = Pair("Visibility", "Sichtbarkeit"),
         ["sec_hands_aim"] = Pair("Hands & aiming", "Hände & Zielen"),
         ["sec_presentation"] = Pair("Presentation", "Darstellung"),
+        // Bild's second heading (2026-08-22 audit): the two everyday dials that decide how many
+        // headset pixels a floated game window gets — the sharp-render switch and the size. Their
+        // two calibration dials are on Erweitert ▸ Menüs & Tafeln beside them.
+        ["sec_windows_panels"] = Pair("Windows & panels", "Fenster & Tafeln"),
         // Grafik's one-row monitor section (ruling 11: what the desktop mirror shows).
         ["vr_sec_monitor"] = Pair("Desktop monitor", "Monitor"),
+        // ---- "Umgebung & Ton", the tab the 2026-08-22 settings audit created --------------------
+        // Five headings that all answer "which world am I in", where the old Grafik page answered
+        // "how is it drawn". "Ton" is the one that had no home at all before: the mod's five sound
+        // settings were split between a Graphics page and a Cards page.
+        ["sec_environment"] = Pair("Environment", "Umgebung"),
+        ["sec_haunt"] = Pair("Creepy", "Grusel"),
+        ["sec_sound"] = Pair("Sound", "Ton"),
+        ["sec_map3d"] = Pair("3D map", "Karte 3D"),
         // Brett & Karten — the play surface's own tab (2026-08 overhaul, audit 05 S6).
         ["vr_sec_controlboard"] = Pair("Control board", "Kontrollbrett"),
+        // One row ([FigureGrab] GrabFigures), and it earns a heading because it is the master of a
+        // whole headline feature — picking the miniatures up — rather than another board dial
+        // (2026-08-22 settings audit, question (b)).
+        ["vr_sec_figures"] = Pair("Figures", "Figuren"),
         ["vr_sec_cardhand"] = Pair("Cards", "Karten"),
         ["vr_sec_piles_hints"] = Pair("Piles & hints", "Stapel & Hinweise"),
         // Tafeln's new sections: the unified bar family, the 2D screen's everyday face, and
@@ -998,6 +1031,14 @@ internal static partial class Loc
             + "Bearbeitung vorzutäuschen. Änderbar in der oben genannten Konfigurationsdatei."),
         ["cfg_topic_diagnostics"] = Pair("Measurement & diagnostics", "Messung & Diagnose"),
         ["cfg_topic_visual"] = Pair("Picture & rendering", "Bild & Darstellung"),
+        // THE TWO TOPICS THE 2026-08-22 SETTINGS AUDIT ADDED, and the heading above is the reason
+        // both were needed: [EnvSound] rides rig.cfg, so every volume dial the mod has was filed
+        // under a topic that says PICTURE, and [Sky]/[Elements]/[Haunt]/[Rig] Experimental3DMap
+        // each fell under MinClusterSize and were swept into that topic's "Allgemein" collector.
+        // Erweitert is the catalog's own index, so a topic each fixes the misfiling mechanically:
+        // a setting added to one of those sections tomorrow lands correctly with no edit at all.
+        ["cfg_topic_environment"] = Pair("Environment & world", "Umgebung & Welt"),
+        ["cfg_topic_sound"] = Pair("Sound", "Ton"),
         ["cfg_topic_movement"] = Pair("Movement & world", "Bewegung & Welt"),
         ["cfg_topic_hands"] = Pair("Hands & figures", "Hände & Figuren"),
         ["cfg_topic_cards"] = Pair("Cards & fan", "Karten & Fächer"),
@@ -1183,6 +1224,14 @@ internal static partial class Loc
             + "brings the screen back.",
             "Wie unbekannte Spielfenster gefangen und angezeigt werden, und der Notgriff, "
             + "der den Schirm immer zurückholt."),
+        // The 3D map room's panel rows (2026-08-22 settings audit): the card hand, and the two
+        // travel-button offsets the user asked to have "im debug menu" and set himself.
+        ["vr_pt_maproom"] = Pair("3D map", "Karte 3D"),
+        ["h_vr_pt_maproom"] = Pair(
+            "The 3D campaign map's own panels: the card hand, and where the travel-confirm "
+            + "button sits on the map window.",
+            "Die Tafeln der 3D-Kampagnenkarte: die Kartenhand, und wo der Reise-Knopf am "
+            + "Kartenfenster sitzt."),
         ["h_vr_sec_keyboard"] = Pair(
             "The on-screen keyboard for text fields, and its capitalisation.",
             "Die Bildschirmtastatur für Textfelder und ihre Großschreibung."),

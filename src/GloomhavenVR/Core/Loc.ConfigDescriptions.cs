@@ -69,6 +69,21 @@ internal static partial class Loc
     private static readonly string[] BoardSuffixes = { "_Oak", "_Steel", "_Bronze" };
 
     /// <summary>
+    /// Pile-kind suffixes of the per-pile config keys — mirrors <c>CardsConfig</c>'s <c>pileNames</c>
+    /// (<c>FanStepDegrees_Items</c> / <c>_Discard</c> / <c>_Burnt</c>).
+    ///
+    /// <para>ADDED BY THE 2026-08-22 SETTINGS AUDIT, and it is a bug fix rather than a new feature:
+    /// the wildcard entries <c>Cards/FanStepDegrees_*</c> and <c>Cards/FanRadiusFactor_*</c> were
+    /// already WRITTEN — in this file's German table AND in <c>Loc.ConfigNames</c> — but this method
+    /// only knew about hand styles and control boards, so neither wildcard could ever be reached.
+    /// Six offered rows therefore showed the spaced-out English key ("Fan Step Degrees_ Items") in
+    /// a German menu while their German name and description sat two files away, unused. Adding the
+    /// third family here makes both tables live at once; the exact key is still tried first, so a
+    /// key that merely happens to end in one of these words cannot be hijacked.</para>
+    /// </summary>
+    private static readonly string[] PileSuffixes = { "_Items", "_Discard", "_Burnt" };
+
+    /// <summary>
     /// The wildcard key a per-style / per-board entry shares with its siblings, or <c>null</c> for
     /// an ordinary key. Only ever consulted AFTER an exact lookup missed, so this cannot hijack a
     /// setting whose own name starts with a style name. Bounded: six comparisons, no allocation on
@@ -85,6 +100,12 @@ internal static partial class Loc
         for (int i = 0; i < BoardSuffixes.Length; i++)
         {
             string suffix = BoardSuffixes[i];
+            if (key.Length > suffix.Length && key.EndsWith(suffix, StringComparison.Ordinal))
+                return key.Substring(0, key.Length - suffix.Length + 1) + "*";
+        }
+        for (int i = 0; i < PileSuffixes.Length; i++)
+        {
+            string suffix = PileSuffixes[i];
             if (key.Length > suffix.Length && key.EndsWith(suffix, StringComparison.Ordinal))
                 return key.Substring(0, key.Length - suffix.Length + 1) + "*";
         }

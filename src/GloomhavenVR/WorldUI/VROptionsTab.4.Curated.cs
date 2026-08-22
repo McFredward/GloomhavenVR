@@ -96,6 +96,35 @@ internal static partial class VROptionsTab
     /// never a wall.</item>
     /// </list>
     ///
+    /// <para>2026-08-22 SETTINGS AUDIT, questions (b) and (c) (user, verbatim: <i>"b) Prüfe jede
+    /// Einstellung ob du sie User zutrauen würdest, wenn nicht gehören sie in Erweitert."</i> and
+    /// <i>"c) Überprüfe die Kategorien und ordne sie eventuell neu wenn du denkst das es intuitiver
+    /// und Userfreundlicher wäre."</i> — .planning/settings-audit.md §3 and §4). What changed:</para>
+    /// <list type="bullet">
+    /// <item>NEW TAB "Umgebung &amp; Ton", holding Umgebung / Grusel / Ton / Sichtbarkeit /
+    /// Karte 3D. The mod's entire audio surface was filed under <b>Grafik</b> — and one level down,
+    /// under a catalog topic literally named "Bild &amp; Darstellung". Nobody looks for a volume
+    /// slider under Graphics.</item>
+    /// <item>"Grafik" is CALLED "Bild" and only holds the picture: nine rows in four sections where
+    /// it had thirty in four, its "Darstellung" block down from twenty rows of six families to four
+    /// rows of one. Same fault, same remedy as audit 05 S7 on Komfort. The Loc key
+    /// <c>cat_graphics</c> is kept (text-only rename, like <c>cat_debug</c> → "Erweitert").</item>
+    /// <item>SIX ROWS PROMOTED into the everyday view — <c>[Board] AutoFocusOnTurn</c> and
+    /// <c>HoverHaptics</c>, <c>[FigureGrab] GrabFigures</c>, the three <c>[Hands] GhostHand*</c>,
+    /// <c>[WorldUI] BarFixedSize</c>, <c>[PeerBoardFade] Mode</c> — each perceivable, each harmless
+    /// when wrong, each previously reachable only by knowing which Erweitert topic to open.</item>
+    /// <item>FIVE ROWS DEMOTED out of it — <c>[WorldUI] PanelSupersampleFactor</c> and
+    /// <c>PanelMipLodOffset</c> (invisible engineering trades), <c>TravelButtonOffset{X,Y}</c> (he
+    /// asked for them "im debug menu"), <c>[Core] AutoRestartForGraphicsJobs</c> (a one-off boot
+    /// behaviour). Each one names the reason at the place it left.</item>
+    /// </list>
+    ///
+    /// <para>A CURATED ROW IS AN EXTRA DOOR, NEVER A WALL — and that is what makes a demotion
+    /// cheap. Nothing leaves the CATALOG when it leaves this list: Erweitert is the catalog's own
+    /// index, so a key stops being named here and is on its topic page the same build, with the
+    /// same name, the same hover text and the same control. Read every "GONE from the curated page"
+    /// note below as "one navigation level deeper", never as "removed".</para>
+    ///
     /// <para>Section headers inside a tab are one navigation level cheaper than another tab, which
     /// is why grouping happens there and a new tab has to earn itself.</para>
     ///
@@ -159,6 +188,16 @@ internal static partial class VROptionsTab
                         // the ones VROptionsTab.2.Rows already relies on for every uncurated row.
                         new("Comfort", "TurnStickVertical", ""),
                         new("Comfort", "FreeMovement", "free_movement"),
+                        // PROMOTED from Erweitert ▸ Brett & Zielen (2026-08-22 settings audit,
+                        // question (b) — "Prüfe jede Einstellung ob du sie User zutrauen würdest").
+                        // A camera that moves on its own is THE classic VR-comfort complaint, and
+                        // this is the switch for it: the view snaps to whichever character is at
+                        // turn. It belonged on a locomotion page from the day it was bound and was
+                        // instead three levels deep under a topic named after the board. Harmless
+                        // wrong (you pan back by hand), perceivable instantly, so it passes the
+                        // test the question sets. Empty caption key — [Board] AutoFocusOnTurn's
+                        // localized name ("Automatisch zum Character am Zug") already says it.
+                        new("Board", "AutoFocusOnTurn", ""),
                     },
                 },
                 new()
@@ -186,6 +225,17 @@ internal static partial class VROptionsTab
                     // User request: the wall see-through is a comfort-relevant, user-facing
                     // feature and must be findable HERE, not only under Grafik (where it also
                     // stays — same ConfigEntry, both rows drive the one live value).
+                    //
+                    // THE 2026-08-22 AUDIT PROPOSED DISSOLVING THIS SECTION (its Finding 4: two
+                    // rows do not need a heading inside a five-section tab) and moving both rows
+                    // into the new "Umgebung & Ton" tab. THAT HALF WAS OVERRULED and this section
+                    // stands unchanged, because the ruling it exists for is explicit — "the wall
+                    // see-through … must be findable HERE, not only under Grafik" — and a tab
+                    // called "Umgebung & Ton" is not "here". What the audit's Sichtbarkeit section
+                    // DID get is the row that used to sit on the Grafik page: the second door
+                    // simply moved one tab over with the rest of the world block, so [Compat]
+                    // WallFade still has exactly two curated rows, not three. Both write the same
+                    // ConfigEntry, so the duplicate costs nothing but a line in this file.
                     LocKey = "sec_visibility",
                     Entries = new CuratedEntry[]
                     {
@@ -220,11 +270,36 @@ internal static partial class VROptionsTab
                         // The caption says whom it is for; the raw calibration framing stays on
                         // the Erweitert twin ("Vollgriff ab Griffwert").
                         new("Hands", "CurlInputFullAt", "vr_o_curlassist"),
+                        // PROMOTED from Erweitert ▸ Brett & Zielen (audit question (b)): controller
+                        // rumble when the target under your finger changes. Every game exposes its
+                        // haptics as a taste setting, the worst case of getting it wrong is a
+                        // quieter controller, and it belongs with the aiming rows it fires from.
+                        // Empty caption key — "Vibration bei Wechsel" is already the row's name.
+                        new("Board", "HoverHaptics", ""),
                     },
                 },
             },
         },
-        // ===================================== GRAFIK =====================================
+        // ====================================== BILD ======================================
+        // THE TAB IS CALLED "Bild" NOW, AND IT ONLY HOLDS THE PICTURE (2026-08-22 settings audit,
+        // question (c), user verbatim: "Überprüfe die Kategorien und ordne sie eventuell neu wenn
+        // du denkst das es intuitiver und Userfreundlicher wäre." — he chose the audit's FULL
+        // proposal over the cheap one).
+        //
+        // WHAT WAS WRONG. "Grafik ▸ Darstellung" had grown to twenty rows from SIX unrelated
+        // families — render quality, floated-window sharpness, game-compat fixups, which world you
+        // stand in, that world's mood, and the mod's entire SOUND surface. That is precisely the
+        // fault an earlier audit fixed one tab over (05, S7: "fourteen rows from three sense
+        // families under one heading" became Drehen / Fortbewegung / Welt greifen) grown back here.
+        // The sharpest edge of it: FOUR of those rows were volume and ambience dials. Nobody looks
+        // for a volume slider under "Graphics", and in Erweitert it was worse — [EnvSound] rides
+        // rig.cfg, so the catalog filed it under a topic literally named "Bild & Darstellung".
+        //
+        // WHAT MOVED, AND WHAT A PLAYER GAINS BY IT: the world block (Umgebung, Grusel, Ton,
+        // Sichtbarkeit, Karte 3D) is the next tab down, so a player looking for sound finds a
+        // heading that says Ton, and a player looking for the picture finds nine rows that are all
+        // about the picture. The LocKey stays "cat_graphics" so nothing that references the tab has
+        // to move; only the label changed (Loc.cs, same trick as cat_debug → "Erweitert").
         new()
         {
             LocKey = "cat_graphics",
@@ -244,45 +319,10 @@ internal static partial class VROptionsTab
                         // Ruling 19: the pixel-light cap is a visible look-vs-frames trade the
                         // game itself never exposes in VR.
                         new("RenderQuality", "PixelLightCount", "vr_o_pixellights"),
-                        // THE FLOATED WINDOWS' SHARPNESS, three rows, put on a curated page at
-                        // ModBuild 192 for the reason [Rig] Experimental3DMap was at 176: the
-                        // dials existed, were bound and were wired, and were still unreachable
-                        // in practice. ModBuild 191 shipped the supersample pair OFF by default
-                        // and the hardware log of the session testing it contains zero PANEL
-                        // SUPERSAMPLE lines — the path never ran, because the only place the
-                        // switch appeared was the raw catalog under a spaced-out English key.
-                        // A measure nobody can turn on measures nothing.
+                        // FOUR ROWS, ONE FAMILY, AND THAT IS THE WHOLE SECTION NOW. Everything
+                        // below this line used to be in it; see the tab header for where each part
+                        // went and why.
                         //
-                        // THEY SIT WITH THE RENDER-QUALITY QUARTET ABOVE, not under Tafeln: this
-                        // is supersampling, the same trade "Auflösung pro Auge" and "MSAA-Stufe"
-                        // make, and a player chasing shimmer looks under Grafik. The factor folds
-                        // under the switch (VROptionsTab.8.Dependencies.cs).
-                        //
-                        // EMPTY CAPTION KEYS, the documented degradation the [Comfort]
-                        // TurnStickVertical row already relies on: Caption(item, "") falls
-                        // through to item.Display, i.e. the localized name in Loc.ConfigNames
-                        // ("Fenster: scharf zeichnen"), and HintKey "h_" misses so the tooltip
-                        // falls through to the bound description's German translation in
-                        // Loc.ConfigDescriptions.German. Both strings are written for a player
-                        // and both are already localized, so a hand-written caption here would
-                        // only be a second place to keep the same words in step.
-                        new("WorldUI", "PanelSupersample", ""),
-                        new("WorldUI", "PanelSupersampleFactor", ""),
-                        // ModBuild 203: the FILTERING half of the same trade, and it has to be
-                        // reachable from the same screen as the other two — the user's report
-                        // ("die Auflösung kommt mir immer noch etwas gering vor bei den
-                        // Sub-Menus") is about a MINIFIED window, which is precisely the regime
-                        // the factor above cannot reach. Same empty caption key, same reason:
-                        // the localized name and the German description are already written for
-                        // a player. A dial nobody can find is a dial that was never shipped.
-                        new("WorldUI", "PanelMipLodOffset", ""),
-                        // The third dial of the same complaint, and the same gap in a different
-                        // shape: [WorldUI] WindowLegibility HAS a localized name and a German
-                        // description (ModBuild 189) but had no curated row either, so the size
-                        // half of "why is the window text shimmering" was as hard to reach as
-                        // the sharpness half. Size and sharpness are the two ways to spend
-                        // headset pixels on a window; they belong on one screen.
-                        new("WorldUI", "WindowLegibility", ""),
                         // "Post-Processing aus" ([Compat] DisablePostProcessing) and
                         // "Volumennebel aus" ([Compat] DisableVolumetricFog) stood here. They are
                         // OFF THE CURATED PAGE since the 2026-08-22 settings audit, by the user's
@@ -294,29 +334,12 @@ internal static partial class VROptionsTab
                         // NOTHING HAD TO MOVE: Erweitert is the catalog's own index, so both are
                         // on Erweitert ▸ "Bild & Darstellung" the moment this list stops naming
                         // them. Same shape as the [MapRoom] size dials below.
-                        new("Compat", "WallFade", "wall_see_through"),
-                        // The environment choice (user ruling 2026-08-12: real 3D environments
-                        // replaced the panorama skyboxes) — a special row (TryBuildSpecialRow)
-                        // so the dropdown reads localized ("DnD-Keller") instead of the raw
-                        // enum members; its hint states the user's own MR rule ("Bei Mixed
-                        // Reality ist der Himmel immer aus."). No dependency-layer entry: a
-                        // choice row has no children.
-                        new("Sky", "Style", "vr_o_sky"),
-                        // THE 3D CAMPAIGN MAP, put on a curated page at ModBuild 176 because it
-                        // was unreachable in practice: no display name (the menu spaced the raw
-                        // key out to "Experimental 3D Map") and no curated row, so it sat among
-                        // the auto-grouped leftovers under Erweitert and the user asked where it
-                        // was. It sits under the environment choice because it is the same kind
-                        // of decision — which world the player stands in.
-                        new("Rig", "Experimental3DMap", "vr_o_3dmap"),
-                        // The map room's card hand, DIRECTLY under the switch that builds the
-                        // room — it is a property OF the world the row above chooses, the same
-                        // argument the element mood and the haunt block make below. It folds
-                        // under Experimental3DMap (VROptionsTab.8.Dependencies.cs), so it is
-                        // only ever on screen while there is a map room for it to be in.
-                        // Empty caption key: the localized name and the German description
-                        // carry the row (see the window block above for the full argument).
-                        new("WorldUI", "MapRoomHand", ""),
+                        //
+                        // THE WHOLE WORLD BLOCK MOVED ONE TAB DOWN (audit question (c)):
+                        // [Compat] WallFade, [Sky] Style, [Rig] Experimental3DMap, [WorldUI]
+                        // MapRoomHand, [Elements] ×2, [Haunt] ×2 and [EnvSound] ×2 are the
+                        // "Umgebung & Ton" tab now, under headings that name what they are. They
+                        // are the same ConfigEntries and the same order; only the page changed.
                         // THE MAP ROOM'S FIVE SIZE DIALS USED TO SIT HERE — [MapRoom] IconScale /
                         // CityIconScale / GloomhavenIconScale / PartyMarkerScale / PathWidthScale,
                         // promoted onto this page at ModBuild 193 and 194 so the "separat
@@ -339,46 +362,40 @@ internal static partial class VROptionsTab
                         // DO NOT RE-PROMOTE without a fresh ruling: this is the second placement of
                         // the same family, and the user named the destination himself.
                         //
-                        // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194). He asked
-                        // for them BY NAME and BY PLACE: "Geb mir dann im debug menu die offsets um
-                        // ihm zu verschieben - ich stell es selber ein." THREE solved placements
-                        // were rejected in a row (191/192/193), so the mod ships the ModBuild 190
-                        // pose — which both defaults of 0 reproduce exactly — and he does the
-                        // moving. A row here is therefore not a nicety: without it the dials sit in
-                        // the raw catalog and the ruling is not delivered. Sideways first, then
-                        // height — the order of the log line he tunes from.
-                        new("WorldUI", "TravelButtonOffsetXWindowHeights", ""),
-                        new("WorldUI", "TravelButtonOffsetYWindowHeights", ""),
-                        // ELEMENT MOOD — the environment's answer to the element infusions. Sits
-                        // directly under the environment choice because that is what it acts on,
-                        // and the strength dial folds under the toggle (VROptionsTab.8.Dependencies).
-                        new("Elements", "EnvironmentResponse", "vr_o_elemmood"),
-                        new("Elements", "ResponseStrength", "vr_o_elemmood_amt"),
-                        // HAUNT — the creepy easter eggs (user request, 2026-08-14). Directly
-                        // under the element mood because both are properties OF the environment
-                        // the row above chooses, and because a player who has just switched the
-                        // cellar on is exactly the player who wants to know this exists. The
-                        // frequency dial folds under the toggle (VROptionsTab.8.Dependencies).
-                        new("Haunt", "EasterEggs", "vr_o_haunt"),
-                        new("Haunt", "Frequency", "vr_o_haunt_freq"),
-                        // ENV SOUND — the environment HEARD (user request, 2026-08-14). Last of the
-                        // environment block and directly under the easter eggs, because the user's
-                        // correction the same day put the apparitions' cues on THIS toggle rather
-                        // than giving them one of their own: a player who has just read the easter
-                        // egg rows is exactly the player who needs to see which switch makes them
-                        // audible. The volume dial folds under the toggle
-                        // (VROptionsTab.8.Dependencies).
-                        new("EnvSound", "Enabled", "vr_o_envsound"),
-                        new("EnvSound", "Gain", "vr_o_envsound_amt"),
-                        // THE ROOM TONE ROWS ARE GONE, and this note is here so nobody re-adds
-                        // them from the ModBuild 154 request. "EnvSound/AmbienceBed" and
+                        // THE TRAVEL-CONFIRM BUTTON'S TWO PLACEMENT DIALS (ModBuild 194) STOOD
+                        // HERE AND ARE GONE FROM THE CURATED PAGE — because that is where he asked
+                        // for them, and this page was never it. His words, both halves: "Geb mir
+                        // dann IM DEBUG MENU die offsets um ihm zu verschieben - ich stell es
+                        // selber ein." The 194 build put them on the most prominent curated page
+                        // in the mod instead; that is the same misplacement the "Symbolgrößen
+                        // gehören ins ERWEITERT Menü!" ruling corrected two entries above, on the
+                        // same feature, in the same build.
+                        //
+                        // WHAT IS UNTOUCHED, and must stay untouched: both DEFAULTS are 0 and both
+                        // RANGES are unchanged. Three solved placements were rejected in a row
+                        // (191/192/193), the mod ships the ModBuild 190 pose — which 0/0
+                        // reproduces exactly — and he does the moving. Only the LOCATION of the
+                        // rows was ever on the table.
+                        //
+                        // AND THEY ARE NOT LOST: Erweitert ▸ Menüs & Tafeln lists both by hand
+                        // under a "Karte 3D" heading beside [WorldUI] MapRoomHand
+                        // (VROptionsTab.7.TopicTrees.cs), and they keep their ◀/▶ stepper —
+                        // PrefersStepper below is unchanged, per his other ruling on these two
+                        // ("nicht Schieberegler, sondern die Pfeile").
+                        //
+                        // ELEMENT MOOD, HAUNT AND ENV SOUND stood here too and are the new
+                        // "Umgebung & Ton" tab's Umgebung / Grusel / Ton sections. The reason is
+                        // question (c) and it is the sharpest single finding of the whole audit:
+                        // the mod's ENTIRE audio surface was filed under "Grafik".
+                        //
+                        // THE ROOM TONE ROWS ARE GONE ALTOGETHER, and this note is here so nobody
+                        // re-adds them from the ModBuild 154 request. "EnvSound/AmbienceBed" and
                         // "EnvSound/AmbienceBedGain" sat here from 154 to 222 and were deleted at
                         // ModBuild 223 with the two continuous room tones they switched and scaled
                         // — user, 2026-08-22: "Im Keller hören sich die Geräusche an wie Rauschen
                         // bei nem Fernseher" and "Statt generrell durchgehende sounds zu machen
-                        // lieber die Tierrufe". The feature's whole settings surface is now the two
-                        // rows above, which is the direction of travel for this menu. The ruling and
-                        // the measurements are in Core/EnvSound.cs's THE ROOM TONES, DELETED.
+                        // lieber die Tierrufe". The ruling and the measurements are in
+                        // Core/EnvSound.cs's THE ROOM TONES, DELETED.
                         // "Forward-Rendering" ([Rig] ForwardRendering) stood here — the single
                         // most dangerous row the 2026-08-22 settings audit found, because it was
                         // CURATED. Its off state reinstated the documented see-through-walls
@@ -394,6 +411,55 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // THE FLOATED WINDOWS' SHARPNESS, its own heading since the 2026-08-22 audit.
+                    // Two rows, not four: the SWITCH and the SIZE stay curated; the two calibration
+                    // dials behind them are on Erweitert ▸ Menüs & Tafeln (see below).
+                    LocKey = "sec_windows_panels",
+                    Entries = new CuratedEntry[]
+                    {
+                        // THE SWITCH. Put on a curated page at ModBuild 192 for the reason [Rig]
+                        // Experimental3DMap was at 176: the dial existed, was bound and was wired,
+                        // and was still unreachable in practice. ModBuild 191 shipped the
+                        // supersample pair OFF by default and the hardware log of the session
+                        // testing it contains zero PANEL SUPERSAMPLE lines — the path never ran,
+                        // because the only place the switch appeared was the raw catalog under a
+                        // spaced-out English key. A measure nobody can turn on measures nothing.
+                        //
+                        // EMPTY CAPTION KEYS, the documented degradation the [Comfort]
+                        // TurnStickVertical row already relies on: Caption(item, "") falls
+                        // through to item.Display, i.e. the localized name in Loc.ConfigNames
+                        // ("Fenster: scharf zeichnen"), and HintKey "h_" misses so the tooltip
+                        // falls through to the bound description's German translation in
+                        // Loc.ConfigDescriptions.German. Both strings are written for a player
+                        // and both are already localized, so a hand-written caption here would
+                        // only be a second place to keep the same words in step.
+                        new("WorldUI", "PanelSupersample", ""),
+                        // AND THE SIZE. [WorldUI] WindowLegibility is the other way to spend
+                        // headset pixels on a window, and the two belong on one screen.
+                        new("WorldUI", "WindowLegibility", ""),
+                        // ITS TWO CALIBRATION DIALS ARE OFF THE CURATED PAGE (2026-08-22 settings
+                        // audit, question (b): "Prüfe jede Einstellung ob du sie User zutrauen
+                        // würdest, wenn nicht gehören sie in Erweitert."). Both fail that test in
+                        // the same way — they are engineering trades whose PRICE is invisible in
+                        // the headset:
+                        //   * "Fenster: Schärfegrad" ([WorldUI] PanelSupersampleFactor) buys a
+                        //     little sharpness for FOUR TIMES the memory per doubling — 20–90 MB
+                        //     per window, up to seven windows open at once. A player cannot see
+                        //     VRAM exhaustion coming and cannot recover from it by looking at the
+                        //     row that caused it. The SWITCH above stays; this was its calibration.
+                        //   * "Fenster: Nachschärfen (Filter)" ([WorldUI] PanelMipLodOffset) buys
+                        //     half a mip level and its own text names the cost: "THE PRICE IS
+                        //     ALIASING". ModBuild 204 took the shipped value back to 0 because the
+                        //     dial handed back roughly half of the one fix that closed the STILL
+                        //     case. That is not a trade a player has any way to judge.
+                        // A CURATED ROW IS AN EXTRA DOOR, NEVER A WALL: nothing left the catalog
+                        // here. Both are on Erweitert ▸ Menüs & Tafeln, listed by hand right beside
+                        // the two rows above (VROptionsTab.7.TopicTrees.cs), so the whole family is
+                        // still on one screen — one navigation level deeper.
+                    },
+                },
+                new()
+                {
                     // The mod's own panel offered Mixed Reality here, with a key-colour picker.
                     // Rig/VoidColor is NOT the same setting and does not replace it: MR also
                     // disables every skybox and sweeps the sky geometry, which is the half that
@@ -405,25 +471,22 @@ internal static partial class VROptionsTab
                         new("MixedReality", "KeyColor", "key_color"),
                     },
                 },
-                new()
-                {
-                    LocKey = "vr_sec_performance",
-                    Entries = new CuratedEntry[]
-                    {
-                        // "Parallele Bildabgabe" ([Core] EnableGraphicsJobs) stood here. OFF THE
-                        // CURATED PAGE since the 2026-08-22 settings audit, by the user's ruling
-                        // on its open question 4. It is already on, so there is nothing to gain by
-                        // touching it and the single largest performance finding of the whole
-                        // project to lose; it writes boot.config and needs a restart, so the row
-                        // cannot even show what it did. It stays fully reachable on Erweitert ▸
-                        // System, which is where a switch about how the engine boots belongs.
-                        //
-                        // Its dependent "Automatisch neu starten" stays on this page for now — it
-                        // still folds under EnableGraphicsJobs by VALUE (VROptionsTab.8), not by
-                        // the parent row being on the same page, so nothing here goes stale.
-                        new("Core", "AutoRestartForGraphicsJobs", "vr_o_autorestart"),
-                    },
-                },
+                // THE "Leistung" SECTION IS GONE, both its rows with it, and the second one is the
+                // 2026-08-22 audit's question (b) applied to the last member of a family:
+                //
+                //   * "Parallele Bildabgabe" ([Core] EnableGraphicsJobs) left at the same audit by
+                //     the user's ruling on open question 4. It is already on, so there is nothing
+                //     to gain by touching it and the single largest performance finding of the
+                //     whole project to lose; it writes boot.config and needs a restart, so the row
+                //     cannot even show what it did.
+                //   * "Automatisch neu starten" ([Core] AutoRestartForGraphicsJobs) followed it.
+                //     It is a dependent of the row above, it is START-UP-ONLY, and what it decides
+                //     is whether ONE automatic relaunch happens — a boot behaviour the player meets
+                //     exactly once, before they have ever opened this menu. A heading with a single
+                //     row about something that already happened is not a settings page.
+                //
+                // Both are on Erweitert ▸ System & Start, side by side, which is where a switch
+                // about how the engine boots belongs. A curated row is an extra door, never a wall.
                 new()
                 {
                     // Ruling 11: what the desktop monitor mirrors is an everyday choice for
@@ -433,6 +496,148 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         new("WorldUI", "DesktopMirrorLeftEye", "vr_o_mirroreye"),
+                    },
+                },
+            },
+        },
+        // ================================= UMGEBUNG & TON =================================
+        // NEW TAB (2026-08-22 settings audit, question (c); the user chose the full proposal over
+        // the cheap one). It answers the audit's two worst structural findings at once:
+        //
+        //   FINDING 2 — THE MOD'S ENTIRE AUDIO SURFACE WAS FILED UNDER "GRAFIK". Five sound
+        //   settings exist and all five were somewhere else: four [EnvSound] rows on Grafik ▸
+        //   Darstellung and [Cards] CardSoundsEnabled under Brett & Karten ▸ Karten. Nobody looks
+        //   for a volume slider under Graphics. One level down it was worse: [EnvSound] binds on
+        //   rig.cfg, so ConfigCatalog.TopicOf filed it under a topic literally named "Bild &
+        //   Darstellung" / "Picture & rendering", and there was no "Ton" anywhere in the menu.
+        //   Both halves are fixed — the section below, and a real ConfigTopic.Sound.
+        //
+        //   FINDING 1 — "Grafik ▸ Darstellung" WAS A TWENTY-ROW GRAB-BAG of six families, the
+        //   exact fault an earlier audit fixed on Komfort (05, S7) grown back one tab over. Taking
+        //   the world out of it halves it.
+        //
+        // WHY A TAB AND NOT A SECTION. A section is one navigation level cheaper than a tab, so a
+        // new tab has to earn itself — this one carries FIVE headings and twelve rows that share a
+        // subject nothing else on the picture page shares: not how the world is DRAWN, but which
+        // world you are in, what mood it is in, what it sounds like, what you can see THROUGH, and
+        // the 3D map you travel it on. Tab order keeps the audited principle (body → picture →
+        // world → play surface → panels → social → tuning).
+        new()
+        {
+            LocKey = "cat_environment",
+            Sections = new CuratedSection[]
+            {
+                new()
+                {
+                    // WHICH WORLD, AND WHAT MOOD IT IS IN. The environment chooser leads, because
+                    // everything under it is a property OF the world it picks — the curated file
+                    // has argued exactly that since the element mood arrived ("both are properties
+                    // OF the environment the row above chooses") and then left the whole block on
+                    // a render page anyway.
+                    LocKey = "sec_environment",
+                    Entries = new CuratedEntry[]
+                    {
+                        // The environment choice (user ruling 2026-08-12: real 3D environments
+                        // replaced the panorama skyboxes) — a special row (TryBuildSpecialRow) so
+                        // the dropdown reads localized ("DnD-Keller") instead of the raw enum
+                        // members; its hint states the user's own MR rule ("Bei Mixed Reality ist
+                        // der Himmel immer aus."). No dependency-layer entry: a choice row has no
+                        // children.
+                        new("Sky", "Style", "vr_o_sky"),
+                        // ELEMENT MOOD — the environment's answer to the element infusions. The
+                        // strength dial folds under the toggle (VROptionsTab.8.Dependencies.cs).
+                        new("Elements", "EnvironmentResponse", "vr_o_elemmood"),
+                        new("Elements", "ResponseStrength", "vr_o_elemmood_amt"),
+                    },
+                },
+                new()
+                {
+                    // HAUNT — the creepy easter eggs (user request, 2026-08-14). Its own heading
+                    // now rather than four rows deep in a render list: a player who has just
+                    // switched the cellar on is exactly the player who wants to know this exists,
+                    // and "Grusel" says what it is in one word. The frequency dial folds under the
+                    // toggle (VROptionsTab.8.Dependencies.cs).
+                    LocKey = "sec_haunt",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Haunt", "EasterEggs", "vr_o_haunt"),
+                        new("Haunt", "Frequency", "vr_o_haunt_freq"),
+                    },
+                },
+                new()
+                {
+                    // THE MOD'S WHOLE AUDIO SURFACE, ON ONE HEADING, FOR THE FIRST TIME (Finding
+                    // 2). What a player gains: a row called "Ton" is where a player looks for
+                    // volume, and until now the answer was "under Graphics, below the MSAA level".
+                    // The volume folds under the switch (VROptionsTab.8.Dependencies.cs).
+                    LocKey = "sec_sound",
+                    Entries = new CuratedEntry[]
+                    {
+                        // ENV SOUND — the environment HEARD (user request, 2026-08-14). The user's
+                        // correction the same day put the apparitions' cues on THIS toggle rather
+                        // than giving them one of their own, so this switch is also what makes the
+                        // haunt block above audible — one heading further down the same page.
+                        new("EnvSound", "Enabled", "vr_o_envsound"),
+                        new("EnvSound", "Gain", "vr_o_envsound_amt"),
+                        // MOVED here from Brett & Karten ▸ Karten (audit question (c)). Ruling 6 is
+                        // untouched and is the reason this row exists at all: ONE everyday on/off
+                        // for all five card/fan sounds, an AND over the five audio-item strings
+                        // that never rewrites them. Rulings 5/7 are untouched too — the five
+                        // STRINGS stay on Erweitert ▸ Karten & Fächer ▸ Klänge with their master.
+                        // What moved is only the everyday DOOR, from a page about cards to the one
+                        // page in the menu that is about sound: a player turning the volume down
+                        // and a player turning card clicks off are the same player in the same
+                        // moment, and they were two tabs apart.
+                        new("Cards", "CardSoundsEnabled", "vr_o_cardsounds"),
+                    },
+                },
+                new()
+                {
+                    // SEEING THE BOARD. This is the SECOND door to the wall see-through, and it is
+                    // the one that used to sit on Grafik ▸ Darstellung — it moved here with the
+                    // rest of the world block, so the count is unchanged at two curated rows for
+                    // one ConfigEntry.
+                    //
+                    // THE FIRST DOOR IS STILL IN KOMFORT and must stay there: "the wall
+                    // see-through … must be findable HERE, not only under Grafik" (user ruling,
+                    // quoted at Komfort ▸ sec_visibility). The audit proposed dissolving the
+                    // Komfort section into this one; that half was overruled. Both rows write the
+                    // same value, so the duplicate costs nothing and the ruling is honoured.
+                    LocKey = "sec_visibility",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Compat", "WallFade", "wall_see_through"),
+                        // Fort superstructures fade with the walls — ruling 18 put the switch
+                        // directly beside the walls-transparent toggle it extends, and it is
+                        // beside it here exactly as it is in Komfort. Folds under WallFade
+                        // (VROptionsTab.8.Dependencies.cs).
+                        new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
+                    },
+                },
+                new()
+                {
+                    // THE 3D CAMPAIGN MAP — the other "which world am I standing in" decision, and
+                    // the reason it was curated at ModBuild 176 still holds: without a row it was
+                    // unreachable in practice (no display name, so the menu spaced the raw key out
+                    // to "Experimental 3D Map") and the user asked where it was.
+                    LocKey = "sec_map3d",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("Rig", "Experimental3DMap", "vr_o_3dmap"),
+                        // The map room's card hand, DIRECTLY under the switch that builds the room.
+                        // It folds under Experimental3DMap (VROptionsTab.8.Dependencies.cs), so it
+                        // is only ever on screen while there is a map room for it to be in. Empty
+                        // caption key: the localized name and the German description carry the row.
+                        new("WorldUI", "MapRoomHand", ""),
+                        // NOT HERE, and neither is on this page by accident:
+                        //   * the five [MapRoom] SIZE dials — "Symbolgrößen gehören ins ERWEITERT
+                        //     Menü!" (user ruling, hardware, ModBuild 196). They are Erweitert ▸
+                        //     Umgebung, adjacent and in Pinned() reading order, and DO NOT
+                        //     RE-PROMOTE them without a fresh ruling.
+                        //   * [WorldUI] TravelButtonOffset{X,Y} — "Geb mir dann IM DEBUG MENU die
+                        //     offsets um ihm zu verschieben - ich stell es selber ein." They are on
+                        //     Erweitert ▸ Menüs & Tafeln ▸ Karte 3D, with their ◀/▶ stepper and
+                        //     with both defaults still 0.
                     },
                 },
             },
@@ -479,6 +684,23 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // PROMOTED from Erweitert ▸ Hände & Figuren (2026-08-22 settings audit,
+                    // question (b)). [FigureGrab] GrabFigures is the on/off for a whole HEADLINE
+                    // feature — picking the miniatures up off the board with your hand — and it
+                    // was three navigation levels deep behind a topic name. It is also the master
+                    // the entire [FigureGrab] section folds under, so a player who does not find
+                    // this row cannot find any of the thirty dials behind it either. Perceivable
+                    // the moment you reach for a figure, harmless when wrong (nothing lifts), and
+                    // it belongs on the tab about the play surface it acts on. Empty caption key —
+                    // "Figuren greifen" is already the row's name.
+                    LocKey = "vr_sec_figures",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("FigureGrab", "GrabFigures", ""),
+                    },
+                },
+                new()
+                {
                     LocKey = "vr_sec_cardhand",
                     Entries = new CuratedEntry[]
                     {
@@ -487,11 +709,12 @@ internal static partial class VROptionsTab
                         // THE card size — 49 read sites, the single most player-visible size
                         // dial in the whole [Cards] section (audit 01 NORMAL).
                         new("Cards", "CardWidth", "vr_o_cardwidth"),
-                        // Ruling 6: ONE everyday on/off for all five card/fan sounds. The five
-                        // audio-item STRINGS stay under Erweitert ▸ Karten & Fächer ▸ Klänge
-                        // (rulings 5/7: string entries are power-user material); this bool is
-                        // an AND over them and never rewrites them.
-                        new("Cards", "CardSoundsEnabled", "vr_o_cardsounds"),
+                        // "Karten-Geräusche" ([Cards] CardSoundsEnabled) stood here. It is on
+                        // Umgebung & Ton ▸ Ton since the 2026-08-22 audit, together with the only
+                        // other sound rows the mod has — see that section for the argument.
+                        // Ruling 6 (ONE everyday on/off for all five card/fan sounds) and rulings
+                        // 5/7 (the five STRINGS stay on Erweitert ▸ Karten & Fächer ▸ Klänge) are
+                        // both untouched; only the everyday door moved.
                     },
                 },
                 new()
@@ -565,6 +788,13 @@ internal static partial class VROptionsTab
                         // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
                         // every zoom, which is what the original request actually asked for.
                         new("WorldUI", "BarSizeScale", "vr_o_barsize"),
+                        // PROMOTED from Erweitert ▸ Menüs & Tafeln (2026-08-22 settings audit,
+                        // question (b)): "Balken: Abstand ignorieren" is the THIRD member of a
+                        // three-row family whose other two are already here, and the heading above
+                        // it says so. A family that shares a name should share a page — that is
+                        // the argument this section was created with. Directly visible (bars stop
+                        // shrinking with distance), harmless when wrong, one toggle back.
+                        new("WorldUI", "BarFixedSize", ""),
                         new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
                     },
                 },
@@ -643,6 +873,28 @@ internal static partial class VROptionsTab
                         new("Net", "MaskId", "head_mask"),
                         new("Net", "MaskSize", "mask_size"),
                         new("Net", "MirrorEnabled", "mirror"),
+                        // THE GHOST HAND, three rows, PROMOTED from Erweitert ▸ Hände & Figuren
+                        // (2026-08-22 settings audit, question (b)). This is a readability choice
+                        // about your own hands and it reads as one: the hand mesh fades while it
+                        // is carrying the open fan or a held card "so the hand mesh stops covering
+                        // card details". It is exactly as much an appearance decision as the hand
+                        // MODEL two rows up, and a player who cannot read their own cards has no
+                        // way to guess the fix is filed under a topic called "Hände & Figuren".
+                        // The strength is already clamped 0.05–0.95, so the hand can never vanish
+                        // entirely however the dial is set — which is what makes all three safe
+                        // for this page whatever a player does to them.
+                        //
+                        // NO DEPENDENCY RULE, deliberately not claimed: the strength does NOT fold
+                        // under the two switches (VROptionsTab.8.Dependencies.cs declares none for
+                        // [Hands] GhostHand*), so all three rows are always on screen together.
+                        // Declaring one would be the tidier menu and it is NOT done here, because
+                        // that file is a separate contract — noted rather than changed.
+                        //
+                        // Empty caption keys — all three localized names ("Geisterhand bei Fächer",
+                        // "… bei Karte", "Geisterhand-Stärke") are already written for a player.
+                        new("Hands", "GhostHandOnFan", ""),
+                        new("Hands", "GhostHandOnHeldCard", ""),
+                        new("Hands", "GhostHandStrength", ""),
                     },
                 },
                 new()
@@ -663,6 +915,16 @@ internal static partial class VROptionsTab
                         // MOVED here from Komfort ▸ Sichtbarkeit (item 2's own example): the
                         // receiver-side MP wall-fade sync is a together-play setting first.
                         new("WallFade", "SyncPeerFades", "wallfade_sync"),
+                        // PROMOTED from the raw catalog (2026-08-22 settings audit, question (b)).
+                        // "Boards vor dem Spielfeld" ([PeerBoardFade] Mode) is new in ModBuild 222
+                        // and ships OFF: a player whose view of the field is blocked by a
+                        // team-mate's control board has a fix and, until this row, no way to find
+                        // it. It is purely local (nothing goes on the wire, the owner's board is
+                        // unchanged for everyone else), so the worst case of getting it wrong is
+                        // that a board you wanted to see goes see-through — one dropdown back. Its
+                        // five thresholds stay on Erweitert ▸ Mehrspieler, where they now land by
+                        // topic instead of falling into "Sonstiges" (ConfigCatalog.TopicOf).
+                        new("PeerBoardFade", "Mode", ""),
                         new("Rig", "SpawnInCircle", "vr_o_circle"),
                         // NOT here: [Net] VersionGuard (ruling 14) — disabling the version
                         // handshake is an expert escape hatch, it stays under Erweitert.
@@ -761,6 +1023,11 @@ internal static partial class VROptionsTab
     ///
     /// <para>THE RANGES ARE NOT TOUCHED and neither are the defaults — both stay 0, which is the
     /// ModBuild 190 pose he asked to have back. This is the control, and nothing else.</para>
+    ///
+    /// <para>THE TWO ROWS LIVE ON ERWEITERT ▸ MENÜS &amp; TAFELN ▸ KARTE 3D since the 2026-08-22
+    /// audit, not on a curated page — the other half of the same sentence ("Geb mir dann IM DEBUG
+    /// MENU die offsets…"). This table is unaffected by that move: it is keyed on the config entry,
+    /// not on the page, so both rows keep their arrows wherever they are built.</para>
     ///
     /// <para>A table rather than a branch, for the reason <see cref="HasSpecialRow"/> is one: the
     /// row kit stays free of knowledge about individual settings.</para>

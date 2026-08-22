@@ -416,7 +416,61 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 224;
+    public const ushort ModBuild = 225;
+    // Build 225: THE SETTINGS AUDIT, HALVES (b) AND (c) — the menu is re-grouped. No wire change.
+    //
+    //   (c) A NEW TAB, "UMGEBUNG & TON", ON THE USER'S OWN RULING. He picked the full proposal over
+    //   the cheap one. The driving fault: THE MOD'S ENTIRE AUDIO SURFACE LIVED UNDER "GRAFIK", and
+    //   in Erweitert its topic was literally "Bild & Darstellung". The new tab also halves the
+    //   "Grafik ▸ Darstellung" grab-bag — the same fault an earlier audit fixed on Komfort, grown
+    //   back one tab over. "Grafik" is now "Bild" and carries 9 rows instead of 30; the new tab
+    //   carries 12, in Umgebung / Grusel / Ton / Sichtbarkeit / Karte 3D. Erweitert gains the topics
+    //   Ton and Umgebung, and the module 'boardfade' stops falling through into "Sonstiges".
+    //   Enum-reorder safety was re-verified rather than assumed: no wire record, cfg key or save
+    //   file holds a topic ordinal.
+    //
+    //   (b) 4 ROWS OUT OF CURATED, 9 IN. Out: the two window-sharpness dials (one buys a little
+    //   sharpness for 4x memory per doubling across up to seven windows, the other's own text says
+    //   "THE PRICE IS ALIASING"), the boot-restart switch whose parent already left at 224, and the
+    //   two travel-button offsets — which go where he asked for them verbatim, "Geb mir dann im
+    //   debug menu die offsets". Their values, ranges, defaults (0,0) and stepper are untouched;
+    //   three placements were rejected in a row and only the LOCATION was ever on the table.
+    //   In: AutoFocusOnTurn (the camera moving on its own is the VR-comfort complaint), HoverHaptics,
+    //   GrabFigures (a headline feature's on/off, and the master its whole section folds under), the
+    //   three ghost-hand rows, BarFixedSize, and [PeerBoardFade] Mode — which shipped Off and was
+    //   unfindable.
+    //
+    //   THREE THINGS FOUND ON THE WAY THAT WERE NOT IN THE AUDIT:
+    //   * A LATENT LOCALISATION BUG. Loc.FamilyKey knew the hand-style prefixes and the board
+    //     suffixes but NOT the pile suffixes, so already-written German wildcards for the six
+    //     [Cards] Fan* rows were unreachable and the menu printed "Fan Step Degrees_ Items". Fixed
+    //     with PileSuffixes plus six EXACT names — unlike boards and styles, all three pile rows are
+    //     on screen together, so one shared name would print three identical captions.
+    //   * [PeerBoardFade]'s six defaults were LITERALS at the Bind call rather than annotated
+    //     Defaults lines, so rebase-defaults would have reported all six UNMAPPED and silently lost
+    //     a tuned drop. Proven with a synthetic cfg: before the fix all six land in UNMAPPED, after
+    //     it all six map. The hazard was real and is closed.
+    //   * The five [PeerBoardFade] thresholds now FOLD under Mode (VROptionsTab.8): its own
+    //     description says Off means "nothing is MEASURED or written", so with it off there is no
+    //     coverage figure for a fraction to compare against.
+    //   And one rule deliberately NOT declared: [Hands] GhostHandStrength tunes TWO switches and is
+    //   live whenever EITHER is on, while a DependencyRule names exactly one parent. Both
+    //   expressible rules would hide the dial from someone who wants the ghost hand on only one of
+    //   the two. The file's own policy decides it — "a row wrongly shown costs a glance, a row
+    //   wrongly hidden costs a search".
+    //
+    //   FOUR OF THE AUDIT'S RECOMMENDATIONS WERE ALREADY MOOT after 224 and are recorded as such:
+    //   five of its ten "move out" rows had already gone, its 12 missing German names were 9, and
+    //   two of its row counts were written before 223 deleted the room tones. A review is a snapshot;
+    //   this is what checking it against the shipped state looks like.
+    //   Every offered row now has a German name AND a German description: 15 names and 17
+    //   descriptions added, 12 dead name entries and 12 dead German descriptions removed with one
+    //   collective comment naming all twelve, and a mechanical re-check reports zero of either.
+    //
+    //   ONE THING ONLY THE HEADSET CAN ANSWER: the sub-tab column stacks SEVEN buttons where it
+    //   stacked six. Nothing caps the count in code; whether the seventh fits the pane is a look.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 224: THE SETTINGS AUDIT, HALVES (a) AND (d). No wire change; 582 keys were inventoried.
     //
     //   (a) 39 ENTRIES LEAVE THE MENU — 42 rows, because one rendered as four R/G/B/A steppers.

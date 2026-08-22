@@ -64,7 +64,22 @@ internal static class ConfigCatalog
     /// instead of silently invisible.</para>
     ///
     /// <para>SAFE TO REORDER: the enum values are menu-internal only — nothing persists a topic
-    /// ordinal (checked: only <c>VROptionsTab._category</c> holds one, at runtime).</para>
+    /// ordinal (checked: only <c>VROptionsTab._category</c> holds one, at runtime). Re-checked at
+    /// the 2026-08-22 settings audit before <see cref="Environment"/> and <see cref="Sound"/> were
+    /// inserted mid-list: no wire record, no cfg key and no save file carries a topic ordinal.</para>
+    ///
+    /// <para>TWO TOPICS ADDED (audit (c), user verbatim: <i>"Überprüfe die Kategorien und ordne sie
+    /// eventuell neu wenn du denkst das es intuitiver und Userfreundlicher wäre."</i>). The audit's
+    /// Finding 2 was that the mod's ENTIRE audio surface was filed under a topic literally named
+    /// "Bild &amp; Darstellung" / "Picture &amp; rendering" — because <c>[EnvSound]</c> binds on
+    /// <c>rig.cfg</c> and the module table below sent the whole file to <see cref="Visual"/>.
+    /// Nobody looks for a volume slider under Graphics. Finding 3 was the mirror image: the
+    /// environment family (<c>[Sky]</c> 1 entry, <c>[Elements]</c> 2, <c>[Haunt]</c> 2, <c>[Rig]
+    /// Experimental3DMap</c> 1) each fell under <see cref="MinClusterSize"/> and was swept into
+    /// Visual's "Allgemein" collector, so the environment CHOOSER sat in a grab-bag two rows from
+    /// the environment's own mood dials. A topic each fixes both permanently and mechanically: a
+    /// setting added to one of those sections tomorrow lands in the right place with no edit
+    /// here.</para>
     /// </summary>
     internal enum ConfigTopic
     {
@@ -75,6 +90,15 @@ internal static class ConfigCatalog
         BoardTargeting,
         BoardGeometry,
         Visual,
+
+        /// <summary>The world you stand in: sky/environment choice, element mood, haunt, the 3D
+        /// map room. Properties OF the chosen environment, not of how it is rasterised.</summary>
+        Environment,
+
+        /// <summary>Everything you HEAR. Its own topic since the 2026-08-22 audit — see the
+        /// class remark above for why "Bild &amp; Darstellung" was the wrong home.</summary>
+        Sound,
+
         Buttons,
         Network,
         System,
@@ -82,7 +106,7 @@ internal static class ConfigCatalog
         Other,
     }
 
-    internal const int TopicCount = 12;
+    internal const int TopicCount = 14;
 
     /// <summary>How an entry can be edited — one control shape per case, decided once at build.</summary>
     internal enum ConfigKind
@@ -863,6 +887,25 @@ internal static class ConfigCatalog
             || string.Equals(section, "RoundButtons", StringComparison.Ordinal))
             return ConfigTopic.BoardGeometry;
 
+        // SECTION BEATS MODULE for the four sections that RIDE ALONG on another module's file
+        // (2026-08-22 settings audit (c), Findings 2 and 3). All four are bound by
+        // Rig/RenderQuality.Bind into dev.gloomhavenvr.rig.cfg — [Sky], [Elements], [Haunt] and
+        // [EnvSound] have no file of their own — so the module table at the bottom of this method
+        // filed every one of them under "Bild & Darstellung", which put the mod's whole audio
+        // surface under a heading that says PICTURE. They are not properties of how the world is
+        // drawn; they are properties of WHICH world, and of what it sounds like. Testing the
+        // section here rather than the module costs one switch and cannot be undone by a later
+        // module rename.
+        switch (section)
+        {
+            case "EnvSound":
+                return ConfigTopic.Sound;
+            case "Sky":
+            case "Elements":
+            case "Haunt":
+                return ConfigTopic.Environment;
+        }
+
         if (string.Equals(module, ModuleConfig.MainModule, StringComparison.Ordinal))
         {
             switch (section)
@@ -874,12 +917,19 @@ internal static class ConfigCatalog
                     return ConfigTopic.Diagnostics;
                 case "MapRoom":
                     // The 3D map room's own dials file with the SWITCH that turns the room on —
-                    // [Rig] Experimental3DMap, which the "Rig" case below sends to Visual as well.
+                    // [Rig] Experimental3DMap, which the "Rig" case below sends to the same topic.
                     // A player who just found that switch is then on the same page as the dials
                     // that tune what it turned on, which is the whole complaint the per-board page
                     // was rearranged for. (They also FOLD OUT under it: VROptionsTab's
                     // DependentSections hides the whole [MapRoom] section while the switch is off.)
-                    return ConfigTopic.Visual;
+                    //
+                    // THE PAIR MOVED FROM Visual TO Environment at the 2026-08-22 audit, together,
+                    // so the Erweitert index reads the same way the curated tab does: which world
+                    // you stand in is not the same question as how it is rasterised. THE RULING
+                    // "Symbolgrößen gehören ins ERWEITERT Menü!" IS UNTOUCHED — all five [MapRoom]
+                    // size dials are still Erweitert-only; only the topic HEADING they sit under
+                    // changed, and they are still adjacent and still in Pinned() reading order.
+                    return ConfigTopic.Environment;
                 case "Hands":
                     return ConfigTopic.Hands;
                 case "Compat":
@@ -893,7 +943,7 @@ internal static class ConfigCatalog
                     // "how it is drawn" half, and the test stays a list because the next such key
                     // costs one word here rather than a second branch.
                     return key is "Experimental3DMap"
-                        ? ConfigTopic.Visual
+                        ? ConfigTopic.Environment
                         : ConfigTopic.Movement;
                 default:
                     return ConfigTopic.Other;
@@ -909,7 +959,15 @@ internal static class ConfigCatalog
             "board" or "hexhighlight" or "selectionready" => ConfigTopic.BoardTargeting,
             "worldui" or "bars" => ConfigTopic.Panels,
             "rig" or "mixedreality" or "stereo" or "wallfade" => ConfigTopic.Visual,
-            "net" => ConfigTopic.Network,
+            // "boardfade" IS MULTIPLAYER. [PeerBoardFade] is what a MITSPIELER's control board does
+            // while it blocks your view of the field, and until the 2026-08-22 audit it had no line
+            // here at all — so all six dials fell through to "Sonstiges", the collector that exists
+            // so an UNMAPPED module is still reachable rather than as a filing decision. (They are
+            // reachable at all only because NetModule.BindConfig calls PeerBoardFadeTuning.Bind
+            // eagerly; the class binds lazily on the first peer board otherwise.) Its everyday
+            // switch is curated in Avatar & Mehrspieler ▸ Zusammen spielen and its five thresholds
+            // now sit one level down under the same subject.
+            "net" or "boardfade" => ConfigTopic.Network,
             "perf" => ConfigTopic.Diagnostics,
             _ => ConfigTopic.Other,
         };
@@ -966,6 +1024,9 @@ internal static class ConfigCatalog
         // WHY THE ORDER IS WRITTEN DOWN RATHER THAN LEFT ALPHABETICAL. These five became the only
         // door to the map dials when the user sent them here ("Symbolgrößen gehören ins ERWEITERT
         // Menü!", ModBuild 196) — the curated rows on Grafik are gone, see VROptionsTab.4.Curated.
+        // (The topic they sit in is "Umgebung" since the 2026-08-22 audit, not "Bild & Darstellung";
+        // the ruling is about ERWEITERT vs curated and is untouched by which heading Erweitert
+        // files them under — see TopicOf's "MapRoom" case.)
         // Sorting them by Display splits the two dials the PREVIOUS report exists to compare:
         // "Symbole Weltkarte" and "Symbole Stadtkarte" would end up two marker rows apart, because
         // "Gloomhaven-Marker" and "Gruppen-Marker" sort between them. The user asked to be able to
@@ -1685,6 +1746,8 @@ internal static class ConfigCatalog
     {
         ConfigTopic.Diagnostics => Loc.Mod("cfg_topic_diagnostics"),
         ConfigTopic.Visual => Loc.Mod("cfg_topic_visual"),
+        ConfigTopic.Environment => Loc.Mod("cfg_topic_environment"),
+        ConfigTopic.Sound => Loc.Mod("cfg_topic_sound"),
         ConfigTopic.Movement => Loc.Mod("cfg_topic_movement"),
         ConfigTopic.Hands => Loc.Mod("cfg_topic_hands"),
         ConfigTopic.Cards => Loc.Mod("cfg_topic_cards"),

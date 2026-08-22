@@ -233,7 +233,31 @@ internal static partial class VROptionsTab
         // YOU STAND IN THE 3D MAP ROOM", "The flat 2D map is NOT affected" — so this is the
         // truly-inert case the class doc reserves section rules for, not an arguable one.
         ["MapRoom"] = new("Rig", "Experimental3DMap", On),
+        // The five peer-board-fade thresholds (OccludedAlpha, On/OffFraction, the two exit dwells)
+        // tune a fade that Mode=Off removes outright — and "removes" is literal here rather than
+        // arguable: the bound description of Mode says "Off = today's behaviour (nothing is
+        // MEASURED or written)", so with it off there is no coverage figure for a fraction to
+        // compare against and no faded board for an alpha to set. Mode itself is exempt by the
+        // self-guard, so a section rule can never hide its own switch.
+        //
+        // ADDED AT ModBuild 225, in the same change that promoted Mode into the curated
+        // "Zusammen spielen" section: it shipped Off and was unfindable, and a switch that is
+        // findable while its own five dials are not would just move the confusion one step along.
+        ["PeerBoardFade"] = new("PeerBoardFade", "Mode", NotNamed("Off")),
     };
+
+    // ---- WHY [Hands] GhostHandStrength IS NOT DECLARED HERE, and it is not an oversight ---------
+    //
+    // It is the tuning of TWO switches — GhostHandOnFan and GhostHandOnHeldCard — and it is live
+    // whenever EITHER is on. A DependencyRule names exactly one parent, so the only expressible
+    // rules would be "fold under the fan switch" or "fold under the held-card switch", and BOTH are
+    // wrong in the same way: a player who wants the ghost hand only on the held card would find the
+    // strength dial gone. This class's own policy decides it — "a row wrongly shown costs a glance,
+    // a row wrongly hidden costs a search" — so the row stays visible.
+    //
+    // If it should ever fold, the honest change is an OR-capable rule (a parent LIST with any/all),
+    // not a rule that names one of the two and hopes. That is a change to DependencyRule itself and
+    // deserves its own commit.
 
     /// <summary>Ids of every entry that gates other rows — the rebuild-on-edit trigger set.</summary>
     private static readonly HashSet<string> DependencyParents = BuildDependencyParents();

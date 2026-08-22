@@ -58,10 +58,10 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "TrayNativeControls", perBoard: false),
                         new BoardRef("WorldUI", "ButtonCluster", perBoard: false),
                         new BoardRef("WorldUI", "WristHud", perBoard: false),
-                        // The 3D map room's card hand + wrist plate. A show/hide switch like its
-                        // neighbours here, and it folds under [Rig] Experimental3DMap, so on a
-                        // flat-map install the row simply does not appear on this page.
-                        new BoardRef("WorldUI", "MapRoomHand", perBoard: false),
+                        // [WorldUI] MapRoomHand moved to the "Karte 3D" heading at the bottom of
+                        // this tree (2026-08-22 settings audit): it is a show/hide switch, but the
+                        // thing it shows only exists inside the 3D map room, and the two travel
+                        // offsets that arrived with that room had nowhere to be listed at all.
                         new BoardRef("WorldUI", "LoadingIndicator", perBoard: false),
                     },
                 },
@@ -79,9 +79,17 @@ internal static partial class VROptionsTab
                         // ModBuild 191: the window supersample pair, listed here so it lands
                         // beside WindowLegibility — size and sharpness are the two answers to the
                         // same question — instead of dropping into the "Allgemein" catch-all at
-                        // the bottom of this page, which is where every unlisted key goes. Both
-                        // are ALSO curated rows under Grafik ▸ Darstellung; a curated row is an
-                        // extra door, never a wall (VROptionsTab.4.Curated.cs).
+                        // the bottom of this page, which is where every unlisted key goes.
+                        //
+                        // THE FAMILY IS SPLIT ACROSS TWO LEVELS SINCE THE 2026-08-22 AUDIT and
+                        // this is now the ONLY place two of its four members appear: [WorldUI]
+                        // PanelSupersample and WindowLegibility are also curated rows (Bild ▸
+                        // Fenster & Tafeln — a curated row is an extra door, never a wall), while
+                        // PanelSupersampleFactor and PanelMipLodOffset left the curated page under
+                        // question (b). Both buy a little sharpness for a price a player cannot
+                        // see — four times the memory per doubling, and "THE PRICE IS ALIASING" —
+                        // so this hand-written listing is what keeps them beside the switch they
+                        // calibrate instead of in the "Allgemein" grab-bag. Do not drop them.
                         new BoardRef("WorldUI", "PanelSupersample", perBoard: false),
                         new BoardRef("WorldUI", "PanelSupersampleFactor", perBoard: false),
                         // ModBuild 203: the third of the same set — size, capture rate, filtering.
@@ -228,6 +236,39 @@ internal static partial class VROptionsTab
                     {
                         new BoardRef("WorldUI", "ModalStyle", perBoard: false),
                         new BoardRef("WorldUI", "ManualScreenChordSeconds", perBoard: false),
+                    },
+                },
+            },
+        },
+        new()
+        {
+            // KARTE 3D — the map room's own panel rows, given a heading by the 2026-08-22 settings
+            // audit. TWO OF THE THREE HAD NO LISTING AT ALL and were therefore in the "Allgemein"
+            // catch-all at the bottom of this page, which is the same "sucht man dort immer rum
+            // ohne wirklich zu finden" failure this whole file exists to end.
+            //
+            // THE TRAVEL OFFSETS ARE HERE BECAUSE HE PUT THEM HERE, verbatim: "Geb mir dann IM
+            // DEBUG MENU die offsets um ihm zu verschieben - ich stell es selber ein." ModBuild 194
+            // gave them curated rows on the Grafik page instead; this is that ruling delivered. The
+            // VALUES AND RANGES ARE UNTOUCHED — both defaults are 0, which reproduces the ModBuild
+            // 190 pose exactly after three placements were rejected in a row — and both keep their
+            // ◀/▶ arrows rather than a bar (PrefersStepper in VROptionsTab.4.Curated.cs, his other
+            // ruling on the same two rows: "die Pfeile, wo man den echten Wert einfach einstellen
+            // kann"). Sideways first, then height: the order of the log line he tunes from.
+            //
+            // All three fold under [Rig] Experimental3DMap (VROptionsTab.8.Dependencies.cs), so on
+            // a flat-map install this heading does not appear at all — BuildTreeTopicBody resolves
+            // a whole top before drawing it and skips one with nothing visible under it.
+            LocKey = "vr_pt_maproom",
+            Subs = new BoardSub[]
+            {
+                new()
+                {
+                    Entries = new[]
+                    {
+                        new BoardRef("WorldUI", "MapRoomHand", perBoard: false),
+                        new BoardRef("WorldUI", "TravelButtonOffsetXWindowHeights", perBoard: false),
+                        new BoardRef("WorldUI", "TravelButtonOffsetYWindowHeights", perBoard: false),
                     },
                 },
             },
