@@ -511,7 +511,22 @@ internal static partial class WallSegmentFade
             unionMinZ -= StackLinkMaxXZ;
             unionMaxZ += StackLinkMaxXZ;
 
-            MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
+            // PERF S2: its own scope, deliberately NOT removed. This is the last full-scene
+            // FindObjectsOfType left in the wall system, and it is the only one this round did
+            // not fold into the rescan cycle's census — because it exists precisely to see
+            // renderers the census CANNOT have seen (Apparance regenerates shell content
+            // between rescans and a fresh piece arrives VISIBLE inside a faded wall), and its
+            // 0.25 s cadence is a documented LOOK guarantee, not a tuning choice. It is also
+            // gated: `_fastSegScratch.Count == 0` returns above, so it cannot run at all unless
+            // a stack-carrying wall is actually held faded. In the ModBuild 226 capture it
+            // never ran (zero FAST-RECLAIM lines, and WallFade.Late's residual after
+            // WallFade.Rescan is 11 ms/s — far too small for four sweeps a second), so its cost
+            // is LATENT, never measured. This scope is how the next log prices it; if it lands
+            // anywhere near the sweep cost the census pays, it needs an event source rather
+            // than a poll, which means a hook outside this file.
+            MeshRenderer[] all;
+            using (PerfMonitor.Scope("WallFade.FastSweep"))
+                all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>();
             int claimed = 0;
             foreach (MeshRenderer r in all)
             {
@@ -642,9 +657,9 @@ internal static partial class WallSegmentFade
         /// pass (which must see the extended AABBs so shell-hung torches attach). Leavers
         /// are restored here; orphans by the shared mounted orphan guard.
         /// </summary>
-        /// <param name="sceneRenderers">The rescan's single scene sweep (shared with the
-        /// adoption + mounted passes — still one FindObjectsOfType per rescan).</param>
-        private void CollectStackedShellPieces(Renderer[] sceneRenderers)
+        /// <remarks>PERF S2: the input is the rescan cycle's RendererFact census (see
+        /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
+        private void CollectStackedShellPieces()
         {
             _stackedOwned.Clear();
             _stackDead.Clear();
@@ -681,7 +696,7 @@ internal static partial class WallSegmentFade
             }
 
             bool enabled = WallFadeTuning.StackedShells;
-            if (enabled && sceneRenderers != null && _segments.Count > 0)
+            if (enabled && _factCount > 0 && _segments.Count > 0)
             {
                 // PERF S1: the membership index IsSegmentListedRenderer reads, built once
                 // here — see BuildSegmentListedIndex for why it answers identically.
@@ -735,7 +750,7 @@ internal static partial class WallSegmentFade
                 }
                 _prevCorners.Clear();
 
-                CollectStackCandidates(sceneRenderers);
+                CollectStackCandidates();
                 RunStackAdoptionRounds();
                 CollectCornerPieces();
                 ClassifyStackNearMisses();
@@ -777,12 +792,29 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// Cheap prefilter over the scene sweep: plain MeshRenderers that could possibly be
-        /// shell stories — airborne over the lowest anchored floor (the ground band never
-        /// fades), not mod-owned, not already tracked by any segment list, and not a wall
+        /// Cheap prefilter over the rescan cycle's scene census: plain MeshRenderers that could
+        /// possibly be shell stories — airborne over the lowest anchored floor (the ground band
+        /// never fades), not mod-owned, not already tracked by any segment list, and not a wall
         /// (WallFade shader) or foliage (those have their own attachment types).
+        ///
+        /// <para>PERF S2 — THE GUARDS ARE REORDERED, THE CANDIDATE SET IS NOT. Every test below
+        /// is a pure predicate (the shader verdicts are memoized per Shader; the two set probes
+        /// are hash lookups), so the order in which they run cannot change which renderers come
+        /// out the other end — only how much work a rejection costs. What the reordering buys
+        /// is that <see cref="IsFigureOrActorRenderer"/>, whose ancestor walk was the single
+        /// largest per-renderer item in the 118 ms rescan, now runs for the few hundred
+        /// AIRBORNE candidates instead of for all 8630 scene renderers.</para>
+        ///
+        /// <para>ONE DIAGNOSTIC DOES CHANGE, AND ONLY A DIAGNOSTIC. <c>_censusFigureGuarded</c>
+        /// — the count in the FIGURE-GUARD proof line — used to be "every scene renderer the
+        /// guard classified as a figure" (48 in the ModBuild 226 log) and is now "every
+        /// AIRBORNE, unowned, non-wall renderer the guard classified as a figure". The
+        /// protection is bit-identical: a figure renderer that no longer reaches the guard is
+        /// one the ground-band or shader test rejected for its own reason, so it was never a
+        /// candidate either way. The line still proves the guard FIRES; it now reports the
+        /// population where the guard is the thing doing the work.</para>
         /// </summary>
-        private void CollectStackCandidates(Renderer[] sceneRenderers)
+        private void CollectStackCandidates()
         {
             float minFloorY = float.PositiveInfinity;
             for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
@@ -794,28 +826,42 @@ internal static partial class WallSegmentFade
                 return; // no anchored room — every wall is fail-safe solid anyway
 
             float bar = minFloorY + GroundExclusionHeightWU;
-            foreach (Renderer any in sceneRenderers)
+            float prefilterBar = bar - CensusBoundsSlackWU; // cached bounds may only REJECT
+            for (int i = 0; i < _factCount; i++)
             {
-                if (any is not MeshRenderer r || r == null || !r.enabled)
+                ref RendererFact f = ref _facts[i];
+                // --- pure managed rejects, straight out of the census -----------------------
+                if (f.Mesh == null || f.Mod)
+                    continue;             // not a plain mesh, or a mod-owned visual (layer OR
+                                          // the 'GloomhavenVR.' name prefix — round 3: the MR
+                                          // backing plate leaked into the near-miss census).
+                                          // Both are fixed for a renderer's lifetime, so a
+                                          // census verdict cannot go stale on them. `enabled`
+                                          // is NOT tested here on purpose: it is the one flag
+                                          // the game flips at will, so it is read LIVE below —
+                                          // a census `enabled` used as a reject could narrow
+                                          // the candidate set, and this pass may not narrow.
+                if (f.WallFadeShader || f.FoliageShader)
+                    continue;             // walls and foliage have their own tracking
+                if (f.Bounds.min.y < prefilterBar)
+                    continue;             // deep in the ground band even allowing for the
+                                          // census slack — cannot be a stacked story
+                // --- authoritative re-tests, for the survivors only ------------------------
+                MeshRenderer r = f.Mesh!;
+                if (!r.enabled)
                     continue;
-                if (IsModObject(r))
-                    continue; // mod-owned visual (layer OR 'GloomhavenVR.' name — round 3:
-                              // the MR backing plate leaked into the near-miss census)
                 if (IsFigureOrActorRenderer(r))
                 {
-                    // FIGURES ARE NEVER TOUCHED (round-7 ruling, Lights-rule severity):
-                    // excluded before any geometric test, counted for the census.
+                    // FIGURES ARE NEVER TOUCHED (round-7 ruling, Lights-rule severity).
                     _censusFigureGuarded++;
                     if (_figureGuardNames.Count < 6 && !_figureGuardNames.Contains(r.name))
                         _figureGuardNames.Add(r.name);
                     continue;
                 }
                 if (r.bounds.min.y < bar)
-                    continue; // touches the ground band — not a stacked story
+                    continue; // touches the ground band — not a stacked story (LIVE bounds)
                 if (_stackedOwned.Contains(r))
                     continue; // sticky-owned this rescan
-                if (RendererUsesWallFade(r) || RendererUsesFoliage(r))
-                    continue; // walls/foliage have their own tracking
                 if (IsSegmentListedRenderer(r))
                     continue; // already some segment's renderer/foliage/sibling/mounted prop
                 _stackCandidates.Add(r);

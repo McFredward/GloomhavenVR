@@ -59,8 +59,9 @@ internal static partial class Defaults
     internal const bool XrStats = true;                      // => [Perf] XrStats
     internal const bool FrameSplit = true;                   // => [Perf] FrameSplit
     internal const bool SceneCensus = true;                  // => [Perf] SceneCensus
-    internal const bool SceneProfile = false;                // => [Perf] SceneProfile
-    internal const bool CullSubmitSplit = false;             // => [Perf] CullSubmitSplit
+    internal const bool SceneProfile = true;                 // => [Perf] SceneProfile  (ON since ModBuild 227. The 226 log caught the reported symptom — "deutliche Laggs wenn ich alle Räume von oben anschaue", 8,600 renderers, 43ms mean against an 11.11ms budget, ~50% of it in main-thread LOGIC — and every instrument that could name what that logic IS was switched off, so eight windows of renderer counts named nothing. The walk is a one-frame hitch per 30s window; it TIMES ITSELF and rations itself against a 4ms/window budget, refuses to run pre-menu, and PerfMonitor latches it off after one throw)
+    internal const bool CullSubmitSplit = true;              // => [Perf] CullSubmitSplit  (ON since ModBuild 227. Pure measurement, changes no pixel: two timer reads per camera render. It decides whether the head camera's 6–9ms/frame over 8,600 renderers is CULL — in which case the blanket 0xFFFFFFFF head mask vs the game's own 0x700FFF17 ScenarioCamera mask is the next lever — or SUBMIT, in which case it is not)
+    internal const bool ProfileDefaultsMigrated227 = false;   // => [Perf] ProfileDefaultsMigrated227  (pinned: one-shot migration marker — a fresh install must start false, or the ModBuild 227 SceneProfile/CullSubmitSplit flip never reaches an existing cfg)
     internal const bool CacheTickDelegates = true;           // => [Optimize] CacheTickDelegates
     internal const bool MapIconCache = true;                 // => [Optimize] MapIconCache
     internal const bool FigureScanCache = true;              // => [Optimize] FigureScanCache

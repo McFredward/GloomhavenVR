@@ -310,9 +310,40 @@ internal static partial class VROptionsTab
                     LocKey = "sec_presentation",
                     Entries = new CuratedEntry[]
                     {
+                        // THE ONE-DECISION ROW, FIRST, because it is the row that means a player
+                        // never has to solve the three below as a system (2026-08-23, from the
+                        // report "Ich habe auch versucht die Auflösung umzustellen, ich bin mir
+                        // nicht sicher ob das überhaupt irgendwas gebracht hat"). Qualität /
+                        // Ausgewogen / Leistung / Schwache Hardware set MSAA, eye resolution and
+                        // the per-pixel light cap together; the three rows under it stay live and
+                        // moving any of them reads back here as "Eigene". A special row
+                        // (TryBuildSpecialRow) so the four points are a localized DROPDOWN rather
+                        // than the ◀/▶ cycle a bounded int would otherwise get — a small enumerated
+                        // choice is a dropdown, and the preset labels have been in Loc.cs since the
+                        // old settings panel offered this same cycle to nobody.
+                        //
+                        // EMPTY CAPTION KEY, the documented degradation this file already relies on
+                        // in eleven places: Caption(item, "") falls through to item.Display, i.e.
+                        // "Grafik-Voreinstellung" in Loc.ConfigNames, and HintKey "h_" misses so the
+                        // tooltip falls through to the German description. Both are written for a
+                        // player, and a hand-written caption here would only be a second copy to
+                        // keep in step. (The three rows below kept their vr_o_* captions — those
+                        // strings live in Loc.cs, which this lane does not own.)
+                        new("RenderQuality", "QualityPreset", ""),
                         // The two dials every headset owner looks for first (audit 03: the
                         // Grafik tab had NO render-quality row at all since the old panel's
                         // preset cycle lost its caller) — plus the two pure quality raises.
+                        //
+                        // THE RESOLUTION ROW IS REACHABLE AND WAS ALL ALONG — checked against the
+                        // ModBuild 226 log rather than assumed, because the report above reads like
+                        // a missing row and is not one. It has sat on this page, second from the
+                        // top of the mod's most prominent settings tab, since the 2026-08 overhaul.
+                        // What his session shows is that the row never MOVED: [RenderQuality]
+                        // EyeResolutionScale read 1.00 in all thirty EYE-TARGET DIAG blocks and the
+                        // log carries zero "Eye render resolution scale asserted" lines. Whatever
+                        // resolution he changed was upstream of the mod (the game's own options
+                        // page, or Virtual Desktop's slider), and until this build the log had no
+                        // sentence that could tell him so. It has one now, on every rig build.
                         new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
                         new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
                         new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
@@ -1019,7 +1050,14 @@ internal static partial class VROptionsTab
         // is meant to choose from. It is a user-facing choice of three named behaviours, which is
         // exactly what this table is for.
         || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
-            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal));
+            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal))
+        // The SIXTH: the graphics preset. It is a bounded int, so the generic ladder would give it
+        // a SLIDER over 0..4 — five unnamed positions on a bar for five named looks, which is the
+        // "a small enumerated choice is a dropdown, not a drag bar" rule failing in the most
+        // literal way available. It also needs a derived current index (the preset is read off the
+        // three dials it sets, never off its own stored value), which only a hand-built row can do.
+        || (string.Equals(item.Section, "RenderQuality", StringComparison.Ordinal)
+            && string.Equals(item.Key, "QualityPreset", StringComparison.Ordinal));
 
     /// <summary>
     /// Bounded numbers that must be edited with the ◀ / ▶ STEPPER even though they have both ends
@@ -1094,6 +1132,31 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, facingNames,
                            (int)WorldUIConfig.WindowFacing.Value,
                            index => WorldUIConfig.WindowFacing.Value = (WindowFaceMode)index);
+            return true;
+        }
+
+        // THE GRAPHICS PRESET — one decision standing in for three dials (MSAA, eye resolution, the
+        // per-pixel light cap), in the order best-looking → cheapest, with "Eigene" as a fifth,
+        // READ-ONLY position at the end.
+        //
+        // THE CURRENT INDEX IS DERIVED, NEVER STORED (RenderQuality.PresetRowIndex reads the three
+        // dials), which is what makes this row safe beside the three rows it writes: editing MSAA by
+        // hand moves this dropdown to "Eigene" instead of the dropdown fighting the edit back. And
+        // picking "Eigene" itself does nothing on purpose — there is no such combination to restore
+        // to, it is a label for a state the other rows are already in.
+        //
+        // The five labels have been in Loc.cs since the old settings panel offered this same cycle
+        // to no caller at all ("Qualität / Ausgewogen / Leistung / Schwache Hardware / Eigene"), so
+        // no new string was needed to give it a home.
+        if (string.Equals(item.Section, "RenderQuality", StringComparison.Ordinal))
+        {
+            string[] presetIds = Rig.RenderQuality.PresetLocIds();
+            var presetNames = new string[presetIds.Length];
+            for (int i = 0; i < presetIds.Length; i++)
+                presetNames[i] = Loc.Mod(presetIds[i]);
+            BuildPresetRow(parent, item, caption, hintKey, presetNames,
+                           Rig.RenderQuality.PresetRowIndex(),
+                           Rig.RenderQuality.ApplyPresetByIndex);
             return true;
         }
 

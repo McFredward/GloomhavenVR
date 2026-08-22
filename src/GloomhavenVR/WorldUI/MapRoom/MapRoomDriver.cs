@@ -53,14 +53,53 @@ internal static class MapRoomDriver
     /// </summary>
     private const int StandDownGraceFrames = 30;
 
-    /// <summary>Frames between <c>FindObjectOfType</c> attempts while no choreographer is cached.
-    /// Near-free when the scene has none (the scan is type-indexed).</summary>
+    /// <summary>
+    /// Frames between fallback <c>FindObjectOfType</c> sweeps — read ONLY inside the RESURRECTION
+    /// WINDOW of <see cref="ResolveChoreographer"/>, i.e. on a scene that has already had a live
+    /// choreographer while the game's own singleton has since gone cold. On a scenario, where no
+    /// choreographer has ever awoken, this constant is never consulted at all.
+    /// </summary>
     private const int FindIntervalFrames = 10;
 
+    /// <summary>
+    /// How many fallback sweeps the resurrection window is allowed before it gives up and says so
+    /// in the log. The race it exists for (a dying instance's <c>OnDestroy</c> nulling the static
+    /// AFTER its replacement's <c>Awake</c> set it) resolves within a frame or two, so three
+    /// sweeps spread over <see cref="FindIntervalFrames"/> frames each is already generous; an
+    /// UNBOUNDED window would be the ModBuild 226 defect again the moment a campaign map is torn
+    /// down without a scene load.
+    /// </summary>
+    private const int ResurrectionSweepBudget = 3;
+
     private static global::MapChoreographer? _choreo;
-    private static int _findFrame = int.MinValue;
+    private static int _findFrame;
+    private static bool _findFrameValid;
     private static int _absentFrames;
     private static string _verdict = "not evaluated";
+
+    /// <summary>True once a live choreographer has been seen on the CURRENT scene. Cleared by
+    /// <see cref="ForgetScene"/>. The whole resurrection window hangs off it — see
+    /// <see cref="ResolveChoreographer"/>.</summary>
+    private static bool _sawChoreoThisScene;
+
+    /// <summary>The one-shot cross-check sweep of <see cref="ResolveChoreographer"/> is still
+    /// owed for this scene. Re-armed by <see cref="ForgetScene"/>.</summary>
+    private static bool _auditPending = true;
+
+    /// <summary>Sweeps left in the current resurrection window; refilled every time the singleton
+    /// answers, spent while it is cold and a choreographer has been seen on this scene.</summary>
+    private static int _resurrectionSweepsLeft = ResurrectionSweepBudget;
+
+    /// <summary>True once the resurrection window has been exhausted and said so (one line, not
+    /// one per frame). Cleared whenever the singleton answers again.</summary>
+    private static bool _resurrectionGaveUp;
+
+    /// <summary>Lifetime count of full-scene sweeps this class has paid for. Log material — the
+    /// number that must stay in single digits for the ModBuild 227 fix to be holding.</summary>
+    private static long _sweepsPaid;
+
+    /// <summary>The sweep counter has been declared with the perf monitor (once per session).</summary>
+    private static bool _countersRegistered;
 
     private static readonly MapParchment Parchment = new();
     private static readonly MapIconLayer Icons = new();
@@ -198,20 +237,12 @@ internal static class MapRoomDriver
         }
 
         if (_choreo == null)
+            _choreo = ResolveChoreographer();
+        if (_choreo == null)
         {
-            if (_findFrame != int.MinValue && Time.frameCount - _findFrame < FindIntervalFrames)
-            {
-                DecayAbsence("MapChoreographer lookup throttled");
-                return;
-            }
-            _findFrame = Time.frameCount;
-            _choreo = Object.FindObjectOfType<global::MapChoreographer>();
-            if (_choreo == null)
-            {
-                DecayAbsence("no MapChoreographer in the loaded scene(s) — this is the MAIN MENU case, "
-                             + "and it is why the gate is POSITIVE and never 'not a scenario'");
-                return;
-            }
+            DecayAbsence("no MapChoreographer is awake — this is the MAIN MENU and SCENARIO case, "
+                         + "and it is why the gate is POSITIVE and never 'not a scenario'");
+            return;
         }
 
         GameObject? world = _choreo.worldMap;
@@ -252,6 +283,207 @@ internal static class MapRoomDriver
 
     /// <summary>The map GameObject <see cref="_verdict"/> was last written for (change detector).</summary>
     private static GameObject? _verdictShown;
+
+    // ==============================================================================================
+    //  THE CHOREOGRAPHER LOOKUP — ModBuild 227, and it was 1.974 ms OF EVERY FRAME OF EVERY SCENARIO
+    // ==============================================================================================
+    //
+    // THE REPORT, VERBATIM: "Ich merke deutliche Laggs wenn ich alle Räume von oben anschaue. In VR
+    // ist dieses überblickende 'von oben schauen' sehr wichtig, dass es möglich ist."
+    //
+    // WHAT THE INSTRUMENTS SAID. In the ModBuild 226 capture (a scenario with every room revealed,
+    // 43 ms mean frame against an 11.11 ms budget):
+    //
+    //     [Perf] STEPS  Rig.Update 1.989ms avg, worst 28.80ms, 85.0ms/s, frames 1284
+    //                   Rig.MapRoomPredicate 1.974ms avg, worst 28.77ms, 84.4ms/s, frames 1284
+    //
+    // i.e. 1.974 of Rig.Update's 1.989 ms — 99.2 % of the entire rig frame — was THIS ONE LOOKUP,
+    // in a scenario, for a campaign-map feature that cannot possibly stand there.
+    //
+    // THE PROOF THAT IT IS THE CADENCE AND NOT THE PREDICATE'S ARITHMETIC. Of the 255 [Perf] SPIKE
+    // lines in that log whose worst step is Rig.Update, 252 land on a frame with
+    // `Time.frameCount % 10 == 9`. FindIntervalFrames was 10. The spike frame IS the sweep frame,
+    // 252 times out of 255; the other nine frames in each group of ten cost nothing at all. One
+    // sweep priced at 18–29 ms, amortised over ten frames, is exactly the 1.97 ms average and
+    // exactly the 28.77 ms worst. There is no second candidate.
+    //
+    // THE ROOT CAUSE IS THE COMMENT THAT USED TO SIT ON FindIntervalFrames: "Near-free when the
+    // scene has none (the scan is type-indexed)". THAT IS FALSE, and Core/SceneRegistry.cs already
+    // says so in writing off three independent hardware readings: Object.FindObjectOfType<T> is
+    // "O(every loaded object), not O(objects of that type) — with Addressables holding a big room's
+    // assets resident that is a six-figure scan". A scenario with every room revealed is the
+    // largest object graph this game ever holds, which is why the cost RISES across the session in
+    // the log (0.94 ms → 1.84 → 1.97 → 2.02 ms average as rooms open) — the signature of a scene
+    // sweep, not of a predicate. And the sweep can NEVER succeed in a scenario, so it was paid
+    // 6 times a second, forever, to learn the same "no" every time.
+    //
+    // THE FIX: ASK THE GAME. `MapChoreographer : Singleton<MapChoreographer>`
+    // (decompiled/GH.Runtime/MapChoreographer.cs:33), and that base is the plain-static flavour
+    // (decompiled/GH.Runtime/Singleton.cs) — `_instance` is written in `Awake` and nulled in
+    // `OnDestroy`, with NO lazy FindObjectOfType in the getter (the FFSNet and Chronos Singletons in
+    // this game DO have one; this is not that base, and the distinction is load-bearing).
+    // MapChoreographer chains both: `Awake` calls `base.Awake()` at line 214 and `OnDestroy` calls
+    // `base.OnDestroy()` at line 247. So `Singleton<MapChoreographer>.Instance` is a static field
+    // read — free, exact, and available on the very frame the choreographer awakes instead of up to
+    // ten frames later. The same shape is already shipped in this codebase eight times over
+    // (Singleton<UIOptionsWindow>, Singleton<StoryController>, Singleton<ActorStatPanel>, …) and
+    // GuildmasterDestinations retired the identical defect for UIGuildmasterHUD in ModBuild 195.
+    //
+    // WHY THE STATIC IS NOT MERELY *CHEAPER* BUT AT LEAST AS COMPLETE. Enumerate the ways the two
+    // answers could differ:
+    //   - Two choreographers alive: the static holds the last to awake; the parameterless sweep
+    //     returns an arbitrary one. Neither is more correct, and the game is a singleton by design.
+    //   - A choreographer instantiated INACTIVE: `Awake` has not run, so the static is cold — but
+    //     `FindObjectOfType<T>()` without `includeInactive` skips it too. Identical.
+    //   - A DontSave/HideAndDontSave choreographer: the sweep skips those (the round-6 finding in
+    //     MaterialLoaderHeal); the static does not care. The static is the WIDER answer here.
+    //   - THE ONE REAL GAP — the destroy-order race: instance B awakes (static = B), then instance
+    //     A's OnDestroy runs and nulls the static while B is alive. A sweep would still find B.
+    //     This needs a PRIOR choreographer on the same scene, which is precisely what
+    //     _sawChoreoThisScene records, and it is the entire justification for the resurrection
+    //     window below. On a scene that has never had one awake, there is no path by which a
+    //     choreographer exists and the static is cold — so a scenario pays ZERO sweeps.
+    //
+    // WHY THERE IS STILL A SWEEP AT ALL (the anti-trap). Two of this project's standing lessons
+    // apply directly. "A scan that only logs on success hides that it never ran" — so the audit
+    // below logs BOTH outcomes and always prints its price, and MapRoom.Sweeps is REGISTERED with
+    // the perf monitor so it appears on the [Perf] COUNTS line as an explicit 0/s rather than being
+    // omitted (an omitted counter is indistinguishable from an instrument that never ran). And
+    // "verify the outcome, not the path" — the one-shot audit does not ASSERT that the static is
+    // authoritative, it CHECKS it once per scene against the very call it replaces, and shouts if
+    // they ever disagree.
+    //
+    // REJECTED — a Harmony postfix on MapChoreographer.Awake feeding a ComponentRegistry, the
+    // Core/SceneRegistry.cs shape. It is strictly more machinery for strictly less information: the
+    // game's own static is written by the very method we would be patching, so the registry would
+    // be a copy of a field we can already read for free, plus a patch to keep inventoried.
+    //
+    // REJECTED — simply raising FindIntervalFrames to 60 or 600. That divides the cost without
+    // removing it, keeps a 20–30 ms hitch on a fixed cadence (which is what the user FEELS — a
+    // periodic hitch reads worse than a uniform slowdown), and leaves the map room up to ten
+    // seconds late to engage. The cadence was never the bug; asking the question that way was.
+    //
+    // REJECTED — gating on "are we in a scenario" (VRModeStateMachine.ScenarioBoardExists). That is
+    // the NEGATIVE gate the class doc forbids in bold: the whole architecture rests on a positively
+    // decided map-open signal so the MAIN MENU can never take a map rig. This change does not touch
+    // the polarity of the gate — it replaces one positive signal with a cheaper, earlier, strictly
+    // no-narrower positive signal.
+    //
+    // EXPECTED FIGURE: Rig.MapRoomPredicate falls from 1.974 ms avg / 84.4 ms/s to a static field
+    // read plus (only on a live campaign map) MapParchment.Acquire's cached-renderer bounds check —
+    // i.e. under 0.01 ms/frame and under 0.5 ms/s — and 252 multi-budget spike frames disappear.
+    // Rig.Update should read ~0.015 ms avg, because that is all that was ever left of it.
+    //
+    // FALSIFIER, free and without hardware: grep the next log for 'MAP ROOM DISCOVERY'. One line
+    // per scene, and it states the sweep's own price and whether the static agreed with it. If
+    // Rig.MapRoomPredicate is still measured in milliseconds after this, the singleton has gone
+    // cold with a live choreographer and MapRoom.Sweeps on the [Perf] COUNTS line will be non-zero
+    // and climbing — a fact on the line, not an inference.
+
+    /// <summary>
+    /// The live <c>MapChoreographer</c>, from the game's own singleton static — see the block
+    /// comment above for why that is free, why it is not narrower than the full-scene sweep it
+    /// replaces, and what the two fallbacks below are for.
+    /// </summary>
+    private static global::MapChoreographer? ResolveChoreographer()
+    {
+        // Declare the sweep counter the first time this class can possibly sweep, so the
+        // [Perf] COUNTS line carries "MapRoom.Sweeps 0/s" as an explicit measurement. Registered
+        // HERE and not at module init because the switch is off by default and an always-zero row
+        // for a feature nobody enabled is noise, not evidence.
+        if (!_countersRegistered)
+        {
+            _countersRegistered = true;
+            PerfMonitor.Register("MapRoom.Sweeps");
+        }
+
+        // (1) THE FREE ANSWER. A static field read, written by MapChoreographer.Awake.
+        if (Singleton<global::MapChoreographer>.IsInitialized)
+        {
+            global::MapChoreographer live = Singleton<global::MapChoreographer>.Instance;
+            if (live != null)
+            {
+                _sawChoreoThisScene = true;
+                _resurrectionSweepsLeft = ResurrectionSweepBudget;
+                _resurrectionGaveUp = false;
+                return live;
+            }
+        }
+
+        // (2) THE ONE-SHOT CROSS-CHECK, once per scene, and only while the experimental switch is
+        // on (this method is unreachable otherwise). It prices the very call this change removed,
+        // which is also the number the OTHER periodic sweeps in this mod should be judged against.
+        if (_auditPending)
+        {
+            _auditPending = false;
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            global::MapChoreographer? swept = Object.FindObjectOfType<global::MapChoreographer>();
+            watch.Stop();
+            NoteSweep();
+            double sweptMs = watch.Elapsed.TotalMilliseconds;
+            if (swept == null)
+            {
+                VRLog.Info(Scope,
+                    $"MAP ROOM DISCOVERY: the game's own Singleton<MapChoreographer> static reads COLD, "
+                    + $"and one full-scene FindObjectOfType<MapChoreographer>() AGREED — it also found "
+                    + $"nothing, and it cost {sweptMs:F2} ms to say so. That is the whole reason this "
+                    + "class no longer runs one every 10 frames: in ModBuild 226 that sweep was "
+                    + "1.974 ms of EVERY frame of a scenario (99.2% of Rig.Update) and it could never "
+                    + "have succeeded. The static is written by MapChoreographer.Awake and cleared by "
+                    + "its OnDestroy, so from here on the answer is a field read. This line is printed "
+                    + "once per scene whether the two agree or not — a cross-check that only spoke up "
+                    + "on disagreement would be indistinguishable from one that never ran.");
+                return null;
+            }
+            _sawChoreoThisScene = true;
+            VRLog.Warn(Scope,
+                $"MAP ROOM DISCOVERY DISAGREEMENT: Singleton<MapChoreographer> reads COLD but a "
+                + $"full-scene sweep FOUND '{swept.name}' ({sweptMs:F2} ms). The static is therefore "
+                + "NOT authoritative on this scene — either MapChoreographer.Awake stopped chaining to "
+                + "base.Awake() (it did chain at decompiled MapChoreographer.cs:214) or a dying "
+                + "instance's OnDestroy nulled the static after its replacement awoke. Falling back to "
+                + "the sweep for this instance; the map room still works, but Rig.MapRoomPredicate "
+                + "will be expensive again and MapRoom.Sweeps on the [Perf] COUNTS line will climb. "
+                + "This line is the one to bring to the next round.");
+            return swept;
+        }
+
+        // (3) THE RESURRECTION WINDOW. Only reachable on a scene that HAS had a live choreographer:
+        // the destroy-order race is the one way a live instance can coexist with a cold static, and
+        // it needs a prior instance. Bounded, because an unbounded window on a campaign map that is
+        // torn down without a scene load is the very defect this change removes.
+        if (!_sawChoreoThisScene || _resurrectionSweepsLeft <= 0)
+        {
+            if (_sawChoreoThisScene && !_resurrectionGaveUp)
+            {
+                _resurrectionGaveUp = true;
+                VRLog.Info(Scope,
+                    $"MAP ROOM DISCOVERY: the singleton went cold on a scene that had a choreographer, "
+                    + $"and {ResurrectionSweepBudget} bounded re-sweeps did not find a live one — the "
+                    + "campaign map is genuinely gone. No further sweeps until the singleton answers "
+                    + "again or the scene changes; that bound is what stops a torn-down map from "
+                    + "reinstating the per-frame scene scan this class was built to remove.");
+            }
+            return null;
+        }
+        if (_findFrameValid && Time.frameCount - _findFrame < FindIntervalFrames)
+            return null;
+        // NOT a `now - int.MinValue` sentinel: that overflows and the cadence never fires (the
+        // documented sentinel-overflow trap). A separate validity bool has no arithmetic in it.
+        _findFrame = Time.frameCount;
+        _findFrameValid = true;
+        _resurrectionSweepsLeft--;
+        NoteSweep();
+        return Object.FindObjectOfType<global::MapChoreographer>();
+    }
+
+    /// <summary>Book one full-scene sweep, on the counter AND in the lifetime total, so "how many
+    /// did we pay for" is a number on the <c>[Perf] COUNTS</c> line rather than an inference.</summary>
+    private static void NoteSweep()
+    {
+        _sweepsPaid++;
+        PerfMonitor.Count("MapRoom.Sweeps");
+    }
 
     /// <summary>
     /// Grace handling for a transient absence: keep the mode up for
@@ -504,11 +736,25 @@ internal static class MapRoomDriver
                           + "buffer detached, the flat map render is free to take over again.");
     }
 
-    /// <summary>Drop the cached choreographer on a scene change (Unity fake-null revives the find).</summary>
+    /// <summary>
+    /// Drop the cached choreographer on a scene change (Unity fake-null revives the find) and
+    /// re-arm every per-scene fact the lookup hangs off: the one-shot cross-check, the "a
+    /// choreographer has been seen here" flag that is the ONLY thing that can ever re-enable a
+    /// sweep, and the resurrection budget. Registers the sweep counter at ZERO for the new scene
+    /// as well, so the <c>[Perf] COUNTS</c> line prints "MapRoom.Sweeps 0/s" as a measurement
+    /// rather than omitting the row — an omitted counter reads exactly like an instrument that
+    /// never ran.
+    /// </summary>
     internal static void ForgetScene()
     {
         _choreo = null;
-        _findFrame = int.MinValue;
+        _findFrameValid = false;
+        _findFrame = 0;
+        _sawChoreoThisScene = false;
+        _auditPending = true;
+        _resurrectionSweepsLeft = ResurrectionSweepBudget;
+        _resurrectionGaveUp = false;
+        PerfMonitor.Register("MapRoom.Sweeps");
     }
 
     /// <summary>
@@ -530,7 +776,10 @@ internal static class MapRoomDriver
             "MAP ROOM ENGAGED.\n"
             + $"  predicate : WANTED — {_verdict}. (The gate is positive by construction: no "
             + "MapChoreographer ⇒ no map rig, so the MAIN MENU is untouched and keeps the "
-            + "mod-layer-only mask of test #10.)\n"
+            + "mod-layer-only mask of test #10.) The choreographer was found through the game's own "
+            + $"Singleton<MapChoreographer> static; this session has paid for {_sweepsPaid} full-scene "
+            + "sweep(s) in total, and anything above the one-per-scene cross-check is the ModBuild "
+            + "227 regression — see MAP ROOM DISCOVERY and MapRoom.Sweeps on [Perf] COUNTS.\n"
             + $"  parchment : '{(r != null ? r.name : "<none>")}' on layer "
             + $"{(r != null ? r.gameObject.layer : -1)}, {(Parchment.IsCity ? "CITY" : "WORLD")} map. "
             + $"World bounds center {b.center} size {b.size} (thickness {Mathf.Abs(b.size.y):F3} world "

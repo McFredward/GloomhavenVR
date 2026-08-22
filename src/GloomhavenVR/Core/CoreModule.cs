@@ -57,10 +57,24 @@ internal sealed class CoreModule : IVRModule
         // Frame-pacing instrumentation (2026-07 perf pass). Cheap and self-disabling: with
         // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
         PerfMonitor.Install(_hostGo);
+        // The grep list is exhaustive on purpose. Every hardware round of this project starts with
+        // somebody being told which string to search a 9 MB Player.log for, and a line nobody knows
+        // the name of is a line nobody reads — [Perf] SCENE spent five ModBuilds switched off while
+        // three separate analyses cited what it "would" have said.
         VRLog.Info(Name, "Performance monitor installed — grep the log for '[Perf] FRAME' "
-                         + "(pacing/GC/XR summary), '[Perf] STEPS' (mod subsystems ranked by cost) "
-                         + "and '[Perf] SPIKE' (individual over-budget frames). Configure in "
-                         + "dev.gloomhavenvr.perf.cfg or under Einstellungen › Grafik.");
+                         + "(pacing/GC/XR summary), '[Perf] STEPS' (mod subsystems ranked by cost), "
+                         + "'[Perf] SPIKE' (individual over-budget frames), '[Perf] SPLIT' (which "
+                         + "LAYER owns the frame: logic vs render loop vs blocked, per camera, now "
+                         + "with each camera's figure broken into CULL and SUBMIT), '[Perf] SIM' "
+                         + "(what the MAIN-THREAD LOOP iterates over: the length of Unity's "
+                         + "Update/LateUpdate lists, the heaviest ticking behaviour TYPES by "
+                         + "instance count, and the Animator/ParticleSystem census by cullingMode), "
+                         + "'[Perf] SCENE' (what the RENDER LOOP is asked to submit, by root, "
+                         + "layer, renderer kind, shader and material) and '[Perf] GFX' (the render "
+                         + "state that multiplies it, plus the command buffers attached to the head "
+                         + "camera). The last three are ON by default from ModBuild 227 and each "
+                         + "prints its own measured cost. Configure in dev.gloomhavenvr.perf.cfg or "
+                         + "under Einstellungen › Grafik.");
 
         if (VRSession.IsRunning)
         {

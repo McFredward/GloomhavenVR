@@ -416,7 +416,131 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 226;
+    public const ushort ModBuild = 227;
+    // Build 227: THE PERFORMANCE ROUND — "alle Räume offen, von oben angeschaut, sehr starke Laggs".
+    // NO WIRE CHANGE. Bundle untouched. Four lanes on disjoint files.
+    //
+    //   THE MEASURED STARTING POINT (ModBuild 226 hardware log, 90 Hz, budget 11.11 ms):
+    //   frametime mean 43.18 / p50 37.55 / p95 75.26 / p99 176.98 ms, OVER BUDGET 72.7 % of frames.
+    //   Layer split: logic (Update→LateUpdate) ~50 %, render loop 11–15 %, blocked 30–39 %.
+    //   Scene: 8,630 renderers, 8,270 enabled, up to 5,660 visible. THE MOD IS 14.6 % OF THE FRAME.
+    //   That last number is the honest frame for this whole round: even a perfect mod buys 6 ms of
+    //   43. What the mod CAN own outright is the stutter, and it did.
+    //
+    //   THE 120 ms FREEZE EVERY TWO SECONDS WAS OURS. `WallFade.Rescan` measured 115.7–118.2 ms avg
+    //   (worst 141.2) on 12–15 frames per 30 s window, and every SPLIT window reported 13–16 logic
+    //   stalls over 100 ms. Fifteen rescans, fifteen stalls — the same number, on the same line,
+    //   one line apart. At 90 Hz each is ~10 dropped frames.
+    //   IT WAS NOT ONE SWEEP, IT WAS FOUR PASSES OVER ONE. `RescanCore` took a single
+    //   FindObjectsOfType<Renderer>() over 8,630 objects and then walked the array four more times,
+    //   each re-deriving the same facts: ≈34,500 GetSharedMaterials, ≈26,000 `r.name` interop
+    //   allocations, ≈10,000 `shader.name` allocations, ≈8,000 figure-ancestor walks and up to
+    //   17,000 formatted-then-DISCARDED reject strings (one carrying a `GetType().Name` reflection),
+    //   for a scene whose fade-capable renderer count is 848. Now: ONE census classifies each
+    //   renderer once per cycle and all four passes read it; the census is budgeted at 1.5 ms/frame
+    //   with a resumable cursor while the COMMIT still runs whole; and the scene sweep is taken only
+    //   when a structure signature moves or the snapshot ages past 6 s. Cached bounds are ONLY EVER
+    //   USED TO REJECT and always widened by 1.0 wu — every survivor is re-measured live — and
+    //   `enabled` is deliberately not cached at all, because a stale `enabled` used as a reject
+    //   would NARROW a set and let a fountain fade (the 2026-08-09 ruling).
+    //
+    //   THE SAME DEFECT, TWICE MORE, AND THE PROOF IS ARITHMETIC. `Rig.MapRoomPredicate` cost
+    //   1.974 of `Rig.Update`'s 1.989 ms EVERY FRAME, worst 28.77 ms — a
+    //   FindObjectOfType<MapChoreographer>() every 10 frames, inside a SCENARIO, where there is no
+    //   MapChoreographer and never will be. Of the 255 spike lines whose worst step is Rig.Update,
+    //   252 land on `frameCount % 10 == 9` — the sweep frame IS the spike frame — and the cost ROSE
+    //   across the session (0.94 → 1.84 → 1.97 → 2.02 ms) as rooms revealed. It shipped behind a
+    //   comment claiming "near-free when the scene has none (the scan is type-indexed)", which is
+    //   false and which SceneRegistry.cs already refuted in writing off three hardware readings.
+    //   MapChoreographer is a plain-static Singleton (no lazy find in the getter — the FFSNet and
+    //   Chronos Singletons in this game DO have one, and the distinction is load-bearing), so the
+    //   answer is a field read. One cross-check sweep per scene, priced and logged on BOTH outcomes.
+    //   THE THIRD: GuildmasterDestinations.Hud()'s cold-singleton fallback swept once per 60 ticks
+    //   FOR EVER in a scenario — 28.5 ms every 60 frames, the whole of ModalFallback's worst 30.03,
+    //   measured with 0 floated windows and the map room down. Bounded to 3 sweeps, re-armed on any
+    //   tick the singleton answers and on every scene change (compared, not subscribed).
+    //
+    //   THE INSTRUMENT'S OWN VERDICT WAS FALSE, AND THAT IS THE MOST IMPORTANT FINDING. The ZOOM
+    //   clause has been asserting for builds that the cost is "view-scaled SIMULATION — animators,
+    //   particle systems and isVisible-gated scripts that stop being culled as the head rises".
+    //   Checked against the decompile for the first time: `cullingMode` / `AlwaysAnimate` /
+    //   `CullUpdateTransforms` / `CullCompletely` → ZERO hits in 4,646 files. No animator in this
+    //   game is ever culled. No script gates Update on `renderer.isVisible`; nothing uses
+    //   OnBecameVisible/Invisible (`RoomVisibilityTracker.IsVisible()` and
+    //   `TilesOcclusionVolume.IsVisible()` are FALSE FRIENDS — both mean "the party revealed this
+    //   room" and neither consults a camera). Two of the three named mechanisms do not exist and the
+    //   third is already at Unity's default. What correlates is POPULATION, not visibility: a reveal
+    //   SetActive(true)s renderers, animators and behaviours in one call, and unrevealed rooms are
+    //   already fully off — there is no dormant cost to reclaim. The log agrees once the thirds are
+    //   read instead of the verdict: one window's MIDDLE third is the most expensive of three, and
+    //   two windows are flat at 71–73 ms across a 19–25 wu sweep.
+    //   SO NO CULLING LEVER SHIPPED, and `CullCompletely` is not merely risky but DISQUALIFIED: door
+    //   open/closed state IS the animator state, Choreographer.Update polls animator states, and 32
+    //   StateMachineBehaviour classes run authoritative logic from animator callbacks — one of them
+    //   SENDS A NETWORK MESSAGE. That is a broken game and an MP-compat violation, not a comfort
+    //   dial. ParticleSystemCullingMode.Pause is out for the same class of reason
+    //   (Choreographer gates end-of-turn on ParticleSystem.IsAlive()).
+    //
+    //   WHAT SHIPPED INSTEAD IS THE MEASUREMENT THAT NAMES THE NEXT LEVER. New `[Perf] SIM`: the
+    //   exact length of Unity's per-frame Update/LateUpdate/FixedUpdate lists (not a proxy — Unity
+    //   walks precisely the enabled behaviours whose TYPE DECLARES the method), the heaviest ticking
+    //   TYPES by instance count, and full Animator/ParticleSystem censuses by cullingMode with a
+    //   verdict clause that states plainly whether the lever exists. `[Perf] SCENE` gains renderer
+    //   KIND and a shader histogram; `[Perf] GFX` gains LODGroups, the head camera's
+    //   layerCullDistances and its attached command buffers. The walk TIMES ITSELF and rations
+    //   itself if it lands above 4 ms, saying so on the windows it skips.
+    //   ONE CATCH WOULD HAVE MADE ALL OF IT WORTHLESS: BepInEx reads the FILE, not the default, and
+    //   the tester's perf.cfg already carries `SceneProfile = false`. A one-shot migration flips it
+    //   exactly once and logs that it did.
+    //
+    //   HIS RESOLUTION CHANGE DID NOTHING, AND COULD NOT HAVE. EyeResolutionScale read 1.00 in all
+    //   30 EYE-TARGET DIAG blocks and the log contains ZERO "Eye render resolution scale asserted"
+    //   lines — that string only prints when the row moves, so its absence is direct evidence. What
+    //   he changed was upstream (the game's own row, or Virtual Desktop), which lands in the
+    //   3072x3264 figure and never in the mod's multiplier. THE CEILING IS COMPUTABLE FROM HIS OWN
+    //   LOG: the ZOOM axis buckets one window at FIXED resolution and FIXED sample count and reads
+    //   `23 visible → 10.97 ms` against `4841 visible → 71.28 ms`. Same pixels, 6.5x the frame time.
+    //   So the entire pixel envelope a resolution lever can attack is ≤ ~7.5 ms, much of it idle-to-
+    //   vsync; at 0.7x he would have recovered 3–4 ms of a 71 ms frame. The row was NOT missing or
+    //   buried (Bild ▸ Darstellung, second row, since the 2026-08 overhaul) — the FEEDBACK was.
+    //   It now announces itself once per session whatever it reads, names the menu path and the cfg
+    //   file, says outright that the game's and VD's sliders are a different number, and — new —
+    //   has a sentence for the case where BOTH levers refuse, which previously had none because the
+    //   code asserted every provider honours renderViewportScale.
+    //   MSAA STAYS AT 8x, argued rather than assumed: the mod disables the PostProcessLayer and the
+    //   boot quality level sets antiAliasing 0, so THE DEFAULT IS THE ANTI-ALIASING. Lowering it
+    //   silently would hand him a softer image with no row having moved — the exact shape of the
+    //   report being answered. The trade is offered as a PRESET instead: [RenderQuality]
+    //   QualityPreset (Qualität / Ausgewogen / Leistung / Schwache Hardware / Eigene), whose index
+    //   is DERIVED from the three dials on every read, so editing one by hand moves the row to
+    //   "Eigene" rather than the preset fighting the edit back.
+    //   AND THE ONE PIXEL LEVER WORTH A TEST: [RenderQuality] PixelLightCount has sat at -1 ("leave
+    //   the game alone") for ever and has NEVER been engaged. In the forward path every per-pixel
+    //   light past the first re-submits every renderer it touches; this scene has 5,660 visible and
+    //   the dungeon is lit by ~16 point lights. It is the only one of the three that reaches the
+    //   RENDER LOOP rather than the pixel envelope. A census now prints how many lights the cap
+    //   actually demotes, and states that a reading of 0 means the cap is inert in this scene —
+    //   without which "no improvement" would carry zero information.
+    //
+    //   TWO INSTRUMENT REPAIRS. `[Perf] STEPS TAIL` — STEPS printed 6 of 127 measured steps, so 121
+    //   had no number at all; the tail now names everything above 1.0 ms/s and totals the residual.
+    //   `PerfMonitor.Register(name)` — LogCounters silently omitted any counter that totalled 0,
+    //   which is the "a scan that only logs on success hides that it never ran" defect in the
+    //   instrument itself; registered counters now print 0/s as evidence.
+    //   AND THE STALLS CLAUSE STOPS NAMING A CAUSE IT CANNOT SEE. It read "a synchronous scene load,
+    //   an asset-bundle decompress or a room regeneration, NOT steady-state cost" — an assertion.
+    //   Every stall in the 226 capture was WallFade.Rescan on a 2 s timer, i.e. steady state, while
+    //   this line talked the reader out of looking one line up. It now names the worst stall FRAME
+    //   NUMBER to grep in the SPIKE lines and says the cause is not visible from there.
+    //
+    //   MEASURED AND DELIBERATELY NOT CHASED: CanvasConversion.Order (worst 0.88 ms all session),
+    //   Order.Measure (0.85), ActorBars.Late (0.57), InitiativeHoverSampler (never appears at all).
+    //   `Order.Panels 304/s worst frame 27` is NOT a burst — it is a once-per-frame sample of
+    //   panels on screen, 7.1/frame. Actor bars already scale with VISIBLE actors (worst frame 22
+    //   with every room open). InitDepth walks 90 nodes/frame for ~0.21 ms — real, and an order of
+    //   magnitude below everything above, so it is recorded here and left.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 226: THE BIG MULTIPLAYER ROUND — sixteen reports from one two-player session, worked as
     // nine parallel lanes on disjoint files. WIRE: record 20 (3D MAP ROOM) grows a SECOND time,
     // 11 → 15 bytes, additively; MapRoomRecordBytes stays FROZEN at 6 as the trusted minimum, so a

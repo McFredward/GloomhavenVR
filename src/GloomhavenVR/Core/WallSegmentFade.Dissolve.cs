@@ -216,6 +216,9 @@ internal static partial class WallSegmentFade
             p.NativeFade = true; // driven by the same native ramp
             p.DissolveWhy = null;
             mr.sharedMaterials = copies;
+            // PERF S2: this renderer's shader family just changed under the scene census —
+            // force the next cycle to re-derive its facts. See _censusMaterialsDirty.
+            _censusMaterialsDirty = true;
             _swapTotal++;
             float now = Time.unscaledTime;
             if (now >= _nextSwapLog)
@@ -327,7 +330,12 @@ internal static partial class WallSegmentFade
                 return;
             }
             if (r is MeshRenderer mr && mr != null && p.SwapOriginals != null)
+            {
                 mr.sharedMaterials = p.SwapOriginals;
+                // PERF S2: the authored materials are back — the census's cached shader
+                // verdict for this renderer is stale. See _censusMaterialsDirty.
+                _censusMaterialsDirty = true;
+            }
             for (int i = 0; i < p.SwapCopies.Length; i++)
             {
                 if (p.SwapOwned != null && i < p.SwapOwned.Length && !p.SwapOwned[i])

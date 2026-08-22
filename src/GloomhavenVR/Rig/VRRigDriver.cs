@@ -478,7 +478,10 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _sceneRecheck = true;
         _sceneRecheckName = e.Scene.name;
         // The cached MapChoreographer belongs to the scene that is going away — drop it so the
-        // predicate re-finds instead of holding a Unity-null for FindIntervalFrames.
+        // predicate re-resolves instead of holding a Unity-null, and re-arm the per-scene facts the
+        // lookup hangs off (its one-shot cross-check and its bounded resurrection window). This is
+        // the ONLY thing that can re-enable a full-scene sweep in that class, which is why it has to
+        // stay on this edge: see the block comment above MapRoomDriver.ResolveChoreographer.
         WorldUI.MapRoom.MapRoomDriver.ForgetScene();
     }
 

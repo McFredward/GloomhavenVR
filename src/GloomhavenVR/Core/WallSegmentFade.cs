@@ -575,6 +575,255 @@ internal static partial class WallSegmentFade
         private readonly List<TilesOcclusionVolume> _volumeScratch = new();
         private readonly List<UnityGameEditorDoorProp> _doorPropScratch = new();
 
+        // ==================================================================================
+        // PERF S2 (2026-08-23) — THE 118 ms RESCAN.
+        //
+        // USER REPORT, verbatim: "Ich hab nun mal eine Map aufgemacht mit vielen Details und
+        // hab dort zum Testen alle Räume aufgemacht. Ich merke deutliche Laggs wenn ich alle
+        // Räume von oben anschaue. In VR ist dieses überblickende 'von oben schauen' sehr
+        // wichtig, dass es möglich ist. Doch es waren schon sehr starke Laggs, dass ein
+        // flüssiges Spielen nicht möglich ist."
+        //
+        // THE MEASUREMENT (ModBuild 226 hardware log, .planning/debug/Player.log). Every
+        // [Perf] STEPS window reported
+        //     WallFade.Rescan 115.6–118.2 ms avg, worst 141.18 ms, ~59 ms/s, frames 12–15
+        // and every [Perf] SPLIT window in the same session reported
+        //     STALLS: 13–16 logic frame(s) over 100 ms in this window.
+        // Fifteen rescans, fifteen stalls, one per two seconds. At 90 Hz each one drops about
+        // ten frames. The stall was ENTIRELY ours; the SPLIT line's stock explanation ("a
+        // synchronous scene load, an asset-bundle decompress or a room regeneration, NOT
+        // steady-state cost") is wrong for this session and misled nobody only because the
+        // STEPS line named the step outright.
+        //
+        // WHERE THE 118 ms WENT. The rescan took ONE full-scene
+        // FindObjectsOfType<Renderer>() (O(every loaded object), not O(matches)) and then
+        // walked the resulting 8630-renderer array FOUR MORE TIMES — once for
+        // AdoptShaderMatchedWalls, once for CollectWaterFeatures, once for
+        // CollectStackCandidates, once for CollectWallMountedProps. Each of those walks
+        // re-derived, per renderer, facts that are properties of the renderer and not of the
+        // caller:
+        //   * GetSharedMaterials + shader-name tests — THREE to FOUR times per renderer per
+        //     rescan (wall-fade family, foliage family, water family);
+        //   * r.name — an interop STRING ALLOCATION, three times per renderer per rescan
+        //     (IsModObject in three of the four passes, plus the water name-token family);
+        //   * m.shader.name — another interop string allocation per material, taken by the
+        //     water test for EVERY scene renderer;
+        //   * r.bounds — a native call per renderer per pass.
+        // Twenty-six thousand interop string allocations and ~35 000 native material fetches
+        // per rescan, for a scene whose fade-capable renderer count is 848.
+        //
+        // THE SHAPE OF THE FIX. Three levers, in order of what they bought:
+        //  1. ONE CENSUS. The scene array is classified exactly ONCE per rescan cycle into the
+        //     RendererFact table below, and all four passes read that table. Nothing about
+        //     WHICH renderers a pass sees changes — the table stores the same predicates the
+        //     passes used to compute inline, evaluated with the same code (IsModObject,
+        //     RendererUsesWallFade, RendererUsesFoliage, the water test,
+        //     IsMountableRendererType), from the same array, in the same order.
+        //  2. A PER-FRAME BUDGET. The census is a PURE READ — it touches no segment, no
+        //     renderer, no material — so it can be spread across frames with a resumable
+        //     cursor without ever exposing a half-built segment table (the precedent in this
+        //     codebase is the ≤400 transforms/frame sweep). Only the COMMIT stage mutates,
+        //     and it runs whole, in one frame, exactly as the old rescan did.
+        //  3. AN EVENT-DRIVEN SWEEP. FindObjectsOfType itself cannot be sliced, so it is taken
+        //     only when the scene's STRUCTURAL SIGNATURE moved (room reveal, a new wall in the
+        //     wall cache, a new map tile / door prop / occlusion volume) or when the snapshot
+        //     aged past SnapshotMaxAgeSeconds. Between those, the same array is re-classified
+        //     — which re-reads every renderer's live bounds and enabled flag, so nothing that
+        //     MOVED is stale; the only thing a reused snapshot cannot see is a renderer that
+        //     was CREATED since it was taken. See SnapshotMaxAgeSeconds for the bound on that
+        //     and for why FastReclaimRegeneratedShell already covers the case that matters.
+        // ==================================================================================
+
+        /// <summary>
+        /// One scene renderer's rescan-relevant classification, computed ONCE per cycle by
+        /// <see cref="ClassifySlice"/> and read by all four collection passes.
+        ///
+        /// <para>WHY A STRUCT ARRAY. The table is walked three more times after it is built
+        /// (stack candidates, mounted dressing, and the wall adoption index), and those walks
+        /// must be pure managed float compares — the whole point is that the native calls
+        /// happen once. A struct array keeps the walk cache-linear and allocation-free; the
+        /// table is grown, never reallocated per cycle.</para>
+        ///
+        /// <para>WHAT IS AUTHORITATIVE AND WHAT IS A PREFILTER. <see cref="Bounds"/> is a
+        /// SNAPSHOT taken during the census slices, i.e. up to a handful of frames before the
+        /// commit. It is used ONLY to reject candidates cheaply (the ground band and the
+        /// union-reach rects) — every bound that ends up inside a segment's decision AABB is
+        /// re-read LIVE from the renderer in the commit stage, exactly as before. Scenery does
+        /// not move between two frames; figures do, and figures are excluded on their own
+        /// account by <see cref="IsFigureOrActorRenderer"/> long before geometry is consulted.
+        /// </para>
+        /// </summary>
+        private struct RendererFact
+        {
+            public Renderer? R;
+            /// <summary>Non-null iff <see cref="R"/> is a MeshRenderer (the type test the
+            /// adoption and stack passes ran inline).</summary>
+            public MeshRenderer? Mesh;
+            public Bounds Bounds;
+            /// <summary>The ANCHOR POINT the mounted/stacked prefilters test — exactly the
+            /// quantity those passes compute inline: <c>transform.position</c> for a
+            /// ParticleSystemRenderer (round-13: a particle system is anchored by its EMITTER,
+            /// never by its live plume bounds, which drift every frame) and
+            /// <c>(bounds.center.x, bounds.min.y, bounds.center.z)</c> for anything else, so
+            /// <c>Anchor.y</c> IS the <c>anchorY</c> both passes use.</summary>
+            public Vector3 Anchor;
+            /// <summary>Fixed for a renderer's lifetime, so a census verdict on it can never
+            /// go stale: the mod LAYER and the 'GloomhavenVR.' name prefix are both stamped at
+            /// creation. (<c>enabled</c> is deliberately NOT cached — the game flips it at
+            /// will, and a stale <c>enabled</c> used as a reject would NARROW a candidate set.
+            /// Every pass that cares reads it live.)</summary>
+            public bool Mod;
+            public bool WallFadeShader;
+            public bool FoliageShader;
+            public bool WaterSurface;
+            public bool Particles;
+            public bool Mountable;
+        }
+
+        /// <summary>The scene snapshot this cycle is classifying (the array
+        /// <c>FindObjectsOfType&lt;Renderer&gt;</c> returned). Reused across cycles when the
+        /// structural signature has not moved — see the PERF S2 note above.</summary>
+        private Renderer[] _snapshot = System.Array.Empty<Renderer>();
+
+        /// <summary>Classification of <see cref="_snapshot"/>, index for index. Grown to fit,
+        /// never shrunk — a rescan must not allocate.</summary>
+        private RendererFact[] _facts = System.Array.Empty<RendererFact>();
+
+        /// <summary>How many entries of <see cref="_facts"/> are live this cycle.</summary>
+        private int _factCount;
+
+        /// <summary>Indices into <see cref="_facts"/> of the MeshRenderers carrying a wall-fade
+        /// shader — the adoption pass's whole input, in snapshot order (the order decides which
+        /// renderer seeds a group's anchor, so it is preserved exactly).</summary>
+        private readonly List<int> _factWallFade = new();
+
+        /// <summary>Indices into <see cref="_facts"/> of the water surfaces — the water pass's
+        /// whole input, in snapshot order.</summary>
+        private readonly List<int> _factWater = new();
+
+        /// <summary>Water-shader verdict per Shader, the same per-Shader memo
+        /// <see cref="_shaderVerdict"/> and <see cref="_shaderFoliageVerdict"/> use. Before
+        /// this existed the water test read <c>m.shader.name</c> — an interop string
+        /// allocation — for every material of every scene renderer, every rescan. See
+        /// <see cref="IsWaterShader"/>.</summary>
+        private readonly Dictionary<Shader, bool> _shaderWaterVerdict = new();
+
+        private enum RescanStage
+        {
+            /// <summary>No cycle in flight; the segment table is the last committed one.</summary>
+            Idle,
+            /// <summary>Walking <see cref="_snapshot"/> with <see cref="_classifyCursor"/>,
+            /// filling <see cref="_facts"/>. Pure reads — nothing is mutated.</summary>
+            Classify,
+            /// <summary>Census complete; the next frame runs the (now cheap) mutation passes
+            /// whole, in one frame.</summary>
+            Commit,
+        }
+
+        private RescanStage _rescanStage = RescanStage.Idle;
+        private int _classifyCursor;
+        /// <summary>COLD = this cycle took a fresh sweep, so every fact must be derived from
+        /// scratch (materials, names, types). WARM = the snapshot was reused, so only the
+        /// values that can change without the renderer being recreated are refreshed: liveness,
+        /// <c>enabled</c> and bounds. A renderer's shader family and name do not change over
+        /// its lifetime; its transform does, every frame.</summary>
+        private bool _classifyCold;
+
+        /// <summary>
+        /// Set whenever the wall system REASSIGNS a renderer's <c>sharedMaterials</c> — the
+        /// dissolve swap (<c>WallSegmentFade.Dissolve.cs</c>) puts body meshes onto copies of
+        /// the masonry fade shader and puts the authored array back on unfade. That is the one
+        /// way a renderer's SHADER FAMILY can change without the renderer being recreated, so
+        /// it is the one thing that can make a warm census's cached
+        /// <c>WallFadeShader</c>/<c>FoliageShader</c>/<c>WaterSurface</c> verdicts wrong. The
+        /// next cycle re-derives every fact from scratch — the budget absorbs it, and the
+        /// alternative (a warm cycle carrying a stale shader verdict for up to
+        /// <see cref="SnapshotMaxAgeSeconds"/>) would be a look change, which this round
+        /// forbids. Static because the restore path is static; there is one driver.
+        /// </summary>
+        private static bool _censusMaterialsDirty;
+
+        private bool _rescanUrgent;
+        private float _snapshotTakenAt = float.NegativeInfinity;
+        private int _snapshotSignature = -1;
+
+        /// <summary>Millisecond budget the census may spend on ONE frame. 1.5 ms against an
+        /// 11.11 ms budget leaves the frame intact; the cycle simply takes more frames. The
+        /// old code spent 118 ms on one frame and dropped ten.</summary>
+        private const float ClassifyBudgetMillis = 1.5f;
+
+        /// <summary>Budget for a cycle triggered by a ROOM REVEAL rather than by the timer.
+        /// A reveal invalidates the room registry outright and walls of an unanchored room are
+        /// held fail-safe SOLID until it re-anchors, so a leisurely census there would show as
+        /// "the walls stopped fading for a moment after the door opened". A reveal already
+        /// coincides with the game's own room-generation hitch, so this is the one place where
+        /// spending more is free.</summary>
+        private const float ClassifyUrgentBudgetMillis = 6f;
+
+        /// <summary>How many facts to classify between two clock reads. The Stopwatch read is
+        /// itself ~20 ns, so checking it per renderer would be a measurable share of a walk
+        /// whose per-item cost is what this whole change is about.</summary>
+        private const int ClassifyChunk = 256;
+
+        /// <summary>
+        /// How stale a reused scene snapshot may get before a fresh
+        /// <c>FindObjectsOfType&lt;Renderer&gt;</c> is taken regardless of the structural
+        /// signature.
+        ///
+        /// <para>WHAT A REUSED SNAPSHOT CAN MISS, EXACTLY. Only a renderer CREATED since the
+        /// sweep. Destroyed ones are caught by the per-fact null check; moved ones by the warm
+        /// re-classification, which re-reads bounds every cycle. Every creation path this
+        /// system cares about moves the structural signature and takes a fresh sweep on the
+        /// spot: a room reveal (m_RoomRenderers), a new wall (ProceduralWall.m_WallCache), a
+        /// new map tile / door prop / occlusion volume (the SceneRegistry counts), a scene load
+        /// (OnSceneLoaded resets the cycle). The one path that does NOT is Apparance
+        /// REGENERATING content under an existing tile — and that is precisely the case
+        /// <see cref="FastReclaimRegeneratedShell"/> exists for, which sweeps on its own 0.25 s
+        /// cadence while any stack-carrying wall is held faded. This value bounds everything
+        /// else at six seconds, three rescans' worth, against the two seconds it used to be.
+        /// </para>
+        /// </summary>
+        private const float SnapshotMaxAgeSeconds = 6f;
+
+        /// <summary>
+        /// Slack applied to every geometric test that reads a CENSUS bound rather than a live
+        /// one, so a cached AABB can only ever REJECT what the live test would also reject.
+        ///
+        /// <para>WHY IT IS SAFE AT THIS SIZE. A fact's bounds are at most one census's worth of
+        /// frames old — a handful of frames at 90 Hz, a fraction of a second at the 18 fps this
+        /// scenario actually runs at. The renderers these prefilters gate are static scenery
+        /// (masonry courses, sconces, banners, shell stories): they do not move at all. The
+        /// things that DO move are figures and their accessories, and those are excluded by
+        /// <see cref="IsFigureOrActorRenderer"/> on their own account, before any geometry is
+        /// consulted. 1 wu is a whole ground-exclusion band — far more than anything static can
+        /// travel in that window — and every candidate that survives a cached prefilter is
+        /// re-tested against its LIVE bounds before it can be claimed.</para>
+        /// </summary>
+        private const float CensusBoundsSlackWU = 1.0f;
+
+        /// <summary>Cycle accounting for the one attributable diagnostic line
+        /// (<see cref="LogRescanBudget"/>) — reset every time that line is printed.</summary>
+        private int _cycleCount;
+        private int _cycleSweeps;
+        private int _cycleClassifyFrames;
+        private float _cycleWorstFrameMillis;
+        private float _cycleWorstCommitMillis;
+        private float _cycleWorstSweepMillis;
+        private float _nextBudgetLogTime;
+        private bool _budgetLoggedOnce;
+
+        /// <summary>How often the budget line prints. Deliberately NOT per cycle (that would
+        /// be one line every two seconds in a 9 MB log) and deliberately NOT change-triggered:
+        /// a sweep that only logs when it finds something hides that it never ran, and this
+        /// project has paid for that lesson. It prints on the FIRST completed cycle and then
+        /// every five seconds, whatever it found — including nothing.</summary>
+        private const float BudgetLogIntervalSeconds = 5f;
+
+        /// <summary>Shared clock for the per-frame budget. One instance, started once — a
+        /// Stopwatch that is allocated per slice would be its own cost.</summary>
+        private static readonly System.Diagnostics.Stopwatch RescanClock =
+            System.Diagnostics.Stopwatch.StartNew();
+
         // Perspective-change tracking (arms aggressive re-evaluation for ReevalArmSeconds).
         private float _lastReevalTime = float.NegativeInfinity;
         private int _lastPoseVersion = -1;
@@ -606,6 +855,8 @@ internal static partial class WallSegmentFade
             _heartbeatLogged = false;
             _nextDiagTime = 0f;
             _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
+            _shaderWaterVerdict.Clear(); // …and so did the water shaders (PERF S2)
+            AbandonRescanCycle();   // a census of the OLD scene may never commit into the new one
             _splitAnchors.Clear();
             _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
             _lastRoomCensusAnchored = -1;
@@ -679,24 +930,37 @@ internal static partial class WallSegmentFade
             {
                 // Toggled off / no scenario: revert to exactly-solid immediately.
                 if (_wasActive)
+                {
                     ClearAllBlocks("inactive (toggle off / no scenario / no head)");
+                    // PERF S2: a census in flight is measured against a scene we are no longer
+                    // watching — resume would commit it blind. Drop it and its snapshot; the
+                    // next active tick opens a fresh cycle.
+                    AbandonRescanCycle();
+                }
                 _wasActive = false;
                 return;
             }
             _wasActive = true;
 
             float now = Time.unscaledTime;
-            if (now >= _nextRescan || gen!.m_RoomRenderers.Count != _builtRoomCount)
+            bool sweptThisFrame = false;
+            // PERF S2: the rescan is a three-stage pipeline now (sweep → budgeted census →
+            // commit), not a single 118 ms call. A cycle is only STARTED when none is in
+            // flight, so the reveal edge below cannot re-trigger every frame while the census
+            // is still walking — _builtRoomCount is not updated until the commit runs.
+            if (_rescanStage == RescanStage.Idle
+                && (now >= _nextRescan || gen!.m_RoomRenderers.Count != _builtRoomCount))
             {
                 _nextRescan = now + RescanIntervalSeconds;
-                // PERF S1: its own scope. Until 2026-08-09 the 50-97 ms rescans were invisible
-                // INSIDE 'WallFade.Late' and could only be INFERRED from a mean/median gap
-                // (1.73 vs 0.14 ms) — which is exactly why nobody could price them. Nested
-                // scopes are attributed individually by PerfMonitor and only depth-0 feeds the
-                // mod total, so this cannot double-count against 'WallFade.Late'.
-                using (PerfMonitor.Scope("WallFade.Rescan"))
-                    Rescan(gen!);
+                // A frame that had to take the FindObjectsOfType sweep has already spent more
+                // than the budget allows, so it does no census work on top — the census starts
+                // on the next frame. Nothing waits on it: the segment table in force is the
+                // last committed one, exactly as it was between two old rescans.
+                sweptThisFrame =
+                    BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _builtRoomCount);
             }
+            if (_rescanStage != RescanStage.Idle && !sweptThisFrame)
+                StepRescanCycle(gen!, now);
             if (_segments.Count == 0 || _roomBounds.Count == 0)
                 return;
 
@@ -1739,6 +2003,349 @@ internal static partial class WallSegmentFade
             _figurePurgeScratch.Clear();
         }
 
+        // ---- the rescan pipeline (PERF S2) -------------------------------------------------
+
+        /// <summary>
+        /// The scene's STRUCTURAL SIGNATURE: the counters that move when a renderer this system
+        /// cares about is CREATED. Cheap by construction — five list/registry counts, no walk.
+        ///
+        /// <para>Every one of these is monotonic within a scene and every one of them is the
+        /// game's own bookkeeping, not ours: <c>m_RoomRenderers</c> grows on a room reveal,
+        /// <c>ProceduralWall.m_WallCache</c> grows as Apparance builds walls, and the three
+        /// SceneRegistry registries grow as tiles / door props / occlusion volumes enrol in
+        /// their own lifecycle methods (they count enrolled entries, destroyed ones included,
+        /// so a churned scene still shows the growth). A change here means the last snapshot
+        /// can no longer be complete, so the next cycle sweeps.</para>
+        /// </summary>
+        private static int SceneStructureSignature(TilesOcclusionGenerator gen)
+        {
+            int sig = 17;
+            try
+            {
+                sig = sig * 31 + gen.m_RoomRenderers.Count;
+                sig = sig * 31 + (ProceduralWall.m_WallCache?.Count ?? 0);
+                sig = sig * 31 + SceneRegistry.MapTiles.Count;
+                sig = sig * 31 + SceneRegistry.DoorProps.Count;
+                sig = sig * 31 + SceneRegistry.Volumes.Count;
+            }
+            catch
+            {
+                // A game structure mid-build: treat it as "changed" so the cycle sweeps. Never
+                // as "unchanged", which would let a reused snapshot outlive its scene.
+                return _structureUnknown++;
+            }
+            return sig;
+        }
+
+        private static int _structureUnknown = int.MinValue / 2;
+
+        /// <summary>
+        /// Open a rescan cycle: take (or reuse) the scene snapshot, then hand over to
+        /// <see cref="StepRescanCycle"/>. The SWEEP is the one part that cannot be sliced —
+        /// <c>FindObjectsOfType</c> is atomic and O(every loaded object) — so it gets its own
+        /// PerfMonitor scope and is taken as rarely as correctness allows (see
+        /// <see cref="SnapshotMaxAgeSeconds"/>).
+        /// </summary>
+        /// <returns>True when this frame had to take the (atomic, unsliceable) scene sweep, so
+        /// the caller can leave the census to the next frame instead of stacking it on top.
+        /// </returns>
+        private bool BeginRescanCycle(TilesOcclusionGenerator gen, float now, bool urgent)
+        {
+            _rescanUrgent = urgent;
+            int sig = SceneStructureSignature(gen);
+            bool mustSweep = _snapshot.Length == 0
+                || sig != _snapshotSignature
+                || now - _snapshotTakenAt >= SnapshotMaxAgeSeconds
+                || float.IsNegativeInfinity(_snapshotTakenAt);
+            if (mustSweep)
+            {
+                using (PerfMonitor.Scope("WallFade.Sweep"))
+                {
+                    float t0 = (float)RescanClock.Elapsed.TotalMilliseconds;
+                    _snapshot = UnityEngine.Object.FindObjectsOfType<Renderer>();
+                    float ms = (float)RescanClock.Elapsed.TotalMilliseconds - t0;
+                    if (ms > _cycleWorstSweepMillis)
+                        _cycleWorstSweepMillis = ms;
+                }
+                _snapshotSignature = sig;
+                _snapshotTakenAt = now;
+                _cycleSweeps++;
+                _classifyCold = true;
+            }
+            else
+            {
+                // WARM: same array, re-read live. See RendererFact for what that can and
+                // cannot miss — and _censusMaterialsDirty for the one thing that forces a
+                // full re-derivation without a fresh sweep.
+                _classifyCold = _censusMaterialsDirty;
+            }
+            _censusMaterialsDirty = false;
+            if (_facts.Length < _snapshot.Length)
+                _facts = new RendererFact[Mathf.NextPowerOfTwo(Mathf.Max(_snapshot.Length, 256))];
+            _factCount = _snapshot.Length;
+            _classifyCursor = 0;
+            _factWallFade.Clear();
+            _factWater.Clear();
+            _rescanStage = RescanStage.Classify;
+            return mustSweep;
+        }
+
+        /// <summary>
+        /// Advance the cycle within this frame's budget. CLASSIFY is resumable and touches
+        /// nothing; COMMIT is atomic and is where every mutation lives, so it is never split.
+        /// </summary>
+        private void StepRescanCycle(TilesOcclusionGenerator gen, float now)
+        {
+            float budget = _rescanUrgent ? ClassifyUrgentBudgetMillis : ClassifyBudgetMillis;
+            float frameStart = (float)RescanClock.Elapsed.TotalMilliseconds;
+
+            if (_rescanStage == RescanStage.Classify)
+            {
+                _cycleClassifyFrames++;
+                using (PerfMonitor.Scope("WallFade.Classify"))
+                {
+                    while (_classifyCursor < _factCount)
+                    {
+                        int end = Mathf.Min(_classifyCursor + ClassifyChunk, _factCount);
+                        ClassifySlice(_classifyCursor, end);
+                        _classifyCursor = end;
+                        if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget)
+                            break;
+                    }
+                }
+                if (_classifyCursor < _factCount)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+                _rescanStage = RescanStage.Commit;
+                // Only run the commit on the SAME frame when the census barely cost anything —
+                // otherwise the frame that finishes the census would also carry the commit and
+                // we would be back to one fat frame, just a smaller one.
+                if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget * 0.5f)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+            }
+
+            // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
+            // is what the [Perf] STEPS line ranks and what the integrator greps. It now covers
+            // the COMMIT only — the sweep and the census report as 'WallFade.Sweep' and
+            // 'WallFade.Classify', so the three costs are separable for the first time.
+            using (PerfMonitor.Scope("WallFade.Rescan"))
+            {
+                float c0 = (float)RescanClock.Elapsed.TotalMilliseconds;
+                Rescan(gen);
+                float ms = (float)RescanClock.Elapsed.TotalMilliseconds - c0;
+                if (ms > _cycleWorstCommitMillis)
+                    _cycleWorstCommitMillis = ms;
+            }
+            _rescanStage = RescanStage.Idle;
+            _rescanUrgent = false;
+            _cycleCount++;
+            NoteCycleFrame(frameStart);
+            LogRescanBudget(now);
+        }
+
+        /// <summary>
+        /// Drop the cycle in flight and every reference it holds. Called on scene load and
+        /// teardown: a census taken over the OLD scene may never reach a commit, and the
+        /// snapshot array must not keep a scene's worth of dead renderers alive. The next tick
+        /// opens a fresh cycle with a fresh sweep (the signature check sees an empty snapshot).
+        /// </summary>
+        private void AbandonRescanCycle()
+        {
+            _rescanStage = RescanStage.Idle;
+            _rescanUrgent = false;
+            _classifyCursor = 0;
+            _factCount = 0;
+            _factWallFade.Clear();
+            _factWater.Clear();
+            _snapshot = System.Array.Empty<Renderer>();
+            _facts = System.Array.Empty<RendererFact>();
+            _snapshotSignature = -1;
+            _snapshotTakenAt = float.NegativeInfinity;
+        }
+
+        private void NoteCycleFrame(float frameStart)
+        {
+            float ms = (float)RescanClock.Elapsed.TotalMilliseconds - frameStart;
+            if (ms > _cycleWorstFrameMillis)
+                _cycleWorstFrameMillis = ms;
+        }
+
+        /// <summary>
+        /// Classify <c>[from, to)</c> of the snapshot into <see cref="_facts"/>. This is the
+        /// ONLY place the four collection passes' per-renderer predicates are evaluated, and it
+        /// evaluates each of them exactly once per renderer per cycle.
+        ///
+        /// <para>SAME VERDICTS, SAME CODE. Every flag below is filled by the very method the
+        /// pass used to call inline — <see cref="IsModObject"/>,
+        /// <see cref="RendererUsesWallFade"/>, <see cref="RendererUsesFoliage"/>,
+        /// <see cref="IsWaterShader"/> + <see cref="IsWaterNameFamily"/>,
+        /// <see cref="IsMountableRendererType"/> — over the same
+        /// array in the same order. The two index lists are filled under the same conditions
+        /// their pass's own loop used, so the passes see the same members in the same sequence
+        /// (which matters: the first fade renderer of a group seeds that group's anchor).</para>
+        ///
+        /// <para>WARM SLICES re-read only what a live renderer can change without being
+        /// recreated: liveness and the transform-derived bounds/anchor. Shader family, name and
+        /// component type are fixed for a renderer's lifetime, so re-deriving them would be
+        /// spending the exact interop cost this change exists to remove (the one exception,
+        /// our own dissolve material swap, forces a cold cycle — see
+        /// <c>_censusMaterialsDirty</c>). <c>enabled</c> is not cached at all: see
+        /// <see cref="RendererFact.Mod"/> for why. The
+        /// index lists are rebuilt on every slice, warm or cold, so a renderer that died is
+        /// dropped from them immediately.</para>
+        /// </summary>
+        private void ClassifySlice(int from, int to)
+        {
+            for (int i = from; i < to; i++)
+            {
+                Renderer? r = _snapshot[i];
+                ref RendererFact f = ref _facts[i];
+                if (r == null)
+                {
+                    f.R = null;
+                    f.Mesh = null;
+                    continue;
+                }
+                bool cold = _classifyCold || !ReferenceEquals(f.R, r);
+                if (cold)
+                {
+                    f.R = r;
+                    f.Mesh = r as MeshRenderer;
+                    f.Particles = r is ParticleSystemRenderer;
+                    f.Mountable = IsMountableRendererType(r);
+                    ClassifyMaterialsAndName(r, ref f);
+                }
+                f.Bounds = r.bounds;
+                f.Anchor = f.Particles
+                    ? r.transform.position
+                    : new Vector3(f.Bounds.center.x, f.Bounds.min.y, f.Bounds.center.z);
+
+                // AdoptShaderMatchedWalls' input: `any is MeshRenderer && RendererUsesWallFade`.
+                // No enabled/mod filter — the old loop had none either.
+                if (f.Mesh != null && f.WallFadeShader)
+                    _factWallFade.Add(i);
+                // CollectWaterFeatures' input. `enabled` is deliberately NOT part of the
+                // membership test even though the pass's own guard has it: it is the one flag
+                // the game flips at will, so a census verdict could go stale and drop a water
+                // surface — and a dropped water surface means a fountain that fades, which the
+                // 2026-08-09 ruling forbids ("lass den Brunnen niemals faden"). The pass reads
+                // it LIVE instead; membership here is only the parts that cannot change.
+                if (f.WaterSurface && !f.Mod)
+                    _factWater.Add(i);
+            }
+        }
+
+        /// <summary>
+        /// The four name/shader verdicts a scene renderer carries, derived from ONE
+        /// <c>GetSharedMaterials</c> and ONE <c>r.name</c> read.
+        ///
+        /// <para>WHY THIS EXISTS AS ITS OWN METHOD. The four collection passes asked four
+        /// separate questions of the same renderer — <see cref="RendererUsesWallFade"/>,
+        /// <see cref="RendererUsesFoliage"/>, the water test (<see cref="IsWaterShader"/> +
+        /// <see cref="IsWaterNameFamily"/>) and
+        /// <see cref="IsModObject"/> — and each of those opened its own
+        /// <c>GetSharedMaterials</c> and/or its own <c>r.name</c>. Both are INTEROP calls and
+        /// <c>r.name</c> allocates a managed string every time. Over 8630 renderers that was
+        /// ~26 000 material fetches and ~26 000 string allocations per rescan for four
+        /// questions with a single, shared answer. The verdict logic below is those four
+        /// methods' bodies, unchanged, sharing one fetch: the per-Shader memos are the same
+        /// three dictionaries they already used (so a shader seen by any of the three questions
+        /// answers instantly for the others), the mod test is the same layer-or-prefix pair,
+        /// and the water name family is the same token list, consulted — as before — only when
+        /// the shader family already said no.</para>
+        /// </summary>
+        private void ClassifyMaterialsAndName(Renderer r, ref RendererFact f)
+        {
+            bool wallFade = false, foliage = false, water = false;
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            for (int mi = 0; mi < _matScratch.Count; mi++)
+            {
+                Material mat = _matScratch[mi];
+                if (mat == null)
+                    continue;
+                Shader sh = mat.shader;
+                if (sh == null)
+                    continue;
+                if (!wallFade)
+                {
+                    if (!_shaderVerdict.TryGetValue(sh, out bool capable))
+                    {
+                        capable = IsWallFadeShaderName(sh.name);
+                        _shaderVerdict[sh] = capable;
+                    }
+                    wallFade = capable;
+                }
+                if (!foliage)
+                {
+                    if (!_shaderFoliageVerdict.TryGetValue(sh, out bool leafy))
+                    {
+                        leafy = IsFoliageShaderName(sh.name);
+                        _shaderFoliageVerdict[sh] = leafy;
+                    }
+                    foliage = leafy;
+                }
+                if (!water)
+                    water = IsWaterShader(sh);
+            }
+            // The wall-fade and foliage families are MeshRenderer questions (that is the type
+            // both RendererUsesWallFade and RendererUsesFoliage take); the water family is not
+            // — the water test takes a plain Renderer and the water pass ran it over the whole
+            // sweep, so it stays that way.
+            f.WallFadeShader = wallFade && f.Mesh != null;
+            f.FoliageShader = foliage && f.Mesh != null;
+
+            string n = r.name;
+            // IsModObject, verbatim: the mod layer OR the repo-convention name prefix (hardware
+            // round 3 — the MR sky backing 'GloomhavenVR.MrBacking' leaked into the near-miss
+            // census through the layer-only test).
+            f.Mod = r.gameObject.layer == VRLayers.ModLayer
+                || n.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
+            // The authored water name family, consulted — as before — only when the shader
+            // family already said no. See WallSegmentFade.Water.cs.
+            f.WaterSurface = water || IsWaterNameFamily(n);
+        }
+
+        /// <summary>
+        /// THE ATTRIBUTABLE LINE. One [WallSegmentFade] BUDGET line every
+        /// <see cref="BudgetLogIntervalSeconds"/>, printed whatever it found — including
+        /// nothing. It names how many objects were walked, WHERE they came from (a fresh sweep
+        /// or a reused snapshot), how the frame budget was spent, and the worst single frame
+        /// any stage of the pipeline cost in the window. That last number is the one the
+        /// integrator reads against [Perf] STEPS' 'WallFade.Rescan' worst field.
+        /// </summary>
+        private void LogRescanBudget(float now)
+        {
+            if (_budgetLoggedOnce && now < _nextBudgetLogTime)
+                return;
+            _budgetLoggedOnce = true;
+            _nextBudgetLogTime = now + BudgetLogIntervalSeconds;
+            VRLog.Info(Name,
+                $"BUDGET: {_cycleCount} rescan cycle(s) completed since the last line — "
+                + $"{_factCount} scene renderer(s) classified per cycle, {_cycleSweeps} of them "
+                + $"from a FRESH FindObjectsOfType<Renderer> sweep (worst "
+                + $"{_cycleWorstSweepMillis:F2}ms) and the rest from the reused snapshot "
+                + $"(structural signature unchanged, age cap {SnapshotMaxAgeSeconds:0.0}s); "
+                + $"census spread over {_cycleClassifyFrames} frame(s) at "
+                + $"{ClassifyBudgetMillis:0.0}ms/frame ({ClassifyUrgentBudgetMillis:0.0}ms on a "
+                + $"room-reveal edge); {_factWallFade.Count} fade-capable + {_factWater.Count} "
+                + $"water renderer(s) indexed; WORST COMMIT {_cycleWorstCommitMillis:F2}ms, "
+                + $"WORST SINGLE FRAME across all stages {_cycleWorstFrameMillis:F2}ms. "
+                + "Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: "
+                + "WallFade.Rescan 118.174ms avg, worst 141.18ms, 15 stalls per 30s window).");
+            _cycleCount = 0;
+            _cycleSweeps = 0;
+            _cycleClassifyFrames = 0;
+            _cycleWorstFrameMillis = 0f;
+            _cycleWorstCommitMillis = 0f;
+            _cycleWorstSweepMillis = 0f;
+        }
+
         private void Rescan(TilesOcclusionGenerator gen)
         {
             // PERF S1: one memo scope for the whole (synchronous) rescan — see
@@ -1996,18 +2603,20 @@ internal static partial class WallSegmentFade
             // never listed them — yet their materials run the same WallFade shader family,
             // because that is how the FLAT game fades them. The shader is the game's own
             // definition of "this is a fadeable wall", so it is our discovery key too.
-            // ONE scene renderer sweep per rescan, shared by the wall adoption pass (which only
-            // looks at MeshRenderers) and the wall-mounted dressing pass (which also needs
-            // particle/sprite renderers — flames). Splitting it into two FindObjectsOfType calls
-            // would double the most expensive part of the rescan for nothing.
-            Renderer[] sceneRenderers = UnityEngine.Object.FindObjectsOfType<Renderer>();
-            AdoptShaderMatchedWalls(sceneRenderers);
+            // PERF S2: the scene sweep AND the per-renderer classification both happened HERE
+            // until 2026-08-23 — one FindObjectsOfType<Renderer> plus four full walks of the
+            // resulting 8630-entry array, 118 ms on one frame every two seconds. The sweep now
+            // runs in BeginRescanCycle (rarely) and the classification in ClassifySlice (spread
+            // over frames); this pass and the three below read the finished RendererFact table.
+            // Nothing about WHICH renderers they see changed — see the PERF S2 note by the
+            // table's declaration for the argument, predicate by predicate.
+            AdoptShaderMatchedWalls();
 
             // WATER FEATURES (user ruling 2026-08-09, brunnen.png — "lass den Brunnen niemals
             // faden"): rebuild the fountain/pond protection rects BEFORE the ground strip and
             // every adoption pass, so no pass can ever see a fountain's basin as fadeable and
             // leave its water plane hanging in mid-air. See WallSegmentFade.Water.cs.
-            CollectWaterFeatures(sceneRenderers);
+            CollectWaterFeatures();
 
             RebuildSamples();
             AssociateRooms();
@@ -2023,7 +2632,7 @@ internal static partial class WallSegmentFade
             // engulf neutralization (needs the final base AABBs and room grids), BEFORE the
             // mounted pass (which must see the EXTENDED AABBs so torches hanging on the shell
             // attach to the same wall the shell rides).
-            CollectStackedShellPieces(sceneRenderers);
+            CollectStackedShellPieces();
             // PROP UNIT COHESION (user report 2026-08-19, skelet.jpg — "Der Kopf des Skeletts wird
             // immer noch ausgeblendet"): the statue's skull sat in one wall unit's renderer list
             // and its body in another's, and the two walls fade independently, so the statue was
@@ -2037,7 +2646,7 @@ internal static partial class WallSegmentFade
             // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
             // plane + hugging the wall slab), so it needs the FINAL segment table, their room
             // association and their ground-stripped (now shell-extended) AABBs.
-            CollectWallMountedProps(sceneRenderers);
+            CollectWallMountedProps();
             // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
             // final table and the room labels (part of the key derivation).
             ComputeWireKeys();
@@ -2318,7 +2927,7 @@ internal static partial class WallSegmentFade
         /// renderer's parent. Runs inside the 2s rescan; the shader verdict is cached per Shader
         /// so the steady-state cost is one dictionary probe per renderer.
         /// </summary>
-        private void AdoptShaderMatchedWalls(Renderer[] sceneRenderers)
+        private void AdoptShaderMatchedWalls()
         {
             // Reset adopted segments for re-fill; keep their smoothing/fade state (keyed by
             // anchor, so a stable group keeps its EMA and dwell across rescans).
@@ -2332,9 +2941,16 @@ internal static partial class WallSegmentFade
 
             _censusFadeRenderers = 0;
             _censusAdopted = 0;
-            foreach (Renderer any in sceneRenderers)
+            // PERF S2: `_factWallFade` holds exactly the indices the old loop's guard
+            // (`any is MeshRenderer && RendererUsesWallFade(it)`) let through, in snapshot
+            // order — which is load-bearing here, because the FIRST fade renderer of a group
+            // is the one that seeds that group's anchor and bounds. Renderers destroyed since
+            // the census are dropped by the null check below, exactly as the old `r == null`
+            // arm did.
+            for (int fi = 0; fi < _factWallFade.Count; fi++)
             {
-                if (any is not MeshRenderer r || r == null || !RendererUsesWallFade(r))
+                MeshRenderer? r = _facts[_factWallFade[fi]].Mesh;
+                if (r == null)
                     continue;
                 _censusFadeRenderers++;
                 if (_claimedRenderers.Contains(r))
@@ -3909,6 +4525,8 @@ internal static partial class WallSegmentFade
             // …and so is the water-feature protection (user ruling 2026-08-09).
             _waterRects.Clear();
             _waterCensusSig = -1;
+            AbandonRescanCycle();
+            _shaderWaterVerdict.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

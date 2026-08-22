@@ -998,17 +998,84 @@ internal static class GuildmasterDestinations
         {
             _hudSingletonHits++;
             _hudFallback = null;
+            _hudSweepBudget = HudColdSweepBudget;   // this scene HAS a HUD: re-arm the fallback
             return Singleton<UIGuildmasterHUD>.Instance;
         }
         if (_hudFallback != null)
             return _hudFallback;
+
+        // A NEW SCENE IS A NEW QUESTION. These statics outlive a scene load, so a budget spent in a
+        // scenario must not follow the player onto the campaign map — where an inactive-at-load HUD
+        // is exactly the case the fallback exists for, and where a cold singleton would then never
+        // be answered. Compared rather than subscribed: the handle read is one native call on a
+        // path that already only runs while the singleton is cold, and a missed event is a defect
+        // that hides, while a compared value cannot go out of date.
+        int scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().handle;
+        if (scene != _hudSweepScene)
+        {
+            _hudSweepScene = scene;
+            _hudSweepBudget = HudColdSweepBudget;
+            _hudSweepDue = 0;
+        }
+
+        if (_hudSweepBudget <= 0)
+            return null;                            // the budget is spent — see the field's doc
         if (--_hudSweepDue > 0)
             return null;
         _hudSweepDue = HudSweepCadenceTicks;
         _hudSweeps++;
+        _hudSweepBudget--;
         _hudFallback = Object.FindObjectOfType<UIGuildmasterHUD>(true);
+        if (_hudFallback == null && _hudSweepBudget == 0)
+        {
+            VRLog.Info(Scope,
+                $"GUILDMASTER HUD DISCOVERY: {HudColdSweepBudget} bounded sweep(s) found no "
+                + "UIGuildmasterHUD and the singleton has never warmed up on this scene, so the "
+                + "fallback STANDS DOWN and this class costs nothing until one appears. THIS IS "
+                + "THE NORMAL STATE INSIDE A SCENARIO — the guildmaster HUD is a campaign-map "
+                + "object and there is nothing here to find. The budget re-arms the instant the "
+                + "singleton reports a HUD (so a scene that really has one keeps the "
+                + "inactive-at-load safety net), and it is reset on every scene change. Before "
+                + "ModBuild 227 this sweep ran once every "
+                + $"{HudSweepCadenceTicks} ticks FOR EVER: the ModBuild 226 hardware log measured "
+                + "it at a 28.5 ms hitch every 60 frames and 0.296 ms on every single tick, with "
+                + "0 floated windows and the map room down.");
+        }
         return _hudFallback;
     }
+
+    /// <summary>
+    /// How many bounded sweeps the cold-singleton fallback may spend before it stands down.
+    ///
+    /// <para><b>THE COLD SINGLETON IS NOT A TRANSIENT — IN A SCENARIO IT IS FOREVER (ModBuild 227).</b>
+    /// <see cref="Hud"/>'s fallback exists for a real case: a GameObject inactive at load never runs
+    /// <c>Awake</c>, so a HUD can exist that <c>Singleton</c> does not know about. ModBuild 195
+    /// bounded that sweep to one per <see cref="HudSweepCadenceTicks"/> ticks and stopped there,
+    /// on the unstated assumption that a cold singleton is a startup condition that resolves.
+    ///
+    /// <para>It does not. In a SCENARIO there is no guildmaster HUD at all and there never will be,
+    /// so the cadence ran unbounded for the whole session. The ModBuild 226 log priced it exactly —
+    /// <c>ModalFallback.Destinations.HomeMode 0.2963ms/tick (100%) … worst run 28.530ms |
+    /// discovery: the HUD answered from Singleton 0 time(s) and from a scene sweep 24 time(s)</c>,
+    /// on a tick with <b>0 floated windows and the map room down</b>. That 28.5 ms is the whole of
+    /// <c>ModalFallback</c>'s <c>worst 30.03ms</c>.</para>
+    ///
+    /// <para>THE REPAIR IS THE ONE THE MAP-ROOM PREDICATE JUST TOOK, and it is the same defect: a
+    /// scene sweep asking a question whose answer is a static field, on a scene where the answer is
+    /// permanently no. Three sweeps is enough for the case the fallback was written for — an
+    /// inactive-at-load HUD is present from the first frame, so if three sweeps ~0.7 s apart cannot
+    /// see it, no number of further sweeps will. And the budget RE-ARMS on any tick the singleton
+    /// answers, so a scene that genuinely has a HUD never loses the safety net.</para>
+    /// </summary>
+    private const int HudColdSweepBudget = 3;
+
+    /// <inheritdoc cref="HudColdSweepBudget"/>
+    private static int _hudSweepBudget = HudColdSweepBudget;
+
+    /// <summary>The active scene's handle when <see cref="_hudSweepBudget"/> was last re-armed, so a
+    /// budget spent on one scene cannot silence the fallback on the next. 0 is not a valid handle,
+    /// so the first cold tick of a session always re-arms.</summary>
+    private static int _hudSweepScene;
 
     // -------------------------------------------------------- the permanent character screen --
 

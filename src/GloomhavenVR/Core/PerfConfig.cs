@@ -89,6 +89,9 @@ internal static class PerfConfig
     /// <summary>Split each camera's render-loop figure into culling and submission halves.</summary>
     internal static ConfigEntry<bool> CullSubmitSplit = null!;
 
+    /// <summary>One-shot marker: has the ModBuild 227 profile-default flip already been applied?</summary>
+    internal static ConfigEntry<bool> ProfileDefaultsMigrated227 = null!;
+
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
     /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
@@ -356,28 +359,48 @@ internal static class PerfConfig
             + "adjusts a running total, so the count is live and at most half a second stale without "
             + "any per-frame full-scene walk. Switching this entry off takes that estimate with it.");
 
-        // DEFAULT OFF, and off for a reason that is not caution: an earlier version of the walk
-        // behind this entry hung the game outright at the first window close (2026-07), which
-        // lands in the intro — before the pane that owns this switch exists. The defect is fixed
-        // and the walk additionally refuses to run in the pre-menu scenes, but a heavyweight
-        // object walk is not something that should be on by default in a build a player runs.
+        // DEFAULT ON since ModBuild 227, and the flip is the whole point of that round.
+        //
+        // It was OFF for a reason that was not caution: an earlier version of the walk behind this
+        // entry hung the game outright at the first window close (2026-07), which lands in the
+        // intro — before the pane that owns this switch exists. That defect is fixed, the walk
+        // refuses to run in the pre-menu scenes, PerfMonitor latches it off after one throw, and
+        // the walk now RATIONS ITSELF against a measured millisecond budget. What changed the
+        // balance is that the ModBuild 226 log finally caught the reported symptom — 8,600
+        // renderers with every room open, a 43 ms mean frame against an 11.11 ms budget, ~50% of it
+        // in main-thread logic — and every instrument that could name WHAT that logic is was
+        // switched off. Eight windows of renderer counts cannot name one behaviour, and a
+        // measurement nobody enables is a measurement nobody has.
         SceneProfile = _file.Bind("Perf", "SceneProfile", Defaults.SceneProfile,
-            "OFF by default. Append two more lines to each summary: [Perf] SCENE — the renderer population broken "
-            + "down by scene-root/child group, layer (with names), renderer type, shadow-casting "
-            + "mode, MaterialPropertyBlock count and DISTINCT MATERIAL COUNT — and [Perf] GFX — the "
-            + "render state that multiplies submission volume (quality level, shadow settings, "
-            + "pixel lights, the light census, and the head camera's path/depth-texture/culling "
-            + "mask). The bare census on the SPLIT line says 1683 renderers; it cannot say WHAT "
-            + "they are, and a count cannot choose a lever. The distinct-material number is the "
-            + "decisive one: the built-in pipeline can only merge renderers that share a material "
-            + "instance, so one material per renderer means there is no batch for anything — mod "
-            + "or game — to break. Sampled ONCE PER WINDOW like the census: the walk allocates and "
-            + "would be a stutter of its own at frame rate. Never runs in the pre-menu scenes "
-            + "(Bootstrap/Intro): there are five renderers there, and a fault in a walk that runs "
-            + "before the settings pane exists cannot be switched off from inside the headset.");
+            "ON by default. Append three more lines to each summary. [Perf] SIM — WHAT THE "
+            + "MAIN-THREAD LOOP ITERATES OVER: the exact length of Unity's per-frame Update / "
+            + "LateUpdate / FixedUpdate lists (Unity walks precisely the enabled behaviours whose "
+            + "TYPE declares the method, so this is the loop's length, not a proxy for it), the "
+            + "heaviest ticking TYPES by instance count with the mod's own marked, the Animator "
+            + "census broken down BY cullingMode, and the ParticleSystem census by cullingMode. "
+            + "[Perf] SCENE — the renderer population broken down by scene-root/child group, layer "
+            + "(with names), renderer KIND with visible counts, SHADER, shadow-casting mode, "
+            + "MaterialPropertyBlock count and DISTINCT MATERIAL COUNT. [Perf] GFX — the render "
+            + "state that multiplies all of it: quality level, shadow settings, pixel lights, the "
+            + "light and LOD-group census, per-layer cull distances, the COMMAND BUFFERS attached "
+            + "to the head camera (work that appears in no other number here and that this game "
+            + "uses for a full occlusion re-draw of every revealed room), and the head camera's "
+            + "path / depth-texture / culling mask. Sampled ONCE PER WINDOW: the walk allocates and "
+            + "would be a stutter of its own at frame rate. IT TIMES ITSELF and prints the figure "
+            + "on the SIM and SCENE lines; if that figure is above a few milliseconds it skips the "
+            + "next few windows so its amortised cost stays under budget, and says so. Never runs "
+            + "in the pre-menu scenes (Bootstrap/Intro): there are five renderers there, and a "
+            + "fault in a walk that runs before the settings pane exists cannot be switched off "
+            + "from inside the headset.");
 
+        // DEFAULT ON since ModBuild 227. It is pure measurement — it changes no pixel — and the
+        // question it settles is now live: with all rooms open the head camera spends 6–9 ms per
+        // frame over two eye passes on a scene of 8,600 renderers that it culls against a BLANKET
+        // 0xFFFFFFFF mask, while the game's own ScenarioCamera uses 0x700FFF17. Whether that 6–9 ms
+        // is CULL or SUBMIT decides whether [Optimize] HeadMaskFromScenarioCamera is the next lever
+        // or a distraction, and no other line in the log can tell them apart.
         CullSubmitSplit = _file.Bind("Perf", "CullSubmitSplit", Defaults.CullSubmitSplit,
-            "OFF by default. Split each camera's figure on the [Perf] SPLIT line into CULL "
+            "ON by default. Split each camera's figure on the [Perf] SPLIT line into CULL "
             + "(onPreCull→onPreRender: Unity's visibility determination, which scales with how "
             + "many renderers exist and pass the culling mask) and SUBMIT (onPreRender→"
             + "onPostRender: the draw calls, including a forward camera's depth-texture prepass "
@@ -385,7 +408,58 @@ internal static class PerfConfig
             + "and the two have different levers, so this is the entry that decides it instead of "
             + "arguing it. Costs one extra Stopwatch read and one Camera.onPreRender subscription "
             + "per camera render; OFF unsubscribes the callback entirely rather than null-checking "
-            + "inside it, and the SPLIT line then prints the combined per-camera figure as before.");
+            + "inside it, and the SPLIT line then prints the combined per-camera figure as before. "
+            + "The two halves have completely different levers: CULL scales with how many renderers "
+            + "pass the culling mask (so the mask, per-layer cull distances and simply having fewer "
+            + "active objects are the levers) while SUBMIT scales with material slots and passes "
+            + "(so the depth prepass and the pass count are). Guessing which one a 9 ms figure is "
+            + "has been wrong here before.");
+
+        // ---- the ModBuild 227 one-shot: a default flip does NOT reach an existing install ------
+        //
+        // THIS IS THE WHOLE REASON THE FLIP ABOVE IS WORTH ANYTHING. BepInEx writes every bound
+        // entry into the cfg file on first bind and reads the FILE from then on, so raising a
+        // shipped default only ever changes what a FRESH install starts with. The tester's
+        // dev.gloomhavenvr.perf.cfg already contains `SceneProfile = false` and
+        // `CullSubmitSplit = false` — written by a build where those were the defaults — and it
+        // would keep containing them for ever. Shipping the flip without this block would be the
+        // exact failure this project has already paid for twice: a remedy that cannot execute
+        // produces a log with no evidence in it, and "no improvement" from a fix that never ran
+        // carries zero information.
+        //
+        // A MARKER, NOT A FORCE. The flip happens ONCE, keyed on a marker that a fresh install
+        // starts false and that is set true the moment the migration runs. After it, both entries
+        // are ordinary settings again: switch them off and they stay off, for ever, because the
+        // marker is already true. It only ever moves them from false to true — a value the user
+        // himself set to true is left alone — and it touches nothing but measurement, so there is
+        // no player-visible change to undo either way.
+        ProfileDefaultsMigrated227 = _file.Bind("Perf", "ProfileDefaultsMigrated227",
+            Defaults.ProfileDefaultsMigrated227,
+            "One-shot migration marker, not a setting. FALSE on a fresh install; set TRUE the first "
+            + "time a build switches [Perf] SceneProfile and [Perf] CullSubmitSplit on in an "
+            + "existing config that still carried their old OFF defaults. Once it is true, both of "
+            + "those are ordinary switches again and turning them off keeps them off. Setting this "
+            + "back to false re-runs the one-shot.");
+        if (!ProfileDefaultsMigrated227.Value)
+        {
+            ProfileDefaultsMigrated227.Value = true;
+            bool tookScene = !SceneProfile.Value;
+            bool tookSplit = !CullSubmitSplit.Value;
+            if (tookScene)
+                SceneProfile.Value = true;
+            if (tookSplit)
+                CullSubmitSplit.Value = true;
+            if (tookScene || tookSplit)
+                VRLog.Info("Perf", "One-shot migration: switched ON "
+                                   + (tookScene ? "[Perf] SceneProfile " : "")
+                                   + (tookScene && tookSplit ? "and " : "")
+                                   + (tookSplit ? "[Perf] CullSubmitSplit " : "")
+                                   + "in an existing config that still carried the old OFF default. "
+                                   + "The next summary windows will carry [Perf] SIM, [Perf] SCENE "
+                                   + "and [Perf] GFX lines, and every per-camera figure on the "
+                                   + "[Perf] SPLIT line will be broken into cull and submit. This "
+                                   + "runs exactly once — switch either entry off and it stays off.");
+        }
 
         // ---- [Optimize] ----------------------------------------------------------------------
         CacheTickDelegates = _file.Bind("Optimize", "CacheTickDelegates", Defaults.CacheTickDelegates,

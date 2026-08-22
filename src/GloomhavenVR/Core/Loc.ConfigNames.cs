@@ -502,6 +502,11 @@ internal static partial class Loc
             ["MixedReality/UnseenRimInset"] = Pair("MR: edge curtain inset", "MR: Randvorhang Versatz"),
             ["MixedReality/UnseenRimTopClearance"] =
                 Pair("MR: edge curtain top gap", "MR: Randvorhang Abstand oben"),
+            // THE ONE-DECISION ROW, first on the Bild page and therefore first here. Named for what
+            // it IS rather than for what it saves ("Grafik-Voreinstellung", not "Leistungsstufe"),
+            // because the top of its own list is the quality end: a player who picks "Qualität"
+            // must not feel they have opened a performance menu by mistake.
+            ["RenderQuality/QualityPreset"] = Pair("Graphics preset", "Grafik-Voreinstellung"),
             ["RenderQuality/MsaaLevel"] = Pair("MSAA level", "MSAA-Stufe"),
             ["RenderQuality/ForceAnisotropic"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
             ["RenderQuality/EyeResolutionScale"] = Pair("Resolution per eye", "Auflösung pro Auge"),

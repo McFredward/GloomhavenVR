@@ -500,10 +500,25 @@ internal static partial class WallSegmentFade
             r is MeshRenderer || r is ParticleSystemRenderer || r is SpriteRenderer;
 
         /// <summary>
+        /// PERF S2: the cheap half of <see cref="NoteStructuralSkip"/>'s own first guard,
+        /// exposed so the two hot call sites can decide whether to BUILD the reason string at
+        /// all. The reject list is capped at <see cref="MountedRejectCap"/> = 24 entries, and
+        /// the sweep it guards used to run over every renderer in the scene — so the old shape
+        /// formatted an interpolated string (one of them with a <c>GetType().Name</c>
+        /// reflection call) thousands of times per rescan and discarded all but two dozen.
+        /// This changes nothing about WHICH skips are recorded: when this is false
+        /// NoteStructuralSkip returns without recording anything anyway.
+        /// </summary>
+        private bool StructuralSkipArmed =>
+            _mountedRejects.Count < MountedRejectCap && !float.IsInfinity(_mountedAirborneBar);
+
+        /// <summary>
         /// Log a renderer that left the sweep BEFORE any geometric test (wrong renderer family,
         /// already owned by another attachment list, fade-capable) — but only when it is airborne
         /// and near a wall, i.e. only when it could actually be a floating leftover. Bounded by
-        /// the reject-list cap, which is checked first so the common case is one int compare.
+        /// the reject-list cap, which is checked first so the common case is one int compare;
+        /// <see cref="StructuralSkipArmed"/> is that same cap, hoisted so a caller can skip
+        /// building the reason string when it is already full.
         /// </summary>
         private void NoteStructuralSkip(Renderer c, string why)
         {
@@ -548,9 +563,9 @@ internal static partial class WallSegmentFade
         /// their ground-stripped AABBs. Leavers and orphans are restored here, so nothing can stay
         /// hidden without an owner.
         /// </summary>
-        /// <param name="sceneRenderers">The rescan's single scene sweep (shared with the wall
-        /// adoption pass — one FindObjectsOfType per rescan, not two).</param>
-        private void CollectWallMountedProps(Renderer[] sceneRenderers)
+        /// <remarks>PERF S2: the input is the rescan cycle's RendererFact census (see
+        /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
+        private void CollectWallMountedProps()
         {
             _mountedOwned.Clear();
             _attachmentOwned.Clear();
@@ -630,38 +645,108 @@ internal static partial class WallSegmentFade
             }
 
             _mountedAirborneBar = minFloorY + MountedClearanceWU;
-            if (!float.IsInfinity(minFloorY) && sceneRenderers != null)
+
+            // PERF S2 — THE TWO HOISTED PREFILTERS, and why each rejects only what the pass
+            // below already rejected. Until 2026-08-23 this loop ran its full body for every
+            // one of the scene's 8630 renderers: an interop name allocation (IsModObject), a
+            // GetSharedMaterials, a live bounds read, an arch-rect scan, a water-rect scan and
+            // — for anything airborne — a walk of every tracked segment, EAGERLY formatting an
+            // interpolated reject string per skip. It was a large share of the 118 ms rescan.
+            //
+            //  (1) THE FLOOR GATE. The body's own cheap bulk filter drops anything whose anchor
+            //      sits below `minFloorY + 0.25·MountedClearanceWU`, silently. Everything that
+            //      ran BEFORE that filter is either a pure predicate (IsModObject, the shader
+            //      test, IsArchProtected, IsWaterProtected) or NoteStructuralSkip — and
+            //      NoteStructuralSkip's own first act is to return unless the anchor clears
+            //      `_mountedAirborneBar = minFloorY + MountedClearanceWU`, a bar FOUR TIMES
+            //      higher. So for anything the floor gate rejects, the whole prologue was
+            //      already a no-op with no side effect. Hoisting it changes nothing but cost.
+            //
+            //  (2) THE UNION REACH RECT. Every outcome of this loop needs the renderer to be
+            //      near SOME bounded segment: adoption needs an XZ gap within `linkMax`
+            //      (≤ MountedTinyFxLinkMaxXZ = 1.8 wu), and even the near-miss DIAGNOSTIC needs
+            //      one within MountedNearMissXZ (2.5 wu) — NoteMountedReject returns outright
+            //      past that, so a far renderer produced no adoption, no reject line and no
+            //      counter. A candidate outside the union of every bounded segment's XZ rect
+            //      grown by 2.5 wu therefore fails every individual segment too (the same
+            //      necessary-condition argument the fast-reclaim sweep's union prefilter
+            //      already makes). With no bounded segment at all the union is empty and the
+            //      whole sweep was a no-op, so it is skipped outright.
+            //
+            // Both prefilters read CENSUS bounds and are widened by CensusBoundsSlackWU, so a
+            // cached AABB can only ever reject what the live test would also reject; every
+            // survivor is re-measured against its LIVE bounds below, exactly as before.
+            float reachMinX = float.PositiveInfinity, reachMaxX = float.NegativeInfinity;
+            float reachMinZ = float.PositiveInfinity, reachMaxZ = float.NegativeInfinity;
+            foreach (Segment seg in _segments.Values)
+            {
+                if (!seg.HasBounds)
+                    continue;
+                if (seg.Bounds.min.x < reachMinX) reachMinX = seg.Bounds.min.x;
+                if (seg.Bounds.max.x > reachMaxX) reachMaxX = seg.Bounds.max.x;
+                if (seg.Bounds.min.z < reachMinZ) reachMinZ = seg.Bounds.min.z;
+                if (seg.Bounds.max.z > reachMaxZ) reachMaxZ = seg.Bounds.max.z;
+            }
+            float reach = MountedNearMissXZ + CensusBoundsSlackWU;
+            reachMinX -= reach; reachMaxX += reach;
+            reachMinZ -= reach; reachMaxZ += reach;
+            float floorGate = minFloorY + MountedClearanceWU * 0.25f - CensusBoundsSlackWU;
+
+            if (!float.IsInfinity(minFloorY) && !float.IsInfinity(reachMinX))
             {
                 float airborneBar = _mountedAirborneBar;
-                foreach (Renderer c in sceneRenderers)
+                for (int fi = 0; fi < _factCount; fi++)
                 {
-                    if (c == null)
+                    ref RendererFact f = ref _facts[fi];
+                    if (f.R == null || f.Mod)
+                        continue; // dead, or a mod-owned visual (hands, cards, panels, MR
+                                  // backing — by layer OR 'GloomhavenVR.' name prefix): never
+                                  // scenery, never a candidate, never in the diagnostics
+                    if (f.Anchor.y < floorGate)
+                        continue; // prefilter (1) — see above
+                    // Prefilter (2). The gap tests downstream are AABB-to-AABB
+                    // (HorizontalGap(seg.Bounds, b)), so the rect test has to be against the
+                    // renderer's EXTENTS, never its centre — a banner whose centre sits outside
+                    // the reach but whose end reaches into it must survive. A particle system is
+                    // additionally gap-measured by its EMITTER POSITION in the adoption loop
+                    // (round 13), so it survives if EITHER probe is in reach: the prefilter must
+                    // never be narrower than the UNION of the tests it stands in front of.
+                    bool inReach = f.Bounds.max.x >= reachMinX && f.Bounds.min.x <= reachMaxX
+                        && f.Bounds.max.z >= reachMinZ && f.Bounds.min.z <= reachMaxZ;
+                    if (!inReach && f.Particles)
+                        inReach = f.Anchor.x >= reachMinX && f.Anchor.x <= reachMaxX
+                            && f.Anchor.z >= reachMinZ && f.Anchor.z <= reachMaxZ;
+                    if (!inReach)
                         continue;
-                    if (IsModObject(c))
-                        continue; // mod-owned visual (hands, cards, panels, MR backing — by
-                                  // layer OR 'GloomhavenVR.' name prefix) — never scenery,
-                                  // never a candidate, never in the diagnostics
+                    Renderer c = f.R!;
                     if (_mountedOwned.Contains(c))
                         continue; // already attached this rescan (sticky or earlier in the sweep)
                     // STRUCTURAL SKIPS — the three ways a renderer leaves this sweep before any
                     // geometric test runs. Each is LOGGED when it stands near a wall (round 3: a
                     // banner's wooden bar survived a fade and appeared in no reject list at all,
-                    // because it left here silently). NoteStructuralSkip itself is cheap: it does
-                    // nothing unless the renderer is airborne AND close to a segment.
-                    if (!IsMountableRendererType(c))
+                    // because it left here silently). PERF S2: the reject STRING is now built
+                    // only when the reject list can still take one (StructuralSkipArmed) —
+                    // formatting 8630 interpolated strings per rescan to throw all but 24 away
+                    // was pure waste, and `c.GetType().Name` is a reflection call on top.
+                    if (!f.Mountable)
                     {
-                        NoteStructuralSkip(c, $"renderer type {c.GetType().Name} is not scenery");
+                        if (StructuralSkipArmed)
+                            NoteStructuralSkip(c, $"renderer type {c.GetType().Name} is not scenery");
                         continue;
                     }
                     if (_attachmentOwned.TryGetValue(c, out OwnerRef owner))
                     {
-                        string wall = owner.Seg.Anchor != null ? owner.Seg.Anchor.name : "<dead>";
-                        NoteStructuralSkip(c,
-                            $"already the {owner.Kind} of '{wall}' (that wall's fade {owner.Seg.Fade:F2})");
+                        if (StructuralSkipArmed)
+                        {
+                            string wall = owner.Seg.Anchor != null ? owner.Seg.Anchor.name : "<dead>";
+                            NoteStructuralSkip(c,
+                                $"already the {owner.Kind} of '{wall}' (that wall's fade {owner.Seg.Fade:F2})");
+                        }
                         continue;
                     }
-                    if (c is MeshRenderer mr && RendererUsesWallFade(mr))
+                    if (f.WallFadeShader && f.Mesh != null)
                     {
+                        MeshRenderer mr = f.Mesh!;
                         // ROUND-11 SCONCE EXCEPTION: torch-fire bowls carry the WallFade
                         // shader too, and the narrowed doorway grouping now leaves the
                         // non-arch ones UNCLAIMED — a SMALL unclaimed fade-shader mesh is

@@ -291,6 +291,12 @@ internal static class PerfMonitor
         public readonly string Name;
         public long WindowTotal;
         public long WindowWorstFrame;
+
+        /// <summary>Print this counter even in a window where it totalled ZERO — see
+        /// <see cref="PerfMonitor.Register"/>. Off by default so the line does not fill with rows
+        /// for subsystems that are simply not standing this session.</summary>
+        public bool PrintZero;
+
         private long _frame;
 
         public void Add(long amount)
@@ -327,13 +333,42 @@ internal static class PerfMonitor
     {
         if (!StepsActive || amount == 0L)
             return;
+        Tally tally = Intern(name);
+        tally.Add(amount);
+    }
+
+    /// <summary>
+    /// DECLARE a counter that must be PRINTED EVEN AT ZERO.
+    ///
+    /// <para><see cref="LogCounters"/> skips any counter whose window total is 0, which is right
+    /// for the general case (a subsystem that is not standing should not fill the line) and wrong
+    /// for one specific and recurring case: a counter whose whole purpose is to prove that some
+    /// expensive thing did NOT happen. This project has paid for that distinction — "a scan that
+    /// only logs on success hides that it never ran" — and an omitted counter row is exactly a
+    /// scan that only logs on success. <c>MapRoom.Sweeps</c> is the first user: its correct value
+    /// after ModBuild 227 is zero, and a zero that is PRINTED is a measurement while a zero that is
+    /// omitted is indistinguishable from an instrument that was never wired up.</para>
+    ///
+    /// <para>Idempotent, cheap, and safe to call from a scene-change edge (which is what re-arms
+    /// it after a window reset drops nothing — the flag lives on the tally, not on the window).
+    /// Unlike <see cref="Count"/> this is NOT gated on <see cref="StepsActive"/>: declaring a
+    /// counter before the monitor warms up must still take, or the very first window would omit
+    /// the row it was declared to guarantee.</para>
+    /// </summary>
+    internal static void Register(string name)
+    {
+        Intern(name).PrintZero = true;
+    }
+
+    private static Tally Intern(string name)
+    {
         if (!Counters.TryGetValue(name, out Tally tally))
         {
             tally = new Tally(name);
             Counters[name] = tally;
             CounterOrder.Add(tally);
         }
-        tally.Add(amount);
+        return tally;
     }
 
     // ==========================================================================================
@@ -861,7 +896,83 @@ internal static class PerfMonitor
         }
         sb.Append(" | (").Append(Ranked.Count).Append(" named steps measured)");
         VRLog.Info(Scope0, sb.ToString());
+        LogStepTail(windowSeconds, top);
     }
+
+    /// <summary>
+    /// Steps ranked BELOW the <c>[Perf] TopSteps</c> cut that are still worth a millisecond per
+    /// second — plus, always, the arithmetic of everything that is not printed anywhere.
+    ///
+    /// <para>WHY THIS LINE EXISTS (ModBuild 227). The STEPS line is capped at <c>TopSteps</c>
+    /// entries — six in the shipped configuration — and the ModBuild 226 capture ends with
+    /// "(127 named steps measured)". So a round that goes looking for the mod's per-frame cost can
+    /// read the top six and has NO number at all for the other 121: a step at 4 ms/s is invisible,
+    /// twenty of them are invisible together, and the only honest thing that could be said about
+    /// them was "unknown". That is the shape of an instrument blind spot this project has already
+    /// been burned by, and it is fixed by printing the DISTRIBUTION rather than the mode.</para>
+    ///
+    /// <para>WHY A FLOOR AND NOT ALL 127. A line with 127 entries is not read; it is scrolled past.
+    /// <see cref="StepTailFloorMsPerSecond"/> is set at the level below which a step cannot matter
+    /// at 90 Hz even in aggregate, and the closing clause states the TOTAL and the COUNT of
+    /// everything that fell under it — so "the tail is small" is a number on the line rather than
+    /// an assumption, and if that residual is ever large the next round knows to lower the floor.
+    /// The floor is a compile-time constant on purpose: it is a property of the frame budget, not a
+    /// user preference, and one more config entry is one more thing to keep rebased.</para>
+    ///
+    /// <para>Costs nothing when there is nothing to say — the ranking is already built and sorted
+    /// by the caller, and this walk starts where that one stopped.</para>
+    /// </summary>
+    private static void LogStepTail(float windowSeconds, int alreadyPrinted)
+    {
+        if (alreadyPrinted >= Ranked.Count)
+            return;
+
+        double seconds = Mathf.Max(0.001f, windowSeconds);
+        StringBuilder sb = Sb;
+        sb.Length = 0;
+        sb.Append("STEPS TAIL — the steps BELOW the [Perf] TopSteps cut that still cost at least ")
+          .Append(StepTailFloorMsPerSecond.ToString("F1")).Append("ms/s:");
+
+        int printed = 0;
+        double residualMs = 0d;
+        int residualCount = 0;
+        for (int i = alreadyPrinted; i < Ranked.Count; i++)
+        {
+            Step s = Ranked[i];
+            double msPerSecond = s.WindowSeconds * 1000d / seconds;
+            if (msPerSecond < StepTailFloorMsPerSecond)
+            {
+                residualMs += s.WindowSeconds * 1000d;
+                residualCount++;
+                continue;
+            }
+            double avgMs = s.WindowSeconds * 1000d / Mathf.Max(1, s.WindowFrames);
+            sb.Append(printed == 0 ? " " : " | ")
+              .Append(s.Name).Append(' ')
+              .Append(avgMs.ToString("F3")).Append("ms avg, worst ")
+              .Append((s.WindowWorstFrameSeconds * 1000d).ToString("F2")).Append("ms, ")
+              .Append(msPerSecond.ToString("F1")).Append("ms/s, frames ").Append(s.WindowFrames);
+            if (s.WindowCalls != s.WindowFrames)
+                sb.Append(", calls ").Append(s.WindowCalls);
+            printed++;
+        }
+        if (printed == 0)
+            sb.Append(" none.");
+        sb.Append(" | EVERYTHING ELSE: ").Append(residualCount)
+          .Append(" further step(s) totalling ").Append((residualMs / seconds).ToString("F1"))
+          .Append("ms/s between them. HOW TO READ THIS LINE. It is the rest of the distribution the "
+                  + "STEPS line's top-N cut hides, and the closing figure is the whole residual — so "
+                  + "'the tail is negligible' is a measurement here and not an assumption. A step "
+                  + "whose avg is far below its worst is a CADENCE burst (fix the cadence or make it "
+                  + "incremental); a step whose avg is close to its worst is a STEADY per-frame cost "
+                  + "(move it onto an edge or bound it). Raise [Perf] TopSteps to promote an entry "
+                  + "from here into the ranked line.");
+        VRLog.Info(Scope0, sb.ToString());
+    }
+
+    /// <summary>Steps under this many ms per second are summarised as a residual rather than
+    /// named on the <c>[Perf] STEPS TAIL</c> line — see <see cref="LogStepTail"/>.</summary>
+    private const double StepTailFloorMsPerSecond = 1.0d;
 
     private static int CompareWindowDesc(Step a, Step b) => b.WindowSeconds.CompareTo(a.WindowSeconds);
 
@@ -898,7 +1009,7 @@ internal static class PerfMonitor
 
         bool any = false;
         for (int i = 0; i < CounterOrder.Count && !any; i++)
-            any = CounterOrder[i].WindowTotal > 0L;
+            any = CounterOrder[i].WindowTotal > 0L || CounterOrder[i].PrintZero;
         if (!any)
             return;
 
@@ -910,7 +1021,7 @@ internal static class PerfMonitor
         for (int i = 0; i < CounterOrder.Count; i++)
         {
             Tally t = CounterOrder[i];
-            if (t.WindowTotal <= 0L)
+            if (t.WindowTotal <= 0L && !t.PrintZero)
                 continue;
             sb.Append(first ? string.Empty : " | ").Append(t.Name).Append(' ')
               .Append((t.WindowTotal / Mathf.Max(0.001f, windowSeconds)).ToString("F0"))

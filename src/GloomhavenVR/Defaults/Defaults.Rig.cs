@@ -47,5 +47,18 @@ internal static partial class Defaults
     // were UNBOUND by the 2026-08-22 settings audit — the fallback is now the constant
     // RenderQuality.ViewportScaleFallback, the rebuild path is deleted. See RenderQuality for why
     // neither was ever a choice a player could hold.
+    // -1 STAYS THE SHIPPED VALUE, re-examined 2026-08-23 and deliberately not changed. Its own
+    // description names the reason the round wanted it moved (a forward-path per-pixel light past
+    // the first re-submits every renderer it touches) and RenderQuality.ApplyPixelLights names the
+    // reason it is not moved: the one time it was measured it was worth ~1 %, back when main-thread
+    // submission WAS the wall, and threaded submission has since taken that wall out. What is left
+    // is a visible change to the dungeon's lighting — flatter point-light falloff on walls and
+    // floors — which a default may not make silently. It is offered instead: the "Leistung" and
+    // "Schwache Hardware" presets set it, by name, in a dropdown the player can pick back.
     internal const int PixelLightCount = -1;             // => [RenderQuality] PixelLightCount
+    // 0 = the "Qualität" preset, which is exactly what the three rows above spell at their own
+    // defaults (MSAA 8x, eye 1.00x, lights untouched) — so a fresh install reads back as a named
+    // preset rather than as "Eigene". This value is a MIRROR of those three, never a master; see
+    // RenderQuality.QualityPreset. Any other starting number would be a lie the first tick corrects.
+    internal const int QualityPreset = 0;                // => [RenderQuality] QualityPreset
 }

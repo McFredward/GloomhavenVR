@@ -91,6 +91,38 @@ namespace GloomhavenVR.Rig;
 /// honours. Either way the log names WHICH lever actually bound, so the resolution row is
 /// never silently dead.
 ///
+/// THE MSAA DEFAULT STAYS 8x — RE-EXAMINED 2026-08-23 AGAINST A MEASUREMENT, AND THE MEASUREMENT
+/// SAYS THE SAMPLES ARE NOT THE PROBLEM. The performance round that raised the question had a good
+/// prior: 160.4 Msamples/frame, on a target the runtime already hands us supersampled, twice per
+/// frame under MultiPass, asserted by this file against the game's own quality levels. Three
+/// readings from the ModBuild 226 hardware log kill it as a suspect:
+///
+/// - THE HARDWARE. NVIDIA RTX 4090, 24 GB, D3D11. The eye render is 3072x3264 x 2 eyes =
+///   20.1 Mpixel/frame. At the frame rates the complaint is actually about — the zoomed-out view
+///   ran a 71–73 ms frame, i.e. ~14 fps — that is ~0.28 Gpixel/s of shading and, on the crudest
+///   uncompressed model of an 8x surface (8 samples x 8 bytes of colour+depth, written and then
+///   resolved), ~36 GB/s of MSAA traffic against a bus that does ~1000. MSAA cannot be spending
+///   28 ms there. It could plausibly matter in a 90 Hz frame, where the same model asks for
+///   ~230 GB/s — but a 90 Hz frame is one that is already inside budget.
+/// - THE CONTROLLED EXPERIMENT IS ALREADY IN HIS LOG. The [Perf] SPLIT ZOOM axis buckets one
+///   30 s window by viewing distance at a FIXED eye resolution and a FIXED sample count: 23
+///   renderers visible → 10.97 ms/frame; 4841 visible → 71.28 ms. Same pixels, same samples, 6.5x
+///   the frame time. Everything that swung is scene content.
+/// - WHERE THE FRAME ACTUALLY WENT in that window: logic ~50 %, render loop (cull+submit) ~13 %,
+///   blocked ~36 %. MSAA can only ever appear inside the blocked share, and the far-bucket frames
+///   prove the whole pixel pipeline fits inside 11 ms when the scene is empty.
+///
+/// AND THE COST OF BEING WRONG IS ASYMMETRIC. Dropping the default costs the one thing this file
+/// exists for: the game's own AA is gone (the mod disables the PostProcessLayer) and the boot
+/// quality level sets antiAliasing 0, so the shipped default IS the anti-aliasing. A quiet default
+/// change would also be undiscoverable — the player would meet a softer image with no row having
+/// moved, which is precisely the shape of the report this round is answering. So the trade is
+/// OFFERED instead: <see cref="Presets"/> ▸ "Ausgewogen" is 4x, "Leistung" 2x, "Schwache Hardware"
+/// off, each one visible in a named dropdown the player picks and can pick back.
+/// NOT VERIFIED ON HARDWARE: the bandwidth arithmetic above is a model, and no GPU-time counter
+/// exists on this runtime ("gpu n/a" on every [Perf] FRAME line) to check it against. What IS
+/// measured is the ZOOM axis, and it is enough to say the samples are not this frame's wall.
+///
 /// REBUILD TEST PATH: GONE (2026-08-22 settings audit). [RenderQuality] RebuildRigOnMsaaChange
 /// tore the rig down/up on every MSAA change, as an escape hatch for providers that only
 /// re-negotiate sample counts at session start. The question it was written to settle — does MSAA
@@ -139,11 +171,22 @@ internal static class RenderQuality
         internal readonly int Msaa;
         internal readonly float Scale;
 
-        internal Preset(string locId, int msaa, float scale)
+        /// <summary>
+        /// The per-pixel light cap this preset asserts (-1 = leave the game's own value alone,
+        /// which is what the two quality presets do). ADDED 2026-08-23 with the preset ROW: a
+        /// preset is one decision standing in for several dials, and leaving the third dial out
+        /// of it would have made "Leistung" a name for two thirds of a decision. It is also the
+        /// only member of the trio whose cost is a LOOK and not a sharpness, so it is the last
+        /// thing spent and the first thing named in the row's description.
+        /// </summary>
+        internal readonly int PixelLights;
+
+        internal Preset(string locId, int msaa, float scale, int pixelLights)
         {
             LocId = locId;
             Msaa = msaa;
             Scale = scale;
+            PixelLights = pixelLights;
         }
     }
 
@@ -156,17 +199,51 @@ internal static class RenderQuality
     /// </summary>
     private static readonly Preset[] Presets =
     {
-        new("preset_quality",     8, 1.0f), // shading 100%, msaa bandwidth 100%
-        new("preset_balanced",    4, 0.9f), // shading  81%, msaa bandwidth  41%
-        new("preset_performance", 2, 0.8f), // shading  64%, msaa bandwidth  16%
-        new("preset_minimum",     0, 0.6f), // shading  36%, msaa bandwidth   5%
+        new("preset_quality",     8, 1.0f, -1), // shading 100%, msaa bandwidth 100%, lights untouched
+        new("preset_balanced",    4, 0.9f, -1), // shading  81%, msaa bandwidth  41%, lights untouched
+        new("preset_performance", 2, 0.8f,  2), // shading  64%, msaa bandwidth  16%, 2 per-pixel lights
+        new("preset_minimum",     0, 0.6f,  1), // shading  36%, msaa bandwidth   5%, 1 per-pixel light
     };
+
+    /// <summary>
+    /// Dropdown index of "custom" — the hand-tuned combination that matches no preset. It sits
+    /// AFTER the four presets rather than before them so the preset order in the dropdown is the
+    /// quality order of <see cref="Presets"/>, and so adding a fifth preset does not renumber
+    /// anything a player has already picked.
+    /// </summary>
+    internal static int CustomPresetIndex => Presets.Length;
+
+    /// <summary>
+    /// The preset row's option list as <see cref="Core.Loc"/> keys, in dropdown order, with
+    /// "custom" last. Built from <see cref="Presets"/> rather than typed out at the row, so adding
+    /// a preset is one line in that table and the menu grows by itself — the same reason the head
+    /// mask's option list is built from HeadMaskLibrary instead of listed in the panel.
+    /// </summary>
+    internal static string[] PresetLocIds()
+    {
+        var ids = new string[Presets.Length + 1];
+        for (int i = 0; i < Presets.Length; i++)
+            ids[i] = Presets[i].LocId;
+        ids[Presets.Length] = "preset_custom";
+        return ids;
+    }
 
     private static ConfigFile? _file;
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
     internal static ConfigEntry<float>? EyeResolutionScale;
     internal static ConfigEntry<int>? PixelLightCount;
+
+    /// <summary>
+    /// The preset ROW's config entry, and it is a MIRROR of a derived value rather than a fourth
+    /// piece of state. <see cref="CurrentPresetIndex"/> answers "which preset do the three dials
+    /// currently spell" by reading the dials themselves; <see cref="MirrorPresetToConfig"/> copies
+    /// that answer in here once whenever the two disagree. Nothing else ever writes it, so this is
+    /// NOT the write war the standing rule forbids — there is exactly one writer and it copies FROM
+    /// the truth, never back onto it. Moving the MSAA row by hand therefore drops this to
+    /// <see cref="CustomPresetIndex"/> on the next tick instead of fighting the change.
+    /// </summary>
+    internal static ConfigEntry<int>? QualityPreset;
 
     /// <summary>
     /// Fall back to <c>XRSettings.renderViewportScale</c> when <c>eyeTextureResolutionScale</c>
@@ -213,6 +290,33 @@ internal static class RenderQuality
     private static float _viewportScaleApplied = 1f;
 
     /// <summary>
+    /// Has the resolution row announced itself in the log yet this session?
+    ///
+    /// <para>USER REPORT, ModBuild 226, verbatim: <i>"Ich habe auch versucht die Auflösung
+    /// umzustellen, ich bin mir nicht sicher ob das überhaupt irgendwas gebracht hat."</i> The log
+    /// of that session answers it and the answer is that the mod's own dial was never touched — the
+    /// row read 1.00 throughout, and thirty EYE-TARGET DIAG blocks said "resolution scale is 1.0 —
+    /// nothing to verify". THAT WAS THE DEFECT: at the default value <see cref="ApplyEyeScale"/>
+    /// returned before its own log line, so the ONLY evidence that a resolution lever exists at all
+    /// was a sentence saying there was nothing to look at. A player who changed a resolution
+    /// somewhere else — the game's flat options page, the Virtual Desktop or SteamVR slider — had no
+    /// way to learn from the log that those are UPSTREAM of this row and move a different number.
+    /// So the row announces itself once per session whatever it reads, and names where it lives.</para>
+    /// </summary>
+    private static bool _eyeScaleAnnounced;
+
+    /// <summary>
+    /// Pixel-sample budget measured while both quality levers were at their shipped values —
+    /// the yardstick every later budget line is quoted against, so a change reports what it BOUGHT
+    /// ("160.4 → 102.7 Msamples/frame, -36%") instead of an absolute nobody can place. 0 = not
+    /// sampled yet.
+    /// </summary>
+    private static double _baseMegaSamples;
+
+    /// <summary>Last preset index mirrored into <see cref="QualityPreset"/> (-1 = none yet).</summary>
+    private static int _lastMirroredPreset = -1;
+
+    /// <summary>
     /// Bind-once against the rig's own module config (dev.gloomhavenvr.rig.cfg —
     /// canonical <see cref="ModuleConfig"/> pattern; Plugin.cs's main config is owned
     /// by another seam). Lazy: called from the tick and from the panel accessors.
@@ -247,7 +351,15 @@ internal static class RenderQuality
             + "below 1 is often still above panel resolution — check the [Rig] EYE-TARGET DIAG line "
             + "for the actual pixel count. Above 1 is the only lever against SHADER/TEXTURE shimmer "
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
-            + "softens texture detail before it softens edges. Applies live.",
+            + "softens texture detail before it softens edges. Applies live. "
+            + "WHAT IT CANNOT BUY, measured rather than assumed (ModBuild 226 hardware log, the "
+            + "[Perf] SPLIT ZOOM axis): with this row and the MSAA row held CONSTANT, one window of "
+            + "that session ran 10.97 ms per frame with 23 renderers visible and 71.28 ms with 4841 "
+            + "— a 6.5x swing at an IDENTICAL pixel count. Frame time in the heavy view is owned by "
+            + "scene content (logic ~50 %, the render loop ~13 %) and no pixel lever touches either. "
+            + "Lowering this row can only help where the frame is fill- or bandwidth-bound, which is "
+            + "what the [Perf] SPLIT 'blocked' share is the place to look for. That is not nothing — "
+            + "it is just not the lever for a heavy scene.",
             new AcceptableValueRange<float>(MinEyeScale, MaxEyeScale)));
         // [RenderQuality] ViewportScaleFallback and RebuildRigOnMsaaChange stood here. Both were
         // removed by the 2026-08-22 settings audit — the fallback is a constant (off made the
@@ -267,6 +379,31 @@ internal static class RenderQuality
             + "is why the mod does. Re-asserted per frame like MsaaLevel, because the game rewrites "
             + "QualitySettings on every quality-level swap.",
             new AcceptableValueRange<int>(-1, 8)));
+
+        // THE PRESET ROW (2026-08-23). Three rows above this one are three numbers a player is
+        // asked to solve as one problem — they trade against the same artefact, their sample counts
+        // multiply (class doc), and the third one buys frames with a LOOK rather than with
+        // sharpness. Picking a point on that curve is one decision, and it now reads as one.
+        //
+        // WHY THE VALUE IS A MIRROR AND NOT A MASTER, which is the whole reason this is safe to
+        // ship next to the individual dials: the dropdown SHOWS CurrentPresetIndex(), derived from
+        // the three dials every time it is drawn, and MirrorPresetToConfig copies that derived
+        // answer into this entry when the two disagree. Editing MSAA by hand therefore moves this
+        // row to "custom" — it does not get overwritten back to a preset, because nothing reads
+        // this entry to decide anything. That is the "no hidden write war against the individual
+        // dials" requirement, satisfied by there being exactly one writer copying FROM the truth.
+        QualityPreset = _file.Bind("RenderQuality", "QualityPreset", Defaults.QualityPreset, new ConfigDescription(
+            "Named point on the MSAA x resolution x per-pixel-light curve: 0 = Quality (MSAA 8x, "
+            + "eye 1.00x, lights untouched — what ships), 1 = Balanced (4x, 0.90x, lights "
+            + "untouched), 2 = Performance (2x, 0.80x, 2 per-pixel lights), 3 = Minimum (MSAA off, "
+            + "0.60x, 1 per-pixel light), 4 = custom, i.e. the three rows spell no preset. "
+            + "READ-MOSTLY: this value is DERIVED from MsaaLevel, EyeResolutionScale and "
+            + "PixelLightCount and mirrored here once whenever they change, so hand-editing the "
+            + "three rows moves this one rather than being overwritten by it. Setting it applies "
+            + "all three at once; nothing is locked afterwards. HONEST ABOUT ITS REACH: every dial "
+            + "it moves is a PIXEL or a SUBMISSION dial, and a frame whose wall is game logic "
+            + "(the [Perf] SPLIT line's 'logic' share) will barely notice any of them.",
+            new AcceptableValueRange<int>(0, CustomPresetIndex)));
 
         // The SKY dial ([Sky] Style) RIDES this module's file — the FlatScreenStereo-on-worldui
         // pattern: the catalog's force-bind of RenderQuality surfaces it, module "rig" files it
@@ -302,6 +439,7 @@ internal static class RenderQuality
         ApplyEyeScale();
         ApplyAniso();
         ApplyPixelLights();
+        MirrorPresetToConfig();
         if (_diagCountdown > 0 && --_diagCountdown == 0)
             LogEyeTargetDiagnostics(_diagReason);
     }
@@ -381,7 +519,81 @@ internal static class RenderQuality
                               + "renderer it touches; lights above the cap fall back to per-vertex "
                               + "shading (no extra pass, flatter falloff). Watch the [Perf] SPLIT "
                               + "line's HeadCamera submit figure — that is the number this moves.");
+            LogLightCensus(wanted);
         }
+    }
+
+    /// <summary>
+    /// Count the lights the cap is actually acting on, at the moment it changes.
+    ///
+    /// <para>WHY THIS EXISTS. The row's own description has claimed "this dungeon is lit by 16 point
+    /// lights" and "4 per-pixel lights against ~1500 visible renderers" since it was written, and
+    /// both are quotes from ONE measurement of ONE scenario. A cap set to 2 in a room holding three
+    /// lights changes nothing and looks identical to a cap that is not being applied at all — the
+    /// "gated remedy never ran" shape. So the assertion says how many candidates there are, which
+    /// makes "no improvement" mean something.</para>
+    ///
+    /// <para>COST, AND WHY IT IS ALLOWED HERE. This is a full scene sweep, the exact thing that once
+    /// owned an entire frame in this project. It runs ONLY behind the same transition gate as the
+    /// log line above — i.e. when the player moves the row — never per frame, and never on the
+    /// game's own quality-level swaps, which re-assert the value without changing what we want.
+    /// Lights are counted whether enabled or not is NOT the question: only ENABLED lights on ACTIVE
+    /// objects can be submitted, so those are what is counted, and the disabled remainder is
+    /// reported separately rather than folded in.</para>
+    /// </summary>
+    private static void LogLightCensus(int cap)
+    {
+        Light[] lights;
+        try
+        {
+            lights = Object.FindObjectsOfType<Light>(); // active-and-enabled only, by contract
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Info("Rig", $"Per-pixel light cap: the light census threw '{e.Message}' — the cap "
+                              + "itself is applied, only this count is missing.");
+            return;
+        }
+
+        int point = 0, spot = 0, directional = 0, other = 0;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            switch (lights[i].type)
+            {
+                case LightType.Point: point++; break;
+                case LightType.Spot: spot++; break;
+                case LightType.Directional: directional++; break;
+                default: other++; break;
+            }
+        }
+
+        // Only a realtime/mixed light that is ALLOWED a per-pixel pass can cost one, so neither a
+        // baked light (already in the lightmap) nor a ForceVertex light (which opted out of the
+        // pixel path itself) is a candidate. Naming the split stops a reader concluding "16 lights,
+        // cap 2, so 14 passes saved" from a number that includes both. Note bakingOutput, not
+        // Light.lightmapBakeType — the latter is editor-only in 2021.3 and does not compile here.
+        int candidates = 0, forcedVertex = 0, baked = 0;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            if (lights[i].bakingOutput.lightmapBakeType == LightmapBakeType.Baked)
+                baked++;
+            else if (lights[i].renderMode == LightRenderMode.ForceVertex)
+                forcedVertex++;
+            else
+                candidates++;
+        }
+
+        int overCap = Mathf.Max(0, candidates - Mathf.Max(cap, 0));
+        VRLog.Info("Rig", $"Per-pixel light cap census at cap {cap}: {lights.Length} enabled Light(s) "
+                          + $"in the scene ({point} point, {spot} spot, {directional} directional, "
+                          + $"{other} other); {baked} baked and {forcedVertex} ForceVertex are not "
+                          + $"candidates, leaving {candidates} that can cost a forward pass at "
+                          + $"all. AT MOST {overCap} of those are "
+                          + "pushed to per-vertex shading by this cap — 'at most' because Unity picks "
+                          + "the per-pixel set PER RENDERER by intensity and distance, so a light far "
+                          + "from a given wall was never that wall's per-pixel light to begin with. "
+                          + "IF THIS NUMBER IS 0 the cap is inert in this scene and any frame-rate "
+                          + "change you see came from something else.");
     }
 
     private static void ApplyMsaa()
@@ -444,6 +656,29 @@ internal static class RenderQuality
             _baseEyeWidth = XRSettings.eyeTextureWidth;
         }
 
+        // ANNOUNCE THE ROW ONCE PER SESSION, WHATEVER IT READS (see _eyeScaleAnnounced for the
+        // report this answers). Waits for a live eye texture so the announcement can quote the
+        // pixel count the runtime actually asked for — the number a player who moved a DIFFERENT
+        // resolution slider will recognise, and the number that tells them their change DID land,
+        // one layer up, without ever touching this row.
+        if (!_eyeScaleAnnounced && XRSettings.eyeTextureWidth > 0)
+        {
+            _eyeScaleAnnounced = true;
+            bool atNative = Mathf.Abs(wanted - 1f) < 0.0005f;
+            VRLog.Info("Rig", $"Eye resolution row [RenderQuality] EyeResolutionScale reads "
+                              + $"{wanted:F2}x — {(atNative ? "the shipped default, i.e. UNCHANGED" : "a changed value")}. "
+                              + $"The runtime is asking for {XRSettings.eyeTextureWidth}x"
+                              + $"{XRSettings.eyeTextureHeight} per eye and this row scales THAT. "
+                              + "IT IS THE ONLY RESOLUTION THE MOD CAN MOVE: the game's own options "
+                              + "page and the Virtual Desktop / SteamVR resolution sliders sit "
+                              + "UPSTREAM of it — changing one of those changes the request quoted "
+                              + "above and never this number, which is why such a change leaves no "
+                              + "trace on this line. In the headset the row is VR-Einstellungen ▸ "
+                              + "Bild ▸ Darstellung ▸ 'Auflösung pro Auge'; on disk it is "
+                              + "dev.gloomhavenvr.rig.cfg. Whether a non-default value BINDS is "
+                              + "read back and named on the EYE-TARGET DIAG line below.");
+        }
+
         // Back at native: undo the viewport fallback too, so "1.0" always means "exactly what
         // the runtime asked for" no matter which lever we were riding.
         if (Mathf.Abs(wanted - 1f) < 0.0005f && _viewportScaleApplied != 1f)
@@ -489,8 +724,22 @@ internal static class RenderQuality
         float wanted = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
         int actual = XRSettings.eyeTextureWidth;
 
+        // "NOTHING TO VERIFY" WAS THE WHOLE PROBLEM. Thirty of these lines in the ModBuild 226 log
+        // said exactly that and nothing else, so a player asking "did changing the resolution do
+        // anything?" found a sentence that neither confirmed nor denied it. The default case now
+        // states which row is at its default, what the runtime is asking for, and — the part that
+        // actually answers the question — that a resolution changed ANYWHERE ELSE would have moved
+        // the request rather than this row, and is therefore already included in the size below.
         if (Mathf.Abs(wanted - 1f) < 0.0005f)
-            return "resolution scale is 1.0 — nothing to verify (the runtime's own request stands).";
+            return $"resolution scale is 1.00 = the shipped default, so the mod is NOT scaling the "
+                   + $"eye render at all — the {XRSettings.eyeTextureWidth}x{XRSettings.eyeTextureHeight} "
+                   + "per eye above is exactly what the OpenXR runtime asked for. IF YOU CHANGED A "
+                   + "RESOLUTION AND ARE LOOKING FOR ITS EFFECT: a change made in the game's options "
+                   + "page or in Virtual Desktop / SteamVR lands in THAT number, not in this one, so "
+                   + "compare the per-eye size against a previous log rather than expecting this row "
+                   + "to move. The mod's own lever is [RenderQuality] EyeResolutionScale "
+                   + "(VR-Einstellungen ▸ Bild ▸ Darstellung ▸ 'Auflösung pro Auge'), and at 1.00 it "
+                   + "has done nothing, correctly.";
         if (_baseEyeWidth <= 0 || actual <= 0)
             return "resolution scale cannot be verified yet — no baseline eye width sampled at scale 1.0 " +
                    "(the scale was already off-native when the rig came up); the row still applies, but " +
@@ -516,21 +765,53 @@ internal static class RenderQuality
         // could never be reached again: ViewportScaleFallback is a constant since the 2026-08-22
         // settings audit, precisely so that no cfg can put the curated resolution row into that
         // silent state.
-        ApplyViewportScale(wanted, $"eyeTextureResolutionScale did not move the allocation " +
-                                   $"({actual}px, expected ~{expected:F0}px)");
+        bool fallbackStuck = ApplyViewportScale(wanted, $"eyeTextureResolutionScale did not move the allocation " +
+                                                        $"({actual}px, expected ~{expected:F0}px)");
+
+        // THE THIRD OUTCOME, WHICH HAD NO SENTENCE UNTIL NOW: both levers refused. The class doc
+        // says "every provider honours renderViewportScale", and that is a claim about providers,
+        // not a proof — a claim this readback can now falsify per session instead of per project.
+        // If it ever prints, the resolution row genuinely did nothing on this runtime and the log
+        // says so in the words the report asked for, rather than leaving the player to guess.
+        if (!fallbackStuck)
+        {
+            return $"resolution scale {wanted:F2} DID NOTHING AT ALL on this runtime — the eye "
+                   + $"texture stayed {actual}px wide (expected ~{expected:F0}px) AND the "
+                   + $"renderViewportScale fallback did not stick either (reads "
+                   + $"{XRSettings.renderViewportScale:F2} straight after the write). Both levers "
+                   + "this mod has were refused by the provider, so the row is inert HERE and no "
+                   + "value you set in it will change the picture or the frame rate. Nothing is "
+                   + "broken and nothing needs undoing; use the resolution slider of Virtual Desktop "
+                   + "/ SteamVR instead, which sits upstream of both.";
+        }
+
         return $"resolution scale did not bind via eyeTextureResolutionScale (eye texture still " +
-               $"{actual}px wide) — renderViewportScale {wanted:F2} engaged instead; the pixel saving " +
-               "is real, it just comes from rendering a sub-rect of the swapchain rather than a " +
-               "smaller swapchain.";
+               $"{actual}px wide) — renderViewportScale {wanted:F2} engaged instead AND READ BACK " +
+               "as applied; the pixel saving is real, it just comes from rendering a sub-rect of " +
+               "the swapchain rather than a smaller swapchain.";
     }
 
-    private static void ApplyViewportScale(float wanted, string reason)
+    /// <summary>
+    /// Write the viewport fallback and READ IT STRAIGHT BACK. Returns whether it stuck.
+    ///
+    /// <para>The readback is the point: this is the last lever the mod has, so "it did not take
+    /// either" is the only honest way to say "your resolution change did nothing", and the caller
+    /// prints exactly that. <c>renderViewportScale</c> is a plain engine-side property with no
+    /// swapchain re-allocation behind it, so unlike <c>eyeTextureResolutionScale</c> it reflects
+    /// immediately and needs no settling frames — which is why this check is inline rather than
+    /// another delayed diagnostic.</para>
+    /// </summary>
+    private static bool ApplyViewportScale(float wanted, string reason)
     {
         XRSettings.renderViewportScale = wanted;
         _viewportScaleApplied = wanted;
-        VRLog.Info("Rig", $"renderViewportScale → {wanted:F2} ({reason}). Per-pixel GPU work " +
-                          $"∝ scale² ≈ {wanted * wanted:F2}x; the compositor samples only the " +
-                          "rendered sub-rect, so the view is unchanged apart from sharpness.");
+        bool stuck = Mathf.Abs(XRSettings.renderViewportScale - wanted) < 0.005f;
+        VRLog.Info("Rig", $"renderViewportScale → {wanted:F2} ({reason}); readback "
+                          + $"{XRSettings.renderViewportScale:F2} = {(stuck ? "APPLIED" : "REFUSED — this provider ignores the viewport lever too")}. "
+                          + $"Per-pixel GPU work ∝ scale² ≈ {wanted * wanted:F2}x; the compositor "
+                          + "samples only the rendered sub-rect, so the view is unchanged apart "
+                          + "from sharpness.");
+        return stuck;
     }
 
     private static void ReleaseViewportScale()
@@ -623,11 +904,34 @@ internal static class RenderQuality
         int eyePasses = XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass ? 2 : 1;
         double megaSamples = eyeW * (double)eyeH * viewport * viewport
                              * Mathf.Max(wanted, 1) * eyePasses / 1_000_000.0;
+        // BASELINE ONCE, DELTA EVERY TIME AFTERWARDS. An absolute in Msamples is a number nobody can
+        // place; the whole value of this line is answering "did the setting I just changed buy
+        // anything", so it is quoted against the budget measured while both levers were at their
+        // shipped values. The baseline is only captured while the row is at 1.00 and MSAA at its
+        // default, so a session that starts on a tuned config honestly reports no baseline rather
+        // than inventing one out of the tuned state.
+        if (_baseMegaSamples <= 0
+            && Mathf.Abs(Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale) - 1f) < 0.0005f
+            && viewport > 0.995f && wanted == Defaults.MsaaLevel && megaSamples > 0)
+        {
+            _baseMegaSamples = megaSamples;
+        }
+
+        string against = _baseMegaSamples <= 0
+            ? "no shipped-default baseline was captured this session (the levers were already tuned "
+              + "when the rig came up), so this figure stands alone"
+            : Mathf.Abs((float)(megaSamples - _baseMegaSamples)) < 0.05f
+                ? $"unchanged from the shipped-default baseline ({_baseMegaSamples:F1})"
+                : $"vs {_baseMegaSamples:F1} at the shipped defaults = "
+                  + $"{(megaSamples - _baseMegaSamples) / _baseMegaSamples * 100.0:+0.0;-0.0}%";
+
         VRLog.Info("Rig", $"EYE-TARGET DIAG: pixel-sample budget = {megaSamples:F1} Msamples/frame " +
                           $"({eyeW}x{eyeH} per eye x viewport {viewport:F2}² x {Mathf.Max(wanted, 1)} MSAA " +
-                          $"samples x {eyePasses} pass(es), {XRSettings.stereoRenderingMode}). This is the " +
-                          "number the quality preset moves; halve it and the GPU frame time should fall " +
-                          "roughly in step wherever the frame is fill/bandwidth bound.");
+                          $"samples x {eyePasses} pass(es), {XRSettings.stereoRenderingMode}) — {against}. " +
+                          "This is the number the quality preset moves; halve it and the GPU frame time " +
+                          "should fall roughly in step WHEREVER THE FRAME IS FILL/BANDWIDTH BOUND — and " +
+                          "the [Perf] SPLIT line is what says whether it is. A frame whose 'logic' share " +
+                          "is the wall will not move at all, however far this figure falls.");
 
         VRLog.Info("Rig", $"EYE-TARGET DIAG: {VerifyEyeScaleBound()}");
     }
@@ -724,12 +1028,66 @@ internal static class RenderQuality
     {
         int msaa = Sanitize(MsaaLevel!.Value);
         float scale = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
+        int lights = PixelLightCount!.Value;
         for (int i = 0; i < Presets.Length; i++)
         {
-            if (Presets[i].Msaa == msaa && Mathf.Abs(Presets[i].Scale - scale) < 0.005f)
+            if (Presets[i].Msaa == msaa && Mathf.Abs(Presets[i].Scale - scale) < 0.005f
+                && Presets[i].PixelLights == lights)
                 return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// Dropdown index for the preset ROW: the matching preset, or <see cref="CustomPresetIndex"/>.
+    /// Derived on every read — see <see cref="QualityPreset"/> for why nothing is stored.
+    /// </summary>
+    internal static int PresetRowIndex()
+    {
+        Bind();
+        int idx = CurrentPresetIndex();
+        return idx < 0 ? CustomPresetIndex : idx;
+    }
+
+    /// <summary>
+    /// Apply the preset the row picked. Picking "custom" is a NO-OP on purpose: there is no such
+    /// combination to restore to, the label only ever describes a state the three rows are already
+    /// in, and writing anything for it would turn a readout into a fourth setting.
+    /// </summary>
+    internal static void ApplyPresetByIndex(int index)
+    {
+        Bind();
+        if (index < 0 || index >= Presets.Length)
+            return;
+        Preset p = Presets[index];
+        Core.PerfMonitor.MarkChange($"graphics preset → '{p.LocId}' (MSAA {p.Msaa}x, eye {p.Scale:F2}x, "
+                                    + $"pixel lights {p.PixelLights})");
+        MsaaLevel!.Value = p.Msaa;                 // BepInEx persists on set; Tick applies next frame
+        EyeResolutionScale!.Value = p.Scale;
+        PixelLightCount!.Value = p.PixelLights;
+        VRLog.Info("Rig", $"Graphics preset '{p.LocId}' applied — MSAA {p.Msaa}x, eye resolution "
+                          + $"{p.Scale:F2}x, per-pixel light cap {p.PixelLights}. Modelled per-pixel "
+                          + $"shading ∝ {p.Scale * p.Scale:F2}x and MSAA surface/resolve bandwidth ∝ "
+                          + $"{Mathf.Max(p.Msaa, 1) * p.Scale * p.Scale:F2}x relative to 1.0x/8x. "
+                          + "MODELLED, not measured: the honest readout is the [Perf] FRAME line "
+                          + "before and after, and if that line's 'logic' share is the wall none of "
+                          + "these three will move it. The three rows stay editable — changing any "
+                          + "one of them simply reads back here as 'custom'.");
+    }
+
+    /// <summary>
+    /// Copy the DERIVED preset index into <see cref="QualityPreset"/> when the two disagree, so the
+    /// cfg file on disk never claims a preset the dials do not spell. One writer, copying from the
+    /// truth, converging in one tick — see the entry's own doc for why this is not a write war.
+    /// </summary>
+    private static void MirrorPresetToConfig()
+    {
+        int derived = PresetRowIndex();
+        if (derived == _lastMirroredPreset && QualityPreset!.Value == derived)
+            return;
+        _lastMirroredPreset = derived;
+        if (QualityPreset!.Value != derived)
+            QualityPreset.Value = derived;
     }
 
     /// <summary>Cycle-button readout: the matching preset's name, or "custom".</summary>
@@ -748,17 +1106,11 @@ internal static class RenderQuality
     internal static void CyclePreset()
     {
         Bind();
-        int next = (CurrentPresetIndex() + 1) % Presets.Length;
-        Preset p = Presets[next];
-        // The 2026-07 hardware sweep cycled all four presets inside ONE 30 s summary interval, so
-        // every window straddled several settings and the four "measurements" it produced could
-        // not be attributed to anything. Closing the window here is what makes the sweep readable.
-        Core.PerfMonitor.MarkChange($"graphics preset → '{p.LocId}' (MSAA {p.Msaa}x, eye {p.Scale:F2}x)");
-        MsaaLevel!.Value = p.Msaa;
-        EyeResolutionScale!.Value = p.Scale;
-        VRLog.Info("Rig", $"Graphics preset '{p.LocId}' applied — MSAA {p.Msaa}x, eye resolution " +
-                          $"{p.Scale:F2}x. Modelled per-pixel shading ∝ {p.Scale * p.Scale:F2}x and " +
-                          $"MSAA surface/resolve bandwidth ∝ {Mathf.Max(p.Msaa, 1) * p.Scale * p.Scale:F2}x " +
-                          "relative to 1.0x/1x; watch the [Perf] FRAME 'gpu' figure for the real answer.");
+        // Delegates since 2026-08-23: the preset is a DROPDOWN row now (Bild ▸ Darstellung), and
+        // two copies of "write the three levers and say so" would be two places for the pixel-light
+        // member to be forgotten. The MarkChange that makes a [Perf] sweep readable — the 2026-07
+        // sweep cycled all four presets inside ONE 30 s summary window and produced four
+        // measurements that could not be attributed to anything — lives in ApplyPresetByIndex now.
+        ApplyPresetByIndex((CurrentPresetIndex() + 1) % Presets.Length);
     }
 }

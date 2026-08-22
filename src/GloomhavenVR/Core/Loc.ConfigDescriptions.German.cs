@@ -640,6 +640,27 @@ internal static partial class Loc
                 "Interne einmalige Migrationsmarke: Die 2.5x-Standard-Tischgröße wurde dieser "
                 + "Konfigurationsdatei angeboten. Nicht bearbeiten.",
             // ---- [RenderQuality] ----
+            // Nachgetragen 2026-08-23 mit der Voreinstellungs-Zeile. Der Text nennt zuerst, was die
+            // Voreinstellung setzt, dann was sie NICHT kann — der Bericht, aus dem sie entstand
+            // ("ich bin mir nicht sicher ob das überhaupt irgendwas gebracht hat"), ist genau die
+            // Enttäuschung, die entsteht, wenn ein Bild-Regler gegen eine Logik-Last antritt.
+            ["RenderQuality/QualityPreset"] =
+                "Ein benannter Punkt auf der Kurve aus MSAA, Augenauflösung und Pixellicht-Grenze — "
+                + "eine Entscheidung statt drei Zahlen. Qualität = MSAA 8x, Auflösung 1.00x, Lichter "
+                + "unangetastet (Auslieferungszustand). Ausgewogen = 4x, 0.90x, Lichter unangetastet. "
+                + "Leistung = 2x, 0.80x, 2 Pixellichter. Schwache Hardware = MSAA aus, 0.60x, "
+                + "1 Pixellicht. Eigene = die drei Zeilen darunter ergeben keine Voreinstellung; das "
+                + "ist eine ANZEIGE, kein wählbarer Zustand — 'Eigene' auszuwählen tut nichts. "
+                + "NICHTS WIRD GESPERRT: Die drei Zeilen darunter bleiben einstellbar, und sobald du "
+                + "eine davon veränderst, springt diese Zeile von selbst auf 'Eigene'. "
+                + "WAS SIE NICHT KANN, ehrlich gesagt: Alle drei Regler sind Bild- und "
+                + "Abgabe-Regler. Wenn das Bild langsam ist, weil VIEL IN DER SZENE STEHT — der "
+                + "typische Fall beim Herauszoomen auf alle Räume —, liegt die Last in der "
+                + "Spiellogik, und dorthin reicht keiner dieser drei. Aus dem Hardware-Log von "
+                + "ModBuild 226, bei UNVERÄNDERTER Auflösung und MSAA-Stufe: 23 sichtbare Objekte = "
+                + "10,97 ms pro Bild, 4841 sichtbare Objekte = 71,28 ms. Gleiche Pixel, 6,5-fache "
+                + "Bildzeit. Nach unten zu stellen hilft dort, wo die GPU wirklich an der Füllrate "
+                + "hängt — und kostet dort, wo sie es nicht tut, nur Schärfe.",
             ["RenderQuality/MsaaLevel"] =
                 "Hardware-MSAA-Sampleanzahl für das VR-Augenrendering (0 = aus, 2/4/8). Die spieleigene "
                 + "Kantenglättung steckt im PostProcessLayer, den der Mod abschaltet, und die Qualitätsstufe "
@@ -678,7 +699,21 @@ internal static partial class Loc
                 + "Pixelzahl steht in der Zeile [Rig] EYE-TARGET DIAG. Über 1 ist der einzige Regler gegen "
                 + "SHADER-/TEXTUR-Flimmern (Glanzfunkeln, Subpixel-Details), an das MSAA als "
                 + "Geometriekanten-Glättung nicht herankommt; unter 1 werden Texturdetails weicher, bevor "
-                + "Kanten weicher werden. Wirkt sofort.",
+                + "Kanten weicher werden. Wirkt sofort. "
+                + "WAS ER NICHT KAUFEN KANN — gemessen, nicht vermutet (Hardware-Log ModBuild 226, "
+                + "die ZOOM-Achse der [Perf]-SPLIT-Zeile): Bei UNVERÄNDERTER Auflösung und "
+                + "MSAA-Stufe lief dieselbe Sitzung mit 23 sichtbaren Objekten bei 10,97 ms pro "
+                + "Bild und mit 4841 sichtbaren bei 71,28 ms — das 6,5-fache bei identischer "
+                + "Pixelzahl. Die Bildzeit gehört im schweren Blick der Szene selbst (Logik ~50 %, "
+                + "Renderschleife ~13 %), und dorthin reicht kein Pixel-Regler. Diesen Wert zu "
+                + "senken hilft dort, wo die GPU an Füllrate oder Bandbreite hängt — das ist der "
+                + "'blocked'-Anteil der [Perf]-SPLIT-Zeile. Das ist nicht nichts, aber es ist nicht "
+                + "der Hebel für eine volle Szene. "
+                + "UND ES IST DER EINZIGE AUFLÖSUNGSREGLER, DEN DER MOD BEWEGT: Die "
+                + "Auflösungs-Einstellung des Spiels und die Regler von Virtual Desktop / SteamVR "
+                + "sitzen DARÜBER — sie ändern, was die Runtime anfordert, und nicht diesen Wert. "
+                + "Die Zeile [Rig] EYE-TARGET DIAG im Log nennt beides und sagt, welcher Hebel "
+                + "tatsächlich gegriffen hat.",
             // ---- [General] ----
             ["General/Enabled"] =
                 "Hauptschalter. Auf false gesetzt läuft das Spiel völlig unverändert (der Mod tut nichts).",

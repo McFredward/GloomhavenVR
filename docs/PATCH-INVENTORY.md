@@ -128,7 +128,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:45 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:46 |
-| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:2151</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:772 |
+| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:2321</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:828 |
 | `Character3DDisplayRefcount`<br/><sub>src/GloomhavenVR/WorldUI/Patches/Character3DDisplayRefcount.cs:115</sub> | `Character3DDisplayManager.Display(Component, ECharacter, string, string)` *(private)* | prefix | `WorldUIModule`:70 |
 | &nbsp; | `Character3DDisplayManager.Hide()` | prefix | &nbsp; |
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |

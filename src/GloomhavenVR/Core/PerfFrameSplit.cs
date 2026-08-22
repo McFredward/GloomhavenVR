@@ -190,6 +190,14 @@ internal static partial class PerfFrameSplit
 
     private static int _logicStalls, _renderStalls;
 
+    /// <summary>The worst stall frame of the window and its cost, so the STALLS clause can name a
+    /// frame number to grep rather than assert a cause it cannot see. See <see cref="AppendStalls"/>.
+    /// </summary>
+    private static float _worstStallMs;
+
+    /// <inheritdoc cref="_worstStallMs"/>
+    private static int _worstStallFrame;
+
     // ---- Unity FrameTimingManager (bonus; n/a when the player disabled frame-timing stats) -----
 
     private static readonly FrameTiming[] Timings = new FrameTiming[1];
@@ -333,6 +341,14 @@ internal static partial class PerfFrameSplit
                     _logicStalls++;
                 if (renderMs >= StallMs)
                     _renderStalls++;
+                // Remember WHICH frame was the worst stall, so the STALLS clause can point at a
+                // SPIKE line instead of guessing at a cause. See AppendStalls.
+                float worstOfFrame = logicMs > renderMs ? logicMs : renderMs;
+                if (worstOfFrame >= StallMs && worstOfFrame > _worstStallMs)
+                {
+                    _worstStallMs = worstOfFrame;
+                    _worstStallFrame = Time.frameCount;
+                }
             }
 
             for (int i = 0; i < CameraOrder.Count; i++)
@@ -494,6 +510,8 @@ internal static partial class PerfFrameSplit
         _renderMax = 0f;
         _logicStalls = 0;
         _renderStalls = 0;
+        _worstStallMs = 0f;
+        _worstStallFrame = 0;
         _passSum = 0;
         _ftCpuSum = 0d;
         _ftGpuSum = 0d;
@@ -575,10 +593,29 @@ internal static partial class PerfFrameSplit
         if (stalls == 0 && !skewed)
             return;
 
+        // THIS CLAUSE USED TO NAME A CAUSE IT CANNOT SEE, AND IT WAS WRONG FOR A WHOLE SESSION.
+        // Until ModBuild 227 it read "a synchronous scene load, an asset-bundle decompress or a
+        // room regeneration, NOT steady-state cost" — an assertion, not a measurement. In the
+        // ModBuild 226 hardware capture every single one of the 13–16 stalls per window was
+        // WallFade.Rescan: a MOD step, recurring on a 2 s timer, i.e. steady-state cost by any
+        // reading. The count matched exactly (15 rescans, 15 stalls) and the STEPS line one line
+        // above said so, while this line talked the reader out of looking. A stall is a SHAPE, and
+        // this instrument can see the shape and not the cause — so it now points at the two lines
+        // that CAN name it instead of guessing.
         sb.Append(" | STALLS: ").Append(_logicStalls).Append(" logic and ").Append(_renderStalls)
           .Append(" render frame(s) over ").Append(StallMs.ToString("F0")).Append("ms in this "
-                  + "window — a synchronous scene load, an asset-bundle decompress or a room "
-                  + "regeneration, NOT steady-state cost");
+                  + "window");
+        if (_worstStallFrame != 0)
+        {
+            sb.Append(" (worst ").Append(_worstStallMs.ToString("F0")).Append("ms on frame ")
+              .Append(_worstStallFrame).Append(" — grep that frame number in the [Perf] SPIKE "
+                      + "lines, which name the worst STEPS of that exact frame)");
+        }
+        sb.Append(". THE CAUSE IS NOT VISIBLE FROM HERE. A one-off load, an asset-bundle "
+                  + "decompress or a room regeneration all look like this — and so does a MOD STEP "
+                  + "on a timer, which is what these turned out to be in ModBuild 226. Read the "
+                  + "[Perf] STEPS line above: a step whose 'frames' count equals the stall count "
+                  + "IS the stall");
         if (skewed)
         {
             sb.Append(". THE MEANS ABOVE ARE SKEWED BY THEM: read p50, not the mean. A mean that "

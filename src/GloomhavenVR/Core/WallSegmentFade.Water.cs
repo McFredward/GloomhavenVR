@@ -135,23 +135,43 @@ internal static partial class WallSegmentFade
         /// triggered — this line must never become a per-rescan spam source).</summary>
         private int _waterCensusSig = -1;
 
-        /// <summary>Is this renderer a WATER SURFACE — the anchor of a water feature? Shader
-        /// family first (the game's own definition of water, so it needs no name list at all),
-        /// authored name family second.</summary>
-        private bool IsWaterSurface(Renderer r)
+        // WHAT A WATER SURFACE IS — the anchor of a water feature: shader family first (the
+        // game's own definition of water, so it needs no name list at all), authored name
+        // family second.
+        //
+        // PERF S2 (2026-08-23) — THIS USED TO BE ONE METHOD, `IsWaterSurface(Renderer)`, and
+        // that fact is no longer true: it is the two halves below. The reason is cost, not
+        // taste. The whole-renderer form opened its OWN GetSharedMaterials and read its OWN
+        // r.name — and the rescan called it for every one of the scene's 8630 renderers while
+        // three other passes were separately opening GetSharedMaterials and reading r.name for
+        // the same renderer. The rescan census (ClassifyMaterialsAndName in WallSegmentFade.cs)
+        // now asks all four questions from ONE fetch and ONE name read, calling exactly these
+        // two helpers for the water arm, so there is still only one copy of each test. Any
+        // caller that genuinely holds only a Renderer can rebuild the old method from them in
+        // three lines — see WaterTerrainVR.cs, which documents its own water test as
+        // deliberately mirroring this one.
+
+        /// <summary>Does this shader belong to the water family? 'Water_Shd',
+        /// 'Water_Shd_Trans', 'Water_Shr_Low', 'Water_Shr_Trans_Low' — the four water shaders
+        /// this game ships, all sharing the 'Water_Sh' stem. Memoized per Shader exactly like
+        /// <c>_shaderVerdict</c> (wall fade) and <c>_shaderFoliageVerdict</c> (foliage): the
+        /// answer is a property of the shader asset and never changes, while <c>sh.name</c> is
+        /// an interop STRING ALLOCATION that used to be paid per material per renderer per
+        /// rescan.</summary>
+        private bool IsWaterShader(Shader sh)
         {
-            _matScratch.Clear();
-            r.GetSharedMaterials(_matScratch);
-            foreach (Material m in _matScratch)
+            if (!_shaderWaterVerdict.TryGetValue(sh, out bool water))
             {
-                if (m == null || m.shader == null)
-                    continue;
-                // 'Water_Shd', 'Water_Shd_Trans', 'Water_Shr_Low', 'Water_Shr_Trans_Low' —
-                // the four water shaders this game ships, all sharing the 'Water_Sh' stem.
-                if (m.shader.name.IndexOf("Water_Sh", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return true;
+                water = sh.name.IndexOf("Water_Sh", StringComparison.OrdinalIgnoreCase) >= 0;
+                _shaderWaterVerdict[sh] = water;
             }
-            string n = r.name;
+            return water;
+        }
+
+        /// <summary>Does this renderer NAME belong to the authored water family? Consulted only
+        /// when the shader family already said no, exactly as before.</summary>
+        private static bool IsWaterNameFamily(string n)
+        {
             foreach (string token in WaterNameTokens)
             {
                 if (n.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
@@ -161,12 +181,18 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// Rebuild the water-feature protection rects from the scene sweep (one pass, shared
-        /// renderer array). Runs inside Rescan AFTER the room registry is built (it needs the
-        /// tile-anchored floor plane for the height gate) and BEFORE the ground strip and every
-        /// adoption pass, so no pass can ever see a fountain as fadeable.
+        /// Rebuild the water-feature protection rects from the rescan cycle's scene census.
+        /// Runs inside Rescan AFTER the room registry is built (it needs the tile-anchored
+        /// floor plane for the height gate) and BEFORE the ground strip and every adoption
+        /// pass, so no pass can ever see a fountain as fadeable.
+        ///
+        /// <para>PERF S2: the input is <c>_factWater</c> — the census indices of the renderers
+        /// that satisfied this pass's own guard (<c>!null &amp;&amp; enabled &amp;&amp;
+        /// !IsModObject &amp;&amp; IsWaterSurface</c>), in snapshot order. The pass used to
+        /// evaluate that guard itself over all 8630 scene renderers, which meant an interop
+        /// name allocation and a shader-name allocation per renderer per rescan.</para>
         /// </summary>
-        private void CollectWaterFeatures(Renderer[] sceneRenderers)
+        private void CollectWaterFeatures()
         {
             float now = Time.unscaledTime;
             // Prune first: rects whose water has not been seen for a while (scene torn down).
@@ -175,8 +201,6 @@ internal static partial class WallSegmentFade
                 if (now - _waterRects[i].LastSeen > WaterRectRetainSeconds)
                     _waterRects.RemoveAt(i);
             }
-            if (sceneRenderers == null)
-                return;
 
             // Height gate baseline: the LOWEST tile-anchored floor plane in the scene, the same
             // cheap convention the mounted pass uses. Without an anchored room there is no
@@ -193,12 +217,14 @@ internal static partial class WallSegmentFade
 
             int found = 0, tooTall = 0;
             var names = new System.Text.StringBuilder();
-            foreach (Renderer any in sceneRenderers)
+            for (int wi = 0; wi < _factWater.Count; wi++)
             {
-                if (any == null || !any.enabled || IsModObject(any))
-                    continue;
-                if (!IsWaterSurface(any))
-                    continue;
+                Renderer? any = _facts[_factWater[wi]].R;
+                if (any == null || !any.enabled)
+                    continue; // `enabled` is read LIVE — see the census's membership note
+                // LIVE bounds, not the census snapshot: this AABB becomes a PROTECTION RECT
+                // that other passes measure against, so it is authoritative geometry and is
+                // read here exactly as before. The census only decided membership.
                 Bounds b = any.bounds;
                 if (b.max.y - minFloorY > WaterFeatureMaxHeightWU)
                 {
