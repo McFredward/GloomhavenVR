@@ -488,6 +488,8 @@ internal static partial class Loc
             // merchant/character screens), not on the mod's own panels the way PanelMipBake does.
             ["WorldUI/PanelSupersample"] = Pair("Windows: render sharp", "Fenster: scharf zeichnen"),
             ["WorldUI/PanelSupersampleFactor"] = Pair("Windows: sharpness", "Fenster: Schärfegrad"),
+            ["WorldUI/NeutraliseGrabPassBlur"] = Pair("Windows: remove blur effect",
+                                                    "Fenster: Weichzeichner entfernen"),
             ["WorldUI/PanelRepairInheritedAlpha"] = Pair("Windows: repair invisible elements",
                                                         "Fenster: unsichtbare Elemente reparieren"),
             ["WorldUI/PanelMipLodOffset"] = Pair("Windows: filter sharpening",

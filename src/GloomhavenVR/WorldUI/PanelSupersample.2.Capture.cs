@@ -3897,6 +3897,7 @@ internal static partial class PanelSupersample
     private static readonly StringBuilder InkRepairSb = new(512);
     private static readonly StringBuilder PhaseFlipSb = new(512);
     private static readonly StringBuilder PhaseLayerSb = new(512);
+    private static readonly StringBuilder GrabPassSb = new(512);
     private static readonly StringBuilder PhaseFrameSb = new(512);
     private static readonly List<bool> PhaseDrawn = new(MaxPhaseGraphics);
 
@@ -4206,6 +4207,46 @@ internal static partial class PanelSupersample
         if (e.PhaseGraphics.Count < MaxPhaseGraphics)
             e.PhaseGraphics.Add(g);
 
+        // ---- THE GRAB-PASS BLUR (ModBuild 217) -------------------------------------------------
+        //
+        // WHAT THE ModBuild 216 LOG FINALLY SHOWED, after every other property came back correct:
+        //     #3 'Blur' at New Party display/UI Item Confirmation Box/Blur: rect 1920x1080 px = 99 %
+        //     of the open sub-view's area; shader 'Custom/SimpleGrabPassBlur', renderQueue 3000,
+        //     inherited 0.000 -> PAINTS OVER 272 of 764 drawing graphic(s), 4,491,892 px².
+        //
+        // A GrabPass shader GRABS THE FRAMEBUFFER IT IS BEING DRAWN INTO and draws it back blurred.
+        // Inside a render-to-texture pass that framebuffer is the capture target, mid-render — so the
+        // window is composited with a blurred copy of its own half-finished self. Without the
+        // supersampler it grabs the EYE buffer instead, once per eye per frame, which is the constant
+        // flicker the user has always had. It explains the DIM CAPTURE verdicts exactly (a blur
+        // collapses contrast toward the mean: ink down, background up), it takes thin strokes before
+        // thick ones and Images last, and it needs no change in uGUI state at all — which is why the
+        // drawn set measured constant between cameras (1 in 4382), constant between frames while
+        // carried (0 of 258), on the right layer (0) and inside the frustum (0).
+        //
+        // AND WHY EVERY ALPHA-BASED INSTRUMENT I BUILT EXCLUDED IT: its inherited alpha is 0.000, so
+        // ClassifyDraw calls it hidden and the census skips it. A custom shader is not obliged to
+        // honour the vertex colour uGUI writes that alpha into, and the GrabPass executes whatever
+        // the final blend does with the result.
+        //
+        // THE REMEDY IS THE GAME'S OWN. UIBlurDisabler (decompiled/GH.Runtime/UIBlurDisabler.cs) does
+        // exactly `_image.material = null` when the player has SimplifiedUI + DisableUIBlur — so a
+        // blur-free window is a state this UI already ships and is drawn correctly in. Dropping the
+        // material leaves the graphic in place with the stock UI shader, which DOES honour the alpha,
+        // so a blur that is meant to be invisible becomes invisible and one that is meant to tint
+        // keeps tinting — without ever grabbing the framebuffer.
+        if (WorldUIConfig.NeutraliseGrabPassBlur.Value && g.material != null
+            && g.material.shader != null
+            && g.material.shader.name.IndexOf("GrabPass", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            string shaderName = g.material.shader.name;
+            g.material = null;
+            e.GrabPassNeutralised++;
+            if (GrabPassSb.Length < 400)
+                GrabPassSb.Append(" '").Append(g.gameObject.name).Append("' (")
+                          .Append(shaderName).Append(") -> stock UI material;");
+        }
+
         // ---- THE LAYER AND THE FRUSTUM (ModBuild 216) ------------------------------------------
         // Read on the graphic itself, at census time, and compared against the two things the capture
         // camera actually tests. Only for graphics that DRAW — a hidden one being off-layer or out of
@@ -4415,6 +4456,8 @@ internal static partial class PanelSupersample
                   .Append("the first one to point past uGUI's own state.");
         }
 
+        e.GrabPassNote = GrabPassSb.ToString();
+        GrabPassSb.Length = 0;
         e.PhaseLayerNote = PhaseLayerSb.ToString();
         e.PhaseFrameNote = PhaseFrameSb.ToString();
         PhaseLayerSb.Length = 0;
@@ -4913,6 +4956,7 @@ internal static partial class PanelSupersample
         e.DrawLedgerNote = string.Empty;
         e.PhaseGraphics.Clear();
         e.PhaseWrongLayer = e.PhaseOutsideFrame = 0;
+        GrabPassSb.Length = 0;
         PhaseLayerSb.Length = 0;
         PhaseFrameSb.Length = 0;
         c.Plates.Clear();

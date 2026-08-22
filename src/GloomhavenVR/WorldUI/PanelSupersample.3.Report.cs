@@ -1021,6 +1021,35 @@ internal static partial class PanelSupersample
         // symbols too. See the ledger's own header in PanelSupersample.2.Capture.cs.
         Sb.Append(e.DrawLedgerNote);
 
+        // ---- THE GRAB-PASS BLUR (ModBuild 217) --------------------------------------------------
+        Sb.Append(" GRAB-PASS BLUR — THE PAINTER THE ALPHA TESTS COULD NOT SEE. The ModBuild 216 log "
+                  + "named it in the over-paint census's own third slot: 'Blur' at "
+                  + "'New Party display/UI Item Confirmation Box/Blur', shader "
+                  + "'Custom/SimpleGrabPassBlur', a rect covering 99 % of the open sub-view, PAINTING "
+                  + "OVER 272 of 764 drawing graphic(s) at 4,491,892 px². A GrabPass shader GRABS THE "
+                  + "FRAMEBUFFER IT IS BEING DRAWN INTO and paints a blurred copy back — inside a "
+                  + "render-to-texture pass that is the capture target mid-render, so the window is "
+                  + "composited with a blurred copy of its own half-finished self; with the "
+                  + "supersampler off it grabs the EYE buffer instead, once per eye per frame. It "
+                  + "collapses contrast toward the mean, which is the DIM CAPTURE verdict exactly; it "
+                  + "takes thin strokes before thick ones and Images last; and it needs NO change in "
+                  + "uGUI state, which is why the drawn set measured constant between cameras "
+                  + "(1 in 4382), constant between frames while carried (0 of 258), on the right "
+                  + "layer (0) and inside the frustum (0). ITS INHERITED ALPHA IS 0.000, which is why "
+                  + "every alpha-based instrument in this class excluded it: a custom shader is not "
+                  + "obliged to honour the vertex colour uGUI writes that alpha into. AND I CLOSED "
+                  + "OVER-PAINT ON THE WRONG GRAPHIC — the 'PAINTS OVER 0 ... LEGITIMATE BACKDROP' "
+                  + "reading I quoted rounds ago is slot #1, the Quest Log's Viewport, a different "
+                  + "graphic in a different window. NEUTRALISED SO FAR ON THIS PANEL: ")
+          .Append(e.GrabPassNeutralised)
+          .Append(e.GrabPassNeutralised > 0
+              ? " graphic(s) had their material dropped —" + e.GrabPassNote
+                + " which is exactly what the game's own UIBlurDisabler does in SimplifiedUI mode "
+                + "(_image.material = null), so this is a state its UI already ships and draws "
+                + "correctly in. [WorldUI] NeutraliseGrabPassBlur turns it off."
+              : " graphic(s) — if this stays 0 while the over-paint census keeps naming a GrabPass "
+                + "painter, the walk is not reaching it and THAT is the next finding.");
+
         // ---- LAYER AND FRUSTUM (ModBuild 216) ---------------------------------------------------
         Sb.Append(" LAYER AND FRUSTUM — THE LAST TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN "
                   + "OBJECT, and neither has ever been read by an instrument in this class. A camera "

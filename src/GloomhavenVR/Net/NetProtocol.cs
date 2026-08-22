@@ -416,7 +416,41 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 216;
+    public const ushort ModBuild = 217;
+    // Build 217: A GRABPASS BLUR PAINTING OVER 272 OF 764 GRAPHICS — and it has been in the log,
+    // named, in the over-paint census's own third slot, for rounds.
+    //     #3 'Blur' at New Party display/UI Item Confirmation Box/Blur: rect 1920x1080 px = 99 % of
+    //     the open sub-view's area; shader 'Custom/SimpleGrabPassBlur', renderQueue 3000,
+    //     inherited 0.000 -> PAINTS OVER 272 of 764 drawing graphic(s), 4,491,892 px².
+    //
+    // A GrabPass shader GRABS THE FRAMEBUFFER IT IS BEING DRAWN INTO and paints a blurred copy back.
+    // Inside a render-to-texture pass that framebuffer is the capture target MID-RENDER, so the
+    // window is composited with a blurred copy of its own half-finished self; with the supersampler
+    // OFF it grabs the EYE buffer instead, once per eye per frame, which is the constant flicker the
+    // user has had from the beginning. It collapses contrast toward the mean — the DIM CAPTURE
+    // verdict exactly — takes thin strokes before thick ones and Images last, and requires NO change
+    // in uGUI state, which is why 214/215/216 measured the drawn set constant between cameras
+    // (1 in 4382), constant between frames while carried (0 of 258), on the right layer (0) and
+    // inside the frustum (0). Every one of those negatives is consistent with this and always was.
+    //
+    // WHY EVERY INSTRUMENT I BUILT EXCLUDED IT: its inherited alpha is 0.000, so ClassifyDraw calls
+    // it hidden. A custom shader is not obliged to honour the vertex colour uGUI writes that alpha
+    // into, and the grab executes regardless of what the final blend does with the result.
+    //
+    // AND I CLOSED OVER-PAINT ON THE WRONG GRAPHIC. The "PAINTS OVER 0 of 927 ... it is a LEGITIMATE
+    // BACKDROP" reading I quoted as the falsification is slot #1 — the Quest Log Manager's Viewport,
+    // a different graphic in a different window. One contributor is not the union; this project has
+    // a memory by that name and I made the mistake it describes.
+    //
+    // THE REMEDY IS THE GAME'S OWN: UIBlurDisabler (decompiled/GH.Runtime/UIBlurDisabler.cs) sets
+    // _image.material = null when the player enables SimplifiedUI + DisableUIBlur. So a blur-free
+    // window is a state this UI already ships and is drawn correctly in. Dropping the material leaves
+    // the graphic in place with the stock UI shader, which DOES honour the alpha — a blur meant to be
+    // invisible becomes invisible, one meant to tint keeps tinting, and neither ever grabs the
+    // framebuffer. [WorldUI] NeutraliseGrabPassBlur, default on, every neutralised graphic named.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 216: THE LAST TWO PROPERTIES THAT DECIDE WHETHER A CAMERA DRAWS AN OBJECT — the LAYER and
     // the FRUSTUM — and no instrument in this class has ever read either.
     //

@@ -187,6 +187,11 @@ internal static class WorldUIConfig
     /// CanvasGroup chain says they should be. See <c>DrawReason.StaleInheritedAlpha</c>.</summary>
     internal static ConfigEntry<bool> PanelRepairInheritedAlpha = null!;
 
+    /// <summary>Drop the material of any GrabPass-shader graphic inside a floated window, exactly as
+    /// the game's own UIBlurDisabler does in SimplifiedUI mode. See the ModBuild 217 block in
+    /// <c>PanelSupersample.NoteDrawState</c>.</summary>
+    internal static ConfigEntry<bool> NeutraliseGrabPassBlur = null!;
+
 
     // ---- behavior ----------------------------------------------------------------------
     // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
@@ -548,6 +553,18 @@ internal static class WorldUIConfig
                 "below 1.0 saves memory and starts to soften the text. Has no effect while " +
                 "PanelSupersample is off. Range 0.5-2.",
                 new AcceptableValueRange<float>(0.5f, 2f)));
+
+        NeutraliseGrabPassBlur = _file.Bind("WorldUI", "NeutraliseGrabPassBlur",
+            Defaults.NeutraliseGrabPassBlur,
+            new ConfigDescription(
+                "Removes the full-screen BLUR effect from floated windows. The game draws that blur " +
+                "with a shader that GRABS THE FRAMEBUFFER it is being drawn into and paints a " +
+                "blurred copy back over it - which in VR means the window is composited with a " +
+                "blurred copy of its own half-finished self, once per eye, every frame. The mod's " +
+                "log measures one such graphic covering 99 % of the character window and painting " +
+                "over 272 of its 764 visible elements. Dropping the material leaves the element in " +
+                "place with the stock UI shader, which is exactly what the game itself does when you " +
+                "enable its Simplified UI option. Turn it off if you want the blur back."));
 
         PanelRepairInheritedAlpha = _file.Bind("WorldUI", "PanelRepairInheritedAlpha",
             Defaults.PanelRepairInheritedAlpha,

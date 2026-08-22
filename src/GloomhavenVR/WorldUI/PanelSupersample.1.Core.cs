@@ -1847,6 +1847,11 @@ internal static partial class PanelSupersample
         // inside the bound it produced.
         internal int PhaseWrongLayer, PhaseOutsideFrame;
         internal string PhaseLayerNote = string.Empty, PhaseFrameNote = string.Empty;
+
+        /// <summary>GrabPass-shader graphics whose material this panel has dropped, cumulative, and
+        /// the first few by name. See the ModBuild 217 block in NoteDrawState.</summary>
+        internal int GrabPassNeutralised;
+        internal string GrabPassNote = string.Empty;
         internal string PhaseWorstNote = string.Empty;
 
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------
