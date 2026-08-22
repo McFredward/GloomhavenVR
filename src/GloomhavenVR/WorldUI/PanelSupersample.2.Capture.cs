@@ -794,7 +794,7 @@ internal static partial class PanelSupersample
         var cam = go.AddComponent<Camera>();
         cam.orthographic = true;
         cam.clearFlags = CameraClearFlags.SolidColor;
-        cam.backgroundColor = new Color(0f, 0f, 0f, 0f); // transparent: the window keeps per-pixel alpha
+        ApplyCaptureClear(cam);
         // THE ISOLATION GUARANTEE IN ONE LINE: this camera's mask is this panel's PRIVATE pool layer
         // and nothing else, so no other supersampled window can be inside what it captures however
         // close it stands or however deep the ortho slab is. ModBuild 193 wrote the ONE shared
@@ -843,6 +843,49 @@ internal static partial class PanelSupersample
     /// failed rounds ("Shader.Find only sees loaded shaders"). It is also the exact composite
     /// <see cref="FlatScreen"/>'s split mode already ships and the user has already accepted.</para>
     /// </summary>
+    /// <summary>
+    /// <b>THE ALPHA IS APPLIED TWICE, AND THAT IS THE DEFECT — ModBuild 212.</b>
+    ///
+    /// <para>The arithmetic was written down in <see cref="BuildDisplay"/>'s own doc from the first
+    /// build of this class and then treated as a bounded cosmetic footnote for nine rounds. It is not
+    /// cosmetic. The capture clears to TRANSPARENT black and uGUI blends into it with
+    /// <c>SrcAlpha, OneMinusSrcAlpha</c>, so a pixel of coverage <i>a</i> and colour <i>C</i> lands in
+    /// the target PREMULTIPLIED as <c>(aC, a)</c>. The RawImage then composites that with the standard
+    /// UI blend, which multiplies by alpha a SECOND time: <c>a·(aC) + (1-a)·dst = a²C + (1-a)·dst</c>.
+    /// </para>
+    ///
+    /// <para><b>WHY IT READS AS MISSING LETTERS RATHER THAN AS SLIGHTLY THIN ONES.</b> The old note
+    /// argued the error is bounded because a floated window is "almost entirely opaque content on
+    /// nothing". That is true of the PLATE and false of everything the user is complaining about. An
+    /// SDF glyph stem two texels wide is nearly ALL partial coverage; so is an icon's edge, so is the
+    /// antialiased silhouette of the 3D character render. At a = 0.5 the pixel comes out at 0.25 — a
+    /// quarter of its intended brightness. And the share of a glyph that is partial coverage RISES as
+    /// the window is minified, because the mip chain averages the stroke with the page: carry the
+    /// window further away and more of every letter falls into the squared regime at once. That is the
+    /// user's video frame for frame — the window complete at 4 s, letters eaten at 11 s, the whole
+    /// picture nearly extinguished at 18 s, the plate still there because the plate is a = 1.</para>
+    ///
+    /// <para><b>WHY EVERY INSTRUMENT SAID THE CAPTURE WAS CORRECT.</b> Because it IS correct. The
+    /// second multiply happens in the RawImage composite, AFTER the render target the ink census
+    /// reads. Fourteen builds of measurement were taken one stage upstream of the damage — see the
+    /// memory "one step too early".</para>
+    ///
+    /// <para><b>THE FIX, AND WHY IT NEEDS NO SHADER.</b> Clearing the capture to OPAQUE black makes
+    /// uGUI's own blend resolve the coverage against the plate: the target holds <c>(aC, 1)</c>, the
+    /// composite multiplies by 1, and the result is <c>aC</c> — exactly linear. The alternative the old
+    /// note named, <c>Blend One OneMinusSrcAlpha</c>, needs a shader no built-in UI material offers
+    /// and a bundle rebuild; this needs one colour. THE PRICE, stated rather than hidden: whatever the
+    /// window left genuinely transparent is now black instead of the room behind it. The capture frame
+    /// is fitted to the window's own drawn content, so that is its margins and any rounded corner —
+    /// switch <c>[WorldUI] PanelOpaqueCapture</c> off to compare the two directly.</para>
+    /// </summary>
+    private static void ApplyCaptureClear(Camera cam)
+    {
+        cam.backgroundColor = WorldUIConfig.PanelOpaqueCapture.Value
+            ? new Color(0f, 0f, 0f, 1f)
+            : new Color(0f, 0f, 0f, 0f);
+    }
+
     private static bool BuildDisplay(Entry e, ConvertedPanel panel)
     {
         var go = new GameObject($"GloomhavenVR.PanelSS_{e.Window}");
@@ -1005,6 +1048,10 @@ internal static partial class PanelSupersample
         RectTransform? host = e.Panel.HostRect;
         if (host == null || e.Cam == null || e.CamGo == null)
             return;
+        // Re-asserted every frame so the dial can be compared LIVE from the VR menu without a restart:
+        // this is the one setting the user has to be able to A-B against his own eyes, because the
+        // whole question is what the window looks like. Two float writes.
+        ApplyCaptureClear(e.Cam);
         Rect frame = e.Frame;
         float scale = Mathf.Max(Mathf.Abs(host.lossyScale.y), 1e-6f);
         float frameHeightWorld = frame.height * scale;

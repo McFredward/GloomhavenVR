@@ -416,7 +416,43 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 211;
+    public const ushort ModBuild = 212;
+    // Build 212: THE ALPHA IS APPLIED TWICE, AND IT HAS BEEN WRITTEN DOWN IN THIS CLASS SINCE ITS
+    // FIRST BUILD. The capture camera clears to TRANSPARENT black, so uGUI blends into it with
+    // SrcAlpha/OneMinusSrcAlpha and a pixel of coverage a lands PREMULTIPLIED as (aC, a). The RawImage
+    // that shows the capture then composites with the standard UI blend, which multiplies by alpha a
+    // SECOND time: a*(aC) + (1-a)*dst = a**2 C. BuildDisplay's own doc states this arithmetic and
+    // dismissed it as a bounded cosmetic footnote — "almost the whole of a floated window is opaque".
+    // That is true of the PLATE and false of everything the user is complaining about: an SDF glyph
+    // stem two texels wide is nearly ALL partial coverage, so is an icon edge, so is the antialiased
+    // silhouette of the 3D character render. At a = 0.5 the pixel arrives at 0.25. And the share of a
+    // glyph that is partial coverage RISES with minification, because the mip chain averages the
+    // stroke with the page — carry the window further away and more of every letter falls into the
+    // squared regime at once.
+    //
+    // HIS VIDEO IS THE PROOF AND IT IS FRAME BY FRAME: the window complete at 4 s, letters eaten at
+    // 11 s, the whole picture nearly extinguished at 18 s with the plate still standing, because the
+    // plate is a = 1. The neighbouring party-list panel never breaks — it is nearer and larger, so
+    // less of it is partial coverage.
+    //
+    // AND IT IS WHY FOURTEEN BUILDS OF CENSUS SAID THE CAPTURE WAS CORRECT: it IS correct. The second
+    // multiply happens in the RawImage composite, AFTER the render target every instrument reads. The
+    // measurements were all taken one stage upstream of the damage.
+    //
+    // THE FIX NEEDS NO SHADER AND NO BUNDLE: clear the capture to OPAQUE black. uGUI then resolves the
+    // coverage once, against the window's own plate — the target holds (aC, 1), the composite
+    // multiplies by 1, and the result is aC, exactly linear. The alternative the old note named,
+    // Blend One OneMinusSrcAlpha, needs a shader no built-in UI material offers. THE PRICE, stated
+    // rather than hidden: whatever the window left genuinely see-through is now black instead of the
+    // room behind it — its margins and any rounded corner. [WorldUI] PanelOpaqueCapture, default ON,
+    // re-asserted every frame so it can be A-B'd live from the VR menu.
+    //
+    // FALSIFIED THIS ROUND: the stale inherited alpha of 211 — 0 occurrences on all 107 readings, so
+    // renderer and CanvasGroup never disagree. The 211 repair stays as a no-op guard and its counter
+    // is the evidence.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 211: A RENDERER HOLDING AN INHERITED ALPHA OF 0 WHILE EVERYTHING ABOVE IT IS OPAQUE.
     // The 210 ledger named the graphics that came BACK from not drawing on the party window —
     // 'Portrait', 'XP bar', 'Title', 'Icon', 'Shield', 'Shadow', 'Separator Image', 'RawImage',

@@ -187,6 +187,11 @@ internal static class WorldUIConfig
     /// CanvasGroup chain says they should be. See <c>DrawReason.StaleInheritedAlpha</c>.</summary>
     internal static ConfigEntry<bool> PanelRepairInheritedAlpha = null!;
 
+    /// <summary>Clear a supersampled window's capture to OPAQUE black so uGUI resolves partial glyph
+    /// coverage against the plate instead of leaving it to be multiplied by its own alpha a second
+    /// time in the RawImage composite. See <c>ApplyCaptureClear</c> for the arithmetic.</summary>
+    internal static ConfigEntry<bool> PanelOpaqueCapture = null!;
+
     // ---- behavior ----------------------------------------------------------------------
     // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
     // unconditionally while VR runs. Its OFF let the game load the 'Game_gamepad' scene variants
@@ -547,6 +552,21 @@ internal static class WorldUIConfig
                 "below 1.0 saves memory and starts to soften the text. Has no effect while " +
                 "PanelSupersample is off. Range 0.5-2.",
                 new AcceptableValueRange<float>(0.5f, 2f)));
+        PanelOpaqueCapture = _file.Bind("WorldUI", "PanelOpaqueCapture",
+            Defaults.PanelOpaqueCapture,
+            new ConfigDescription(
+                "Fixes letters, icons and character art that thin out and then VANISH from a floated " +
+                "window as you carry it. The window is photographed into a render target that is " +
+                "cleared TRANSPARENT, so every partly-covered pixel - which is most of a thin glyph " +
+                "stroke, every icon edge and the whole silhouette of the character render - is stored " +
+                "multiplied by its own coverage, and then multiplied by it a SECOND time when the " +
+                "photograph is composited into the world. A pixel at half coverage arrives at a " +
+                "QUARTER of its brightness, and minifying the window pushes more of every letter into " +
+                "that regime. Clearing the capture to opaque black makes uGUI resolve the coverage " +
+                "once, against the window's own plate, which is exactly linear. The price: whatever " +
+                "the window left genuinely see-through is black instead of the room behind it - its " +
+                "margins and any rounded corner. Turn it off to compare the two.")); 
+
         PanelRepairInheritedAlpha = _file.Bind("WorldUI", "PanelRepairInheritedAlpha",
             Defaults.PanelRepairInheritedAlpha,
             new ConfigDescription(
