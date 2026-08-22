@@ -1777,6 +1777,17 @@ internal static partial class Loc
                 + "— pro Verdopplung aber zum vierfachen Videospeicher. Niedriger spart Speicher und macht "
                 + "die Schrift weicher. Ohne jede Wirkung, solange \"Fenster: scharf zeichnen\" aus ist. "
                 + "Bereich 0.5-2.",
+            // ModBuild 203, und dieselbe 620-Zeichen-Regel: der Satz, der die Entscheidung trägt
+            // (das Fenster landet KLEINER im Bild als es gebaut wurde) steht vorn, der Preis steht
+            // im Text und nicht in einer Fußnote, und der letzte Satz sagt, wann man zurückdreht.
+            ["WorldUI/PanelMipLodOffset"] =
+                "Schärft die schwebenden Fenster nach. So ein Fenster landet meist KLEINER im Bild, als "
+                + "es gebaut wurde (das Log misst 1,58-fach), und die Mipmap-Filterung wählt dann absichtlich "
+                + "eine gröbere, weichere Stufe. Dieser Wert verschiebt die Wahl nach unten: 0 = wie bisher, "
+                + "-0.5 (Standard) = eine halbe Stufe schärfer. Es ist der einzige Regler, der ein "
+                + "verkleinertes Fenster noch erreicht. PREIS: je negativer, desto eher flimmern dünne Striche "
+                + "beim Tragen; ab -1.0 liest die Brille doppelt so viel Detail, wie ein Bildpunkt tragen kann. "
+                + "Dreh Richtung 0 zurück, sobald die Schrift beim Bewegen kribbelt. Bereich -2 bis 0.",
             ["WorldUI/CanvasScaleMm"] =
                 "Welt-Canvas-Skalierung: Millimeter pro uGUI-Pixel bei Diorama-Größe 1 (Standard 1 px = 1 "
                 + "mm).",

@@ -174,6 +174,15 @@ internal static class WorldUIConfig
     /// sharpness/VRAM trade. Clamped 0.5-2.</summary>
     internal static ConfigEntry<float> PanelSupersampleFactor = null!;
 
+    /// <summary>
+    /// Mip LOD offset applied to <see cref="PanelSupersample"/>'s DISPLAY target — the sharpness /
+    /// aliasing trade, and the only lever left on a MINIFIED window (the factor buys texels per
+    /// AUTHORED pixel, which a minified window's sampler never selects). Clamped -2..0; read live,
+    /// re-asserted on every resolve, and the value actually in force is read back off the live
+    /// RenderTexture in <c>PanelSupersample.2.Capture.cs</c>'s own report line.
+    /// </summary>
+    internal static ConfigEntry<float> PanelMipLodOffset = null!;
+
     // ---- behavior ----------------------------------------------------------------------
     // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
     // unconditionally while VR runs. Its OFF let the game load the 'Game_gamepad' scene variants
@@ -534,6 +543,23 @@ internal static class WorldUIConfig
                 "below 1.0 saves memory and starts to soften the text. Has no effect while " +
                 "PanelSupersample is off. Range 0.5-2.",
                 new AcceptableValueRange<float>(0.5f, 2f)));
+        PanelMipLodOffset = _file.Bind("WorldUI", "PanelMipLodOffset",
+            Defaults.PanelMipLodOffset,
+            new ConfigDescription(
+                "SHARPENS the mip filtering of [WorldUI] PanelSupersample's windows, in mip LEVELS. " +
+                "A floated window is normally MINIFIED in the eye (the mod's own log measures the " +
+                "party window at 1.58x, peak 1.86x), and trilinear filtering then deliberately " +
+                "samples a coarser, softer mip level. This offset shifts that choice: 0 = the " +
+                "filtering you have today, -0.5 (default) = half a level sharper. It is the ONLY " +
+                "lever left on a minified window - PanelSupersampleFactor buys render-target texels " +
+                "per AUTHORED pixel, and a minified window's sampler already selects a level at or " +
+                "below authored resolution, so every level the factor adds above it is one the " +
+                "hardware never reads. THE PRICE IS ALIASING: after the offset the sampled level " +
+                "carries 2^-value texels per rendered pixel, so -0.5 reads 1.41 and -1.0 reads 2.00 " +
+                "- twice what a pixel can hold, i.e. the crawl this whole path exists to remove. " +
+                "Move it back towards 0 if window text starts crawling while you carry the window. " +
+                "Has no effect while PanelSupersample is off. Range -2..0.",
+                new AcceptableValueRange<float>(-2f, 0f)));
 
         // CatchAllModals / MenuPopupFloat: always on — user ruling 2026-08-11: essential
         // deadlock insurance (their OFF paths restored the silent-deadlock classes).

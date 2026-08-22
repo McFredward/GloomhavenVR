@@ -387,8 +387,104 @@ internal static partial class PanelSupersample
     /// <see cref="ContentStack"/> or <see cref="Scratch"/>: the frame measurement, the layer sweep and
     /// this scan all run inside the same LateUpdate and can call each other (the release repair runs
     /// all three), and sharing one buffer between re-entrant walks is the kind of coupling that
-    /// produces a wrong number once and then never again reproducibly.</summary>
-    private static readonly List<Transform> TextWalk = new(256);
+    /// produces a wrong number once and then never again reproducibly.
+    /// <para>From ModBuild 203 it carries the RESOLVED DRAW ORDER and the CLIP down the walk (see
+    /// <see cref="OrderFrame"/>) so the over-paint census is O(subtree) and rides this one traversal
+    /// instead of adding a second.</para></summary>
+    private static readonly List<OrderFrame> TextWalk = new(256);
+
+    /// <summary>
+    /// A node of <see cref="MeasureContentCore"/>'s walk, plus everything that is decided by its
+    /// ANCESTORS and would otherwise have to be re-derived by climbing back up per graphic:
+    /// <list type="bullet">
+    /// <item><see cref="Order"/> — the <c>sortingOrder</c> of the nearest enabled ancestor
+    /// <see cref="Canvas"/> that has <c>overrideSorting</c> set, falling back to the host (root)
+    /// canvas's own order. This is the OUTER half of uGUI's painter key.</item>
+    /// <item><see cref="Canvas"/> — the nearest enabled ancestor canvas whether or not it overrides,
+    /// so a plate can name the canvas it belongs to and print that canvas's sorting state.</item>
+    /// <item><see cref="Clip"/> / <see cref="ClipEmpty"/> — the mask rectangle in force, in host-local
+    /// uGUI px, exactly as <see cref="MeasureFrame"/> carries it. A scroll list's off-screen rows must
+    /// not be counted as painted over: they are not drawn at all.</item>
+    /// </list>
+    /// <para><b>THE CLIP IS ADVISORY FOR THE CENSUS AND INERT FOR THE TEXT SCAN.</b> A fully clipped
+    /// subtree still gets walked and its text still gets scanned and repaired, because those counters
+    /// are eight rounds old and this round must not silently change what they measure — it only stops
+    /// the census from recording a rect nothing draws.</para>
+    /// </summary>
+    private readonly struct OrderFrame
+    {
+        internal readonly Transform Transform;
+        internal readonly int Order;
+        internal readonly Canvas? Canvas;
+        internal readonly Rect Clip;
+        internal readonly bool ClipEmpty;
+
+        internal OrderFrame(Transform transform, int order, Canvas? canvas, Rect clip, bool clipEmpty)
+        {
+            Transform = transform;
+            Order = order;
+            Canvas = canvas;
+            Clip = clip;
+            ClipEmpty = clipEmpty;
+        }
+    }
+
+    /// <summary>
+    /// One drawing graphic as the over-paint census sees it: WHERE it lands (host-local uGUI px,
+    /// already clipped by its masks), WHEN it is painted (the resolved order key), and whether it is
+    /// itself a full-frame plate. Everything the census answers is a comparison between two of these.
+    /// </summary>
+    private readonly struct DrawRecord
+    {
+        internal readonly Graphic Graphic;
+        internal readonly Transform Transform;
+        internal readonly Canvas? Canvas;
+        internal readonly Rect Rect;
+        internal readonly float Area;
+        /// <summary>Fraction of the OPEN SUB-VIEW's rect this graphic covers (0..1).</summary>
+        internal readonly float Cover;
+        internal readonly int Order;
+        internal readonly int Index;
+        internal readonly bool Plate;
+
+        internal DrawRecord(Graphic graphic, Transform transform, Canvas? canvas, Rect rect,
+                            float area, float cover, int order, int index, bool plate)
+        {
+            Graphic = graphic;
+            Transform = transform;
+            Canvas = canvas;
+            Rect = rect;
+            Area = area;
+            Cover = cover;
+            Order = order;
+            Index = index;
+            Plate = plate;
+        }
+    }
+
+    /// <summary>Every drawing graphic of the last census, in walk order. Bounded by
+    /// <see cref="MaxOverPaintGraphics"/>; cleared the moment the census is committed, so no
+    /// <see cref="Graphic"/> reference is held across frames.</summary>
+    private static readonly List<DrawRecord> DrawRecords = new(512);
+
+    /// <summary>Indices into <see cref="DrawRecords"/> of the records that are full-frame plates.</summary>
+    private static readonly List<int> PlateRecords = new(8);
+
+    /// <summary>Scratch for the per-plate sentences and for the foreign-subtree list.</summary>
+    private static readonly StringBuilder OverPaintSb = new(1024);
+    private static readonly StringBuilder ForeignSb = new(256);
+
+    /// <summary>The three largest graphics one plate covers, as (area, name) — filled per plate.</summary>
+    private static readonly List<(float Area, string Name)> CoveredTop = new(4);
+
+    /// <summary>Property ids the plate census probes for, cached once: a string lookup per property
+    /// per plate per scan would be the most expensive thing on this line. <c>_GrabTexture</c> and
+    /// <c>_BackgroundTexture</c> are how a UI blur shader reads what is behind it;
+    /// <c>_CameraOpaqueTexture</c> is the built-in-pipeline equivalent; a bound-but-null
+    /// <c>_MainTex</c> is a plate drawing a flat colour over whatever it covers.</summary>
+    private static readonly int GrabTexId = Shader.PropertyToID("_GrabTexture");
+    private static readonly int BackgroundTexId = Shader.PropertyToID("_BackgroundTexture");
+    private static readonly int CameraOpaqueTexId = Shader.PropertyToID("_CameraOpaqueTexture");
 
     /// <summary>Scratch for the atlas census sentence.</summary>
     private static readonly StringBuilder AtlasSb = new(256);
@@ -467,6 +563,11 @@ internal static partial class PanelSupersample
             e.ContentScanFailures++;
             TextWalk.Clear();
             AtlasSb.Length = 0;
+            DrawRecords.Clear();
+            PlateRecords.Clear();
+            CoveredTop.Clear();
+            OverPaintSb.Length = 0;
+            ForeignSb.Length = 0;
             if (!e.ContentScanFailWarned)
             {
                 e.ContentScanFailWarned = true;
@@ -522,22 +623,59 @@ internal static partial class PanelSupersample
         int atlasesNamed = 0;
         bool anyRepaired = false;
 
+        // ---- THE OVER-PAINT CENSUS RIDES THIS WALK (ModBuild 203) --------------------------------
+        // Nothing below adds a traversal: the census reads the same nodes, the same one
+        // GetComponent<Graphic> per node, and carries what it needs down the stack.
+        ResetOverPaint(e);
+        RectTransform? host = panel.HostRect;
+        bool census = host != null;
+        // THE CENSUS'S OWN BUDGET. Only the two phases that are NOT shared with the text scan can be
+        // attributed honestly — resolving the open sub-view and committing the plate comparison. The
+        // per-node share (one GetComponent<Canvas>, two mask GetComponents on interior nodes only,
+        // and one host-local bounds per DRAWING graphic) rides inside the CONTENT INTEGRITY scan's own
+        // ms figure, which is printed next to this one for exactly that reason. Both are bounded:
+        // MaxOverPaintGraphics records, MaxPlatesReported sentences.
+        float censusStarted = Time.realtimeSinceStartup;
+        if (census)
+            ResolveOpenSubView(e, panel, host!);
+        e.OverPaintMs += (Time.realtimeSinceStartup - censusStarted) * 1000.0;
+        float refArea = Mathf.Abs(e.OpenViewRect.width * e.OpenViewRect.height);
+        int rootOrder = panel.HostCanvas != null ? panel.HostCanvas.sortingOrder : 0;
+        int visitIndex = 0;
+
         TextWalk.Clear();
-        TextWalk.Add(panel.HostGo.transform);
+        TextWalk.Add(new OrderFrame(panel.HostGo.transform, rootOrder, panel.HostCanvas,
+                                    Unbounded, clipEmpty: false));
         while (TextWalk.Count > 0)
         {
             int last = TextWalk.Count - 1;
-            Transform t = TextWalk[last];
+            OrderFrame node = TextWalk[last];
             TextWalk.RemoveAt(last);
+            Transform t = node.Transform;
             if (t == null || !t.gameObject.activeInHierarchy)
                 continue;
             if (ReferenceEquals(t, e.CamGo != null ? e.CamGo.transform : null))
                 continue;
             bool isRoot = ReferenceEquals(t, panel.HostGo.transform);
+            e.OverPaintVisited++;
+            // THE DEPTH-FIRST HIERARCHY INDEX — the INNER half of uGUI's painter key. Children are
+            // pushed in reverse and popped LIFO, so this counter increments in exact pre-order, which
+            // is the order uGUI walks a canvas's graphics in when it builds its batches.
+            int index = ++visitIndex;
             // The same foreign-subtree rule the frame measurement and the layer sweep use, for the
-            // same reason: a real Renderer or a Camera in here belongs to somebody else.
-            if (!isRoot && (t.GetComponent<Renderer>() != null || t.GetComponent<Camera>() != null))
-                continue;
+            // same reason: a real Renderer or a Camera in here belongs to somebody else. ModBuild 203
+            // NAMES them on the way past instead of only counting them — see NoteForeignSubtree.
+            if (!isRoot)
+            {
+                var renderer = t.GetComponent<Renderer>();
+                var foreignCam = renderer == null ? t.GetComponent<Camera>() : null;
+                if (renderer != null || foreignCam != null)
+                {
+                    if (census)
+                        NoteForeignSubtree(e, host!, t, renderer, foreignCam);
+                    continue;
+                }
+            }
 
             // ONE GetComponent, not two: a transform carries at most one Graphic, and both text
             // families derive from it. On the party window this walk visits ~2700 transforms, so the
@@ -553,10 +691,54 @@ internal static partial class PanelSupersample
                 anyRepaired = true;
             }
 
+            // ---- resolve this node's draw order and clip, for itself and for its children --------
+            int order = node.Order;
+            Canvas? canvas = node.Canvas;
+            Rect clip = node.Clip;
+            bool clipEmpty = node.ClipEmpty;
+            if (census && !isRoot)
+            {
+                // A nested Canvas only starts a new sorting band when it is ENABLED and actually
+                // OVERRIDES. That distinction is not decorative: 19 of this window's 20 adopted
+                // nested canvases carry overrideSorting = false, so they are NOT sorting roots and
+                // everything under them sorts by hierarchy inside the host batch — exactly as the
+                // flat game drew it. Reading the flag rather than assuming it is what keeps this
+                // census correct now that the sibling-canvas tie hypothesis is dead, and what would
+                // make it show a real tie if the adoption's sorting state ever changed.
+                var own = t.GetComponent<Canvas>();
+                if (own != null && own.enabled)
+                {
+                    canvas = own;
+                    if (own.overrideSorting)
+                        order = own.sortingOrder;
+                }
+
+                var rt = t as RectTransform;
+                if (rt != null)
+                {
+                    // A mask on a LEAF clips nothing, so the two mask GetComponents are only paid on
+                    // interior nodes — which is where every mask in a uGUI hierarchy actually is.
+                    if (!clipEmpty && t.childCount > 0 && ClipsChildren(t)
+                        && TryHostLocalBounds(host!, rt, out Rect clipBounds))
+                    {
+                        if (!Intersect(clip, clipBounds, out clip))
+                            clipEmpty = true;
+                    }
+                    if (!clipEmpty && Draws(graphic) && !IsModOwned(t.name))
+                        RecordDrawn(e, host!, rt, graphic!, canvas, clip, order, index, refArea);
+                }
+            }
+
             for (int i = t.childCount - 1; i >= 0; i--)
-                TextWalk.Add(t.GetChild(i));
+                TextWalk.Add(new OrderFrame(t.GetChild(i), order, canvas, clip, clipEmpty));
         }
         TextWalk.Clear();
+        if (census)
+        {
+            float commitStarted = Time.realtimeSinceStartup;
+            CommitOverPaint(e);
+            e.OverPaintMs += (Time.realtimeSinceStartup - commitStarted) * 1000.0;
+        }
 
         if (atlasesNamed == 0)
             AtlasSb.Append("no font asset reached");
@@ -1036,5 +1218,708 @@ internal static partial class PanelSupersample
     {
         string trimmed = text.Length <= 28 ? text : text.Substring(0, 28) + "...";
         return name + " (\"" + trimmed.Replace('\n', ' ') + "\")";
+    }
+
+    // ---- THE SUB-VIEW SWEEP BURST (ModBuild 203) -------------------------------------------------
+
+    /// <summary>
+    /// <b>DID THE OPEN SUB-VIEW CHANGE SINCE THE LAST FRAME?</b> Called at the TOP of the per-frame
+    /// service, before <c>SyncGeometry</c>, so that arming a burst can also force this same frame's
+    /// capture-frame re-measure (by pulling <see cref="Entry.NextContentFrame"/> to now — the one
+    /// existing seam that means "re-measure", used rather than a second MeasureFrame call).
+    ///
+    /// <para>Everything about WHY is on <see cref="Entry.SubViewChanges"/>. Never throws; a throw
+    /// leaves the signature unchanged, which costs one missed burst and nothing else.</para>
+    /// </summary>
+    private static void NoticeSubViewChange(Entry e)
+    {
+        int sig;
+        try
+        {
+            sig = ActiveSetSignature(e.Panel);
+        }
+        catch (System.Exception)
+        {
+            return;
+        }
+        if (!e.SubViewSigValid)
+        {
+            e.SubViewSigValid = true;
+            e.SubViewSignature = sig;
+            return;
+        }
+        if (sig == e.SubViewSignature)
+            return;
+
+        e.SubViewSignature = sig;
+        e.SubViewChanges++;
+        // FORCE THE CAPTURE-FRAME RE-MEASURE ON THIS FRAME, whether or not a burst is armed below. A
+        // newly opened sub-view is exactly the case in which the window's drawn content changes
+        // without its host rect moving, so nothing else in this class would notice: SyncGeometry's own
+        // trigger reads the host transform and the host RectTransform, and a tab press moves neither.
+        e.NextContentFrame = Time.frameCount;
+
+        // THE COST FUSE — see SweepBurstCooldownFrames. A change inside the cooldown is the SAME
+        // repopulation still settling; it extends a burst that is still running and is counted, but
+        // it may not arm a second one. Without this a flapping signature would re-arm every frame and
+        // this remedy would quietly become the per-frame sweep that was measured and removed twice.
+        if (Time.frameCount - e.SubViewChangeFrame < SweepBurstCooldownFrames)
+        {
+            e.SubViewChangesCoalesced++;
+            if (e.SweepBurstFramesLeft > 0)
+                e.SweepBurstFramesLeft = Mathf.Max(e.SweepBurstFramesLeft, 1);
+            return;
+        }
+
+        e.SweepBursts++;
+        e.SubViewChangeFrame = Time.frameCount;
+        e.SweepBurstFramesLeft = MinSweepBurstFrames;
+        e.SweepBurstFramesRun = 0;
+        e.SweepBurstMisses = 0;
+        e.SweepBurstMoved = 0;
+        e.SweepBurstLastHitFrame = -1;
+    }
+
+    /// <summary>
+    /// A CHEAP, STABLE SIGNATURE OVER WHAT IS OPEN. Two independent parts, deliberately combined so
+    /// that neither has to be right on its own:
+    /// <list type="number">
+    /// <item>the ACTIVE DIRECT CHILDREN of the conversion target, by instance id in sibling order —
+    /// which works on any converted window, including ones that have no game sub-views at all;</item>
+    /// <item>the game's own <c>NewPartyDisplayUI</c> answer: the <c>ActiveDisplay</c> enum plus which
+    /// of the six sub-view roots are active. This catches a switch whose roots are NOT direct children
+    /// of the target, which part (1) alone would miss.</item>
+    /// </list>
+    /// <para>Cost per frame: one <c>childCount</c> loop over a window's direct children (order ten)
+    /// plus seven property reads on a singleton. That is why this runs every frame while the SWEEP it
+    /// arms — at a measured 1.71 ms — does not.</para>
+    /// <para>It is a LOCAL DERIVATION and does not read <c>CanvasConversion</c>'s <c>fx</c> state:
+    /// that is another lane's file and exposes no accessor for it.</para>
+    /// </summary>
+    private static int ActiveSetSignature(ConvertedPanel panel)
+    {
+        int sig = 17;
+        Transform? target = panel.Target;
+        if (target != null)
+        {
+            int n = target.childCount;
+            sig = sig * 31 + n;
+            for (int i = 0; i < n; i++)
+            {
+                Transform c = target.GetChild(i);
+                if (c != null && c.gameObject.activeSelf)
+                    sig = sig * 31 + c.GetInstanceID();
+            }
+        }
+
+        NewPartyDisplayUI? display;
+        try
+        {
+            display = NewPartyDisplayUI.PartyDisplay;
+        }
+        catch (System.Exception)
+        {
+            return sig;
+        }
+        if (display == null || target == null)
+            return sig;
+        try
+        {
+            sig = sig * 31 + (int)display.ActiveDisplay;
+            sig = MixSubView(sig, display.CharacterSelector, target);
+            sig = MixSubView(sig, display.PerkManager, target);
+            sig = MixSubView(sig, display.AbilityCardsDisplay, target);
+            sig = MixSubView(sig, display.EnhancementCardsDisplay, target);
+            sig = MixSubView(sig, display.ItemInventoryDisplay, target);
+            sig = MixSubView(sig, display.BattleGoalWindow, target);
+        }
+        catch (System.Exception)
+        {
+            // A partial mix is still STABLE (it throws in the same place every frame), so it stays a
+            // usable signature rather than a source of phantom changes.
+        }
+        return sig;
+    }
+
+    private static int MixSubView(int sig, Component? view, Transform target)
+    {
+        if (view == null)
+            return sig * 31;
+        Transform t = view.transform;
+        bool open = t.gameObject.activeInHierarchy && IsUnder(t, target);
+        return sig * 31 + (open ? t.GetInstanceID() : 0);
+    }
+
+    /// <summary>
+    /// <b>THE BURST — sweep the capture layer on every frame while the newly opened view is still
+    /// arriving, then get out of the way.</b>
+    ///
+    /// <para>Runs AFTER the visibility sync and BEFORE the ordinary cadence check, and resets that
+    /// cadence as it goes so a burst frame is never followed by a redundant periodic sweep on the
+    /// same frame. It backs off in two ways: it always runs <see cref="MinSweepBurstFrames"/> frames
+    /// (the content does not exist yet on frame 0), then extends only while sweeps keep finding late
+    /// joiners, and stops after <see cref="SweepBurstMissTolerance"/> consecutive empty sweeps or at
+    /// <see cref="MaxSweepBurstFrames"/> whichever comes first.</para>
+    ///
+    /// <para>At the end it runs ONE content scan, so the CONTENT INTEGRITY, OVER-PAINT and attribution
+    /// fields describe the view that was just opened rather than the one that was closed — the whole
+    /// reason eight rounds of clean readings could not be assigned to anything.</para>
+    ///
+    /// <para>Never throws: the caller's LateTick catch would stand the entire supersample path down.</para>
+    /// </summary>
+    private static void ServiceSweepBurst(Entry e)
+    {
+        if (e.SweepBurstFramesLeft <= 0)
+            return;
+        // THE HARD WALL-CLOCK GATE, belt and braces beside the per-burst frame cap: a burst may only
+        // ever sweep inside the MaxSweepBurstFrames frames that follow its arming, whatever a coalesced
+        // change did to its counters. This is what makes the worst case arithmetic on
+        // SweepBurstCooldownFrames a bound and not an intention.
+        if (Time.frameCount - e.SubViewChangeFrame >= MaxSweepBurstFrames)
+        {
+            e.SweepBurstFramesLeft = 0;
+            FinishSweepBurst(e);
+            return;
+        }
+        float started = Time.realtimeSinceStartup;
+        e.SweepBurstFramesLeft--;
+        e.SweepBurstFramesRun++;
+        int before = e.LateJoiners;
+        ApplyCaptureLayer(e, initial: false);
+        // The periodic cadence is re-armed from HERE, so the burst replaces it rather than doubling it.
+        e.NextSweepFrame = Time.frameCount + SweepIntervalFrames;
+        int moved = e.LateJoiners - before;
+        e.SweepBurstMoved += moved;
+        if (moved > 0)
+        {
+            e.SweepBurstLastHitFrame = Time.frameCount;
+            e.SweepBurstMisses = 0;
+            // STILL ARRIVING: extend, up to the hard cap. This is the only thing that can make a burst
+            // longer than MinSweepBurstFrames, so a burst that reaches the cap is a window that was
+            // still repopulating for a quarter of a second — which is a finding about the GAME's
+            // cadence and not about ours, and the report says so.
+            if (e.SweepBurstFramesRun + e.SweepBurstFramesLeft < MaxSweepBurstFrames)
+                e.SweepBurstFramesLeft++;
+        }
+        else
+        {
+            e.SweepBurstMisses++;
+            if (e.SweepBurstFramesRun >= MinSweepBurstFrames
+                && e.SweepBurstMisses >= SweepBurstMissTolerance)
+            {
+                e.SweepBurstFramesLeft = 0;
+            }
+        }
+        e.SweepBurstMs += (Time.realtimeSinceStartup - started) * 1000.0;
+        if (e.SweepBurstFramesLeft <= 0)
+            FinishSweepBurst(e);
+    }
+
+    /// <summary>Close a burst: commit its distribution, re-scan the content so every field on the
+    /// state line describes the view that was just opened, and log the one line that prices it.</summary>
+    private static void FinishSweepBurst(Entry e)
+    {
+        int hole = e.SweepBurstLastHitFrame >= 0
+            ? e.SweepBurstLastHitFrame - e.SubViewChangeFrame
+            : 0;
+        e.SweepBurstHoleFramesLast = hole;
+        if (hole > e.SweepBurstHoleFramesMax)
+            e.SweepBurstHoleFramesMax = hole;
+        e.SweepBurstHoleSum += hole;
+        e.SweepBurstHoleReadings++;
+        e.SweepBurstFramesLast = e.SweepBurstFramesRun;
+        e.SweepBurstMovedLast = e.SweepBurstMoved;
+        if (e.SweepBurstMoved == 0)
+            e.SweepBurstsConverged++;
+
+        // ONE content scan per burst, not per frame: this is what re-attributes every field on the
+        // state line to the view that was just opened.
+        MeasureContent(e);
+
+        VRLog.Info(Scope, $"PANEL SUPERSAMPLE SUB-VIEW BURST '{e.Window}': TRIGGER = the set of "
+            + "ACTIVE sub-view roots inside this window changed (a tab press; no drag, no resize, no "
+            + $"host-rect change — which is why nothing before ModBuild 203 forced anything). NOW "
+            + $"OPEN: {(e.OpenViewName.Length > 0 ? "'" + e.OpenViewName + "'" : "none")}, "
+            + $"ActiveDisplay={(e.OpenViewActive.Length > 0 ? e.OpenViewActive : "unavailable")}, "
+            + $"{e.OpenViewCount} root(s). THE BURST ran {e.SweepBurstFramesRun} frame(s) (floor "
+            + $"{MinSweepBurstFrames}, cap {MaxSweepBurstFrames}, extended only while sweeps kept "
+            + $"finding arrivals, ended after {e.SweepBurstMisses} consecutive empty sweep(s) against "
+            + $"a tolerance of {SweepBurstMissTolerance}) and moved {e.SweepBurstMoved} transform(s) "
+            + $"onto capture layer {e.Layer} in total ({e.SubViewChanges} change(s) noticed since "
+            + $"engage, {e.SubViewChangesCoalesced} of them COALESCED into a running burst by the "
+            + $"{SweepBurstCooldownFrames}-frame cost fuse rather than arming a second one), at "
+            + $"{(e.SweepBursts > 0 ? e.SweepBurstMs / e.SweepBursts : 0.0):F2} ms per burst so far "
+            + $"across {e.SweepBursts} burst(s) (a single sweep measured 1.71 ms on this window "
+            + $"against an {FrameBudgetMs:F2} ms frame budget, so a burst is ~15 % of one frame for "
+            + "the frames it runs and NOTHING for every other frame — it is armed by a content "
+            + "change and disarms itself, which is what makes it different from the ModBuild 193 "
+            + "per-frame-while-moving sweep that was measured, shipped and falsified). THE NUMBER "
+            + "NOBODY HAS MEASURED BEFORE: "
+            + $"{hole} frame(s) elapsed between the sub-view change and the LAST sweep that still "
+            + "found a late joiner — that is the length of the window in which this view's content "
+            + "was MISSING FROM THE CAPTURE and drawn straight into the eye at its own sorting order. "
+            + $"WORST {e.SweepBurstHoleFramesMax}, MEAN "
+            + $"{(e.SweepBurstHoleReadings > 0 ? (double)e.SweepBurstHoleSum / e.SweepBurstHoleReadings : 0.0):F1}, "
+            + $"over {e.SweepBurstHoleReadings} burst(s), of which {e.SweepBurstsConverged} found "
+            + "NOTHING AT ALL. HOW TO READ IT: 0 frames (or a burst that moved 0) means there was no "
+            + "hole to close on this switch and the 'initial kaputt beim Öffnen' report is NOT a "
+            + "late-joiner problem for this view — look at the OVER-PAINT CENSUS on the state line "
+            + "instead. A SMALL number (1-3 frames) means the hole existed and this burst closed it, "
+            + "and the user should see the difference on the very next tab press. A number that keeps "
+            + "reaching the cap means the game is STILL repopulating after "
+            + $"{MaxSweepBurstFrames} frames, i.e. the hole is the GAME's cadence and not ours, and "
+            + "the fix would have to be an arrival HOOK rather than any poll — which is the step "
+            + "ModBuild 193's own log line has been asking for since it was written. NOTE ON THE "
+            + "NEIGHBOURING LINE: each sweep of this burst that moves something also prints a "
+            + "'pooled/late transform(s) ... joined capture layer' line, and that line will say it "
+            + "ran because the window 'reached its periodic cadence' — it is in another file and "
+            + "cannot see this trigger. THIS line is the authority on why those sweeps ran.");
+    }
+
+    // ---- THE OVER-PAINT CENSUS (ModBuild 203) ----------------------------------------------------
+
+    /// <summary>Clear the census counters for a fresh scan. The DISTRIBUTION fields
+    /// (<see cref="Entry.OverPaintReadings"/> and friends) are deliberately NOT cleared: they are the
+    /// whole point of the "never a bare extreme" rule and they accumulate across the session.</summary>
+    private static void ResetOverPaint(Entry e)
+    {
+        DrawRecords.Clear();
+        PlateRecords.Clear();
+        CoveredTop.Clear();
+        OverPaintSb.Length = 0;
+        ForeignSb.Length = 0;
+        e.OverPaintGraphics = 0;
+        e.OverPaintVisited = 0;
+        e.OverPaintTruncated = false;
+        e.OverPaintPlates = 0;
+        e.OverPaintOpaquePlates = 0;
+        e.OverPaintCovered = 0;
+        e.OverPaintWorstCovered = 0;
+        e.OverPaintCoveredArea = 0f;
+        e.OverPaintTied = 0;
+        e.OverPaintNote = string.Empty;
+        e.ForeignRenderers = 0;
+        e.ForeignCoplanar = 0;
+        e.ForeignNote = string.Empty;
+    }
+
+    /// <summary>
+    /// <b>WHICH SUB-VIEW IS OPEN — the attribution eight rounds of clean measurements did not carry.</b>
+    ///
+    /// <para>Two of the party window's six sub-views render broken and four do not, and every field
+    /// on this class's state line so far averaged over whichever happened to be open when the report
+    /// cadence fired. A reading of "0 defects" is unreadable without knowing which view it was taken
+    /// of, which is exactly how twenty-two rounds of correct measurements produced no decision.</para>
+    ///
+    /// <para><b>THIS IS A LOCAL DERIVATION, ON PURPOSE.</b> <c>CanvasConversion.3.Fit.cs</c> already
+    /// computes an open-set signature (<c>fx.OpenSignature</c>) over the same six sub-views, but that
+    /// state is private to another lane's file and NO read-only accessor for it exists — so nothing
+    /// here reads it and nothing here edits that file. Instead this asks the game's own singleton the
+    /// same question the fit asks it: <c>NewPartyDisplayUI.PartyDisplay</c> for the six sub-view roots
+    /// and <c>ActiveDisplay</c> for the tab the game itself considers open. The two derivations can in
+    /// principle disagree; if they ever do, the log prints the roots this one found and the count, so
+    /// the disagreement is visible rather than silent.</para>
+    ///
+    /// <para>Windows that are not the party display have no such sub-views: the reference rect is then
+    /// the HOST RECT and the source string says so, so "no sub-view" and "sub-view not measured" can
+    /// never print alike. Never throws — every game-side access is guarded, and a throw falls back to
+    /// the host rect.</para>
+    /// </summary>
+    private static void ResolveOpenSubView(Entry e, ConvertedPanel panel, RectTransform host)
+    {
+        e.OpenViewRect = host.rect;
+        e.OpenViewName = string.Empty;
+        e.OpenViewActive = string.Empty;
+        e.OpenViewCount = 0;
+        e.OpenViewSource = "the HOST RECT (this window has no NewPartyDisplayUI sub-views)";
+
+        NewPartyDisplayUI? display;
+        try
+        {
+            display = NewPartyDisplayUI.PartyDisplay;
+        }
+        catch (System.Exception)
+        {
+            e.OpenViewSource = "the HOST RECT (NewPartyDisplayUI.PartyDisplay threw)";
+            return;
+        }
+        if (display == null || panel.Target == null)
+            return;
+
+        string active;
+        try
+        {
+            active = display.ActiveDisplay.ToString();
+        }
+        catch (System.Exception)
+        {
+            active = "?";
+        }
+        e.OpenViewActive = active;
+
+        float bestArea = 0f;
+        int found = 0;
+        try
+        {
+            found += ConsiderSubView(e, panel, host, display.CharacterSelector, ref bestArea);
+            found += ConsiderSubView(e, panel, host, display.PerkManager, ref bestArea);
+            found += ConsiderSubView(e, panel, host, display.AbilityCardsDisplay, ref bestArea);
+            found += ConsiderSubView(e, panel, host, display.EnhancementCardsDisplay, ref bestArea);
+            found += ConsiderSubView(e, panel, host, display.ItemInventoryDisplay, ref bestArea);
+            found += ConsiderSubView(e, panel, host, display.BattleGoalWindow, ref bestArea);
+        }
+        catch (System.Exception)
+        {
+            // A partial sweep is still attributable — keep whatever was resolved and say the ask threw.
+            e.OpenViewCount = found;
+            e.OpenViewSource = $"NewPartyDisplayUI.ActiveDisplay={active}, but reading the sub-view "
+                               + "roots THREW part way, so the rect may be the host rect";
+            return;
+        }
+
+        e.OpenViewCount = found;
+        e.OpenViewSource = found > 0
+            ? $"NewPartyDisplayUI.ActiveDisplay={active}, {found} sub-view root(s) open inside this "
+              + "window, the LARGEST of them measured as the reference rect"
+            : $"NewPartyDisplayUI.ActiveDisplay={active} but NO sub-view root is active inside this "
+              + "window, so the reference is the HOST RECT";
+    }
+
+    /// <summary>One candidate sub-view root: it counts when it is active, lives inside the window we
+    /// converted, and measures. The LARGEST by host-local area becomes the reference rect — a plate
+    /// is judged against the view it would hide, not against the whole host.</summary>
+    private static int ConsiderSubView(Entry e, ConvertedPanel panel, RectTransform host,
+                                       Component? view, ref float bestArea)
+    {
+        if (view == null)
+            return 0;
+        Transform t = view.transform;
+        if (!t.gameObject.activeInHierarchy || !IsUnder(t, panel.Target))
+            return 0;
+        if (t is not RectTransform rt || !TryHostLocalBounds(host, rt, out Rect bounds))
+            return 1; // open, but unmeasurable: still counted, so the count and the rect can disagree
+        float area = Mathf.Abs(bounds.width * bounds.height);
+        if (area > bestArea)
+        {
+            bestArea = area;
+            e.OpenViewRect = bounds;
+            e.OpenViewName = t.name;
+        }
+        return 1;
+    }
+
+    /// <summary>Is <paramref name="t"/> at or below <paramref name="root"/>? Bounded climb; no
+    /// allocation, and it answers IDENTITY-or-descendant rather than "has a component of that type
+    /// somewhere above", which is a slip this project has already shipped twice.</summary>
+    private static bool IsUnder(Transform t, Transform? root)
+    {
+        if (root == null)
+            return false;
+        for (Transform? p = t; p != null; p = p.parent)
+        {
+            if (ReferenceEquals(p, root))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>The mod's own art inside a converted window (cue rings, grab handles) is not the
+    /// game's layering and must not appear in a census about the game's layering.</summary>
+    private static bool IsModOwned(string name) =>
+        name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal);
+
+    /// <summary>
+    /// NAME a foreign render subtree instead of only counting it — <see cref="Entry.ForeignRenderers"/>
+    /// for the argument. The HOST-LOCAL z is the load-bearing number: the display quad sits at
+    /// host-local z = 0, so a foreign renderer at z ~ 0 is COPLANAR with it and its depth tie can
+    /// resolve differently in the two MultiPass eyes.
+    /// </summary>
+    private static void NoteForeignSubtree(Entry e, RectTransform host, Transform t,
+                                           Renderer? renderer, Camera? camera)
+    {
+        e.ForeignRenderers++;
+        float z = host.InverseTransformPoint(t.position).z;
+        if (Mathf.Abs(z) <= ForeignCoplanarEpsPx)
+            e.ForeignCoplanar++;
+        if (e.ForeignRenderers > MaxForeignNamed)
+            return;
+        bool enabled = renderer != null ? renderer.enabled : camera != null && camera.enabled;
+        string type = renderer != null ? renderer.GetType().Name
+                                       : camera != null ? camera.GetType().Name : "?";
+        if (ForeignSb.Length > 0)
+            ForeignSb.Append(", ");
+        ForeignSb.Append('[').Append(HostPath(t, host.transform)).Append(", ").Append(type)
+                 .Append(enabled ? ", ENABLED" : ", disabled")
+                 .Append(", host-local z ").Append(z.ToString("F2")).Append(" px")
+                 .Append(Mathf.Abs(z) <= ForeignCoplanarEpsPx
+                     ? " — COPLANAR with the display quad" : string.Empty)
+                 .Append(']');
+    }
+
+    /// <summary>Full hierarchy path from the panel host down to <paramref name="t"/>, bounded so one
+    /// deep subtree cannot make the state line unreadable.</summary>
+    private static string HostPath(Transform? t, Transform root)
+    {
+        if (t == null)
+            return "(destroyed)";
+        PathSb.Length = 0;
+        int guard = 0;
+        for (Transform? p = t; p != null && !ReferenceEquals(p, root) && guard < 24; p = p.parent, guard++)
+        {
+            if (PathSb.Length > 0)
+                PathSb.Insert(0, '/');
+            PathSb.Insert(0, p.name);
+        }
+        if (PathSb.Length == 0)
+            PathSb.Append(t.name);
+        return PathSb.ToString();
+    }
+
+    private static readonly StringBuilder PathSb = new(160);
+
+    /// <summary>Record one drawing graphic for the census. The rect is the graphic's host-local
+    /// axis-aligned bounds INTERSECTED with the mask clip in force, i.e. what it can actually put
+    /// pixels on — the same rule <see cref="MeasureFrame"/> uses, for the same reason.</summary>
+    private static void RecordDrawn(Entry e, RectTransform host, RectTransform rt, Graphic graphic,
+                                    Canvas? canvas, Rect clip, int order, int index, float refArea)
+    {
+        if (DrawRecords.Count >= MaxOverPaintGraphics)
+        {
+            e.OverPaintTruncated = true;
+            return;
+        }
+        if (!TryHostLocalBounds(host, rt, out Rect bounds))
+            return;
+        if (!Intersect(clip, bounds, out Rect visible))
+            return;
+        float area = Mathf.Abs(visible.width * visible.height);
+        if (area <= 0f)
+            return;
+        // COVER IS MEASURED AGAINST THE OPEN SUB-VIEW, NOT THE HOST. A plate that fills a sub-view is
+        // what hides a sub-view's content; the host rect of this window is 1920x1080 and a sub-view
+        // backdrop at 1620x1080 would read as 84 % of it either way — but on a window where the host
+        // is much larger than the open view, judging against the host would miss the plate entirely.
+        float cover = 0f;
+        if (refArea > 1f && Intersect(e.OpenViewRect, visible, out Rect onView))
+            cover = Mathf.Abs(onView.width * onView.height) / refArea;
+        bool plate = cover >= OverPaintPlateFraction;
+        if (plate)
+            PlateRecords.Add(DrawRecords.Count);
+        DrawRecords.Add(new DrawRecord(graphic, rt, canvas, visible, area, cover, order, index, plate));
+        e.OverPaintGraphics++;
+    }
+
+    /// <summary>
+    /// <b>THE ANSWER FIELD: for every full-frame plate, HOW MANY DRAWING GRAPHICS IT IS PAINTED OVER.</b>
+    ///
+    /// <para>A graphic is painted over by a plate when it INTERSECTS the plate's rect, draws BEFORE it
+    /// in resolved painter's order, and is not itself a plate (two stacked backdrops are a backdrop,
+    /// not an occlusion). "Before" is the pair (resolved <c>sortingOrder</c>, depth-first hierarchy
+    /// index) that <see cref="OrderFrame"/> carried down the walk.</para>
+    ///
+    /// <para><b>AND IT REPORTS THE TIE SEPARATELY.</b> Two canvases that both set
+    /// <c>overrideSorting</c> to the SAME <c>sortingOrder</c> have NO defined order between them —
+    /// Unity resolves them by canvas registration, not by hierarchy — so for those pairs the
+    /// hierarchy index below is a plausible resolution and not a prediction. Every such pair is
+    /// counted into <see cref="Entry.OverPaintTied"/> and named as an UNSTABLE TIE, which is how this
+    /// instrument proves or refutes the parallel lane's draw-order defect without depending on it.</para>
+    ///
+    /// <para>Cost: <c>plates x records</c> rectangle compares, with at most
+    /// <see cref="MaxOverPaintGraphics"/> records and typically fewer than a handful of plates. No
+    /// traversal, no allocation beyond the report string.</para>
+    /// </summary>
+    private static void CommitOverPaint(Entry e)
+    {
+        e.OverPaintPlates = PlateRecords.Count;
+        for (int p = 0; p < PlateRecords.Count; p++)
+        {
+            int pi = PlateRecords[p];
+            DrawRecord plate = DrawRecords[pi];
+            float ownAlpha = plate.Graphic != null ? plate.Graphic.color.a : 0f;
+            CanvasRenderer? cr = plate.Graphic != null ? plate.Graphic.canvasRenderer : null;
+            float crAlpha = cr != null ? cr.GetAlpha() : 1f;
+            float inherited = cr != null ? cr.GetInheritedAlpha() : 1f;
+            bool opaque = ownAlpha * crAlpha * inherited >= 0.99f;
+            if (opaque)
+                e.OverPaintOpaquePlates++;
+
+            int covered = 0;
+            int tied = 0;
+            float coveredArea = 0f;
+            CoveredTop.Clear();
+            for (int i = 0; i < DrawRecords.Count; i++)
+            {
+                if (i == pi)
+                    continue;
+                DrawRecord r = DrawRecords[i];
+                if (r.Plate)
+                    continue;
+                if (r.Order > plate.Order || (r.Order == plate.Order && r.Index > plate.Index))
+                    continue; // drawn AFTER the plate: the plate cannot hide it
+                if (!Intersect(plate.Rect, r.Rect, out Rect hit))
+                    continue;
+                float a = Mathf.Abs(hit.width * hit.height);
+                covered++;
+                coveredArea += a;
+                if (r.Order == plate.Order && !ReferenceEquals(r.Canvas, plate.Canvas))
+                    tied++;
+                InsertCovered(a, r.Transform != null ? r.Transform.name : "?");
+            }
+            e.OverPaintCovered += covered;
+            e.OverPaintCoveredArea += coveredArea;
+            e.OverPaintTied += tied;
+            if (covered > e.OverPaintWorstCovered)
+                e.OverPaintWorstCovered = covered;
+
+            if (p >= MaxPlatesReported)
+                continue;
+            if (OverPaintSb.Length > 0)
+                OverPaintSb.Append(' ');
+            OverPaintSb.Append('[').Append('#').Append(p + 1).Append(" '")
+                .Append(plate.Transform != null ? plate.Transform.name : "?").Append("' at ")
+                .Append(HostPath(plate.Transform, e.Panel.HostGo.transform)).Append(": rect ")
+                .Append(plate.Rect.width.ToString("F0")).Append('x')
+                .Append(plate.Rect.height.ToString("F0")).Append(" px = ")
+                .Append((plate.Cover * 100f).ToString("F0"))
+                .Append(" % of the open sub-view's area; COLOUR RGBA ")
+                .Append(plate.Graphic != null ? plate.Graphic.color.r.ToString("F3") : "?").Append('/')
+                .Append(plate.Graphic != null ? plate.Graphic.color.g.ToString("F3") : "?").Append('/')
+                .Append(plate.Graphic != null ? plate.Graphic.color.b.ToString("F3") : "?").Append('/')
+                .Append(ownAlpha.ToString("F3")).Append(" x crAlpha ").Append(crAlpha.ToString("F3"))
+                .Append(" x inherited ").Append(inherited.ToString("F3"))
+                .Append(opaque ? " = OPAQUE (it DELETES what it covers)"
+                               : " = translucent (it TINTS what it covers)")
+                .Append("; ").Append(PlateMaterialNote(plate.Graphic))
+                .Append("; canvas '")
+                .Append(plate.Canvas != null ? plate.Canvas.name : "none").Append("' sortingOrder ")
+                .Append(plate.Canvas != null ? plate.Canvas.sortingOrder : 0)
+                .Append(" overrideSorting ")
+                .Append(plate.Canvas != null && plate.Canvas.overrideSorting ? "TRUE" : "false")
+                .Append(", RESOLVED ORDER KEY (").Append(plate.Order).Append(", hierarchy index ")
+                .Append(plate.Index).Append("); PAINTS OVER ").Append(covered).Append(" of ")
+                .Append(e.OverPaintGraphics).Append(" drawing graphic(s)");
+            if (covered == 0)
+            {
+                OverPaintSb.Append(" — NOTHING is drawn under it inside its own rect, i.e. it is a "
+                                   + "LEGITIMATE BACKDROP and over-paint cannot be this view's fault");
+            }
+            else
+            {
+                OverPaintSb.Append(", ").Append(coveredArea.ToString("F0"))
+                    .Append(" px² of intersecting area IN TOTAL (a SUM over the ").Append(covered)
+                    .Append(", not a union — overlapping victims are counted once each), of which ")
+                    .Append(tied)
+                    .Append(" sit at the SAME resolved sortingOrder under a DIFFERENT canvas = an "
+                            + "UNSTABLE TIE whose real GPU order this census cannot predict. THE ")
+                    .Append(CoveredTop.Count).Append(" LARGEST (contributors, NOT the extent): ");
+                for (int k = 0; k < CoveredTop.Count; k++)
+                {
+                    if (k > 0)
+                        OverPaintSb.Append(", ");
+                    OverPaintSb.Append('\'').Append(CoveredTop[k].Name).Append("' ")
+                        .Append(CoveredTop[k].Area.ToString("F0")).Append(" px²");
+                }
+            }
+            OverPaintSb.Append(']');
+        }
+
+        e.OverPaintNote = OverPaintSb.ToString();
+        e.ForeignNote = ForeignSb.ToString();
+        OverPaintSb.Length = 0;
+        ForeignSb.Length = 0;
+        DrawRecords.Clear();
+        PlateRecords.Clear();
+        CoveredTop.Clear();
+
+        e.OverPaintScans++;
+        e.OverPaintReadings++;
+        e.OverPaintCoveredSum += e.OverPaintCovered;
+        if (e.OverPaintReadings == 1)
+        {
+            e.OverPaintCoveredLowest = e.OverPaintCovered;
+            e.OverPaintCoveredHighest = e.OverPaintCovered;
+        }
+        else
+        {
+            if (e.OverPaintCovered < e.OverPaintCoveredLowest)
+                e.OverPaintCoveredLowest = e.OverPaintCovered;
+            if (e.OverPaintCovered > e.OverPaintCoveredHighest)
+                e.OverPaintCoveredHighest = e.OverPaintCovered;
+        }
+    }
+
+    /// <summary>Keep the <see cref="MaxCoveredNamed"/> largest victims of one plate, by intersecting
+    /// area. Insertion into a fixed tiny list — no sort, no allocation.</summary>
+    private static void InsertCovered(float area, string name)
+    {
+        for (int i = 0; i < CoveredTop.Count; i++)
+        {
+            if (area > CoveredTop[i].Area)
+            {
+                CoveredTop.Insert(i, (area, name));
+                if (CoveredTop.Count > MaxCoveredNamed)
+                    CoveredTop.RemoveAt(CoveredTop.Count - 1);
+                return;
+            }
+        }
+        if (CoveredTop.Count < MaxCoveredNamed)
+            CoveredTop.Add((area, name));
+    }
+
+    /// <summary>
+    /// <b>WHAT THE PLATE'S MATERIAL IS — a specifically requested field, and nobody has ever read this
+    /// shader name at runtime.</b>
+    ///
+    /// <para>The game ships <c>UIBlurDisabler</c> (<c>decompiled/GH.Runtime/UIBlurDisabler.cs:19</c>),
+    /// whose entire remedy for these plates is <c>_image.material = null</c> — which PROVES the
+    /// plate's appearance IS its material, not its colour and not its sprite. Its other branch is
+    /// worth reading with this line in hand: <c>_color = new Color(17f, 17f, 17f, 85f)</c>, i.e. an
+    /// UNCLAMPED colour whose alpha of 85 saturates to a fully opaque near-white plate, applied when
+    /// <c>SimplifiedUI</c> and <c>DisableUIBlur</c> are both on. So the colour figures on this line
+    /// are printed RAW and not clamped: a component above 1 is itself the finding.</para>
+    ///
+    /// <para><c>_image.material = null</c> makes <see cref="Graphic.material"/> return
+    /// <c>defaultGraphicMaterial</c>, so "IS the default UI material" on this line is the same
+    /// statement as "the blur disabler already ran (or was never needed) here". Anything else, with a
+    /// <c>_GrabTexture</c>, <c>_BackgroundTexture</c> or <c>_CameraOpaqueTexture</c> property, is a
+    /// shader that reads WHAT IS BEHIND IT — and a grab-pass source inside a render-to-texture capture
+    /// is not the eye's framebuffer, which is a way for a plate to come out flat dark that no glyph,
+    /// mesh or sampling instrument can see.</para>
+    /// </summary>
+    private static string PlateMaterialNote(Graphic? g)
+    {
+        if (g == null)
+            return "material UNREADABLE (the graphic went away between the walk and the report)";
+        Material mat;
+        try
+        {
+            mat = g.material;
+        }
+        catch (System.Exception ex)
+        {
+            return $"material UNREADABLE ({ex.GetType().Name})";
+        }
+        if (mat == null)
+            return "material NULL (nothing to draw with — uGUI falls back to the default UI material)";
+        bool isDefault = ReferenceEquals(mat, Graphic.defaultGraphicMaterial);
+        Shader? shader = mat.shader;
+        string probes = isDefault
+            ? string.Empty
+            : ", probes ["
+              + (mat.HasProperty(GrabTexId) ? "_GrabTexture YES" : "_GrabTexture no") + ", "
+              + (mat.HasProperty(BackgroundTexId) ? "_BackgroundTexture YES" : "_BackgroundTexture no")
+              + ", "
+              + (mat.HasProperty(CameraOpaqueTexId) ? "_CameraOpaqueTexture YES"
+                                                    : "_CameraOpaqueTexture no")
+              + ", "
+              + (!mat.HasProperty(MainTexId) ? "_MainTex ABSENT"
+                  : mat.GetTexture(MainTexId) == null ? "_MainTex NULL" : "_MainTex bound")
+              + "]";
+        return (isDefault
+                   ? "material IS the default UI material (i.e. no blur/grab shader here — the same "
+                     + "state UIBlurDisabler produces with _image.material = null)"
+                   : "material is NOT the default UI material")
+               + ": shader '" + (shader != null ? shader.name : "?") + "', renderQueue "
+               + mat.renderQueue + probes;
     }
 }

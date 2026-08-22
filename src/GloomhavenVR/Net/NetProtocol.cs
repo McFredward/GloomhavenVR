@@ -416,7 +416,106 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 202;
+    public const ushort ModBuild = 203;
+    // Build 203: TWO CAUSES REMOVED, AND THE ONE BLIND SPOT EVERY INSTRUMENT NAMED BUT NONE MEASURED.
+    // (Four workers on isolated worktrees plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE REPORT ───────────────────────────────────────────────────────────────────────
+    // "Das wichtigste Problem nun: Flackern und richtige Darstellung des Character Sub-Menus und Perk
+    // Sub-Menus. Dort treten die benannten Probleme weiterhin auf. Geh da tief rein, trag jegliche
+    // Information die du aus den bisherigen Fehlschlägen und Versuchen zusammengesammelt hast zusammen
+    // um strukturiert weiter nach der Ursache und nach einer Lösung zu suchen. ... Das Problem MUSS
+    // gelöst werden." Plus: "Die Auflösung kommt mir aber immer noch etwas gering vor bei den
+    // Sub-Menus. Eventuell ist das Einbildung, aber prüfe das einmal."
+    //
+    // ── WHAT THE 202 HARDWARE RUN CLOSED, so nobody re-opens it ──────────────────────────
+    // Three remedies shipped at 201/202 had never executed on hardware. They executed this time, and
+    // the user reports the defect unchanged, so all three are now FALSIFIED rather than untested:
+    //   * the fractional sub-view scale — CONTENT SCALE reads "LOWEST 1.000, MEAN 1.000, HIGHEST
+    //     1.000 over 318 readings", and the factor "asked 2.00 / ACHIEVED 2.00" on all 135 samples;
+    //   * the wandering capture frame — eight distinct heights collapsed to two, 31 reallocations
+    //     to 2, exactly as 201 predicted;
+    //   * the capture racing the sub-view pose writes — "0 sub-view scale write(s), 4 re-seat(s)".
+    // Also dead, each by a number: the sorting write war (0 corrections in 900 guard runs), the guard
+    // rate-limited while held (0 while MOVING), CPU-side text state (1 defect in 3919 lookups, and
+    // that one is a legitimate U+200B), the submitted mesh (0 of 3933 quads), TMP sub-meshes off the
+    // capture layer (0 of 19), and the shared capture layer (0 transforms owned by another panel).
+    //
+    // ── THE HYPOTHESIS I SHIPPED THIS ROUND'S CENSUS FOR, AND THE ONE THAT DIED BUILDING IT ──
+    // The ONLY field in the whole 202 log that splits the two broken sub-views from the two working
+    // ones is the backdrop census: the character sheet carries "2 full-frame plate(s), the largest
+    // 'Container' at 1620x1080", perks "2 full-frame plate(s), the largest 'Blur' at 1620x1080", and
+    // ability cards and items each carry "no full-frame plate inside it". And the content-integrity
+    // instrument states its own blind spot in the log, verbatim: "...NOT the same as being drawn and
+    // then painted over, WHICH NOTHING IN THIS SCAN CAN SEE." Every scan is clean because the content
+    // is drawn correctly and something is painted over it.
+    //   I proposed a mechanism for that and it was FALSIFIED during implementation, which is the
+    // outcome the brief asked for. I claimed the window's 20 adopted nested canvases were all written
+    // to one sortingOrder while overrideSorting stayed on, making 20 unstable ties. The adoption lines
+    // say otherwise: 19 of the 20 read "overrideSorting False->false" — they are not sorting roots at
+    // all, their sortingOrder is inert, and they draw in hierarchy order exactly as the flat game drew
+    // them. Exactly ONE canvas is ever conceded ('UI Party Inventory Item Tooltip'), and one canvas
+    // cannot tie with itself. The rebase shipped anyway because it is correct and, at K=1, bit-identical
+    // to 202 — and it brings ADOPTED CANVAS ORDER CENSUS, which prints "TRUE at adoption vs now" so
+    // this question can never again be argued from a premise nobody measured.
+    //
+    // ── WHAT SHIPPED ─────────────────────────────────────────────────────────────────────
+    // 1. THE OVER-PAINT CENSUS (PanelSupersample.4.Content.cs). Rides the existing content walk — no
+    //    second traversal. Resolves each graphic's true painter key (nearest enabled overrideSorting
+    //    canvas, then depth-first index), names every plate covering >=60 % of the OPEN SUB-VIEW's
+    //    area, and prints THE ANSWER FIELD: how many drawing graphics intersect that plate AND draw
+    //    before it. A plate drawn first prints "PAINTS OVER 0 ... it is a LEGITIMATE BACKDROP and
+    //    over-paint cannot be this view's fault" — which kills the hypothesis in one line. It also
+    //    prints each plate's shader name, render queue and _GrabTexture/_BackgroundTexture/
+    //    _CameraOpaqueTexture probes: the game ships UIBlurDisabler, which defeats these plates by
+    //    setting _image.material = null, so the plate's appearance IS its material — and nobody has
+    //    ever read that shader name at runtime. EVERY report line now carries a [SUB-VIEW: ...] tag,
+    //    which is why eight rounds of clean measurements were unattributable.
+    // 2. THE SUB-VIEW SWEEP BURST (PanelSupersample.1.Core.cs / 4.Content.cs). The capture-layer sweep
+    //    runs every 15 frames when still and 5 while moving, and a tab press is not a geometry change,
+    //    so nothing forces a sweep when the content changes. The 202 log measures the consequence:
+    //    2448 late transforms 0.25 s after the ability-cards view opened, 294 0.25 s after perks — and
+    //    all 13 such lines in the session read "periodic", none the motion cadence. Until they are
+    //    swept they are MISSING FROM THE CAPTURE. ModBuild 193 already tried the MOTION variant and it
+    //    was falsified with the remedy verified running; keying on a CONTENT change is new, and it is
+    //    the only candidate that matches "taucht auch initial kaputt auf wenn man das Fenster öffnet"
+    //    with no drag at all. Burst floor 16 frames (deliberately not 8: at the session's p50 17.33 ms
+    //    a 0.25 s arrival is ~14 frames, and a burst that ends first would report "0 late joiners"
+    //    while the hole was open — the ModBuild 196 mistake). Cost fuse: no second burst within 64
+    //    frames, worst case 0.86 ms/frame against a 1.71 ms sweep.
+    // 3. THE HOVER REBUILD STORM (Patches/PartyPreviewStorm.cs, Hands/Interact/UguiPointer.cs). The
+    //    log measures CHARACTER 3D CADENCE "28 call(s) in 1.01s — THIS IS A FLICKER RATE", and
+    //    35.6 hover transitions/second on one roster slot. The loop is in the game and is VR-only:
+    //    UIAdventurePartyAssemblyRosterSlot.OnPointerEnter grows the slot and calls ScrollToFit, which
+    //    scrolls it out from under a laser held still in world space; OnPointerExit runs Unhighlight
+    //    and scrolls it back under the ray. Each lap costs TWO full rebuilds, because
+    //    FinishPreviewCharacterInfo calls PreviewCharacterInfo again — and each rebuild rewrites six
+    //    TMP strings unconditionally. A mouse cursor moves with the layout; a hand does not.
+    //    THE BRIEF'S ASSUMPTION WAS WRONG AND THE WORKER CORRECTED IT: the ray never MISSES. It
+    //    alternates between the slot and the slot's own ANCESTOR ('UI Party Roster', logged as
+    //    "already entered (shared ancestor) — not re-sent"), so a "different object => switch
+    //    immediately" rule would have passed the entire storm through. The shipped rule holds the exit
+    //    when the new target enters NO NEW WIDGET — null, or an object already in the hover chain —
+    //    for 6 frames (67 ms) against a measured 2-3 frames per phase. Press and release flush the
+    //    pending exit first, so no input is delayed; teardown forces it, so the refcount stays balanced.
+    // 4. THE SHARPNESS LEVER ([WorldUI] PanelMipLodOffset, default -0.5). His resolution report is not
+    //    imagination: the log reads "the window is MINIFIED 1.58x, so the eye receives 63 % of the
+    //    authored resolution" and names the only two levers there are — angular size and a negative
+    //    mip LOD offset, which this project quantified twice (194, 200) and deliberately never shipped.
+    //    Named Offset, not Bias: ConfigSteps excludes "Bias" on purpose (HeldFaceBias is an angle,
+    //    StableDepthBias is 0.0002), and Offset resolves to 0.05 per press. The log prints the value
+    //    READ BACK off the live RenderTexture with an AGREE/DISAGREE verdict, never the value asked
+    //    for — this project has shipped four remedies that never executed.
+    //
+    // ── A CEILING THAT IS 28 PIXELS AWAY, named now rather than after it fires ────────────
+    // The party window's capture frame is 2020x1496. The rate ceiling is 4096/width, which drops below
+    // 2.00 the moment the frame passes 2048 px — 28 px, less than one 32 px quantum. And the rate is
+    // quantised to 0.25, so it does not decay: it steps 2.00 -> 1.75 in one move, 12.5 % under the band
+    // limit. Two more quanta of HEIGHT put it over the 160 MB per-panel cap with the same landing.
+    // The headroom was 3.58 before 202 widened the host from 1143 to 1988 authored px; it is 2.06 now.
+    // Nothing changed here — but the next log says it instead of leaving it to be rediscovered.
+    //
     // Build 202: ONE WINDOW, ONE SCALE — AND A WIDER HOST WOULD HAVE SHRUNK EVERYTHING IN IT.
     // (One worker plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

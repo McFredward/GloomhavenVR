@@ -65,6 +65,14 @@ internal static partial class CanvasConversion
                 Object.Destroy(record.AddedRaycaster);
         }
         panel.AdoptedCanvases.Clear();
+        // ModBuild 203: the sibling-rebase census describes a set that no longer exists. Zero it and
+        // arm the rebuild, so a panel object that is ever re-converted cannot report — or write —
+        // offsets derived from a previous life.
+        panel.AdoptedOrderRebaseDirty = true;
+        panel.RebaseEligible = panel.RebaseDistinctOriginals = panel.RebaseLifted = 0;
+        panel.RebaseClamped = panel.AdoptedOverrideAtAdoption = panel.AdoptedOverrideNow = 0;
+        panel.RebaseMinOriginal = int.MaxValue;
+        panel.RebaseMaxOriginal = int.MinValue;
 
         // User #8 part 1: restore every transform we moved onto the mod layer back to its
         // original layer (game content re-joins the UI layer for the 2D restore).
@@ -722,6 +730,221 @@ internal static partial class CanvasConversion
     /// </summary>
     internal const int ConcededOrderLift = 1;
 
+    // ---- ModBuild 203: the CANVAS-vs-SIBLING half of "equal is a loss" ----------------------
+    //
+    // USER REPORT (2026-08-22, the permanent character window in the 3D map room, verbatim in
+    // substance): inside "New Party display" exactly two of six sub-views come up broken and
+    // flicker — the CHARACTER SHEET ('Campaign Adventure Party Assembly Variant') and the PERKS
+    // view ('New UIPerksWindow Variant'). Glyphs drop out of strings that are otherwise correct;
+    // perks can come up as a near-empty dark plate. It flickers while the window is dragged,
+    // freezes broken on release, and is broken on open with no drag at all.
+    //
+    // THE HALF-LESSON THIS FILE ALREADY CARRIED. ConcededOrderLift above fixed the canvas-vs-HOST
+    // relation: a conceded canvas pinned EQUAL to its host loses, because an overriding canvas is
+    // sorted as its own entry (sortingLayer → sortingOrder → distance) and Flatten makes it exactly
+    // coplanar with the host, so both tiebreakers are exhausted. NetProtocol.cs:1324 records it as
+    // "EQUAL IS NOT A TIE, IT IS A LOSS". What it did NOT fix is the canvas-vs-SIBLING relation:
+    // every conceded canvas of one panel was written the SAME number, `host + 1`. Two overriding
+    // canvases at one sortingOrder do not consult hierarchy either — that is the entire meaning of
+    // overrideSorting — so they are a tie, and Unity breaks such a tie by canvas registration
+    // order, which is undefined and is re-rolled whenever a canvas is enabled, disabled, or has its
+    // sortingOrder rewritten. Whatever layering the GAME expressed by authoring those canvases with
+    // DIFFERENT orders was thrown away and replaced with an unstable coin flip. The host's order is
+    // re-sorted by eye distance every frame (part 8), so every re-sort re-flips the coin — that is
+    // the flicker, and the freeze-on-release is the coin landing.
+    //
+    // THE FIX. Rebase the game's own spread onto the host's live order instead of collapsing it:
+    // each eligible canvas keeps its RANK among its siblings and the mod still owns the absolute
+    // number. See RebuildConcededOrderOffsets for the derivation.
+    //
+    // REJECTED ALTERNATIVES.
+    //   * "Write the raw difference (original − min) as the offset, as first specified." The real
+    //     authored orders measured on this window are {1, 100, 1000} (ModBuild 202 hardware log,
+    //     the adoption lines). A raw difference would put a canvas 999 orders above its host —
+    //     sixty-two PanelOrderStep bands up, i.e. straight through every other window in the room.
+    //     Only the ORDER of the authored values is information; their SPACING is not. Dense ranks
+    //     preserve the former and discard the latter, which is exactly the requirement.
+    //   * "Give up overrideSorting and re-clear the flag so hierarchy decides." That is the
+    //     ModBuild 179 write war: the game re-asserts the flag every frame, the two sides alternate,
+    //     and in MultiPass the eyes land on different sides of it ("flackert stark", 18,994 of one
+    //     session's 20,173 lines). Concede the flag, own the number. Untouched here.
+    //   * "Raise the whole nested band far above the host so nothing can be painted over." It would
+    //     climb into the NEXT panel's slot (PanelOrderStep is 16) and a farther window's innards
+    //     would paint over a nearer window. Bounded band, clamped, warned about once.
+    //   * "Sort the eligible set by hierarchy only and ignore the authored orders." That discards
+    //     real information: a canvas the game deliberately authored ABOVE a later sibling would be
+    //     demoted. Hierarchy is the FALLBACK, used only where the authored orders tie — which is
+    //     what uGUI itself would have done for a canvas that is not its own sorting root.
+    //
+    // WHAT THE EVIDENCE ACTUALLY SAYS, AND WHERE IT STOPS. Read the census line
+    // (LogAdoptedOrderCensus) before believing any of the above on this window. In the ModBuild 202
+    // log the party window carries ~21 adopted canvases but only ONE of them is CONCEDED ('UI Party
+    // Inventory Item Tooltip', order host+1, overrideSorting TRUE); the other twenty read
+    // `override=False` in every one of the 1,040 MODAL DIAG snapshots, and a canvas without
+    // overrideSorting does not sort as its own entry at all — its sortingOrder is inert and it draws
+    // inside its host's batch by hierarchy. One canvas cannot tie with itself. So on the evidence in
+    // hand this rebase is a NO-OP on the reported window, and the census line exists to say that out
+    // loud in one line on the next capture instead of leaving it to be re-derived from 5 MB of log.
+
+    /// <summary>
+    /// How wide the conceded-canvas band may be, in offsets above <see cref="ConcededOrderLift"/>.
+    ///
+    /// <para>THE BOUND, DERIVED. <c>CanvasConversion.8.Order.PanelOrderStep</c> (16) is the order gap
+    /// between two adjacent panels on the distance ladder, and it is the MINIMUM gap: the ladder
+    /// assigns <c>PanelOrderBase + rank * PanelOrderStep</c>, so two adjacent windows are exactly 16
+    /// apart and never less. The whole of one window — host at +0, its conceded canvases, its
+    /// followers — must therefore stay inside <c>[host, host+15]</c>, or a FARTHER window's innards
+    /// climb into a NEARER window's slot, which is the defect part 8 exists to remove. With the lift
+    /// at +1 that leaves offsets 0..14, i.e. fifteen distinct ranks.</para>
+    ///
+    /// <para>CAN N EXCEED IT? YES, IN PRINCIPLE. The party window has ~21 adopted canvases, so if the
+    /// game ever conceded all of them the eligible set would be 21 &gt; 15 and the top six would have
+    /// to share a rank. Measured, the eligible set on that window is 1, and the largest anywhere in
+    /// the ModBuild 202 log is 1 (three concessions in the whole session, on three different
+    /// windows). The clamp is therefore dead code in the shipped scene and is written to STAY dead
+    /// code: it clamps to the top of the band and prints ONE line naming the window, so the next
+    /// capture names the case instead of silently mis-drawing it.</para>
+    ///
+    /// <para>THE FOLLOWERS SHARE THIS BAND, AND THAT IS DELIBERATE.
+    /// <see cref="ModalCloseButton.XOrderOffset"/> is +2, the grab bar is +4 and the game's hover
+    /// tooltip rides at <c>WorldTooltips.MenuPanelSortingLift</c> (+10). A conceded canvas at offset
+    /// ≥1 therefore TIES the close X, and at ≥3 outranks it. That is only acceptable because the
+    /// measured eligible set is 1 — offset 0 for the single member, i.e. bit-identical to ModBuild
+    /// 202's <c>host + 1</c>. The census line reports the lifted count so the first window that ever
+    /// produces a non-zero offset is visible in the log the same session, and the follower offsets
+    /// can be re-cut then, in the file that owns them, against a real case instead of a hypothetical
+    /// one.</para>
+    /// </summary>
+    private const int ConcededOrderMaxOffset = PanelOrderStep - ConcededOrderLift - 1;
+
+    /// <summary>
+    /// Re-derive the cached <see cref="NestedCanvasRecord.RebaseOffset"/> of every rebase-eligible
+    /// record on <paramref name="panel"/>, and refresh the census fields the report line prints.
+    ///
+    /// <para>ELIGIBLE = CONCEDED, AND NOTHING ELSE. Only a canvas with <c>overrideSorting</c> TRUE is
+    /// sorted as its own entry, and the conceded ones are exactly the canvases that have the flag AND
+    /// whose number the mod owns. A canvas the adoption cleared the flag on draws inside its host's
+    /// batch by hierarchy and its <c>sortingOrder</c> is inert — writing it would be theatre. Task #7
+    /// dropdown overlays (<see cref="NestedCanvasRecord.KeepOverrideSorting"/> without concession) are
+    /// excluded on purpose: their whole contract is to sit ABOVE the entire window at the absolute
+    /// orders 4000/3999, and folding them into a host-relative band would re-create the vanishing
+    /// dropdown of task #7. They keep their existing top-order behaviour untouched.</para>
+    ///
+    /// <para>THE RANK. Eligible records are ordered by (authored <c>OriginalSortingOrder</c>, then
+    /// <see cref="NestedCanvasRecord.DfsIndex"/>, then instance id) and given DENSE offsets 0..K−1.
+    /// The first key preserves what the game expressed; the second is the hierarchy fallback for a
+    /// genuine authored tie — what uGUI itself would have done — computed once at adoption, never
+    /// per frame; the third only guarantees the comparator is a strict TOTAL order, so
+    /// "count of records that rank strictly before me" really is a dense permutation and two
+    /// canvases can never be handed the same offset.</para>
+    ///
+    /// <para>COST. O(K²) with no allocation, where K is the eligible count — 1 in every window
+    /// measured. It runs only when <see cref="ConvertedPanel.AdoptedOrderRebaseDirty"/> is set (a
+    /// canvas adopted, pruned or conceded), never on a steady frame.</para>
+    /// </summary>
+    private static void RebuildConcededOrderOffsets(ConvertedPanel panel)
+    {
+        panel.AdoptedOrderRebaseDirty = false;
+        int eligible = 0, lifted = 0, clamped = 0, distinct = 0;
+        int min = int.MaxValue, max = int.MinValue;
+        int overrideAtAdoption = 0;
+
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            if (rec.Canvas == null)
+                continue;
+            if (rec.OriginalOverrideSorting)
+                overrideAtAdoption++;
+            if (!rec.ConcededOverrideSorting)
+            {
+                // Not eligible: keep the record's offset at a defined value so a canvas that is
+                // conceded LATER cannot inherit a stale rank from a set it was never ranked in.
+                if (rec.RebaseOffset != 0)
+                {
+                    rec.RebaseOffset = 0;
+                    panel.AdoptedCanvases[i] = rec;
+                }
+                continue;
+            }
+
+            eligible++;
+            if (rec.OriginalSortingOrder < min) min = rec.OriginalSortingOrder;
+            if (rec.OriginalSortingOrder > max) max = rec.OriginalSortingOrder;
+
+            // Dense rank = how many eligible siblings sort strictly before me. The comparator is a
+            // strict total order, so the ranks are a permutation of 0..K-1 with no collisions.
+            int rank = 0;
+            bool firstWithThisOrder = true;
+            for (int j = 0; j < panel.AdoptedCanvases.Count; j++)
+            {
+                if (j == i)
+                    continue;
+                NestedCanvasRecord other = panel.AdoptedCanvases[j];
+                if (other.Canvas == null || !other.ConcededOverrideSorting)
+                    continue;
+                if (other.OriginalSortingOrder != rec.OriginalSortingOrder)
+                {
+                    if (other.OriginalSortingOrder < rec.OriginalSortingOrder)
+                        rank++;
+                    continue;
+                }
+                // Same authored order → the DISTINCT count must not double-count it, and the
+                // hierarchy fallback decides the rank.
+                if (j < i)
+                    firstWithThisOrder = false;
+                if (other.DfsIndex != rec.DfsIndex)
+                {
+                    if (other.DfsIndex < rec.DfsIndex)
+                        rank++;
+                    continue;
+                }
+                if (other.Canvas.GetInstanceID() < rec.Canvas.GetInstanceID())
+                    rank++;
+            }
+            if (firstWithThisOrder)
+                distinct++;
+
+            int offset = rank;
+            if (offset > ConcededOrderMaxOffset)
+            {
+                offset = ConcededOrderMaxOffset;
+                clamped++;
+            }
+            if (offset != 0)
+                lifted++;
+            if (rec.RebaseOffset != offset)
+            {
+                rec.RebaseOffset = offset;
+                panel.AdoptedCanvases[i] = rec;
+            }
+        }
+
+        panel.RebaseEligible = eligible;
+        panel.RebaseDistinctOriginals = distinct;
+        panel.RebaseMinOriginal = min;
+        panel.RebaseMaxOriginal = max;
+        panel.RebaseLifted = lifted;
+        panel.RebaseClamped = clamped;
+        panel.AdoptedOverrideAtAdoption = overrideAtAdoption;
+
+        if (clamped > 0 && !panel.RebaseClampLogged)
+        {
+            panel.RebaseClampLogged = true;
+            VRLog.Info("WorldUI",
+                $"ADOPTED ORDER BAND OVERFLOW '{panel.HostGo.name}': {eligible} conceded nested "
+                + $"canvas(es) need {eligible} distinct order(s) above the host, but the band is only "
+                + $"{ConcededOrderMaxOffset + 1} wide (CanvasConversion.8.Order.PanelOrderStep is "
+                + $"{PanelOrderStep} and the lift is {ConcededOrderLift}, so orders host+"
+                + $"{ConcededOrderLift}..host+{ConcededOrderLift + ConcededOrderMaxOffset} are all "
+                + $"this window may use before it reaches the NEXT window's slot at host+"
+                + $"{PanelOrderStep}). {clamped} canvas(es) were CLAMPED to the top of the band and "
+                + "therefore still tie with each other. This is the one case the sibling rebase "
+                + "cannot fully express; it has never been reached on hardware (the largest conceded "
+                + "set ever measured is 1). Printed ONCE per window.");
+        }
+    }
+
     /// <summary>
     /// Re-assert the adoption's sorting contract on every nested canvas this host adopted.
     ///
@@ -739,6 +962,12 @@ internal static partial class CanvasConversion
         if (hostMoving) panel.SortGuardRunsMoving++;
         else panel.SortGuardRunsStill++;
 
+        // ModBuild 203: re-derive the cached sibling offsets ONLY when the eligible set changed.
+        // A steady frame does no work here at all, and the number written for a given canvas is
+        // identical on every run — which is the property the whole concession depends on.
+        if (panel.AdoptedOrderRebaseDirty)
+            RebuildConcededOrderOffsets(panel);
+
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
             NestedCanvasRecord rec = panel.AdoptedCanvases[i];
@@ -751,8 +980,12 @@ internal static partial class CanvasConversion
             // subtree keeps drawing with its window while the game's writer is left alone.
             if (rec.ConcededOverrideSorting)
             {
+                // ModBuild 203: + the canvas's own SIBLING RANK. Until 202 every conceded canvas of
+                // one panel got this identical number, which is a tie between overriding canvases and
+                // therefore an undefined, re-rollable draw order (see the block comment above
+                // ConcededOrderMaxOffset). RebaseOffset is cached, dense and clamped into the band.
                 int wantOrder = panel.HostCanvas != null
-                    ? panel.HostCanvas.sortingOrder + ConcededOrderLift
+                    ? panel.HostCanvas.sortingOrder + ConcededOrderLift + rec.RebaseOffset
                     : nested.sortingOrder;
                 if (panel.HostCanvas != null && nested.sortingOrder != wantOrder)
                 {
@@ -784,13 +1017,21 @@ internal static partial class CanvasConversion
                     // different sides of it. Take the order instead and leave the flag.
                     rec.ConcededOverrideSorting = true;
                     rec.KeepOverrideSorting = true;
+                    panel.AdoptedCanvases[i] = rec;
+                    // ModBuild 203: the eligible set just GREW, so every cached sibling offset on
+                    // this panel (including this record's own, which is still 0 from adoption) has
+                    // to be re-derived before the number is written. Rebuild first, then re-read the
+                    // record — the rebuild writes back into the list.
+                    panel.AdoptedOrderRebaseDirty = true;
+                    RebuildConcededOrderOffsets(panel);
+                    rec = panel.AdoptedCanvases[i];
                     if (panel.HostCanvas != null)
                     {
-                        nested.sortingOrder = panel.HostCanvas.sortingOrder + ConcededOrderLift;
+                        nested.sortingOrder =
+                            panel.HostCanvas.sortingOrder + ConcededOrderLift + rec.RebaseOffset;
                         panel.SortGuardOrderWrites++;
                         wrote++;
                     }
-                    panel.AdoptedCanvases[i] = rec;
                     VRLog.Info("WorldUI", $"MODAL SORTING CONCEDED: adopted canvas '{nested.name}' in " +
                                           $"'{panel.HostGo.name}' had overrideSorting flipped back ON by a " +
                                           $"game writer {rec.ReclearCount} frames running. The mod now owns " +
@@ -950,6 +1191,86 @@ internal static partial class CanvasConversion
             + "MOVING figure of 0 over a session with real drags falsifies it outright — the guard "
             + "was never doing anything to lose. Read the cost against the threshold before "
             + "proposing to run anything else per frame.");
+
+        LogAdoptedOrderCensus(panel);
+    }
+
+    /// <summary>
+    /// MODBUILD 203 INSTRUMENT — "did the mod collapse the game's own nested-canvas layering into one
+    /// unstable tie?", answerable from ONE line.
+    ///
+    /// <para>WHY IT EXISTS. The sibling rebase above is a fix for a defect whose entire premise is a
+    /// number nobody had ever printed: how many DISTINCT sortingOrders the game authored across the
+    /// canvases one window adopts. If that number is 1, the flat game had them all tied already, the
+    /// mod destroyed no layering, and this lane cannot be the cause of anything — the fix would be a
+    /// no-op dressed as a remedy, and a no-op that ships unmeasured is how four rounds get spent on
+    /// the wrong term. The line also carries the overrideSorting census, because a sortingOrder on a
+    /// canvas WITHOUT that flag is inert: such a canvas is not its own sorting root, it draws inside
+    /// its host's batch in hierarchy order, and it can neither win nor lose a tie. Adopted count,
+    /// eligible count, distinct authored orders, the authored min/max, the written min/max and the
+    /// lifted count are all on one line so the next capture settles it without the source.</para>
+    ///
+    /// <para>Printed on the guard-budget cadence (<see cref="GuardBudgetWindowSeconds"/>, gated on
+    /// <see cref="ConvertedPanel.PerFrameGuards"/>) — the same throttle as the line above it, and NOT
+    /// on <see cref="ConvertedPanel.Diagnostic"/>: the measurement that judges a remedy must never be
+    /// gated behind a flag the drag throttle clears.</para>
+    /// </summary>
+    private static void LogAdoptedOrderCensus(ConvertedPanel panel)
+    {
+        int adopted = 0, overrideNow = 0, conceded = 0;
+        int writtenMin = int.MaxValue, writtenMax = int.MinValue;
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            if (rec.Canvas == null)
+                continue;
+            adopted++;
+            if (rec.Canvas.overrideSorting)
+                overrideNow++;
+            if (!rec.ConcededOverrideSorting)
+                continue;
+            conceded++;
+            int order = rec.Canvas.sortingOrder;
+            if (order < writtenMin) writtenMin = order;
+            if (order > writtenMax) writtenMax = order;
+        }
+        panel.AdoptedOverrideNow = overrideNow;
+
+        int eligible = panel.RebaseEligible;
+        int distinct = panel.RebaseDistinctOriginals;
+        string authored = eligible > 0
+            ? $"{panel.RebaseMinOriginal}..{panel.RebaseMaxOriginal}"
+            : "n/a (no conceded canvas)";
+        string written = conceded > 0 ? $"{writtenMin}..{writtenMax}" : "n/a (nothing written)";
+        int hostOrder = panel.HostCanvas != null ? panel.HostCanvas.sortingOrder : 0;
+
+        VRLog.Info("WorldUI",
+            $"ADOPTED CANVAS ORDER CENSUS '{panel.HostGo.name}': {adopted} adopted canvas(es), "
+            + $"{panel.AdoptedOverrideAtAdoption} of them had overrideSorting TRUE when the mod found "
+            + $"them and {overrideNow} carry it NOW; {eligible} are CONCEDED, i.e. the mod owns their "
+            + $"sortingOrder. Those conceded canvases had {distinct} DISTINCT authored "
+            + $"sortingOrder(s) spanning {authored}; the mod writes them at {written} against a host "
+            + $"at {hostOrder} (band host+{ConcededOrderLift}..host+"
+            + $"{ConcededOrderLift + ConcededOrderMaxOffset}, next window's slot at host+"
+            + $"{PanelOrderStep}). {panel.RebaseLifted} of them sit at a NON-ZERO sibling offset, "
+            + $"i.e. {panel.RebaseLifted} canvas(es) are drawn in a different order relative to their "
+            + "siblings than ModBuild 202 drew them (202 pinned every conceded canvas of a window to "
+            + $"the single value host+{ConcededOrderLift}); {panel.RebaseClamped} had to be CLAMPED "
+            + "into the band and therefore still tie. HOW TO READ IT: the DISTINCT count is the whole "
+            + "question. N distinct original orders collapsed to 1 is the defect — the game expressed "
+            + "a layering with those N values and ModBuild 202 replaced it with one number, and a tie "
+            + "between canvases that carry overrideSorting is broken by Unity's canvas registration "
+            + "order, which is undefined and is re-rolled on every enable/disable and every "
+            + "sortingOrder rewrite (the host's order is re-sorted by eye distance every frame, so "
+            + "that is once per frame). 1 distinct original order means every adopted canvas was "
+            + "already tied in the flat game and THIS LANE CANNOT BE THE CAUSE. Read the CONCEDED "
+            + "count first, though: it is the population the whole argument is about. A window with "
+            + "0 or 1 conceded canvas has no sibling relation to destroy no matter how many canvases "
+            + "it adopted, because a canvas whose overrideSorting the adoption CLEARED does not sort "
+            + "as its own entry at all — its sortingOrder is inert and it draws inside the host's "
+            + "batch by hierarchy, exactly as the flat game drew it. If CONCEDED is 1 and the window "
+            + "still renders broken, the cause is somewhere else entirely and this line is the proof "
+            + "of it, not a symptom.");
     }
 
     // Scratch for the modal camera scan (double-draw detection); reused, no per-frame alloc.

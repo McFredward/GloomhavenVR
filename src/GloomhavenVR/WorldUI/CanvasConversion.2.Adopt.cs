@@ -149,14 +149,23 @@ internal static partial class CanvasConversion
         for (int i = panel.AdoptedCanvases.Count - 1; i >= 0; i--)
         {
             if (panel.AdoptedCanvases[i].Canvas == null)
+            {
                 panel.AdoptedCanvases.RemoveAt(i);
+                // ModBuild 203: the rebase-eligible SET shrank, so every cached offset above the
+                // removed one may need to close up. Marking dirty here is what keeps the offsets
+                // DENSE without ever re-deriving them per frame.
+                panel.AdoptedOrderRebaseDirty = true;
+            }
         }
 
         bool anyNew = false;
         CanvasScratch.Clear();
         panel.Target.GetComponentsInChildren(includeInactive: true, CanvasScratch);
+        // ModBuild 203: GetComponentsInChildren returns PRE-ORDER DEPTH-FIRST, so `i` is this
+        // canvas's hierarchy index inside the converted subtree. It is captured once, at adoption,
+        // as the fallback tiebreaker for the sibling rebase (see NestedCanvasRecord.DfsIndex).
         for (int i = 0; i < CanvasScratch.Count; i++)
-            anyNew |= AdoptCanvas(panel, CanvasScratch[i]);
+            anyNew |= AdoptCanvas(panel, CanvasScratch[i], i);
         CanvasScratch.Clear();
 
         // Task #7: the Dropdown's fullscreen "Blocker" is parented under the ROOT
@@ -172,7 +181,11 @@ internal static partial class CanvasConversion
                     continue;
                 Canvas? blocker = child.GetComponent<Canvas>();
                 if (blocker != null)
-                    anyNew |= AdoptCanvas(panel, blocker);
+                    // The Blocker lives OUTSIDE the scanned subtree (under the host), so it has no
+                    // index in the sweep above. It is a dropdown overlay and therefore excluded from
+                    // the rebase by KeepOverrideSorting anyway; the sentinel just keeps the fallback
+                    // ordering total and deterministic if that ever changes.
+                    anyNew |= AdoptCanvas(panel, blocker, int.MaxValue);
             }
         }
         return anyNew;
@@ -201,7 +214,10 @@ internal static partial class CanvasConversion
     /// <see cref="AdoptNestedCanvases"/> for the contract, incl. the task-#7 dropdown
     /// overlay carve-out. Returns true only when the canvas was NEWLY adopted.
     /// </summary>
-    private static bool AdoptCanvas(ConvertedPanel panel, Canvas nested)
+    /// <param name="dfsIndex">Pre-order depth-first position of <paramref name="nested"/> in the
+    /// converted subtree, recorded once (ModBuild 203, see
+    /// <see cref="NestedCanvasRecord.DfsIndex"/>).</param>
+    private static bool AdoptCanvas(ConvertedPanel panel, Canvas nested, int dfsIndex)
     {
         if (nested == null || ReferenceEquals(nested, panel.HostCanvas))
             return false;
@@ -247,6 +263,7 @@ internal static partial class CanvasConversion
             OverlaySortingOrder = nested.name == DropdownBlockerName
                 ? DropdownBlockerSortingOrder
                 : DropdownListSortingOrder,
+            DfsIndex = dfsIndex,
         };
         if (overlay)
         {
@@ -263,6 +280,9 @@ internal static partial class CanvasConversion
 
         UguiPokeSurfaces.RegisterNested(panel.HostCanvas, nested);
         panel.AdoptedCanvases.Add(record);
+        // ModBuild 203: a new record can change the min authored order (and therefore every cached
+        // offset) of this panel's rebase-eligible set. Re-derive once, before the next write.
+        panel.AdoptedOrderRebaseDirty = true;
         VRLog.Info("WorldUI", overlay
             ? $"Adopted DROPDOWN overlay canvas '{nested.name}' in '{panel.HostGo.name}' " +
               $"(overrideSorting KEPT, sortingOrder re-based →{record.OverlaySortingOrder}, raycaster " +

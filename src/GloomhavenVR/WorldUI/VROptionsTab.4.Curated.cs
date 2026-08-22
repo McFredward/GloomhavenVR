@@ -268,6 +268,14 @@ internal static partial class VROptionsTab
                         // only be a second place to keep the same words in step.
                         new("WorldUI", "PanelSupersample", ""),
                         new("WorldUI", "PanelSupersampleFactor", ""),
+                        // ModBuild 203: the FILTERING half of the same trade, and it has to be
+                        // reachable from the same screen as the other two — the user's report
+                        // ("die Auflösung kommt mir immer noch etwas gering vor bei den
+                        // Sub-Menus") is about a MINIFIED window, which is precisely the regime
+                        // the factor above cannot reach. Same empty caption key, same reason:
+                        // the localized name and the German description are already written for
+                        // a player. A dial nobody can find is a dial that was never shipped.
+                        new("WorldUI", "PanelMipLodOffset", ""),
                         // The third dial of the same complaint, and the same gap in a different
                         // shape: [WorldUI] WindowLegibility HAS a localized name and a German
                         // description (ModBuild 189) but had no curated row either, so the size

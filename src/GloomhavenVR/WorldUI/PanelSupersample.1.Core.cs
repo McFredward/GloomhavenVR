@@ -736,6 +736,102 @@ internal static partial class PanelSupersample
     /// </summary>
     private const float DroppedFrameMs = FrameBudgetMs * 1.5f;
 
+    // ---- THE OVER-PAINT CENSUS (ModBuild 203) --------------------------------------------------
+    // The whole argument is on Entry.OverPaintCovered and on MeasureOverPaint; these are its dials.
+
+    /// <summary>
+    /// How much of the OPEN SUB-VIEW's rect a drawing graphic must cover before it is called a
+    /// FULL-FRAME PLATE. Deliberately looser than <c>CanvasConversion.FixedFitPlateHeightFraction</c>
+    /// (0.95 of the WINDOW frame, per axis): that test exists to decide whether removing a backdrop
+    /// would let a view scale to 1.000, and it may safely miss a plate. This one exists to decide
+    /// whether a graphic can HIDE the sub-view's content, and a plate covering 60 % of a sub-view
+    /// hides 60 % of it — so missing it is the expensive direction. Judged on AREA of the
+    /// intersection with the sub-view rect, not per axis, because a wide short banner across the
+    /// middle of a view and a tall narrow column down its side both occlude and neither passes a
+    /// per-axis test.
+    /// </summary>
+    private const float OverPaintPlateFraction = 0.60f;
+
+    /// <summary>Cap on how many DRAWING graphics one over-paint census records. The party window's
+    /// walk visits ~2700 transforms and the census keeps one small struct per drawing graphic, so
+    /// this is a hard bound on both the allocation and the plate-vs-graphic comparison count. When it
+    /// bites, <see cref="Entry.OverPaintTruncated"/> says so and every count becomes a LOWER
+    /// BOUND — the ModBuild 196 rule that a truncated instrument must never read clean.</summary>
+    private const int MaxOverPaintGraphics = 3072;
+
+    /// <summary>How many plates the report names in full. The count is always printed with its
+    /// denominator; only the sentences are capped, so a window with fifteen plates still reports
+    /// fifteen.</summary>
+    private const int MaxPlatesReported = 4;
+
+    /// <summary>How many graphics a single plate names as its largest victims. Three, because the
+    /// project has been burned by a top-3 line being read as the UNION — so the line prints the
+    /// COUNT and the TOTAL intersecting area next to them and says which is which.</summary>
+    private const int MaxCoveredNamed = 3;
+
+    /// <summary>How many foreign render subtrees the report names in full (the count is unbounded).
+    /// The ModBuild 192 shop window pooled 44 of them; naming all of them would make the line
+    /// unreadable and the first eight are enough to identify the family.</summary>
+    private const int MaxForeignNamed = 8;
+
+    /// <summary>A foreign renderer within this many HOST-LOCAL uGUI px of z = 0 is COPLANAR with the
+    /// display quad, whose host-local z is 0 by construction. Half an authored pixel: at the party
+    /// window's ~0.00052 world units per authored px that is ~0.26 mm, far below any authored depth
+    /// offset and far above float noise on a transform chain.</summary>
+    private const float ForeignCoplanarEpsPx = 0.5f;
+
+    // ---- THE SUB-VIEW SWEEP BURST (ModBuild 203) -----------------------------------------------
+    // The whole argument is on Entry.SubViewChanges. These are its dials, and their arithmetic is
+    // stated because a sweep costs a MEASURED 1.71 ms on this window against an 11.11 ms budget.
+
+    /// <summary>
+    /// Sweep the capture layer on EVERY frame for this many frames after the open sub-view changed,
+    /// WHETHER OR NOT THE FIRST SWEEPS FIND ANYTHING.
+    ///
+    /// <para><b>THE FLOOR IS SIZED AGAINST AN AMBIGUITY IN THE EVIDENCE, ON PURPOSE.</b> The ModBuild
+    /// 202 log reads its big arrivals 0.25 s after the view opened (2448 transforms after ABILITY
+    /// CARDS, 294 after PERKS). That 0.25 s has TWO readings and the log cannot separate them: either
+    /// the transforms arrived then, or they arrived immediately and the ordinary 15-frame cadence —
+    /// 0.26 s at the session's measured p50 of 17.33 ms — simply did not look until then. A floor
+    /// shorter than the ambiguity would answer the wrong one of those and read "0 late joiners" while
+    /// the hole was still open, which is the ModBuild 196 mistake (a remedy that stops before its own
+    /// diagnostic can fire carries no information). 16 frames is 0.18 s at 90 Hz and 0.28 s at the
+    /// measured 58 fps, so it spans the observation under either reading.</para>
+    ///
+    /// <para>COST: 16 x 1.71 ms = 27 ms of CPU spread over 16 frames = 1.71 ms on each, i.e. 15 % of
+    /// one 90 Hz frame or 10 % of a measured 17.33 ms one, once per tab press and never during a
+    /// drag.</para>
+    /// </summary>
+    private const int MinSweepBurstFrames = 16;
+
+    /// <summary>Hard cap on a burst, including the extension. A burst only ever reaches this length
+    /// while its sweeps KEEP finding late joiners, so reaching it is itself the finding: the game is
+    /// still repopulating after ~0.35-0.55 s and the remaining fix is an arrival HOOK, not a poll.
+    /// This is deliberately NOT the ModBuild 193 remedy: that swept every frame of every drag forever,
+    /// was measured doing it (3501 sweeps, 2448 late joiners) and was falsified by the user reporting
+    /// the flicker identical. This one is armed by a CONTENT CHANGE and disarms itself.</summary>
+    private const int MaxSweepBurstFrames = 32;
+
+    /// <summary>Consecutive sweeps that move NOTHING which end an extended burst. Three, so a single
+    /// quiet frame in the middle of a repopulation does not close the window early.</summary>
+    private const int SweepBurstMissTolerance = 3;
+
+    /// <summary>
+    /// <b>THE COST FUSE.</b> No SECOND burst may be armed within this many frames of the last one.
+    /// Without it, a signature that flapped every frame would re-arm every frame and this remedy
+    /// would silently become the permanent per-frame sweep that ModBuild 196 measured at 1.48-1.94 ms
+    /// of a 17 ms frame and removed. With it the sweeps are bounded to at most
+    /// <see cref="MaxSweepBurstFrames"/> frames in every 64, i.e. a worst case of 32/64 x 1.71 ms =
+    /// 0.86 ms per frame even against a pathological window that changes its signature every frame.
+    /// <para>It COALESCES rather than suppresses: a change inside the cooldown still forces the
+    /// capture-frame re-measure, still extends a burst that is still running, and is COUNTED
+    /// (<see cref="Entry.SubViewChangesCoalesced"/>) and printed — so a window whose signature really
+    /// does flap is visible in the log instead of being silently throttled. The fuse must never count
+    /// a class whose normal life looks like the abuse, and a repopulating window's own settling IS
+    /// its normal life.</para>
+    /// </summary>
+    private const int SweepBurstCooldownFrames = 64;
+
     // ---- state -------------------------------------------------------------------------------
 
     private static readonly List<Entry> Entries = new(MaxPanels);
@@ -1450,6 +1546,235 @@ internal static partial class PanelSupersample
         internal double StillFrameMs;
         internal float StillFrameMsMax;
         internal int StillFramesOverBudget;
+
+        // ---- THE OVER-PAINT CENSUS (ModBuild 203) ---------------------------------------------
+
+        /// <summary>
+        /// <b>HOW MANY DRAWING GRAPHICS THIS WINDOW'S FULL-FRAME PLATES ARE PAINTED OVER — the one
+        /// question twenty-two rounds of instruments have not been able to ask.</b>
+        ///
+        /// <para><b>THE USER'S REPORT, VERBATIM.</b> <i>"beim Loslassen kann es passieren, dass die
+        /// dargestellte Anzeige kaputt ist ... bewege ich es nochmal und lasse los, sieht es wieder
+        /// anders aus"</i>, and narrowed since: inside the converted world-space window <i>"New Party
+        /// display"</i> exactly TWO of its six sub-views render broken — the CHARACTER SHEET
+        /// (<c>Campaign Adventure Party Assembly Variant</c>) and PERKS
+        /// (<c>New UIPerksWindow Variant</c>). Glyphs drop out of strings; perks can come up as a
+        /// near-empty dark plate. The other four sub-views are correct.</para>
+        ///
+        /// <para><b>WHY THIS FIELD EXISTS: THE CONTENT-INTEGRITY INSTRUMENT NAMES ITS OWN BLIND SPOT,
+        /// IN THE LOG, VERBATIM.</b> <i>"a different fault from a missing glyph, and NOT the same as
+        /// being drawn and then painted over, which nothing in this scan can see"</i>. Everything the
+        /// last eight rounds measured came back clean and every one of those readings is still
+        /// believed: 1 defect in 3919 glyph lookups (and that one a legitimate U+200B), 0 defects in
+        /// 3933 submitted glyph quads, 0 TMP sub-meshes off the private capture layer, content scale
+        /// LOWEST 1.000 / MEAN 1.000 / HIGHEST 1.000 over 318 readings, sampling BAND-LIMITED with
+        /// <i>asked 2.00 / ACHIEVED 2.00</i>, one capture per frame with mips generated every frame at
+        /// MSAA 1x. A glyph that is generated perfectly, uploaded perfectly, captured perfectly and
+        /// then PAINTED OVER by an opaque rectangle produces exactly those readings and exactly the
+        /// user's picture. That is the hypothesis this field tests.</para>
+        ///
+        /// <para><b>THE ONE FIELD IN THE WHOLE LOG THAT SEPARATES THE BROKEN TWO FROM THE WORKING
+        /// FOUR IS THE BACKDROP CENSUS</b> (<c>CanvasConversion.3.Fit.cs</c>, diagnostic only):
+        /// character sheet <i>"2 full-frame plate(s) inside it, the largest 'Container' at 1620x1080
+        /// px"</i>, perks <i>"2 full-frame plate(s) inside it, the largest 'Blur' at 1620x1080 px"</i>,
+        /// ability cards and items <i>"no full-frame plate inside it, so its width is all
+        /// content"</i>. That census counts plates and measures how wide the view would be without
+        /// them. It never asks the only question that matters here: WHAT IS UNDERNEATH ONE.</para>
+        ///
+        /// <para><b>THE COUNT IS RESOLVED PAINTER'S ORDER, NOT HIERARCHY ORDER.</b> A graphic is
+        /// painted over by a plate when it INTERSECTS the plate's rect and draws BEFORE it, where
+        /// "before" is (nearest enabled overrideSorting canvas's <c>sortingOrder</c>, then depth-first
+        /// hierarchy index) — the actual key uGUI batches by. That resolution is deliberately computed
+        /// even though the sibling-canvas TIE hypothesis it was originally aimed at is now dead (see
+        /// <see cref="OverPaintTied"/>: 19 of this window's 20 adopted canvases have
+        /// <c>overrideSorting = false</c> and are not sorting roots at all). With the ties gone the
+        /// ordering reduces to hierarchy order INSIDE the host batch — which is exactly what uGUI
+        /// does — so the count below is a statement about the authored layering itself, and it stays
+        /// correct however the adoption's sorting state changes later.</para>
+        ///
+        /// <para><b>0 ON BOTH BROKEN VIEWS KILLS THE HYPOTHESIS OUTRIGHT</b> — the plates are then
+        /// legitimate backdrops drawn first, over-paint is not the cause, and the next round must look
+        /// somewhere neither this nor the content scan covers. That outcome is stated on the line
+        /// itself so it cannot be read as "the instrument found nothing yet".</para>
+        /// </summary>
+        internal int OverPaintCovered;
+
+        /// <summary>Census runs that produced a reading, and what they cost. Printed, because an
+        /// instrument that never ran and one that ran clean must not print alike.</summary>
+        internal int OverPaintScans;
+        internal double OverPaintMs;
+
+        /// <summary>Drawing graphics recorded by the last census — THE DENOMINATOR for every count
+        /// in this family. A plate covering "137" means nothing without it.</summary>
+        internal int OverPaintGraphics;
+
+        /// <summary>The census hit <see cref="MaxOverPaintGraphics"/>: every count from it is a LOWER
+        /// BOUND and the line says so.</summary>
+        internal bool OverPaintTruncated;
+
+        /// <summary>Full-frame plates found by the last census, and how many of them are effectively
+        /// OPAQUE (own colour alpha x CanvasRenderer alpha x inherited alpha at or above 0.99). A
+        /// translucent plate tints what is under it; an opaque one deletes it.</summary>
+        internal int OverPaintPlates;
+        internal int OverPaintOpaquePlates;
+
+        /// <summary>The worst single plate's covered count, and the total intersecting area over
+        /// every plate (host-local uGUI px²) — an extreme and a magnitude, never one alone.</summary>
+        internal int OverPaintWorstCovered;
+        internal float OverPaintCoveredArea;
+
+        /// <summary>
+        /// Of the graphics a plate is painted over, how many sit at the SAME resolved
+        /// <c>sortingOrder</c> as the plate but under a DIFFERENT canvas — i.e. an UNSTABLE TIE whose
+        /// real GPU order no census can predict, because Unity resolves equal-order sorting roots by
+        /// canvas registration and not by hierarchy.
+        ///
+        /// <para><b>THIS IS EXPECTED TO READ 0, AND IT IS PRINTED ANYWAY.</b> The sibling-canvas
+        /// draw-order hypothesis is DEAD: a parallel lane counted it out of the ModBuild 202 log —
+        /// of this window's 20 adopted nested canvases, 19 carry <c>overrideSorting = false</c> (the
+        /// adoption lines read <c>overrideSorting False→false</c>), so they are not sorting roots at
+        /// all and sort by hierarchy inside the host batch exactly as the flat game drew them; the
+        /// single exception is <c>UI Party Inventory Item Tooltip</c>, and one canvas cannot tie with
+        /// itself. So this field is not evidence FOR anything — it is the standing check that the
+        /// premise stays dead, and it is what makes the ordering behind
+        /// <see cref="OverPaintCovered"/> auditable rather than asserted. A non-zero reading would
+        /// mean the adoption's sorting state changed under us.</para>
+        /// </summary>
+        internal int OverPaintTied;
+
+        /// <summary>The per-plate sentences: name, path, rect, area fraction, colour, alphas,
+        /// material/shader/renderQueue and grab-texture probes, owning canvas and its sorting state,
+        /// resolved order key, and the covered count with its three largest victims.</summary>
+        internal string OverPaintNote = string.Empty;
+
+        /// <summary>THE WHOLE DISTRIBUTION of <see cref="OverPaintCovered"/> since engage, because a
+        /// single reading is not an operating point (the ModBuild 201 <c>RESAMPLE VERDICT WORST</c>
+        /// mistake, which cost a build).</summary>
+        internal int OverPaintReadings;
+        internal long OverPaintCoveredSum;
+        internal int OverPaintCoveredLowest;
+        internal int OverPaintCoveredHighest;
+
+        /// <summary>
+        /// WHICH SUB-VIEW THIS READING BELONGS TO — the attribution eight rounds of clean
+        /// measurements did not carry, which is why they were unreadable. Two of the party window's
+        /// six sub-views are broken and four are not, and every field on the state line so far
+        /// averaged over whichever happened to be open. Derived LOCALLY (see
+        /// <c>ResolveOpenSubView</c>) from the game's own <c>NewPartyDisplayUI</c> singleton, NOT from
+        /// <c>CanvasConversion</c>'s <c>fx.OpenSignature</c> — that state is private to another
+        /// lane's file and no read-only accessor for it exists.
+        /// </summary>
+        internal string OpenViewName = string.Empty;
+        internal string OpenViewSource = string.Empty;
+
+        /// <summary>The game's OWN answer to the same question — <c>NewPartyDisplayUI.ActiveDisplay</c>
+        /// as a string. Printed next to <see cref="OpenViewName"/> rather than instead of it: the two
+        /// are derived independently and a disagreement between them is itself information.</summary>
+        internal string OpenViewActive = string.Empty;
+        internal int OpenViewCount;
+
+        /// <summary>The open sub-view's rect in HOST-LOCAL uGUI px — the rect the plate test is
+        /// judged against. Falls back to the host rect when no sub-view can be derived, and the
+        /// source string says which was used.</summary>
+        internal Rect OpenViewRect;
+
+        /// <summary>
+        /// FOREIGN RENDER SUBTREES, NAMED. <see cref="ForeignSkipped"/> has counted them since
+        /// ModBuild 193 (the party window reports 4) and the engage line names exactly the FIRST one
+        /// (<c>FX_Smoke</c>). These are the real <see cref="Renderer"/>s and <see cref="Camera"/>s the
+        /// capture deliberately excludes and lets the head camera draw at their true world pose — so
+        /// the display quad, whose host-local z is 0, and a foreign renderer at host-local z ~ 0 are
+        /// COPLANAR, and a depth tie can resolve differently in the two MultiPass eyes. That is a
+        /// judgeable hypothesis only if the z is in the log, so it is.
+        /// </summary>
+        internal int ForeignRenderers;
+        internal int ForeignCoplanar;
+        internal string ForeignNote = string.Empty;
+
+        /// <summary>Transforms the last census visited — the denominator for
+        /// <see cref="ForeignRenderers"/>.</summary>
+        internal int OverPaintVisited;
+
+        // ---- THE SUB-VIEW SWEEP BURST (ModBuild 203) ------------------------------------------
+
+        /// <summary>
+        /// <b>HOW OFTEN THE OPEN SUB-VIEW CHANGED, AND THEREFORE HOW OFTEN THIS WINDOW REPOPULATED
+        /// WITH NOTHING FORCING A CAPTURE-LAYER SWEEP.</b>
+        ///
+        /// <para><b>THE USER'S NEWEST REPORT, VERBATIM:</b> <i>"mittlerweile taucht es auch initial
+        /// kaputt auf wenn man das Fenster öffnet"</i> — broken with NO DRAG AT ALL, which is the one
+        /// case no previous remedy touched. Every remedy so far has been keyed on MOTION.</para>
+        ///
+        /// <para><b>THE ROOT CAUSE UNDER TEST.</b> <c>ApplyCaptureLayer</c> runs on a cadence —
+        /// <see cref="SweepIntervalFrames"/> = 15 frames when still,
+        /// <see cref="MovingSweepIntervalFrames"/> = 5 while moving. A SUB-VIEW SWITCH is deliberately
+        /// not a geometry change (the fit advances no generation and never touches the host rect), so
+        /// pressing a tab forces nothing at all. Until the next cadence tick, every transform the game
+        /// creates for the new view sits on the GAME's UI layer: MISSING from the capture and drawn
+        /// straight into the eye at its own sorting order.</para>
+        ///
+        /// <para><b>THE EVIDENCE, from the ModBuild 202 log — the complete set of five late-joiner
+        /// lines for this window, whose counts sum exactly to the reported 2853 late joiners, so
+        /// nothing is missing:</b> L4108 t=24.25 s, 2448 transform(s), 0.25 s after the ABILITY CARDS
+        /// view opened; L4546 t=44.82 s, 27, ITEMS; L4563 t=45.68 s, 56, ITEMS; L4643 t=49.71 s, 28,
+        /// ITEMS; L4685 t=51.83 s, 294, 0.25 s after PERKS opened. <b>All 13 such lines in the session
+        /// read "periodic"; not one reads the motion cadence.</b> So the arrivals are keyed to CONTENT
+        /// CHANGES, not to motion, and the cadence is what decides how long the hole stays open.</para>
+        ///
+        /// <para><b>REJECTED ALTERNATIVES, both already falsified and neither to be rebuilt.</b>
+        /// (1) SWEEP EVERY FRAME WHILE MOVING — ModBuild 193 shipped it, it demonstrably ran (3501
+        /// sweeps, 2448 late joiners logged) and the user reported the flicker identical. (2) SWEEP
+        /// EVERY FRAME, FULL STOP — ModBuild 196 priced it at 1.48-1.94 ms of a 17 ms frame and
+        /// measured that 22 of 23 real arrivals were caught by the ORDINARY cadence and exactly one by
+        /// the motion cadence, which is why the motion cadence went from 1 frame to 5. What has never
+        /// been tried is forcing the sweep at the moment the CONTENT changes, which is this.</para>
+        /// </summary>
+        internal int SubViewChanges;
+
+        /// <summary>Changes that arrived inside <see cref="SweepBurstCooldownFrames"/> of the last
+        /// armed burst and were folded into it instead of arming a second one. Counted and printed:
+        /// <see cref="SubViewChanges"/> minus this is the number of bursts the fuse allowed, and a
+        /// large gap between the two is a window whose signature flaps — which is a finding, not a
+        /// reason to stay quiet.</summary>
+        internal int SubViewChangesCoalesced;
+
+        /// <summary>Signature of the set of ACTIVE sub-view roots (and of the conversion target's
+        /// active direct children) at the last check, and whether one has ever been taken. A change
+        /// of this — and nothing else — arms a burst.</summary>
+        internal int SubViewSignature;
+        internal bool SubViewSigValid;
+
+        /// <summary>The frame the current (or last) burst was armed on, and its live state: frames
+        /// left, frames run, consecutive empty sweeps, transforms moved, and the last frame on which
+        /// a sweep of this burst still found a late joiner.</summary>
+        internal int SubViewChangeFrame = -1000;
+        internal int SweepBurstFramesLeft;
+        internal int SweepBurstFramesRun;
+        internal int SweepBurstMisses;
+        internal int SweepBurstMoved;
+        internal int SweepBurstLastHitFrame = -1;
+
+        /// <summary>Bursts run since engage, and how many CONVERGED IN ONE FRAME (the first sweep
+        /// found nothing and no later one did either) — i.e. how often there was no hole to close.</summary>
+        internal int SweepBursts;
+        internal int SweepBurstsConverged;
+
+        /// <summary>
+        /// <b>THE NUMBER NOBODY HAS EVER MEASURED: how many frames elapsed between the sub-view
+        /// changing and the LAST sweep that still found a late joiner.</b> That is the length of the
+        /// window in which this view's content was missing from the capture and drawn straight into
+        /// the eye. -1 = no burst has completed yet; 0 = the burst never found anything, i.e. there
+        /// was no hole at all. Kept as last / worst / mean over a count, never as a bare extreme.
+        /// </summary>
+        internal int SweepBurstHoleFramesLast = -1;
+        internal int SweepBurstHoleFramesMax = -1;
+        internal long SweepBurstHoleSum;
+        internal int SweepBurstHoleReadings;
+
+        /// <summary>The last completed burst's totals, and what every burst so far has cost.</summary>
+        internal int SweepBurstFramesLast;
+        internal int SweepBurstMovedLast;
+        internal double SweepBurstMs;
     }
 
     // ---- public seams -------------------------------------------------------------------------
@@ -1587,11 +1912,21 @@ internal static partial class PanelSupersample
                                     + "below the minimum size)");
                     continue;
                 }
+                // BEFORE SyncGeometry, because arming a burst pulls NextContentFrame to NOW and it is
+                // SyncGeometry that reads it — so a tab press re-measures the capture frame on the
+                // very frame it happened, not on the next 15-frame cadence tick. See
+                // Entry.SubViewChanges for the whole argument and for the ModBuild 202 evidence.
+                NoticeSubViewChange(e);
                 SyncGeometry(e);
                 SyncVisibility(e);
 
                 bool moving = IsMoving(e);
                 SampleFrameBudget(e, moving);
+
+                // THE SUB-VIEW BURST, ahead of the ordinary cadence so a burst frame is never
+                // followed by a redundant periodic sweep on the same frame (it re-arms NextSweepFrame
+                // itself). Costs nothing on every frame in which no sub-view changed.
+                ServiceSweepBurst(e);
 
                 // THE MOVEMENT CADENCE. While the window is moving (and for SweepAfterMotionFrames
                 // after), sweep on the faster MovingSweepIntervalFrames cadence: that is the interval

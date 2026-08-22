@@ -496,6 +496,48 @@ internal sealed class ConvertedPanel
     /// <summary>Next frame the (allocating) camera scan runs — throttled; cameras change rarely.</summary>
     public int DiagNextCameraScanFrame;
 
+    // ---- adopted sibling order rebase + census (ModBuild 203) -----------------------------
+    /// <summary>
+    /// The rebase-eligible SET changed (a canvas was adopted, pruned, or conceded), so
+    /// <c>CanvasConversion.RebuildConcededOrderOffsets</c> must re-derive every
+    /// <see cref="NestedCanvasRecord.RebaseOffset"/> before the next write. Set by the writers of
+    /// <see cref="AdoptedCanvases"/>; cleared by the rebuild. This is the ONLY thing that may move a
+    /// cached offset — nothing per-frame does.
+    /// </summary>
+    public bool AdoptedOrderRebaseDirty;
+
+    /// <summary>Census, refreshed by each rebase: how many adopted records are rebase-eligible
+    /// (conceded — i.e. the ones whose <c>sortingOrder</c> the mod actually writes AND whose
+    /// <c>overrideSorting</c> is TRUE, which is the only combination in which a sortingOrder decides
+    /// anything at all).</summary>
+    public int RebaseEligible;
+
+    /// <summary>Census: how many DISTINCT authored <c>sortingOrder</c>s those eligible canvases had at
+    /// adoption. THE decisive number — see the HOW TO READ IT paragraph on the census log line.</summary>
+    public int RebaseDistinctOriginals;
+
+    /// <summary>Census: min/max authored order across the eligible set (int.MaxValue/MinValue when the
+    /// set is empty).</summary>
+    public int RebaseMinOriginal, RebaseMaxOriginal;
+
+    /// <summary>Census: how many eligible canvases ended up at a NON-ZERO offset, i.e. how many are no
+    /// longer pinned to the single ModBuild 202 value of <c>host + ConcededOrderLift</c>. Zero means
+    /// this lane changed no pixel on this window.</summary>
+    public int RebaseLifted;
+
+    /// <summary>Census: how many eligible canvases had their offset CLAMPED into the band (0 in every
+    /// scene measured so far — the band is 15 wide and the largest eligible set observed is 1).</summary>
+    public int RebaseClamped;
+
+    /// <summary>The band-overflow warning is printed once per panel, not once per rebuild.</summary>
+    public bool RebaseClampLogged;
+
+    /// <summary>Census: adopted canvases whose <c>overrideSorting</c> was TRUE at adoption, and how
+    /// many carry it right now. The pair separates "the game authored a sorting root here" from "the
+    /// mod left one standing"; a canvas with the flag FALSE sorts by hierarchy inside its host's batch
+    /// and its <c>sortingOrder</c> is inert, so it can neither tie nor be tied with.</summary>
+    public int AdoptedOverrideAtAdoption, AdoptedOverrideNow;
+
     // ---- dedicated mod layer for floated modals (user #8: UI-Camera double-draw) ----------
     /// <summary>
     /// Opt-in (<see cref="CanvasConversion.Convert"/> <c>useModLayer</c>): this host and its
@@ -973,6 +1015,39 @@ internal struct NestedCanvasRecord
     /// <summary>Frames this canvas has been caught with the flag flipped back on. Concedes at
     /// <see cref="CanvasConversion.ConcedeAfterReclears"/>.</summary>
     public int ReclearCount;
+
+    /// <summary>
+    /// ModBuild 203 (sibling rebase): this canvas's depth-first position among the canvases
+    /// <see cref="CanvasConversion.AdoptNestedCanvases"/> found inside the converted subtree, captured
+    /// ONCE at adoption. <c>GetComponentsInChildren</c> returns pre-order depth-first, so the sweep's
+    /// own loop index IS the hierarchy index — no second walk, no per-frame query.
+    ///
+    /// <para>WHY IT EXISTS. It is the fallback tiebreaker for
+    /// <see cref="RebaseOffset"/>: when two adopted canvases carry the SAME authored
+    /// <see cref="OriginalSortingOrder"/>, the flat game resolved them by hierarchy (that is what uGUI
+    /// does for a canvas that is not its own sorting root), so the rebase must resolve them the same
+    /// way rather than leaving a tie for Unity's canvas registration order to break — that order is
+    /// undefined and is re-rolled on every enable/disable. Canvases adopted LATE (pooled rows, a
+    /// dropdown list) get an index past the initial sweep's range; they are appended, which is
+    /// deterministic, which is the whole requirement.</para>
+    /// </summary>
+    public int DfsIndex;
+
+    /// <summary>
+    /// ModBuild 203: the cached, stable offset this canvas's <c>sortingOrder</c> is written at, ABOVE
+    /// <c>host + CanvasConversion.ConcededOrderLift</c>. Dense (0..K−1 over the K rebase-eligible
+    /// records of this panel) and clamped — see
+    /// <c>CanvasConversion.RebuildConcededOrderOffsets</c> for the derivation, the bound and why the
+    /// bound is what it is.
+    ///
+    /// <para>CACHED, NEVER DERIVED PER FRAME. The per-frame guard must write the same number for the
+    /// same canvas on every single run: a value re-derived from a live query (a min over a list that
+    /// changes as canvases are adopted and pruned) would make the written order oscillate, which is
+    /// the exact failure mode — a canvas whose order changes between two MultiPass eye passes — that
+    /// the concession machinery exists to end. Recomputed only when the eligible SET changes
+    /// (<see cref="ConvertedPanel.AdoptedOrderRebaseDirty"/>).</para>
+    /// </summary>
+    public int RebaseOffset;
 }
 
 /// <summary>

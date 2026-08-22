@@ -45,6 +45,116 @@ internal static partial class PanelSupersample
 
     private static string Mb(long bytes) => (bytes / (1024f * 1024f)).ToString("F1");
 
+    // ---- the mip LOD offset (ModBuild 203) ----------------------------------------------------
+
+    /// <summary>
+    /// <b>THE LAST LEVER ON A MINIFIED WINDOW, and this build finally pulls it.</b> The user's
+    /// report is "die Auflösung kommt mir aber immer noch etwas gering vor bei den Sub-Menus", and
+    /// this class's own instrument had already named the only remaining answer: the ModBuild 202 log
+    /// reads the party window <c>MINIFIED 1.58x</c> (peak 1.86x, 16 of 19 measurements minified at
+    /// all) at <c>mipMapBias 0.00</c>, with the capture factor confirmed at <c>asked 2.00 / ACHIEVED
+    /// 2.00</c>. The factor buys render-target texels per AUTHORED pixel; a minified window's sampler
+    /// already selects a mip level at or below authored resolution, so every level the factor adds
+    /// above it is a level the hardware never reads. Only two levers remain — the window's size in
+    /// the eye (<c>[WorldUI] WindowLegibility</c>, which this file does not own) and this one.
+    ///
+    /// <para><b>WHAT THE NUMBER PHYSICALLY BUYS AND COSTS, in one identity.</b> Trilinear picks
+    /// <c>LOD = log2(texelsPerRenderedPixel)</c>, i.e. the level with ~1 texel per rendered pixel. A
+    /// bias <c>b</c> shifts that choice to <c>LOD + b</c>, and the level then sampled carries
+    /// <c>2^-b</c> texels per rendered pixel — INDEPENDENT of how minified the window is. So -0.5
+    /// hands back half an octave of trilinear's deliberate over-blur at 1.41 texels per pixel, and
+    /// -1.0 reads 2.00 texels per pixel: twice what the pixel grid can carry, which is exactly the
+    /// undersampling this whole path was built to remove. That is the trade in a number, and it is
+    /// what the report line below prints.</para>
+    ///
+    /// <para><b>WHY IT IS CLAMPED AT 0 ON TOP.</b> A positive bias is BLUR — what the mip chain
+    /// already does correctly — and would only re-buy the complaint. The floor of -2.0 is a floor and
+    /// not a recommendation: it exists so someone experimenting can reach the failure and SEE it.</para>
+    /// </summary>
+    private const float MipLodOffsetMin = -2f;
+
+    /// <summary>The top of the range — see <see cref="MipLodOffsetMin"/>. 0 is "the filtering you
+    /// have today", which is what every build up to ModBuild 202 shipped.</summary>
+    private const float MipLodOffsetMax = 0f;
+
+    /// <summary>Bias write-backs are compared against the ask with this tolerance, in mip levels.
+    /// Two orders of magnitude below the stepper's own 0.05 press, so a real user value can never be
+    /// mistaken for a write that did not land.</summary>
+    private const float MipLodOffsetEpsilon = 1e-4f;
+
+    /// <summary>How often the bias line is printed, per window. Matches the state line's own cadence
+    /// so the two can be read side by side in the log.</summary>
+    private const float MipBiasReportSeconds = 10f;
+
+    /// <summary>Per-window due time for <see cref="ReportMipLodOffset"/>. Keyed by window name and
+    /// not by <c>Entry</c>, because the entry's fields belong to another file of this class.</summary>
+    private static readonly Dictionary<string, float> MipBiasNextReport =
+        new Dictionary<string, float>();
+
+    /// <summary>One warn per session if a write does not survive — see
+    /// <see cref="ApplyMipLodOffset"/>.</summary>
+    private static bool _mipBiasWriteWarned;
+
+    /// <summary>
+    /// <c>[WorldUI] PanelMipLodOffset</c>, read LIVE and clamped to the shipped range. A user-set
+    /// value is taken verbatim inside that range — there is deliberately no floor of the ModBuild 198
+    /// kind here, because this dial ships at a value that already does something and a floor over a
+    /// tuned value is how ModBuild 198's experiment came to never execute.
+    /// </summary>
+    private static float AskedMipLodOffset()
+    {
+        float v = WorldUIConfig.PanelMipLodOffset != null
+            ? WorldUIConfig.PanelMipLodOffset.Value
+            : Defaults.PanelMipLodOffset;
+        return float.IsNaN(v) ? 0f : Mathf.Clamp(v, MipLodOffsetMin, MipLodOffsetMax);
+    }
+
+    /// <summary>
+    /// Write the asked offset onto a live render target and RETURN WHAT THE TEXTURE THEN READS —
+    /// never what was asked for. Writes only when the two differ, so this is a float compare on the
+    /// common path and never a write war (nothing else in this process writes
+    /// <c>mipMapBias</c> on these targets; they are created here and destroyed here).
+    ///
+    /// <para><b>WHICH ORDER STICKS, AND HOW THAT WAS VERIFIED.</b> The bias is written TWICE in
+    /// <see cref="CreateMipRt"/> — once in the object initializer, before <c>Create()</c>, and once
+    /// through this method immediately after a successful <c>Create()</c> — and only the read-back is
+    /// ever reported. What was actually checked, rather than assumed: <c>mipMapBias</c> is declared on
+    /// <c>UnityEngine.Texture</c> (the game's <c>UnityEngine.CoreModule.dll</c> carries exactly one
+    /// <c>get_mipMapBias</c>/<c>set_mipMapBias</c> pair, the same shape and the same count as
+    /// <c>anisoLevel</c>) and <c>RenderTextureDescriptor</c> — the struct <c>Create()</c> builds the
+    /// SURFACE from — carries no such member. So the bias is SAMPLER state on the texture object, in
+    /// the same class as <c>filterMode</c>/<c>anisoLevel</c>, which this method's own file already
+    /// sets before <c>Create()</c> and which the state line has been reading back off the live target
+    /// since ModBuild 192. That is an argument, not a measurement, which is exactly why the write is
+    /// ALSO made after <c>Create()</c> (where the texture is unambiguously live) and why the value
+    /// that reaches the log is the one read off the object. If the two ever disagree the warn below
+    /// fires and the report prints both numbers: "asked" and "in force" can never collapse into one
+    /// character. Four remedies in this project's history never executed at all; this one has to be
+    /// able to say so itself.</para>
+    /// </summary>
+    private static float ApplyMipLodOffset(RenderTexture? rt, float asked)
+    {
+        if (rt == null)
+            return 0f;
+        if (Mathf.Abs(rt.mipMapBias - asked) > MipLodOffsetEpsilon)
+            rt.mipMapBias = asked;
+        float live = rt.mipMapBias;
+        if (!_mipBiasWriteWarned && Mathf.Abs(live - asked) > MipLodOffsetEpsilon)
+        {
+            _mipBiasWriteWarned = true;
+            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: [WorldUI] PanelMipLodOffset asked for "
+                              + $"{asked:F2} mip levels on '{rt.name}' and the render target reads "
+                              + $"{live:F2} back — THE WRITE DID NOT STICK. THE CONSEQUENCE: the "
+                              + "windows keep exactly ModBuild 202's filtering, i.e. the sharpness "
+                              + "this dial exists to buy is NOT in force and any judgement of it "
+                              + "from this session is a judgement of the old behaviour. Nothing "
+                              + "else changes: capture, MSAA, mips, input and geometry are "
+                              + "untouched. The per-window line below prints both numbers every "
+                              + "10 s, so this is checkable rather than inferable.");
+        }
+        return live;
+    }
+
     /// <summary>
     /// Allocate the CAPTURE target — multisampled, with a stencil buffer, and deliberately WITHOUT
     /// mips. The descriptor comes from <c>FlatScreenStereo.CreateColorRt</c> — the shipped factory of
@@ -105,6 +215,7 @@ internal static partial class PanelSupersample
     /// </summary>
     private static RenderTexture? CreateMipRt(int w, int h, string window)
     {
+        float asked = AskedMipLodOffset();
         var rt = new RenderTexture(w, h, 0, RenderTextureFormat.Default, RenderTextureReadWrite.Default)
         {
             name = $"GloomhavenVR.PanelSSMip_{window}",
@@ -114,9 +225,18 @@ internal static partial class PanelSupersample
             filterMode = FilterMode.Trilinear,
             anisoLevel = AnisoLevel,
             wrapMode = TextureWrapMode.Clamp,
+            // ModBuild 203, and written HERE as well as after Create() on purpose — see
+            // ApplyMipLodOffset for which order was verified and how. Nothing downstream ever
+            // believes this line: the number that reaches the log is read back off the object.
+            mipMapBias = asked,
         };
         if (rt.Create() && rt.mipmapCount > 1)
         {
+            // The second write, on an unambiguously live texture, and the read-back that decides
+            // whether the dial is in force at all. Every re-creation of a display target passes
+            // through here (AttachMipTarget is its only caller, from engage and from Reallocate),
+            // so a re-allocated window is never left carrying the previous build's filtering.
+            ApplyMipLodOffset(rt, asked);
             ClearRt(rt);
             return rt;
         }
@@ -1358,6 +1478,8 @@ internal static partial class PanelSupersample
                                   + "as soon as either moves. Everything else (input, geometry, MSAA) "
                                   + "is unaffected.");
             }
+
+            ReportMipLodOffset(e, shown);
         }
         catch (System.Exception ex)
         {
@@ -1402,6 +1524,15 @@ internal static partial class PanelSupersample
             Graphics.Blit(e.Rt, e.MipRt);
             e.MipRt.GenerateMips();
             e.MipCount = e.MipRt.mipmapCount;
+            // RE-ASSERT THE MIP LOD OFFSET (ModBuild 203). Two reasons, and neither is paranoia
+            // about the write itself. (1) The dial is live-tunable in the headset's options tab, and
+            // a target allocated before the player touched the arrows would otherwise keep the old
+            // value until the window happened to be re-allocated — the "changed it and nothing
+            // happened" report this project has already had twice. (2) GenerateMips rebuilds the
+            // chain every capture, and re-stating sampler state right after it costs one float
+            // compare. ApplyMipLodOffset writes ONLY when the live value differs, so this is not a
+            // per-frame write and cannot become a write war.
+            ApplyMipLodOffset(e.MipRt, AskedMipLodOffset());
             if (IsMoving(e))
                 e.MotionResolves++;
             else
@@ -1411,6 +1542,92 @@ internal static partial class PanelSupersample
         {
             RenderTexture.active = previous;
         }
+    }
+
+    /// <summary>
+    /// <b>ONE LINE PER WINDOW PER 10 s FOR THE ModBuild 203 DIAL — and it lives here, in its own
+    /// line, rather than inside the state line's legibility sentence, because that sentence is built
+    /// in <c>PanelSupersample.3.Report.cs</c>, which this lane does not own and whose
+    /// <c>Entry</c> carries no field to hand a read-back through.</b>
+    ///
+    /// <para><b>WHAT IT MUST NEVER DO IS PRINT THE ASK TWICE.</b> The value called "in force" is read
+    /// off the live <see cref="RenderTexture"/> the eye is sampling this very frame, in
+    /// <see cref="ApplyMipLodOffset"/>; the value called "asked" comes from the config. Four remedies
+    /// in this project shipped and never executed, and every one of them logged as if it had. If
+    /// those two numbers ever differ, that is the finding and the line says so.</para>
+    /// </summary>
+    private static void ReportMipLodOffset(Entry e, RenderTexture? shown)
+    {
+        float now = Time.realtimeSinceStartup;
+        if (MipBiasNextReport.TryGetValue(e.Window, out float due) && now < due)
+            return;
+        MipBiasNextReport[e.Window] = now + MipBiasReportSeconds;
+
+        float asked = AskedMipLodOffset();
+        float live = shown != null ? shown.mipMapBias : 0f;
+        bool mipped = shown != null && shown.mipmapCount > 1;
+        // THE IDENTITY THE WHOLE TRADE REDUCES TO. Trilinear selects LOD = log2(texels per rendered
+        // px), i.e. the level with ~1 texel per pixel; a bias b shifts that to LOD + b, so the level
+        // actually sampled carries 2^-b texels per rendered pixel WHATEVER the minification is. At
+        // 0.00 that is 1.00 (matched); at -0.50 it is 1.41; at -1.00 it is 2.00 — twice what the
+        // pixel grid can carry, which is the undersampling this whole path exists to remove.
+        float sampledTexelsPerPx = Mathf.Pow(2f, -live);
+        // …and the other side of the same identity: unfiltered level 0 comes back into the blend as
+        // soon as LOD + b < 1, i.e. below this many RT texels per rendered eye pixel.
+        float level0Returns = Mathf.Pow(2f, 1f - live);
+        float minification = e.AuthoredPerRenderedPx;
+        string minified = e.SamplingMeasured <= 0
+            ? "not measured yet on this window (no completed sampling measurement since engage — the "
+              + "bridge is derived once per 10 s state line and once per release)"
+            : minification > 1f
+                ? $"MINIFIED {minification:F2}x (peak since engage {e.AuthoredPerRenderedPxMax:F2}x, "
+                  + $"{e.MinifiedReadings} of {e.SamplingMeasured} measurement(s) minified at all), so "
+                  + $"the eye receives {100f / Mathf.Max(minification, 1e-4f):F0} % of the authored "
+                  + "resolution and THIS is the regime the capture factor cannot reach"
+                : $"MAGNIFIED (every authored px covers {1f / Mathf.Max(minification, 1e-4f):F2} "
+                  + "rendered eye px), so level 0 is already the correct level here and the offset "
+                  + "buys nothing on this reading — read the peak figure, not this one";
+
+        VRLog.Info(Scope,
+            $"PANEL SUPERSAMPLE MIP LOD OFFSET '{e.Window}': asked {asked:F2} mip level(s) from "
+            + $"[WorldUI] PanelMipLodOffset (shipped default {Defaults.PanelMipLodOffset:F2}, range "
+            + $"{MipLodOffsetMin:F2}..{MipLodOffsetMax:F2}), and the LIVE display render target reads "
+            + $"{live:F2} back"
+            + (Mathf.Abs(live - asked) > MipLodOffsetEpsilon
+                ? " — THESE TWO DISAGREE, so the dial is NOT in force and every judgement of window "
+                  + "sharpness from this session is a judgement of ModBuild 202's filtering"
+                : " — asked and in force AGREE, so the dial is running")
+            + (mipped
+                ? $" (mip chain present, {shown!.mipmapCount} level(s), {shown.filterMode} aniso "
+                  + $"{shown.anisoLevel})"
+                : " — BUT THE SHOWN TARGET HAS NO MIP CHAIN (the mipped display target was refused; "
+                  + "the quad is showing the capture target directly), and a mip LOD offset on a "
+                  + "texture with one level is INERT: this dial is doing nothing on this window "
+                  + "whatever the number says")
+            + $". THE WINDOW RIGHT NOW: {minified}. WHAT THE NUMBER BUYS AND COSTS, as one identity: "
+            + "trilinear selects LOD = log2(RT texels per rendered eye px), i.e. the mip level with "
+            + "about one texel per pixel, and a bias b shifts that choice to LOD + b — so the level "
+            + $"actually sampled carries 2^-b = {sampledTexelsPerPx:F2} texels per rendered pixel, "
+            + "REGARDLESS of how minified the window is. Above 1.00 that is detail the pixel grid "
+            + "cannot carry, which is aliasing bought back: it is invisible while the window is "
+            + "still (the sub-texel phase is constant) and crawls while the window is carried (the "
+            + "phase sweeps every frame) — the exact symptom ModBuild 198-202 removed. It also puts "
+            + $"unfiltered level 0 back into the blend below {level0Returns:F2} RT texels per rendered "
+            + $"eye px (this window is at {e.TexelsPerRenderedPx:F2} on its last measurement, "
+            + $"{e.Level0Readings} of {e.SamplingMeasured} measurement(s) have read level 0 on a "
+            + "MINIFIED window since engage). HOW TO READ IT: compare the ASKED and LIVE numbers "
+            + "first — if they differ, nothing below this sentence is about this build. Then read "
+            + "the window's minification: the offset is worth something exactly where the window is "
+            + "MINIFIED, because there the sampler is already reading a level at or below authored "
+            + "resolution and no capture factor can put that back; where the window is MAGNIFIED it "
+            + "buys nothing and only costs. THEN JUDGE THE PICTURE, NOT THIS LINE: if the sub-menu "
+            + "text reads sharper and does NOT crawl while you carry the window, the offset is "
+            + "paying for itself. THE NUMBER TO TURN IT BACK AT IS -1.00: there the sampled level "
+            + "carries 2.00 texels per rendered pixel, exactly twice what the eye can resolve, and "
+            + "the crawl returns by construction rather than by taste. If text crawls at the shipped "
+            + "-0.50, halve it to -0.25 or set it to 0 — 0 is bit-for-bit ModBuild 202's filtering "
+            + "and costs nothing but the sharpness. This is a LOCAL rendering dial: no peer's board "
+            + "changes by so much as a pixel, so it needs no wire field.");
     }
 
     private static Entry? EntryForCamera(Camera cam)
@@ -1449,6 +1666,7 @@ internal static partial class PanelSupersample
     private static void StandDown(Entry e, int index, string why)
     {
         RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
+        MipBiasNextReport.Remove(e.Window); // a re-engaged window reports its bias immediately
         int layer = e.Layer;
         ReleaseLayer(layer);
         e.Layer = -1;

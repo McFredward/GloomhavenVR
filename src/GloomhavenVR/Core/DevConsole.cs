@@ -176,7 +176,12 @@ internal sealed class DevConsole : MonoBehaviour
         _readyPointer.SetHovered(top.gameObject);
         _readyPointer.Press(screenPos);
         _readyPointer.Release(screenPos);
-        _readyPointer.SetHovered(null);
+        // Cancel(), not SetHovered(null): this pointer is driven by a ONE-SHOT dev command and is
+        // never ticked again, and since ModBuild 203 an ordinary hover loss is held back for a few
+        // frames by UguiPointer's exit hysteresis (which needs a next frame to resolve). Cancel is
+        // the teardown path that forces the exit out immediately, so the button cannot be left
+        // highlighted with an unbalanced UguiHoverTracker count.
+        _readyPointer.Cancel();
     }
 
     private void DumpInputDevices()

@@ -128,6 +128,39 @@ internal static partial class Defaults
     // THE EXPERIMENT NEVER EXECUTED. The verbatim rule is right for a TUNED value; it must not
     // preserve an inherited default that provably does nothing.
     internal const float PanelSupersampleFactor = 2.0f;      // => [WorldUI] PanelSupersampleFactor
+    // ModBuild 203 — THE LAST LEVER ON "die Auflösung kommt mir immer noch etwas gering vor bei den
+    // Sub-Menus", and the mod's own instrument named it: the ModBuild 202 log reads the party window
+    // MINIFIED 1.58x (peak 1.86x, 16 of 19 measurements minified at all) at `mipMapBias 0.00`, with
+    // the capture factor confirmed at asked 2.00 / ACHIEVED 2.00. A minified window's sampler already
+    // selects a mip level at or below authored resolution, so every level the FACTOR adds above it is
+    // one the hardware never reads — no capture factor can reach this complaint. The two levers left
+    // are the window's size in the eye (WindowLegibility) and this one.
+    //
+    // WHY -0.5 AND WHY IT SHIPS ON. The quantity is a MIP LEVEL offset, and after the offset the
+    // sampled level carries 2^-value texels per rendered pixel: 1.41 at -0.5, 2.00 at -1.0 (which is
+    // twice what a pixel grid can hold — ModBuild 192's shimmer, rebuilt by hand). -0.5 is half an
+    // octave of trilinear's deliberate over-blur handed back, measured twice in this project before
+    // (ModBuild 194: at LOD 0.42, 58 % of samples came from level 0; ModBuild 200: worth ~25 % of one
+    // blur term) and deliberately never shipped either time so the next report stayed attributable.
+    // The user has now asked about the symptom directly, so it ships, at the conservative end.
+    //
+    // RANGE -2.0 .. 0.0. Above 0 is BLUR, which is what the mip chain already does correctly and what
+    // this dial exists to undo — a positive value would only re-buy the complaint. Below -1.0 the
+    // sampled level carries more detail than the pixel grid can show, so -2.0 is a floor and not a
+    // recommendation: it is there so a player experimenting can reach the failure and SEE it rather
+    // than wonder whether the dial does anything.
+    //
+    // THE KEY IS NAMED FOR ITS STEPPER, and that is not cosmetic. `ConfigSteps` deliberately does NOT
+    // recognise "Bias" (its own table says so: HeldFaceBias is an angle and StableDepthBias is 0.0002,
+    // one word and two units three orders of magnitude apart), and a key with no recognised unit word
+    // falls through to a derivation that has shipped unusable steppers twice. "Offset" IS recognised
+    // and is literally what this number is — an offset added to the computed mip LOD — and it
+    // resolves to 0.05 per press, i.e. ten presses from 0 to the shipped -0.5.
+    //
+    // LOCAL RENDERING ONLY, so no wire field and no EXEMPT line: [WorldUI] is not one of
+    // check-wire-coverage.py's BOARD_SECTIONS, and an EXEMPT entry outside those sections is reported
+    // STALE by that same script. Nothing a peer can see from their side of the table changes.
+    internal const float PanelMipLodOffset = -0.5f;          // => [WorldUI] PanelMipLodOffset
     internal const float CanvasScaleMm = 1.0f;               // => [WorldUI] CanvasScaleMm
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale

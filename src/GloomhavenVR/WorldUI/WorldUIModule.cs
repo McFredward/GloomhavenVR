@@ -75,6 +75,15 @@ internal sealed class WorldUIModule : IVRModule
         // camera, which on a floated window is a world X/Y translation of hundreds of units. See
         // TooltipOnWindow for the whole diagnosis; these patches are the seams.
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipWindowPatches));
+        // ModBuild 203: the mercenary roster's own hover animation moves the slot out from under
+        // a stationary VR laser (OnPointerEnter grows it and then ScrollToFit scrolls the list),
+        // so enter->exit->enter closes into a loop and BOTH edges rebuild the character sheet —
+        // 28 Display() calls in 1.01 s in the 202 log. The pointer-side half of the repair lives
+        // in Hands.Interact.UguiPointer's exit hysteresis; this is the belt-and-braces half,
+        // which skips a PreviewCharacterInfo that would redisplay the character already shown.
+        // Base type on purpose: the campaign override reaches it through base. and keeps its own
+        // delete-button bookkeeping. See PartyPreviewStorm.
+        VRSession.Harmony?.PatchAll(typeof(Patches.PartyPreviewStorm));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)

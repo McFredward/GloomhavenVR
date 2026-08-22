@@ -36,7 +36,8 @@ internal static partial class PanelSupersample
         int captureAa = e.Rt != null ? e.Rt.antiAliasing : 0;
 
         Sb.Length = 0;
-        Sb.Append("PANEL SUPERSAMPLE '").Append(e.Window).Append("': host rect ")
+        Sb.Append("PANEL SUPERSAMPLE '").Append(e.Window).Append("'").Append(OpenViewTag(e))
+          .Append(": host rect ")
           .Append(e.HostRectAtMeasure.width.ToString("F0")).Append('x')
           .Append(e.HostRectAtMeasure.height.ToString("F0"))
           .Append(" uGUI px, CAPTURE FRAME ").Append(e.Frame.width.ToString("F0")).Append('x')
@@ -108,10 +109,97 @@ internal static partial class PanelSupersample
 
         AppendContentScale(e);
         AppendContentIntegrity(e);
+        AppendOverPaint(e);
+        AppendSubViewBurst(e);
         AppendCapturePath(e);
         AppendMotionBudget(e);
 
-        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 197 FIRST, AND IT RETIRES THE ModBuild 196 "
+        Sb.Append(" HOW TO READ THIS LINE — MODBUILD 203 FIRST. (W0) THE ATTRIBUTION TAG "
+                  + "'[SUB-VIEW: ...]' IS ON EVERY FIELD AND IT IS WHY THE LAST EIGHT ROUNDS WERE "
+                  + "UNREADABLE. Inside 'New Party display' exactly TWO of six sub-views render "
+                  + "broken — the CHARACTER SHEET ('Campaign Adventure Party Assembly Variant') and "
+                  + "PERKS ('New UIPerksWindow Variant'); ability cards, items, enhancements and "
+                  + "battle goals are correct. Every field this class has ever printed averaged over "
+                  + "whichever view happened to be open when the 10 s cadence fired, so '1 defect out "
+                  + "of 3919 glyph lookups' and '0 defects out of 3933 glyph quads' were correct and "
+                  + "unassignable. From this build every field says which view it was measured of, "
+                  + "and it says it TWICE from two independent derivations (the largest open sub-view "
+                  + "root this class measured, and the game's own NewPartyDisplayUI.ActiveDisplay) — "
+                  + "if those two ever disagree, that disagreement is itself the finding. "
+                  + "(W1) THE 'OVER-PAINT CENSUS' FIELD IS THE HEADLINE AND IT CLOSES THE BLIND SPOT "
+                  + "THE CONTENT-INTEGRITY FIELD NAMES IN ITS OWN SENTENCE: 'NOT the same as being "
+                  + "drawn and then painted over, which nothing in this scan can see'. Twenty-two "
+                  + "rounds of instruments have come back clean and every one of those readings is "
+                  + "still believed — the text source, the submitted mesh, the TMP sub-meshes, the "
+                  + "content scale, the sampling and the capture path are all correct, and a glyph "
+                  + "that is generated, uploaded and captured perfectly and THEN PAINTED OVER by an "
+                  + "opaque rectangle produces exactly those readings and exactly the user's picture. "
+                  + "THE ONE FIELD IN THE WHOLE LOG THAT SEPARATES THE BROKEN TWO FROM THE WORKING "
+                  + "FOUR IS THE BACKDROP CENSUS: char sheet '2 full-frame plate(s) inside it, the "
+                  + "largest Container at 1620x1080 px', perks '2 full-frame plate(s) ... the largest "
+                  + "Blur at 1620x1080 px', ability cards and items 'no full-frame plate inside it'. "
+                  + "That census counts plates; it never asks what is UNDERNEATH one. READ THE ANSWER "
+                  + "FIELD LIKE THIS. (a) A NON-ZERO 'PAINTS OVER N of M' on a plate of a BROKEN view, "
+                  + "with that plate marked OPAQUE, IS THE FINDING: content is being drawn and then "
+                  + "deleted, which no glyph, mesh, sub-mesh or sampling counter can see, and the "
+                  + "remedy is that plate (the game's own UIBlurDisabler defeats these by setting "
+                  + "_image.material = null, which proves the plate's appearance IS its material — so "
+                  + "read the shader name and the _GrabTexture/_BackgroundTexture/_CameraOpaqueTexture "
+                  + "probes on the same line, which nobody has ever read at runtime). (b) 0 GRAPHICS "
+                  + "PAINTED OVER ON BOTH BROKEN VIEWS KILLS THE HYPOTHESIS: the plates are then "
+                  + "legitimate backdrops drawn FIRST inside their own order band, over-paint is NOT "
+                  + "the cause, and the next round must stop looking at layering altogether. (c) A "
+                  + "TRANSLUCENT plate over a large count TINTS rather than deletes, which is the "
+                  + "'perks comes up as a near-empty DARK plate' report specifically — read the "
+                  + "colour RGBA, and note that it is printed RAW and unclamped because "
+                  + "UIBlurDisabler's other branch writes Color(17,17,17,85), whose alpha saturates "
+                  + "to fully opaque. (d) '0 full-frame plates' on a view the user calls broken rules "
+                  + "this family out FOR THAT VIEW, which is a different statement from 'the plates "
+                  + "were clean'. EVERY COUNT ON THAT FIELD CARRIES ITS DENOMINATOR and every extreme "
+                  + "carries a mean and a sample count, because this project has been burned three "
+                  + "times by a summary field read as an operating point. "
+                  + "(W2) THE 'SUB-VIEW BURST' FIELD IS THE FIRST REMEDY IN THIS CLASS KEYED ON A "
+                  + "CONTENT CHANGE RATHER THAN ON MOTION, and it exists for the user's newest words: "
+                  + "'mittlerweile taucht es auch initial kaputt auf wenn man das Fenster öffnet' — "
+                  + "no drag at all, which is the one case no previous remedy touched. A tab press is "
+                  + "deliberately NOT a geometry change (the fit advances no generation and never "
+                  + "touches the host rect), so nothing used to force a capture-layer sweep when the "
+                  + "window repopulated; until the next 15-frame cadence tick every transform the "
+                  + "game created sat on the GAME's UI layer, missing from the capture and drawn "
+                  + "straight into the eye. THE ModBuild 202 LOG MEASURES IT: five late-joiner lines "
+                  + "for this window whose counts sum exactly to its reported 2853 late joiners — "
+                  + "2448 transforms 0.25 s after ABILITY CARDS opened, 294 transforms 0.25 s after "
+                  + "PERKS opened, and three smaller ITEMS arrivals — and all 13 such lines in that "
+                  + "session read 'periodic', not one the motion cadence. READ 'THE HOLE' LIKE THIS: "
+                  + "0 frames (or a burst that moved 0) means there was no hole to close on that "
+                  + "switch and the 'initial kaputt' report is NOT a late-joiner problem — go to the "
+                  + "OVER-PAINT CENSUS instead. 1-3 frames means the hole existed and the burst "
+                  + "closed it, and the user should notice on the very next tab press. A hole that "
+                  + "keeps reaching the " + MaxSweepBurstFrames + "-frame cap means the game is "
+                  + "still repopulating after a "
+                  + "quarter of a second, the hole is the GAME's cadence and not ours, and the only "
+                  + "remaining fix is an arrival HOOK rather than any poll. -1 means no burst has "
+                  + "completed and is NOT a hole of 0. TWO REMEDIES ARE ALREADY DEAD AND MUST NOT BE "
+                  + "REBUILT FROM THIS FIELD: sweeping every frame WHILE MOVING (ModBuild 193 shipped "
+                  + "it, 3501 sweeps and 2448 late joiners prove it ran, the user reported the "
+                  + "flicker identical) and sweeping every frame outright (ModBuild 196 priced it at "
+                  + "1.48-1.94 ms of a 17 ms frame and measured 22 of 23 arrivals caught by the "
+                  + "ORDINARY cadence). This burst is armed by a content change and disarms itself. "
+                  + "(W3) THE SIBLING-CANVAS DRAW-ORDER HYPOTHESIS IS DEAD and the 'UNSTABLE TIE' "
+                  + "count exists only to keep it dead: 19 of this window's 20 adopted nested "
+                  + "canvases carry overrideSorting = false and are therefore not sorting roots at "
+                  + "all, and the single exception cannot tie with itself. Expect 0; a non-zero "
+                  + "reading means the adoption's sorting state changed under us. "
+                  + "(W4) 'FOREIGN RENDER SUBTREES, NAMED' finally answers a count that has been "
+                  + "printed since ModBuild 193 without ever being resolved: the party window reports "
+                  + "4 and only the first ('FX_Smoke') has ever appeared in a log. These are excluded "
+                  + "from the capture ON PURPOSE and drawn by the HEAD camera at their true world "
+                  + "pose — so the one thing that can go wrong is DEPTH: the display quad sits at "
+                  + "host-local z = 0, and a foreign renderer at z ~ 0 is coplanar with it, which two "
+                  + "MultiPass eyes can resolve differently. A COPLANAR count above 0 is a live "
+                  + "hypothesis for one-eyed flicker that nothing else on this line can see; a count "
+                  + "of 0, with every foreign renderer's z well away from 0, retires it. "
+                  + "NOW THE OLDER CLAUSES. MODBUILD 197 NEXT, AND IT RETIRES THE ModBuild 196 "
                   + "HEADLINE BELOW RATHER THAN EXTENDING IT. (Y1) THE ModBuild 196 GLYPH SCAN RAN, "
                   + "IT WORKED, AND IT MEASURES THE WRONG QUANTITY. Its whole output was counted "
                   + "rather than sampled: 236 readings, 152 of them '0 not in atlas / 0 not visible / "
@@ -410,7 +498,8 @@ internal static partial class PanelSupersample
     {
         float mean = e.ContentScaleReadings > 0 ? e.ContentScaleSum / e.ContentScaleReadings : 1f;
         float rate = Mathf.Max(e.AchievedFactor, 0.01f);
-        Sb.Append(" CONTENT SCALE (ModBuild 201 — the field that answers 'what do the character and "
+        Sb.Append(" CONTENT SCALE").Append(OpenViewTag(e))
+          .Append(" (ModBuild 201 — the field that answers 'what do the character and "
                   + "perks views do differently from the other four'): the smallest SUBSTANTIAL "
                   + "content scale inside this window's capture frame is ")
           .Append(e.MinContentScale.ToString("F3"))
@@ -475,7 +564,8 @@ internal static partial class PanelSupersample
     private static void AppendContentIntegrity(Entry e)
     {
         int totalBad = e.GlyphsNotInAtlas + e.GlyphsNotVisible + e.GlyphsBlankQuad;
-        Sb.Append(" CONTENT INTEGRITY (the 'kaputte Anzeige' instrument): ").Append(e.ContentScans)
+        Sb.Append(" CONTENT INTEGRITY").Append(OpenViewTag(e))
+          .Append(" (the 'kaputte Anzeige' instrument): ").Append(e.ContentScans)
           .Append(" scan(s) so far at ")
           .Append((e.ContentScans > 0 ? e.ContentScanMs / e.ContentScans : 0.0).ToString("F2"))
           .Append(" ms each (").Append(e.ContentScanFailures)
@@ -491,7 +581,9 @@ internal static partial class PanelSupersample
           .Append(e.TextCulled)
           .Append(" put NO pixels into the capture at all (CanvasRenderer culled or zero alpha — a "
                   + "different fault from a missing glyph, and NOT the same as being drawn and then "
-                  + "painted over, which nothing in this scan can see)")
+                  + "painted over, which nothing in THIS scan can see. FROM ModBuild 203 THAT BLIND "
+                  + "SPOT IS NO LONGER OPEN: it is measured by the OVER-PAINT CENSUS field below, "
+                  + "which is where a clean reading here must be taken next)")
           .Append(e.ContentScanTruncated
               ? "; THE SCAN WAS TRUNCATED at " + MaxGlyphChecksPerScan + " lookups / "
                 + MaxRegeneratePerScan + " regenerations, so these are LOWER BOUNDS"
@@ -588,6 +680,160 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>
+    /// THE ATTRIBUTION TAG — which sub-view every number on this line was measured of.
+    ///
+    /// <para><b>WHY IT IS ON EVERY FIELD AND NOT ONCE AT THE TOP.</b> Two of the party window's six
+    /// sub-views render broken and four do not. Every field this class has ever printed averaged over
+    /// whichever one happened to be open when the 10 s cadence fired, so eight rounds of correct
+    /// measurements produced no decision: "0 defects out of 3919 glyph lookups" is unreadable until
+    /// the line says whether it was taken of the CHARACTER SHEET or of the ability cards. The tag is
+    /// repeated per field so that a log grepped for one field name still carries its attribution.</para>
+    ///
+    /// <para>It prints TWO independently derived answers — the largest open sub-view ROOT this class
+    /// measured for itself, and the game's own <c>NewPartyDisplayUI.ActiveDisplay</c> — because a
+    /// disagreement between them is information and a single merged answer would hide it.</para>
+    /// </summary>
+    private static string OpenViewTag(Entry e)
+    {
+        if (e.OverPaintScans <= 0)
+            return " [SUB-VIEW: not yet derived — no census has run on this panel]";
+        string name = e.OpenViewName.Length > 0 ? "'" + e.OpenViewName + "'" : "none open";
+        string active = e.OpenViewActive.Length > 0 ? e.OpenViewActive : "unavailable";
+        return $" [SUB-VIEW: {name}, ActiveDisplay={active}, {e.OpenViewCount} open]";
+    }
+
+    /// <summary>
+    /// <b>THE OVER-PAINT CENSUS FIELD (ModBuild 203).</b> Everything about why is on
+    /// <see cref="Entry.OverPaintCovered"/>. What this field must do is print the ANSWER with its
+    /// denominator, the plates that produced it in full, the distribution behind it, and the outcome
+    /// that KILLS the hypothesis, in a form that cannot be read as "the instrument found nothing yet".
+    /// </summary>
+    private static void AppendOverPaint(Entry e)
+    {
+        Sb.Append(" OVER-PAINT CENSUS").Append(OpenViewTag(e))
+          .Append(" (ModBuild 203 — THE BLIND SPOT THE FIELD ABOVE NAMES IN ITS OWN SENTENCE: "
+                  + "'NOT the same as being drawn and then painted over, which nothing in this scan "
+                  + "can see'. This is that scan): ").Append(e.OverPaintScans)
+          .Append(" census(es) so far at ")
+          .Append((e.OverPaintScans > 0 ? e.OverPaintMs / e.OverPaintScans : 0.0).ToString("F3"))
+          .Append(" ms each for the parts that are NOT shared with the text scan (resolving the open "
+                  + "sub-view, and the plate-versus-graphic comparison); its PER-NODE share rides the "
+                  + "content-integrity walk above and is inside that walk's ms figure, because this "
+                  + "census adds no traversal of its own. ATTRIBUTION: the reference rect is ")
+          .Append(e.OpenViewRect.width.ToString("F0")).Append('x')
+          .Append(e.OpenViewRect.height.ToString("F0")).Append(" uGUI px, taken from ")
+          .Append(e.OpenViewSource.Length > 0 ? e.OpenViewSource : "nothing yet")
+          .Append(". THE LAST CENSUS visited ").Append(e.OverPaintVisited)
+          .Append(" transform(s) and recorded ").Append(e.OverPaintGraphics)
+          .Append(" DRAWING graphic(s) — that count is the DENOMINATOR of every number below and is "
+                  + "printed first for exactly that reason — of which ").Append(e.OverPaintPlates)
+          .Append(" are FULL-FRAME PLATES (covering at least ")
+          .Append((OverPaintPlateFraction * 100f).ToString("F0"))
+          .Append(" % of the open sub-view's AREA), ").Append(e.OverPaintOpaquePlates)
+          .Append(" of them effectively OPAQUE (own colour alpha x CanvasRenderer alpha x inherited "
+                  + "alpha >= 0.99 — an opaque plate DELETES what it covers, a translucent one only "
+                  + "TINTS it). THE ANSWER FIELD: those plate(s) are painted over ")
+          .Append(e.OverPaintCovered).Append(" of the ").Append(e.OverPaintGraphics)
+          .Append(" drawing graphic(s) IN TOTAL, summed over every plate (worst SINGLE plate ")
+          .Append(e.OverPaintWorstCovered).Append("), across ")
+          .Append(e.OverPaintCoveredArea.ToString("F0"))
+          .Append(" uGUI px² of intersecting area, and ").Append(e.OverPaintTied)
+          .Append(" of those victims sit at the SAME resolved sortingOrder under a DIFFERENT canvas "
+                  + "(an UNSTABLE TIE, which Unity resolves by canvas registration and no census can "
+                  + "predict). THAT LAST COUNT IS EXPECTED TO BE 0 AND IS PRINTED ANYWAY: the "
+                  + "sibling-canvas draw-order hypothesis is DEAD — 19 of this window's 20 adopted "
+                  + "nested canvases carry overrideSorting = false and are not sorting roots at all, "
+                  + "and the one exception ('UI Party Inventory Item Tooltip') cannot tie with "
+                  + "itself. A non-zero reading here would mean the adoption's sorting state changed "
+                  + "under us; a zero is what makes the ordering behind the ANSWER above auditable "
+                  + "rather than asserted")
+          .Append(e.OverPaintTruncated
+              ? "; THE CENSUS WAS TRUNCATED at " + MaxOverPaintGraphics + " recorded graphics, so "
+                + "every count here is a LOWER BOUND"
+              : "; the census ran to completion, so these are totals")
+          .Append(". PER PLATE (at most ").Append(MaxPlatesReported)
+          .Append(" named; the COUNT above is not capped): ")
+          .Append(e.OverPaintNote.Length > 0
+              ? e.OverPaintNote
+              : e.OverPaintScans > 0
+                  ? "none — this sub-view has NO graphic covering " + (OverPaintPlateFraction * 100f)
+                    .ToString("F0") + " % of it, so there is nothing here that could paint over "
+                    + "anything, and this whole family is ruled out FOR THIS VIEW"
+                  : "the census has not run yet")
+          .Append(". THE WHOLE DISTRIBUTION SINCE ENGAGE, because one reading is not the operating "
+                  + "point (the ModBuild 201 mistake this project has now paid for three times): "
+                  + "LOWEST ").Append(e.OverPaintCoveredLowest).Append(", MEAN ")
+          .Append((e.OverPaintReadings > 0
+                      ? (double)e.OverPaintCoveredSum / e.OverPaintReadings : 0.0).ToString("F1"))
+          .Append(", HIGHEST ").Append(e.OverPaintCoveredHighest)
+          .Append(" painted-over graphic(s), over ").Append(e.OverPaintReadings)
+          .Append(" census(es) — and each of those readings belongs to WHICHEVER SUB-VIEW WAS OPEN "
+                  + "at the time, which is why the attribution tag is on every field of this line "
+                  + "and not once at the top. FOREIGN RENDER SUBTREES, NAMED (ModBuild 193 has "
+                  + "counted these since it was written and the engage line names exactly the FIRST "
+                  + "one; the party window reports 4 and only 'FX_Smoke' has ever been in a log): ")
+          .Append(e.ForeignRenderers).Append(" recorded out of ").Append(e.OverPaintVisited)
+          .Append(" transform(s) visited, ").Append(e.ForeignCoplanar)
+          .Append(" of them at host-local |z| <= ").Append(ForeignCoplanarEpsPx.ToString("F2"))
+          .Append(" px. WHY THE z MATTERS: the mod excludes these from the capture entirely and lets "
+                  + "the HEAD camera draw them at their true world pose, while the display quad sits "
+                  + "at host-local z = 0 — so a foreign renderer at z ~ 0 is COPLANAR with the quad, "
+                  + "and a depth tie can resolve differently in the two MultiPass eyes, which reads "
+                  + "as one-eyed flicker and is invisible to every other field on this line. THEY "
+                  + "ARE (at most ").Append(MaxForeignNamed).Append(" named): ")
+          .Append(e.ForeignNote.Length > 0
+              ? e.ForeignNote
+              : "none inside this window, so that hypothesis cannot apply to it at all")
+          .Append('.');
+    }
+
+    /// <summary>
+    /// <b>THE SUB-VIEW SWEEP BURST FIELD (ModBuild 203).</b> The per-burst line
+    /// (<c>PANEL SUPERSAMPLE SUB-VIEW BURST</c>) is the detailed one; this is the standing summary on
+    /// the periodic line, so a session in which no tab was ever pressed and a session in which every
+    /// burst converged immediately cannot leave the same evidence. Everything about why is on
+    /// <see cref="Entry.SubViewChanges"/>.
+    /// </summary>
+    private static void AppendSubViewBurst(Entry e)
+    {
+        Sb.Append(" SUB-VIEW BURST").Append(OpenViewTag(e))
+          .Append(" (ModBuild 203 — the first remedy in this class keyed on a CONTENT change instead "
+                  + "of on MOTION, which is what the user's newest report needs: 'mittlerweile taucht "
+                  + "es auch initial kaputt auf wenn man das Fenster öffnet', with no drag at all): ")
+          .Append(e.SubViewChanges)
+          .Append(" sub-view change(s) noticed since engage, each forcing a capture-frame re-measure "
+                  + "on THAT frame; ").Append(e.SubViewChangesCoalesced)
+          .Append(" of them arrived within ").Append(SweepBurstCooldownFrames)
+          .Append(" frame(s) of the last armed burst and were COALESCED into it rather than arming a "
+                  + "second one (the cost fuse — a large gap between those two numbers is a window "
+                  + "whose active-child signature FLAPS, which is a finding and not a reason to stay "
+                  + "quiet); ").Append(e.SweepBursts)
+          .Append(" burst(s) run at ")
+          .Append((e.SweepBursts > 0 ? e.SweepBurstMs / e.SweepBursts : 0.0).ToString("F2"))
+          .Append(" ms each in total across all their frames (floor ").Append(MinSweepBurstFrames)
+          .Append(" frame(s), cap ").Append(MaxSweepBurstFrames)
+          .Append(", extended only while sweeps keep finding arrivals, ended after ")
+          .Append(SweepBurstMissTolerance)
+          .Append(" consecutive empty sweeps). LAST BURST: ").Append(e.SweepBurstFramesLast)
+          .Append(" frame(s), ").Append(e.SweepBurstMovedLast)
+          .Append(" transform(s) moved onto the capture layer. THE HOLE — frames between the sub-view "
+                  + "changing and the LAST sweep that still found a late joiner, i.e. how long this "
+                  + "view's content was MISSING FROM THE CAPTURE and drawn straight into the eye: "
+                  + "LAST ")
+          .Append(e.SweepBurstHoleFramesLast).Append(", WORST ").Append(e.SweepBurstHoleFramesMax)
+          .Append(", MEAN ")
+          .Append((e.SweepBurstHoleReadings > 0
+                      ? (double)e.SweepBurstHoleSum / e.SweepBurstHoleReadings : 0.0).ToString("F1"))
+          .Append(" over ").Append(e.SweepBurstHoleReadings).Append(" completed burst(s), of which ")
+          .Append(e.SweepBurstsConverged)
+          .Append(" found NOTHING AT ALL (-1 anywhere here means no burst has completed yet, which is "
+                  + "a different statement from a hole of 0 and must not be read as one). The "
+                  + "ordinary cadences are unchanged and still own every other frame: ")
+          .Append(SweepIntervalFrames).Append(" frame(s) when still, ")
+          .Append(MovingSweepIntervalFrames).Append(" while moving.");
+    }
+
+    /// <summary>
     /// <b>THE CAPTURE PATH FIELD (ModBuild 197) — WHAT A DRAGGED FRAME ACTUALLY DOES, IN COUNTS.</b>
     ///
     /// <para>Three rounds have argued about whether the moving flicker is a sampling problem on this
@@ -608,7 +854,8 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void AppendCapturePath(Entry e)
     {
-        Sb.Append(" CAPTURE PATH (cumulative; the question is whether a DRAGGED window takes the "
+        Sb.Append(" CAPTURE PATH").Append(OpenViewTag(e))
+          .Append(" (cumulative; the question is whether a DRAGGED window takes the "
                   + "same path as a still one): ").Append(e.MotionCaptures)
           .Append(" capture(s) taken while MOVING and ").Append(e.StillCaptures)
           .Append(" while STILL, followed by ").Append(e.MotionResolves).Append(" and ")
@@ -635,7 +882,8 @@ internal static partial class PanelSupersample
         float stillAvg = e.StillFrameSamples > 0 ? (float)(e.StillFrameMs / e.StillFrameSamples) : 0f;
         float motionSweep = e.MotionSweeps > 0 ? (float)(e.MotionSweepMs / e.MotionSweeps) : 0f;
         float stillSweep = e.StillSweeps > 0 ? (float)(e.StillSweepMs / e.StillSweeps) : 0f;
-        Sb.Append(" MOTION BUDGET (this 10 s window, threshold ").Append(FrameBudgetMs.ToString("F2"))
+        Sb.Append(" MOTION BUDGET").Append(OpenViewTag(e))
+          .Append(" (this 10 s window, threshold ").Append(FrameBudgetMs.ToString("F2"))
           .Append(" ms = one 90 Hz frame): while MOVING, ").Append(e.MotionFrameSamples)
           .Append(" frame(s) sampled, mean ").Append(motionAvg.ToString("F2")).Append(" ms, worst ")
           .Append(e.MotionFrameMsMax.ToString("F2")).Append(" ms, ").Append(e.MotionFramesOverBudget)

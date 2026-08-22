@@ -108,6 +108,12 @@ internal static partial class VROptionsTab
         //      PanelSupersample was switched off")), so there is no render target left for a
         //      pixels-per-authored-pixel number to size.
         ["WorldUI/PanelSupersampleFactor"] = new("WorldUI", "PanelSupersample", On),
+        // The mip LOD offset folds under the same switch and for the same reason, only harder: it
+        // is written onto the DISPLAY render target PanelSupersample allocates, so with the switch
+        // off there is no such target in existence for a bias to sit on (the offset is applied in
+        // PanelSupersample.2.Capture.CreateMipRt and re-asserted in ResolveAndMip, both of which
+        // only run for an engaged entry).
+        ["WorldUI/PanelMipLodOffset"] = new("WorldUI", "PanelSupersample", On),
 
         // ---- Grafik ▸ Darstellung: the map-room card hand exists only inside the 3D map room.
         //      Not an inference from its name: the hand is engaged from exactly one place

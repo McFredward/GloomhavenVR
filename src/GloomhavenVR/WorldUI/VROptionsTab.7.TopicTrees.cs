@@ -84,6 +84,8 @@ internal static partial class VROptionsTab
                         // extra door, never a wall (VROptionsTab.4.Curated.cs).
                         new BoardRef("WorldUI", "PanelSupersample", perBoard: false),
                         new BoardRef("WorldUI", "PanelSupersampleFactor", perBoard: false),
+                        // ModBuild 203: the third of the same set — size, capture rate, filtering.
+                        new BoardRef("WorldUI", "PanelMipLodOffset", perBoard: false),
                         new BoardRef("WorldUI", "EnemyRevealBoardClearance", perBoard: false),
                         new BoardRef("WorldUI", "PanelMipBake", perBoard: false),
                         new BoardRef("WorldUI", "CanvasScaleMm", perBoard: false),

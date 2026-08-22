@@ -95,6 +95,76 @@ internal sealed class UguiPointer
     private float _lastHoverLogTime = -99f;
     private int _hoverLogsSuppressed;
 
+    // ---- EXIT HYSTERESIS (ModBuild 203) ---------------------------------------------------
+    //
+    // THE DEFECT, MEASURED. In the ModBuild 202 hardware log the beam parked on the map room's
+    // mercenary roster produced 77 hover transitions in 2.16 s (~35.6/s at 90 Hz) and the
+    // character display was rebuilt 28 times in 1.01 s. The log names both halves of the
+    // oscillation directly:
+    //
+    //     uGUI hover EXIT:  'UI Campaign PartyRoster Slot' (laser-R) (+11 throttled).
+    //     uGUI hover ENTER: 'UI Party Roster' (laser-R) [already entered ... — not re-sent]
+    //     uGUI hover ENTER: 'UI Campaign PartyRoster Slot' (laser-R) (+15 throttled).
+    //
+    // 'UI Party Roster' is the slot's own ANCESTOR — that is exactly what the "already entered
+    // (shared ancestor)" note means. So the beam is not moving between two widgets: it falls off
+    // the slot onto the list background the slot sits in, and back on again.
+    //
+    // WHY IT IS A CLOSED LOOP, AND WHY ONLY IN VR. The game's own
+    // UIAdventurePartyAssemblyRosterSlot.OnPointerEnter (:266-284) GROWS the slot
+    // (animationRect.sizeDelta += hoverFactor), re-pivots its portrait, and then calls
+    // _scrollRect.ScrollToFit(...) so the now-taller slot fits — i.e. the ENTER moves the slot
+    // out from under a stationary ray. OnPointerExit → Unhighlight() (:302-313) shrinks it back,
+    // the layout reflows, and the slot returns under the ray. On a desktop the cursor moves with
+    // the layout or the hand is never that still; a VR laser is a ray from a hand held roughly
+    // still in world space, so enter→exit→enter closes. Each lap costs two full
+    // UIAdventurePartyAssemblyCharacterDisplay.Display() rebuilds (six TMP strings each, several
+    // with <sprite> tags, plus a live 3D model swap).
+    //
+    // THE RULE. A hover change that ENTERS NO NEW WIDGET is a pure LOSS of hover: the new target
+    // is either nothing at all, or an object this pointer ALREADY holds entered (an ancestor in
+    // _hoverChain — the enter walk stops at the common root and would dispatch nothing). Those,
+    // and only those, are held back for ExitHysteresisFrames consecutive frames before the exit
+    // is dispatched. A target in a DIFFERENT subtree — a real second widget — switches on the
+    // same frame it is seen, with no delay whatsoever, so pointing from one button to the next
+    // never feels laggy.
+    //
+    // WHAT THE THRESHOLD CAN AND CANNOT SWALLOW. The measured storm flips state every 2-3 frames
+    // at 90 Hz (35.6 transitions/s ≈ 17.8 laps/s ≈ 5 frames/lap). Six frames ≈ 67 ms at 90 Hz,
+    // so this swallows any loss phase of 5 frames or fewer — every oscillation faster than about
+    // 9 laps/s, which covers the measured one with better than 2x margin. It does NOT swallow a
+    // loop whose loss phase lasts 6 frames or longer (slower than ~7.5 laps/s at 90 Hz, ~3.7 at
+    // 45 Hz): such a loop still produces one exit per lap. It also does not, and must not, damp
+    // an A↔B alternation between two genuinely different widgets — for the party roster that
+    // second belt is WorldUI.Patches.PartyPreviewStorm, which suppresses the redundant rebuild
+    // itself. Note the hold is self-reinforcing in the right direction: while the exit is held
+    // the game keeps the slot grown, so ScrollToFit does not run again and the layout settles.
+    //
+    // BALANCE, TEARDOWN AND CLICKS. Holding an exit changes only WHEN the exit is dispatched,
+    // never WHETHER: the chain stays recorded in _hoverChain, its UguiHoverTracker counts stay
+    // taken, and every teardown path funnels through Cancel(), which forces the exit out. A
+    // DESTROYED hover is never held (the Unity-null test on _hovered below falls straight
+    // through to the dispatch), so a closed panel still balances its counts on the frame it
+    // dies. Press() and Release() flush the pending exit BEFORE they do anything, so a press or
+    // a click inside the hysteresis window resolves to exactly the object today's code would
+    // have used — clicks are neither delayed nor invented.
+    //
+    // LOCAL ONLY. This is input dispatch on this client. Nothing here reads or writes game
+    // state, so there is nothing for a peer to observe and nothing goes on the wire.
+
+    /// <summary>
+    /// Consecutive frames a pure hover LOSS must persist before the exit is dispatched. Six
+    /// frames ≈ 67 ms at 90 Hz — see the block comment above for what that swallows.
+    /// </summary>
+    internal const int ExitHysteresisFrames = 6;
+
+    /// <summary>How many consecutive <see cref="SetHovered"/> calls have asked for a pure loss.</summary>
+    private int _lossFrames;
+
+    /// <summary>The target the most recent held-back <see cref="SetHovered"/> asked for, so a
+    /// press/release can flush straight to it.</summary>
+    private GameObject? _pendingTarget;
+
     /// <summary>Dedupe window: the SAME enter/exit on the SAME widget is quiet for this long.</summary>
     private const float HoverLogDedupeSeconds = 1f;
 
@@ -317,11 +387,51 @@ internal sealed class UguiPointer
     /// every teardown path (hand switch, ray inactive, canvas lost/closed, surface
     /// released, interactor disabled), and the exit walk uses the recorded chain rather
     /// than live transforms so a destroyed panel still balances its counts.
+    ///
+    /// EXIT HYSTERESIS (ModBuild 203): a hover change that would enter NO new widget — a null
+    /// target, or an ancestor this pointer already holds entered — is held back for
+    /// <see cref="ExitHysteresisFrames"/> consecutive frames before the exit is dispatched, so a
+    /// hand held still cannot be made to chatter by a hover target that MOVES ITSELF (the party
+    /// roster's <c>ScrollToFit</c>). A target in a DIFFERENT subtree switches on the same frame,
+    /// and <see cref="Press"/>/<see cref="Release"/> flush a pending exit before they act, so no
+    /// input is ever delayed. The measured rate, the balance argument and what the threshold can
+    /// and cannot swallow are in the block comment on <see cref="ExitHysteresisFrames"/>.
     /// </summary>
-    internal void SetHovered(GameObject? target)
+    internal void SetHovered(GameObject? target) => SetHovered(target, force: false);
+
+    /// <summary>
+    /// The real hover update — see the public overload above for the dispatch contract and the
+    /// <c>ExitHysteresisFrames</c> block comment for the hold rule.
+    /// </summary>
+    /// <param name="target">The object under the pointer this frame, or null for nothing.</param>
+    /// <param name="force">Skip the exit hysteresis and dispatch on this frame. Set by every
+    /// teardown path (<see cref="Cancel"/>) and by the press/release flush, so a held exit can
+    /// never outlive the pointer, the panel or the click that needs it resolved.</param>
+    private void SetHovered(GameObject? target, bool force)
     {
         if (ReferenceEquals(target, _hovered))
+        {
+            // Back on the widget we still hold: the loss never completed, so forget it happened.
+            _lossFrames = 0;
+            _pendingTarget = null;
             return;
+        }
+
+        // EXIT HYSTERESIS (see the block comment on ExitHysteresisFrames). The Unity-null test on
+        // _hovered is load-bearing: a DESTROYED hover must never be held, or its refcount would
+        // not be handed back on the frame the panel dies.
+        if (!force && _hovered != null && IsPureHoverLoss(target))
+        {
+            _pendingTarget = target;
+            if (++_lossFrames < ExitHysteresisFrames)
+            {
+                WorldUI.Patches.PartyPreviewStorm.NoteHoverHeld();
+                return;
+            }
+        }
+        _lossFrames = 0;
+        _pendingTarget = null;
+        WorldUI.Patches.PartyPreviewStorm.NoteHoverDispatched();
 
         // THE EAR, BEFORE THE EVENT. ExtendedButton.OnPointerEnter/OnPointerExit play their authored
         // hover items SYNCHRONOUSLY inside the dispatch below, through AudioController.Play(id) —
@@ -398,6 +508,48 @@ internal sealed class UguiPointer
         // serialized fields; it plays nothing and dispatches nothing.
         if (enteredWidget != null)
             WorldUI.UiSoundEar.NoticeHoveredWidget(enteredWidget);
+    }
+
+    /// <summary>
+    /// Would moving the hover to <paramref name="target"/> enter NOTHING new — i.e. is this a
+    /// pure LOSS of the hover this pointer currently holds?
+    ///
+    /// <para>True for a null target (the ray reached no graphic at all) and for any object
+    /// already recorded in <see cref="_hoverChain"/>. The second case is the one the party-roster
+    /// storm actually produces: the beam falls off a list entry onto the LIST ITSELF, which is an
+    /// ancestor this pointer already holds entered, so <see cref="SetHovered"/>'s enter walk
+    /// stops immediately at the common root and dispatches nothing. Either way the user gains no
+    /// new widget, which is why holding the exit for a few frames cannot hide anything from them.
+    /// A target in a different subtree returns false and switches on the same frame.</para>
+    /// </summary>
+    private bool IsPureHoverLoss(GameObject? target)
+    {
+        if (target == null)
+            return true;
+        // Identity, not Unity equality: two destroyed objects compare EQUAL under the overloaded
+        // operator, which would misread an unrelated dead target as "an ancestor we hold".
+        for (int i = 0; i < _hoverChain.Count; i++)
+        {
+            if (ReferenceEquals(_hoverChain[i], target))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Resolve any held-back exit right now, to the target the last frame actually asked for.
+    /// Called first thing in <see cref="Press"/> and <see cref="Release"/> so a press, a drag and
+    /// a click all see the object today's code would have given them: the hysteresis delays an
+    /// EXIT, never an input.
+    /// </summary>
+    private void FlushPendingHoverExit()
+    {
+        if (_lossFrames == 0)
+            return;
+        GameObject? pending = _pendingTarget;
+        _lossFrames = 0;
+        _pendingTarget = null;
+        SetHovered(pending, force: true);
     }
 
     /// <summary>
@@ -486,6 +638,11 @@ internal sealed class UguiPointer
     /// <summary>Pointer-down on the hovered object (mirrors StandaloneInputModule press handling).</summary>
     internal void Press(Vector2 screenPos)
     {
+        // Never press through a held-back exit: settle the hover to what the ray really reports
+        // first, so the pressed object is bit-for-bit the one the pre-hysteresis code would have
+        // pressed. A press is never delayed by this — the flush is synchronous.
+        FlushPendingHoverExit();
+
         if (_hovered == null || _pressed != null)
             return;
 
@@ -590,6 +747,12 @@ internal sealed class UguiPointer
     /// <summary>Pointer-up (+ click when released over the same handler).</summary>
     internal void Release(Vector2 screenPos)
     {
+        // Same reason as in Press: the click test below compares the click handler under
+        // _hovered against the one the press captured, so a held-back exit must be settled first
+        // or the hysteresis could KEEP a click the ray had already left (or, on the way back,
+        // invent one). Flushing here makes release behaviour identical to the pre-hysteresis code.
+        FlushPendingHoverExit();
+
         if (_pressed == null)
             return;
 
@@ -703,8 +866,9 @@ internal sealed class UguiPointer
         // Releases the whole recorded ancestor chain (pointerExit up the hierarchy, counts
         // handed back to UguiHoverTracker) — the single teardown every caller funnels
         // through, so no widget can stay stuck highlighted when the beam moves away, the
-        // hand switches, the panel closes or the surface is released.
-        SetHovered(null);
+        // hand switches, the panel closes or the surface is released. FORCED past the exit
+        // hysteresis: a teardown is exactly the case where a pending exit must not survive.
+        SetHovered(null, force: true);
     }
 
     /// <summary>
