@@ -416,7 +416,84 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 201;
+    public const ushort ModBuild = 202;
+    // Build 202: ONE WINDOW, ONE SCALE — AND A WIDER HOST WOULD HAVE SHRUNK EVERYTHING IN IT.
+    // (One worker plus integration.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── THE USER TOLD ME MY FRAMING WAS WRONG, AND HE WAS RIGHT ──────────────────────────
+    // I offered him four trade-offs for the two wide sub-views (scale down / widen to 72° / scroll /
+    // hide the column). His reply: "Ich verstehe deine Frage nicht ganz. Ich will das das Sub menu
+    // genau die Größe des gesamten Fensters hat und zu der Größe der linken Characterbilder passt, so
+    // das es als ein Fenster wargenommen wird. Das ist doch auch schon erfolgreich bei den anderen
+    // Submenus (bis auf perks) der Fall. Gewährleiste das."
+    // MY FOUR OPTIONS WERE ALL REASONED FROM THE FRAME — what fits in the width we have. He reasons
+    // from the RESULT: one window, one scale. The width is then the dependent variable, not the given.
+    // Four of six sub-views already satisfied it (all at 1.000); the requirement was to make it true
+    // of all six, not to pick which way to fail.
+    //
+    // ── THE SCALE IS NO LONGER SOLVED. IT IS THE CONSTANT 1.000 ─────────────────────────
+    // `SolveSubViewPlacement`'s `min(1, slot/need, frameHeight/need)` is gone; `wantScale = 1f` is an
+    // unconditional assignment. THAT is what makes it a guarantee rather than an arithmetic outcome:
+    // no expression remains in the file that can draw a sub-view at a scale the character column is
+    // not drawn at. A view that does not fit now SPILLS past the transparent frame at full size and
+    // the log names the pixels — it is never shrunk.
+    // Host: `12 padding + 328 column + 1648 widest = 1988 x 1080` authored px, compile-time, captured
+    // once per window life, so the slot is exactly 1648 and all six seat at gap 0 / overlap 0 / spill 0.
+    //
+    // ── THE FINDING THAT WOULD HAVE WASTED THE ROUND: A WIDER HOST MAKES EVERYTHING SMALLER ─
+    // `DeriveWindowScale` caps a floated window's PHYSICAL width at `ModalTargetWidthMeters x
+    // WindowLegibility` = 0.80 x 1.25 = 1.00 m and buys the cap by shrinking the panel. The fresh log
+    // states it for this very window: `re-scaled to its FITTED rect 1143x1080 px (extraScale 0.521 ->
+    // 0.875)`, and 0.875 = 1.00 m / 1.143 m is the cap arriving exactly at 1143 px.
+    // So at 1988 px it returns 1.00/1.988 = 0.503 — host 1988x1080 x 0.503 = the SAME 1.00 m / 45°
+    // footprint as today, at 0.503 mm per authored px instead of 0.875. **The match would have been
+    // exact and everything in the window, THE CHARACTER IMAGES INCLUDED, would have been drawn at
+    // 57.5 % of the size he has already approved.** That satisfies the letter of his ruling and breaks
+    // its reference: he named the character images as the thing to MATCH, and the images would have
+    // shrunk 42 % to meet the sub-menu instead of the other way round.
+    // FIX (integrator, `ModalFallback.9.Spawn.DeriveWindowScale`): this one window keeps the
+    // small-dialog cap and lets its own content decide its metres — `if (IsFixedSizeWindow(panel))
+    // return cap;`. With it: extraScale 0.875 preserved, window 1.74 x 0.95 m, 0.875 mm/px, so every
+    // view AND the column keep today's density — 33.8' for a 13.5 px body cap, up from 16.5' for the
+    // two wide views. `IsFixedSizeWindow` was made `internal` so the identity test is not duplicated.
+    //
+    // ── THE COST, STATED AND NOT MITIGATED ──────────────────────────────────────────────
+    // 1.74 m is about **72° at the 1.20 m reading distance, permanently**, on a window that is
+    // non-closable by user ruling, in a map room whose measured usable cone is about ±32°. A 72° window
+    // centred at 0° fills it, so a second window WILL overlap it at 1.20 m — the ModBuild 195
+    // merchant-on-the-character-screen class of report, returning by design rather than by accident.
+    // NOTHING here mitigates it: no automatic distance change, no automatic legibility change, no
+    // default touched. He was told the number before the work started and ruled anyway.
+    // THE LEVER, if 72° proves too wide: a window of FIXED PHYSICAL WIDTH subtends less angle further
+    // away — 1.74 m at 1.85 m is 51° instead of 72° — and the column/sub-view match SURVIVES UNTOUCHED,
+    // because both scale together with the window. It costs apparent size. The legibility dial cannot
+    // rescue the un-patched case either: its 1.75 ceiling gives 0.503 x 1.75/1.25 = 0.704 mm/px, still
+    // short of 0.875.
+    //
+    // ── COULD THE CENSUS HAVE BOUGHT ANYTHING NARROWER? NO, AND NOTHING WAS INVENTED ────
+    // `BACKDROP CENSUS` is measured and unchanged: perks 1627 -> 1613 px (14 px, 0.9 %), selector
+    // 1648 -> 1648 (nothing). `CONTENT EXTREMES` — the census shipped in 201 precisely to answer this —
+    // HAS NOT RUN ON HARDWARE YET: the freshest log is a ModBuild 200 log with 83 FIXED FIT lines, 2
+    // BACKDROP CENSUS lines and ZERO CONTENT EXTREMES lines. So 1648 stands as the measured union,
+    // taken across all 7 selector lines and never as one contributor — the discipline whose absence
+    // cost three proposals in three rounds. If a 202 log's extremes name a second backdrop that merely
+    // failed the 95 %-height plate test, the width comes down and one constant changes.
+    //
+    // ── RESIDUALS ─────────────────────────────────────────────────────────────────────────
+    // * BATTLE GOALS has never been opened in any logged session. If it is a full-screen 1920 px view it
+    //   will now reach ~272 px past the right edge at 1.000 instead of being scaled to 0.86 — visible,
+    //   covered by the hit rect and the capture frame, and named in the log with its width.
+    // * SELECTOR HEIGHT: the 200 log reads that union at 1648 x 1347/1480/1547/1580 on 5 of its 7 lines
+    //   (2 read 1080). Those predate 201's transient rule and are most likely the hover content it now
+    //   refuses to measure — but the scale no longer absorbs them either, so such a view hangs ~250 px
+    //   above/below the frame. Vertical spill is measured and printed on every line for exactly this.
+    // * SUPERSAMPLE HEADROOM: the capture is now ~1988 px wide; x2 = 3976, just under the 4096 per-axis
+    //   RT ceiling (~34 MB of a 160 MB budget). Any further width increase trips the clip, and the log
+    //   reports `asked 2.00, achieved …` when it does.
+    // * The hit rect is `Union(host, content)`, so the interaction plane and the arc packer's claim both
+    //   grow with the host — 1.00 m before the patch, 1.74 m with it.
+    //
     // Build 201: THE TWO BROKEN SUB-VIEWS ARE THE ONLY TWO THAT ARE SCALED, AND THE MOONLIT ROOM
     // HAS NO LIGHT AT ALL. (Four workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

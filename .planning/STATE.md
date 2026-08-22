@@ -126,6 +126,29 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 202** (bundle UNCHANGED — plugin DLL only) — one window, one scale; and a wider host would
+  have shrunk everything in it. *(One worker plus integration.)* **Nothing on the wire.**
+  * **I OFFERED FOUR TRADE-OFFS WHERE HE HAD STATED A REQUIREMENT.** All four of my options reasoned
+    from the *frame* — what fits in the width we have. He reasons from the *result*: one window, one
+    scale, and the width is then the dependent variable. Four of six sub-views already satisfied it;
+    the job was to make it true of all six, not to pick which way to fail. **When a user says "I don't
+    understand your question", check whether the question presupposes a constraint they never set.**
+  * **THE SCALE IS NO LONGER SOLVED, IT IS THE CONSTANT 1.000.** `min(1, slot/need, …)` is gone. That
+    is what makes it a *guarantee* rather than an arithmetic outcome: no expression remains that can
+    draw a sub-view at a scale the character column is not drawn at. A view that does not fit spills at
+    full size and the log names the pixels.
+  * **A WIDER HOST MAKES EVERYTHING IN IT SMALLER — this would have wasted the round.**
+    `DeriveWindowScale` caps the *physical* width at 1.00 m and buys the cap by shrinking the panel, so
+    at 1988 px it returns 0.503 against today's 0.875: **an exact match at 57.5 % of the approved
+    size**, with the character images shrinking 42 % to meet the sub-menu instead of the other way
+    round. It satisfies the letter of the ruling and breaks its reference. One line exempts this window.
+  * **THE COST IS STATED, NOT MITIGATED:** 1.74 m ≈ **72° permanently**, on a non-closable window, in a
+    ±32° cone — so a second window *will* overlap it, by design rather than by accident. The lever if
+    that proves too wide is the reading distance (51° at 1.85 m) and it **preserves the match**, because
+    the column and the sub-view scale together.
+  * **`CONTENT EXTREMES` HAS NOT RUN ON HARDWARE YET** — the newest log predates it. So 1648 stands as
+    the measured union across all 7 lines, and nothing was invented to narrow it.
+
 - **ModBuild 201** (bundle UNCHANGED — plugin DLL only) — the two broken sub-views are the only two that
   are scaled, and the moonlit room has no light at all. *(Four workers.)* **Nothing on the wire.**
   * **THE USER ISOLATED THE VARIABLE.** He asked what the character and perks views do differently from

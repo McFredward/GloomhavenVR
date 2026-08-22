@@ -1162,6 +1162,11 @@ internal static partial class CanvasConversion
     // 860→896→…→1148 and 1132→…→1485 while its inventory column slides in, and once spiked to
     // 1899 px for a moment. Those are animation frames, not sizes the window needs.
     //
+    // ** THE WIDTH ARGUMENT BELOW IS SUPERSEDED BY THE ModBuild 202 BLOCK AT THE END OF THIS NOTE. **
+    // Its mechanics are still exactly right and are the reason the 202 width costs what it costs —
+    // read it as the derivation of what a wider host BUYS AND SPENDS, not as the choice of 1143 px,
+    // which the user's "match the character images" ruling has now overridden.
+    //
     // WHY 1143 px AND NOT 1920, WHICH IS THE OBVIOUS CHOICE. The host width does not only decide how
     // wide the frame is — it decides how LARGE EVERYTHING IN THE WINDOW IS DRAWN, because
     // ModalFallback.DeriveWindowScale caps a floated window's physical width at
@@ -1387,6 +1392,11 @@ internal static partial class CanvasConversion
     //
     // ---------------------------------------------------------------------------------------------
     // WHY THE TWO WIDE VIEWS STILL CANNOT REACH 1.000, MEASURED RATHER THAN ARGUED
+    // ** THE HEADING IS FALSIFIED BY THE ModBuild 202 RULING: THEY CAN, AND THEY NOW DO. **
+    // Everything measured below stands — the plate route really is worth 14 px and the selector's
+    // width really is content — and it is exactly why 202 does the only remaining thing: it stops
+    // trying to fit 1648 px of content into a 803 px slot and makes the slot 1648 px wide instead.
+    // What that costs is in the 202 block at the end of this note, and it is not free.
     // ---------------------------------------------------------------------------------------------
     //
     // Two openings were proposed for getting them to 1.000. THE 200 LOG FALSIFIES BOTH, and both are
@@ -1515,29 +1525,185 @@ internal static partial class CanvasConversion
     //     release" is what a capture that races a pose write looks like. The freeze releases the
     //     moment the set of open sub-views changes, which is the only event that may legitimately
     //     ask for a different scale.
+    //
+    // =============================================================================================
+    // ModBuild 202 — ONE WINDOW, ONE SCALE. THE SUB-VIEW SCALE IS NO LONGER SOLVED; IT IS 1.000.
+    // =============================================================================================
+    //
+    // THE RULING (2026-08-22, translated). The four trade-offs the 201 block ends on were put to the
+    // user as a question, and he refused the question: "I don't quite understand your question. I
+    // want the sub-menu to be exactly the size of the whole window and to match the size of the
+    // character images on the left, so that it is perceived as ONE window. That is already
+    // successfully the case for the other sub-menus (except perks). GUARANTEE that."
+    //
+    // So this is a requirement and not a preference, and it names its own REFERENCE: the character
+    // images. They are the fixed quantity — the sub-menu is to be brought up to them, and "one
+    // window" is the acceptance test. Four of the six sub-views already satisfied it (all at scale
+    // 1.000); perks (1627 px → 0.494) and the character selector (1648 px → 0.487) did not, and those
+    // are also the only two he reports flickering, because a scaled subtree is captured below the
+    // sampling band limit. One cause, two reports, one fix.
+    //
+    // WHAT CHANGED, AND IT IS ONE LINE OF ARITHMETIC. The scale-to-fit solve is GONE. Where
+    // SolveSubViewPlacement wrote `min(1, slot/need)` it now writes the constant 1. Nothing measures
+    // its way to a different number any more, which is what "guarantee" has to mean: there is no
+    // expression left in this file that can draw a sub-view at anything but the scale the character
+    // column is drawn at. A view too wide for the frame SPILLS to the right (the seat is still the
+    // column seam, so it can never reach back over the column) and the FIXED FIT line prints the
+    // spill in pixels — visible and stated, instead of silently shrunk.
+    //
+    // AND THE HOST IS SIZED TO MAKE THE SPILL ZERO FOR EVERY VIEW WE HAVE EVER MEASURED:
+    //
+    //     FixedFitWidthPx = FitContentPaddingPx + column + widest sub-view = 12 + 328 + 1648 = 1988 px
+    //
+    // Each term is a measurement off the fresh hardware log (.planning/debug/LogOutput.log, 83
+    // FIXED FIT lines), and each is a UNION and never one contributor — the misread that has now cost
+    // three proposals. The column: 27 of the 83 lines read the base with no sub-view open and all 27
+    // read 328x1080 px. The widest sub-view: the character selector at 1648 px on all 7 of its lines
+    // (perks 1627 on its 1, ability cards 749 on 61, equipment 543 on 8 and 819 on the one line where
+    // an item hint was still being measured — that one is what ModBuild 201's transient rule
+    // removed). 12 px is the left padding the column's own pin already carries, so the seam lands at
+    // -994+12+328 = -654 and the slot is exactly 994-(-654) = 1648 px. The width is still captured
+    // ONCE per window life and still never re-derived: it is a constant, so a tab change cannot even
+    // in principle ask for a different frame.
+    //
+    // COULD THE CENSUS HAVE BOUGHT SOMETHING NARROWER THAN 1648? NO, AND HERE IS THE STATE OF THAT
+    // EVIDENCE. The BACKDROP CENSUS answers it for the plates and its verdict is unchanged: 2
+    // full-frame plates in each wide view, and removing every one of them takes perks 1627 → 1613 px
+    // (0.9 %) and the selector 1648 → 1648 px (nothing at all). The CONTENT EXTREMES census that
+    // ModBuild 201 shipped to answer the rest of it HAS NOT RUN ON HARDWARE YET — the freshest log is
+    // a ModBuild 200 log (83 FIXED FIT lines, 2 BACKDROP CENSUS lines, ZERO 'CONTENT EXTREMES'
+    // lines), so nobody has yet seen which two graphics define the union. That is a gap and it is
+    // stated rather than filled with an inference: 1648 px is the measured union and the host is
+    // sized to it. If a 202 log's CONTENT EXTREMES turns out to name a second backdrop that merely
+    // failed the 95 %-height plate test, the width can come DOWN by that much later, and the only
+    // thing that changes is one constant.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // WHAT THIS COSTS, AND THE PART OF IT THAT IS NOT IN THIS FILE
+    // ---------------------------------------------------------------------------------------------
+    //
+    // A WIDER HOST DOES NOT MAKE THE WINDOW BIGGER. IT MAKES EVERYTHING IN IT SMALLER. That is the
+    // mechanism the 197-era block above derives, and it is decisive here, so it is restated in the
+    // numbers of this round rather than cross-referenced: ModalFallback.DeriveWindowScale caps a
+    // floated window's PHYSICAL width at `ModalTargetWidthMeters × WindowLegibility` = 0.80 × 1.25 =
+    // 1.00 m and buys the cap by shrinking the panel. The 200 log states it for this very window:
+    // "MODAL WINDOW SIZE: 'New Party display' re-scaled to its FITTED rect 1143x1080 px (extraScale
+    // 0.521 → 0.875)", and 0.875 = 1.00 m / 1.143 m is the cap arriving exactly at 1143 px. At
+    // 1988 px the same rule returns 1.00 m / 1.988 m = 0.503:
+    //
+    //     host 1988x1080 px × 0.503 = 1.00 x 0.54 m — the SAME 1.00 m / 45° footprint as today,
+    //     and 0.503 mm per authored px instead of 0.875, i.e. every glyph, every portrait and the
+    //     character column itself drawn at 57.5 % of the size he has already approved.
+    //
+    // THAT SATISFIES THE LETTER OF THE RULING AND BREAKS ITS REFERENCE. All six views would read
+    // 1.000 and the window would be one coherent surface — and the character images, which are the
+    // thing he told us to match, would have shrunk by 42 % to meet the sub-menu instead of the other
+    // way round. So the width alone is not the deliverable; the width plus a physical size that keeps
+    // 0.875 mm per authored px is:
+    //
+    //     1988 px × 0.875 mm/px = 1.74 m across, 2·atan(0.87/1.2) = 72° at the 1.2 m reading
+    //     distance, with every sub-view AND the column at today's density (33.8' for a 13.5 px body
+    //     cap, up from 16.5' for the two wide views).
+    //
+    // AND 72° IS A REAL PRICE, STATED AND NOT MITIGATED. This window is non-closable by user ruling
+    // and permanent in the map room, whose measured usable cone is about ±32°; a 72° window centred
+    // at 0° fills it and then some, so a second window WILL overlap it at this reading distance
+    // (the ModBuild 195 merchant-on-the-character-screen class of report). It is also past the ~1.3 m
+    // slab that once read "too big". Nothing here quietly compensates for that: no automatic distance
+    // change, no automatic legibility change, no default touched. The two dials that exist stay in
+    // his hands, and what each does to this window is:
+    //
+    //   * [WorldUI] WindowLegibility multiplies the cap, so it scales the whole window — including
+    //     the match, which is preserved at every setting because the column and the sub-view are the
+    //     same scale by construction now. It cannot, on its own, undo the shrink described above:
+    //     its 1.75 ceiling gives 0.503 × 1.75/1.25 = 0.704 mm/px, still short of 0.875.
+    //   * THE READING DISTANCE (the standing 1.20 → 1.85 m offer). A window of FIXED physical width
+    //     subtends less angle further away — 1.74 m at 1.85 m is 51° instead of 72° — and the
+    //     column/sub-view match survives untouched, because both scale together with the window. It
+    //     buys back the packing cost and it costs apparent size (i.e. it is the wrong lever for the
+    //     old report (b) and the right one for the overlap), and that trade is his to make.
+    //
+    // THE ONE LINE THIS LANE MAY NOT WRITE. Getting from the first block of numbers to the second is
+    // a change to ModalFallback.DeriveWindowScale — this file does not own it, so it is NOT made
+    // here. The exact patch is: after `boardRelative` is computed, return `cap` for the fixed-size
+    // character screen (`CanvasConversion.IsFixedSizeWindow(panel)`, which is why that predicate is
+    // `internal` and not `private`), on the argument that this window's width is CONTENT-derived —
+    // it is the width its own sub-views need at 1:1 — and not a taste size the board-relative rule
+    // should be re-negotiating. Until that patch lands, this build ships the first block of numbers:
+    // the match is exact and the whole window is 57.5 % of its previous size.
+    //
+    // TWO THINGS THAT ARE NOW ALLOWED TO SPILL RATHER THAN SHRINK, BOTH DELIBERATE AND BOTH PRINTED:
+    //
+    //   * BATTLE GOALS, the one sub-view never seen in any logged session. If it really is a
+    //     full-screen 1920 px view like the perks one, it will reach ~272 px past the frame's right
+    //     edge at 1.000 instead of being scaled to 0.86. The frame is transparent, the hit rect and
+    //     the supersample capture frame both already grow to cover content drawn outside the host
+    //     rect, and the FIXED FIT line names the width it asked for and the spill in pixels — so the
+    //     next log turns this from an assumption into the one constant that needs raising.
+    //   * HEIGHT. The scale is no longer solved against the frame height either, and the 200 log has
+    //     the selector's union reading 1648x1347, x1480, x1547 and x1580 px on 5 of its 7 lines (the
+    //     other 2 read 1080). Those readings predate ModBuild 201's transient rule and are most
+    //     likely the hover content it now refuses to measure — but "most likely" is not a guarantee,
+    //     so the vertical spill is measured and printed on every line as well. A view that really is
+    //     1580 px tall now hangs ~250 px above and below the frame at full size rather than being
+    //     shrunk to 68 % — which is the same ruling applied to the other axis.
 
     /// <summary>
-    /// The fixed host WIDTH (uGUI px) of a fixed-size window: the widest host that still renders its
-    /// content at the full legibility scale. See the region note above for the derivation
-    /// (<c>ModalTargetWidthMeters / (WindowScaleFactor × CanvasScaleMm)</c> = 0.8 / (0.7 × 0.001)),
-    /// for why the legibility dial cancels out of it, and for what 1920 would have cost instead.
-    /// A window whose own authored frame is narrower than this keeps its frame width — the clamp
-    /// only ever removes size, never invents it.
+    /// THE CHARACTER COLUMN'S WIDTH in authored uGUI px — the permanent strip of character portraits
+    /// down the left of the window, and the REFERENCE the user's ruling names ("match the size of the
+    /// character images on the left"). MEASURED, never chosen: of the 83 <c>FIXED FIT</c> lines in the
+    /// fresh hardware log, 27 read the base union with no sub-view open and every one of them reads
+    /// 328x1080 px. (The other 56 read the same column plus a raised hover preview, which ModBuild
+    /// 201's transient rule stopped measuring.)
+    ///
+    /// <para>Used for ONE thing: deriving <see cref="FixedFitWidthPx"/> below, which has to be a
+    /// compile-time constant because the host size is captured before anything is measured. The seam
+    /// every sub-view is seated on is still taken from the column that is actually on screen — see
+    /// <see cref="EnsureColumnSeam"/> — so a column that measured differently would move the seam and
+    /// show up as spill in the log, never as a silently rescaled view.</para>
     /// </summary>
-    private const float FixedFitMaxWidthPx = 1143f;
+    private const float FixedFitColumnWidthPx = 328f;
 
-    /// <summary>Sanity bounds on the captured fixed size, so a frame caught mid-layout can never
-    /// pin the window at a nonsense rect. Below the minimum the capture is simply postponed.</summary>
+    /// <summary>
+    /// THE WIDEST SUB-VIEW ROOT, authored uGUI px, at scale 1. The character selector: 1648 px on all
+    /// 7 of its lines in the same log, against perks 1627 (1 line), ability cards 749 (61) and
+    /// equipment 543 (8, plus one 819 that was an item hint being measured). A UNION and not a top
+    /// contributor — the "perks is really a 512 px column behind a blur plate" reading was one
+    /// contributor's width and was the premise of three separate proposals before ModBuild 200
+    /// measured it (removing every full-frame plate: perks 1627 → 1613 px, selector 1648 → 1648).
+    /// </summary>
+    private const float FixedFitWidestSubViewPx = 1648f;
+
+    /// <summary>
+    /// THE FIXED HOST WIDTH (uGUI px): left padding + the character column + the widest sub-view, so
+    /// that EVERY sub-view fits beside the column at scale 1.000 and the window reads as one surface.
+    /// 12 + 328 + 1648 = 1988. Captured once per window life and never re-derived, so a tab change
+    /// cannot ask for a different frame; narrow views leave transparent frame to the right, exactly
+    /// as they always have.
+    ///
+    /// <para><b>WHAT IT COSTS IS NOT IN THIS FILE.</b> <c>ModalFallback.DeriveWindowScale</c> caps a
+    /// floated window's PHYSICAL width at <c>ModalTargetWidthMeters × WindowLegibility</c> = 1.00 m
+    /// and shrinks the panel to get there, so at 1988 px the window keeps its 1.00 m / 45° footprint
+    /// and draws 0.503 mm per authored px instead of 0.875 — the match is exact and everything in the
+    /// window, the character images included, is 57.5 % of its previous size. Keeping 0.875 mm/px
+    /// (1.74 m across, 72° at 1.2 m) needs the one-line exemption described at the end of the region
+    /// note. Read that block before changing this number.</para>
+    /// </summary>
+    private const float FixedFitWidthPx =
+        FitContentPaddingPx + FixedFitColumnWidthPx + FixedFitWidestSubViewPx;
+
+    /// <summary>Sanity bounds so a frame caught mid-layout can never pin the window at a nonsense
+    /// rect. Below either minimum the capture is simply postponed. From ModBuild 202 the WIDTH is a
+    /// constant (<see cref="FixedFitWidthPx"/>) and is not clamped by these at all —
+    /// <see cref="FixedFitMinWidthPx"/> is now purely a "has this window been laid out yet?" test on
+    /// the authored frame, while the height bounds still clamp the captured height.</summary>
     private const float FixedFitMinWidthPx = 512f;
     private const float FixedFitMinHeightPx = 256f;
     private const float FixedFitMaxHeightPx = 2160f;
 
-    /// <summary>Floor on the content scale-to-fit factor. A measurement that asked for less than
-    /// this is a broken measurement, not a sub-view: the window would be unreadable, so the content
-    /// is left at the floor and spills instead (the hit rect follows it — see TickHitRect).</summary>
-    private const float FixedFitMinContentScale = 0.30f;
-
-    /// <summary>Content-scale change below which nothing is written (1 %).</summary>
+    /// <summary>Content-scale change below which nothing is written (1 %). The solved scale is the
+    /// constant 1.000 from ModBuild 202 on, so this now only ever answers "has somebody ELSE scaled
+    /// the root we place" — which is exactly what the re-assert and concede counters are for.</summary>
     private const float FixedFitScaleEpsilon = 0.01f;
 
     /// <summary>Content shift (px) below which nothing is written.</summary>
@@ -1694,8 +1860,18 @@ internal static partial class CanvasConversion
     /// line whenever the verdict changes. "Not armed" and "armed and stable" can no longer look
     /// alike, because "not armed" now says so, names the target GameObject, and names which conjunct
     /// refused. See <see cref="LogFixedFitGate"/>.</para>
+    ///
+    /// <para><b>WHY IT IS <c>internal</c> AND NOT <c>private</c> (ModBuild 202).</b> The one question
+    /// outside this file that has to be answered by exactly this predicate is whether
+    /// <c>ModalFallback.DeriveWindowScale</c> may re-negotiate this window's physical width: the
+    /// fixed fit sizes the host from its CONTENT (column + widest sub-view, see
+    /// <see cref="FixedFitWidthPx"/>), and the board-relative cap answers a wider host by shrinking
+    /// everything in it. A second copy of the identity test over there is exactly the drift this
+    /// round's gate rewrite was paid for, so the test stays here and is merely reachable. Nothing in
+    /// the mod calls it across files yet — see the end of the region note for the patch that would.
+    /// </para>
     /// </summary>
-    private static bool IsFixedSizeWindow(ConvertedPanel panel)
+    internal static bool IsFixedSizeWindow(ConvertedPanel panel)
     {
         if (panel.Target == null || panel.HostRect == null)
             return false;
@@ -2111,7 +2287,10 @@ internal static partial class CanvasConversion
         /// <see cref="SolutionSignature"/> to decide whether the freeze still applies.</summary>
         internal int OpenSignature;
         internal bool SolutionFrozen;
-        internal float FrozenScale = 1f;
+
+        /// <summary>The group seat the frozen solution was solved with. There is no frozen SCALE
+        /// beside it: from ModBuild 202 the scale is the constant 1.000 for every sub-view, so the
+        /// seat is the only thing a solution still consists of.</summary>
         internal Vector2 FrozenGroupShift;
 
         /// <summary>Drop the frozen sub-view solution (the open set changed). The members keep their
@@ -2156,7 +2335,13 @@ internal static partial class CanvasConversion
         /// two must read 0 — that is the whole of reports (a) and (c).</summary>
         internal float ViewGapPx;
         internal float ViewOverlapPx;
+
+        /// <summary>Px of the open group drawn past the frame's right edge, and past its top or
+        /// bottom edge. From ModBuild 202 a view that does not fit is drawn at full size and spills
+        /// rather than being scaled down, so these two are the whole of "does the fixed width still
+        /// hold?" — the host is sized so both read 0 for every sub-view ever measured.</summary>
         internal float ViewSpillPx;
+        internal float ViewSpillYPx;
         internal float ViewSlotPx;
 
         internal int Comparisons;
@@ -2266,8 +2451,10 @@ internal static partial class CanvasConversion
     /// the furniture around it — on a corner captured once. Its SCALE is never written: the target's
     /// subtree contains the column, and scaling it is exactly what made the user report the same
     /// complaint three builds running;</item>
-    /// <item>a uniform localScale and an anchoredPosition on each OPEN SUB-VIEW's own root, so the
-    /// thing that just appeared adapts to the frame and nothing that was already on screen does.</item>
+    /// <item>an anchoredPosition on each OPEN SUB-VIEW's own root, seating it on the column seam, and
+    /// a uniform localScale that is now always the identity (ModBuild 202: the sub-view scale is the
+    /// constant 1.000, so this write only ever puts back a scale somebody ELSE wrote). The host is
+    /// sized to hold the widest sub-view at 1.000 instead — see <see cref="FixedFitWidthPx"/>.</item>
     /// </list>
     ///
     /// <para>WHY THE BASE IS PINNED BY A CORNER AND NOT BY A UNION. ModBuild 198 pinned the LEFT EDGE
@@ -2323,14 +2510,22 @@ internal static partial class CanvasConversion
 
         if (!fx.SizeCaptured)
         {
-            // The window's OWN authored frame is the reference — the same rect the growth path
-            // clamps its union into — capped at the width beyond which the panel would only shrink
-            // its own content (see FixedFitMaxWidthPx).
+            // THE WIDTH IS A CONSTANT, NOT A READING (ModBuild 202): it is the column plus the widest
+            // sub-view, i.e. the width at which every sub-view fits beside the character images at
+            // scale 1.000 — see FixedFitWidthPx. It is deliberately WIDER than this window's own
+            // authored 1920 px frame, which is why it is not expressed as a clamp on it any more.
+            // The HEIGHT still comes from the authored frame (every sub-view is a full-height view and
+            // the frame bounds them), clamped for sanity.
+            //
+            // The frame is still READ, for one thing only: a rect below the sanity floor means the
+            // window has not been laid out yet, and capturing anything in that state would pin the
+            // window for its whole life (ModBuild 23 found this very target at localScale 0.14 with
+            // its rect grown to 2040 px).
             Rect frame = panel.Target.rect;
             if (frame.width < FixedFitMinWidthPx || frame.height < FixedFitMinHeightPx)
                 return true; // frame not laid out yet; measured fine, retry on the next check
             fx.Size = new Vector2(
-                Mathf.Clamp(frame.width, FixedFitMinWidthPx, FixedFitMaxWidthPx),
+                FixedFitWidthPx,
                 Mathf.Clamp(frame.height, FixedFitMinHeightPx, FixedFitMaxHeightPx));
             fx.SizeCaptured = true;
         }
@@ -2542,7 +2737,6 @@ internal static partial class CanvasConversion
                 fx.ViewShift = groupShift;
                 if (!first)
                 {
-                    fx.FrozenScale = wantScale;
                     fx.FrozenGroupShift = groupShift;
                     fx.SolutionSignature = fx.OpenSignature;
                     fx.SolutionFrozen = true;
@@ -2902,6 +3096,7 @@ internal static partial class CanvasConversion
         fx.ViewGapPx = 0f;
         fx.ViewOverlapPx = 0f;
         fx.ViewSpillPx = 0f;
+        fx.ViewSpillYPx = 0f;
         fx.ViewSlotPx = 0f;
         float widest = 0f;
         for (int i = 0; i < fx.Views.Count; i++)
@@ -3059,10 +3254,17 @@ internal static partial class CanvasConversion
     /// for all six views at every scale, and the seat does not move between tabs — which is what
     /// ModBuild 199's frame-right-edge seat could not do, because it made the distance from the
     /// column a function of the sub-view's own width (248 px of empty frame for the 543 px equipment
-    /// view, 340 px of column covered by the 1648 px selector; both photographed). The scale is then
-    /// solved against the SLOT the seam leaves — seam to the frame's right edge, 803 px of a 1143 px
-    /// frame — rather than against the whole frame. See the ModBuild 200 block in the region note for
-    /// what that costs the two full-screen views, in millimetres and arc-minutes.</para>
+    /// view, 340 px of column covered by the 1648 px selector; both photographed).</para>
+    ///
+    /// <para><b>THE SCALE IS NOT SOLVED AT ALL FROM ModBuild 202 — IT IS THE CONSTANT 1.000.</b>
+    /// Through 201 it was <c>min(1, slot/need, frameHeight/need)</c> against the slot the seam
+    /// leaves (803 px of a 1143 px frame), which drew the two full-screen sub-views at 0.487/0.494
+    /// and produced both the "shrunken foreign panel" report and the flicker on exactly those two
+    /// views. The host is sized to hold the widest sub-view beside the column instead
+    /// (<see cref="FixedFitWidthPx"/>), the slot is still measured, and a view that does not fit it
+    /// SPILLS past the transparent frame at full size and says so in the log. See the ModBuild 202
+    /// block in the region note for what the wider host costs and for the one line of it that is not
+    /// in this file.</para>
     ///
     /// <para>WHAT IT IS SOLVED AGAINST: the sub-view's NATURAL geometry, reconstructed by undoing our
     /// own scale and offset — <c>p0 = P0 + (p - P) / applied</c>. The measure reads world corners, so
@@ -3125,48 +3327,51 @@ internal static partial class CanvasConversion
         if (natural.x < 1f || natural.y < 1f)
             return false;
 
-        // THE SLOT (ModBuild 200): from the column seam to the frame's right edge, not the whole
-        // frame. That is what makes a seated view fit without covering the column — solving against
-        // the full 1143 px and then seating on the seam would push the wide views straight out of
-        // the frame instead.
+        // THE SLOT: from the column seam to the frame's right edge, not the whole frame — the width a
+        // sub-view has beside the character images. From ModBuild 202 it no longer decides a scale;
+        // it is the yardstick the SPILL below is measured against, and the fixed width is chosen so
+        // that with the measured 328 px column it comes to exactly the widest measured sub-view
+        // (1988 - 12 - 328 = 1648 px).
         float frameRight = fx.Size.x * 0.5f;
         float seam = fx.ColumnSeamX;
         float slot = Mathf.Max(frameRight - seam, fx.Size.x * FixedFitMinSlotFraction);
         fx.ViewSlotPx = slot;
 
         Vector2 c = (min + max) * 0.5f;
-        if (fx.SolutionFrozen)
-        {
-            // FROZEN: the scale and the seat are constants for as long as this set of sub-views is
-            // open. Nothing below re-derives them — the report further down is still computed
-            // against the LIVE geometry on purpose, so a view that changed under a frozen seat shows
-            // up as a non-zero gap in the log instead of being silently corrected.
-            wantScale = fx.FrozenScale;
-            groupShift = fx.FrozenGroupShift;
-        }
-        else
-        {
-            // Fitted against the FULL fixed height, not against it minus a margin: every one of these
-            // sub-views is a full-height 1080 px view, so charging them a vertical margin would scale
-            // even the ones that fit (1056/1080 = 0.978) and no state of this window would ever read
-            // "1.000" again — the one number the next hardware log has to be able to trust.
-            wantScale = Mathf.Clamp(
-                Mathf.Min(1f, Mathf.Min(slot / natural.x, fx.Size.y / natural.y)),
-                FixedFitMinContentScale, 1f);
 
-            Vector2 scaledMin = c + (min - c) * wantScale;
-            Vector2 scaledMax = c + (max - c) * wantScale;
-            // Host pivot is centred, so the frame's right edge is +Size.x/2 and its centre line is
-            // y = 0. THE SEAT: the group's LEFT edge lands exactly on the seam. No margin is charged
-            // on either side of it — a margin here is the gap he asked to be rid of, and on the right
-            // it would only shrink a full-bleed view for a stripe of frame nobody can see (the window
-            // has no visible backing plate; empty frame is transparent).
-            groupShift = new Vector2(
-                seam - scaledMin.x,
-                -(scaledMin.y + scaledMax.y) * 0.5f);
-        }
+        // ==========================================================================================
+        // THE SCALE IS 1.000 AND IT IS NOT SOLVED (ModBuild 202 ruling: "I want the sub-menu to be
+        // exactly the size of the whole window and to match the size of the character images on the
+        // left, so that it is perceived as ONE window. Guarantee that.").
+        //
+        // This assignment IS the guarantee. There is no expression left in this file that can draw a
+        // sub-view at a scale the character column is not drawn at, so "all six at 1.000" cannot
+        // depend on a measurement landing well. What used to stand here was
+        // min(1, slot/need, frameHeight/need) — correct arithmetic that produced 0.494 for perks and
+        // 0.487 for the selector, i.e. the shrunken foreign panel he reported twice, and the scaled
+        // subtree whose capture falls below the sampling band limit (the flicker he reported on those
+        // same two views and no others).
+        //
+        // The slot and the frame height are still MEASURED and still printed — as SPILL. A view too
+        // wide or too tall for the frame now hangs past its (transparent) edge at full size instead
+        // of being shrunk, which is visible, honest and something the next log names in pixels. It
+        // can never reach back over the column, because the seat below is the column's seam.
+        // ==========================================================================================
+        wantScale = 1f;
+
+        // THE SEAT: the group's LEFT edge lands exactly on the seam, and the group is centred on the
+        // frame's centre line vertically (host pivot is centred, so that line is y = 0). No margin is
+        // charged on either side — a margin here is the gap he asked to be rid of, and on the right it
+        // would only push a full-bleed view for a stripe of frame nobody can see. FROZEN once written:
+        // the seat is a constant for as long as this set of sub-views stays open, and the report below
+        // is still computed against the LIVE geometry on purpose, so a view that changed under a
+        // frozen seat shows up as a non-zero gap in the log instead of being silently corrected.
+        groupShift = fx.SolutionFrozen
+            ? fx.FrozenGroupShift
+            : new Vector2(seam - min.x, -(min.y + max.y) * 0.5f);
 
         float leftEdge = float.MaxValue, rightEdge = float.MinValue;
+        float topEdge = float.MinValue, bottomEdge = float.MaxValue;
         for (int i = 0; i < fx.Views.Count; i++)
         {
             SubViewFit v = fx.Views[i];
@@ -3186,6 +3391,8 @@ internal static partial class CanvasConversion
             v.OverlapPx = Mathf.Max(0f, seam - v.SeatedMin.x);
             leftEdge = Mathf.Min(leftEdge, v.SeatedMin.x);
             rightEdge = Mathf.Max(rightEdge, v.SeatedMax.x);
+            bottomEdge = Mathf.Min(bottomEdge, v.SeatedMin.y);
+            topEdge = Mathf.Max(topEdge, v.SeatedMax.y);
         }
 
         // THE GROUP'S REPORT, worst case over the open members. Both of the first two are 0 by
@@ -3193,15 +3400,21 @@ internal static partial class CanvasConversion
         // the whole of reports (a) and (c) is these two numbers.
         fx.ViewGapPx = Mathf.Max(0f, leftEdge - seam);
         fx.ViewOverlapPx = Mathf.Max(0f, seam - leftEdge);
+        // SPILL — what the scale-to-fit solve used to absorb (ModBuild 202). The host is sized so
+        // that both read 0 for every sub-view ever measured; anything else is a view we have never
+        // seen, and the log names its width so the next round can raise one constant instead of
+        // re-introducing a scale.
         fx.ViewSpillPx = Mathf.Max(0f, rightEdge - frameRight);
+        fx.ViewSpillYPx = Mathf.Max(0f,
+            Mathf.Max(topEdge - fx.Size.y * 0.5f, -fx.Size.y * 0.5f - bottomEdge));
         return true;
     }
 
     /// <summary>
     /// Fraction of the fixed frame the sub-view slot may never fall below. A pure safety clamp on a
     /// seam that was taken from a base union somebody else contaminated (see
-    /// <see cref="EnsureColumnSeam"/>): with the real 328 px column the slot is 803 of 1143 px =
-    /// 0.70, so this never fires in the measured case, and if it ever does the log says so.
+    /// <see cref="EnsureColumnSeam"/>): with the real 328 px column the slot is 1648 of 1988 px =
+    /// 0.83, so this never fires in the measured case, and if it ever does the log says so.
     /// </summary>
     private const float FixedFitMinSlotFraction = 0.40f;
 
@@ -3309,12 +3522,23 @@ internal static partial class CanvasConversion
         fx.LastLogTime = now;
 
         // The window's REAL width, measured off the host transform rather than re-derived from the
-        // placement constants this file does not own — so if the FixedFitMaxWidthPx derivation ever
-        // stops matching DeriveWindowScale, this number says so instead of the code assuming it.
+        // placement constants this file does not own — so what DeriveWindowScale actually did with
+        // FixedFitWidthPx is STATED here rather than assumed. It is the one number that says whether
+        // the window kept its footprint and lost apparent size, or grew and kept it: at 1988 px the
+        // board-relative cap returns 1.00 m (45°) unless the character screen is exempted from it,
+        // and 1.74 m (72°) if it is. See the end of the region note.
         float rig = RigUnitsPerMetre();
         float unit = panel.HostGo != null ? panel.HostGo.transform.lossyScale.x : 0f;
-        string physical = rig > 0f && unit > 0f
-            ? $"{fx.Size.x * unit / rig:F2} x {fx.Size.y * unit / rig:F2} m"
+        float widthMeters = rig > 0f && unit > 0f ? fx.Size.x * unit / rig : 0f;
+        // ModBuild 202: the width in ALL THREE units the arguments about this window are made in —
+        // authored px (what the sub-views are measured in), millimetres (what the mm-per-px figure
+        // divides into) and DEGREES OF VIEW (what "too big" and the map room's ±32° usable cone are
+        // stated in). A width quoted in one of them alone is what let a 42 % apparent-size change and
+        // a 27° footprint change look like the same decision.
+        string physical = widthMeters > 0f
+            ? $"{widthMeters:F2} x {fx.Size.y * unit / rig:F2} m = {widthMeters * 1000f:F0} mm wide = "
+              + $"{2f * Mathf.Atan2(widthMeters * 0.5f, FixedFitReadingDistanceMeters) * Mathf.Rad2Deg:F0}"
+              + $"° of view at {FixedFitReadingDistanceMeters:0.0} m"
             : "physical size unknown (no rig scale yet)";
 
         // THE PROOF. Not the host, not the union: the column itself, in the size it is DRAWN, against
@@ -3393,17 +3617,25 @@ internal static partial class CanvasConversion
         else
         {
             view = $"the open sub-view group needs {fx.ViewNeed.x:F0}x{fx.ViewNeed.y:F0} px at scale 1 "
-                   + $"and fits a {fx.ViewSlotPx:F0} px slot (seam x={fx.ColumnSeamX:F0} to the "
-                   + $"frame's right edge x={fx.Size.x * 0.5f:F0}) at scale {scale:F3}"
+                   + $"and is DRAWN AT SCALE {scale:F3} in a {fx.ViewSlotPx:F0} px slot (seam "
+                   + $"x={fx.ColumnSeamX:F0} to the frame's right edge x={fx.Size.x * 0.5f:F0})"
                    + (scale >= 0.999f
-                       ? " — it fits beside the column untouched"
-                       : " — SCALED TO FIT the slot; the column keeps its size, only this view adapts")
+                       ? " — the same scale as the character column, which is the whole of the ruling"
+                       : " — ** NOT 1.000. Nothing in this build solves a scale any more, so a number "
+                         + "here that is not 1.000 was written by something else and IS the bug **")
                    + $". GAP {fx.ViewGapPx:F0} px, OVERLAP {fx.ViewOverlapPx:F0} px"
-                   + (fx.ViewSpillPx > 1f ? $", SPILL {fx.ViewSpillPx:F0} px past the frame" : string.Empty)
                    + (fx.ViewGapPx <= 1f && fx.ViewOverlapPx <= 1f
                        ? " (both zero — seated flush on the column, which is the whole of the "
                          + "'Lücke' and 'Überlagerung' reports)"
                        : " (NON-ZERO — the seat did not land on the seam and that IS the bug)")
+                   + $", SPILL {fx.ViewSpillPx:F0} px past the frame's right edge and "
+                   + $"{fx.ViewSpillYPx:F0} px past its top/bottom"
+                   + (fx.ViewSpillPx > 1f || fx.ViewSpillYPx > 1f
+                       ? " — this view is WIDER OR TALLER than the fixed frame and is deliberately "
+                         + "drawn at full size anyway (the frame is transparent and both the hit rect "
+                         + "and the supersample capture grow to cover it). If this is not a transient, "
+                         + "the fixed width constant is the thing to raise — never the scale"
+                       : " (both zero — the fixed width holds for this view)")
                    + ". PER SUB-VIEW:";
             int listed = 0;
             for (int i = 0; i < fx.Views.Count; i++)
@@ -3415,14 +3647,14 @@ internal static partial class CanvasConversion
                 float need = v.NaturalMax.x - v.NaturalMin.x;
                 view += $" [{v.View.name}: rect {v.SeatedMin.x:F0}..{v.SeatedMax.x:F0} x "
                         + $"{v.SeatedMin.y:F0}..{v.SeatedMax.y:F0} px, SCALE {scale:F3} — "
-                        // Report (3) and (4) are both about WHICH views are scaled and WHY, so every
-                        // member states its own reason rather than leaving it to be inferred from the
-                        // group's numbers. Only two of the six have ever read anything but 1.000.
+                        // Reports (3) and (4) were both about WHICH views were scaled, so every member
+                        // still states its own case rather than leaving it to be inferred from the
+                        // group's numbers — it is just that from ModBuild 202 there is only one case.
                         + (scale >= 0.999f
-                            ? $"1.000 because its {need:F0} px fit the {fx.ViewSlotPx:F0} px slot "
-                              + "beside the column untouched"
-                            : $"SCALED because its {need:F0} px cannot fit the {fx.ViewSlotPx:F0} px "
-                              + "slot at 1.000; the column keeps its size and only this view adapts")
+                            ? $"1.000 by construction; its {need:F0} px against a {fx.ViewSlotPx:F0} px "
+                              + "slot decides nothing but the spill above"
+                            : $"** foreign scale on this root: its {need:F0} px are being drawn at "
+                              + $"{scale:F3}, which this fit no longer asks for **")
                         + $", gap {v.GapPx:F0} px, overlap {v.OverlapPx:F0} px"
                         + (v.TransientDropped > 0
                             ? $", {v.TransientDropped} transient graphic(s) ignored inside it"
@@ -3440,6 +3672,14 @@ internal static partial class CanvasConversion
             }
             if (listed == 0)
                 view += " none (the group solved but no member survived the measure)";
+            else
+                view += $". THE MATCH: {listed} open sub-view(s), ALL AT SCALE {scale:F3}, against a "
+                        + "character column that is drawn at 1.000 and is never scaled at all — equal "
+                        + "numbers here mean the sub-menu and the character images are the same size "
+                        + "and the window reads as ONE surface, which is the ruling this build "
+                        + $"implements. Asserted on every one of the {fx.Comparisons} comparison(s) "
+                        + "this window has made, so 'all at 1.000' and 'never checked' cannot look "
+                        + "alike";
             view += fx.ViewPlates > 0
                 ? $". BACKDROP CENSUS (diagnostic, it decides nothing): {fx.ViewPlates} full-frame "
                   + $"plate(s) inside it, the largest '{fx.PlateName}' at {fx.PlateSize.x:F0}x"

@@ -1237,6 +1237,20 @@ internal static partial class ModalFallback
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         if (widthPx < 1f || metersPerPixel <= 0f)
             return cap;
+        // ModBuild 202: the map room's permanent character screen sizes its host FROM ITS CONTENT —
+        // the character column plus the widest sub-view — precisely so that every sub-view is drawn at
+        // the same scale as the character images beside it (user ruling: "ich will dass das Sub-Menü
+        // genau die Größe des gesamten Fensters hat und zu der Größe der linken Characterbilder passt,
+        // so dass es als EIN Fenster wahrgenommen wird"). Re-negotiating that width against the board
+        // target answers the wider host BY SHRINKING EVERYTHING IN IT: at 1988 px the board-relative
+        // term returns 1.00/1.988 = 0.503 against today's 0.875, i.e. an exact match at 57.5 % of the
+        // size he has already approved — the character images would shrink 42 % to meet the sub-menu
+        // instead of the other way round, which is the opposite of what the width was widened for.
+        // So this ONE window keeps the small-dialog cap and lets its own content decide its metres.
+        // The cost is stated rather than mitigated: 1988 px x 0.875 mm = 1.74 m, about 72° at the
+        // 1.20 m reading distance, permanently, on a window that is non-closable by user ruling.
+        if (CanvasConversion.IsFixedSizeWindow(panel))
+            return cap;
         float boardRelative = ModalTargetWidthMeters * legibility / (widthPx * metersPerPixel);
         return Mathf.Clamp(Mathf.Min(cap, boardRelative), MinWindowScaleFactor, cap);
     }
