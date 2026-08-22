@@ -92,7 +92,10 @@ internal static partial class Defaults
     internal const float HauntFrequency = 0.5f;                // => [Haunt] Frequency  (half of the schedule, i.e. roughly one easter egg every three minutes. NOT 1.0: the dial is a monotone SUBSET selector — it can only ever remove events, never invent them, because inventing one would break "every player sees the same event in the same place" — so the shipped value has to sit in the middle for the dial to have room in both directions)
 
     // ---- Core/StereoModeConfig.cs --------------------------------------------------
-    internal const string RenderMode = nameof(StereoModeConfig.Mode.MultiPass);  // => [Stereo] RenderMode
+    // [Stereo] RenderMode was here and is UNBOUND since the 2026-08-22 settings audit: the
+    // stereo render mode is not a preference — MultiPass is what every one of this mod's
+    // per-eye paths is written against, and the alternatives produced a broken picture rather
+    // than a different one. The value now lives as a constant at its own use site.
 
     // ---- Core/WallSegmentFade.cs ---------------------------------------------------
     internal const float OnFraction = 0.1f;                  // => [WallFade] OnFraction

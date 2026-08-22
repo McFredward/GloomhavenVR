@@ -187,7 +187,8 @@ internal static partial class Defaults
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
     internal const float ScreenDistance = 1.6f;              // => [WorldUI] ScreenDistance
-    internal const bool SuppressPhysicalMouse = true;        // => [WorldUI] SuppressPhysicalMouse
+    // [WorldUI] SuppressPhysicalMouse had its line here; UNBOUND by the 2026-08-22 settings audit
+    // and now the constant WorldUIConfig.SuppressPhysicalMouse, where the argument is written down.
     internal const float MapWindOpacity = 0.3f;              // => [WorldUI] MapWindOpacity
     internal const float DragUnlockDegrees = 2.0f;           // => [WorldUI] DragUnlockDegrees
     internal const float DragUnlockSeconds = 0.15f;          // => [WorldUI] DragUnlockSeconds
@@ -207,7 +208,8 @@ internal static partial class Defaults
     internal const float HexHintSide = 0f;                   // => [WorldUI] HexHintSide
     internal const string ModalStyle = "window";             // => [WorldUI] ModalStyle
     internal const float ManualScreenChordSeconds = 2f;      // => [WorldUI] ManualScreenChordSeconds
-    internal const bool ScreenLayerSplit = true;             // => [WorldUI] ScreenLayerSplit
+    // [WorldUI] ScreenLayerSplit had its line here; UNBOUND by the 2026-08-22 settings audit and
+    // now the constant WorldUIConfig.ScreenLayerSplit (off = a one-eyed main menu).
     internal const bool LoadingIndicator = true;             // => [WorldUI] LoadingIndicator
     internal const bool AutoCapitalise = true;               // => [Keyboard] AutoCapitalise
     // ---- WorldUI/MapRoom/MapRoomHand.*.cs ------------------------------------------

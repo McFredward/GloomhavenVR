@@ -416,7 +416,65 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 223;
+    public const ushort ModBuild = 224;
+    // Build 224: THE SETTINGS AUDIT, HALVES (a) AND (d). No wire change; 582 keys were inventoried.
+    //
+    //   (a) 39 ENTRIES LEAVE THE MENU — 42 rows, because one rendered as four R/G/B/A steppers.
+    //   User, verbatim: "Lösche alle Einstellungen die das Spiel breaken könnten wenn die verändert
+    //   werden. Etwas was das spiel kaputt macht wenn man es umstellt ist nicht optional und sollte
+    //   daher nicht einstellbar sein." 27 are hidden through ConfigCatalog.NotOffered (the key stays
+    //   bound, the cfg still round-trips, a hand edit still works) and 12 are UNBOUND outright, each
+    //   with the harm and the value that causes it written beside it.
+    //   THE THREE WORST: [General] Enabled — one toggle, in a menu that only exists in VR, that
+    //   removes VR permanently, and the only UI that could put it back is the row itself. [Rig]
+    //   ForwardRendering — a CURATED row on a page that looks like quality sliders, whose off state
+    //   reinstates the documented see-through-walls defect the forward path exists to fix AND
+    //   silently kills the MSAA row two lines above it, at the next start; now a constant.
+    //   [HexHighlight] StableZTest — a raw CompareFunction integer on an UNBOUNDED stepper where 0
+    //   means Never, i.e. the targeting highlight never draws again.
+    //   Also fixed: three [MixedReality] rows whose own descriptions said "not offered in the VR
+    //   menu" and were offered anyway.
+    //
+    //   (d) THE DRAG BAR COULD NOT HIT THE VALUE, AND HIS OWN CFG IS THE EVIDENCE. User: "nicht
+    //   jedes Felt macht sinn mit einer verschibaren Bar besonders wenn man bis auf die Kommastellen
+    //   etwas anpassen will." Nine slider rows in his dropped cfg carry five or more decimals;
+    //   ActiveCardScale_Oak = 0.9999998 and ClusterScale_Oak = 0.9999999 are two failed attempts to
+    //   put a bar back on 1.0. USER'S RULING: bar AND fine arrows in one row. Built as
+    //   BuildBarAndArrowsRow — the number sits inside the bar (one readout, so the two inputs cannot
+    //   drift), and THE BAR SNAPS TO THE STEP GRID anchored at Min, which is the actual fix. A value
+    //   already off-grid is never rewritten until the player deliberately drags.
+    //   FORTY ROWS, NOT 26: the 26 the audit named plus the 14 that gained a range in the same
+    //   commit — without that, declaring a clamp would have silently demoted 14 steppers to gridless
+    //   bars, i.e. introduced the very defect being removed.
+    //   14 MISSING RANGES DECLARED, each the clamp the reader already applied, and every one checked
+    //   against his live cfg before shipping — the [Water] RippleSpeed lesson, where "freezing the
+    //   accepted values" froze a 114x slowdown. Cards/TrayScale sits exactly ON its new upper end.
+    //   THE 15TH WAS REFUSED, and correctly: Cards/TrayPitch is clamped only in LimitedPitch mode
+    //   against a live per-board window; Free mode returns it raw by design, and a declared range
+    //   would also clamp what the GRAB GESTURE writes. His cfg carries 45.13076, authored by that
+    //   gesture.
+    //   SnapTurnDegrees became a preset dropdown (an off-list cfg value keeps its own entry and is
+    //   never silently rewritten); PixelLightCount a labelled stepper; hold-to-repeat was added to
+    //   the arrows, wired ONLY to the two travel-button offsets, which stay steppers by user ruling.
+    //
+    //   THREE AUDIT CLAIMS CORRECTED BY THE IMPLEMENTATION, recorded because a review that is never
+    //   checked becomes folklore: its "8 true constants" was an arithmetic slip against its own
+    //   per-entry tables, which say 12; its claim that KillBorderFlame/KillCrosshair become
+    //   unreachable once SwapStableShader is constant is WRONG (the swap can still fail on an old
+    //   bundle, and that fallback is the only mitigation left), so both are const true rather than
+    //   deleted; and its "16 dead ConfigSteps entries revive" is 13 — the other three are two
+    //   dropdowns, which read no step, and one parked feature with no row at all.
+    //   And the audit's own ActiveCardScale_Oak claim was false: Defaults.Cards.cs already ships
+    //   exactly 1f. The two values exist only in his cfg — still perfect evidence for (d), but they
+    //   never reached the source.
+    //
+    //   TWO GATE NUMBERS MOVED, both explained rather than accepted: wire tests 144,557 -> 144,558
+    //   (the ConfigSteps drift sweep asserts once per Explicit key and one was added —
+    //   ScreenParallaxScale, whose new 1..60 range would otherwise have derived a step TEN TIMES its
+    //   own), and rebase-defaults 511 -> 500 entries with UNMAPPED 117 -> 128, which is exactly the
+    //   eleven Defaults lines deleted alongside their binds.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 223: THE ROOM TONES ARE DELETED, AND THE LOGO MATCHES ON THE OTHER AXIS. No wire change.
     //
     //   #1 SOUND — A DESIGN REVERSAL, NOT A TUNING ROUND. User, verbatim: "Im Keller hören sich die

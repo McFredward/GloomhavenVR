@@ -283,8 +283,17 @@ internal static partial class VROptionsTab
                         // the sharpness half. Size and sharpness are the two ways to spend
                         // headset pixels on a window; they belong on one screen.
                         new("WorldUI", "WindowLegibility", ""),
-                        new("Compat", "DisablePostProcessing", "disable_post"),
-                        new("Compat", "DisableVolumetricFog", "vr_o_fog"),
+                        // "Post-Processing aus" ([Compat] DisablePostProcessing) and
+                        // "Volumennebel aus" ([Compat] DisableVolumetricFog) stood here. They are
+                        // OFF THE CURATED PAGE since the 2026-08-22 settings audit, by the user's
+                        // ruling on its open question 4. Both are START-UP-ONLY, so flipping one
+                        // appears to do nothing — which reads as a broken row on the most
+                        // prominent page in the menu — and both sit on the stereo-hazard side of a
+                        // trade a player has no way to see (PPv2 is unverified under stereo
+                        // rendering; the fog is a known stereo hazard). NOTHING IS LOST AND
+                        // NOTHING HAD TO MOVE: Erweitert is the catalog's own index, so both are
+                        // on Erweitert ▸ "Bild & Darstellung" the moment this list stops naming
+                        // them. Same shape as the [MapRoom] size dials below.
                         new("Compat", "WallFade", "wall_see_through"),
                         // The environment choice (user ruling 2026-08-12: real 3D environments
                         // replaced the panorama skyboxes) — a special row (TryBuildSpecialRow)
@@ -370,7 +379,14 @@ internal static partial class VROptionsTab
                         // lieber die Tierrufe". The feature's whole settings surface is now the two
                         // rows above, which is the direction of travel for this menu. The ruling and
                         // the measurements are in Core/EnvSound.cs's THE ROOM TONES, DELETED.
-                        new("Rig", "ForwardRendering", "vr_o_forward"),
+                        // "Forward-Rendering" ([Rig] ForwardRendering) stood here — the single
+                        // most dangerous row the 2026-08-22 settings audit found, because it was
+                        // CURATED. Its off state reinstated the documented see-through-walls
+                        // defect the forward path exists to fix AND silently killed the MSAA row
+                        // above it, at the next start, from a page that looks like quality
+                        // sliders. The user's ruling on the audit's open question 4 was to delete
+                        // it outright: it is a constant now (Plugin.ForwardRendering), so this is
+                        // not a row that moved to Erweitert — there is no key left to show.
                         // "Hauptmenü in VR" ([Rig] MenuRig) is GONE with its dial (user ruling
                         // 2026-08-13): off built no rig at all outside a scenario — the main
                         // menu had nothing to hang on. Unconditional now.
@@ -394,7 +410,17 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_performance",
                     Entries = new CuratedEntry[]
                     {
-                        new("Core", "EnableGraphicsJobs", "vr_o_gfxjobs"),
+                        // "Parallele Bildabgabe" ([Core] EnableGraphicsJobs) stood here. OFF THE
+                        // CURATED PAGE since the 2026-08-22 settings audit, by the user's ruling
+                        // on its open question 4. It is already on, so there is nothing to gain by
+                        // touching it and the single largest performance finding of the whole
+                        // project to lose; it writes boot.config and needs a restart, so the row
+                        // cannot even show what it did. It stays fully reachable on Erweitert ▸
+                        // System, which is where a switch about how the engine boots belongs.
+                        //
+                        // Its dependent "Automatisch neu starten" stays on this page for now — it
+                        // still folds under EnableGraphicsJobs by VALUE (VROptionsTab.8), not by
+                        // the parent row being on the same page, so nothing here goes stale.
                         new("Core", "AutoRestartForGraphicsJobs", "vr_o_autorestart"),
                     },
                 },

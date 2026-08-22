@@ -110,7 +110,10 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "CombatLogRight", perBoard: false),
                         new BoardRef("WorldUI", "CombatLogUp", perBoard: false),
                         new BoardRef("WorldUI", "CombatLogScale", perBoard: false),
-                        new BoardRef("WorldUI", "CombatLogUserClosed", perBoard: false),
+                        // [WorldUI] CombatLogUserClosed is GONE from the catalog (settings audit
+                        // 2026-08-22): it was never a setting, it is the mod remembering that the
+                        // player closed the combat log. Naming it here would make Lookup warn on
+                        // every menu build.
                     },
                 },
             },
@@ -159,7 +162,8 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "ScreenParallaxScale", perBoard: false),
                         new BoardRef("WorldUI", "VideoDepthLayer", perBoard: false),
                         new BoardRef("WorldUI", "VideoDepth", perBoard: false),
-                        new BoardRef("WorldUI", "ScreenLayerSplit", perBoard: false),
+                        // [WorldUI] ScreenLayerSplit is UNBOUND (settings audit 2026-08-22) — a
+                        // render-path internal, not a choice. Constant now, so there is no row.
                     },
                 },
                 new()
@@ -190,7 +194,8 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "DecisionPokeDeliberate", perBoard: false),
                         new BoardRef("WorldUI", "DragUnlockDegrees", perBoard: false),
                         new BoardRef("WorldUI", "DragUnlockSeconds", perBoard: false),
-                        new BoardRef("WorldUI", "SuppressPhysicalMouse", perBoard: false),
+                        // [WorldUI] SuppressPhysicalMouse is UNBOUND (settings audit 2026-08-22) —
+                        // an input-integrity internal whose off state breaks pointing. Constant now.
                     },
                 },
             },

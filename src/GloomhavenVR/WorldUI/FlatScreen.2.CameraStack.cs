@@ -144,9 +144,10 @@ internal sealed partial class FlatScreen
             // log never named it): with the split down, the WHOLE stereo/video-depth
             // chain is structurally off — one change-deduped line names the reason so
             // a flat screen in a hardware log is attributable at a glance.
-            string gate = !WorldUIConfig.ScreenLayerSplit.Value
-                ? "ScreenLayerSplit off (config)"
-                : _splitFailed ? "split creation failed this Show"
+            // ScreenLayerSplit is a constant since the 2026-08-22 settings audit (off = a one-eyed
+            // main menu), so "off (config)" can no longer be the reason — the three MEASURED
+            // reasons below are what is left, and they are the ones the diagnostic was written for.
+            string gate = _splitFailed ? "split creation failed this Show"
                 : _splitNoUi ? "no-UI watchdog latched (re-arms on scene change / UI capture)"
                 : "split not engaged (quad/RT not ready)";
             if (gate != _stereoGateReason)
@@ -245,7 +246,7 @@ internal sealed partial class FlatScreen
     /// </summary>
     private void TickSplitLifecycle()
     {
-        bool want = WorldUIConfig.ScreenLayerSplit.Value && !_splitFailed && !_splitNoUi
+        bool want = WorldUIConfig.ScreenLayerSplit && !_splitFailed && !_splitNoUi
                     && _rt != null && _quad != null && _quadRenderer != null;
         if (want && SplitActive)
         {

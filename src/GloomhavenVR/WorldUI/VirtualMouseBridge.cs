@@ -573,7 +573,10 @@ internal static class VirtualMouse
     /// </summary>
     private static void TickSuppressPhysicalMice()
     {
-        bool want = WorldUIConfig.SuppressPhysicalMouse.Value
+        // SuppressPhysicalMouse is a constant since the 2026-08-22 settings audit (off let the
+        // stale desktop pointer click things behind your back) — the read stays so the one place
+        // it is spelled out is the one place it can be reverted.
+        bool want = WorldUIConfig.SuppressPhysicalMouse
                     && VRSession.IsRunning
                     && _mouse != null && _mouse.added; // never disable the ONLY mouse (would kill input)
 

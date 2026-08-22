@@ -37,11 +37,20 @@ internal sealed partial class FlatScreenStereo
             "plane. Interaction (laser, poke, virtual mouse) and the desktop mirror are " +
             "unaffected. Costs one extra render of the menu scene per frame while the screen " +
             "is visible. Off = single mono RenderTexture, exactly the pre-stereo behavior.");
+        // THE THREE RANGES IN THIS METHOD ARE THE CLAMPS THIS FILE ALREADY APPLIES, declared
+        // (2026-08-22 settings audit, user: "Prüfe für jede Einstellung die Bedienmöglichkeit").
+        // DepthStrength/VideoDepth/ParallaxScale are read through Mathf.Clamp a few lines below;
+        // without the declaration the arrows never stopped, so past the clamp every press changed
+        // the number on screen and nothing in the picture — and these are exactly the dials
+        // somebody reaches for when the stereo screen reads flat, i.e. the worst place for a
+        // control that silently stops working. The live cfg ships 1 / 0.8 / 6, all inside.
         s_depthStrength = file.Bind("WorldUI", "ScreenDepthStrength", Defaults.ScreenDepthStrength,
-            "Strength of the flat screen's stereo depth (scales the per-eye separation " +
-            "linearly). 1 = geometrically derived from your HMD IPD (window-accurate, " +
-            "slightly understated by design); smaller = flatter/more comfortable; " +
-            "0 = mono (same as StereoScreen=false).");
+            new ConfigDescription(
+                "Strength of the flat screen's stereo depth (scales the per-eye separation " +
+                "linearly). 1 = geometrically derived from your HMD IPD (window-accurate, " +
+                "slightly understated by design); smaller = flatter/more comfortable; " +
+                "0 = mono (same as StereoScreen=false). Range 0-3.",
+                new AcceptableValueRange<float>(0f, 3f)));
         s_videoDepthLayer = file.Bind("WorldUI", "VideoDepthLayer", Defaults.VideoDepthLayer,
             "Keep stereo depth while a fullscreen 2D video plays on the screen (main-menu " +
             "ambient movie, story videos): the VideoPlayer stays untouched in its vanilla " +
@@ -51,19 +60,24 @@ internal sealed partial class FlatScreenStereo
             "front, no artificial geometry. Off = stereo is fully suspended (mono) while " +
             "any camera-plane video plays.");
         s_videoDepth = file.Bind("WorldUI", "VideoDepth", Defaults.VideoDepth,
-            "How far BEHIND the screen plane the background reads while a fullscreen 2D " +
-            "video plays, in real meters (VideoDepthLayer). Disparity p = IPD*V/(D+V) with " +
-            "D = ScreenDistance: at the 1.6 m default screen and 2.2 m depth the video reads " +
-            "at 3.8 m (~2.4x the screen distance, ~36 mm disparity — below the ~63 mm " +
-            "divergence limit; clamped to 55 mm regardless). Raised from 0.8 after test #19 " +
-            "(the recession read too subtle). 0 = video on the screen plane (no video depth).");
+            new ConfigDescription(
+                "How far BEHIND the screen plane the background reads while a fullscreen 2D " +
+                "video plays, in real meters (VideoDepthLayer). Disparity p = IPD*V/(D+V) with " +
+                "D = ScreenDistance: at the 1.6 m default screen and 2.2 m depth the video reads " +
+                "at 3.8 m (~2.4x the screen distance, ~36 mm disparity — below the ~63 mm " +
+                "divergence limit; clamped to 55 mm regardless). Raised from 0.8 after test #19 " +
+                "(the recession read too subtle). 0 = video on the screen plane (no video depth). " +
+                "Range 0-5.",
+                new AcceptableValueRange<float>(0f, 5f)));
         s_parallaxScale = file.Bind("WorldUI", "ScreenParallaxScale", Defaults.ScreenParallaxScale,
-            "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
-            "read flat at geometric settings). Separation AND convergence are multiplied by " +
-            "the same factor, so the at-infinity disparity (their ratio) stays constant and " +
-            "comfortable while depth differences inside the captured scene grow this many " +
-            "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
-            "geometry; clamped to 1-60.");
+            new ConfigDescription(
+                "Amplifies the stereo screen's scene-INTERNAL depth (test #16: far menu scenery " +
+                "read flat at geometric settings). Separation AND convergence are multiplied by " +
+                "the same factor, so the at-infinity disparity (their ratio) stays constant and " +
+                "comfortable while depth differences inside the captured scene grow this many " +
+                "times stronger — diorama-behind-glass instead of flat photo. 1 = strict window " +
+                "geometry; clamped to 1-60.",
+                new AcceptableValueRange<float>(1f, 60f)));
         // The 18 DEPRECATED map-capture keys that used to be bound from here (MapAlbedoOriginalMaterial,
         // MapAlbedoAmbient/Light, MapCaptureMode, the MapStrip* image-effect strips, the MapTex*
         // blit-orientation knobs and the MapUv* CPU-rebuild knobs) are DELETED (2026-08 dead-settings

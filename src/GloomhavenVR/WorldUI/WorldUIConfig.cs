@@ -272,8 +272,20 @@ internal static class WorldUIConfig
     // moves the projected pixel dozens of px between press and release, so uGUI sees a drag and
     // NOTHING in the flat menus (main menu included) can be clicked. See FlatScreen.6.Pointer.
 
-    /// <summary>Disable the physical desktop mouse while VR runs so only the VR laser drives the pointer.</summary>
-    internal static ConfigEntry<bool> SuppressPhysicalMouse = null!;
+    /// <summary>
+    /// Disable the physical desktop mouse while VR runs so only the VR laser drives the pointer.
+    /// ALWAYS ON, and no longer a dial.
+    ///
+    /// <para>2026-08-22 settings audit (user, verbatim): <i>"a) Lösche alle Einstellungen die das
+    /// Spiel breaken könnten wenn die verändert werden. Etwas was das spiel kaputt macht wenn man
+    /// es umstellt ist nicht optional und sollte daher nicht einstellbar sein."</i> The harm, and
+    /// the value that causes it: <c>false</c> lets the STALE desktop mouse position keep hovering
+    /// and selecting map and menu elements behind the player's back — clicks nobody made, on
+    /// elements nobody can see, in a headset where there is no way to notice the cause. There is
+    /// no reading of that a player is choosing between; the mouse is re-enabled when VR stops
+    /// either way, which is the only behaviour the off state was ever protecting.</para>
+    /// </summary>
+    internal const bool SuppressPhysicalMouse = true;
 
     /// <summary>Opacity multiplier for the campaign map's Wind/Clouds ambiance particles (0 = invisible, 1 = full).</summary>
     internal static ConfigEntry<float> MapWindOpacity = null!;
@@ -360,8 +372,23 @@ internal static class WorldUIConfig
     // campaign map, which is the only way to reach a scenario, could be switched to a black
     // rectangle from the options menu. See FlatScreen.2.CameraStack.
 
-    /// <summary>Split the flat screen into a UI glass layer over a stereo background layer (test #18).</summary>
-    internal static ConfigEntry<bool> ScreenLayerSplit = null!;
+    /// <summary>
+    /// Split the flat screen into a UI glass layer over a stereo background layer (test #18).
+    /// ALWAYS ON, and no longer a dial.
+    ///
+    /// <para>2026-08-22 settings audit (user, verbatim): <i>"a) Lösche alle Einstellungen die das
+    /// Spiel breaken könnten wenn die verändert werden."</i> The harm, and the value that causes
+    /// it: <c>false</c> restores the state the two-layer split was built to end — the game's UI
+    /// cameras render Screen-Space-Camera canvases only through their own assigned camera, so no
+    /// stereo mirror camera can reproduce them and THE MENU GOES ONE-EYED. A one-eyed main menu is
+    /// a broken game, and the note two hundred lines above ("both states present the SAME content,
+    /// a real fallback path each") was the argument for keeping the key — it is wrong about this
+    /// one: the two states do not present the same content, one of them presents it to one eye.
+    /// The genuine fallback survives untouched and is not this switch: the split still falls back
+    /// to the single mono RT on any failure at run time (<c>_splitFailed</c> / <c>_splitNoUi</c> in
+    /// FlatScreen.2.CameraStack), which is a MEASURED fallback rather than a guessed one.</para>
+    /// </summary>
+    internal const bool ScreenLayerSplit = true;
 
     /// <summary>VR loading indicator: the game's rotating spinner in front of the HMD during loads,
     /// flat screen suppressed, background loading priority lowered (smaller hitches).</summary>
@@ -654,10 +681,7 @@ internal static class WorldUIConfig
         // ClickLatch: always on — user ruling 2026-08-13 (see the tombstone above). The two
         // DragUnlock* dials below stay: they tune WHEN a deliberate movement opens the latch into
         // a drag, which is taste, not the difference between clicking and not clicking.
-        SuppressPhysicalMouse = _file.Bind("WorldUI", "SuppressPhysicalMouse", Defaults.SuppressPhysicalMouse,
-            "While VR is running, disable the physical desktop mouse in the InputSystem so its " +
-            "(stale) desktop position can no longer hover or select map/menu elements behind your " +
-            "back — only the VR laser drives the pointer. The mouse is re-enabled when VR stops.");
+        // SuppressPhysicalMouse: always on — 2026-08-22 settings audit (see the constant above).
         MapWindOpacity = _file.Bind("WorldUI", "MapWindOpacity", Defaults.MapWindOpacity,
             "Opacity of the campaign map's drifting Wind/Clouds ambiance particles (0..1). The game's " +
             "flat map camera post-processes/masks these so they read as subtle; the VR forward capture " +
@@ -714,8 +738,14 @@ internal static class WorldUIConfig
             "Combat log panel offset to the seat right, real meters (grab-persisted).");
         CombatLogUp = _file.Bind("WorldUI", "CombatLogUp", Defaults.CombatLogUp,
             "Combat log panel height above the table plane, real meters (grab-persisted).");
+        // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES (2026-08-22 settings audit). The
+        // description already said "clamped 0.5-2" and nothing enforced it: CombatLogSurface
+        // clamps on read AND on the gesture write, so past either end the arrows moved the number
+        // and not the panel.
         CombatLogScale = _file.Bind("WorldUI", "CombatLogScale", Defaults.CombatLogScale,
-            "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).");
+            new ConfigDescription(
+                "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).",
+                new AcceptableValueRange<float>(0.5f, 2f)));
         CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", Defaults.CombatLogUserClosed,
             "The user hid the combat log via its top-right X button (or the in-VR settings " +
             "'Kampflog anzeigen' toggle). While true the panel releases back to its 2D home and " +
@@ -772,14 +802,7 @@ internal static class WorldUIConfig
                 "to a duration nobody can hold either. Range 0.3-6.",
                 new AcceptableValueRange<float>(0.3f, 6f)));
         // DemoteOverlaySolidClears: always on — user ruling 2026-08-13 (see the tombstone above).
-        ScreenLayerSplit = _file.Bind("WorldUI", "ScreenLayerSplit", Defaults.ScreenLayerSplit,
-            "Render the floating 2D screen as TWO layers (hardware test #18): the game's UI " +
-            "cameras — whose Screen-Space-Camera canvases only ever render through their " +
-            "assigned camera, so stereo mirror cameras can never reproduce them and the menu " +
-            "went one-eyed — draw onto a transparent 'glass' quad shown identically to both " +
-            "eyes at the screen plane, while 3D scene cameras and videos render a background " +
-            "layer a few cm behind it with per-eye stereo depth. Off (or on any failure): " +
-            "single-RT fallback — one flat mono screen in both eyes, never one-eyed.");
+        // ScreenLayerSplit: always on — 2026-08-22 settings audit (see the constant above).
         LoadingIndicator = _file.Bind("WorldUI", "LoadingIndicator", Defaults.LoadingIndicator,
             "While the flat game shows its loading screen (scene transitions, scenario " +
             "start), float the game's own ROTATING LOADING SPINNER — the icon only, not the " +

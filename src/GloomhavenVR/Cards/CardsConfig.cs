@@ -702,9 +702,17 @@ internal static class CardsConfig
         TrayYaw = _file.Bind("Cards", "TrayYaw", Defaults.TrayYaw,
             "Control board yaw relative to the head's flat forward at placement time, degrees. " +
             "Written automatically when you grip-move the tray by its handle bar; edit only to reset.");
+        // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES (2026-08-22 settings audit). The
+        // description PROMISED "0.5-2" and nothing enforced it: ClampedTrayScale below clamps at
+        // read, so every arrow press past 2 moved the number and not the board. It also matters
+        // that the gesture writes this key — the two-handed tray grab persists what it reached —
+        // and the same clamp bounds that gesture, so declaring it changes no reachable pose.
+        // The live cfg ships 2, exactly the upper end, which the range includes.
         TrayScale = _file.Bind("Cards", "TrayScale", Defaults.TrayScale,
-            "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
-            "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.");
+            new ConfigDescription(
+                "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
+                "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.",
+                new AcceptableValueRange<float>(0.5f, 2f)));
         TrayFollow = _file.Bind("Cards", "TrayFollow", Defaults.TrayFollow,
             "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
             "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
@@ -722,6 +730,16 @@ internal static class CardsConfig
             "switching back to a Limited mode re-levels it). Selectable in the VR settings " +
             "(Tafeln → Karten & Brett) with localized labels; local cosmetics only — peers just " +
             "see the resulting board pose, exactly as before.");
+        // TrayPitch DELIBERATELY KEEPS ITS OPEN STEPPER. The 2026-08-22 settings audit listed it
+        // among the fifteen dials that "keep moving past a clamp the code applies at read time",
+        // and it is the one entry of the fifteen where that is not true: EffectiveTrayPitch clamps
+        // it ONLY in the LimitedPitch mode, against the LIVE per-board window; in the Free mode it
+        // returns the raw value, deliberately ("Free never clamps" — the board can end up upside
+        // down and that is the mode's whole point). A declared AcceptableValueRange would be a
+        // NARROWING, and worse, it would clamp what the GESTURE writes: PlayTray.3.Pose persists
+        // whatever pitch you released the handle bar at. The live cfg carries 45.13076, a value
+        // his own grab authored. So this row stays honest as it is, and the fifteenth range is
+        // not declared — see the report for the audit correction.
         TrayPitch = _file.Bind("Cards", "TrayPitch", Defaults.TrayPitch,
             "Item 12: the grab-authored board pitch, degrees ADDED to the per-board BoardTilt_<board> " +
             "(positive = more upright toward you). Written automatically when you release the handle " +

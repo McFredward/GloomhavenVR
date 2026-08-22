@@ -273,25 +273,19 @@ internal static class OpenXRBootstrap
         _features = [oculusTouch, valveIndex, khrSimple];
         OpenXRSettings.Instance.features = _features;
 
-        // Stereo render mode. MultiPass is the default and the only mode that renders correctly
-        // on this game — StereoModeConfig carries the evidence (no stereo shader variants in
-        // either the game's shipped shaders or the mod's bundle, plus the stereo flat screen's
-        // hard dependency on two passes per frame). The entry exists so a future stereo-aware
-        // bundle can be tested without a rebuild; the mapping happens HERE because this is the
-        // one place the XR assemblies are guaranteed resolvable (class doc).
-        StereoModeConfig.Mode wantedStereo = StereoModeConfig.Current;
-        OpenXRSettings.Instance.renderMode = wantedStereo == StereoModeConfig.Mode.SinglePassInstanced
-            ? OpenXRSettings.RenderMode.SinglePassInstanced
-            : OpenXRSettings.RenderMode.MultiPass;
-        if (wantedStereo == StereoModeConfig.Mode.SinglePassInstanced)
-        {
-            VRLog.Warn("Core", "[Stereo] RenderMode = SinglePassInstanced requested. This game's shaders " +
-                               "ship WITHOUT stereo variants (proven by disassembly, tools/ShaderDisasm/) " +
-                               "and the mod's stereo flat screen assumes two eye passes per frame — expect " +
-                               "a black or duplicated right eye and mono 2D menus. Set [Stereo] RenderMode " +
-                               "back to MultiPass in dev.gloomhavenvr.stereo.cfg (or via Debug in the VR " +
-                               "settings) and restart to recover.");
-        }
+        // Stereo render mode. MultiPass is the only mode that renders correctly on this game —
+        // StereoModeConfig carries the evidence (no stereo shader variants in either the game's
+        // shipped shaders or the mod's bundle, plus the stereo flat screen's hard dependency on
+        // two passes per frame). It used to be [Stereo] RenderMode, a dial whose other value
+        // shipped a black right eye at the next start; the 2026-08-22 settings audit made it a
+        // constant ("Etwas was das spiel kaputt macht wenn man es umstellt ist nicht optional und
+        // sollte daher nicht einstellbar sein"). The mapping still happens HERE because this is
+        // the one place the XR assemblies are guaranteed resolvable (class doc), and it is still a
+        // mapping rather than a literal so that flipping the one constant is the whole change.
+        OpenXRSettings.Instance.renderMode =
+            StereoModeConfig.Current == StereoModeConfig.Mode.SinglePassInstanced
+                ? OpenXRSettings.RenderMode.SinglePassInstanced
+                : OpenXRSettings.RenderMode.MultiPass;
         OpenXRSettings.Instance.depthSubmissionMode = OpenXRSettings.DepthSubmissionMode.None;
     }
 

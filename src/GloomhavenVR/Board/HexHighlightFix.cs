@@ -147,17 +147,68 @@ internal static class HexHighlightFix
 
     // -------- config (own file: dev.gloomhavenvr.hexhighlight.cfg) --------
 
-    internal static ConfigEntry<bool>? SwapStableShader;
-    internal static ConfigEntry<int>? StableZTest;
-    internal static ConfigEntry<float>? StableDepthBias;
-    internal static ConfigEntry<bool>? KillBorderFlame;
-    internal static ConfigEntry<bool>? KillCrosshair;
+    // ---------------------------------------------------------------------------------------
+    //  FIVE OF THESE WERE DIALS UNTIL THE 2026-08-22 SETTINGS AUDIT. User, verbatim:
+    //  "a) Lösche alle Einstellungen die das Spiel breaken könnten wenn die verändert werden.
+    //  Etwas was das spiel kaputt macht wenn man es umstellt ist nicht optional und sollte daher
+    //  nicht einstellbar sein." Every one of them decided how the TARGETING HIGHLIGHT draws —
+    //  the graphic that says which field you are about to act on — and each had a reachable value
+    //  that removes it. They are constants now; the tuning they were opened for is done and its
+    //  answers are the numbers below.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// Replace the hex highlight's <c>OmniDecal_Shd</c> with the mod's stereo-stable
+    /// <c>GloomhavenVR/HexDecalStable</c> (same look, no screen-space depth reconstruction).
+    /// ALWAYS ON.
+    ///
+    /// <para>Harm, and the value that causes it: <c>false</c> restores the per-eye "reflection"
+    /// that swims with head movement — a stereo-rivalry defect on the one graphic a player has to
+    /// read to aim. It is also the gate the three Kill* fallbacks hang on, so one toggle changed
+    /// what four other rows meant.</para>
+    /// </summary>
+    private const bool SwapStableShader = true;
+
+    /// <summary>
+    /// ZTest (<c>UnityEngine.Rendering.CompareFunction</c>) applied to the stable hex decal.
+    /// 4 = LEqual: the shader exports the true floor-point depth per pixel (SV_Depth), so figures
+    /// standing on the hex and walls in front occlude the highlight like normal geometry.
+    ///
+    /// <para>Harm, and the value that causes it: this was a RAW ENUM INTEGER on an unbounded
+    /// stepper. Only 4 and 8 (Always — the vanilla draw-through, still the code's own fallback
+    /// below) mean anything; <c>0</c> is CompareFunction.Never, i.e. THE HEX HIGHLIGHT NEVER
+    /// DRAWS and you cannot see which field you are targeting. Eight of the nine reachable low
+    /// values are wrong and nothing in the row said so.</para>
+    /// </summary>
+    private const int StableZTest = 4;
+
+    /// <summary>
+    /// Camera-ward depth-buffer-space bias added to the stable hex decal's exported depth, so it
+    /// does not z-fight the tile floor it lies on.
+    ///
+    /// <para>Not a preference in any sense a player can hold: a depth-buffer epsilon of 0.0002,
+    /// which the menu stepped in units of 0.000005. Removed as a row for that reason, not because
+    /// a wrong value is catastrophic — at the far end the highlight bleeds over the bottom of
+    /// figure bases, at the near end it speckles.</para>
+    /// </summary>
+    private const float StableDepthBias = 0.0002f;
+
+    // The FALLBACK mitigations, used only when the swap above could not happen (an older bundle
+    // without HexDecalStable, or a swap that threw): zero the two DECORATIVE layers that swim.
+    // They were dials, and their off state simply reinstated the swimming they exist to remove —
+    // on a path that only runs when the proper fix is already unavailable. NOTE, against the
+    // audit that proposed deleting them outright as "unreachable by construction": they are NOT
+    // unreachable. TrySwapStable can fail, and this is the only mitigation left when it does.
+    private const bool KillBorderFlame = true;
+    private const bool KillCrosshair = true;
+
     // [HexHighlight] KillBorderLine and KillFill are GONE (user ruling 2026-08-13). Both were
     // bisect knobs whose ON state ERASES the targeting readout itself — the hex outline and the
     // soft fill that say WHICH field you are about to act on ("this removes most of the
     // highlight", its own description). A diagnostic that can blank the selection marker is not
     // an optional content setting. The two knobs that survive (KillBorderFlame, KillCrosshair)
     // only remove the DECORATIVE swimming layers and are the shipped fallback mitigation.
+
     internal static ConfigEntry<bool>? LogMaterialDump;
 
     private static ConfigFile? _file;
@@ -168,39 +219,12 @@ internal static class HexHighlightFix
             return;
         ConfigFile config = _file = ModuleConfig.Create("hexhighlight");
 
-        SwapStableShader = config.Bind(
-            "HexHighlight", "SwapStableShader", Defaults.SwapStableShader,
-            "Replace the hex highlight's OmniDecal_Shd with the mod's stereo-stable " +
-            "GloomhavenVR/HexDecalStable (same look, no screen-space depth reconstruction " +
-            "— removes the per-eye 'reflection' that swims with head movement). When the " +
-            "shader is missing from an older bundle, the Kill* knobs below apply instead.");
-        StableZTest = config.Bind(
-            "HexHighlight", "StableZTest", Defaults.StableZTest,
-            "ZTest (UnityEngine.Rendering.CompareFunction) applied to the stable hex decal. " +
-            "4 = LEqual (default): the shader exports the true floor-point depth per pixel " +
-            "(SV_Depth), so figures standing on the hex and walls in front occlude the " +
-            "highlight like normal geometry. 8 = Always: vanilla behavior — the highlight " +
-            "draws through everything (on-device fallback if the depth export misbehaves). " +
-            "Re-applied on every highlight state change, so edits take effect live.");
-        StableDepthBias = config.Bind(
-            "HexHighlight", "StableDepthBias", Defaults.StableDepthBias,
-            "Camera-ward depth-buffer-space bias added to the stable hex decal's exported " +
-            "depth. Prevents z-fighting speckle against the tile floor the highlight lies " +
-            "on. Raise slightly if the highlight speckles/dropouts; lower toward 0 if it " +
-            "visibly bleeds over the very bottom of figure bases.");
-        KillBorderFlame = config.Bind(
-            "HexHighlight", "KillBorderFlame", Defaults.KillBorderFlame,
-            "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
-            "_BorderFlameIntensity on hex highlight materials (OmniDecal_Shd). Kills the " +
-            "animated border-flame layer — the screen-space depth-projected layer that " +
-            "swims with head movement in VR. The white fill and border line stay.");
-        KillCrosshair = config.Bind(
-            "HexHighlight", "KillCrosshair", Defaults.KillCrosshair,
-            "FALLBACK (used only when the stable shader swap is off/unavailable): zero " +
-            "_CrossHair. Kills the pulsing target-frame/crosshair graphic projected " +
-            "INSIDE the hex during target selection — same swimming projection.");
-        // KillBorderLine / KillFill: not bound any more (user ruling 2026-08-13) — the border
-        // ring and the white fill are the selection readout and are never zeroed now.
+        // SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame / KillCrosshair
+        // were bound here. All five are CONSTANTS since the 2026-08-22 settings audit — see the
+        // constants at the top of this class for what each one used to be able to do to the
+        // targeting highlight. KillBorderLine / KillFill: not bound since the 2026-08-13 user
+        // ruling — the border ring and the white fill are the selection readout and are never
+        // zeroed now.
         LogMaterialDump = config.Bind(
             "HexHighlight", "LogMaterialDump", Defaults.LogMaterialDump,
             "Log the hex highlight material's shader name and full property dump for the " +
@@ -547,7 +571,7 @@ internal static class HexHighlightFix
                     DumpMaterial(mat);
                 }
 
-                if (SwapStableShader?.Value == true && TrySwapStable(mat, __instance))
+                if (SwapStableShader && TrySwapStable(mat, __instance))
                 {
                     // Stable shader active: the layers no longer swim, so the kill
                     // knobs are bypassed and the full vanilla look returns.
@@ -561,9 +585,9 @@ internal static class HexHighlightFix
 
                 // Fallback: previous least-invasive mitigation (swap off or shader
                 // missing from an old bundle) — zero the swimming layers.
-                if (KillBorderFlame?.Value == true)
+                if (KillBorderFlame)
                     mat.SetFloat(BorderFlameIntensity, 0f);
-                if (KillCrosshair?.Value == true)
+                if (KillCrosshair)
                     mat.SetFloat(CrossHair, 0f);
                 // The border ring (_BorderLineIntensity) and the fill (_HexIntensity) are
                 // never touched: they ARE the "which hex" readout (user ruling 2026-08-13).
@@ -628,20 +652,17 @@ internal static class HexHighlightFix
         /// </summary>
         private static void ApplyOcclusionKnobs(Material mat)
         {
-            int zTest = StableZTest?.Value ?? 4;
-            mat.SetFloat(VRZTest, zTest);
-            float bias = StableDepthBias?.Value ?? 0.0002f;
-            mat.SetFloat(VRDepthBias, bias);
-            if (_lastLoggedZTest != zTest)
+            mat.SetFloat(VRZTest, StableZTest);
+            mat.SetFloat(VRDepthBias, StableDepthBias);
+            // ONE line per session now, not one per change: both numbers are constants since the
+            // 2026-08-22 settings audit, so there is no longer a change to report — only the fact
+            // of which occlusion contract this build ships, which a hardware log still needs.
+            if (_lastLoggedZTest != StableZTest)
             {
-                _lastLoggedZTest = zTest;
-                string meaning = zTest switch
-                {
-                    4 => "LEqual — highlight occluded by figures/walls via per-pixel depth export",
-                    8 => "Always — vanilla draw-through",
-                    _ => "custom CompareFunction",
-                };
-                VRLog.Info(Scope, $"stable hex decal ZTest={zTest} ({meaning}), depthBias={bias:0.######}.");
+                _lastLoggedZTest = StableZTest;
+                VRLog.Info(Scope, $"stable hex decal ZTest={StableZTest} (LEqual — highlight " +
+                                  "occluded by figures/walls via per-pixel depth export), " +
+                                  $"depthBias={StableDepthBias:0.######}; both fixed in code.");
             }
         }
     }

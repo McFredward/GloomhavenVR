@@ -82,8 +82,12 @@ internal static partial class Defaults
     internal const bool ScrollWithStickOnly = true;                          // => [Hands] ScrollWithStickOnly
     internal const float LaserFingerOffsetMeters = 0.02f;                    // => [Hands] LaserFingerOffsetMeters
     internal const string HandColor = "D9C9B5";                              // => [Hands] HandColor
-    internal static readonly Color VoidColor = new Color(0f, 0f, 0f, 1f);    // => [Rig] VoidColor
-    internal const bool ForwardRendering = true;                             // => [Rig] ForwardRendering
+    // [Rig] VoidColor and [Rig] ForwardRendering had their lines here. Both were UNBOUND by the
+    // 2026-08-22 settings audit ("Etwas was das spiel kaputt macht wenn man es umstellt ist nicht
+    // optional") and their values now live as constants on Plugin, where the code that reads them
+    // is — a default belongs to a SETTING, and neither is one any more. rebase-defaults.py will
+    // list both as UNMAPPED for as long as an old cfg still carries the keys; that is the honest
+    // report, not a regression.
     internal const bool Dev_Enabled = false;                                 // => [Dev] Enabled
     internal const bool Overlay = true;                                      // => [Dev] Overlay
     internal const bool SimulateHands = false;                               // => [Dev] SimulateHands

@@ -227,7 +227,7 @@ internal sealed partial class VRRigDriver
     {
         if (_camera == null || _camera.clearFlags != CameraClearFlags.SolidColor)
             return;
-        Color wanted = Plugin.VoidColor.Value;
+        Color wanted = Plugin.VoidColor;
         if (_camera.backgroundColor != wanted)
             _camera.backgroundColor = wanted;
     }
@@ -332,7 +332,7 @@ internal sealed partial class VRRigDriver
         else
         {
             _camera.clearFlags = CameraClearFlags.SolidColor;
-            _camera.backgroundColor = Plugin.VoidColor.Value; // [Rig] VoidColor, default black
+            _camera.backgroundColor = Plugin.VoidColor; // black; a constant since the 2026-08 audit
         }
         // FOV is owned by the XR display (per-eye projection) — no need to copy.
         _camera.stereoTargetEye = StereoTargetEyeMask.Both;
@@ -347,9 +347,13 @@ internal sealed partial class VRRigDriver
         // BEFORE the wipe) — which is exactly the observed split. FORWARD rendering restores strict
         // per-queue order: the reset (1001) runs BEFORE the walls (1900+), the walls overwrite it, the
         // depth buffer keeps the walls, and transparents occlude correctly (the reset's original
-        // design assumption). Config-gated so forward's per-object light limit can be reverted if the
-        // dungeon lighting regresses.
-        if (Plugin.ForwardRendering.Value)
+        // design assumption). It used to be config-gated so forward's per-object light limit could
+        // be reverted; the 2026-08-22 settings audit made it a constant, because OFF reinstated
+        // this very defect AND silently disabled the curated MSAA row ([RenderQuality] MsaaLevel
+        // "Requires the forward rendering path"), and it only took effect at the next start — see
+        // Plugin.ForwardRendering for the full argument. The lighting trade it was gated for has
+        // its own live dial, [RenderQuality] PixelLightCount.
+        if (Plugin.ForwardRendering)
             _camera.renderingPath = RenderingPath.Forward;
 
         // OCCLUSION (the fire/glow-through-walls saga, final root cause): the game's VFX shaders

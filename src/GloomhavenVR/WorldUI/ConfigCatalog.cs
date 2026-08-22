@@ -254,7 +254,10 @@ internal static class ConfigCatalog
         Bind("comfort", Rig.ComfortSettings.Bind);
         Bind("perf", PerfConfig.Bind);
         Bind("renderquality", Rig.RenderQuality.Bind);
-        Bind("stereo", StereoModeConfig.Bind);
+        // "stereo" stood here for [Stereo] RenderMode, the ONE entry that file ever held. The
+        // 2026-08-22 settings audit made it a constant (Core/StereoModeConfig: MultiPass is the
+        // only mode that renders correctly in this game, and SinglePassInstanced is a black right
+        // eye applied at session creation), so there is no stereo module to force-bind any more.
         Bind("mixedreality", MixedReality.Bind);
         Bind("wallfade", WallFadeTuning.Bind);
         Bind("worldui", WorldUIConfig.Bind);
@@ -377,6 +380,19 @@ internal static class ConfigCatalog
     /// "LEGACY — no effect" in their description would be a lie to whoever reads the config file.
     /// They are simply unreachable in a normal install, and a control the player can move with
     /// nothing to show for it is worse than no control at all.</para>
+    ///
+    /// <para>THE 2026-08-22 SETTINGS AUDIT ADDED THE SECOND HALF OF THIS TABLE (user, verbatim):
+    /// <i>"a) Lösche alle Einstellungen die das Spiel breaken könnten wenn die verändert werden.
+    /// Etwas was das spiel kaputt macht wenn man es umstellt ist nicht optional und sollte daher
+    /// nicht einstellbar sein."</i> The test applied, literally: <b>is there a value inside the
+    /// allowed range that leaves the player unable to play, or unable to undo the change from
+    /// inside the headset?</b> Every entry below names the harm and the value that causes it, so a
+    /// future reader can check the judgement rather than take it. Twelve further entries of that
+    /// sweep were not hidden but UNBOUND — where the value was never a choice at all, the constant
+    /// now stands in the code that reads it (Core/StereoModeConfig, Plugin.cs, Rig/RenderQuality,
+    /// WorldUI/WorldUIConfig, Board/HexHighlightFix), each with the same argument written beside
+    /// it. Nothing here loses its cfg key: a hand-edit still works and the file still round-trips,
+    /// which is what keeps a genuine escape hatch an escape hatch.</para>
     /// </summary>
     private static readonly Dictionary<string, string> NotOffered = new(StringComparer.Ordinal)
     {
@@ -401,6 +417,95 @@ internal static class ConfigCatalog
         ["SquareCaps/Height"] = "one-time migration source, consumed at first start",
         ["SquareCaps/Depth"] = "one-time migration source, consumed at first start",
         ["SquareCaps/Travel"] = "one-time migration source, consumed at first start",
+
+        // ==========================================================================================
+        //  2026-08-22 audit (a) — "Lösche alle Einstellungen die das Spiel breaken könnten"
+        // ==========================================================================================
+
+        // ---- 1. Not settings at all: internal state and one-shot markers -----------------------
+        // Three of these are literally captioned "Interne Marke" with the bound description "Do not
+        // edit.", and the menu showed them as ordinary toggles BETWEEN REAL SETTINGS. Setting one
+        // back to false does not undo its migration — it RE-ARMS it, and the migration then fires
+        // again on the next start against values the player has since tuned.
+        ["Cards/BoardScaleDefault04Applied"] = "internal one-shot marker — false re-arms the "
+            + "migration that rewrites any BoardScale_<board> sitting at exactly 1.0 to 0.4 "
+            + "(CardsConfig.cs:1292-1310): the board changes size on its own at the next start",
+        ["Cards/DecisionOffsetYRebased"] = "internal one-shot marker — false re-arms the "
+            + "DecisionOffset_*.y re-base (CardsConfig.cs:1327-1345)",
+        ["Comfort/TableScaleDefault25Applied"] = "internal one-shot marker — false re-arms the "
+            + "2.5x table-scale migration (ComfortSettings.cs:414-427), which moves the world out "
+            + "from under a player who had already scaled it by hand",
+        ["Comfort/SavedScaleMultiplier"] = "an OUTPUT, not a setting: written automatically after "
+            + "every two-grip scale gesture, so a menu edit is overwritten by the next pinch and "
+            + "only shows at all on a rig rebuild — a control that visibly does nothing",
+        ["WorldUI/CombatLogUserClosed"] = "runtime state of the combat log's own X button; the "
+            + "curated row 'Kampflog anzeigen' ([WorldUI] CombatLog) already owns that decision, "
+            + "and two rows for one thing — one of them named after the player's last click — is "
+            + "how a log that is on reads as off",
+
+        // ---- 2. Kill switches for the mod and the VR bootstrap ---------------------------------
+        // All read once at plugin Awake / XR bootstrap (IsStartupOnly says so by name), so the
+        // change lands AT THE NEXT START, inside a headset that will no longer come up. There is no
+        // route back except editing a .cfg on the desktop — which is exactly why the KEYS stay.
+        ["General/Enabled"] = "the only switch that turns VR off for good, and the only UI that "
+            + "could turn it back on is this menu, which then no longer exists: false is "
+            + "unrecoverable from inside the headset. It stays in the .cfg, where a kill switch "
+            + "belongs",
+        ["Core/RuntimePriority"] = "picking a runtime the machine does not have ends XR init — no "
+            + "session, no VR (e.g. 'steamvr' on a VDXR-only rig), and it applies at the next start",
+        ["Core/SkipRuntimeCandidates"] = "an escape hatch by its own first word: true removes the "
+            + "candidate failover that is what makes VR come up at all on most setups",
+        ["Core/InitDelayFrames"] = "an unbounded int read once at bootstrap — a large value simply "
+            + "means the mod never initialises, with nothing on screen to say why",
+        ["General/RuntimeOverride"] = "a filesystem path, shown read-only, so it is a row a player "
+            + "can neither use nor understand; a wrong path costs the next start its runtime",
+
+        // ---- 3. Render-path, input-integrity and measurement dials ------------------------------
+        // The three below are the free-text / measured members of that family: they cannot be
+        // edited from the menu at all (read-only rows) or they configure a measurement, so they are
+        // pure noise on a page of settings. The dangerous half of the family was UNBOUND instead —
+        // see the class doc above.
+        ["Compat/DisableComponents"] = "free text (comma-separated component type names to "
+            + "disable) shown read-only — an unusable row, and a wrong name there disables a "
+            + "component the mod needs",
+        ["Optimize/HeadCullingMaskDrop"] = "free text shown read-only, and its own description says "
+            + "which layers are safe is A MEASUREMENT, not something that can be guessed: a wrong "
+            + "layer removes scene content from the headset only",
+        ["Optimize/HeadDepthPrepass"] = "a perf EXPERIMENT whose answer is measured, not preferred",
+        ["Optimize/HeadMaskFromScenarioCamera"] = "true rewrites the head camera's culling mask "
+            + "from the game's ScenarioCamera, which deliberately excludes thirteen layers — the "
+            + "content disappears in the headset while the desktop mirror still shows it",
+        ["HexHighlight/LogMaterialDump"] = "a logging switch, not a setting",
+
+        // ---- 4. Mixed-Reality internals whose OWN descriptions say they are not choices ---------
+        // A plain bug, not a judgement call: all three carry the sentence "not offered in the VR
+        // menu" in their bound description and were offered anyway, because only their sibling
+        // HideSkyMeshes above was ever added to this table.
+        ["MixedReality/OpaquePreviewTiles"] = "its own words: PART OF MIXED REALITY, not a choice "
+            + "beside it (like HideSkyMeshes; not offered in the VR menu) — false makes the "
+            + "fog-of-war stacks blend with passthrough, the defect MR exists to avoid",
+        ["MixedReality/UnseenRegionMembership"] = "its own words: PART OF MIXED REALITY, not a "
+            + "choice beside it (like HideSkyMeshes; not offered in the VR menu)",
+        ["MixedReality/UnseenBackingDebugColors"] = "its own words: DIAGNOSTIC, turn this on only "
+            + "when asked for a screenshot — true deliberately makes the fog-of-war region look "
+            + "wrong (flat blue/magenta/red)",
+
+        // ---- 5. Developer-only switches ---------------------------------------------------------
+        // None of these is a preference, several are actively hostile if flipped, and none was
+        // gated behind [Dev] Enabled in the menu — every one was an ordinary row between settings a
+        // player is meant to touch. They stay hand-editable, which is all a developer needs.
+        ["Dev/Enabled"] = "developer switch — not a preference",
+        ["Dev/Overlay"] = "developer switch — the on-screen debug overlay",
+        ["Dev/SimulateHands"] = "developer switch — fakes controller poses over the real ones",
+        ["Dev/InputDeviceDumpInterval"] = "developer switch — periodic input-device dump into the log",
+        ["WorldUI/DevShowAllPanels"] = "developer switch — forces every panel visible at once",
+        ["WorldUI/DevForceConvert"] = "developer switch — forces canvas conversion on everything",
+        ["Comfort/DebugGizmos"] = "developer switch — draws comfort gizmos into the scene",
+        ["Hands/TestFist"] = "true forces a FULL fist (curl 1.0 on all five fingers of both hands) "
+            + "regardless of controller input: no pointing, no fingertip hex touch, no laser origin "
+            + "at the index tip — the mod's whole input vocabulary stops working, from a row called "
+            + "'Debug: Faust erzwingen'",
+        ["Cards/DevFakeHand"] = "spawns N dummy cards into the real card fan",
     };
 
     /// <summary>
@@ -782,7 +887,12 @@ internal static class ConfigCatalog
                     return key == "DisableComponents" ? ConfigTopic.System : ConfigTopic.Visual;
                 case "Rig":
                     // [Rig] is genuinely two things: where the world sits, and how it is drawn.
-                    return key is "VoidColor" or "ForwardRendering" or "Experimental3DMap"
+                    // VoidColor and ForwardRendering stood in this list until the 2026-08-22
+                    // settings audit UNBOUND both (a: "Etwas was das spiel kaputt macht wenn man es
+                    // umstellt ist nicht optional") — Experimental3DMap is what is left of the
+                    // "how it is drawn" half, and the test stays a list because the next such key
+                    // costs one word here rather than a second branch.
+                    return key is "Experimental3DMap"
                         ? ConfigTopic.Visual
                         : ConfigTopic.Movement;
                 default:
@@ -904,7 +1014,9 @@ internal static class ConfigCatalog
             "General" => key is "Enabled" or "RuntimeOverride",
             "Core" => true, // RuntimePriority / SkipRuntimeCandidates / InitDelayFrames: bootstrap only
             "Compat" => key is "DisablePostProcessing" or "DisableVolumetricFog" or "DisableComponents",
-            "Rig" => key is "ForwardRendering",
+            // [Rig] ForwardRendering was the one entry this arm existed for; it is a const since
+            // the 2026-08-22 settings audit (Plugin.cs) and there is nothing left in [Rig] whose
+            // read site was checked and found to be startup-only.
             "Dev" => key == "Enabled",
             _ => false,
         };
@@ -924,7 +1036,42 @@ internal static class ConfigCatalog
         ("Hands", "PrimaryHand") => new object[] { "Right", "Left" },
         ("WorldUI", "ModalStyle") => new object[] { "window", "screen" },
         ("Cards", "RevealMode") => new object[] { "tilt", "always" },
+
+        // THE FIVE CARD SOUNDS, 2026-08-22 audit (d): "Prüfe für jede Einstellung die
+        // Bedienmöglichkeit". They are game audio-item METHOD NAMES, so the generic classifier fell
+        // to ReadOnly and shipped five rows a player could read and not change — which is worse
+        // than no row, because it looks like a control that is broken. The option sets are not
+        // invented: each name is one the entry's OWN bound description already names as the shipped
+        // value or as a verified alternative "found in GH.Runtime", and all nine were re-checked
+        // against the decompiled game before being listed here (the rule this table's doc states:
+        // never cycle through values nobody verified). "Empty = silent" is deliberately NOT an
+        // option — a blank dropdown row reads as a bug; a cfg that carries "" stays honestly
+        // read-only, exactly as CuratedChoices' membership test promises.
+        ("Cards", "FanRevealSound") => CardSounds,
+        ("Cards", "FanHideSound") => CardSounds,
+        ("Cards", "CardGrabSound") => CardSounds,
+        ("Cards", "CardPlaceSound") => CardSounds,
+        ("Cards", "CardTakeBackSound") => CardSounds,
         _ => null,
+    };
+
+    /// <summary>
+    /// The card-sound option set — ONE list for all five entries, because the five moments they
+    /// mark are interchangeable by construction (any of these items can play at any of them) and
+    /// five near-identical lists would be five places for a typo. Ordered from the softest click to
+    /// the most emphatic, which is the order someone auditioning them wants.
+    /// </summary>
+    private static readonly object[] CardSounds =
+    {
+        "PlaySound_UICardTabSelect",
+        "PlaySound_CardUI_SelectCard",
+        "PlaySound_UIButtonSelect",
+        "PlaySound_EnemyCardDraw",
+        "PlaySound_CardUI_DiscardedCard",
+        "PlaySound_CardUI_BurnedCard",
+        "PlaySound_ScenarioUI_TileConfirm",
+        "PlaySound_UIUndoHex",
+        "PlaySound_ScenarioUIUndo",
     };
 
     // ==========================================================================================

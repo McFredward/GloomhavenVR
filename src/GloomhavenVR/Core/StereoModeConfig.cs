@@ -1,9 +1,7 @@
-using BepInEx.Configuration;
-
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// The OpenXR stereo render mode, as a plain mod-side choice.
+/// The OpenXR stereo render mode. A CONSTANT since the 2026-08-22 settings audit — not a choice.
 ///
 /// <para>WHY IT IS A STRING AND NOT <c>OpenXRSettings.RenderMode</c>: this type is read by the
 /// settings panel, which is JIT-compiled long before / independently of
@@ -43,20 +41,30 @@ namespace GloomhavenVR.Core;
 /// </list>
 ///
 /// <para>So this is a control that reliably breaks rendering, not a quality-against-smoothness
-/// compromise, and it therefore does not belong in the normal VR settings. It lives in the Debug
-/// pane so a future build with a stereo-aware shader bundle can be tested without a rebuild.
-/// Making it work would mean: adding the instancing macros to all five mod shaders, fixing
-/// <c>HexDecalStable</c>'s <c>_WorldSpaceCameraPos</c> term (per-eye under MultiPass, mono under
-/// SPI), enabling XR in the bundle project, reshipping the bundle — and authoring replacement
-/// shaders for every game shader in view, which is the part that makes this a project rather
-/// than a patch.</para>
+/// compromise. Making the other mode work would mean: adding the instancing macros to all five
+/// mod shaders, fixing <c>HexDecalStable</c>'s <c>_WorldSpaceCameraPos</c> term (per-eye under
+/// MultiPass, mono under SPI), enabling XR in the bundle project, reshipping the bundle — and
+/// authoring replacement shaders for every game shader in view, which is the part that makes this
+/// a project rather than a patch.</para>
 ///
-/// <para>Applied once, before the XR session is created, so a change needs a game restart.
-/// <see cref="OpenXRBootstrap"/> logs the mode that is actually active either way.</para>
+/// <para>IT WAS A SETTING UNTIL THE 2026-08-22 AUDIT, and it is now a constant. User, verbatim:
+/// <i>"a) Lösche alle Einstellungen die das Spiel breaken könnten wenn die verändert werden. Etwas
+/// was das spiel kaputt macht wenn man es umstellt ist nicht optional und sollte daher nicht
+/// einstellbar sein."</i> The harm and the value that caused it: <c>[Stereo] RenderMode =
+/// SinglePassInstanced</c> is applied when the XR session is created, so it lands at the NEXT
+/// START, and it lands as a black or duplicated right eye with every 2D menu, the campaign map and
+/// all video collapsed to mono — a broken picture with no error anywhere and no row left to undo
+/// it from, because the row lived in a menu you can no longer read. The three blockers above are
+/// facts about the shipped shaders, not a trade a player can weigh, so there is nothing here to
+/// decide. The evidence stays written down for the day a stereo-aware bundle exists: the one line
+/// to change is <see cref="Current"/>.</para>
+///
+/// <para>Applied once, before the XR session is created. <see cref="OpenXRBootstrap"/> logs the
+/// mode that is actually active either way.</para>
 /// </summary>
 internal static class StereoModeConfig
 {
-    /// <summary>Stereo render modes we are willing to ask the OpenXR plugin for, in cycle order.</summary>
+    /// <summary>Stereo render modes the OpenXR plugin can be asked for.</summary>
     internal enum Mode
     {
         /// <summary>One full scene traversal per eye. The shipping choice — the only one that renders correctly here.</summary>
@@ -66,57 +74,9 @@ internal static class StereoModeConfig
         SinglePassInstanced,
     }
 
-    private static ConfigFile? _file;
-    internal static ConfigEntry<string>? RenderMode;
-
-    /// <summary>Bind-once against the core module config (canonical <see cref="ModuleConfig"/> pattern).</summary>
-    internal static void Bind()
-    {
-        if (_file != null)
-            return;
-        _file = ModuleConfig.Create("stereo");
-        RenderMode = _file.Bind("Stereo", "RenderMode", Defaults.RenderMode, new ConfigDescription(
-            "OpenXR stereo render mode, applied when the XR session is created (needs a game restart). "
-            + "MultiPass renders the scene once per eye and is the ONLY mode that renders correctly in "
-            + "this game. SinglePassInstanced would roughly halve the scene traversal cost, but this "
-            + "game's shipped shaders contain no stereo variants (verified by disassembling them out of "
-            + "resources.assets — see tools/ShaderDisasm/), the mod's own bundle shaders contain none "
-            + "either, and the mod's stereo flat screen depends on the two-passes-per-frame contract, so "
-            + "the result is a black or duplicated right eye plus mono menus. It is offered for testing a "
-            + "future stereo-aware shader bundle, not as a performance setting.",
-            new AcceptableValueList<string>(nameof(Mode.MultiPass), nameof(Mode.SinglePassInstanced))));
-    }
-
-    /// <summary>The configured mode, defaulting to <see cref="Mode.MultiPass"/> for any unparseable value.</summary>
-    internal static Mode Current
-    {
-        get
-        {
-            Bind();
-            return string.Equals(RenderMode!.Value, nameof(Mode.SinglePassInstanced), System.StringComparison.OrdinalIgnoreCase)
-                ? Mode.SinglePassInstanced
-                : Mode.MultiPass;
-        }
-    }
-
-    // ---- settings-panel accessors (Debug pane cycle row) ------------------------------------
-
-    internal static string Label()
-    {
-        Bind();
-        return Current == Mode.SinglePassInstanced ? "Single-Pass" : "MultiPass";
-    }
-
-    internal static void Cycle()
-    {
-        Bind();
-        RenderMode!.Value = Current == Mode.MultiPass
-            ? nameof(Mode.SinglePassInstanced)
-            : nameof(Mode.MultiPass);
-        VRLog.Info("Core", $"Stereo render mode set to {RenderMode.Value} — takes effect on the next " +
-                           "game start (the XR session negotiates the mode once, at creation). " +
-                           "SinglePassInstanced is expected to render the right eye black/wrong on this " +
-                           "game: neither the game's shaders nor the mod's bundle shaders carry stereo " +
-                           "variants. See Core/StereoModeConfig for the evidence.");
-    }
+    /// <summary>
+    /// The mode the bootstrap asks for. A constant: see the class doc for why this is not a dial
+    /// and for what would have to ship before it could become one again.
+    /// </summary>
+    internal const Mode Current = Mode.MultiPass;
 }

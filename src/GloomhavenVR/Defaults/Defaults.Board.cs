@@ -44,11 +44,12 @@ internal static partial class Defaults
     internal static readonly float[] HeldRollDegrees_ByStyle = { GloveHeldRollDegrees, PlateHeldRollDegrees, ArcaneHeldRollDegrees };
 
     // ---- Board/HexHighlightFix.cs --------------------------------------------------
-    internal const bool SwapStableShader = true;     // => [HexHighlight] SwapStableShader
-    internal const int StableZTest = 4;              // => [HexHighlight] StableZTest
-    internal const float StableDepthBias = 0.0002f;  // => [HexHighlight] StableDepthBias
-    internal const bool KillBorderFlame = true;      // => [HexHighlight] KillBorderFlame
-    internal const bool KillCrosshair = true;        // => [HexHighlight] KillCrosshair
+    // [HexHighlight] SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame /
+    // KillCrosshair had their lines here. All five were UNBOUND by the 2026-08-22 settings audit
+    // ("Etwas was das spiel kaputt macht wenn man es umstellt ist nicht optional") — every one of
+    // them decided how the TARGETING HIGHLIGHT draws, and StableZTest = 0 (CompareFunction.Never)
+    // meant it did not draw at all. The values now live as constants in Board/HexHighlightFix,
+    // beside the code that applies them.
     // [HexHighlight] KillBorderLine / KillFill are GONE (user ruling 2026-08-13): switching
     // them ON erased the hex outline and fill — the readout that says which field you are
     // acting on. See Board/HexHighlightFix.cs.

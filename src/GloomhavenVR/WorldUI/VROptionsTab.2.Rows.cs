@@ -102,6 +102,18 @@ internal static partial class VROptionsTab
     private static readonly List<(TMP_Text label, Func<string> read)> ValueLabels = new(64);
 
     /// <summary>
+    /// Live BARS, refreshed with the labels for exactly the same reason: an edit that did not come
+    /// from the bar itself must still move the handle.
+    ///
+    /// <para>This is new work for the bar+arrows row (2026-08-22, question d) — pressing ◀ there
+    /// would otherwise move the number and leave the handle where the last drag put it, which is a
+    /// control disagreeing with itself. It is also a latent fix for the plain slider rows: the
+    /// catalog clamps against LIVE ranges, so one setting can move another (BoardPitchMin against
+    /// BoardPitchMax), and only the labels used to follow.</para>
+    /// </summary>
+    private static readonly List<(Slider bar, ConfigCatalog.ConfigItem item)> Sliders = new(32);
+
+    /// <summary>
     /// Components on a cloned row that belong to the GAME's binding of it. Matched by type NAME
     /// rather than by type: the navigation components live in an assembly the mod does not
     /// reference (they appear in the decompiled sources only as field types), so there is no symbol
@@ -845,6 +857,11 @@ internal static partial class VROptionsTab
         if (component == 0 && TryBuildSpecialRow(parent, item, caption, hintKey))
             return;
 
+        // …and a couple whose type is fine but whose VALUE SET is not what the generic ladder
+        // assumes (a six-position bar, a magic -1). See TryBuildWidgetOverrideRow.
+        if (component == 0 && TryBuildWidgetOverrideRow(parent, item, caption, hintKey))
+            return;
+
         if (item.Kind == ConfigCatalog.ConfigKind.Bool && BuildBoolRow(parent, item, caption, hintKey))
             return;
 
@@ -859,11 +876,186 @@ internal static partial class VROptionsTab
         // and a dial the user tunes to a number he can repeat needs the amount.
         if (item.Kind != ConfigCatalog.ConfigKind.Choice
             && item.HasRange && item.Components == 1 && item.Max > item.Min
-            && !PrefersStepper(item)
-            && BuildSliderRow(parent, item, caption, hintKey))
-            return;
+            && !PrefersStepper(item))
+        {
+            // BOTH, in one row, where the setting is one a player tunes to a value they want back.
+            if (PrefersBarAndArrows(item) && BuildBarAndArrowsRow(parent, item, caption, hintKey))
+                return;
+            if (BuildSliderRow(parent, item, caption, hintKey))
+                return;
+        }
 
         BuildStepperRow(parent, item, component, caption, hintKey);
+    }
+
+    /// <summary>
+    /// Bounded numbers that get the BAR AND THE ARROWS in one row instead of a bare bar.
+    ///
+    /// <para>USER QUESTION (2026-08-22, verbatim): <i>"d) Prüfe für jede EInstellung die
+    /// Bedienmöglichkeit, nicht jedes Felt macht sinn mit einer verschibaren Bar besonders wenn man
+    /// bis auf die Kommastellen etwas anpassen will."</i> He is right, and the evidence is in his
+    /// own dropped config file. <c>BuildSliderRow</c> sets <c>slider.wholeNumbers = item.Integral</c>,
+    /// so a FLOAT bar has no grid at all — infinitely many reachable values, none of them
+    /// repeatable. Nine slider rows in the shipped defaults carry a value with five or more
+    /// decimals, a shape no human types and no stepper can produce, and two of them say what
+    /// happened out loud: <c>[Cards] ActiveCardScale_Oak = 0.9999998</c> and
+    /// <c>[Cards] ClusterScale_Oak = 0.9999999</c> are two separate attempts to put a bar back on
+    /// 1.0 that could not be made.</para>
+    ///
+    /// <para>HIS RULING, after being offered arrows-only as the alternative: bar AND arrows in one
+    /// row — the bar for the coarse gesture, the arrows for the last step, the number in between.
+    /// It is also what his own older instruction about the travel-button offsets asked for ("die
+    /// Pfeile, wo man den echten Wert einfach einstellen kann"), only without giving up the fast
+    /// coarse move.</para>
+    ///
+    /// <para>WHAT IS IN THE TABLE. Two groups, and they are one rule: <b>a bounded number a player
+    /// tunes to a value they want back</b>.</para>
+    /// <list type="number">
+    /// <item>The 26 rows the settings audit named — every bounded scalar on a curated everyday tab
+    /// plus the window/board dials it is worth returning to. The sharpest two are
+    /// <c>Cards/BoardPitchMin_Steel</c> (−31.067) and <c>BoardPitchMax_Steel</c> (54.353): hand-set
+    /// numbers on a bar spanning 171 whole degrees, where one accidental brush used to lose the
+    /// tuning with no way back.</item>
+    /// <item>The fourteen entries that GAINED a declared range in the same pass (the clamps their
+    /// readers already applied — Handgröße, Brett: Größe, Vollgriff-Hilfe, the finger angles, the
+    /// stereo-screen trio, …). They were steppers. Without this table a declared range would have
+    /// silently demoted them to a gridless bar, i.e. it would have introduced the very defect this
+    /// row builder exists to remove. Here they keep their arrows and gain a bar.</item>
+    /// </list>
+    ///
+    /// <para>Per-board members are matched by their STEM (<c>BoardPitchMin_Oak</c> →
+    /// <c>BoardPitchMin</c>), so a fourth control board resolves by existing, with no edit here —
+    /// the same rule <see cref="ConfigSteps.TryUnit"/> follows.</para>
+    ///
+    /// <para>A table rather than a branch, and it lives HERE rather than beside
+    /// <c>PrefersStepper</c> in VROptionsTab.4.Curated.cs, because it is not a statement about the
+    /// curated list: entries from six config files are in it, most of them reachable only through
+    /// Erweitert.</para>
+    /// </summary>
+    private static readonly HashSet<string> BarAndArrowKeys = new(StringComparer.Ordinal)
+    {
+        // ---- the 26 the audit named ---------------------------------------------------------
+        "RenderQuality/EyeResolutionScale",
+        "WorldUI/BarSizeScale",
+        "Net/MaskSize",
+        "WorldUI/ScreenWidth",
+        "WorldUI/ScreenDistance",
+        "Cards/CardWidth",
+        "Cards/InspectScale",
+        "WorldUI/HoverInfoScale",
+        "WorldUI/WindowLegibility",
+        "WorldUI/PanelSupersampleFactor",
+        "WorldUI/PanelMipLodOffset",
+        "Elements/ResponseStrength",
+        "EnvSound/Gain",
+        "EnvSound/AmbienceBedGain",
+        "Haunt/Frequency",
+        "Comfort/RecenterHoldSeconds",
+        "Comfort/ScaleMin",
+        "Comfort/ScaleMax",
+        "Comfort/SmoothTurnSpeed",
+        "Comfort/FlightMaxSpeed",
+        // per-board stems: BoardPitchMin_Oak / _Steel / _Bronze and their Max twins (6 entries)
+        "Cards/BoardPitchMin",
+        "Cards/BoardPitchMax",
+
+        // ---- the fourteen that gained a declared range in the same pass ----------------------
+        "Hands/GloveScale",
+        "Hands/PlateScale",
+        "Hands/ArcaneScale",
+        "Cards/TrayScale",
+        "Hands/CurlInputFullAt",
+        "Hands/CurlProximal",
+        "Hands/CurlMiddle",
+        "Hands/CurlTip",
+        "Hands/GlovePinkyCounterAbduction",
+        "Board/AoeFlickThreshold",
+        "WorldUI/CombatLogScale",
+        "WorldUI/ScreenDepthStrength",
+        "WorldUI/ScreenParallaxScale",
+        "WorldUI/VideoDepth",
+    };
+
+    private static bool PrefersBarAndArrows(ConfigCatalog.ConfigItem item)
+    {
+        if (BarAndArrowKeys.Contains(item.Section + "/" + item.Key))
+            return true;
+        int tag = item.Key.LastIndexOf('_');
+        return tag > 0
+               && BarAndArrowKeys.Contains(item.Section + "/" + item.Key.Substring(0, tag));
+    }
+
+    /// <summary>The snap-turn angles anyone actually wants — <see cref="ConfigSteps"/>'s own words.</summary>
+    private static readonly float[] SnapTurnPresets = { 15f, 30f, 45f, 60f, 90f };
+
+    /// <summary>
+    /// Two rows whose TYPE is an ordinary bounded number but whose VALUE SET is not a continuum,
+    /// so the generic ladder's bar is wrong for a reason no range can express (2026-08-22 audit,
+    /// question d: <i>"nicht jedes Felt macht sinn mit einer verschibaren Bar"</i>).
+    ///
+    /// <list type="number">
+    /// <item><b><c>[Comfort] SnapTurnDegrees</c> → a named-preset dropdown.</b> Declared 15…90, and
+    /// <see cref="ConfigSteps"/> writes its step down as 15° with the argument "15/30/45/60/90 are
+    /// the angles anyone actually wants". That is SIX positions, and a six-position bar is a
+    /// dropdown drawn badly: at arm's length the ray lands wherever it lands and 43° is as
+    /// reachable as 45°. A value that is not on the list (a hand-edited cfg) is not swallowed —
+    /// it gets its own trailing entry naming the raw number, exactly as the head-mask row does,
+    /// and nothing is written until a real angle is picked.</item>
+    /// <item><b><c>[RenderQuality] PixelLightCount</c> → a labelled stepper.</b> Its −1 means "leave
+    /// the game's own value alone", which is what ships — a MAGIC VALUE at one end of the bar that
+    /// a bar cannot label, so the row read "-1" and said nothing. As a stepper it steps one light
+    /// at a time (the written-down step) and the readout says "Standard" at −1.</item>
+    /// </list>
+    /// </summary>
+    private static bool TryBuildWidgetOverrideRow(Transform parent, ConfigCatalog.ConfigItem item,
+                                                  string? caption, string? hintKey)
+    {
+        if (string.Equals(item.Section, "Comfort", StringComparison.Ordinal)
+            && string.Equals(item.Key, "SnapTurnDegrees", StringComparison.Ordinal))
+        {
+            float now = ReadNumber(item);
+            int offered = SnapTurnPresets.Length;
+            var names = new string[offered];
+            int current = -1;
+            for (int i = 0; i < offered; i++)
+            {
+                names[i] = SnapTurnPresets[i].ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "°";
+                if (Mathf.Abs(SnapTurnPresets[i] - now) < 0.01f)
+                    current = i;
+            }
+
+            if (current < 0)
+            {
+                // AN ANGLE WE DO NOT OFFER IS SHOWN, NOT SWALLOWED (the [Net] MaskId rule): a cfg
+                // hand-edited to 37° would otherwise be silently rewritten to 15° by the dropdown's
+                // own clamp on the first press.
+                var widened = new string[offered + 1];
+                names.CopyTo(widened, 0);
+                widened[offered] = now.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "°?";
+                current = offered;
+                names = widened;
+            }
+
+            BuildPresetRow(parent, item, caption, hintKey, names, current,
+                           index =>
+                           {
+                               if (index >= 0 && index < offered)
+                                   WriteNumber(item, SnapTurnPresets[index]); // BepInEx persists on set
+                           });
+            return true;
+        }
+
+        if (string.Equals(item.Section, "RenderQuality", StringComparison.Ordinal)
+            && string.Equals(item.Key, "PixelLightCount", StringComparison.Ordinal))
+        {
+            BuildStepperRow(parent, item, component: 0, caption, hintKey,
+                            readValue: () => Mathf.RoundToInt(ReadNumber(item)) < 0
+                                ? Loc.Mod("cfg_default")
+                                : ConfigCatalog.ValueText(item, 0));
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>The game's own switch, rebound to the catalog entry.</summary>
@@ -989,17 +1181,146 @@ internal static partial class VROptionsTab
         // by a second one. See BindValueLabels for why it is now EVERY such label and not the
         // first one; that is the fix for the "50/50" report's SECOND occurrence (2026-08-13).
         BindValueLabels(row, title, item, component: 0);
+        Sliders.Add((slider, item));
 
         AttachTooltip(row, item, title, hintKey);
         return true;
     }
 
     /// <summary>
+    /// THE ANSWER TO QUESTION (d): the game's own slider and the stepper's two arrows in ONE row.
+    ///
+    /// <para>Layout is <c>◀ [ bar ] ▶</c>, and the number sits inside the bar — the donor slider
+    /// ('Master Volume') carries its own amount label, which <see cref="BindValueLabels"/> rebinds
+    /// to the live value, so there is exactly ONE readout in the row and it cannot drift between
+    /// the two inputs. That is the shape the user asked for: <i>Balken zum groben Ziehen, Pfeile
+    /// für die letzte Kommastelle, Zahl dazwischen</i>.</para>
+    ///
+    /// <para>THE BAR SNAPS TO THE STEP, and that is the actual fix rather than a decoration. A
+    /// float bar is gridless (<see cref="BuildSliderRow"/>: <c>wholeNumbers = item.Integral</c>),
+    /// which is how <c>0.9999998</c> got written into a shipped default by somebody aiming at 1.0.
+    /// Here a drag lands on <c>Min + n × step</c> — the same step one arrow press moves, from
+    /// <see cref="ConfigSteps"/> — so a coarse drag and a fine press speak the same units, every
+    /// value the bar can reach is one the arrows can return to, and a round number is reachable by
+    /// hand. The grid is anchored at <c>Min</c>, not at the current value, so it does not drift as
+    /// you tune.</para>
+    ///
+    /// <para>A VALUE ALREADY OFF THE GRID IS NOT TOUCHED until the player moves this control:
+    /// nothing is written on build, and the arrows keep <see cref="ConfigCatalog.Step"/>'s plain
+    /// add. So a hand-tuned <c>−31.067</c> still reads and still ships; it is only a deliberate
+    /// drag that puts the value onto the grid, which is the one moment the player IS choosing a
+    /// new number.</para>
+    ///
+    /// <para>Returns false the same way <see cref="BuildSliderRow"/> does — a donor without a
+    /// harvestable slider falls through to the stepper rather than leaving an empty row.</para>
+    /// </summary>
+    private static bool BuildBarAndArrowsRow(Transform parent, ConfigCatalog.ConfigItem item,
+                                             string? caption, string? hintKey)
+    {
+        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
+        if (option == null || _sliderControl == null)
+        {
+            UnityEngine.Object.Destroy(row);
+            Rows.Remove(row);
+            return false;
+        }
+
+        if (title != null)
+        {
+            title.text = Caption(item, caption);
+            ApplyOptionCaption(title);
+            IndentDependent(title, item);
+            ProbeCaptionFit(title, item.Key);
+        }
+
+        // The holder is cleared IMMEDIATELY (not deferred) for the reason PlaceControl documents:
+        // a Destroy that defers to end of frame leaves the dying toggle's own label as the first
+        // TMP in the row, and the readout binds to a label that is gone one frame later ("50/50").
+        option.gameObject.SetActive(true);
+        for (int i = option.childCount - 1; i >= 0; i--)
+            UnityEngine.Object.DestroyImmediate(option.GetChild(i).gameObject);
+
+        var strip = (RectTransform)new GameObject("BarAndArrows", typeof(RectTransform)).transform;
+        strip.SetParent(option, worldPositionStays: false);
+        strip.anchorMin = Vector2.zero;
+        strip.anchorMax = Vector2.one;
+        strip.offsetMin = Vector2.zero;
+        strip.offsetMax = Vector2.zero;
+
+        var layout = strip.gameObject.AddComponent<HorizontalLayoutGroup>();
+        layout.childAlignment = TextAnchor.MiddleCenter;
+        layout.spacing = 6f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
+
+        BuildArrow(strip, flip: true, () => Edit(item, 0, -1));
+
+        // The bar gets its own holder so PlaceControl can stretch the harvested slider into it
+        // while the layout group decides how wide "it" is: the arrows keep their 26 px, the bar
+        // takes everything left over.
+        var barHolder = (RectTransform)new GameObject("Bar", typeof(RectTransform)).transform;
+        barHolder.SetParent(strip, worldPositionStays: false);
+        LayoutElement barSize = barHolder.gameObject.AddComponent<LayoutElement>();
+        barSize.flexibleWidth = 1f;
+        barSize.preferredHeight = 26f;
+
+        Slider? slider = PlaceControl<Slider>(barHolder, _sliderControl);
+        if (slider == null)
+        {
+            UnityEngine.Object.Destroy(row);
+            Rows.Remove(row);
+            return false;
+        }
+
+        slider.onValueChanged.RemoveAllListeners();
+        slider.minValue = (float)item.Min;
+        slider.maxValue = (float)item.Max;
+        slider.wholeNumbers = item.Integral;
+        slider.SetValueWithoutNotify(ReadNumber(item));
+        slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, SnapToStep(item, v))));
+
+        BuildArrow(strip, flip: false, () => Edit(item, 0, +1));
+
+        // Every non-caption label in the row follows the live value — the slider's own amount text
+        // included, which is the number the player reads between the arrows. Registering the
+        // SLIDER as well is what keeps the bar's handle under an ARROW press: Apply repaints the
+        // labels, and without this the handle would sit where the last drag left it.
+        BindValueLabels(row, title, item, component: 0);
+        Sliders.Add((slider, item));
+
+        AttachTooltip(row, item, title, hintKey);
+        return true;
+    }
+
+    /// <summary>
+    /// The nearest value on the entry's own step grid, anchored at its range minimum. See
+    /// <see cref="BuildBarAndArrowsRow"/> for why a bar without a grid is the defect and not the
+    /// feature. A step that is zero or worse (there is no such entry today, but a future
+    /// <see cref="ConfigSteps"/> line could produce one) leaves the value exactly as dragged.
+    /// </summary>
+    private static float SnapToStep(ConfigCatalog.ConfigItem item, float value)
+    {
+        double step = item.BaseStep;
+        if (step <= 0d || double.IsNaN(step) || double.IsInfinity(step))
+            return value;
+        double snapped = item.Min + Math.Round((value - item.Min) / step) * step;
+        return (float)Math.Min(item.Max, Math.Max(item.Min, snapped));
+    }
+
+    /// <summary>
     /// The fallback for an unbounded number or one component of a vector or colour: two arrow
     /// buttons over <see cref="ConfigCatalog"/>'s own <c>Step</c>, wearing the menu's arrow sprite.
     /// </summary>
+    /// <param name="readValue">
+    /// Optional replacement readout, for a stepper whose number is not the whole truth — see
+    /// <see cref="TryBuildWidgetOverrideRow"/> and <c>[RenderQuality] PixelLightCount</c>, whose
+    /// −1 means "the game's own value" and reads as "Standard" rather than as a negative count.
+    /// Null keeps the catalog's own formatting, which is what every other stepper wants.
+    /// </param>
     private static void BuildStepperRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
-                                        string? caption, string? hintKey)
+                                        string? caption, string? hintKey, Func<string>? readValue = null)
     {
         GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
         if (title != null)
@@ -1034,12 +1355,23 @@ internal static partial class VROptionsTab
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = false;
 
-        BuildArrow(strip, flip: true, () => Edit(item, component, -1));
+        // HOLD-TO-REPEAT, for the two rows where a press really is a press too many times.
+        // [WorldUI] TravelButtonOffsetYWindowHeights needs 121 presses to cross its −0.6…+0.6 range
+        // at the 0.01 step ConfigSteps writes down; its sibling X needs 51. Both are steppers BY
+        // EXPLICIT USER RULING ("sollen keine Schieberegler sein, sondern die Pfeile, wo man den
+        // echten Wert einfach einstellen kann"), so they must NOT get a bar — and neither their
+        // values nor their ranges may move. What is left is to make the arrows themselves cheaper
+        // to use, which is what the repeat does. Deliberately NOT given to every stepper: on a
+        // pose dial an accidental long press would run the value away, and the ruling that made
+        // these two steppers is also what says a press there is meant to be a press.
+        bool repeat = PrefersStepper(item);
+        BuildArrow(strip, flip: true, () => Edit(item, component, -1), repeat);
         TMP_Text value = BuildValueLabel(strip);
-        BuildArrow(strip, flip: false, () => Edit(item, component, +1));
+        BuildArrow(strip, flip: false, () => Edit(item, component, +1), repeat);
 
-        value.text = ConfigCatalog.ValueText(item, component);
-        ValueLabels.Add((value, () => ConfigCatalog.ValueText(item, component)));
+        Func<string> read = readValue ?? (() => ConfigCatalog.ValueText(item, component));
+        value.text = read();
+        ValueLabels.Add((value, read));
 
         AttachTooltip(row, item, title, hintKey);
     }
@@ -1088,6 +1420,24 @@ internal static partial class VROptionsTab
             catch
             {
                 // One unreadable entry must not stop the rest of the list repainting.
+            }
+        }
+
+        // …and every bar follows its own entry, so an ARROW press in a bar+arrows row moves the
+        // handle too. SetValueWithoutNotify, or the write below would come straight back in as a
+        // drag and re-enter Apply.
+        for (int i = 0; i < Sliders.Count; i++)
+        {
+            (Slider bar, ConfigCatalog.ConfigItem owner) = Sliders[i];
+            if (bar == null)
+                continue;
+            try
+            {
+                bar.SetValueWithoutNotify(ReadNumber(owner));
+            }
+            catch
+            {
+                // Same rule as the labels: one unreadable entry must not stop the rest.
             }
         }
 
@@ -1220,7 +1570,12 @@ internal static partial class VROptionsTab
     /// One stepper arrow. The sprite is the menu's own, mirrored on X for the left one, so the two
     /// directions are the same symbol the player already reads elsewhere in this window.
     /// </summary>
-    private static void BuildArrow(Transform parent, bool flip, Action onClick)
+    /// <param name="repeat">
+    /// Keep firing while the arrow is held down (see <see cref="ArrowRepeat"/>). Opt-in per row,
+    /// not global: the travel-button offsets need 121 presses to cross their range, while a pose
+    /// dial wants a press to BE a press.
+    /// </param>
+    private static void BuildArrow(Transform parent, bool flip, Action onClick, bool repeat = false)
     {
         var go = new GameObject(flip ? "ArrowLeft" : "ArrowRight", typeof(RectTransform));
         go.transform.SetParent(parent, worldPositionStays: false);
@@ -1258,6 +1613,77 @@ internal static partial class VROptionsTab
         var element = go.AddComponent<LayoutElement>();
         element.preferredWidth = 26f;
         element.preferredHeight = 26f;
+
+        if (repeat)
+            go.AddComponent<ArrowRepeat>().Drive(onClick);
+    }
+
+    /// <summary>
+    /// PRESS-AND-HOLD REPEAT for a stepper arrow — new work for the 2026-08-22 settings audit's
+    /// question (d).
+    ///
+    /// <para>WHY IT EXISTS. <see cref="BuildArrow"/> is a plain <c>Button.onClick</c>, so a press
+    /// is a press, and <c>ConfigSteps</c> already says so in prose: "The arrows do not repeat when
+    /// held … so every press is a press and the count has to stay humane." For two rows the count
+    /// is not humane — <c>[WorldUI] TravelButtonOffsetYWindowHeights</c> is 121 presses across its
+    /// range and its sibling X is 51 — and those two may NOT become bars (standing user ruling).
+    /// This is the third option: hold the arrow and it keeps stepping.</para>
+    ///
+    /// <para>THE FIRST STEP IS STILL THE BUTTON'S. The <c>onClick</c> stays wired, so a tap
+    /// behaves exactly as before (and keeps the game's own press feedback); this component only
+    /// adds the REPEATS after the hold delay, which is why nothing fires twice on a short press.</para>
+    ///
+    /// <para>IT LETS GO OF EVERY WAY A PRESS CAN END. Pointer up, pointer exit and being disabled
+    /// all stop it — a VR laser that slips off the arrow mid-press must not leave a value running,
+    /// and the options list rebuilds itself on some edits (Apply → Rebuild), which destroys this
+    /// object mid-repeat. <see cref="Update"/> is wrapped because an unguarded Update that throws
+    /// starves the whole input pump.</para>
+    /// </summary>
+    private sealed class ArrowRepeat : MonoBehaviour,
+                                       UnityEngine.EventSystems.IPointerDownHandler,
+                                       UnityEngine.EventSystems.IPointerUpHandler,
+                                       UnityEngine.EventSystems.IPointerExitHandler
+    {
+        /// <summary>How long the arrow must be held before the repeat starts, in seconds.</summary>
+        private const float HoldDelay = 0.45f;
+
+        /// <summary>Seconds between repeats once it has started — ~7/s, fast but still countable.</summary>
+        private const float RepeatInterval = 0.14f;
+
+        private Action? _fire;
+        private bool _down;
+        private float _nextFire;
+
+        internal void Drive(Action fire) => _fire = fire;
+
+        public void OnPointerDown(UnityEngine.EventSystems.PointerEventData _)
+        {
+            _down = true;
+            _nextFire = Time.unscaledTime + HoldDelay;
+        }
+
+        public void OnPointerUp(UnityEngine.EventSystems.PointerEventData _) => _down = false;
+
+        public void OnPointerExit(UnityEngine.EventSystems.PointerEventData _) => _down = false;
+
+        private void OnDisable() => _down = false;
+
+        private void Update()
+        {
+            if (!_down || _fire == null || Time.unscaledTime < _nextFire)
+                return;
+            _nextFire = Time.unscaledTime + RepeatInterval;
+            try
+            {
+                _fire();
+            }
+            catch (Exception e)
+            {
+                _down = false;
+                VRLog.Warn("WorldUI", $"VR options tab: an arrow's hold-repeat threw ({e.Message}) — "
+                                      + "the repeat stops; the arrow still works as a plain press.");
+            }
+        }
     }
 
     /// <summary>
@@ -1319,6 +1745,14 @@ internal static partial class VROptionsTab
         {
             if (candidate == null || ReferenceEquals(candidate, title))
                 continue;
+            // …EXCEPT AN ARROW'S OWN GLYPH. BuildArrow falls back to a TMP reading "<" / ">" when
+            // the menu's arrow sprite could not be harvested, and the bar+arrows row (2026-08-22,
+            // question d) is the first row to put arrows and a bound readout in the same row — so
+            // without this the two arrows would each be repainted with the value and the row would
+            // read "1.25 1.25 1.25". Matched by the object name BuildArrow gives them, which is
+            // the only thing that separates a control glyph from a readout here.
+            if (IsArrowGlyph(candidate))
+                continue;
             ValueLabelScratch.Add(candidate);
         }
 
@@ -1356,6 +1790,12 @@ internal static partial class VROptionsTab
 
         ValueLabelScratch.Clear();
     }
+
+    /// <summary>Is this label an arrow's own glyph rather than a readout? See BuildArrow.</summary>
+    private static bool IsArrowGlyph(TMP_Text label) =>
+        label.gameObject != null
+        && (string.Equals(label.gameObject.name, "ArrowLeft", StringComparison.Ordinal)
+            || string.Equals(label.gameObject.name, "ArrowRight", StringComparison.Ordinal));
 
     private static TMP_Text BuildValueLabel(Transform parent)
     {
@@ -1507,5 +1947,6 @@ internal static partial class VROptionsTab
         }
         Rows.Clear();
         ValueLabels.Clear();
+        Sliders.Clear();
     }
 }

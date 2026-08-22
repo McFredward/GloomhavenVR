@@ -361,14 +361,24 @@ internal static class HandsConfig
             return;
         ConfigFile config = _file = ModuleConfig.Create("hands");
 
+        // THE RANGES IN THIS METHOD ARE THE CLAMPS THE CODE ALREADY APPLIES, declared (2026-08-22
+        // settings audit, user: "Prüfe für jede Einstellung die Bedienmöglichkeit, nicht jedes
+        // Feld macht sinn mit einer verschiebaren Bar besonders wenn man bis auf die Kommastellen
+        // etwas anpassen will."). Each of these four entries was an UNBOUNDED stepper whose value
+        // is clamped where it is read, a few lines up in this same file — so past the clamp the
+        // arrows kept moving the number on screen and nothing on the hand, which is exactly the
+        // "hat keinen Einfluss" report shape. Declaring the clamp changes no live behaviour (every
+        // value went through it anyway) and it makes the row honest.
         GlovePinkyCounterAbduction = config.Bind(
             "Hands", "GlovePinkyCounterAbduction", Defaults.GlovePinkyCounterAbduction,
-            "GLOVE style only: degrees of counter-abduction (rotation about the pinky root's " +
-            "local Z = palm normal) applied at full curl, scaled by the curl value. The glove " +
-            "pinky MESH tube leans ~18° outward while its bone chain is straight, so a pure " +
-            "local-X fist leaves the curled pinky visibly splayed outward; this pulls it back " +
-            "toward the ring finger as it curls (sign auto-flips for the right hand). 0 disables. " +
-            "Live-tunable.");
+            new ConfigDescription(
+                "GLOVE style only: degrees of counter-abduction (rotation about the pinky root's " +
+                "local Z = palm normal) applied at full curl, scaled by the curl value. The glove " +
+                "pinky MESH tube leans ~18° outward while its bone chain is straight, so a pure " +
+                "local-X fist leaves the curled pinky visibly splayed outward; this pulls it back " +
+                "toward the ring finger as it curls (sign auto-flips for the right hand). 0 disables. " +
+                "Live-tunable. Range -30..30, the clamp GlovePinkyCounterAbductionSafe applies.",
+                new AcceptableValueRange<float>(-30f, 30f)));
 
         // Ghost hand (see the field docs above). Bound BEFORE the seat block so a fresh cfg
         // file groups the three ghost keys next to the other [Hands] visual toggles.
@@ -404,21 +414,31 @@ internal static class HandsConfig
             "produce — if this fist looks right but squeezing the controller does not close the " +
             "hand, the loss is in the INPUT (grip value never reaching full range); if even " +
             "this fist stays open, the loss is in the rig/angles (raise CurlProximal/CurlMiddle/CurlTip).");
+        // The three joint angles share ONE range, 0..130 — the clamp FingerMaxAnglesSafe applies
+        // to all three (HandsConfig.cs, ~line 100). They must also share a STEP, and now do: with
+        // the range declared all three derive 2° a press instead of 2/2/1, which is the
+        // "two dials of one family must move together" rule ConfigSteps was written for.
         CurlProximal = config.Bind(
             "Hands", "CurlProximal", Defaults.CurlProximal,
-            "Full-curl rotation (degrees, local X) of each finger's PROXIMAL (root/knuckle) " +
-            "joint at curl 1.0. The thumb's proximal angle scales proportionally " +
-            "(default thumb 25 at finger 75). Live-tunable.");
+            new ConfigDescription(
+                "Full-curl rotation (degrees, local X) of each finger's PROXIMAL (root/knuckle) " +
+                "joint at curl 1.0. The thumb's proximal angle scales proportionally " +
+                "(default thumb 25 at finger 75). Live-tunable. Range 0-130.",
+                new AcceptableValueRange<float>(0f, 130f)));
         CurlMiddle = config.Bind(
             "Hands", "CurlMiddle", Defaults.CurlMiddle,
-            "Full-curl rotation (degrees, local X) of each finger's MIDDLE joint at curl 1.0. " +
-            "The thumb's middle angle scales proportionally (default thumb 45 at finger 95). " +
-            "Live-tunable.");
+            new ConfigDescription(
+                "Full-curl rotation (degrees, local X) of each finger's MIDDLE joint at curl 1.0. " +
+                "The thumb's middle angle scales proportionally (default thumb 45 at finger 95). " +
+                "Live-tunable. Range 0-130.",
+                new AcceptableValueRange<float>(0f, 130f)));
         CurlTip = config.Bind(
             "Hands", "CurlTip", Defaults.CurlTip,
-            "Full-curl rotation (degrees, local X) of each finger's TIP (distal) joint at " +
-            "curl 1.0. The thumb's tip angle scales proportionally (default thumb 60 at " +
-            "finger 65). Live-tunable.");
+            new ConfigDescription(
+                "Full-curl rotation (degrees, local X) of each finger's TIP (distal) joint at " +
+                "curl 1.0. The thumb's tip angle scales proportionally (default thumb 60 at " +
+                "finger 65). Live-tunable. Range 0-130.",
+                new AcceptableValueRange<float>(0f, 130f)));
 
         // ONE-TIME MIGRATION: a cfg written by an older build has the OLD 65/80/50
         // defaults SAVED, and BepInEx returns saved values over new defaults — the
@@ -436,13 +456,20 @@ internal static class HandsConfig
                                 $"{DefaultCurlProximal:0}/{DefaultCurlMiddle:0}/{DefaultCurlTip:0} " +
                                 "(2026-07 fist fix — a hand-tuned config would have been left alone).");
         }
+        // The range is the clamp CurlInputFullAtSafe applies (0.3..1) — see the block comment at
+        // GlovePinkyCounterAbduction. This one is a CURATED row ("Vollgriff-Hilfe") and an
+        // ACCESSIBILITY control, so an endless stepper past the clamp was the worst version of
+        // the fault: the player whose grip does not reach full range is exactly the player who
+        // keeps pressing.
         CurlInputFullAt = config.Bind(
             "Hands", "CurlInputFullAt", Defaults.CurlInputFullAt,
-            "Raw analog grip/trigger value (0.3-1.0) that already counts as a FULL curl: " +
-            "curl = raw / this, clamped to 1. Quest 3 controllers via Virtual Desktop often " +
-            "plateau the analog grip below 1.0 at a comfortable full squeeze — lower this if " +
-            "the '[Hands] squeeze released: peak grip=...' log line shows your peak never " +
-            "reaches 1.0. Set 1.0 for the raw, unremapped input.");
+            new ConfigDescription(
+                "Raw analog grip/trigger value (0.3-1.0) that already counts as a FULL curl: " +
+                "curl = raw / this, clamped to 1. Quest 3 controllers via Virtual Desktop often " +
+                "plateau the analog grip below 1.0 at a comfortable full squeeze — lower this if " +
+                "the '[Hands] squeeze released: peak grip=...' log line shows your peak never " +
+                "reaches 1.0. Set 1.0 for the raw, unremapped input.",
+                new AcceptableValueRange<float>(0.3f, 1f)));
 
         // PER-STYLE seat controls: one absolute pitch/roll/yaw/X/Y/Z/spread set per hand style,
         // defaulting to the hardware-measured DefaultSeat* tables above (why those are literal

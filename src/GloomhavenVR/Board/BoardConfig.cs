@@ -81,10 +81,17 @@ internal static class BoardConfig
             "character comes up. Never touches another player's view and never changes whose turn " +
             "it is. Off = the view stays where you put it and the red 'wrong character' ring asks " +
             "you to click back yourself.");
+        // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES (2026-08-22 settings audit, user:
+        // "Prüfe für jede Einstellung die Bedienmöglichkeit"). The description already SAID
+        // "0.2-0.95" and nothing enforced it — AoeControl.cs clamps at read, so every press past
+        // either end moved the number and not the stick threshold. A thumbstick deflection above
+        // 0.95 is also a threshold no stick reliably reaches, i.e. AoE rotation that never fires.
         AoeFlickThreshold = config.Bind(
             "Board", "AoeFlickThreshold", Defaults.AoeFlickThreshold,
-            "Thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +
-            "one 60 degree step (left = counter-clockwise, right = clockwise).");
+            new ConfigDescription(
+                "Thumbstick horizontal deflection (0.2-0.95) that rotates an active AoE pattern " +
+                "one 60 degree step (left = counter-clockwise, right = clockwise).",
+                new AcceptableValueRange<float>(0.2f, 0.95f)));
         AoeRepeatInterval = config.Bind(
             "Board", "AoeRepeatInterval", Defaults.AoeRepeatInterval,
             "Seconds between AoE rotation steps while the stick stays deflected. Values below " +

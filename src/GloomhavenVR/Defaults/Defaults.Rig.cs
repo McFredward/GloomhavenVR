@@ -43,7 +43,9 @@ internal static partial class Defaults
     internal const int MsaaLevel = 8;                    // => [RenderQuality] MsaaLevel
     internal const bool ForceAnisotropic = true;         // => [RenderQuality] ForceAnisotropic
     internal const float EyeResolutionScale = 1.0f;      // => [RenderQuality] EyeResolutionScale
-    internal const bool ViewportScaleFallback = true;    // => [RenderQuality] ViewportScaleFallback
-    internal const bool RebuildRigOnMsaaChange = false;  // => [RenderQuality] RebuildRigOnMsaaChange
+    // [RenderQuality] ViewportScaleFallback and RebuildRigOnMsaaChange had their lines here. Both
+    // were UNBOUND by the 2026-08-22 settings audit — the fallback is now the constant
+    // RenderQuality.ViewportScaleFallback, the rebuild path is deleted. See RenderQuality for why
+    // neither was ever a choice a player could hold.
     internal const int PixelLightCount = -1;             // => [RenderQuality] PixelLightCount
 }

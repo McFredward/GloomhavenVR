@@ -225,9 +225,50 @@ public class Plugin : BaseUnityPlugin
         return new UnityEngine.Color(0.85f, 0.79f, 0.71f);
     }
 
-    /// <summary>Clear color of the owned head camera (the void around menus). Default black.</summary>
-    internal static ConfigEntry<UnityEngine.Color> VoidColor = null!;
-    internal static ConfigEntry<bool> ForwardRendering = null!;
+    /// <summary>
+    /// Clear colour of the owned head camera — the void around the floating menu screen and
+    /// outside the diorama. BLACK, and no longer a dial.
+    ///
+    /// <para>2026-08-22 settings audit (user, verbatim): <i>"a) Lösche alle Einstellungen die das
+    /// Spiel breaken könnten wenn die verändert werden. Etwas was das spiel kaputt macht wenn man
+    /// es umstellt ist nicht optional und sollte daher nicht einstellbar sein."</i> [Rig] VoidColor
+    /// was a <c>Color</c>, so the generic row builder gave it FOUR numeric steppers (R/G/B/A) —
+    /// the exact control shape <c>HasSpecialRow</c> was written to replace on
+    /// <c>MixedReality/KeyColor</c> — and its own description said it existed "For DEBUGGING".
+    /// The harm, and the value that causes it: any non-black clear colour is painted over the
+    /// whole field of view outside the diorama, and under Mixed Reality it is painted over the
+    /// CHROMA KEY, so passthrough stops keying and the room disappears. There is no reading of
+    /// "the void" a player is choosing between. The diagnostic use survives: one edit here, one
+    /// rebuild — which is what a diagnostic is.</para>
+    /// </summary>
+    internal static readonly UnityEngine.Color VoidColor = UnityEngine.Color.black;
+
+    /// <summary>
+    /// FORWARD rendering on the mod's head camera, instead of the game's DeferredShading. Always
+    /// on, and no longer a dial.
+    ///
+    /// <para>This is the fix for transparent effects (fire/torch glow, hex selection ring, health
+    /// bars) rendering THROUGH walls in VR: the sky depth-reset renderer (queue 1999, ZTest
+    /// Always) has no deferred pass, so on a deferred camera it runs in the forward-opaque
+    /// fallback AFTER the walls and wipes their depth, leaving nothing for transparents to test
+    /// against. Forward rendering restores strict queue order (reset 1999 runs BEFORE walls 2000,
+    /// walls overwrite it), so the depth buffer keeps the walls and transparents occlude
+    /// correctly.</para>
+    ///
+    /// <para>2026-08-22 settings audit, and the sharpest case of the three the audit named. It was
+    /// a CURATED row on Grafik ▸ Darstellung, which is as prominent as a row gets. The harm, and
+    /// the value that causes it: <c>false</c> reinstates the exact see-through-walls defect the
+    /// forward path exists to fix, AND it silently disables the curated MSAA row two lines above
+    /// it — <c>[RenderQuality] MsaaLevel</c>'s own text says "Requires the forward rendering path
+    /// ([Rig] ForwardRendering)". It is also start-up-only, so a player who flips it sees nothing
+    /// happen, plays on, and meets both consequences at the next launch with no memory of the
+    /// cause. The one trade the old description offered — "disable ONLY if forward lighting looks
+    /// wrong (deferred handles many dynamic lights per pixel; forward has a per-object light
+    /// limit)" — is served by <c>[RenderQuality] PixelLightCount</c>, which is a live dial with a
+    /// visible effect, and not by a start-up switch that also takes the wall occlusion with
+    /// it.</para>
+    /// </summary>
+    internal const bool ForwardRendering = true;
 
     /// <summary>Master dev switch: event bus + hands run without an HMD, dev console installed.</summary>
     internal static ConfigEntry<bool> DevMode = null!;
@@ -564,23 +605,11 @@ public class Plugin : BaseUnityPlugin
             "enough to read against the black void — the hand shader is unlit (the void " +
             "has no lights; lit shaders render black there). The left hand gets a slight " +
             "cool tint automatically so the sides stay distinguishable.");
-        VoidColor = Config.Bind(
-            "Rig", "VoidColor", Defaults.VoidColor,
-            "Clear color of the mod's head camera — the void around the floating menu screen " +
-            "and outside the diorama. Default pure black. For DEBUGGING set a dark grey " +
-            "(e.g. 1F2126FF): grey distinguishes 'camera renders but content missing' from " +
-            "'camera dead / not rendering' (pitch black), which is invaluable in HMD reports.");
-        ForwardRendering = Config.Bind(
-            "Rig", "ForwardRendering", Defaults.ForwardRendering,
-            "Render the mod's head camera in FORWARD instead of the game's DeferredShading. " +
-            "This is the fix for transparent effects (fire/torch glow, hex selection ring, health " +
-            "bars) rendering THROUGH walls in VR: the sky depth-reset renderer (queue 1999, ZTest " +
-            "Always) has no deferred pass, so on a deferred camera it runs in the forward-opaque " +
-            "fallback AFTER the walls and wipes their depth, leaving nothing for transparents to " +
-            "test against. Forward rendering restores strict queue order (reset 1999 runs BEFORE " +
-            "walls 2000, walls overwrite it), so the depth buffer keeps the walls and transparents " +
-            "occlude correctly. Disable ONLY if forward lighting looks wrong (deferred handles many " +
-            "dynamic lights per pixel; forward has a per-object light limit).");
+        // [Rig] VoidColor and [Rig] ForwardRendering stood here. Both are CONSTANTS since the
+        // 2026-08-22 settings audit — the argument for each, and the value that used to break the
+        // game, is written at the constant (see VoidColor / ForwardRendering above). Their cfg
+        // keys are gone with their binds; a stale line in an existing dev.gloomhavenvr.cfg is
+        // simply round-tripped and read by nothing.
         DevMode = Config.Bind(
             "Dev", "Enabled", Defaults.Dev_Enabled,
             "Developer mode: wires the VR event bus and hand simulation even without an HMD " +
@@ -652,14 +681,26 @@ public class Plugin : BaseUnityPlugin
         for (int i = 0; i < n; i++)
         {
             string s = styles[i];
+            // THE RANGE IS THE CLAMP THE CODE ALREADY APPLIES, declared (2026-08-22 settings
+            // audit, user: "Prüfe für jede Einstellung die Bedienmöglichkeit"). HandVisuals
+            // .StyleScale reads this through Mathf.Clamp(…, 0.2f, 3f) — so before, the arrows
+            // never stopped and every press past 3 moved the NUMBER ON SCREEN and nothing on the
+            // hand. That is the "der X-Offset hat keinen Einfluss" failure this project has
+            // already been reported for twice. Declaring it costs no behaviour (every value was
+            // clamped at read anyway; the live cfg ships 1.12/0.62/0.62, all well inside) and it
+            // is what turns the curated "Handgröße" row into a bar with arrows instead of an
+            // endless stepper: HasRange is what BuildRow tests.
             HandStyleScale[i] = Config.Bind(
                 "Hands", $"{s}Scale", scaleDefaults[i],
-                $"Uniform visual scale of the {s} hand style (1 = authored size). The " +
-                "styled meshes share the same 0.19 m hand length but differ hugely in " +
-                "bulk — the armored styles default below 1 so their knuckle width " +
-                "matches the leather glove's real-world hand size. Applies live " +
-                "(no rebuild); grabbed objects, the card fan and the wrist HUD keep " +
-                "their own size (the rig sockets they attach to are scale-compensated).");
+                new ConfigDescription(
+                    $"Uniform visual scale of the {s} hand style (1 = authored size). The " +
+                    "styled meshes share the same 0.19 m hand length but differ hugely in " +
+                    "bulk — the armored styles default below 1 so their knuckle width " +
+                    "matches the leather glove's real-world hand size. Applies live " +
+                    "(no rebuild); grabbed objects, the card fan and the wrist HUD keep " +
+                    "their own size (the rig sockets they attach to are scale-compensated). " +
+                    "Range 0.2-3, the clamp HandVisuals.StyleScale applies at read.",
+                    new AcceptableValueRange<float>(0.2f, 3f)));
         }
     }
 

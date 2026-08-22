@@ -24,6 +24,24 @@ namespace GloomhavenVR.WorldUI;
 /// player actually touches, and "sensible" there is a decision, not a formula. The other ~130
 /// numeric entries, nearly all of them Debug, fall to the unit rule and then to the old
 /// range/magnitude derivation, which is still the right answer when a range is declared.</para>
+///
+/// <para>MOST OF THIS TABLE ONLY STARTED RUNNING ON 2026-08-22, and it is worth knowing why. A
+/// slider NEVER READS A STEP — <c>BuildSliderRow</c> just hands the bar the two ends — and
+/// <c>BuildRow</c> gave every bounded scalar a slider, so <b>16 of the 23 judgements below were
+/// dead code</b>: written down, argued for, and never executed. The settings audit found it while
+/// answering the user's question (d) about control shapes, and the bar+arrows row builder
+/// (<c>VROptionsTab.2.Rows.BuildBarAndArrowsRow</c>) is what turned them on: those rows now carry
+/// arrows as well as a bar, and the arrows step by exactly what is written here — the bar snaps to
+/// the same grid, so the two inputs speak one unit.</para>
+///
+/// <para>THIRTEEN OF THE SIXTEEN ARE LIVE NOW; the other three are not, and neither is a bug:
+/// <c>Rig/WorldTiltDegrees</c> has no row at all (the feature is parked, the step is kept for its
+/// revival), and <c>Net/MaskId</c> and <c>Comfort/SnapTurnDegrees</c> are named-preset DROPDOWNS —
+/// a dropdown reads no step either, and for both of them that is the correct control (a mask is an
+/// enumeration; six snap angles are a list, not a continuum). <c>SnapTurnDegrees</c> is the one the
+/// audit expected the new builder to revive; its 15° argument is now the argument for the FIVE
+/// ENTRIES IN THE DROPDOWN rather than for a press, which is the same judgement arriving by a
+/// better road. Keep the line: it is what documents where those five angles come from.</para>
 /// </summary>
 internal static class ConfigSteps
 {
@@ -44,6 +62,9 @@ internal static class ConfigSteps
         ["Rig/WorldTiltDegrees"] = 5d,           // PARKED feature — kept for its revival; row gone
 
         // ---- Komfort ▸ Drehen / Fortbewegung ----------------------------------------------
+        // NOT a step any more — this row is a named-preset dropdown since 2026-08-22 (question d:
+        // a six-position bar is a dropdown drawn badly). The 15 stays because it is where the five
+        // offered angles come from; VROptionsTab.2.Rows.SnapTurnPresets is the list it produced.
         ["Comfort/SnapTurnDegrees"] = 15d,       // the angles anyone wants: 15/30/45/60/90
         ["Comfort/SmoothTurnSpeed"] = 10d,       // degrees per second, 30..270
         ["Comfort/RecenterHoldSeconds"] = 0.1d,  // a tenth of a second is the felt unit
@@ -111,10 +132,31 @@ internal static class ConfigSteps
         // room, so one press is about 4 mm of button travel — small enough to settle on a placement
         // rather than straddle it, and 25 presses still cross X's whole useful span (the map edges
         // sit at about ±0.25, per the German description) instead of the 50-plus a finer step would
-        // cost. The arrows do not repeat when held (VROptionsTab.2.Rows.BuildArrow is a plain
-        // Button.onClick), so every press is a press and the count has to stay humane.
+        // cost.
+        //
+        // THE ARROWS NOW REPEAT WHEN HELD, and these two rows are the only ones that do
+        // (VROptionsTab.2.Rows.ArrowRepeat, wired by PrefersStepper). Until 2026-08-22 BuildArrow
+        // was a plain Button.onClick, so "every press is a press and the count has to stay humane"
+        // was a real constraint on the number above — and Y still needed 121 presses to cross its
+        // range, X 51. The audit's question (d) offered a bar as the way out; the standing user
+        // ruling forbids one here, so the hold-repeat is the answer instead. The step stays 0.01:
+        // it was chosen for the RESOLUTION the job needs, not for the press count, and a held
+        // arrow now crosses Y in about two seconds.
         ["WorldUI/TravelButtonOffsetXWindowHeights"] = 0.01d,
         ["WorldUI/TravelButtonOffsetYWindowHeights"] = 0.01d,
+
+        // ---- Tafeln ▸ 2D-Schirm: the one step a DECLARED RANGE would have coarsened ---------
+        // [WorldUI] ScreenParallaxScale gained an AcceptableValueRange(1, 60) on 2026-08-22 — the
+        // clamp its own reader already applied, declared so the arrows stop where the effect does
+        // (audit question d). That has a side effect the resolver is right about in general and
+        // wrong about here: a fiftieth of a 59-wide range is 1.18, which outbids the "Scale" unit's
+        // 0.05 and snaps to a whole 1 — TEN TIMES the 0.1 this dial stepped by before. It is not a
+        // range-sized quantity: the shipped 6 came out of hardware test #16, the useful
+        // neighbourhood around it is a couple of units wide, and 1 per press is 17 % of the tuned
+        // value in one press. The bar beside the arrows is what crosses the range now
+        // (PrefersBarAndArrows), so the arrows are free to stay fine. Written down at the value it
+        // has always had, so declaring the clamp costs no resolution.
+        ["WorldUI/ScreenParallaxScale"] = 0.1d,
 
         // ---- Avatar & Mehrspieler ▸ Dein Auftritt (hand size promoted, overhaul ruling 4) --
         ["Hands/GloveScale"] = 0.05d,

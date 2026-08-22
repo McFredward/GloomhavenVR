@@ -80,7 +80,8 @@ namespace GloomhavenVR.Rig;
 /// sub-pixel detail) which geometry-edge MSAA cannot touch; below 1 it is the single largest
 /// GPU saving available here, because all per-pixel work scales with scale². Applies live.
 ///
-/// VIEWPORT FALLBACK ([RenderQuality] ViewportScaleFallback, default ON): some OpenXR
+/// VIEWPORT FALLBACK (a constant since the 2026-08-22 settings audit; it was
+/// [RenderQuality] ViewportScaleFallback, default ON): some OpenXR
 /// providers negotiate the swapchain once at session start and ignore
 /// <see cref="XRSettings.eyeTextureResolutionScale"/> afterwards. We cannot know which from
 /// static inspection, so we MEASURE: <see cref="LogEyeTargetDiagnostics"/> reads
@@ -90,10 +91,11 @@ namespace GloomhavenVR.Rig;
 /// honours. Either way the log names WHICH lever actually bound, so the resolution row is
 /// never silently dead.
 ///
-/// REBUILD TEST PATH ([RenderQuality] RebuildRigOnMsaaChange, default OFF): tears the rig
-/// down/up on MSAA changes. Retained as an escape hatch for providers that only re-negotiate
-/// sample counts at session start; the question it was written to settle (does MSAA bind at
-/// all?) is answered above, so leave it off in normal play.
+/// REBUILD TEST PATH: GONE (2026-08-22 settings audit). [RenderQuality] RebuildRigOnMsaaChange
+/// tore the rig down/up on every MSAA change, as an escape hatch for providers that only
+/// re-negotiate sample counts at session start. The question it was written to settle — does MSAA
+/// bind at all? — is answered above (it does, visibly), and what was left was a player-facing
+/// toggle whose ON state reset the view mid-scenario every time the MSAA row was touched.
 /// </summary>
 internal static class RenderQuality
 {
@@ -164,9 +166,24 @@ internal static class RenderQuality
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
     internal static ConfigEntry<float>? EyeResolutionScale;
-    internal static ConfigEntry<bool>? RebuildRigOnMsaaChange;
-    internal static ConfigEntry<bool>? ViewportScaleFallback;
     internal static ConfigEntry<int>? PixelLightCount;
+
+    /// <summary>
+    /// Fall back to <c>XRSettings.renderViewportScale</c> when <c>eyeTextureResolutionScale</c>
+    /// does not move the allocation. ALWAYS ON, and no longer a dial.
+    ///
+    /// <para>2026-08-22 settings audit (user, verbatim): <i>"a) Lösche alle Einstellungen die das
+    /// Spiel breaken könnten wenn die verändert werden. Etwas was das spiel kaputt macht wenn man
+    /// es umstellt ist nicht optional und sollte daher nicht einstellbar sein."</i> The harm, and
+    /// the value that causes it: <c>false</c> removes the fallback that makes
+    /// <c>EyeResolutionScale</c> — a CURATED row on the Grafik page — work at all on providers
+    /// that negotiate the swapchain once at session start, and the row then does nothing while
+    /// still moving. That is the "der X-Offset hat keinen Einfluss" failure, aimed at the one dial
+    /// a player reaches for when the picture is too soft. There is also nothing to decide: the
+    /// choice between the two levers is made BY READING THE ALLOCATION BACK, not by guessing, and
+    /// the [Rig] EYE-TARGET DIAG line names which one bound.</para>
+    /// </summary>
+    internal const bool ViewportScaleFallback = true;
 
     private static readonly List<XRDisplaySubsystem> Displays = new(2);
     private static int _lastPushedDisplayMsaa = -1;
@@ -232,20 +249,11 @@ internal static class RenderQuality
             + "(specular sparkle, sub-pixel detail) that geometry-edge MSAA cannot touch; below 1 "
             + "softens texture detail before it softens edges. Applies live.",
             new AcceptableValueRange<float>(MinEyeScale, MaxEyeScale)));
-        ViewportScaleFallback = _file.Bind("RenderQuality", "ViewportScaleFallback", Defaults.ViewportScaleFallback,
-            "If EyeResolutionScale does not move the eye-texture allocation (some OpenXR providers "
-            + "negotiate the swapchain once at session start and ignore it afterwards), fall back to "
-            + "XRSettings.renderViewportScale, which renders into a sub-rect of the existing swapchain "
-            + "and is honoured everywhere. The choice is made by READING THE ALLOCATION BACK, not by "
-            + "guessing, and the [Rig] EYE-TARGET DIAG line names which lever bound. Off = only ever "
-            + "use eyeTextureResolutionScale (the resolution row then silently does nothing on such a "
-            + "provider — for A/B only).");
-        RebuildRigOnMsaaChange = _file.Bind("RenderQuality", "RebuildRigOnMsaaChange", Defaults.RebuildRigOnMsaaChange,
-            "Tear down and rebuild the VR rig whenever the MSAA level changes. Escape hatch for "
-            + "OpenXR providers that only re-negotiate sample counts at session start. The question "
-            + "this was originally written to settle — whether MSAA binds at all — is answered (it "
-            + "does; it is visibly effective in the headset), so this is no longer a diagnostic. "
-            + "Causes a brief view reset per MSAA change; leave off in normal play.");
+        // [RenderQuality] ViewportScaleFallback and RebuildRigOnMsaaChange stood here. Both were
+        // removed by the 2026-08-22 settings audit — the fallback is a constant (off made the
+        // curated resolution row silently do nothing on some providers), the rebuild is gone
+        // outright. The argument for each is written where it now lives; see the constant above
+        // and the tombstone in PushDisplayMsaa.
 
         PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
             "Maximum number of PER-PIXEL lights (-1 = leave the game's own value alone, which is "
@@ -400,17 +408,19 @@ internal static class RenderQuality
                 return; // display not up yet — retry next tick
             for (int i = 0; i < Displays.Count; i++)
                 Displays[i].SetMSAALevel(Mathf.Max(wanted, 1)); // XR API: 1 = no MSAA
-            bool firstPush = _lastPushedDisplayMsaa < 0;
             _lastPushedDisplayMsaa = wanted;
             VRLog.Info("Rig", $"XR display MSAA level pushed to {Mathf.Max(wanted, 1)} on " +
                               $"{Displays.Count} display subsystem(s) — eye textures re-allocate live.");
             // Read the ACTUAL eye-target sample count back once the re-allocation had time
             // to land — this is the line that proves (or disproves) the MSAA took effect.
             RequestEyeTargetDiagnostics($"MSAA push {Mathf.Max(wanted, 1)}x");
-            // Opt-in hardware experiment (see class doc): does a rig rebuild re-bind MSAA?
-            // Skipped on the boot-time first push — only user-driven CHANGES trigger it.
-            if (!firstPush && RebuildRigOnMsaaChange!.Value)
-                VRRigDriver.RequestRebuild($"[RenderQuality] RebuildRigOnMsaaChange test path (MSAA → {wanted}x)");
+            // [RenderQuality] RebuildRigOnMsaaChange drove a rig rebuild from here — an opt-in
+            // hardware experiment asking whether a rebuild re-binds MSAA. DELETED by the
+            // 2026-08-22 settings audit: its own bound text already closed with "the question this
+            // was originally written to settle … is answered … so this is no longer a diagnostic",
+            // and it shipped as an ordinary player-facing toggle whose ON state tore the whole VR
+            // rig down and rebuilt it — a full view reset, mid-scenario — every time the MSAA row
+            // two lines above was touched. The answer it recorded stands in the class doc.
         }
     }
 
@@ -443,7 +453,7 @@ internal static class RenderQuality
         {
             // The allocation lever is already where we want it. If a previous readback proved
             // it does not bind here, keep the viewport fallback tracking the wanted value.
-            if (_eyeScaleBinds == false && ViewportScaleFallback!.Value
+            if (_eyeScaleBinds == false && ViewportScaleFallback
                 && Mathf.Abs(_viewportScaleApplied - wanted) > 0.0005f && Mathf.Abs(wanted - 1f) >= 0.0005f)
             {
                 ApplyViewportScale(wanted, "resolution row changed while the viewport fallback is engaged");
@@ -502,12 +512,10 @@ internal static class RenderQuality
         }
 
         _eyeScaleBinds = false;
-        if (!ViewportScaleFallback!.Value)
-            return $"resolution scale did NOT bind — eye texture is still {actual}px wide, expected " +
-                   $"~{expected:F0}px at {wanted:F2}x. This provider ignores eyeTextureResolutionScale " +
-                   "and [RenderQuality] ViewportScaleFallback is OFF, so the resolution row is doing " +
-                   "NOTHING. Switch the fallback on.";
-
+        // The "fallback is OFF, so the resolution row is doing NOTHING" branch stood here, and it
+        // could never be reached again: ViewportScaleFallback is a constant since the 2026-08-22
+        // settings audit, precisely so that no cfg can put the curated resolution row into that
+        // silent state.
         ApplyViewportScale(wanted, $"eyeTextureResolutionScale did not move the allocation " +
                                    $"({actual}px, expected ~{expected:F0}px)");
         return $"resolution scale did not bind via eyeTextureResolutionScale (eye texture still " +
