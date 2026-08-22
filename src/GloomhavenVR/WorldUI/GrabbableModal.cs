@@ -1,5 +1,6 @@
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI; // the game's UIWindow lives here (decompiled/GH.Runtime/UnityEngine.UI/UIWindow.cs)
 
 namespace GloomhavenVR.WorldUI;
 
@@ -486,6 +487,85 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
     }
 
+    // ---- SHARED-WINDOW BAR COLOUR -----------------------------------------------------------
+    //
+    // USER REQUEST (2026-08-22, verbatim):
+    //
+    //   "3) Die Fenster die für alle Spieler sichtbar sind sollen eine andere Farbe beim dem
+    //    Greifbalken haben (zB Blau) um anzuzeigen, dass es ein Fenster ist das alle sehen."
+    //
+    // WHERE THE COLOUR IS DECIDED: in <see cref="SyncSharedBarTint"/> below, and nowhere else. It
+    // asks <see cref="SharedWindows"/> — which owns the DEFINITION of "shared" and its whole
+    // rationale — and turns the answer into exactly one of two colours. This class contributes no
+    // policy: it does not know which windows are shared, only how to paint a bar.
+    //
+    // WHY IT IS RE-EVALUATED EVERY TICK RATHER THAN DECIDED AT BUILD. "Shared" is not a property of
+    // the window CLASS, it is "shared FOR THIS CLIENT, RIGHT NOW" (SharedWindows' class doc), and
+    // participation can FLIP WHILE THE WINDOW STANDS: the map story window and the quest popup are
+    // synced only among players with the 3D world map on, MapRoomDriver reads that config live, and
+    // the player may toggle it with the window open. A colour written once at Build would then be a
+    // false statement for the rest of that window's life. The cost of being right is one Color
+    // comparison per floated window per frame; the write itself is change-gated, so a standing
+    // window costs the comparison and nothing else.
+    //
+    // WHAT A PRIVATE BAR COSTS: nothing at all. _barTint starts at PrivateBarColor, which is the
+    // literal the bar material was constructed with, so the gate never opens for a private window —
+    // no material write, no log line, no behavioural change. That is the proof that today's picture
+    // is preserved for every window outside the shared set, INCLUDING the map story window and the
+    // quest popup for a player with the 3D map switched off, for whom those windows really are
+    // private (moving one moves nothing for anybody).
+    //
+    // WHAT WAS REJECTED:
+    //   * ONE SHARED BLUE MATERIAL for every shared bar. Rejected — and it is the obvious trap here.
+    //     WorldUIAssets.CreateFlatMaterial constructs a new Material per call, so every bar already
+    //     owns its own; the hover/held highlight then writes sharedMaterial.color on exactly one
+    //     bar. Hand two bars the same Material instance and a single hover would turn EVERY floated
+    //     window's bar gold, and this tint would turn every bar blue.
+    //   * WRITING THE MATERIAL FROM HERE. Rejected: the highlight re-derives the bar colour from
+    //     PanelGrabHandle's own base field whenever it goes out, so a write from outside would be
+    //     reverted to brass by the next un-highlight. The base colour is handed to the handle
+    //     instead (PanelGrabHandle.SetBarBaseColor), which is the single writer of that material.
+    //   * TINTING BY WINDOW CLASS ("a story box is always blue"). Rejected in SharedWindows' doc,
+    //     recorded here so it is not re-litigated at the paint end either.
+    //   * A CONFIG DIAL for the colour. Not asked for; the user named blue and the mod picks it.
+
+    /// <summary>
+    /// The bar's resting brass — the colour of a PRIVATE window's grab bar, unchanged since the
+    /// handle was introduced and deliberately still expressed as the same literal, so a private bar
+    /// is byte-identical to the one that shipped before the shared tint existed.
+    /// </summary>
+    private static readonly Color PrivateBarColor = new(0.62f, 0.5f, 0.28f);
+
+    /// <summary>The bar's current RESTING colour (the highlight paints over it and falls back to
+    /// it). Seeded with the colour <see cref="EnsureFrame"/> builds the material with, so the
+    /// change gate below is closed for every window that is not shared.</summary>
+    private Color _barTint = PrivateBarColor;
+
+    /// <summary>
+    /// Re-evaluate whether <paramref name="window"/> is shared FOR THIS CLIENT right now, and paint
+    /// the grab bar accordingly. Called once per tick per floated window; see the block above.
+    /// </summary>
+    internal void SyncSharedBarTint(UIWindow? window)
+    {
+        if (_handle == null)
+            return; // not built yet (or already torn down) — nothing to paint
+        // This IS SharedWindows.IsShared(window), expanded only because the LOG LINE has to name the
+        // kind: a hardware report saying "the quest window was brass" must be readable against a log
+        // that says which kind that window was and whether this client took part in its sync.
+        SharedWindowKind kind = SharedWindows.KindOf(window);
+        bool shared = kind != SharedWindowKind.None && SharedWindows.ParticipatesHere(kind);
+        Color wanted = shared ? SharedWindows.BarTint : PrivateBarColor;
+        if (wanted == _barTint)
+            return;
+        _barTint = wanted;
+        _handle.SetBarBaseColor(wanted);
+        VRLog.Info("WorldUI", $"SHARED WINDOW BAR: '{_logName}' (game window '{window?.name ?? "?"}', " +
+                              $"kind {kind}) now wears the {(shared ? "SHARED BLUE" : "private brass")} " +
+                              $"grab bar — {(shared
+                                  ? "every player in this room sees this window's state, so moving it is a shared act"
+                                  : "this window is private to this client right now (its sync is off, or it is not a shared kind)")}.");
+    }
+
     // ---- build ------------------------------------------------------------------------------
 
     private void EnsureFrame()
@@ -522,7 +602,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // Sprites/Default alpha-blend that read semi-transparent), while leaving ZTest at the
         // default LEqual so a hand held physically in front still occludes the solid handle. The
         // sortingOrder below is what actually lifts it OVER the depthless menu canvas.
-        Material barMat = WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f), overlay: true);
+        Material barMat = WorldUIAssets.CreateFlatMaterial(PrivateBarColor, overlay: true);
         if (barMat.HasProperty("_ZWrite"))
             barMat.SetInt("_ZWrite", 1);
         mr.sharedMaterial = barMat;

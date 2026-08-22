@@ -250,8 +250,15 @@ internal static class RemoteStorySync
     /// mismatch is nothing. So a hash collision cannot advance a wrong dialog to a wrong page — it
     /// would have to collide across two dialogs open at the same moment in the same scenario, and
     /// the consequence would still be bounded by the receiver's own page count.</para>
+    ///
+    /// <para>INTERNAL, NOT PRIVATE, SINCE ModBuild 222 — and that is the whole of this file's change
+    /// for the map-room work. <see cref="RemoteMapStory"/> hashes the MAP story box, which is a
+    /// different controller but the identical <c>UICharacterStoryBox</c> holding the identical
+    /// <c>List&lt;DialogLineDTO&gt;</c>, so it needs THIS function and not a copy of it: two
+    /// implementations of one content hash is exactly how two records that must agree stop
+    /// agreeing. Nothing else here is shared and nothing about record 19's behaviour changed.</para>
     /// </summary>
-    private static uint HashDialog(List<DialogLineDTO>? pages)
+    internal static uint HashDialog(List<DialogLineDTO>? pages)
     {
         if (pages == null || pages.Count == 0)
             return 0u;

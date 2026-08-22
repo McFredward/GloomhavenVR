@@ -17,6 +17,13 @@ internal static class Program
             Shims.VerifyAgainstSource(repoRoot);
             GoldenVectors.Run(t);
             StoryVectors.Run(t);
+            // The 3D map room's two records (20 + 21). Same reason StoryVectors is on this list,
+            // one step further: these carry a PAGE that turns for somebody else and a POSE in a
+            // frame that is NOT record 19's, and both failures are silent. A frame byte read
+            // per-record instead of per-entry would put a peer's window in a place nobody chose,
+            // and a truncated entry that ended the walk would swallow the FINISHED bit that clears
+            // an ActionProcessor halt — a stuck party, with nothing thrown and nothing logged.
+            MapSyncVectors.Run(t);
             RelaunchVectors.Run(t);
             ConfigStepVectors.Run(t, repoRoot);
             ScrollTurnGateVectors.Run(t);

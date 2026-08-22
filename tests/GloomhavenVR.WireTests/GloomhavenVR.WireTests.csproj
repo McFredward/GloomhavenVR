@@ -175,6 +175,7 @@
     <Compile Include="Hex.cs" />
     <Compile Include="GoldenVectors.cs" />
     <Compile Include="StoryVectors.cs" />
+    <Compile Include="MapSyncVectors.cs" />
     <Compile Include="RelaunchVectors.cs" />
     <Compile Include="ConfigStepVectors.cs" />
     <Compile Include="ScrollTurnGateVectors.cs" />

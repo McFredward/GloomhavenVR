@@ -61,10 +61,15 @@ that said "do NOT swap this back, here is why".
    next to it — the note history in `NetProtocol.cs` is the project's real changelog.
 3. **Wire:** magic `GVR1`, `Version` byte stays **3**, all changes **additive TLV** only, old
    readers skip unknown records by length. **Card identity NEVER goes on the wire, ever** —
-   reveals go only through `Net/RevealGate.cs`. Records 1–17 and 22–29 are used; 30+ free. The
-   extras flag byte is FULL and record 4 has no free bits: claim a NEW record rather than
-   squeezing (the reservation comment in `NetProtocol.cs` records a past double-claim
-   incident).
+   reveals go only through `Net/RevealGate.cs`. **Record census (corrected 2026-08-22, and this
+   line had been stale since record 18 shipped): ids 1–32 are ALL IN USE — the 3D-map-room work
+   took 20 and 21, the last two of the block that was reserved for parallel work. 33–36 are the
+   NEW reservation for the next parallel round; 37+ are free.** No id has ever been retired or
+   renumbered, and none ever may be. The extras flag byte is FULL and record 4 has no free bits:
+   claim a NEW record rather than squeezing. **If you claim an id while other lanes are in
+   flight, take one of 33–36 or say in your report which id you took** — the reservation exists
+   because two records written in parallel once both took "the next free id" (23), caught at
+   merge and renumbered before either shipped (`NetProtocol.cs`, the record-22 header).
 4. **Lights are never hidden or written by any visibility system. Figures are never touched by
    any wall/visibility system.**
 5. **Everything that fades or moves does so WITH the animation.** Popping is unacceptable.

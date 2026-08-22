@@ -622,6 +622,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentUndoLabel = null;
         _lastSentItemUseLabel = null;
         RemoteStorySync.Reset();       // …and never carries a story page/pose into a new session
+        RemoteMapRoom.Reset();         // …nor a peer's map-room placard (which owns a GameObject)
+        RemoteMapStory.Reset();        // …nor a map story page or a shared window pose
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
         _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
@@ -724,6 +726,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 // stopped believing: it clicks through its own narrative, exactly as before the
                 // record existed.
                 RemoteStorySync.Reset();
+                // …and the two map-room tables, for the same reason. Nothing of a peer's may
+                // outlive the mode that says their packets do not exist, and RemoteMapRoom's
+                // teardown also destroys every placard GameObject it built.
+                RemoteMapRoom.Reset();
+                RemoteMapStory.Reset();
                 VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
                                   + "send + receive gated for the rest of the session.");
             }
@@ -1523,7 +1530,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // exactly the "did that work?" the test page exists to remove. Also true throughout the
             // explicit-release burst, so the ALL-ZERO record is repeated rather than sent once into
             // an unreliable stream.
-            && !RemoteTestTriggers.SendDue)
+            && !RemoteTestTriggers.SendDue
+            // THE 3D MAP ROOM (20) AND ITS SHARED WINDOWS (21) PRE-EMPT THE CADENCE, and each for
+            // an edge that is a discrete human act: entering the room, pressing the world/city cap,
+            // clicking an icon (record 20), and turning a page of the map story or opening the
+            // quest window (record 21). "Klickt einer weiter ist es für alle im 3d-Worldmap-Raum
+            // weitergeklickt worden" is judged on whether the other player's page turns when yours
+            // does, so 200 ms of cadence latency is the feature failing rather than merely lagging.
+            // Both getters return false outright while MapRoomDriver.Active is off, so a client
+            // with the 3D map switched off evaluates two bools and is otherwise untouched.
+            && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
@@ -1576,6 +1592,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // every packet of every session without a narrative on screen is byte-identical to build
         // 156's. Full contract in RemoteStorySync / NetProtocol.ExtIdStorySync.
         RemoteStorySync.Sample(ref extras);
+
+        // THE 3D MAP ROOM (extension record 20) and ITS SHARED WINDOWS (record 21). USER REQUEST,
+        // verbatim: "Multiplayer für die 3D-Map: a) Welche Map angezeigt wird … b) Welche Quest
+        // gerade angeklickt ist … c) Die mouseover Infotafeln … d) … das erscheinende Fenster soll
+        // voll synchronisiert werden … genauso wie die darauffolgendene Story-Fenster."
+        // Both write NOTHING AT ALL unless this client's own 3D map room is really standing
+        // (MapRoomDriver.Active), so every packet of every scenario session, every flat-map session
+        // and every player who has the 3D map switched off is byte-identical to build 221's. Full
+        // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
+        // NetProtocol.ExtIdSharedWindow.
+        RemoteMapRoom.Sample(ref extras);
+        RemoteMapStory.Sample(ref extras);
 
         if (board != null)
         {
@@ -2815,6 +2843,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     // every player with no narrative on screen — and every pre-record build —
                     // transmits, and "forgotten" is exactly "has no story to sync".
                     RemoteStorySync.Observe(kv.Key, in p);
+
+                    // THE 3D MAP ROOM (record 20) and ITS SHARED WINDOWS (record 21). Kept in
+                    // static tables for the same reason the story sync is: their consumers are the
+                    // LOCAL map room and the LOCAL game's own map story box, not properties of this
+                    // peer's body. A packet WITHOUT either record forgets that peer's entry, which
+                    // is what every player who is not in the 3D map room — and every pre-record
+                    // build — transmits, and "forgotten" is exactly "not standing at this table".
+                    RemoteMapRoom.Observe(kv.Key, in p);
+                    RemoteMapStory.Observe(kv.Key, in p);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -2826,6 +2863,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // The story advance is resolved once per frame, not once per packet: two peers publishing
         // page 3 in the same frame must drive the local box once.
         RemoteStorySync.Resolve();
+        // Same rule for the map room's two records — and both return after ONE comparison
+        // (MapRoomDriver.Active) for every client that has the 3D map switched off, which is what
+        // keeps that client's picture byte-for-byte the pre-record one.
+        RemoteMapRoom.Resolve();
+        RemoteMapStory.Resolve();
     }
 
     /// <summary>A peer's last environment-clock reading (extension record 31) and when it

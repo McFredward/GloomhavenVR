@@ -98,6 +98,65 @@ internal static class MapRoomDriver
     /// of sweeping the scene.</summary>
     internal static global::MapChoreographer? Choreographer => _choreo;
 
+    /// <summary>True while the room is standing AND the parchment it acquired is the CITY map.
+    /// Forwarded from <see cref="MapParchment.IsCity"/> so nothing outside the room has to know
+    /// how the surface is decided. Note that <c>MapIconLayer.CurrentSurface</c> — not this — is
+    /// what the wire publishes, because it has a real <c>Unknown</c> state for the frames of a
+    /// world↔city switch and a bool cannot say "I do not know".</summary>
+    internal static bool IsCityMap => Active && Parchment.IsCity;
+
+    /// <summary>The map room's own location input, or null while no room stands. Handed out so the
+    /// net module can READ what this client is pointing at and where an icon is drawn, without
+    /// sweeping the scene and without any part of WorldUI having to know about the wire.</summary>
+    internal static MapLocationInteractor? ActiveLocations => Active ? Locations : null;
+
+    /// <summary>
+    /// THE PARCHMENT FRAME — the shared frame wire record 21's poses travel in
+    /// (<c>NetProtocol.SharedFrameParchment</c>): origin = the parchment renderer's world bounds
+    /// CENTRE, axes = world axes, unit = the room's own derived seat scale.
+    ///
+    /// <para>WHY NOT RECORD 19'S FRAME. That one is the offset from
+    /// <c>PanelLayout.TryGetAnchor</c>, whose position is <c>CameraController.FocusPoint</c> — the
+    /// orbit camera's focal point, which every player pans for themselves — and whose yaw is the
+    /// seat this client solved from its OWN map camera. Both are per-client, so in the map room
+    /// those numbers mean "the same offset from wherever I happen to be looking", not "the same
+    /// place". Request 3 asks for the second one: <i>"auch wenn es jemand woanders
+    /// hinverschiebt"</i>.</para>
+    ///
+    /// <para>WHY THIS FRAME IS THE SAME ON EVERY CLIENT. Both terms are pure functions of the SAME
+    /// shared parchment: the centre is that renderer's bounds, and the scale is re-derived here by
+    /// exactly the arithmetic <see cref="MapRoomSeat.Solve"/> uses —
+    /// <c>clamp(widest / TargetMapWidthMeters, MinScale, MaxScale)</c>, off a compile-time target
+    /// width that is NOT a config entry. Nothing per-player enters it. It is deliberately the
+    /// derived BASE scale and not the live <c>PanelLayout.WorldScale</c>, which includes this
+    /// player's own pinch-zoom — a shared frame must not move when one player zooms.</para>
+    ///
+    /// <para>WHAT WOULD FALSIFY IT, free and without a build: two clients enter the 3D map room and
+    /// compare the <c>scale</c> figure in the MAP ROOM ENGAGED line of their two
+    /// <c>Player.log</c>s. Identical ⇒ this frame is shared and record 21's frame 1 is sound.
+    /// Different ⇒ the parchment bounds are not identical across clients, and record 21 must fall
+    /// back to <c>NetProtocol.SharedFrameSeatAnchor</c> — which is one constant in
+    /// <c>Net/RemoteMapStory</c> and no wire change, because the frame is a BYTE.</para>
+    /// </summary>
+    internal static bool TryGetParchmentFrame(out Vector3 center, out float scale)
+    {
+        center = Vector3.zero;
+        scale = 1f;
+        if (!Active)
+            return false;
+        MeshRenderer? r = Parchment.Renderer;
+        if (r == null)
+            return false;
+        Bounds b = r.bounds;
+        float widest = Mathf.Max(Mathf.Abs(b.size.x), Mathf.Abs(b.size.z));
+        if (widest < MapRoomSeat.MinUsableExtent)
+            return false;
+        center = b.center;
+        scale = Mathf.Clamp(widest / MapRoomSeat.TargetMapWidthMeters,
+                            MapRoomSeat.MinScale, MapRoomSeat.MaxScale);
+        return true;
+    }
+
     /// <summary>The world point a hover card should fly at — just above the hovered location icon —
     /// or false while nothing is hovered. See <see cref="MapLocationInteractor.TryHoverAnchor"/>.</summary>
     internal static bool TryHoverAnchor(out Vector3 world)

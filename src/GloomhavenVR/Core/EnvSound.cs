@@ -314,29 +314,31 @@ internal static class EnvSound
 
         AmbienceBed = file.Bind("EnvSound", "AmbienceBed", Defaults.EnvSoundAmbienceBed,
             "A CONTINUOUS, QUIET ROOM TONE under everything else — the sound the room itself makes "
-            + "when nothing is happening in it. In the cellar that is the low, dull body of a closed "
-            + "masonry space with a faint hiss over it; in the night forest it is the still air in "
-            + "the leaf litter, with the insects on the ground audible under it. It plays with NO "
-            + "element infusion at all, which is what the rest of the ambience does not: the drip, "
-            + "the rat, the fire, the wind and the rumble are all events or element responses, so "
-            + "with nothing happening the forest used to be completely silent. THIS IS NOT WIND and "
-            + "it does not answer the Air element — the draught at the window and the rustle in the "
-            + "canopy are still the only things that do, and they are still silent unless an Air "
-            + "infusion is up. Deliberately lower in pitch than the candle flames so it sits under "
-            + "them rather than competing, and it ducks with everything else whenever the game makes "
-            + "a sound. OFF leaves every other environment sound exactly as it is and costs nothing: "
-            + "the two sources are paused, not merely muted. Has no effect at all while 'Enabled' is "
-            + "off. Applies live.");
+            + "when nothing is happening in it. In the cellar that is the dull body of a closed "
+            + "masonry space with the hiss its hard walls send back over it; in the night forest it "
+            + "is the high, soft, open air of a wood that is not being blown through, with the "
+            + "insects on the ground under it and, here and there, an owl or a small bird further "
+            + "off. It plays with NO element infusion at all, which is what the rest of the ambience "
+            + "does not: the drip, the rat, the fire, the wind and the rumble are all events or "
+            + "element responses, so with nothing happening the forest used to be completely silent. "
+            + "THIS IS NOT WIND and it does not answer the Air element — the draught at the window "
+            + "and the rustle in the canopy are still the only things that do, and they are still "
+            + "silent unless an Air infusion is up. It ducks with everything else whenever the game "
+            + "makes a sound. OFF pauses the room-tone source outright (not merely muted, so it "
+            + "costs nothing) and returns the forest's insects to their older, quieter setting; it "
+            + "leaves the night calls and every other environment sound exactly as they are. Has no "
+            + "effect at all while 'Enabled' is off. Applies live.");
 
         AmbienceBedGain = file.Bind("EnvSound", "AmbienceBedGain", Defaults.EnvSoundAmbienceBedGain,
             new ConfigDescription(
-                "How loud the continuous room tone is, on top of 'Gain'. 1 = as designed, which is "
-                + "about the level the window draught reaches while a wind is blowing, and roughly "
-                + "44 dB under a game sound at full volume before your own audio options are applied "
-                + "at all. Lower is subtler; 0 is the same as switching 'AmbienceBed' off, except "
-                + "that the forest's insects stay at their corrected level. Even at the maximum the "
-                + "room tone stays under the loudest continuous sound the environment can make. Has "
-                + "no effect while 'AmbienceBed' or 'Enabled' is off. Applies live.",
+                "How loud the continuous room tone is, on top of 'Gain'. 1 = as designed: a little "
+                + "under the level the window draught reaches while a wind is blowing, and roughly "
+                + "45 dB under a game sound at full volume before your own audio options are applied "
+                + "at all. The forest's is quieter again than the cellar's, because it competes with "
+                + "nothing in that room. Lower is subtler; 0 is the same as switching 'AmbienceBed' "
+                + "off, except that the forest's insects stay at their corrected level. Even at the "
+                + "maximum the room tone stays under the loudest continuous sound the environment "
+                + "can make. Has no effect while 'AmbienceBed' or 'Enabled' is off. Applies live.",
                 new AcceptableValueRange<float>(0f, 2f)));
     }
 
@@ -692,9 +694,20 @@ internal static class EnvSound
     /// of gusting before the element enters. The user has ruled twice that there is no wind sound
     /// without an Air infusion, and these are the first continuous beds this feature has ever played
     /// with Air down; a bed that SWELLED would be a wind whatever its spectrum said. Slow, too:
-    /// <see cref="StoneLfoSeconds"/>/<see cref="MarshLfoSeconds"/> are the two longest periods in the
-    /// file and are non-commensurate with every other one in it and with both buffers — item 6 of the
-    /// class doc.</para>
+    /// <see cref="StoneLfoSeconds"/>/<see cref="NightAirLfoSeconds"/> are the two longest periods in
+    /// the file and are non-commensurate with every other one in it and with both buffers — item 6 of
+    /// the class doc.</para>
+    ///
+    /// <para><b>AND IT IS TWO LFOs SUMMED SINCE ModBuild 222, AT THE SAME DEPTH.</b> It used to be
+    /// one <see cref="Lfo"/> call, i.e. a pure sine — a level that repeats EXACTLY every 19.37 or
+    /// 22.13 s. That is a very slow rhythm and nobody would call it a beat, but this is the round in
+    /// which a modulator built out of summed sines was found to be beating at 3.45 Hz on the insect
+    /// bed and to be the measured cause of a "Traktor" report (see <c>EnvSoundBank.MakeChirr</c>), so
+    /// leaving a strictly periodic amplitude anywhere in a permanent bed is no longer a thing this
+    /// file does. The second term runs at <see cref="RoomToneBeatRatio"/> of the first — the golden
+    /// ratio's conjugate, the worst-approximable irrational there is — so the sum never repeats, and
+    /// the two weights add to one so the RANGE is bit-identical to what shipped. The depth did not
+    /// change; only the predictability did.</para>
     ///
     /// <para><b>AND THE DIAL IS CLAMPED HERE RATHER THAN TRUSTED.</b> <see cref="AmbienceBedGain"/>
     /// has an AcceptableValueRange, but a hand-edited cfg is not bound by one (BepInEx clamps on
@@ -710,48 +723,77 @@ internal static class EnvSound
         if (!AmbienceBed.Value)
             return 0f;
         float dial = Mathf.Clamp(AmbienceBedGain.Value, 0f, 2f);
-        return dial * (RoomToneFloor + (1f - RoomToneFloor) * Lfo(periodSeconds));
+        // TWO INCOMMENSURATE TERMS, WEIGHTS SUMMING TO ONE — see the doc. The product is still
+        // inside [RoomToneFloor, 1], so nothing downstream (the ceiling argument below, the pause
+        // test in TickBeds) changes; what changed is that the sequence never repeats.
+        float contour = RoomToneBeatMix * Lfo(periodSeconds)
+                        + (1f - RoomToneBeatMix) * Lfo(periodSeconds * RoomToneBeatRatio);
+        return dial * (RoomToneFloor + (1f - RoomToneFloor) * contour);
     }
 
     /// <summary>How far the room tone's slow contour may fall. 0.86, i.e. 1.3 dB — see
     /// <see cref="RoomTone"/> for why it is this shallow and not deeper.</summary>
     private const float RoomToneFloor = 0.86f;
 
+    /// <summary>The second contour term's period, as a fraction of the first, and how much of the
+    /// contour it is. 0.618033989 is 1/phi — the most irrational number there is, in the precise
+    /// sense that it is the worst approximable by any ratio of small integers — so the two terms have
+    /// no common period at all and the sum is quasi-periodic rather than periodic. See
+    /// <see cref="RoomTone"/> for why ModBuild 222 stopped trusting a single sine anywhere in a
+    /// permanent bed. The mix is deliberately not 0.5: two equal terms would produce a symmetric
+    /// beat pattern of their own.</summary>
+    private const float RoomToneBeatRatio = 0.618033989f;
+    private const float RoomToneBeatMix = 0.62f;
+
     /// <summary>The two rooms' breathing periods. The longest in the file by a factor of more than
     /// two on <see cref="FireBed"/>'s slowest site (17.53 s), and non-commensurate with every period
-    /// in it and with the 11 s and 13 s buffers they ride — so nothing in either room ever comes into
+    /// in it and with the 11 s and 17 s buffers they ride — so nothing in either room ever comes into
     /// phase with the room itself.</summary>
     private const float StoneLfoSeconds = 19.37f;
-    private const float MarshLfoSeconds = 22.13f;
+    private const float NightAirLfoSeconds = 22.13f;
 
     /// <summary>
-    /// WHAT THE TWO ROOM TONES ARE PLAYED AT. Equal, and deliberately ONE pair of numbers for one
-    /// idea, exactly as <see cref="RoomTone"/> is one function.
+    /// WHAT THE TWO ROOM TONES ARE PLAYED AT. <b>NO LONGER EQUAL, and ModBuild 222 splitting them is
+    /// the whole of the hardware report.</b> One function still decides the SHAPE
+    /// (<see cref="RoomTone"/>); the two rooms have opposite level faults and therefore two numbers.
     ///
-    /// <para><b>0.035 IS DERIVED, against the one continuous bed in this file the user has judged
-    /// twice and never called intrusive: the window draught.</b> Delivered at a typical 4 perceived
-    /// metres — the loudest 20 ms RMS through a 200 Hz high pass (this project's stand-in for what a
-    /// Quest 3 actually returns), times the gain, times the mean runtime contour, times Unity's
-    /// <c>min/d</c> rolloff — the draught with a full Air infusion reaches 0.00747 and this reaches
-    /// 0.00660, i.e. <b>1.1 dB under it</b>. It errs quiet in the one direction that matters: unlike
-    /// the draught, this bed is PERMANENT. The full table is in <c>EnvSoundBank</c>'s THE ROOM
-    /// ITSELF, measured by the replica in <c>.planning/envsound-replica/room.py</c>.</para>
+    /// <para><b>THE CELLAR GOES UP: 0.035 -&gt; 0.045.</b> User, verbatim: "Im Keller höre ich im
+    /// Gegensatz zum Wald kaum was außer die effektgeräusche zB von der Maus." The measured cause is
+    /// NOT masking — at 4 perceived metres one candle bed delivers 0.00084 against this bed's
+    /// 0.00286, because a candle's 0.6 m rolloff minimum costs it 16.5 dB by the time the player is
+    /// at the table, so the thing he cannot hear was 10.6 dB LOUDER than the thing he can. The cause
+    /// is that 79.1% of the shipped buffer was under 500 Hz, where a small open-ear driver does not
+    /// deliver: the bed lost 5.7 dB between a 200 Hz and a 500 Hz measurement floor against the wood
+    /// chirr's 0.7. MOST OF THE FIX IS THEREFORE IN THE CLIP AND NOT HERE — see
+    /// <c>EnvSoundBank.StoneHissMix</c>, which is where the cellar's audibility now lives. This gain
+    /// contributes +2.2 dB of the +4.8 dB the bed gains above 500 Hz.</para>
+    ///
+    /// <para><b>THE WOOD GOES DOWN: 0.035 -&gt; 0.021.</b> User, verbatim: "Die Soundkulisse im Wald
+    /// ist viel zu nervig. Hört sich an als ob im Hintergrund ein Trasktor fährt." The measured cause
+    /// of the tractor is the INSECT bed's modulator (<c>EnvSoundBank.MakeChirr</c>: envelope
+    /// autocorrelation 0.867 at a 0.291 s lag, i.e. a hard 3.45 Hz beat) and not this bed — but the
+    /// wood's wash was a narrow, stationary 455 Hz band with 53% of its energy in the band an engine
+    /// occupies and was the only thing in the room below 2200 Hz, so it is rebuilt as well (see
+    /// <c>EnvSoundBank.MakeNightAir</c>) and it is played QUIETER. It is allowed to be: it competes
+    /// with nothing in that room, and the brief for a still wood is that you notice it when you stop
+    /// and not before. Delivered above 500 Hz it reaches 0.00253 against the rejected build's
+    /// 0.00297 — the wood is quieter than what he heard, on both emitters and in both bands.</para>
     ///
     /// <para>FOR SCALE, and because a decibel against another bed is not what "dezent" means: at the
-    /// default dial the master is 0.75, so a room tone reaches <b>0.0050</b> on Unity's 0..1 scale
-    /// against 1.0 for a game cue at full level — <b>46 dB under it</b>, and 55 dB under while the
-    /// duck is in (which it is whenever the game is making any sound at all). At the reporting user's
-    /// own settings (game volume 0.64, master 0.480) it is 0.0032.</para>
+    /// default dial the master is 0.75, so the cellar's room tone reaches <b>0.0056</b> on Unity's
+    /// 0..1 scale against 1.0 for a game cue at full level — <b>45 dB under it</b>, and 54 dB under
+    /// while the duck is in (which it is whenever the game is making any sound at all). At the
+    /// reporting user's own settings (game volume 0.64, master 0.480) it is 0.0036, and the wood's
+    /// is 0.0017.</para>
     ///
-    /// <para>IT IS LOUDER THAN A CANDLE BED PAST ABOUT 1.5 m AND THAT IS NOT THE BRIEF BREAKING. A
-    /// candle bed's rolloff minimum is 0.6 perceived m, so it is a near-field sound and is already
-    /// 15 dB down by the time the player is standing at the table — the same arithmetic
-    /// <see cref="FireMinMeters"/> spells out at length. "Under the candle flutter" is therefore
-    /// honoured as a SPECTRUM (230..520 Hz against 470..1050) and as a CHARACTER (stationary against
-    /// a 7.46 dB flutter); where it matters most, leaning over a candle, the flutter still wins by
-    /// about 15 dB.</para></summary>
-    private const float StoneBedGain = 0.035f;
-    private const float MarshBedGain = 0.035f;
+    /// <para>THE CELLAR'S BED IS LOUDER THAN A CANDLE BED PAST ABOUT 1.5 m AND THAT IS NOT THE BRIEF
+    /// BREAKING; it is now measured rather than argued (0.00499 against 0.00084 at 4 m). A candle bed
+    /// is a NEAR-FIELD sound — the same arithmetic <see cref="FireMinMeters"/> spells out at length.
+    /// "Under the candle flutter" is honoured as a SPECTRUM (a 280..520 Hz body against 470..1050)
+    /// and as a CHARACTER (stationary against a 7.46 dB flutter); leaning over a candle, the flutter
+    /// still wins.</para></summary>
+    private const float StoneBedGain = 0.045f;
+    private const float NightAirBedGain = 0.021f;
 
     /// <summary>
     /// THE ROOM TONE'S ROLLOFF, and it is the one emitter in this feature that is meant NOT to be
@@ -802,11 +844,27 @@ internal static class EnvSound
     private const float InsectLowPassHz = 3000f;
 
     /// <summary>What the room-tone switch lifts the insect bed by, as a multiplier on its unchanged
-    /// <see cref="NightBedGain"/>. 1.5 takes 0.050 to 0.075 — the draught's gain, and the ceiling
-    /// rather than a preference: with the corner correction it puts <b>5.95e-06</b> of absolute
-    /// energy into the 1-5 kHz band the class doc protects, against the draught bed's 1.32e-05. So
-    /// the loudest the wood's insects can ever be is 3.5 dB under the loudest continuous bed this
-    /// file already ships, and they duck like everything else.
+    /// <see cref="NightBedGain"/>. <b>1.50 -&gt; 1.15 at ModBuild 222</b>, i.e. 0.075 -&gt; 0.058,
+    /// which is -2.3 dB.
+    ///
+    /// <para><b>THIS IS THE ONE EMITTER THE USER'S "viel zu nervig" NAMES BY MEASUREMENT.</b> The
+    /// tractor was not a level, it was a BEAT — <c>EnvSoundBank.MakeChirr</c>'s modulator had an
+    /// envelope autocorrelation of 0.867 at a 0.291 s lag, a hard 3.45 Hz pulse — and that is fixed
+    /// in the clip, unconditionally, because a beat is a defect and not a setting. The lift comes
+    /// down anyway, and the reason is that it is the one number this round can move that his sentence
+    /// directly asks for: he wants LESS in that room. Coming down 2.3 dB while the beat is removed
+    /// errs quiet on the emitter that was convicted, which is the only safe direction — and the
+    /// corner correction (1150 -&gt; 3000 Hz), which was the bigger half of ModBuild 221's fix and is
+    /// not in dispute, is untouched.</para>
+    ///
+    /// <para>MEASURED: the bed's delivered level at 4 perceived metres goes from 0.00456 to 0.00356,
+    /// <b>-2.2 dB</b>, and its absolute 1-5 kHz energy from 5.95e-06 to <b>4.89e-06</b>, -1.7 dB.
+    /// (The two differ because the new modulator has a lower crest factor, so the same peak
+    /// normalisation leaves more mean power.) Stated honestly rather than rounded in our favour: that
+    /// is 8.6 dB under the draught bed's 1.32e-05 and 0.9 dB OVER a single candle bed's 3.91e-06 —
+    /// which is where it already was in the build he rejected, and it is the draught that is the
+    /// reference here, because the draught is the continuous bed he has actually judged. They duck
+    /// like everything else.</para>
     ///
     /// <para><b>IT IS BINARY WITH THE SWITCH AND IS NOT ON <see cref="AmbienceBedGain"/>, which is a
     /// decision.</b> This is a CORRECTION of a defect (a clip fighting its own filter), not a new
@@ -814,7 +872,7 @@ internal static class EnvSound
     /// degrees, and a player who wants the whole ambience quieter already has <see cref="Gain"/>.
     /// The dial moves the two ROOM TONES, which are the thing that is genuinely a matter of
     /// taste.</para></summary>
-    private const float InsectAmbienceLift = 1.5f;
+    private const float InsectAmbienceLift = 1.15f;
 
     /// <summary>The insect bed's gain. UNCHANGED at 0.050 across this round, deliberately: the lift
     /// above is a named multiplier rather than a new literal here, so that switching the room tone
@@ -1106,6 +1164,12 @@ internal static class EnvSound
     private static Transform? _dripNode;
     private static Transform? _ratNode;
 
+    /// <summary>Where the wood's two night calls come from — the canopy and the far trunks. Null in
+    /// the cellar, which has neither, and null in a wood whose bake renamed those nodes, which
+    /// <see cref="BuildSwamp"/> warns about loudly. See THE NIGHT CALLS.</summary>
+    private static Transform? _owlNode;
+    private static Transform? _birdNode;
+
     /// <summary>The bookcase's own node ('Shelf', BuildTippingShelf's <c>Place</c> call), or null in
     /// a room that has none. It is the ONLY thing that knows where the shelf stands and which way it
     /// falls; see <see cref="ShelfFloorContact"/> for why the apparition catalogue could not answer
@@ -1386,6 +1450,12 @@ internal static class EnvSound
         // NO RUNTIME LOW PASS, for the candles' and the fire's reason: the band (230..520 Hz, three
         // poles each way, plus a 4-8 kHz hiss ceiling) is baked, and the 1150 Hz single pole this
         // would add would take the ceiling off and do nothing whatever to the body.
+        // ...AND ITS LEVEL AND ITS CLIP BOTH MOVED AT ModBuild 222. "Im Keller höre ich im Gegensatz
+        // zum Wald kaum was außer die effektgeräusche zB von der Maus." The cause is measured and it
+        // is NOT the candles masking it (at 4 m this bed is 10.6 dB louder than a candle bed): 79.1%
+        // of the shipped buffer was under 500 Hz, where the headset does not deliver. The clip's hiss
+        // ceiling carries the room now — see EnvSoundBank's StoneHissMix — and StoneBedGain adds the
+        // rest. Nothing about the placement changed.
         AddBed("Stone", room.transform, EnvSoundBank.Bank(EnvSoundClip.Stone),
                StoneBedGain, RoomToneMinMeters, RoomToneMaxMeters,
                () => RoomTone(StoneLfoSeconds),
@@ -1457,24 +1527,61 @@ internal static class EnvSound
                () => 1.30f * ElementMood.Live(3),
                clipName: EnvSoundClip.Rumble, airGated: false, fireLit: false);
 
-        // THE ROOM ITSELF (ModBuild 154). The night air — the still, low wash of a wood that is not
-        // being blown through, with the leaf litter baked into it.
+        // THE ROOM ITSELF (ModBuild 154, REBUILT AT 222). The night air — the still, high, soft air
+        // of a wood that is not being blown through.
+        //
+        // WHAT IT WAS AND WHY IT IS NOT THAT ANY MORE. User, verbatim: "Die Soundkulisse im Wald ist
+        // viel zu nervig. Hört sich an als ob im Hintergrund ein Trasktor fährt." The ModBuild 221
+        // clip here was a 210..1000 Hz wash with 53.0% of its energy in 200-500 Hz at 0.68 octaves of
+        // spread — a narrow, stationary low-mid band, at 180 degrees of spread, on a rolloff that is
+        // flat across the whole room, and the only thing in this room below 2200 Hz. The MEASURED
+        // cause of the tractor is the insect bed's modulator (see EnvSoundBank.MakeChirr: a 3.45 Hz
+        // beat), but a low-mid hum with no direction and no change is not "was man so im Wald in der
+        // Nacht hört" either, so the band left the engine's: 700..2600 Hz, 0.6% in 200-500, 0.0%
+        // under 200. See EnvSoundBank's THE ROOM ITSELF for the full before/after.
         //
         // IT IS NOT THE 'Leaves' BED ABOVE AND MUST NEVER BECOME IT. That one is the wind: it plays
         // EnvSoundClip.Bed, it is hard-zeroed by the Air gate, and the user has ruled twice that it
-        // may not be audible without an Air infusion. This is the air that is there on a windless
-        // night, on a clip of its own, with 11.7% of its energy under 200 Hz against the wind
-        // buffer's 53.2% and 0.68 octaves of spread against 1.10 — the same two measurements that
-        // separated the candle from the draught one round earlier — and with a runtime contour of
-        // 1.5 dB against the draught's 5.2 dB of gusting. See EnvSoundBank's THE ROOM ITSELF.
+        // may not be audible without an Air infusion. "Dezenter Wind kann bleiben" is read as
+        // permission for THIS bed to have the character of quiet air — not as permission to un-gate
+        // that one, which is untouched.
         //
-        // NO RUNTIME LOW PASS: the band (210..1000 Hz, three poles off the top) is baked and is
-        // -18 dB/oct where the runtime filter is -6.
-        AddBed("Marsh", room.transform, EnvSoundBank.Bank(EnvSoundClip.Marsh),
-               MarshBedGain, RoomToneMinMeters, RoomToneMaxMeters,
-               () => RoomTone(MarshLfoSeconds),
-               clipName: EnvSoundClip.Marsh, airGated: false, fireLit: false,
+        // NO RUNTIME LOW PASS: the band is baked, and the runtime corner is 1150 Hz while this clip's
+        // body STARTS at 700 — a filter there would remove most of the buffer, which is the exact
+        // fault ModBuild 221 had to fix on the insect bed.
+        AddBed("NightAir", room.transform, EnvSoundBank.Bank(EnvSoundClip.NightAir),
+               NightAirBedGain, RoomToneMinMeters, RoomToneMaxMeters,
+               () => RoomTone(NightAirLfoSeconds),
+               clipName: EnvSoundClip.NightAir, airGated: false, fireLit: false,
                lowPassHz: 0f, spreadDegrees: RoomToneSpread);
+
+        // THE NIGHT CALLS (ModBuild 222). "eventuell hier und da noch ein ruf von tieren (was man so
+        // im Wald in der Nacht hört)". Two nodes, not one and not the room root: a call comes from
+        // somewhere, which is the "verortbar von seinen entsprechenden Quellen" ruling, and the owl
+        // and the bird come from different somewheres or the wood has one animal in it.
+        //
+        // A MISSING NODE IS LOUD, and the reason is written into this file three times already: the
+        // wisp bed asked for "Wisp" against a bake that had built "WispWisp", never played in any
+        // shipped build, and said nothing about it for months, because Find returning null and "this
+        // room has no such object" are the same silent path. The bake's own names are Canopy /
+        // TrunksNear / TrunksFar (BuildEnvironmentRooms.cs, Weld(...) at the canopy shell).
+        _owlNode = Find(room.transform, "Canopy", "TrunksNear", "TrunksFar");
+        if (_owlNode == null)
+            VRLog.Warn("Core", "ENV SOUND night call 'Owl' HAS NO NODE — no 'Canopy', 'TrunksNear' "
+                               + "or 'TrunksFar' under the wood. The owl is the near half of the "
+                               + "2026-08-22 request for \"hier und da noch ein ruf von tieren\" and "
+                               + "it will NOT SOUND AT ALL this session. If the bake renamed the "
+                               + "canopy shell, rename it here — a call with no node is silent in "
+                               + "exactly the way a wood with no owl is, and this feature has lost "
+                               + "an emitter to that ambiguity before.");
+
+        _birdNode = Find(room.transform, "TrunksFar", "TrunksNear", "Canopy");
+        if (_birdNode == null)
+            VRLog.Warn("Core", "ENV SOUND night call 'NightBird' HAS NO NODE — no 'TrunksFar', "
+                               + "'TrunksNear' or 'Canopy' under the wood. The far bird is the other "
+                               + "half of the same request and it will NOT SOUND AT ALL this "
+                               + "session. See the 'Owl' warning above for why this is a fault and "
+                               + "not a quiet room.");
     }
 
     /// <summary>
@@ -2098,6 +2205,10 @@ internal static class EnvSound
             TickDrip(clock);
             TickRat(clock);
         }
+        else
+        {
+            TickNightCall(clock);
+        }
         TickDeferred(clock);
         TickFire(clock);
         // NOTHING ANSWERS ICE. There was a TickFrost here until ModBuild 149; see the ruling block
@@ -2383,6 +2494,155 @@ internal static class EnvSound
 
     private static float _squeakAt = float.NaN;
     private static Transform? _squeakFrom;
+
+    // ---- the night calls -------------------------------------------------------------------------
+    //
+    // USER REQUEST, 2026-08-22 hardware, verbatim:
+    //
+    //     "Dezenter Wind kann bleiben und ansonsten eventuell hier und da noch ein ruf von tieren
+    //      (was man so im Wald in der Nacht hört)"
+    //
+    // "HIER UND DA" IS THE WHOLE SPECIFICATION AND IT IS A RATE, so it is set against the rates this
+    // file already ships and the user has already judged: the drip is on 2.85 s (and its own doc
+    // calls that the worst offender in the room), the rat on 26 s, the apparitions on 83 s. A call
+    // roughly every MINUTE sits between the last two, which is where "here and there" lives — you
+    // notice it, you do not wait for it, and you never learn its rhythm.
+    //
+    // THE SCHEDULE IS A PURE FUNCTION OF THE SHARED CLOCK, so every client hears the same call from
+    // the same tree on the same frame with ZERO wire bytes. That is the drip's and the rat's property
+    // and NOT the fire crackle's — the crackle is a walk (each gap depends on the last) and its doc
+    // states plainly that two clients are on different phases of it. A call is a much more findable
+    // event than a crackle: it is 2.3 s long, it comes from a fixed tree and there is nothing else in
+    // the room, so two players standing together hearing owls at different moments would be an
+    // obvious defect. Hence a slot index, not a walk.
+    //
+    // ...AND IT IS STILL A POISSON WAITING TIME, which is the point of doing it this way rather than
+    // with the rat's uniform draw. EnvSoundSchedule.PoissonGap turns ONE hash draw into an
+    // exponential gap, whose mode is at zero — so calls CLUSTER (two owls close together, then a long
+    // quiet) instead of arriving on a wobbly metronome. That distinction is not decoration in this
+    // file: the ice sound beat at a fixed 0.45 s, the user called it "super nervig", and the whole
+    // cue was deleted rather than re-timed. He has now used the same word about the wood.
+    //
+    // THE BOUNDS MAKE THE SLOT SAFE BY CONSTRUCTION. PoissonGap is clamped to
+    // mean * [0.28, 2.60], so with NightCallMean = 15.5 s the offset is always inside
+    // 4.34..40.30 s and therefore always inside the 41 s slot — the call can never land in the next
+    // slot's window or before the current one opens, and no branch below has to test for it.
+
+    /// <summary>The night calls' slot, in shared-clock seconds, and the mean of the Poisson offset
+    /// inside it. 41 s is prime and non-commensurate with the rat's 26, the drip's 2.85, the haunt's
+    /// 83 and every LFO period in this file — item 6 of the class doc. The mean is chosen so that
+    /// <see cref="EnvSoundSchedule.PoissonGapMax"/> x mean (40.30 s) still fits inside the slot; see
+    /// the block above.</summary>
+    private const float NightCallSlot = 41f;
+    private const float NightCallMean = 15.5f;
+
+    /// <summary>The share of slots in which no animal calls at all. 0.30, so the realised mean gap is
+    /// about 41 / 0.70 = 59 s. A skipped slot is not a missing sound: a wood in which something calls
+    /// every single minute on the minute is a wood with a clock in it, and the skip is what makes the
+    /// long quiets long enough to be quiet.</summary>
+    private const float NightCallSkip = 0.30f;
+
+    /// <summary>The share of calls that are the OWL rather than the far bird. Slightly more than
+    /// half, because the owl is the near, low, two-second one and is the sound the request is most
+    /// obviously about; the bird is the other end of the band so the room does not repeat itself.
+    /// </summary>
+    private const float NightCallOwlShare = 0.55f;
+
+    /// <summary>What the two calls are played at, and how far they carry.
+    ///
+    /// <para>THE OWL CARRIES AND THE BIRD DOES NOT, which is most of what makes one near and one far.
+    /// A 2.5..24 perceived-metre rolloff is flat across the whole playable volume and then falls
+    /// slowly; 2.0..14 falls out of the room. Both are well past <see cref="FireMinMeters"/>'s
+    /// argument about near-field minima — a call authored at the candles' 0.6 m would be inaudible
+    /// two steps away, which is the fault that doc spells out at length.</para>
+    ///
+    /// <para>0.075 AND 0.060 ARE UNDER THE DRIP'S 0.085, which is the rate comparison read as a
+    /// level: the drip fires every 2.85 s and these fire about once a minute, so they could
+    /// legitimately be louder, and they are not. "Dezent … nie aufdringlich überlagernd" is a
+    /// standing ruling and this round is answering a report that something was too much.</para>
+    /// </summary>
+    private const float OwlGain = 0.075f;
+    private const float OwlMinMeters = 2.5f;
+    private const float OwlMaxMeters = 24f;
+    private const float BirdGain = 0.060f;
+    private const float BirdMinMeters = 2f;
+    private const float BirdMaxMeters = 14f;
+
+    /// <summary>Hash channels for the four independent decisions one call needs: whether the slot is
+    /// silent, WHEN inside it, WHICH animal, and its pitch.
+    ///
+    /// <para>A CHANNEL IS NOT AN EXCLUSIVE RESOURCE — <see cref="DripVariantChannel"/>'s doc makes
+    /// the argument in full — but four draws that are all compared BY THE EAR on one event must not
+    /// share one, or (say) the latest call in every slot would forever be the highest-pitched owl.
+    /// These four are distinct FROM EACH OTHER, which is the property that matters.</para>
+    ///
+    /// <para>THEY ARE ALL INSIDE <c>Haunt.Hash</c>'s DOCUMENTED 0..7, deliberately: that range is a
+    /// mirror of <c>EnvHaunt.cginc</c>'s channel table and inventing an eighth would be a constant
+    /// that only exists on one side of a contract this project checks. The overlaps are: the DRIP
+    /// and the RAT, which are cellar-only and therefore can never run in the same session's room as
+    /// these; and the APPARITIONS, which do run in both rooms but index a haunt slot rather than a
+    /// 41 s call slot — two values that are never compared cannot be seen to correlate.</para>
+    /// </summary>
+    private const float NightCallSkipChannel = 3f;
+    private const float NightCallWhenChannel = 4f;
+    private const float NightCallWhichChannel = 6f;
+    private const float NightCallPitchChannel = 7f;
+
+    /// <summary>The last slot this client has already answered, so a call fires once and not once per
+    /// frame. <c>long.MinValue</c> is "not observing yet" — and the FIRST slot observed is deliberately
+    /// swallowed, exactly as the drip's and the rat's are: the call that belongs to the slot the
+    /// player walked in during has already happened.</summary>
+    private static long _lastNightCallSlot = long.MinValue;
+
+    /// <summary>
+    /// THE NIGHT CALLS — an owl in the canopy, a small bird further off, "hier und da". See the block
+    /// above for the rate, the clock and why this is a slot index rather than the fire crackle's
+    /// walk.
+    /// </summary>
+    private static void TickNightCall(float clock)
+    {
+        if (clock < 0f)
+            return;
+
+        long slot = (long)Mathf.Floor(clock / NightCallSlot);
+        if (slot == _lastNightCallSlot)
+            return;
+
+        // THE CALL'S INSTANT INSIDE THIS SLOT. An exponential waiting time from one hash draw, and
+        // bounded by PoissonGap's own clamp to 4.34..40.30 s — inside the 41 s slot by construction,
+        // so this cannot schedule into the next slot and cannot fire on the slot boundary.
+        float at = NightCallSlot * slot
+                   + EnvSoundSchedule.PoissonGap(NightCallMean,
+                                                 Haunt.Hash(slot, NightCallWhenChannel));
+        if (clock < at)
+            return;
+
+        bool first = _lastNightCallSlot == long.MinValue;
+        _lastNightCallSlot = slot;
+        if (first)
+            return;   // that call already happened before we started listening
+
+        // A SKIPPED SLOT IS A SLOT NOTHING CALLED IN. Silence is the correct sound, and it is drawn
+        // AFTER the slot is latched so a skipped slot still advances the schedule.
+        if (Haunt.Hash(slot, NightCallSkipChannel) < NightCallSkip)
+            return;
+
+        bool owl = Haunt.Hash(slot, NightCallWhichChannel) < NightCallOwlShare;
+        Transform? from = owl ? _owlNode : _birdNode;
+        if (from == null)
+            return;   // BuildSwamp already warned, loudly, once — this path must not warn per event
+
+        // +-4% of pitch, off a channel of its own so the quietest realisation is not locked to the
+        // lowest note forever. Narrow, for MakeDrips' reason: AudioSource.pitch resamples the WHOLE
+        // clip, and a wide setting transposes an owl into a pigeon.
+        float pitch = 0.96f + 0.08f * Haunt.Hash(slot, NightCallPitchChannel);
+        PlayShot(EnvSoundBank.Bank(owl ? EnvSoundClip.Owl : EnvSoundClip.NightBird),
+                 from.position,
+                 owl ? OwlGain : BirdGain,
+                 owl ? OwlMinMeters : BirdMinMeters,
+                 owl ? OwlMaxMeters : BirdMaxMeters,
+                 pitch);
+    }
 
     /// <summary>
     /// THE APPARITIONS. One cue per event, resolved from <see cref="Haunt.Resolve"/> — the shared
@@ -3184,6 +3444,8 @@ internal static class EnvSound
 
         _dripNode = null;
         _ratNode = null;
+        _owlNode = null;
+        _birdNode = null;
         _shelfNode = null;
 
         _built = false;
@@ -3194,6 +3456,7 @@ internal static class EnvSound
         _duckPollCountdown = 0;
         _lastDripIndex = long.MinValue;
         _lastRatSlot = long.MinValue;
+        _lastNightCallSlot = long.MinValue;
         _lastHauntStart = float.NaN;
         _lastHauntCard = -1;
         _lastForcedStart = float.NaN;
@@ -3586,20 +3849,23 @@ internal static class EnvSound
         sb.Append(" ROOM TONE: ");
         if (!AmbienceBed.Value)
         {
-            sb.Append("SWITCHED OFF ([EnvSound] AmbienceBed = false). The Stone/Marsh source above ")
-              .Append("is created but its level is a literal zero, so the first TickBeds PAUSES it ")
-              .Append("and it is not in the mix at all — this line is written one frame before that ")
-              .Append("happens. The insect floor is back at its shipped gain and its shipped ")
-              .Append(BedLowPassHz.ToString("F0")).Append(" Hz corner. This is the ModBuild 153 ")
-              .Append("environment exactly — with no infusion up the wood is silent again, which is ")
-              .Append("the state the 2026-08-22 report is about and is here the player's choice.");
+            sb.Append("SWITCHED OFF ([EnvSound] AmbienceBed = false). The Stone/NightAir source ")
+              .Append("above is created but its level is a literal zero, so the first TickBeds ")
+              .Append("PAUSES it and it is not in the mix at all — this line is written one frame ")
+              .Append("before that happens. The insect floor is back at its shipped gain ")
+              .Append(NightBedGain.ToString("F3")).Append(" and its shipped ")
+              .Append(BedLowPassHz.ToString("F0")).Append(" Hz corner. This is the pre-ModBuild-221 ")
+              .Append("environment — with no infusion up the wood is quiet again, which is the state ")
+              .Append("the 2026-08-22 report is about and is here the player's choice. THE NIGHT ")
+              .Append("CALLS STILL FIRE and so does the chirr's ModBuild 222 beat repair; see the ")
+              .Append("A-B note below for exactly what this switch does and does not undo.");
         }
         else
         {
             sb.Append("ON, dial ").Append(Mathf.Clamp(AmbienceBedGain.Value, 0f, 2f).ToString("F2"))
-              .Append(". ").Append(style == SkyStyle.Cellar ? "Stone" : "Marsh")
+              .Append(". ").Append(style == SkyStyle.Cellar ? "Stone" : "NightAir")
               .Append(" at gain ")
-              .Append((style == SkyStyle.Cellar ? StoneBedGain : MarshBedGain).ToString("F3"))
+              .Append((style == SkyStyle.Cellar ? StoneBedGain : NightAirBedGain).ToString("F3"))
               .Append(" on the ROOM ROOT with a ").Append(RoomToneMinMeters.ToString("F1"))
               .Append(" m minimum and spread ").Append(RoomToneSpread.ToString("F0"))
               .Append(" degrees — deliberately NOT locatable, because it is the room and not a thing ")
@@ -3610,8 +3876,10 @@ internal static class EnvSound
               .Append(RoomToneFloor.ToString("F2")).Append("..1.00 (")
               .Append((20f * Mathf.Log10(1f / RoomToneFloor)).ToString("F1"))
               .Append(" dB) over ")
-              .Append((style == SkyStyle.Cellar ? StoneLfoSeconds : MarshLfoSeconds).ToString("F2"))
-              .Append(" s, against the draught's 5.2 dB of gusting — too shallow to be air being ")
+              .Append((style == SkyStyle.Cellar ? StoneLfoSeconds : NightAirLfoSeconds).ToString("F2"))
+              .Append(" s (summed with a second term at ").Append(RoomToneBeatRatio.ToString("F3"))
+              .Append(" of it, so the contour is quasi-periodic and never repeats)")
+              .Append(", against the draught's 5.2 dB of gusting — too shallow to be air being ")
               .Append("pushed. If this line says ON and the room is still silent, the fault is a ")
               .Append("LEVEL and [EnvSound] AmbienceBedGain is the dial; if the bed is missing from ")
               .Append("the list above, the bank failed and said so on its own line.");
@@ -3622,10 +3890,56 @@ internal static class EnvSound
                   .Append(") and its runtime low pass moved from ").Append(BedLowPassHz.ToString("F0"))
                   .Append(" Hz to ").Append(InsectLowPassHz.ToString("F0"))
                   .Append(" Hz. THE FILTER IS THE BIGGER HALF: EnvSoundClip.Chirr is banded to ")
-                  .Append("2200..6500 Hz by its own generator and every build before ModBuild 154 ")
+                  .Append("2200..6500 Hz by its own generator and every build before ModBuild 221 ")
                   .Append("played it through a one-pole 1150 Hz corner, i.e. -6.5 dB at the clip's ")
                   .Append("floor and -15.3 dB at its ceiling. That, and not the gain, is why the ")
-                  .Append("wood was \"absolut still\".");
+                  .Append("wood was \"absolut still\". THE LIFT CAME DOWN 1.50 -> 1.15 AT ModBuild ")
+                  .Append("222 (-2.3 dB) because the user's next verdict on this room was \"viel zu ")
+                  .Append("nervig\".");
+        }
+
+        // THE FREE A-B, WRITTEN OUT, because the next report has to be able to name an emitter
+        // rather than a room. Every round this feature has spent guessing which of two sources a
+        // listener meant is a round that a sentence here would have saved.
+        sb.Append(" A-B: [EnvSound] AmbienceBed = false (live, no restart) silences EXACTLY these — ")
+          .Append("(1) the ").Append(style == SkyStyle.Cellar ? "'Stone'" : "'NightAir'")
+          .Append(" room-tone source, which is PAUSED and leaves the mix entirely");
+        if (style == SkyStyle.SwampNight)
+            sb.Append("; (2) the insect bed's ModBuild 221/222 correction — its gain goes back to ")
+              .Append(NightBedGain.ToString("F3")).Append(" and its runtime corner back to ")
+              .Append(BedLowPassHz.ToString("F0")).Append(" Hz");
+        sb.Append(". [EnvSound] AmbienceBedGain = 0 silences ONLY (1); the insects stay corrected. ")
+          .Append("IT DOES NOT UNDO, in either case: the chirr's ModBuild 222 modulator repair (the ")
+          .Append("shipped clip beat at 3.45 Hz with an envelope autocorrelation of 0.867 — the ")
+          .Append("measured cause of the \"Traktor\" report — and a beat is a defect in the bank, ")
+          .Append("not a setting)");
+        if (style == SkyStyle.SwampNight)
+            sb.Append("; and NOT the night calls, which are one-shots on the shared clock and ride ")
+              .Append("[EnvSound] Enabled alone");
+        sb.Append(". SO: if a tractor is still audible with AmbienceBed OFF, it is neither room tone ")
+          .Append("and neither insect setting, and the next round starts somewhere else entirely.");
+
+        if (style == SkyStyle.SwampNight)
+        {
+            sb.Append(" NIGHT CALLS: \"hier und da noch ein ruf von tieren\" — an Owl at '")
+              .Append(_owlNode != null ? _owlNode.name : "NO NODE")
+              .Append("' (gain ").Append(OwlGain.ToString("F3")).Append(", ")
+              .Append(OwlMinMeters.ToString("F1")).Append("..").Append(OwlMaxMeters.ToString("F0"))
+              .Append(" m) and a NightBird at '")
+              .Append(_birdNode != null ? _birdNode.name : "NO NODE")
+              .Append("' (gain ").Append(BirdGain.ToString("F3")).Append(", ")
+              .Append(BirdMinMeters.ToString("F1")).Append("..").Append(BirdMaxMeters.ToString("F0"))
+              .Append(" m). One slot every ").Append(NightCallSlot.ToString("F0"))
+              .Append(" s, ").Append((100f * NightCallSkip).ToString("F0"))
+              .Append("% of slots silent, the instant inside a slot an EXPONENTIAL waiting time ")
+              .Append("(EnvSoundSchedule.PoissonGap, mean ").Append(NightCallMean.ToString("F1"))
+              .Append(" s, bounded 4.3..40.3 s so it always lands inside the slot) — a realised mean ")
+              .Append("gap of about ").Append((NightCallSlot / (1f - NightCallSkip)).ToString("F0"))
+              .Append(" s, against the drip's 2.85 s and the apparitions' 83 s. Every draw is a pure ")
+              .Append("function of the shared clock's slot index, so both players hear the same ")
+              .Append("animal from the same tree on the same frame with ZERO wire bytes. A 'NO NODE' ")
+              .Append("above means that call is SILENT for the whole session and the bake renamed a ")
+              .Append("node — it is not a quiet wood.");
         }
 
         // THE BOOKCASE, SAID AT BUILD RATHER THAN AT THE FIRST EVENT. Its cues are the loudest thing

@@ -321,17 +321,70 @@ internal static class GuildmasterDestinations
     {
         if (!MapRoomDriver.Active || !IsDestination(window))
             return false;
-        EGuildmasterMode home = _homeMode == EGuildmasterMode.City
-            ? EGuildmasterMode.City
-            : EGuildmasterMode.WorldMap;
-        bool pressed = MapRoomDriver.PressGuildmasterMode(home, $"{source} on '{window.name}'");
-        VRLog.Info(Scope, $"GUILDMASTER WINDOW: closing '{window.name}' ({source}) by RETURNING TO "
+        return ReturnHome($"{source} on '{window.name}'", $"closing '{window.name}'");
+    }
+
+    /// <summary>
+    /// THE SAME CLOSE, ASKED FOR BY MODE INSTEAD OF BY WINDOW (ModBuild 200 — the second half of
+    /// <i>"Weiterhin soll ein erneuter Druck auf den button zB vom Händler obwohl das Fenster offen
+    /// ist, das offene Fenster wieder schließen."</i>).
+    ///
+    /// <para>WHY IT IS THE SAME ROUTE AND NOT A SECOND ONE. <see cref="LeaveMode"/> already had the
+    /// only correct answer for this family — the game's mode machine has no "close", only "switch to
+    /// another mode" (<c>UIGuildmasterHUD.UpdateCurrentMode</c>, :435-460, which runs
+    /// <c>modes[current].Exit()</c> before entering the next), so RETURNING TO THE MAP <b>is</b> the
+    /// close, and it is the only thing that takes the party display back out of selection mode. A
+    /// table cap pressed a second time therefore does exactly what the window's own X does, through
+    /// exactly the same dispatch. Both now call this method; there is one close path in the room and
+    /// it is the flat player's.</para>
+    ///
+    /// <para>WHICH MODES. The caller decides — see <c>MapButtonRail.IsClosableMode</c>, which admits
+    /// the five destination windows plus <c>MercenaryLog</c> (the sixth mode, which shares
+    /// <c>UITownRecordsWindow</c>) and refuses <c>WorldMap</c> and <c>City</c>. Those two are not
+    /// windows at all: they are the map surface this room is BUILT ON, and "closing" one of them
+    /// would mean pressing the other, i.e. silently teleporting the player between the world map and
+    /// the city map on a second press. This method additionally refuses to return home to the mode it
+    /// was asked to close, which is the same guard stated as an invariant rather than as a caller's
+    /// promise.</para>
+    /// </summary>
+    internal static bool CloseMode(EGuildmasterMode mode, string source)
+    {
+        if (!MapRoomDriver.Active)
+            return false;
+        EGuildmasterMode home = HomeMode();
+        if (home == mode)
+        {
+            VRLog.Warn(Scope, $"GUILDMASTER WINDOW: asked to close mode {mode} by returning to "
+                              + $"{home} — but that is the SAME mode, so the press would be a no-op. "
+                              + "Refused. This can only happen if a WorldMap/City cap reached the "
+                              + "toggle-close path, which MapButtonRail.IsClosableMode exists to "
+                              + "prevent; nothing was dispatched.");
+            return false;
+        }
+        return ReturnHome(source, $"closing the {mode} window from its own table cap");
+    }
+
+    /// <summary>The one close: press the bar's map button, exactly as a flat player leaves a shop.
+    /// <paramref name="source"/> travels into the cap press's own log line; <paramref name="what"/>
+    /// is the human sentence for this line.</summary>
+    private static bool ReturnHome(string source, string what)
+    {
+        EGuildmasterMode home = HomeMode();
+        bool pressed = MapRoomDriver.PressGuildmasterMode(home, source);
+        VRLog.Info(Scope, $"GUILDMASTER WINDOW: {what} ({source}) by RETURNING TO "
                           + $"{home} on the game's own bar{(pressed ? "" : " — but no such button is on the bar")}. "
                           + "Hiding the window alone would leave the guildmaster mode active, and with it the "
                           + "party display stuck in selection mode (EnableSelectionMode sets every character "
-                          + "slot non-interactable; only the mode's Exit undoes it).");
+                          + "slot non-interactable; only the mode's Exit undoes it). NOTHING NEW GOES ON THE "
+                          + "WIRE: this is one pointerClick on the bar's own map Toggle, the same dispatch the "
+                          + "window's X has sent since ModBuild 184, and UpdateCurrentMode -> Exit is local "
+                          + "presentation — the purchase, blessing or enhancement the destination may have "
+                          + "committed was committed by ITS own button, not by leaving it.");
         return pressed;
     }
+
+    private static EGuildmasterMode HomeMode() =>
+        _homeMode == EGuildmasterMode.City ? EGuildmasterMode.City : EGuildmasterMode.WorldMap;
 
     /// <summary>
     /// CONVERT THE PANEL THE FLAT GAME DRAWS AS ONE, NOT THE WINDOW COMPONENT (ModBuild 186).

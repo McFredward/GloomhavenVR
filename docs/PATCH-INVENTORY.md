@@ -140,7 +140,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `InputFieldActivateWatch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:180</sub> | `TMP_InputField.ActivateInputField()` | postfix | `InputFieldFocusWatch`:119 |
 | `InputFieldDeactivateWatch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs:216</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `InputFieldFocusWatch`:131 |
 | `KeyboardHideSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs:91</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `KeyboardAutoHideBlock`:62 |
-| `MainMenuLogoSwap`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MainMenuLogoSwap.cs:77</sub> | `MainMenuUIManager.Awake()` *(private)* | postfix | `WorldUIModule`:102 |
+| `MainMenuLogoSwap`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MainMenuLogoSwap.cs:85</sub> | `MainMenuUIManager.Awake()` *(private)* | postfix | `WorldUIModule`:102 |
 | `MapLocationSelectorGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationSelectorGate.cs:42</sub> | `MapLocationSelector.Update()` *(private)* | prefix | `WorldUIModule`:62 |
 | `MouseWorldSurfaceCut`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MouseWorldSurfaceCut.cs:75</sub> | `EventSystem.RaycastAll()` | postfix | `WorldUIModule`:57 |
 | `PartyPreviewStorm`<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPreviewStorm.cs:113</sub> | `UIAdventurePartyAssemblyWindow.PreviewCharacterInfo(CMapCharacter)` *(private)* | prefix | `WorldUIModule`:86 |

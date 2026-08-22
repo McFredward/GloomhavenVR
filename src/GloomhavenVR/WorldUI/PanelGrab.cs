@@ -187,6 +187,15 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private IPanelGrabOwner? _owner;
     private MeshRenderer? _bar;
     private Color _barBaseColor;
+
+    /// <summary>
+    /// True while at least one hand has this handle HIGHLIGHTED (hover, and — on the palm path —
+    /// for the duration of the hold as well). Tracked only so <see cref="SetBarBaseColor"/> can
+    /// stay out of the highlight's way: the highlight owns the material colour while it is lit,
+    /// and the base colour is what it falls back to when it goes out.
+    /// </summary>
+    private bool _barHighlighted;
+
     private string _logChannel = "WorldUI";
     private string _logName = "Panel";
 
@@ -308,8 +317,36 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     public void OnGrabHighlight(VRHand hand, bool highlighted)
     {
+        _barHighlighted = highlighted;
         if (_bar != null && _bar.sharedMaterial != null)
             _bar.sharedMaterial.color = highlighted ? new Color(0.95f, 0.8f, 0.4f) : _barBaseColor;
+    }
+
+    /// <summary>
+    /// Re-point the bar's RESTING colour — the colour the hover/held highlight falls back to when
+    /// it goes out. Used by <see cref="GrabbableModal"/> to paint a SHARED window's bar blue
+    /// (see that class's SHARED-WINDOW BAR COLOUR block for the user request and the whole design).
+    ///
+    /// <para>THIS COMPOSES WITH THE HIGHLIGHT INSTEAD OF FIGHTING IT, and that is the entire reason
+    /// the method exists rather than a caller writing <c>sharedMaterial.color</c> directly. The
+    /// highlight is a state machine with exactly one writer (<see cref="OnGrabHighlight"/>) and it
+    /// remembers nothing — it re-derives the colour from <c>_barBaseColor</c> every time it goes
+    /// out. A caller that wrote the material while a hand hovered would be overwritten by the very
+    /// next un-highlight; a caller that wrote <c>_barBaseColor</c> alone would not repaint a bar
+    /// nobody is touching. So: always update the base, and touch the material ONLY while the
+    /// highlight is not lit. A blue bar therefore still turns gold under the hand, and turns back
+    /// to BLUE (not brass) when the hand leaves — because the highlight reads the base it was
+    /// given, which is the one place this fact is stored.</para>
+    ///
+    /// <para>The material is PER BAR (<c>WorldUIAssets.CreateFlatMaterial</c> constructs a new
+    /// <see cref="Material"/> per call), so this write can only ever tint the one window it was
+    /// called for.</para>
+    /// </summary>
+    internal void SetBarBaseColor(Color color)
+    {
+        _barBaseColor = color;
+        if (!_barHighlighted && _bar != null && _bar.sharedMaterial != null)
+            _bar.sharedMaterial.color = color;
     }
 
     // ------------------------------------------------------------------ lifecycle --

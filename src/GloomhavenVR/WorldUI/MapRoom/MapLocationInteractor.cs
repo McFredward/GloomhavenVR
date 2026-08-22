@@ -111,6 +111,83 @@ internal sealed class MapLocationInteractor
     /// <summary>Locations registered on the most recent scan (log material).</summary>
     internal int RegisteredCount => _locations.Count;
 
+    // ---- what the wire reads off this class (ModBuild 222, records 20 + 21) -----------------
+    // Deliberately RAW: these hand out MapLocation references and a change counter, and nothing
+    // about identity, hashing or the wire appears in this file. The key derivation lives in
+    // Net/RemoteMapRoom.cs so the dependency keeps pointing Net → WorldUI, which is the direction
+    // the rest of the project already has (Net/RemoteStorySync calls into ModalFallback, never the
+    // other way round).
+
+    /// <summary>The location this client's own pointer is on, or null. This is the fact request
+    /// 2c ("Die mouseover Infotafeln sollen synchronisiert werden") publishes.</summary>
+    internal MapLocation? Hover => _hover;
+
+    /// <summary>
+    /// The location this client has CLICKED and whose quest window is standing — the host's
+    /// pre-commit STAGING, which the game does not sync.
+    ///
+    /// <para>The COMMITTED selection is a different fact and is already on the game's own wire,
+    /// host-authoritatively and keyed by <c>Location.ID</c>
+    /// (<c>UIMapMultiplayerController.ConfirmSelectedLocation</c> →
+    /// <c>SendGameAction(GameActionType.SelectQuest, ActionPhaseType.MapHQ, …)</c> carrying a
+    /// <c>LocationToken</c>, received by <c>MapChoreographer.ProxySelectedLocation</c>). A second
+    /// channel for THAT is forbidden. What is published from here is presentation only — "which
+    /// icon is lit on my table" — and a receiver may never turn it into a selection.</para>
+    /// </summary>
+    internal MapLocation? Staged => _selected;
+
+    /// <summary>How many live locations the last rescan registered, and the reference at an index.
+    /// Handed out as a count + indexer rather than as the list so nobody can hold the list itself
+    /// across an <c>InitMap</c> that replaces every entry in it.</summary>
+    internal int LocationCount => _locations.Count;
+
+    /// <inheritdoc cref="LocationCount"/>
+    internal MapLocation? LocationAt(int index) =>
+        index >= 0 && index < _locations.Count ? _locations[index] : null;
+
+    /// <summary>
+    /// Bumped once every time <see cref="Rescan"/> REPLACES the location set — a quest unlock, a
+    /// city↔world switch, a travel animation, i.e. every <c>MapChoreographer.InitMap</c>.
+    ///
+    /// <para>THIS IS WHAT MAKES A KEY→LOCATION CACHE SAFE, and it is not optional. Locations are
+    /// destroyed and respawned wholesale, so a cache that is not rebuilt points at dead objects;
+    /// and the two collectors here refuse to depend on order, so nothing else about the set is
+    /// stable enough to diff against. A consumer rebuilds when this number changes and never
+    /// otherwise.</para>
+    /// </summary>
+    internal int ScanGeneration => _scanGeneration;
+
+    private int _scanGeneration;
+
+    /// <summary>
+    /// Where a placard belongs for ANY location — the top-centre of its drawn icon plus the same
+    /// real-metre gap <see cref="TryHoverAnchor"/> uses, with the same fallback onto the game's
+    /// authored hit box when this location has no drawn-icon pad.
+    ///
+    /// <para>Shares <see cref="TryHoverAnchor"/>'s implementation exactly, because a remote
+    /// player's placard and the local hover card must sit at the same height over the same icon —
+    /// two anchors that agree by construction rather than by two numbers matching.</para>
+    /// </summary>
+    internal bool TryAnchorFor(MapLocation? loc, out Vector3 world)
+    {
+        world = default;
+        if (loc == null)
+            return false;
+        float scale = Rig.RigTarget.Current != null
+            ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
+            : 1f;
+        float lift = HoverCardLiftMeters * scale;
+        if (_pads.TryAnchor(loc, out Vector3 padTop))
+        {
+            world = new Vector3(padTop.x, padTop.y + lift, padTop.z);
+            return true;
+        }
+        BoxCollider? box = HitBoxOf(loc);
+        float top = box != null ? box.bounds.max.y : loc.transform.position.y;
+        world = new Vector3(loc.transform.position.x, top + lift, loc.transform.position.z);
+        return true;
+    }
+
     /// <summary>
     /// Where a hover card belongs right now: the world point just above the hovered icon, or null
     /// while nothing is hovered. Read by <c>ModalFallback</c> to fly the game's own preview popup
@@ -235,6 +312,9 @@ internal sealed class MapLocationInteractor
         }
         _pokes.Clear();
         _locations.Clear();
+        // Same reason as in Rescan: the set is gone, so every reference-keyed cache built off it
+        // must rebuild rather than point at destroyed objects.
+        unchecked { _scanGeneration++; }
         _pads.Release(reason);
         MapHoverVerdict.Reset();
         _scanFrame = int.MinValue;
@@ -358,6 +438,10 @@ internal sealed class MapLocationInteractor
             _pokes.Add(poke);
         }
         _maskInForce = mask;
+        // THE SET WAS REPLACED. Everything keyed on a MapLocation reference — above all the
+        // wire's key→location cache (Net/RemoteMapRoom) — must rebuild now: InitMap destroys and
+        // respawns every location, so a cache that survives this points at dead objects.
+        unchecked { _scanGeneration++; }
         _kinds = $"{scenarios} Scenario, {villages} Village, {bosses} Boss, {hqs} Headquarters, "
                  + $"{stores} Store, {other} None";
 

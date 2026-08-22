@@ -914,6 +914,96 @@ internal struct PresenceState
     /// <c>WorldScale</c>), rotation is relative to that anchor's yaw. Never a world point — see
     /// <see cref="NetProtocol.ExtIdStorySync"/> for the measured reason.</summary>
     public RigPose StoryPose;
+
+    // ---- THE 3D MAP ROOM (extension record 20) --------------------------------------------
+    // Sampled and consumed in Net/RemoteMapRoom.cs; nothing else reads them. Written only while
+    // the sender's own 3D map room stands, so every packet of every player who has the 3D map
+    // off is byte-identical to ModBuild 221's.
+
+    /// <summary>True when this packet carries the sender's 3D-map-room state (extension record
+    /// <see cref="NetProtocol.ExtIdMapRoom"/>). Absence means "that peer is not in the 3D map
+    /// room", which is exactly what a peer on an older build transmits.</summary>
+    public bool HasMapRoom;
+
+    /// <summary>Map-room flags byte (<see cref="NetProtocol.MapRoomInRoomBit"/> and friends),
+    /// masked with <see cref="NetProtocol.MapRoomDefinedMask"/> on write AND on read.</summary>
+    public byte MapRoomFlags;
+
+    /// <summary>Wrapping counter the sender bumps once per COMPLETED local world↔city switch. An
+    /// EDGE marker, not a clock: a receiver adopts the surface exactly once, on the packet whose
+    /// stamp differs from the one it last saw from that peer.</summary>
+    public byte MapRoomSurfaceStamp;
+
+    /// <summary><c>FNV-1a(MapLocation.Location.ID)</c> of the location the sender is pointing at or
+    /// has staged, or 0 for none. A match gate, never an instruction — an unresolvable key does
+    /// nothing at all.</summary>
+    public uint MapRoomPickKey;
+
+    // ---- THE MAP ROOM'S SHARED WINDOWS (extension record 21) -------------------------------
+    // Sampled and consumed in Net/RemoteMapStory.cs; nothing else reads them.
+
+    /// <summary>True when this packet carries the sender's shared map windows (extension record
+    /// <see cref="NetProtocol.ExtIdSharedWindow"/>).</summary>
+    public bool HasSharedWindow;
+
+    /// <summary>Valid length of <see cref="SharedWindowEntries"/> (the sender keeps a persistent
+    /// buffer that may be longer). Meaningful only when <see cref="HasSharedWindow"/>.</summary>
+    public int SharedWindowCount;
+
+    /// <summary>The sender's shared map windows, one entry per open kind. Never null when
+    /// <see cref="HasSharedWindow"/> is set and <see cref="SharedWindowCount"/> is above zero.</summary>
+    public SharedWindowEntry[]? SharedWindowEntries;
+}
+
+/// <summary>
+/// One entry of extension record <see cref="NetProtocol.ExtIdSharedWindow"/> — which absolute page
+/// one of the map room's shared windows is on for the sender, and where and how big it stands.
+///
+/// <para>A value type in a parallel-array-free shape on purpose: nine parallel arrays of two
+/// elements each is nine chances for one of them to be a length out of step with the others, and
+/// this record's whole contract is that a truncated entry must end the parse WITHOUT damaging the
+/// entries before it.</para>
+/// </summary>
+internal struct SharedWindowEntry
+{
+    /// <summary><see cref="NetProtocol.SharedWindowKindMapStory"/> or
+    /// <see cref="NetProtocol.SharedWindowKindQuestConfirm"/>.</summary>
+    public byte Kind;
+
+    /// <summary><see cref="NetProtocol.SharedOpenBit"/> / <see cref="NetProtocol.SharedPoseBit"/> /
+    /// <see cref="NetProtocol.SharedFinishedBit"/>, masked with
+    /// <see cref="NetProtocol.SharedDefinedMask"/> on write AND on read.</summary>
+    public byte Flags;
+
+    /// <summary>The ABSOLUTE 0-based page the sender is showing, or
+    /// <see cref="NetProtocol.StoryPageNone"/>. Always "none" for the quest window.</summary>
+    public byte Page;
+
+    /// <summary>The sender's own page count. Diagnostic only — the receiver clamps to its own
+    /// list.</summary>
+    public byte PageCount;
+
+    /// <summary>What this window is SHOWING, as an opaque match gate: the dialog content hash for
+    /// the map story, <c>FNV-1a</c> of the quest's localization key for the quest window. Never
+    /// validated — its whole job is to FAIL to match.</summary>
+    public uint ContentKey;
+
+    /// <summary>Wrapping counter, bumped once per COMPLETED local move/resize. Meaningful only with
+    /// <see cref="NetProtocol.SharedPoseBit"/>.</summary>
+    public byte PoseStamp;
+
+    /// <summary>The sender's window size as the dimensionless grab factor in hundredths.</summary>
+    public byte SizeCode;
+
+    /// <summary>Which frame <see cref="Pose"/> is expressed in —
+    /// <see cref="NetProtocol.SharedFrameSeatAnchor"/> or
+    /// <see cref="NetProtocol.SharedFrameParchment"/>. An unknown frame drops the pose and keeps
+    /// the page.</summary>
+    public byte Frame;
+
+    /// <summary>The window pose in the frame named by <see cref="Frame"/>. Never a raw world
+    /// point.</summary>
+    public RigPose Pose;
 }
 
 /// <summary>
@@ -1082,6 +1172,28 @@ internal struct PresenceState
 ///                        packet announcing it FINISHED — the statement that releases a session
 ///                        whose peer walked away without clicking. The pose is seat-anchor-local
 ///                        REAL metres, never a world point, see NetProtocol.ExtIdStorySync)
+///                        20 3D MAP ROOM ([flags][surfaceStamp][u32 pickKey LE] — am I standing in
+///                        the 3D campaign-map room, am I the host, which of the game's two map
+///                        surfaces am I showing, and which map location am I pointing at or have
+///                        staged. The surface stamp is an EDGE marker: a peer's change is adopted
+///                        ONCE, on the packet whose stamp differs, never continuously — the user
+///                        ruled that anybody may switch and everyone follows. The pick key is
+///                        FNV-1a(CLocationState.ID), the same identity the GAME puts on its own
+///                        wire for SelectQuest, and it is a MATCH GATE that may light an icon and
+///                        may never select one. Written only while MapRoomDriver.Active, so every
+///                        packet of every player with the 3D map off is unchanged, see
+///                        NetProtocol.ExtIdMapRoom)
+///                        21 SHARED MAP WINDOWS ([n] then n x [kind][flags][page][pageCount]
+///                        [u32 contentKey LE] plus, once the sender's user has really moved that
+///                        window, [poseStamp][sizeCode][frame][pose 20] — which ABSOLUTE page the
+///                        campaign map's story box is on for this player, and where each shared map
+///                        window stands. The map's narrative is MapStoryController, a DIFFERENT
+///                        singleton from the scenario's StoryController, which is why record 19 is
+///                        inert on the map. The FRAME byte says which frame the pose numbers are
+///                        in, because record 19's seat-anchor frame does not survive the map room's
+///                        per-client focus point; an unknown frame drops the pose and keeps the
+///                        page. Written only while MapRoomDriver.Active, see
+///                        NetProtocol.ExtIdSharedWindow)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1134,8 +1246,20 @@ internal static class PresenceSerializer
     /// + 8 (ENV CLOCK: 2 + <c>NetProtocol.EnvClockRecordBytesWithFrequency</c> 6)
     /// + 10 (TEST FORCE: 2 + <c>NetProtocol.TestForceRecordBytes</c> 8)
     /// + 31 (STORY SYNC: 2 + <c>NetProtocol.StoryRecordBytesWithPose</c> 29)
+    /// + 8 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytes</c> 6)
+    /// + 65 (SHARED MAP WINDOWS: 2 + <c>NetProtocol.SharedWindowMaxRecordBytes</c> 63)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1357.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1430.
+    ///
+    /// <para>1357 → 1430 on 2026-08-22: the 3D MAP ROOM record (20) added its worst case of 8 bytes
+    /// — <c>[id][len]</c> plus its 6-byte payload — and the SHARED MAP WINDOWS record (21) its worst
+    /// case of 65 bytes — <c>[id][len]</c> plus <c>[n]</c> and two pose-carrying entries — in their
+    /// own commit, per the rule below. <b><see cref="MaxSize"/> was raised 1600 → 1800 in the same
+    /// commit</b> because the margin at 1600 would have been 170 bytes, thinner than the largest
+    /// single record (257, board tuning) and therefore a violation of that rule. The raise restores
+    /// a margin of 370. Same reasoning as the two earlier raises, and invisible to every peer
+    /// including older builds: this sizes ONE local send buffer and appears in no packet, no header
+    /// and no contract — what actually goes out is the byte count each writer returns.</para>
     ///
     /// <para>1289 → 1295 on 2026-08-11: the HELD-FIGURE STRETCH record (30) added its own worst
     /// case of 6 bytes — [id][len][u16][u16] — in its own commit, per the rule below.</para>
@@ -1217,7 +1341,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 1600;
+    public const int MaxSize = 1800;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1338,7 +1462,19 @@ internal static class PresenceSerializer
                           // "it is finished" packet is going out. That is what keeps every packet
                           // of every session without a narrative on screen — nearly all of them —
                           // byte-identical to the previous build's.
-                          || state.HasStorySync;
+                          || state.HasStorySync
+                          // THE 3D MAP ROOM (20) and ITS SHARED WINDOWS (21): the same rule again —
+                          // the emptiness test lives in the SAMPLERS (RemoteMapRoom.Sample /
+                          // RemoteMapStory.Sample), which set these flags ONLY while this client's
+                          // own 3D map room is really standing. That is what keeps every packet of
+                          // every scenario session, every flat-map session and every player who has
+                          // the 3D map switched off byte-identical to ModBuild 221's — the
+                          // hard property this feature's whole opt-in scoping rests on. A record 20
+                          // whose flags are all clear is impossible by that gate, and record 21 is
+                          // additionally suppressed by its own entry count below.
+                          || state.HasMapRoom
+                          || (state.HasSharedWindow && state.SharedWindowCount > 0
+                              && state.SharedWindowEntries != null);
         bool block = state.HasPileBrowse || state.HasMaskSize || boardStyle || extensions;
         if (block) flags |= NetProtocol.FlagPileBrowse;
         buffer[i++] = flags;
@@ -2121,6 +2257,90 @@ internal static class PresenceSerializer
                             ? NetProtocol.StorySizeDefaultCode
                             : state.StorySizeCode;
                         AvatarSerializer.WritePoseShared(buffer, ref i, in state.StoryPose);
+                    }
+                    records++;
+                }
+                if (state.HasMapRoom
+                    && i + 2 + NetProtocol.MapRoomRecordBytes <= buffer.Length)
+                {
+                    // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE]. The full contract —
+                    // above all WHY the surface stamp is an EDGE and not a level, and why the pick
+                    // key may light an icon and may never select one — is written once, at
+                    // NetProtocol.ExtIdMapRoom. Nothing here is game state: the record says where
+                    // this player is standing, which map they are looking at and which icon they
+                    // are pointing at.
+                    //
+                    // NO EMPTINESS GATE beyond the flag: the sampler sets HasMapRoom only while
+                    // MapRoomDriver.Active, so an "all clear" payload cannot be produced. The room
+                    // bit is written unconditionally for that reason — a record that exists IS a
+                    // client in the room, and a receiver that ever sees it clear treats the peer as
+                    // absent rather than guessing.
+                    // Appended LAST, behind record 19, per the tail's append-order contract.
+                    buffer[i++] = NetProtocol.ExtIdMapRoom;
+                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytes;
+                    buffer[i++] = (byte)(state.MapRoomFlags & NetProtocol.MapRoomDefinedMask);
+                    buffer[i++] = state.MapRoomSurfaceStamp;
+                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomPickKey);
+                    records++;
+                }
+                if (state.HasSharedWindow && state.SharedWindowCount > 0
+                    && state.SharedWindowEntries != null
+                    && i + 2 + NetProtocol.SharedWindowMaxRecordBytes <= buffer.Length)
+                {
+                    // SHARED MAP WINDOWS (21): [n] then n x [kind][flags][page][pageCount]
+                    // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ). The contract is
+                    // at NetProtocol.ExtIdSharedWindow. Nothing here is game state: an entry says
+                    // which PAGE of a map message this player has read to and where their copy of
+                    // the window stands; each receiver applies that to its OWN UICharacterStoryBox
+                    // through the game's own ShowLine seam.
+                    //
+                    // THE LENGTH IS COMPUTED, NOT ASSUMED: entries carrying a pose are longer, so
+                    // the payload length is summed first and written into the length byte, and a
+                    // reader walks entry by entry using each entry's OWN flags byte. That is what
+                    // lets an unknown KIND be skipped by a reader that has never heard of it.
+                    // Appended LAST, behind record 20, per the tail's append-order contract.
+                    int entries = state.SharedWindowCount;
+                    if (entries > NetProtocol.SharedWindowMaxEntries)
+                        entries = NetProtocol.SharedWindowMaxEntries;
+                    if (entries > state.SharedWindowEntries.Length)
+                        entries = state.SharedWindowEntries.Length;
+
+                    int payload = 1;
+                    for (int e = 0; e < entries; e++)
+                    {
+                        byte f = (byte)(state.SharedWindowEntries[e].Flags
+                                        & NetProtocol.SharedDefinedMask);
+                        payload += (f & NetProtocol.SharedPoseBit) != 0
+                            ? NetProtocol.SharedWindowEntryBytesWithPose
+                            : NetProtocol.SharedWindowEntryMinBytes;
+                    }
+
+                    buffer[i++] = NetProtocol.ExtIdSharedWindow;
+                    buffer[i++] = (byte)payload;
+                    buffer[i++] = (byte)entries;
+                    for (int e = 0; e < entries; e++)
+                    {
+                        SharedWindowEntry entry = state.SharedWindowEntries[e];
+                        byte f = (byte)(entry.Flags & NetProtocol.SharedDefinedMask);
+                        bool pose = (f & NetProtocol.SharedPoseBit) != 0;
+                        buffer[i++] = entry.Kind;
+                        buffer[i++] = f;
+                        buffer[i++] = entry.Page > NetProtocol.StoryPageMax
+                            ? NetProtocol.StoryPageNone
+                            : entry.Page;
+                        buffer[i++] = entry.PageCount;
+                        AvatarSerializer.WriteU32(buffer, ref i, entry.ContentKey);
+                        if (!pose)
+                            continue;
+                        buffer[i++] = entry.PoseStamp;
+                        buffer[i++] = entry.SizeCode < NetProtocol.StorySizeMinCode
+                                      || entry.SizeCode > NetProtocol.StorySizeMaxCode
+                            ? NetProtocol.StorySizeDefaultCode
+                            : entry.SizeCode;
+                        buffer[i++] = entry.Frame > NetProtocol.SharedFrameMax
+                            ? NetProtocol.SharedFrameSeatAnchor
+                            : entry.Frame;
+                        AvatarSerializer.WritePoseShared(buffer, ref i, in entry.Pose);
                     }
                     records++;
                 }
@@ -3396,6 +3616,139 @@ internal static class PresenceSerializer
                             sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
                         }
                         state.StoryFlags = sFlags;
+                    }
+                    else if (id == NetProtocol.ExtIdMapRoom
+                             && len >= NetProtocol.MapRoomRecordBytes)
+                    {
+                        // 3D MAP ROOM: [flags][surfaceStamp][u32 pickKey LE].
+                        //
+                        // Sanitized FIELD BY FIELD, never by dropping the record whole — the
+                        // record's first statement is "I am in the room", and dropping that would
+                        // read as a peer LEAVING the room, i.e. it would make a garbage byte
+                        // somewhere else erase a placard that is genuinely up:
+                        //   * undefined flag bits are masked off (the board-UI overlay
+                        //     discipline), so a future sender's extra bit can never light a
+                        //     meaning here.
+                        //   * the surface stamp needs no range check at all: it is a WRAPPING
+                        //     counter compared only for INEQUALITY against the last one seen from
+                        //     the same sender. Every one of its 256 values is legal and none of
+                        //     them means anything on its own.
+                        //   * the pick key is deliberately NOT validated. It is an opaque content
+                        //     hash whose whole job is to FAIL to resolve when the two clients are
+                        //     not looking at the same map, and the only thing a receiver does with
+                        //     an unresolvable key is nothing.
+                        // A record whose IN-ROOM bit is clear survives all of this and IS
+                        // DELIVERED: the consumer reads it as "this peer is not in the room", the
+                        // same picture absence gives, so the two agree by construction.
+                        state.HasMapRoom = true;
+                        state.MapRoomFlags = (byte)(buffer[i] & NetProtocol.MapRoomDefinedMask);
+                        state.MapRoomSurfaceStamp = buffer[i + 1];
+                        state.MapRoomPickKey = (uint)(buffer[i + 2]
+                                                      | (buffer[i + 3] << 8)
+                                                      | (buffer[i + 4] << 16)
+                                                      | (buffer[i + 5] << 24));
+                    }
+                    else if (id == NetProtocol.ExtIdSharedWindow && len >= 1)
+                    {
+                        // SHARED MAP WINDOWS: [n] then n x [kind][flags][page][pageCount]
+                        // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ).
+                        //
+                        // EVERY step is bounds-checked against the record's OWN end (never trust
+                        // the wire): a lying count is clamped to the record cap, an entry that does
+                        // not fit ENDS THE WALK WITH THE ENTRIES BEFORE IT KEPT, and nothing can
+                        // overrun the record or bleed into the next one. Sanitised field by field:
+                        //   * n is clamped to SharedWindowMaxEntries.
+                        //   * flags are masked with SharedDefinedMask.
+                        //   * a page at or past StoryPageNone becomes StoryPageNone; the receiver
+                        //     re-clamps against its OWN dialog list anyway (NetProtocol
+                        //     .ResolveStoryPage), the only place the real bound is known.
+                        //   * an UNKNOWN KIND is not dropped from the record — its length is still
+                        //     computable from its own flags byte, so it is stepped over and the
+                        //     entries behind it still apply. That is what makes a third kind
+                        //     addable later without breaking this build.
+                        //   * a size code outside the grab handle's window degrades to the authored
+                        //     1.00x, and an UNKNOWN FRAME or a NaN/Inf position DROPS THE POSE
+                        //     BLOCK AND KEEPS THE PAGE: a window flung to infinity — or placed in a
+                        //     frame this build cannot decode — is unreachable, while the local
+                        //     placement is always usable.
+                        //   * the content key is NOT validated. Opaque match gate, same as record
+                        //     19's story key.
+                        int j = i;
+                        int end = i + len;
+                        int n = buffer[j++];
+                        if (n > NetProtocol.SharedWindowMaxEntries)
+                            n = NetProtocol.SharedWindowMaxEntries;
+                        var entries = new SharedWindowEntry[NetProtocol.SharedWindowMaxEntries];
+                        int kept = 0;
+                        for (int e = 0; e < n; e++)
+                        {
+                            if (j + NetProtocol.SharedWindowEntryMinBytes > end)
+                                break; // truncated entry: this one and every later one are gone
+                            var entry = default(SharedWindowEntry);
+                            entry.Kind = buffer[j];
+                            byte ef = (byte)(buffer[j + 1] & NetProtocol.SharedDefinedMask);
+                            byte ep = buffer[j + 2];
+                            if (ep > NetProtocol.StoryPageMax)
+                                ep = NetProtocol.StoryPageNone;
+                            entry.Page = ep;
+                            entry.PageCount = buffer[j + 3];
+                            entry.ContentKey = (uint)(buffer[j + 4]
+                                                      | (buffer[j + 5] << 8)
+                                                      | (buffer[j + 6] << 16)
+                                                      | (buffer[j + 7] << 24));
+                            entry.SizeCode = NetProtocol.StorySizeDefaultCode;
+                            j += NetProtocol.SharedWindowEntryMinBytes;
+
+                            if ((ef & NetProtocol.SharedPoseBit) != 0)
+                            {
+                                int poseBytes = NetProtocol.SharedWindowEntryBytesWithPose
+                                                - NetProtocol.SharedWindowEntryMinBytes;
+                                if (j + poseBytes > end)
+                                {
+                                    // Claimed a pose the record is too short to hold: keep the page
+                                    // and drop the CLAIM, then stop — the walk cannot know where
+                                    // the next entry would have begun.
+                                    ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
+                                    entry.Flags = ef;
+                                    entries[kept++] = entry;
+                                    break;
+                                }
+                                byte stamp = buffer[j];
+                                byte size = buffer[j + 1];
+                                byte frame = buffer[j + 2];
+                                int p = j + 3;
+                                AvatarSerializer.ReadPoseShared(buffer, ref p, out RigPose pose);
+                                j += poseBytes;
+                                Vector3 pos = pose.Position;
+                                bool bad = frame > NetProtocol.SharedFrameMax
+                                           || float.IsNaN(pos.x) || float.IsNaN(pos.y)
+                                           || float.IsNaN(pos.z) || float.IsInfinity(pos.x)
+                                           || float.IsInfinity(pos.y) || float.IsInfinity(pos.z);
+                                if (bad)
+                                {
+                                    ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
+                                }
+                                else
+                                {
+                                    entry.PoseStamp = stamp;
+                                    entry.SizeCode =
+                                        size < NetProtocol.StorySizeMinCode
+                                        || size > NetProtocol.StorySizeMaxCode
+                                            ? NetProtocol.StorySizeDefaultCode
+                                            : size;
+                                    entry.Frame = frame;
+                                    entry.Pose = pose;
+                                }
+                            }
+                            entry.Flags = ef;
+                            entries[kept++] = entry;
+                        }
+                        if (kept > 0)
+                        {
+                            state.HasSharedWindow = true;
+                            state.SharedWindowCount = kept;
+                            state.SharedWindowEntries = entries;
+                        }
                     }
                     else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
                     {

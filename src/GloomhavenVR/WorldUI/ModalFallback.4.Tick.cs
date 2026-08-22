@@ -2319,8 +2319,17 @@ internal static partial class ModalFallback
         //    A HOVER CARD has no grab frame at all (ModBuild 181) — TickHoverCards owns its pose.
         for (int i = 0; i < Converted.Count; i++)
         {
-            if (!Converted[i].HoverCard)
-                Converted[i].Grab?.Tick();
+            if (Converted[i].HoverCard)
+                continue;
+            // ...and its grab bar is re-tinted from the LIVE shared-window predicate in the same
+            // pass. THIS is the one place that knows both halves — the mod-owned GrabbableModal and
+            // the game UIWindow it was built for — and the tint has to be re-derived per tick
+            // because participation can flip while the window stands (the player toggles the 3D
+            // world map; MapRoomDriver reads that config live). Change-gated inside: a standing
+            // window costs one Color comparison and writes nothing. See GrabbableModal's
+            // SHARED-WINDOW BAR COLOUR block for the user request and the whole design.
+            Converted[i].Grab?.SyncSharedBarTint(Converted[i].Window);
+            Converted[i].Grab?.Tick();
         }
         TickHoverCards();
         EnterPhase(PhaseDestinations);

@@ -113,6 +113,97 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// per-eye projection as <c>MAP ICON SAMPLING</c> and <c>PANEL SAMPLING</c>, with the comparison
 /// count, the worst value and the threshold on one line.</para>
 ///
+/// <para>=====================================================================</para>
+/// <para>THE CAP LOOKED DEAD WHILE THE PRESS LANDED (ModBuild 200) — user report, verbatim:
+/// <i>"4) Du hast ja verändert, das man den Händler und co. jederzeit mit dem button aufrufen kann,
+/// auch wenn gerade eine Quest ausgewählt ist: Die Animationen des buttons zeigen aber es sei
+/// ausgegraut und nicht drückbar - fix das. Weiterhin soll ein erneuter Druck auf den button zB vom
+/// Händler obwohl das Fenster offen ist, das offene Fenster wieder schließen."</i></para>
+///
+/// <para>WHY BOTH HALVES OF THAT SENTENCE WERE TRUE AT ONCE, AND IT WAS NOT
+/// <c>Toggle.IsInteractable()</c>. The cap's grey and the cap's collider came from ONE term,
+/// <c>live</c> in <see cref="SampleState"/>, and its FIRST factor is <c>UIGuildmasterButton.IsActive</c>
+/// — which is <c>gameObject.activeInHierarchy</c> (decompiled UIGuildmasterButton.cs:68). Select a
+/// quest on the map and <c>AdventureMapUIManager.OnSelectedMapLocation</c> (:357) calls
+/// <c>UIGuildmasterHUD.EnableHeadquartersOptions(this, false)</c> (:693-712), which reaches
+/// <c>RefreshVisibilityHeadquartersOptions</c> (:739-751) and runs
+/// <c>optionsContainer.SetActive(false)</c>. In the flat game that is not a grey-out at all — the
+/// whole bar is REMOVED from the screen. The map room cannot remove the caps: they are furniture
+/// bolted to the table rim. So the mod rendered "there is no bar" as "eight greyed, inert caps", a
+/// state the flat game never shows, and switched every collider off with it.</para>
+///
+/// <para>AND THAT DISABLED COLLIDER IS EXACTLY WHY THE PRESS STILL WORKED — through a second,
+/// unintended route. With the cap inert the laser passed straight THROUGH it and landed on the
+/// tabletop 6 mm below; <c>MapLocationInteractor.TickDeselect</c> reads a trigger there as "on the
+/// map or the table and on no location icon" and runs the game's own <c>MapLocation.Deselect</c>;
+/// <c>AdventureMapUIManager.OnDeselectedMapLocation</c> (:396-406) then calls
+/// <c>EnableHeadquartersOptions(this, true)</c> and the bar comes back SYNCHRONOUSLY. Because
+/// <c>MapRoomDriver.Tick</c> runs <c>Locations.Tick()</c> (:369) BEFORE <c>Buttons.Tick()</c>
+/// (:373), the very same frame's <see cref="SampleState"/> found <c>live</c> true again, re-enabled
+/// the collider, and <see cref="TickLaser"/> — still inside the same <c>TriggerDown</c> edge — hit
+/// the cap and pressed it. HARDWARE PROOF, .planning/debug/Player.log: line 6816 deselects at
+/// <c>5.6 cm (real) outside the parchment's own edge</c> — the rail centre stands at
+/// <see cref="RailInsetMeters"/> = 7.5 cm and a 5.5 cm cap spans 4.75-10.25 cm, so the beam was
+/// aimed AT the merchant cap — and line 6824, with nothing between them but the shop's own
+/// area-manager lines, reports <c>MAP TABLE BUTTON 'Merchant' pressed (Right trigger)</c> with
+/// <i>"the pointerEnter was already outstanding from this cap's own hover"</i>, i.e. the hover was
+/// taken in that same <c>TickLaser</c> call. The identical pair sits at 6355/6363 (5.0 cm). One aim,
+/// one trigger, merchant open — off a cap that was drawn dead and whose collider was off.</para>
+///
+/// <para>ONE TERM MOVED: <c>live</c> IS NOW THE MOD'S PREDICATE, <see cref="Pressable"/>. Nothing
+/// else about the sampling ruling changed — the sprite, the tint, the <c>CanvasGroup</c> alpha, the
+/// icon's scale animation, the highlight pulse and the notification badge are all still read live
+/// off the game's own graphics on their own lines in <see cref="SampleState"/>, untouched. What
+/// changed is only the boolean that decides "greyed / inert" versus "lit / solid", and it is now
+/// derived from what a press in THIS ROOM actually does:</para>
+/// <list type="number">
+/// <item>the game says yes (<c>Toggle.IsInteractable()</c>) — unchanged, the common case;</item>
+/// <item>the bar is hidden ONLY because a map location is selected. Then the press is still
+///   deliverable, because <see cref="TryRevealBar"/> drops that selection first through the game's
+///   own <c>AdventureMapUIManager.DeselectCurrentMapLocation()</c> (:385-393) — the very call the
+///   game makes on ITSELF at :359 before selecting another location — and the bar returns. This is
+///   the accident above, made deliberate: same seam, same order, but now the cap is solid (so
+///   <c>MapLocationInteractor</c>'s own beam arbitration correctly hands the trigger to the cap and
+///   does NOT deselect behind our back) and the log says what was dropped and why;</item>
+/// <item>this cap's own mode is the one that is OPEN. The game marks that toggle non-interactable on
+///   purpose (<c>UIGuildmasterButton.RefreshSelected</c>, :209: <c>toggle.interactable =
+///   !toggle.isOn</c>, plus the grayscale material on :216) because a flat second click has nothing
+///   to do — and a repeat click could not commit anyway, since <c>toggleGroup.allowSwitchOff</c> is
+///   false while a mode is active (UIGuildmasterHUD.cs:441) so uGUI's <c>Toggle.Set</c> merely
+///   re-asserts <c>isOn</c>. In the room it DOES have something to do: it closes the window. So the
+///   cap stays lit and pressable, and the press routes to
+///   <c>GuildmasterDestinations.CloseMode</c>.</item>
+/// </list>
+///
+/// <para>THE SECOND PRESS CLOSES, AND IT IS THE X's OWN ROUTE. <c>CloseMode</c> is
+/// <c>LeaveMode</c> asked by mode instead of by window: it presses the bar's MAP (or CITY) button,
+/// so <c>UIGuildmasterHUD.UpdateCurrentMode</c> runs <c>modes[current].Exit()</c> — the only thing
+/// that takes the party display back out of selection mode. It is restricted to the six modes that
+/// ARE windows; <c>WorldMap</c> and <c>City</c> are the map surface this room is built on and
+/// "closing" one of them would mean silently swapping the player between the world map and the city
+/// map, so <see cref="IsClosableMode"/> refuses them by name and says so.</para>
+///
+/// <para>MULTIPLAYER. A cap's appearance is local presentation and always was. The close drives one
+/// <c>pointerClick</c> on the bar's own map Toggle — the same dispatch the window X has sent since
+/// ModBuild 184 — and <c>UpdateCurrentMode</c> → <c>Exit</c> is local UI state; the purchase,
+/// blessing or enhancement a destination may have committed was committed by ITS own button on its
+/// own action path, so a second press cannot re-commit it: it can only leave. The reveal calls
+/// <c>MapLocation.Deselect</c>, which is guarded by the game's own <c>IsSelectable()</c> and
+/// <c>m_OnClickAction</c> (MapLocation.cs:670-678) and reaches
+/// <c>UIMapMultiplayerController.OnDeselectedQuest</c> (:287-294), whose entire body hides two local
+/// UI elements when online. Nothing is sent. It is also the identical call
+/// <c>MapLocationInteractor</c> has been making from the table since ModBuild 183.</para>
+///
+/// <para>REJECTED. (1) Hard-coding the caps to look enabled: that is the symptom, and it would have
+/// left the beam passing through them and silently dropping his quest selection. (2) Writing
+/// <c>optionsContainer.SetActive(true)</c> ourselves to bring the bar back: a direct edit of game UI
+/// state against a level-triggered game writer, i.e. a write war, and it lies about
+/// <c>disableOptionsRequests</c>. (3) Calling <c>EnableHeadquartersOptions(us, true)</c>: it only
+/// removes OUR request, which we never added, so with the map manager's request still in the set it
+/// is a measured no-op. (4) Closing by <c>UIWindow.Hide()</c> on the destination: ModBuild 184
+/// already proved that leaves the mode active and the party display dead. (5) Making WorldMap/City
+/// closable for symmetry: see above — it is a teleport, not a close.</para>
+///
 /// <para>INPUT: fingertip through the shared <see cref="VRInteractables"/> registry, laser through
 /// a geometric <c>Collider.Raycast</c> scan over this rail's own caps. Deliberately NOT through
 /// <c>RayInteractor.Mask</c>: the map room keeps that mask narrow on purpose (see
@@ -666,7 +757,16 @@ internal sealed class MapButtonRail
             TickTravel(c);
 
             float groupAlpha = c.Group != null ? c.Group.alpha : 1f;
-            bool live = c.Button.IsActive && c.Toggle != null && c.Toggle.IsInteractable();
+            // ModBuild 200: THE ONE TERM THAT MOVED. Was
+            //     c.Button.IsActive && c.Toggle != null && c.Toggle.IsInteractable()
+            // — the GAME's flat-bar predicate, which greys a cap for two states the map room does not
+            // share: a bar the game has REMOVED from the flat screen (a quest is selected) and the
+            // mode that is currently OPEN (which in the room is the one a second press closes). It is
+            // now the ROOM's predicate. Everything else below — sprite, tint, CanvasGroup alpha, the
+            // icon's scale animation, the highlight pulse, the badge — is untouched and still sampled
+            // live off the game's own graphics, exactly as the user's ruling requires. See the class
+            // doc for the hardware evidence and the rejected alternatives.
+            bool live = Pressable(c);
             if (live != c.Interactable)
             {
                 c.Interactable = live;
@@ -762,6 +862,146 @@ internal sealed class MapButtonRail
                                         : NativeButtonSkin.LabelColor * 0.45f;
             }
         }
+    }
+
+    // ---- WHAT A PRESS IN THIS ROOM ACTUALLY DOES (ModBuild 200) -------------------------------
+
+    /// <summary>
+    /// THE ROOM'S PRESSABILITY PREDICATE — the single source of both the cap's LOOK and its
+    /// COLLIDER, and the same three questions <see cref="Press"/> answers in the same order. They
+    /// share this method rather than agreeing by inspection: the whole ModBuild 200 defect was an
+    /// appearance and a behaviour computed from two different things.
+    ///
+    /// <para>Read it as: can a press on this cap reach the game and make it do something?</para>
+    /// <list type="number">
+    ///   <item>the button must be DELIVERABLE — <c>ExecuteEvents</c> drops every event aimed at an
+    ///   inactive GameObject, so an inactive bar is a hard no UNLESS the one thing hiding it is a
+    ///   selected map location, which <see cref="TryRevealBar"/> can drop through the game's own
+    ///   call before dispatching (see the class doc);</item>
+    ///   <item>either the game's own <c>Toggle</c> says yes,</item>
+    ///   <item>or this cap's mode is the one that is OPEN and it is a mode that can be closed — the
+    ///   second-press-closes ruling. The game marks that toggle non-interactable
+    ///   (<c>UIGuildmasterButton.RefreshSelected</c>, :209) precisely because a flat second click has
+    ///   nothing to do; here it has.</item>
+    /// </list>
+    ///
+    /// <para><c>Toggle.IsInteractable()</c> on an inactive object returns the CACHED group flag
+    /// (uGUI's <c>Selectable.m_GroupsAllowInteraction</c> is only recomputed in
+    /// <c>OnCanvasGroupChanged</c>, which does not run while the object is off), so it is read only
+    /// AFTER the deliverability question — never as a proxy for it.</para>
+    /// </summary>
+    private static bool Pressable(Cap c)
+    {
+        if (c.Button == null || c.Toggle == null)
+            return false;
+        if (!c.Button.IsActive && !CanRevealBar())
+            return false;
+        if (c.Toggle.IsInteractable())
+            return true;
+        return c.Toggle.isOn && IsClosableMode(c.Button.GuildmasterMode);
+    }
+
+    /// <summary>
+    /// Is this cap's mode a WINDOW that a second press can close, or is it the map itself?
+    ///
+    /// <para>THE SIX THAT ARE WINDOWS: <c>Merchant</c>, <c>Temple</c>, <c>Trainer</c>,
+    /// <c>Enchantress</c>, <c>TownRecords</c> and <c>MercenaryLog</c> — the five destination
+    /// <c>UIWindow</c>s <c>GuildmasterDestinations.IsDestination</c> matches, plus MercenaryLog,
+    /// which is a sixth MODE sharing <c>UITownRecordsWindow</c> (UIGuildmasterHUD.cs:248-254) and so
+    /// has no window class of its own to be matched by. Closing any of them means returning to the
+    /// map, which is what the window's own X already does.</para>
+    ///
+    /// <para>THE TWO THAT ARE NOT: <c>WorldMap</c> and <c>City</c> are map SURFACES, not windows —
+    /// this entire room is built on one of them. "Closing" a map has no meaning, and the only thing
+    /// the mode machine could do instead is switch to the other one, i.e. silently move the player
+    /// between the world map and the city on a second press. Refused, by name, and the refusal is
+    /// logged the first time a cap of that kind is pressed while it is the current mode.</para>
+    ///
+    /// <para>Everything else the enum carries (<c>None</c>, <c>QuestAccept</c>,
+    /// <c>CityEncounter</c>, <c>MultiplayerQuest</c>) is not a bar button at all — no cap exists for
+    /// it — and is refused for the same reason: this method answers only for modes that have a
+    /// window to close.</para>
+    /// </summary>
+    private static bool IsClosableMode(EGuildmasterMode mode) => mode switch
+    {
+        EGuildmasterMode.Merchant => true,
+        EGuildmasterMode.Temple => true,
+        EGuildmasterMode.Trainer => true,
+        EGuildmasterMode.Enchantress => true,
+        EGuildmasterMode.TownRecords => true,
+        EGuildmasterMode.MercenaryLog => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Is the guildmaster bar hidden by a SELECTED MAP LOCATION — the one lock this room can lift?
+    ///
+    /// <para>The question is deliberately about the location and not about
+    /// <c>disableOptionsRequests</c>: that set can also hold the multiplayer controller
+    /// (UIMapMultiplayerController.cs:405), the town-records window (UITownRecordsWindow.cs:106) and
+    /// several <c>MapChoreographer</c> phases, and none of those is ours to clear. A selected
+    /// location is, because the mod already deselects one from the table on the user's own ModBuild
+    /// 183 ruling. If the bar is down for any other reason the cap stays greyed and inert, which is
+    /// honest — the flat game would refuse the same click.</para>
+    /// </summary>
+    private static bool CanRevealBar()
+    {
+        AdventureMapUIManager? map = Singleton<AdventureMapUIManager>.IsInitialized
+            ? Singleton<AdventureMapUIManager>.Instance
+            : null;
+        MapLocation? sel = map != null ? map.LocationToTravel : null;
+        return sel != null && sel.IsSelected;
+    }
+
+    /// <summary>
+    /// Drop the selected map location so the game brings its own option bar back, then say so.
+    ///
+    /// <para>THE SEAM IS THE GAME'S OWN AND SO IS THE SIDE EFFECT.
+    /// <c>AdventureMapUIManager.DeselectCurrentMapLocation()</c> (:385-393) calls
+    /// <c>MapLocation.Deselect()</c>, which still runs <c>IsSelectable()</c> and the location's own
+    /// <c>m_OnClickAction</c> guard (MapLocation.cs:670-678); the game itself makes this exact call
+    /// at :359 whenever a different location is selected. The bar returns synchronously through
+    /// <c>OnDeselectedMapLocation</c> → <c>EnableHeadquartersOptions(true)</c>, which is why the
+    /// caller can re-test <c>IsActive</c> on the very next line.</para>
+    ///
+    /// <para>IT IS NOT SILENT AND IT IS NOT NEW. Before ModBuild 200 the same deselection happened
+    /// anyway, by accident, because the greyed cap's collider let the beam through to the table —
+    /// see the class doc. The only difference now is that the cap catches its own press and this
+    /// line names the location that was dropped.</para>
+    /// </summary>
+    private static bool TryRevealBar(UIGuildmasterButton button, string source)
+    {
+        AdventureMapUIManager? map = Singleton<AdventureMapUIManager>.IsInitialized
+            ? Singleton<AdventureMapUIManager>.Instance
+            : null;
+        MapLocation? sel = map != null ? map.LocationToTravel : null;
+        if (map == null || sel == null || !sel.IsSelected)
+            return false;
+        string what = sel.name;
+        try
+        {
+            map.DeselectCurrentMapLocation();
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' ({source}): "
+                              + $"AdventureMapUIManager.DeselectCurrentMapLocation threw "
+                              + $"({ex.GetType().Name}: {ex.Message}) — the guildmaster bar stays hidden "
+                              + "and this press will be refused on the next line.");
+            return false;
+        }
+        VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' ({source}): the guildmaster bar "
+                          + $"was hidden because '{what}' was SELECTED, so the selection was dropped first "
+                          + "through the game's own AdventureMapUIManager.DeselectCurrentMapLocation — the "
+                          + "same call the game makes on itself before selecting another location, and the "
+                          + "same MapLocation.Deselect the table-click deselection has used since ModBuild "
+                          + "183. The game re-enables its option bar synchronously "
+                          + "(OnDeselectedMapLocation -> EnableHeadquartersOptions(true)), so the click "
+                          + "below is deliverable. NOTHING GOES ON THE WIRE: OnDeselectedQuest only hides "
+                          + "two local UI elements when online. THIS ALREADY HAPPENED BEFORE ModBuild 200, "
+                          + "invisibly — the greyed cap's collider was off, so the beam reached the table "
+                          + "behind it and MapLocationInteractor deselected there instead.");
+        return true;
     }
 
     // ---- THE ALIASING FIX: mip-baked copies of the game's own symbols -------------------------
@@ -1243,6 +1483,83 @@ internal sealed class MapButtonRail
         }
         Toggle? toggle = ToggleOf(button);
         GameObject target = toggle != null ? toggle.gameObject : button.gameObject;
+
+        // (1) DELIVERABLE? ExecuteEvents drops everything aimed at an inactive GameObject, so a
+        //     hidden option bar is not a "refusal" the game would print — it is a press that lands
+        //     nowhere. If the only thing hiding the bar is a selected map location, drop that first
+        //     through the game's own call; the bar returns synchronously. (ModBuild 200 — this is the
+        //     accident the beam used to perform for us; see the class doc.)
+        if (!target.activeInHierarchy)
+        {
+            TryRevealBar(button, source);
+            if (target.activeInHierarchy && cap != null && cap.GameHovered)
+            {
+                // THE OUTSTANDING pointerEnter NEVER ARRIVED, so it must not be claimed as arriving.
+                // The cap was solid and hovered while its game button was inactive, and ExecuteEvents
+                // silently drops every event aimed at an inactive object — so the game's
+                // ExtendedToggle.isHighlighted was never set, and without it the game gates its own
+                // press SOUND off (the whole ModBuild 195 defect). Handing the claim back here makes
+                // `hovered` below FALSE, which takes the well-worn synthesized
+                // pointerEnter -> down -> up -> click -> pointerExit path on a now-ACTIVE object. The
+                // beam's own claim is released with it so the next TickLaser re-hovers cleanly.
+                if (ReferenceEquals(_laserHover, cap))
+                    _laserHover = null;
+                DropHover(cap, "its game button was inactive while we held the hover — re-sending it");
+            }
+            if (!target.activeInHierarchy)
+            {
+                VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) but its "
+                                  + $"game object '{target.name}' is INACTIVE, so no pointer event can be "
+                                  + "delivered to it at all (ExecuteEvents refuses an inactive target) and "
+                                  + "nothing was dispatched. The guildmaster option bar is down for a reason "
+                                  + "this room cannot lift: UIGuildmasterHUD.RefreshVisibilityHeadquartersOptions "
+                                  + "runs optionsContainer.SetActive(false) while disableOptionsRequests is "
+                                  + "non-empty, and the only entry the mod clears is a selected map location "
+                                  + "(the multiplayer controller, the town-records window and several "
+                                  + "MapChoreographer phases also put themselves in that set). The cap should "
+                                  + "have been greyed and inert already; if this line appears, Pressable and "
+                                  + "the collider were one frame behind the game.");
+                return;
+            }
+        }
+
+        // (2) SECOND PRESS ON THE MODE THAT IS OPEN = CLOSE IT (ModBuild 200 — "Weiterhin soll ein
+        //     erneuter Druck auf den button zB vom Händler obwohl das Fenster offen ist, das offene
+        //     Fenster wieder schließen."). Tested BEFORE the interactability refusal because the game
+        //     turns that toggle off on purpose (RefreshSelected: toggle.interactable = !toggle.isOn)
+        //     and a repeat click could not commit anyway (toggleGroup.allowSwitchOff is false while a
+        //     mode is active, so uGUI's Toggle.Set merely re-asserts isOn). The close is NOT a click
+        //     on this toggle: it is the map button's own press, i.e. the window X's route.
+        if (toggle != null && toggle.isOn)
+        {
+            EGuildmasterMode mode = button.GuildmasterMode;
+            if (!IsClosableMode(mode))
+            {
+                VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while it is ALREADY the "
+                                  + "current mode — and this one is not closable, so nothing was "
+                                  + "dispatched. WorldMap and City are map SURFACES, not windows: this "
+                                  + "room is built on one of them, and the only thing 'close' could mean "
+                                  + "for a map is switching to the other one, which would move the player "
+                                  + "between the world map and the city on a second press. The toggle-close "
+                                  + "is restricted to the six modes that ARE windows (merchant, temple, "
+                                  + "trainer, enchantress, town records, mercenary log).");
+                return;
+            }
+            VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while its window is OPEN — "
+                              + "this is the CLOSE, not a second open. Routed to "
+                              + "GuildmasterDestinations.CloseMode, which presses the bar's map button, the "
+                              + "same dispatch this window's own X has used since ModBuild 184: the game's "
+                              + "mode machine has no 'close', only 'switch mode', and only "
+                              + "UpdateCurrentMode -> Exit takes the party display back out of selection "
+                              + "mode. The flat game cannot do this at all — RefreshSelected sets "
+                              + "toggle.interactable = !toggle.isOn (UIGuildmasterButton.cs:209) and "
+                              + "allowSwitchOff is false while a mode is active (UIGuildmasterHUD.cs:441), "
+                              + "so a repeat click there is a no-op. Nothing new goes on the wire; a second "
+                              + "press can only LEAVE, never re-commit what the first one bought.");
+            GuildmasterDestinations.CloseMode(mode, $"a second press on its own table cap ({source})");
+            return;
+        }
+
         if (toggle != null && !toggle.IsInteractable())
         {
             VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) but its "

@@ -201,18 +201,52 @@ internal static partial class ModalFallback
     /// screen), or still behind the reveal gate — every one of which means "this client has no
     /// grabbable story window", NOT "this client cannot advance the story". The advance path never
     /// consults this.</returns>
-    internal static bool TryGetStoryGrab(out GrabbableModal? grab)
+    /// <remarks>Since ModBuild 222 this is a one-line forwarder onto the generalised
+    /// <see cref="SharedWindows.TryGetGrab"/>, so that <see cref="Net.RemoteStorySync"/>'s three
+    /// call sites and <c>ModalFallback.9.Spawn</c>'s one are untouched by the shared-window
+    /// contract. The lookup itself moved because the map room has TWO more windows of exactly this
+    /// shape and three copies of the same walk is how they drift apart.</remarks>
+    internal static bool TryGetStoryGrab(out GrabbableModal? grab) =>
+        SharedWindows.TryGetGrab(SharedWindowKind.ScenarioStory, out grab);
+
+    /// <summary>
+    /// The mod-owned <see cref="GrabbableModal"/> built for a specific game <see cref="UIWindow"/>,
+    /// or false when that window is not floated (not open, not converted, or still behind the
+    /// reveal gate).
+    ///
+    /// <para>A pure LOOKUP through the private <c>Converted</c> list: it never converts, never
+    /// places and never releases anything, so nothing that calls it can change which windows float
+    /// or when. That property is what makes it safe to call from the net module.</para>
+    /// </summary>
+    internal static bool TryGetGrabFor(UIWindow? window, out GrabbableModal? grab)
     {
         grab = null;
-        if (!Singleton<StoryController>.IsInitialized)
-            return false;
-        StoryController sc = Singleton<StoryController>.Instance;
-        if (sc == null || sc.window == null)
+        if (window == null)
             return false;
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
-            if (wp.Grab == null || !ReferenceEquals(wp.Window, sc.window))
+            if (wp.Grab == null || !ReferenceEquals(wp.Window, window))
+                continue;
+            grab = wp.Grab;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The same lookup, keyed by <see cref="UIWindowID"/> — for the windows whose identity IS their
+    /// id because no singleton exposes them (the quest popup). First match wins; the id is unique
+    /// among floated windows in practice, and a second one would be a different window with the
+    /// same authored id, which nothing in this project can tell apart anyway.
+    /// </summary>
+    internal static bool TryGetGrabById(UIWindowID id, out GrabbableModal? grab)
+    {
+        grab = null;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Grab == null || wp.Window == null || wp.Window.ID != id)
                 continue;
             grab = wp.Grab;
             return true;

@@ -237,9 +237,15 @@ internal static class MainMenuLogoSwap
             Image.Type wasType = image.type;
             bool wasPreserve = image.preserveAspect;
 
-            // WHERE THE OLD WORDMARK ACTUALLY DREW, in this RectTransform's own local space. That
-            // box — not the rect — is what "an der Stelle, an dem das originale Logo war" means.
+            // WHERE THE OLD WORDMARK ACTUALLY DREW, in this RectTransform's own local space, and
+            // then WHERE THE INK INSIDE IT WAS. Both steps are needed and ModBuild 221 shipped only
+            // the first: the game's sprite is 2048x582 at aspect 3.519 while the wordmark drawn on
+            // it is roughly aspect 7.4, i.e. the asset is mostly transparent margin. Treating the
+            // drawn box as the wordmark scaled our band to the MARGIN's height and produced a logo
+            // 2.35x too wide — which is exactly what the hardware photograph shows.
             Rect oldBox = MainMenuLogoPlacement.DrawnBox(rect, wasRect, wasPreserve, wasType);
+            Rect inkFrac = MainMenuLogoPlacement.MeasureInk(image.sprite, out string inkNote);
+            Rect oldInk = MainMenuLogoPlacement.SubBox(oldBox, inkFrac);
 
             image.sprite = sprite;
             // Unity's overrideSprite GETTER falls back to `sprite`, so an active override is
@@ -257,14 +263,16 @@ internal static class MainMenuLogoSwap
             image.preserveAspect = false;
             image.SetAllDirty();
 
-            string placement = MainMenuLogoPlacement.PlaceOnBand(image, oldBox, newAspect, origin);
+            string placement = MainMenuLogoPlacement.PlaceOnBand(image, oldInk, newAspect, origin);
 
             VRLog.Info(Scope,
                 $"{origin}: Image '{image.name}' sprite '{wasSprite}' " +
                 $"({wasRect.width:F0}x{wasRect.height:F0}, aspect {(wasRect.height > 0.001f ? wasRect.width / wasRect.height : 0f):F3}) " +
                 $"→ '{sprite.name}' ({sprite.rect.width:F0}x{sprite.rect.height:F0}, aspect {newAspect:F3}); " +
                 $"old drawn box {oldBox.width:F1}x{oldBox.height:F1} at ({oldBox.xMin:F1},{oldBox.yMin:F1}) " +
-                $"(preserveAspect was {wasPreserve}, type {wasType}). {placement} " +
+                $"(preserveAspect was {wasPreserve}, type {wasType}); {inkNote} → old INK box " +
+                $"{oldInk.width:F1}x{oldInk.height:F1} at ({oldInk.xMin:F1},{oldInk.yMin:F1}), aspect " +
+                $"{(oldInk.height > 0.001f ? oldInk.width / oldInk.height : 0f):F3}. {placement} " +
                 "Colour, material, parent, canvas order and every sibling untouched.");
             return true;
         }
@@ -471,6 +479,136 @@ internal static class MainMenuLogoPlacement
     /// drew in, so that the band inside it comes out the original size.</summary>
     private const float BandHeight = BandBottom - BandTop;
 
+    /// <summary>Alpha at or below which a pixel counts as empty margin, 0..255. Deliberately low:
+    /// this hunts the outer edge of a glow, and a high threshold would crop into it and make the
+    /// replacement wordmark slightly too large.</summary>
+    private const byte InkAlpha = 20;
+
+    /// <summary>Widest readback used to find the ink. 512 columns across a 2048 px asset resolves
+    /// the box to 0.2 % of its width, which is far below anything the eye can judge against a
+    /// hand-authored menu, and it keeps the one-off readback trivial.</summary>
+    private const int InkSampleWidth = 512;
+
+    /// <summary>
+    /// WHERE THE INK IS INSIDE A SPRITE, as a fraction of its rect, measured with y running DOWN
+    /// from the top so it can be compared with the band constants directly. Returns the whole
+    /// sprite (and says why in <paramref name="note"/>) when it cannot measure.
+    ///
+    /// <para><b>WHY THIS EXISTS.</b> ModBuild 221 aligned the new wordmark to the box the old
+    /// sprite DREW in, on the unstated assumption that a logo asset is cropped to its logo. It is
+    /// not: the game's <c>GH_Logo</c> is 2048x582 (aspect 3.519) and the wordmark on it is about
+    /// aspect 7.4, so most of the asset is transparent margin. Scaling to the margin made the
+    /// replacement 2.35x too wide, which is what the hardware photograph shows and what 221's own
+    /// consistency check reported as "implied band right edge 0.426 — OUT OF RANGE". The check was
+    /// right; this is the measurement it was asking for.</para>
+    ///
+    /// <para><b>WHY A BLIT AND NOT <c>GetPixels</c>.</b> A shipped game texture is almost never
+    /// <c>isReadable</c>, so the CPU-side call would throw. Blitting into a temporary
+    /// <see cref="RenderTexture"/> and reading THAT back works regardless of the source's read flag
+    /// and regardless of its compression, because the GPU does the decode. It costs one small
+    /// readback per menu load and nothing per frame.</para>
+    /// </summary>
+    internal static Rect MeasureInk(Sprite? sprite, out string note)
+    {
+        Rect whole = new Rect(0f, 0f, 1f, 1f);
+        Texture2D? tex = sprite != null ? sprite.texture : null;
+        if (sprite == null || tex == null || tex.width < 2 || tex.height < 2)
+        {
+            note = "ink NOT measured (no source texture), so the old sprite's whole rect is used as "
+                   + "its wordmark — if the asset has a transparent margin the replacement will be "
+                   + "too large by exactly that margin";
+            return whole;
+        }
+
+        // The sprite's own window into its texture — non-trivial only if the art is atlased.
+        Rect tr = sprite.textureRect;
+        if (tr.width < 1f || tr.height < 1f)
+            tr = new Rect(0f, 0f, tex.width, tex.height);
+
+        int sw = Mathf.Clamp(Mathf.RoundToInt(Mathf.Min(InkSampleWidth, tr.width)), 2, 2048);
+        int sh = Mathf.Clamp(Mathf.RoundToInt(sw * (tr.height / tr.width)), 2, 2048);
+
+        RenderTexture? rt = null;
+        RenderTexture? prev = RenderTexture.active;
+        Texture2D? shot = null;
+        try
+        {
+            rt = RenderTexture.GetTemporary(sw, sh, 0, RenderTextureFormat.ARGB32,
+                                            RenderTextureReadWrite.Linear);
+            var scale = new Vector2(tr.width / tex.width, tr.height / tex.height);
+            var offset = new Vector2(tr.x / tex.width, tr.y / tex.height);
+            Graphics.Blit(tex, rt, scale, offset);
+
+            RenderTexture.active = rt;
+            shot = new Texture2D(sw, sh, TextureFormat.RGBA32, mipChain: false);
+            shot.ReadPixels(new Rect(0f, 0f, sw, sh), 0, 0, recalculateMipMaps: false);
+            shot.Apply(false, false);
+
+            Color32[] px = shot.GetPixels32();
+            int x0 = sw, x1 = -1, y0 = sh, y1 = -1, hits = 0;
+            for (int y = 0; y < sh; y++)
+            {
+                int row = y * sw;
+                for (int x = 0; x < sw; x++)
+                {
+                    if (px[row + x].a <= InkAlpha)
+                        continue;
+                    hits++;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+            }
+
+            if (hits == 0 || x1 < x0 || y1 < y0)
+            {
+                note = $"ink NOT found — every one of the {sw}x{sh} sampled pixels is at or below "
+                       + $"alpha {InkAlpha}. Either the source has no alpha channel at all (then the "
+                       + "whole rect IS the artwork and this is correct) or the readback failed "
+                       + "silently; the whole rect is used";
+                return whole;
+            }
+
+            // ReadPixels' origin is BOTTOM-left; the band constants run from the TOP. Flip here so
+            // everything downstream shares one convention.
+            float fx = x0 / (float)sw;
+            float fw = (x1 - x0 + 1) / (float)sw;
+            float fyTop = 1f - (y1 + 1) / (float)sh;
+            float fh = (y1 - y0 + 1) / (float)sh;
+
+            note = $"ink measured on a {sw}x{sh} readback: x {fx:F4}..{fx + fw:F4}, y (from top) "
+                   + $"{fyTop:F4}..{fyTop + fh:F4}, {hits} lit pixel(s), so {(1f - fw * fh) * 100f:F1}% "
+                   + "of the old asset is transparent margin";
+            return new Rect(fx, fyTop, fw, fh);
+        }
+        catch (Exception ex)
+        {
+            note = $"ink NOT measured ({ex.GetType().Name}: {ex.Message}) — the whole rect is used, "
+                   + "so a padded source asset will make the replacement too large";
+            return whole;
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            if (shot != null)
+                UnityEngine.Object.Destroy(shot);
+            if (rt != null)
+                RenderTexture.ReleaseTemporary(rt);
+        }
+    }
+
+    /// <summary>A sub-box of <paramref name="outer"/> given as fractions with y running DOWN from
+    /// the top, returned in the same local space as <paramref name="outer"/> (y up).</summary>
+    internal static Rect SubBox(Rect outer, Rect frac)
+    {
+        float w = outer.width * frac.width;
+        float h = outer.height * frac.height;
+        float x = outer.xMin + outer.width * frac.xMin;
+        float yMax = outer.yMax - outer.height * frac.yMin;
+        return new Rect(x, yMax - h, w, h);
+    }
+
     /// <summary>
     /// The box a sprite's artwork actually drew in, inside <paramref name="rect"/>, in the
     /// RectTransform's own local space.
@@ -500,20 +638,24 @@ internal static class MainMenuLogoPlacement
 
     /// <summary>
     /// Resize and move the RectTransform so that the sprite's GLOOMHAVEN band covers
-    /// <paramref name="oldBox"/> exactly, letting the VR extension hang to the right and a little
+    /// <paramref name="oldInk"/> exactly, letting the VR extension hang to the right and a little
     /// below — which is precisely what the user asked for.
     ///
+    /// <para><paramref name="oldInk"/> is the box the old sprite's INK occupied, not the box it
+    /// was drawn into — see <see cref="MeasureInk"/> for why the difference cost ModBuild 221.</para>
+    ///
     /// <para>THE ARITHMETIC. The band is <see cref="BandHeight"/> of the sprite's height, so the
-    /// new rect must be <c>oldBox.height / BandHeight</c> tall (≈ 1.44×) for the band inside it to
+    /// new rect must be <c>oldInk.height / BandHeight</c> tall (≈ 1.44×) for the band inside it to
     /// come out at the original height; the width follows from the sprite's own aspect, so nothing
     /// is ever stretched. The rect is then offset so the band's top-left corner sits on
-    /// <c>oldBox</c>'s top-left. Net effect: the wordmark is the size and position it always was
+    /// <c>oldInk</c>'s top-left. Net effect: the wordmark is the size and position it always was
     /// and the rect around it is bigger — the opposite of ModBuild 220, which kept the rect and
     /// shrank the wordmark into it.</para>
     ///
-    /// <para>A CONSISTENCY CHECK THAT COSTS NOTHING AND WOULD CATCH A WRONG ASSUMPTION. If the new
-    /// artwork really is the game's own wordmark plus VR, then the old box's aspect IS the band's
-    /// aspect, which puts the band's right edge at <c>oldAspect · BandHeight / spriteAspect</c> of
+    /// <para>A CONSISTENCY CHECK THAT COSTS NOTHING AND HAS ALREADY EARNED ITS KEEP — it is what
+    /// caught ModBuild 221, reporting 0.426 against a plausible 0.90 in the very log the user sent
+    /// with the photograph. If the new artwork really is the game's own wordmark plus VR, then the
+    /// old ink box's aspect IS the band's aspect, which puts the band's right edge at <c>oldAspect · BandHeight / spriteAspect</c> of
     /// the sprite width. Independently measured, the VR's first column is at 0.818 and the N runs
     /// on underneath it, so anything in roughly 0.82..1.00 corroborates the assumption. A value
     /// outside 0.70..1.02 does not, and says so in the log rather than quietly mis-scaling.</para>
@@ -525,11 +667,11 @@ internal static class MainMenuLogoPlacement
     /// behaviour is kept and the refusal is logged.</para>
     /// </summary>
     /// <returns>One sentence for the swap's log line, stating what was done or why it was not.</returns>
-    internal static string PlaceOnBand(Image image, Rect oldBox, float newAspect, string origin)
+    internal static string PlaceOnBand(Image image, Rect oldInk, float newAspect, string origin)
     {
         RectTransform rt = image.rectTransform;
 
-        if (newAspect <= 0.001f || oldBox.height <= 0.001f || oldBox.width <= 0.001f)
+        if (newAspect <= 0.001f || oldInk.height <= 0.001f || oldInk.width <= 0.001f)
         {
             image.preserveAspect = true;
             return "PLACEMENT SKIPPED — the old drawn box or the new aspect is degenerate; fell back "
@@ -551,15 +693,15 @@ internal static class MainMenuLogoPlacement
             return "PLACEMENT REFUSED (layout-driven rect) — fitted inside instead.";
         }
 
-        float oldAspect = oldBox.width / oldBox.height;
+        float oldAspect = oldInk.width / oldInk.height;
         float impliedBandRight = oldAspect * BandHeight / newAspect;
 
-        float h2 = oldBox.height / BandHeight;
+        float h2 = oldInk.height / BandHeight;
         float w2 = h2 * newAspect;
 
         // The band's top-left inside the new rect, and the offset that puts it on the old box's.
-        float targetXMin = oldBox.xMin - BandLeft * w2;
-        float targetYMin = (oldBox.yMax + BandTop * h2) - h2;
+        float targetXMin = oldInk.xMin - BandLeft * w2;
+        float targetYMin = (oldInk.yMax + BandTop * h2) - h2;
 
         Vector2 pivot = rt.pivot;
         string anchors = CollapseAnchors(rt);
@@ -574,7 +716,7 @@ internal static class MainMenuLogoPlacement
               + "original logo asset carries padding this patch cannot see. The wordmark will be "
               + "the wrong size; the fix is the four Band* constants";
 
-        return $"rect {oldBox.width:F1}x{oldBox.height:F1} → {w2:F1}x{h2:F1} (×{h2 / oldBox.height:F3}), "
+        return $"rect {oldInk.width:F1}x{oldInk.height:F1} → {w2:F1}x{h2:F1} (×{h2 / oldInk.height:F3}), "
                + $"moved by ({delta.x:F1},{delta.y:F1}), {anchors} The GLOOMHAVEN band now covers the "
                + $"old drawn box exactly and the VR hangs past it. Implied band right edge "
                + $"{impliedBandRight:F3} of sprite width: {verdict}.";

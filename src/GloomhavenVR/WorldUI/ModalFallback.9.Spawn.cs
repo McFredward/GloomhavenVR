@@ -1479,7 +1479,13 @@ internal static partial class ModalFallback
         // The story window is the ONE window a remote player may legitimately move (wire record 19,
         // Net.RemoteStorySync mirrors their grab onto its frame). Resolved once per tick through the
         // same lookup the sync itself uses, so the two cannot disagree about which window that is.
-        GrabbableModal? storyGrab = TryGetStoryGrab(out GrabbableModal? sg) ? sg : null;
+        // ...AND SINCE ModBuild 222 THAT IS NO LONGER JUST THE STORY WINDOW. The map room adds two
+        // more windows whose pose a peer may legitimately move (the map story box and the quest
+        // popup — see WorldUI/SharedWindows), so the exemption is asked of the shared-window
+        // predicate rather than of one hard-coded grab. Without this, PanelPoseWatch treats every
+        // remote pose on those two as drift: it REFUSES the first eight (MaxCorrections = 8,
+        // PanelPlacement.cs:202) and only then concedes — which on hardware reads exactly like
+        // network jitter and would have cost a build round to diagnose.
         float watchScale = PanelLayout.WorldScale;
         for (int i = 0; i < Converted.Count; i++)
         {
@@ -1487,7 +1493,7 @@ internal static partial class ModalFallback
             PanelPoseWatch.Track(wp.Panel, wp.Grab,
                 revealed: !wp.Panel.RevealPending,
                 poseOwnedExternally: wp.HoverCard || wp.Panel.PoseOwnedExternally,
-                peerOwned: wp.Grab != null && ReferenceEquals(wp.Grab, storyGrab),
+                peerOwned: wp.Grab != null && SharedWindows.IsShared(wp.Window),
                 worldScale: watchScale);
             // Round 3 (first-open size bug): a one-shot VERIFY correction re-fits a committed rect
             // that turned out not to contain its own content. That advances the panel's applied-fit
