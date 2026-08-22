@@ -1136,6 +1136,70 @@ internal static partial class PanelSupersample
         }
     }
 
+    /// <summary>
+    /// <b>WHY A GRAPHIC PUT NO PIXELS INTO THE CAPTURE — one disjoint reason, in the order uGUI itself
+    /// applies them.</b> The order matters and is not arbitrary: a component can be culled AND inside a
+    /// zero-alpha group, and reporting the second when the first is what stopped it would send the next
+    /// round after the wrong writer. First reason wins, and it is the one printed.
+    /// </summary>
+    private enum DrawReason : byte
+    {
+        /// <summary>It drew. The only value that is not an exclusion.</summary>
+        Drawn = 0,
+
+        /// <summary>No CanvasRenderer at all — not a drawable graphic.</summary>
+        NoRenderer = 1,
+
+        /// <summary><c>CanvasRenderer.cull</c> is set. THE ONE THIS BUILD IS HUNTING: uGUI's
+        /// <c>RectMask2D</c> sets it on graphics whose rect falls outside the clip rectangle, and it is
+        /// a per-graphic switch that hits an Image exactly as it hits a label — which is what the
+        /// user's "es betrifft auch bilder/symbole" requires of any surviving hypothesis.</summary>
+        Culled = 2,
+
+        /// <summary>The graphic's own authored <c>Graphic.color.a</c> is at zero.</summary>
+        OwnAlpha = 3,
+
+        /// <summary><c>CanvasRenderer.GetAlpha()</c> is at zero — somebody wrote the renderer alpha.</summary>
+        RendererAlpha = 4,
+
+        /// <summary><c>CanvasRenderer.GetInheritedAlpha()</c> is at zero — the canvas's own accumulated
+        /// value, which is maintained during the render pass and can disagree with the group chain.</summary>
+        InheritedAlpha = 5,
+
+        /// <summary>The measured product of the <c>CanvasGroup</c> chain up to the host is at zero. A
+        /// legitimately hidden panel lands here, which is why the ledger reports TRANSITIONS and not a
+        /// count: most of this window is supposed to be in this state.</summary>
+        GroupAlpha = 6,
+
+        /// <summary>An enclosing mask or scroll viewport clips it away entirely.</summary>
+        ClippedOut = 7,
+
+        /// <summary>The GameObject or the behaviour is switched off.</summary>
+        Inactive = 8,
+    }
+
+    /// <summary>One graphic's last known draw state, kept across censuses so a CHANGE can be reported.
+    /// See <see cref="Entry.DrawLedger"/> for why a transition and not a count is the finding.</summary>
+    private struct DrawLedgerEntry
+    {
+        /// <summary>Name, kept so a transition can be reported after the object itself has gone.</summary>
+        internal string Name;
+
+        /// <summary>Concrete component type — 'Image', 'RawImage', 'TextMeshProUGUI' … The user's report
+        /// distinguishes text from images, so the verdict must be able to as well.</summary>
+        internal string Kind;
+
+        internal DrawReason Reason;
+
+        /// <summary>Host-local centre of the graphic, so a lost element can be placed in the picture and
+        /// compared against the band the ink census happened to be reading.</summary>
+        internal float CentreX, CentreY;
+
+        /// <summary>The census generation this record was last touched on. An entry that stops being
+        /// visited has left the hierarchy and is evicted rather than reported as lost for ever.</summary>
+        internal int SeenGen;
+    }
+
     /// <summary>One supersampled panel: everything allocated for it and everything to hand back.</summary>
     private sealed class Entry
     {
@@ -1656,6 +1720,37 @@ internal static partial class PanelSupersample
         /// measured and both printed.</summary>
         internal int ReleaseRegenComponents;
         internal double ReleaseRegenMs;
+
+        // ---- THE DRAW-STATE LEDGER (ModBuild 210) ------------------------------------------------
+        // WHY THIS EXISTS, AND WHY EVERY INSTRUMENT BEFORE IT WAS LOOKING AT THE WRONG POPULATION.
+        // Eight builds of ink census measured TMP_Text and nothing else. The user, asked directly
+        // whether the photograph loses images as well as text, answered: "es betrifft auch
+        // bilder/symbole! Die auch random je nachdem wann man loslässt da sind oder verschwinden es
+        // betrifft NICHT nur text". An Image is not a TMP_Text, so NO census this project has ever run
+        // could see the elements he is describing. The population had to become every MaskableGraphic.
+        //
+        // AND THE SECOND HALF OF THE BLIND SPOT, which is worse: CollectInkCandidate EXCLUDES a
+        // component whose CanvasRenderer says it does not draw (cull flag or any alpha at zero) and
+        // counts it into one collapsed number. The ModBuild 209 log reads "155 text component(s) were
+        // excluded" on 39 of 49 readings, with no split by reason and no names. If the defect IS that
+        // a graphic stops drawing, then the broken elements were being DISCARDED by the instrument and
+        // the healthy remainder reported as clean — which is exactly the shape of every clean reading
+        // this project has collected. See the memory "the blind spot is the lead".
+        //
+        // WHAT THE LEDGER DOES: it remembers, per graphic and across censuses, whether that graphic was
+        // DRAWN or EXCLUDED and for which reason. A count cannot answer the user's report, because 155
+        // components legitimately belong to closed sub-views and are SUPPOSED to be excluded. A
+        // TRANSITION can: a graphic that was drawn at the release edge and is excluded thirty frames
+        // later is the disappearing element, named, with the reason it stopped drawing. Keyed by a
+        // stable hierarchy-path hash rather than by instance id, because a rebuild can replace the
+        // object while the element on screen is the same element to the user.
+        internal readonly Dictionary<int, DrawLedgerEntry> DrawLedger = new Dictionary<int, DrawLedgerEntry>();
+
+        /// <summary>Transitions the last census found, already formatted. Held rather than printed
+        /// immediately because the census that finds them is issued from the capture camera's
+        /// onPostRender and the report is written on the ordinary cadence.</summary>
+        internal string DrawLedgerNote = string.Empty;
+        internal int DrawLedgerLost, DrawLedgerGained, DrawLedgerTracked, DrawLedgerEvicted;
 
         // ---- THE RELEASE EDGE ITSELF (ModBuild 197) ---------------------------------------------
         // The user, after 196: "das Flackerproblem WÄHREND DER BEWEGUNG ist noch da — inklusive der

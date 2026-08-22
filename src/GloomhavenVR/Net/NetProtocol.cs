@@ -416,7 +416,43 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 209;
+    public const ushort ModBuild = 210;
+    // Build 210: THE MEASURED POPULATION WAS THE WRONG ONE — IT WAS TMP TEXT, AND THE DEFECT TAKES
+    // IMAGES TOO. Asked directly whether the broken picture loses images as well as text, the user
+    // answered: "es betrifft auch bilder/symbole! Die auch random je nachdem wann man loslässt da sind
+    // oder verschwinden es betrifft NICHT nur text". Every census this project has built reads
+    // TMP_Text and only TMP_Text, so the elements he is describing have never been inside the measured
+    // set — which is why eight builds of clean readings were clean.
+    //
+    // AND THE HEADLINE OF BUILD 209 WAS MISREAD, BY ME, IN THE REPORT I GAVE HIM. Counted per
+    // component instead of per reading: 34 of 34 readings that contain EMPTY glyphs carry a FULLY
+    // OPAQUE component among the producers — 'Name' (the character names he photographed), 'XP Amount
+    // Levelup', 'Reward Name', 'Description', all at effective alpha 1.000, in the band that covers
+    // the damage, 8-56 empty glyphs each, EMPTY median 7.4/255 against a background of 8.1/255 while
+    // the same strip's inked glyphs read 196/255. The ARTEFACT verdict hid it: it fires on the LOWEST
+    // alpha in a reading, and one label greyed out BY DESIGN ('XP Amount', authored alpha 0.200)
+    // dragged 28 of 49 readings into "no statement about the capture path" together with the opaque
+    // components beside it. Third time a worst-case summary field has buried its own finding.
+    //
+    // WHAT SHIPS: (1) a DRAW-STATE LEDGER over every Graphic in the subtree, Images included, that
+    // reports TRANSITIONS — a graphic that drew on one census and does not on the next — with the
+    // disjoint reason (cull / authored / renderer / inherited / group alpha / clipped / inactive), its
+    // name and its place in the picture; entries whose graphic leaves the hierarchy are EVICTED and
+    // counted, never reported as losses, so a tab the user closes is not a defect. (2) PLATE
+    // EVIDENCE: the capture is read under every non-text graphic that believed it drew, with a
+    // deliberately one-sided verdict — only a rect that is flat at the strip background is named,
+    // because a dark image and a missing one are the same reading. (3) the ARTEFACT verdict is now
+    // per component, and the opaque empties are reported whatever their neighbours' alpha. (4) the
+    // registration search spends its budget on the OPAQUE components first (209 left 680 of 1320
+    // empties never searched at all). (5) the alpha evidence names the component that SET the lowest
+    // alpha — on eleven 209 readings the field that exists to "name them" named nothing below 1.000.
+    //
+    // FALSIFIED THIS ROUND AND NOT TO BE REOPENED: stereo rivalry (his one-eye test — identically
+    // broken with either eye), wrong-layer late joiners (0 over 584 sweeps), dynamic atlas repacks
+    // (0 this session, 0 submitted-mesh defects over 3471 quads).
+    // Nothing on the wire. Instrument only — no remedy ships here, deliberately.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 209: EVERY VERDICT WAS TRUE OF A BAND THAT DOES NOT CONTAIN THE DEFECT.
     // (One worker plus integration.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

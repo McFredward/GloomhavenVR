@@ -994,16 +994,51 @@ internal static partial class PanelSupersample
                   + "median, i.e. whether the gaps are faint or bare. They are different readings of "
                   + "different numbers and only one of them was ever chased.");
 
-        Sb.Append(" (7) AND THE ONE THING THAT CHANGED IN ModBuild 208: the census now reads the "
-                  + "levels the eye SAMPLES, not only the level it does not. The ModBuild 207 session "
-                  + "paired every verdict with its glyph fates and the pairing was clean — 13 readings "
-                  + "of MAPPING VERIFIED with 0 EMPTY, 9 of ARTEFACT with 113 empty at effective "
-                  + "alpha 0.035/0.160, 3 MIXED — with not ONE reading that was both fully opaque and "
-                  + "missing glyphs. THE MIP 0 CAPTURE IS CORRECT, which is branch (2) above, and the "
-                  + "next question is entirely the MIP CHAIN VERDICT below. If that reads VERIFIED "
-                  + "too, the whole capture side is exonerated and the remaining suspects are the "
-                  + "display quad's material and sampler state, the mip LOD bias, and the stereo eye "
-                  + "pass — none of which any counter in this class has ever measured.");
+        Sb.Append(" (7) THE PAIRING THIS FIELD USED TO CLAIM WAS CLEAN, AND THE ModBuild 209 LOG SAYS "
+                  + "IT IS NOT — recorded here because it was quoted to the user as evidence and it "
+                  + "was wrong. The claim was: every ARTEFACT reading is a faded component and not ONE "
+                  + "reading is both fully opaque and missing glyphs. Counting the 209 session "
+                  + "component by component instead of reading the headline: 34 of 34 readings that "
+                  + "contain EMPTY glyphs carry a FULLY OPAQUE component among the producers — 'Name' "
+                  + "(the character names the user photographed), 'XP Amount Levelup', 'Reward Name' "
+                  + "and 'Description', all at effective alpha 1.000, in the band AUTHORED x 509..843 "
+                  + "that covers the reported damage, 8 to 56 empty glyphs each. Their EMPTY median is "
+                  + "7.4/255 against a strip background of 8.1/255 while the inked glyphs of the same "
+                  + "strip read 196/255: the ink is not faint, it is absent. WHY THE HEADLINE HID IT, "
+                  + "and it is this project's third time: the ARTEFACT branch fires on the LOWEST "
+                  + "effective alpha among the components that produced empties, and one label, "
+                  + "'XP Amount', sits at authored alpha 0.200 BY DESIGN. That single greyed-out "
+                  + "number dragged 28 of 49 readings into 'not a statement about the capture path' "
+                  + "together with the opaque components standing next to it. A MINIMUM over a reading "
+                  + "is a worst-case summary, and a worst-case summary is the wrong shape for the "
+                  + "question 'did anything fully visible go missing'. From ModBuild 210 the verdict "
+                  + "is taken PER COMPONENT and the opaque ones are reported whatever their "
+                  + "neighbours' alpha.");
+
+        // ---- THE DRAW-STATE LEDGER (ModBuild 210) -----------------------------------------------
+        // Printed BEFORE the verdicts, because on the user's newest report it outranks them: the ink
+        // census can only ever speak about TMP text, and he has confirmed the defect takes images and
+        // symbols too. See the ledger's own header in PanelSupersample.2.Capture.cs.
+        Sb.Append(e.DrawLedgerNote);
+
+        // ---- THE NON-TEXT GRAPHICS, READ AGAINST THE CAPTURE (ModBuild 210) ---------------------
+        Sb.Append(" NON-TEXT GRAPHICS, READ AGAINST THE CAPTURE — the other half of the user's report "
+                  + "and the half no census in this project has ever been able to answer. The ledger "
+                  + "above says whether uGUI BELIEVED a graphic drew; this says whether anything is "
+                  + "actually there. THE VERDICT IS ONE-SIDED ON PURPOSE: a dark image on a dark plate "
+                  + "reads exactly like a missing one, so only the unambiguous case is named — every "
+                  + "sample across the graphic's whole rect sitting within the ink threshold of the "
+                  + "strip background, i.e. a flat patch of page where an element should be. "
+                  + "Everything else is reported as content present or as unjudged, never as an "
+                  + "acquittal.")
+          .Append(c.PlateNote)
+          .Append(" HOW TO READ THE TWO TOGETHER, because the pair is the finding and neither half is "
+                  + "on its own: a graphic that STOPPED DRAWING in the ledger is uGUI switching it off "
+                  + "and the next question is which writer did it; a graphic that is DRAWN in the "
+                  + "ledger and FLAT here believes it drew and put nothing in the texture, which is a "
+                  + "loss BELOW uGUI's own state and the first finding in this project that would "
+                  + "point past it; and both clean, with the user still seeing elements missing, means "
+                  + "the loss is after the capture and the display quad is the only stage left.");
 
         // ---- REQUIREMENT 4: THE VERDICTS, LAST AND EACH IN ONE SENTENCE, CHOSEN BY THE NUMBERS ---
         Sb.Append(" MAPPING VERDICT: ").Append(c.MappingVerdict);
@@ -1233,7 +1268,13 @@ internal static partial class PanelSupersample
                           + $"unanswerable, {c.Errors} readback error(s), {c.DroppedStale} dropped on a "
                           + $"re-allocation, {c.Threw} threw. Nothing about the capture, the mip chain, "
                           + "the layer isolation, input or multiplayer is affected by this instrument "
-                          + "either way — it only reads.");
+                          + "either way — it only reads."
+                          // The draw-state ledger is NOT part of that refusal and must survive it. A
+                          // census refuses when it finds no censusable TMP text; that is precisely the
+                          // state a mass exclusion produces, so the reading that would name the cause
+                          // is the reading most likely to print through this path. Empty when the
+                          // build refused before the walk ran, and it says so by saying nothing.
+                          + (e != null ? e.DrawLedgerNote : string.Empty));
     }
 
     /// <summary>The headline of a verdict — everything up to the em-dash that introduces its

@@ -2831,12 +2831,50 @@ internal static partial class PanelSupersample
     /// disagree about where the line is — only, if they disagree at all, about what they measured.</summary>
     private const float InkAlphaFloor = 0.004f;
 
+    /// <summary>Effective alpha at or above which a component counts as FULLY OPAQUE, i.e. one whose
+    /// missing ink is a defect and not a design choice. 0.99 and not 1.0 so a float product of four
+    /// values that are each exactly 1.0 cannot fall out of its own class on rounding.</summary>
+    private const float InkOpaqueBar = 0.99f;
+
     /// <summary>CanvasGroups the alpha-chain walk will name in the report per component. The PRODUCT is
     /// always exact; only the naming is capped.</summary>
     private const int MaxInkGroupsNamed = 4;
 
-    /// <summary>Components whose full alpha evidence the line prints. The counts are always complete.</summary>
-    private const int MaxInkAlphaNamed = 4;
+    /// <summary>
+    /// Components whose full alpha evidence the line prints. The counts are always complete.
+    /// <para>ModBuild 210 raised it from 4. At 4 the ModBuild 209 log produced ELEVEN readings whose
+    /// verdict was ARTEFACT — a verdict that fires on the LOWEST effective alpha among the components
+    /// that produced EMPTY glyphs — while the evidence field named no component below 1.000 at all,
+    /// because the component that triggered it sat past the naming cap. A field whose stated job is
+    /// "the ALPHA EVIDENCE field names them" must name the one that decided the verdict; from 210 that
+    /// component is named FIRST and unconditionally, and this cap only bounds the rest.</para>
+    /// </summary>
+    private const int MaxInkAlphaNamed = 8;
+
+    /// <summary>
+    /// <b>Graphics the draw-state ledger will NAME per transition report, and how many it tracks.</b>
+    /// The transition COUNTS are always complete; only the naming is capped. 4096 tracked entries at
+    /// roughly 48 bytes is under 200 kB for a window whose subtree is ~2700 transforms, and the ledger
+    /// is per panel and cleared at release, so the bound is a backstop and not a real limit.
+    /// </summary>
+    private const int MaxDrawStateNamed = 16;
+    private const int MaxDrawStateTracked = 4096;
+
+    /// <summary>Non-text graphics one census will sample the capture under, the grid it samples each of
+    /// them on, and how many it will name. 24 plates at 6x6 is 864 texel reads — under one percent of
+    /// what the glyph judging already spends, and it is charged to the same per-frame pool.</summary>
+    private const int MaxInkPlates = 24;
+    private const int InkPlateSamples = 6;
+    private const int MaxInkPlatesNamed = 8;
+
+    /// <summary>A plate smaller than this on either axis is not sampled: a 6x6 grid inside a few texels
+    /// reads its own edges, and an edge is not evidence about the middle.</summary>
+    private const float MinInkPlateTexels = 12f;
+
+    /// <summary>Censuses an unseen ledger entry survives before it is evicted. A graphic that leaves the
+    /// hierarchy must NOT keep printing as "lost" for ever — that would turn a sub-view switch, which is
+    /// the user closing a tab, into a permanent finding. Two, so a single skipped census cannot evict.</summary>
+    private const int DrawLedgerEvictAfter = 2;
 
     /// <summary>Glyphs whose component may be given a joint registration search in one census. Beyond
     /// this the remaining components' EMPTY glyphs are reported as NOT SEARCHED rather than as
@@ -3106,6 +3144,38 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>One censused component and what the readback found for it.</summary>
+    /// <summary>
+    /// <b>ONE NON-TEXT GRAPHIC THAT BELIEVES IT DREW — and what the capture actually holds where it
+    /// says it is.</b>
+    ///
+    /// <para>The draw-state ledger answers "did uGUI think this graphic drew". This answers the other
+    /// half, and the two together are what the user's report needs: he sees images and symbols come and
+    /// go, and a graphic that is DRAWN, opaque, unclipped and still absent from the texture is a
+    /// completely different finding from one that was switched off. Nothing in eight builds could
+    /// express either sentence about an Image, because the census population was TMP text.</para>
+    ///
+    /// <para><b>THE VERDICT IS DELIBERATELY ONE-SIDED, and that is the whole design.</b> A dark image on
+    /// a dark plate is indistinguishable from a missing one by any is-there-ink test, so this must
+    /// never be allowed to call something missing on thin evidence — this project has promoted an
+    /// over-eager threshold to a root cause before. Only the unambiguous case is named: the sampled
+    /// region is FLAT (no sample anywhere in it deviates from the strip background by
+    /// <see cref="InkThreshold"/>). Everything else reports as "content present, not judged", which is
+    /// an honest non-answer rather than a quiet acquittal.</para>
+    /// </summary>
+    private struct InkPlate
+    {
+        internal string Name;
+        internal string Kind;
+
+        /// <summary>The graphic's rect in LEVEL-0 texels, mapped exactly as the glyph quads are.</summary>
+        internal float X0, X1, Y0, Y1;
+
+        /// <summary>Filled in by the mip-0 plane: the largest and the mean deviation from the strip
+        /// background over the sampled grid, and how many samples landed inside the buffer.</summary>
+        internal float Worst, Mean;
+        internal int Samples;
+    }
+
     private sealed class InkComponent
     {
         internal string Name = string.Empty;
@@ -3564,8 +3634,36 @@ internal static partial class PanelSupersample
 
         /// <summary>The lowest effective alpha (own x renderer x inherited x group product) among the
         /// components that produced EMPTY glyphs. If this is not ~1, the empties are partly a
-        /// visibility artefact and the verdict says so.</summary>
+        /// visibility artefact and the verdict says so.
+        /// <para><b>THIS FIELD IS A MINIMUM AND A MINIMUM IS THE WRONG SHAPE FOR THE QUESTION.</b> Read
+        /// the ModBuild 210 note on <see cref="EmptyOpaqueGlyphs"/> before using it for anything: on the
+        /// 209 log it dismissed 28 of 49 readings on the strength of one label that is greyed out by
+        /// design, and the opaque components missing their ink in the same readings went unreported.</para></summary>
         internal float EmptyLowestAlpha = 1f;
+
+        /// <summary>The name and effective alpha of the component that SET
+        /// <see cref="EmptyLowestAlpha"/>. The evidence field's stated job is "it names them", and on
+        /// eleven ModBuild 209 readings it named nothing below 1.000 at all because the component that
+        /// triggered the verdict sat past the naming cap. It is now named first and unconditionally.</summary>
+        internal string LowestAlphaComp = string.Empty;
+
+        /// <summary>
+        /// <b>THE SPLIT THAT SHOULD HAVE BEEN THE HEADLINE ALL ALONG: empties from components that are
+        /// FULLY OPAQUE, counted apart from empties that come out of a faded one.</b>
+        /// <para>A faded component's missing glyphs say nothing about the capture path — that part of
+        /// the old ARTEFACT reasoning was right. What was wrong was applying it to the WHOLE READING.
+        /// The two populations are disjoint, they are counted separately from ModBuild 210, and the
+        /// verdict speaks about the opaque one whatever the faded one is doing.</para>
+        /// </summary>
+        internal int EmptyOpaqueComps, EmptyOpaqueGlyphs;
+        internal int EmptyDimComps, EmptyDimGlyphs;
+
+        /// <summary>The non-text graphics that believed they drew inside this census's strip, and what
+        /// the capture holds where each says it is. See <see cref="InkPlate"/>; the verdict is
+        /// deliberately one-sided and only names the unambiguous case.</summary>
+        internal readonly List<InkPlate> Plates = new(MaxInkPlates);
+        internal int PlatesSeen, PlatesOutsideStrip, PlatesBlank, PlatesPresent, PlatesUnjudged;
+        internal string PlateNote = string.Empty;
 
         // ---- THE LEVEL COMPARISON (ModBuild 208) -------------------------------------------------
 
@@ -3692,6 +3790,282 @@ internal static partial class PanelSupersample
     private static readonly StringBuilder InkMipSb = new(512);
     private static readonly StringBuilder InkGroupSb = new(256);
     private static readonly StringBuilder InkAlphaSb = new(512);
+
+    // The draw-state ledger's own scratch (ModBuild 210). DrawSeen is the set of path hashes this
+    // census visited, used to evict entries whose graphic has left the hierarchy; DrawLost and
+    // DrawGained hold the transitions until the report is written.
+    private static readonly HashSet<int> DrawSeen = new();
+    private static readonly List<DrawLedgerEntry> DrawLost = new(64);
+    private static readonly List<DrawLedgerEntry> DrawGained = new(64);
+    private static readonly List<int> DrawEvict = new(64);
+    private static readonly StringBuilder DrawSb = new(1024);
+    private static readonly int[] DrawReasonCount = new int[9];
+
+    /// <summary>Component indices in the order the registration search will spend its budget on them —
+    /// fully opaque empty-producers first. See FitInkComponents for why walk order was the wrong one.</summary>
+    private static readonly List<int> InkSearchOrder = new(MaxInkCandidateComponents);
+    private static readonly StringBuilder InkPlateSb = new(512);
+
+    // ---- THE DRAW-STATE LEDGER (ModBuild 210) ---------------------------------------------------
+    //
+    // THE REPORT THAT MOVED THE POPULATION. Asked whether the broken picture loses images as well as
+    // text, the user answered: "es betrifft auch bilder/symbole! Die auch random je nachdem wann man
+    // loslässt da sind oder verschwinden es betrifft NICHT nur text". Every census this project has
+    // built reads TMP_Text and only TMP_Text. An Image is not a TMP_Text. So the elements he is
+    // describing have never once been inside the measured population, and eight builds of clean
+    // readings were clean about the wrong set of objects.
+    //
+    // WHAT SURVIVES THAT. A cause that takes text and images alike cannot live in TMP's mesh, its
+    // atlas, its sub-meshes or its glyph registration — all of which have now been measured clean
+    // anyway. It has to sit on the one thing an Image and a label share: the Graphic/CanvasRenderer
+    // pair. That is a very short list, and DrawReason enumerates it.
+    //
+    // WHY A TRANSITION AND NOT A COUNT. The ModBuild 209 log reads "155 text component(s) were
+    // excluded because the renderer had switched them off" on 39 of 49 readings. That number is not a
+    // finding: this window carries six sub-views and most of it is SUPPOSED to be switched off. What
+    // is a finding is a graphic that was DRAWN on one census and EXCLUDED on the next, because that is
+    // the sentence the user is speaking — "da sind oder verschwinden". The ledger therefore keeps the
+    // last state per graphic and reports only what CHANGED, with the reason it changed and where in
+    // the picture it sits.
+    //
+    // AND THE TRAP THIS MUST NOT FALL INTO, which this project has fallen into three times: a census
+    // that cannot separate its own bookkeeping from the defect. A graphic that leaves the hierarchy —
+    // the user pressing a different tab — must not print as "lost" for ever, so unseen entries are
+    // evicted after DrawLedgerEvictAfter censuses and COUNTED as evictions rather than as losses.
+
+    /// <summary>
+    /// A stable identity for a graphic that survives the object being destroyed and rebuilt. The
+    /// hierarchy PATH from the host, not the instance id: uGUI rebuilds replace objects while the
+    /// element on screen stays the same element to the user, and an instance id would report every
+    /// rebuild as a loss plus a gain and drown the real transitions.
+    /// </summary>
+    private static int DrawPathHash(Transform t, Transform host)
+    {
+        unchecked
+        {
+            int h = 17;
+            Transform? cur = t;
+            int guard = 0;
+            while (cur != null && !ReferenceEquals(cur, host) && ++guard < 64)
+            {
+                h = h * 31 + cur.name.GetHashCode();
+                h = h * 31 + cur.GetSiblingIndex();
+                cur = cur.parent;
+            }
+            return h;
+        }
+    }
+
+    /// <summary>
+    /// <b>WHY THIS GRAPHIC PUT NO PIXELS INTO THE CAPTURE, in the order uGUI applies the tests.</b>
+    /// First reason wins — see <see cref="DrawReason"/> for why the order is part of the answer and not
+    /// a detail. The alphas are read exactly as <c>CollectInkCandidate</c> reads them and against the
+    /// same <see cref="InkAlphaFloor"/>, so the ledger and the ink census can never disagree about
+    /// whether a component drew.
+    /// </summary>
+    private static DrawReason ClassifyDraw(Graphic g, RectTransform host, bool clipEmpty)
+    {
+        if (!g.isActiveAndEnabled)
+            return DrawReason.Inactive;
+        CanvasRenderer cr = g.canvasRenderer;
+        if (cr == null)
+            return DrawReason.NoRenderer;
+        if (cr.cull)
+            return DrawReason.Culled;
+        if (g.color.a <= InkAlphaFloor)
+            return DrawReason.OwnAlpha;
+        if (cr.GetAlpha() <= InkAlphaFloor)
+            return DrawReason.RendererAlpha;
+        if (cr.GetInheritedAlpha() <= InkAlphaFloor)
+            return DrawReason.InheritedAlpha;
+        if (InkGroupChainAlpha(g.transform, host, out string _) <= InkAlphaFloor)
+            return DrawReason.GroupAlpha;
+        if (clipEmpty)
+            return DrawReason.ClippedOut;
+        return DrawReason.Drawn;
+    }
+
+    /// <summary>Record one graphic's draw state and, if it differs from the last census's, hold the
+    /// transition for the report. Called from the candidate walk for EVERY <see cref="Graphic"/>, which
+    /// is the whole point: the ink census's population is TMP text and the user's report is not.</summary>
+    private static void NoteDrawState(Entry e, InkCensus c, RectTransform host, Rect frame, Graphic g,
+                                      bool clipEmpty)
+    {
+        DrawReason reason = ClassifyDraw(g, host, clipEmpty);
+        DrawReasonCount[(int)reason]++;
+
+        int key = DrawPathHash(g.transform, host);
+        if (!DrawSeen.Add(key))
+            return;
+
+        float cx = 0f, cy = 0f;
+        bool haveRect = false;
+        Rect b = default;
+        if (g.transform is RectTransform rt && TryHostLocalBounds(host, rt, out b))
+        {
+            cx = b.center.x;
+            cy = b.center.y;
+            haveRect = true;
+        }
+
+        // ---- THE PLATE CANDIDATE (ModBuild 210) ----------------------------------------------
+        // A NON-TEXT graphic that believes it drew. Its rect goes on the list in level-0 texels, and
+        // the mip 0 plane later reads the capture under it. TMP is excluded here because its glyph
+        // quads are censused properly a few lines further on and a whole label's rect is mostly page:
+        // sampling it as one flat region would call every correctly-drawn line of text "blank".
+        if (haveRect && reason == DrawReason.Drawn && g is not TMPro.TMP_Text
+            && c.Plates.Count < MaxInkPlates)
+        {
+            c.PlatesSeen++;
+            float px0 = (b.xMin - frame.xMin) * c.RateX;
+            float px1 = (b.xMax - frame.xMin) * c.RateX;
+            float py0 = (b.yMin - frame.yMin) * c.RateY;
+            float py1 = (b.yMax - frame.yMin) * c.RateY;
+            if (px1 - px0 >= MinInkPlateTexels && py1 - py0 >= MinInkPlateTexels)
+            {
+                c.Plates.Add(new InkPlate
+                {
+                    Name = g.gameObject.name,
+                    Kind = g.GetType().Name,
+                    X0 = px0,
+                    X1 = px1,
+                    Y0 = py0,
+                    Y1 = py1,
+                });
+            }
+        }
+
+        var now = new DrawLedgerEntry
+        {
+            Name = g.gameObject.name,
+            Kind = g.GetType().Name,
+            Reason = reason,
+            CentreX = cx,
+            CentreY = cy,
+            SeenGen = c.Gen,
+        };
+
+        if (e.DrawLedger.TryGetValue(key, out DrawLedgerEntry was))
+        {
+            bool drewBefore = was.Reason == DrawReason.Drawn;
+            bool drawsNow = reason == DrawReason.Drawn;
+            if (drewBefore && !drawsNow)
+                DrawLost.Add(now);
+            else if (!drewBefore && drawsNow)
+            {
+                // Carry the reason it USED to fail, because "it came back" and "it came back after
+                // being culled" are different sentences and only the second names a writer.
+                DrawLedgerEntry gained = now;
+                gained.Kind = $"{now.Kind}, was {was.Reason}";
+                DrawGained.Add(gained);
+            }
+            e.DrawLedger[key] = now;
+            return;
+        }
+        if (e.DrawLedger.Count < MaxDrawStateTracked)
+            e.DrawLedger[key] = now;
+    }
+
+    /// <summary>
+    /// Close the ledger for this census: evict graphics that have left the hierarchy, then format the
+    /// transitions into the sentence the report prints.
+    /// <para>The eviction is what keeps a sub-view switch from reading as a defect. An entry not
+    /// visited for <see cref="DrawLedgerEvictAfter"/> censuses is gone from the window, not hidden in
+    /// it, and it leaves as an EVICTION — counted separately and never as a loss.</para>
+    /// </summary>
+    private static void FinishDrawLedger(Entry e, InkCensus c)
+    {
+        DrawEvict.Clear();
+        foreach (KeyValuePair<int, DrawLedgerEntry> kv in e.DrawLedger)
+        {
+            if (c.Gen - kv.Value.SeenGen >= DrawLedgerEvictAfter)
+                DrawEvict.Add(kv.Key);
+        }
+        for (int i = 0; i < DrawEvict.Count; i++)
+            e.DrawLedger.Remove(DrawEvict[i]);
+
+        e.DrawLedgerLost = DrawLost.Count;
+        e.DrawLedgerGained = DrawGained.Count;
+        e.DrawLedgerTracked = e.DrawLedger.Count;
+        e.DrawLedgerEvicted = DrawEvict.Count;
+
+        DrawSb.Length = 0;
+        DrawSb.Append(" DRAW-STATE LEDGER — WHICH GRAPHICS STOPPED DRAWING, AND WHY. This is the ")
+              .Append("population the previous eight builds did not have: EVERY Graphic in the ")
+              .Append("subtree, Images and symbols included, not only TMP text. The user's report is ")
+              .Append("\"es betrifft auch bilder/symbole ... die random da sind oder verschwinden\", ")
+              .Append("and an Image cannot appear in a TMP census at all. THE STATE THIS CENSUS ")
+              .Append("FOUND, one disjoint reason per graphic, in the order uGUI applies them: ")
+              .Append(DrawReasonCount[(int)DrawReason.Drawn]).Append(" DREW, ")
+              .Append(DrawReasonCount[(int)DrawReason.Culled])
+              .Append(" CULLED (CanvasRenderer.cull — a RectMask2D sets exactly this on a graphic ")
+              .Append("whose rect leaves the clip rectangle, and it hits an Image the same way it ")
+              .Append("hits a label, which is the ONLY short list left after text-only causes were ")
+              .Append("measured out), ")
+              .Append(DrawReasonCount[(int)DrawReason.OwnAlpha]).Append(" at authored alpha 0, ")
+              .Append(DrawReasonCount[(int)DrawReason.RendererAlpha]).Append(" at renderer alpha 0, ")
+              .Append(DrawReasonCount[(int)DrawReason.InheritedAlpha])
+              .Append(" at inherited alpha 0, ")
+              .Append(DrawReasonCount[(int)DrawReason.GroupAlpha])
+              .Append(" behind a CanvasGroup chain at 0, ")
+              .Append(DrawReasonCount[(int)DrawReason.ClippedOut]).Append(" clipped away entirely, ")
+              .Append(DrawReasonCount[(int)DrawReason.Inactive]).Append(" switched off, ")
+              .Append(DrawReasonCount[(int)DrawReason.NoRenderer]).Append(" with no CanvasRenderer. ")
+              .Append("READ THE COUNTS AS CONTEXT AND THE TRANSITIONS AS THE FINDING: this window ")
+              .Append("carries six sub-views and most of it is SUPPOSED to be switched off, so a ")
+              .Append("large exclusion count is the window's normal shape and says nothing. What ")
+              .Append("says something is a graphic that DREW on the previous census and does not ")
+              .Append("draw now. TRANSITIONS SINCE THE PREVIOUS CENSUS: ")
+              .Append(DrawLost.Count).Append(" STOPPED DRAWING, ").Append(DrawGained.Count)
+              .Append(" STARTED DRAWING, over ").Append(e.DrawLedgerTracked)
+              .Append(" graphic(s) tracked; ").Append(DrawEvict.Count)
+              .Append(" entry(s) were EVICTED because their graphic left the hierarchy entirely — a ")
+              .Append("tab the user closed, counted here and NEVER as a loss, because an instrument ")
+              .Append("that reports the user's own navigation as a defect is worse than no ")
+              .Append("instrument.");
+
+        AppendDrawTransitions(DrawSb, "STOPPED DRAWING", DrawLost);
+        AppendDrawTransitions(DrawSb, "STARTED DRAWING", DrawGained);
+
+        if (DrawLost.Count == 0 && DrawGained.Count == 0)
+        {
+            DrawSb.Append(" NOTHING CHANGED STATE ON THIS CENSUS. Taken alone that is one quiet ")
+                  .Append("reading and not an acquittal — the transitions that matter are the ones ")
+                  .Append("at the RELEASE EDGE, and this line has to be read at all three moments ")
+                  .Append("before the draw state can be ruled out. If the release-edge and ")
+                  .Append("settled readings BOTH say nothing changed while the user still sees ")
+                  .Append("elements missing, then the graphics all believe they drew and the loss is ")
+                  .Append("downstream of the CanvasRenderer — which would be a genuine finding and ")
+                  .Append("the first one to point past uGUI's own state.");
+        }
+
+        e.DrawLedgerNote = DrawSb.ToString();
+        DrawSb.Length = 0;
+        DrawLost.Clear();
+        DrawGained.Clear();
+        DrawSeen.Clear();
+        DrawEvict.Clear();
+        for (int i = 0; i < DrawReasonCount.Length; i++)
+            DrawReasonCount[i] = 0;
+    }
+
+    private static void AppendDrawTransitions(StringBuilder sb, string label, List<DrawLedgerEntry> list)
+    {
+        if (list.Count == 0)
+            return;
+        sb.Append(' ').Append(label).Append(", named with the reason and the host-local centre so a ")
+          .Append("lost element can be found in the photograph:");
+        int named = Mathf.Min(list.Count, MaxDrawStateNamed);
+        for (int i = 0; i < named; i++)
+        {
+            DrawLedgerEntry d = list[i];
+            sb.Append(" '").Append(d.Name).Append("' (").Append(d.Kind).Append(") ")
+              .Append(d.Reason).Append(" at (").Append(d.CentreX.ToString("F0")).Append(',')
+              .Append(d.CentreY.ToString("F0")).Append(");");
+        }
+        if (list.Count > named)
+            sb.Append(" and ").Append(list.Count - named).Append(" more (naming cap).");
+    }
 
     /// <summary>Arm a census for this window. It is ISSUED later in the same frame, from the capture
     /// camera's own <see cref="Camera.onPostRender"/> — i.e. after <see cref="ResolveAndMip"/> has
@@ -4153,6 +4527,13 @@ internal static partial class PanelSupersample
     private static bool BuildInkCensus(Entry e, InkCensus c, out string? why)
     {
         why = null;
+        // The ledger's answer belongs to THIS census or to no census. A build that refuses before the
+        // walk (a degenerate frame, no host) must not leave the previous census's transitions standing
+        // where the next line will print them as if they had just been measured.
+        e.DrawLedgerNote = string.Empty;
+        c.Plates.Clear();
+        c.PlatesSeen = c.PlatesOutsideStrip = c.PlatesBlank = c.PlatesPresent = c.PlatesUnjudged = 0;
+        c.PlateNote = string.Empty;
         c.Glyphs.Clear();
         c.Comps.Clear();
         InkCandidates.Clear();
@@ -4229,6 +4610,14 @@ internal static partial class PanelSupersample
                     clipEmpty = true;
             }
 
+            // ---- THE DRAW-STATE LEDGER, over EVERY graphic and not only the text (ModBuild 210) ---
+            // This runs before the TMP branch and independently of it. The ink census's population is
+            // TMP_Text; the user's report is "es betrifft auch bilder/symbole". One GetComponent per
+            // visited transform on a walk that is already capped at MaxInkWalkTransforms.
+            var graphic = t.GetComponent<Graphic>();
+            if (graphic != null)
+                NoteDrawState(e, c, host, frame, graphic, clipEmpty);
+
             var tmp = t.GetComponent<TMPro.TMP_Text>();
             if (tmp != null)
             {
@@ -4244,6 +4633,12 @@ internal static partial class PanelSupersample
         }
         InkWalk.Clear();
         c.ComponentsFound = tmpSeen;
+
+        // BEFORE the no-candidates return below, and that placement is the point. The case where the
+        // ink census finds nothing censusable is EXACTLY the case where everything stopped drawing —
+        // if the ledger were closed after that return, the one reading that would have named the
+        // cause would be the one reading that threw it away.
+        FinishDrawLedger(e, c);
 
         if (InkCandidateComps.Count == 0)
         {
@@ -5329,6 +5724,11 @@ internal static partial class PanelSupersample
 
         // ---- THE ALPHA EVIDENCE FOR THE COMPONENTS THAT PRODUCED EMPTIES ------------------------
         BuildInkAlphaEvidence(c);
+        // ---- THE NON-TEXT GRAPHICS (ModBuild 210) -----------------------------------------------
+        // Here for the same reason the search is: it needs this plane's buffer. And it runs BEFORE the
+        // search, because a blank plate is a whole missing element and a fitted glyph offset is a
+        // refinement — if the frame budget can only afford one of them this session, it must be this.
+        JudgeInkPlates(data, c, p);
         // ---- REQUIREMENT 2: SEARCH A NEIGHBOURHOOD BEFORE DECLARING EMPTY -----------------------
         // It runs HERE and nowhere else: it needs this plane's buffer, which dies with this callback.
         FitInkComponents(data, c, p);
@@ -5355,26 +5755,62 @@ internal static partial class PanelSupersample
     private static void BuildInkAlphaEvidence(InkCensus c)
     {
         c.EmptyLowestAlpha = 1f;
+        c.LowestAlphaComp = string.Empty;
+        c.EmptyOpaqueComps = c.EmptyOpaqueGlyphs = c.EmptyDimComps = c.EmptyDimGlyphs = 0;
         InkAlphaSb.Length = 0;
-        int named = 0;
+
+        // PASS 1 — the two disjoint populations, complete and uncapped (ModBuild 210). The counts are
+        // what the verdict is now built on, so they may never be shortened by a naming cap the way the
+        // evidence text is. OPAQUE is the population the user's complaint lives in: a component at full
+        // alpha whose glyphs are not in the capture is a defect, whatever its neighbours are doing.
         for (int i = 0; i < c.Comps.Count; i++)
         {
             InkComponent comp = c.Comps[i];
             if (comp.Empty == 0)
                 continue;
             float effective = comp.OwnAlpha * comp.CrAlpha * comp.InheritedAlpha * comp.GroupAlpha;
+            if (effective >= InkOpaqueBar)
+            {
+                c.EmptyOpaqueComps++;
+                c.EmptyOpaqueGlyphs += comp.Empty;
+            }
+            else
+            {
+                c.EmptyDimComps++;
+                c.EmptyDimGlyphs += comp.Empty;
+            }
             if (effective < c.EmptyLowestAlpha)
+            {
                 c.EmptyLowestAlpha = effective;
-            if (named >= MaxInkAlphaNamed)
-                continue;
-            named++;
-            InkAlphaSb.Append(" '").Append(comp.Name).Append("': colour.a ")
-                      .Append(comp.OwnAlpha.ToString("F3")).Append(", CanvasRenderer alpha ")
-                      .Append(comp.CrAlpha.ToString("F3")).Append(", inherited alpha ")
-                      .Append(comp.InheritedAlpha.ToString("F3"))
-                      .Append(", CanvasGroup chain product ")
-                      .Append(comp.GroupAlpha.ToString("F3")).Append(" (").Append(comp.GroupNote)
-                      .Append("), effective ").Append(effective.ToString("F3")).Append('.');
+                c.LowestAlphaComp = $"'{comp.Name}' at effective {effective:F3}";
+            }
+        }
+
+        // PASS 2 — the evidence text. OPAQUE COMPONENTS ARE NAMED FIRST, because they are the finding
+        // and the cap used to spend itself on whatever came earliest in the walk.
+        int named = 0;
+        for (int pass = 0; pass < 2; pass++)
+        {
+            bool wantOpaque = pass == 0;
+            for (int i = 0; i < c.Comps.Count && named < MaxInkAlphaNamed; i++)
+            {
+                InkComponent comp = c.Comps[i];
+                if (comp.Empty == 0)
+                    continue;
+                float effective = comp.OwnAlpha * comp.CrAlpha * comp.InheritedAlpha * comp.GroupAlpha;
+                if (effective >= InkOpaqueBar != wantOpaque)
+                    continue;
+                named++;
+                InkAlphaSb.Append(' ').Append(wantOpaque ? "[OPAQUE] " : "[FADED] ")
+                          .Append('\'').Append(comp.Name).Append("': ").Append(comp.Empty)
+                          .Append(" empty of ").Append(comp.Judged).Append(" judged; colour.a ")
+                          .Append(comp.OwnAlpha.ToString("F3")).Append(", CanvasRenderer alpha ")
+                          .Append(comp.CrAlpha.ToString("F3")).Append(", inherited alpha ")
+                          .Append(comp.InheritedAlpha.ToString("F3"))
+                          .Append(", CanvasGroup chain product ")
+                          .Append(comp.GroupAlpha.ToString("F3")).Append(" (").Append(comp.GroupNote)
+                          .Append("), effective ").Append(effective.ToString("F3")).Append('.');
+            }
         }
         c.AlphaNote = InkAlphaSb.Length > 0
             ? InkAlphaSb.ToString()
@@ -5478,9 +5914,35 @@ internal static partial class PanelSupersample
         int startComp = compCount > 0 ? c.SearchCursor % compCount : 0;
         bool overran = false;
 
-        for (int step = 0; step < compCount; step++)
+        // ---- SPEND THE BUDGET ON THE OPAQUE COMPONENTS FIRST (ModBuild 210) ----------------------
+        // The 209 log classified 47 of 1320 empty glyphs as genuinely absent, 10 as found at an
+        // offset, and left 1263 AMBIGUOUS — of which 680 were never searched at all because the budget
+        // ran out. Round-robin over the component list spends that budget in walk order, which on this
+        // window means it is largely spent on faded labels whose empties were never going to decide
+        // anything. Opaque components are the ones the verdict now speaks about, so they are searched
+        // first and the faded ones take what is left. The cursor still rotates WITHIN each group, so a
+        // window with more opaque components than one budget can hold still covers them all across
+        // consecutive censuses instead of re-searching the same prefix for ever.
+        InkSearchOrder.Clear();
+        for (int pass = 0; pass < 2; pass++)
         {
-            int ci = (startComp + step) % compCount;
+            bool wantOpaque = pass == 0;
+            for (int step = 0; step < compCount; step++)
+            {
+                int ci = (startComp + step) % compCount;
+                InkComponent cand = c.Comps[ci];
+                if (cand.Empty == 0)
+                    continue;
+                float eff = cand.OwnAlpha * cand.CrAlpha * cand.InheritedAlpha * cand.GroupAlpha;
+                if (eff >= InkOpaqueBar != wantOpaque)
+                    continue;
+                InkSearchOrder.Add(ci);
+            }
+        }
+
+        for (int step = 0; step < InkSearchOrder.Count; step++)
+        {
+            int ci = InkSearchOrder[step];
             // THE SEARCH CURSOR AND ITS BUDGET. A component is either searched completely or not at
             // all — a half-swept score field has an argmax that means nothing — so the deadline is
             // consulted BETWEEN components and the remainder is carried to the next census, which
@@ -5490,9 +5952,9 @@ internal static partial class PanelSupersample
             {
                 overran = true;
                 c.SearchOverran = true;
-                for (int rest = step; rest < compCount; rest++)
+                for (int rest = step; rest < InkSearchOrder.Count; rest++)
                 {
-                    InkComponent left = c.Comps[(startComp + rest) % compCount];
+                    InkComponent left = c.Comps[InkSearchOrder[rest]];
                     if (left.Empty == 0)
                         continue;
                     left.Ambiguous += left.Empty;
@@ -6160,14 +6622,34 @@ internal static partial class PanelSupersample
         // coming out of one are not a statement about the capture path at all. (The CanvasGroup-only
         // exclusions are handled as a prefix by the caller: those components were excluded HERE, so
         // they contaminate the previous builds' numbers and not these.)
-        if (c.TotalEmpty > 0 && c.EmptyLowestAlpha < 0.5f)
+        // ---- THE ARTEFACT CHECK, NOW PER COMPONENT AND NOT AS A MINIMUM (ModBuild 210) -----------
+        // It fires only when EVERY empty-producing component is faded. Until 209 it fired on the
+        // LOWEST alpha in the reading, which meant one label greyed out by design — 'XP Amount' at
+        // authored alpha 0.200 — dismissed 28 of 49 readings AND the fully opaque components standing
+        // beside it in the same readings. That is the third time in this project a worst-case summary
+        // field has hidden the finding it was built to expose; see the memory "a WORST field is the
+        // tail". A reading with even ONE opaque component missing ink now falls through to the real
+        // verdicts below, and the faded ones are subtracted rather than allowed to speak for it.
+        if (c.TotalEmpty > 0 && c.EmptyOpaqueGlyphs == 0 && c.EmptyDimGlyphs > 0)
         {
-            return $"ARTEFACT — the lowest effective alpha among the components that produced EMPTY "
-                   + $"glyphs is {c.EmptyLowestAlpha:F3}, not 1.000, so at least one of them is "
-                   + "SUBSTANTIALLY TRANSPARENT and its glyphs are legitimately faint rather than "
-                   + "missing. The ALPHA EVIDENCE field names them with all four of their alphas; "
-                   + "until the empties come from fully opaque components the headline number is not a "
-                   + "statement about the capture path. " + signal + ".";
+            return $"ARTEFACT — ALL {c.EmptyDimComps} component(s) that produced EMPTY glyphs are "
+                   + $"faded, the lowest at {c.LowestAlphaComp}, so their glyphs are legitimately "
+                   + "faint rather than missing and NOT ONE fully opaque component lost ink in this "
+                   + "reading. That second clause is the one that matters and it is new: the same "
+                   + "verdict used to fire on the lowest alpha ANYWHERE in the reading, which "
+                   + "dismissed 28 of 49 ModBuild 209 readings that did contain opaque components "
+                   + "missing their ink. The ALPHA EVIDENCE field names every component with all four "
+                   + "of its alphas, opaque ones first. " + signal + ".";
+        }
+        if (c.EmptyOpaqueGlyphs > 0)
+        {
+            // NOT a return: the reading is real and the classification below must run on it. This only
+            // makes sure the number the next reader needs is in front of the argument rather than
+            // behind it.
+            signal = $"{c.EmptyOpaqueGlyphs} EMPTY glyph(s) come from {c.EmptyOpaqueComps} FULLY "
+                     + $"OPAQUE component(s) (effective alpha at or above {InkOpaqueBar:F2}) and "
+                     + $"{c.EmptyDimGlyphs} from {c.EmptyDimComps} faded one(s) — the opaque count is "
+                     + "the defect and the faded count is not. " + signal;
         }
         string alphaCaveat = c.TotalEmpty > 0 && c.EmptyLowestAlpha < 0.99f
             ? $" CAVEAT: the lowest effective alpha among the EMPTY components is "
@@ -6364,6 +6846,111 @@ internal static partial class PanelSupersample
     /// how a search that ran off the edge becomes AMBIGUOUS instead of silently scoring low — an
     /// out-of-strip offset would otherwise look exactly like an offset with no ink at it.</para>
     /// </summary>
+    /// <summary>
+    /// <b>READ THE CAPTURE UNDER EVERY NON-TEXT GRAPHIC THAT BELIEVED IT DREW.</b> Runs on the mip 0
+    /// plane only, inside that plane's callback, because that is the only place its buffer is alive.
+    ///
+    /// <para>See <see cref="InkPlate"/> for why the verdict is one-sided. In short: a flat region at
+    /// the strip background is the only reading that cannot also be a dark image, and every other
+    /// reading is reported as unjudged rather than as evidence in either direction.</para>
+    /// </summary>
+    private static void JudgeInkPlates(Unity.Collections.NativeArray<Color32> data, InkCensus c,
+                                       InkPlane p)
+    {
+        c.PlatesBlank = c.PlatesPresent = c.PlatesUnjudged = c.PlatesOutsideStrip = 0;
+        if (c.Plates.Count == 0)
+        {
+            c.PlateNote = " (no non-text graphic in this window reported itself as drawn inside the "
+                          + "census strip, so there is nothing to read the capture under.)";
+            return;
+        }
+
+        float start = Time.realtimeSinceStartup;
+        int w = p.W, h = p.H;
+        InkPlateSb.Length = 0;
+        int named = 0;
+
+        for (int i = 0; i < c.Plates.Count; i++)
+        {
+            InkPlate plate = c.Plates[i];
+            float x0 = plate.X0 * p.Scale - p.X, x1 = plate.X1 * p.Scale - p.X;
+            float y0 = plate.Y0 * p.Scale, y1 = plate.Y1 * p.Scale;
+
+            // WHOLLY inside the strip, exactly as the glyph quads are required to be. A plate hanging
+            // over the edge would be judged on the part that happens to be in frame, and "the left
+            // third of this image is blank" is not a sentence this instrument can honestly produce.
+            if (x0 < 0f || x1 > w || y0 < 0f || y1 > h)
+            {
+                c.PlatesOutsideStrip++;
+                continue;
+            }
+
+            float worst = 0f;
+            double sum = 0;
+            int samples = 0;
+            for (int sy = 0; sy < InkPlateSamples; sy++)
+            {
+                float fy = y0 + (y1 - y0) * (sy + 0.5f) / InkPlateSamples;
+                int py = Mathf.FloorToInt(fy);
+                if (py < 0 || py >= h)
+                    continue;
+                int row = (p.Flipped ? (h - 1 - py) : py) * w;
+                for (int sx = 0; sx < InkPlateSamples; sx++)
+                {
+                    float fx = x0 + (x1 - x0) * (sx + 0.5f) / InkPlateSamples;
+                    int px = Mathf.FloorToInt(fx);
+                    if (px < 0 || px >= w)
+                        continue;
+                    float d = Mathf.Abs(InkValue(data[row + px]) - p.Background);
+                    if (d > worst)
+                        worst = d;
+                    sum += d;
+                    samples++;
+                }
+            }
+            if (samples == 0)
+            {
+                c.PlatesUnjudged++;
+                continue;
+            }
+            plate.Worst = worst;
+            plate.Mean = (float)(sum / samples);
+            plate.Samples = samples;
+            c.Plates[i] = plate;
+
+            bool blank = worst < InkThreshold;
+            if (blank)
+                c.PlatesBlank++;
+            else
+                c.PlatesPresent++;
+
+            if (named < MaxInkPlatesNamed && blank)
+            {
+                named++;
+                InkPlateSb.Append(" '").Append(plate.Name).Append("' (").Append(plate.Kind)
+                          .Append(") over ").Append((x1 - x0).ToString("F0")).Append('x')
+                          .Append((y1 - y0).ToString("F0")).Append(" texels: worst deviation ")
+                          .Append((worst * 255f).ToString("F1")).Append("/255, mean ")
+                          .Append((plate.Mean * 255f).ToString("F1")).Append("/255 over ")
+                          .Append(samples).Append(" sample(s).");
+            }
+        }
+
+        ChargeInkBudget((Time.realtimeSinceStartup - start) * 1000.0);
+
+        c.PlateNote = $" {c.PlatesPresent} held content, {c.PlatesBlank} were FLAT AT THE STRIP "
+                      + $"BACKGROUND, {c.PlatesOutsideStrip} were not wholly inside the strip and "
+                      + $"{c.PlatesUnjudged} could not be sampled, of {c.Plates.Count} listed "
+                      + $"({c.PlatesSeen} non-text graphic(s) reported themselves drawn; the list is "
+                      + $"capped at {MaxInkPlates} and plates under {MinInkPlateTexels:F0} texels on "
+                      + "an axis are not sampled at all)."
+                      + (InkPlateSb.Length > 0
+                          ? " THE FLAT ONES, NAMED — a graphic that uGUI says drew, at full alpha, "
+                            + "unclipped, with NOTHING under it in the capture:" + InkPlateSb
+                          : " No graphic that believed it drew came back flat.");
+        InkPlateSb.Length = 0;
+    }
+
     private static float InkQuadScore(Unity.Collections.NativeArray<Color32> data, InkPlane p,
                                       InkGlyph g, float dx, float dy, int n, float bg,
                                       out float cx, out float cy, out bool clipped)
