@@ -416,7 +416,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 212;
+    public const ushort ModBuild = 213;
+    // Build 213: REVERT OF 212. The opaque capture clear is GONE and the window is transparent again.
+    // The user, on 212: "Das hat das Problem NICHT behoben. Und sieht auch jetzt deutlich hässlicher
+    // aus, ich mag es transparent mehr." So the a**2 double-multiply is REAL arithmetic, was really
+    // removed, and is NOT the cause of the vanishing elements — a falsification, not a tuning result.
+    // The dial is removed rather than defaulted off: a setting that makes windows uglier and fixes
+    // nothing is not optional content, which is what settings in this mod are for.
+    //
+    // ALSO NOT SHIPPED, killed by his answer before it could become a fifth failed fix: a PERSPECTIVE
+    // capture camera. TMP computes its SDF sharpness from the RENDERING camera's projection while the
+    // CPU half comes from the CANVAS's (perspective) camera, so the two disagree by construction —
+    // but that predicts thin strokes dying first, and he answered "auch 'HILDE DIE 2TE' stirbt ...
+    // alles innerhalb des Sub-Menus ist betroffen". The heading dies, and so does the 3D character
+    // render, which is not SDF at all. A per-glyph threshold cannot remove a whole subtree.
+    //
+    // WHAT THIS ROUND ESTABLISHED INSTEAD, and it is the frame the next one must start from:
+    //   * The window is re-photographed EVERY frame (CaptureIntervalFrames = 1), grabbed or not. So
+    //     "the photograph freezes" is NOT the mechanism, and a broken frame should self-correct.
+    //   * uGUI's state does not move: the draw-state census reads DREW = 217 on 47 of 47 readings,
+    //     0 culled, 0 stale inherited alpha, before, during and after a drag.
+    //   * The capture frame does not move either: 2020 px wide on every census, 3 frame changes in the
+    //     whole session, all at open.
+    //   * The images ARE in the render target (plates hold content) while fully opaque TMP components
+    //     lose ink in the same reading — up to 97 empty glyphs from 9 opaque components.
+    // Constant content, constant frame, a fresh photograph every frame, and the picture still loses a
+    // whole sub-tree. That leaves exactly one unmeasured stage: WHAT THE CAMERA ACTUALLY RENDERED
+    // into the target this frame, versus what the quad read out of it.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 212: THE ALPHA IS APPLIED TWICE, AND IT HAS BEEN WRITTEN DOWN IN THIS CLASS SINCE ITS
     // FIRST BUILD. The capture camera clears to TRANSPARENT black, so uGUI blends into it with
     // SrcAlpha/OneMinusSrcAlpha and a pixel of coverage a lands PREMULTIPLIED as (aC, a). The RawImage

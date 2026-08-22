@@ -870,20 +870,26 @@ internal static partial class PanelSupersample
     /// reads. Fourteen builds of measurement were taken one stage upstream of the damage — see the
     /// memory "one step too early".</para>
     ///
-    /// <para><b>THE FIX, AND WHY IT NEEDS NO SHADER.</b> Clearing the capture to OPAQUE black makes
-    /// uGUI's own blend resolve the coverage against the plate: the target holds <c>(aC, 1)</c>, the
-    /// composite multiplies by 1, and the result is <c>aC</c> — exactly linear. The alternative the old
-    /// note named, <c>Blend One OneMinusSrcAlpha</c>, needs a shader no built-in UI material offers
-    /// and a bundle rebuild; this needs one colour. THE PRICE, stated rather than hidden: whatever the
-    /// window left genuinely transparent is now black instead of the room behind it. The capture frame
-    /// is fitted to the window's own drawn content, so that is its margins and any rounded corner —
-    /// switch <c>[WorldUI] PanelOpaqueCapture</c> off to compare the two directly.</para>
+    /// <para><b>THE FIX THAT WAS TRIED AND FAILED — ModBuild 212, REVERTED IN 213. DO NOT SHIP IT
+    /// AGAIN.</b> Clearing the capture to OPAQUE black makes uGUI's own blend resolve the coverage
+    /// against the plate: the target holds <c>(aC, 1)</c>, the composite multiplies by 1, the result
+    /// is <c>aC</c>, exactly linear. The arithmetic is correct and the change did exactly what it
+    /// says. <b>The symptom was unchanged</b> — the user: <i>"Das hat das Problem NICHT behoben"</i> —
+    /// and the look was rejected outright: <i>"sieht auch jetzt deutlich hässlicher aus, ich mag es
+    /// transparent mehr"</i>. So the double multiply is REAL and is NOT the cause of the vanishing
+    /// elements; it is a genuine but second-order brightness error on partial coverage, and this
+    /// window's defect survives its removal. That is a falsification, not a tuning result: any future
+    /// round that rediscovers the <c>a²</c> arithmetic has already been here.</para>
     /// </summary>
     private static void ApplyCaptureClear(Camera cam)
     {
-        cam.backgroundColor = WorldUIConfig.PanelOpaqueCapture.Value
-            ? new Color(0f, 0f, 0f, 1f)
-            : new Color(0f, 0f, 0f, 0f);
+        // TRANSPARENT, and it stays transparent. See the doc above: ModBuild 212 shipped the opaque
+        // clear as a fix, it did NOT fix the symptom, and the user rejected the look outright —
+        // "sieht auch jetzt deutlich hässlicher aus, ich mag es transparent mehr". The dial is gone
+        // rather than defaulted off: a setting that makes windows uglier and fixes nothing is not an
+        // optional-content setting, and this project's standing rule is that settings configure
+        // optional content and comfort only.
+        cam.backgroundColor = new Color(0f, 0f, 0f, 0f);
     }
 
     private static bool BuildDisplay(Entry e, ConvertedPanel panel)
@@ -1058,6 +1064,16 @@ internal static partial class PanelSupersample
         float slab = Mathf.Max(frameHeightWorld * 0.5f, 1e-4f);
         float standoff = slab * 2f;
 
+        // ORTHOGRAPHIC, and it stays orthographic. A perspective capture was drafted in ModBuild
+        // 213 on the theory that TMP's SDF sharpness is computed from the RENDERING camera's
+        // projection while its CPU half is computed from the CANVAS's (perspective) camera, so the two
+        // disagree by construction. The theory predicts that THIN strokes die first and thick ones
+        // survive — and the user's answer killed it before it shipped: "Wie du im Video siehst stirbt
+        // auch 'HILDE DIE 2TE' ... alles innerhalb des Sub-Menus ist betroffen". The heading dies too,
+        // and so does the 3D character render, which is not SDF at all. A per-glyph threshold cannot
+        // remove a whole sub-tree, so the projection is not the lever. Not shipped, recorded here so
+        // the next round does not rediscover it.
+        e.Cam.orthographic = true;
         e.Cam.orthographicSize = frameHeightWorld * 0.5f;
         e.Cam.aspect = Mathf.Max(frame.width / Mathf.Max(frame.height, 1e-4f), 1e-4f);
         e.Cam.nearClipPlane = standoff - slab;
