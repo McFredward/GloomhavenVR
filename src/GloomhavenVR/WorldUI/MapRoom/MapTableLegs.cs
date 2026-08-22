@@ -8,8 +8,9 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <summary>
 /// THE MAP TABLE'S LEGS AND ITS UNDERSIDE — four legs, one at each corner of the table the campaign
 /// map lies on, plus a panel that closes the game slab's open bottom, built PROCEDURALLY at runtime
-/// as ONE mesh, standing on the floor of the bundled 3D environment and present ONLY in the two
-/// bundled 3D environments.
+/// as ONE mesh. The LEGS stand on the floor of a bundled 3D environment and exist only in the two
+/// bundled 3D environments; the UNDERSIDE exists in EVERY environment and under mixed reality, and
+/// since USER REPORT 11 those are two separate gates rather than one.
 ///
 /// <para>USER, verbatim (translated), against ModBuild 197: "There really are no benches, I must
 /// have dreamt that. But I don't like your benches — remove them again and close the topic for now.
@@ -106,14 +107,16 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <para>THE STYLE GATE IS LIVE, AND IT IS EVALUATED EVERY FRAME. <see cref="Tick"/> reads
 /// <c>SkyAlternative.Style</c> and <c>MixedReality.BackingsWanted</c> on every call and builds or
 /// tears down on the next frame, so changing the environment in the VR options panel takes effect
-/// where the player is standing rather than at the next room entry. Present for
+/// where the player is standing rather than at the next room entry. The LEGS are present for
 /// <see cref="SkyStyle.Cellar"/> and <see cref="SkyStyle.SwampNight"/> — the two bundled 3D rooms,
 /// and the only two styles that HAVE a floor to stand on — and absent for
 /// <see cref="SkyStyle.Default"/>, <see cref="SkyStyle.OffBlack"/> and under mixed reality. The
 /// MR clause is not merely obedience to the ruling: a passthrough world has the player's REAL floor
 /// in it, several metres from wherever this mod thinks the room floor is, so a leg drawn to a
 /// virtual floor plane would visibly miss the real one. <c>MixedReality.BackingsWanted</c> is the
-/// same predicate the MR readability treatment keys off, so there is no second switch to drift.</para>
+/// same predicate the MR readability treatment keys off, so there is no second switch to drift.
+/// THE UNDERSIDE HAS ITS OWN GATE (<see cref="UndersideWanted"/>) AND IT IS ALWAYS OPEN — see the
+/// report-11 paragraph below for why the two questions are different ones.</para>
 ///
 /// <para>IT MOVES NOTHING, AND IT CANNOT MOVE A WINDOW. This class only READS: the table renderer's
 /// bounds, material and lighting flags, the environment room root's position, the environment's own
@@ -164,6 +167,60 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// parchment: the map is still excluded by identity and by the 30 mm board test, both of which still
 /// run, and ModBuild 199 was burnt on exactly that confusion.</para>
 ///
+/// <para>USER REPORT 11 (against ModBuild 225), verbatim: "Die Unterseite des Tischs auch bei den
+/// anderen Umgebungen (wie Mixed Reality, keine und Default) mit einbauen, dass man von unten nicht
+/// durchsehen kann. Hierbei die Unterseiten-Platte ein bisschen nach oben schieben - aktuell ist da
+/// eine sichtbare Lücke, durch die man durchschauen kann: siehe Tisch_Lücke.jpg." Two faults, and
+/// they are independent of each other.</para>
+///
+/// <list type="number">
+///   <item>THE GATE WAS SHARED, AND THE TWO PARTS ANSWER DIFFERENT QUESTIONS. Until report 11 the
+///   underside rode on <see cref="StyleShowsLegs"/> and on the <c>!mixedReality</c> clause, so in
+///   Default, in OffBlack and under passthrough the tabletop went back to being an open shell with
+///   an unlit map glowing inside it. That was never a decision — it was the underside inheriting a
+///   gate written for LEGS. A LEG NEEDS A FLOOR: it is measured against a probed ground, it has to
+///   be seen reaching it, and under passthrough the player's REAL floor is somewhere this mod
+///   cannot know. AN UNDERSIDE NEEDS NOTHING BUT THE SLAB: every number in it comes from the
+///   tabletop renderer's own bounds, it hangs inside that slab's AABB, and it stands on nothing. So
+///   the gates are split — <see cref="StyleShowsLegs"/> is untouched and
+///   <see cref="UndersideWanted"/> is true in every style and under MR. AND UNDER MR AN OPAQUE
+///   UNDERSIDE IS THE CORRECT ANSWER, not an exception to the see-through ruling: that ruling is
+///   about not covering the passthrough room with mod geometry, and this panel covers nothing but
+///   the inside of a slab the GAME already draws opaque. The user asked for it in those words
+///   ("wie Mixed Reality, keine und Default"), and you cannot see through a real table either. It
+///   is placed the way MR expects — inside the tabletop's own AABB, on the tabletop's own layer,
+///   wearing the tabletop's own material OBJECT — so whatever the MR treatment does to the table it
+///   does to this panel in the same draw call, and this class writes no <c>_Cull</c>, no blend state
+///   and no material anywhere. NO GEOMETRY IS WELDED to anything, which is the other half of the
+///   standing MR ruling.</item>
+///   <item>THE PLATE WAS AT THE BOTTOM OF A HOLLOW AND LEFT AN OPEN RING ABOVE IT. The photograph
+///   (<c>.planning/debug/Tisch_Lücke.jpg</c>) is taken from under the table: the slab's apron runs
+///   across the top of the frame and under it there is a BRIGHT HORIZONTAL SLIT with the room — and
+///   the parchment — visible through it. That is the diagnosis in one image.
+///   <c>bounds.min.y</c> is the LOWEST POINT ANYWHERE in the slab's mesh, i.e. the bottom edge of
+///   its apron, NOT the height of the wood over the middle of the table. This class has known that
+///   since ModBuild 200 and it is the same mistake in a second place: 200 stopped anchoring the LEG
+///   HEADS to <c>bounds.min.y</c>, and 201 then built the UNDERSIDE PANEL from it anyway. A 12 mm
+///   board sitting 1 mm above the apron's bottom edge closes the bottom 13 mm of a hollow that is
+///   over a hundred millimetres deep, and everything above it is open: at a grazing angle you look
+///   in through the <see cref="UndersideEdgeInsetMeters"/> rim slot, up into the open shell, and
+///   straight out at the unlit map. THE REPAIR IS NOT TO MOVE A THIN PLATE UP — that would only
+///   move the slit, and moving it far enough to close it would make the plate stand proud of the
+///   board. THE BOX SPANS THE HOLLOW INSTEAD: its bottom face stays at
+///   <c>bounds.min.y + </c><see cref="UndersideClearanceMeters"/>, so the table can never look
+///   thicker than the one he has already accepted, and its TOP face is welded up into the MEASURED
+///   underside. See <see cref="Underside"/> for the arithmetic and for the one residual, which is a
+///   number rather than a hope.</item>
+/// </list>
+///
+/// <para>THE UNDERSIDE IS NOW MEASURED IN ITS OWN RIGHT, at <see cref="UndersideProbeCount"/>
+/// points — the four corners (which the legs already probed) plus THE CENTRE, which is the part of
+/// the underside the player in the photograph is actually looking at and which no probe covered
+/// before. <see cref="TryMeasureUnderside"/> is unchanged; it is simply called at a fifth place and
+/// its samples are reduced with MAX rather than MIN. Max is the safe direction and that is derived,
+/// not preferred: a box top ABOVE the local wood is buried inside the board and invisible from every
+/// eye, while a box top BELOW it is the open ring the user photographed.</para>
+///
 /// <para>MODBUILD 201, FAULT 1: THE LIGHTING IS NOT THIS PROP'S TO FIX, AND THE CENSUS NOW PROVES
 /// IT. The user: "the table legs AND THE SIDE OF THE TABLE are lit from the other side ... I would
 /// like the lighting to match the environment." ModBuild 200's census answers the first half in one
@@ -183,11 +240,15 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <see cref="DescribeLights"/> prints the angle between it and the light that actually reaches the
 /// table, so the next round argues from a number instead of from a photograph.</para>
 ///
-/// <para>COST: one combined mesh, <see cref="TriangleCount"/> triangles (<c>4 x 12</c> for the legs
-/// plus <see cref="UndersideTriangleCount"/> for the underside), ONE MeshRenderer with ONE material
-/// = ONE draw call, built once, no per-frame allocation and no shadow pass. Four legs of four
-/// different lengths cost exactly the same as four of one length — the extra shaft ModBuild 200
-/// buries in the slab is hidden geometry, not extra geometry.</para>
+/// <para>COST: one combined mesh, <see cref="TrianglesFor"/> triangles — <c>4 x 12</c> for the legs
+/// plus <see cref="UndersideTriangleCount"/> for the underside where BOTH parts are built, and
+/// <see cref="UndersideTriangleCount"/> alone in Default, OffBlack and MR — ONE MeshRenderer with
+/// ONE material = ONE draw call, built once, no per-frame allocation and no shadow pass. Four legs
+/// of four different lengths cost exactly the same as four of one length, and a box that spans the
+/// hollow costs exactly what a 12 mm one did — the extra shaft ModBuild 200 buries in the slab and
+/// the extra height report 11 gives the box are hidden geometry, not extra geometry. EVERY COUNT IN
+/// THE LOG IS DERIVED from which parts were actually built; a literal there would state the legs'
+/// triangles in a build that has no legs.</para>
 /// </summary>
 internal sealed class MapTableLegs
 {
@@ -358,6 +419,13 @@ internal sealed class MapTableLegs
     // exists to keep it there. It is not welded to the parchment and it never touches it: ModBuild
     // 199 was burnt treating the decal as the table, and the parchment is excluded from this class
     // by identity in TryFindTable and by the 30 mm board test, both of which still run.
+    //
+    // REPORT 11 CORRECTS ONE OF THE THREE. The box's THICKNESS is no longer an authored 12 mm board:
+    // 12 mm at the bottom of a >100 mm hollow left an open ring above it, which is the bright slit in
+    // .planning/debug/Tisch_Lücke.jpg. The box now SPANS the hollow — same bottom face, top face
+    // welded up into the MEASURED underside — and 12 mm survives only as a FLOOR on the thickness for
+    // the case where the slab really is that shallow. The clearance and the rim inset are unchanged
+    // and their reasoning below is unchanged with them.
 
     /// <summary>
     /// How far ABOVE the tabletop slab's own <c>bounds.min.y</c> the underside panel's bottom face
@@ -373,17 +441,42 @@ internal sealed class MapTableLegs
     private const float UndersideClearanceMeters = 0.001f;
 
     /// <summary>
-    /// The underside panel's own board thickness, real metres — it is a BOX and not a bare quad, and
-    /// that is what closes the rim.
+    /// The MINIMUM thickness of the underside box, real metres — it is a BOX and not a bare quad,
+    /// and that is what closes the rim.
     ///
     /// <para>A single down-facing quad inset from the slab's edge leaves an open slot all the way
     /// round: a ray coming up through that slot enters the hollow board, meets the top face from
     /// BEHIND (culled) and lands on the unlit parchment — i.e. exactly the bright leak being fixed,
     /// reduced to a hairline. The four side walls of a box close it for every ray that does not
-    /// already start inside the wood. 12 mm is a plausible board and stays two orders of magnitude
-    /// inside the slab's measured 148 mm, so the box lives entirely within the slab's AABB.</para>
+    /// already start inside the wood.</para>
+    ///
+    /// <para>THE FACT THIS CONSTANT USED TO STATE BECAME FALSE IN REPORT 11, and the correction is
+    /// worth writing down rather than deleting. ModBuild 201 shipped it as "the underside panel's own
+    /// board thickness — 12 mm is a plausible board and stays two orders of magnitude inside the
+    /// slab's measured 148 mm". Both halves were true and the conclusion was still wrong: a 12 mm
+    /// board placed 1 mm above <c>bounds.min.y</c> closes the bottom 13 mm of the hollow, and the
+    /// slab is 148 mm deep, so 135 mm of open shell sat above it. That ring is the bright slit in
+    /// <c>.planning/debug/Tisch_Lücke.jpg</c>: at a grazing angle you look in through the
+    /// <see cref="UndersideEdgeInsetMeters"/> rim slot, up past the little board and out at the unlit
+    /// map. THE BOX NOW SPANS THE HOLLOW (see <see cref="Underside"/>), so its thickness is
+    /// DERIVED — measured-underside minus <c>bounds.min.y</c> — and 12 mm is only the floor under
+    /// that derivation, for a slab that genuinely is shallower than a plausible board.</para>
     /// </summary>
-    private const float UndersideThicknessMeters = 0.012f;
+    private const float UndersideMinThicknessMeters = 0.012f;
+
+    /// <summary>
+    /// How many places the slab's underside is probed for the PANEL: the <see cref="LegCount"/>
+    /// corners plus THE CENTRE.
+    ///
+    /// <para>The centre probe is new in report 11 and it is the one that matters for this fault. The
+    /// four corner probes exist for the LEGS — they answer "how high is the wood where this leg has
+    /// to meet it" — and a corner is exactly where an apron makes the wood lowest. The player in
+    /// <c>Tisch_Lücke.jpg</c> is looking at the MIDDLE of the table, where there is no apron and the
+    /// underside can be a hundred millimetres higher. Probing only the corners and believing the
+    /// answer is the ModBuild 200 mistake with a different reference face; probing the centre as
+    /// well costs one raycast on the build frame.</para>
+    /// </summary>
+    internal const int UndersideProbeCount = LegCount + 1;
 
     /// <summary>
     /// How far the underside panel's rim stands INSIDE the slab's side faces, real metres.
@@ -398,6 +491,28 @@ internal sealed class MapTableLegs
     ///
     /// <para>It is deliberately SMALLER than <see cref="EdgeInsetMeters"/> (20 mm), so the panel's
     /// walls are never coplanar with a leg's outer face either. The legs stand 18 mm proud of it.</para>
+    ///
+    /// <para>REPORT 11 RE-EXAMINED IT AND KEPT IT AT 2 mm, WITH THE RESIDUAL WRITTEN DOWN AS A
+    /// NUMBER. The 2 mm inset is the one path left into the shell once the box spans the hollow: a
+    /// ray can enter the ring between the panel's outer wall and the slab's side plane from below and
+    /// reach the parchment ONLY if it stays inside that ring for the whole height of the box, i.e.
+    /// only if its slope from vertical is under <c>atan(inset / boxThickness)</c>. At the measured
+    /// table that is <c>atan(2 / ~130) = 0.9 deg</c>, and to look up such a ray an eye 0.5 m below the
+    /// rim must be within <c>0.5 m x tan(0.9 deg) = 8 mm</c> of the vertical line through it — and
+    /// would then see a 2 mm-wide sliver. <see cref="Underside"/> computes and PRINTS that angle every
+    /// build so the next round argues from it. Before the box spanned the hollow the same arithmetic
+    /// gave <c>atan(2 / 13) = 8.8 deg</c> over a ring that then opened into the whole cross-section —
+    /// which is why the slit was a slit and not a sliver.</para>
+    ///
+    /// <para>SHRINKING IT TO ZERO WOULD CLOSE THE RING EXACTLY, AND IS REJECTED: flush puts the
+    /// panel's four side walls on the slab's own side planes, coplanar and same-facing, z-fighting
+    /// along the whole visible rim of the table — a defect over 7.7 m of edge to remove a 2 mm sliver
+    /// that needs the eye within 8 mm of a line. The other exact closure is a STEPPED solid: keep the
+    /// walls 2 mm in and give the bottom face a flange out to the full AABB footprint, so every ray
+    /// crossing the panel's bottom plane inside the footprint meets wood. That costs 12 more
+    /// triangles and gives up this constant's own guarantee — the flange rim would poke out if the
+    /// slab's side face is recessed from its AABB by any amount at all. It is the move to make IF a
+    /// hardware round still shows a sliver at the very rim, and not before.</para>
     /// </summary>
     private const float UndersideEdgeInsetMeters = 0.002f;
 
@@ -473,22 +588,72 @@ internal sealed class MapTableLegs
     /// <summary>One leg at each corner of the tabletop.</summary>
     internal const int LegCount = 4;
 
-    /// <summary>Triangles in the UNDERSIDE panel: one closed box, 6 quads x 2.</summary>
-    internal const int UndersideTriangleCount = 12;
+    /// <summary>Triangles in ONE closed box: 6 quads x 2.</summary>
+    internal const int BoxTriangleCount = 12;
 
-    /// <summary>Triangles in the finished prop: 4 legs x 6 quads x 2, plus the underside box.</summary>
-    internal const int TriangleCount = LegCount * 12 + UndersideTriangleCount;
+    /// <summary>Triangles in the UNDERSIDE panel: one closed box.</summary>
+    internal const int UndersideTriangleCount = BoxTriangleCount;
+
+    /// <summary>Triangles in the LEGS alone: one closed box each.</summary>
+    internal const int LegTriangleCount = LegCount * BoxTriangleCount;
+
+    /// <summary>Triangles in the FULL prop — legs and underside. NOTHING READS THIS ANY MORE, and
+    /// that is the point of keeping it: until report 11 it WAS the count, and the report and the
+    /// class doc both quoted it. Since the gate split, the prop is built with or without legs and a
+    /// literal would have the log claim 48 leg triangles in a build that has none, so every count now
+    /// goes through <see cref="TrianglesFor"/>. It survives as the name a future reader will grep for
+    /// after finding it in an old Player.log.</summary>
+    internal const int TriangleCount = LegTriangleCount + UndersideTriangleCount;
+
+    /// <summary>Triangles in the prop THIS build actually made. Every count printed anywhere goes
+    /// through here.</summary>
+    internal static int TrianglesFor(bool withLegs) =>
+        (withLegs ? LegTriangleCount : 0) + UndersideTriangleCount;
 
     /// <summary>
     /// The two BUNDLED 3D environments — the only styles that put a room with a floor around the
-    /// player, and (per the user's ruling) the only ones the legs appear in. <c>Default</c> keeps the
+    /// player, and (per the user's ruling) the only ones the LEGS appear in. <c>Default</c> keeps the
     /// game's own sky and has no floor at all; <c>OffBlack</c> is deliberately "no environment"; and
-    /// mixed reality is handled by its own clause in <see cref="Tick"/> because it OVERRIDES the
-    /// style dial (<c>MixedReality.Tick</c>: "MR ON ⇒ the sky is ALWAYS off ... whatever [Sky] Style
-    /// says").
+    /// mixed reality is handled by <see cref="LegsWanted"/> because it OVERRIDES the style dial
+    /// (<c>MixedReality.Tick</c>: "MR ON ⇒ the sky is ALWAYS off ... whatever [Sky] Style says").
+    ///
+    /// <para>UNCHANGED BY REPORT 11, DELIBERATELY. Report 11 asks for the UNDERSIDE in every
+    /// environment; it does not reopen the ruling about legs, and this predicate is still exactly
+    /// the sentence the user wrote against ModBuild 197 ("The table legs should only be visible in
+    /// the two 3D environments — in mixed reality, in NO environment, or in the DEFAULT environment
+    /// they should not be there"). See <see cref="UndersideWanted"/> for the other half.</para>
     /// </summary>
     internal static bool StyleShowsLegs(SkyStyle style) =>
         style == SkyStyle.Cellar || style == SkyStyle.SwampNight;
+
+    /// <summary>
+    /// ARE THE LEGS WANTED — the style ruling AND the mixed-reality override, in one place so the
+    /// build path and the gate line cannot answer differently.
+    /// </summary>
+    internal static bool LegsWanted(SkyStyle style, bool mixedReality) =>
+        !mixedReality && StyleShowsLegs(style);
+
+    /// <summary>
+    /// IS THE UNDERSIDE WANTED — always, in every style and under mixed reality, and that is report
+    /// 11's ruling in one line: "Die Unterseite des Tischs auch bei den anderen Umgebungen (wie Mixed
+    /// Reality, keine und Default) mit einbauen, dass man von unten nicht durchsehen kann."
+    ///
+    /// <para>IT TAKES THE SAME TWO ARGUMENTS AS <see cref="LegsWanted"/> AND IGNORES BOTH, ON
+    /// PURPOSE. The point of report 11 is that the two parts answer different questions, and a
+    /// predicate that cannot see the style is a predicate no future round can accidentally couple
+    /// back to it. A LEG NEEDS A FLOOR — it is measured against a probed ground, it has to be seen
+    /// reaching it, and under passthrough the player's real floor is somewhere this mod cannot know.
+    /// AN UNDERSIDE NEEDS NOTHING BUT THE TABLETOP SLAB: bottom face, top face, rim and thickness are
+    /// all read off that one renderer's bounds and its own collider, so there is no environment state
+    /// it could depend on. Under MR an opaque underside is not an exception to the see-through ruling
+    /// (which is about mod geometry covering the passthrough room): this panel covers nothing but the
+    /// inside of a slab the GAME already draws opaque, the user asked for it in those words, and you
+    /// cannot see through a real table either.</para>
+    ///
+    /// <para>The parameters are kept so the signature states what it was ALLOWED to look at and
+    /// chose not to; the compiler discards them.</para>
+    /// </summary>
+    internal static bool UndersideWanted(SkyStyle style, bool mixedReality) => true;
 
     // ---- state -------------------------------------------------------------------------------
 
@@ -523,6 +688,40 @@ internal sealed class MapTableLegs
     private readonly bool[] _legHeadMeasured = new bool[LegCount];
     private readonly bool[] _legFloorMeasured = new bool[LegCount];
 
+    // ---- THE UNDERSIDE PANEL'S OWN ROW. Written on the build frame only, and printed whether or
+    // not the legs were built — since report 11 those are two independent parts. -----------------
+    /// <summary>Whether THIS build made the four legs. The gate is split, so the prop can stand as
+    /// an underside alone; every count and every row that names a leg is guarded by this.</summary>
+    private bool _builtWithLegs;
+    /// <summary>The slab underside over the table's CENTRE — the part of the wood the player in
+    /// <c>Tisch_Lücke.jpg</c> is looking at, and the one place no probe covered before report 11.
+    /// </summary>
+    private float _undersideCentreY;
+    private bool _undersideCentreMeasured;
+    /// <summary>How many of the <see cref="UndersideProbeCount"/> probes answered.</summary>
+    private int _undersideProbesMeasured;
+    /// <summary>The ceiling the panel is built up to: the HIGHEST measured underside sample when any
+    /// answered (max, not min — a box top above the local wood is buried and invisible, a box top
+    /// below it is the ring the user photographed), otherwise <c>bounds.min.y</c>, which is a hard
+    /// LOWER BOUND on the underside anywhere and therefore the worst case the residual is proved
+    /// against.</summary>
+    private float _undersideCeilingY;
+    /// <summary>Whether that ceiling is a MEASUREMENT OF THE WOOD rather than a restatement of the
+    /// AABB floor. A plain BoxCollider spanning the slab's bounds answers every upward probe with
+    /// <c>bounds.min.y</c>, which is a hit, is not a lie, and carries no information — see
+    /// <see cref="Underside"/>. The two must never print the same word.</summary>
+    private bool _undersideCeilingInformative;
+    private float _undersideBottomY;
+    private float _undersideTopY;
+    /// <summary>Millimetres of OPEN HOLLOW left between the panel's top face and the underside
+    /// reference above it. Must read 0.0 — this is the ring in <c>Tisch_Lücke.jpg</c>, measured.
+    /// </summary>
+    private float _undersideOpenMm;
+    /// <summary>Half-angle, in degrees, of the only cone that can still reach the parchment from
+    /// below: <c>atan(rim inset / panel thickness)</c>. See <see cref="UndersideEdgeInsetMeters"/>.
+    /// </summary>
+    private float _undersideLeakDegrees;
+
     private Rect _uvRect = new(0f, 0f, 1f, 1f);
     private Vector2 _uvCentre = new(0.5f, 0.5f);
     private float _uvWorldPerU = 1f;
@@ -543,12 +742,23 @@ internal sealed class MapTableLegs
     /// field reads — so a style change in the VR options panel builds or tears the legs down on the
     /// next frame rather than on the next room entry. When the answer has not changed and the prop
     /// already stands, this is a reference compare and nothing else.
+    ///
+    /// <para>SINCE REPORT 11 THERE ARE TWO GATE ANSWERS, NOT ONE, and this is where the difference
+    /// is spent. <see cref="UndersideWanted"/> is always true, so <c>wanted</c> is always true and
+    /// the prop is never torn down for a style change alone. What a style change CAN do is flip
+    /// <see cref="LegsWanted"/> under a standing prop — Cellar to Default drops the legs, Default to
+    /// Cellar adds them — and the mesh is built once, so that flip is a REBUILD. It is detected by
+    /// comparing the live answer against <see cref="_builtWithLegs"/>, i.e. against what this build
+    /// actually made, rather than against a remembered dial: "the prop stands" and "the prop stands
+    /// with legs" are different facts and only the second one can be read off the geometry.</para>
     /// </summary>
     internal void Tick()
     {
         SkyStyle style = SkyAlternative.Style != null ? SkyAlternative.Style.Value : SkyStyle.Default;
         bool mixedReality = MixedReality.BackingsWanted;
-        bool wanted = !mixedReality && StyleShowsLegs(style);
+        bool legsWanted = LegsWanted(style, mixedReality);
+        bool undersideWanted = UndersideWanted(style, mixedReality);
+        bool wanted = legsWanted || undersideWanted;
 
         if (style != _lastStyle || mixedReality != _lastMixedReality)
         {
@@ -563,7 +773,7 @@ internal sealed class MapTableLegs
         {
             if (_root != null)
             {
-                Release($"the style gate closed — {DescribeGate(style, mixedReality, false)}");
+                Release($"the style gate closed — {DescribeGate(style, mixedReality, false, false)}");
                 // Release's own line already carries the gate verdict; the tail below would only
                 // repeat it.
                 _gateLogged = true;
@@ -580,6 +790,24 @@ internal sealed class MapTableLegs
                 Release("the map's parchment or its table changed underneath the prop "
                         + "(world<->city switch) — it rebuilds against the new one");
                 _gateLogged = true;
+                _lastStanding = false;
+            }
+            // ...AND SINCE REPORT 11, THE OTHER ONE: the LEG half of the gate flipped while the
+            // underside half stayed open. The two parts share one mesh, so there is no way to add or
+            // drop 48 triangles in place; the prop is released and rebuilt on the next retry, which
+            // is the same one-frame cost a style change already had before the split.
+            else if (_builtWithLegs != legsWanted)
+            {
+                Release(legsWanted
+                        ? "the LEG gate opened while the underside was already standing — "
+                          + $"[Sky] Style is now {style} and mixed reality is "
+                          + $"{(mixedReality ? "ON" : "off")}, so the prop rebuilds WITH legs"
+                        : "the LEG gate closed while the underside stays — "
+                          + $"[Sky] Style is now {style} and mixed reality is "
+                          + $"{(mixedReality ? "ON" : "off")}, so the prop rebuilds as the UNDERSIDE "
+                          + "PANEL ALONE. The table keeps its bottom in every environment (user "
+                          + "report 11); only the legs answer the two-3D-rooms ruling");
+                _gateLogged = false;
                 _lastStanding = false;
             }
         }
@@ -611,11 +839,11 @@ internal sealed class MapTableLegs
         _gateLogged = true;
         _lastStanding = standing;
         if (!standing)
-            VRLog.Info(Scope, $"MAP TABLE LEGS: {DescribeGate(style, mixedReality, false)}"
+            VRLog.Info(Scope, $"MAP TABLE LEGS: {DescribeGate(style, mixedReality, false, false)}"
                               + (_lastRefusal.Length > 0 ? $" {_lastRefusal}" : ""));
     }
 
-    /// <summary>Tear the legs down. Idempotent; the only exit.</summary>
+    /// <summary>Tear the prop — legs and/or underside — down. Idempotent; the only exit.</summary>
     internal void Release(string reason)
     {
         bool had = _root != null;
@@ -635,11 +863,17 @@ internal sealed class MapTableLegs
         _builtAgainstParchment = null;
         _builtAgainstTable = null;
         _retryFrame = int.MinValue;
+        // WHAT THIS BUILD MADE IS FORGOTTEN WITH THE GEOMETRY. Tick compares the live leg gate
+        // against this flag to decide whether a standing prop is still the right one; leaving it set
+        // after a release would let a rebuilt underside-only prop claim it has legs.
+        bool hadLegs = _builtWithLegs;
+        _builtWithLegs = false;
         if (had)
         {
-            VRLog.Info(Scope, $"MAP TABLE LEGS released ({reason}) — the prop and its mesh are "
-                              + "destroyed. The game's tabletop, its material and the environment "
-                              + "room are untouched: this class only ever READ them.");
+            VRLog.Info(Scope, $"MAP TABLE LEGS released ({reason}) — the prop "
+                              + $"({(hadLegs ? $"{LegCount} leg(s) AND the underside panel" : "the UNDERSIDE PANEL alone")}) "
+                              + "and its mesh are destroyed. The game's tabletop, its material and the "
+                              + "environment room are untouched: this class only ever READ them.");
         }
     }
 
@@ -658,26 +892,70 @@ internal sealed class MapTableLegs
         _gateLogged = false;
     }
 
-    /// <summary>Why the legs are or are not wanted, in one clause. Composed only when the answer
-    /// changes, never per frame.</summary>
-    private static string DescribeGate(SkyStyle style, bool mixedReality, bool standing)
+    /// <summary>
+    /// WHICH PARTS ARE WANTED AND WHY — the LEG verdict and the UNDERSIDE verdict, separately,
+    /// because since report 11 they can disagree and a single sentence about "the prop" would be
+    /// false in three of the five style/MR combinations. Composed only when the answer changes,
+    /// never per frame.
+    ///
+    /// <para>The five combinations this has to be truthful about: MR on (underside only, whatever
+    /// the style dial says); Cellar and SwampNight with MR off (both parts); Default and OffBlack
+    /// with MR off (underside only).</para>
+    /// </summary>
+    private static string DescribeGate(SkyStyle style, bool mixedReality, bool standing,
+                                       bool builtWithLegs)
     {
+        string legs;
         if (mixedReality)
-            return "MIXED REALITY is on, so NO legs — a passthrough world already has the player's "
+            legs = "MIXED REALITY is on, so NO legs — a passthrough world already has the player's "
                    + "real floor in it and a leg drawn to a virtual floor plane would visibly miss "
                    + $"it. ([Sky] Style is {style}, and MR overrides it either way.)";
-        if (!StyleShowsLegs(style))
-            return $"[Sky] Style is {style}, so NO legs — the user's ruling is the two BUNDLED 3D "
+        else if (!StyleShowsLegs(style))
+            legs = $"[Sky] Style is {style}, so NO legs — the user's ruling is the two BUNDLED 3D "
                    + "environments only (Cellar, SwampNight). Default keeps the game's own sky and "
                    + "OffBlack is deliberately no environment; neither has a floor to stand on.";
-        return $"[Sky] Style is {style} — one of the two bundled 3D rooms, so the legs are WANTED"
-               + (standing ? " and they stand." : ", but they are not standing yet.");
+        else
+            legs = $"[Sky] Style is {style} — one of the two bundled 3D rooms, so the legs are WANTED"
+                   + (standing
+                      ? (builtWithLegs
+                         ? " and they stand."
+                         : " but the prop standing right now was built WITHOUT them — the gate flipped "
+                           + "this frame and it rebuilds on the next retry.")
+                      : ", but they are not standing yet.");
+
+        string underside =
+            " THE UNDERSIDE PANEL IS WANTED REGARDLESS, in every style and under mixed reality "
+            + "(user report 11: \"Die Unterseite des Tischs auch bei den anderen Umgebungen (wie "
+            + "Mixed Reality, keine und Default) mit einbauen\"). It stands on nothing — every number "
+            + "in it comes from the tabletop renderer's own bounds and its own collider — so unlike a "
+            + "leg it needs no environment floor and no environment at all. Under MR that is not an "
+            + "exception to the see-through ruling: the panel covers nothing but the inside of a slab "
+            + "the GAME already draws opaque, and you cannot see through a real table either."
+            + (standing
+               ? $" It is standing{(builtWithLegs ? " with the legs" : " ALONE")}."
+               : " It is not standing yet.");
+
+        return legs + underside;
     }
 
     // ---- build -------------------------------------------------------------------------------
 
+    /// <summary>
+    /// Build the prop. WHICH PARTS ARE BUILT IS DECIDED HERE, ONCE, and everything downstream reads
+    /// <c>wantLegs</c> rather than re-asking the gate — a second evaluation is a second chance to
+    /// disagree, and the report has to be able to say what was actually made.
+    ///
+    /// <para>THE PRECONDITIONS ARE SPLIT WITH THE GATE. A leg needs the tabletop AND the environment
+    /// room's floor plane; an underside needs the tabletop and nothing else. So
+    /// <see cref="TryFindRoomFloor"/> is only REQUIRED when legs are wanted, and in Default, OffBlack
+    /// and MR — where the room root does not exist at all — the panel is built without it and the
+    /// prop's vertical origin becomes the slab's own <c>bounds.min.y</c> instead. Before report 11 a
+    /// missing room refused the whole build, which is precisely why those three presentations had no
+    /// underside.</para>
+    /// </summary>
     private void Build(SkyStyle style, bool mixedReality)
     {
+        bool wantLegs = LegsWanted(style, mixedReality);
         MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
         if (parchment == null)
             return;
@@ -694,10 +972,25 @@ internal sealed class MapTableLegs
             Refuse("NOT BUILT: no tabletop was found. " + candidates);
             return;
         }
-        if (!TryFindRoomFloor(style, out float floorY, out Transform? roomRoot, out string floorSource))
+
+        // THE ROOM FLOOR IS A **LEG** PRECONDITION AND NOTHING ELSE'S. Asking for it when no legs are
+        // wanted would refuse the underside in exactly the three presentations report 11 is about —
+        // Default and OffBlack have no room root, and under MR SkyAlternative is not running at all.
+        float floorY = 0f;
+        Transform? roomRoot = null;
+        string floorSource =
+            "NOT NEEDED this build — no legs are wanted, and the underside panel stands on nothing: "
+            + "its bottom face, its top face, its rim and its thickness are all read off the tabletop "
+            + "renderer's own bounds and its own collider. No room root was looked for.";
+        bool haveFloor = false;
+        if (wantLegs)
         {
-            Refuse("NOT BUILT: " + floorSource);
-            return;
+            haveFloor = TryFindRoomFloor(style, out floorY, out roomRoot, out floorSource);
+            if (!haveFloor)
+            {
+                Refuse("NOT BUILT: " + floorSource);
+                return;
+            }
         }
 
         Bounds top = table.bounds;
@@ -721,18 +1014,61 @@ internal sealed class MapTableLegs
         float cornerX = Mathf.Max(Mathf.Abs(top.size.x) * 0.5f - inset, side * 0.5f);
         float cornerZ = Mathf.Max(Mathf.Abs(top.size.z) * 0.5f - inset, side * 0.5f);
 
-        // ---- ONE MEASUREMENT PASS PER LEG, BEFORE ANY GameObject EXISTS ------------------------
+        // ---- ONE MEASUREMENT PASS, BEFORE ANY GameObject EXISTS --------------------------------
         // Each leg gets its OWN floor, its OWN head and therefore its OWN length. Nothing is created
         // until all four have passed the plausibility window, so a refusal cannot leave half a prop
-        // standing. Two probes per leg, on the build frame only, and both are read-only queries.
+        // standing. All probes run on the build frame only and all of them are read-only queries.
+        //
+        // THE UNDERSIDE PROBE RUNS WHETHER OR NOT LEGS ARE WANTED, and that is report 11's other
+        // half: the panel's top face is welded into the MEASURED underside, so in Default, OffBlack
+        // and MR — where there are no legs to hang it off — the same four corner casts still have to
+        // happen. The FLOOR probe is the one that is skipped, because a floor is a leg's question.
         int headsMeasured = 0, floorsMeasured = 0, gapFree = 0;
         float tallest = 0f, shortest = float.MaxValue;
+        float ceiling = top.min.y;
+        _undersideProbesMeasured = 0;
         for (int i = 0; i < LegCount; i++)
         {
             float sx = (i & 1) == 0 ? -1f : 1f;
             float sz = (i & 2) == 0 ? -1f : 1f;
             _legX[i] = top.center.x + cornerX * sx;
             _legZ[i] = top.center.z + cornerZ * sz;
+
+            // THE SLAB'S UNDERSIDE OVER **THIS** CORNER. Probed if the table carries a collider;
+            // otherwise the head is anchored to the TOP face, which needs no knowledge of the
+            // underside at all, and the residual is proved against top.min.y — a hard lower bound on
+            // where the underside can possibly be.
+            _legHeadMeasured[i] = TryMeasureUnderside(table, _legX[i], _legZ[i], top, scale,
+                                                      out float undersideY);
+            if (_legHeadMeasured[i])
+            {
+                headsMeasured++;
+                _undersideProbesMeasured++;
+                _legUndersideY[i] = undersideY;
+                // MAX, not min, and the reasoning is in the class doc: the panel is built up to the
+                // HIGHEST wood any probe found, because a box top above the local wood is buried
+                // inside the board and invisible from every eye, while a box top below it is the open
+                // ring the user photographed.
+                ceiling = Mathf.Max(ceiling, undersideY);
+            }
+            else
+            {
+                _legUndersideY[i] = top.min.y;
+            }
+
+            if (!wantLegs)
+            {
+                // NO LEG HERE. The row still carries the probe result — it is what the panel is
+                // built from — but nothing is derived from a floor that was never read, and
+                // DescribeLegs prints the corners as PROBE POINTS rather than as legs.
+                _legFloorMeasured[i] = false;
+                _legFloorY[i] = 0f;
+                _legFootY[i] = 0f;
+                _legHeadY[i] = 0f;
+                _legHeight[i] = 0f;
+                _legGapMm[i] = 0f;
+                continue;
+            }
 
             // THE FLOOR UNDER **THIS** CORNER. The plane is exact but the floor ART is not (both
             // rooms have a gentle relief outside their play disc), so the ground itself is probed
@@ -744,25 +1080,11 @@ internal sealed class MapTableLegs
             if (_legFloorMeasured[i])
                 floorsMeasured++;
 
-            // THE SLAB'S UNDERSIDE OVER **THIS** CORNER. Probed if the table carries a collider;
-            // otherwise the head is anchored to the TOP face, which needs no knowledge of the
-            // underside at all, and the residual is proved against top.min.y — a hard lower bound on
-            // where the underside can possibly be.
-            _legHeadMeasured[i] = TryMeasureUnderside(table, _legX[i], _legZ[i], top, scale,
-                                                      out float undersideY);
-            if (_legHeadMeasured[i])
-            {
-                headsMeasured++;
-                _legUndersideY[i] = undersideY;
-                // Up into the wood by the weld, but never nearer the top face than the weld itself:
-                // "cannot emerge from the top" survives a measurement that lands anywhere.
-                _legHeadY[i] = Mathf.Min(undersideY + weld, top.max.y - weld);
-            }
-            else
-            {
-                _legUndersideY[i] = top.min.y;
-                _legHeadY[i] = anchoredHeadY;
-            }
+            // Up into the wood by the weld, but never nearer the top face than the weld itself:
+            // "cannot emerge from the top" survives a measurement that lands anywhere.
+            _legHeadY[i] = _legHeadMeasured[i]
+                ? Mathf.Min(_legUndersideY[i] + weld, top.max.y - weld)
+                : anchoredHeadY;
 
             _legHeight[i] = _legHeadY[i] - _legFootY[i];
             // THE RESIDUAL, IN MILLIMETRES: open air between the head and the underside reference
@@ -775,27 +1097,59 @@ internal sealed class MapTableLegs
             shortest = Mathf.Min(shortest, _legHeight[i]);
         }
 
-        for (int i = 0; i < LegCount; i++)
+        // THE FIFTH PROBE, AND THE ONE REPORT 11 TURNS ON: THE CENTRE. The four above are at the
+        // CORNERS, which is exactly where an apron makes the wood lowest; the player in
+        // Tisch_Lücke.jpg is looking at the MIDDLE of the table, where there is no apron and the
+        // underside can be a hundred millimetres higher. Building the panel from corner samples alone
+        // would be ModBuild 200's mistake with a different reference face. One cast, once.
+        _undersideCentreMeasured = TryMeasureUnderside(table, top.center.x, top.center.z, top, scale,
+                                                       out float centreY);
+        _undersideCentreY = _undersideCentreMeasured ? centreY : top.min.y;
+        if (_undersideCentreMeasured)
         {
-            if (_legHeight[i] >= MinLegHeightMeters * scale && _legHeight[i] <= MaxLegHeightMeters * scale)
-                continue;
-            Refuse($"NOT BUILT: leg {i} at ({_legX[i]:F2}, {_legZ[i]:F2}) derives a height of "
-                   + $"{_legHeight[i] / scale:F3} m ({_legHeight[i]:F1} world units), outside the "
-                   + $"plausible {MinLegHeightMeters:F2}..{MaxLegHeightMeters:F2} m window — its head "
-                   + $"is y={_legHeadY[i]:F2} (the slab spans y={top.min.y:F2}..{top.max.y:F2}) and its "
-                   + $"foot is y={_legFootY[i]:F2} (floor y={_legFloorY[i]:F2}, {floorSource}). One of "
-                   + "those two planes is not what this class thinks it is; NOTHING is built rather "
-                   + "than a wrong prop, and no GameObject has been created at this point.");
-            return;
+            _undersideProbesMeasured++;
+            ceiling = Mathf.Max(ceiling, centreY);
+        }
+        _undersideCeilingY = ceiling;
+        // A "shortest leg" of float.MaxValue is not a number the report may print. With no legs both
+        // ends of the range are zero and every line that quotes them is guarded by wantLegs anyway.
+        if (!wantLegs)
+        {
+            tallest = 0f;
+            shortest = 0f;
         }
 
-        // THE FRAME. Origin at the TABLETOP's horizontal centre and at the ROOM FLOOR PLANE
-        // vertically, unrotated. The table's own AABB is the frame the legs belong to — they are its
-        // legs — and anchoring the vertical to the floor plane is what makes "standing on the floor"
-        // structural rather than arithmetic that can drift. Each leg's own foot and head are then
-        // offsets from that one plane, so the four rows in the log and the four boxes in the mesh are
-        // the same numbers.
-        var origin = new Vector3(top.center.x, floorY, top.center.z);
+        if (wantLegs)
+        {
+            for (int i = 0; i < LegCount; i++)
+            {
+                if (_legHeight[i] >= MinLegHeightMeters * scale
+                    && _legHeight[i] <= MaxLegHeightMeters * scale)
+                    continue;
+                Refuse($"NOT BUILT: leg {i} at ({_legX[i]:F2}, {_legZ[i]:F2}) derives a height of "
+                       + $"{_legHeight[i] / scale:F3} m ({_legHeight[i]:F1} world units), outside the "
+                       + $"plausible {MinLegHeightMeters:F2}..{MaxLegHeightMeters:F2} m window — its "
+                       + $"head is y={_legHeadY[i]:F2} (the slab spans y={top.min.y:F2}.."
+                       + $"{top.max.y:F2}) and its foot is y={_legFootY[i]:F2} (floor "
+                       + $"y={_legFloorY[i]:F2}, {floorSource}). One of those two planes is not what "
+                       + "this class thinks it is; NOTHING is built rather than a wrong prop — NOT "
+                       + "EVEN THE UNDERSIDE PANEL, which would otherwise stand alone under a table "
+                       + "whose geometry this class has just admitted it cannot read. No GameObject "
+                       + "has been created at this point.");
+                return;
+            }
+        }
+
+        // THE FRAME. Origin at the TABLETOP's horizontal centre, unrotated. Vertically it is the ROOM
+        // FLOOR PLANE when there are legs — the table's own AABB is the frame the legs belong to, and
+        // anchoring the vertical to the floor plane is what makes "standing on the floor" structural
+        // rather than arithmetic that can drift, so each leg's own foot and head are offsets from that
+        // one plane and the four rows in the log and the four boxes in the mesh are the same numbers.
+        // WITH NO LEGS THERE IS NO FLOOR PLANE TO ANCHOR TO and asking for one would refuse the whole
+        // prop, so the origin drops to the slab's own bounds.min.y — which is the only plane the
+        // underside panel is measured from anyway, and which exists in every style and under MR.
+        float originY = wantLegs ? floorY : top.min.y;
+        var origin = new Vector3(top.center.x, originY, top.center.z);
         _root = new GameObject(RootName);
         _root.transform.SetPositionAndRotation(origin, Quaternion.identity);
 
@@ -807,18 +1161,31 @@ internal sealed class MapTableLegs
         // Pick the SKIN before the UVs, because the UV decision depends on the texture that skin
         // carries (its wrap mode decides whether the grain may repeat at all).
         Material? skin = PickTableMaterial(table, out int skinIndex, out string materialSource);
-        AdoptTableUvs(table, skin, top, scale, tallest, side, out string uvSource);
+        // THE REACH FED TO THE UV FITTER IS THE BIGGEST BOX IN THE MESH, NOT THE TALLEST LEG. In FIT
+        // mode AdoptTableUvs coarsens the texel scale until a box's whole half-reach maps inside the
+        // atlas page, and the UNDERSIDE PANEL is 1.5 m across — an order of magnitude past the
+        // tallest leg. Passing `tallest` alone was survivable while the legs were always there to
+        // dominate nothing and the clamp merely squashed the panel's mapping; with the legs gone in
+        // Default, OffBlack and MR it would be zero, and a zero reach makes the fitter a no-op. The
+        // slab's own footprint is the honest bound and it exists in every build.
+        float uvReach = Mathf.Max(tallest,
+                                  Mathf.Max(Mathf.Abs(top.size.x), Mathf.Abs(top.size.z)));
+        AdoptTableUvs(table, skin, top, scale, uvReach, side, out string uvSource);
 
-        for (int i = 0; i < LegCount; i++)
+        if (wantLegs)
         {
-            var centre = new Vector3(_legX[i] - top.center.x,
-                                     (_legFootY[i] + _legHeadY[i]) * 0.5f - floorY,
-                                     _legZ[i] - top.center.z);
-            Box(centre, new Vector3(side, _legHeight[i], side));
+            for (int i = 0; i < LegCount; i++)
+            {
+                var centre = new Vector3(_legX[i] - top.center.x,
+                                         (_legFootY[i] + _legHeadY[i]) * 0.5f - originY,
+                                         _legZ[i] - top.center.z);
+                Box(centre, new Vector3(side, _legHeight[i], side));
+            }
         }
 
-        // THE UNDERSIDE, in the SAME mesh, the SAME material and the SAME draw call as the legs.
-        Underside(top, floorY, scale, anchoredHeadY, side, out string undersideSource);
+        // THE UNDERSIDE, in the SAME mesh, the SAME material and the SAME draw call as the legs —
+        // and, since report 11, the ONLY thing in that mesh whenever the legs are gated out.
+        Underside(top, originY, scale, weld, anchoredHeadY, side, out string undersideSource);
 
         _mesh = new Mesh { name = "GloomhavenVR.MapTableLegs" };
         _mesh.SetVertices(_verts);
@@ -847,18 +1214,21 @@ internal sealed class MapTableLegs
         string shadingSource = MirrorTableShading(table, mr);
         // NO COLLIDER, deliberately: the laser's pick path must not start finding furniture.
 
-        // THE LEGS GO ON THE TABLE'S OWN LAYER, and that RESOLVES ModBuild 198's stated open risk
-        // rather than measuring it again. See ChooseLayer.
+        // THE PROP GOES ON THE TABLE'S OWN LAYER, and that RESOLVES ModBuild 198's stated open risk
+        // rather than measuring it again. See ChooseLayer. It matters to the UNDERSIDE for a second
+        // reason report 11 adds: under mixed reality the panel has to be drawn by whatever draws the
+        // tabletop, or the table would have a bottom in three presentations and not in the fourth.
         int layer = ChooseLayer(table, out string layerSource);
         SetLayerRecursive(_root.transform, layer);
 
         _builtAgainstParchment = parchment;
         _builtAgainstTable = table;
+        _builtWithLegs = wantLegs;
         _lastRefusal = "";
-        Report(style, mixedReality, seat, parch, table, top, floorY, side, cornerX, cornerZ, scale,
-               weld, headInset, anchoredHeadY, slabThickness, tallest, shortest, headsMeasured,
-               floorsMeasured, gapFree, skinIndex, layer, floorSource, materialSource, uvSource,
-               layerSource, candidates, undersideSource, shadingSource);
+        Report(style, mixedReality, wantLegs, haveFloor, seat, parch, table, top, floorY, side,
+               cornerX, cornerZ, scale, weld, headInset, anchoredHeadY, slabThickness, tallest,
+               shortest, headsMeasured, floorsMeasured, gapFree, skinIndex, layer, floorSource,
+               materialSource, uvSource, layerSource, candidates, undersideSource, shadingSource);
     }
 
     // ---- the two per-leg probes ------------------------------------------------------------------
@@ -1954,7 +2324,76 @@ internal sealed class MapTableLegs
     /// <para>WHY A BOX AND NOT A QUAD. A bare quad inset from the edge leaves an open slot round the
     /// rim, and a ray up through that slot enters the hollow board and lands on the unlit parchment —
     /// the same bright leak, reduced to a hairline. The four side walls close it. See
-    /// <see cref="UndersideThicknessMeters"/>.</para>
+    /// <see cref="UndersideMinThicknessMeters"/>.</para>
+    ///
+    /// <para>REPORT 11: THE BOX SPANS THE HOLLOW, AND THAT IS THE WHOLE FIX. ModBuild 201 gave the
+    /// box an AUTHORED 12 mm thickness and sat it on <c>bounds.min.y</c>. Both numbers are read off
+    /// the same misunderstanding this class already paid for once in ModBuild 200:
+    /// <c>bounds.min.y</c> is the LOWEST POINT ANYWHERE in the slab's mesh — the bottom edge of its
+    /// apron — and not the height of the wood over the middle of the table. So the 12 mm board closed
+    /// the bottom 13 mm of a 148 mm slab and left an OPEN RING above it, and a ray entering the
+    /// <see cref="UndersideEdgeInsetMeters"/> rim slot at a grazing angle went up past the little
+    /// board, into the open shell, through the top face from behind (culled) and out at the unlit
+    /// parchment. That ring is the bright horizontal slit in
+    /// <c>.planning/debug/Tisch_Lücke.jpg</c>.</para>
+    ///
+    /// <para>THE REPAIR IS NOT TO PUSH A THIN PLATE UP. He asked for that ("die Unterseiten-Platte
+    /// ein bisschen nach oben schieben") and it is the wrong shape of fix: raising the plate moves
+    /// the ring rather than closing it, and raising it far enough to close it would put the plate's
+    /// BOTTOM face above the apron — i.e. the ring would simply reopen underneath, or, pushed
+    /// further, the panel would stand proud of the board and thicken a table he has already accepted.
+    /// Instead the BOTTOM FACE STAYS EXACTLY WHERE IT IS and the TOP FACE goes up:</para>
+    /// <list type="bullet">
+    ///   <item>bottom = <c>bounds.min.y + </c><see cref="UndersideClearanceMeters"/>. Unchanged, and
+    ///   unchanged for the reason that constant already gives: at or above the mesh's lowest point
+    ///   the panel can never stand proud of the board.</item>
+    ///   <item>top = the MEASURED underside plus the same <c>weld</c> the leg heads use, capped at
+    ///   <paramref name="anchoredHeadY"/> so it can no more emerge from the tabletop than a leg can.
+    ///   The ceiling is the MAXIMUM over <see cref="UndersideProbeCount"/> samples — four corners and
+    ///   the centre — because a box top above the local wood is buried and invisible while a box top
+    ///   below it is the ring.</item>
+    ///   <item>where nothing USEFUL answered, the top falls back to <paramref name="anchoredHeadY"/>,
+    ///   the very plane the four LEG HEADS hang from when their own probes fail. That is deliberately
+    ///   NOT ModBuild 201's 12 mm: 12 mm is the defect, and shipping it as the fallback would
+    ///   reproduce the photograph on every table this class cannot probe.
+    ///   <see cref="HeadInsetBelowTopFaceMeters"/> already carries the argument that that plane is
+    ///   inside the wood — 20 mm below the top face, capped at
+    ///   <see cref="HeadInsetMaxThicknessFraction"/> of the measured thickness — and this panel is
+    ///   welded into it on exactly the same terms. The report says MEASURED or FALLBACK in words, so
+    ///   the two can never be confused.</item>
+    /// </list>
+    ///
+    /// <para>"NOTHING USEFUL" IS NOT THE SAME AS "NO HIT", and that distinction is the trap this
+    /// whole repair would otherwise fall into. <see cref="TryMeasureUnderside"/> takes the LOWEST
+    /// qualifying hit going up. If the tabletop's collider is a plain <c>BoxCollider</c> spanning its
+    /// AABB — the ordinary case for a prop nobody expects to be walked on — then all five casts hit,
+    /// all five return <c>bounds.min.y</c>, and a naive reading would rebuild ModBuild 201's 12 mm
+    /// board and stamp MEASURED on it. So a ceiling that is indistinguishable from <c>bounds.min.y</c>
+    /// is treated as NO ceiling. That is safe in the other direction too: if the wood genuinely does
+    /// end at <c>bounds.min.y</c> the slab is solid, and a panel built up to the head plane is then
+    /// buried inside it — buried is invisible.</para>
+    ///
+    /// <para>THE CAP IS THE LEG-HEAD PLANE AND NOT <c>bounds.max.y - weld</c>, BECAUSE OF THE TOP
+    /// CHAMFER. The slab's side face runs flush and vertical from a top chamfer down to a bottom
+    /// moulding (<c>.planning/debug/tisch_falsches_licht.jpg</c>, near corner). Above where that
+    /// chamfer starts the surface recedes INWARD from the AABB, and this panel's wall stands only
+    /// <see cref="UndersideEdgeInsetMeters"/> = 2 mm inside the AABB — a tenth of a leg's 20 mm — so
+    /// a panel taken up to 5 mm under the tabletop would stand OUTSIDE the bevel and show a rim from
+    /// above. <see cref="HeadInsetBelowTopFaceMeters"/> is this class's existing answer to exactly
+    /// that question ("20 mm down and 20 mm in is a 45 deg chamfer's worth of cover"), so the panel
+    /// stops at the same plane rather than inventing a second number. The 15 mm of extra closure that
+    /// buys is not worth a visible rim, and it changes nothing: the wood is far below that plane.</para>
+    ///
+    /// <para>THE INVARIANT, AND THE ONE RESIDUAL. NO RAY ENTERING FROM BELOW CAN REACH THE
+    /// PARCHMENT, except through the rim slot, and the slot is now a full-height ring rather than a
+    /// door. A ray that enters between the panel's outer wall and the slab's side plane must stay
+    /// inside a <see cref="UndersideEdgeInsetMeters"/>-wide gap for the panel's whole thickness, so
+    /// its slope from vertical is bounded by <c>atan(inset / thickness)</c>: about 0.9 deg at the
+    /// measured table against 8.8 deg before, over a ring that then opened into the entire
+    /// cross-section. To look up such a ray an eye 0.5 m below the rim must be within 8 mm of the
+    /// vertical line through it and would see a 2 mm sliver. That angle is COMPUTED AND PRINTED every
+    /// build; <see cref="UndersideEdgeInsetMeters"/> documents the two ways to close it exactly and
+    /// why neither is worth its cost yet.</para>
     ///
     /// <para>IT DOES NOT TOUCH THE PARCHMENT, AND THAT IS DELIBERATE. ModBuild 199 was burnt treating
     /// the decal as the table; the parchment is still excluded from <see cref="TryFindTable"/> by
@@ -1962,46 +2401,152 @@ internal sealed class MapTableLegs
     /// from the slab's bounds only. It is not welded to, parented to, or offset from the map.</para>
     ///
     /// <para>THE LEGS PASS THROUGH IT, which is what makes them read as joined. Each leg's head is at
-    /// <paramref name="anchoredHeadY"/>, far above this box, and the leg's shaft pierces the bottom
-    /// face; the part inside the box is enclosed by opaque geometry and the part above it is inside
-    /// the slab. No hole is cut and none is needed.</para>
+    /// or near <paramref name="anchoredHeadY"/>, and the leg's shaft pierces the bottom face; the
+    /// part inside the box is enclosed by opaque geometry and the part above it is inside the slab.
+    /// No hole is cut and none is needed. Since report 11 the box reaches up to the same wood the
+    /// heads are welded into, so the shaft is now enclosed for nearly its whole buried length rather
+    /// than for 12 mm of it — which changes nothing visible and is worth saying only because it means
+    /// the two parts still cannot leave a seam between them.</para>
     ///
     /// <para>COST: <see cref="UndersideTriangleCount"/> triangles, no collider, no second material and
-    /// no second renderer.</para>
+    /// no second renderer — and exactly the same count now that the box is ten times taller, because
+    /// height is free.</para>
     /// </summary>
-    private void Underside(Bounds top, float floorY, float scale, float anchoredHeadY, float legSide,
-                           out string source)
+    private void Underside(Bounds top, float originY, float scale, float weld, float anchoredHeadY,
+                           float legSide, out string source)
     {
         float inset = UndersideEdgeInsetMeters * scale;
-        float bottom = top.min.y + UndersideClearanceMeters * scale;
-        // The board is capped so it can never reach the leg-head plane, i.e. it stays inside the
-        // slab whatever bounds the sweep hands back.
-        float headroom = Mathf.Max(anchoredHeadY - bottom, UndersideClearanceMeters * scale);
-        float thickness = Mathf.Min(UndersideThicknessMeters * scale, headroom);
+        float clearance = UndersideClearanceMeters * scale;
+        float bottom = top.min.y + clearance;
+
+        // THE CAP FIRST, so nothing below can argue past it, AND IT IS THE LEG-HEAD PLANE RATHER
+        // THAN bounds.max.y - weld. That choice is the top chamfer, and it is the one place where
+        // this panel's 2 mm rim inset is WEAKER than a leg's 20 mm one. The slab's side face runs
+        // flush and vertical from a top chamfer down to a bottom moulding
+        // (.planning/debug/tisch_falsches_licht.jpg, near corner); above the chamfer's start the
+        // surface recedes INWARD from the AABB, so a wall only 2 mm inside the AABB would stand
+        // OUTSIDE it there. HeadInsetBelowTopFaceMeters already commits this class to a number for
+        // exactly that question — "20 mm down and 20 mm in is a 45 deg chamfer's worth of cover" —
+        // so the panel stops at the same plane the leg heads do rather than inventing a second one.
+        // A box top 5 mm under the tabletop would be more closed and would risk poking through the
+        // bevel; the extra 15 mm of closure is not worth a visible rim.
+        float capY = Mathf.Max(anchoredHeadY, bottom + clearance);
+        // THE FLOOR UNDER THE THICKNESS: ModBuild 201's 12 mm survives as a MINIMUM, for a slab that
+        // genuinely is that shallow. It is itself capped, so a thin board narrows the panel rather
+        // than pushing it through the top.
+        float minTopY = Mathf.Min(bottom + UndersideMinThicknessMeters * scale, capY);
+
+        // THE TOP FACE. Welded up into the MEASURED underside; otherwise the leg-head anchor plane,
+        // which HeadInsetBelowTopFaceMeters already argues is inside the wood. NOT 12 mm — 12 mm is
+        // the defect in Tisch_Lücke.jpg, and shipping it as the fallback would reproduce the
+        // photograph on any table this class cannot probe.
+        //
+        // A PROBE THAT LANDS ON bounds.min.y IS NOT A MEASUREMENT OF THE WOOD, and this is the trap
+        // the whole repair would otherwise fall into. TryMeasureUnderside takes the LOWEST qualifying
+        // hit going up; if the tabletop's collider is a plain BoxCollider spanning its AABB — which
+        // is the ordinary case for a prop nobody expects to be walked on — every one of the
+        // UndersideProbeCount casts answers with the box's own floor, i.e. with bounds.min.y, and the
+        // panel would be rebuilt at ModBuild 201's 12 mm with a "MEASURED" label on it. A reading
+        // indistinguishable from the AABB floor is therefore treated as NO reading, and the fallback
+        // takes over. That is safe in the other direction too: if the wood really does end at
+        // bounds.min.y the slab is solid, the panel is then buried inside it, and buried is invisible.
+        //
+        // ONE COPLANAR PAIR IS ACCEPTED HERE, KNOWINGLY. In the fallback case the panel's top face
+        // lands on anchoredHeadY, and a LEG whose own probe also failed has its top CAP on that same
+        // plane — two coincident up-facing quads, the classic z-fight. It is accepted because it
+        // cannot be observed: both are inside the slab's AABB, 20 mm under a top face the game draws
+        // opaque, and there is no eye position from which either is visible. Moving the panel a
+        // millimetre off the plane to "fix" it would spend a millimetre of closure on an artefact
+        // nobody can see.
+        bool anyProbe = _undersideProbesMeasured > 0;
+        bool informative = anyProbe && _undersideCeilingY > top.min.y + clearance;
+        float wanted = informative ? _undersideCeilingY + weld : capY;
+        float topY = Mathf.Clamp(wanted, minTopY, capY);
+        float thickness = topY - bottom;
+
         // A slab so small that the rim inset would cross is clamped to the leg section rather than
         // inverted; that is ugly and bounded, and TryFindTable's own tests make it unreachable.
         float sizeX = Mathf.Max(Mathf.Abs(top.size.x) - 2f * inset, legSide);
         float sizeZ = Mathf.Max(Mathf.Abs(top.size.z) - 2f * inset, legSide);
-        var centre = new Vector3(0f, bottom + thickness * 0.5f - floorY, 0f);
+        var centre = new Vector3(0f, bottom + thickness * 0.5f - originY, 0f);
         Box(centre, new Vector3(sizeX, thickness, sizeZ));
+
+        _undersideBottomY = bottom;
+        _undersideTopY = topY;
+        _undersideCeilingInformative = informative;
+        // THE RESIDUAL: open hollow left between the panel's top face and the underside reference
+        // above it. This is the ring in Tisch_Lücke.jpg, measured, and it must read 0.0. Where a
+        // probe answered the reference is that measurement; where none did it is bounds.min.y, a hard
+        // LOWER BOUND on where the wood can possibly be — the same convention the per-leg rows use,
+        // and the report says so in words rather than letting a 0.0 stand on its own.
+        float reference = informative ? _undersideCeilingY : top.min.y;
+        _undersideOpenMm = Mathf.Max(0f, reference - topY) / scale * 1000f;
+        // THE ONE PATH LEFT, AS AN ANGLE: a ray entering the rim slot from below reaches the
+        // parchment only if it stays inside a gap of `inset` for the panel's whole thickness.
+        _undersideLeakDegrees = Mathf.Atan2(inset, Mathf.Max(thickness, 1e-6f)) * Mathf.Rad2Deg;
 
         source = $"one CLOSED box of {UndersideTriangleCount} triangles, {sizeX / scale:F3} x "
                  + $"{thickness / scale:F3} x {sizeZ / scale:F3} m ({sizeX:F1} x {thickness:F1} x "
-                 + $"{sizeZ:F1} world units), bottom face at y={bottom:F2} — that is "
-                 + $"{UndersideClearanceMeters * 1000f:F0} mm ABOVE the slab's own bounds.min.y "
-                 + $"(y={top.min.y:F2}) and {(top.max.y - bottom) / scale * 1000f:F0} mm below its top "
-                 + $"face (y={top.max.y:F2}), with its rim {UndersideEdgeInsetMeters * 1000f:F0} mm "
-                 + "inside the slab's side faces. EVERY POINT OF IT IS INSIDE THE SLAB'S OWN AABB, so "
-                 + "it cannot be seen from any eye at or above the tabletop (the slab's drawn top and "
-                 + "side faces are in the way), it cannot change the silhouette the user accepted, and "
-                 + "it cannot z-fight: it shares no plane with the slab, with the parchment or with a "
-                 + $"leg (a leg's outer face stands {EdgeInsetMeters * 1000f:F0} mm in, this rim "
+                 + $"{sizeZ:F1} world units). IT SPANS THE HOLLOW: bottom face y={bottom:F2}, top face "
+                 + $"y={topY:F2}. The bottom is {UndersideClearanceMeters * 1000f:F0} mm ABOVE the "
+                 + $"slab's own bounds.min.y (y={top.min.y:F2}) — unchanged, so the panel can never "
+                 + "stand proud of the board and the table cannot look thicker than the one the user "
+                 + $"accepted — and the top is {(top.max.y - topY) / scale * 1000f:F1} mm below the "
+                 + $"slab's top face (y={top.max.y:F2}), with the rim "
+                 + $"{UndersideEdgeInsetMeters * 1000f:F0} mm inside the slab's side faces. "
+                 + $"THE CEILING IS {(informative ? "MEASURED" : "A FALLBACK")}: "
+                 + (informative
+                    ? $"{_undersideProbesMeasured} of {UndersideProbeCount} probes answered "
+                      + $"({LegCount} corners + THE CENTRE, which reads "
+                      + $"{(_undersideCentreMeasured ? $"y={_undersideCentreY:F2}, i.e. {(_undersideCentreY - top.min.y) / scale * 1000f:F1} mm above bounds.min.y" : "NOTHING — the centre probe found no collider")}"
+                      + $"), and the HIGHEST sample is y={_undersideCeilingY:F2}, "
+                      + $"{(_undersideCeilingY - top.min.y) / scale * 1000f:F1} mm above bounds.min.y. "
+                      + "MAX and not min on purpose: a box top above the local wood is buried inside "
+                      + "the board and invisible from every eye, a box top below it is the open ring"
+                    : (anyProbe
+                       ? $"{_undersideProbesMeasured} of {UndersideProbeCount} probes ANSWERED but "
+                         + $"their highest sample is y={_undersideCeilingY:F2}, only "
+                         + $"{(_undersideCeilingY - top.min.y) / scale * 1000f:F1} mm above "
+                         + $"bounds.min.y (y={top.min.y:F2}) — INDISTINGUISHABLE FROM THE AABB FLOOR, "
+                         + "which is exactly what a plain BoxCollider spanning the slab's bounds "
+                         + "returns and which says nothing at all about where the wood is. A reading "
+                         + "like that is treated as NO reading, because believing it would rebuild "
+                         + "ModBuild 201's 12 mm board and label it MEASURED"
+                       : $"NONE of the {UndersideProbeCount} probes answered — the tabletop carries "
+                         + "no collider this class may believe")
+                      + $". So the top face is the LEG-HEAD ANCHOR plane y={anchoredHeadY:F2}, "
+                      + $"{HeadInsetBelowTopFaceMeters * 1000f:F0} mm below the slab's top face, which "
+                      + "HeadInsetBelowTopFaceMeters already argues is inside the wood and clear of "
+                      + "the top chamfer. It is deliberately NOT ModBuild 201's "
+                      + $"{UndersideMinThicknessMeters * 1000f:F0} mm board: that IS the defect in "
+                      + "Tisch_Lücke.jpg, and shipping it as the fallback would reproduce the "
+                      + "photograph on every table this class cannot probe")
+                 + $". RESIDUAL OPEN HEIGHT {_undersideOpenMm:F1} mm"
+                 + (_undersideOpenMm <= GapFreeMillimetres ? "" : "  <-- THE RING IS BACK")
+                 + (informative
+                    ? " against the measured ceiling"
+                    : " against bounds.min.y, which is a LOWER BOUND on the underside anywhere, so "
+                      + "this figure proves the worst case and not the real one")
+                 + ". EVERY POINT OF IT IS INSIDE THE SLAB'S OWN AABB, so it cannot be seen from any "
+                 + "eye at or above the tabletop (the slab's drawn top and side faces are in the way), "
+                 + "it cannot change the silhouette the user accepted, and it cannot z-fight: it "
+                 + "shares no plane with the slab, with the parchment or with a leg (a leg's outer "
+                 + $"face stands {EdgeInsetMeters * 1000f:F0} mm in, this rim "
                  + $"{UndersideEdgeInsetMeters * 1000f:F0} mm). It is a BOX and not a quad because a "
                  + "bare quad leaves an open slot round the rim and a ray up through that slot lands "
-                 + "on the UNLIT parchment — the same bright leak as a hairline. THE PARCHMENT IS NOT "
-                 + "TOUCHED: this is measured from the tabletop's bounds only, and the map is still "
-                 + "excluded by identity and by the 30 mm board test. The four legs PIERCE the bottom "
-                 + "face and are enclosed above it, which is why no hole is cut";
+                 + "on the UNLIT parchment. THE ONE PATH LEFT is that rim slot, and it is now a "
+                 + $"FULL-HEIGHT ring: a ray must stay inside {UndersideEdgeInsetMeters * 1000f:F0} mm "
+                 + $"for {thickness / scale * 1000f:F0} mm of climb, i.e. within "
+                 + $"{_undersideLeakDegrees:F2} deg of vertical, so an eye 0.5 m below the rim must be "
+                 + $"within {500f * Mathf.Tan(_undersideLeakDegrees * Mathf.Deg2Rad):F1} mm of the "
+                 + "vertical line through it to see a 2 mm sliver. ModBuild 201's 12 mm board gave "
+                 + $"{Mathf.Atan2(inset, UndersideMinThicknessMeters * scale) * Mathf.Rad2Deg:F1} deg "
+                 + "over a ring that then opened into the WHOLE cross-section, which is why the user "
+                 + "photographed a slit. THE PARCHMENT IS NOT TOUCHED: this is measured from the "
+                 + "tabletop's bounds and its own collider only, and the map is still excluded by "
+                 + $"identity and by the {MinTableThicknessMeters * 1000f:F0} mm board test. Where "
+                 + "legs are built they PIERCE the bottom face and are enclosed above it, which is "
+                 + "why no hole is cut";
     }
 
     /// <summary>
@@ -2081,7 +2626,8 @@ internal sealed class MapTableLegs
     /// the table and which material was taken from it, which plane the feet stand on and the
     /// residual left over, and the mesh's own winding gate.
     /// </summary>
-    private void Report(SkyStyle style, bool mixedReality, MapRoomSeat.Seat seat, Bounds parch,
+    private void Report(SkyStyle style, bool mixedReality, bool builtWithLegs, bool haveFloor,
+                        MapRoomSeat.Seat seat, Bounds parch,
                         MeshRenderer table, Bounds top, float floorY, float side, float cornerX,
                         float cornerZ, float scale, float weld, float headInset, float anchoredHeadY,
                         float slabThickness, float tallest, float shortest, int headsMeasured,
@@ -2089,7 +2635,7 @@ internal sealed class MapTableLegs
                         string materialSource, string uvSource, string layerSource, string tableSurvey,
                         string undersideSource, string shadingSource)
     {
-        // THE WINDING GATE, ON THE FINISHED SOLID. Cheap (48 triangles) and it runs once.
+        // THE WINDING GATE, ON THE FINISHED SOLID. Cheap (12 or 60 triangles) and it runs once.
         float volume = 0f;
         int disagreeing = 0;
         for (int i = 0; i + 2 < _tris.Count; i += 3)
@@ -2112,17 +2658,29 @@ internal sealed class MapTableLegs
         // A SCALE CROSS-CHECK, not a new fact: re-derived from the world-space numbers this build
         // actually used, this must come back as MapRoomSeat.TableTopHeightMeters (0.78).
         float topAbovePlayerFloor = (parch.max.y - seat.FloorPosition.y) / scale;
-        float playerAboveRoomFloor = (seat.FloorPosition.y - floorY) / scale;
+        float playerAboveRoomFloor = haveFloor ? (seat.FloorPosition.y - floorY) / scale : 0f;
 
         VRLog.Info(Scope,
-            $"MAP TABLE LEGS built: {LegCount} leg(s), one at each CORNER of the game's own tabletop, "
-            + $"PLUS an UNDERSIDE panel, {TriangleCount} triangles ({LegCount * 12} legs + "
+            $"MAP TABLE {(builtWithLegs ? "LEGS" : "UNDERSIDE")} built: "
+            + (builtWithLegs
+               ? $"{LegCount} leg(s), one at each CORNER of the game's own tabletop, PLUS an UNDERSIDE "
+                 + "panel"
+               : "the UNDERSIDE PANEL ALONE — no legs this build, and that is the gate and not a "
+                 + "failure")
+            + $", {TrianglesFor(builtWithLegs)} triangles "
+            + $"({(builtWithLegs ? $"{LegTriangleCount} legs + " : "0 legs + ")}"
             + $"{UndersideTriangleCount} underside) in ONE combined mesh on ONE MeshRenderer with ONE "
             + "material = 1 DRAW CALL, no collider, no Update, world-fixed (nothing here follows the "
             + "head).\n"
-            + $"  gate      : {DescribeGate(style, mixedReality, true)} The gate is re-evaluated EVERY "
-            + "FRAME (two field reads), so switching [Sky] Style at runtime builds or tears these "
-            + "down on the NEXT FRAME, not on the next room entry.\n"
+            + $"  parts     : LEGS {(builtWithLegs ? "BUILT" : "NOT built")}, UNDERSIDE BUILT. Those "
+            + "are two gates since user report 11 and they can disagree; every count on this line and "
+            + "every row below is DERIVED from which parts were actually made, so a build with no "
+            + $"legs cannot print {LegTriangleCount} leg triangles.\n"
+            + $"  gate      : {DescribeGate(style, mixedReality, true, builtWithLegs)} The gate is "
+            + "re-evaluated EVERY FRAME (two field reads), so switching [Sky] Style at runtime builds "
+            + "or tears the LEGS down on the NEXT FRAME, not on the next room entry; the underside "
+            + "half never closes, so a style change with a standing prop is a rebuild of the same "
+            + "mesh with or without 48 triangles in it.\n"
             + $"  the table : {tableSurvey}\n"
             + $"  footprint : the tabletop measures {Mathf.Abs(top.size.x) / scale:F3} x "
             + $"{Mathf.Abs(top.size.z) / scale:F3} m ({Mathf.Abs(top.size.x):F1} x "
@@ -2135,12 +2693,18 @@ internal sealed class MapTableLegs
             + $"and {Mathf.Abs(top.size.z) / Mathf.Max(Mathf.Abs(parch.size.z), 1e-4f):F2}x along, so "
             + "THESE ARE THE TABLE'S CORNERS AND NOT THE MAP'S. If those two factors ever read 1.00 "
             + "the sweep has picked the parchment again, which is exactly the ModBuild 198 defect.\n"
-            + $"  leg       : {LegSideMeters:F3} x {LegSideMeters:F3} m section, "
-            + $"{shortest / scale:F3}..{tallest / scale:F3} m tall ({shortest:F1}..{tallest:F1} world "
-            + $"units) — EACH LEG HAS ITS OWN LENGTH, see the four rows below. Corners at "
-            + $"+/-{cornerX / scale:F3} x +/-{cornerZ / scale:F3} m (+/-{cornerX:F1} x "
-            + $"+/-{cornerZ:F1} world units) from the tabletop's centre, i.e. its outer face "
-            + $"{EdgeInsetMeters * 1000f:F0} mm inside the top's edge; section {side:F1} world units.\n"
+            + (builtWithLegs
+               ? $"  leg       : {LegSideMeters:F3} x {LegSideMeters:F3} m section, "
+                 + $"{shortest / scale:F3}..{tallest / scale:F3} m tall ({shortest:F1}..{tallest:F1} "
+                 + "world units) — EACH LEG HAS ITS OWN LENGTH, see the four rows below. Corners at "
+                 + $"+/-{cornerX / scale:F3} x +/-{cornerZ / scale:F3} m (+/-{cornerX:F1} x "
+                 + $"+/-{cornerZ:F1} world units) from the tabletop's centre, i.e. its outer face "
+                 + $"{EdgeInsetMeters * 1000f:F0} mm inside the top's edge; section {side:F1} world "
+                 + "units.\n"
+               : "  leg       : NONE. The four corner positions were still computed and still PROBED "
+                 + "— the underside panel is built from those probes — but no leg box was emitted, no "
+                 + "floor was looked for and no leg height was derived. See the 'gate' line for which "
+                 + "style and MR state decided that.\n")
             + $"  the head  : referenced to the slab's **TOP** face y={top.max.y:F2}, "
             + $"{headInset / scale * 1000f:F1} mm down (head plane y={anchoredHeadY:F2}), which is "
             + $"{(anchoredHeadY - top.min.y) / scale * 1000f:F1} mm ABOVE the slab AABB's floor "
@@ -2155,26 +2719,67 @@ internal sealed class MapTableLegs
             + $"EMERGE UPWARD either — the inset is min({HeadInsetBelowTopFaceMeters * 1000f:F0} mm, "
             + $"{HeadInsetMaxThicknessFraction:P0} of the measured "
             + $"{slabThickness / scale * 1000f:F0} mm thickness), and where an underside WAS probed the "
-            + $"head is capped at {weld / scale * 1000f:F1} mm below the top face as well.\n"
-            + $"  per leg   : {DescribeLegs(top, floorY, scale, headsMeasured, floorsMeasured, gapFree)}\n"
-            + $"  underside : {undersideSource}. THE USER'S REPORT: \"the table has no real underside "
-            + "— you can see through it from below, and you also see the map lying on the table\" "
+            + $"head is capped at {weld / scale * 1000f:F1} mm below the top face as well."
+            + (builtWithLegs
+               ? "\n"
+               : " (NO LEGS THIS BUILD — this line describes the plane that WOULD have been used, and "
+                 + "it is also the underside panel's fallback ceiling, so it is not idle.)\n")
+            + $"  per leg   : {DescribeLegs(top, floorY, scale, builtWithLegs, haveFloor, headsMeasured, floorsMeasured, gapFree)}\n"
+            + $"  underside : {undersideSource}.\n"
+            + $"  UNDERSIDE VERDICT, ONE LINE: parts built = "
+            + $"{(builtWithLegs ? "LEGS + UNDERSIDE" : "UNDERSIDE ONLY")}; decided by [Sky] Style "
+            + $"{style} and mixed reality {(mixedReality ? "ON" : "off")} "
+            + $"(legs need a floor and a bundled 3D room, the underside needs only the slab); ceiling "
+            + $"{(_undersideCeilingInformative ? $"MEASURED y={_undersideCeilingY:F2} from {_undersideProbesMeasured} of {UndersideProbeCount} probes (centre probe {(_undersideCentreMeasured ? $"y={_undersideCentreY:F2}" : "no answer")})" : $"FALLBACK y={anchoredHeadY:F2} — {(_undersideProbesMeasured > 0 ? $"{_undersideProbesMeasured} of {UndersideProbeCount} probes answered but only with the AABB floor, which is no answer at all" : $"none of the {UndersideProbeCount} probes answered")}")}"
+            + $", AABB floor y={top.min.y:F2}; box bottom y={_undersideBottomY:F2}, top "
+            + $"y={_undersideTopY:F2}, thickness "
+            + $"{(_undersideTopY - _undersideBottomY) / scale * 1000f:F1} mm; RESIDUAL OPEN HEIGHT "
+            + $"{_undersideOpenMm:F1} mm"
+            + (_undersideOpenMm <= GapFreeMillimetres
+               ? " — ZERO, which is the invariant: no ray entering from below can reach the parchment "
+                 + "except inside a "
+                 + $"{_undersideLeakDegrees:F2} deg cone up the {UndersideEdgeInsetMeters * 1000f:F0} "
+                 + "mm rim slot."
+               : "  <-- THE RING IS BACK: this is the fault in Tisch_Lücke.jpg and the number is the "
+                 + "height of the open hollow above the panel.")
+            + "\n"
+            + "  the reports: (a) ModBuild 201, \"the table has no real underside — you can see "
+            + "through it from below, and you also see the map lying on the table\" "
             + "(.planning/debug/tisch_unten.jpg). The game's slab draws a top face and four sides and "
             + "NOTHING underneath, and what shows through is the parchment, which this mod draws "
             + "UNLIT — an unlit surface is at full brightness from either side, which is why the map "
-            + "reads as a lit panel hanging inside the table. DISPROOF: if you can still see through "
-            + "the table from below, this box is not being built (the triangle count above would read "
-            + $"{LegCount * 12} and not {TriangleCount}) or the slab's bounds are not the board. If a "
-            + "rim of the underside is visible from ABOVE, the slab's side face is recessed from its "
-            + $"own AABB by more than {UndersideEdgeInsetMeters * 1000f:F0} mm and that is the number "
-            + "to raise. If a hairline of the MAP shows round the rim from below, the box's walls are "
-            + "too short and UndersideThicknessMeters is the number to raise.\n"
+            + "reads as a lit panel hanging inside the table. (b) REPORT 11, \"Die Unterseite des "
+            + "Tischs auch bei den anderen Umgebungen (wie Mixed Reality, keine und Default) mit "
+            + "einbauen ... Hierbei die Unterseiten-Platte ein bisschen nach oben schieben - aktuell "
+            + "ist da eine sichtbare Lücke\" (.planning/debug/Tisch_Lücke.jpg) — two faults: the "
+            + "underside rode on the LEGS' gate, and the 12 mm plate sat at the bottom of a "
+            + $"{slabThickness / scale * 1000f:F0} mm hollow with an open ring above it. DISPROOF: if "
+            + "you can still see through the table from below, either this box is not being built "
+            + $"(the triangle count above would read {(builtWithLegs ? LegTriangleCount : 0)} and not "
+            + $"{TrianglesFor(builtWithLegs)}) or the RESIDUAL OPEN HEIGHT above is not 0.0 — and that "
+            + "number names the fault in millimetres instead of needing a second photograph. If it "
+            + "reads 0.0 and the slit is still there, the leak is the rim slot and the cone angle "
+            + "above is the number to argue from: shrink UndersideEdgeInsetMeters, or give the bottom "
+            + "face a flange out to the full AABB footprint (12 more triangles, exact closure, and it "
+            + "gives up the guarantee that nothing can poke out of a recessed side face). If a rim of "
+            + "the underside is visible from ABOVE, the slab's side face is recessed from its own AABB "
+            + $"by more than {UndersideEdgeInsetMeters * 1000f:F0} mm and THAT is the number to raise. "
+            + "If the table now looks THICKER than the one the user accepted, the box's BOTTOM face "
+            + "moved, and it cannot have: it is bounds.min.y + "
+            + $"{UndersideClearanceMeters * 1000f:F0} mm and report 11 did not touch it.\n"
             + $"  material  : {materialSource}.\n"
             + $"{DescribeMaterials(table, "the TABLETOP renderer:", "              ")}\n"
-            + $"              the legs wear mat[{skinIndex}] of that list, the same object.\n"
-            + $"  texture   : {uvSource}. At that scale the {tallest / scale:F2} m leg carries "
-            + $"{tallest / _uvWorldPerV:F2} UV unit(s) of grain down its length and "
-            + $"{side / _uvWorldPerU:F2} across its face; mapping mode "
+            + $"              the prop wears mat[{skinIndex}] of that list, the same object — which "
+            + "is also why the underside panel needs no special handling under MIXED REALITY: "
+            + "whatever the MR treatment does to the tabletop it does to this panel, in the same draw "
+            + "call, and this class writes no _Cull, no blend state and no material anywhere.\n"
+            + $"  texture   : {uvSource}. At that scale the "
+            + (builtWithLegs
+               ? $"{tallest / scale:F2} m leg carries {tallest / _uvWorldPerV:F2} UV unit(s) of grain "
+                 + $"down its length and {side / _uvWorldPerU:F2} across its face"
+               : $"underside panel carries {Mathf.Abs(top.size.x) / _uvWorldPerU:F2} x "
+                 + $"{Mathf.Abs(top.size.z) / _uvWorldPerV:F2} UV unit(s) of grain across itself")
+            + "; mapping mode "
             + $"{(_uvTile ? "TILE (sampler wraps, no window)" : $"FIT (window {_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3})")}.\n"
             + "  atlas     : OPEN, AND DELIBERATELY LEFT OPEN. Because the slab's mesh is not "
             + "CPU-readable its UV window cannot be measured, so the prop is mapped over the WHOLE "
@@ -2189,22 +2794,33 @@ internal sealed class MapTableLegs
             + "atlas's background would be worse than the wrong page. THE UNDERSIDE PANEL INHERITS "
             + "THIS: it is far larger than a leg, so at TILE density it repeats the sheet across "
             + "itself. It is also the darkest surface on the prop and is seen only from below.\n"
-            + $"  the floor : each foot is cut {FootSinkMeters * 1000f:F0} mm "
-            + $"({FootSinkMeters * scale:F1} world units) under the ground READ AT ITS OWN CORNER — the "
-            + $"four values are in the per-leg rows above, and {floorsMeasured} of {LegCount} were "
-            + "probed against the room's own colliders rather than taken from the plane. SOURCE: "
-            + $"{floorSource}. The player's own tracking floor is y={seat.FloorPosition.y:F2}, i.e. "
-            + $"{playerAboveRoomFloor * 1000f:F0} mm ABOVE the room floor — the two planes this room "
-            + "has always disagreed on, and the reason the legs are stood on the ROOM's one: they are "
-            + "meant to be seen reaching the ground. RESIDUAL: the plane is exact, but both rooms "
-            + "have a gentle floor relief outside their dead-flat play disc (BuildEnvironmentRooms: "
-            + "ForestY is identically 0 inside r=1.7 authored m and ramps over 1.7..4.6; CellarFloorY "
-            + $"is +/-6 mm authored), which at this table's corner radius is about +/-19 mm (swamp) "
-            + $"and +/-5 mm (cellar) perceived. Where the probe answered, that relief is MEASURED and "
-            + $"not swallowed; where it did not, the {FootSinkMeters * 1000f:F0} mm sink spends the "
-            + "error downward on purpose: a sunk foot reads as soft ground, a floating one as a bug.\n"
-            + $"  heights   : tabletop top {(top.max.y - floorY) / scale:F3} m above the room floor "
-            + $"and {(top.max.y - seat.FloorPosition.y) / scale:F3} m above the player's; parchment "
+            + (haveFloor
+               ? $"  the floor : each foot is cut {FootSinkMeters * 1000f:F0} mm "
+                 + $"({FootSinkMeters * scale:F1} world units) under the ground READ AT ITS OWN CORNER "
+                 + $"— the four values are in the per-leg rows above, and {floorsMeasured} of "
+                 + $"{LegCount} were probed against the room's own colliders rather than taken from "
+                 + $"the plane. SOURCE: {floorSource}. The player's own tracking floor is "
+                 + $"y={seat.FloorPosition.y:F2}, i.e. {playerAboveRoomFloor * 1000f:F0} mm ABOVE the "
+                 + "room floor — the two planes this room has always disagreed on, and the reason the "
+                 + "legs are stood on the ROOM's one: they are meant to be seen reaching the ground. "
+                 + "RESIDUAL: the plane is exact, but both rooms have a gentle floor relief outside "
+                 + "their dead-flat play disc (BuildEnvironmentRooms: ForestY is identically 0 inside "
+                 + "r=1.7 authored m and ramps over 1.7..4.6; CellarFloorY is +/-6 mm authored), which "
+                 + "at this table's corner radius is about +/-19 mm (swamp) and +/-5 mm (cellar) "
+                 + "perceived. Where the probe answered, that relief is MEASURED and not swallowed; "
+                 + $"where it did not, the {FootSinkMeters * 1000f:F0} mm sink spends the error "
+                 + "downward on purpose: a sunk foot reads as soft ground, a floating one as a bug.\n"
+               : $"  the floor : {floorSource} The prop's vertical ORIGIN is therefore the slab's own "
+                 + $"bounds.min.y (y={top.min.y:F2}) rather than a room floor plane, so nothing here "
+                 + "depends on SkyAlternative having placed a room — which is exactly why the "
+                 + "underside now exists in Default, in OffBlack and under mixed reality. Before user "
+                 + "report 11 a missing room root refused the WHOLE build, and that refusal is the "
+                 + "first half of his report.\n")
+            + $"  heights   : "
+            + (haveFloor
+               ? $"tabletop top {(top.max.y - floorY) / scale:F3} m above the room floor and "
+               : "no room floor this build, so: tabletop top ")
+            + $"{(top.max.y - seat.FloorPosition.y) / scale:F3} m above the player's; parchment "
             + $"top {topAbovePlayerFloor:F3} m above the player's floor — CROSS-CHECK, that last one "
             + $"must read {MapRoomSeat.TableTopHeightMeters:F3}, and if it does not then the rig scale "
             + "used here and the one the seat was solved with disagree and every metre in this line "
@@ -2224,6 +2840,15 @@ internal sealed class MapTableLegs
             + "that could reach one, and creates exactly one GameObject of its own with a MeshFilter "
             + "and a MeshRenderer on it. ModBuild 198's 'all floating windows moved below the table' "
             + "cannot have come from here and cannot come from here now.\n"
+            + (builtWithLegs
+               ? ""
+               : "  NOTE      : the lines above that talk about legs — 'the head', 'the floor', the "
+                 + "per-leg rows' relief and length columns — describe a part this build did NOT make. "
+                 + "They are kept because the underside panel is measured with the SAME probes at the "
+                 + "SAME four corners and its fallback ceiling is the leg-head plane, so the numbers "
+                 + "are load-bearing even with no leg in the mesh. Nothing here claims a leg exists: "
+                 + $"the mesh line reads {TrianglesFor(false)} triangles, not "
+                 + $"{TrianglesFor(true)}.\n")
             + "  DISPROOF  : if the legs look like doll furniture or like pillars, the metre column "
             + "above is wrong while the world-unit column looks fine — that is a rig-scale slip, not "
             + "an art problem. If they float or sink, compare 'the floor' line's two planes. If they "
@@ -2240,30 +2865,62 @@ internal sealed class MapTableLegs
             + "the headset shows a gap, then the head is inside the slab's AABB and the wood above it "
             + "is not, i.e. the tabletop renderer's box is larger than the board it draws, and the "
             + "next number to raise is HeadInsetBelowTopFaceMeters (it is measured DOWN FROM THE TOP, "
-            + "so raising it moves the head DOWN and lowering it moves the head UP into the board).");
+            + "so raising it moves the head DOWN and lowering it moves the head UP into the board). "
+            + "AND IF THE TABLE IS STILL SEE-THROUGH FROM BELOW, none of that applies: go to the "
+            + "UNDERSIDE VERDICT line, which names the parts built, the style and MR state that "
+            + "decided it, the measured-versus-fallback ceiling, the box's bottom and top Y and the "
+            + "residual open height in millimetres. Exactly one of those five is wrong.");
     }
 
     /// <summary>
-    /// THE FOUR ROWS — one per leg, and the counts that keep "no gap" from looking like "never
-    /// measured". For each corner: the floor Y under it, the slab underside reference above it, the
-    /// resulting length, and the residual gap at the head IN MILLIMETRES. All four gap figures must
-    /// read 0.0 mm; the trailing count says how many of the four actually do, so a build in which the
-    /// loop never ran cannot print the same thing as a build in which it ran and passed.
+    /// THE FOUR CORNER ROWS, and the counts that keep "no gap" from looking like "never measured".
+    /// For each corner: the floor Y under it, the slab underside reference above it, the resulting
+    /// length, and the residual gap at the head IN MILLIMETRES. All four gap figures must read
+    /// 0.0 mm; the trailing count says how many of the four actually do, so a build in which the loop
+    /// never ran cannot print the same thing as a build in which it ran and passed.
+    ///
+    /// <para>SINCE REPORT 11 THE ROWS ARE PRINTED EVEN WHEN NO LEG WAS BUILT, because the four
+    /// corners are still PROBED — the underside panel's ceiling is the maximum over those probes plus
+    /// the centre one — and a probe whose result is used must be visible in the log. What changes is
+    /// what the row is allowed to claim: with no legs there is no floor, no foot, no head and no
+    /// length, and printing zeroes in those columns would be a lie dressed as a measurement. The row
+    /// says PROBE POINT instead and carries only the underside reading.</para>
     /// </summary>
-    private string DescribeLegs(Bounds top, float planeY, float scale, int headsMeasured,
-                                int floorsMeasured, int gapFree)
+    private string DescribeLegs(Bounds top, float planeY, float scale, bool builtWithLegs,
+                                bool haveFloor, int headsMeasured, int floorsMeasured, int gapFree)
     {
-        var sb = new StringBuilder(512);
-        sb.Append($"{gapFree} of {LegCount} leg(s) read ZERO gap at the head "
-                  + $"(threshold {GapFreeMillimetres:F2} mm); {headsMeasured} of {LegCount} took a "
-                  + "PROBED slab underside and the rest the top-face anchor, and "
-                  + $"{floorsMeasured} of {LegCount} took a PROBED ground and the rest the room's floor "
-                  + $"plane y={planeY:F2}. {LegCount} comparison(s) were made, so a silent skip cannot "
-                  + "look like a pass.");
+        var sb = new StringBuilder(640);
+        if (builtWithLegs)
+        {
+            sb.Append($"{gapFree} of {LegCount} leg(s) read ZERO gap at the head "
+                      + $"(threshold {GapFreeMillimetres:F2} mm); {headsMeasured} of {LegCount} took a "
+                      + "PROBED slab underside and the rest the top-face anchor, and "
+                      + $"{floorsMeasured} of {LegCount} took a PROBED ground and the rest the room's "
+                      + $"floor plane y={planeY:F2}. {LegCount} comparison(s) were made, so a silent "
+                      + "skip cannot look like a pass.");
+        }
+        else
+        {
+            sb.Append($"NO LEGS were built this build, so there is no gap column to read: the "
+                      + $"{LegCount} rows below are PROBE POINTS, not legs. {headsMeasured} of "
+                      + $"{LegCount} corner probes answered and they feed the UNDERSIDE panel's "
+                      + "ceiling together with the centre probe — see the UNDERSIDE VERDICT line. No "
+                      + "floor was looked for"
+                      + (haveFloor ? "" : " and no room root was found or needed")
+                      + ", so the floor, foot, head and length columns are omitted rather than "
+                      + "printed as zeroes.");
+        }
         for (int i = 0; i < LegCount; i++)
         {
             string cx = (i & 1) == 0 ? "-x" : "+x";
             string cz = (i & 2) == 0 ? "-z" : "+z";
+            if (!builtWithLegs)
+            {
+                sb.Append($"\n              probe {i} ({cx},{cz}) at ({_legX[i]:F2}, {_legZ[i]:F2}): "
+                          + $"underside y={_legUndersideY[i]:F2} "
+                          + $"({(_legHeadMeasured[i] ? $"PROBED, {(_legUndersideY[i] - top.min.y) / scale * 1000f:F1} mm above the slab AABB floor" : "NO ANSWER — the AABB floor y=" + top.min.y.ToString("F2") + " stands in, a LOWER BOUND")})");
+                continue;
+            }
             sb.Append($"\n              leg {i} ({cx},{cz}) at ({_legX[i]:F2}, {_legZ[i]:F2}): "
                       + $"floor y={_legFloorY[i]:F2} "
                       + $"({(_legFloorMeasured[i] ? "PROBED" : "plane")}"
@@ -2276,6 +2933,20 @@ internal sealed class MapTableLegs
                       + $"length {_legHeight[i] / scale:F3} m ({_legHeight[i]:F1} world units), "
                       + $"GAP {_legGapMm[i]:F1} mm{(_legGapMm[i] <= GapFreeMillimetres ? "" : "  <-- DAYLIGHT")}");
         }
+        // THE FIFTH ROW, AND IT IS PRINTED IN BOTH MODES: the centre probe is the one report 11 adds
+        // and the one the photographed fault is about. A row that only appears in one mode is a row
+        // a reader learns to stop looking for.
+        sb.Append($"\n              probe C (centre) at ({top.center.x:F2}, {top.center.z:F2}): "
+                  + $"underside y={_undersideCentreY:F2} "
+                  + (_undersideCentreMeasured
+                     ? $"(PROBED, {(_undersideCentreY - top.min.y) / scale * 1000f:F1} mm above the "
+                       + $"slab AABB floor y={top.min.y:F2} and "
+                       + $"{(top.max.y - _undersideCentreY) / scale * 1000f:F1} mm below its top face)"
+                     : $"(NO ANSWER — the AABB floor y={top.min.y:F2} stands in, a LOWER BOUND)")
+                  + ". THIS IS THE HEIGHT OF THE VISIBLE UNDERSIDE OVER THE MIDDLE OF THE TABLE, which "
+                  + "is what the player in Tisch_Lücke.jpg is looking at and which no probe covered "
+                  + "before report 11. If it reads far above the AABB floor, the slab really is a "
+                  + "hollow shell with an apron and the panel had to grow to close it.");
         return sb.ToString();
     }
 }

@@ -100,6 +100,16 @@ internal sealed class WorldUIModule : IVRModule
         // EmbeddedResource in this DLL (the asset bundle stays byte-identical on purpose).
         // See MainMenuLogoSwap.
         VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
+        // User report 2026-08-22 #9: "Wenn das Fenster mit der Liste der in-Ruhestand-Charaktere
+        // geöffnet wird, verschwindet das Fenster der Character-UI, das nicht geschlossen werden
+        // darf." The retired-characters list is the guildmaster bar's Mercenary Log destination, and
+        // MercenaryLogMode.Enter opens with NewPartyDisplayUI.PartyDisplay.Hide(this, instant: true)
+        // (:33) — one explicit call, not a window-manager stacking sweep. Right for a flat screen
+        // that shows one destination at a time, wrong for a room whose character UI is permanent and
+        // has no X. The prefix swallows that one call whole (including its hideRequests token, so
+        // nothing is left holding the panel down) while the map room stands. See
+        // PartyPanelStackingHide.
+        VRSession.Harmony?.PatchAll(typeof(Patches.PartyPanelStackingHide));
 
         VREvents.UiLockChanged += OnUiLock;
         VREvents.SessionResumed += OnSessionResumed; // doff/don recovery sweep (test #17)

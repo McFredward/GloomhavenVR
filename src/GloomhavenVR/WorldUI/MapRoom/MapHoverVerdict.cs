@@ -264,16 +264,83 @@ internal static class MapHoverVerdict
         && Singleton<UIQuestPopupManager>.Instance != null
         && Singleton<UIQuestPopupManager>.Instance.IsQuestShown;
 
+    /// <summary>
+    /// PUBLIC FORM OF THE GAME'S OWN "no previews right now" RULE, for the peer placards.
+    ///
+    /// <para><c>UIQuestPopupManager.PreviewQuest</c> previews ONLY while <c>selectedQuest == null</c>
+    /// (UIQuestPopupManager.cs:77). So while any quest is selected, the local player's own hover
+    /// produces no card at all — and, since the selection is now a single global fact
+    /// (<c>NetProtocol.ExtIdMapRoom</c>), neither does a peer's on their own machine. A
+    /// foreign placard drawn in that state would therefore be a card the peer it belongs to cannot
+    /// see, which is the exact opposite of "1:1 so wie es für den Spieler auch aussieht".</para>
+    /// </summary>
+    internal static bool AQuestIsSelected => IsQuestShown();
+
+    /// <summary>
+    /// THE GAME'S OWN quest-preview popup — the one the local hover card is made of, and the one
+    /// the peer placards are INSTANTIATED FROM (<c>RemoteMapRoom.Placards</c>).
+    ///
+    /// <para><b>ASKED BY IDENTITY FIRST, AND ONLY THEN BY SEARCH.</b>
+    /// <c>UIQuestPopupManager.questPreviewPopup</c> is the very field the manager previews through
+    /// (UIQuestPopupManager.cs:11-12, :81), so the manager's own reference IS the answer — no
+    /// sweep, no ambiguity, and it is reachable because GH.Runtime is publicized at build time.
+    /// The sweep behind it exists for the case where the manager singleton is not up yet.</para>
+    ///
+    /// <para><b>AND THE SWEEP INCLUDES INACTIVE OBJECTS, WHICH IS NOT A DETAIL.</b> A hidden
+    /// <c>UIWindow</c> whose <c>m_DisableOnZeroAlpha</c> is set switches its own GameObject OFF
+    /// (UIWindow.ChangeActive), and the quest preview popup is hidden most of the time — so an
+    /// active-only <c>FindObjectOfType</c> answers null exactly while nobody is hovering, i.e.
+    /// precisely when the peer placards need to be built.</para>
+    ///
+    /// <para><b>MOD-OWNED CLONES ARE EXCLUDED BY NAME.</b> Every peer placard is instantiated FROM
+    /// this popup — that is the whole point of report 6, "es soll 1:1 so aussehen wie es für den
+    /// Spieler auch aussieht" — so a sweep by type could return one of ours: this verdict would
+    /// then judge the LOCAL hover against a PEER's card, and the placard builder would clone a
+    /// clone. In practice the clones have their <c>UIQuestPreviewPopup</c> component stripped
+    /// before they are ever activated, so today the sweep cannot see one; the name test is kept
+    /// because that stripping is a decision in another file and this must not silently depend on
+    /// it. The clones carry <see cref="HoverCardPose.PeerPlacardNamePrefix"/> from the frame they
+    /// are created, so the test is a name-prefix on an object this mod named itself — never a guess
+    /// about the game.</para>
+    /// </summary>
+    internal static UIQuestPreviewPopup? GamePreviewPopup()
+    {
+        if (_previewPopup != null)
+            return _previewPopup;
+        _previewWindow = null;
+
+        if (Singleton<UIQuestPopupManager>.IsInitialized
+            && Singleton<UIQuestPopupManager>.Instance != null)
+        {
+            UIQuestPreviewPopup? owned = Singleton<UIQuestPopupManager>.Instance.questPreviewPopup;
+            if (owned != null && !HoverCardPose.IsPeerPlacard(owned.gameObject))
+            {
+                _previewPopup = owned;
+                _previewWindow = owned.GetComponent<UIWindow>();
+                return _previewPopup;
+            }
+        }
+
+        UIQuestPreviewPopup[] all = Object.FindObjectsOfType<UIQuestPreviewPopup>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            UIQuestPreviewPopup candidate = all[i];
+            if (candidate == null || HoverCardPose.IsPeerPlacard(candidate.gameObject))
+                continue;
+            _previewPopup = candidate;
+            _previewWindow = candidate.GetComponent<UIWindow>();
+            return _previewPopup;
+        }
+        return null;
+    }
+
     /// <summary>Is the preview popup actually up? Its <c>UIWindow</c> lives on its own GameObject
     /// (<c>UIQuestPreviewPopup.Awake</c> takes it with <c>GetComponent</c>), so this is an identity
     /// test on that one object and not a search for something related to it.</summary>
     private static bool PreviewPopupOpen()
     {
         if (_previewPopup == null)
-        {
-            _previewPopup = Object.FindObjectOfType<UIQuestPreviewPopup>();
-            _previewWindow = _previewPopup != null ? _previewPopup.GetComponent<UIWindow>() : null;
-        }
+            GamePreviewPopup();
         if (_previewWindow == null)
             return false;
         // IsVisible (CanvasGroup alpha > 0) as well as IsOpen (the settled visual state): a window

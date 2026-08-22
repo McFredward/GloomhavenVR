@@ -416,9 +416,30 @@ internal static class RemoteMapStory
         extras.SharedWindowEntries = SendBuffer;
     }
 
+    /// <summary>
+    /// Attach this client's pose for one shared window to its record-21 entry, when there is one
+    /// worth attaching.
+    ///
+    /// <para><b>THE DRAG ITSELF TRAVELS, NOT ONLY ITS RESULT (ModBuild 226).</b> The user, verbatim:
+    /// "Die Bewegungen der 'blauen' MP-Fenster ... sollen auch die BEWEGUNG und die Position voll
+    /// übertragen (flüssig, wie bei der Position des Boards auch)". Until this build the gate here
+    /// was <c>PoseOwned</c> alone, and <see cref="TrackFrame"/> only sets that after
+    /// <see cref="MoveSettleSeconds"/> of STILLNESS — so a window being dragged for the first time
+    /// published NOTHING at all while it moved, and its whole journey arrived as one jump at the
+    /// end. No amount of receiver-side easing can invent the frames in between; a receiver that
+    /// eases toward a single endpoint is smooth and still wrong, because it never saw the path.</para>
+    ///
+    /// <para><c>Moving</c> is therefore a second reason to publish. It is deliberately NOT a reason
+    /// to bump <see cref="Local.PoseStamp"/>: the stamp elects the room's LAST MOVER, and bumping it
+    /// per packet would make "last mover" mean "last packet" and let two draggers trade the window
+    /// at the send rate — the very thing <see cref="MoveSettleSeconds"/>' own comment forbids. So a
+    /// mid-drag entry carries a FRESH POSE under an UNCHANGED STAMP, and
+    /// <see cref="ResolvePose"/> is what had to learn the difference: it elects on the stamp and
+    /// decides whether to apply on the pose VALUE.</para>
+    /// </summary>
     private static void WritePose(SharedWindowKind kind, Local local, ref SharedWindowEntry entry)
     {
-        if (!local.PoseOwned)
+        if (!local.PoseOwned && !local.Moving)
             return;
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
             return;
@@ -842,10 +863,22 @@ internal static class RemoteMapStory
             return; // our own move is the newer one
 
         PeerEntry owner = peers[bestPeer];
-        if (local.FollowingPeer == bestPeer && local.FollowedStampValid
-            && local.FollowedStamp == owner.PoseStamp)
-            return; // already standing exactly there — applying it again would be a no-op write
 
+        // ELECT ON THE STAMP, DECIDE ON THE POSE (ModBuild 226). Until this build the early-out here
+        // was `FollowedStamp == owner.PoseStamp`, which was exactly right while a pose block only
+        // ever existed for a FINISHED move: same stamp meant same pose meant nothing to do. Now that
+        // WritePose also publishes DURING a drag, the stamp deliberately does not change while the
+        // window is moving — so that test would have dropped every mid-drag pose and left the
+        // receiver with the same single end-of-drag jump it had before, merely eased. The stamp is
+        // still what elects the last mover above (bumping it per packet would let two draggers trade
+        // the window at the send rate); what is compared HERE is the pose itself.
+        //
+        // The comparison is against FramePos/FrameRot/FrameSize, which is where this method records
+        // every pose it applies, within the SAME epsilons TrackFrame uses to decide that a hand
+        // moved something. That is not a coincidence and it is what keeps this from writing at the
+        // packet rate when nothing has changed: a difference too small for TrackFrame to call a move
+        // is too small to be worth applying, and applying it anyway would hand TrackFrame's baseline
+        // a write it might read back as a local hand.
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
         {
             Note($"player {bestPeer} published a pose for the {kind} window but this client has no "
@@ -864,6 +897,23 @@ internal static class RemoteMapStory
         }
 
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
+
+        float applyEps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        if (local.HaveBaseline && local.FollowingPeer == bestPeer
+            && (worldPos - local.FramePos).sqrMagnitude <= applyEps * applyEps
+            && Quaternion.Angle(worldRot, local.FrameRot) <= MoveEpsilonDegrees
+            && Mathf.Abs(size - local.FrameSize) <= MoveEpsilonSize)
+            return; // already standing exactly there — applying it again would be a no-op write
+
+        // Whether this is the START of following someone new decides whether the full line below is
+        // written. A drag now arrives as a STREAM of poses under one stamp, and the paragraph-long
+        // apply line was written for one arrival per move; at the drag rate it would bury the log it
+        // was meant to explain. So: the whole story once per followed peer / per settled move, and
+        // nothing at all for the frames in between. The pose is still applied either way — this
+        // governs only what is said about it.
+        bool newFollow = local.FollowingPeer != bestPeer || !local.FollowedStampValid
+                         || local.FollowedStamp != owner.PoseStamp;
+
         var frameOwner = (IPanelGrabOwner)grab;
         Transform? frameRoot = frameOwner.GrabRoot;
         if (frameRoot != null)
@@ -885,6 +935,9 @@ internal static class RemoteMapStory
         local.FollowingPeer = bestPeer;
         local.FollowedStamp = owner.PoseStamp;
         local.FollowedStampValid = true;
+
+        if (!newFollow)
+            return;
 
         WarnIfOutOfCone(kind, bestPeer, worldPos);
 

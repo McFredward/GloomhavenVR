@@ -25,9 +25,15 @@ namespace GloomhavenVR.WorldUI;
 // game's own open RUNS, the visibility choke point FIRES (that middle line is the postfix on
 // UIWindow's transition), and the toggle's own state read agrees the window is open on the next
 // press. Nothing is stuck, nothing is latched, no set is stale — the window is genuinely OPEN
-// and the player cannot see it. ModBuild 196's ancestor refusal is NOT involved and cannot be:
-// RendersInsideFloatedAncestor's first statement is `!MapRoom.MapRoomDriver.Active → false`,
-// and every one of those opens prints room=False.
+// and the player cannot see it. ModBuild 196's ancestor refusal is NOT involved and cannot be.
+// (THE ARGUMENT RECORDED HERE HAS CHANGED, BECAUSE THE FACT IT RESTED ON DID. It read:
+// "RendersInsideFloatedAncestor's first statement is `!MapRoom.MapRoomDriver.Active → false`, and
+// every one of those opens prints room=False." ModBuild 226 deleted that map-room gate — the rule
+// now holds wherever a floatable ancestor is open. The CONCLUSION is unchanged and now rests on a
+// different, stronger clause of the same method: the ESC/Options family is EXEMPT from the ancestor
+// rule outright — `NonBlockingMenus.Contains(window.ID)` returns before the hierarchy is walked at
+// all — and ESCMenu and Options are both in that set. So the refusal still cannot fire here, in the
+// map room or out of it.)
 //
 // WHY IT IS INVISIBLE — THE CANVAS IS AN OVERLAY, AND IN VR AN OVERLAY IS DRAWN BY NOBODY. The
 // same hardware log dumps the scene's root canvases, and the ESC menu is the odd one out:

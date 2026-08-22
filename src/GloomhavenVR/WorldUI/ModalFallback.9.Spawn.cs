@@ -1758,6 +1758,268 @@ internal static partial class ModalFallback
         PanelPoseWatch.EndTick();
     }
 
+    /// <summary>
+    /// THE MAP ROOM TAKES ITS WINDOWS WITH IT (ModBuild 226). Called once from
+    /// <see cref="MapRoom.MapRoomDriver.StandDown"/>, after <c>MapTravelConfirm.Reset</c> has handed
+    /// the game's travel container back and before the room's own furniture is released.
+    ///
+    /// <para>USER REPORT, verbatim: <i>"Als ich dann zu einem Szenario gejoint bin, habe ich dort
+    /// zwei Fenster gesehen, die dort NICHT hingehören: Die Character-UI aus der Map-Umgebung und
+    /// die Quest-Beschreibung. Beides Fenster aus der 3D-Map-Umgebung, die hier nicht auftauchen
+    /// sollen."</i> (.planning/debug/unerwünschte_fenster.jpg.)</para>
+    ///
+    /// <para>ROOT CAUSE, FROM THE ModBuild 225 HARDWARE LOG AND NOT FROM READING THE CODE. The
+    /// room's floats DID release at teardown — six of them, in one burst right after
+    /// <c>MAP ROOM stood down</c> — but three of those release lines end in <c>open=True</c>:</para>
+    /// <code>
+    ///   MODAL WINDOW: 'UI Loadout Window'  released — restored to its 2D home (open=True,  …)
+    ///   MODAL WINDOW: 'UI Quest Popup'     released — restored to its 2D home (open=True,  …)
+    ///   MODAL WINDOW: 'New Party display'  released — restored to its 2D home (open=True,  …)
+    /// </code>
+    /// <para>i.e. the mod let go, but THE GAME STILL HAD THEM OPEN. <c>PartyPanel</c> and
+    /// <c>QuestPopup</c> are both in <see cref="FallbackIds"/>, so the moment the scenario's rig came
+    /// up and <c>convertWanted</c> went true again the enrolled path floated the very same two
+    /// windows a second time — the log shows exactly that, two lines apart, with no
+    /// <c>UIWindow SHOWN</c> in between because they had never been hidden:</para>
+    /// <code>
+    ///   MODAL WINDOW: 'New Party display' (ID PartyPanel) floated in front of the HMD …
+    ///   MODAL WINDOW: 'UI Quest Popup' (ID QuestPopup)   floated in front of the HMD …
+    /// </code>
+    /// <para>They are the two windows in his screenshot. The teardown was never incomplete on the
+    /// mod's side; it was incomplete on the GAME's side, and releasing a float restores the window
+    /// to a 2D home it is still open in, which is an invitation to be re-adopted rather than an end.
+    /// </para>
+    ///
+    /// <para>WHAT THIS DOES. Release every float the room was hosting, and — for the ones the game
+    /// still reports OPEN — call the window's own <c>Hide()</c>, which is byte-for-byte what the mod
+    /// X already does through <see cref="CloseFloatedWindow"/> and what the game's own map flow does
+    /// when it leaves the HQ. Then say so, ALWAYS, including when it finds nothing: a sweep that only
+    /// speaks on success hides that it never ran.</para>
+    ///
+    /// <para>WHY EVERY FLOAT AND NOT A NAMED LIST. While the room stands there is no scenario board
+    /// (<c>MapRoomDriver.Active</c> and the scenario predicate are mutually exclusive by
+    /// construction), so everything in <see cref="Converted"/> at this instant is a window the ROOM
+    /// was hosting. A named list would be a second place to keep in step with
+    /// <see cref="FallbackIds"/> and the catch-all, and this project has paid for those twice.</para>
+    ///
+    /// <para>MULTIPLAYER — AND THIS WAS CHECKED RATHER THAN ASSUMED. A shared window
+    /// (<see cref="SharedWindows"/>) may still be driven by a peer who is in the room while this
+    /// client is not, so the teardown must not fight that and a peer's record must not resurrect a
+    /// window here. Neither can happen: <c>UIWindow.Hide()</c> is a local CanvasGroup tween with no
+    /// wire surface, and BOTH remote map paths gate their apply on <c>MapRoomDriver.Active</c> —
+    /// <c>Net/RemoteMapRoom.cs:214/244/347</c> and <c>Net/RemoteMapStory.cs:246/320/660</c> — which
+    /// <see cref="MapRoom.MapRoomDriver.StandDown"/> sets false on its FIRST line, before this runs.
+    /// The pose paths cannot resurrect anything either: they reach a window only through
+    /// <c>SharedWindows.TryGetGrab</c>, which walks the very list this method empties.</para>
+    /// </summary>
+    internal static void ReleaseMapRoomFloats(string reason)
+    {
+        int released = 0;
+        int hidden = 0;
+        string names = string.Empty;
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow? window = wp.Window;
+            string name = window != null ? window.name : "<destroyed>";
+            bool wasOpen = window != null && window.IsOpen;
+            names = names.Length == 0
+                ? $"'{name}' (ID {(window != null ? window.ID.ToString() : "?")}, game open={wasOpen})"
+                : names + $"; '{name}' (ID {(window != null ? window.ID.ToString() : "?")}, game open={wasOpen})";
+            Converted.RemoveAt(i);
+            wp.Grab?.Destroy();
+            CanvasConversion.Release(wp.Panel);
+            released++;
+            // The game's own state is the thing that survives the room, so it is the thing that has
+            // to be closed. Hide() and not Escape(): Escape runs the window's escape ACTION, which
+            // for several of these windows opens or focuses something else, and this is a teardown,
+            // not a user gesture.
+            if (wasOpen)
+            {
+                window!.Hide();
+                hidden++;
+            }
+        }
+        VRLog.Info("WorldUI", $"MAP ROOM WINDOW SWEEP ({reason}): {released} floated window(s) released, "
+                              + $"{hidden} of them also HIDDEN in the game because it still reported them "
+                              + "open — those are the ones that would otherwise be re-adopted by the "
+                              + "scenario's converter the moment the next rig comes up (the ModBuild 225 "
+                              + "log shows 'New Party display' and 'UI Quest Popup' doing exactly that, "
+                              + "which is the pair in unerwünschte_fenster.jpg). "
+                              + (released == 0
+                                  ? "NOTHING WAS FLOATED — this line is printed anyway, so a silent sweep "
+                                    + "can never be mistaken for a sweep that did not run."
+                                  : $"Windows: {names}."));
+    }
+
+    // ---- THE EMPTY-WINDOW INVARIANT (ModBuild 226) ---------------------------------------------
+    //
+    // USER RULING, verbatim: "Als mein Mitspieler gejoint ist, kam ein leeres Fenster auf - sowas
+    // soll per se niemals passieren." (.planning/debug/leeres_fenster.jpg.)
+    //
+    // The CAUSE of the bars in that screenshot is fixed at its source — ModalFallback.8.Convert no
+    // longer manufactures a GrabbableModal for a hover card, which is where the 204 orphan
+    // "MODAL GRAB: 'Menu'" holders in the ModBuild 225 log came from. This is the INVARIANT that
+    // holds whatever the cause: no panel with nothing drawn in it may be revealed. It exists
+    // separately on purpose. The map room makes every window STICKY (MapRoomParallel), and this
+    // class's own WindowPanel.WindowCanvas doc records the other way an empty shell is produced —
+    // "a sticky menu the game single-window-toggled off … kept its float + CanvasGroup alpha but
+    // rendered as an EMPTY shell — only the mod-drawn grab bar / X remained." One fix does not cover
+    // the other, and a peer joining rebuilds several of these windows at once.
+    //
+    // WHAT COUNTS AS EMPTY, AND WHY IT IS NOT "NO VISIBLE GRAPHIC". The obvious test — count the
+    // graphics the content fit calls visible — is WRONG here and the log proves it: the perfectly
+    // real scenario story window's first fit commit reads "DRAWN CONTENT 1920x1080 px at (0,0) from
+    // 0 visible graphic(s)". Alpha, culling and inherited CanvasGroup alpha all zero that count for
+    // a window that is merely mid-fade, and this project has a documented history of instruments
+    // that measure a subset of what the eye sees and then agree with every broken build. So the test
+    // here is STRUCTURAL and deliberately conservative: are there any active Graphics with a
+    // non-degenerate rect, or any enabled Renderers (the 3D character/enemy previews draw through
+    // those and carry no Graphic at all), anywhere under the conversion target? A window that is
+    // fading, tinted, masked or fully transparent still has all of them and is never touched. Only a
+    // host with genuinely nothing under it is refused.
+
+    private static readonly List<Graphic> EmptyCheckGraphics = new(64);
+    private static readonly List<Renderer> EmptyCheckRenderers = new(16);
+
+    /// <summary>Windows already refused once — so the Warn is one line per window per session rather
+    /// than one per re-open. Cleared with the rest of the catch-all latches.</summary>
+    private static readonly HashSet<string> EmptyFloatWarned = new();
+
+    /// <summary>
+    /// NON-BLOCKING windows refused for being empty. Consulted by <c>CatchAllEligible</c> so the
+    /// window is not floated again on the very next tick, and PRUNED there the moment the game stops
+    /// reporting it open — i.e. exactly the "retry after a close/re-open" rule <c>Failed</c> uses,
+    /// without <c>Failed</c>'s second meaning (it is a term of <c>ScreenWanted</c>, and an empty
+    /// non-blocking panel must not raise the flat screen because some unrelated blocker is up).
+    /// </summary>
+    private static readonly HashSet<UIWindow> EmptyRefused = new();
+
+    /// <summary>Has this window been refused as empty and not yet closed? Read by the catch-all;
+    /// the prune lives there too, next to the <c>Failed</c> prune it mirrors.</summary>
+    private static bool EmptyRefusedNow(UIWindow window) => EmptyRefused.Contains(window);
+
+    /// <summary>Forget a refusal — the window closed, so its next open is judged afresh.</summary>
+    private static void ClearEmptyRefusal(UIWindow window) => EmptyRefused.Remove(window);
+
+    /// <summary>
+    /// Called from <c>CanvasConversion.CompleteReveal</c> on the reveal edge, once per float.
+    /// Returns TRUE when this panel is a modal float whose host has no content at all and has
+    /// therefore been RELEASED rather than shown; false for every other panel, including every
+    /// surface this class does not own.
+    /// </summary>
+    internal static bool RefuseEmptyFloat(ConvertedPanel? panel)
+    {
+        if (panel == null || panel.HostGo == null)
+            return false;
+        WindowPanel? wp = null;
+        int index = -1;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (!ReferenceEquals(Converted[i].Panel, panel))
+                continue;
+            wp = Converted[i];
+            index = i;
+            break;
+        }
+        if (wp == null)
+            return false; // not a modal float — surfaces reveal exactly as they always did
+        Transform? root = panel.Target != null ? panel.Target : panel.HostGo.transform;
+        if (root == null || HasAnyDrawnContent(root))
+            return false;
+
+        string name = wp.Window != null ? wp.Window.name : "<destroyed>";
+        Converted.RemoveAt(index);
+        wp.Grab?.Destroy();
+        CanvasConversion.Release(wp.Panel);
+        // RETRY ONLY AFTER A CLOSE/RE-OPEN — and through TWO different sets, because `Failed` carries
+        // a second meaning that must not be borrowed by accident.
+        //
+        //   BLOCKING windows go into `Failed`. That set already means "retry only after a close/
+        //   re-open" (ModalFallback.4.Tick step 2) AND it is one of the terms of `ScreenWanted`, so a
+        //   blocking dialog that is empty raises the full flat screen instead of leaving the player
+        //   with an unanswerable prompt. That is the DurabilityPanel rule and it is the right
+        //   fail-safe: a wrongly-screened window is recoverable, a dropped blocker is a deadlock.
+        //
+        //   NON-BLOCKING windows — every case in his report — go into `EmptyRefused` instead, which
+        //   the catch-all consults and which has NO screen term. Putting them in `Failed` would make
+        //   one empty map-room panel raise the whole flat screen the moment any unrelated blocking
+        //   window opened, which would be a far louder bug than the one being fixed.
+        if (wp.Window != null)
+        {
+            if (IsBlockingWindow(wp.Window))
+            {
+                if (!ContainsWindow(Failed, wp.Window))
+                    Failed.Add(wp.Window);
+            }
+            else
+            {
+                EmptyRefused.Add(wp.Window);
+            }
+        }
+        if (EmptyFloatWarned.Add(name))
+            VRLog.Warn("WorldUI", $"EMPTY WINDOW REFUSED: '{name}' (ID "
+                                  + $"{(wp.Window != null ? wp.Window.ID.ToString() : "?")}, host "
+                                  + $"'{panel.HostGo.name}') reached its reveal edge with NOTHING drawn "
+                                  + "under it — no active Graphic with a non-degenerate rect and no "
+                                  + "enabled Renderer anywhere in the conversion target's subtree. It has "
+                                  + "been RELEASED, not merely hidden: the grab holder is destroyed, the "
+                                  + "host is gone, the window is back in its 2D home and it will be "
+                                  + "reconsidered only after it closes and re-opens. USER RULING (ModBuild "
+                                  + "226): \"Als mein Mitspieler gejoint ist, kam ein leeres Fenster auf - "
+                                  + "sowas soll per se niemals passieren.\" IF THIS LINE APPEARS, THE NAME "
+                                  + "IN IT IS THE ANSWER TO 'which one was it' — that question cost a "
+                                  + "round because the bars in leeres_fenster.jpg carried no identity at "
+                                  + "all. The test is structural (presence, not visibility) so a window "
+                                  + "that is merely faded, masked or fully transparent is NEVER refused.");
+        return true;
+    }
+
+    /// <summary>
+    /// Is there anything at all under <paramref name="root"/> that could draw? PRESENCE, not
+    /// visibility — see the block above for why the visibility form of this question is the wrong
+    /// one and how the log proved it. Mod-owned children (the "GloomhavenVR." prefix the fit path
+    /// already skips) do not count: a bar of our own is exactly what must not keep an empty window
+    /// alive.
+    /// </summary>
+    private static bool HasAnyDrawnContent(Transform root)
+    {
+        EmptyCheckGraphics.Clear();
+        root.GetComponentsInChildren(includeInactive: false, EmptyCheckGraphics);
+        for (int i = 0; i < EmptyCheckGraphics.Count; i++)
+        {
+            // `g.enabled` IS read here, unlike the Renderer arm below, and the asymmetry is checked
+            // rather than assumed: the panel's render hide collects Canvases and Renderers, and a
+            // uGUI Graphic is neither (it draws through a CanvasRenderer, which does not derive from
+            // Renderer). So a disabled Graphic is the GAME's statement that this element does not
+            // draw, never an echo of the mod's own hide.
+            Graphic g = EmptyCheckGraphics[i];
+            if (g == null || !g.enabled)
+                continue;
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue;
+            Rect r = g.rectTransform != null ? g.rectTransform.rect : default;
+            if (r.width > 0.5f && r.height > 0.5f)
+                return true;
+        }
+        EmptyCheckRenderers.Clear();
+        root.GetComponentsInChildren(includeInactive: false, EmptyCheckRenderers);
+        for (int i = 0; i < EmptyCheckRenderers.Count; i++)
+        {
+            // NOTE THE ABSENCE OF `rend.enabled`, AND IT IS NOT AN OVERSIGHT. The reveal gate keeps
+            // the panel render-hidden until this very moment, and the hide works by disabling the
+            // recorded Canvases AND Renderers (SetPanelRenderVisible / HideTree — the MODAL REVEAL
+            // line reports "unhid N canvas(es) + M renderer(s)"). Reading `enabled` here would
+            // therefore read OUR OWN hide back and call every 3D preview absent. Presence is the
+            // question; the mod's own hide is not an answer to it.
+            Renderer rend = EmptyCheckRenderers[i];
+            if (rend != null
+                && !rend.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     private static void LogPollTransition(ref bool state, bool now, string what)
     {
         if (now == state)

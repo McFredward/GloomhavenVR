@@ -90,6 +90,115 @@ internal static class RevealGate
         !(FFSNetwork.IsOnline && InScenario && IsSecretSelectionPhase);
 
     // ============================================================================================
+    //  THE MAP PHASE — THE ANSWER THIS CLASS ALREADY GAVE, AND THE ONE ITS CALLER THREW AWAY
+    //
+    //  USER REPORT, VERBATIM (2026-08-22, item 4): "Handkarten sind nicht sichtbar im Multiplayer
+    //  im Map-Bereich. Das soll nicht sein, die Handkarten sollen wie in der Aktionsphase im
+    //  Szenario voll sichtbar sein, wenn man den Fächer eines anderen Spielers betrachtet. Aktuell
+    //  sieht man nur die Rückseiten (wie es zur Auswahlphase der Fall ist)."
+    //
+    //  He is describing the 3D map room, where the mod grew its own card hand in ModBuild 192
+    //  (WorldUI/MapRoom/MapRoomHand.*) and a peer's fan is therefore the SCENARIO LOADOUT they are
+    //  about to travel with. And he had already ruled on it the day the feature was designed
+    //  (2026-08-21): "Weiterhin gibt es keine Geheimnisse in dieser Phase, das heißt schon hier
+    //  sollen alle Karten voll sichtbar sein der jeweiligen Mitspieler im MP, wenn sie sich die
+    //  Karten anschauen."
+    //
+    //  ─── WHERE THE BACKS CAME FROM, READ FROM SOURCE ─────────────────────────────────────────
+    //  NOT from this class. <see cref="ShowRoundCardFronts"/> is WIDE OPEN on the map and always
+    //  was — its conjunction folds in <see cref="InScenario"/>, which is false there, so the whole
+    //  negated product is false and the predicate answers TRUE. Its own doc comment names the case
+    //  ("offline / single player / MAP / our own actor / post-reveal action phase").
+    //
+    //  The backs came from the CALLER. <c>RemoteHandFan.UpdateFaces</c> required a SECOND term of
+    //  its own before it would resolve a front:
+    //        if (actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor))
+    //  and that <c>InScenario</c> was never an anti-cheat term. It was a CAPABILITY term, and its
+    //  comment says so — "require an actual running scenario before touching the game's hand UI
+    //  (the clone's widget lifecycle depends on scenario singletons)". It is true and it is right
+    //  for the path it guards: <c>RemoteHandFan.ResolveHandFronts</c> reads
+    //  <c>CardsHandManager.Instance.GetHand(actor).cardsUI</c>, and neither the manager nor the
+    //  <c>CPlayerActor</c> exists in the map phase. What was wrong is that the SAFE DEFAULT of a
+    //  capability test ("we cannot resolve fronts here") was left standing as the ANSWER to a
+    //  secrecy question ("these cards are secret"). Two different sentences, one boolean.
+    //
+    //  So the fix is not to relax a rule; it is to give the map phase its own capability — the
+    //  loadout the map room already resolves locally, out of the replicated
+    //  <c>CMapCharacter.HandAbilityCardIDs</c> (MapRoomHand.TryResolvePeerLoadout) — and to make
+    //  the secrecy question answer for itself, HERE, in this class's own vocabulary.
+    //
+    //  ─── WHY THE MAP PHASE IS A DIFFERENT CASE FROM THE SELECTION PHASE ──────────────────────
+    //  The secrecy rule this class exists for has ONE purpose: during
+    //  <c>SelectAbilityCardsOrLongRest</c> every player is simultaneously committing the two cards
+    //  they are about to play, and seeing a teammate's choice before your own is locked is playing
+    //  with their information. That is a rule about a DECISION IN FLIGHT. On the map no such
+    //  decision is in flight: the loadout is a standing, already-committed fact about a character,
+    //  and nothing about round order, initiative or targeting turns on keeping it from the table.
+    //
+    //  And the base game agrees, which is the same argument <see cref="PeersSeeOurCardFronts"/>
+    //  makes from vanilla's initiative-track overview. In the flat party window
+    //  <c>UIPartyCharacterAbilityCardsDisplay</c> shows EVERY selected character's whole ability
+    //  pool with the loadout ticked, for any character you click, ownership or not: the cards are
+    //  unconditionally <c>SetActive(true)</c> (:307) and the ONLY thing online ownership gates is
+    //  <c>SetSelectable</c> — i.e. whether you may EDIT it (:305, :330, and
+    //  <c>CanBeAbilityCardToggled</c> :313-319). A peer's loadout is therefore already public
+    //  information in the flat game; the mod would be INVENTING a secret by hiding it in VR.
+    //
+    //  ANTI-CHEAT IS NOT WEAKENED BY ONE BYTE. Both predicates below require the absence of a
+    //  running scenario, so neither can ever be true in the window
+    //  <see cref="IsSecretSelectionPhase"/> describes — they are disjoint by construction, not by
+    //  agreement between two conditions that could drift apart. Nothing here can open a front that
+    //  <see cref="ShowRoundCardFronts"/> would close.
+    // ============================================================================================
+
+    /// <summary>
+    /// True while a MAP is loaded and NO scenario is running — the campaign/guildmaster map phase,
+    /// the state the mod's 3D map room stands in. <c>MapState</c> is the same object
+    /// <see cref="InScenario"/> guards against being null (see the note there) and the same one
+    /// <see cref="ShowPersonalQuest"/> reads the party out of, so a half-loaded save answers false
+    /// on every one of them alike. Guarded and degrading to false, because "we cannot tell where we
+    /// are" must never be the reason a front is drawn.
+    /// </summary>
+    public static bool InMapPhase
+    {
+        get
+        {
+            if (InScenario)
+                return false;
+            try
+            {
+                return MapRuleLibrary.Adventure.AdventureState.MapState != null;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// May a REMOTE player's card hand be shown FACE-UP in the map phase? Yes: on the map a hand is
+    /// PUBLIC. See the block above for the whole derivation — the short version is that the secrecy
+    /// rule protects a decision in flight, the map has none in flight, and the flat game's own party
+    /// window already shows any character's loadout to anybody who clicks them.
+    ///
+    /// <para>NO ACTOR PARAMETER, and that is a statement rather than an omission: there is no
+    /// <c>CPlayerActor</c> in the map phase at all (<c>CMapCharacter.GetActor()</c> reads
+    /// <c>ScenarioManager.Scenario</c>, which is null here, so asking for one THROWS). The map-phase
+    /// unit of identity is <c>CMapCharacter</c>, and the per-actor terms
+    /// <see cref="ShowRoundCardFronts"/> folds in — <c>IsUnderMyControl</c> and the phase — have no
+    /// counterpart that could hide anything: ownership does not make a loadout secret in the flat
+    /// game either (only uneditable), and there is no phase here to be secret in.</para>
+    ///
+    /// <para>WHAT THIS DOES NOT GRANT. It says a hand may be READ; it says nothing about a hand
+    /// being PLAYABLE. A peer's fan stays inspect-only on every path — see
+    /// <c>Cards.CardBorrow</c> and <c>RemoteHandFan</c>'s borrow section, whose guarantee is
+    /// structural (a borrowed copy carries no <c>VRCard.GameCard</c> and every commit seam in
+    /// <c>Cards.CardsDriver</c> is reached only through one) and is untouched by this predicate.</para>
+    /// </summary>
+    public static bool ShowMapPhaseHandFronts => InMapPhase;
+
+    // ============================================================================================
     //  PER-CHARACTER GOALS — the SECOND secret this game has, and the one the free character focus
     //  put within reach. Researched from the game's OWN code (2026-08-08); the findings and their
     //  evidence, because the answer is not what board-game folklore predicts:

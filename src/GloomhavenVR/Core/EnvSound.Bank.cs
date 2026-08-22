@@ -77,7 +77,12 @@ internal enum EnvSoundClip
     Squeak,
     Skitter,
     Rumble,
-    Chirr,
+    // THERE IS NO `Chirr`. The wood's insect bed was DELETED at ModBuild 226 — it is the sound the
+    // user reported as rain ("Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu kommt
+    // und für eine Zeit bleibt"), and the schedule, the rain control and the falsified alternatives
+    // are in EnvSound.cs under THE INSECT CHORUS, DELETED. The generator is preserved sample for
+    // sample in .planning/envsound-replica/room.py as make_chirr, which is the rule the room tones'
+    // deletion established: a deletion whose before-column has been deleted is one nobody can check.
 
     /// <summary>AN OWL, low and fluty — the wood's near night call. One-shot, 2.3 s, scheduled
     /// sparsely by <c>EnvSound.TickNightCall</c>. ModBuild 222, and it is the user's own request:
@@ -258,11 +263,6 @@ internal static class EnvSoundBank
     /// <summary>Earth: a very low, slow settling. Looped, 6 s.</summary>
     internal static AudioClip? Rumble { get; private set; }
 
-    /// <summary>The swamp at night — noise-modulated noise, the chirr of insects. Looped, 7 s.
-    /// <b>ITS MODULATOR WAS A METRONOME UNTIL ModBuild 222</b> and that is the measured cause of the
-    /// "Traktor" report; see <see cref="MakeChirr"/>.</summary>
-    internal static AudioClip? Chirr { get; private set; }
-
     /// <summary>AN OWL. One-shot, 2.3 s. See <see cref="MakeOwl"/> and THE NIGHT CALLS below.</summary>
     internal static AudioClip? Owl { get; private set; }
 
@@ -326,7 +326,7 @@ internal static class EnvSoundBank
     /// The three drops, indexed 0..2. <see cref="Drip"/> is element 0.
     ///
     /// <para>WHY AN ARRAY AND NOT THREE MORE <see cref="EnvSoundClip"/> MEMBERS. The enum exists so
-    /// that <see cref="EnvSound"/>'s BED TABLE can be written as data ("this node gets Chirr") and so
+    /// that <see cref="EnvSound"/>'s BED TABLE can be written as data ("this node gets Flutter") and so
     /// a log line can name the clip a cue chose. Nothing in that table would ever name
     /// <c>Drip2</c>/<c>Drip3</c>: the three are not three different sounds a designer picks between,
     /// they are one sound whose realisation is drawn per event. Putting them in the enum would
@@ -388,7 +388,6 @@ internal static class EnvSoundBank
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
         EnvSoundClip.Rumble => Rumble,
-        EnvSoundClip.Chirr => Chirr,
         EnvSoundClip.Creak => Creak,
         EnvSoundClip.Breath => Breath,
         EnvSoundClip.Drag => Drag,
@@ -430,7 +429,6 @@ internal static class EnvSoundBank
             Squeak = MakeSqueak(rate);
             Skitter = MakeSkitter(rate);
             Rumble = MakeRumble(rate);
-            Chirr = MakeChirr(rate);
             Owl = MakeOwl(rate);
             NightBird = MakeNightBird(rate);
 
@@ -480,7 +478,7 @@ internal static class EnvSoundBank
         // a double-destroy waiting to happen.
         Bed = null; Flutter = null;
         Drip = null; Squeak = null; Skitter = null;
-        Rumble = null; Chirr = null; Owl = null; NightBird = null;
+        Rumble = null; Owl = null; NightBird = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
         Roar = null; Crackle = null; Ember = null;
 
@@ -1888,116 +1886,73 @@ internal static class EnvSoundBank
         return Finish("Rumble", d, rate);
     }
 
-    /// <summary>THE CHIRR'S MODULATOR BAND AND DEPTH. Band-limited NOISE at 3..30 Hz, two poles each
-    /// way, driving the carrier between <see cref="ChirrFloor"/> and floor+depth.
-    ///
-    /// <para><b>THIS REPLACES THREE SUMMED SINES, AND IT IS THE ModBuild 222 FIX FOR THE "Traktor".
-    /// </b> The shipped modulator was</para>
-    /// <code>m(t) = 0.55 + 0.20 sin(2*pi*17.3 t) + 0.14 sin(2*pi*23.9 t) + 0.11 sin(2*pi*31.1 t)</code>
-    /// <para>and the doc above it claimed the three rates were "non-commensurate so the texture never
-    /// settles into a pulse". THEY ARE NOT AND IT DID. All three are exact multiples of 0.1 Hz, so
-    /// the modulator is strictly periodic at 10 s — but far worse, they very nearly RE-ALIGN at a
-    /// tenth of that: the modulator's own normalised autocorrelation is <b>+0.970 at a lag of
-    /// 0.290 s</b> and <b>-0.993 at 0.145 s</b>, which is a clean hard beat at <b>3.45 Hz</b> with a
-    /// perfect anti-phase at the half period. Off the finished buffer the replica measures envelope
-    /// autocorrelation <b>0.867 at 0.291 s</b>, against 0.05-0.12 for every other bed in this bank.
-    /// Three and a half beats a second, exactly, forever — a small engine.</para>
-    ///
-    /// <para><b>ModBuild 221 DID NOT CREATE IT; IT TURNED IT UP.</b> The beat has been in this clip
-    /// since it was written. Every build before 221 played it at the lowest gain in the file through
-    /// a one-pole 1150 Hz low pass that took 6.5-15.3 dB off its entire band, so it was buried. 221
-    /// correctly identified that filter as a defect, moved the corner to 3000 Hz and lifted the gain
-    /// 1.5x — and unveiled the metronome. The user's word for the result was "nervig", which is the
-    /// SAME word he used to condemn the ice sound for beating at a fixed 0.45 s (see the ruling block
-    /// above and <c>EnvSoundSchedule.PoissonGap</c>). This file has now shipped that fault twice.</para>
-    ///
-    /// <para><b>WHY NOISE AND NOT BETTER-CHOSEN SINES.</b> Any finite sum of sines is quasi-periodic
-    /// and re-aligns SOMEWHERE; choosing irrational-looking rates only moves the lag it happens at,
-    /// and the last set was chosen on exactly that reasoning and was wrong by an order of magnitude.
-    /// Band-limited noise has an autocorrelation that decays with its own bandwidth — here about
-    /// 1/30 s — so it is zero at every lag the ear could call a rhythm, BY CONSTRUCTION rather than
-    /// by arithmetic nobody re-checked. It is also the honest model: an insect floor is a mass of
-    /// independent animals, and a mass of independent things has a noisy envelope, not three tones.
-    /// Measured on the finished buffer: <b>0.123 at 2.32 s</b>, with no peak anywhere in 0.05..6.0 s
-    /// of lag. Envelope swing 6.96 dB -> 3.08 dB, i.e. it still shimmers; it no longer beats.</para>
-    ///
-    /// <para>3..30 Hz is chosen against THE CANDLE's <c>FlutterHz</c> note — above roughly 20 Hz an
-    /// amplitude modulation stops being heard as flutter and becomes ROUGHNESS, and roughness is a
-    /// motorised timbre — so the band deliberately straddles that boundary instead of sitting wholly
-    /// above it, as 17.3/23.9/31.1 did. The floor is 0.20 rather than 0.55 because the modulator is
-    /// now a zero-mean signal rather than three sines around a DC term.</para></summary>
-    private const float ChirrModLoHz = 3f;
-    private const float ChirrModHiHz = 30f;
-    private const int ChirrModPoles = 2;
-    private const float ChirrFloor = 0.20f;
-    private const float ChirrDepth = 0.80f;
-    private const uint ChirrSeed = 0xC317Fu;
-
-    /// <summary>The swamp at night: noise amplitude-modulated by NOISE at insect rates.
-    ///
-    /// <para><b>THE BAND IS UNCHANGED AND ITS FILTER IS NOT, and the distinction is the whole of why
-    /// the wood was silent before ModBuild 221.</b> The band below is 2200..6500 Hz — and until that
-    /// round <c>EnvSound.BuildSwamp</c> created the bed without <c>lowPassHz: 0</c>, so it ALSO got
-    /// the default runtime <c>AudioLowPassFilter</c> at <c>EnvSound.BedLowPassHz</c> = 1150 Hz, whose
-    /// one pole is -6.5 dB at 2200 and -15.3 dB at 6500. Every hertz this generator produces was
-    /// being attenuated by a filter that exists to keep BODY out of the speech band, on the one clip
-    /// in the bank that has no body. The corner moved to <c>EnvSound.InsectLowPassHz</c> = 3000 Hz,
-    /// which still trims the 4-6.5 kHz hiss tail, and it stays there.</para>
-    ///
-    /// <para><b>WHAT ModBuild 222 CHANGES IS THE MODULATOR AND NOTHING ELSE</b> — see
-    /// <see cref="ChirrModLoHz"/>. The band split of the finished buffer is identical before and
-    /// after to a tenth of a percentage point (0.0/0.5/3.2/15.1/46.6/34.5 against
-    /// 0.0/0.5/3.2/15.2/46.6/34.4) and so is its audible centroid (3383 Hz against 3381), which is
-    /// precisely why no spectral instrument could ever have found this fault and why the round that
-    /// looks for it has to measure TIME.</para>
-    ///
-    /// <para>IT IS A CLIP REPAIR AND THERE IS NO LONGER A SWITCH IT COULD HAVE HUNG OFF.
-    /// <c>[EnvSound] AmbienceBed</c> used to return this bed's GAIN and its runtime CORNER to the
-    /// pre-221 emitter while leaving the modulator repaired; ModBuild 223 deleted that dial with the
-    /// two room tones (see <c>EnvSound</c>'s THE ROOM TONES, DELETED), so the corner is now flat at
-    /// 3000 Hz for every build and the gain is the shipped <c>EnvSound.NightBedGain</c>. A modulator
-    /// that beats was always a defect in the bank rather than a setting, exactly as the contradicting
-    /// filter was, and both are now repaired unconditionally with nothing to turn either off.</para>
-    ///
-    /// <para><b>THE CLIP IS UNCHANGED AT ModBuild 223 AND THE EMITTER IS NOT.</b> The user's verdict
-    /// on this build was "Auch die kontinuierlichen Sounds im Wald nerven mich", so the bed became an
-    /// intermittent CHORUS at a lower peak — 23% duty cycle, -4.7 dB — which is a decision about WHEN
-    /// and HOW LOUD and belongs entirely to <c>EnvSound.NightBed</c>. Nothing about the buffer moved,
-    /// deliberately: the beat repair one round old is the thing the next report has to be able to
-    /// judge, and a clip that changed in the same edit would have made that impossible. If the wood
-    /// still reads as hissy, THIS generator is the place — a second high-pass pole at
-    /// <see cref="ChirrLoHz"/> would take the broad skirt out from under the crickets, which the
-    /// replica scores at a 1/3-octave spectral flatness of 0.652.</para></summary>
-    private static AudioClip MakeChirr(int rate)
-    {
-        int n = rate * 7;
-
-        // ---- THE MODULATOR. Its own stream, band-limited to insect rates, normalised to +-1 and
-        // then mapped into 0..1 — so ChirrFloor and ChirrDepth mean what they say whatever the
-        // filters left behind, which is the same discipline StoneHissMix and NightAirTopMix keep.
-        var m = new float[n];
-        var mr = new Rng(ChirrSeed ^ 0x2C41B000u);
-        for (int i = 0; i < n; i++)
-            m[i] = mr.Next();
-        for (int p = 0; p < ChirrModPoles; p++)
-            LowPass(m, rate, ChirrModHiHz);
-        for (int p = 0; p < ChirrModPoles; p++)
-            HighPass(m, rate, ChirrModLoHz);
-        Normalise(m, 1f);
-
-        // ---- THE CARRIER, from a different stream. The modulator must not be correlated with what
-        // it is modulating or the product is a noise squared, not a noise with an envelope.
-        var d = new float[n];
-        var r = new Rng(ChirrSeed);
-        for (int i = 0; i < n; i++)
-            d[i] = r.Next() * (ChirrFloor + ChirrDepth * (0.5f + 0.5f * m[i]));
-
-        HighPass(d, rate, 2200f);
-        LowPass(d, rate, 6500f);
-        LoopFade(d, rate / 2);
-        Normalise(d, 0.55f);
-        return Finish("Chirr", d, rate);
-    }
+    // =============================================================================================
+    //  MakeChirr, DELETED — ModBuild 226. IT WAS THE "REGEN".
+    // =============================================================================================
+    //
+    //  USER REPORT, hardware on ModBuild 225, verbatim:
+    //
+    //      "Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu kommt und für eine Zeit
+    //       bleibt, ansonsten finde ich es sehr gut."
+    //
+    //  WHAT THIS WAS. Band-limited noise at 2200..6500 Hz, amplitude-modulated by band-limited NOISE
+    //  at 3..30 Hz — the wood's insect floor, played on the Ground node at gain 0.050 through a
+    //  3000 Hz runtime corner. EnvSound.cs's THE INSECT CHORUS, DELETED carries the full verdict:
+    //  the schedule that matches his sentence measured off the shipped hash (arrives every ~62 s,
+    //  holds ~22 s, 25% duty cycle), the RAIN CONTROL it was measured against, and the with/without
+    //  render of the whole room. The one number to keep in mind here is the band: this generator put
+    //  81.0% of its energy above 2 kHz, against a rain control's 94.5% and 3.7% for the next
+    //  continuous emitter in that room. It was not a texture with a hiss under it; measured as a
+    //  spectrum it WAS the hiss.
+    //
+    //  WHY THE GENERATOR GOES RATHER THAN THE BED ALONE. Same rule as the ice sound and the two room
+    //  tones before it: a clip nobody plays, or a gain of zero, leaves the next reader hunting for
+    //  the dial that turns it back on. And the previous round's own written next step for this clip
+    //  — "a second high-pass pole at ChirrLoHz would take the broad skirt out from under the
+    //  crickets" — is now moot, because the user is not asking for a cleaner insect bed; he is
+    //  asking for that emitter not to be there, and he likes everything else.
+    //
+    //  TWO REPAIRS DIE WITH IT AND BOTH WERE REAL. They are recorded because the DEFECT CLASSES are
+    //  what the next generator has to avoid, and because "we deleted it" must not read as "we gave up
+    //  on it":
+    //
+    //    1. THE CLIP AND ITS FILTER WERE FIGHTING. This band is 2200..6500 Hz and EnvSound.BuildSwamp
+    //       created the bed WITHOUT `lowPassHz: 0` until ModBuild 221, so it also carried the default
+    //       runtime AudioLowPassFilter at BedLowPassHz = 1150 Hz — one pole, -6.5 dB at 2200 and
+    //       -15.3 dB at 6500. Every hertz this generator produced was being attenuated by a filter
+    //       that exists to keep BODY out of the speech band, on the one clip in the bank that has no
+    //       body. It played in no shipped build until 221 moved the corner to 3000 Hz. THE LESSON:
+    //       AddBed's default corner is right for a bed with body and wrong for one without, and the
+    //       symptom is a bed nobody can hear rather than a bed that sounds bad.
+    //
+    //    2. THE MODULATOR WAS A METRONOME, AND NO SPECTRAL INSTRUMENT COULD SEE IT. Until ModBuild
+    //       222 it was three summed sines:
+    //           m(t) = 0.55 + 0.20 sin(2*pi*17.3 t) + 0.14 sin(2*pi*23.9 t) + 0.11 sin(2*pi*31.1 t)
+    //       and the doc above it claimed the three rates were "non-commensurate so the texture never
+    //       settles into a pulse". They are not and it did: all three are exact multiples of 0.1 Hz,
+    //       and they very nearly RE-ALIGN at a tenth of the 10 s period — analytic autocorrelation
+    //       +0.970 at a lag of 0.290 s and -0.993 at 0.145 s, i.e. a hard 3.45 Hz beat with a perfect
+    //       anti-phase at the half period. Off the finished buffer the replica measured 0.867 at
+    //       0.291 s against 0.05-0.12 for every other bed. The user's word was "im Hintergrund ein
+    //       Traktor". The 222 fix was to modulate with band-limited NOISE, whose autocorrelation
+    //       decays with its own bandwidth and is therefore zero at every lag the ear could call a
+    //       rhythm BY CONSTRUCTION rather than by arithmetic nobody re-checked (measured 0.123 at
+    //       2.32 s, no peak anywhere in 0.05..6.0 s).
+    //       THE LESSON, AND IT IS THE ONE WORTH CARRYING: the band split of the buffer was IDENTICAL
+    //       before and after to a tenth of a percentage point (0.0/0.5/3.2/15.1/46.6/34.5 against
+    //       0.0/0.5/3.2/15.2/46.6/34.4) and so was its centroid (3383 Hz against 3381). A round that
+    //       looks for a fault like this has to measure TIME. And: ANY finite sum of sines re-aligns
+    //       somewhere — choosing irrational-looking rates only moves the lag it happens at.
+    //
+    //  THE GENERATOR IS PRESERVED SAMPLE FOR SAMPLE in .planning/envsound-replica/room.py as
+    //  make_chirr (and its pre-222 form as mb221_chirr), because it is the BEFORE column of every
+    //  table in the two blocks cited above, and a deletion whose before-column has been deleted is
+    //  one nobody can check.
+    //
+    //  IF A FUTURE ROUND WANTS CRICKETS IN THE WOOD, IT MUST NOT REBUILD THIS. What the user calls
+    //  rain is broadband noise; a cricket is a NARROWBAND TONAL CHIRP with a pulse rate. That is a
+    //  different generator, and it should arrive as EVENTS on the shared clock the way the owl and
+    //  the night bird do — which is the form of this feature he has repeatedly said he likes.
 
     // =============================================================================================
     //  THE NIGHT CALLS — ModBuild 222. The first sounds in this bank that are ANIMALS in the wood.

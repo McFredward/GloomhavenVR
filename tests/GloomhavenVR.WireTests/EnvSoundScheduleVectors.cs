@@ -48,9 +48,19 @@ internal static class EnvSoundScheduleVectors
         PoissonGapClusters(t);
         PoissonGapCannotWoodpecker(t);
 
+        TheSlotIsTheSameOnEveryClient(t);
+        TheSlotIsBoundedForEveryClock(t);
+        TheSlotNeverReturnsTheSentinel(t);
+        EveryScheduleInTheFileResolves(t);
+
         TheFireCrackleCannotWoodpecker(t);
         TheFireCrackleRateIsDezent(t);
         TheFireBurstsFitTheirBuffers(t);
+
+        TheBernoulliTickHoldsTheRate(t);
+        TheBernoulliTickSurvivesEveryInput(t);
+        TheBernoulliTickCannotWoodpecker(t);
+        TheBernoulliTickStillClusters(t);
 
         TheShippedCandleBedWasAWind(t);
         TheWindClipIsSilentWithoutAir(t);
@@ -641,6 +651,454 @@ internal static class EnvSoundScheduleVectors
                    $"ember {v}: the last thud ends at {(train[train.Length - 1] + 0.05f) * 1000f:F1} ms, "
                    + "inside the 220 ms clip");
         }
+    }
+
+    // =============================================================================================
+    //  THE SHARED-CLOCK SLOT (EnvSoundSchedule.TrySlot), ModBuild 226 — the arithmetic that makes
+    //  two players hear the same sound at the same time.
+    // =============================================================================================
+    //
+    //  USER RULING, hardware on ModBuild 225, verbatim, and it is the acceptance criterion these
+    //  four cases exist to hold:
+    //
+    //      "Genau wie die Easter-Eggs sollen auch die Sounds mit allen Mitspieler synchronisiert
+    //       sein die in der selben Map sind. Sind also zwei Spieler in der Wald Umgebung und dort
+    //       kommt ein Geräusch eines Tieres aus einer Ecke sollen alle Spieler die auch im Wald
+    //       sind zur selben Zeit aus der selben Location denselben Sound hören."
+    //
+    //  Every scheduled cue in EnvSound.cs starts by asking which slot of some period the shared
+    //  environment clock is in. Until this round each of the five callers wrote
+    //  `(long)Mathf.Floor(clock / period)` for itself, and that expression carries a defect nobody
+    //  had written down: the IL `conv.i8` of a NaN or an infinity is UNSPECIFIED, and on x64 it
+    //  yields `long.MinValue` — which is the exact sentinel four of those callers use to mean "not
+    //  observing yet". A poisoned clock therefore did not produce a wrong sound; it silently told
+    //  the schedule it had never run, and the next real slot was then swallowed as a first
+    //  observation. Nothing throws, nothing logs, and a headset is the only instrument that could
+    //  ever have noticed. That is this file's own failure mode reached through a cast instead of
+    //  through a loop, which is why the arithmetic moved here.
+
+    /// <summary>
+    /// THE PROPERTY THE USER'S SENTENCE ACTUALLY NEEDS: the same clock gives the same slot. It is
+    /// asserted the way two clients would disagree if it did not — by resolving each value TWICE
+    /// through independently-computed inputs and comparing, rather than by trusting that a pure
+    /// function is pure.
+    /// </summary>
+    private static void TheSlotIsTheSameOnEveryClient(Harness t)
+    {
+        t.Case("shared slot: identical clocks give identical slots");
+        float[] periods = { 1.31f, 2.85f, 26f, 41f, 83f };
+        foreach (float period in periods)
+        {
+            for (int i = 0; i <= 400; i++)
+            {
+                // The same instant reached by two different arithmetic paths, which is the honest
+                // model of two clients: one has walked its clock forward a frame at a time and the
+                // other has just adopted an offset in one step.
+                float clock = i * 0.937f;
+                float alsoClock = (i * 937f) * 0.001f;
+                bool a = EnvSoundSchedule.TrySlot(clock, period, out long slotA);
+                bool b = EnvSoundSchedule.TrySlot(alsoClock, period, out long slotB);
+                t.True(a == b, $"period {period}: both clients agree there is a slot at {clock:F3}s");
+                if (a && b && slotA != slotB)
+                {
+                    // Not an equality assertion on every sample — 2005 of them would drown the
+                    // report. This fires ONLY on a disagreement, and one is enough to fail.
+                    t.True(false, $"period {period}: clock {clock:R} resolved to slot {slotA} and "
+                                  + $"{alsoClock:R} to {slotB} — two clients would hear this event "
+                                  + "at different moments");
+                    break;
+                }
+            }
+        }
+
+        t.Case("shared slot: the slot's own boundaries are exact");
+        for (int n = 0; n < 64; n++)
+        {
+            const float period = 41f;
+            t.True(EnvSoundSchedule.TrySlot(n * period, period, out long onEdge) && onEdge == n,
+                   $"the instant a slot begins ({n * period}s) is IN that slot, not the one before");
+            t.True(EnvSoundSchedule.TrySlot(n * period + period * 0.5f, period, out long inside)
+                   && inside == n,
+                   $"and so is its middle ({n * period + period * 0.5f}s)");
+        }
+    }
+
+    /// <summary>
+    /// EVERY INPUT, including the ones the frame loop can actually produce. The sharp one is NaN,
+    /// for <see cref="PoissonGapSurvivesEveryInput"/>'s reason exactly: `clock &lt; 0` is FALSE for
+    /// NaN and so is `clock &gt; max`, so the obvious pair of rejecting guards would pass it into
+    /// the divide and the cast. The implementation tests positively for that reason and this case is
+    /// what stops anyone tidying it back.
+    ///
+    /// <para>A NEGATIVE clock is not hypothetical: it is what a client reads for the first frames
+    /// after adopting a clock owner whose reading is smaller than its own local one, which is the
+    /// ordinary case of a late joiner in a session that has been running.</para>
+    /// </summary>
+    private static void TheSlotIsBoundedForEveryClock(Harness t)
+    {
+        t.Case("shared slot: no clock produces a slot that is not an exact non-negative integer");
+        float[] clocks =
+        {
+            float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+            -1f, -0.0001f, -1e30f, 1e30f, 1e12f,
+            0f, float.Epsilon, 1f, 1e6f,
+            EnvSoundSchedule.MaxClockSeconds, EnvSoundSchedule.MaxClockSeconds + 1f,
+        };
+        foreach (float clock in clocks)
+        {
+            bool ok = EnvSoundSchedule.TrySlot(clock, 41f, out long slot);
+            t.True(!ok || slot >= 0L,
+                   $"clock {clock} gave slot {slot} — a slot index is fed to Haunt.Hash, whose "
+                   + "documented range starts at zero");
+            t.True(ok || slot == 0L,
+                   $"clock {clock} was rejected, so the out parameter must be the neutral 0 and not "
+                   + "a value a careless caller could use");
+        }
+
+        t.Case("shared slot: a broken PERIOD cannot produce a broken schedule");
+        float[] periods =
+        {
+            0f, -1f, -41f, float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+            1e30f, EnvSoundSchedule.MinSlotSeconds * 0.5f,
+        };
+        foreach (float period in periods)
+            t.True(!EnvSoundSchedule.TrySlot(100f, period, out long slot) && slot == 0L,
+                   $"period {period} must be REFUSED rather than divided by — it produced slot {slot}");
+
+        t.Case("shared slot: NaN and infinity are refused, not cast");
+        // THE SHIPPED DEFECT, AS A VECTOR. This is what the inline expression every caller used to
+        // write actually does on x64, stated so that the reason for the guard is on the record and
+        // not merely in a comment.
+        float poisoned = float.NaN;
+        long naive = (long)UnityEngine.Mathf.Floor(poisoned / 41f);
+        t.True(naive == long.MinValue || naive == 0L,
+               $"`(long)Mathf.Floor(NaN / period)` produced {naive} — whatever this platform yields, "
+               + "it is an unspecified conversion, and on x64 it is long.MinValue, which is the "
+               + "'not observing yet' sentinel four schedules in EnvSound use");
+        t.True(!EnvSoundSchedule.TrySlot(poisoned, 41f, out _),
+               "TrySlot refuses it instead, so no schedule can be silently re-armed by a bad clock");
+    }
+
+    /// <summary>
+    /// THE SENTINEL COLLISION, ASSERTED DIRECTLY. Four edge detectors in EnvSound.cs
+    /// (<c>_lastDripIndex</c>, <c>_lastRatSlot</c>, <c>_lastNightCallSlot</c> and, since ModBuild
+    /// 226, <c>_lastFireTick</c>) hold <c>long.MinValue</c> for "not observing yet" and swallow the
+    /// first slot they see. A slot index that could equal that value would make a real slot
+    /// indistinguishable from a fresh start.
+    /// </summary>
+    private static void TheSlotNeverReturnsTheSentinel(Harness t)
+    {
+        t.Case("shared slot: long.MinValue is never a slot");
+        float[] clocks = { float.NaN, float.NegativeInfinity, float.PositiveInfinity, -1e30f, 1e30f };
+        foreach (float clock in clocks)
+        {
+            EnvSoundSchedule.TrySlot(clock, 1.31f, out long slot);
+            t.True(slot != long.MinValue,
+                   $"clock {clock} must not produce the 'not observing yet' sentinel");
+        }
+    }
+
+    /// <summary>
+    /// EVERY PERIOD EnvSound.cs ACTUALLY ASKS FOR, resolved over a plausible session. This is the
+    /// case that would fail if a future round added a schedule whose period is below
+    /// <see cref="EnvSoundSchedule.MinSlotSeconds"/> or picked a clock bound this cannot serve —
+    /// the numbers are mirrored from EnvSound.cs for the reason the fire's four constants below
+    /// are (EnvSound.cs cannot be compiled into this harness; EnvSoundSchedule.cs deliberately can).
+    /// </summary>
+    private static void EveryScheduleInTheFileResolves(Harness t)
+    {
+        t.Case("shared slot: every period this feature schedules on resolves for a whole session");
+        // FireCrackleTickSeconds, DripPeriod, RatPeriod, NightCallSlot, Haunt.PeriodSeconds.
+        float[] periods = { 1.31f, 2.85f, 26f, 41f, 83f };
+        // Four hours of level time, which is longer than any scenario anybody has reported playing.
+        const float session = 4f * 3600f;
+        foreach (float period in periods)
+        {
+            long previous = -1L;
+            bool rising = true, resolved = true;
+            for (float clock = 0f; clock <= session; clock += period * 0.5f)
+            {
+                if (!EnvSoundSchedule.TrySlot(clock, period, out long slot))
+                {
+                    resolved = false;
+                    break;
+                }
+                if (slot < previous)
+                    rising = false;
+                previous = slot;
+            }
+            t.True(resolved, $"period {period}: every instant in a four-hour session has a slot");
+            t.True(rising, $"period {period}: the slot index never goes backwards while the clock "
+                           + "goes forwards — a schedule that did would replay events");
+            t.True(previous >= (long)(session / period) - 1L,
+                   $"period {period}: the last slot reached is {previous}, which must be about "
+                   + $"{(long)(session / period)} — a float32 clock that stopped resolving would "
+                   + "show up here as a schedule that quietly stalled");
+        }
+    }
+
+    // =============================================================================================
+    //  THE BERNOULLI TICK (EnvSoundSchedule.TickFires / TickOffset), ModBuild 226 — the fire's
+    //  crackle, turned from a walk into a function of the shared clock.
+    // =============================================================================================
+    //
+    //  WHAT CHANGED AND WHY IT IS ON THIS HARNESS. TickFire used to write `next = now + PoissonGap`
+    //  and keep `next`, so its phase depended on when the client started observing — which was
+    //  documented and accepted for two rounds, and which the user's ruling above overrules. The
+    //  replacement asks, once per tick of the shared clock, "does this site crackle in this tick",
+    //  with probability tick/mean; the gaps are then GEOMETRIC, which is the discrete exponential,
+    //  so the clustering PoissonGap's own doc argues for is preserved.
+    //
+    //  THE RISK IN THAT SWAP IS THE ONE THIS SECTION EXISTS FOR, and it is the same risk the ice
+    //  cue was deleted over: quantising an event onto a grid can turn a texture into a beat. Two
+    //  properties are what stop it, and both are asserted below rather than argued — the gap can
+    //  never be shorter than half a tick (so the cue cannot re-enter the 0.2-2 s band the ear reads
+    //  as rhythm), and the offset inside the tick spreads, so the events do not sit on a lattice.
+
+    /// <summary>Mirror of <c>EnvSound.FireCrackleTickSeconds</c>.</summary>
+    private const float FireCrackleTickSeconds = 1.31f;
+
+    /// <summary>
+    /// THE RATE IS THE SAME RATE. The whole defence of this change is that it alters WHO HEARS WHEN
+    /// and not WHAT IS HEARD, so the realised mean gap has to come out at the mean the caller asked
+    /// for — measured over a uniform sweep of the draw, not quoted.
+    ///
+    /// <para>Unlike <see cref="EnvSoundSchedule.PoissonGap"/> there is no truncation factor: a
+    /// geometric distribution with p = tick/mean has mean tick/p = mean exactly. That is why the
+    /// room's crackle rate moves by 3.8% (the walk realised 0.962 of its nominal), and this case is
+    /// what makes that number checkable instead of asserted.</para>
+    /// </summary>
+    private static void TheBernoulliTickHoldsTheRate(Harness t)
+    {
+        t.Case("bernoulli tick: the realised mean gap is the mean the caller asked for");
+        float[] means = { FireGapFull, FireGapCalm };
+        foreach (float mean in means)
+        {
+            float p = EnvSoundSchedule.TickShare(FireCrackleTickSeconds, mean);
+            t.True(System.Math.Abs(p - FireCrackleTickSeconds / mean) < 1e-5f,
+                   $"mean {mean}: p is {p:F4}, which must be tick/mean = "
+                   + $"{FireCrackleTickSeconds / mean:F4}");
+
+            // The mean of a geometric number of ticks is 1/p ticks, so the gap is tick/p seconds.
+            float realised = FireCrackleTickSeconds / p;
+            t.True(System.Math.Abs(realised - mean) < 0.01f,
+                   $"mean {mean}: the realised mean gap is {realised:F3}s, and there is no "
+                   + "truncation factor to quote — a mismatch means TickShare's clamp moved");
+
+            // ...and the share is what a uniform sweep of the draw actually produces, which is the
+            // half of it that a wrong comparison operator would break.
+            int fired = 0;
+            const int n = 4000;
+            for (int i = 0; i < n; i++)
+            {
+                if (EnvSoundSchedule.TickFires(i / (float)n, FireCrackleTickSeconds, mean))
+                    fired++;
+            }
+            t.True(System.Math.Abs(fired / (float)n - p) < 0.002f,
+                   $"mean {mean}: {fired}/{n} ticks fired, i.e. {fired / (float)n:F4} against the "
+                   + $"{p:F4} the probability says");
+        }
+
+        t.Case("bernoulli tick: the room's rate stays inside the \"dezent\" band");
+        // The same assertion TheFireCrackleRateIsDezent makes about the walk, aimed at what replaced
+        // it, so a regression here reads as the same class of fault the user already reported once.
+        float fullRate = FireSites / (FireCrackleTickSeconds
+                                      / EnvSoundSchedule.TickShare(FireCrackleTickSeconds, FireGapFull));
+        float calmRate = FireSites / (FireCrackleTickSeconds
+                                      / EnvSoundSchedule.TickShare(FireCrackleTickSeconds, FireGapCalm));
+        t.True(fullRate > 1.0f && fullRate < 2.0f,
+               $"a fully alight room crackles {fullRate:F2} times a second across its {FireSites} "
+               + "sites — under 1 is a tick rather than a fire, over 2 is the drip's mistake made "
+               + "worse");
+        t.True(calmRate > 0.5f && calmRate < fullRate,
+               $"and a just-caught one {calmRate:F2} times a second, which must be SLOWER");
+    }
+
+    /// <summary>
+    /// EVERY INPUT, for <see cref="PoissonGapSurvivesEveryInput"/>'s reasons and with the same
+    /// sharp case: a caller lerps the mean off a LIVE ELEMENT STRENGTH and can reach 0 or a poisoned
+    /// value through a config edit. A mean of 0 makes p infinite (a fire that crackles every tick
+    /// forever); a mean of NaN makes every comparison false (a lit fire that is silent for the whole
+    /// scenario). Both are the class of defect this file exists for, and neither throws.
+    /// </summary>
+    private static void TheBernoulliTickSurvivesEveryInput(Harness t)
+    {
+        t.Case("bernoulli tick: a broken MEAN cannot produce a broken schedule");
+        float[] badMeans =
+        {
+            0f, -1f, -1e30f, 1e30f, float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+        };
+        foreach (float mean in badMeans)
+        {
+            float p = EnvSoundSchedule.TickShare(FireCrackleTickSeconds, mean);
+            t.True(p >= 0f && p <= EnvSoundSchedule.TickShareMax && !float.IsNaN(p),
+                   $"mean {mean} gave p = {p}, which must be a real probability inside "
+                   + $"[0, {EnvSoundSchedule.TickShareMax}]");
+        }
+
+        t.Case("bernoulli tick: a broken TICK cannot either");
+        float[] badTicks =
+        {
+            0f, -1f, -1e30f, 1e30f, float.NaN, float.PositiveInfinity, float.NegativeInfinity,
+        };
+        foreach (float tick in badTicks)
+        {
+            float p = EnvSoundSchedule.TickShare(tick, FireGapFull);
+            t.True(p >= 0f && p <= EnvSoundSchedule.TickShareMax && !float.IsNaN(p),
+                   $"tick {tick} gave p = {p}");
+            float off = EnvSoundSchedule.TickOffset(0.5f, tick);
+            t.True(off >= 0f && !float.IsNaN(off) && !float.IsInfinity(off),
+                   $"tick {tick} gave offset {off} — a NaN offset added to a tick start produces a "
+                   + "comparison that is false forever, i.e. a crackle scheduled for never");
+        }
+
+        t.Case("bernoulli tick: every degenerate DRAW is bounded, not fatal");
+        float[] draws =
+        {
+            0f, 1f, -1f, 2f, 1e30f, -1e30f,
+            float.NaN, float.PositiveInfinity, float.NegativeInfinity, float.Epsilon,
+        };
+        foreach (float u in draws)
+        {
+            float off = EnvSoundSchedule.TickOffset(u, FireCrackleTickSeconds);
+            t.True(off >= 0f && off <= 0.5f * FireCrackleTickSeconds,
+                   $"draw {u} placed the crackle {off}s into its tick, outside the first half — the "
+                   + "half is what makes tick/2 the shortest possible gap");
+            // The predicate must merely be decidable for every draw; which way it goes is content.
+            EnvSoundSchedule.TickFires(u, FireCrackleTickSeconds, FireGapFull);
+        }
+
+        t.Case("bernoulli tick: an unusable draw lands on the median, not on a corner");
+        t.True(EnvSoundSchedule.TickOffset(float.NaN, FireCrackleTickSeconds)
+               == EnvSoundSchedule.TickOffset(0.5f, FireCrackleTickSeconds),
+               "a NaN draw is replaced by 0.5, so the schedule keeps its own shape rather than "
+               + "collapsing onto the tick boundary — which is the lattice this design avoids");
+    }
+
+    /// <summary>
+    /// THE USER'S COMPLAINT, AS A BOUND, FOR THE NEW SCHEDULE. "Das was aktuell drin ist ist super
+    /// nervig" was in large part a 0.45 s repeat, inside the 0.2-2 s band the ear reads as a RHYTHM.
+    /// The walk's floor was <c>PoissonGapMin x mean</c>; the tick's floor is GEOMETRIC — the latest
+    /// an event can be is half a tick into its own tick and the earliest is zero into the next, so
+    /// the shortest gap is <c>tick / 2</c> for EVERY draw and EVERY mean, including means no caller
+    /// can reach.
+    ///
+    /// <para>This is asserted by driving the actual pair of functions over a dense sweep of both
+    /// draws rather than by restating the arithmetic, because the property depends on
+    /// <see cref="EnvSoundSchedule.TickOffset"/>'s window being the FIRST HALF and a future round
+    /// that widened it to the whole tick would not fail any other case in this file.</para>
+    /// </summary>
+    private static void TheBernoulliTickCannotWoodpecker(Harness t)
+    {
+        t.Case("bernoulli tick: no draw and no Fire strength can make it beat like a metronome");
+        float shortest = float.MaxValue;
+        for (int a = 0; a <= 200; a++)
+        {
+            for (int b = 0; b <= 200; b++)
+            {
+                // Two consecutive ticks that BOTH fire — the worst case by construction, because a
+                // skipped tick only ever makes the gap longer.
+                float first = EnvSoundSchedule.TickOffset(a / 200f, FireCrackleTickSeconds);
+                float second = FireCrackleTickSeconds
+                               + EnvSoundSchedule.TickOffset(b / 200f, FireCrackleTickSeconds);
+                if (second - first < shortest)
+                    shortest = second - first;
+            }
+        }
+        t.True(shortest >= 0.5f * FireCrackleTickSeconds - 1e-4f,
+               $"the shortest gap two consecutive crackles can have is {shortest:F3}s, which must be "
+               + $"at least half a tick ({0.5f * FireCrackleTickSeconds:F3}s)");
+        t.True(shortest > 0.6f,
+               $"...and {shortest:F3}s must stay clear of the 0.45 s beat the user called \"super "
+               + "nervig\" and clear of the top of the band the ear reads as rhythm. The walk this "
+               + $"replaced had a floor of {FireGapFull * EnvSoundSchedule.PoissonGapMin:F3}s at "
+               + "full Fire, so this must not be worse there");
+
+        t.Case("bernoulli tick: and the site cannot go silent for long either");
+        // The tail is GEOMETRIC and therefore unbounded, unlike the walk's hard PoissonGapMax clamp
+        // — which is the one property this change made worse and is stated in
+        // EnvSound.FireCrackleTickSeconds rather than hidden. What is asserted is that it is
+        // unbounded in the harmless direction: the probability of a long silence at ONE site is
+        // small, and the ROOM has three drawing independently.
+        float p = EnvSoundSchedule.TickShare(FireCrackleTickSeconds, FireGapFull);
+        int ticksTo10s = (int)(10f / FireCrackleTickSeconds);
+        double siteSilent = System.Math.Pow(1.0 - p, ticksTo10s);
+        double roomSilent = System.Math.Pow(siteSilent, FireSites);
+        t.True(siteSilent < 0.01,
+               $"one site is silent for ten seconds with probability {siteSilent:E2} — rare enough "
+               + "that a listener does not learn it");
+        t.True(roomSilent < 1e-6,
+               $"and the whole room with probability {roomSilent:E2}, which is what actually matters "
+               + "because the ear counts the room and not a seat");
+    }
+
+    /// <summary>
+    /// THE CONTENT HALF, and the reason this is a Bernoulli process and not "every third tick".
+    /// A geometric distribution's mode is at ONE tick, so the crackles CLUSTER — two almost
+    /// together, then a long nothing — which is exactly the property
+    /// <see cref="PoissonGapClusters"/> asserts for the form this replaced. A schedule that fired on
+    /// a fixed stride would pass every other case in this section and would be a metronome.
+    /// </summary>
+    private static void TheBernoulliTickStillClusters(Harness t)
+    {
+        t.Case("bernoulli tick: the gaps spread, with a mode at the shortest one");
+        const int ticks = 20000;
+        float p = EnvSoundSchedule.TickShare(FireCrackleTickSeconds, FireGapFull);
+
+        // THE STAND-IN IS EnvSoundRng, THIS FILE'S OWN xorshift32, and the choice matters twice
+        // over. It is NOT Haunt.Hash — that lives in Core/Haunt.Schedule.cs, which needs
+        // ElementMood and the whole environment model and is not on this harness — and what is
+        // being held here is a property of the DISTRIBUTION the predicate imposes on an INDEPENDENT
+        // uniform stream, which is the half of the design that lives in this file. The hash's own
+        // uniformity is its mirror's problem and is checked against the GPU side there.
+        //
+        // AN EARLIER DRAFT USED `(i * 2654435761u) % 1000003u` AND IT FAILED THIS CASE, which is
+        // worth recording rather than quietly fixing: a multiplicative sequence walked in order is
+        // not an independent stream, it is a lattice, and it produced 3813 one-tick gaps, 8093
+        // two-tick gaps and NOT ONE longer — a perfectly regular alternation, i.e. the metronome
+        // this case exists to detect, manufactured entirely by the instrument. The case was right
+        // and the draw was wrong.
+        var rng = new EnvSoundRng(0xF12E0226u);
+        int one = 0, two = 0, longer = 0, since = 0, events = 0;
+        for (int i = 0; i < ticks; i++)
+        {
+            float u = 0.5f + 0.5f * rng.Next();
+            since++;
+            if (!EnvSoundSchedule.TickFires(u, FireCrackleTickSeconds, FireGapFull))
+                continue;
+            events++;
+            if (events > 1)
+            {
+                if (since == 1) one++;
+                else if (since == 2) two++;
+                else longer++;
+            }
+            since = 0;
+        }
+
+        t.True(events > ticks / 4, $"{events} of {ticks} ticks carried a crackle, against the "
+                                   + $"{p:F3} the probability predicts — a sweep that fired almost "
+                                   + "never would make the shape assertions below vacuous");
+        t.True(one > two && two > longer / 2,
+               $"the gap histogram falls off — {one} single-tick gaps, {two} of two ticks, {longer} "
+               + "longer. A mode at the SHORTEST gap is what makes these clusters rather than a "
+               + "wobbly metronome, and it is the whole reason for a geometric distribution");
+        t.True(longer > 0, "and there are still long silences, which is the other end of the same "
+                           + "distribution");
+
+        t.Case("bernoulli tick: the offset inside a tick spreads across the whole half");
+        float lo = float.MaxValue, hi = float.MinValue;
+        for (int i = 0; i <= 1000; i++)
+        {
+            float off = EnvSoundSchedule.TickOffset(i / 1000f, FireCrackleTickSeconds);
+            if (off < lo) lo = off;
+            if (off > hi) hi = off;
+        }
+        t.True(lo <= 1e-4f && hi >= 0.5f * FireCrackleTickSeconds - 1e-3f,
+               $"the offsets reach {lo:F4}..{hi:F4}s of the available "
+               + $"0..{0.5f * FireCrackleTickSeconds:F4} — an offset that only used part of its "
+               + "window would leave the crackles on a lattice, which is the failure this term "
+               + "exists to prevent");
     }
 
     // =============================================================================================

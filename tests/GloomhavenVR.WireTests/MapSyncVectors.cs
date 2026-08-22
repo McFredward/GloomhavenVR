@@ -22,6 +22,13 @@
 //   AN UNKNOWN KIND IS STEPPED OVER     the entries behind it still apply
 //   AN UNKNOWN FRAME DROPS THE POSE     and KEEPS the page — the fail-closed direction
 //   A TRUNCATED ENTRY KEEPS ITS ELDERS  a lying count can never damage what was already read
+//
+// AND SINCE THE SHARED-SELECTION ROUND, a sixth (user report 13: "Welches Icon ausgewählt ist wird
+// nicht richtig synchronisiert. Es soll nur eine einzige Auswahl geben die global alle sehen"):
+//
+//   A SHORT RECORD 20 IS STILL TRUSTED  its first six bytes are the frozen minimum, and the
+//                                       selection fields simply read as 0/0 — "does not
+//                                       participate", never "that peer just deselected everything"
 
 using GloomhavenVR.Net;
 using UnityEngine;
@@ -71,13 +78,20 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            14 06            // id 20 (3D map room), len 6
+            14 0F            // id 20 (3D map room), len 15
             15               // flags: inRoom(1) | surfaceKnown(4) | pickValid(16) = 0x15
             03               // surfaceStamp 3 -- an EDGE marker, not a level
             19 7C 62 3B      // pickKey FNV-1a('Gloomhaven') = 0x3B627C19, little-endian
-            "), ext, m, "the map-room record is [id 20][len 6][flags][surfaceStamp][u32 pickKey LE], "
-                        + "written behind record 19 in append order");
-        t.Equal(19, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 6) = 19 bytes");
+            00               // selectStamp 0 -- nobody at this table has selected anything yet
+            00 00 00 00      // selectKey 0 = NOTHING is selected
+            00 00 00 00      // fanCharacterKey 0 = no map card fan open on this sender
+            "), ext, m, "the map-room record is [id 20][len 15][flags][surfaceStamp][u32 pickKey LE]"
+                        + "[selectStamp][u32 selectKey LE][u32 fanCharacterKey LE], written behind "
+                        + "record 19 in append order. The LONG form is always written and readers "
+                        + "require only the old 6-byte minimum — that asymmetry IS the additive "
+                        + "contract, and it is why this record has now grown TWICE without a "
+                        + "version bump");
+        t.Equal(28, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 15) = 28 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p2), "and it parses");
         t.True(p2.HasMapRoom, "the map-room record is delivered");
         t.Equal((byte)0x15, p2.MapRoomFlags, "the three set bits survive");
@@ -87,6 +101,10 @@ internal static class MapSyncVectors
                "and the pick is a HOVER, not a staged selection");
         t.Equal((byte)3, p2.MapRoomSurfaceStamp, "the surface stamp survives");
         t.Equal(0x3B627C19u, p2.MapRoomPickKey, "…and the pick key, unvalidated by design");
+        t.Equal((byte)0, p2.MapRoomSelectStamp, "…and a selection stamp of 0");
+        t.Equal(0u, p2.MapRoomSelectKey,
+                "…with key 0, which is 'NOTHING is selected' and not 'no field here'. A stamp that "
+                + "never changes never instructs anybody, so this record cannot deselect a thing");
 
         t.Case("m3. extras, map-room record: the HOST, on the CITY map, with a STAGED selection");
         m = PresenceSerializer.Write(new PresenceState
@@ -100,6 +118,8 @@ internal static class MapSyncVectors
                                   | NetProtocol.MapRoomPickStagedBit),
             MapRoomSurfaceStamp = 255,
             MapRoomPickKey = 0x9442487Fu,
+            MapRoomSelectStamp = 9,
+            MapRoomSelectKey = 0x9442487Fu,
         }, ext);
         t.Wire(Hex.Bytes(@"
             31 52 56 47      // magic
@@ -108,15 +128,21 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             01               // tail: 1 record
-            14 06            // id 20, len 6
+            14 0F            // id 20, len 15
             3F               // every defined bit: 1|2|4|8|16|32 = 0x3F = MapRoomDefinedMask
             FF               // surfaceStamp 255 -- it WRAPS; 255 is as ordinary as 3
             7F 48 42 94      // pickKey FNV-1a('BlackBarrow') = 0x9442487F LE
-            "), ext, m, "the staged bit rides the same flags byte as the hover: 'which icon is lit' "
-                        + "is one fact with a qualifier, never a second channel for the COMMITTED "
-                        + "selection (which the game itself already sends, host-authoritatively)");
+            09               // selectStamp 9 -- the ninth selection change made at that table
+            7F 48 42 94      // selectKey: the SAME node, because the pick IS the staged selection
+            00 00 00 00      // fanCharacterKey 0: this sender has no map card fan open
+            "), ext, m, "the staged bit rides the same flags byte as the hover, and the SELECTION "
+                        + "rides its own stamp+key behind it. The two agree here because a staged "
+                        + "pick is the selection; they disagree the moment that player hovers a "
+                        + "second icon, which is the only thing the staged bit still says");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p3), "and it parses");
         t.Equal(NetProtocol.MapRoomDefinedMask, p3.MapRoomFlags, "all six defined bits survive");
+        t.Equal((byte)9, p3.MapRoomSelectStamp, "the selection stamp survives");
+        t.Equal(0x9442487Fu, p3.MapRoomSelectKey, "…and the selection key");
 
         t.Case("m4. map-room record: undefined flag bits are masked off on READ");
         byte[] wildFlags = Hex.Bytes(@"
@@ -137,6 +163,11 @@ internal static class MapSyncVectors
                 "every bit outside MapRoomDefinedMask is masked off, so a future sender's extra bit "
                 + "can never light a meaning here");
         t.Equal(0u, p4.MapRoomPickKey, "and key 0 stays 'nothing'");
+        t.Equal((byte)0, p4.MapRoomSelectStamp,
+                "THE SIX-BYTE FORM IS STILL TRUSTED — MapRoomRecordBytes is frozen at 6 — and its "
+                + "missing selection fields read as 0/0, i.e. 'this peer does not participate in "
+                + "the shared selection'. That is the whole additive contract in one assertion");
+        t.Equal(0u, p4.MapRoomSelectKey, "…key included");
 
         t.Case("m5. map-room record: a peer NOT in the room is delivered, not dropped");
         byte[] notInRoom = Hex.Bytes(@"
@@ -514,9 +545,12 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             02               // tail: 2 records
-            14 06            // id 20 FIRST
+            14 0F            // id 20 FIRST
             01 00            // flags: in room only; surfaceStamp 0
             00 00 00 00      // pickKey 0 = pointing at nothing
+            00               // selectStamp 0
+            00 00 00 00      // selectKey 0 = nothing selected
+            00 00 00 00      // fanCharacterKey 0 = no map card fan open
             15 09            // id 21 SECOND
             01               // n = 1
             01 01 01 02      // kind 1, flags open, page 1, pageCount 2
@@ -563,11 +597,115 @@ internal static class MapSyncVectors
                         + "follow, and here it is what makes the 3D-map opt-in free for everyone "
                         + "who did not opt in");
 
+        // ---- record 20's SELECTION EDGE (user report 13) -----------------------------------------
+
+        t.Case("m19. map-room record: a SELECTION edge — the room's one selection, on the wire");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasMapRoom = true,
+            MapRoomFlags = (byte)(NetProtocol.MapRoomInRoomBit
+                                  | NetProtocol.MapRoomSurfaceKnownBit),
+            MapRoomSurfaceStamp = 1,
+            MapRoomPickKey = 0u,
+            MapRoomSelectStamp = 4,
+            MapRoomSelectKey = 0x3B627C19u,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            01               // tail: 1 record
+            14 0F            // id 20, len 15
+            05               // flags: inRoom(1) | surfaceKnown(4) -- pointing at NOTHING right now
+            01               // surfaceStamp 1
+            00 00 00 00      // pickKey 0: the pointer has left the icon...
+            04               // selectStamp 4 -- ...but a selection was made, and this is its EDGE
+            19 7C 62 3B      // selectKey FNV-1a('Gloomhaven') LE
+            00 00 00 00      // fanCharacterKey 0: no map card fan open on this sender
+            "), ext, m, "the selection is INDEPENDENT of the pick: a player selects an icon and then "
+                        + "points somewhere else, and the room must keep showing the selection. "
+                        + "That is why it is its own stamp and its own key rather than the staged "
+                        + "flag on the pick, which vanishes with the pointer");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p19), "and it parses");
+        t.Equal((byte)4, p19.MapRoomSelectStamp, "the selection stamp survives");
+        t.Equal(0x3B627C19u, p19.MapRoomSelectKey, "…and the selected node's key");
+        t.Equal(0u, p19.MapRoomPickKey, "…while the pick stays empty, as sent");
+
+        t.Case("m20. map-room record: a selection edge carrying key 0 is a DESELECTION");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasMapRoom = true,
+            MapRoomFlags = NetProtocol.MapRoomInRoomBit,
+            MapRoomSelectStamp = 5,
+            MapRoomSelectKey = 0u,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            01               // tail: 1 record
+            14 0F            // id 20, len 15
+            01               // flags: in room only
+            00               // surfaceStamp 0
+            00 00 00 00      // pickKey 0
+            05               // selectStamp 5 -- CHANGED, so this is an edge...
+            00 00 00 00      // ...naming key 0, which is 'NOTHING is selected'
+            00 00 00 00      // fanCharacterKey 0: no map card fan open
+            "), ext, m, "key 0 is a first-class value on this field and not an absence: an edge "
+                        + "naming it is how 'es soll nur eine einzige Auswahl geben' holds in BOTH "
+                        + "directions — one player closing the quest window clears it for everyone");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p20), "and it parses");
+        t.Equal((byte)5, p20.MapRoomSelectStamp,
+                "the stamp is what makes this an instruction; the key alone would be "
+                + "indistinguishable from a peer who has simply never selected anything");
+        t.Equal(0u, p20.MapRoomSelectKey, "and the key is the deselection");
+
+        t.Case("m21. map-room record: an OLD SIX-BYTE record still parses, and instructs nothing");
+        byte[] shortForm = Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            02               // tail: 2 records
+            14 06            // id 20 in the ORIGINAL six-byte form (a ModBuild 222..225 peer)
+            15               // flags: inRoom | surfaceKnown | pickValid
+            07               // surfaceStamp 7
+            7F 48 42 94      // pickKey FNV-1a('BlackBarrow') LE
+            03 02 00 01      // id 3 (mod version) BEHIND it, undamaged
+            ");
+        t.True(PresenceSerializer.TryRead(shortForm, shortForm.Length, out PresenceState p21),
+               "it parses");
+        t.True(p21.HasMapRoom, "the record is delivered — six bytes is the frozen minimum");
+        t.Equal((byte)7, p21.MapRoomSurfaceStamp, "everything that build DID send survives");
+        t.Equal(0x9442487Fu, p21.MapRoomPickKey, "…including its pick key");
+        t.Equal((byte)0, p21.MapRoomSelectStamp,
+                "and the fields it does not know read 0: a stamp that never changes is never an "
+                + "edge, so that peer simply does not take part in the shared selection and can "
+                + "never be misread as having just deselected everything");
+        t.Equal(0u, p21.MapRoomSelectKey, "…key included");
+        t.True(p21.HasModVersion,
+               "and the record BEHIND the short one is untouched — the walk uses each record's own "
+               + "length, which is what makes lengthening record 20 safe in the first place");
+
         // ---- the sizing contract ----------------------------------------------------------------
 
         t.Case("m18. the record sizes are what MaxSize was raised for");
         t.Equal(6, NetProtocol.MapRoomRecordBytes,
-                "record 20 is flags + surfaceStamp + a 4-byte key");
+                "record 20's TRUSTED MINIMUM is flags + surfaceStamp + a 4-byte key, and it is "
+                + "FROZEN at 6 for ever: raising it would turn every older peer from 'does not "
+                + "participate' into 'record dropped'");
+        t.Equal(11, NetProtocol.MapRoomRecordBytesWithSelect,
+                "…the selection edge adds selectStamp + a 4-byte select key on top of it…");
+        t.Equal(15, NetProtocol.MapRoomRecordBytesWithFan,
+                "…and the FULL form this build writes adds the map-fan character key, so a peer's "
+                + "card fan prints the loadout its owner NAMED instead of one deduced from the "
+                + "hand's size. Each field is read behind its own length test, which is why all "
+                + "three of these numbers can be true at once");
         t.Equal(8, NetProtocol.SharedWindowEntryMinBytes,
                 "a shared-window entry head is kind + flags + page + pageCount + a 4-byte key");
         t.Equal(31, NetProtocol.SharedWindowEntryBytesWithPose,
@@ -577,13 +715,15 @@ internal static class MapSyncVectors
         t.Equal(63, NetProtocol.SharedWindowMaxRecordBytes,
                 "so the worst-case payload is 1 + 2 x 31 = 63");
         t.Equal(1800, PresenceSerializer.MaxSize,
-                "MaxSize was raised 1600 -> 1800 in the same commit: the worst case went "
+                "MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
                 + "its), and the margin at 1600 would have been 170 — thinner than the largest "
                 + "single record (257, board tuning) and therefore a violation of the rule that "
-                + "every new record keeps a margin of at least one record's worth");
-        t.True(PresenceSerializer.MaxSize - 1430 >= 257,
-               "the restored margin (370) is larger than the largest single record, which is the "
-               + "stated rule and the reason the two earlier raises happened");
+                + "every new record keeps a margin of at least one record's worth. The selection "
+                + "edge then took record 20 from 8 to 13 and the worst case to 1435, which needs "
+                + "no raise: the margin is still 365");
+        t.True(PresenceSerializer.MaxSize - 1435 >= 257,
+               "the margin (365) is larger than the largest single record, which is the stated "
+               + "rule and the reason the earlier raises happened");
     }
 }

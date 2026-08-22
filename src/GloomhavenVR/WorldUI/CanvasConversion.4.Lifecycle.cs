@@ -557,6 +557,31 @@ internal static partial class CanvasConversion
             panel.RevealArmed = false;
             return;
         }
+        // ModBuild 226 — AN EMPTY WINDOW MUST NEVER STAND. User ruling, verbatim: "Als mein
+        // Mitspieler gejoint ist, kam ein leeres Fenster auf - sowas soll per se niemals passieren."
+        // (.planning/debug/leeres_fenster.jpg: six-plus grab bars in mid-air with no window on them.)
+        //
+        // THE REVEAL EDGE IS THE RIGHT PLACE AND THE ONLY CHEAP ONE. It runs ONCE per float, it is
+        // the last moment before anything of this panel is drawn, and by here the content fit has
+        // measured (the gate waits for it), so a window that is going to have content has it. A
+        // per-frame check would cost a component walk on every panel forever and would fight the
+        // ordinary case of a window whose content pops in late.
+        //
+        // THE REFUSAL IS A RELEASE, NOT A HIDE. Hiding the bar and leaving the panel alive would
+        // leave an invisible thing holding a map-room window slot and a draw-order rung — a worse
+        // bug than the visible one, and explicitly ruled out. ModalFallback.RefuseEmptyFloat drops
+        // the whole float (grab holder destroyed, host released, 2D home restored) and enrols the
+        // window in the retry set, so it is reconsidered only after it closes and re-opens.
+        //
+        // SCOPED TO MODAL FLOATS: RefuseEmptyFloat returns false for any panel ModalFallback does not
+        // own, so the surfaces (actor bars, dialog, stat panels, tray docks) reveal exactly as they
+        // always did. That matters — several of them are legitimately empty for stretches.
+        if (ModalFallback.RefuseEmptyFloat(panel))
+        {
+            panel.RevealPending = false;
+            panel.RevealArmed = false;
+            return;
+        }
         float now = Time.unscaledTime;
         bool settled = panel.RevealArmedSettled;
         bool treated = now >= panel.RevealNotBefore;

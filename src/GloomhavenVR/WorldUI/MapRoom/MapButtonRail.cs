@@ -379,6 +379,14 @@ internal sealed class MapButtonRail
     private bool _emptyReported;
     private Cap? _laserHover;
 
+    /// <summary>Which of <see cref="Rescan"/>'s two scans produced the current set — log material
+    /// for the order line. The set is the same either way; the ORDER used to depend on it, which is
+    /// the whole of the ModBuild 226 report.</summary>
+    private string _scanSource = "(not scanned yet)";
+
+    /// <summary>Reused by the order line so a rail build allocates one string, not nine.</summary>
+    private static readonly System.Text.StringBuilder OrderSb = new(256);
+
     /// <summary>Caps currently standing (log material).</summary>
     internal int CapCount => _caps.Count;
 
@@ -445,11 +453,16 @@ internal sealed class MapButtonRail
     private void Rescan()
     {
         _scratch.Clear();
+        _scanSource = "no UIGuildmasterButton was found at all";
         if (Singleton<UIGuildmasterHUD>.IsInitialized)
         {
             UIGuildmasterHUD hud = Singleton<UIGuildmasterHUD>.Instance;
             if (hud != null)
+            {
                 hud.GetComponentsInChildren(includeInactive: true, _scratch);
+                if (_scratch.Count > 0)
+                    _scanSource = "the subtree of Singleton<UIGuildmasterHUD>.Instance";
+            }
         }
         // Fallback for a HUD that is not the singleton yet (or a version that parents the bar
         // elsewhere) — the component type is public, so this needs no name matching.
@@ -457,7 +470,28 @@ internal sealed class MapButtonRail
         {
             UIGuildmasterButton[] sweep = Object.FindObjectsOfType<UIGuildmasterButton>(true);
             _scratch.AddRange(sweep);
+            if (_scratch.Count > 0)
+                _scanSource = "an Object.FindObjectsOfType<UIGuildmasterButton>(true) SCENE SWEEP "
+                              + "(the HUD singleton was cold)";
         }
+
+        // THE ORDER STOPS BEING THE SCAN'S (ModBuild 226) — user report, verbatim: "Die
+        // Button-Reihenfolge am Tisch vor der Map ist nicht bei jedem Spieler die gleiche - das soll
+        // nicht sein - jeder soll die gleiche Reihenfolge sehen."
+        //
+        // Neither line above produces an order the DATA states. The first is the depth-first
+        // hierarchy order of whichever UIGuildmasterHUD won the singleton race — and the reporting
+        // player's own log proves there were TWO of them in that scene (DESTINATIONS DISCOVERY
+        // BASELINE at Player.log:3087: the sweep and the singleton "returned a DIFFERENT object"),
+        // while the second player's agreed. The second is FindObjectsOfType, whose order Unity
+        // documents as undefined and which is in practice a function of load order and instance ids,
+        // i.e. of the PROCESS; the same session took it for 39 consecutive scans on one client and
+        // for four whole 30 s windows on the other, so it is not a corner case either.
+        //
+        // The sort is applied HERE rather than in Build so that it also holds for the _scratch list
+        // SameSet compares against — SameSet asks about membership only, which is why an order that
+        // changed under a later rescan would never have rebuilt the rail anyway.
+        _scratch.Sort(CompareByDeclaredRank);
 
         if (SameSet())
             return;
@@ -478,6 +512,42 @@ internal sealed class MapButtonRail
         }
         _emptyReported = false;
         Build();
+    }
+
+    /// <summary>
+    /// THE RAIL'S ORDER, AS A COMPARISON. Low rank stands at local −X (the reading start for a
+    /// player at this table edge — see the frame note in <see cref="Build"/>).
+    ///
+    /// <para>The rank itself lives in <c>GuildmasterDestinations.DeclaredOrder</c> and nowhere else,
+    /// so "what order do the buttons stand in" is answered by ONE table that every client reads
+    /// rather than by whatever the local process's scan happened to hand over. See section 6 of that
+    /// class's doc for the two scans this replaces and for the log evidence that they disagreed.</para>
+    ///
+    /// <para>THE TIE-BREAK IS <c>name</c>, ORDINAL, and it is deliberately not an instance id: two
+    /// buttons carrying the SAME mode is only reachable when the scene really does hold two
+    /// guildmaster bars (which the reporting player's log says it did) and the sweep fallback picked
+    /// up both. An instance id would sort them differently on every client, i.e. exactly the defect
+    /// this method exists to remove; the GameObject names are prefab constants and are not
+    /// localized. If even the names tie, the order between those two is genuinely undecidable from
+    /// the data and the rail says so on its order line rather than pretending otherwise.</para>
+    /// </summary>
+    private static int CompareByDeclaredRank(UIGuildmasterButton a, UIGuildmasterButton b)
+    {
+        if (ReferenceEquals(a, b))
+            return 0;
+        // BOTH-NULL FIRST, and that is not defensive noise: Unity's operator== reports a DESTROYED
+        // object as null, so two dead entries would otherwise both answer "I come after you" and
+        // List<T>.Sort throws IComparer returns inconsistent results on a comparison that is not a
+        // strict weak ordering. Dead entries sort to the end, where Build already skips them.
+        if (a == null)
+            return b == null ? 0 : 1;
+        if (b == null)
+            return -1;
+        int ra = GuildmasterDestinations.Rank(a.GuildmasterMode);
+        int rb = GuildmasterDestinations.Rank(b.GuildmasterMode);
+        if (ra != rb)
+            return ra < rb ? -1 : 1;
+        return string.CompareOrdinal(a.name, b.name);
     }
 
     private bool SameSet()
@@ -563,6 +633,7 @@ internal sealed class MapButtonRail
             if (c.Glow != null) withGlow++;
         }
         VRLayers.Apply(_root);
+        LogResolvedOrder();
 
         if (!_reported)
         {
@@ -584,6 +655,69 @@ internal sealed class MapButtonRail
                               + "(ModBuild 195). "
                               + "World-fixed — the rail never follows the head.");
         }
+    }
+
+    /// <summary>
+    /// ONE LINE, ONE RAIL BUILD: the order the caps actually ended up in, left to right, so two
+    /// players' logs can be diffed against each other directly instead of being reasoned about.
+    ///
+    /// <para>WHY THIS LINE HAD TO BE ADDED BEFORE THE FIX COULD BE JUDGED. The ModBuild 225 session
+    /// carries two full logs of the same game and NEITHER records the rail's order — the build line
+    /// says "8 cap(s) standing" and stops there. The difference had to be inferred from the
+    /// MAP BUTTON ICON SAMPLING report's WORST cap, which is the cap FARTHEST from the eye: with an
+    /// identical rail origin (-110.16, 1.17, 0.18) and an identical rig scale (198.12) on both
+    /// clients, the reporting player's worst was 'Merchant' 59 times and 'TownRecords' 34 and never
+    /// once 'WorldMap', while the second player's was 'WorldMap' 46 times and 'TownRecords' 14 and
+    /// never once 'Merchant'. Disjoint ends, same eight caps. That is enough to believe the report
+    /// and not enough to state the two orders, which is what this line is for.</para>
+    ///
+    /// <para>It also names the SCAN that produced the set, and flags any mode the declared table
+    /// does not rank and any two caps that tied — the three ways this can still go wrong.</para>
+    /// </summary>
+    private void LogResolvedOrder()
+    {
+        System.Text.StringBuilder sb = OrderSb;
+        sb.Length = 0;
+        sb.Append("MAP TABLE BUTTON ORDER: ");
+        int unranked = 0;
+        int ties = 0;
+        int lastRank = int.MinValue;
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            UIGuildmasterButton button = _caps[i].Button;
+            EGuildmasterMode mode = button != null ? button.GuildmasterMode : EGuildmasterMode.None;
+            int rank = GuildmasterDestinations.Rank(mode);
+            if (!GuildmasterDestinations.IsRanked(mode))
+                unranked++;
+            if (i > 0 && rank == lastRank)
+                ties++;
+            lastRank = rank;
+            if (i > 0)
+                sb.Append(" | ");
+            sb.Append(i + 1).Append(' ').Append(mode.ToString());
+        }
+        sb.Append(". READ IT AS: the caps left to right along the rail's own +X, which is the "
+                  + "reading direction for a player at this table edge. THE ORDER IS DECLARED, NOT "
+                  + "SCANNED (ModBuild 226): it is GuildmasterDestinations.DeclaredOrder, one table "
+                  + "every client compiles in, so two players' rails are identical by construction "
+                  + "and this line can be diffed between two logs directly. Before 226 it was "
+                  + "whatever the local scan handed over — a transform hierarchy walk of whichever "
+                  + "UIGuildmasterHUD won the singleton race, or, while that singleton was cold, an "
+                  + "Object.FindObjectsOfType sweep whose order Unity documents as undefined. ");
+        sb.Append("The set for THIS build came from ").Append(_scanSource)
+          .Append(" (the set is the same either way; only the order used to depend on it). ");
+        sb.Append(unranked == 0
+            ? "Every mode on the bar is named by the declared table."
+            : $"{unranked} cap(s) carry a mode the declared table does NOT name — they are appended "
+              + "after the named ones in enum order, which is still identical on every client, but "
+              + "if a bar button shows up at the far end unexpectedly this is why and the table is "
+              + "where to add it.");
+        if (ties > 0)
+            sb.Append($" {ties} adjacent pair(s) share a rank, i.e. two buttons carry the SAME mode — "
+                      + "that only happens when the scene really does hold two guildmaster bars and "
+                      + "the sweep fallback picked up both. They are ordered by GameObject name; if "
+                      + "the names also tie, their relative order is not decidable from the data.");
+        VRLog.Info(Scope, sb.ToString());
     }
 
     private Cap BuildCap(UIGuildmasterButton button, Vector3 localPos, Quaternion localRot,
@@ -889,6 +1023,15 @@ internal sealed class MapButtonRail
     /// (uGUI's <c>Selectable.m_GroupsAllowInteraction</c> is only recomputed in
     /// <c>OnCanvasGroupChanged</c>, which does not run while the object is off), so it is read only
     /// AFTER the deliverability question — never as a proxy for it.</para>
+    ///
+    /// <para>ModBuild 226 DELIBERATELY DID NOT ADD A FOURTH CLAUSE HERE for its own new close case
+    /// (the mode's window still standing while the mode machine has moved on — see
+    /// <see cref="Press"/>). Clause 2 already covers it and covers it exactly: the game marks the
+    /// toggle non-interactable only WHILE the mode is on (<c>RefreshSelected</c>, :209), so in the
+    /// leftover-window state the toggle is interactable and this method already answers yes. Adding
+    /// the test would have put <c>ModalFallback</c>'s converted-window scan into a predicate that
+    /// runs for every cap on every frame — the ModBuild 196 mistake, for a boolean that is already
+    /// true.</para>
     /// </summary>
     private static bool Pressable(Cap c)
     {
@@ -921,17 +1064,16 @@ internal sealed class MapButtonRail
     /// <c>CityEncounter</c>, <c>MultiplayerQuest</c>) is not a bar button at all — no cap exists for
     /// it — and is refused for the same reason: this method answers only for modes that have a
     /// window to close.</para>
+    ///
+    /// <para>ModBuild 226: the six-way table itself moved to
+    /// <c>GuildmasterDestinations.IsWindowMode</c>, unchanged member for member. It had to become
+    /// one table rather than two, because that class now asks the same question on its own account
+    /// — <c>IsLeftoverWindowStanding</c> must know which modes HAVE a window before it can ask that
+    /// window anything — and two copies of a six-way switch is the shape a later round gets
+    /// half-right. The reasoning above is the reasoning for that table and stays here.</para>
     /// </summary>
-    private static bool IsClosableMode(EGuildmasterMode mode) => mode switch
-    {
-        EGuildmasterMode.Merchant => true,
-        EGuildmasterMode.Temple => true,
-        EGuildmasterMode.Trainer => true,
-        EGuildmasterMode.Enchantress => true,
-        EGuildmasterMode.TownRecords => true,
-        EGuildmasterMode.MercenaryLog => true,
-        _ => false,
-    };
+    private static bool IsClosableMode(EGuildmasterMode mode) =>
+        GuildmasterDestinations.IsWindowMode(mode);
 
     /// <summary>
     /// Is the guildmaster bar hidden by a SELECTED MAP LOCATION — the one lock this room can lift?
@@ -1530,9 +1672,34 @@ internal sealed class MapButtonRail
         //     and a repeat click could not commit anyway (toggleGroup.allowSwitchOff is false while a
         //     mode is active, so uGUI's Toggle.Set merely re-asserts isOn). The close is NOT a click
         //     on this toggle: it is the map button's own press, i.e. the window X's route.
-        if (toggle != null && toggle.isOn)
+        //
+        //     ModBuild 226 — AND "OPEN" IS NOW ASKED OF THE WINDOW, NOT OF THE MODE. He reported
+        //     this again, in these words: "Ein erneuter Druck auf einen Button z.B. Händler obwohl
+        //     das Fenster SCHON DA IST soll das jeweilige Fenster wieder schließen." The 222 close
+        //     path exists and fires — five of its lines are in the reporting player's log
+        //     (Player.log:64665, 64917, 65840, 163131, 163275), each followed by the window
+        //     actually closing — but it is keyed on `toggle.isOn`, which is the game's CURRENT
+        //     MODE. In this room that is not the same question: ModalFallback.MapRoomParallel keeps
+        //     a destination floated after the game's single-window toggle has hidden it, and the
+        //     same log names that state twice over (Player.log:66110 "game had already hidden it
+        //     (single-window toggle); releasing the parallel VR float only", and above it "MAP TABLE
+        //     BUTTON 'City' pressed (X button on 'UI Shop Item Window') while it is ALREADY the
+        //     current mode … nothing was dispatched"). With the merchant still on the table and the
+        //     mode machine back at the map, a press here took the OPEN branch below and re-entered
+        //     the mode instead of closing what he was looking at. The window is asked directly —
+        //     GuildmasterDestinations.IsLeftoverWindowStanding, which reads UIWindow.IsOpen and the
+        //     mod's own float set. NOTHING IS REMEMBERED: a flag saying "this cap opened it" would
+        //     be wrong the moment he uses the window's own X, which in this room he can, always.
+        EGuildmasterMode mode = button.GuildmasterMode;
+        bool modeIsCurrent = toggle != null && toggle.isOn;
+        UIWindow? standing = null;
+        string standingWhy = string.Empty;
+        bool leftoverStanding = false;
+        if (!modeIsCurrent)
+            leftoverStanding = GuildmasterDestinations.IsLeftoverWindowStanding(mode, out standing,
+                                                                               out standingWhy);
+        if (modeIsCurrent || leftoverStanding)
         {
-            EGuildmasterMode mode = button.GuildmasterMode;
             if (!IsClosableMode(mode))
             {
                 VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while it is ALREADY the "
@@ -1547,11 +1714,20 @@ internal sealed class MapButtonRail
             }
             VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while its window is OPEN — "
                               + "this is the CLOSE, not a second open. Routed to "
-                              + "GuildmasterDestinations.CloseMode, which presses the bar's map button, the "
-                              + "same dispatch this window's own X has used since ModBuild 184: the game's "
-                              + "mode machine has no 'close', only 'switch mode', and only "
-                              + "UpdateCurrentMode -> Exit takes the party display back out of selection "
-                              + "mode. The flat game cannot do this at all — RefreshSelected sets "
+                              + "GuildmasterDestinations.CloseMode. WHICH OF THE TWO STATES: "
+                              + (modeIsCurrent
+                                  ? "the mode machine still has this mode CURRENT (toggle.isOn), so the "
+                                    + "close is the return to the map — the same dispatch this window's own "
+                                    + "X has used since ModBuild 184. The game's mode machine has no "
+                                    + "'close', only 'switch mode', and only UpdateCurrentMode -> Exit takes "
+                                    + "the party display back out of selection mode."
+                                  : $"the mode machine has ALREADY left this mode, and the window is standing "
+                                    + $"anyway — {standingWhy}. Returning to the map would dispatch nothing "
+                                    + "there (that is the 'ALREADY the current mode' no-op ModBuild 222 left "
+                                    + "in the log), so the close goes through the WINDOW'S OWN X path, "
+                                    + $"ModalFallback.CloseFloatedWindow on "
+                                    + $"'{(standing != null ? standing.name : "?")}'.")
+                              + " The flat game cannot do either of these — RefreshSelected sets "
                               + "toggle.interactable = !toggle.isOn (UIGuildmasterButton.cs:209) and "
                               + "allowSwitchOff is false while a mode is active (UIGuildmasterHUD.cs:441), "
                               + "so a repeat click there is a no-op. Nothing new goes on the wire; a second "

@@ -141,13 +141,74 @@ internal static class SharedWindows
         _ => false,
     };
 
-    /// <summary>THE PREDICATE both lanes call: is this window shared FOR THIS CLIENT right now?
+    /// <summary>THE PREDICATE every lane calls: is this window shared FOR THIS CLIENT right now?
+    ///
+    /// <para><b>THE THIRD LANE (2026-08-22, user request 7b, verbatim):</b> "Da es ein Fenster für
+    /// alle ist, sollen diese Fenster nach dem Greifen auch nicht die Orientierung nach dem Spieler
+    /// ändern, wie es die anderen Fenster tun." A private window yaws to face its owner when they
+    /// let go (<c>GrabbableModal.OnGrabFinished</c>). On a window that belongs to EVERYBODY that
+    /// same yaw is a defect: it turns the window away from everyone else, and — worse — it happens
+    /// on the SENDER too, so the pose that was supposed to be 1:1 is silently corrected on one
+    /// client after it was published. So this predicate also gates the release re-face, on every
+    /// client, and that gate is NOT configurable (request 8's three modes are for LOCAL windows
+    /// only: "Remote-Fenster (blau) sollen das gar nicht haben").</para>
+    ///
+    /// <para><b>WHAT IS DELIBERATELY NOT GATED BY IT: the SPAWN facing</b>
+    /// (<c>PanelPlacement.Spawn</c> / <c>ClampIntoView</c>, logged as "one-shot facing applied" by
+    /// <c>ModalFallback.8.Convert</c>). A freshly opened shared window has no agreed pose at all —
+    /// record 21 carries a pose block only once somebody has MOVED the window — so each client
+    /// places its own copy in its own view, exactly as it always has. Suppressing the spawn facing
+    /// would leave the window at whatever rotation the host happened to be built with, on every
+    /// client, which is worse for everyone and agrees with nobody. The full argument, and the
+    /// re-face gate this one is not, is written at those two call sites.</para>
     /// </summary>
     internal static bool IsShared(UIWindow? window)
     {
         SharedWindowKind kind = KindOf(window);
         return kind != SharedWindowKind.None && ParticipatesHere(kind);
     }
+
+    /// <summary>
+    /// IS A HAND ON A SHARED WINDOW'S GRAB BAR ON THIS CLIENT RIGHT NOW?
+    ///
+    /// <para><b>WHY THIS EXISTS: user request 7 (2026-08-22, verbatim)</b> — "Die Bewegungen der
+    /// 'blauen' MP-Fenster, die 1:1 synchronisiert werden sollen, sollen auch die Bewegung und die
+    /// Position voll übertragen (flüssig, wie bei der Position des Boards auch)". The board's
+    /// smoothness is TWO mechanisms, not one, and this is the SENDER half of it: while the owner is
+    /// dragging their board, <c>NetAvatarDriver.TickExtrasSend</c> raises the whole extras packet to
+    /// the RIG rate (<c>NetProtocol.SendRateHz</c> = 15 Hz) instead of the idle
+    /// <c>ExtrasSendRateHz</c> = 5 Hz, so the receiver's easing gets the same sample density the
+    /// head and hands already get ("Bewegen kommt nicht flüssig an", defect 7 of the 1:1-parity
+    /// round — see the boardMoving/poseDue pair there and the note in
+    /// <c>Net.RemoteControlBoard</c>). A shared window that is being carried is the same kind of
+    /// motion and now rides the same cadence.</para>
+    ///
+    /// <para><b>WHY "GRABBED" AND NOT "THE POSE CHANGED".</b> The board's own test compares the
+    /// sampled pose against the last SENT one, because the board has exactly one pose and the sender
+    /// already holds it. There is no such single quantity here — three window kinds, each of which
+    /// may be absent — and a per-kind last-sent cache in this class would be a second copy of state
+    /// <c>Net.RemoteMapStory</c> / <c>Net.RemoteStorySync</c> already keep. A hand on the bar is a
+    /// strict SUPERSET of the interval the pose changes in, it cannot false-positive on a standing
+    /// window (nothing else touches the bar), and it costs the same. The cadence therefore rises
+    /// exactly while somebody is dragging and falls back the moment they let go.</para>
+    ///
+    /// <para><b>COST ON A CLIENT WITH NOTHING SHARED OPEN:</b> one <c>Singleton.IsInitialized</c>
+    /// test for the scenario story box, and for the two map kinds not even that — they are behind
+    /// <see cref="ParticipatesHere"/>, i.e. behind <c>MapRoomDriver.Active</c>, which is false for
+    /// every scenario session and for every player with the 3D map switched off.</para>
+    /// </summary>
+    internal static bool AnyGrabbedHere() =>
+        GrabbedHere(SharedWindowKind.ScenarioStory)
+        || GrabbedHere(SharedWindowKind.MapStory)
+        || GrabbedHere(SharedWindowKind.QuestConfirm);
+
+    /// <summary>One kind's answer for <see cref="AnyGrabbedHere"/> — participation first, so a
+    /// non-participating client never even looks for the window.</summary>
+    private static bool GrabbedHere(SharedWindowKind kind) =>
+        ParticipatesHere(kind)
+        && TryGetGrab(kind, out GrabbableModal? grab)
+        && grab != null
+        && grab.IsGrabbed;
 
     /// <summary>The game window behind a kind, or null when that controller is not up.</summary>
     internal static UIWindow? WindowOf(SharedWindowKind kind)

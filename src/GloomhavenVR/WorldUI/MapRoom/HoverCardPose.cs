@@ -55,6 +55,18 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// it as the exception. Yaw only, flattened to the horizon, so a card read from above stays upright.
 /// And the pose is WRITTEN, not parented: the map rebuilds its icons wholesale on every
 /// <c>InitMap</c>, and a host parented into that hierarchy would be destroyed with it mid-frame.</para>
+///
+/// <para><b>AND IT NOW POSES A PEER'S PLACARD TOO, WHICH IS WHY THE BILLBOARD TAKES A POINT AND NOT
+/// A CAMERA.</b> User ruling (report 6, verbatim): <i>"Mouseover der Symbole in der Map soll nicht
+/// das Steam-Symbol sein, sondern das richtige Mouseover das der Spieler auch sieht, zu dem
+/// jeweiligen Spieler hingedreht, direkt über dem jeweiligen Symbol."</i> A peer's placard is the
+/// GAME'S OWN preview popup, instantiated per peer and fed the same <c>IQuest</c>
+/// (<c>Net.RemoteMapRoom.Placards</c>), and it is seated by THIS code so that "above the symbol"
+/// means the identical geometry for a foreign card and a local one — the same neutralisation of the
+/// game's follow component, the same measured-content bottom edge, the same anchor. The single
+/// difference is the point it is turned to: the local card faces the local head, a peer's faces
+/// THAT PEER's head. Since the name row and the Steam picture are gone, that facing is the only
+/// thing that says whose placard it is, so it is not decoration.</para>
 /// </summary>
 internal static class HoverCardPose
 {
@@ -94,6 +106,50 @@ internal static class HoverCardPose
     internal static void Reset()
     {
         States.Clear();
+        _localHostScale = float.NaN;
+    }
+
+    /// <summary>
+    /// The name every PEER PLACARD's cloned popup carries, and the only thing that separates one
+    /// from the game's own preview popup at runtime.
+    ///
+    /// <para>A peer's placard IS a <c>UIQuestPreviewPopup</c> instance (report 6: "es soll 1:1 so
+    /// aussehen wie es für den Spieler auch aussieht"), so every by-type lookup in this project now
+    /// has to be able to say which one it means. The prefix lives HERE rather than in the Net class
+    /// that creates the clones because the two readers — <see cref="MapHoverVerdict"/>'s popup
+    /// lookup and the clone builder itself — must not each carry their own copy of the string.</para>
+    /// </summary>
+    internal const string PeerPlacardNamePrefix = "GloomhavenVR.MapPeerPlacard";
+
+    /// <inheritdoc cref="PeerPlacardNamePrefix"/>
+    internal static bool IsPeerPlacard(GameObject? go) =>
+        go != null && go.name.StartsWith(PeerPlacardNamePrefix, System.StringComparison.Ordinal);
+
+    /// <summary>
+    /// The world scale the LOCAL hover card's host is standing at, or NaN until one has been seated
+    /// this session.
+    ///
+    /// <para>WHY IT IS MEASURED AND NOT COMPUTED: the local card's size is
+    /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap times the user's
+    /// <c>[WorldUI] WindowLegibility</c> dial, both private to a file this lane does not own. A
+    /// peer's placard must be the SAME SIZE as the card the local player gets for the same icon,
+    /// and the only way to guarantee that without copying two constants (one of them a live user
+    /// dial) is to read the number off the card the game and the mod already agreed on. Recorded
+    /// here, where every local card passes through anyway; the peer builder falls back to a stated
+    /// approximation until the local player has hovered once.</para>
+    /// </summary>
+    internal static float LocalCardHostScale => _localHostScale;
+
+    private static float _localHostScale = float.NaN;
+
+    /// <summary>
+    /// Put one hover card where it belongs this frame, billboarded to the LOCAL head — the local
+    /// player's own card.
+    /// </summary>
+    internal static void Place(ConvertedPanel panel, bool hasAnchor, Vector3 anchor, Camera? head)
+    {
+        Place(panel, hasAnchor, anchor,
+              head != null ? head.transform.position : (Vector3?)null, isLocalCard: true);
     }
 
     /// <summary>
@@ -104,8 +160,19 @@ internal static class HoverCardPose
     /// (it is about to close, and snapping it to a fallback spot on the way out would be a visible
     /// jump) — but the game's follow component is still stood down, because a card being taken away
     /// must not be yanked across the room on its last frames.</para>
+    ///
+    /// <para><paramref name="viewer"/> IS WHO THE CARD IS TURNED TO, and for a peer's placard that
+    /// is the whole of its identity (report 6): the name row and the Steam picture are gone, so
+    /// "whose placard is this" is answered by the fact that it faces THEM and not you. Null leaves
+    /// the rotation alone — a card whose reader cannot be located keeps the facing it had rather
+    /// than snapping to a direction nobody chose.</para>
+    ///
+    /// <para><paramref name="isLocalCard"/> only decides whether this card's measured host scale is
+    /// recorded as the reference every peer placard is built at — see
+    /// <see cref="LocalCardHostScale"/>. Nothing about the pose depends on it.</para>
     /// </summary>
-    internal static void Place(ConvertedPanel panel, bool hasAnchor, Vector3 anchor, Camera? head)
+    internal static void Place(ConvertedPanel panel, bool hasAnchor, Vector3 anchor,
+                               Vector3? viewer, bool isLocalCard)
     {
         if (panel == null || !panel.IsAlive || panel.HostGo == null)
             return;
@@ -114,14 +181,21 @@ internal static class HoverCardPose
 
         Neutralise(panel, state);
 
+        if (isLocalCard)
+        {
+            float s = Mathf.Abs(host.lossyScale.x);
+            if (s > 1e-6f)
+                _localHostScale = s;
+        }
+
         if (!hasAnchor)
             return;
 
         // Billboard: a world-space canvas's FRONT is its -forward (the spawn placer's convention),
-        // so the host's forward points AWAY from the head. Flattened to the horizon.
-        if (head != null)
+        // so the host's forward points AWAY from its reader. Flattened to the horizon.
+        if (viewer.HasValue)
         {
-            Vector3 flat = anchor - head.transform.position;
+            Vector3 flat = anchor - viewer.Value;
             flat.y = 0f;
             if (flat.sqrMagnitude > 1e-6f)
                 host.rotation = Quaternion.LookRotation(flat.normalized, Vector3.up);

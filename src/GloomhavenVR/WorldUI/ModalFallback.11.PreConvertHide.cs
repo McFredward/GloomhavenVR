@@ -145,6 +145,19 @@ internal static partial class ModalFallback
         // the host, on the mod layer, so there is nothing flat to suppress. Blacking it out would
         // instead make it invisible until the PreConvertHideMaxFrames budget expired and then log a
         // warning about a window that was never meant to float.
+        //
+        // ModBuild 226: that predicate now answers for TWO shapes of group — the hierarchy one this
+        // paragraph describes, and the DECLARED sibling one (the multiplayer "Quest wählen" confirm,
+        // which MapTravelConfirm parks into the quest window). The declared member is NOT yet under
+        // the host on the frame its transition fires — the park is level-triggered from the map
+        // room's own tick — so strictly it does have the flat frame this blackout is for. It is
+        // deliberately skipped anyway: the strip lives on 'Campaign Canvas'
+        // (ScreenSpaceCamera on 'UI Camera', which the room does not render), so there is nothing to
+        // suppress in practice, and blacking it out would switch off a canvas that NO conversion is
+        // ever going to hand back — the budget would expire, the window would be handed back with a
+        // warning, and for those frames the button would have been invisible INSIDE the quest window
+        // it had meanwhile been parked into. An unnecessary blackout of an unreachable flat frame is
+        // the cheaper mistake.
         if (RendersInsideFloatedAncestor(window))
             return;
 

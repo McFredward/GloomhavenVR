@@ -309,7 +309,40 @@ internal static partial class ModalFallback
                                   + "side wins it: expect the window to flicker rather than stay. The "
                                   + "sticky rule assumes an event-driven hide (a ToggleGroup switching "
                                   + "modes); if this line appears, that assumption is wrong for this "
-                                  + "window and it needs an exclusion, not a louder re-assert.");
+                                  + "window and it needs an exclusion, not a louder re-assert. ModBuild "
+                                  + $"226: it now GETS one — after {StickyConcedeFrames} frames the "
+                                  + "stickiness is dropped and the float releases on the next tick.");
+        }
+        // ModBuild 226 — AND THEN WE CONCEDE, BECAUSE THE ALTERNATIVE IS AN EMPTY WINDOW.
+        //
+        // The Warn above has been telling us since ModBuild 180 that a per-frame hider means "this
+        // window needs an exclusion, not a louder re-assert", and the ModBuild 225 log duly prints
+        // it ("STICKY FIGHT: 'Map Story Window' has been re-shown 3 frames running"). What it did
+        // NOT do was act on its own diagnosis: the re-assert kept running for the rest of the
+        // window's life, one write per frame, against a writer that wins. The user-visible outcome of
+        // that stalemate is precisely the artefact of report 15 — this class's own WindowPanel doc
+        // records it — "kept its float + CanvasGroup alpha but rendered as an EMPTY shell — only the
+        // mod-drawn grab bar / X remained".
+        //
+        // So: drop STICKY. That is the smallest possible concession and it changes exactly one thing
+        // — the release loop's `|| wp.Sticky` clause stops holding the float open, so a window the
+        // game has genuinely taken away leaves with it on the next tick instead of standing as a bar
+        // with nothing on it. Everything else about the window is untouched: no Hide(), no Show(), no
+        // further CanvasGroup or Canvas write, so we are not answering a write war by writing more.
+        // A window the game hides ONCE (the ToggleGroup case the rule exists for) never reaches this
+        // count and keeps its parallel-windows behaviour exactly as before.
+        if (wp.Sticky && wp.StickyFightFrames >= StickyConcedeFrames)
+        {
+            wp.Sticky = false;
+            VRLog.Warn("WorldUI", $"STICKY CONCEDED: '{wp.Window.name}' — the game has hidden it on "
+                                  + $"{wp.StickyFightFrames} consecutive frames, so the mod stops "
+                                  + "re-showing it and the float will be released on the next tick. "
+                                  + "REASON THIS IS THE RIGHT SIDE TO GIVE UP ON: a sticky window whose "
+                                  + "content the game insists on hiding renders as an EMPTY SHELL — the "
+                                  + "grab bar and the X with nothing between them — and the standing "
+                                  + "ruling is that an empty window must never exist. Nothing was "
+                                  + "written to the game to achieve this; only our own stickiness flag "
+                                  + "was dropped. Re-open the window and it floats again normally.");
         }
     }
 
@@ -317,6 +350,12 @@ internal static partial class ModalFallback
     /// Three, for the same reason <c>CanvasConversion.ConcedeAfterReclears</c> uses three: a
     /// one-off hide is a single frame, a per-frame writer is unmistakable by the third.</summary>
     private const int StickyFightWarnFrames = 3;
+
+    /// <summary>Consecutive re-assert frames after which the mod STOPS being sticky for this window
+    /// (ModBuild 226). Deliberately later than <see cref="StickyFightWarnFrames"/>: three frames is
+    /// enough to be sure there is a war, and a quarter of a second at 90 Hz is enough to be sure it
+    /// is not a fade that happens to take a few frames to complete.</summary>
+    private const int StickyConcedeFrames = 20;
 
     // ---- window gathering helpers (allocation-free) -------------------------------------
 
@@ -801,16 +840,46 @@ internal static partial class ModalFallback
     ///
     /// <para>LEVEL-TRIGGERED, like every other rule in this class: the window stays in
     /// <see cref="Open"/> and this is re-asked every tick, so it floats by itself the moment its
-    /// host stops being one. MAP-ROOM SCOPED for the same reason the catch-all's rule is: in a
-    /// scenario the flat screen composites whatever is not floated, so nesting is not a visual
-    /// problem there and a change would have no report behind it.</para>
+    /// host stops being one.</para>
+    ///
+    /// <para><b>IT WAS MAP-ROOM SCOPED UNTIL ModBuild 226, AND THE REASON RECORDED FOR THAT SCOPE IS
+    /// NO LONGER TRUE.</b> The sentence that stood here read: <i>"MAP-ROOM SCOPED for the same reason
+    /// the catch-all's rule is: in a scenario the flat screen composites whatever is not floated, so
+    /// nesting is not a visual problem there and a change would have no report behind it."</i> Both
+    /// halves have since been falsified. (1) IN A SCENARIO THE MOD FLOATS WINDOWS TOO — the ModBuild
+    /// 225 hardware log has <c>MODAL WINDOW: 'Story Window' (ID None) floated in front of the HMD</c>
+    /// with <c>room=True, scenario=True</c>, its own <c>MODAL GRAB</c> and its own shared bar; the
+    /// flat screen composites only what FAILED to convert. So a nested <c>UIWindow</c> opening inside
+    /// a scenario window did not quietly render inside its parent's composite — it floated as a
+    /// second world panel with a second grab bar. (2) THERE IS NOW A REPORT BEHIND IT, verbatim:
+    /// <i>"Beim Storyfenster war der Dialog/Untertitel ein eigenes Fenster und später bei der
+    /// Begegnung wurde das auch in mehrere Fenster statt einem einzigen getrennt! Das soll nicht
+    /// sein."</i> Both of those are scenario windows. The gate is therefore gone: the parent wins
+    /// wherever the parent is a LIVE FLOATED HOST, which is the condition the rule was always really
+    /// about — the map room was only the first place a floated parent existed.</para>
+    ///
+    /// <para>THE BLAST RADIUS IS BOUNDED BY THE SAME TWO THINGS IT ALWAYS WAS, and they are stronger
+    /// than the room gate was. The parallel-window families are still exempt (the two sets below),
+    /// and the ancestor must still pass <see cref="IsLiveFloatedHost"/> — an ancestor that is merely
+    /// OPEN, or open-but-unfloatable, buys the child nothing (the ModBuild 184 "parent wins needs a
+    /// real parent" lesson). A window with no floated ancestor is untouched, which is every window in
+    /// the flat game and every window in a scenario whose parent the mod does not float.</para>
+    ///
+    /// <para>AND THE GROUPS THE GAME BUILDS OUT OF SIBLINGS (ModBuild 226, second arm). Hierarchy is
+    /// the game's usual way of saying "one screen", but not its only one: the multiplayer
+    /// "Quest wählen" confirm is a ROOT under <c>Campaign Canvas</c>, a sibling of the quest window
+    /// it belongs to. Those cannot be found by walking parents, so they are DECLARED —
+    /// see <see cref="WindowGroups"/> — and answered here through
+    /// <see cref="TryFindFloatedGroupLeader"/>, so that both call sites of this predicate get one
+    /// answer to one question ("is this window part of a panel that already stands?") instead of
+    /// two rules that can disagree.</para>
     ///
     /// <para>MULTIPLAYER: nothing here goes on the wire. It decides which local GameObject a local
     /// uGUI subtree is drawn under; no game state, no <c>NetProtocol</c> surface.</para>
     /// </summary>
     internal static bool RendersInsideFloatedAncestor(UIWindow? window)
     {
-        if (window == null || !MapRoom.MapRoomDriver.Active)
+        if (window == null)
             return false;
         // BLAST-RADIUS BOUND: the pause/Options/Compendium family is EXEMPT. Those are the windows
         // ModBuild 180's ruling is about ("Anders als in Flat soll es hier möglich sein mehrere
@@ -839,8 +908,188 @@ internal static partial class ModalFallback
                                       + "host is never re-placed (windows do not move once spawned).");
             return true;
         }
+        // SECOND ARM: the declared sibling groups. Asked LAST so the hierarchy — the game's own
+        // statement of what belongs to what — always wins, and the table only ever answers for the
+        // windows the hierarchy cannot.
+        return RendersInsideFloatedGroup(window);
+    }
+
+    /// <summary>
+    /// THE DECLARED ARM, on its own so the catch-all path and the enrolled path ask ONE question and
+    /// get ONE answer. True when <paramref name="window"/> is a declared group MEMBER whose LEADER is
+    /// a live floated host right now — see the block below for the table and its evidence.
+    /// </summary>
+    internal static bool RendersInsideFloatedGroup(UIWindow? window)
+    {
+        if (window == null)
+            return false;
+        if (!TryFindFloatedGroupLeader(window, out UIWindow? leader, out string why))
+            return false;
+        if (NestedSubViewLogged.Add(window.name))
+            VRLog.Info("WorldUI", $"MODAL FALLBACK: '{window.name}' (ID {window.ID}) is NOT floated as "
+                                  + "a window of its own — it is a DECLARED MEMBER of the panel led by "
+                                  + $"'{leader!.name}' (ID {leader.ID}), which is already a live floated "
+                                  + $"host. {why} The group table (ModalFallback.WindowGroups) exists "
+                                  + "because the game builds this particular unit out of SIBLINGS rather "
+                                  + "than out of a parent and its children, so no walk over the hierarchy "
+                                  + "can find it.");
+        return true;
+    }
+
+    // ---- ONE LOGICAL PANEL = ONE VR WINDOW: the declared sibling groups ------------------------
+    //
+    // USER REPORT (2026-08-22), verbatim: "Im Test waren der 'Quest Beginnen'-Button und das
+    // Quest-Fenster separate 'Fenster' - nicht wie zuvor wie gewollt, dass der Button auf der Quest
+    // angezeigt wird. Siehe Button_getrennt.jpg."
+    //
+    // WHAT THE ModBuild 225 HARDWARE LOG SAYS HAPPENED, at the exact instant of that screenshot —
+    // the co-player joins, and the confirm floats as a window of its own:
+    //
+    //     Number of players: 2
+    //     UIWindow SHOWN: 'Multiplayer Ready Toggle' (ID None, room=True, scenario=False …)
+    //     UIWindow SHOWN: 'UI Quest Popup' (ID QuestPopup, room=True, scenario=False …)
+    //     MODAL GRAB:   'UI Quest Popup' is now a grabbable/scalable world element
+    //     MODAL WINDOW: 'UI Quest Popup' (ID QuestPopup) floated in front of the HMD …
+    //     CATCH-ALL: unknown scenario window 'Multiplayer Ready Toggle' (ID None) floated …
+    //     MODAL GRAB:   'Multiplayer Ready Toggle' is now a grabbable/scalable world element
+    //     MODAL WINDOW: 'Multiplayer Ready Toggle' (ID None) floated in front of the HMD …
+    //
+    // and the identity line names the shape of the problem:
+    //
+    //     WINDOW IDENTITY 'Multiplayer Ready Toggle' (ID None): path Campaign Canvas/Multiplayer
+    //     Ready Toggle; rect 307x65; components [… UIWindow, ExtendedToggle, UIReadyToggle …];
+    //     nearest ancestor UIWindow <none>.
+    //
+    // A 307x65 strip, a ROOT under Campaign Canvas, with NO ancestor window — so "the parent wins"
+    // could never have caught it, and it is not enrolled either: the CATCH-ALL floated it.
+    // Its label is "Quest wählen": MapChoreographer.InitializeSelectQuestReadyUp initialises
+    // Singleton<UIReadyToggle> with the localisation keys "GUI_SELECT_QUEST" / "GUI_CANCEL"
+    // (decompiled MapChoreographer.cs:3575-3600), and the HOST branch's all-ready callback is
+    // Singleton<AdventureMapUIManager>.Instance.ConfirmTravel() with AdventureMapUIManager.CheckTravel
+    // as its validator. ONLINE, THIS TOGGLE *IS* THE TRAVEL CONFIRM — the same act the offline
+    // 'Adventure button' performs, and MapTravelConfirm has been parking that button inside the quest
+    // window since ModBuild 190. That is why it belongs on the quest card rather than beside it, and
+    // it is the game itself that says so.
+    //
+    // THE TABLE IS DATA. Each row names a LEADER (the window that floats and hosts) and a MEMBER
+    // (the window that must not float), both by IS-A component test on the window's OWN GameObject.
+    // Never by name: the game localises its UI, Unity appends "(Clone)", and a prefab variant can be
+    // renamed by an asset update — the ModBuild 194 argument on IsQuestLogWindow, word for word.
+    // Never by UIWindowID either, because the id is None for the ready toggle and for most of the
+    // windows this rule will ever be asked about.
+
+    /// <summary>
+    /// One declared grouping: two game <c>UIWindow</c>s the game builds as SIBLINGS but presents as
+    /// one visual unit. Matched by component type on each window's own GameObject — see the block
+    /// above for why not by name and not by id.
+    /// </summary>
+    private readonly struct WindowGroupRule
+    {
+        /// <summary>The window that floats and hosts the group.</summary>
+        public readonly System.Type Leader;
+
+        /// <summary>The window that must not float on its own while the leader stands.</summary>
+        public readonly System.Type Member;
+
+        /// <summary>
+        /// Does the thing that RE-HOMES this member only exist while the 3D map room stands?
+        ///
+        /// <para>THIS FIELD IS THE ModBuild 184 LESSON WRITTEN INTO THE TABLE. Suppressing a window
+        /// because "the leader handles it" is only allowed while the leader DEMONSTRABLY handles it;
+        /// an open-but-unfloatable ancestor once showed the merchant nowhere. For the hierarchy arm
+        /// the host does the handling by simply being the child's parent, so the liveness test is
+        /// enough. For a SIBLING there is no such automatic mechanism: something has to move the
+        /// member, and today the only thing that does is <c>MapTravelConfirm</c>, which runs from
+        /// <c>MapRoomDriver.TickActive</c> and parks nothing outside the room. Suppressing the member
+        /// where nothing can re-home it would make the game's own confirm unreachable — a strictly
+        /// worse bug than the split it is meant to fix.</para>
+        /// </summary>
+        public readonly bool RequiresMapRoom;
+
+        /// <summary>The evidence, printed verbatim into the suppression line.</summary>
+        public readonly string Why;
+
+        public WindowGroupRule(System.Type leader, System.Type member, bool requiresMapRoom, string why)
+        {
+            Leader = leader;
+            Member = member;
+            RequiresMapRoom = requiresMapRoom;
+            Why = why;
+        }
+    }
+
+    /// <summary>
+    /// The declared sibling groups. ONE row today, because one is what the hardware log proves; a
+    /// row with no log line behind it would be a guess sitting in a table that reads like a fact.
+    /// The two other splits in the same report — the story box and its subtitle, and the encounter —
+    /// are HIERARCHY groups and are answered by the first arm of
+    /// <see cref="RendersInsideFloatedAncestor"/>, which stopped being map-room-scoped in the same
+    /// build. Do not add rows for them: a declared row would shadow the game's own hierarchy.
+    /// </summary>
+    private static readonly WindowGroupRule[] WindowGroups =
+    {
+        new(typeof(UIQuestPopup), typeof(UIReadyToggle), requiresMapRoom: true,
+            "The game's own multiplayer quest confirm ('Quest wählen', localisation key "
+            + "GUI_SELECT_QUEST) is the ONLINE form of the travel button the offline flow puts on "
+            + "this same card: MapChoreographer.InitializeSelectQuestReadyUp wires it straight to "
+            + "AdventureMapUIManager.ConfirmTravel/CheckTravel (decompiled MapChoreographer.cs:3575). "
+            + "It carries [RequireComponent(typeof(Toggle), typeof(UIWindow))], so its UIWindow and "
+            + "its UIReadyToggle are ONE GameObject by construction and this test cannot reach any "
+            + "other window's parts. WHERE IT IS PRESENTED INSTEAD: MapTravelConfirm parks it INSIDE "
+            + "the quest window, directly under the quest information, at the same measured zero and "
+            + "on the same two [WorldUI] TravelButtonOffset dials the offline button already uses."),
+    };
+
+    /// <summary>
+    /// Is <paramref name="window"/> a declared group MEMBER whose LEADER is a live floated host right
+    /// now? Same liveness test as the hierarchy arm (<see cref="IsLiveFloatedHost"/>) and for the same
+    /// ModBuild 184 reason: suppressing a window because "the leader handles it" is only true while
+    /// the leader demonstrably exists. If it does not, the member floats exactly as it did before, so
+    /// a table row that turns out to be wrong about the game costs nothing.
+    /// </summary>
+    private static bool TryFindFloatedGroupLeader(UIWindow window, out UIWindow? leader, out string why)
+    {
+        leader = null;
+        why = string.Empty;
+        for (int r = 0; r < WindowGroups.Length; r++)
+        {
+            WindowGroupRule rule = WindowGroups[r];
+            if (rule.RequiresMapRoom && !MapRoom.MapRoomDriver.Active)
+                continue; // nothing can re-home it here — see WindowGroupRule.RequiresMapRoom
+            if (window.GetComponent(rule.Member) == null)
+                continue;
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                WindowPanel wp = Converted[i];
+                if (wp.Window == null || wp.Grab == null || !wp.Panel.IsAlive || wp.UserClosing)
+                    continue;
+                if (wp.Window.GetComponent(rule.Leader) == null)
+                    continue;
+                leader = wp.Window;
+                why = rule.Why;
+                return true;
+            }
+        }
         return false;
     }
+
+    /// <summary>
+    /// Is this window the multiplayer ready-up toggle — the "Quest wählen" confirm? Asked as an IS-A
+    /// question on the window's own GameObject, which <c>UIReadyToggle</c>'s
+    /// <c>[RequireComponent(typeof(Toggle), typeof(UIWindow))]</c> makes exact rather than merely
+    /// likely (decompiled UIReadyToggle.cs:18-19). Read by <c>MapTravelConfirm</c>, which parks it
+    /// into the quest window so the group has ONE panel, ONE grab bar and ONE close affordance.
+    /// </summary>
+    internal static bool IsMultiplayerReadyToggle(UIWindow? window) =>
+        window != null && window.GetComponent<UIReadyToggle>() != null;
+
+    /// <summary>Is this window the map's SELECTED-quest popup — the card the confirm belongs on?
+    /// Same IS-A form; <c>UIQuestPopup</c> is <c>[RequireComponent(typeof(UIWindow))]</c>
+    /// (decompiled UIQuestPopup.cs:16). Note this is NOT the hover preview
+    /// (<c>UIQuestPreviewPopup</c>), which is a different component on a different GameObject and is
+    /// handled as a hover card.</summary>
+    internal static bool IsQuestCardWindow(UIWindow? window) =>
+        window != null && window.GetComponent<UIQuestPopup>() != null;
 
     /// <summary>Is this window a floated world-space host RIGHT NOW — converted, panel alive, and
     /// not already on its way out under the player's close? See

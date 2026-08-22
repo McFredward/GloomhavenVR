@@ -93,6 +93,43 @@ the whole shape of the problem and it is what `tractor_report()` below settles:
                         then the full at-rest inventory that replaced them, then
                         the ModBuild 221/222 record kept for the diff
 
+===========================================================================
+ModBuild 226 — "DIESER 'REGEN' SOUND". THE THIRD ROUND ON THE SAME EMITTER.
+===========================================================================
+
+USER, hardware, verbatim, and it is two sentences of which the second is the
+constraint that decides the shape of the fix:
+
+    "Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu kommt
+     und für eine Zeit bleibt, ansonsten finde ich es sehr gut."
+
+"ab und zu kommt und für eine Zeit bleibt" is a SCHEDULE, not a timbre, and
+exactly one emitter in the wood has that schedule by construction: the INSECT
+CHORUS. `chorus_schedule()` drives EnvSound's own arithmetic — Haunt.Hash's
+cascade, character for character — over an hour of shared clock and prints the
+realised arrivals and lengths, so "ab und zu" and "für eine Zeit" are numbers
+rather than a reading of his sentence.
+
+`rain_report()` is the falsification, and it adds ONE instrument this file did
+not have: a RAIN CONTROL. `static_report()`'s control is band-limited WHITE
+noise, which is a television; rain on leaves is the same broadband hiss with a
+tilt and a slower envelope, so it needs a control of its own or "sounds like
+rain" stays an opinion. Every forest emitter is measured against BOTH controls
+on the four columns that separate a hiss from a sound with a source: 1/3-octave
+spectral flatness, spectral spread, the share above 2 kHz, and the envelope.
+
+AND IT RENDERS THE FOREST WITH AND WITHOUT THE SUSPECT, which is the instrument
+the ModBuild 222 round asked for by name and the one that killed the leaf
+litter. `forest_mix()` sums every continuous forest emitter at its DELIVERED
+weight (gain x modulator x rolloff at 4 perceived metres) and measures the sum
+— because the player does not hear a clip, he hears a room.
+
+THE ALTERNATIVE THAT HAD TO BE FALSIFIED, and it is a real one rather than a
+courtesy: the LEAVES bed under an AIR infusion. It also "comes now and then and
+stays for a while" (the wind gate opens over 0.9 s, holds for the infusion and
+closes over 2.4 s) and it also gets much louder when it does (+18.3 dB from the
+resting floor). It is falsified by BAND, not by level — see rain_report().
+
 EVERY CONSTANT BELOW EITHER MIRRORS ONE IN THE SHIPPED SOURCE (the `make_chirr`
 / `make_owl` / `make_bird` clip constants, and the ModBuild 223 level block) OR
 IS A DELETED ONE KEPT AS A BEFORE COLUMN (`make_stone`, `make_night_air`,
@@ -103,7 +140,7 @@ become claims. The second kind must never move again — it is a record.
 import math
 import numpy as np
 from bank import (Rng, low_pass, high_pass, normalise, loop_fade, slip_train,
-                  make_bed, as_heard, measure, show, RATE, PI)
+                  poisson_gap, make_bed, as_heard, measure, show, RATE, PI)
 
 
 def white(n, seed):
@@ -729,11 +766,14 @@ def rest_report(cache):
     row("Night insects, CHORUS PEAK", "Ground", cache["chirr3k"], NightBedGain,
         InsectChorusPeak, 3.0)
     duty = InsectChorusShare * (0.5 * (InsectChorusLenLo + InsectChorusLenHi)) / InsectChorusSlot
-    print(f"  ...and the chorus is EXACTLY ZERO (source paused) {100*(1-duty):.0f}% of the time: "
-          f"{100*InsectChorusShare:.0f}% of {InsectChorusSlot:.0f} s slots carry one,")
-    print(f"     {InsectChorusLenLo:.0f}..{InsectChorusLenHi:.0f} s long, so the duty cycle is "
-          f"{100*duty:.0f}%. MB222 played it at mod 0.90 for 100% of the session.")
-    print("  NightAir room tone              -               DELETED — this is the whole round")
+    print(f"     ^^^ DELETED AT ModBuild 226 — this row is the BEFORE column and nothing plays it")
+    print(f"         any more. It is the sound the user called rain: it carried a chorus in "
+          f"{100*InsectChorusShare:.0f}% of")
+    print(f"         {InsectChorusSlot:.0f} s slots, {InsectChorusLenLo:.0f}..{InsectChorusLenHi:.0f} s "
+          f"long, i.e. a {100*duty:.0f}% duty cycle — \"ab und zu kommt und für eine")
+    print("         Zeit bleibt\". See rain_report() and chorus_schedule() for the verdict.")
+    print("  NightAir room tone              -               DELETED at ModBuild 223")
+    print("  ...SO THE WOOD AT REST IS ONE EMITTER: the canopy draught, and nothing else at all.")
     print()
     print("  THE CALLS (events, ~1 per 53 s, position redrawn every call):")
     for nm, d, g, minm, near, far in (
@@ -752,11 +792,301 @@ def rest_report(cache):
               ("MB222 Chirr", cache["chirr3k"], NightBedGain * MB222_ChirrLift, 0.90, 3.0)]
     keep = [("223 Draught at rest", cache["bedheard"], DraughtGain, WindRestFloor, DraughtMinMeters),
             ("223 Leaves at rest", cache["bedheard"], LeavesGain, WindRestFloor, LeavesMinMeters),
-            ("223 Chirr chorus peak", cache["chirr3k"], NightBedGain, InsectChorusPeak, 3.0)]
+            # The chorus's own "after" is SILENCE as of ModBuild 226, so this row's second
+            # column is the 223 state it was in when he rejected it a third time. The dB in
+            # the last column is therefore the improvement 223 made and NOT this round's,
+            # which is total. rain_report() is where this round's numbers are.
+            ("223 Chirr chorus peak (NOW DELETED)", cache["chirr3k"], NightBedGain,
+             InsectChorusPeak, 3.0)]
     for (an, ad, ag, am, ai), (bn, bd, bg, bm, bi) in zip(reject, keep):
         a = delivered(ad, ag, am, ai, hz=500.0)
         b = delivered(bd, bg, bm, bi, hz=500.0)
         print(f"    {an:<16} {a:.5f}  ->  {bn:<22} {b:.5f}   ({20*math.log10(b/a):+5.1f} dB)")
+
+
+# =============================================================================
+#  ModBuild 226 — "dieser 'Regen' Sound der ab und zu kommt und für eine Zeit
+#  bleibt". THE SCHEDULE, THE CONTROL, AND THE WITH/WITHOUT.
+# =============================================================================
+
+def haunt_hash(n, k):
+    """Haunt.H, the cascade EnvSound draws every scheduled decision from
+    (Core/Haunt.Schedule.cs:112-118), which is itself the C# mirror of
+    GhvrHauntH in EnvHaunt.cginc.
+
+    IN DOUBLE, NOT FLOAT32, AND THAT IS STATED RATHER THAN HIDDEN: the shipped
+    cascade is single precision and its association is load-bearing on the GPU
+    side. This replica is used ONLY for population statistics (how often a
+    chorus arrives, how long it runs), where a handful of borderline draws
+    landing on the other side of a threshold moves a percentage by well under
+    its own quantisation. It must NEVER be used to predict which slot a
+    particular client will fire — that is what the C# mirror is for."""
+    def frac(x):
+        return x - math.floor(x)
+    x = frac((n + 1.0 + k * 7.13) * 0.7548776662)
+    x = frac(x * (x + 31.70))
+    x = frac(x * (x + 17.31))
+    return frac(x * (x + 43.19))
+
+
+# EnvSound's chorus constants, mirrored. See EnvSound.InsectChorusSlot.
+InsectChorusEdgeSeconds = 5.0
+InsectChorusOnChannel = 5.0
+InsectChorusLenChannel = 0.0
+
+
+def chorus_schedule(hours=1.0):
+    """"AB UND ZU KOMMT UND FÜR EINE ZEIT BLEIBT", AS NUMBERS. Drives the
+    shipped schedule over an hour of shared clock and prints what a player
+    actually experiences: how many choruses, how long each one holds, and how
+    long the gaps between them are."""
+    slots = int(hours * 3600 / InsectChorusSlot)
+    runs, gaps, last_end = [], [], None
+    for n in range(slots):
+        if haunt_hash(n, InsectChorusOnChannel) >= InsectChorusShare:
+            continue
+        length = InsectChorusLenLo + (InsectChorusLenHi - InsectChorusLenLo) * \
+            haunt_hash(n, InsectChorusLenChannel)
+        start = n * InsectChorusSlot + 0.5 * (InsectChorusSlot - length)
+        runs.append(length)
+        if last_end is not None:
+            gaps.append(start - last_end)
+        last_end = start + length
+    runs = np.array(runs)
+    gaps = np.array(gaps)
+    duty = runs.sum() / (hours * 3600)
+    print(f"           over {hours:.0f} h of shared clock: {len(runs)} choruses in "
+          f"{slots} slots ({100*len(runs)/slots:.0f}% of slots carry one)")
+    print(f"           EACH ONE HOLDS   {runs.min():5.1f} .. {runs.max():5.1f} s, "
+          f"mean {runs.mean():5.1f} s   <- \"für eine Zeit bleibt\"")
+    print(f"           THE GAPS BETWEEN  {gaps.min():5.1f} .. {gaps.max():5.1f} s, "
+          f"mean {gaps.mean():5.1f} s   <- \"ab und zu kommt\"")
+    print(f"           duty cycle {100*duty:.0f}% — so the wood he says he likes IS the "
+          f"other {100*(1-duty):.0f}%.")
+    print("           NOTHING ELSE IN THE WOOD HAS THIS SHAPE. The two calls are 2.30 s and")
+    print("           0.78 s one-shots; the draught never stops and never changes; the fires")
+    print("           and the rumble need an infusion; the apparitions are on 83 s and are")
+    print("           three cards of which one is silent. An emitter that arrives, holds for")
+    print("           half a minute and leaves again is this one.")
+
+
+def rain_control(rate=RATE):
+    """LIGHT RAIN ON LEAVES, as a control. static_report()'s control is a
+    television — band-limited WHITE noise, flat and wide. Rain is the same
+    broadband hiss with a TILT (the drop-size distribution puts its body in
+    1-8 kHz and rolls the bottom off) and a slower envelope. Without a control
+    of its own, "es klingt wie Regen" stays an opinion; with one, every column
+    below has a scale at both ends."""
+    n = int(rate * ChirrSeconds)
+    d = white(n, 0x2A19FA11)
+    for _ in range(2):
+        high_pass(d, rate, 900.0)
+    low_pass(d, rate, 9000.0)
+    # The slow swell of a shower arriving and passing — 0.1-1.5 Hz, which is
+    # what separates rain from a tuner between stations.
+    m = white(n, 0x2A19FA12)
+    for _ in range(2):
+        low_pass(m, rate, 1.5)
+    high_pass(m, rate, 0.1)
+    normalise(m, 1.0)
+    d *= (0.65 + 0.35 * (0.5 + 0.5 * m))
+    loop_fade(d, rate // 2)
+    normalise(d, 0.60)
+    return d
+
+
+def _fit(d, n):
+    return np.tile(d, int(math.ceil(n / len(d))))[:n]
+
+
+# What every CONTINUOUS forest emitter contributes to the mix at 4 perceived
+# metres: (gain, modulator, rolloff minimum). The weight is
+# gain x mod x min(1, min/4), i.e. exactly what EnvSound.PlayShot/AddBed and
+# Unity's logarithmic rolloff put on the buffer before it reaches the ear.
+def _weight(gain, mod, minm, at=4.0):
+    return gain * mod * min(1.0, minm / at)
+
+
+def forest_mix(cache, chorus=True, air=0.0):
+    """THE WOOD AS ONE SIGNAL. The player does not hear a clip, he hears a room,
+    so the with/without has to be measured on the SUM."""
+    n = int(RATE * ChirrSeconds)
+    leaf_mod = WindRestFloor if air <= 0 else (WindRestFloor
+                                               + (1.0 - 0.5 * WindRestFloor)
+                                               * (0.55 + 0.45 * 0.5 + 1.0 * air))
+    mix = _fit(cache["bedheard"], n) * _weight(LeavesGain, leaf_mod, LeavesMinMeters)
+    if chorus:
+        mix = mix + _fit(cache["chirr3k"], n) * _weight(NightBedGain, InsectChorusPeak, 3.0)
+    return mix
+
+
+def make_rumble(rate=RATE):
+    """EnvSoundBank.MakeRumble (EnvSound.Bank.cs:1871), sample for sample. It is
+    on this table for one reason: it is the last forest emitter that comes and
+    goes, and a suspect nobody measured is a suspect nobody excluded."""
+    n = int(rate * 6)
+    r = Rng(0xEA27F)
+    t = np.arange(n) / rate
+    d = (np.sin(2 * PI * 41.0 * t) * 0.5 + np.sin(2 * PI * 47.5 * t) * 0.35
+         + np.array([r.next() for _ in range(n)]) * 0.5)
+    low_pass(d, rate, 110.0)
+    loop_fade(d, rate // 2)
+    normalise(d, 0.8)
+    return d
+
+
+def rain_report(cache):
+    """DID THE INSECT CHORUS DO IT? Two controls, every forest emitter, and the
+    wood rendered with the suspect and without it."""
+    ctl_rain = rain_control()
+    ctl_tv = white(int(RATE * ChirrSeconds), 0x7E1E7157)
+    for _ in range(2):
+        high_pass(ctl_tv, RATE, 300.0)
+    for _ in range(2):
+        low_pass(ctl_tv, RATE, 9000.0)
+    normalise(ctl_tv, 0.72)
+
+    print("  PER EMITTER          SFM   spread   >2 kHz   centroid   env AC @ lag   swing   "
+          "delivered@4m")
+    rows = [
+        ("RAIN control", ctl_rain, None),
+        ("TV static control", ctl_tv, None),
+        ("Insect chorus, peak", cache["chirr3k"], _weight(NightBedGain, InsectChorusPeak, 3.0)),
+        ("Leaves, at rest", cache["bedheard"], _weight(LeavesGain, WindRestFloor, LeavesMinMeters)),
+        ("Leaves, AIR FULL", cache["bedheard"], _weight(LeavesGain, 1.80, LeavesMinMeters)),
+        ("Fire roar (Fire up)", cache["roar"], _weight(0.16, 1.0, 3.0)),
+        ("Rumble (Earth up)", cache["rumble"], _weight(0.10, 1.30, 2.0)),
+        ("Owl (an EVENT)", cache["owl"], _weight(OwlGain, 1.0, OwlMinMeters)),
+        ("NightBird (an EVENT)", cache["bird"], _weight(BirdGain, 1.0, BirdMinMeters)),
+    ]
+    for label, d, w in rows:
+        c, sp = audible(d)
+        ac, lag = auto_corr(d, lo_s=0.05, hi_s=6.0)
+        b = bands(d)
+        dl = "       -" if w is None else f"{w20(d, 500.0) * w:8.5f}"
+        print(f"  {label:<20} {flatness(d):.3f}  {sp:.2f} oct  {b[4]+b[5]:5.1f}%  "
+              f"{c:6.0f} Hz  {ac:.4f} @ {lag:5.2f}s  {env_swing(d):5.2f} dB  {dl}")
+    print()
+    print("  THE ALTERNATIVE, FALSIFIED ON BAND AND NOT ON LEVEL. The leaves bed under a")
+    print("  full Air infusion is the LOUDER of the two suspects and it also arrives and")
+    print("  stays — the wind gate opens over 0.9 s and closes over 2.4 s. It is not what")
+    print("  he is describing: read its >2 kHz share and its centroid against both controls.")
+    print("  Rain is 2-9 kHz hiss; the wind bed is an aperture, 53.2% of it under 200 Hz.")
+    print()
+
+    print("  THE WOOD AS ONE SIGNAL — with the chorus and without it, at 4 perceived m:")
+    print("  FOREST MIX           SFM   spread   >2 kHz   centroid   env AC @ lag   swing   "
+          "delivered@4m")
+    for label, mix in (("WITH the chorus", forest_mix(cache, chorus=True)),
+                       ("WITHOUT it (the fix)", forest_mix(cache, chorus=False)),
+                       ("WITH, Air full", forest_mix(cache, chorus=True, air=1.0)),
+                       ("WITHOUT, Air full", forest_mix(cache, chorus=False, air=1.0))):
+        c, sp = audible(mix)
+        ac, lag = auto_corr(mix, lo_s=0.05, hi_s=6.0)
+        b = bands(mix)
+        print(f"  {label:<20} {flatness(mix):.3f}  {sp:.2f} oct  {b[4]+b[5]:5.1f}%  "
+              f"{c:6.0f} Hz  {ac:.4f} @ {lag:5.2f}s  {env_swing(mix):5.2f} dB  "
+              f"{w20(mix, 500.0):8.5f}")
+    a = forest_mix(cache, chorus=True)
+    b_ = forest_mix(cache, chorus=False)
+    print(f"  => deleting it takes the wood's delivered level from {w20(a, 500.0):.5f} to "
+          f"{w20(b_, 500.0):.5f} ({20*math.log10(w20(b_,500.0)/w20(a,500.0)):+.1f} dB),")
+    print(f"     its 1/3-octave flatness from {flatness(a):.3f} to {flatness(b_):.3f} "
+          f"(rain control {flatness(ctl_rain):.3f}, TV {flatness(ctl_tv):.3f}),")
+    print(f"     and its share above 2 kHz from {sum(bands(a)[4:]):.1f}% to "
+          f"{sum(bands(b_)[4:]):.1f}% (rain control {sum(bands(ctl_rain)[4:]):.1f}%).")
+
+
+# =============================================================================
+#  ModBuild 226 — THE FIRE'S CRACKLE STOPS BEING A WALK.
+# =============================================================================
+#
+# USER RULING, hardware, verbatim:
+#
+#     "Genau wie die Easter-Eggs sollen auch die Sounds mit allen Mitspieler
+#      synchronisiert sein die in der selben Map sind."
+#
+# EnvSound.TickFire used to write `next = now + PoissonGap(mean, draw)` and keep
+# `next`, which made its phase depend on when the client started observing — the
+# one cue in the feature two players did not share. It now asks, once per
+# FireCrackleTickSeconds of SHARED clock, whether the site crackles in this tick
+# (probability tick/mean), and places the event at a hashed offset in the tick's
+# FIRST HALF.
+#
+# THE DEFENCE OF THAT SWAP IS THAT IT CHANGES WHO HEARS WHEN AND NOT WHAT IS
+# HEARD, so this function measures it instead of asserting it. The wire vectors
+# hold the same properties against a synthetic uniform stream (they cannot reach
+# Haunt.Hash, which is not on that harness); this drives the REAL cascade.
+FireCrackleTickSeconds = 1.31
+FireGapCalm, FireGapFull = 4.0, 2.2
+FireSites = 3
+FireGapChannel, FireWhenChannel = 3.0, 2.0
+PoissonGapMin, PoissonGapMax = 0.28, 2.60
+
+
+def crackle_gaps(seconds=6 * 3600.0):
+    """THE BEFORE AND AFTER GAP DISTRIBUTIONS, at one site, over six hours."""
+    print("                      mean gap   min    p05    p50    p95    max    rate/room")
+    for label, mean in (("fully alight", FireGapFull), ("just caught", FireGapCalm)):
+        # ---- AFTER: the shipped Bernoulli tick, driven through Haunt.Hash.
+        p = min(FireCrackleTickSeconds / mean, 0.90)
+        times = []
+        for n in range(int(seconds / FireCrackleTickSeconds)):
+            key = n * FireSites            # site 0; sites 1 and 2 are key % 3 == 1, 2
+            if haunt_hash(key, FireGapChannel) >= p:
+                continue
+            off = 0.5 * FireCrackleTickSeconds * haunt_hash(key, FireWhenChannel)
+            times.append(n * FireCrackleTickSeconds + off)
+        g = np.diff(np.array(times))
+        print(f"  226 tick {label:<13} {g.mean():5.2f}s  {g.min():5.2f}  "
+              f"{np.percentile(g,5):5.2f}  {np.percentile(g,50):5.2f}  "
+              f"{np.percentile(g,95):5.2f}  {g.max():5.2f}   {FireSites/g.mean():4.2f}/s")
+
+        # ---- BEFORE: the walk, same length, same hash, so the two columns differ only
+        # in the schedule and not in the source of randomness.
+        w, t, seq = [], 0.0, 0
+        while t < seconds:
+            t += poisson_gap(mean, haunt_hash(seq * FireSites, FireGapChannel))
+            seq += 1
+            w.append(t)
+        gw = np.diff(np.array(w))
+        print(f"  225 walk {label:<13} {gw.mean():5.2f}s  {gw.min():5.2f}  "
+              f"{np.percentile(gw,5):5.2f}  {np.percentile(gw,50):5.2f}  "
+              f"{np.percentile(gw,95):5.2f}  {gw.max():5.2f}   {FireSites/gw.mean():4.2f}/s")
+    print()
+    print("  READ THE `min` COLUMN FIRST — it is the only one that can put this cue back in the")
+    print(f"  0.2-2 s band the ear reads as a RHYTHM. The tick's floor is half a tick "
+          f"({0.5*FireCrackleTickSeconds:.3f} s)")
+    print("  BY GEOMETRY (the latest an event can be is half a tick in, the earliest the next can")
+    print(f"  be is zero into the following one), against the walk's clamp at "
+          f"{PoissonGapMin} x mean.")
+    print("  THE `max` COLUMN IS THE ONE PROPERTY THAT GOT WORSE and it is stated rather than")
+    print(f"  buried: a geometric tail is unbounded where the walk clamped at "
+          f"{PoissonGapMax} x mean. What")
+    print("  bounds it in practice is that the ROOM has three sites drawing independently —")
+    print("  which is not an argument, it is the next table.")
+    print()
+
+    # THE ROOM, NOT A SEAT. The ear counts every lit fire in the room, so the
+    # quantity that decides whether a long tail is audible as "the fire stopped"
+    # is the gap between CONSECUTIVE CRACKLES ANYWHERE, not at one site.
+    print("  ALL THREE SITES TOGETHER — the gap between consecutive crackles ANYWHERE in the room:")
+    print("                      mean gap   p95    max")
+    for label, mean in (("fully alight", FireGapFull), ("just caught", FireGapCalm)):
+        p = min(FireCrackleTickSeconds / mean, 0.90)
+        room = []
+        for n in range(int(seconds / FireCrackleTickSeconds)):
+            for s in range(FireSites):
+                key = n * FireSites + s
+                if haunt_hash(key, FireGapChannel) >= p:
+                    continue
+                off = 0.5 * FireCrackleTickSeconds * haunt_hash(key, FireWhenChannel)
+                room.append(n * FireCrackleTickSeconds + off)
+        g = np.diff(np.sort(np.array(room)))
+        print(f"  226 tick {label:<13} {g.mean():5.2f}s  {np.percentile(g,95):5.2f}  {g.max():5.2f}")
+    print("  => the longest the ROOM is quiet is what a listener could call the feature broken,")
+    print("     and it stays inside a few seconds even when the fire is barely caught. A 43 s")
+    print("     silence at ONE seat is invisible while the other two are burning.")
 
 
 # ---- the earlier rounds' reports, kept as the record ------------------------
@@ -833,7 +1163,10 @@ def build_cache():
     million samples each; rendering them per report cost this file seven minutes
     a run."""
     import candle
+    import fire
     c = {}
+    c["roar"] = fire.make_roar()
+    c["rumble"] = make_rumble()
     c["bed"] = make_bed()
     c["bedheard"] = as_heard(c["bed"])
     c["flutter"] = candle.make_flutter()
@@ -858,6 +1191,19 @@ def build_cache():
 if __name__ == "__main__":
     CACHE = build_cache()
 
+    print("=== ModBuild 226: \"dieser 'Regen' Sound der ab und zu kommt und "
+          "für eine Zeit bleibt\" ===")
+    print("--- the schedule, first: does anything in the wood have that shape? ---")
+    chorus_schedule()
+    print()
+    print("--- and does it sound like rain? two controls, then with/without ---")
+    rain_report(CACHE)
+
+    print()
+    print("=== ModBuild 226: the fire's crackle stops being a walk — before/after ===")
+    crackle_gaps()
+
+    print()
     print("=== ModBuild 223: WAS IT TV STATIC? — 'Rauschen bei nem Fernseher' ===")
     static_report(CACHE)
 

@@ -1,25 +1,41 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.WorldUI;
 using GloomhavenVR.WorldUI.MapRoom;
-using TMPro;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
 /// <summary>
 /// THE 3D MAP ROOM ON THE WIRE — record <see cref="NetProtocol.ExtIdMapRoom"/> (20): who else is
-/// standing at this table, which map surface they are showing, and which icon they are pointing at.
+/// standing at this table, which map surface they are showing, which icon they are pointing at and
+/// which one is selected.
 ///
 /// <para>USER REQUEST (2026-08-22, verbatim): "Multiplayer für die 3D-Map: a) Welche Map angezeigt
 /// wird (Gloomhaven oder World-Map) soll synchronisiert werden. b) Welche Quest gerade angeklickt
 /// ist soll synchronisiert werden. c) Die mouseover Infotafeln sollen synchronisiert werden."</para>
 ///
-/// <para><b>NO NEW AUTHORITY IS CREATED.</b> The only thing this class ever DRIVES is one press of
-/// the game's own guildmaster world/city button, through the table rail's single dispatch
-/// (<c>ExecuteEvents.pointerClickHandler</c> on the real <c>Toggle</c>), so the game's whole guard
-/// chain still decides — including its refusal when the city is not unlocked. It never calls
-/// <c>MapLocation.Select()</c>, never calls <c>Deselect()</c>, never writes a game field and never
-/// sends a game action. A peer's pick becomes a mod-drawn placard and nothing else.</para>
+/// <para><b>NO NEW AUTHORITY IS CREATED — every drive is one of the game's own UI seams.</b> There
+/// are exactly two: one press of the game's own guildmaster world/city button, through the table
+/// rail's single dispatch (<c>ExecuteEvents.pointerClickHandler</c> on the real <c>Toggle</c>), and
+/// one adopted SELECTION, through <c>MapLocationInteractor.AdoptSelection</c> — which is the same
+/// <c>pointerClickHandler</c> on the real <c>MapLocation</c> the local player's own trigger reaches,
+/// or the game's own <c>MapLocation.Deselect()</c>. The game's whole guard chain still decides in
+/// both cases, including its refusal when the city is not unlocked and its <c>IsSelectable()</c>.
+/// Nothing here writes a game field, and nothing here sends a game action.</para>
+///
+/// <para><b>THE SELECTION WAS NOT A DRIVE UNTIL ModBuild 226 — a USER RULING CHANGED IT</b> (report
+/// 13, verbatim): <i>"Welches Icon ausgewählt ist wird nicht richtig synchronisiert. Es soll nur
+/// eine einzige Auswahl geben die global alle sehen."</i> Record 20 used to carry the pick as a
+/// label and nothing more, on the reasoning that the committed quest selection is already on the
+/// game's own wire. That reasoning measured the wrong fact, and the decompiled sources say so:
+/// <c>ConfirmSelectedLocation</c> is host-only and fires from the READY-UP, its receiver
+/// <c>ProxyHostSelectedLocation</c> raises a CONFIRM PROMPT rather than a selection, and a client's
+/// own <c>Select()</c> never leaves the machine. "Which icon is selected right now" is carried
+/// nowhere by the game, so it is carried here — as an EDGE (<c>selectStamp</c> + <c>selectKey</c>),
+/// with the same symmetric authority and the same adopted-change suppression the surface has, and
+/// with <c>selectKey == 0</c> on an edge meaning a DESELECTION. See
+/// <see cref="NetProtocol.ExtIdMapRoom"/>.</para>
 ///
 /// <para><b>SURFACE AUTHORITY: ANYBODY MAY SWITCH, EVERYONE FOLLOWS — a USER RULING</b>, taken over
 /// the host-authoritative alternative. The adoption is therefore <b>edge-triggered</b>: a peer's
@@ -31,24 +47,61 @@ namespace GloomhavenVR.Net;
 /// if two players switch in the same instant they trade views once and the next press settles it.
 /// Do not "fix" it by re-applying continuously — see <see cref="NetProtocol.ExtIdMapRoom"/>.</para>
 ///
-/// <para><b>HOVER PLACARDS: EVERY PEER GETS ONE — a USER RULING</b>, taken over "one placard, last
-/// shown". The game owns exactly ONE <c>questPreviewPopup</c> and previews only while nothing is
-/// selected, so the game's own card cannot be shown four times; these placards are therefore
-/// mod-drawn world-space labels of this mod's own, built the way <see cref="RemoteNameTag"/> builds
-/// a peer's head tag and carrying the same identity (<see cref="NetPlayerActors.NameFor"/> and that
-/// peer's Steam picture). <b>They deliberately do NOT drive the local hover:</b> calling
+/// <para><b>HOVER PLACARDS: A PEER'S PLACARD IS THE GAME'S OWN CARD — a USER RULING</b> (report 6,
+/// verbatim): <i>"Mouseover der Symbole in der Map soll nicht das Steam-Symbol sein, sondern das
+/// richtige Mouseover das der Spieler auch sieht, zu dem jeweiligen Spieler hingedreht, direkt über
+/// dem jeweiligen Symbol. Aktuell sieht man das Steam-Logo zusammen mit einem kleinen Text. Der soll
+/// auch weg - es soll 1:1 so aussehen wie es für den Spieler auch aussieht."</i>
+/// <b>THIS SUPERSEDES HIS EARLIER CHOICE, "jede fremde Tafel zusätzlich, mit Namen" — the name row
+/// and the Steam picture are gone and must not be restored from that older note.</b> Ownership is
+/// now carried by the placard's FACING and by nothing else, which is why the facing is a
+/// requirement and not a nicety.</para>
+///
+/// <para><b>WHAT GATED THE REAL CARD OUT, AND WHAT IS FED INSTEAD.</b> The gate is ownership, not
+/// drawing: <c>UIQuestPopupManager</c> holds exactly ONE <c>questPreviewPopup</c> and previews only
+/// while <c>selectedQuest == null</c>, so the manager cannot show four cards and the local player's
+/// hover would lose its own card to a peer's. ModBuild 222 concluded from that that a peer's
+/// placard had to be drawn by this mod; the conclusion was wrong. What cannot be shared is the
+/// manager's SINGLE INSTANCE — so each peer gets an INSTANCE OF ITS OWN:
+/// <c>Object.Instantiate</c> of the game's own <c>UIQuestPreviewPopup</c> GameObject, fed the same
+/// <c>IQuest</c> the game's own <c>MapLocation.PreviewQuest</c> would feed it for that node
+/// (<c>new Quest(loc.LocationQuest)</c>, or <c>new HeadqueartQuest()</c> for the capital), through
+/// the popup's own public <c>SetQuest</c>. It is the real card because it IS the real card's
+/// prefab, filled by the real card's own code. The manager is never touched, so the local hover
+/// keeps its card and its rules exactly as before.</para>
+///
+/// <para>The clone is built the way <c>WorldUI.Surfaces.StatPanelSurface</c> builds its second
+/// stat-panel copy, which is the proven pattern for this in this project: instantiate under an
+/// INACTIVE holder so Unity never runs a single <c>Awake</c>, fill it, DestroyImmediate every
+/// lifecycle component while it has still never been activated (the <c>UIWindow</c> — so it can
+/// never enter <c>UIWindow.GetWindow</c>, never raise a window event and never be picked up by
+/// <c>ModalFallback</c>'s catch-all — the <c>UIQuestPreviewPopup</c> itself and the game's
+/// <c>UIFollowMapLocation</c>), force it opaque and inert, and only then hand the bare imagery to
+/// <c>CanvasConversion.Convert</c>. Its pose is <c>MapRoom.HoverCardPose.Place</c> — the same code
+/// that seats the local card, so "directly above the icon" is the identical geometry and not a
+/// second implementation of it.</para>
+///
+/// <para><b>THEY STILL DO NOT DRIVE THE LOCAL HOVER, and that separation is unchanged:</b> calling
 /// <c>MapLocation.OnPointerEnter</c> for a peer would fight this client's own pointer, would steal
 /// the single preview card from the local player, and would fire the game's mouse-enter sound once
-/// per peer per icon — a clicking storm with three people sweeping beams.</para>
+/// per peer per icon — a clicking storm with three people sweeping beams. Nothing here touches a
+/// <c>MapLocation</c> at all; the clone is fed from the location, never through it.</para>
 ///
-/// <para><b>THE CLUTTER CASE IS BOUNDED BY LAYOUT, NOT BY DROPPING PLACARDS.</b> Every placard
-/// rides at <c>BaseLift + lane × RowPitch</c> above its own icon, where <c>lane</c> is that peer's
-/// rank in the ASCENDING PLAYER-ID order of everyone currently pointing. Four players pointing at
-/// ONE icon therefore stack into four rows that cannot overlap; four players pointing at four
-/// adjacent icons ride at four different heights and read as four rows rather than one smear. The
-/// order is the player id, so it is the same on every machine — two players describing the picture
-/// describe the same picture — and with at most four players the tower is at most three remote rows
-/// tall (<see cref="RowPitchMeters"/> each). Nothing is ever hidden.</para>
+/// <para><b>AND NO PLACARD IS DRAWN WHILE A QUEST IS SELECTED</b>
+/// (<see cref="WorldUI.MapRoom.MapHoverVerdict.AQuestIsSelected"/>). That is the game's own rule —
+/// <c>PreviewQuest</c> previews only while <c>selectedQuest == null</c> — and with the selection
+/// now a single global fact it holds identically on every machine: in that state the peer whose
+/// placard it would be sees no card either, so drawing one would be the opposite of "1:1 so wie es
+/// für den Spieler auch aussieht".</para>
+///
+/// <para><b>THE CLUTTER CASE IS BOUNDED BY LAYOUT, NOT BY DROPPING PLACARDS.</b> A placard sits
+/// directly above its own icon — that is the ruling — so the lane index counts only the readers of
+/// THE SAME icon, in ascending player-id order with the local player's own hover taking lane 0.
+/// Two peers pointing at two different icons therefore both sit at the base lift, exactly where
+/// they belong; two readers of one icon are separated first by their facings (each card is turned
+/// to a different person) and then, for the shoulder-to-shoulder case that defeats that, by
+/// <see cref="SameIconLaneLiftMeters"/>. The order is the player id, so every machine draws the
+/// same picture and nothing is ever hidden.</para>
 ///
 /// <para>BOTH GATES ARE <c>MapRoomDriver.Active</c>. A client with the 3D map off writes no record
 /// (its packet is byte-identical to ModBuild 221's) and applies none (no placard, no surface edge,
@@ -79,17 +132,35 @@ internal static class RemoteMapRoom
     /// whole on every packet — the decision family's "full state, newest wins" contract.</summary>
     private readonly struct PeerRoom
     {
-        public PeerRoom(byte flags, byte surfaceStamp, uint pickKey, float at)
+        public PeerRoom(byte flags, byte surfaceStamp, uint pickKey, byte selectStamp,
+                        uint selectKey, uint fanCharacterKey, float at)
         {
             Flags = flags;
             SurfaceStamp = surfaceStamp;
             PickKey = pickKey;
+            SelectStamp = selectStamp;
+            SelectKey = selectKey;
+            FanCharacterKey = fanCharacterKey;
             At = at;
         }
 
         public readonly byte Flags;
         public readonly byte SurfaceStamp;
         public readonly uint PickKey;
+
+        /// <summary>The peer's wrapping SELECTION stamp. Zero and unchanging from a peer whose
+        /// record is the old six-byte form, which is exactly "does not participate".</summary>
+        public readonly byte SelectStamp;
+
+        /// <summary>The key of the peer's selection, or 0 for "nothing is selected". Only ever
+        /// acted on when <see cref="SelectStamp"/> changed.</summary>
+        public readonly uint SelectKey;
+
+        /// <summary><c>FNV-1a(CMapCharacter.CharacterName)</c> of the party member whose loadout
+        /// that peer's 3D-map card fan is showing, 0 for "no fan open" — which is also what a peer
+        /// on ModBuild 225 leaves here, since their record has no such field.</summary>
+        public readonly uint FanCharacterKey;
+
         public readonly float At;
 
         public bool InRoom => (Flags & NetProtocol.MapRoomInRoomBit) != 0;
@@ -110,6 +181,12 @@ internal static class RemoteMapRoom
     /// <summary>Peers we have seen at all, so a first packet is not mistaken for an edge. A peer
     /// arriving with a stamp of 3 has not just changed anything — we simply have no history.</summary>
     private static readonly Dictionary<int, byte> SeenStamp = new();
+
+    /// <inheritdoc cref="ConsumedStamp"/>
+    private static readonly Dictionary<int, byte> ConsumedSelectStamp = new();
+
+    /// <inheritdoc cref="SeenStamp"/>
+    private static readonly Dictionary<int, byte> SeenSelectStamp = new();
 
     // ---- local state ------------------------------------------------------------------------
 
@@ -140,6 +217,49 @@ internal static class RemoteMapRoom
     /// receiver's change gate finds nothing to do.</para>
     /// </summary>
     private static MapIconLayer.MapSurface _adoptedSurface = MapIconLayer.MapSurface.Unknown;
+
+    /// <summary>The selection key we last PUBLISHED, and whether we have published one at all in
+    /// this room. Zero is a legal value ("nothing selected"), so the validity flag is separate.</summary>
+    private static uint _publishedSelectKey;
+
+    /// <inheritdoc cref="_publishedSelectKey"/>
+    private static bool _publishedSelectValid;
+
+    /// <summary>Our own wrapping SELECTION stamp: bumped once per COMPLETED local selection change
+    /// THAT A HUMAN HERE MADE. See <see cref="_adoptedSelectKey"/>.</summary>
+    private static byte _localSelectStamp;
+
+    /// <summary>
+    /// The selection this client made ON A PEER'S BEHALF, so the resulting change publishes NO
+    /// stamp edge of its own — the exact counterpart of <see cref="_adoptedSurface"/>, and it is
+    /// load-bearing for the same reason.
+    ///
+    /// <para>Without it, adopting a peer's selection would itself look like a selection made here,
+    /// publish an edge, and be adopted back: two clients would bounce one selection between them
+    /// for ever at the packet rate. With it, the accepted hazard is the surface's — if two people
+    /// select in the very same instant they trade selections ONCE and then stand still, and the
+    /// next click settles it outright.</para>
+    ///
+    /// <para>IT LIVES EXACTLY ONE SAMPLE, AND AT MOST <see cref="AdoptedSuppressSeconds"/>. Cleared
+    /// on the first <see cref="Sample"/> after the adoption whether or not the key matched, because
+    /// the game is free to REFUSE an adopted click (<c>IsSelectable()</c>) — and a suppression flag
+    /// left standing after a refusal would swallow the next genuine local selection of that same
+    /// node. The clock is the belt to that braces: the extras packet is only sent when something
+    /// CHANGED, so a refused adoption produces no change, no packet and therefore no
+    /// <see cref="Sample"/> at all — without the deadline the flag would simply wait there.</para>
+    /// </summary>
+    private static uint _adoptedSelectKey;
+
+    /// <inheritdoc cref="_adoptedSelectKey"/>
+    private static bool _hasAdoptedSelect;
+
+    /// <inheritdoc cref="_adoptedSelectKey"/>
+    private static float _adoptedSelectAt;
+
+    /// <summary>How long an unconsumed adopted-selection suppression stays believed. Far longer
+    /// than the frame the click runs in and far shorter than any two deliberate human clicks on the
+    /// same icon.</summary>
+    private const float AdoptedSuppressSeconds = 2f;
 
     /// <summary>The adopted surface we are currently trying to press, its deadline and its attempt
     /// count. <c>Unknown</c> = nothing pending.</summary>
@@ -174,9 +294,17 @@ internal static class RemoteMapRoom
         Peers.Clear();
         ConsumedStamp.Clear();
         SeenStamp.Clear();
+        ConsumedSelectStamp.Clear();
+        SeenSelectStamp.Clear();
         _publishedSurface = MapIconLayer.MapSurface.Unknown;
         _localSurfaceStamp = 0;
         _adoptedSurface = MapIconLayer.MapSurface.Unknown;
+        _publishedSelectKey = 0u;
+        _publishedSelectValid = false;
+        _localSelectStamp = 0;
+        _adoptedSelectKey = 0u;
+        _hasAdoptedSelect = false;
+        _adoptedSelectAt = 0f;
         _wantSurface = MapIconLayer.MapSurface.Unknown;
         _wantFromPeer = 0;
         _wantNextAttempt = 0f;
@@ -194,14 +322,20 @@ internal static class RemoteMapRoom
     /// Whether the extras packet must go out NOW rather than on its own cadence.
     ///
     /// <para>THREE EDGES PRE-EMPT: entering the room, a COMPLETED local world↔city change, and the
-    /// staged pick changing. All three are discrete, human-paced acts whose whole purpose is to be
+    /// SELECTION changing. All three are discrete, human-paced acts whose whole purpose is to be
     /// looked at, so up to 200 ms of cadence latency between two headsets is exactly the "did that
-    /// work?" this feature exists to remove.</para>
+    /// work?" this feature exists to remove — and since report 13 the selection is not merely
+    /// looked at but FOLLOWED, so its latency is the whole feature.</para>
     ///
     /// <para>THE HOVER KEY DELIBERATELY DOES NOT. Sweeping the beam across a row of icons produces
     /// a new hover key at up to the rig rate; letting that pre-empt would turn a wrist flick into a
     /// packet burst. It rides the ordinary 5 Hz cadence instead — the established distinction
     /// between the pre-empting and the capped idioms.</para>
+    ///
+    /// <para>NEITHER DOES THE MAP-FAN CHARACTER KEY, and for the opposite reason to the hover's: it
+    /// changes only when the player picks a different character on the party display, which is rare
+    /// and slow, and nothing acts on the edge — a receiver reads it as a LEVEL when it next re-runs
+    /// its resolve. So the 5 Hz cadence carries it and pre-empting for it would buy nothing.</para>
     ///
     /// <para>PURE: this reads live state and compares it against what was last SENT. It must not
     /// mutate anything, because the rate gate evaluates it on every frame and
@@ -220,7 +354,7 @@ internal static class RemoteMapRoom
                 return true;
             MapLocationInteractor? locations = MapRoomDriver.ActiveLocations;
             MapLocation? staged = locations != null ? locations.Staged : null;
-            return KeyOf(staged) != _sentStagedKey;
+            return KeyOf(staged) != _sentSelectKey;
         }
     }
 
@@ -229,7 +363,7 @@ internal static class RemoteMapRoom
     private static bool _sentValid;
 
     /// <inheritdoc cref="_sentValid"/>
-    private static uint _sentStagedKey;
+    private static uint _sentSelectKey;
 
     // ---- send side --------------------------------------------------------------------------
 
@@ -244,10 +378,15 @@ internal static class RemoteMapRoom
         if (!MapRoomDriver.Active)
         {
             // Leaving the room forgets our own publishing state, so re-entering it does not send a
-            // stamp edge nobody made.
+            // stamp edge nobody made. BOTH stamps: a player who walks out with a quest selected and
+            // comes back would otherwise publish "I just selected this" on their first packet, and
+            // every peer would adopt a selection nobody had touched.
             _publishedSurface = MapIconLayer.MapSurface.Unknown;
+            _publishedSelectValid = false;
+            _publishedSelectKey = 0u;
+            _hasAdoptedSelect = false;
             _sentValid = false;
-            _sentStagedKey = 0u;
+            _sentSelectKey = 0u;
             return;
         }
 
@@ -279,8 +418,55 @@ internal static class RemoteMapRoom
         MapLocationInteractor? locations = MapRoomDriver.ActiveLocations;
         MapLocation? staged = locations != null ? locations.Staged : null;
         MapLocation? hover = locations != null ? locations.Hover : null;
-        MapLocation? pick = staged != null ? staged : hover;
-        uint key = KeyOf(pick);
+        // THE PICK IS THE HOVER, AND SINCE ModBuild 226 ONLY THE HOVER. It used to be
+        // `staged ?? hover`, because the pick field was the only thing that could carry a selection
+        // at all; the selection now has its own stamp and key below, so overriding the hover with
+        // it would only ever hide the fact the pick field is FOR — "das richtige Mouseover", which
+        // is what a peer's placard is built from. The staged bit is still published, and now says
+        // the one thing left for it to say: this player's pointer is on their own selection.
+        uint key = KeyOf(hover);
+
+        // ---- the SELECTION edge (report 13) --------------------------------------------------
+        // Same three steps the surface takes, in the same order and for the same reasons: consume
+        // the adopted-change suppression FIRST (it lives exactly one sample — see
+        // _adoptedSelectKey), then compare against what was last PUBLISHED, then bump the stamp
+        // only for a change a human at THIS table made.
+        uint selectKey = KeyOf(staged);
+        if (_hasAdoptedSelect && Time.unscaledTime - _adoptedSelectAt > AdoptedSuppressSeconds)
+            _hasAdoptedSelect = false;   // the adoption was refused and produced no change at all
+        bool adoptedSelect = _hasAdoptedSelect && selectKey == _adoptedSelectKey;
+        _hasAdoptedSelect = false;
+        if (!_publishedSelectValid)
+        {
+            // FIRST SAMPLE IN THIS ROOM IS NOT A CHANGE. Whatever is selected when the room comes
+            // up was selected before anybody could have watched it happen.
+            _publishedSelectValid = true;
+            _publishedSelectKey = selectKey;
+        }
+        else if (selectKey != _publishedSelectKey)
+        {
+            uint had = _publishedSelectKey;
+            _publishedSelectKey = selectKey;
+            if (!adoptedSelect)
+            {
+                unchecked { _localSelectStamp++; }
+                VRLog.Info(Scope, "MAP ROOM selection CHANGED here: "
+                                  + $"{Describe(had)} → {NameOf(staged, selectKey)} — record 20's "
+                                  + $"selection stamp is now {_localSelectStamp}, and every peer "
+                                  + "standing in a 3D map room adopts it EXACTLY ONCE on that edge "
+                                  + "(the user's ruling is that there is only ONE selection and "
+                                  + "everybody sees it). Key 0 on an edge is a DESELECTION, which "
+                                  + "is how 'nur eine einzige Auswahl' holds in both directions.");
+            }
+            else
+            {
+                VRLog.Info(Scope, "MAP ROOM selection changed here to "
+                                  + $"{NameOf(staged, selectKey)} because THIS CLIENT ADOPTED a "
+                                  + "peer's edge — so NO stamp is published for it. That "
+                                  + "suppression is what stops two clients from bouncing one "
+                                  + "selection between them for ever; do not remove it.");
+            }
+        }
 
         byte flags = NetProtocol.MapRoomInRoomBit;
         if (FFSNetwork.IsHost)
@@ -294,7 +480,11 @@ internal static class RemoteMapRoom
         if (key != 0u)
         {
             flags |= NetProtocol.MapRoomPickValidBit;
-            if (staged != null)
+            // "The hover IS the selection", the one statement the staged bit still makes now that
+            // the selection travels in its own fields. It is a comparison of the two keys rather
+            // than `staged != null`, which used to be enough only because the pick WAS the staged
+            // location whenever there was one.
+            if (selectKey != 0u && key == selectKey)
                 flags |= NetProtocol.MapRoomPickStagedBit;
         }
 
@@ -302,10 +492,17 @@ internal static class RemoteMapRoom
         extras.MapRoomFlags = flags;
         extras.MapRoomSurfaceStamp = _localSurfaceStamp;
         extras.MapRoomPickKey = key;
+        extras.MapRoomSelectStamp = _localSelectStamp;
+        extras.MapRoomSelectKey = selectKey;
+        // Which party member THIS client's map fan is showing. Costs nothing to sample — the hand
+        // keeps the key beside the character it already resolved — and it saves the receiver from
+        // deducing the fan's owner from its card count, a deduction whose tie-break assumes you only
+        // ever display characters you control. See MapRoomHand.LocalFanCharacterKey.
+        extras.MapRoomFanCharacterKey = WorldUI.MapRoom.MapRoomHand.LocalFanCharacterKey;
 
         // What SendDue compares the next frame's live state against.
         _sentValid = true;
-        _sentStagedKey = KeyOf(staged);
+        _sentSelectKey = selectKey;
     }
 
     // ---- receive side -----------------------------------------------------------------------
@@ -324,7 +521,23 @@ internal static class RemoteMapRoom
             return;
         }
         Peers[senderId] = new PeerRoom(p.MapRoomFlags, p.MapRoomSurfaceStamp, p.MapRoomPickKey,
-                                       Time.unscaledTime);
+                                       p.MapRoomSelectStamp, p.MapRoomSelectKey,
+                                       p.MapRoomFanCharacterKey, Time.unscaledTime);
+    }
+
+    /// <summary>
+    /// The character key a peer's 3D-map card fan is built for, 0 when they have none open or their
+    /// build does not publish one.
+    ///
+    /// <para>Read by <c>RemoteHandFan</c> when it resolves which loadout to print on that peer's
+    /// fan. A LABEL, not an instruction, like every other key on this record: the receiver looks it
+    /// up in its OWN party and draws from its OWN card art, and a key that resolves to nothing
+    /// simply leaves the older size-deduction in charge.</para>
+    /// </summary>
+    internal static bool TryGetPeerFanCharacterKey(int playerId, out uint key)
+    {
+        key = Peers.TryGetValue(playerId, out PeerRoom s) && s.InRoom ? s.FanCharacterKey : 0u;
+        return key != 0u;
     }
 
     private static void Forget(int senderId)
@@ -332,6 +545,12 @@ internal static class RemoteMapRoom
         Peers.Remove(senderId);
         ConsumedStamp.Remove(senderId);
         SeenStamp.Remove(senderId);
+        // THE SELECTION HISTORY GOES WITH THEM, AND THAT IS THE SAFE DIRECTION: a peer who leaves
+        // and comes back is a peer we have no history for, so their first packet is not an edge and
+        // cannot drag this table onto a selection nobody just made. The cost is that a selection
+        // change made while they were unheard-of is missed, which the next real click corrects.
+        ConsumedSelectStamp.Remove(senderId);
+        SeenSelectStamp.Remove(senderId);
     }
 
     /// <summary>
@@ -354,7 +573,12 @@ internal static class RemoteMapRoom
             _adoptedSurface = MapIconLayer.MapSurface.Unknown;
             return;
         }
+        // ONE cache rebuild per frame, ahead of both consumers: the selection resolver and the
+        // placards both turn keys into live MapLocations, and rebuilding twice would be two scans
+        // of a set that changes only on InitMap.
+        RefreshCache();
         ResolveSurface();
+        ResolveSelection();
         ResolvePlacards();
     }
 
@@ -473,14 +697,112 @@ internal static class RemoteMapRoom
                           + "the game's answer, not ours.");
     }
 
-    // ---- 2b + 2c: the peers' picks, as placards ---------------------------------------------
+    // ---- THE ROOM'S ONE SELECTION (report 13) ------------------------------------------------
+
+    /// <summary>
+    /// Adopt a peer's SELECTION edge — at most one per frame, through the game's own click seam.
+    ///
+    /// <para>Structurally identical to <see cref="ResolveSurface"/>, deliberately: the same
+    /// first-sight-is-not-an-edge rule, the same consume-once bookkeeping, the same last-edge-wins
+    /// walk over at most three peers, and the same accepted one-time swap if two people act in the
+    /// very same instant. The differences are what an edge names (a location key, where 0 means
+    /// "nothing") and how it is applied (<c>MapLocationInteractor.AdoptSelection</c>, which is the
+    /// game's own <c>pointerClickHandler</c> / <c>Deselect()</c> and nothing else).</para>
+    ///
+    /// <para>AN EDGE IS CONSUMED EVEN WHEN IT CANNOT BE APPLIED. A key that resolves to no live
+    /// location here means the peer is on the other map surface, or our location set has churned;
+    /// re-trying it on every later packet would either do nothing for ever or fire late, on a map
+    /// the selection was never made on. It is dropped with a stated reason, and the peer's next
+    /// real click is a new edge.</para>
+    /// </summary>
+    private static void ResolveSelection()
+    {
+        MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
+        if (interactor == null)
+            return;
+
+        bool have = false;
+        uint wantKey = 0u;
+        int fromPeer = 0;
+        foreach (KeyValuePair<int, PeerRoom> kv in Peers)
+        {
+            PeerRoom s = kv.Value;
+            if (!s.InRoom)
+                continue;
+            if (!SeenSelectStamp.TryGetValue(kv.Key, out byte seen))
+            {
+                SeenSelectStamp[kv.Key] = s.SelectStamp;
+                ConsumedSelectStamp[kv.Key] = s.SelectStamp;
+                continue;
+            }
+            if (seen == s.SelectStamp)
+                continue;
+            SeenSelectStamp[kv.Key] = s.SelectStamp;
+            if (ConsumedSelectStamp.TryGetValue(kv.Key, out byte done) && done == s.SelectStamp)
+                continue;
+            ConsumedSelectStamp[kv.Key] = s.SelectStamp;
+            have = true;
+            wantKey = s.SelectKey;
+            fromPeer = kv.Key;
+        }
+        if (!have)
+            return;
+
+        MapLocation? want = null;
+        if (wantKey != 0u && (!TryResolveKey(wantKey, out want) || want == null))
+        {
+            Note($"player {fromPeer} SELECTED map key 0x{wantKey:X8}, which resolves to no live "
+                 + $"location here ({CacheLocations.Count} known) — they are almost certainly on "
+                 + "the other map surface, and the surface edge that follows will bring this client "
+                 + "there. The edge is CONSUMED rather than retried: an instruction replayed onto a "
+                 + "map it was not made on is worse than one that was missed");
+            return;
+        }
+
+        // Suppress the echo BEFORE driving: AdoptSelection runs the game's click path
+        // synchronously, so the local selection can already have changed by the time it returns.
+        _adoptedSelectKey = wantKey;
+        _hasAdoptedSelect = true;
+        _adoptedSelectAt = Time.unscaledTime;
+        bool drove = interactor.AdoptSelection(want, $"player {fromPeer}'s selection edge");
+        VRLog.Info(Scope, $"MAP ROOM selection EDGE from player {fromPeer}: "
+                          + $"{NameOf(want, wantKey)}. "
+                          + (drove
+                              ? "APPLIED through the game's own seam — the same "
+                                + "ExecuteEvents.pointerClickHandler a local trigger dispatches (or "
+                                + "MapLocation.Deselect for key 0), so IsSelectable() and the game's "
+                                + "own click action still decide. If nothing visibly happened, the "
+                                + "game refused it and would have refused the same click here."
+                              : "ALREADY the selection at this table — nothing was driven. An edge "
+                                + "that arrives twice therefore costs one comparison, which is why "
+                                + "a duplicated packet cannot double-click anything.")
+                          + " The user's ruling is ONE selection everybody sees; this client never "
+                          + "re-asserts it, because a level would be a write war and an edge "
+                          + "consumed on arrival cannot oscillate.");
+    }
+
+    // ---- 2c: the peers' hovers, as the game's OWN placards -----------------------------------
 
     private static void ResolvePlacards()
     {
-        RefreshCache();
+        // THE GAME'S OWN RULE FIRST. While a quest is selected, UIQuestPopupManager.PreviewQuest
+        // previews nothing at all — so the peer whose placard this would be is looking at no card
+        // either, and drawing one would be exactly the opposite of "1:1 so wie es für den Spieler
+        // auch aussieht". With the selection now global this reads the same on every machine.
+        if (WorldUI.MapRoom.MapHoverVerdict.AQuestIsSelected)
+        {
+            Placards.ReleaseAll();
+            return;
+        }
 
-        // The LANE is the peer's rank in ascending player-id order among everyone currently
-        // pointing — see the class doc. Built here, once per frame, over at most three peers.
+        MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
+        if (interactor == null)
+        {
+            Placards.ReleaseAll();
+            return;
+        }
+
+        // Ascending player-id order, so every machine assigns the same lanes — see the class doc.
         Scratch.Clear();
         foreach (KeyValuePair<int, PeerRoom> kv in Peers)
         {
@@ -490,10 +812,15 @@ internal static class RemoteMapRoom
         }
         Scratch.Sort();
 
+        // The LOCAL player's own hovered location takes lane 0 of its own icon: the local card is
+        // seated on the same anchor by the same code, so a peer reading the same icon has to start
+        // above it or the two would intersect.
+        MapLocation? localHover = interactor.Hover;
+
         Placards.BeginFrame();
-        for (int lane = 0; lane < Scratch.Count; lane++)
+        for (int i = 0; i < Scratch.Count; i++)
         {
-            int playerId = Scratch[lane];
+            int playerId = Scratch[i];
             PeerRoom s = Peers[playerId];
             if (!TryResolveKey(s.PickKey, out MapLocation? loc) || loc == null)
             {
@@ -506,10 +833,20 @@ internal static class RemoteMapRoom
                      + "simply not drawn rather than guessed at");
                 continue;
             }
-            MapLocationInteractor? interactor = MapRoomDriver.ActiveLocations;
-            if (interactor == null || !interactor.TryAnchorFor(loc, out Vector3 anchor))
+            if (!interactor.TryAnchorFor(loc, out Vector3 anchor))
                 continue;
-            Placards.Show(playerId, lane, loc, anchor, s.PickStaged);
+
+            // LANE = rank among the readers of THIS icon only (see the class doc): a placard
+            // belongs directly above its own symbol, so two peers on two icons both sit at the
+            // base lift instead of one of them floating a row up for no reason.
+            int lane = ReferenceEquals(loc, localHover) ? 1 : 0;
+            for (int j = 0; j < i; j++)
+            {
+                if (TryResolveKey(Peers[Scratch[j]].PickKey, out MapLocation? other)
+                    && ReferenceEquals(other, loc))
+                    lane++;
+            }
+            Placards.Show(playerId, lane, loc, s.PickKey, anchor);
         }
         Scratch.Clear();
         Placards.EndFrame();
@@ -601,8 +938,16 @@ internal static class RemoteMapRoom
                           + (collisions > 0
                               ? $" WARNING: {collisions} key collision(s) — {collided}. First wins, "
                                 + "the same order the game's own resolver uses (m_Scenarios then "
-                                + "m_Villages). A collision can only ever label the WRONG ICON; it "
-                                + "can never select anything, because no receiver here calls Select()."
+                                + "m_Villages). THE CONSEQUENCE OF A COLLISION GREW IN ModBuild 226 "
+                                + "AND THIS LINE SAYS SO: it used to read 'can never select "
+                                + "anything, because no receiver here calls Select()', and that "
+                                + "became false when record 20 started carrying the room's ONE "
+                                + "selection (user ruling, report 13). A collision can now select "
+                                + "the WRONG icon as well as label it — still only through the "
+                                + "game's own click seam, still only on an EDGE, and still bounded "
+                                + "by IsSelectable(). The game's own SelectQuest resolver uses the "
+                                + "same string with the same first-match rule, so a collision here "
+                                + "is a collision there too."
                               : string.Empty));
     }
 
@@ -637,63 +982,132 @@ internal static class RemoteMapRoom
                           + "about where somebody is looking that is simply false.");
     }
 
-    /// <summary>Where a lane's placard sits above its icon, real metres above the anchor. Row 0
-    /// clears the icon itself; each further row clears the one below it.</summary>
-    private const float BaseLiftMeters = 0.06f;
-
-    /// <inheritdoc cref="BaseLiftMeters"/>
-    private const float RowPitchMeters = 0.055f;
+    /// <summary>
+    /// Extra lift for the SECOND and further readers of ONE icon, real metres above the anchor.
+    ///
+    /// <para>Lane 0 gets NO extra lift at all — "direkt über dem jeweiligen Symbol" is the ruling,
+    /// and the anchor already carries the icon-clearing gap
+    /// (<c>MapLocationInteractor.TryAnchorFor</c>, the same one the local card sits on). This
+    /// number only exists for the case two people read the SAME icon at once, and even then it is
+    /// the second separator rather than the first: each card is turned to a different person, so
+    /// two readers standing anywhere but shoulder to shoulder are already apart. Approximate on
+    /// purpose — a preview card's height depends on how many enemies and rewards that quest has,
+    /// and measuring it would mean measuring a card that has not finished laying out yet.</para>
+    /// </summary>
+    private const float SameIconLaneLiftMeters = 0.18f;
 
     /// <summary>
-    /// THE PLACARDS — one mod-drawn world-space label per pointing peer, built and torn down here
-    /// and owned by nothing else.
+    /// THE PLACARDS — one instance of THE GAME'S OWN quest-preview popup per pointing peer, built
+    /// and torn down here and owned by nothing else.
     ///
-    /// <para>Shape, materials and billboard convention are <see cref="RemoteNameTag"/>'s: an unlit
-    /// quad carrying that peer's Steam picture beside a TMP row, aimed +Z AWAY from the local head
-    /// so its front faces the reader. Two rows: the LOCATION'S OWN localized name on top (that is
-    /// the headline of the game's own info card, and it is what makes this an "Infotafel" rather
-    /// than a marker), and the peer's name under it.</para>
+    /// <para>USER RULING (report 6, verbatim): <i>"Mouseover der Symbole in der Map soll nicht das
+    /// Steam-Symbol sein, sondern das richtige Mouseover das der Spieler auch sieht, zu dem
+    /// jeweiligen Spieler hingedreht, direkt über dem jeweiligen Symbol. Aktuell sieht man das
+    /// Steam-Logo zusammen mit einem kleinen Text. Der soll auch weg - es soll 1:1 so aussehen wie
+    /// es für den Spieler auch aussieht."</i> <b>This supersedes the earlier "jede fremde Tafel
+    /// zusätzlich, mit Namen": there is no name row and no Steam picture any more, and they must
+    /// not be restored from that older note.</b> Whose placard it is, is said by which way it
+    /// faces — see <c>MapRoom.HoverCardPose</c>, which poses it.</para>
     ///
-    /// <para>NO MOD-AUTHORED WORDS AT ALL. Both strings come from data that is already localized —
-    /// the location's <c>LocalisedName</c> key through the game's own translator, and the peer's
-    /// username through the game's own netcode — so this feature needs no entry in
-    /// <c>Core/Loc.cs</c> and cannot ship an English string to a German player. Hover versus STAGED
-    /// is therefore expressed by the accent colour of the peer row, not by a word: the blue this
-    /// project already uses for "this is a VR peer" (<see cref="PlayerBadges"/>'s badge) for a
-    /// hover, a warm amber for a staged selection.</para>
+    /// <para><b>WHY A CLONE AND NOT A SECOND RENDERER.</b> What kept the real card out of a foreign
+    /// hover was never drawing — it was ownership: <c>UIQuestPopupManager</c> holds ONE
+    /// <c>questPreviewPopup</c> and previews only while <c>selectedQuest == null</c>, so routing a
+    /// peer's hover through the manager would take the local player's own card away and would fire
+    /// the game's mouse-enter chain per peer per icon. The thing that cannot be shared is the
+    /// INSTANCE, so each peer is given one: <c>Object.Instantiate</c> of the game's own popup,
+    /// filled through its own public <c>SetQuest</c> with the same <c>IQuest</c> the game's own
+    /// <c>MapLocation.PreviewQuest</c> would build for that node (<c>new Quest(LocationQuest)</c>,
+    /// or <c>new HeadqueartQuest()</c> for the capital — MapLocation.cs:612-652). The manager, the
+    /// local card and every <c>MapLocation</c> are untouched.</para>
+    ///
+    /// <para><b>THE BUILD IS <c>StatPanelSurface</c>'s PROVEN ONE, STEP FOR STEP</b>, because a
+    /// half-live copy of a game window is how a mod steals a singleton or a window id:
+    /// <list type="number">
+    /// <item>instantiate under an INACTIVE holder, so Unity never calls a single <c>Awake</c>;</item>
+    /// <item>fill it while it is still inert (<c>SetQuest</c> touches only serialized references —
+    /// <c>UIQuestDescription.Setup</c>, the enemy/reward pools — and needs no lifecycle);</item>
+    /// <item><c>DestroyImmediate</c> every lifecycle component while it has still never been
+    /// activated: the <c>UIWindow</c> (so the clone can never enter <c>UIWindow.GetWindow</c>,
+    /// never raise a visibility event, and never be seen by <c>ModalFallback</c>'s catch-all), the
+    /// <c>UIQuestPreviewPopup</c> itself (its <c>Awake</c> would dereference the window we just
+    /// took away) and the game's <c>UIFollowMapLocation</c> (which writes a screen-derived
+    /// <c>localPosition</c> through a camera this mod freezes — see <c>HoverCardPose</c>);</item>
+    /// <item>force it opaque and non-interactive, because the popup it was copied from may have
+    /// been mid-fade or hidden outright (<c>UIWindow.SetCanvasAlpha</c> leaves alpha 0 and, with
+    /// <c>m_DisableOnZeroAlpha</c>, the object deactivated);</item>
+    /// <item>only then hand the bare imagery to <c>CanvasConversion.Convert</c>, which is what
+    /// finally activates it — at which point no component with any lifecycle is left in it.</item>
+    /// </list></para>
+    ///
+    /// <para>A NODE THE PEER ONLY SWEPT PAST GETS NO CLONE. The key must stand still for
+    /// <c>SettleSeconds</c> before anything is built: a peer sweeping their laser across a row of
+    /// icons publishes a new key every packet, and instantiating a quest card five times a second
+    /// would be both a frame cost and a churn of addressable portrait loads.</para>
+    ///
+    /// <para>THAT GATE ALSO BOUNDS THE ONE EXPOSURE THIS INHERITS FROM THE GAME'S OWN CARD.
+    /// <c>UIQuestEnemy.ShowEnemy</c> is <c>async void</c> and finishes by writing into its own
+    /// <c>Image</c> after an addressable sprite load; a card destroyed while that load is in flight
+    /// is the game's own hazard too (its preview popup is torn down by every <c>InitMap</c>), and
+    /// it is not made worse here as long as cards are not created and destroyed at packet rate.
+    /// Cancelling the load on the way out was considered and NOT done: <c>CancelLoad</c> would
+    /// surface an <c>OperationCanceledException</c> out of the same <c>async void</c>, which trades
+    /// one unattributable log line for another.</para>
     /// </summary>
     private static class Placards
     {
-        /// <summary>Hover accent: the same #8FD8FF this project already uses to mark a modded peer
-        /// in the game's own roster rows (<see cref="PlayerBadges"/>). One cue, two carriers.</summary>
-        private static readonly Color HoverAccent = new(0.56f, 0.85f, 1f);
+        /// <summary>How long a peer's pick key must stand still before their placard is built.
+        /// Just over one packet interval at <c>NetProtocol.ExtrasSendRateHz</c> = 5 Hz, so a key
+        /// that survives one repeat counts as "they are looking at this".</summary>
+        private const float SettleSeconds = 0.25f;
 
-        /// <summary>Staged accent: a warm amber, far from the hover blue in BOTH hue and luminance
-        /// so the two stay apart for a red/green-deficient viewer and in the desaturated periphery
-        /// of a headset lens.</summary>
-        private static readonly Color StagedAccent = new(0.98f, 0.78f, 0.35f);
-
-        private const float AvatarSize = 0.055f;
-        private const float RowWidth = 0.34f;
-        private const float RowHeight = 0.045f;
-        private const float Pad = 0.010f;
+        /// <summary>
+        /// Host scale used until the local player has hovered once, as a multiple of
+        /// <c>PanelLayout.WorldScale</c> and the canvas metres-per-pixel.
+        ///
+        /// <para>THE REAL NUMBER IS MEASURED, NOT THIS ONE: a peer's placard must be the same size
+        /// as the card the local player gets for the same icon, and that size is
+        /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap (0.7) times the live
+        /// <c>[WorldUI] WindowLegibility</c> dial (1.25 shipped) — both private to a file this lane
+        /// does not own. <c>HoverCardPose.LocalCardHostScale</c> reads the answer off the local card
+        /// the moment one is seated; this value is the shipped product of those two, used only
+        /// before that has happened, and it is a stated approximation rather than a second source
+        /// of truth. If a placard is ever visibly the wrong size before the local player has
+        /// hovered anything, this constant is why.</para>
+        /// </summary>
+        private const float FallbackScaleFactor = 0.875f;
 
         private sealed class Card
         {
-            internal GameObject? Root;
-            internal TextMeshPro? Title;
-            internal TextMeshPro? Who;
-            internal Transform? AvatarQuad;
-            internal Material? AvatarMat;
-            internal Sprite? ShownAvatar;
-            internal string ShownName = string.Empty;
-            internal string ShownTitle = string.Empty;
-            internal bool ShownStaged;
+            /// <summary>The inactive parent every clone is born under and returns to on release —
+            /// see the class doc's step 1. Destroying it destroys the clone with it.</summary>
+            internal GameObject? Holder;
+
+            internal ConvertedPanel? Panel;
+
+            /// <summary>The key the standing clone was BUILT for, 0 when nothing is built.</summary>
+            internal uint ShownKey;
+
+            /// <summary>The key the peer is currently on and since when — the settle gate.</summary>
+            internal uint WantKey;
+
+            /// <inheritdoc cref="WantKey"/>
+            internal float WantSince;
+
+            // NO CACHED HEAD TRANSFORM. It was here while the peer's head was reached by
+            // GameObject.Find and the cache was what kept a scene sweep off the tick; since the
+            // driver answers by player id (NetAvatarDriver.TryGetPeerHead) the lookup is a
+            // dictionary probe and a cache would only be one more thing to invalidate when a peer
+            // leaves and rejoins.
+
             internal bool TouchedThisFrame;
         }
 
         private static readonly Dictionary<int, Card> Cards = new(4);
         private static readonly List<int> Drop = new(4);
+
+        /// <summary>Set once the game's own popup could not be found, so the warning is not
+        /// repeated per frame per peer.</summary>
+        private static bool _warnedNoSource;
 
         internal static void BeginFrame()
         {
@@ -726,163 +1140,332 @@ internal static class RemoteMapRoom
             Cards.Clear();
         }
 
-        internal static void Show(int playerId, int lane, MapLocation loc, Vector3 anchor,
-                                  bool staged)
+        /// <summary>
+        /// Stand one peer's placard on its icon this frame, building it first if the peer has held
+        /// that node long enough to mean it.
+        /// </summary>
+        internal static void Show(int playerId, int lane, MapLocation loc, uint key, Vector3 anchor)
         {
-            if (!Cards.TryGetValue(playerId, out Card? card) || card == null || card.Root == null)
+            if (!Cards.TryGetValue(playerId, out Card? card) || card == null)
             {
                 card = new Card();
                 Cards[playerId] = card;
-                Build(card, playerId);
             }
             card.TouchedThisFrame = true;
-            if (card.Root == null)
+
+            float now = Time.unscaledTime;
+            if (card.WantKey != key)
+            {
+                card.WantKey = key;
+                card.WantSince = now;
+            }
+            if (card.ShownKey != key)
+            {
+                if (now - card.WantSince < SettleSeconds)
+                    return;   // still sweeping — do not instantiate a card they are not reading
+                if (!Rebuild(card, playerId, loc, key))
+                    return;
+            }
+            if (card.Panel == null || !card.Panel.IsAlive || card.Panel.HostGo == null)
+            {
+                // The conversion went away under us (a module teardown releases every panel).
+                // Drop the clone with it; the settle gate rebuilds on a later frame.
+                Destroy(card);
                 return;
-
-            string title = TitleOf(loc);
-            string who = NetPlayerActors.NameFor(playerId) ?? string.Empty;
-            if (string.IsNullOrEmpty(who))
-                who = $"Player {playerId}";
-            Sprite? avatar = NetPlayerActors.AvatarFor(playerId);
-
-            // CHANGE-GATED: the strings and the picture are re-read every frame (the roster fills
-            // late on join, and the Steam picture is fetched asynchronously) but only WRITTEN when
-            // one of them really changed. A TMP text assignment rebuilds a mesh.
-            if (title != card.ShownTitle && card.Title != null)
-            {
-                card.Title.text = title;
-                card.ShownTitle = title;
-            }
-            if ((who != card.ShownName || staged != card.ShownStaged) && card.Who != null)
-            {
-                card.Who.text = who;
-                card.Who.color = staged ? StagedAccent : HoverAccent;
-                card.ShownName = who;
-                card.ShownStaged = staged;
-            }
-            if (!ReferenceEquals(avatar, card.ShownAvatar))
-            {
-                ApplyAvatar(card, avatar);
-                card.ShownAvatar = avatar;
             }
 
-            // Placement. The lift is in REAL metres carried by the rig scale, exactly as the hover
-            // card's own lift is — this room runs at ~198 world units per metre and mixing the two
-            // has shipped as a bug here before.
-            float scale = Rig.RigTarget.Current != null
-                ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
-                : 1f;
-            float lift = (BaseLiftMeters + lane * RowPitchMeters) * scale;
-            Transform t = card.Root.transform;
-            t.position = new Vector3(anchor.x, anchor.y + lift, anchor.z);
-            t.localScale = Vector3.one * scale;
+            // SIZE FIRST, POSE SECOND: HoverCardPose seats the card by measuring its drawn content
+            // in host-local units and converting that through the host transform, so a scale
+            // written afterwards would move the card it just seated.
+            float scale = HoverCardPose.LocalCardHostScale;
+            if (float.IsNaN(scale) || scale <= 0f)
+            {
+                scale = WorldUI.WorldUIConfig.CanvasScaleMm.Value * 0.001f
+                        * WorldUI.PanelLayout.WorldScale * FallbackScaleFactor;
+            }
+            Transform host = card.Panel.HostGo.transform;
+            if (Mathf.Abs(host.localScale.x - scale) > 1e-6f)
+                host.localScale = Vector3.one * scale;
 
-            Camera? head = Rig.VRRigDriver.HeadCamera != null
-                ? Rig.VRRigDriver.HeadCamera
-                : Camera.main;
-            if (head == null)
-                return;
-            Vector3 away = t.position - head.transform.position;
-            // Flattened to the horizon: a placard read from above a table must stay upright, the
-            // same convention the hover card and every name tag use.
-            away.y = 0f;
-            if (away.sqrMagnitude > 1e-6f)
-                t.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
-        }
+            float lift = 0f;
+            if (lane > 0)
+            {
+                float rig = Rig.RigTarget.Current != null
+                    ? Mathf.Max(Rig.RigTarget.Current.lossyScale.x, 0.0001f)
+                    : 1f;
+                lift = lane * SameIconLaneLiftMeters * rig;
+            }
+            var seat = new Vector3(anchor.x, anchor.y + lift, anchor.z);
 
-        private static void Build(Card card, int playerId)
-        {
-            var root = new GameObject($"GloomhavenVR.MapPickPlacard[{playerId}]");
-            card.Root = root;
-
-            var titleGo = new GameObject("Location");
-            titleGo.transform.SetParent(root.transform, worldPositionStays: false);
-            var title = titleGo.AddComponent<TextMeshPro>();
-            title.text = string.Empty;
-            title.alignment = TextAlignmentOptions.Center;
-            title.color = new Color(1f, 0.95f, 0.85f);   // the OwnerTag / RemoteNameTag off-white
-            title.fontStyle = FontStyles.Bold;
-            TmpFit.Fit(title, RowWidth, RowHeight, maxFontSize: 0.038f, wrap: false);
-            titleGo.transform.localPosition = new Vector3(0f, RowHeight * 0.6f, -0.001f);
-            WorldUI.MrBacking.Label(title);
-            card.Title = title;
-
-            var whoGo = new GameObject("Who");
-            whoGo.transform.SetParent(root.transform, worldPositionStays: false);
-            var who = whoGo.AddComponent<TextMeshPro>();
-            who.text = string.Empty;
-            who.alignment = TextAlignmentOptions.Left;
-            who.color = HoverAccent;
-            TmpFit.Fit(who, RowWidth - AvatarSize - Pad, RowHeight, maxFontSize: 0.030f,
-                       wrap: false);
-            whoGo.transform.localPosition =
-                new Vector3((AvatarSize + Pad) * 0.5f, -RowHeight * 0.4f, -0.001f);
-            WorldUI.MrBacking.Label(who);
-            card.Who = who;
-
-            Core.VRLayers.Apply(root);
-        }
-
-        private static void ApplyAvatar(Card card, Sprite? avatar)
-        {
-            if (card.Root == null)
-                return;
-            if (card.AvatarQuad != null)
-                Object.Destroy(card.AvatarQuad.gameObject);
-            card.AvatarQuad = null;
-            if (card.AvatarMat != null)
-                Object.Destroy(card.AvatarMat);   // a material is an asset; Unity never frees it
-            card.AvatarMat = null;
-
-            Texture? tex = avatar != null ? avatar.texture : null;
-            if (tex == null)
-                return;
-            card.AvatarMat = BoardVisual.Unlit(Color.white, tex);
-            Rect r = avatar!.rect;
-            card.AvatarMat.mainTextureOffset = new Vector2(r.x / tex.width, r.y / tex.height);
-            card.AvatarMat.mainTextureScale = new Vector2(r.width / tex.width, r.height / tex.height);
-            MeshRenderer quad = BoardVisual.Quad(card.Root.transform, "Avatar",
-                new Vector2(AvatarSize, AvatarSize), card.AvatarMat);
-            quad.transform.localPosition =
-                new Vector3(-(RowWidth - AvatarSize) * 0.5f, -RowHeight * 0.4f, 0f);
-            card.AvatarQuad = quad.transform;
-            Core.VRLayers.Apply(card.Root);
+            // THE FACING IS THE OWNERSHIP. Null leaves the rotation alone rather than turning the
+            // card to the local head, which would make a foreign placard indistinguishable from
+            // the local player's own — the one thing this presentation may not do.
+            HoverCardPose.Place(card.Panel, hasAnchor: true, anchor: seat,
+                                viewer: EyeOf(card, playerId), isLocalCard: false);
         }
 
         /// <summary>
-        /// The headline of the placard: the location's OWN localized name.
+        /// Where the peer this placard belongs to is standing, or null.
         ///
-        /// <para><c>CLocationState.Location.LocalisedName</c> is a localization KEY out of the
-        /// campaign YML, so it goes through the game's own translator and reads in the viewer's
-        /// language, not the pointer's. Falls back to the raw id — which is at least a stable,
-        /// recognisable string — rather than to an empty plate.</para>
+        /// <para>ASKED OF THE DRIVER, WHICH HAS IT IN A DICTIONARY. The position rides the rig
+        /// packets the embodiment sync receives anyway, so this needs no wire field and no traffic:
+        /// <see cref="NetAvatarDriver.TryGetPeerHead"/> reads the same last-received head
+        /// <c>CollectPeerHeads</c> reads, keeping the player id that one deliberately drops. It was
+        /// written for this caller in the same build. The accessor replaced a
+        /// <c>GameObject.Find("GloomhavenVR.RemoteAvatar[id]")</c> — a whole-scene sweep reaching a
+        /// private naming convention from outside — which this class no longer needs to cache or
+        /// rate-limit, because a dictionary lookup per placard per tick is free.</para>
+        ///
+        /// <para>A peer with no avatar yet (not embodied, still joining) returns null, and the
+        /// placard then keeps whatever facing it had. Turning it to the LOCAL head instead would be
+        /// worse than saying nothing: it would look exactly like the local player's own card, and
+        /// the facing is the only thing that says whose placard this is.</para>
         /// </summary>
-        private static string TitleOf(MapLocation loc)
+        private static Vector3? EyeOf(Card card, int playerId) =>
+            NetAvatarDriver.TryGetPeerHead(playerId, out Vector3 head) ? head : null;
+
+        /// <summary>Build (or rebuild) one peer's placard for <paramref name="key"/>. False means
+        /// nothing was built and the reason has been logged — or is a plain "this location has no
+        /// preview", which is the game's own answer and not a gap.</summary>
+        private static bool Rebuild(Card card, int playerId, MapLocation loc, uint key)
+        {
+            Destroy(card);
+
+            UIQuestPreviewPopup? src = MapHoverVerdict.GamePreviewPopup();
+            if (src == null)
+            {
+                if (!_warnedNoSource)
+                {
+                    _warnedNoSource = true;
+                    VRLog.Warn(Scope, "MAP ROOM peer placards: the game's own UIQuestPreviewPopup "
+                                      + "could not be found in this scene, so a peer's hover card "
+                                      + "cannot be built from it. CONSEQUENCE: no foreign placards "
+                                      + "at all this session — deliberately nothing rather than a "
+                                      + "mod-drawn substitute, because the user's ruling is that "
+                                      + "the placard must be the REAL card ('1:1 so wie es für den "
+                                      + "Spieler auch aussieht'). Everything else in the map room "
+                                      + "is unaffected.");
+                }
+                return false;
+            }
+
+            Assets.Script.GUI.Quest.IQuest? quest = QuestFor(loc);
+            if (quest == null)
+                return false;   // the game has no preview for this node either (HasQuestPreview)
+
+            GameObject? holder = null;
+            try
+            {
+                holder = new GameObject($"{HoverCardPose.PeerPlacardNamePrefix}Holder[{playerId}]");
+                holder.SetActive(false);   // MUST precede the Instantiate — keeps every Awake away
+                GameObject clone = Object.Instantiate(src.gameObject, holder.transform, false);
+                clone.name = $"{HoverCardPose.PeerPlacardNamePrefix}[{playerId}]";
+                // The source may itself be deactivated (UIWindow.ChangeActive switches a
+                // zero-alpha window off), and an inactive clone would convert into a host that
+                // draws nothing. Safe here: the holder is inactive, so this sets activeSelf and
+                // nothing else runs.
+                clone.SetActive(true);
+
+                var popup = clone.GetComponent<UIQuestPreviewPopup>();
+                if (popup != null)
+                    popup.SetQuest(quest);
+
+                int stripped = Strip(clone);
+                ForceOpaque(clone);
+
+                var rect = clone.transform as RectTransform;
+                ConvertedPanel? panel = rect != null
+                    ? CanvasConversion.Convert(rect, $"MapPeerPlacard{playerId}", pokeable: false,
+                        fitContent: true, sortingOrder: ModalFallback.ModalHostSortingOrder,
+                        useModLayer: true, flattenWindow: true)
+                    : null;
+                if (panel == null)
+                {
+                    Object.Destroy(holder);
+                    return false;
+                }
+                if (panel.HostRaycaster != null)
+                    panel.HostRaycaster.enabled = false;   // a placard is a label, never a target
+
+                card.Holder = holder;
+                card.Panel = panel;
+                card.ShownKey = key;
+                VRLog.Info(Scope, $"MAP ROOM peer placard built for player {playerId} on "
+                                  + $"{NameOf(loc, key)} — an INSTANCE OF THE GAME'S OWN "
+                                  + "UIQuestPreviewPopup, filled through its own SetQuest with the "
+                                  + "same IQuest MapLocation.PreviewQuest would have built, "
+                                  + $"{stripped} lifecycle component(s) stripped while it had never "
+                                  + "been activated. It is the real card because it IS the real "
+                                  + "card's prefab; the game's single questPreviewPopup and the "
+                                  + "local player's own hover are untouched.");
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                if (holder != null)
+                    Object.Destroy(holder);
+                card.Holder = null;
+                card.Panel = null;
+                card.ShownKey = 0u;
+                VRLog.Warn(Scope, $"MAP ROOM peer placard for player {playerId} could not be built "
+                                  + $"({ex.GetType().Name}: {ex.Message}). CONSEQUENCE: that peer's "
+                                  + "hover shows nothing here this time; the settle gate tries "
+                                  + "again when they next hold a node. Nothing game-owned was "
+                                  + "touched — the clone lived under an inactive holder and never "
+                                  + "ran a single Awake.");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The <c>IQuest</c> the game's own <c>MapLocation.PreviewQuest</c> would build for this
+        /// node (decompiled MapLocation.cs:612-652), and null where its <c>HasQuestPreview()</c>
+        /// would be false (:341-354) — i.e. the node the game itself shows no card for.
+        ///
+        /// <para>The two city-mode variants the game has (<c>PreviewWorldQuestFromCity</c> and the
+        /// <c>HeadquartersLocation</c> holder) differ only in WHERE the manager parks the popup and
+        /// in a HUD highlight it toggles as a side effect. Neither applies here: this placard's
+        /// position is the icon's own anchor, and a foreign hover must not toggle a local HUD.</para>
+        /// </summary>
+        private static Assets.Script.GUI.Quest.IQuest? QuestFor(MapLocation loc)
+        {
+            try
+            {
+                MapRuleLibrary.MapState.CQuestState? quest = loc.LocationQuest;
+                if (quest != null)
+                    return new Assets.Script.GUI.Quest.Quest(quest);
+                return loc.MapLocationType == MapLocation.EMapLocationType.Headquarters
+                    ? new Assets.Script.GUI.Quest.HeadqueartQuest()
+                    : null;
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// <c>DestroyImmediate</c> every component that would come alive when the conversion
+        /// activates the clone — see the class doc's step 3 for why each one is on this list.
+        /// Plain viewer components (Image / TMP text / layout / the enemy and reward rows) are the
+        /// imagery and are kept.
+        /// </summary>
+        private static int Strip(GameObject clone)
+        {
+            int stripped = 0;
+            // The popup FIRST: its Awake dereferences the UIWindow, so it may not outlive it.
+            UIQuestPreviewPopup[] popups = clone.GetComponentsInChildren<UIQuestPreviewPopup>(true);
+            for (int i = 0; i < popups.Length; i++)
+            {
+                if (popups[i] == null)
+                    continue;
+                Object.DestroyImmediate(popups[i]);
+                stripped++;
+            }
+            UIFollowMapLocation[] follows = clone.GetComponentsInChildren<UIFollowMapLocation>(true);
+            for (int i = 0; i < follows.Length; i++)
+            {
+                if (follows[i] == null)
+                    continue;
+                Object.DestroyImmediate(follows[i]);
+                stripped++;
+            }
+            UnityEngine.UI.UIWindow[] windows =
+                clone.GetComponentsInChildren<UnityEngine.UI.UIWindow>(true);
+            for (int i = 0; i < windows.Length; i++)
+            {
+                if (windows[i] == null)
+                    continue;
+                Object.DestroyImmediate(windows[i]);
+                stripped++;
+            }
+            return stripped;
+        }
+
+        /// <summary>Force the copy fully opaque and inert: it may have been taken from a popup that
+        /// was hidden or mid-fade, and a <c>CanvasGroup</c> at alpha 0 converts into a host that
+        /// draws nothing at all. <c>blocksRaycasts</c> off for the same reason the conversion is
+        /// not pokeable — a placard is a label, and ModBuild 187 lost a whole round to a hover card
+        /// that ate the very ray that was hovering its icon.</summary>
+        private static void ForceOpaque(GameObject clone)
+        {
+            CanvasGroup[] groups = clone.GetComponentsInChildren<CanvasGroup>(true);
+            for (int i = 0; i < groups.Length; i++)
+            {
+                if (groups[i] == null)
+                    continue;
+                groups[i].alpha = 1f;
+                groups[i].interactable = false;
+                groups[i].blocksRaycasts = false;
+            }
+            Canvas[] canvases = clone.GetComponentsInChildren<Canvas>(true);
+            for (int i = 0; i < canvases.Length; i++)
+            {
+                // UIWindow._disableCanvas leaves a hidden window's own Canvas switched off, and
+                // that state is copied with everything else.
+                if (canvases[i] != null && !canvases[i].enabled)
+                    canvases[i].enabled = true;
+            }
+        }
+
+        /// <summary>Release the conversion (which returns the clone under its inactive holder) and
+        /// destroy the holder, taking the clone with it. Destroying it touches nothing game-owned:
+        /// it carries no UIWindow and no popup component, and those never ran an Awake.</summary>
+        private static void Destroy(Card card)
+        {
+            if (card.Panel != null)
+            {
+                CanvasConversion.Release(card.Panel);
+                card.Panel = null;
+            }
+            if (card.Holder != null)
+            {
+                Object.Destroy(card.Holder);
+                card.Holder = null;
+            }
+            card.ShownKey = 0u;
+        }
+    }
+
+    // ---- naming, for the log lines the next round has to diff --------------------------------
+
+    /// <summary>
+    /// One node, named the way both sides of the wire can be compared: the location's own localized
+    /// name plus the key that travelled.
+    ///
+    /// <para><c>CLocationState.Location.LocalisedName</c> is a localization KEY out of the campaign
+    /// YML, so it goes through the game's own translator and reads in the viewer's language, not
+    /// the sender's — which is exactly why the KEY is printed beside it. Two logs from two machines
+    /// in two languages are still diffable on the hex.</para>
+    /// </summary>
+    private static string NameOf(MapLocation? loc, uint key)
+    {
+        if (key == 0u)
+            return "NOTHING (no selection)";
+        string name = "<not live on this map>";
+        if (loc != null)
         {
             try
             {
                 MapRuleLibrary.MapState.CLocationState? state = loc.Location;
-                if (state == null)
-                    return string.Empty;
-                string? key = state.Location != null ? state.Location.LocalisedName : null;
-                if (string.IsNullOrEmpty(key))
-                    return state.ID ?? string.Empty;
-                return Loc.Game(key!, state.ID ?? key!);
+                string? locKey = state != null && state.Location != null
+                    ? state.Location.LocalisedName
+                    : null;
+                name = string.IsNullOrEmpty(locKey)
+                    ? (state != null ? state.ID ?? loc.name : loc.name)
+                    : Loc.Game(locKey!, state!.ID ?? locKey!);
             }
             catch (System.Exception)
             {
-                return string.Empty;
+                name = loc.name;
             }
         }
-
-        private static void Destroy(Card card)
-        {
-            if (card.AvatarMat != null)
-                Object.Destroy(card.AvatarMat);
-            card.AvatarMat = null;
-            if (card.Root != null)
-                Object.Destroy(card.Root);
-            card.Root = null;
-        }
+        return $"'{name}' (key 0x{key:X8})";
     }
+
+    /// <summary>The same, for a key whose location has to be looked up first.</summary>
+    private static string Describe(uint key) =>
+        key == 0u
+            ? "NOTHING (no selection)"
+            : NameOf(TryResolveKey(key, out MapLocation? loc) ? loc : null, key);
 }

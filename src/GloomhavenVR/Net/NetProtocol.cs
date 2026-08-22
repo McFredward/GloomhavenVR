@@ -416,7 +416,215 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 225;
+    public const ushort ModBuild = 226;
+    // Build 226: THE BIG MULTIPLAYER ROUND — sixteen reports from one two-player session, worked as
+    // nine parallel lanes on disjoint files. WIRE: record 20 (3D MAP ROOM) grows a SECOND time,
+    // 11 → 15 bytes, additively; MapRoomRecordBytes stays FROZEN at 6 as the trusted minimum, so a
+    // ModBuild-225 peer keeps parsing every packet exactly as it did and simply does not take part.
+    // Version byte still 3. Bundle untouched.
+    //
+    //   THE SOUNDS ARE SHARED, AND ALMOST ALL OF THEM ALREADY WERE (report 1). "Genau wie die
+    //   Easter-Eggs sollen auch die Sounds mit allen Mitspielern synchronisiert sein die in der
+    //   selben Map sind." The audit found every scheduled cue but one was already a pure function of
+    //   SkyAlternative.EnvClockSeconds (record 31), and every emitter already hangs off the room
+    //   branch, which TryPlaceRoom pins to the BOARD — so positions already agree. NO NEW RECORD.
+    //   The one broken cue was the FIRE CRACKLE: `next = now + PoissonGap(mean, u)` drew each gap
+    //   from the last, so two clients sat on different phases for ever. It is now a Bernoulli tick
+    //   keyed on (tick, site) — memoryless, therefore nothing to fall behind, therefore no catch-up
+    //   machinery. Measured over six hours through the shipped hash: medians agree to 0.05 s, p95 to
+    //   0.03 s, room rate moves 2 %. THE COST IS THE TAIL, and it is stated rather than buried: a
+    //   geometric tail is unbounded, so one site can go 43 s silent (the walk's clamp capped it at
+    //   5.7 s). Bounded by measurement across all three sites: gap between crackles ANYWHERE in the
+    //   room is p95 1.64 s, worst 6.43 s alight.
+    //   TWO MORE FOUND ON THE WAY. (i) THE JOIN. FollowEnvClock applies a JUMP whenever the elected
+    //   owner changes, which includes a joining client's first record — across it every slot index
+    //   changed at once, so drip, rat and night call fired ON THE SAME FRAME, and a backward jump
+    //   REPLAYED slots already heard. TickClockContinuity measures clock advance against wall time
+    //   from Time.unscaledTime (never unscaledDeltaTime — maximumDeltaTime caps it, so a 5 s stall
+    //   would report as 0.333 s) and re-arms the latches. (ii) All five schedules wrote
+    //   `(long)Mathf.Floor(clock / period)` inline; `conv.i8` of NaN/Infinity is unspecified and on
+    //   x64 yields long.MinValue — THE EXACT SENTINEL four of those detectors use for "not observing
+    //   yet". A poisoned clock made no wrong sound: it silently re-armed and swallowed the next real
+    //   one. All five now go through EnvSoundSchedule.TrySlot, which refuses.
+    //
+    //   THE FOREST "RAIN" IS THE INSECT CHORUS, AND IT IS DELETED (report 2). Convicted on the
+    //   schedule (40 swells/hour, 14.8–29.5 s each, 25 % duty — nothing else in the wood has that
+    //   shape) and on timbre against a purpose-built RAIN control (the existing TV-static control is
+    //   white noise; rain is a tilted hiss): SFM 0.652 / 81.0 % above 2 kHz, against rain's 0.493 /
+    //   94.5 % and the leaf bed's 0.133 / 3.7 %. THE ALTERNATIVE THAT HAD TO DIE is the leaf bed
+    //   under an Air infusion — it also arrives and stays, and it is 10.3 dB LOUDER. Level could
+    //   never have convicted it; BAND exonerates it (53.2 % under 200 Hz). Whole room, with and
+    //   without: SFM 0.610 → 0.134, share above 2 kHz 41.9 % → 3.7 %. DELETED rather than shortened
+    //   or turned down, and "ansonsten finde ich es sehr gut" is the argument FOR that: at 25 % duty
+    //   the wood he likes IS the other 75 %, so deletion ships the approved mix rather than a new
+    //   one to be judged. Lowering its gain is what three previous rounds did to this same emitter
+    //   and all three were rejected.
+    //
+    //   THE LOGO, ROUND FIVE — INSTRUMENTS, NOT A FIFTH GUESS (report 3). The placement instrument
+    //   now reports MATCHED to 3.7 % and CONSISTENT and the photograph still shows the original, so
+    //   the premise of rounds 1–4 (the number is wrong) is EXHAUSTED and the constants are
+    //   deliberately untouched. Two facts settled from source: the game re-assigns NO logo sprite
+    //   anywhere outside the intro splash, and BackgroundView has ZERO callers, so "how many exist"
+    //   was never knowable statically — the old resolver took the FIRST one and stopped. Now: every
+    //   Image/RawImage carrying the same artwork is swapped (by reference, then texture+name, never
+    //   by name alone), a one-shot SCENE CENSUS names every logo-ish and every large graphic with
+    //   its canvas and screen rect, and a READBACK measures the GLOOMHAVEN band and the VR band as
+    //   SEPARATE regions of the rendered frame. Four verdicts, and one of them — VOID, nothing
+    //   anywhere including the control — explicitly means "the capture never saw the canvas" and
+    //   must NOT be read as "the logo is absent". Thresholds calibrated off the shipped asset (band
+    //   0.58 bright, VR 0.41, threshold 0.10). THE PHOTOGRAPH CANNOT SEPARATE THE HYPOTHESES: our
+    //   band is the game's own wordmark at the game's own width by construction, so "swapped" and
+    //   "not swapped" are pixel-similar there and only the VR region discriminates.
+    //
+    //   A PEER'S HAND IS PUBLIC IN THE MAP ROOM (report 4). RevealGate.ShowRoundCardFronts already
+    //   answered TRUE there — its own comment names the case. The backs came from the CALLER, which
+    //   required RevealGate.InScenario as well, and that term's own comment says what it is for:
+    //   the clone's widget lifecycle needs scenario singletons. A CAPABILITY test's safe default was
+    //   standing as the answer to a SECRECY question. Proof it never fired: "Remote hand fan faces"
+    //   appears ZERO times in either 70 MB log, while both clients demonstrably drew the fans. The
+    //   flat game agrees the loadout is public — UIPartyCharacterAbilityCardsDisplay activates every
+    //   card unconditionally and gates only SetSelectable, i.e. whether you may EDIT it. Inspect-only
+    //   is unchanged and was re-verified structurally.
+    //   TIER 0, added by the integrator: record 20 now carries FNV-1a(CMapCharacter.CharacterName)
+    //   of the sender's own fan, so the receiver LOOKS THE OWNER UP instead of deducing it from the
+    //   hand SIZE and breaking ties on the controllable registry. That tie-break assumed you only
+    //   display characters you control — an assumption THIS SESSION'S LOG FALSIFIES (player 1 had
+    //   player 2's Summoner open, and NewPartyDisplayUI.OnCharacterSelect has no ownership test).
+    //   Card identity still never rides the wire: the key names a party member, the faces come from
+    //   the receiver's own art. A key that does not resolve falls THROUGH to the old deduction.
+    //
+    //   ONE BUTTON ORDER FOR EVERYONE (report 5). The order came from a SCAN — the HUD's transform
+    //   hierarchy, or FindObjectsOfType, whose order Unity documents as undefined — and both were
+    //   demonstrably unstable here: the reporting player's log says the singleton and the sweep
+    //   "returned a DIFFERENT object" (TWO UIGuildmasterHUDs in that scene) and that the singleton
+    //   answered 0 times against the sweep's 39. NEITHER LOG RECORDS THE ORDER ITSELF — the build
+    //   line says "8 cap(s) standing" and stops, which is its own finding and is why there is now a
+    //   MAP TABLE BUTTON ORDER line. The difference was still provable, from the per-cap sampling's
+    //   WORST cap against an identical rail origin, rig scale and view side: Merchant 59 / WorldMap 0
+    //   for one player, Merchant 0 / WorldMap 46 for the other — opposite ends of the same eight.
+    //   Order is now GuildmasterDestinations.DeclaredOrder: UIGuildmasterHUD's own serialized
+    //   declaration order for the option bar. Ties break on NAME, never an instance id.
+    //
+    //   A SECOND PRESS CLOSES (report 12). The ModBuild 222 path EXISTS AND FIRES — 5 lines in one
+    //   log, 12 in the other. It asked the wrong question: `toggle.isOn` is the game's CURRENT MODE,
+    //   which in this room is not "is that window standing", because ModalFallback.MapRoomParallel
+    //   keeps a destination floated after the game's single-window toggle has hidden it — by
+    //   explicit user ruling. The log names that state twice. Now IsLeftoverWindowStanding ASKS THE
+    //   WINDOW, resolved from UIGuildmasterHUD's own serialized refs, so an X-close reads as gone
+    //   next frame; closing goes through ModalFallback.CloseFloatedWindow, never SetActive.
+    //
+    //   THE FOREIGN PLACARD IS THE REAL PLACARD (report 6). What gated the real card out of a peer's
+    //   hover was never DRAWING — it was OWNERSHIP: UIQuestPopupManager holds exactly one preview
+    //   popup. ModBuild 222's premise was true and its conclusion wrong: what cannot be shared is
+    //   the INSTANCE, so each peer gets one — Instantiate of the game's own UIQuestPreviewPopup,
+    //   filled through its own SetQuest with the same IQuest MapLocation.PreviewQuest would build.
+    //   It is the real card because it IS the real card's prefab filled by the real card's code.
+    //   Pose is HoverCardPose.Place, the same code that seats the local card, so "directly above the
+    //   icon" is identical geometry and not a second implementation. THE NAME ROW AND THE STEAM
+    //   PICTURE ARE GONE on his ruling, so the FACING is now the only thing that says whose placard
+    //   it is — which is why a peer with no avatar yet leaves the rotation alone rather than turning
+    //   it to the local head. His earlier choice ("jede fremde Tafel zusätzlich, mit Namen") is
+    //   superseded and annotated as such at all three sites.
+    //
+    //   ONE SELECTION, GLOBALLY (report 13). Checked in the game's own sources first, because the
+    //   standing rule forbids a second channel: ConfirmSelectedLocation is host-gated and fires from
+    //   the READY-UP, its receiver raises a confirm PROMPT, and a client's own click
+    //   (MapLocation.Select → OnMapLocationSelect) touches no wire at all. The game carries the fact
+    //   in NEITHER direction, so record 20 grew [selectStamp][u32 selectKey]. An EDGE, never a level
+    //   — a level would be a write war at 5 Hz. Key 0 is first-class and means DESELECTION, which is
+    //   what makes "nur eine einzige Auswahl" true in both directions. Applied through the game's own
+    //   pointerClickHandler / Deselect; no new authority. Same symmetric ruling as the surface, with
+    //   its one-time swap hazard accepted, not mitigated.
+    //
+    //   THE SHARED WINDOWS MOVE, AND THEY NEVER TURN (reports 7 and 8). Two halves were missing
+    //   against the remote board's: the receiver never EASED (the board Lerps at 1−exp(−15·dt) and
+    //   its SCALE rides the same k), and the sender never raised its cadence while the thing moved.
+    //   Both shipped. What eases is a new DRAWN pose, never the grab frame — RemoteMapStory.
+    //   TrackFrame detects "a hand moved this" by watching the frame drift from a baseline, so an
+    //   eased FRAME would be read back as a local move, refuse every following pose, and make this
+    //   client the room's last mover: a stamp war built out of an animation. Snap-vs-glide is decided
+    //   by PanelPoseWatch.PlacementAnnounced, not a distance threshold — with the old sender a whole
+    //   drag arrived as ONE jump, so a threshold would snap exactly the case that must glide.
+    //   AND THE DRAG ITSELF NOW TRAVELS (integrator, records 19 and 21): WritePose gated on PoseOwned
+    //   alone, which TrackFrame sets only after 0.25 s of STILLNESS — so a first drag published
+    //   NOTHING while it moved and no amount of receiver easing can invent frames it never received.
+    //   Moving is now a second reason to publish, deliberately WITHOUT bumping the stamp (that elects
+    //   the last mover; per-packet it would let two draggers trade the window at the send rate). So
+    //   ResolvePose had to learn the difference: ELECT ON THE STAMP, DECIDE ON THE POSE VALUE, within
+    //   the same epsilons TrackFrame uses to call something a move.
+    //   NO SHARED WINDOW RE-FACES, on any client, and the sender applies no local correction either
+    //   — otherwise the two disagree about a pose that is supposedly 1:1. The spawn facing is NOT
+    //   gated, deliberately: a freshly opened shared window has no agreed orientation yet, so
+    //   suppressing it would leave everyone at the host's built rotation. A window whose bar is blue
+    //   is exactly a window that will not re-face.
+    //   THE FACING BECOMES A DIAL: [WorldUI] WindowFacing = LaserOnly (default) / Always / Never,
+    //   a dropdown in Tafeln ▸ Bedienung. Modality is latched at GESTURE START from the grabber's own
+    //   identity, never from distance — _laserCarry is cleared by a second hand joining and by
+    //   OnRelease, both before OnGrabFinished runs. Remote windows are exempt from all three modes.
+    //   Still a one-shot on release: nothing follows the head.
+    //
+    //   ONE PANEL PER LOGICAL WINDOW (report 14). MapTravelConfirm.Reconcile fires and is not undone
+    //   — it parks the WRONG OBJECT online. Offline the confirm is AdventureMapUIManager.travelOptions;
+    //   ONLINE MapChoreographer.InitializeSelectQuestReadyUp hands the same act to UIReadyToggle,
+    //   which is a ROOT with no ancestor window, so "the parent wins" could never see it. The
+    //   container is now RESOLVED rather than assumed. Root cause B: both parent-wins rules were
+    //   gated on MapRoomDriver.Active for a reason the log falsifies ("in a scenario the flat screen
+    //   composites whatever is not floated" — against 'Story Window' floated with scenario=True and
+    //   its own bar). Gate removed; a declared WindowGroups table, matched by IS-A component test and
+    //   never by name or id, carries the one case the hierarchy cannot state.
+    //
+    //   AN EMPTY WINDOW CANNOT EXIST (report 15). Cause: a GrabbableModal was CONSTRUCTED for every
+    //   float but Build() was skipped for hover cards — and the unbuilt object was stored anyway.
+    //   PlaceFrameAt then built a holder, a brass bar and a collider around a null panel: never
+    //   sized, never ordered, never render-hidden, never moved with the card. The log named all 204
+    //   of them by the field initialiser they still carried, `MODAL GRAB: 'Menu'`. No modal is
+    //   constructed for a hover card any more; EnsureFrame additionally refuses on a null panel and
+    //   says so (integrator). Independently, the invariant: a panel with nothing drawn under it
+    //   REFUSES ITS REVEAL and releases the whole float — never "hide the bar", which would leave an
+    //   invisible thing holding a window slot. The test is STRUCTURAL, not visual, because the log
+    //   proves the visual form misfires on real windows. And STICKY FIGHT, which has been diagnosing
+    //   the map room's empty shells since 180 without acting, now CONCEDES after 20 frames.
+    //
+    //   NOTHING SURVIVES INTO A SCENARIO (report 16). The teardown DID release — but three release
+    //   lines end in open=True: the mod let go while the GAME still had them open, and PartyPanel and
+    //   QuestPopup are both in FallbackIds, so the scenario rig floated the same two again two lines
+    //   later. Exactly the two windows in his photograph. StandDown now releases and, where the game
+    //   still reports them open, HIDES them — logging count and names EVERY time, including zero.
+    //   Multiplayer checked rather than assumed: UIWindow.Hide is a local tween with no wire surface,
+    //   both remote map paths gate on MapRoomDriver.Active, and StandDown clears it before sweeping.
+    //   A doff/don also no longer yanks a PEER-placed shared window to this player's gaze (integrator:
+    //   UserMoved || PeerPlaced) — a headset leaving standby is not a hand.
+    //
+    //   THE CHARACTER UI STOPS VANISHING (report 9), and the cause is ONE LINE IN THE GAME. The
+    //   retired-characters list is the guildmaster bar's Mercenary Log, and MercenaryLogMode.Enter
+    //   opens with NewPartyDisplayUI.PartyDisplay.Hide(this, instant: true). No window stack, no
+    //   sweep — an explicit call, right for a screen that shows one destination at a time and wrong
+    //   for a room where the character UI is permanent and has no X. The game's own log line names
+    //   the requester four times. TownRecordsMode is byte-for-byte identical and is covered too. The
+    //   prefix swallows that ONE call WHOLE, including its hideRequests token: a half-suppressed hide
+    //   leaves a token that makes somebody else's Show refuse for ever — stuck hidden, strictly worse.
+    //
+    //   THE TABLE IS CLOSED FROM BELOW IN EVERY ENVIRONMENT (report 11). The legs' gate and the
+    //   underside's are now separate predicates: legs need a floor and a bundled room, the underside
+    //   needs only the slab, so Default, OffBlack and mixed reality get one. The gap was a MEASURING
+    //   fault, not a height fault: four probes, one per CORNER, and a corner is where an apron makes
+    //   the wood LOWEST — the middle he was looking at was never sampled. Five probes now, reduced
+    //   with MAX, and the box spans the hollow up to the measured ceiling instead of sitting 12 mm
+    //   above the mesh's lowest point anywhere. The rim slot is now FULL HEIGHT: a ray must stay
+    //   inside 2 mm for the whole thickness, a 0.89° cone against the old 8.8° one that then opened
+    //   into the entire cross-section. A probe answering bounds.min.y is treated as NO ANSWER — a
+    //   plain BoxCollider answers all five that way and would have rebuilt the 12 mm defect wearing a
+    //   "MEASURED" label.
+    //
+    //   MASK NAMES GO BACK TO NUMBERS (report 10). The three colour entries are removed so
+    //   HeadMaskLibrary's existing fallback yields "Maske 1/2/3". The other reading was checked and
+    //   set aside: the two "Kameramaske" rows are not in the curated tab at all, and "ändere die
+    //   WIEDER" asks for a former state that only the dropdown entries have.
+    //
+    //   PresenceState.MaxSize sum 1435 → 1439; MaxSize UNCHANGED at 1800, margin 361 > 257 (the
+    //   largest single record). Wire tests 144,558 → 146,821. Patch surface 73/120 → 74/121.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 225: THE SETTINGS AUDIT, HALVES (b) AND (c) — the menu is re-grouped. No wire change.
     //
     //   (c) A NEW TAB, "UMGEBUNG & TON", ON THE USER'S OWN RULING. He picked the full proposal over
@@ -620,11 +828,29 @@ internal static class NetProtocol
     //     -> MapChoreographer.ProxySelectedLocation, resolved by Location.ID on every client). A
     //     second channel for it would be a second source of truth. Only the local pre-commit
     //     highlight is synced, as presentation, and no receiver ever calls Select().
+    //     *** SUPERSEDED BY A LATER USER RULING (report 13, "Welches Icon ausgewählt ist wird nicht
+    //     richtig synchronisiert. Es soll nur eine einzige Auswahl geben die global alle sehen").
+    //     What the game carries is the host's CONFIRMED quest, sent from ConfirmSelectedLocation
+    //     and received as a CONFIRM PROMPT (ProxyHostSelectedLocation -> ShowQuestSelectedAction);
+    //     it is NOT "which icon is selected right now", it never travels client->host, and a
+    //     client's own Select() is purely local. So (b) was measuring the wrong fact: the
+    //     pre-commit selection is the ONE the players see, and record 20 now carries it as an
+    //     EDGE (selectStamp + selectKey). See ExtIdMapRoom. ***
     //     (c) PLACARDS — USER RULING: "Jede fremde Tafel zusätzlich, mit Namen." It CANNOT use the
     //     game's card: UIQuestPopupManager owns exactly ONE questPreviewPopup and previews only
     //     while selectedQuest is null, so four at once is impossible through it. They are mod-drawn
     //     rows, identity from NetPlayerActors/PlayerBadges, stacked by the peer's rank in ascending
     //     player-id order so every client draws the same tower and nothing is ever dropped.
+    //     *** SUPERSEDED BY A LATER USER RULING (report 6, verbatim): "Mouseover der Symbole in der
+    //     Map soll nicht das Steam-Symbol sein, sondern das richtige Mouseover das der Spieler auch
+    //     sieht, zu dem jeweiligen Spieler hingedreht, direkt über dem jeweiligen Symbol. Aktuell
+    //     sieht man das Steam-Logo zusammen mit einem kleinen Text. Der soll auch weg - es soll 1:1
+    //     so aussehen wie es für den Spieler auch aussieht." The name row and the Steam picture are
+    //     GONE; ownership is now carried by the placard's FACING alone. The "one questPreviewPopup"
+    //     premise above was true and the conclusion drawn from it was not: the way to have four is
+    //     not to draw our own, it is to INSTANTIATE the game's own popup per peer and feed it the
+    //     same IQuest the game would (RemoteMapRoom.Placards). Do not restore the name rows from
+    //     this note. ***
     //     (d) THE MAP STORY IS A DIFFERENT CONTROLLER. MapStoryController has its own window and
     //     dialogBox, so shipped record 19 — which resolves only Singleton<StoryController> — is
     //     INERT on the map. VERIFIED, and it makes this a stall fix as well as a feature:
@@ -11611,21 +11837,23 @@ internal static class NetProtocol
     // packet of every scenario session — is byte-identical to ModBuild 221's.
 
     /// <summary>
-    /// Extension record: THE 3D MAP ROOM — <c>[flags][surfaceStamp][u32 pickKey LE]</c>.
+    /// Extension record: THE 3D MAP ROOM —
+    /// <c>[flags][surfaceStamp][u32 pickKey LE][selectStamp][u32 selectKey LE]</c>.
     ///
     /// <para>USER REQUEST (2026-08-22, verbatim): "Multiplayer für die 3D-Map: a) Welche Map
     /// angezeigt wird (Gloomhaven oder World-Map) soll synchronisiert werden. b) Welche Quest
     /// gerade angeklickt ist soll synchronisiert werden. c) Die mouseover Infotafeln sollen
     /// synchronisiert werden."</para>
     ///
-    /// <para>ONE RECORD, THREE FACTS, ONE LIFETIME. Am I standing in the 3D map room, which of the
-    /// game's two campaign surfaces am I showing, and which map location am I pointing at (or have
-    /// staged). All three exist while and only while <c>MapRoomDriver.Active</c>, and all three are
-    /// meaningless without the room bit — so one TLV header instead of three, one absence contract
-    /// instead of three, and it is structurally impossible for a receiver to act on a hover from a
-    /// peer who is not in the room.</para>
+    /// <para>ONE RECORD, FOUR FACTS, ONE LIFETIME. Am I standing in the 3D map room, which of the
+    /// game's two campaign surfaces am I showing, which map location am I pointing at, and which
+    /// one is SELECTED. All four exist while and only while <c>MapRoomDriver.Active</c>, and all
+    /// four are meaningless without the room bit — so one TLV header instead of four, one absence
+    /// contract instead of four, and it is structurally impossible for a receiver to act on a hover
+    /// from a peer who is not in the room.</para>
     ///
-    /// <para>WIRE LAYOUT — <c>[flags][surfaceStamp][u32 pickKey LE]</c>:
+    /// <para>WIRE LAYOUT —
+    /// <c>[flags][surfaceStamp][u32 pickKey LE][selectStamp][u32 selectKey LE]</c>:
     /// <list type="bullet">
     /// <item>flags — <see cref="MapRoomInRoomBit"/> / <see cref="MapRoomHostBit"/> /
     /// <see cref="MapRoomSurfaceKnownBit"/> / <see cref="MapRoomSurfaceCityBit"/> /
@@ -11639,14 +11867,82 @@ internal static class NetProtocol
     /// record from fighting the three already-synced game actions that move the surface on their
     /// own (<c>MoveToNewNode</c>, the <c>SelectQuest</c> receive path's <c>PreviewQuest</c>, and
     /// <c>MapChoreographer.MultiplayerStartup</c>).</item>
-    /// <item>pickKey — <c>FNV-1a(MapLocation.Location.ID)</c> (see <see cref="HashMapKey"/>),
-    /// folded so 0 stays reserved for "nothing". A KEY IS A MATCH GATE, NEVER AN INSTRUCTION: the
+    /// <item>pickKey — the location the sender's own pointer is on, as
+    /// <c>FNV-1a(MapLocation.Location.ID)</c> (see <see cref="HashMapKey"/>), folded so 0 stays
+    /// reserved for "nothing". THE HOVER, and since the selection edge landed only the hover: it
+    /// used to fall back to the sender's staged selection when there was one, which was the only
+    /// way a selection could be carried at all, and would now merely hide the hover this field is
+    /// for. A KEY IS A MATCH GATE, NEVER AN INSTRUCTION: the
     /// only thing a receiver does with an unresolvable key is nothing, so a collision could at
     /// worst label the wrong icon and can never select anything. This is NOT card identity — it is
     /// a campaign-map node id out of the shared YML, the same class of datum as a wall key
     /// (record 17) and the identity the GAME ITSELF puts on its own wire
     /// (<c>new LocationToken(location.Location.ID)</c> for <c>GameActionType.SelectQuest</c>,
     /// resolved on the far side by <c>SingleOrDefault(x =&gt; x.Location.ID == locationId)</c>).</item>
+    /// <item>selectStamp — the SAME EDGE IDIOM as <c>surfaceStamp</c>, for the same reason: a
+    /// wrapping counter bumped once per COMPLETED local selection change that a human here made.
+    /// A receiver applies a peer's selection exactly once, on the packet whose stamp differs from
+    /// the one it last saw from that peer, and never again. A level would be a write war (both
+    /// clients re-asserting a value every packet at 5 Hz); an edge consumed on arrival cannot
+    /// oscillate. First sight is deliberately NOT an edge — a peer arriving mid-session has not
+    /// just selected anything.</item>
+    /// <item>selectKey — <see cref="HashMapKey"/> of the SELECTED location, or <b>0 meaning
+    /// "nothing is selected"</b>. Zero is a first-class value here and not an absence: an edge
+    /// carrying 0 is a DESELECTION, which is what makes "es soll nur eine einzige Auswahl geben"
+    /// true in both directions. Unlike <c>pickKey</c> this key does instruct — see the authority
+    /// paragraph below.</item>
+    /// </list></para>
+    ///
+    /// <para><b>SELECTION AUTHORITY: ANYBODY MAY SELECT, EVERYONE FOLLOWS — a USER RULING</b>
+    /// (report 13, verbatim): <i>"Welches Icon ausgewählt ist wird nicht richtig synchronisiert. Es
+    /// soll nur eine einzige Auswahl geben die global alle sehen."</i> Same symmetric authority the
+    /// surface already has in this room, and the same edge machinery, including the ADOPTED-CHANGE
+    /// SUPPRESSION that stops two clients from bouncing one selection back and forth for ever (a
+    /// selection this client made ON A PEER'S BEHALF publishes no stamp of its own — see
+    /// <c>RemoteMapRoom</c>).</para>
+    ///
+    /// <para><b>WHY THIS IS NOT A SECOND CHANNEL FOR A FACT THE GAME ALREADY CARRIES.</b> It was
+    /// checked in the decompiled sources first, because the standing rule forbids exactly that:
+    /// <list type="bullet">
+    /// <item>What the game sends is the host's <b>CONFIRMED</b> quest, and only the host's:
+    /// <c>UIMapMultiplayerController.ConfirmSelectedLocation</c> is gated on
+    /// <c>FFSNetwork.IsHost</c> and fires from the READY-UP, not from the click
+    /// (UIMapMultiplayerController.cs:259-267).</item>
+    /// <item>What a client receives from it is a PROMPT, not a selection:
+    /// <c>MapChoreographer.ProxySelectedLocation</c> (:3373-3390) →
+    /// <c>ProxyHostSelectedLocation</c> (:759-783), which calls
+    /// <c>GuildmasterConfirmAction.ShowQuestSelectedAction(...)</c> and only runs
+    /// <c>location.Select()</c> when the local player presses THAT button.</item>
+    /// <item>A CLIENT's own click is purely local: <c>MapLocation.Select()</c> →
+    /// <c>MapChoreographer.OnMapLocationSelect</c> →
+    /// <c>AdventureMapUIManager.OnSelectedMapLocation</c>, with nothing on any wire.</item>
+    /// </list>
+    /// So "which icon is selected right now" is a fact the game does NOT synchronise in either
+    /// direction, and this record is the first and only carrier of it. The COMMITTED selection
+    /// stays exactly where it was — on the game's own host-authoritative action — and no mod code
+    /// goes near it.</para>
+    ///
+    /// <para><b>AND THE RECEIVER DRIVES IT THROUGH THE GAME'S OWN SEAM, so no authority is
+    /// created.</b> An adopted selection is dispatched as
+    /// <c>ExecuteEvents.pointerClickHandler</c> on the real <c>MapLocation</c> — the identical
+    /// dispatch the game's own gamepad path makes — and an adopted deselection is
+    /// <c>MapLocation.Deselect()</c>, the exact counterpart <c>Select()</c> has. Both still pass
+    /// <c>IsSelectable()</c> and the game's own <c>m_OnClickAction</c>, so a refusal here is the
+    /// game's answer and not ours, and an unresolvable key still does nothing at all.</para>
+    ///
+    /// <para><b>TWO CONSEQUENCES THAT ARE ACCEPTED RATHER THAN MITIGATED,</b> stated so a later
+    /// round recognises them as decisions instead of rediscovering them as bugs:
+    /// <list type="number">
+    /// <item>THE SWAP. Two players selecting in the very same instant trade selections ONCE and
+    /// then stand still — the surface field's hazard, self-correcting on the next click, and it
+    /// cannot oscillate because an edge is consumed on arrival. Do not answer it by re-applying a
+    /// selection continuously; that is the write war the standing ruling forbids.</item>
+    /// <item>A CLIENT THAT CANNOT KEEP IT CLEARS IT. If a peer adopts a selection its own game then
+    /// takes back down (<c>MapLocationInteractor.TickDeselect</c> drops a selection whose quest
+    /// window never opened), that peer publishes a deselect edge and the room follows it. That is
+    /// the ruling working as asked — ONE selection, everyone sees the same one — and the log names
+    /// both halves, so a session where the selection keeps collapsing is attributable to the client
+    /// whose game refused it rather than to the wire.</item>
     /// </list></para>
     ///
     /// <para><b>SURFACE AUTHORITY: ANYBODY MAY SWITCH, EVERYONE FOLLOWS — A USER RULING</b>
@@ -11675,10 +11971,50 @@ internal static class NetProtocol
     /// </summary>
     public const byte ExtIdMapRoom = 20;
 
-    /// <summary>Payload length of <see cref="ExtIdMapRoom"/>: flags + surfaceStamp + the 4-byte
-    /// pick key. A shorter record is not trusted (never trust the wire); a longer one is a newer
-    /// sender and the extra bytes are stepped over by the record's own length.</summary>
+    /// <summary>The MINIMUM payload a <see cref="ExtIdMapRoom"/> record must carry to be trusted at
+    /// all: flags + surfaceStamp + the 4-byte pick key. A shorter record is not trusted (never
+    /// trust the wire); a longer one carries fields this reader may or may not know, and every one
+    /// of them is read only after its own length test — the tail is stepped over by the record's
+    /// own length otherwise.
+    ///
+    /// <para>THIS NUMBER IS FROZEN AT 6 EVEN THOUGH THE RECORD IS NOW LONGER, and that is the whole
+    /// of the additive contract: a build that only ever knew these six bytes keeps parsing every
+    /// packet exactly as it did, and simply never sees a selection edge. Raising it would turn
+    /// "does not participate" into "drops the record", which is the failure mode the TLV design
+    /// exists to prevent.</para></summary>
     public const int MapRoomRecordBytes = 6;
+
+    /// <summary>Payload length of the FULL <see cref="ExtIdMapRoom"/> record this build writes:
+    /// <see cref="MapRoomRecordBytes"/> plus the selection edge (<c>[selectStamp][u32 selectKey
+    /// LE]</c>). Same shape as <c>StoryRecordBytesWithPose</c>: the writer always emits the long
+    /// form, and readers require only the old minimum.</summary>
+    public const int MapRoomRecordBytesWithSelect = MapRoomRecordBytes + 5;
+
+    /// <summary>
+    /// Payload length of the FULL <see cref="ExtIdMapRoom"/> record INCLUDING the map-fan character
+    /// key: <see cref="MapRoomRecordBytesWithSelect"/> plus <c>[u32 fanCharacterKey LE]</c>. This is
+    /// what every ModBuild-226 sender writes; readers still require only
+    /// <see cref="MapRoomRecordBytes"/>, and each later field is read behind its own length test.
+    ///
+    /// <para><b>WHAT THE KEY IS FOR.</b> A peer's card fan in the 3D map room is drawn from the
+    /// RECEIVER's own art — card identity never crosses this wire and does not here either. But the
+    /// receiver has to know WHICH party member's loadout to print, and until this field existed it
+    /// had to deduce that: the card COUNT identifies the member whenever it is unique, and a tie was
+    /// broken by asking the game's own controllable registry which characters that player controls.
+    /// That tie-break carries an assumption the reporting session itself falsifies — player 1 had
+    /// player 2's Summoner open on the party display, and nothing in
+    /// <c>NewPartyDisplayUI.OnCharacterSelect</c> requires you to control what you look at. Four
+    /// bytes replace a deduction with a statement.</para>
+    ///
+    /// <para>The key is <c>FNV-1a(CMapCharacter.CharacterName)</c> — the same hash and the same
+    /// class of datum as this record's <c>pickKey</c> (a campaign-map node id) and as the identity
+    /// the GAME puts on its own wire for characters. It is a MATCH GATE, NEVER AN INSTRUCTION: an
+    /// unresolvable key makes the receiver fall back to the deduction it used before, so a collision
+    /// or an unknown character can at worst cost the tier it would have saved. 0 means "I have no
+    /// map fan open", which is also what a ModBuild-225 peer's absent tail means — so an older peer
+    /// degrades to exactly the previous behaviour rather than to a wrong character.</para>
+    /// </summary>
+    public const int MapRoomRecordBytesWithFan = MapRoomRecordBytesWithSelect + 4;
 
     /// <summary>Map-room flags bit 0: the sender's 3D map room is STANDING right now
     /// (<c>MapRoomDriver.Active</c>, never <c>Wanted</c> — publishing the predicate would announce
@@ -11705,12 +12041,21 @@ internal static class NetProtocol
     /// sender is pointing at nothing, and the key bytes say nothing.</summary>
     public const byte MapRoomPickValidBit = 1 << 4;
 
-    /// <summary>Map-room flags bit 5: the pick is a STAGED SELECTION (the sender clicked that icon
-    /// and its quest window is standing) rather than a passing hover. PRESENTATION ONLY — a
-    /// receiver may light an icon and label a placard with it and may NEVER call
-    /// <c>MapLocation.Select()</c>. The COMMITTED selection is the game's own host-authoritative
-    /// action (<c>SendGameAction(SelectQuest, MapHQ, …)</c>) and a second channel for it is
-    /// forbidden; this bit is the same class of fact as the hover — "which icon is lit".</summary>
+    /// <summary>Map-room flags bit 5: the sender's pointer is on their OWN SELECTION — the pick key
+    /// and the select key name the same node.
+    ///
+    /// <para>STILL PRESENTATION ONLY, AND NOW ALMOST REDUNDANT — kept, not retired. It used to mean
+    /// "the pick key is a staged selection rather than a passing hover", which was the only way a
+    /// selection could be carried at all; the selection travels in its own edge fields
+    /// (<c>selectStamp</c> + <c>selectKey</c>) since report 13, and the pick is now always the
+    /// hover, so the bit is exactly the comparison of the two keys. Worth one line in a log and
+    /// nothing else. It is NOT retired because a bit that changes meaning across builds is how two
+    /// peers end up disagreeing about a byte, and the flags byte has room.</para>
+    ///
+    /// <para>The COMMITTED selection remains the game's own host-authoritative action
+    /// (<c>SendGameAction(SelectQuest, MapHQ, …)</c>) and a second channel for THAT is still
+    /// forbidden — see <see cref="ExtIdMapRoom"/> for why the pre-commit selection is a different
+    /// fact that the game carries nowhere.</para></summary>
     public const byte MapRoomPickStagedBit = 1 << 5;
 
     /// <summary>Every bit <see cref="ExtIdMapRoom"/>'s flags byte defines today. Writer and reader

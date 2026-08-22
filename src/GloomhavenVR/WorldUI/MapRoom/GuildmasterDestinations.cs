@@ -309,6 +309,259 @@ internal static class GuildmasterDestinations
         ReportPartySlots(why);
     }
 
+    // =========================================================================================
+    //  6 — THE RAIL'S ORDER IS A PROPERTY OF THE DATA, NOT OF A SCAN (ModBuild 226)
+    //
+    //  USER REPORT, verbatim: "Die Button-Reihenfolge am Tisch vor der Map ist nicht bei jedem
+    //  Spieler die gleiche - das soll nicht sein - jeder soll die gleiche Reihenfolge sehen."
+    //
+    //  WHAT THE ORDER WAS DERIVED FROM UNTIL NOW, and why two clients could disagree.
+    //  MapButtonRail.Rescan builds one cap per UIGuildmasterButton in the order the SCAN handed
+    //  them over, and lays them out at x0 + pitch*i in that same order. There are two scans and
+    //  NEITHER of them is a statement the game's data makes about how the bar should read:
+    //
+    //    (a) Singleton<UIGuildmasterHUD>.Instance.GetComponentsInChildren<UIGuildmasterButton>(true)
+    //        — depth-first TRANSFORM HIERARCHY order of whichever HUD instance won the singleton
+    //        race. The .planning/debug/Player.log of the reporting player proves that "whichever"
+    //        is a real question and not a pedantic one: DESTINATIONS DISCOVERY BASELINE at line
+    //        3087 says the sweep and the singleton "returned a DIFFERENT object", i.e. there are
+    //        TWO UIGuildmasterHUD objects in that scene and Singleton.Instance is simply the one
+    //        whose Awake ran last. The second player's log (remote/Player.log:17656) reports the
+    //        two AGREEING. So the two clients did not even resolve the same object graph.
+    //
+    //    (b) Object.FindObjectsOfType<UIGuildmasterButton>(true) — the fallback the rail takes
+    //        whenever the singleton is cold, which is not hypothetical either: the same breakdown
+    //        line reports "the HUD answered from Singleton<UIGuildmasterHUD>.Instance 0 time(s)
+    //        and from a scene sweep 39 time(s)" for the reporting player's first 30 s window, and
+    //        FOUR consecutive windows of that for the second player. FindObjectsOfType's order is
+    //        an engine registry walk: Unity documents it as undefined, and it is a function of
+    //        load order and instance ids, i.e. of the PROCESS, not of the campaign.
+    //
+    //  Either way the answer is "same set, different order", which is exactly what he described,
+    //  and MapButtonRail.SameSet compares MEMBERSHIP only — so whatever order the first successful
+    //  scan produced is frozen for the whole session and never re-examined.
+    //
+    //  THE FIX IS THIS TABLE. One ordered list that every client reads, so the rail's geometry
+    //  stops being a function of anything the process happens to do. It also fixes the SUBSET
+    //  case for free: if two players ever end up with different buttons (RefreshUnlocked does
+    //  SetActive(IsUnlocked) per mode, and Hide() drops a button out of the flat bar's layout),
+    //  the ones they share still keep the same relative places, because a rank is a property of
+    //  the MODE and not of how many neighbours it has.
+    //
+    //  WHY THIS ORDER. It is UIGuildmasterHUD's own serialized declaration order for the option
+    //  bar — enhanceButton, shopButton, trainerButton, mapButton, templeButton, cityButton,
+    //  townRecordsButton, mercenaryLogButton (decompiled GH.Runtime/UIGuildmasterHUD.cs:52-73),
+    //  the same list MapButtonRail's class doc has cited since ModBuild 183 as "the option bar:
+    //  enhance, shop, trainer, map, temple, city, town records, mercenary log".
+    //
+    //  REJECTED: the EGuildmasterMode enum's own numeric order (None, WorldMap, Trainer,
+    //  Enchantress, Merchant, Temple, City, TownRecords, MercenaryLog). It is stable across
+    //  processes too, but it is an internal numbering that also carries None, QuestAccept,
+    //  CityEncounter and MultiplayerQuest — none of which is a bar button — and it puts the map
+    //  first and the trainer second, which is not how the flat bar reads. A rank table that has
+    //  to be EDITED to change the rail is the point; deriving it from an enum would hide the
+    //  decision inside the game's numbering again.
+    // =========================================================================================
+
+    /// <summary>
+    /// THE ONE ORDERED TABLE. Index = rank; position 0 stands at the far end of the rail from
+    /// <c>MapButtonRail</c>'s local +X. Edit THIS to change the rail's order for everybody — no
+    /// other file has an opinion about it, and no scan does either.
+    /// </summary>
+    private static readonly EGuildmasterMode[] DeclaredOrder =
+    {
+        EGuildmasterMode.Enchantress,   // enhanceButton
+        EGuildmasterMode.Merchant,      // shopButton
+        EGuildmasterMode.Trainer,       // trainerButton
+        EGuildmasterMode.WorldMap,      // mapButton
+        EGuildmasterMode.Temple,        // templeButton
+        EGuildmasterMode.City,          // cityButton
+        EGuildmasterMode.TownRecords,   // townRecordsButton
+        EGuildmasterMode.MercenaryLog,  // mercenaryLogButton
+    };
+
+    /// <summary>
+    /// This mode's declared place in the rail, low first. A mode the table does not name — a DLC
+    /// or a version that adds a bar button, or one of the enum members that is not a bar button at
+    /// all — sorts AFTER every named one, in enum order, so it is appended deterministically
+    /// rather than dropped or inserted somewhere a second client might not agree with.
+    /// <see cref="IsRanked"/> is what tells a caller which of the two happened.
+    /// </summary>
+    internal static int Rank(EGuildmasterMode mode)
+    {
+        for (int i = 0; i < DeclaredOrder.Length; i++)
+        {
+            if (DeclaredOrder[i] == mode)
+                return i;
+        }
+        return DeclaredOrder.Length + (int)mode;
+    }
+
+    /// <summary>Is this mode named by <see cref="DeclaredOrder"/>? False means it was appended by
+    /// the fallback rule in <see cref="Rank"/> and the rail says so on its order line.</summary>
+    internal static bool IsRanked(EGuildmasterMode mode)
+    {
+        for (int i = 0; i < DeclaredOrder.Length; i++)
+        {
+            if (DeclaredOrder[i] == mode)
+                return true;
+        }
+        return false;
+    }
+
+    // =========================================================================================
+    //  7 — "IS THAT WINDOW ALREADY STANDING?" IS A QUESTION FOR THE WINDOW (ModBuild 226)
+    //
+    //  USER REPORT, verbatim: "Ein erneuter Druck auf einen Button z.B. Händler obwohl das Fenster
+    //  schon da ist soll das jeweilige Fenster wieder schließen." — reported AGAIN after ModBuild
+    //  222 shipped a close path for it.
+    //
+    //  THE 222 PATH EXISTS AND IT FIRES. This is not a "the fix never ran" round: the reporting
+    //  player's log carries five MAP TABLE BUTTON '…' pressed (…) while its window is OPEN lines
+    //  (Player.log:64665, 64917, 65840 for Merchant and 163131, 163275 for MercenaryLog), each
+    //  followed within ten lines by the WorldMap press and by UIWindow hidden: 'UI Shop Item
+    //  Window'. The second player's log carries twelve more. The close works.
+    //
+    //  WHAT IT ASKS IS THE WRONG QUESTION. <see cref="CloseMode"/> was reached only from
+    //  MapButtonRail.Press's `toggle.isOn` test, and `toggle.isOn` is the game's CURRENT MODE, not
+    //  "is that window standing in this room". In the flat game those are the same sentence,
+    //  because the mode machine owns the screen. In the map room they are not, by explicit user
+    //  ruling: ModalFallback.MapRoomParallel keeps a destination window floated after the game's
+    //  single-window toggle has already hidden it ("Anders als in Flat soll es hier möglich sein
+    //  mehrere Fenster parallel offen zu haben"). That state is in the log by name —
+    //  Player.log:66110 "MODAL CLOSE (X button): 'UI Shop Item Window' (ID Shop) — game had
+    //  already hidden it (single-window toggle); releasing the parallel VR float only" — and the
+    //  line above it shows what the mode-keyed close does there: "MAP TABLE BUTTON 'City' pressed
+    //  (X button on 'UI Shop Item Window') while it is ALREADY the current mode … nothing was
+    //  dispatched." The mode had moved on; the merchant was still on the table; a press on the
+    //  Händler cap in that state took the OPEN branch and re-entered the mode instead of closing
+    //  the window he was looking at. That is his sentence, word for word: "obwohl das Fenster
+    //  SCHON DA IST".
+    //
+    //  SO THE CAP ASKS THE WINDOW. <see cref="IsLeftoverWindowStanding"/> resolves the mode's own
+    //  UIWindow off UIGuildmasterHUD's serialized references and asks IT — UIWindow.IsOpen, or the
+    //  mod's own float set via ModalFallback.FloatedWindowWithId. Nothing is remembered, so a
+    //  window the player closed with its own X reads as gone in the very next frame, which a
+    //  remembered "I opened this" flag could not.
+    //
+    //  AND IT IS CLOSED THE WAY THE GAME CLOSES IT. Not SetActive(false) behind the game's back,
+    //  and not UIWindow.Hide() either (ModBuild 184 proved that leaves the mode active and the
+    //  party display dead). The leftover case goes through ModalFallback.CloseFloatedWindow, i.e.
+    //  the window's OWN X button — the one path that already handles both halves: an open game
+    //  window gets Escape()/Hide(), and a window the game has already hidden gets its parallel VR
+    //  float released. The mode-is-current case is untouched and still returns to the map.
+    // =========================================================================================
+
+    /// <summary>
+    /// Is this mode one of the SIX that are windows, as opposed to a map surface? THE ONE TABLE —
+    /// <c>MapButtonRail.IsClosableMode</c> delegates here so the rail's press path and this class's
+    /// close path can never disagree about which modes have a window at all. See that method's doc
+    /// for the reasoning about WorldMap/City, which has not changed.
+    /// </summary>
+    internal static bool IsWindowMode(EGuildmasterMode mode) => mode switch
+    {
+        EGuildmasterMode.Merchant => true,
+        EGuildmasterMode.Temple => true,
+        EGuildmasterMode.Trainer => true,
+        EGuildmasterMode.Enchantress => true,
+        EGuildmasterMode.TownRecords => true,
+        EGuildmasterMode.MercenaryLog => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// The <c>UIWindow</c> a guildmaster mode owns, off <c>UIGuildmasterHUD</c>'s OWN serialized
+    /// references (decompiled UIGuildmasterHUD.cs:73-86) — never by name and never by a scene
+    /// sweep. All five destination classes carry <c>[RequireComponent(typeof(UIWindow))]</c>, so
+    /// the window is provably the same GameObject as the component, exactly as
+    /// <see cref="IsDestination"/> relies on.
+    ///
+    /// <para><c>MercenaryLog</c> deliberately resolves to the SAME window as <c>TownRecords</c>:
+    /// it is a sixth MODE sharing <c>UITownRecordsWindow</c> (UIGuildmasterHUD.cs:248-254) and has
+    /// no window class of its own. Both caps therefore ask about, and close, the one window that
+    /// is actually standing — which is the honest answer, because there is only one.</para>
+    /// </summary>
+    internal static UIWindow? ModeWindow(EGuildmasterMode mode)
+    {
+        UIGuildmasterHUD? hud = Hud();
+        if (hud == null)
+            return null;
+        Component? owner = null;
+        switch (mode)
+        {
+            case EGuildmasterMode.Merchant: owner = hud.shopWindow; break;
+            case EGuildmasterMode.Temple: owner = hud.templeWindow; break;
+            case EGuildmasterMode.Trainer: owner = hud.trainerWindow; break;
+            case EGuildmasterMode.Enchantress: owner = hud.enhancementWindow; break;
+            case EGuildmasterMode.TownRecords:
+            case EGuildmasterMode.MercenaryLog: owner = hud.townRecordsWindow; break;
+        }
+        return owner != null ? owner.GetComponent<UIWindow>() : null;
+    }
+
+    /// <summary>The guildmaster mode the game says is current, or <c>None</c> when no HUD is
+    /// reachable. One static field load through <see cref="Hud"/>'s singleton path.</summary>
+    private static EGuildmasterMode CurrentMode()
+    {
+        UIGuildmasterHUD? hud = Hud();
+        return hud != null ? hud.CurrentMode : EGuildmasterMode.None;
+    }
+
+    /// <summary>
+    /// IS THIS MODE'S WINDOW STANDING IN THE ROOM WHILE THE MODE MACHINE HAS ALREADY MOVED ON?
+    /// The state the ModBuild 222 close cannot see — see section 7 of the class doc.
+    ///
+    /// <para>THE GATE IS DELIBERATELY NARROW, and each clause pays for itself:</para>
+    /// <list type="number">
+    ///   <item>the mode must BE a window mode at all, or there is nothing to stand;</item>
+    ///   <item>the mode machine must be AT HOME (WorldMap/City). If some OTHER destination is the
+    ///   current mode, a press on this cap is a mode SWITCH and must stay one — pressing Temple
+    ///   while the merchant is open has always meant "show me the temple", and turning that into
+    ///   "close the temple's leftover float" would be a second, unrequested behaviour change. It
+    ///   is also what keeps <c>TownRecords</c> and <c>MercenaryLog</c> honest: while either of
+    ///   them is current, pressing the other still switches the shared window's tab;</item>
+    ///   <item>the window must exist and must actually be STANDING — its own <c>IsOpen</c>, or a
+    ///   live float in <c>ModalFallback</c>'s converted set. The float test is what catches the
+    ///   case the game itself calls closed, which is the whole point.</item>
+    /// </list>
+    ///
+    /// <para>ASKED, NEVER REMEMBERED. There is no "the cap opened this" flag anywhere in this
+    /// class, because such a flag goes stale the instant the player uses the window's own X — and
+    /// in this room he can, on any window, at any time.</para>
+    /// </summary>
+    internal static bool IsLeftoverWindowStanding(EGuildmasterMode mode, out UIWindow? window,
+                                                  out string why)
+    {
+        window = null;
+        why = string.Empty;
+        if (!MapRoomDriver.Active || !IsWindowMode(mode))
+            return false;
+
+        EGuildmasterMode current = CurrentMode();
+        if (IsWindowMode(current))
+            return false; // another destination owns the mode machine — a press here is a switch
+
+        window = ModeWindow(mode);
+        if (window == null)
+            return false;
+
+        if (window.IsOpen)
+        {
+            why = $"the game still reports '{window.name}' (ID {window.ID}) OPEN while the current "
+                  + $"guildmaster mode is {current}";
+            return true;
+        }
+        if (ReferenceEquals(ModalFallback.FloatedWindowWithId(window.ID), window))
+        {
+            why = $"the game has already hidden '{window.name}' (ID {window.ID}) — the current "
+                  + $"guildmaster mode is {current} — but the map room is still floating it in "
+                  + "parallel (ModalFallback.MapRoomParallel), so it IS on the table in front of him";
+            return true;
+        }
+        window = null;
+        return false;
+    }
+
     /// <summary>
     /// LEAVE THE MODE, DO NOT MERELY HIDE THE WINDOW. Called from
     /// <c>ModalFallback.CloseFloatedWindow</c> before the normal Escape/Hide path. Presses the
@@ -316,11 +569,52 @@ internal static class GuildmasterDestinations
     /// <c>UIGuildmasterHUD.UpdateCurrentMode</c> runs the current mode's Exit — which is the only
     /// thing that takes the party display back out of selection mode (see the class doc).
     /// Returns true when the press went out.
+    ///
+    /// <para>ModBuild 226 — IT NOW REFUSES WHEN THIS WINDOW IS NOT THE CURRENT MODE'S. Until now
+    /// the X on ANY destination window returned home, whatever the mode machine was doing. In the
+    /// map room that is wrong in both directions and the log shows both:
+    /// <list type="bullet">
+    ///   <item>harmlessly, when the machine is already at home — Player.log:65175 and 163415, "MAP
+    ///   TABLE BUTTON 'WorldMap' pressed (X button on '…') while it is ALREADY the current mode …
+    ///   nothing was dispatched". A measured no-op, but one that reads like a failure;</item>
+    ///   <item>harmfully, when a DIFFERENT destination is current. Closing a merchant window the
+    ///   game hid ten minutes ago would then press the map button and exit the TEMPLE the player
+    ///   is standing in. Nothing in the report asks for that, and parallel windows
+    ///   (<c>ModalFallback.MapRoomParallel</c>) make it reachable by construction.</item>
+    /// </list>
+    /// It is also what makes <see cref="CloseMode"/>'s leftover branch safe: that branch closes
+    /// through <c>ModalFallback.CloseFloatedWindow</c>, which calls straight back into this
+    /// method, and the guard is what stops the re-entry from exiting somebody else's mode.</para>
+    ///
+    /// <para>WHEN THE MODE CANNOT BE READ AT ALL (no HUD reachable, <c>CurrentMode</c> is
+    /// <c>None</c>) the pre-226 behaviour is kept verbatim and the press goes out. A guard whose
+    /// evidence is missing must not silently disable the ModBuild 184 fix.</para>
     /// </summary>
     internal static bool LeaveMode(UIWindow window, string source)
     {
         if (!MapRoomDriver.Active || !IsDestination(window))
             return false;
+
+        EGuildmasterMode current = CurrentMode();
+        if (current != EGuildmasterMode.None)
+        {
+            UIWindow? currentWindow = IsWindowMode(current) ? ModeWindow(current) : null;
+            if (!ReferenceEquals(currentWindow, window))
+            {
+                VRLog.Info(Scope, $"GUILDMASTER WINDOW: NOT returning home for '{window.name}' "
+                                  + $"({source}) — the current guildmaster mode is {current}, whose "
+                                  + $"window is {(currentWindow != null ? "'" + currentWindow.name + "'" : "not a window at all")}, "
+                                  + "so this window's mode has ALREADY exited and pressing the bar's map "
+                                  + "button would not close it — it would only leave whatever mode IS "
+                                  + "current. What is standing here is the map room's parallel VR float "
+                                  + "(ModalFallback.MapRoomParallel), and the caller's own release is the "
+                                  + "close. Before ModBuild 226 this press went out anyway: harmless when "
+                                  + "the machine was already at home (it logged 'ALREADY the current mode "
+                                  + "… nothing was dispatched'), and a silent exit of an unrelated "
+                                  + "destination when it was not.");
+                return false;
+            }
+        }
         return ReturnHome($"{source} on '{window.name}'", $"closing '{window.name}'");
     }
 
@@ -346,11 +640,41 @@ internal static class GuildmasterDestinations
     /// the city map on a second press. This method additionally refuses to return home to the mode it
     /// was asked to close, which is the same guard stated as an invariant rather than as a caller's
     /// promise.</para>
+    ///
+    /// <para>ModBuild 226 — TWO CLOSES, BECAUSE THERE ARE TWO WAYS A WINDOW CAN BE STANDING. See
+    /// section 7 of the class doc for the evidence. If the mode machine has already moved on and
+    /// what is left is the map room's PARALLEL FLOAT, returning to the map closes nothing at all
+    /// (the game has already run Exit; the press is the measured no-op the log calls "ALREADY the
+    /// current mode"). That case is closed through <c>ModalFallback.CloseFloatedWindow</c> — the
+    /// window's own X button, the one path that releases a float whose game window is already
+    /// hidden — and nothing else about this method changed: while the mode IS current, the close is
+    /// still the return home, still one pointerClick on the bar's own map Toggle.</para>
     /// </summary>
     internal static bool CloseMode(EGuildmasterMode mode, string source)
     {
         if (!MapRoomDriver.Active)
             return false;
+
+        // (A) THE WINDOW IS STANDING BUT ITS MODE IS NOT. Ask the WINDOW, close it the way the X
+        //     does. Tested first because in this state HomeMode() is already the current mode and
+        //     ReturnHome below would be a no-op with a confident-looking log line.
+        if (IsLeftoverWindowStanding(mode, out UIWindow? standing, out string why) && standing != null)
+        {
+            VRLog.Info(Scope, $"GUILDMASTER WINDOW: closing the {mode} window from its own table cap "
+                              + $"({source}) through the WINDOW'S OWN X PATH, not by returning to the map "
+                              + $"— {why}. The game's mode machine has already run this destination's "
+                              + "Exit, so UpdateCurrentMode has nothing left to do and pressing the bar's "
+                              + "map button would dispatch nothing (that is the 'ALREADY the current mode' "
+                              + "line ModBuild 222 left in the log). What is still on the table is the map "
+                              + "room's parallel float, and ModalFallback.CloseFloatedWindow is exactly "
+                              + "what the window's own X runs: Escape()/Hide() when the game still has it "
+                              + "open, and a release of the parallel float when the game has already "
+                              + "hidden it. NOTHING NEW GOES ON THE WIRE — this is the same local UI close "
+                              + "the X has performed since ModBuild 184.");
+            ModalFallback.CloseFloatedWindow(standing);
+            return true;
+        }
+
         EGuildmasterMode home = HomeMode();
         if (home == mode)
         {

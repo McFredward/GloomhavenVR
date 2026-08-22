@@ -583,6 +583,34 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         return added;
     }
 
+    /// <summary>
+    /// ONE peer's last RECEIVED head world position, by player id.
+    ///
+    /// <para><see cref="CollectPeerHeads"/>'s sibling, and it exists because that one deliberately
+    /// DROPS the id: the spawn ring only needs to know where bodies are, so a bag of positions is
+    /// the right shape for it. ModBuild 226 produced the first consumer that needs the OTHER
+    /// question — a peer's hover placard on the campaign map is turned to face the player it
+    /// belongs to, and that facing is now the only thing that says whose placard it is (the name row
+    /// and the Steam picture were removed on the user's ruling: "es soll 1:1 so aussehen wie es für
+    /// den Spieler auch aussieht"). Without an id there is no way to ask.</para>
+    ///
+    /// <para>The alternative it replaces was <c>GameObject.Find("GloomhavenVR.RemoteAvatar[id]")</c>
+    /// — a whole-scene sweep, reaching a private naming convention from outside, in a class that has
+    /// the object in a dictionary. This project has already lost an entire frame budget to one
+    /// scene sweep per tick, so the accessor is worth its four lines. Read-only and strictly local;
+    /// a peer with no valid head pose yet (joining, not embodied) answers false, and the caller's
+    /// contract is to leave the placard's facing alone rather than aim it somewhere wrong.</para>
+    /// </summary>
+    internal static bool TryGetPeerHead(int playerId, out Vector3 head)
+    {
+        head = Vector3.zero;
+        NetAvatarDriver? driver = _instance;
+        return driver != null
+               && driver._avatars.TryGetValue(playerId, out RemoteAvatar avatar)
+               && avatar != null
+               && avatar.TryGetHeadWorld(out head);
+    }
+
     private void OnEnable()
     {
         _instance = this;
@@ -951,6 +979,36 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || !Mathf.Approximately(boardScale, _lastSentBoardScale));
         float fastInterval = 1f / NetProtocol.SendRateHz;
         bool poseDue = boardMoving && _extrasAccumulator >= fastInterval;
+
+        // A DRAGGED SHARED WINDOW RIDES THE SAME FAST CADENCE AS A DRAGGED BOARD (user request 7,
+        // 2026-08-22, verbatim: "Die Bewegungen der 'blauen' MP-Fenster, die 1:1 synchronisiert
+        // werden sollen, sollen auch die Bewegung und die Position voll übertragen (flüssig, wie bei
+        // der Position des Boards auch)!").
+        //
+        // THE COMPARISON IS THE POINT OF THE REQUEST, so this is the board's own mechanism and not a
+        // second one: while the local player carries a blue-barred window, the whole extras packet
+        // goes out at the RIG rate (SendRateHz = 15 Hz) instead of the idle ExtrasSendRateHz = 5 Hz,
+        // and falls straight back the moment they let go. That is literally the line above, applied
+        // to a second moving thing — and the receiving half is the matching easing in
+        // WorldUI.GrabbableModal, which is the other thing the board has and the window did not.
+        //
+        // WHY IT IS A RATE CHANGE AT ALL, given that the receiver was the preferred lever: it is not
+        // instead of the receiver, it is the other half. An exponential ease reproduces the motion it
+        // is fed; fed five samples a second it converges five times a second, which is smooth but
+        // COARSE — the board round already measured this ("Bewegen kommt nicht flüssig an" was
+        // answered with 15 Hz + easing, not with easing alone, and defect (e) then showed the same
+        // for the scale). BANDWIDTH IS A SHARED BUDGET and this is why the cost is bounded on three
+        // sides: it never PRE-EMPTS (>= fastInterval, so a 90 Hz drag cannot become a 90 Hz packet
+        // stream — the same guard every motion term here carries); it is true only while a hand is
+        // actually on a shared window's bar, which is a human-paced act of at most a few seconds; and
+        // AnyGrabbedHere() is false — after one Singleton test — for every scenario without a story
+        // box open and for every client with the 3D map switched off, so an ordinary session's packet
+        // cadence is byte-for-byte what it was.
+        //
+        // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
+        // no single last-sent pose to diff here and why the grab is the right superset.
+        bool sharedWindowDue = WorldUI.SharedWindows.AnyGrabbedHere()
+                               && _extrasAccumulator >= fastInterval;
 
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
         // wanted-slot glow mask — read off the same objects that drive the local rendering, so
@@ -1539,7 +1597,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // does, so 200 ms of cadence latency is the feature failing rather than merely lagging.
             // Both getters return false outright while MapRoomDriver.Active is off, so a client
             // with the 3D map switched off evaluates two bools and is otherwise untouched.
-            && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue)
+            && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue
+            // …and a shared window being CARRIED here raises the cadence to the rig rate for as long
+            // as the hand is on it, exactly as a carried board does (see sharedWindowDue above).
+            // Note this sits beside RemoteMapStory.SendDue and does NOT duplicate it: that getter is
+            // about EDGES (a page turned, the quest window opened) and pre-empts outright; this one
+            // is about MOTION and is capped at the rig interval.
+            && !sharedWindowDue)
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;

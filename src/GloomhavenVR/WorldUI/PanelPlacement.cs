@@ -116,6 +116,30 @@ internal static class PanelPlacement
     /// player). Shared with <c>ModalFallback</c>'s spawn facing and with <c>GrabbableModal</c>'s
     /// re-face-on-release, so a released menu ends up at exactly the orientation a freshly
     /// floated one has.</para>
+    ///
+    /// <para><b>THE THREE CALL SITES, AND WHICH OF THEM IS GATED (2026-08-22, requests 7b and 8).</b>
+    /// Exactly one of them is:
+    /// <list type="number">
+    /// <item><b><c>GrabbableModal.OnGrabFinished</c> — the RELEASE re-face. GATED.</b> By
+    /// <see cref="SharedWindows.IsShared"/> unconditionally (a window that belongs to the whole room
+    /// must keep the orientation it is given, on every client and on the sender too), and for a
+    /// private window by the player's own <c>[WorldUI] WindowFacing</c> dial. See that method.</item>
+    /// <item><b><see cref="Spawn"/> — the one-shot facing at OPEN. NOT gated</b>, deliberately. It is
+    /// what <c>ModalFallback.8.Convert</c> logs as "one-shot facing applied". A shared window has no
+    /// agreed orientation when it opens — record 19/21 carry a pose block only once somebody has
+    /// MOVED the window — so there is nothing to preserve and nothing to disagree with: each client
+    /// simply places its own copy in its own view, exactly as it always has. Suppressing it would
+    /// leave the window at the rotation the host happened to be built with, which is wrong for every
+    /// player at once and is not what was asked for ("nach dem Greifen" is the request).</item>
+    /// <item><b><see cref="ClampIntoView"/> — the heal. NOT gated</b>, same argument plus one: it
+    /// runs only for panels that are not shared windows at all (the combat log, the enemy reveal,
+    /// the MP version dialog), and its whole job is to recover a pose that is unusable.</item>
+    /// </list>
+    /// The one facing site that is NOT in this list is the presence-regain refloat, which reaches
+    /// <see cref="Spawn"/> through <c>ModalFallback.ComputeHmdPose</c> and therefore re-faces AND
+    /// re-positions a shared window a peer had placed. That one wants the skip the local
+    /// <c>UserMoved</c> latch already gets — see <c>GrabbableModal.PeerPlaced</c>, which exists for
+    /// it and which this lane could not wire up because the refloat is not its file.</para>
     /// </summary>
     internal static Quaternion Facing(Vector3 panelPos, Vector3 headPos)
     {
@@ -226,10 +250,16 @@ internal static class PanelPoseWatch
         /// guide calls the bug signature.</summary>
         Placement,
 
-        /// <summary>A REMOTE player's grab, mirrored by <c>Net.RemoteStorySync</c> onto the story
-        /// window's frame. It is a human move too, so it is allowed and noted, never reverted —
-        /// reverting it would silently break multiplayer story-window sync (that path is
-        /// stamp-guarded and would not re-send).</summary>
+        /// <summary>A REMOTE player's grab, mirrored onto a shared window's frame by
+        /// <c>Net.RemoteStorySync</c> (record 19, the scenario story box) or <c>Net.RemoteMapStory</c>
+        /// (record 21, the map story box and the quest popup). It is a human move too, so it is
+        /// allowed and noted, never reverted — reverting it would silently break shared-window pose
+        /// sync (both paths are stamp-guarded and would not re-send).
+        ///
+        /// <para>Since ModBuild 226 such a write may be followed by a short GLIDE of the window's
+        /// DRAWN pose (GrabbableModal's remote pose easing). The lock does not see it and must not:
+        /// its subject is the grab FRAME, which the easing never touches — the frame is set to the
+        /// received pose exactly once, in the frame it arrives.</para></summary>
         Peer,
 
         /// <summary>Nobody announced this write. By construction it is not one the ruling allows,
@@ -348,6 +378,36 @@ internal static class PanelPoseWatch
         entry.AnnouncedFrame = Time.frameCount;
         entry.AnnouncedWhy = why;
     }
+
+    /// <summary>
+    /// Is a MOD PLACEMENT the writer of this window's pose right now — i.e. did
+    /// <c>ModalFallback.ComputeHmdPose</c> announce itself this frame or last?
+    ///
+    /// <para>THE SAME TOKEN <see cref="Classify"/> READS, ASKED BY A SECOND CONSUMER (ModBuild 226,
+    /// user request 7a). <see cref="GrabbableModal"/> has to tell two kinds of external pose write
+    /// apart before it decides whether to glide into the new pose or land on it: a mod PLACEMENT
+    /// (the spawn, the presence-regain refloat, the one pre-reveal re-place — all three funnelled
+    /// through <c>ComputeHmdPose</c>, which announces here) must be instant, while a REMOTE
+    /// player's grab arriving on the wire must glide. Both arrive at the same method with the same
+    /// arguments, so nothing about the POSE can separate them; who is writing it can, and it is
+    /// already recorded.</para>
+    ///
+    /// <para>Same one-frame recency window as <see cref="Classify"/> — an announce and the write it
+    /// covers are at most a frame apart by construction (the announcer returns the pose to a caller
+    /// that writes it immediately) — so the two consumers can never disagree about who moved a
+    /// window. The sentinel arithmetic is <see cref="NeverFrame"/>'s, for the overflow reason
+    /// written there.</para>
+    ///
+    /// <para>A window with no entry yet (never tracked, i.e. never revealed) answers FALSE, and the
+    /// caller must not read that as "a peer wrote this": its own gate requires a revealed window
+    /// before it eases anything, so the pre-reveal placements land instantly for that reason
+    /// instead.</para>
+    /// </summary>
+    internal static bool PlacementAnnounced(ConvertedPanel? panel) =>
+        panel != null
+        && Entries.TryGetValue(panel, out Entry entry)
+        && entry.Announced == Writer.Placement
+        && Time.frameCount - entry.AnnouncedFrame <= 1;
 
     /// <summary>
     /// THE EXPLICIT PERMISSION CHECK. Returns false — and logs the refusal ONCE per (window,
@@ -601,7 +661,7 @@ internal static class PanelPoseWatch
     {
         Writer.UserGrab => "the player's own grab",
         Writer.Placement => "ModalFallback.ComputeHmdPose (spawn / presence-regain refloat / re-place)",
-        Writer.Peer => "Net.RemoteStorySync (a remote player's grab)",
+        Writer.Peer => "Net.RemoteStorySync / Net.RemoteMapStory (a remote player's grab)",
         _ => "unattributed — no mod placement path announced this write",
     };
 
@@ -633,7 +693,13 @@ internal static class PanelPoseWatch
         if (restorable)
         {
             entry.Corrections++;
-            grab!.PlaceFrameAt(entry.LockedPos, entry.LockedRot);
+            // SnapFrameTo, not PlaceFrameAt: a restore is a CORRECTION and has to be instant.
+            // PlaceFrameAt may glide a SHARED window into its new pose (the remote-pose easing,
+            // ModBuild 226), and a glide is the one thing a lock must never produce — the window
+            // would be visibly somewhere the ruling has already refused, and the very next frame's
+            // sample would read the in-flight glide as a further unattributed write and burn another
+            // correction against MaxCorrections.
+            grab!.SnapFrameTo(entry.LockedPos, entry.LockedRot);
         }
         else if (grab != null && !entry.Conceded)
         {
@@ -661,8 +727,9 @@ internal static class PanelPoseWatch
                                             + "the move STANDS and this line is a report, not a fix."
                                           : ", and the lock has already conceded on this window.")
                                   + " NOTHING in the mod announced this write: the writers that do are "
-                                  + "the player's grab, ModalFallback.ComputeHmdPose and "
-                                  + "Net.RemoteStorySync. Reported once per window per caller.");
+                                  + "the player's grab, ModalFallback.ComputeHmdPose and the two "
+                                  + "shared-window pose appliers (Net.RemoteStorySync record 19, "
+                                  + "Net.RemoteMapStory record 21). Reported once per window per caller.");
         }
         return restorable;
     }

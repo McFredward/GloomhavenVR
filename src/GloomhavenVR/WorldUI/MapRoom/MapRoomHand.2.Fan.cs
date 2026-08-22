@@ -169,12 +169,19 @@
 // ONE OBSERVABLE CHANGE, stated plainly because it is not nothing: the map fan IS a Cards.CardFan
 // now, so <c>CardFan.Current</c> is non-null while it is open and NetAvatarDriver's existing,
 // always-sent PresenceState.HandCardCount byte (sampled at NetAvatarDriver.cs:842) carries the real
-// count instead of 0. Peers therefore see a fan of CARD BACKS on our avatar's non-dominant hand —
-// RemoteHandFan gates every FRONT on `RevealGate.InScenario` (RemoteHandFan.cs:888), which is false
-// on the map, so no identity can be shown even in principle. No field was added, no record changed;
-// an existing count went from a lie (0 while we hold cards) to the truth. Peer fans are still NOT
-// drawn BY us in this room — peers are unseated and pile up at one world point, which is plan phase
-// 8 (MapRoomDriver.cs:40-42) and deliberately untouched.
+// count instead of 0. No field was added, no record changed; an existing count went from a lie
+// (0 while we hold cards) to the truth.
+//
+// AND THAT COUNT IS WHAT THE PEER HALF RUNS ON (ModBuild 226, user report item 4 — "Handkarten sind
+// nicht sichtbar im Multiplayer im Map-Bereich"). Peers' fans were ALWAYS drawn in this room
+// (Net/RemoteHandFan hangs off RemoteAvatar, which has no phase gate); what they showed was card
+// BACKS, because the receiver additionally required RevealGate.InScenario before it would resolve
+// any front. That term was a CAPABILITY test, never a secrecy one — see RevealGate's map-phase
+// block. The capability now exists: MapRoomHand.TryResolvePeerLoadout names the character from the
+// broadcast COUNT plus this client's own replicated party data, and the faces are drawn from this
+// client's own card art. Still zero new wire bytes and still no card identity on the wire. What
+// remains untouched is deliberate map-room PRESENCE — peers are unseated and pile up at one world
+// point, which is plan phase 8 (MapRoomDriver.cs:40-42).
 //
 // ─── UNITS ────────────────────────────────────────────────────────────────────────────────────
 // This file no longer poses anything, so it forms no world-unit product at all. Card size is
@@ -716,10 +723,11 @@ internal sealed partial class MapRoomHand
             + "to subscribe to, UIPartyCharacterAbilityCardsDisplay mutates HandAbilityCardIDs in "
             + "place and raises nothing).\n"
             + "  wire     : NOTHING. Card identity never goes on the wire. The only observable is "
-            + "PresenceState.HandCardCount, which follows the fan's count — so a peer sees our fan of "
-            + "card BACKS gain or lose one back as the animation STARTS, up to ~0.3 s before it "
-            + "finishes here. RemoteHandFan still gates every front on RevealGate.InScenario, false "
-            + "on the map.\n"
+            + "PresenceState.HandCardCount, which follows the fan's count — so a peer sees our fan "
+            + "gain or lose a card as the animation STARTS, up to ~0.3 s before it finishes here. "
+            + "Since ModBuild 226 that peer draws real FRONTS on it, resolved from the count through "
+            + "MapRoomHand.TryResolvePeerLoadout against their OWN replicated party data; an edit "
+            + "that changes our count therefore also re-identifies the hand on their side.\n"
             + "  DISPROOF : the card appears/disappears with no animation -> the driver's own JOIN "
             + "line is missing and 'fan open' above says no. The WRONG card animates -> the match is "
             + "by CAbilityCard.ID, so read the ids above against the party screen. A card the player "
@@ -954,7 +962,8 @@ internal sealed partial class MapRoomHand
                 // ScenarioManager.Scenario, which is null here, so asking for one would THROW.
                 // Nothing re-checks a reveal gate, and that is correct rather than an omission:
                 // RevealGate.ShowRoundCardFronts folds in RevealGate.InScenario, which is FALSE on
-                // the map, so the gate is open by its own definition for every actor.
+                // the map, so the gate is open by its own definition for every actor — and
+                // RevealGate.ShowMapPhaseHandFronts now states that for the map phase outright.
                 if (RemoteAbilityCardSource.ShowFullFace(art, null, model)
                     == RemoteAbilityCardSource.FacePath.None)
                 {

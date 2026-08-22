@@ -288,6 +288,17 @@ internal static partial class ModalFallback
         // Known-handled IDs (passives with post-mortems + surface-owned windows).
         if (CatchAllKnownHandled.Contains(window.ID))
             return false;
+        // ModBuild 226: this window was floated once and reached its reveal edge with NOTHING drawn
+        // under it, so the empty-window invariant released it (see RefuseEmptyFloat). Do not float it
+        // again until the game has closed and re-opened it — otherwise the pair churns once per tick.
+        // The prune is right here rather than in a tick step because this is the one place the set is
+        // read: a window the game no longer reports open has served its refusal.
+        if (EmptyRefusedNow(window))
+        {
+            if (window.IsOpen)
+                return false;
+            ClearEmptyRefusal(window);
+        }
         // HOTFIX (hardware round 2026-08-01): known HUD OWNERS, matched by COMPONENT (their
         // window IDs are all scene-serialized None, so the ID set above cannot carry them).
         // These are permanent flat-HUD subsystems the mod already owns elsewhere — floating
@@ -325,10 +336,56 @@ internal static partial class ModalFallback
         // Level-triggered, like every other rule here: OpenWindows is rebuilt from scratch each
         // tick, so when the ancestor closes the child becomes eligible again by itself — and a
         // child that was floated FIRST releases by itself the moment the ancestor opens, because
-        // it stops being re-added. Map-room scoped: in a scenario the flat screen composites
-        // whatever the mod does not float, so nesting there is not a visual problem and the rule
-        // would be a behaviour change with no report behind it.
-        if (MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
+        // it stops being re-added.
+        //
+        // ModBuild 226 — THE MAP-ROOM SCOPE IS GONE, AND THE REASON RECORDED FOR IT IS NO LONGER
+        // TRUE. The sentence that stood here read: "Map-room scoped: in a scenario the flat screen
+        // composites whatever the mod does not float, so nesting there is not a visual problem and
+        // the rule would be a behaviour change with no report behind it." Both halves are falsified.
+        // (1) The mod floats windows in a SCENARIO too — the ModBuild 225 log has
+        // "MODAL WINDOW: 'Story Window' (ID None) floated in front of the HMD" with
+        // "room=True, scenario=True", its own MODAL GRAB and its own bar; the flat screen composites
+        // only what FAILED to convert. So a nested UIWindow opening inside a floated scenario window
+        // did not render quietly inside its parent — it became a second floating panel with a second
+        // grab bar. (2) There is now a report behind it, verbatim: "Beim Storyfenster war der
+        // Dialog/Untertitel ein eigenes Fenster und später bei der Begegnung wurde das auch in
+        // mehrere Fenster statt einem einzigen getrennt! Das soll nicht sein." Both of those are
+        // scenario windows. The rule now holds wherever a floatable ancestor is open, which is the
+        // condition it was always really about — the map room was only the first place one existed.
+        //
+        // THE WIDENING IS DONE WITH THE STRICTER TEST, NOT WITH THIS ONE. Two rules now stand here
+        // and the difference between them is deliberate:
+        //
+        //   IN THE MAP ROOM (line below, unchanged since ModBuild 188): the ancestor need only be
+        //     one that WILL be floated — including one that is currently CLOSED. That is the
+        //     merchant lesson: a UIWindow four levels inside a closed shop window is a fragment of a
+        //     screen that is not showing at all, and floating it produced "die eigentlichen
+        //     Gegenstände sind in einem zweiten Fenster". It is shipping, it is tuned, and it is left
+        //     byte-for-byte alone.
+        //   EVERYWHERE (the RendersInsideFloatedAncestor call after it, ModBuild 226): the ancestor
+        //     must be a LIVE FLOATED HOST this instant. That is the form that can be let out of the
+        //     map room safely, because it can never refuse a window on account of a parent that does
+        //     not exist — the DurabilityPanel rule, "a wrongly-floated window is recoverable, a
+        //     dropped one is a silent deadlock". A scenario dialog nested inside a floated scenario
+        //     window IS caught by it (that is the report), and a scenario window whose ancestor never
+        //     floats is untouched.
+        //
+        // THE PARALLEL-WINDOW FAMILIES ARE EXEMPT from both, as they already are on the enrolled path
+        // (RendersInsideFloatedAncestor's own first guard, and the ModBuild 180 ruling it cites:
+        // "Anders als in Flat soll es hier möglich sein mehrere Fenster parallel offen zu haben").
+        // Their parents are not stable placement facts anyway — MainOptionOptions re-parents the
+        // options window at RUNTIME in the main menu (MainOptionOptions.cs:20-25). This costs nothing
+        // inside the map room, where the ModBuild 225 log shows both the ESC menu and the options
+        // window floating standalone, i.e. neither had an ancestor for the rule to find.
+        if (!NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID)
+            && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
+            return false;
+        // ModBuild 226 — the live-floated ancestor AND the declared sibling groups, in one call, so
+        // the catch-all path and the enrolled path cannot disagree about what is one panel. The
+        // multiplayer "Quest wählen" confirm is a ROOT under Campaign Canvas with no ancestor window
+        // at all (the WINDOW IDENTITY line says "nearest ancestor UIWindow <none>"), so the walk
+        // above can never find it; it is DECLARED instead. See ModalFallback.WindowGroups.
+        if (RendersInsideFloatedAncestor(window))
             return false;
         // Never float world-space UI: the generic float is a screen-space→world
         // conversion; a genuinely world-space window is already visible in VR.
@@ -653,6 +710,8 @@ internal static partial class ModalFallback
         CatchAllWarned.Clear();
         AncestorRefusalWarned.Clear();
         NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
+        EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
+        EmptyRefused.Clear();        // ModBuild 226 — and its suppression set
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

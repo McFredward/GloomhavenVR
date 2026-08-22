@@ -821,6 +821,15 @@ internal static partial class VROptionsTab
                     {
                         new("WorldUI", "PokeClick", "vr_o_pokeclick"),
                         new("WorldUI", "DecisionPokeDeliberate", "vr_o_pokefirm"),
+                        // User request 8 (2026-08-22): when a released window turns to face you.
+                        // HERE and not on Komfort, because this section is "how the panels are
+                        // operated" and the dial is about what happens at the end of one of those
+                        // operations — the same argument that put the poke rows here. Empty caption
+                        // key: "Beim Loslassen zu dir drehen" (Loc.ConfigNames) is already the row's
+                        // name, and a second hand-written caption could only drift from it. A special
+                        // row (TryBuildSpecialRow) so the three-way choice reads as a localized
+                        // dropdown instead of the raw enum members cycling in English.
+                        new("WorldUI", "WindowFacing", ""),
                         new("WorldUI", "HexHintFollowView", "vr_o_hexhintfollow"),
                         new("ButtonAnim", "Enable", "vr_o_buttonanim"),
                     },
@@ -1003,7 +1012,14 @@ internal static partial class VROptionsTab
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
-            && string.Equals(item.Key, "Style", StringComparison.Ordinal));
+            && string.Equals(item.Key, "Style", StringComparison.Ordinal))
+        // The FIFTH, for the same reason as the board movement scheme: [WorldUI] WindowFacing is an
+        // enum, so the generic builder classifies it as a Choice and gives it a CYCLE showing the
+        // raw member names "LaserOnly/Always/Never" — English, in a German menu, on a row a player
+        // is meant to choose from. It is a user-facing choice of three named behaviours, which is
+        // exactly what this table is for.
+        || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
+            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal));
 
     /// <summary>
     /// Bounded numbers that must be edited with the ◀ / ▶ STEPPER even though they have both ends
@@ -1059,6 +1075,25 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, modeNames,
                            (int)Cards.CardsConfig.BoardMoveMode.Value,
                            index => Cards.CardsConfig.BoardMoveMode.Value = (Cards.BoardMoveMode)index);
+            return true;
+        }
+
+        // WHEN A RELEASED WINDOW TURNS TO FACE YOU (user request 8, 2026-08-22) — a three-way choice
+        // of named behaviours, so a dropdown and not the ◀/▶ cycle the generic Choice row builds.
+        // The dropdown index maps 1:1 onto WindowFaceMode (LaserOnly=0/Always=1/Never=2, documented
+        // as the index map at the enum), and the labels come from Loc.WindowFacingModeName so the
+        // row reads "Nur mit Laser / Immer / Nie" rather than the raw member names.
+        if (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal))
+        {
+            string[] facingNames =
+            {
+                Loc.WindowFacingModeName(0),
+                Loc.WindowFacingModeName(1),
+                Loc.WindowFacingModeName(2),
+            };
+            BuildPresetRow(parent, item, caption, hintKey, facingNames,
+                           (int)WorldUIConfig.WindowFacing.Value,
+                           index => WorldUIConfig.WindowFacing.Value = (WindowFaceMode)index);
             return true;
         }
 

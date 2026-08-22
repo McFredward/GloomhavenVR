@@ -38,6 +38,20 @@ internal struct EnvSoundRng
 /// picture. Two functions:
 ///
 /// <list type="bullet">
+///   <item><see cref="TrySlot"/> — THE SHARED-CLOCK SLOT INDEX, added at ModBuild 226. Every
+///   scheduled one-shot in <see cref="EnvSound"/> asks "which slot is the shared clock in", and
+///   until this round every one of them wrote <c>(long)Mathf.Floor(clock / period)</c> for itself,
+///   five times over. That expression has a defect nobody had written down: <c>(long)</c> of a
+///   <c>NaN</c> or an <c>Infinity</c> is IMPLEMENTATION-DEFINED in IL and on x64 it produces
+///   <c>long.MinValue</c> — which is the very sentinel four of those callers use to mean "not
+///   observing yet". A poisoned clock therefore did not produce a wrong sound, it silently re-armed
+///   the schedule. See the function.</item>
+///   <item><see cref="TickFires"/> / <see cref="TickOffset"/> — THE BERNOULLI TICK, added at
+///   ModBuild 226 so the fire's crackle could stop being the one cue in the feature that two players
+///   hear at different moments. It is <see cref="PoissonGap"/>'s process expressed the other way
+///   round — as "does an event happen in THIS interval" rather than "how long until the next one" —
+///   which is what makes it a pure function of the clock instead of a walk. See its own doc for why
+///   the two produce the same distribution and what it cost to change.</item>
 ///   <item><see cref="SlipTrain"/> — the BURST TRAIN: the rat's claws on stone, the stick-slip of
 ///   rope or old timber taking weight, and (since ModBuild 149) the scatter of a bookcase's contents
 ///   arriving on the floor behind it. All three are "a run of short bursts, irregularly spaced,
@@ -91,6 +105,200 @@ internal struct EnvSoundRng
 /// </summary>
 internal static class EnvSoundSchedule
 {
+    // =============================================================================================
+    //  THE SHARED-CLOCK SLOT — ModBuild 226.
+    // =============================================================================================
+    //
+    //  USER REQUEST, hardware, verbatim:
+    //
+    //      "Genau wie die Easter-Eggs sollen auch die Sounds mit allen Mitspieler synchronisiert
+    //       sein die in der selben Map sind. Sind also zwei Spieler in der Wald Umgebung und dort
+    //       kommt ein Geräusch eines Tieres aus einer Ecke sollen alle Spieler die auch im Wald
+    //       sind zur selben Zeit aus der selben Location denselben Sound hören."
+    //
+    //  HOW THAT IS ANSWERED, AND IT IS NOT WITH A PACKET. `NetProtocol.ExtIdEnvClock` (record 31)
+    //  already elects one owner per style and publishes its reading; `SkyAlternative.EnvClockSeconds`
+    //  is the result. An event that is a PURE FUNCTION of that number is heard by every client in
+    //  the same room on the same frame with zero wire bytes — which is exactly why the apparitions,
+    //  the rat and the drip rings already agree, and it is the standing project rule ("never open a
+    //  second network channel for a fact the game or an existing mod record already synchronises").
+    //  So the whole of the work is: make every scheduled one-shot such a function.
+    //
+    //  THE SLOT INDEX IS THE ONE PIECE OF THAT ARITHMETIC WORTH PROVING, and it is here rather than
+    //  in EnvSound.cs for this file's standing reason: EnvSound.cs cannot be compiled into
+    //  tests/GloomhavenVR.WireTests (AudioSource, AudioClip, the whole Unity audio module) and this
+    //  file deliberately can. What the vectors hold is the property the user's sentence actually
+    //  needs — that the same clock gives the same slot, on every machine, for every input.
+
+    /// <summary>The largest shared-clock reading this converts. 1e9 s is 31 years of level time, so
+    /// no session with an intention is inside the bound this rejects; what it excludes is a POISONED
+    /// clock — see <see cref="TrySlot"/>.
+    ///
+    /// <para>Float32 precision, not range, is the practical limit and it is stated so nobody trusts
+    /// this further than it goes: <c>float</c> resolves 0.0625 s at 1e6 s and 1 s at 1e7 s. That is
+    /// not a correctness problem for the property this exists for — two clients compute the SAME
+    /// float32 and therefore the SAME slot — but a period shorter than the clock's own resolution
+    /// would stop being a period. Every caller's slot is 1.31 s or longer against a level time that
+    /// is minutes.</para></summary>
+    internal const float MaxClockSeconds = 1e9f;
+
+    /// <summary>The shortest slot this will accept. Below it the index would outrun the clock's own
+    /// float32 resolution long before <see cref="MaxClockSeconds"/>.</summary>
+    internal const float MinSlotSeconds = 0.01f;
+
+    /// <summary>
+    /// WHICH SLOT OF LENGTH <paramref name="slotSeconds"/> THE SHARED CLOCK IS IN — the one
+    /// expression every scheduled cue in <see cref="EnvSound"/> starts from, written once.
+    ///
+    /// <para><b>WHY IT RETURNS A BOOL RATHER THAN A NUMBER, and this is the defect it exists to
+    /// remove.</b> Every caller used to write <c>(long)Mathf.Floor(clock / period)</c> inline.
+    /// <c>Mathf.Floor(NaN)</c> is <c>NaN</c>, and the IL <c>conv.i8</c> of a NaN or an infinity is
+    /// UNSPECIFIED — on x64 it yields <c>long.MinValue</c>, which is the exact sentinel
+    /// <c>EnvSound._lastRatSlot</c>, <c>_lastNightCallSlot</c> and <c>_lastDripIndex</c> use for "not
+    /// observing yet". So a clock that went bad did not make a wrong sound; it quietly told the
+    /// schedule it had never run, and the next real slot was then SWALLOWED as a first observation.
+    /// That is the failure this file exists to make unreachable, reached through a cast instead of
+    /// through a loop, and it is invisible from a log. A bool forces the caller to have an answer
+    /// for "there is no slot this frame", and the answer is always the same one: do nothing, and try
+    /// again next frame.</para>
+    ///
+    /// <para><b>WHAT IS AND IS NOT PROMISED ABOUT TWO CLIENTS.</b> Promised: identical
+    /// <paramref name="clock"/> and <paramref name="slotSeconds"/> give an identical slot, on every
+    /// machine, because this is one IEEE-754 divide and one floor. NOT promised: that two clients'
+    /// CLOCKS are bit-equal. <c>SkyAlternative.TickEnvClock</c> leaves a residual inside
+    /// <c>ClockDeadbandSeconds</c> = 0.02 s, so within 20 ms of a slot boundary two clients can be on
+    /// either side of it. That is a 20 ms disagreement on a cue at most, against slots of 1.31 s and
+    /// longer, and it is not fixable from here — it is the price of a clock that is followed rather
+    /// than a clock that is on the wire per event. Every consumer therefore has to be one for which
+    /// 20 ms is nothing, which every consumer here is (the shortest is a 55 ms crackle).</para>
+    /// </summary>
+    /// <param name="clock">The shared environment clock in seconds — <c>EnvClockSeconds</c>. A
+    /// NEGATIVE clock is not an error and is not clamped: it is the state a client is in for the
+    /// first frames after a clock owner with a smaller reading is adopted, and the correct answer
+    /// there is "no slot", because a negative slot index fed to <c>Haunt.Hash</c> leaves the
+    /// documented 0.. range the GPU mirror is written against.</param>
+    /// <param name="slotSeconds">The slot length. Must be finite and at least
+    /// <see cref="MinSlotSeconds"/>; anything else returns false rather than dividing.</param>
+    /// <param name="slot">The slot index, an exact non-negative integer, valid only when this
+    /// returns true. Never <c>long.MinValue</c> — see above.</param>
+    internal static bool TrySlot(float clock, float slotSeconds, out long slot)
+    {
+        slot = 0L;
+
+        // POSITIVE TESTS, for PoissonGap's reason written out in its own doc: `clock < 0` is FALSE
+        // for NaN and so is `clock > MaxClockSeconds`, so a pair of rejecting comparisons would pass
+        // a NaN straight into the divide and the cast. `!(a && b)` is TRUE for NaN.
+        if (!(clock >= 0f && clock <= MaxClockSeconds))
+            return false;
+        if (!(slotSeconds >= MinSlotSeconds && slotSeconds <= MaxClockSeconds))
+            return false;
+
+        float f = Mathf.Floor(clock / slotSeconds);
+        // BELT AND BRACES ON THE CAST. Both operands are already known finite and non-negative, so
+        // the quotient is finite and non-negative and this can only fail if one of the two bounds
+        // above is edited away. It is one compare on a path that already did two, and what it is
+        // guarding is not a wrong number but the sentinel collision described above.
+        if (!(f >= 0f && f <= 1e18f))
+            return false;
+
+        slot = (long)f;
+        return true;
+    }
+
+    // =============================================================================================
+    //  THE BERNOULLI TICK — ModBuild 226, and it is PoissonGap turned inside out.
+    // =============================================================================================
+    //
+    //  WHY IT HAD TO EXIST AT ALL. PoissonGap answers "how long until the next one", so a caller
+    //  using it writes `next = now + gap` and keeps `next` — which makes the schedule a WALK, whose
+    //  phase depends on when the client started observing. That is stated plainly in
+    //  EnvSound.TickFire's own doc and it was accepted for two rounds on the argument that a crackle
+    //  marks no visual. The user has now asked for the whole ambience to agree between clients, in
+    //  terms that do not carve out an exception ("Genau wie die Easter-Eggs sollen auch die Sounds
+    //  mit allen Mitspieler synchronisiert sein"), so the walk has to go.
+    //
+    //  AND THE SAME PROCESS HAS A MEMORYLESS FORM. A Poisson process observed on a fixed grid of
+    //  ticks of length T is a BERNOULLI process: each tick independently carries an event with
+    //  probability p, and the gaps are GEOMETRIC — the discrete exponential, mode at the minimum,
+    //  therefore genuine clusters, which is the entire content of PoissonGap's own argument for not
+    //  using a jittered constant. The mean gap is exactly T/p, so a caller that wants a mean of
+    //  `m` seconds sets p = T/m and gets it. Nothing about the SOUND is being changed here; what is
+    //  being changed is that the answer for tick n is a pure function of n.
+    //
+    //  THE GRID IS THE ONE THING THAT COULD HAVE MADE IT WORSE, AND TickOffset IS WHY IT DOES NOT.
+    //  Firing on the tick boundary itself would put every crackle on a multiple of T — three fire
+    //  sites beating a common lattice, which is a metronome, which is precisely the fault the user
+    //  reported as "super nervig" and for which a whole cue was deleted. So the event is placed at a
+    //  HASHED OFFSET inside the first HALF of its tick. Two consequences, both by construction:
+    //  the gaps are continuous (there is no lattice left to hear), and the SHORTEST possible gap is
+    //  T/2, because the latest an event can be is T/2 into its tick and the earliest is 0 into the
+    //  next. That is the floor PoissonGapMin buys the other form, obtained here from geometry
+    //  instead of from a clamp.
+
+    /// <summary>The largest per-tick probability <see cref="TickFires"/> will use. It is not a
+    /// safety bound — even p = 1 is safe here, because the event still lands inside its own tick and
+    /// the gap floor is <c>T/2</c> whatever p is — it is a SHAPE bound: at p = 1 every tick carries
+    /// an event and the geometric distribution collapses to a single gap, i.e. back to the metronome.
+    /// 0.90 keeps a real spread of gaps for any mean a caller can reach through a config edit.</summary>
+    internal const float TickShareMax = 0.90f;
+
+    /// <summary>
+    /// DOES THIS TICK CARRY AN EVENT? <paramref name="u"/> is one hash draw keyed on the tick index,
+    /// <paramref name="tickSeconds"/> is the grid and <paramref name="meanSeconds"/> the mean gap the
+    /// caller wants; the probability is <c>tick / mean</c>, clamped to
+    /// <c>[0, </c><see cref="TickShareMax"/><c>]</c>.
+    ///
+    /// <para>BOUNDED FOR EVERY INPUT, exactly as <see cref="PoissonGap"/> is and for the same
+    /// reason: a caller lerps <paramref name="meanSeconds"/> from a live element strength and can
+    /// reach 0 or a poisoned value through a config edit. A mean of 0 would make p infinite; a mean
+    /// of <c>NaN</c> would make every comparison false and the fire silent forever. Both fall back
+    /// to the same place, which is "the events come as often as the shape bound allows".</para>
+    ///
+    /// <para>The realised mean gap is <c>tick / p</c> ticks, i.e. <paramref name="meanSeconds"/>
+    /// exactly while p is unclamped — there is no truncation factor to quote, unlike
+    /// <see cref="PoissonGap"/>'s 0.962. Against the shipped fire that makes the crackle 3.8%
+    /// SLOWER, which is the whole audible cost of this change and is stated rather than left to be
+    /// discovered.</para>
+    /// </summary>
+    /// <param name="u">A uniform draw in [0,1). Anything outside — and <c>NaN</c>, which no
+    /// comparison catches by accident — is folded to the median before it is compared.</param>
+    internal static bool TickFires(float u, float tickSeconds, float meanSeconds)
+    {
+        if (!(u >= 0f && u < 1f))
+            u = 0.5f;
+        return u < TickShare(tickSeconds, meanSeconds);
+    }
+
+    /// <summary>The per-tick probability <see cref="TickFires"/> compares against, exposed so the
+    /// vectors can assert the realised rate rather than infer it.</summary>
+    internal static float TickShare(float tickSeconds, float meanSeconds)
+    {
+        // The upper bound on each is PoissonGap's defence restated: `x > 0f` is TRUE for +Infinity,
+        // and an infinite mean gives p = 0 (a fire that never crackles) while an infinite tick gives
+        // p = +Infinity (one that always does).
+        float t = tickSeconds > 0f && tickSeconds < 1e6f ? tickSeconds : MinSlotSeconds;
+        float m = meanSeconds > 0f && meanSeconds < 1e6f ? meanSeconds : 1f;
+        return Mathf.Clamp(t / m, 0f, TickShareMax);
+    }
+
+    /// <summary>
+    /// WHERE INSIDE ITS TICK the event lands: <c>0..tick/2</c> seconds after the tick begins, from
+    /// one hash draw. See the block above for why the half and not the whole — the half is what
+    /// makes <c>tick/2</c> the shortest gap two consecutive events can have, and therefore what
+    /// keeps this out of the 0.2-2 s band the ear reads as a rhythm.
+    ///
+    /// <para>Always finite and always inside <c>[0, tick/2]</c>, for every input including the ones
+    /// no caller passes — a <c>NaN</c> offset added to a tick start produces a comparison that is
+    /// false forever, which is the same class of defect as the freeze this file exists for.</para>
+    /// </summary>
+    internal static float TickOffset(float u, float tickSeconds)
+    {
+        if (!(u >= 0f && u < 1f))
+            u = 0.5f;
+        float t = tickSeconds > 0f && tickSeconds < 1e6f ? tickSeconds : MinSlotSeconds;
+        return 0.5f * t * u;
+    }
+
     /// <summary>
     /// Fill <paramref name="into"/> with the times, in seconds, of a burst train: the first burst at
     /// <paramref name="first"/>, the last at <paramref name="last"/>, and the gaps between them

@@ -43,9 +43,17 @@ namespace GloomhavenVR.Core;
 /// belonging to no object, 221 and 222 rebuilt it twice, and ModBuild 223 removes the whole approach
 /// because he rejected it in those terms. <b>THE VERDICT AND THE NEW RULE ARE IN THE ROOM TONES,
 /// DELETED, WITH BOTH GERMAN SENTENCES VERBATIM AND THE NUMBERS. Read that block before adding
-/// anything continuous to this file.</b> What survives from 154 is the wood's insect floor filter
-/// correction — the clip had been played through a filter that removed its entire band since the
-/// feature shipped — and that bed is now a CHORUS rather than a floor; see THE INSECT CHORUS.</para>
+/// anything continuous to this file.</b></para>
+///
+/// <para><b>...AND NOTHING SURVIVES OF IT AT ALL AS OF ModBuild 226.</b> This paragraph used to end
+/// by saying that what remained from 154 was the wood's insect bed, repaired and turned into an
+/// intermittent chorus. The user has now named that emitter too — "Im Wald gefällt mir nur dieser
+/// 'Regen' Sound nicht der ab und zu kommt und für eine Zeit bleibt, ansonsten finde ich es sehr
+/// gut" — and it is deleted with its clip. So the answer to "eine dezente
+/// Hintergrundgeräuschkullise" is now, in both rooms and without exception, THINGS HAPPENING IN
+/// PLACES: a draught with a source, animal calls from a tree, a drip, a rat, three candle flames,
+/// and whatever the elements bring. See THE INSECT CHORUS, DELETED for the schedule that convicted
+/// it, the rain control it was measured against and the alternatives that were falsified.</para>
 ///
 /// <para><b>TWO LATER RULINGS OVERRIDE PARTS OF THE REQUEST ABOVE, and the request is quoted
 /// verbatim rather than edited so that the override reads as an override.</b></para>
@@ -152,14 +160,15 @@ namespace GloomhavenVR.Core;
 /// <item><b>A hard gain budget.</b> Every emitter's level is a fraction under
 /// <see cref="MaxEmitterGain"/>, and <see cref="MasterCeiling"/> caps what the dial can reach even
 /// at its maximum. The player CAN turn it up; they cannot turn it up to where it competes.</item>
-/// <item><b>Almost nothing is continuous at all, since ModBuild 223.</b> The user's ruling is
-/// "Statt generrell durchgehende sounds zu machen lieber die Tierrufe" — see THE ROOM TONES,
-/// DELETED. What plays at rest in either room is the resting DRAUGHT (which he asked for by name)
-/// and, in the cellar, the three candle flames; everything else is an event from a place, and the
-/// insect floor became an intermittent chorus. A sound the ear cannot adapt to and then be irritated
-/// by is one that is not always there.</item>
+/// <item><b>Almost nothing is continuous at all, since ModBuild 223 — and since 226 the list is
+/// exhaustive.</b> The user's ruling is "Statt generrell durchgehende sounds zu machen lieber die
+/// Tierrufe" — see THE ROOM TONES, DELETED. What plays at rest is the resting DRAUGHT (which he
+/// asked for by name) and, in the cellar, the three candle flames. THAT IS THE WHOLE LIST: the
+/// forest's insect chorus was the last other continuous emitter and it is deleted (THE INSECT
+/// CHORUS, DELETED). Everything else is an event from a place. A sound the ear cannot adapt to and
+/// then be irritated by is one that is not always there.</item>
 /// <item><b>Spectral separation.</b> The continuous beds are noise held under the speech band —
-/// the wind, the insects and the Earth rumble by a runtime filter at <see cref="BedLowPassHz"/>,
+/// the wind and the Earth rumble by a runtime filter at <see cref="BedLowPassHz"/>,
 /// and the fire's roar and the candles' flutter by BAKED bands that are tighter still (three poles
 /// at 820 Hz and four at 1050 against this filter's single pole at 1150; see
 /// <c>EnvSoundBank</c>'s THE FIRE and THE CANDLE, and <see cref="AddBed"/>'s <c>lowPassHz</c> for
@@ -196,24 +205,80 @@ namespace GloomhavenVR.Core;
 /// </list>
 ///
 /// =============================================================================================
-/// <para><b>MULTIPLAYER.</b> Zero wire bytes, and that is a conclusion rather than an omission.
-/// Audio is local — there is nothing to replicate about a sound a headset makes. What has to agree
-/// between clients is the EVENT the sound marks, and every event here is already shared: the drip's
-/// phase, the rat's crossing and the haunt's slot are all pure functions of
-/// <see cref="SkyAlternative.EnvClockSeconds"/>, the mod's shared environment epoch, which the net
-/// layer already elects an owner for. Two players therefore hear the drip on the same frame by
-/// construction, with nothing added to the packet. <c>Time.time</c> is used NOWHERE in this file for
-/// anything a listener could correlate with a visual — only for the local smoothing of the duck and
-/// the gain LFOs, which are per-client by nature.</para>
+/// <para><b>MULTIPLAYER — EVERY SCHEDULED SOUND IN THIS FILE IS THE SAME SOUND, IN THE SAME PLACE,
+/// ON THE SAME FRAME, FOR EVERY PLAYER IN THE SAME ROOM. Zero wire bytes, and that is a conclusion
+/// rather than an omission.</b></para>
 ///
-/// <para><b>ONE CUE IS NOT FRAME-IDENTICAL, and it is stated rather than left to be discovered: the
-/// fire's CRACKLE.</b> Its schedule is a Poisson WALK (each gap depends on the last), so two clients
-/// that began observing at different clock values sit on different phases of it. That is a
-/// difference nothing can observe: a crackle marks no visual — the flames' flicker is the GPU's own
-/// continuous animation — and both clients crackle at the same rate, from the same seats, out of the
-/// same distribution. Everything about it that COULD be seen to disagree (whether the fires are lit,
-/// where they are, how fast they crackle) is a pure function of the shared element channel and the
-/// bake. See <see cref="TickFire"/>.</para>
+/// <para>USER RULING, hardware on ModBuild 225, verbatim — it is the acceptance criterion for this
+/// section and it carves out no exceptions: "Genau wie die Easter-Eggs sollen auch die Sounds mit
+/// allen Mitspieler synchronisiert sein die in der selben Map sind. Sind also zwei Spieler in der
+/// Wald Umgebung und dort kommt ein Geräusch eines Tieres aus einer Ecke sollen alle Spieler die
+/// auch im Wald sind zur selben Zeit aus der selben Location denselben Sound hören."</para>
+///
+/// <para><b>HOW IT IS ANSWERED, AND WHY IT IS NOT A PACKET.</b> Audio is local — there is nothing to
+/// replicate about a sound a headset makes. What has to agree between clients is the EVENT the sound
+/// marks, and <c>NetProtocol.ExtIdEnvClock</c> (record 31) already publishes one thing that makes
+/// every event agree: a shared epoch, whose owner is elected by lowest player id among everyone
+/// showing the same style, read here as <see cref="SkyAlternative.EnvClockSeconds"/>. An event that
+/// is a PURE FUNCTION of that number is heard identically everywhere with nothing added to the
+/// packet — which is exactly why the apparitions the user is comparing against already agree, and
+/// which is the standing project rule ("never open a second network channel for a fact the game or
+/// an existing mod record already synchronises"). So the whole of the work is to make every
+/// scheduled one-shot such a function, and as of ModBuild 226 every one of them is.</para>
+///
+/// <para><b>THE AUDIT, PER EVENT CLASS, so the claim above can be checked rather than believed. WHEN
+/// it fires and WHERE it comes from are listed separately, because the user's sentence asks for
+/// both ("zur selben Zeit aus der selben Location"):</b></para>
+/// <list type="table">
+/// <item><term>The drip</term><description>WHEN: the period INDEX of the shared clock, off the same
+/// <see cref="DripPeriod"/> the shader is baked with; the variant and the pitch are hashes of that
+/// index. WHERE: the bake's own 'Drip'/'Puddle' node. <see cref="TickDrip"/>.</description></item>
+/// <item><term>The rat and its squeak</term><description>WHEN: the crossing slot, mirrored from
+/// <c>EnvCritter.shader</c>'s own schedule; the squeak's delay is a hash of the same slot. WHERE:
+/// the 'Rat' node. <see cref="TickRat"/>.</description></item>
+/// <item><term>The night calls</term><description>WHEN: the 41 s slot, with a Poisson offset inside
+/// it drawn from one hash of the slot. WHERE: a point on a perch ring, its azimuth, radius and
+/// height all hashed off the same slot and resolved through the GROUND node's own frame — so the
+/// owl is in the same tree for both players even though they sit at different seats around the
+/// table. <see cref="TickNightCall"/>, <see cref="NightCallPerch"/>.</description></item>
+/// <item><term>The apparitions and the bookshelf's contacts</term><description>WHEN:
+/// <see cref="Haunt.Resolve"/>, the same slot the GPU draws; the contacts are ABSOLUTE times on the
+/// shared clock derived from that slot's start. WHERE: the apparition's own node.
+/// <see cref="TickHaunt"/>, <see cref="ScheduleShelfContacts"/>.</description></item>
+/// <item><term>The fire's crackle</term><description>WHEN: a Bernoulli draw per
+/// <see cref="FireCrackleTickSeconds"/> tick of the shared clock, keyed on (tick, site), placed at a
+/// hashed offset inside its tick. WHERE: the site's own seat, one of the bake's three. <b>THIS IS
+/// WHAT ModBuild 226 CHANGED</b> — see <see cref="TickFire"/> for the walk it replaced and what the
+/// change cost. It was the last cue here that two clients did not share.</description></item>
+/// </list>
+///
+/// <para><b>AND WHAT IS DELIBERATELY NOT SYNCHRONISED, because the user's sentence is about
+/// SOUNDS THAT COME AND GO and these are not events at all.</b> The BEDS — the resting draught, the
+/// candle flames, the fires' roar, the Earth rumble — are continuous levels shaped by
+/// <see cref="Lfo"/>, which reads <c>Time.time</c>. That is correct and must stay: there is no
+/// instant for two clients to disagree about in a level that is always on, the LFO periods are
+/// chosen to be non-commensurate precisely so no listener can find a phase in them, and putting
+/// them on the shared clock would buy nothing and cost the property that two beds in one room never
+/// come into step. The same goes for the DUCK and the two element GATES, which respond to what the
+/// LOCAL game is doing and to a smoothing constant. <c>Time.time</c> is used NOWHERE ELSE in this
+/// file.</para>
+///
+/// <para><b>THE POSITIONS NEED NO SPECIAL TREATMENT AND THIS IS WHY.</b> Every source here is
+/// parented to the ROOM branch (<see cref="Build"/> sets <c>_root</c>'s parent to
+/// <c>roomGo.transform</c>), and the room is world-fixed to the BOARD by
+/// <c>SkyAlternative.TryPlaceRoom</c> — not to a head, not to a rig, and it does not follow zoom.
+/// So a node's world position is a function of the board, which every client agrees about, and
+/// "aus derselben Ecke" is true by construction for anything sounding from a node. The one cue that
+/// does NOT sound from a node — the night call, which needs a point that moves — is expressed in
+/// the ground node's LOCAL frame for exactly this reason and converted with
+/// <c>Transform.TransformPoint</c>, so it never touches world units.</para>
+///
+/// <para><b>AND THE CLOCK ITSELF JUMPS, which is the one thing being a pure function does not
+/// cover.</b> A client that has just joined follows its own clock until the first record arrives and
+/// is then moved onto the owner's in one step. Across that step every slot index changes at once —
+/// so without a guard the drip, the rat and the night call would all fire on the same frame, and a
+/// BACKWARD jump would replay slots this client had already heard. See THE JOIN, above
+/// <see cref="TickEvents"/>.</para>
 ///
 /// <para><b>TEARDOWN.</b> No source, filter, listener change or clip may survive a stand-down, a
 /// mixed-reality switch, a style change or leaving the scenario. This follows the pattern
@@ -291,9 +356,9 @@ internal static class EnvSound
             + "silent and cost nothing. THE WIND: a very quiet draught is always there — at the "
             + "cellar window it comes in, in the forest it moves through the canopy — and an Air "
             + "infusion is what makes it RISE into a real wind and then die away again. NOTHING "
-            + "ELSE PLAYS CONTINUOUSLY: the forest's insects come and go in choruses rather than "
-            + "chirping all scenario, and an owl or a small bird calls now and then from a "
-            + "different tree each time. ICE MAKES NO SOUND AT ALL — you can see the frost, you "
+            + "ELSE PLAYS CONTINUOUSLY at all: in the forest an owl or a small bird calls now and "
+            + "then from a different tree each time, and between the calls there is the draught and "
+            + "nothing. ICE MAKES NO SOUND AT ALL — you can see the frost, you "
             + "never hear it. "
             + "Deliberately QUIET and always secondary to the game — the whole ambience ducks "
             + "automatically whenever the game itself makes any sound, and it obeys the master and "
@@ -506,7 +571,9 @@ internal static class EnvSound
     // from their own time uniforms and they are untouched by anything here. What he was switching
     // off is the AUDIO bed, which this file owns. So this is a gate on two emitters and on nothing
     // else: the cellar's "Draught" at the window and the swamp's "Leaves" in the canopy. The candle
-    // flames, the swamp's insect chorus and the Earth rumble are not wind and do not move.
+    // flames and the Earth rumble are not wind and do not move. (The swamp's insect chorus was the
+    // third emitter this sentence used to exclude; it is deleted at ModBuild 226 — see THE INSECT
+    // CHORUS, DELETED.)
     //
     // WHY IT IS A SMOOTHED GATE AND NOT `if (air > 0)`. Two reasons, and the second is the one that
     // decided the shape:
@@ -752,146 +819,134 @@ internal static class EnvSound
     //  every table above, because a deletion whose before-column has been deleted is one nobody can
     //  check.
 
-    // ---- the insect chorus ---------------------------------------------------------------------------
+    // =================================================================================================
+    //  THE INSECT CHORUS, DELETED — ModBuild 226. IT WAS THE "RAIN".
+    // =================================================================================================
     //
-    // THE WOOD'S ONE PERMANENT BED, AND WHY IT STOPS BEING PERMANENT. Its history is three rounds
-    // long and every one of them is a lesson this round has to keep:
-    //   * IT WAS INAUDIBLE FOR YEARS, and not because of its level. EnvSoundClip.Chirr is banded to
-    //     2200..6500 Hz by its generator, and BuildSwamp created the bed WITHOUT `lowPassHz: 0`, so
-    //     it also carried the default runtime AudioLowPassFilter at BedLowPassHz = 1150 — a one-pole
-    //     corner that is -6.5 dB at the clip's floor and -15.3 dB at its ceiling. The clip and the
-    //     filter were fighting over the bed's entire band. ModBuild 221 moved the corner to
-    //     InsectLowPassHz = 3000 and THAT REPAIR IS NOT IN DISPUTE and is kept unconditionally.
-    //   * THE SAME ROUND ALSO LIFTED THE GAIN x1.50 AND UNVEILED A METRONOME. MakeChirr's modulator
-    //     was three summed sines whose rates re-align: envelope autocorrelation 0.867 at a 0.291 s
-    //     lag, a hard 3.45 Hz beat, which is what "im Hintergrund ein Traktor" was. ModBuild 222
-    //     replaced the modulator with band-limited noise (AC 0.125, no peak anywhere in 0.05..6.0 s)
-    //     and cut the lift to x1.15. NO SPECTRAL INSTRUMENT COULD HAVE FOUND THAT — the band split is
-    //     identical before and after to a tenth of a percentage point. Do not re-derive it.
-    //   * AND HE STILL DOES NOT WANT IT: "Auch die kontinuierlichen Sounds im Wald nerven mich."
-    //     That sentence names this emitter. With the wash deleted it is the only continuous thing
-    //     left in the wood besides the resting draught, and the replica says it is also the most
-    //     static-shaped thing that remains: SFM 0.652 and 81.0% of its energy above 2 kHz, because a
-    //     single-pole high pass at 2200 Hz leaves a very broad hiss under the crickets.
+    //  USER REPORT, hardware on ModBuild 225, verbatim, and it is two sentences of which the second
+    //  is what decides the SHAPE of the fix rather than merely permitting one:
     //
-    // SO IT BECOMES A CHORUS, AND THAT IS THE READING OF HIS OWN SENTENCE RATHER THAN A COMPROMISE.
-    // "Statt generell durchgehende Sounds ... lieber die Tierrufe": insects ARE Tierrufe, and real
-    // ones fall silent and start again rather than running a machine all night. So the bed keeps its
-    // clip, its node (the Ground — it is the floor the player is standing on, which is the "Quelle in
-    // der Welt" for it) and its repaired filter, and loses its permanence and 4.7 dB:
+    //      "Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu kommt und für eine Zeit
+    //       bleibt, ansonsten finde ich es sehr gut."
     //
-    //    delivered @4m through 500 Hz     duty cycle     what it was
-    //      MB221 (lift x1.50)  0.00421       100%        the build called "viel zu nervig"
-    //      MB222 (lift x1.15)  0.00331       100%        the build called "kontinuierlich ... nervt"
-    //      223   (chorus)      0.00192        23%        -4.7 dB, and off three quarters of the time
+    //  WHAT WAS HERE. The wood's insect floor — EnvSoundClip.Chirr on the Ground node, banded
+    //  2200..6500 Hz by its generator and low-passed at 3000 Hz at runtime. It was a permanent bed
+    //  from the day the feature shipped until ModBuild 223, which turned it into a CHORUS: a hash on
+    //  a 53 s slot decided whether that slot carried one, it ran 14..30 s, ramped in and out over 5 s
+    //  and was EXACTLY zero in between, peaking at 0.60 of a 0.050 gain. That change was itself the
+    //  answer to "Auch die kontinuierlichen Sounds im Wald nerven mich", and it made this emitter
+    //  intermittent for the first time — which is exactly when a thing starts being describable as
+    //  "kommt ab und zu und bleibt für eine Zeit".
     //
-    // THE LIFT IS GONE ENTIRELY, not re-tuned: InsectAmbienceLift was a multiplier that rode
-    // `[EnvSound] AmbienceBed`, and that dial is deleted with the room tones. The bed is back on its
-    // shipped NightBedGain with the chorus envelope doing the shaping, which is one number for one
-    // decision instead of a gain and a lift that could disagree.
+    //  THE SENTENCE IS A SCHEDULE, SO THE SCHEDULE WAS MEASURED FIRST. .planning/envsound-replica/
+    //  room.py's chorus_schedule() drives the shipped arithmetic — Haunt.Hash's cascade, character
+    //  for character — over an hour of shared clock and prints what a player is actually in:
     //
-    // IF THE NEXT REPORT STILL SAYS THE WOOD IS TOO BUSY, this emitter is named, its SFM is on the
-    // record above, and the next step is stated: delete it, or narrow its band with a second
-    // high-pass pole in MakeChirr so the hiss under the crickets goes. It is NOT another gain.
-
-    /// <summary>The corner the insect bed's runtime low pass sits at. 3000 Hz — a single pole, so
-    /// -1.0 dB at the clip's 2200 Hz floor, -3 dB at 3000 and -7.0 dB at its 6500 Hz ceiling: the
-    /// crickets' own body is passed and the hiss tail above 4 kHz is trimmed.
-    ///
-    /// <para><b>UNCONDITIONAL SINCE ModBuild 223.</b> It used to fall back to
-    /// <see cref="BedLowPassHz"/> whenever <c>[EnvSound] AmbienceBed</c> was off, which made a
-    /// DEFECT REPAIR into a SETTING — the 1150 Hz corner attenuated the clip's entire band and was
-    /// never anything but a bug. With the dial deleted the fallback goes with it, and
-    /// <see cref="AddBed"/> no longer carries a second corner per voice.</para></summary>
-    private const float InsectLowPassHz = 3000f;
-
-    /// <summary>The insect bed's gain. UNCHANGED at 0.050 across three rounds, deliberately: what
-    /// moves this round is the ENVELOPE, and holding the gain is what lets the next hardware report
-    /// be about the chorus rather than about a level and a chorus at once.</summary>
-    private const float NightBedGain = 0.050f;
-
-    /// <summary>
-    /// THE CHORUS SCHEDULE. A slot every <see cref="InsectChorusSlot"/> seconds; a hash decides
-    /// whether that slot carries a chorus at all and how long it runs; the level ramps in and out
-    /// over <see cref="InsectChorusEdgeSeconds"/> and is EXACTLY ZERO in between, which is what
-    /// <see cref="TickBeds"/> tests to PAUSE the source.
-    ///
-    /// <para>53 SECONDS IS PRIME and non-commensurate with every other period in this file — the
-    /// night calls' 41, the rat's 26, the drip's 2.85, the apparitions' 83 and every LFO — so the
-    /// wood never falls into a rhythm across two subsystems. Item 6 of the class doc.</para>
-    ///
-    /// <para>THE LENGTHS ARE LONG ON PURPOSE. 14-30 s is long enough that a chorus is a STATE the
-    /// player is in rather than an event that happens to them, which is what a real chorus is; and
-    /// the 5 s edges are far slower than the just-noticeable rate for a fade at this level, so
-    /// neither the arrival nor the departure is itself an event. That is the wind gate's argument
-    /// (a cut is an event) applied to the one bed that now has cuts in it.</para>
-    ///
-    /// <para>DUTY CYCLE: 0.55 x 22 s / 53 s = about 23%, so the wood is insect-free roughly three
-    /// quarters of the time, against 100% in both builds he rejected.</para>
-    /// </summary>
-    private const float InsectChorusSlot = 53f;
-    private const float InsectChorusShare = 0.55f;
-    private const float InsectChorusLenLo = 14f;
-    private const float InsectChorusLenHi = 30f;
-    private const float InsectChorusEdgeSeconds = 5f;
-
-    /// <summary>What a chorus reaches at its plateau, as the bed's modulator. 0.60 against the
-    /// ModBuild 222 bed's steady ~0.90, i.e. -3.5 dB on top of losing the x1.15 lift — 4.7 dB
-    /// quieter in all, measured at 4 perceived metres through a 500 Hz high pass (0.00331 ->
-    /// 0.00192). Erring quiet on the emitter the user named, which is the only safe direction after
-    /// three rejected levels.</summary>
-    private const float InsectChorusPeak = 0.60f;
-
-    /// <summary>Hash channels for the chorus's two independent draws: WHETHER this slot carries one
-    /// and HOW LONG it runs. They index the 53 s chorus slot, which is a different quantity from the
-    /// 41 s call slot and the 26 s rat slot, so sharing channel numbers with those is sound for the
-    /// reason <see cref="DripVariantChannel"/>'s doc gives in full — two values that are never
-    /// compared cannot be seen to correlate. What matters is that these two are distinct from EACH
-    /// OTHER, or every chorus would be the same length.</summary>
-    private const float InsectChorusOnChannel = 5f;
-    private const float InsectChorusLenChannel = 0f;
-
-    /// <summary>
-    /// The insect floor's level, 0..2 — a CHORUS on the shared environment clock, so every client
-    /// hears the wood fill and empty on the same frame with zero wire bytes. See THE INSECT CHORUS.
-    ///
-    /// <para>RETURNS EXACTLY ZERO between choruses, which pauses the source: the wood at rest is the
-    /// resting draught and nothing else, and a paused source cannot be put back into the mix by any
-    /// future rounding, filter tail or spatialiser.</para>
-    ///
-    /// <para>The plateau still carries a slow <see cref="Lfo"/> so a chorus is not a flat block of
-    /// noise for half a minute. It is the SAME 0.80..1.00 contour the bed has always had, now
-    /// multiplying the chorus envelope instead of standing alone.</para>
-    /// </summary>
-    private static float NightBed()
-    {
-        float clock = SkyAlternative.EnvClockSeconds;
-        if (clock < 0f)
-            return 0f;
-
-        long slot = (long)Mathf.Floor(clock / InsectChorusSlot);
-        if (Haunt.Hash(slot, InsectChorusOnChannel) >= InsectChorusShare)
-            return 0f;   // a slot the wood stays quiet in
-
-        // WHERE IN THE SLOT. The chorus is CENTRED, so its edges can never touch the slot boundary
-        // and two consecutive choruses are always separated by at least one full edge — no branch
-        // below has to test for an overlap because the arithmetic makes one unreachable.
-        float length = Mathf.Lerp(InsectChorusLenLo, InsectChorusLenHi,
-                                  Haunt.Hash(slot, InsectChorusLenChannel));
-        float into = clock - slot * InsectChorusSlot;
-        float from = 0.5f * (InsectChorusSlot - length);
-        float t = into - from;
-        if (t <= 0f || t >= length)
-            return 0f;
-
-        // THE EDGES, smoothstepped so neither the arrival nor the departure is an onset.
-        float edge = Mathf.Min(InsectChorusEdgeSeconds, 0.5f * length);
-        float up = Mathf.Clamp01(t / edge);
-        float down = Mathf.Clamp01((length - t) / edge);
-        float shape = up * up * (3f - 2f * up) * down * down * (3f - 2f * down);
-
-        return InsectChorusPeak * shape * (0.80f + 0.20f * Lfo(13.77f));
-    }
+    //      40 choruses in 67 slots (60% carry one)
+    //      EACH ONE HOLDS   14.8 .. 29.5 s, mean 22.4 s        <- "für eine Zeit bleibt"
+    //      THE GAPS BETWEEN 25.2 .. 236.1 s, mean 61.9 s       <- "ab und zu kommt"
+    //      duty cycle 25%
+    //
+    //  NOTHING ELSE IN THE WOOD HAS THAT SHAPE, and the alternatives are named rather than waved at:
+    //  the two calls are 2.30 s and 0.78 s one-shots; the resting draught never stops and never
+    //  changes; the fires and the Earth rumble need an infusion; the apparitions are on 83 s and the
+    //  wood has three cards of which one is silent.
+    //
+    //  ...AND THEN "REGEN" WAS MEASURED, BECAUSE A SCHEDULE ALONE IS NOT AN IDENTIFICATION.
+    //  room.py's rain_report() adds ONE instrument this file did not have: a RAIN CONTROL. The
+    //  static round's control is band-limited white noise, which is a television; rain is the same
+    //  broadband hiss with a tilt and a slower envelope, so "es klingt wie Regen" needed a control of
+    //  its own or it would have stayed an opinion. Every forest emitter, against both controls, at
+    //  4 perceived metres:
+    //
+    //                          SFM   spread    >2 kHz   centroid   delivered@4m
+    //    RAIN control         0.493  0.89 oct   94.5%    5176 Hz        -
+    //    TV static control    0.884  1.14 oct   82.2%    3680 Hz        -
+    //    Insect chorus, peak  0.652  0.94 oct   81.0%    3381 Hz     0.00192   <— DELETED
+    //    Leaves, at rest      0.133  1.10 oct    3.7%     598 Hz     0.00076
+    //    Leaves, AIR FULL     0.133  1.10 oct    3.7%     598 Hz     0.00625
+    //    Fire roar (Fire up)  0.005  0.64 oct    0.1%     436 Hz     0.00503
+    //    Rumble (Earth up)    0.151  1.24 oct    0.0%     545 Hz     0.00178
+    //    Owl (an EVENT)       0.000  0.22 oct    0.0%     394 Hz     0.01008
+    //    NightBird (an EVENT) 0.000  0.14 oct  100.0%    3055 Hz     0.01505
+    //
+    //  READ THE >2 kHz COLUMN. The chorus puts 81.0% of its energy above 2 kHz, against 94.5% for
+    //  rain and 3.7% for the next-nearest CONTINUOUS emitter in the room. It is not near the rain
+    //  control; it is TWENTY-TWO TIMES nearer to it than anything else the wood plays.
+    //
+    //  THE ALTERNATIVE THAT HAD TO BE FALSIFIED, AND IT WAS FALSIFIED ON BAND AND NOT ON LEVEL. The
+    //  LEAVES bed under an Air infusion also "comes now and then and stays for a while" — the wind
+    //  gate opens over 0.9 s, holds for the infusion and closes over 2.4 s — and it is the LOUDER of
+    //  the two suspects by 10.3 dB (0.00625 against 0.00192). Level therefore does not convict it and
+    //  could not have: what exonerates it is that it is an APERTURE, 53.2% of its energy under
+    //  200 Hz, centroid 598 Hz, 3.7% above 2 kHz. A wind is not a hiss. The same column excludes the
+    //  fire roar (0.1% above 2 kHz, and it needs Fire up) and the Earth rumble (0.0%, two sines under
+    //  110 Hz, and it needs Earth up), and duration excludes both calls.
+    //
+    //  AND THE WOOD WAS RENDERED WITH THE SUSPECT AND WITHOUT IT, which is the instrument the
+    //  ModBuild 222 round asked for by name and the one that killed the leaf litter. forest_mix()
+    //  sums every continuous forest emitter at its DELIVERED weight — gain x modulator x rolloff at
+    //  4 perceived metres — because a player does not hear a clip, he hears a room:
+    //
+    //                          SFM   spread    >2 kHz   centroid   delivered@4m
+    //    WITH the chorus      0.610  1.55 oct   41.9%    1870 Hz     0.00203
+    //    WITHOUT it (this)    0.134  1.10 oct    3.7%     599 Hz     0.00076   -8.5 dB
+    //    WITH, Air full       0.167  1.17 oct    4.8%     629 Hz     0.00650
+    //    WITHOUT, Air full    0.134  1.10 oct    3.7%     599 Hz     0.00624
+    //
+    //  Every rain-shaped property of the wood IS this one emitter. Removing it takes the room's
+    //  1/3-octave flatness from 0.610 to 0.134 (rain control 0.493) and its high-band share from
+    //  41.9% to 3.7% (rain control 94.5%).
+    //
+    //  WHY DELETION AND NOT A SHORTER SWELL, A QUIETER ONE OR A NARROWER BAND. "ansonsten finde ich
+    //  es sehr gut" is the load-bearing half of his report, and the arithmetic above turns it into an
+    //  argument rather than a preference: the chorus has a 25% duty cycle, so THE WOOD HE SAYS HE
+    //  LIKES IS THE OTHER 75% — it is the "WITHOUT" row, which is what already plays for three
+    //  quarters of every session. Deleting the emitter does not invent a new mix to be judged; it
+    //  makes the mix he has already approved play all of the time. Shortening the swell would leave
+    //  the same sound arriving less often, which is answering "I don't like this" with "you will hear
+    //  it less"; lowering the gain is the move THREE previous rounds made on this exact emitter and
+    //  all three were rejected; and narrowing the band would be a fourth round of tuning a thing he
+    //  has now asked to not be there.
+    //
+    //  THIS WAS THE WRITTEN NEXT STEP, and that is the strongest reason of all. The block this text
+    //  replaces ended: "IF THE NEXT REPORT STILL SAYS THE WOOD IS TOO BUSY, this emitter is named,
+    //  its SFM is on the record above, and the next step is stated: delete it, or narrow its band
+    //  with a second high-pass pole in MakeChirr so the hiss under the crickets goes. It is NOT
+    //  another gain." The next report has arrived and it names this emitter's schedule. The prediction
+    //  was made before the evidence, which is the only kind worth acting on.
+    //
+    //  WHAT THE WOOD SOUNDS LIKE NOW: the resting draught through the canopy ("im Wald ein ganz
+    //  leiser dezenter Windzug", 0.00076 at 4 perceived m), the owl and the night bird from a perch
+    //  that moves ("mal ne Eule oder ähnliches die ruft ... die Position auch random wechseln"), the
+    //  apparitions, and the fires and the rumble while their elements are up. Every one of those is
+    //  a thing happening in a place, which is his standing instruction ("Mach die meisten Sounds an
+    //  eine Quelle in der Welt hörbar"), and none of them is continuous broadband noise.
+    //
+    //  WHAT WENT WITH IT: EnvSoundClip.Chirr, the Chirr property and MakeChirr in EnvSound.Bank.cs,
+    //  NightBed(), NightBedGain, InsectLowPassHz, all six InsectChorus* constants and both of its
+    //  hash channels, the AddBed("Night", ...) call in BuildSwamp and its warning, and the chorus
+    //  paragraph in LogBuilt. The generator is preserved sample-for-sample in
+    //  .planning/envsound-replica/room.py as make_chirr — a deletion whose before-column has been
+    //  deleted is one nobody can check, which is the rule the room tones' deletion established.
+    //
+    //  ONE HONEST CAVEAT ON THE TABLE ABOVE, because a measurement that only agrees with you is what
+    //  this file has a written scar about: the ENVELOPE columns separate nothing here and are left
+    //  out of the printed table for that reason. The rain control's own envelope autocorrelation is
+    //  0.887 (its shower swell) and the two one-shot calls score 0.86 and 0.75 simply for being
+    //  events in silence, so the column ranks a 0.78 s bird call as more rain-like than rain. SFM,
+    //  the HIGH-BAND SHARE and the SCHEDULE carry this verdict; the envelope is the column that
+    //  convicted the 3.45 Hz tractor one round ago and it is the wrong instrument for this question.
+    //
+    //  THE 3000 Hz CORNER REPAIR DIES WITH THE BED IT REPAIRED, and that is not a regression being
+    //  smuggled out. InsectLowPassHz existed because the clip was banded 2200..6500 Hz and was being
+    //  played through a 1150 Hz one-pole corner that attenuated its entire band — a real defect, fixed
+    //  in ModBuild 221 and kept unconditionally in 223. With the clip gone there is nothing left for
+    //  it to correct. If a future round wants crickets in this room, it must NOT restore this bed:
+    //  what he calls rain is broadband noise, and a cricket is a NARROWBAND TONAL CHIRP with a pulse
+    //  rate. That is a different generator, not a different gain — and it should arrive as EVENTS on
+    //  the shared clock, the way the owl did, because that is the form of this feature he has
+    //  repeatedly said he likes.
 
     // ---- the fire ------------------------------------------------------------------------------------
     //
@@ -1043,20 +1098,26 @@ internal static class EnvSound
 
     /// <summary>
     /// MEAN SECONDS BETWEEN CRACKLES at one site, with the fire barely caught and fully alight. The
-    /// caller lerps between them on the element's own strength — which is the case
-    /// <see cref="EnvSoundSchedule.PoissonGap"/>'s doc names explicitly ("a caller that lerps a mean
-    /// from an element intensity").
+    /// caller lerps between them on the element's own strength, and the element is scenario-wide
+    /// state the game keeps bit-identical on every client — which is what lets the RATE be shared
+    /// without a byte on the wire, exactly as <see cref="Haunt.Resolve"/> shares the apparitions'.
     ///
     /// <para><b>THE RATE IS THE ONE PLACE "dezent" IS AT RISK, so it is derived rather than picked.</b>
     /// A real fire crackles several times a second; three sites at the full-Fire mean give
-    /// <c>3 / (2.2 x 0.962) = 1.4</c> crackles a second across a room, which is on the quiet side of a
+    /// <c>3 / 2.2 = 1.36</c> crackles a second across a room, which is on the quiet side of a
     /// real hearth and is the number the standing rule wants. Two things bound the exposure further
     /// and neither is available to the drip: the fires only exist while a Fire infusion is up, and
     /// each crackle is 55 ms with 1.2 ms to -20 dB, so nothing here can mask a syllable — the class
     /// doc's duration test, which is what admits this layer into the 1-5 kHz band at all.</para>
     ///
-    /// <para>The 0.962 is <see cref="EnvSoundSchedule.PoissonGap"/>'s own published truncation
-    /// factor, quoted rather than re-derived.</para></summary>
+    /// <para><b>THESE TWO NUMBERS DID NOT MOVE AT ModBuild 226 AND THE REALISED RATE DID, by 2%.</b>
+    /// The walk that this schedule replaced ran through <see cref="EnvSoundSchedule.PoissonGap"/>,
+    /// whose clamps truncate the exponential to 0.962 of its nominal mean, so 2.2 s of nominal
+    /// produced a measured 2.14 s of realised gap and 1.40 crackles a second across the room. The
+    /// Bernoulli tick has no truncation factor — a geometric distribution with p = tick/mean has
+    /// mean exactly `mean` — so the same constants now realise 2.19 s and 1.37/s. The full
+    /// before/after distributions are in <see cref="FireCrackleTickSeconds"/>, measured through the
+    /// real hash rather than derived.</para></summary>
     private const float FireGapCalm = 4.0f;
     private const float FireGapFull = 2.2f;
 
@@ -1066,23 +1127,74 @@ internal static class EnvSound
     /// what you hear from it next is a cell bursting or a lump shifting.</summary>
     private const float FireEmberShare = 0.17f;
 
+    /// <summary>
+    /// THE CRACKLE'S TICK GRID, in shared-clock seconds — the quantity that replaced the walk at
+    /// ModBuild 226. Each site asks once per tick "does my fire crackle in this one", with
+    /// probability <c>tick / mean</c>, and places the event at a hashed offset in the tick's first
+    /// half. See <see cref="EnvSoundSchedule.TickFires"/> for the process and
+    /// <see cref="TickFire"/> for the user ruling that required it.
+    ///
+    /// <para><b>1.31 s IS DERIVED FROM THE FLOOR IT HAS TO BUY, not picked.</b> The offset window is
+    /// half a tick, so the shortest gap two consecutive crackles at one site can have is
+    /// <c>tick / 2</c> = <b>0.655 s</b> — which has to stay clear of the 0.45 s repeat the user
+    /// called "super nervig" and clear of the top of the 0.2-2 s band the ear reads as a rhythm
+    /// rather than as separate events. The shipped walk's floor was
+    /// <c>PoissonGapMin x mean</c> = 0.616 s at full Fire, so this is 0.6 dB of extra margin at the
+    /// place it matters and a shorter floor than the walk had when the fire was merely caught
+    /// (1.12 s) — which is the honest statement of the trade rather than the flattering one.</para>
+    ///
+    /// <para>It is also PRIME (131) and non-commensurate with every other period in this file — the
+    /// drip's 2.85, the rat's 26, the calls' 41, the apparitions' 83 and every LFO — item 6 of the
+    /// class doc, so three fires and a drip never fall into one rhythm.</para>
+    ///
+    /// <para><b>MEASURED, NOT ESTIMATED.</b> .planning/envsound-replica/room.py's
+    /// <c>crackle_gaps()</c> drives BOTH schedules through the real <c>Haunt.Hash</c> cascade over
+    /// six hours of shared clock and prints the gap distributions at one site:</para>
+    /// <code>
+    ///                        mean    min    p05    p50    p95     max    rate/room
+    ///   226 tick  alight     2.19s   0.66   0.92   1.59   5.16   13.14    1.37/s
+    ///   225 walk  alight     2.14s   0.62   0.62   1.54   5.72    5.72    1.40/s
+    ///   226 tick  caught     3.93s   0.68   1.02   2.83  10.43   43.15    0.76/s
+    ///   225 walk  caught     3.89s   1.12   1.12   2.81  10.40   10.40    0.77/s
+    /// </code>
+    /// <para>THE MIDDLE OF THE DISTRIBUTION IS THE SAME DISTRIBUTION — the medians agree to 0.05 s
+    /// and the 95th percentiles to 0.03 s at both fire strengths, and the room's rate moves by 2%
+    /// (1.40/s to 1.37/s), which is the truncation factor the walk's clamps imposed and the tick
+    /// does not. That 2% is the entire audible cost of making this cue shared, and it is in the
+    /// quieter direction.</para>
+    ///
+    /// <para><b>AND THE TAIL IS NO LONGER CLAMPED, which is the one property that got worse — read
+    /// the max column.</b> The walk hard-capped a gap at <c>PoissonGapMax x mean</c>; a geometric
+    /// tail is unbounded, so ONE SITE can be silent for 43 s in six hours where the walk could not
+    /// pass 10.40. It is not worth a guard, and the reason is a measurement rather than an argument:
+    /// the ear counts the ROOM, which has three sites drawing independently, and the same function's
+    /// second table gives the gap between consecutive crackles ANYWHERE as <b>mean 0.73 s, p95
+    /// 1.64 s, worst 6.43 s fully alight</b> and <b>mean 1.33 s, p95 3.70 s, worst 10.62 s just
+    /// caught</b>, over the same six hours. A 43 s silence at one seat is invisible while the other
+    /// two are burning.</para></summary>
+    private const float FireCrackleTickSeconds = 1.31f;
+
     /// <summary>Hash channels for the fire's four per-event draws. They MUST differ from each other —
     /// all four are taken from the same key, and two draws off one channel would lock (say) the
     /// longest gaps to the loudest variant forever, which is a subtle way of having no variation.
     /// They need NOT differ from the drip's or the rat's: those index a different thing (a drip
     /// period, a rat slot) and nothing ever compares the two. That is the same reasoning
-    /// <see cref="DripVariantChannel"/> sets out at length.</summary>
+    /// <see cref="DripVariantChannel"/> sets out at length.
+    ///
+    /// <para><see cref="FireGapChannel"/> KEPT ITS NAME AND CHANGED ITS QUESTION at ModBuild 226: it
+    /// used to carry the uniform that became an exponential gap and it now carries the one that
+    /// decides whether this tick fires at all. It is the same draw off the same channel answering
+    /// the same physical question ("when is the next cell going to burst"), so renaming it would
+    /// have made a diff look bigger than the change.</para></summary>
     private const float FireGapChannel = 3f;
     private const float FireVariantChannel = 5f;
     private const float FireEmberChannel = 6f;
 
-    /// <summary>How far the scheduler may fall behind before it stops trying to catch up. If the
-    /// shared clock jumps forward (a new owner is elected, the scenario reloads) the next crackle is
-    /// simply the next one; without this the loop would emit one event per frame until it had caught
-    /// up, which is the woodpecker <see cref="EnvSoundSchedule.PoissonGap"/> exists to make
-    /// impossible, arrived at from the other side. ONE crackle is emitted per site per frame in any
-    /// case — the scheduler is an `if`, not a `while`, so it cannot spin whatever the clock does.</summary>
-    private const float FireCatchUpSeconds = 1.5f;
+    /// <summary>WHERE INSIDE ITS TICK a crackle lands. It has to be a channel of its own: it is
+    /// compared BY THE EAR against the gap draw on the very same event, and one channel for both
+    /// would lock every crackle that happened at all to the same instant inside its tick, which is
+    /// the lattice <see cref="FireCrackleTickSeconds"/> exists to avoid.</summary>
+    private const float FireWhenChannel = 2f;
 
     // ---- live state --------------------------------------------------------------------------------
 
@@ -1115,6 +1227,10 @@ internal static class EnvSound
         // corner it selected was never a setting: 1150 Hz attenuated the chirr's entire band and was
         // the defect the 3000 Hz corner repairs. The corner is now written once by AddBed and never
         // touched again, which also removes a per-frame comparison from every bed in the room.
+        // (The chirr itself is gone as of ModBuild 226 — see THE INSECT CHORUS, DELETED. This
+        // paragraph is kept because the DEFECT CLASS is what it records: AddBed's default corner is
+        // right for a bed with body and wrong for one without, and the symptom is a bed nobody can
+        // hear rather than one that sounds wrong.)
 
         /// <summary>True for the emitters that play the WIND buffer, which is the one clip in the
         /// bank with a user ruling attached to it. <see cref="TickBeds"/> asserts on this: a
@@ -1232,11 +1348,28 @@ internal static class EnvSound
     /// <see cref="AudioSource"/> the roar is looping on — see THE FIRE.</summary>
     private static readonly Voice?[] _fireVoices = new Voice?[FireSites];
 
-    /// <summary>Per site: the shared-clock time the next crackle is due, and the index of that event.
-    /// NaN in <see cref="_fireNextAt"/> means "not anchored yet", which is the state a fresh build
-    /// and a clock jump both fall back to.</summary>
-    private static readonly float[] _fireNextAt = new float[FireSites];
-    private static readonly long[] _fireSeq = new long[FireSites];
+    /// <summary>
+    /// Per site: the last CRACKLE TICK this client has already answered. It is an EDGE DETECTOR and
+    /// not a schedule — the schedule itself is a pure function of the shared clock since ModBuild
+    /// 226 (see <see cref="TickFire"/>) — so this array holds nothing another client would need to
+    /// agree with, exactly as <c>_lastRatSlot</c> and <c>_lastNightCallSlot</c> hold nothing.
+    ///
+    /// <para><c>long.MinValue</c> is "not observing yet", the same sentinel and the same meaning as
+    /// the rat's and the calls': the tick a client walked in on is SWALLOWED rather than fired,
+    /// because its event has already happened.</para>
+    ///
+    /// <para>WHAT THIS REPLACES: <c>_fireNextAt</c> (a shared-clock time) and <c>_fireSeq</c> (a
+    /// running index), which together were the WALK — each gap drawn from the last, so two clients
+    /// that began observing at different clock values sat on different phases of it forever. That
+    /// was documented as acceptable and the user has now ruled otherwise; see
+    /// <see cref="TickFire"/>.</para>
+    ///
+    /// <para>THE ARRAY'S DEFAULT IS 0 AND NOT THE SENTINEL, and it does not need to be: the only
+    /// path to <see cref="TickFire"/> runs through <see cref="Build"/>, which begins with
+    /// <see cref="Teardown"/>, which calls <see cref="ArmSchedules"/>. The zeros are never read. If
+    /// a future round gives this file a second entry point, that is the fact it breaks.</para>
+    /// </summary>
+    private static readonly long[] _lastFireTick = new long[FireSites];
 
     /// <summary>What <see cref="LogBuilt"/> says about the sites — built once during
     /// <see cref="Build"/>, while the candidate lists are in hand, and thrown away with the
@@ -1343,6 +1476,11 @@ internal static class EnvSound
             ApplyScale(rigScale, "the rig was rescaled (zoom)");
 
         float clock = SkyAlternative.EnvClockSeconds;
+
+        // BEFORE ANY CONSUMER READS IT. A jump has to re-arm the schedules on the SAME frame it
+        // happens, or the detectors below fire against the new timeline before they are told the old
+        // one ended — see THE JOIN.
+        TickClockContinuity(clock);
 
         TickDuck();
         TickBeds();
@@ -1499,41 +1637,25 @@ internal static class EnvSound
             VRLog.Warn("Core", "ENV SOUND bed 'Leaves' NOT CREATED — no 'Canopy', 'TrunksNear' or "
                                + "'Ground' node under the wood. Since ModBuild 223 that bed IS the "
                                + "wood's resting ambience (\"im Wald ein ganz leiser dezenter "
-                               + "Windzug\"), and the continuous bed that used to fill the gap was "
-                               + "deleted in the same round: without this node the wood is silent "
-                               + "between insect choruses and animal calls. If the bake renamed the "
-                               + "canopy shell, rename it here.");
+                               + "Windzug\"), and since ModBuild 226 deleted the insect chorus as "
+                               + "well it is the ONLY continuous emitter this room has: without this "
+                               + "node the wood is silent between animal calls. If the bake renamed "
+                               + "the canopy shell, rename it here.");
 
-        // THE GROUND. Night insects, and since ModBuild 223 a CHORUS rather than a floor — it comes
-        // and goes on the shared clock instead of chirping for the whole scenario, because the user's
-        // ruling names continuous sound as the fault ("Auch die kontinuierlichen Sounds im Wald
-        // nerven mich"). See THE INSECT CHORUS for the schedule and the measurements. This is the
-        // swamp's floor, so it is the one sound the player is inside rather than beside — a wide
-        // rolloff, deliberately, and the Ground node is its "Quelle in der Welt".
+        // THE GROUND. IT NO LONGER CARRIES A BED — the 'Night' insect chorus that stood on it from
+        // the day this feature shipped until ModBuild 225 is DELETED, because it is the sound the
+        // user calls rain: "Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu kommt
+        // und für eine Zeit bleibt, ansonsten finde ich es sehr gut." The schedule, the two controls,
+        // the falsified alternatives and the with/without on the whole room are in THE INSECT CHORUS,
+        // DELETED, with every number. Do not restore this bed; if crickets are wanted, they are a
+        // different generator and they arrive as EVENTS, which that block spells out.
         //
-        // THE FILTER, NOT THE GAIN, IS WHAT MADE IT INAUDIBLE, and that repair is kept
-        // unconditionally: EnvSoundClip.Chirr is banded to 2200..6500 Hz by its own generator and
-        // every build before ModBuild 221 played it through a one-pole 1150 Hz corner that is
-        // -6.5 dB at the clip's floor and -15.3 dB at its ceiling. `lowPassHz: InsectLowPassHz` is
-        // that fix, and it no longer has an off-corner to fall back to — a defect repair is not a
-        // setting, and the dial it used to ride is deleted.
+        // THE NODE IS STILL RESOLVED, and not as a leftover: it is the FRAME the night calls' perch
+        // ring is measured in (see _perchFrame below and WHERE A CALL COMES FROM). One lookup, one
+        // warning, one node — which is also why the warning below no longer mentions a bed.
         //
         // A MISSING GROUND NODE IS LOUD. `Find` returning null here is the WispWisp path exactly.
         Transform? ground = Find(room.transform, "Ground", "RoomGeo");
-        if (ground != null)
-            AddBed("Night", ground, EnvSoundBank.Bank(EnvSoundClip.Chirr), NightBedGain, 3f, 30f,
-                   NightBed,
-                   clipName: EnvSoundClip.Chirr, airLed: false, fireLit: false,
-                   lowPassHz: InsectLowPassHz);
-        else
-            VRLog.Warn("Core", "ENV SOUND bed 'Night' NOT CREATED — no 'Ground' or 'RoomGeo' node "
-                               + "under the wood. That is the INSECT CHORUS, and with the room tone "
-                               + "deleted it is one of only two continuous-clip emitters left in "
-                               + "this room: without it the wood has the resting draught and the "
-                               + "animal calls and nothing else. If the bake renamed the node, "
-                               + "rename it here. NOTE that a silent chorus is NORMAL — it is off "
-                               + "about 77% of the time by design — so silence alone is not this "
-                               + "fault; the absence of this line is what tells the two apart.");
 
         // THERE IS NO WISP BED, and this note is here so nobody re-derives one from the clip.
         // The wood used to carry three free-standing halos — WispWisp, WispLantern, WispFar — and
@@ -1586,21 +1708,25 @@ internal static class EnvSound
         // room's local origin with identity rotation and unit scale — so a position expressed in it
         // is in AUTHORED METRES, exactly the units ClearR and CanopyY below are written in, and this
         // file never has to know the room's placement, its art scale or the rig scale.
-        // THE SAME `ground` THE INSECT CHORUS STANDS ON, reused rather than looked up again:
-        // `Find` is a recursive walk of a photoscanned room, and two walks for one node would
-        // also make it possible for the chorus and the calls to disagree about which node the
-        // wood's floor is.
+        // SINCE ModBuild 226 THIS IS THE ONLY CONSUMER OF `ground`. It used to be the second — the
+        // insect chorus stood on the same node, and the lookup was shared so the two could not
+        // disagree about which object the wood's floor is. That bed is deleted (see THE INSECT
+        // CHORUS, DELETED) and the lookup stays exactly where it was, because what it answers now is
+        // the more demanding of the two questions: a bed only needs A place, while the perch ring is
+        // measured IN this transform's frame and lands in the wrong part of the wood if it resolves
+        // to a different object.
         _perchFrame = ground;
         if (_perchFrame == null)
             VRLog.Warn("Core", "ENV SOUND night calls HAVE NO FRAME — no 'Ground' or 'RoomGeo' node "
                                + "under the wood, so there is nothing to measure the perch ring "
                                + "from and the owl and the bird will NOT SOUND AT ALL this session. "
                                + "They are the near and far halves of the 2026-08-22 request for "
-                               + "\"mal ne Eule oder ähnliches die ruft\", and with the room tone "
-                               + "deleted in the same round they are most of what the wood has. If "
-                               + "the bake renamed the ground, rename it here — this is the same "
-                               + "node the insect chorus stands on, so a warning about that bed and "
-                               + "this one together means ONE renamed node and not two faults.");
+                               + "\"mal ne Eule oder ähnliches die ruft\", and since the room tone "
+                               + "was deleted at ModBuild 223 and the insect chorus at 226 they are "
+                               + "ALMOST ALL the wood has — what is left beside them is the resting "
+                               + "draught through the canopy and whatever the elements bring. If the "
+                               + "bake renamed the ground, rename it here; nothing else in this room "
+                               + "reads that node any more, so this line is the whole symptom.");
     }
 
     /// <summary>
@@ -2053,10 +2179,11 @@ internal static class EnvSound
         sb.Append("AT REST: the wind beds rest at ").Append(WindRestFloor.ToString("F2"))
           .Append(" of their own gain (EnvSound.WindRestFloor — user: \"ein ganz leiser dezenter "
                   + "Windzug\", \"der Windzug im Keller könnte vom Fenster ausgehen\") and are "
-                  + "never paused; the insect chorus is a shared-clock envelope that is EXACTLY zero "
-                  + "about 77% of the time, so a paused 'Night' bed on this line is normal. There is "
-                  + "NO room tone: 'Stone' and 'NightAir' were deleted at ModBuild 223 and a bed of "
-                  + "either name on this line means a merge went wrong. ");
+                  + "never paused. NOTHING ELSE IN EITHER ROOM PLAYS AT REST, and three deleted beds "
+                  + "are named so this line can be read as a check rather than as a list: 'Stone' "
+                  + "and 'NightAir' (the room tones, ModBuild 223) and 'Night' (the insect chorus, "
+                  + "ModBuild 226 — the sound the user called \"Regen\"). A bed of any of those three "
+                  + "names on this line means a merge went wrong. ");
 
         // The one sentence a reader should not have to assemble themselves.
         int windBeds = 0;
@@ -2281,6 +2408,163 @@ internal static class EnvSound
 
     // ---- the events -------------------------------------------------------------------------------
 
+    // =============================================================================================
+    //  THE JOIN, AND THE ONE THING A SHARED CLOCK CANNOT DO BY ITSELF — ModBuild 226.
+    // =============================================================================================
+    //
+    //  Every scheduled cue in this file is a pure function of `SkyAlternative.EnvClockSeconds`, which
+    //  is what makes two players hear the same owl from the same tree on the same frame. But that
+    //  clock is not continuous. `SkyAlternative.FollowEnvClock` applies a JUMP — not a walk — on two
+    //  paths: whenever the elected owner CHANGES (which includes the very first packet a joining
+    //  client receives, because it goes from owning its own clock to following someone else's), and
+    //  whenever the error exceeds `ClockJumpSeconds` = 1.5 s. Between those, the offset is SLEWED at
+    //  `ClockSlewRate` = 0.2 s of clock per second of wall time.
+    //
+    //  SO THE CLOCK CAN LEAP, FORWARD OR BACKWARD, BY MINUTES, ON ONE FRAME. What that did to the
+    //  schedules, before this guard, is two distinct faults:
+    //
+    //    * A FORWARD LEAP FIRED EVERYTHING AT ONCE. Every edge detector here compares an INDEX
+    //      (`_lastDripIndex`, `_lastRatSlot`, `_lastNightCallSlot`) and fires when it changes. A leap
+    //      changes all of them on the same frame, so the drip, the rat and the night call all sounded
+    //      together, in a room where nothing had happened — which is the loudest possible way to
+    //      announce that a peer just joined.
+    //    * A BACKWARD LEAP REPLAYED SLOTS. The detectors hold the LAST index, not a set, so a leap
+    //      back over a slot boundary and a walk forward over it again fires that slot's event a
+    //      SECOND time. The rat crossed the floor twice with one animation.
+    //
+    //  THE FIX IS THE `first` SWALLOW THAT ALREADY EXISTS, APPLIED AGAIN. Every detector already
+    //  knows how to say "I have just started observing: latch this slot and play nothing, because its
+    //  event has already happened" — that is what `long.MinValue` means in each of them. A clock jump
+    //  IS a fresh start on a new timeline, so it re-arms them all, and the first slot after the jump
+    //  is swallowed exactly as the first slot after a build is. The deferred queue and the rat's
+    //  pending squeak go with them: both hold ABSOLUTE shared-clock times that were written against
+    //  a timeline that no longer exists.
+    //
+    //  WHAT IS DELIBERATELY NOT DONE: reading the jump from SkyAlternative. It has the information —
+    //  `ApplyTimeOfs` knows exactly when it jumped and why — and a notification would be more direct
+    //  than the inference below. It would also be a public event on a class this file is a CONSUMER
+    //  of, added for one caller, and it is not needed: the discontinuity is fully observable from the
+    //  clock's own readings against wall time. If a second consumer ever wants it, that is when the
+    //  accessor is worth adding, and this comment is where the next reader is told so.
+
+    /// <summary>How far the shared clock may diverge from wall time in one frame before this treats
+    /// it as a JUMP rather than as progress.
+    ///
+    /// <para>It is bracketed from both sides rather than picked. BELOW: the slew is
+    /// <c>SkyAlternative.ClockSlewRate</c> = 0.2 s of clock per second of wall time, and the real
+    /// step this is measured over is clamped to 1 s, so a legitimate correction can never contribute
+    /// more than 0.20 s of divergence. ABOVE: <c>SkyAlternative.ClockJumpSeconds</c> = 1.5 s is the
+    /// error at which that class stops walking and jumps, so every jump it makes for that reason is
+    /// at least that big. 0.75 s sits between the two with a factor of two of margin on each
+    /// side.</para>
+    ///
+    /// <para><b>WHAT THIS DOES NOT CATCH, stated so nobody trusts it further than it goes:</b> an
+    /// OWNER CHANGE applies a jump of ANY size, including a few milliseconds, and one smaller than
+    /// this passes as progress. The worst that costs is one extra one-shot, if the jump happened to
+    /// cross a slot boundary — which is the same harm as a single duplicated cue and is well under
+    /// the level of the thing this guard exists to prevent.</para></summary>
+    private const float ClockStepTolerance = 0.75f;
+
+    /// <summary>The previous frame's shared-clock reading and the wall time it was taken at. NaN is
+    /// "no previous frame" — a fresh build, which has just armed its schedules anyway.</summary>
+    private static float _lastClockSeen = float.NaN;
+    private static float _lastRealSeen;
+
+    /// <summary>
+    /// Detect a shared-clock discontinuity and re-arm the schedules across it. See the block above.
+    /// Costs two float reads, a subtract and a compare in the settled case, which is every frame
+    /// after the first packet.
+    /// </summary>
+    private static void TickClockContinuity(float clock)
+    {
+        float wasClock = _lastClockSeen;
+        float wasReal = _lastRealSeen;
+        _lastClockSeen = clock;
+        _lastRealSeen = Time.unscaledTime;
+        if (float.IsNaN(wasClock))
+            return;
+
+        // WALL TIME, MEASURED HERE, NOT `Time.unscaledDeltaTime`. That property is capped by
+        // `Time.maximumDeltaTime` (0.333 s by default), so a five-second stall reports a third of a
+        // second — and the shared clock, which is real time plus an offset, would then look like it
+        // had leapt 4.7 s. The difference of two `unscaledTime` readings has no such cap.
+        //
+        // ...AND IT IS CLAMPED TO 1 s ANYWAY, which is not a contradiction: past a second of stall
+        // the correct answer IS to re-arm. Every consumer of this clock already treats a stall of
+        // that size as fatal to its schedule (see DeferredStaleSeconds and the rat squeak's own 4 s
+        // guard), so a long hitch and a clock jump want the same response.
+        float realStep = Mathf.Clamp(_lastRealSeen - wasReal, 0f, 1f);
+        float drift = clock - wasClock - realStep;
+        if (drift <= ClockStepTolerance && drift >= -ClockStepTolerance)
+            return;
+
+        ArmSchedules($"the shared environment clock moved {clock - wasClock:F2}s while {realStep:F2}s "
+                     + $"of wall time passed (drift {drift:+0.00;-0.00}s, tolerance "
+                     + $"{ClockStepTolerance:F2}s)");
+    }
+
+    /// <summary>
+    /// Put every scheduled cue back into its "I have just started observing" state, and drop
+    /// anything already queued against the old timeline.
+    ///
+    /// <para><b>THAT MEANS TWO DIFFERENT THINGS AND BOTH ARE CORRECT, which is worth stating because
+    /// the difference looks like an inconsistency.</b> For the four SLOT detectors (the drip, the
+    /// rat, the night call, the fire's ticks) <c>long.MinValue</c> means "swallow the slot the clock
+    /// now sits in", because their events mark nothing a player can look at and one that already
+    /// happened on the new timeline is simply missed. For the APPARITIONS it means the opposite —
+    /// clearing <c>_lastHauntStart</c> lets the current slot fire — and that is right for the same
+    /// reason: an apparition IS a picture, the shader draws it from the very same clock, so after a
+    /// jump the cue must be free to belong to whatever the GPU is now drawing. A backward jump
+    /// replays an apparition this client already heard, and it replays the apparition too.
+    /// <see cref="TickHaunt"/>'s own staleness budget then decides whether the event is joinable at
+    /// all, which is a decision this method must not pre-empt.</para>
+    ///
+    /// <para>Called from exactly two places, and they are the same event seen from two sides —
+    /// <see cref="Teardown"/> (a new room, so a new observation) and
+    /// <see cref="TickClockContinuity"/> (a new timeline, so a new observation). Writing it once is
+    /// what stops the two drifting apart: the teardown path grew this list one field at a time over
+    /// six rounds, and a jump path that had been given its own copy would have been missing whichever
+    /// field was added last.</para>
+    /// </summary>
+    /// <param name="why">Null on a teardown, which logs its own line and does not need a second one.
+    /// A reason on a jump, because a burst of re-armed schedules is otherwise indistinguishable from
+    /// the feature having gone quiet, and this is the line that attributes it.</param>
+    private static void ArmSchedules(string? why)
+    {
+        _lastDripIndex = long.MinValue;
+        _lastRatSlot = long.MinValue;
+        _lastNightCallSlot = long.MinValue;
+        for (int i = 0; i < FireSites; i++)
+            _lastFireTick[i] = long.MinValue;
+        _lastHauntStart = float.NaN;
+        _lastHauntCard = -1;
+        _lastForcedStart = float.NaN;
+        _lastForcedCard = -1;
+        ClearDeferred();
+        _squeakAt = float.NaN;
+        _squeakFrom = null;
+
+        if (why == null)
+            return;
+        VRLog.Info("Core", "ENV SOUND schedules RE-ARMED — " + why + ". Every scheduled cue here is a "
+                           + "pure function of SkyAlternative.EnvClockSeconds, which is what makes "
+                           + "two players in the same room hear the same event from the same place "
+                           + "on the same frame; but that clock JUMPS when the elected owner changes "
+                           + "(including on the first packet a joining client receives) and when the "
+                           + "error passes its walk band. Across a jump the slot indices all change "
+                           + "at once, so without this the drip, the rat and the night call would "
+                           + "have fired together, and a BACKWARD jump would have replayed slots this "
+                           + "client had already heard. So: the four SLOT schedules (drip, rat, "
+                           + "night call, fire ticks) swallow the slot the clock now sits in, "
+                           + "exactly as they do on the first frame after a build; the APPARITIONS' "
+                           + "latch is cleared the other way, so their cue is free to belong to "
+                           + "whatever the shader is now drawing from the same clock; and the "
+                           + "deferred queue and the rat's pending squeak are dropped, because both "
+                           + "hold absolute times on the timeline that just ended. NOTHING IS BROKEN "
+                           + "and no sound is lost that was going to be correct: the next event "
+                           + "plays in full, on the new clock, in step with every other client.");
+    }
+
     private static void TickEvents(SkyStyle style, float clock)
     {
         if (style == SkyStyle.Cellar)
@@ -2306,54 +2590,109 @@ internal static class EnvSound
     /// the layer exists, why it is not on the shared one-shot pool, and what it measures.
     ///
     /// =============================================================================================
-    /// <para><b>THE TIMING IS POISSON, AND <see cref="EnvSoundSchedule.PoissonGap"/> IS BACK IN USE.</b>
-    /// Cells bursting in a log are independent events at a slowly-changing average rate — which is
-    /// the textbook definition of a Poisson process and therefore of an EXPONENTIAL waiting time.
-    /// That is not a decoration: an exponential's mode is at zero, so it produces genuine CLUSTERS
-    /// (two crackles almost together, then a gap), while "the mean plus or minus 40%" produces a
-    /// wobbly metronome, and a wobbly metronome is still a metronome. The user has already condemned
-    /// one cue in this feature for exactly that — the ice sound beat at a fixed 0.45 s and he called
-    /// it "super nervig" — and the function that was written to answer it survived the deletion of
-    /// its only caller with its termination proof and its wire vectors intact, precisely so the next
-    /// statistically-scheduled event would not re-derive <c>-mean * ln(u)</c> from scratch. This is
-    /// that next event; the note on the function saying it has no caller is retired with this
-    /// method.</para>
+    /// <para><b>THE TIMING IS A POISSON PROCESS, SAMPLED ON A GRID.</b> Cells bursting in a log are
+    /// independent events at a slowly-changing average rate — the textbook definition of a Poisson
+    /// process. That is not a decoration: such a process has a mode at the SHORTEST gap, so it
+    /// produces genuine CLUSTERS (two crackles almost together, then a longer nothing), while "the
+    /// mean plus or minus 40%" produces a wobbly metronome, and a wobbly metronome is still a
+    /// metronome. The user has already condemned one cue in this feature for exactly that — the ice
+    /// sound beat at a fixed 0.45 s and he called it "super nervig" — and that cue was deleted rather
+    /// than re-timed.</para>
+    ///
+    /// <para><b>IT USED TO BE EXPRESSED AS A WAITING TIME AND IT IS NOW EXPRESSED AS A PER-TICK
+    /// PROBABILITY, which is the same process with no memory.</b> Through ModBuild 225 this method
+    /// wrote <c>next = now + EnvSoundSchedule.PoissonGap(mean, draw)</c> and kept <c>next</c>; since
+    /// 226 it asks, once per <see cref="FireCrackleTickSeconds"/> tick of the SHARED CLOCK, whether
+    /// this site crackles in this tick, with probability <c>tick / mean</c>
+    /// (<see cref="EnvSoundSchedule.TickFires"/>). The gaps are then GEOMETRIC — the discrete
+    /// exponential — so the clustering survives exactly, and the answer for a given tick no longer
+    /// depends on anything this client has done. WHY that mattered is the multiplayer block below.
+    /// <c>PoissonGap</c> is untouched and still has a caller: the night calls' offset inside their
+    /// 41 s slot.</para>
     ///
     /// <para><b>WHY IT CANNOT WOODPECKER, which is the one thing a per-frame scheduler must not do.</b>
     /// Three independent guards, and none of them is a comparison against a magic number that could
     /// be tuned away:</para>
     /// <list type="number">
-    ///   <item>The GAP is bounded below by construction — <c>PoissonGapMin</c> = 0.28 of the mean —
-    ///   so at the fastest legal mean (<see cref="FireGapFull"/> = 2.2 s) the shortest gap this site
-    ///   can produce is 0.62 s, whatever the draw is and whatever <c>NaN</c> arrives.</item>
+    ///   <item>The GAP is bounded below BY GEOMETRY: the event is placed inside the FIRST HALF of its
+    ///   tick (<see cref="EnvSoundSchedule.TickOffset"/>), so the latest one crackle can be is half a
+    ///   tick in and the earliest the next can be is zero into the following one — a floor of
+    ///   0.655 s, for every draw, every mean and every <c>NaN</c>. That is not a clamp that a future
+    ///   round can widen without noticing; it is what the half-tick window MEANS.</item>
     ///   <item>The scheduler is an <c>if</c> and not a <c>while</c>: at most ONE crackle per site per
     ///   frame leaves the method, so even a clock that leapt an hour cannot empty a backlog into one
     ///   frame.</item>
-    ///   <item>And a backlog is not kept anyway — past <see cref="FireCatchUpSeconds"/> the next
-    ///   event is re-anchored to NOW rather than to a schedule the clock has left behind.</item>
+    ///   <item>And a backlog cannot exist. There is no "next event" being carried forward to catch up
+    ///   with — only the current tick, which is read off the clock. A clock that jumps simply lands on
+    ///   a different tick index, and THE JOIN's re-arm swallows one tick per site across it. This is
+    ///   what replaced <c>FireCatchUpSeconds</c>, and it is strictly stronger: the old constant made
+    ///   the walk re-anchor after falling 1.5 s behind, which was a repair; a schedule with no
+    ///   memory has nothing to fall behind.</item>
     /// </list>
     ///
-    /// <para><b>MULTIPLAYER: this is the ONE cue in the file that is not frame-identical between
-    /// clients, and it is stated rather than hidden.</b> Every other event here is a pure function of
-    /// the shared clock, so two players hear the drip and the bookshelf on the same frame. The
-    /// crackle's sequence is a WALK — each gap depends on the last — so two clients that started
-    /// observing at different clock values are on different phases of it. Nothing can observe that:
-    /// a crackle marks no visual (the flames' flicker is continuous and is the GPU's own), the two
-    /// clients draw from the same distribution at the same rate from the same seats, and there is no
-    /// picture for a sound to be early or late against. What IS shared is everything that could be
-    /// seen to disagree: whether the fires are lit, where they are, and how fast they crackle. The
-    /// draws still go through <c>Haunt.Hash</c> rather than <c>UnityEngine.Random</c>, so one client
-    /// is at least reproducible with itself.</para>
+    /// =============================================================================================
+    /// <para><b>MULTIPLAYER: IT USED TO BE THE ONE CUE IN THIS FILE TWO CLIENTS DID NOT SHARE, AND
+    /// ModBuild 226 ENDS THAT.</b></para>
+    ///
+    /// <para>USER RULING, hardware, verbatim, and it is quoted in full because it is what overrides
+    /// the paragraph that used to stand here: "Genau wie die Easter-Eggs sollen auch die Sounds mit
+    /// allen Mitspieler synchronisiert sein die in der selben Map sind. Sind also zwei Spieler in der
+    /// Wald Umgebung und dort kommt ein Geräusch eines Tieres aus einer Ecke sollen alle Spieler die
+    /// auch im Wald sind zur selben Zeit aus der selben Location denselben Sound hören."</para>
+    ///
+    /// <para><b>WHAT THAT PARAGRAPH SAID AND WHY IT IS NOT WRONG, ONLY OVERRULED.</b> It said the
+    /// crackle's sequence is a WALK — <c>next = now + PoissonGap(...)</c>, each gap drawn from the
+    /// last — so two clients that began observing at different clock values sat on different phases
+    /// of it; and it argued that nothing could observe the difference, because a crackle marks no
+    /// visual, both clients draw from the same distribution at the same rate from the same seats,
+    /// and everything that COULD be seen to disagree (whether the fires are lit, where they are, how
+    /// fast they crackle) was already a pure function of the shared element channel and the bake.
+    /// That argument is still true as far as it goes. What it did not weigh is that the user's
+    /// sentence carves out no exception, and that "two players standing at the same fire hearing
+    /// different crackles" is a thing a person can NOTICE even when no picture disagrees. He is the
+    /// judge of that, so the walk goes.</para>
+    ///
+    /// <para><b>THE REPLACEMENT IS THE SAME PROCESS WITH NO MEMORY.</b> A Poisson process sampled on
+    /// a fixed grid is a BERNOULLI process — each tick of <see cref="FireCrackleTickSeconds"/>
+    /// independently carries a crackle with probability <c>tick / mean</c>, and the gaps are
+    /// GEOMETRIC, which is the discrete exponential: mode at the minimum, therefore genuine
+    /// CLUSTERS, which is the whole of <see cref="EnvSoundSchedule.PoissonGap"/>'s argument for not
+    /// using a jittered constant. Every draw is keyed on <c>(tick, site)</c> and on nothing else, so
+    /// two clients in the same room resolve the same crackle from the same seat on the same frame,
+    /// with nothing added to the packet. See <see cref="EnvSoundSchedule.TickFires"/> for the
+    /// arithmetic and <see cref="FireCrackleTickSeconds"/> for what the change cost (a 3.8% slower
+    /// rate and an unclamped tail) stated as numbers.</para>
+    ///
+    /// <para><b>REJECTED: SENDING THE CRACKLES.</b> A per-event record would have kept the walk and
+    /// made it agree, and it is forbidden by the standing project rule and by this file's own
+    /// premise: the shared clock is already on the wire, and a fact derivable from a number everyone
+    /// has is not a fact anyone should transmit. It would also have been strictly worse — a packet
+    /// arrives late, and a crackle that arrives late is a crackle in the wrong place.</para>
+    ///
+    /// <para><b>REJECTED: KEEPING THE WALK AND RE-ANCHORING IT TO THE CLOCK PERIODICALLY.</b> Two
+    /// clients would then agree at the anchors and drift between them, which is a defect that only
+    /// appears sometimes — the worst kind this feature can ship, because a report about it is
+    /// unreproducible.</para>
     /// </summary>
     private static void TickFire(float clock)
     {
         // OFF IS FREE. One float compare while no fire is lit — no loop, no hash, no draw. This is
         // the "ideally, no cost" half of the requirement; the other half (no SOUND) is TickBeds
         // pausing the sources, which FireBed's exact zero is what triggers.
-        if (_fireGate <= 0f || clock < 0f)
+        if (_fireGate <= 0f)
             return;
 
+        // WHICH TICK, ONCE FOR THE ROOM. A clock that is negative, NaN or absurd has no tick and
+        // therefore no crackle — see EnvSoundSchedule.TrySlot for why that is a bool rather than a
+        // number, and for the sentinel collision the old inline cast could produce.
+        if (!EnvSoundSchedule.TrySlot(clock, FireCrackleTickSeconds, out long tick))
+            return;
+        float tickStart = tick * FireCrackleTickSeconds;
+
         float fire = Mathf.Clamp01(ElementMood.Live(0));
+        // THE ELEMENT IS SCENARIO-WIDE STATE THE GAME KEEPS BIT-IDENTICAL ON EVERY CLIENT, which is
+        // what makes `mean` — and therefore the probability below — the same number everywhere. It
+        // is the same property Haunt.Resolve leans on for the apparitions' rate.
         float mean = Mathf.Lerp(FireGapCalm, FireGapFull, fire);
 
         for (int s = 0; s < FireSites; s++)
@@ -2367,35 +2706,57 @@ internal static class EnvSound
             if (!v.Source.isPlaying)
                 continue;
 
-            // ANCHOR. NaN is a fresh build; a time absurdly far ahead of the clock is a clock that
-            // jumped BACKWARDS (a new owner was elected, the scenario reloaded) and the schedule it
-            // was written against no longer exists. Both fall back to "the next one is one gap from
-            // now", which is the same answer the drip's period index reaches by a different route.
-            float next = _fireNextAt[s];
-            if (float.IsNaN(next) || next > clock + FireGapCalm * EnvSoundSchedule.PoissonGapMax)
-            {
-                // Seed the sequence off the clock so two sites in the same room, and two runs of the
-                // same session, do not start on the same draw.
-                _fireSeq[s] = (long)Mathf.Floor(clock / Mathf.Max(mean, 0.01f)) * FireSites + s;
-                _fireNextAt[s] = clock + EnvSoundSchedule.PoissonGap(mean, Draw(s, FireGapChannel));
-                continue;
-            }
-
-            if (clock < next)
+            // ---- has this site already answered this tick? The edge detector is the TICK INDEX and
+            // never a timer, so a clock jump (a new owner elected, a scenario reload) simply lands on
+            // a different index — the same discipline the drip's period index and the rat's slot use,
+            // and the reason none of the three can double-fire or stall.
+            if (tick == _lastFireTick[s])
                 continue;
 
-            // ---- it is due. Schedule the NEXT one first, so that every path out of this iteration
-            // has advanced the sequence — a `continue` below that skipped this would leave the site
-            // due forever, which is the per-frame emitter this whole design exists to make
-            // unreachable.
-            long seq = _fireSeq[s];
-            _fireSeq[s] = seq + FireSites;
-            float gap = EnvSoundSchedule.PoissonGap(mean, Draw(s, FireGapChannel));
-            _fireNextAt[s] = clock > next + FireCatchUpSeconds ? clock + gap : next + gap;
+            // THE KEY. Every draw for this event comes off it and off nothing else, which is what
+            // makes the crackle shared. The three sites can never collide: `tick * 3 + s` is a
+            // bijection onto the integers for s in 0..2, so site s holds exactly the keys congruent
+            // to s modulo 3, forever, whatever the clock does. Three sites drawing one key would
+            // crackle in unison — one loud fire instead of three quiet ones in three places, i.e.
+            // the exact failure "verortbar von seinen entsprechenden Quellen" forbids.
+            long key = tick * FireSites + s;
+
+            // WHERE IN THE TICK, and this is what keeps the crackles OFF A LATTICE. Firing on the
+            // tick boundary itself would put every crackle in the room on a multiple of 1.31 s,
+            // which is a metronome, which is the fault a whole cue was deleted for. The offset is a
+            // hash of this event's key, inside the tick's FIRST HALF — so the shortest gap two
+            // consecutive crackles can have is half a tick (0.655 s) by geometry rather than by a
+            // clamp. See EnvSoundSchedule.TickOffset.
+            float at = tickStart + EnvSoundSchedule.TickOffset(Haunt.Hash(key, FireWhenChannel),
+                                                               FireCrackleTickSeconds);
+
+            // NOT YET ARRIVED IS NOT THE SAME AS ANSWERED, so this path deliberately does NOT latch:
+            // the site is simply not due, and it will come back here next frame with the same tick
+            // and the same key and reach the same answer. That is safe precisely because everything
+            // above is a pure function — there is no draw being consumed and no state advancing, so
+            // re-entering costs one hash and decides identically.
+            if (clock < at)
+                continue;
+
+            // ---- IT IS DUE, SO LATCH FIRST. Every path below this line has already advanced the
+            // schedule: a `continue` that skipped the latch would re-enter on the next frame and
+            // turn one crackle into a per-frame emitter, which is the woodpecker this whole design
+            // exists to make unreachable.
+            bool first = _lastFireTick[s] == long.MinValue;
+            _lastFireTick[s] = tick;
+            if (first)
+                continue;   // the tick we walked in on: its crackle already happened
+
+            // ---- does this tick carry one at all? p = tick / mean, so the mean gap is `mean` and
+            // the shortest possible gap is half a tick. Drawn AFTER the latch, so a silent tick
+            // still advances the schedule.
+            if (!EnvSoundSchedule.TickFires(Haunt.Hash(key, FireGapChannel),
+                                            FireCrackleTickSeconds, mean))
+                continue;
 
             // ---- and play it. One draw decides WHICH of the two things happened and another which
             // realisation — off two different channels of the same key, which is what stops (say)
-            // the loudest crackle being locked to the longest gap forever.
+            // the loudest crackle being locked to the latest instant in its tick forever.
             //
             // AND THERE IS NO PITCH JITTER HERE, unlike every other one-shot in the file. AudioSource
             // .pitch is a property of the SOURCE and this source is also LOOPING THE ROAR: setting it
@@ -2405,10 +2766,8 @@ internal static class EnvSound
             // and two settles, drawn per event. That is also the stronger form of it: MakeDrips'
             // note is that resampling one buffer is the most recognisable synthetic-audio tell there
             // is, and different realisations are what it recommends instead.
-            // Both draws are off THIS event's index `seq`, not off the one the line above advanced
-            // to: the gap belongs to the NEXT event and the clip belongs to this one.
-            bool ember = Haunt.Hash(seq, FireEmberChannel) < FireEmberShare;
-            float pick = Haunt.Hash(seq, FireVariantChannel);
+            bool ember = Haunt.Hash(key, FireEmberChannel) < FireEmberShare;
+            float pick = Haunt.Hash(key, FireVariantChannel);
             AudioClip? clip = ember
                 ? EnvSoundBank.EmberVariant((int)(2f * pick))
                 : EnvSoundBank.CrackleVariant((int)(4f * pick));
@@ -2417,15 +2776,6 @@ internal static class EnvSound
 
             v.Source.PlayOneShot(clip, ember ? FireEmberLevel : FireCrackleLevel);
         }
-
-        // The draw for site `s` on channel `k`, from that site's own sequence index.
-        //
-        // THE THREE SITES CAN NEVER SHARE A KEY, and that is a property rather than a hope: the
-        // anchor above writes `k * FireSites + s`, and every advance adds exactly FireSites — so site
-        // s holds keys congruent to s modulo 3 for the whole life of the build, whatever the clock
-        // does. Three sites drawing one sequence would crackle in unison, which is one loud fire
-        // rather than three quiet ones in three places, i.e. the exact failure "verortbar" forbids.
-        static float Draw(int s, float channel) => Haunt.Hash(_fireSeq[s], channel);
     }
 
     /// <summary>
@@ -2491,10 +2841,15 @@ internal static class EnvSound
     /// </summary>
     private static void TickDrip(float clock)
     {
-        float shifted = clock - DripImpactSeconds;
-        if (shifted < 0f)
+        // THE PERIOD INDEX, THROUGH THE ONE PIECE OF SLOT ARITHMETIC THIS FEATURE HAS. It used to
+        // be `(long)Mathf.Floor(shifted / DripPeriod)` written out here, which is correct for every
+        // clock a healthy session produces and is UNSPECIFIED for a NaN or an infinity: on x64 that
+        // cast yields long.MinValue, which is this method's own "not observing yet" sentinel three
+        // lines down. A poisoned clock would therefore have re-armed the drip rather than skipping
+        // one, silently. TrySlot refuses instead, and it also subsumes the `shifted < 0` guard this
+        // block used to open with — see EnvSoundSchedule.TrySlot.
+        if (!EnvSoundSchedule.TrySlot(clock - DripImpactSeconds, DripPeriod, out long idx))
             return;
-        long idx = (long)Mathf.Floor(shifted / DripPeriod);
         if (idx == _lastDripIndex)
             return;
 
@@ -2540,9 +2895,10 @@ internal static class EnvSound
     /// </summary>
     private static void TickRat(float clock)
     {
-        if (clock < 0f)
+        // THE CROSSING SLOT, through EnvSoundSchedule.TrySlot rather than an inline cast — see
+        // TickDrip for the sentinel collision that motivated moving this arithmetic into one place.
+        if (!EnvSoundSchedule.TrySlot(clock, RatPeriod, out long slot))
             return;
-        long slot = (long)Mathf.Floor(clock / RatPeriod);
 
         bool first = _lastRatSlot == long.MinValue;
         if (slot == _lastRatSlot)
@@ -2604,11 +2960,14 @@ internal static class EnvSound
     //
     // THE SCHEDULE IS A PURE FUNCTION OF THE SHARED CLOCK, so every client hears the same call from
     // the same tree on the same frame with ZERO wire bytes. That is the drip's and the rat's property
-    // and NOT the fire crackle's — the crackle is a walk (each gap depends on the last) and its doc
-    // states plainly that two clients are on different phases of it. A call is a much more findable
-    // event than a crackle: it is 2.3 s long, it comes from a fixed tree and there is nothing else in
-    // the room, so two players standing together hearing owls at different moments would be an
-    // obvious defect. Hence a slot index, not a walk.
+    // and, SINCE ModBuild 226, the fire crackle's as well — this paragraph used to end by naming the
+    // crackle as the one exception in the file, on the argument that a crackle marks no visual. The
+    // user's ruling ("Genau wie die Easter-Eggs sollen auch die Sounds mit allen Mitspieler
+    // synchronisiert sein") carves out no exceptions, so there is no longer one; see TickFire.
+    // The argument for doing it here FIRST still stands and is worth keeping: a call is a much more
+    // findable event than a crackle — it is 2.3 s long, it comes from a fixed tree and there is
+    // nothing else in the room — so two players standing together hearing owls at different moments
+    // would have been an obvious defect rather than a subtle one. Hence a slot index, not a walk.
     //
     // ...AND IT IS STILL A POISSON WAITING TIME, which is the point of doing it this way rather than
     // with the rat's uniform draw. EnvSoundSchedule.PoissonGap turns ONE hash draw into an
@@ -2637,9 +2996,14 @@ internal static class EnvSound
     /// enough to be quiet.
     ///
     /// <para>IT COMES DOWN BECAUSE THE CALLS ARE NOW THE ROOM. "Statt generrell durchgehende sounds
-    /// zu machen lieber die Tierrufe" — with the wash deleted and the insects intermittent, these
-    /// are most of what the wood has, and 59 s of silence between them was authored when there was a
-    /// continuous bed underneath. <b>THE SLOT ITSELF IS DELIBERATELY NOT TOUCHED</b>: 41 s is what
+    /// zu machen lieber die Tierrufe" — with the wash deleted and the insects then intermittent,
+    /// these are most of what the wood has, and 59 s of silence between them was authored when there
+    /// was a continuous bed underneath. <b>THEY ARE NOW ALL OF IT.</b> ModBuild 226 deleted the
+    /// insect chorus too (THE INSECT CHORUS, DELETED), so besides the resting draught and whatever
+    /// the elements bring, these two calls are what the wood is. The skip and the mean were NOT
+    /// re-tuned in that round on purpose: he wrote "ansonsten finde ich es sehr gut" about the build
+    /// these numbers shipped in, and moving them would put a rate he has approved back in play in
+    /// the same edit that removes the thing he objected to. <b>THE SLOT ITSELF IS DELIBERATELY NOT TOUCHED</b>: 41 s is what
     /// makes <see cref="EnvSoundSchedule.PoissonGapMax"/> x <see cref="NightCallMean"/> = 40.30 s fit
     /// inside a slot by construction, and moving it would put that proof back in play for a 10%
     /// change in rate. One number for one decision.</para></summary>
@@ -2858,10 +3222,10 @@ internal static class EnvSound
     /// </summary>
     private static void TickNightCall(float clock)
     {
-        if (clock < 0f)
+        // THE CALL SLOT, through EnvSoundSchedule.TrySlot rather than an inline cast — see TickDrip
+        // for the sentinel collision that motivated moving this arithmetic into one place.
+        if (!EnvSoundSchedule.TrySlot(clock, NightCallSlot, out long slot))
             return;
-
-        long slot = (long)Mathf.Floor(clock / NightCallSlot);
         if (slot == _lastNightCallSlot)
             return;
 
@@ -3714,16 +4078,11 @@ internal static class EnvSound
         _duck = 1f;
         _gameAudible = false;
         _duckPollCountdown = 0;
-        _lastDripIndex = long.MinValue;
-        _lastRatSlot = long.MinValue;
-        _lastNightCallSlot = long.MinValue;
-        _lastHauntStart = float.NaN;
-        _lastHauntCard = -1;
-        _lastForcedStart = float.NaN;
-        _lastForcedCard = -1;
-        ClearDeferred();
-        _squeakAt = float.NaN;
-        _squeakFrom = null;
+        ArmSchedules(null);
+        // ...and the continuity watch with them: the next build's first frame is a fresh
+        // observation, not a jump, so it must not log one.
+        _lastClockSeen = float.NaN;
+        _lastRealSeen = 0f;
         // The wind gate goes back to SHUT rather than to its live value: the next environment must
         // fade its wind in from nothing exactly as the first one did, or a stand-down and rebuild
         // during an Air infusion would start the new room's bed at full level on its first frame.
@@ -3737,13 +4096,7 @@ internal static class EnvSound
         // old room already reported one.
         _windLeakLogged = false;
         for (int i = 0; i < FireSites; i++)
-        {
             _fireVoices[i] = null;
-            // NaN and not 0: 0 is a legal schedule time and would make every site fire on its first
-            // observed frame. NaN is the "not anchored" state TickFire tests for.
-            _fireNextAt[i] = float.NaN;
-            _fireSeq[i] = 0L;
-        }
         _fireResolution = string.Empty;
     }
 
@@ -4091,7 +4444,10 @@ internal static class EnvSound
           .Append("s down, and while it is shut the sources are PAUSED — a 'Fire...' entry above ")
           .Append("with no fire sound under it is the gate working. A 'NO NODE' entry is NOT: it ")
           .Append("means the bake renamed that fire and this table has to follow it. The crackle is ")
-          .Append("Poisson-timed (EnvSoundSchedule.PoissonGap) with a mean of ")
+          .Append("on a BERNOULLI TICK of ").Append(FireCrackleTickSeconds.ToString("F2"))
+          .Append("s of shared clock (EnvSoundSchedule.TickFires — since ModBuild 226; it was a ")
+          .Append("Poisson walk before, which is why two players used to crackle out of step), ")
+          .Append("giving a mean gap of ")
           .Append(FireGapCalm.ToString("F1")).Append("s just-caught down to ")
           .Append(FireGapFull.ToString("F1")).Append("s fully alight, one event in ")
           .Append((1f / Mathf.Max(FireEmberShare, 1e-3f)).ToString("F0"))
@@ -4099,12 +4455,17 @@ internal static class EnvSound
           .Append(FireMinMeters.ToString("F1")).Append("..").Append(FireMaxMeters.ToString("F1"))
           .Append(" perceived m — sized to the ROOM (the head measured 2.2-7.6 m from these seats) ")
           .Append("and not to the 0.6 m the candle beds use, which costs them 15-22 dB at that ")
-          .Append("distance. CLOCK: every event reads SkyAlternative.EnvClockSeconds, ")
-          .Append("so the drip, the rat and the haunt cues land on the same frame on every client ")
-          .Append("with ZERO wire bytes. The fire's crackle is the ONE exception and it is a walk, ")
-          .Append("not a function of the clock — same rate, same seats, same distribution, ")
-          .Append("different instants, and nothing in the picture it could be early or late ")
-          .Append("against.");
+          .Append("distance. CLOCK: EVERY scheduled event in this file is now a PURE FUNCTION of ")
+          .Append("SkyAlternative.EnvClockSeconds — the drip, the rat and its squeak, the two night ")
+          .Append("calls AND THE PERCH THEY COME FROM, the apparitions, the bookshelf's contacts ")
+          .Append("and, since ModBuild 226, the fire's crackle. So two players in the same room ")
+          .Append("hear the same sound from the same place on the same frame with ZERO wire bytes, ")
+          .Append("which is the user's ruling (\"Genau wie die Easter-Eggs sollen auch die Sounds ")
+          .Append("mit allen Mitspieler synchronisiert sein ... zur selben Zeit aus der selben ")
+          .Append("Location denselben Sound\"). THERE IS NO EXCEPTION LEFT: the crackle was the last ")
+          .Append("one and it is a Bernoulli tick now. What is deliberately NOT shared is the BEDS' ")
+          .Append("shaping LFOs and the duck, which are levels rather than instants and have no ")
+          .Append("moment for two clients to disagree about.");
 
         // WHAT THIS ROOM SOUNDS LIKE WITH NOTHING INFUSED AND NOTHING HAPPENING, SAID AT BUILD.
         // "The room is silent" and "the room is a television" are both reports this feature has now
@@ -4133,21 +4494,18 @@ internal static class EnvSound
             sb.Append("the wood plays the CANOPY DRAUGHT at ").Append(WindRestFloor.ToString("F2"))
               .Append(" of its own gain (user: \"im Wald ein ganz leiser dezenter Windzug\") and ")
               .Append("NOTHING ELSE continuously. Delivered at 4 perceived metres through a 500 Hz ")
-              .Append("high pass that is 0.00076 against the DELETED 'NightAir' bed's 0.00250. The ")
-              .Append("INSECT BED IS NOW A CHORUS: ").Append((100f * InsectChorusShare).ToString("F0"))
-              .Append("% of ").Append(InsectChorusSlot.ToString("F0")).Append(" s slots carry one, ")
-              .Append(InsectChorusLenLo.ToString("F0")).Append("..")
-              .Append(InsectChorusLenHi.ToString("F0")).Append(" s long with ")
-              .Append(InsectChorusEdgeSeconds.ToString("F0"))
-              .Append(" s smoothstep edges, so about a 23% duty cycle against 100% in both builds ")
-              .Append("the user rejected, and its peak is ").Append(InsectChorusPeak.ToString("F2"))
-              .Append(" of gain ").Append(NightBedGain.ToString("F3")).Append(" = 0.00192 ")
-              .Append("delivered, -4.7 dB on ModBuild 222. BETWEEN CHORUSES ITS MODULATOR IS ")
-              .Append("EXACTLY ZERO AND THE SOURCE IS PAUSED, so a 'Night' bed reading `paused` on ")
-              .Append("a gate line below is NORMAL and not a fault. Its low pass is a flat ")
-              .Append(InsectLowPassHz.ToString("F0")).Append(" Hz with no fallback corner any more: ")
-              .Append("EnvSoundClip.Chirr is banded to 2200..6500 Hz and the 1150 Hz corner every ")
-              .Append("build before ModBuild 221 played it through was a DEFECT, not a setting.");
+              .Append("high pass that is 0.00076 against the DELETED 'NightAir' bed's 0.00250. THE ")
+              .Append("INSECT CHORUS IS DELETED TOO, at ModBuild 226, and it is what the user called ")
+              .Append("rain (\"Im Wald gefällt mir nur dieser 'Regen' Sound nicht der ab und zu ")
+              .Append("kommt und für eine Zeit bleibt, ansonsten finde ich es sehr gut\"): it put ")
+              .Append("81.0% of its energy above 2 kHz against a rain control's 94.5% and the next ")
+              .Append("continuous emitter in this room's 3.7%, it arrived every ~62 s and held ")
+              .Append("~22 s, and removing it takes the room's spectral flatness from 0.610 to ")
+              .Append("0.134 and its delivered level from 0.00203 to 0.00076 (-8.5 dB). A BED NAMED ")
+              .Append("'Night' ON A GATE LINE BELOW MEANS A MERGE WENT WRONG — there is no such bed ")
+              .Append("any more, and EnvSoundClip.Chirr no longer exists. The wood at rest is the ")
+              .Append("canopy draught and nothing else; everything else here is an EVENT (the two ")
+              .Append("calls, the apparitions) or an element response (the fires, the rumble).");
         }
 
         if (style == SkyStyle.SwampNight)

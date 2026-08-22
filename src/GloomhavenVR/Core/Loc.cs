@@ -953,22 +953,42 @@ internal static partial class Loc
         // of sentence-case names (2026-08 naming pass, audit 05 §3).
         ["head_mask"] = Pair("Head mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
-        // MASK NAMES, ONE PER SHIPPED ID (user request 2026-08-09: "Ich will die Maske beim Avatar
-        // im Optionsmenü auch mit nem Dropdown auswählen können statt einem Schieberegler wie
-        // aktuell."). The key is "mask_name_" + the [Net] MaskId value, so HeadMaskLibrary.MaskNames
-        // can build the whole dropdown from MaskCount without a hand-typed list going stale — a
-        // fourth mask needs "mask_name_3" here and nothing else, and until someone adds it the
-        // dropdown falls back to "Mask 4" / "Maske 4" rather than losing the entry.
+        // MASK NAMES, ONE PER SHIPPED ID — AND THERE ARE DELIBERATELY NONE.
         //
-        // The three names describe what the assets actually LOOK like, read off their albedo
-        // textures (unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_<n>_albedo.png): all three are
-        // dark-shelled carved masks whose only distinguishing feature at avatar distance is the
-        // colour glowing through the seams. Mask_0 is charcoal iron with amber-gold veins, Mask_1 is
-        // pale silver-bone with violet-blue veins, Mask_2 is dark bronze with teal veins. Anyone who
-        // swaps an asset must revisit its name here — nothing in the pipeline derives it.
-        ["mask_name_0"] = Pair("Amber", "Bernstein"),
-        ["mask_name_1"] = Pair("Violet", "Violett"),
-        ["mask_name_2"] = Pair("Teal", "Türkis"),
+        // The key is "mask_name_" + the [Net] MaskId value, so HeadMaskLibrary.MaskNames can build
+        // the whole [Net] MaskId dropdown from MaskCount without a hand-typed list going stale. A
+        // mask with NO entry here degrades to its own number — Loc.Mod("mask") + " " + (i+1), i.e.
+        // "Maske 1" / "Mask 1" (HeadMaskLibrary.MaskNames) — instead of vanishing from the list or
+        // showing the raw key. That fallback is the design, not a hole in it: an id the player can
+        // still select beats a tidy list that silently drops a shipped asset.
+        //
+        // WHY THE TABLE IS EMPTY HERE. ModBuild 100 (2026-08-09, the build that turned the mask
+        // picker from a slider into a dropdown) named the three shipped masks after the colour
+        // glowing through their seams ("Bernstein"/"Violett"/"Türkis", read off
+        // unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_<n>_albedo.png). The user's report,
+        // 2026-08-22, verbatim: "Die neuen Kopfmasken-Namen im Optionsmenü sind verwirrend, ändere
+        // die wieder." All three assets are dark-shelled carved masks that read as the same object
+        // at avatar distance, so a colour word names a detail the player cannot use to tell the
+        // dropdown entries apart from each other — and the entry number IS what he sets, what rides
+        // the wire (AvatarState.MaskId) and what a peer would quote back to him. "ändere die WIEDER"
+        // is the deciding word: it asks for a former state, and the former state of these three
+        // entries is the plain numbering the library still implements as its fallback. So they are
+        // REMOVED rather than reworded.
+        //
+        // THE OTHER READING, CHECKED AND SET ASIDE. ModBuild 225 gave four Kopfmaske-adjacent config
+        // rows German names at once (Loc.ConfigNames.cs: Net/MaskId "Kopfmaske", Net/MaskSize
+        // "Maskengröße", Optimize/HeadCullingMaskDrop "Kamera: Ebenen aus",
+        // Optimize/HeadMaskFromScenarioCamera "Kameramaske vom Spiel"), and "Kameramaske" next to
+        // "Kopfmaske" is genuinely two unrelated things sharing a word. But the two Optimize rows are
+        // NOT in the curated VR options tab (VROptionsTab.4.Curated's list carries Net/MaskId and
+        // not them), so they are not in the menu his report is about; and the curated Net/MaskId row
+        // takes its caption from ["head_mask"] above, not from Loc.ConfigNames. The only "Kopfmasken-
+        // Namen" on that screen are the three dropdown entries.
+        //
+        // ADDING A FOURTH MASK NEEDS NOTHING HERE. It appears as "Maske 4" on its own. Only add a
+        // "mask_name_<n>" entry if a mask ever becomes visually distinctive enough that a word beats
+        // its number — and if you do, add ALL of them, because a list that mixes names and numbers
+        // is worse than either.
         ["mask_size"] = Pair("Mask size", "Maskengröße"),
         ["mirror"] = Pair("Mirror", "Spiegel"),
         // "Bretter", not "Boards" (2026-08 naming pass, audit 05 §3): everywhere else in the

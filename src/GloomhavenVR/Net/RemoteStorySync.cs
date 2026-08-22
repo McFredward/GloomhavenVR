@@ -363,7 +363,17 @@ internal static class RemoteStorySync
         extras.StoryKey = key;
 
         TrackFrame(reset: false);
-        if (_localPoseOwned
+        // THE DRAG ITSELF TRAVELS, NOT ONLY ITS RESULT (ModBuild 226) — record 21's sibling change,
+        // for the same user report ("sollen auch die BEWEGUNG und die Position voll übertragen
+        // (flüssig, wie bei der Position des Boards auch)"). `_localPoseOwned` is set by TrackFrame
+        // only after MoveSettleSeconds of STILLNESS, so a window being dragged for the first time
+        // published nothing at all while it moved and its whole journey arrived as one jump; no
+        // receiver-side easing can invent frames it never received. `_localMoving` is therefore a
+        // second reason to publish — but deliberately NOT a reason to bump `_localPoseStamp`, which
+        // elects the room's last mover and would let two draggers trade the window at the send rate.
+        // A mid-drag record carries a FRESH POSE under an UNCHANGED STAMP, which is why ResolvePose
+        // now elects on the stamp and decides whether to apply on the pose VALUE.
+        if ((_localPoseOwned || _localMoving)
             && ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) && grab != null
             && TryReadFrame(grab, out Vector3 pos, out Quaternion rot, out float size)
             && TryToAnchor(pos, rot, out Vector3 localPos, out Quaternion localRot))
@@ -712,9 +722,16 @@ internal static class RemoteStorySync
             return;
 
         PeerStory owner = Peers[bestPeer];
-        if (_followingPeer == bestPeer && _followedStampValid && _followedStamp == owner.PoseStamp)
-            return; // already standing exactly there — applying it again would be a no-op write.
 
+        // ELECT ON THE STAMP, DECIDE ON THE POSE (ModBuild 226). The old early-out here was
+        // `_followedStamp == owner.PoseStamp`, which was exactly right while a pose block only ever
+        // existed for a FINISHED move: same stamp meant same pose meant nothing to do. Now that the
+        // sender also publishes DURING a drag under a deliberately unchanged stamp, that test would
+        // drop every mid-drag pose and leave the receiver with the same end-of-drag jump it had
+        // before. The stamp still elects the last mover above; the pose VALUE decides here, against
+        // the SAME epsilons TrackFrame uses to call something a move — a difference too small for it
+        // to be a move is too small to be worth writing, and writing it anyway would hand
+        // TrackFrame's baseline something it might read back as a local hand.
         if (!ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) || grab == null)
         {
             NoteIgnored($"player {bestPeer} published a window pose but this client has no floated " +
@@ -733,6 +750,20 @@ internal static class RemoteStorySync
         }
 
         float size = NetProtocol.DecodeStorySize(owner.SizeCode);
+
+        float applyEps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        if (_haveFrameBaseline && _followingPeer == bestPeer
+            && (worldPos - _lastFramePos).sqrMagnitude <= applyEps * applyEps
+            && Quaternion.Angle(worldRot, _lastFrameRot) <= MoveEpsilonDegrees
+            && Mathf.Abs(size - _lastFrameSize) <= MoveEpsilonSize)
+            return; // already standing exactly there — applying it again would be a no-op write.
+
+        // A drag now arrives as a STREAM of poses under one stamp, and the paragraph below was
+        // written for one arrival per move. Say the whole thing once per followed peer / per settled
+        // move and nothing for the frames in between; the pose is applied either way.
+        bool newFollow = _followingPeer != bestPeer || !_followedStampValid
+                         || _followedStamp != owner.PoseStamp;
+
         var frameOwner = (IPanelGrabOwner)grab;
         Transform? frame = frameOwner.GrabRoot;
         if (frame != null)
@@ -750,6 +781,9 @@ internal static class RemoteStorySync
         _followingPeer = bestPeer;
         _followedStamp = owner.PoseStamp;
         _followedStampValid = true;
+
+        if (!newFollow)
+            return;
 
         VRLog.Info("Net", $"Story window POSE APPLIED: '{ModalFallback.StoryWindowLogName}' " +
                           $"(dialog key 0x{key:X8}) follows player {bestPeer} (pose stamp " +

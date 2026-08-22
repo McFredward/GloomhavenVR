@@ -4,6 +4,54 @@ using GloomhavenVR.Core;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
+/// WHEN A RELEASED WINDOW TURNS TO FACE THE PLAYER ([WorldUI] WindowFacing).
+///
+/// <para><b>USER REQUEST 8 (2026-08-22, verbatim):</b> "Das automatische Drehen zum Spieler soll
+/// einstellbar sein: Default soll sein, dass es nur sich dreht, wenn es mit dem Laser gegriffen
+/// wurde, beim Greifen nicht. Aber beides oder gar nicht soll auch eine mögliche Einstellung sein.
+/// Das gilt wie gesagt nur für die lokalen Fenster, Remote-Fenster (blau) sollen das gar nicht
+/// haben."</para>
+///
+/// <para><b>WHY THE MODALITY IS THE RIGHT AXIS.</b> A LASER carry translates only — the window
+/// slides along the aim ray and the owner never authors its rotation (PanelGrabHandle's laser-carry
+/// branch returns before the rotation writers), so the window arrives at the new place still facing
+/// wherever it used to. Without the release snap a laser-dragged window is read edge-on, which is
+/// what the snap was added for. A HAND carry is the opposite: the Level carry yaws the window with
+/// the wrist for the whole drag, so the player has already AIMED it, and re-deriving the yaw on
+/// release throws their aim away. One mechanism, two opposite meanings — which is exactly why the
+/// dial is about how you grabbed it and not about how far away it was.</para>
+///
+/// <para><b>THIS IS A ONE-SHOT ON RELEASE, IN EVERY MODE — never a follow.</b> The standing project
+/// rule that nothing re-orients with head movement is untouched: no mode here makes a window watch
+/// the player, and <see cref="Always"/> only means "the release snap also applies to a hand grab".
+/// The legacy per-frame billboard is a different, long-defaulted-off dial
+/// (<c>[WorldUI] PanelsFollowView</c>) and is not related to this one.</para>
+///
+/// <para><b>SHARED (blue-barred) WINDOWS ARE OUTSIDE ALL THREE MODES</b> and never turn, whatever
+/// this says — see <see cref="SharedWindows.IsShared"/> for that rule and why it is not
+/// configurable.</para>
+///
+/// <para>The member ORDER is the settings-dropdown index map (LaserOnly=0/Always=1/Never=2) — the
+/// preset row casts the dropdown index straight to this enum, exactly like
+/// <c>Cards.BoardMoveMode</c>. Values are config-file identity only; nothing goes over the
+/// wire.</para>
+/// </summary>
+internal enum WindowFaceMode
+{
+    /// <summary>DEFAULT (the user's own): a window turns to face the player when it was grabbed
+    /// with the LASER, and keeps the orientation the wrist gave it when it was grabbed by hand.
+    /// </summary>
+    LaserOnly = 0,
+
+    /// <summary>Either way: every release re-derives the facing (the behaviour every floated window
+    /// had before this dial existed).</summary>
+    Always = 1,
+
+    /// <summary>Never: a released window keeps exactly the orientation it was let go at.</summary>
+    Never = 2,
+}
+
+/// <summary>
 /// Phase-3c configuration, bound into the module's own file. P5 (MISSION A.9): now
 /// created through the canonical <see cref="ModuleConfig.Create"/> helper —
 /// <c>BepInEx/config/dev.gloomhavenvr.worldui.cfg</c> (renamed from the pre-P5
@@ -316,6 +364,13 @@ internal static class WorldUIConfig
     /// <see cref="PokePressDepthMm"/> push-in behaviour.
     /// </summary>
     internal static ConfigEntry<bool> DecisionPokeDeliberate = null!;
+
+    /// <summary>
+    /// When a released floated window snaps round to face the player (user request 8) — see
+    /// <see cref="WindowFaceMode"/> for the request verbatim and the whole argument. Read LIVE at
+    /// each release by <see cref="GrabbableModal"/>, so a change applies to the very next one.
+    /// </summary>
+    internal static ConfigEntry<WindowFaceMode> WindowFacing = null!;
 
     // [WorldUI] ClickMode is GONE (user ruling 2026-08-13): clicks are delivered through uGUI
     // ExecuteEvents, always. Of its three values only the default 'execute' ever worked —
@@ -718,6 +773,19 @@ internal static class WorldUIConfig
             "accidental instant triggers. Applies ONLY to the physical poke on decision-dock " +
             "buttons; every other converted surface keeps the PokePressDepthMm push-in press, " +
             "and laser clicks are unaffected. Off = decision buttons press like everything else.");
+        WindowFacing = _file.Bind("WorldUI", "WindowFacing", Defaults.WindowFacing,
+            "When a floated window turns round to face you as you LET GO of it (position is never " +
+            "touched — the window stays exactly where you put it, only its yaw is re-derived). " +
+            "LaserOnly (default) = only after a LASER drag. A laser carry slides the window along " +
+            "the aim ray without ever rotating it, so it arrives facing the way it used to and " +
+            "would be read edge-on; a HAND carry already yaws the window with your wrist for the " +
+            "whole drag, so re-deriving the yaw on release throws your own aim away. Always = both " +
+            "(what every window did before this setting existed). Never = a released window keeps " +
+            "exactly the orientation you let go at. This is a ONE-SHOT on release in every mode — " +
+            "no window ever follows your head. SHARED multiplayer windows (the blue grab bar) are " +
+            "excluded from all three and never turn: they belong to everyone in the room, so a " +
+            "facing correction here would turn them away from the other players and would silently " +
+            "disagree with the pose this client just published.");
         // ClickMode: gone — user ruling 2026-08-13. Clicks are delivered via uGUI ExecuteEvents,
         // unconditionally, and deliberate drags via the uGUI drag handlers; see the tombstone.
 

@@ -27,6 +27,13 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// goes on the wire. (Same precedent as <c>WorldUI.ButtonCluster</c>, which cites the game's own
 /// <c>BaseButtons.clickButton</c> for Ready/Undo/Skip.)</para>
 ///
+/// <para>THE ROOM'S SHARED SELECTION RIDES THAT SAME SEAM AND NO OTHER (report 13, ModBuild 226).
+/// <see cref="AdoptSelection"/> is reached from <c>Net.RemoteMapRoom</c> when a peer's selection
+/// EDGE arrives, and all it can do is the two things a local hand can do: dispatch the same
+/// <c>pointerClickHandler</c>, or call the game's own <c>Deselect()</c>. So "everyone follows" is
+/// still the game deciding, one location at a time, and an edge that names a location this client
+/// cannot resolve does nothing at all.</para>
+///
 /// <para>HOVER IS REPRODUCED, NOT SHARED, because the game's own hover driver cannot work in VR.
 /// <c>MapLocationSelector.Update</c> raycasts the SCREEN CENTRE through <c>Camera.main</c>
 /// (decompiled Assets.Script.AdventureMap/MapLocationSelector.cs:15,44) — and in VR the map camera
@@ -123,18 +130,65 @@ internal sealed class MapLocationInteractor
     internal MapLocation? Hover => _hover;
 
     /// <summary>
-    /// The location this client has CLICKED and whose quest window is standing — the host's
-    /// pre-commit STAGING, which the game does not sync.
+    /// The location this client has CLICKED and whose quest window is standing — the pre-commit
+    /// SELECTION, which the game does not sync in either direction.
     ///
     /// <para>The COMMITTED selection is a different fact and is already on the game's own wire,
     /// host-authoritatively and keyed by <c>Location.ID</c>
     /// (<c>UIMapMultiplayerController.ConfirmSelectedLocation</c> →
     /// <c>SendGameAction(GameActionType.SelectQuest, ActionPhaseType.MapHQ, …)</c> carrying a
     /// <c>LocationToken</c>, received by <c>MapChoreographer.ProxySelectedLocation</c>). A second
-    /// channel for THAT is forbidden. What is published from here is presentation only — "which
-    /// icon is lit on my table" — and a receiver may never turn it into a selection.</para>
+    /// channel for THAT is still forbidden.</para>
+    ///
+    /// <para><b>WHAT CHANGED (report 13, user verbatim): "Welches Icon ausgewählt ist wird nicht
+    /// richtig synchronisiert. Es soll nur eine einzige Auswahl geben die global alle sehen."</b>
+    /// Up to that ruling this value was published as presentation only and a receiver was forbidden
+    /// to turn it into a selection. It is now the room's ONE selection: record 20 carries it as an
+    /// EDGE and a receiver adopts it through <see cref="AdoptSelection"/>, i.e. through the game's
+    /// own click/deselect seams, which is not new authority (see that method). The reason this is
+    /// not the forbidden second channel is that the game's SelectQuest action is the HOST's
+    /// CONFIRMED quest arriving as a confirm PROMPT — it is not "which icon is selected", it never
+    /// travels client→host, and a client's own <c>Select()</c> is purely local.</para>
     /// </summary>
     internal MapLocation? Staged => _selected;
+
+    /// <summary>
+    /// ADOPT THE ROOM'S SELECTION — the receiving half of record 20's selection edge.
+    ///
+    /// <para><paramref name="loc"/> null means "nothing is selected anywhere", i.e. a deselection.
+    /// Anything else is the location a peer selected, already resolved against THIS client's live
+    /// map by <c>RemoteMapRoom.TryResolveKey</c>.</para>
+    ///
+    /// <para><b>NO NEW AUTHORITY, AND THAT IS THE ONLY REASON THIS IS ALLOWED TO EXIST.</b> The two
+    /// halves are the two the local player's own hands already reach: <see cref="Dispatch"/>, which
+    /// is <c>ExecuteEvents.pointerClickHandler</c> on the real <c>MapLocation</c> — the identical
+    /// dispatch the game's gamepad path makes — and <see cref="Deselect"/>, which is the game's own
+    /// <c>MapLocation.Deselect()</c>. Both still pass <c>IsSelectable()</c> and the game's own
+    /// <c>m_OnClickAction</c>, so a refusal here is the game's answer and not ours, and the ordinary
+    /// deselect rules (<see cref="TickDeselect"/>) keep owning the selection afterwards.</para>
+    ///
+    /// <para>IDEMPOTENT BY DESIGN: adopting the selection this client already has does nothing at
+    /// all, which is what makes an edge that arrives twice (a duplicated packet, two peers naming
+    /// the same node) cost one comparison rather than a second click.</para>
+    /// </summary>
+    /// <returns>True when something was actually driven — log material for the caller, which owns
+    /// the "once per change, naming the node" line.</returns>
+    internal bool AdoptSelection(MapLocation? loc, string why)
+    {
+        if (ReferenceEquals(loc, _selected))
+            return false;
+
+        // ORDER MATTERS: drop the old selection FIRST. Two selected locations is a state the game
+        // has no concept of — UIQuestPopupManager holds exactly one selectedQuest — and clicking
+        // the new one while the old one still stands would leave the old icon's own highlight and
+        // quest marker up with nothing to take them down.
+        if (_selected != null)
+            Deselect($"adopted from the room: {why}");
+        if (loc == null)
+            return true;
+        Dispatch(loc, $"adopted from the room ({why})");
+        return true;
+    }
 
     /// <summary>How many live locations the last rescan registered, and the reference at an index.
     /// Handed out as a count + indexer rather than as the list so nobody can hold the list itself

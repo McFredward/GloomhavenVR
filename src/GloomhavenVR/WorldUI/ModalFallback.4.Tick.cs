@@ -2328,6 +2328,15 @@ internal static partial class ModalFallback
             // world map; MapRoomDriver reads that config live). Change-gated inside: a standing
             // window costs one Color comparison and writes nothing. See GrabbableModal's
             // SHARED-WINDOW BAR COLOUR block for the user request and the whole design.
+            //
+            // THIS CALL NOW CARRIES A SECOND LOAD (2026-08-22, requests 7a/7b), and it must stay
+            // AHEAD of the Tick() below rather than beside it: the same predicate answer is cached
+            // on the grab (GrabbableModal._shared) for the two consumers that never see a UIWindow —
+            // the release re-face gate ("a window everyone shares keeps the orientation it is given")
+            // and the remote pose easing. Both are reached from paths that hold only the mod-owned
+            // grab: the handle's release edge, and the two net pose appliers. This is the one place
+            // per tick that knows both halves, so a window whose bar is blue is exactly a window
+            // that will not re-face — one fact, one evaluation, no second predicate to drift.
             Converted[i].Grab?.SyncSharedBarTint(Converted[i].Window);
             Converted[i].Grab?.Tick();
         }

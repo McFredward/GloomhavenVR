@@ -466,7 +466,48 @@ internal static partial class ModalFallback
                 if (caster != null)
                     caster.enabled = false;
             }
-            var grab = new GrabbableModal();
+            // ModBuild 226 — A HOVER CARD GETS NO GrabbableModal AT ALL, NOT AN UNBUILT ONE.
+            //
+            // USER REPORT (2026-08-22, .planning/debug/leeres_fenster.jpg + the stray strips in
+            // Button_getrennt.jpg), verbatim: "Als mein Mitspieler gejoint ist, kam ein leeres
+            // Fenster auf - sowas soll per se niemals passieren."
+            //
+            // WHAT WAS WRONG. Since ModBuild 181 the hover card correctly skipped `grab.Build(...)`
+            // — but the object was still CONSTRUCTED here and still stored in `WindowPanel.Grab`
+            // below, so every consumer that null-checks `wp.Grab` saw a grab. Two of them then call
+            // `GrabbableModal.PlaceFrameAt` (the one pre-reveal re-place in
+            // `ModalFallback.9.Spawn.TickPoseRePlaceOne`, and `RefloatOpenWindows` on presence
+            // regain), and `PlaceFrameAt` calls `EnsureFrame()` unconditionally — which BUILDS the
+            // holder, the brass bar, its collider and the grab zone. With `_panel` still null
+            // (only `Build` sets it) that bar is:
+            //   * never sized       — `GrabbableModal.Tick` returns on `_panel == null` before it
+            //                         ever reaches SyncBar, so the strip keeps the constructor's
+            //                         0.2 x 0.004 default;
+            //   * never ordered     — RegisterOrderFollower got a null panel;
+            //   * never render-hid  — AddRenderRoot got a null panel, so the panel's reveal gate
+            //                         cannot hide it and it is visible from the frame it is made;
+            //   * never MOVED with the card — TickHoverCards writes the HOST pose every frame, the
+            //                         bar sits at the gaze pose PlaceFrameAt gave it.
+            // i.e. exactly the reported artefact: a tan grab bar hanging in mid-air with no window
+            // on it. The ModBuild 225 hardware log names the count and the identity: 204 lines of
+            // `MODAL GRAB: 'Menu' is now a grabbable/scalable world element` — 'Menu' is
+            // `GrabbableModal._logName`'s FIELD INITIALISER, the value it carries when `Build` (the
+            // only writer) never ran — each of them immediately after a
+            // `MODAL WINDOW: 'UI Quest Preview Popup' ... floated` line, and that window floated and
+            // released 244 times in the session.
+            //
+            // THE FIX IS THE ABSENCE. No grab object, so `wp.Grab` is null, so every one of those
+            // call sites takes its existing `grab != null` branch and no frame is ever built. Both
+            // call sites already carry that null check (Spawn: `if (grab != null) grab.PlaceFrameAt`
+            // with a `CanvasConversion.PlaceHost` else-branch; Convert: `if (wp.Grab != null)` with a
+            // `PlaceAtHmd` else-branch), so the hover card keeps the same POSE behaviour it had — it
+            // simply stops manufacturing a handle for itself.
+            //
+            // REJECTED: guarding `EnsureFrame` on `_panel == null` inside GrabbableModal. That is the
+            // right belt-and-braces and it is where a future reader will look, but GrabbableModal.cs
+            // is owned by another lane this round; the cause is here, where the object that must not
+            // exist is made.
+            GrabbableModal? grab = null;
             // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
             // (gated to the ESC/Options family + confirmations + results) is gone. Its job was
             // "transparent HUD sitting BEHIND the floated menu must be occluded by it", and it did
@@ -478,7 +519,10 @@ internal static partial class ModalFallback
             // HUD it is behind is painted after it and covers it, and nothing writes depth, so a
             // transparent menu pixel shows whatever is genuinely behind it.
             if (!isHoverCard)
+            {
+                grab = new GrabbableModal();
                 grab.Build(panel, extraScale, name);
+            }
             // Item 3c + MP test ("Kontrolle übergeben" had no X): a small mod-drawn X (top-right
             // of the host, mod layer 27, poke+laser clickable) closes THIS window through the
             // game's own Escape/Hide path. RULE (user): EVERY floated window must be closable
@@ -616,11 +660,22 @@ internal static partial class ModalFallback
             // every deliberately parked window back to the gaze through this very path, which
             // is the same jumping the recall skip removes. The player knows where they put
             // it; the X and the escape chord remain the rescue if it is genuinely lost.
-            if (wp.Grab != null && wp.Grab.UserMoved)
+            // ...AND SO IS A WINDOW A PEER MOVED (ModBuild 226). `UserMoved` latches only on a LOCAL
+            // grip, so until now a doff/don yanked a SHARED window — one a remote player had
+            // deliberately dragged for the whole room — back to this player's gaze, re-faced it, and
+            // then published that pose to everybody as this client's own move. The user's ruling for
+            // record 21 is that a shared window's pose changes for exactly two reasons, a hand here
+            // or a hand on a peer's client; a headset coming out of standby is neither. The argument
+            // for the skip is `UserMoved`'s with "a user" widened to "any user".
+            if (wp.Grab != null && (wp.Grab.UserMoved || wp.Grab.PeerPlaced))
             {
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{(wp.Window != null ? wp.Window.name : "<window>")}' " +
-                                      "NOT re-floated on presence regain - the player moved it, so its " +
-                                      "pose is theirs (user ruling: parked windows stay put).");
+                                      "NOT re-floated on presence regain - " +
+                                      (wp.Grab.UserMoved
+                                          ? "the player moved it, so its pose is theirs"
+                                          : "a PEER placed it and it is shared, so its pose belongs to "
+                                            + "the room and not to this headset's standby")
+                                      + " (user ruling: parked windows stay put).");
                 continue;
             }
             // Sub-item B: for a grabbable modal re-seat the GRAB FRAME (the host follows it

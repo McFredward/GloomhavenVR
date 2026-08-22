@@ -94,28 +94,28 @@
 //   * ONE EXISTING FIELD NOW CARRIES A DIFFERENT VALUE, and it is stated here rather than left to
 //     be discovered: the map fan IS a Cards.CardFan since ModBuild 192, so `CardFan.Current` is
 //     non-null while it is open and NetAvatarDriver's always-sent PresenceState.HandCardCount byte
-//     (sampled at NetAvatarDriver.cs:842) reports the real count instead of 0. Peers draw a fan of
-//     CARD BACKS on our avatar — RemoteHandFan gates every FRONT on `RevealGate.InScenario`
-//     (RemoteHandFan.cs:888), which is FALSE on the map, so no identity can be shown even in
-//     principle. Zero bytes were added; a count that used to be a lie while we held cards is now
-//     the truth. If that is ever unwanted, the whole of the suppression is one line at
-//     NetAvatarDriver.cs:842 — see this lane's change report.
+//     (sampled at NetAvatarDriver.cs:842) reports the real count instead of 0. Zero bytes were
+//     added; a count that used to be a lie while we held cards is now the truth — and it is the
+//     ONLY thing off the wire the peer half below needs.
 //   * RevealGate.ShowRoundCardFronts is WIDE OPEN in the map phase and its own doc comment says so
 //     ("offline / single player / MAP / our own actor / post-reveal action phase"): its conjunction
 //     includes RevealGate.InScenario, which is false here (RevealGate.cs:31-64, re-read 2026-08-21).
 //     There is nothing to unlock and nothing to relax — the user's "es gibt keine Geheimnisse in
-//     dieser Phase" is already the game's own rule.
+//     dieser Phase" is already the game's own rule, and RevealGate.ShowMapPhaseHandFronts now says
+//     it in that class's own vocabulary instead of leaving it to be re-derived.
 //
-// THE PEERS' HALF IS NOT BUILT, AND IT IS NOT A SHORTCUT — IT HAS NOWHERE TO HANG. Remote avatars
-// do exist in the map room, but only INCIDENTALLY: RemoteAvatar is DontDestroyOnLoad with no scene
-// or phase gate (RemoteAvatar.cs:690), and MapRoomDriver's own class comment records the
-// consequence — "Peers are already visible on the map today, unconditionally, and every client's
-// menu rig sits at the same authored vantage — so avatars pile up. That is phase 8's problem,
-// deliberately not fixed here." Deliberate multiplayer presence in this room is plan phase 8 of
-// .planning/worldmap-3d.md and is UNBUILT. Hanging a peer's loadout fan off an unseated avatar that
-// is interpenetrating every other avatar would produce a pile of fans at one world point, which is
-// worse than the honest absence. The precise wire record the peer half would need is stated in this
-// lane's change report; it does not belong in this file and is not implemented here.
+// THE PEERS' HALF EXISTS SINCE ModBuild 226 — user report 2026-08-22 item 4, "Handkarten sind nicht
+// sichtbar im Multiplayer im Map-Bereich … Aktuell sieht man nur die Rückseiten". Until then this
+// header claimed the peer half "has nowhere to hang", and that claim was already stale when it was
+// written: a peer's fan of CARD BACKS was being drawn in this room all along (Net/RemoteHandFan
+// hangs off RemoteAvatar, which is DontDestroyOnLoad with no phase gate), which is exactly what he
+// photographed. What was missing was never the fan — it was the FACES, and the reason was a
+// capability term in the receiver, not a secrecy rule (RevealGate's map-phase block has the whole
+// derivation). This file supplies the missing capability through TryResolvePeerLoadout below; the
+// faces are then drawn by RemoteHandFan out of the receiver's OWN card art, and no wire byte was
+// added for any of it. What is still UNBUILT is deliberate multiplayer PRESENCE in this room — the
+// avatars are unseated and every client's menu rig sits at the same authored vantage, so they
+// interpenetrate (MapRoomDriver.cs:40-42, plan phase 8 of .planning/worldmap-3d.md).
 //
 // ─── THE FAILURE MODE ─────────────────────────────────────────────────────────────────────────
 // Everything here is best-effort and fails to NOTHING. The capability probe runs ONCE per engage and
@@ -133,9 +133,11 @@
 // this lane no longer forms one at all.
 
 using System.Collections.Generic;
+using System.Reflection;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
+using HarmonyLib;
 using MapRuleLibrary.Party;
 using ScenarioRuleLibrary;
 using UnityEngine;
@@ -357,6 +359,7 @@ internal sealed partial class MapRoomHand
         ReleaseFan(reason);
         ReleaseWrist();
         _character = null;
+        s_localFanCharacterKey = 0u;
         _loadout.Clear();
         _characterSource = "not resolved";
         _signature = int.MinValue;
@@ -421,6 +424,7 @@ internal sealed partial class MapRoomHand
 
         _signature = signature;
         _character = character;
+        s_localFanCharacterKey = Net.NetProtocol.HashMapKey(character?.CharacterName);
         _characterSource = source;
         _loadout.Clear();
         if (character != null)
@@ -860,17 +864,20 @@ internal sealed partial class MapRoomHand
             + "Choreographer.s_Choreographer != null (WristHud.cs:246) and every value it renders "
             + "comes off a CPlayerActor, which does not exist here.\n"
             + $"  peers     : {(peers < 0 ? "uncountable" : peers.ToString())} remote avatar(s) with a "
-            + "valid head pose in this room right now. NOTE FOR THE READER: peers are visible on the "
-            + "map only INCIDENTALLY (RemoteAvatar is DontDestroyOnLoad with no phase gate) and are "
-            + "UNSEATED — every client's menu rig sits at the same authored vantage, so they "
-            + "interpenetrate. Deliberate map-room presence is plan phase 8 and is UNBUILT, so NO "
-            + "peer loadout fan is drawn by this build. That is a decision, not a bug.\n"
-            + "  wire      : NO FIELD ADDED. Faces are read locally from CharacterClassManager/"
-            + "ObjectPool and card identity stays off the wire. ONE existing byte changes value: the "
-            + "fan is a real Cards.CardFan now, so PresenceState.HandCardCount (sampled from "
-            + "CardFan.Current at NetAvatarDriver.cs:842) reports the real count while the hand is "
-            + "up; peers draw BACKS only, because RemoteHandFan gates fronts on RevealGate.InScenario "
-            + "which is false here.\n"
+            + "valid head pose in this room right now. Their fans ARE drawn (they always were — "
+            + "Net.RemoteHandFan hangs off RemoteAvatar, which has no phase gate) and since "
+            + "ModBuild 226 they show FRONTS: grep 'Remote hand fan faces' for the per-peer verdict "
+            + "and the tier that identified the hand. NOTE FOR THE READER: peers are visible on the "
+            + "map only INCIDENTALLY and are UNSEATED — every client's menu rig sits at the same "
+            + "authored vantage, so they interpenetrate. Deliberate map-room presence is plan "
+            + "phase 8 and is UNBUILT. That is a decision, not a bug.\n"
+            + "  wire      : NO FIELD ADDED — not for the local fan and not for the peer faces. "
+            + "Faces are read locally from CharacterClassManager/ObjectPool and card identity stays "
+            + "off the wire. ONE existing byte changes value: the fan is a real Cards.CardFan now, "
+            + "so PresenceState.HandCardCount (sampled from CardFan.Current at "
+            + "NetAvatarDriver.cs:842) reports the real count while the hand is up — and that same "
+            + "byte is the ONLY wire input MapRoomHand.TryResolvePeerLoadout uses to name which "
+            + "character a peer's fan is holding.\n"
             + "  DISPROOF  : cards never appear at all -> read the driver's 'fan state' line. "
             + "open=False with gateEnabled=True means the ROLL never crossed RevealEnterDegrees "
             + "(that is (b), and it is a dial, not this file). gateEnabled=False means the "
@@ -881,6 +888,336 @@ internal sealed partial class MapRoomHand
             + "is drawing them. WRONG character -> read 'source' above: 'PARTY DISPLAY' means the "
             + "game itself reports that selection, anything starting 'FALLBACK' means nothing was "
             + "selected in the party screen.");
+    }
+
+    // ==========================================================================================
+    //  A PEER'S FAN — WHICH CHARACTER IS IT HOLDING? (user report 2026-08-22, item 4)
+    // ==========================================================================================
+    //
+    // "Handkarten sind nicht sichtbar im Multiplayer im Map-Bereich. … die Handkarten sollen wie in
+    //  der Aktionsphase im Szenario voll sichtbar sein, wenn man den Fächer eines anderen Spielers
+    //  betrachtet. Aktuell sieht man nur die Rückseiten (wie es zur Auswahlphase der Fall ist)."
+    //
+    // THE SECRECY HALF OF THAT IS ANSWERED IN Net/RevealGate (ShowMapPhaseHandFronts, which carries
+    // the whole derivation). What is answered HERE is the half only the map room can answer: a peer
+    // is holding up n card slabs — WHICH character's loadout is that, so the receiver can draw the
+    // faces out of its OWN copy of the data?
+    //
+    // WHY THIS LIVES IN THE MAP ROOM AND NOT IN Net/RemoteHandFan. "Which hand is a map-room fan
+    // showing" is knowledge about how a map-room fan is BUILT, and that is this class: the party
+    // roster, CMapCharacter.HandAbilityCardIDs, the class pool, the initiative order. The receiver
+    // asks the map room the same question the map room asks itself for the LOCAL hand, and gets an
+    // answer produced by the same three methods (PartyMembers / ResolveLoadout / SortByInitiative).
+    // Net/RemoteHandFan holds no map-phase knowledge at all as a result — and this is deliberately
+    // NOT a GetComponentInParent-style "is this fan related to the map room" test, which is the
+    // question this repo has twice answered with the wrong predicate: nothing here inspects the
+    // peer's objects, it asks the room.
+    //
+    // ─── THE IDENTIFICATION, AND EXACTLY HOW CERTAIN EACH TIER IS ────────────────────────────────
+    // NOTHING NEW CROSSES THE WIRE FOR THIS and no card identity does. The only input off the wire
+    // is the card COUNT that has been in every extras packet since the fan existed
+    // (PresenceState.HandCardCount, sampled from CardFan.Current at NetAvatarDriver.cs:842 — the
+    // very byte that started reporting the map fan's real size in ModBuild 192). Everything else is
+    // this client's own replicated map state.
+    //
+    //   TIER 1 — THE SIZE NAMES THE HAND. A map-room fan is ALWAYS built from some party member's
+    //   loadout (ResolveCharacter only ever returns a CMapCharacter out of MapParty). So if exactly
+    //   ONE party member's HandAbilityCardIDs has the size the peer is holding, that member IS the
+    //   one — not a guess, a deduction from the premise. Loadouts are replicated (the party screen's
+    //   edits ride the game's own CardInventoryToken, NewPartyDisplayUI.cs:1993-2002), so every
+    //   client counts the same numbers.
+    //
+    //   TIER 2 — THE GAME'S OWN OWNERSHIP, used only to break a size tie. When several members share
+    //   the size, we narrow to the ones that peer CONTROLS, using the game's own authority for it:
+    //   ControllableRegistry, whose per-character controllable is created for every map character in
+    //   the map phase (BenchedCharacter.cs:18-25) and whose Controller is the NetworkPlayer the host
+    //   assigned. This tier carries ONE assumption, stated rather than hidden: that a player's own
+    //   fan shows a character they control. That is the normal case and not a certainty — the party
+    //   display lets anybody select anybody (NewPartyDisplayUI.OnCharacterSelect has no ownership
+    //   test at all, and this session's own log shows player 1 displaying player 2's Summoner). A
+    //   peer inspecting a FOREIGN hand whose size collides with one of their own would therefore be
+    //   drawn the wrong loadout — the ModBuild 84 class of defect.
+    //
+    //   NEITHER TIER GUESSES PAST THAT. An unresolved fan stays CARD BACKS and says why in one
+    //   throttled line, because a plausible-but-wrong hand is worse than an honest absence.
+    //
+    // WHAT WOULD MAKE IT EXACT, for whoever owns the wire next: four bytes in extension record 20
+    // (3D MAP ROOM) carrying FNV-1a(CMapCharacter.CharacterName) of the character the sender's fan
+    // is built for — a KEY the game itself publishes, exactly like that record's existing pickKey
+    // (FNV-1a(CLocationState.ID)). The receiver would look the character up by that key and the two
+    // tiers below would collapse into one lookup. Card identity would STILL never ride the wire:
+    // the faces are drawn from this client's own CharacterClassManager pool, as they are today.
+
+    /// <summary>
+    /// <c>FNV-1a(CMapCharacter.CharacterName)</c> of the character THIS client's map-room fan is
+    /// showing, or 0 while no fan stands.
+    ///
+    /// <para>Published in extension record 20 so a peer can name the fan outright instead of
+    /// deducing its owner — see <see cref="TryResolvePeerLoadout"/>'s tier 0 and the block above it.
+    /// STATIC even though the character is per-instance, because there is exactly one hand
+    /// (<c>MapRoomDriver.Hand</c>, a single static readonly) and a wire sampler has no instance to
+    /// ask; it is written at the one place <c>_character</c> is assigned and at the one place the
+    /// hand is released, so it cannot drift from the fan it describes. A NAME AND NOT A CARD: what
+    /// this key identifies is which party member to look up in the receiver's OWN party, and the
+    /// cards themselves are still drawn from the receiver's own art.</para>
+    /// </summary>
+    internal static uint LocalFanCharacterKey => s_localFanCharacterKey;
+
+    /// <inheritdoc cref="LocalFanCharacterKey"/>
+    private static uint s_localFanCharacterKey;
+
+    /// <summary>
+    /// Resolve the loadout a REMOTE player's map-room fan is holding, into <paramref name="into"/>
+    /// (cleared first), in the same initiative order the local fan draws. Returns true iff the
+    /// character could be identified with the certainty described in the block above; on false the
+    /// caller must keep showing card BACKS.
+    ///
+    /// <para><paramref name="characterKey"/> is that peer's <see cref="LocalFanCharacterKey"/> off
+    /// the wire, or 0 from a peer whose build does not send it — in which case the deduction tiers
+    /// below answer exactly as they did before the field existed.</para>
+    ///
+    /// <para><paramref name="cardCount"/> is the peer's broadcast <c>HandCardCount</c>.
+    /// <paramref name="verdict"/> is a human sentence naming which tier answered (or why none did)
+    /// — it is written verbatim into the receiver's diagnostic so a hardware log can tell "the peer
+    /// is holding a hand we cannot name" from "the map has no party" without a screenshot.</para>
+    ///
+    /// <para>ALLOCATION-FREE on the resolved path beyond what <see cref="ResolveLoadout"/> already
+    /// costs, and it is not on a per-frame path: the caller re-asks only when the peer's card count
+    /// changes or on its own slow cadence.</para>
+    /// </summary>
+    internal static bool TryResolvePeerLoadout(int playerId, int cardCount, uint characterKey,
+                                               List<CAbilityCard> into, out string verdict)
+    {
+        into.Clear();
+        verdict = "not resolved";
+        if (cardCount <= 0)
+        {
+            verdict = "the peer is holding no cards";
+            return false;
+        }
+
+        // PartyMembers hands back a SHARED reused list (s_partyScratch) that the local reconcile
+        // path also consumes — copy out of it before anything else can ask for it again.
+        s_peerScratch.Clear();
+        List<CMapCharacter> party = PartyMembers();
+        for (int i = 0; i < party.Count; i++)
+            s_peerScratch.Add(party[i]);
+        if (s_peerScratch.Count == 0)
+        {
+            verdict = "no map party is loaded on this client";
+            return false;
+        }
+
+        // TIER 0 — THE PEER SAID SO (ModBuild 226). Not a deduction at all: the sender publishes
+        // FNV-1a of the character its own fan is built for, and the only thing that happens here is
+        // a lookup in this client's own party. It is tried FIRST and, when it answers, the two
+        // deduction tiers below never run — they exist now only for a peer on an older build, whose
+        // record carries no such field and leaves this 0.
+        //
+        // A KEY THAT DOES NOT RESOLVE FALLS THROUGH rather than refusing. The character may simply
+        // not have replicated to this client yet, and a hash collision is possible in principle;
+        // in both cases the size deduction below is still available and is still better than backs.
+        // What it must never do is name the WRONG character, and it cannot: the match is on the
+        // hash of the name, so a miss is a miss.
+        if (characterKey != 0u)
+        {
+            for (int i = 0; i < s_peerScratch.Count; i++)
+            {
+                CMapCharacter c = s_peerScratch[i];
+                if (Net.NetProtocol.HashMapKey(c.CharacterName) != characterKey)
+                    continue;
+                ResolveLoadout(c, into);
+                verdict = $"NAMED: player {playerId} says their map fan is '{DisplayName(c)}' "
+                          + $"(character key 0x{characterKey:X8} in record 20) — no deduction was "
+                          + "needed";
+                return into.Count > 0;
+            }
+        }
+
+        // TIER 1 — the size names the hand.
+        CMapCharacter? unique = null;
+        int matches = 0;
+        for (int i = 0; i < s_peerScratch.Count; i++)
+        {
+            if (LoadoutSize(s_peerScratch[i]) != cardCount)
+                continue;
+            unique ??= s_peerScratch[i];
+            matches++;
+        }
+        if (matches == 0)
+        {
+            verdict = $"no party member has a loadout of {cardCount} card(s) — the peer's fan is "
+                      + "mid-change, or their party state has not replicated here yet";
+            return false;
+        }
+        if (matches == 1 && unique != null)
+        {
+            ResolveLoadout(unique, into);
+            verdict = $"EXACT: '{DisplayName(unique)}' is the ONLY party member with a "
+                      + $"{cardCount}-card loadout, and a map-room fan is always some party "
+                      + "member's loadout";
+            return into.Count > 0;
+        }
+
+        // TIER 2 — the game's own ownership, breaking the size tie.
+        CMapCharacter? owned = null;
+        int ownedMatches = 0;
+        for (int i = 0; i < s_peerScratch.Count; i++)
+        {
+            CMapCharacter c = s_peerScratch[i];
+            if (LoadoutSize(c) != cardCount || ControllerPlayerId(c) != playerId)
+                continue;
+            owned ??= c;
+            ownedMatches++;
+        }
+        if (ownedMatches == 1 && owned != null)
+        {
+            ResolveLoadout(owned, into);
+            verdict = $"OWNERSHIP: {matches} party members hold {cardCount} cards, and exactly one "
+                      + $"of them — '{DisplayName(owned)}' — is controlled by player {playerId} "
+                      + "(the game's own ControllableRegistry). ASSUMES the peer is displaying a "
+                      + "character they control; the party screen does not require that";
+            return into.Count > 0;
+        }
+
+        into.Clear();
+        verdict = ownedMatches > 1
+            ? $"AMBIGUOUS: player {playerId} controls {ownedMatches} characters with a "
+              + $"{cardCount}-card loadout — showing BACKS rather than guessing which"
+            : $"AMBIGUOUS: {matches} party members hold {cardCount} cards and none of them resolved "
+              + $"to player {playerId} through ControllableRegistry — showing BACKS rather than "
+              + "guessing which";
+        return false;
+    }
+
+    /// <summary>Scratch for <see cref="TryResolvePeerLoadout"/>. Its own list, never
+    /// <see cref="s_partyScratch"/>: this runs on the RECEIVE path while the local reconcile owns
+    /// that one, and two consumers of one reused buffer is how a scratch list becomes a bug.</summary>
+    private static readonly List<CMapCharacter> s_peerScratch = new(4);
+
+    /// <summary>How many cards are in <paramref name="character"/>'s scenario loadout (-1 =
+    /// unreadable). The raw ID count, deliberately NOT the resolved model count: the peer's
+    /// broadcast number is the size of the fan THEY built, this is the size of the list it was
+    /// built from, and running the class-pool lookup for every party member on every resolve to
+    /// compare two numbers would be paying for a match we have not made yet.</summary>
+    private static int LoadoutSize(CMapCharacter? character)
+    {
+        if (character == null)
+            return -1;
+        try
+        {
+            List<int>? ids = character.HandAbilityCardIDs;
+            return ids != null ? ids.Count : -1;
+        }
+        catch (System.Exception)
+        {
+            return -1;
+        }
+    }
+
+    // ---- WHO CONTROLS A MAP CHARACTER — the game's own registry, by reflection ----------------
+    //
+    // REFLECTION-ONLY, for the reason Net/NetPlayerActors states at length and this file must obey
+    // too: FFSNet.NetworkPlayer is EntityBehaviour<IPlayerState>, i.e. Bolt-derived, and this build
+    // has (and needs) no bolt.dll. So the registry, the controllable and the player are all handled
+    // as `object` and every member is reached through AccessTools. BenchedCharacter — the map
+    // phase's IControllable — is reached the same way rather than by type, because its interface
+    // surface (GetNetworkEntityPrefabID → Photon.Bolt.PrefabId) is exactly the reference we cannot
+    // take. Anything missing degrades to "unknown controller" (0), which costs tier 2 and nothing
+    // else.
+    //
+    // THE SHAPE, from the game's source:
+    //   ControllableRegistry.AllControllables : List<NetworkControllable>   (ControllableRegistry.cs:10)
+    //   NetworkControllable.ControllableObject : IControllable              (used at :122)
+    //   NetworkControllable.Controller         : NetworkPlayer              (used at :112)
+    //   BenchedCharacter.CharacterData         : CMapCharacter              (BenchedCharacter.cs:9)
+    // and the map phase really does create one controllable per map character — BenchedCharacter's
+    // constructor does it for every roster member (:18-25). This session's Player.log shows six of
+    // them created on entering the map and reassigned live ("Controllable (ID: -273653989) ASSIGNED
+    // to ARMA (ID: 2)"), which is the evidence that this registry is populated and authoritative
+    // outside a scenario.
+
+    private static bool s_ctrlInit;
+    private static PropertyInfo? s_allControllables;   // static List<NetworkControllable>
+    private static PropertyInfo? s_controllableObject; // IControllable
+    private static PropertyInfo? s_controller;         // NetworkPlayer
+    private static PropertyInfo? s_ctrlPlayerId;       // int
+    private static PropertyInfo? s_characterData;      // CMapCharacter
+    private static System.Type? s_benchedType;         // BenchedCharacter (the map phase's IControllable)
+
+    /// <summary>The FFSNet player id controlling <paramref name="character"/> in the map phase, or
+    /// 0 when it cannot be answered (offline, netcode absent, a renamed member, no controllable for
+    /// this character yet). Never throws.</summary>
+    private static int ControllerPlayerId(CMapCharacter? character)
+    {
+        if (character == null)
+            return 0;
+        EnsureControllableReflection();
+        if (s_allControllables == null || s_controllableObject == null || s_controller == null
+            || s_ctrlPlayerId == null || s_characterData == null || s_benchedType == null)
+            return 0;
+        try
+        {
+            if (s_allControllables.GetValue(null) is not System.Collections.IEnumerable all)
+                return 0;
+            foreach (object? controllable in all)
+            {
+                if (controllable == null)
+                    continue;
+                object? obj = s_controllableObject.GetValue(controllable);
+                if (obj == null || !s_benchedType.IsInstanceOfType(obj))
+                    continue;   // a scenario CharacterManager, never in the map phase — skip it
+                if (s_characterData.GetValue(obj) is not CMapCharacter data
+                    || !ReferenceEquals(data, character))
+                    continue;
+                object? player = s_controller.GetValue(controllable);
+                if (player == null)
+                    return 0;
+                return s_ctrlPlayerId.GetValue(player) is int id ? id : 0;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Debug(Scope, "Map-room hand: the controllable registry could not be read "
+                + $"({ex.Message}) — a peer's fan falls back to card BACKS when its size is "
+                + "ambiguous.");
+        }
+        return 0;
+    }
+
+    /// <summary>Resolve the four reflection handles once per session. Silent on failure: the ONE
+    /// consequence is that a size-ambiguous peer fan keeps its card backs, and the resolver's own
+    /// verdict string already says so.</summary>
+    private static void EnsureControllableReflection()
+    {
+        if (s_ctrlInit)
+            return;
+        s_ctrlInit = true;
+        try
+        {
+            System.Type? registry = AccessTools.TypeByName("FFSNet.ControllableRegistry");
+            System.Type? controllable = AccessTools.TypeByName("FFSNet.NetworkControllable");
+            System.Type? player = AccessTools.TypeByName("FFSNet.NetworkPlayer");
+            s_benchedType = AccessTools.TypeByName("BenchedCharacter");
+
+            s_allControllables = registry?.GetProperty("AllControllables",
+                BindingFlags.Public | BindingFlags.Static);
+            s_controllableObject = controllable?.GetProperty("ControllableObject");
+            s_controller = controllable?.GetProperty("Controller");
+            s_ctrlPlayerId = player?.GetProperty("PlayerID");
+            s_characterData = s_benchedType?.GetProperty("CharacterData");
+        }
+        catch (System.Exception ex)
+        {
+            s_allControllables = null;
+            s_controllableObject = null;
+            s_controller = null;
+            s_ctrlPlayerId = null;
+            s_characterData = null;
+            s_benchedType = null;
+            VRLog.Debug(Scope, $"Map-room hand: FFSNet controllable reflection failed ({ex.Message}) "
+                + "— peer fans stay on the size-only identification.");
+        }
     }
 
     /// <summary>The name to show: the player's own renaming wins, as it does in the game's own

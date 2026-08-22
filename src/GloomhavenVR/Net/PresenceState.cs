@@ -934,10 +934,35 @@ internal struct PresenceState
     /// stamp differs from the one it last saw from that peer.</summary>
     public byte MapRoomSurfaceStamp;
 
-    /// <summary><c>FNV-1a(MapLocation.Location.ID)</c> of the location the sender is pointing at or
-    /// has staged, or 0 for none. A match gate, never an instruction — an unresolvable key does
-    /// nothing at all.</summary>
+    /// <summary><c>FNV-1a(MapLocation.Location.ID)</c> of the location the sender's POINTER is on,
+    /// or 0 for none. A match gate, never an instruction — an unresolvable key does nothing at all.
+    /// The hover and only the hover: the sender's selection has its own fields below.</summary>
     public uint MapRoomPickKey;
+
+    /// <summary>Wrapping counter the sender bumps once per COMPLETED local SELECTION change that a
+    /// human at their table made. The same EDGE idiom as <see cref="MapRoomSurfaceStamp"/> and for
+    /// the same reason — a level re-asserted every packet would be a write war. Zero and unchanging
+    /// from a peer that never sends the selection fields, which is exactly "does not
+    /// participate".</summary>
+    public byte MapRoomSelectStamp;
+
+    /// <summary><c>FNV-1a(MapLocation.Location.ID)</c> of the location the sender has SELECTED, or
+    /// <b>0 meaning "nothing is selected"</b> — a first-class value here, because an edge carrying
+    /// 0 is a deselection. Only ever acted on when <see cref="MapRoomSelectStamp"/> changed; see
+    /// <see cref="NetProtocol.ExtIdMapRoom"/> for why this fact is not on the game's own wire.</summary>
+    public uint MapRoomSelectKey;
+
+    /// <summary><c>FNV-1a(CMapCharacter.CharacterName)</c> of the party member whose loadout the
+    /// sender's 3D-map card fan is showing, or <b>0 meaning "I have no map fan open"</b>.
+    ///
+    /// <para>It exists so a receiver can print the RIGHT character's cards on a peer's fan instead
+    /// of deducing the owner from the hand SIZE and breaking ties on who controls whom — an
+    /// assumption the reporting session falsifies, since a player may have another player's
+    /// character open on the party display. Card identity is still not on this wire: the faces come
+    /// from the receiver's own art pool, and this only says which member to look up. A key that does
+    /// not resolve falls back to the old deduction, so it can cost a tier and never a wrong
+    /// answer.</para></summary>
+    public uint MapRoomFanCharacterKey;
 
     // ---- THE MAP ROOM'S SHARED WINDOWS (extension record 21) -------------------------------
     // Sampled and consumed in Net/RemoteMapStory.cs; nothing else reads them.
@@ -1172,17 +1197,23 @@ internal struct SharedWindowEntry
 ///                        packet announcing it FINISHED — the statement that releases a session
 ///                        whose peer walked away without clicking. The pose is seat-anchor-local
 ///                        REAL metres, never a world point, see NetProtocol.ExtIdStorySync)
-///                        20 3D MAP ROOM ([flags][surfaceStamp][u32 pickKey LE] — am I standing in
-///                        the 3D campaign-map room, am I the host, which of the game's two map
-///                        surfaces am I showing, and which map location am I pointing at or have
-///                        staged. The surface stamp is an EDGE marker: a peer's change is adopted
-///                        ONCE, on the packet whose stamp differs, never continuously — the user
-///                        ruled that anybody may switch and everyone follows. The pick key is
-///                        FNV-1a(CLocationState.ID), the same identity the GAME puts on its own
-///                        wire for SelectQuest, and it is a MATCH GATE that may light an icon and
-///                        may never select one. Written only while MapRoomDriver.Active, so every
-///                        packet of every player with the 3D map off is unchanged, see
-///                        NetProtocol.ExtIdMapRoom)
+///                        20 3D MAP ROOM ([flags][surfaceStamp][u32 pickKey LE][selectStamp]
+///                        [u32 selectKey LE] — am I standing in the 3D campaign-map room, am I the
+///                        host, which of the game's two map surfaces am I showing, which map
+///                        location am I pointing at, and which one is SELECTED. BOTH stamps are
+///                        EDGE markers: a peer's change is adopted ONCE, on the packet whose stamp
+///                        differs, never continuously — the user ruled that anybody may switch or
+///                        select and everyone follows. The keys are FNV-1a(CLocationState.ID), the
+///                        same identity the GAME puts on its own wire for SelectQuest; the PICK key
+///                        is a match gate that may light an icon and may never select one, and the
+///                        SELECT key drives the game's own click seam on its edge and only there
+///                        (selectKey 0 on an edge is a DESELECTION). The selection is on this wire
+///                        because the game carries it nowhere: its SelectQuest action is the HOST's
+///                        CONFIRMED quest and arrives as a confirm prompt, not as a selection — see
+///                        NetProtocol.ExtIdMapRoom. Readers trust a 6-byte record and read the
+///                        selection only from an 11-byte one, so an older peer degrades to "does
+///                        not participate". Written only while MapRoomDriver.Active, so every
+///                        packet of every player with the 3D map off is unchanged)
 ///                        21 SHARED MAP WINDOWS ([n] then n x [kind][flags][page][pageCount]
 ///                        [u32 contentKey LE] plus, once the sender's user has really moved that
 ///                        window, [poseStamp][sizeCode][frame][pose 20] — which ABSOLUTE page the
@@ -1246,10 +1277,22 @@ internal static class PresenceSerializer
     /// + 8 (ENV CLOCK: 2 + <c>NetProtocol.EnvClockRecordBytesWithFrequency</c> 6)
     /// + 10 (TEST FORCE: 2 + <c>NetProtocol.TestForceRecordBytes</c> 8)
     /// + 31 (STORY SYNC: 2 + <c>NetProtocol.StoryRecordBytesWithPose</c> 29)
-    /// + 8 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytes</c> 6)
+    /// + 17 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytesWithFan</c> 15)
     /// + 65 (SHARED MAP WINDOWS: 2 + <c>NetProtocol.SharedWindowMaxRecordBytes</c> 63)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1430.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1439.
+    ///
+    /// <para>1435 → 1439 on the MAP-FAN OWNER round: record 20 grew a four-byte character key so a
+    /// peer's card fan prints the right member's loadout instead of one deduced from its hand size.
+    /// <see cref="MaxSize"/> is UNCHANGED at 1800 — the margin is 361 bytes, still more than the
+    /// largest single record (257).</para>
+    ///
+    /// <para>1430 → 1435 on the SHARED SELECTION round: record 20 grew its selection edge
+    /// (<c>[selectStamp][u32 selectKey LE]</c>, +5 payload bytes), per the rule below, in its own
+    /// commit. <see cref="MaxSize"/> is UNCHANGED at 1800 — the margin is 365 bytes, still more
+    /// than the largest single record (257, board tuning), so the rule is satisfied without a
+    /// raise. Readers still require only the 6-byte minimum, so nothing about this is visible to a
+    /// peer that does not know the field.</para>
     ///
     /// <para>1357 → 1430 on 2026-08-22: the 3D MAP ROOM record (20) added its worst case of 8 bytes
     /// — <c>[id][len]</c> plus its 6-byte payload — and the SHARED MAP WINDOWS record (21) its worst
@@ -2261,14 +2304,22 @@ internal static class PresenceSerializer
                     records++;
                 }
                 if (state.HasMapRoom
-                    && i + 2 + NetProtocol.MapRoomRecordBytes <= buffer.Length)
+                    && i + 2 + NetProtocol.MapRoomRecordBytesWithFan <= buffer.Length)
                 {
-                    // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE]. The full contract —
-                    // above all WHY the surface stamp is an EDGE and not a level, and why the pick
-                    // key may light an icon and may never select one — is written once, at
-                    // NetProtocol.ExtIdMapRoom. Nothing here is game state: the record says where
-                    // this player is standing, which map they are looking at and which icon they
-                    // are pointing at.
+                    // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE][selectStamp]
+                    // [u32 selectKey LE][u32 fanCharacterKey LE].
+                    // The full contract — above all WHY both stamps are EDGES
+                    // and not levels, why the pick key may light an icon and may never select one,
+                    // and why the SELECTION is a fact the game itself carries nowhere — is written
+                    // once, at NetProtocol.ExtIdMapRoom. Nothing here is game state: the record
+                    // says where this player is standing, which map they are looking at, which icon
+                    // they are pointing at and which one they have selected.
+                    //
+                    // THE LONG FORM IS ALWAYS WRITTEN, AND READERS REQUIRE ONLY THE OLD MINIMUM
+                    // (MapRoomRecordBytes, still 6). That asymmetry IS the additive contract: this
+                    // sender says everything it knows, a reader that only knows the first six bytes
+                    // steps over the rest by the record's own length, and neither has to know what
+                    // the other build is. Same shape as record 19's pose tail.
                     //
                     // NO EMPTINESS GATE beyond the flag: the sampler sets HasMapRoom only while
                     // MapRoomDriver.Active, so an "all clear" payload cannot be produced. The room
@@ -2277,10 +2328,13 @@ internal static class PresenceSerializer
                     // absent rather than guessing.
                     // Appended LAST, behind record 19, per the tail's append-order contract.
                     buffer[i++] = NetProtocol.ExtIdMapRoom;
-                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytes;
+                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytesWithFan;
                     buffer[i++] = (byte)(state.MapRoomFlags & NetProtocol.MapRoomDefinedMask);
                     buffer[i++] = state.MapRoomSurfaceStamp;
                     AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomPickKey);
+                    buffer[i++] = state.MapRoomSelectStamp;
+                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomSelectKey);
+                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomFanCharacterKey);
                     records++;
                 }
                 if (state.HasSharedWindow && state.SharedWindowCount > 0
@@ -3647,6 +3701,41 @@ internal static class PresenceSerializer
                                                       | (buffer[i + 3] << 8)
                                                       | (buffer[i + 4] << 16)
                                                       | (buffer[i + 5] << 24));
+                        // THE SELECTION EDGE IS READ ONLY IF THE RECORD IS LONG ENOUGH TO HOLD IT,
+                        // and its absence is a defined state rather than a default: a sender that
+                        // writes only the six-byte form leaves stamp 0 / key 0 here, and a stamp
+                        // that never changes never instructs anybody (RemoteMapRoom treats first
+                        // sight as "not an edge"). So an older peer degrades to "does not
+                        // participate in the shared selection" and can never be read as "that peer
+                        // just deselected everything".
+                        if (len >= NetProtocol.MapRoomRecordBytesWithSelect)
+                        {
+                            state.MapRoomSelectStamp = buffer[i + 6];
+                            // The select key is deliberately NOT validated, exactly like the pick
+                            // key: it is an opaque content hash whose job is to FAIL to resolve
+                            // when two clients are not looking at the same map. What is different
+                            // is what a MATCH does — it drives the game's own click seam — so the
+                            // sanity of the value is enforced where that happens (a key that
+                            // resolves to no live location here is dropped with a stated reason),
+                            // never by guessing at a byte range that has no meaning.
+                            state.MapRoomSelectKey = (uint)(buffer[i + 7]
+                                                            | (buffer[i + 8] << 8)
+                                                            | (buffer[i + 9] << 16)
+                                                            | (buffer[i + 10] << 24));
+                        }
+                        // THE MAP-FAN CHARACTER KEY, same discipline one field further out: read
+                        // only behind its own length test, unvalidated because it is an opaque
+                        // content hash, and 0-or-absent means "that peer has no map fan open". An
+                        // older peer therefore leaves this 0 and the receiver falls back to
+                        // deducing the fan's owner from its hand size, which is what every build
+                        // before this one did — never to a wrong character.
+                        if (len >= NetProtocol.MapRoomRecordBytesWithFan)
+                        {
+                            state.MapRoomFanCharacterKey = (uint)(buffer[i + 11]
+                                                                  | (buffer[i + 12] << 8)
+                                                                  | (buffer[i + 13] << 16)
+                                                                  | (buffer[i + 14] << 24));
+                        }
                     }
                     else if (id == NetProtocol.ExtIdSharedWindow && len >= 1)
                     {

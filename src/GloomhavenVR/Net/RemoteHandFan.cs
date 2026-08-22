@@ -15,6 +15,15 @@
 // rendered when the gate is open; during the secret selection phase every card is a BACK. Every game
 // deref is null-guarded and fails safe to BACKS (no leak) on any error.
 //
+// MAP-PHASE FRONTS (report 4, 2026-08-22 — "Handkarten sind nicht sichtbar im Multiplayer im
+// Map-Bereich"): outside a scenario the peer's fan is the mod map room's LOADOUT hand, which has no
+// AbilityCardUI and no CPlayerActor to clone from. That case has its own capability path — the map
+// room names the character from the broadcast COUNT (MapRoomHand.TryResolvePeerLoadout) and the
+// faces are borrowed from this client's own ObjectPool by card id — behind its own predicate,
+// RevealGate.ShowMapPhaseHandFronts. It is DISJOINT from the scenario gate above (that one requires
+// a running scenario, this one requires its absence), so nothing about the secret selection window
+// changes. See the block beside _mapBuffer for the root cause and the evidence.
+//
 // Geometry mirrors Cards/CardFan.Relayout (arc radius, per-card step, curvature-by-fill, tilt,
 // z-stagger) so a remote hand reads exactly like the local one, but with LOCAL constants seeded to
 // the CardsConfig defaults — this stays self-contained and does not depend on the game's live Fan
@@ -35,8 +44,10 @@ namespace GloomhavenVR.Net;
 /// and arced to face <see cref="RemoteAvatar.HeadHolder"/> — mirroring <see cref="CardFan"/>.
 /// Shows card BACKS by default; when <see cref="RevealGate.ShowRoundCardFronts"/> permits for the
 /// remote actor it additionally overlays each slab with the REAL cloned card face
-/// (<see cref="RemoteCardArt"/>). The broadcast COUNT drives the fan size; the fronts are read
-/// locally from the remote actor's own hand and gated strictly on the reveal rule.
+/// (<see cref="RemoteCardArt"/>), and in the MAP PHASE — where
+/// <see cref="RevealGate.ShowMapPhaseHandFronts"/> is the rule and there is no actor at all — with
+/// the peer's scenario LOADOUT card. The broadcast COUNT drives the fan size; both sets of fronts
+/// are read locally from data this client already holds and gated strictly on the reveal rules.
 ///
 /// ORIENTATION CONTRACT (audited against <see cref="CardFan"/>; user report: "prüf nochmal, ob der
 /// Handfächer … richtig synchronisiert und … die Orientierung, die der jeweilige Spieler sieht, auch
@@ -602,27 +613,45 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     Color IBorrowedCardSource.BorrowTint => _owner.Tint;
 
     string IBorrowedCardSource.BorrowGateLabel =>
-        "RevealGate.ShowRoundCardFronts(the owner's displayed character) — the game's own rule, "
-        + "false in the secret SelectAbilityCardsOrLongRest window for a character not under my control";
+        _mapFronts
+            ? "RevealGate.ShowMapPhaseHandFronts — the map phase, where no scenario is running and "
+              + "therefore no card choice is in flight; the hand is public and INSPECT-ONLY"
+            : "RevealGate.ShowRoundCardFronts(the owner's displayed character) — the game's own rule, "
+              + "false in the secret SelectAbilityCardsOrLongRest window for a character not under my control";
 
-    /// <summary>The per-slot permission: the fronts gate this frame AND a resolved hand widget with
-    /// a real full card behind that slot. Both halves are exactly what <see cref="UpdateFaces"/>
-    /// requires before it draws a front, so a card can never be borrowed that is not already
-    /// legally visible on the slab.</summary>
-    bool IBorrowedCardSource.BorrowAllowed(int slot) =>
-        _borrowGateOpen && slot >= 0 && slot < _handBuffer.Count
-        && _handBuffer[slot] != null && _handBuffer[slot].fullAbilityCard != null;
+    /// <summary>The per-slot permission: the fronts gate this frame AND a resolved card behind that
+    /// slot — a hand WIDGET in a scenario, a loadout MODEL in the map phase. Both halves are exactly
+    /// what <see cref="UpdateFaces"/> requires before it draws a front, and the buffer asked is the
+    /// one it drew from (<see cref="_mapFronts"/>), so a card can never be borrowed that is not
+    /// already legally visible on that very slab.</summary>
+    bool IBorrowedCardSource.BorrowAllowed(int slot)
+    {
+        if (!_borrowGateOpen || slot < 0)
+            return false;
+        if (_mapFronts)
+            return slot < _mapBuffer.Count && _mapBuffer[slot] != null;
+        return slot < _handBuffer.Count
+               && _handBuffer[slot] != null && _handBuffer[slot].fullAbilityCard != null;
+    }
 
     /// <summary>Build or refresh the borrowed copy's cloned face. Same class, same clone, same
     /// non-interactive neutralisation and same mip-bake upkeep the fan's own faces get — the copy
-    /// is not a second rendering path, it is one more instance of the existing one.</summary>
+    /// is not a second rendering path, it is one more instance of the existing one.
+    ///
+    /// <para>CardBorrow calls this EVERY FRAME of a hold (it relies on the dedup for the refresh),
+    /// so the map path carries the same id latch the fan's slabs do — see
+    /// <see cref="PrintMapFace"/> for why a pooled borrow cannot use RemoteCardArt's own dedup.</para></summary>
     bool IBorrowedCardSource.ShowBorrowedFace(int slot, Transform host, float cardWidth, float cardHeight)
     {
         if (!((IBorrowedCardSource)this).BorrowAllowed(slot))
             return false;
-        FullAbilityCard? full = _handBuffer[slot].fullAbilityCard;
-        if (full == null)
+
+        bool map = _mapFronts;
+        FullAbilityCard? full = map ? null : _handBuffer[slot].fullAbilityCard;
+        CAbilityCard? model = map ? _mapBuffer[slot] : null;
+        if (!map && full == null)
             return false;
+
         if (_borrowArt != null && !ReferenceEquals(_borrowHost, host))
             ((IBorrowedCardSource)this).ReleaseBorrowedFace();
         if (_borrowArt == null)
@@ -630,7 +659,23 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _borrowArt = new RemoteCardArt(host, cardWidth, cardHeight);
             _borrowHost = host;
         }
-        return _borrowArt.ShowFront(full);
+
+        if (!map)
+        {
+            _borrowMapId = -1;
+            return _borrowArt.ShowFront(full!);
+        }
+
+        if (_borrowMapId == model!.ID)
+        {
+            _borrowArt.MaintainMipBake();
+            return true;
+        }
+        if (RemoteAbilityCardSource.ShowFullFace(_borrowArt, null, model)
+            == RemoteAbilityCardSource.FacePath.None)
+            return false;
+        _borrowMapId = model.ID;
+        return true;
     }
 
     void IBorrowedCardSource.ReleaseBorrowedFace()
@@ -638,10 +683,83 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         _borrowArt?.Destroy();
         _borrowArt = null;
         _borrowHost = null;
+        _borrowMapId = -1;
     }
+
+    /// <summary>Card id currently printed on the borrowed copy through the MAP path (-1 = none).
+    /// See <see cref="PrintMapFace"/>: a pooled borrow has no stable source instance id, so the
+    /// per-frame refresh needs a latch of its own or it re-clones every frame of the hold.</summary>
+    private int _borrowMapId = -1;
 
     /// <summary>Reused scratch buffer for the remote actor's HAND-pile card widgets (no per-frame alloc).</summary>
     private readonly List<AbilityCardUI> _handBuffer = new(MaxCards);
+
+    // ---- THE MAP PHASE (report 4, 2026-08-22) -------------------------------------------------
+    //
+    // "Handkarten sind nicht sichtbar im Multiplayer im Map-Bereich. Das soll nicht sein, die
+    //  Handkarten sollen wie in der Aktionsphase im Szenario voll sichtbar sein, wenn man den Fächer
+    //  eines anderen Spielers betrachtet. Aktuell sieht man nur die Rückseiten (wie es zur
+    //  Auswahlphase der Fall ist)."
+    //
+    // ROOT CAUSE, and it was NOT the reveal gate. RevealGate.ShowRoundCardFronts has always been
+    // OPEN on the map (its conjunction folds in RevealGate.InScenario, which is false there, and its
+    // own doc names the case). What closed the fronts was the SECOND term this very file added
+    // beside it — `RevealGate.InScenario &&` at UpdateFaces — whose comment says exactly what it is
+    // for: "require an actual running scenario before touching the game's hand UI (the clone's
+    // widget lifecycle depends on scenario singletons)". That is TRUE and it is RIGHT for
+    // ResolveHandFronts, which reads CardsHandManager.Instance.GetHand(actor).cardsUI — neither the
+    // manager nor the CPlayerActor exists in the map phase. The defect is that a CAPABILITY test's
+    // safe default ("we cannot resolve fronts here") was left standing as the answer to a SECRECY
+    // question ("these cards are secret"). RevealGate's map-phase block carries the whole argument.
+    //
+    // THE FIX IS A SECOND CAPABILITY, NOT A RELAXED RULE. In the map phase the mod's own 3D map room
+    // grew a card hand in ModBuild 192 (WorldUI/MapRoom/MapRoomHand.*), and a peer's fan there is
+    // their SCENARIO LOADOUT. The receiver asks the map room which character that is
+    // (MapRoomHand.TryResolvePeerLoadout — the count off the wire plus this client's own replicated
+    // party data; nothing about a peer's objects is inspected, and no card identity rides the wire)
+    // and prints the faces from CAbilityCard models through the same
+    // RemoteAbilityCardSource borrow the local map fan already uses.
+    //
+    // ANTI-CHEAT IS UNCHANGED: RevealGate.ShowMapPhaseHandFronts requires the ABSENCE of a running
+    // scenario, so it is disjoint from the secret selection window by construction — it cannot be
+    // true in any frame ShowRoundCardFronts would close, and the scenario branch below is still the
+    // only thing that can draw a scenario hand.
+
+    /// <summary>The peer's map-phase loadout, index-aligned with the slabs (empty = unresolved, i.e.
+    /// backs). Models rather than widgets: the map phase has no <c>AbilityCardUI</c> anywhere.</summary>
+    private readonly List<CAbilityCard> _mapBuffer = new(MaxCards);
+
+    /// <summary>Which card id each slab has ALREADY printed on the map path (-1 = none), parallel to
+    /// <see cref="_faces"/>. The scenario path gets its dedup for free — <c>RemoteCardArt.ShowFront</c>
+    /// keys on the live widget's instance id — but a POOLED borrow manufactures a fresh widget every
+    /// call, so calling it per frame would spawn, clone and recycle a card widget per slab per frame.
+    /// This is the same latch <c>MapRoomHand.PrintPendingFaces</c> uses (there it is "does this slot
+    /// have a face object yet"), for the same reason.</summary>
+    private readonly List<int> _mapPrinted = new(MaxCards);
+
+    /// <summary>Card count the map loadout was last resolved for (-1 = never), and the next unscaled
+    /// time the resolve may run again. The resolve walks the party and is NOT a per-frame cost: it
+    /// re-runs on a count change or on this slow cadence, which also picks up a loadout edit made on
+    /// the peer's side while their fan is up.</summary>
+    private int _mapResolvedForCount = -1;
+
+    private float _nextMapResolveAt;
+
+    /// <summary>The map room's own sentence about WHICH tier identified the hand (or why none did),
+    /// written verbatim into the faces diagnostic.</summary>
+    private string _mapVerdict = "not resolved yet";
+
+    /// <summary>The verdict already reported, so the diagnostic fires on a CHANGE of answer rather
+    /// than per resolve.</summary>
+    private string _loggedMapVerdict = string.Empty;
+
+    /// <summary>True while the faces currently up came from <see cref="_mapBuffer"/> (the map phase)
+    /// rather than from <see cref="_handBuffer"/> (a scenario). Drives the borrow, which must read a
+    /// card out of the same buffer the slab's face was drawn from.</summary>
+    private bool _mapFronts;
+
+    /// <summary>Seconds between map-loadout resolves at a steady card count.</summary>
+    private const float MapResolveInterval = 0.5f;
 
     /// <summary>Eased fan-local X (metres) where the OWNER's gaze pierces their fan plane — the
     /// depth-bow apex, tracked here exactly as <c>CardFan.UpdateCardPresentation</c> tracks it
@@ -859,14 +977,19 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     // ------------------------------------------------------------------ front art (gated) --
 
     /// <summary>
-    /// Per-frame anti-cheat gate + front rendering. When <see cref="RevealGate.ShowRoundCardFronts"/>
-    /// is true for the remote actor (never during the secret selection phase), overlay each slab with
-    /// a CLONE of that actor's real hand-card face (<see cref="RemoteCardArt"/>); otherwise show BACKS.
+    /// Per-frame anti-cheat gate + front rendering, with two DISJOINT sources for the face.
+    /// IN A SCENARIO: when <see cref="RevealGate.ShowRoundCardFronts"/> is true for the remote actor
+    /// (never during the secret selection phase), overlay each slab with a CLONE of that actor's real
+    /// hand-card face (<see cref="RemoteCardArt"/>). IN THE MAP PHASE: when
+    /// <see cref="RevealGate.ShowMapPhaseHandFronts"/> is true — which requires the ABSENCE of a
+    /// scenario, so the two can never both be open — overlay each slab with the peer's LOADOUT card,
+    /// identified by the map room (<see cref="ResolveMapFronts"/>). Otherwise show BACKS.
     /// Every game deref is guarded and fails safe to BACKS on any error — no front can leak.
     /// </summary>
     private void UpdateFaces(int count, CPlayerActor? actor)
     {
         bool showFronts = false;
+        bool mapFronts = false;
         int frontCount = 0;
         try
         {
@@ -883,21 +1006,43 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // the same character; when it cannot (no record, unresolvable, secret phase) it hands
             // back the owned character exactly as before.
             //
-            // Also require an actual running scenario before touching the game's hand UI (the clone's
-            // widget lifecycle depends on scenario singletons); off-scenario we simply show backs.
+            // THE SCENARIO PATH also requires an actual running scenario before touching the game's
+            // hand UI (the clone's widget lifecycle depends on scenario singletons). That term is a
+            // CAPABILITY test for ResolveHandFronts and nothing else — see the map-phase note beside
+            // _mapBuffer for the misreading of it that report 4 (2026-08-22) was about.
             if (actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor))
             {
                 ResolveHandFronts(actor);   // fills _handBuffer with the actor's HAND-pile widgets
                 showFronts = _handBuffer.Count > 0;
+            }
+            else if (RevealGate.ShowMapPhaseHandFronts)
+            {
+                // THE MAP PHASE. Disjoint from the branch above by construction (that one needs
+                // InScenario, this one needs its absence), so no frame can take both and no ordering
+                // between them can leak a scenario hand.
+                ResolveMapFronts(count);
+                mapFronts = _mapBuffer.Count > 0;
+                showFronts = mapFronts;
+            }
+            else
+            {
+                ClearMapFronts();
             }
         }
         catch (System.Exception ex)
         {
             // ANY failure → no fronts, backs only (fail-safe = no cheat).
             showFronts = false;
+            mapFronts = false;
             _handBuffer.Clear();
+            ClearMapFronts();
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
         }
+
+        // Which buffer this frame's faces come from, latched for the borrow — a borrow must read the
+        // card out of the SAME buffer the slab's face was drawn from, which is the ModBuild 84 rule
+        // one surface over.
+        _mapFronts = mapFronts;
 
         // THE BORROW PERMISSION IS THIS VERY VERDICT (report 7), latched here rather than
         // re-derived on demand: a borrow that asked its own copy of the rule could answer
@@ -908,22 +1053,38 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         if (!showFronts)
             _handBuffer.Clear();
 
+        while (_mapPrinted.Count < _faces.Count)
+            _mapPrinted.Add(-1);
+
         for (int i = 0; i < _faces.Count; i++)
         {
             RemoteCardArt face = _faces[i];
             // Only slab indices that both (a) are within the built fan and (b) map to a resolved hand
-            // widget with a real full card get a front; everything else stays a back.
-            if (showFronts && i < count && i < _handBuffer.Count)
+            // widget / loadout model with a real card get a front; everything else stays a back.
+            if (showFronts && i < count)
             {
-                AbilityCardUI widget = _handBuffer[i];
-                FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                if (full != null && face.ShowFront(full))
+                if (mapFronts)
                 {
-                    frontCount++;
-                    continue;
+                    if (i < _mapBuffer.Count && PrintMapFace(i, face, _mapBuffer[i]))
+                    {
+                        frontCount++;
+                        continue;
+                    }
+                }
+                else if (i < _handBuffer.Count)
+                {
+                    AbilityCardUI widget = _handBuffer[i];
+                    FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
+                    if (full != null && face.ShowFront(full))
+                    {
+                        frontCount++;
+                        continue;
+                    }
                 }
             }
             face.HideFront();
+            if (i < _mapPrinted.Count)
+                _mapPrinted[i] = -1;
         }
 
         // THE LEAVING HALF IS RE-GATED EVERY FRAME TOO — ON ITS OWN CHARACTER'S VERDICT, NOT THIS
@@ -940,8 +1101,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             bool leavingFronts = false;
             try
             {
-                leavingFronts = _leavingActor != null && RevealGate.InScenario
-                                && RevealGate.ShowRoundCardFronts(_leavingActor);
+                // IN THE MAP PHASE THERE IS NO PER-ACTOR TERM TO GET WRONG, which is the whole reason
+                // this clause is allowed to be so much simpler than the one below it. The map rule
+                // (RevealGate.ShowMapPhaseHandFronts) is a statement about the PHASE — no actor, no
+                // IsUnderMyControl, nothing that can differ between the outgoing character and the
+                // arriving one — so the leaving wave is gated on exactly the same boolean the
+                // arriving half was, and a wipe cannot become a window in which a rule is not
+                // enforced. Without this the outgoing slabs would flip to BACKS the instant a
+                // character swap started, which is the divergence-from-the-scenario the map room's
+                // 1:1 ruling exists to prevent.
+                leavingFronts = RevealGate.ShowMapPhaseHandFronts
+                                || (_leavingActor != null && RevealGate.InScenario
+                                    && RevealGate.ShowRoundCardFronts(_leavingActor));
             }
             catch
             {
@@ -960,16 +1131,130 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // "Remote board content … fronts="), so one hardware log proves the phase rule across all of
         // them at once and a surface that disagrees is visible without a screenshot.
         bool nowFronts = frontCount > 0;
-        if (nowFronts != _frontsShown)
+        // …and ALSO on a change of the map room's VERDICT, whether or not it resolved. A fan that
+        // stays BACKS never crosses the transition above, so without this term the one case the next
+        // hardware round has to be able to read — "the peer is holding a hand we could not name, and
+        // here is why" — would produce no line at all. That is exactly how report 4 arrived with two
+        // 70 MB logs containing nothing about it. Gated on count > 0 so raising and lowering an empty
+        // hand cannot chatter.
+        bool mapNews = RevealGate.InMapPhase && count > 0 && _mapVerdict != _loggedMapVerdict;
+        if (nowFronts != _frontsShown || mapNews)
         {
             _frontsShown = nowFronts;
-            VRLog.Info("Net", nowFronts
-                ? $"Remote hand fan faces [player {_owner.PlayerId}]: FRONTS — content=HAND, " +
-                  $"{frontCount} card(s), gate: RevealGate.ShowRoundCardFronts(actor)=true."
-                : $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — content=HAND, gate: " +
-                  "RevealGate.ShowRoundCardFronts(actor)=false (the game's own secret " +
-                  "SelectAbilityCardsOrLongRest phase) or no hand widget resolved.");
+            _loggedMapVerdict = RevealGate.InMapPhase ? _mapVerdict : string.Empty;
+            if (nowFronts && mapFronts)
+            {
+                VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: FRONTS — "
+                    + $"content=MAP LOADOUT, {frontCount} card(s), gate: "
+                    + "RevealGate.ShowMapPhaseHandFronts=true (no scenario is running, so nothing "
+                    + "secret is being decided — see RevealGate's map-phase block). Hand identified "
+                    + $"by the map room: {_mapVerdict}. No card identity crossed the wire: the only "
+                    + "wire input is the peer's HandCardCount byte, and the faces are borrowed from "
+                    + "this client's OWN ObjectPool by card id.");
+            }
+            else if (nowFronts)
+            {
+                VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: FRONTS — " +
+                    $"content=HAND, {frontCount} card(s), gate: " +
+                    "RevealGate.ShowRoundCardFronts(actor)=true.");
+            }
+            else
+            {
+                VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
+                    + "content=HAND, gate: RevealGate.ShowRoundCardFronts(actor)=false (the game's "
+                    + "own secret SelectAbilityCardsOrLongRest phase) or no hand widget resolved."
+                    + (RevealGate.InScenario
+                        ? string.Empty
+                        : " OFF-SCENARIO, so the MAP-PHASE path is the one that answered: "
+                          + _mapVerdict + "."));
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ map-phase fronts --
+
+    /// <summary>
+    /// Resolve (and cache) the map-phase loadout this peer's fan is holding into
+    /// <see cref="_mapBuffer"/>. The identification itself belongs to the map room — see
+    /// <c>MapRoomHand.TryResolvePeerLoadout</c>, which carries the tiers, their certainty and the
+    /// wire field that would make them exact. Cached because that walk is O(party) and this is
+    /// called every frame: it re-runs when the peer's card COUNT moves (a card ticked on or off, a
+    /// character switch) and otherwise on <see cref="MapResolveInterval"/>, which is what picks up
+    /// an edit that did not change the size.
+    /// </summary>
+    private void ResolveMapFronts(int count)
+    {
+        if (count == _mapResolvedForCount && Time.unscaledTime < _nextMapResolveAt)
+            return;
+        _mapResolvedForCount = count;
+        _nextMapResolveAt = Time.unscaledTime + MapResolveInterval;
+
+        int before = _mapBuffer.Count;
+        int firstBefore = before > 0 && _mapBuffer[0] != null ? _mapBuffer[0].ID : 0;
+        // The peer's own statement of WHICH character their fan is showing, when their build sends
+        // one (extension record 20, ModBuild 226). 0 from an older peer, and then the resolver falls
+        // back to deducing the owner from the hand size exactly as it did before the field existed.
+        RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
+        WorldUI.MapRoom.MapRoomHand.TryResolvePeerLoadout(
+            _owner.PlayerId, count, characterKey, _mapBuffer, out _mapVerdict);
+        int firstAfter = _mapBuffer.Count > 0 && _mapBuffer[0] != null ? _mapBuffer[0].ID : 0;
+
+        // A DIFFERENT HAND MUST NOT INHERIT THE OLD HAND'S PRINTS. The per-slab latch below is what
+        // keeps the pooled borrow off the per-frame path, so it has to be invalidated whenever the
+        // resolved set can have moved under it — the cheap, always-safe test is "the size or the
+        // leading card changed", and a false positive costs one re-print pass.
+        if (_mapBuffer.Count != before || firstAfter != firstBefore)
+        {
+            for (int i = 0; i < _mapPrinted.Count; i++)
+                _mapPrinted[i] = -1;
+        }
+    }
+
+    /// <summary>Drop the map-phase resolution (leaving the slabs to fall back to backs) — used on
+    /// every frame that is not a map phase and on any error, so a resolution can never survive into
+    /// a scenario where the scenario gate is the only one allowed to speak.</summary>
+    private void ClearMapFronts()
+    {
+        // Idempotent AND cheap: this is called on every frame of every scenario, for every peer, so
+        // the steady state must be one integer compare and nothing else.
+        if (_mapResolvedForCount < 0 && _mapBuffer.Count == 0)
+            return;
+        _mapBuffer.Clear();
+        _mapResolvedForCount = -1;
+        _mapVerdict = "not in the map phase";
+        for (int i = 0; i < _mapPrinted.Count; i++)
+            _mapPrinted[i] = -1;
+    }
+
+    /// <summary>
+    /// Print <paramref name="card"/>'s real face on slab <paramref name="index"/> from the game's own
+    /// pool, at most once per (slab, card). Returns true iff a front is up on that slab.
+    ///
+    /// <para>THE LATCH IS LOAD-BEARING, not an optimisation. <c>RemoteCardArt</c> dedups on the
+    /// SOURCE widget's instance id, and the map path's source is a widget borrowed from and returned
+    /// to the pool inside a single call — a fresh instance every time — so the dedup can never hit
+    /// and an unlatched call would spawn, configure, clone and recycle a card widget per slab per
+    /// frame, for every peer. Exactly the cost <c>RemoteAbilityCardSource</c>'s own COST NOTE warns
+    /// about and the reason <c>MapRoomHand.PrintPendingFaces</c> carries the same latch locally. A
+    /// slot the pool refuses stays at -1 and is retried on the next frame, which is the fail-safe:
+    /// a card BACK, never a blank quad.</para>
+    /// </summary>
+    private bool PrintMapFace(int index, RemoteCardArt face, CAbilityCard? card)
+    {
+        if (card == null)
+            return false;
+        if (index < _mapPrinted.Count && _mapPrinted[index] == card.ID)
+        {
+            // The steady-state upkeep the scenario path gets from ShowFront's dedup arm: the clone's
+            // header art arrives async, so the mip bake has to keep rescanning.
+            face.MaintainMipBake();
+            return true;
+        }
+        if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
+            return false;
+        if (index < _mapPrinted.Count)
+            _mapPrinted[index] = card.ID;
+        return true;
     }
 
     /// <summary>
@@ -1436,6 +1721,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 _faces[i].Destroy();
             _faces.Clear();
             _cards.Clear();
+            _mapPrinted.Clear();   // index-aligned with _faces; stale entries would claim prints that no longer exist
             // The outgoing wave hung off the same dead root — drop its bookkeeping with the rest, or
             // TickSwap would drive destroyed transforms every frame (the very defect this heal
             // exists for, one list over).
@@ -1605,6 +1891,9 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();
+        // The per-slab map-print latch is INDEX-ALIGNED with _faces, so it dies with them: a fresh
+        // slab must re-print rather than inherit the id of the slab that used to be at its index.
+        _mapPrinted.Clear();
 
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
@@ -1727,6 +2016,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // Drop any cloned fronts so a hidden hand keeps no game-widget clones alive.
         for (int i = 0; i < _faces.Count; i++)
             _faces[i].HideFront();
+        // …and with the fronts gone, the map-print latch is a lie about what is on the slabs.
+        for (int i = 0; i < _mapPrinted.Count; i++)
+            _mapPrinted[i] = -1;
+        _mapFronts = false;
+        _borrowGateOpen = false;
         if (_frontsShown)
         {
             _frontsShown = false;

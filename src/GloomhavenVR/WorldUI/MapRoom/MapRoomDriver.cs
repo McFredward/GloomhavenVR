@@ -489,6 +489,15 @@ internal static class MapRoomDriver
         // Hand the game's travel options back before the room disappears under them — a container
         // left parented into a host we are about to destroy would take the Reisen button with it.
         MapTravelConfirm.Reset();
+        // AND THE ROOM'S WINDOWS GO WITH THE ROOM (ModBuild 226, user report 16: "Als ich dann zu
+        // einem Szenario gejoint bin, habe ich dort zwei Fenster gesehen, die dort NICHT hingehören
+        // … Beides Fenster aus der 3D-Map-Umgebung"). Deliberately AFTER MapTravelConfirm.Reset —
+        // the travel container is parented INTO one of these windows and has to be handed back
+        // before its host is released, or it goes home through a host that no longer exists — and
+        // BEFORE the room's own furniture, so the sweep still runs even if a later release throws.
+        // The count and the names are logged every time, including zero. See ReleaseMapRoomFloats
+        // for the hardware evidence that a released float is not a closed window.
+        ModalFallback.ReleaseMapRoomFloats(reason);
         Parchment.Release(reason);
         FlatScreenStereo.MapRoomOwnsParchment = false;
         VRLog.Info(Scope, $"MAP ROOM stood down ({reason}) — parchment materials restored, icon command "

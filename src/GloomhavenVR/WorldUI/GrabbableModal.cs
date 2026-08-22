@@ -111,6 +111,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
+    private Transform? _visual;                 // THE DRAWN pose — see the REMOTE POSE EASING block
     private Transform? _bar;
 
     private BoxCollider? _grabZone;
@@ -144,7 +145,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// mis-sized; the owner recomputes it from the fitted width and pushes it here. The next
     /// <see cref="Tick"/> applies it (host localScale = mpp × worldScale × extraScale × factor).
     /// </summary>
-    internal void SetExtraScale(float extraScale) => _extraScale = extraScale;
+    /// <para>IT ALSO ENDS ANY IN-FLIGHT REMOTE GLIDE. A content re-fit is a SIZE change, and the
+    /// user requirement is that a resize snaps rather than crawls (a glide would additionally be
+    /// measured by <c>PanelPoseWatch</c>'s size-change assertion as the resize DISPLACING the
+    /// window, which it did not).</para>
+    internal void SetExtraScale(float extraScale)
+    {
+        if (!Mathf.Approximately(extraScale, _extraScale))
+        {
+            _easing = false;
+            _visualValid = false;
+        }
+        _extraScale = extraScale;
+    }
 
     /// <summary>
     /// Build the grab affordance for a freshly floated, freshly placed modal host. The
@@ -175,16 +188,59 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Re-seat the frame (and thus the whole panel) at a fresh pose — used on presence
-    /// regain (RefloatOpenWindows), where the user may have physically moved while the HMD
-    /// was off and a menu stranded out of view would be un-dismissable.
+    /// Re-seat the frame (and thus the whole panel) at a fresh pose — the ONE entry point every
+    /// external pose writer uses: the spawn / presence-regain refloat / pre-reveal re-place
+    /// (<c>ModalFallback.ComputeHmdPose</c>'s three callers) and the two multiplayer pose appliers
+    /// (<c>Net.RemoteStorySync</c> record 19, <c>Net.RemoteMapStory</c> record 21).
+    ///
+    /// <para><b>THE FRAME IS ALWAYS WRITTEN IMMEDIATELY AND EXACTLY.</b> What may be eased is the
+    /// DRAWN pose, and only for a remote-driven shared window — see the REMOTE POSE EASING block for
+    /// the whole design, and in particular for why easing the frame itself would have been the
+    /// wrong lever.</para>
     /// </summary>
     internal void PlaceFrameAt(Vector3 position, Quaternion rotation)
     {
         EnsureFrame();
         if (_frame == null)
             return;
+        // THE EXACT DISCRIMINATOR, not a distance heuristic. Every LOCAL placement path funnels
+        // through ModalFallback.ComputeHmdPose, which announces itself to the pose lock
+        // (PanelPoseWatch.Announce(Writer.Placement)) in the same frame it hands the pose to the
+        // caller that writes it. The two NET appliers announce nothing. So "a mod placement is
+        // happening this frame" is a fact already recorded next door, and asking it is what makes
+        // "opened / re-seated ⇒ snap" and "a peer dragged it ⇒ glide" separable WITHOUT a magnitude
+        // threshold — which would have been exactly wrong here, since today a whole drag arrives as
+        // ONE large jump (see the block below) and a threshold would snap the one case that must
+        // glide.
+        bool ease = _shared
+                    && !IsGrabbed
+                    && _visualValid
+                    && _panel != null && _panel.IsAlive && !_panel.RenderHidden && !_panel.RevealPending
+                    && !PanelPoseWatch.PlacementAnnounced(_panel);
         _frame.SetPositionAndRotation(position, rotation);
+        _easing = ease;
+        if (ease)
+            PeerPlaced = true;
+        Tick();
+    }
+
+    /// <summary>
+    /// Re-seat the frame AND the drawn pose in one step, with no easing under any circumstances —
+    /// the pose lock's restore path (<see cref="PanelPoseWatch"/>'s <c>Refuse</c>).
+    ///
+    /// <para>A restore is a CORRECTION of a write the ruling refuses, so it has to be instant: a
+    /// glide would put the window visibly somewhere the lock has already decided it may not be, and
+    /// the lock re-measures against its own locked pose on the very next frame, which an in-flight
+    /// glide would read as a further unattributed write.</para>
+    /// </summary>
+    internal void SnapFrameTo(Vector3 position, Quaternion rotation)
+    {
+        EnsureFrame();
+        if (_frame == null)
+            return;
+        _frame.SetPositionAndRotation(position, rotation);
+        _easing = false;
+        _visualValid = false;   // the next Tick pins the drawn pose to the frame outright
         Tick();
     }
 
@@ -236,9 +292,35 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // exactly where it was put; only the orientation is re-derived, through the same
     // PanelPlacement.Facing the spawn placement uses, so a moved window reads identically to a
     // freshly floated one.
+    //
+    // ── 2026-08-22: THAT PARAGRAPH IS NOW THE "Always" MODE, NOT THE RULE ────────────────────────
+    //
+    // TWO SEPARATE USER STATEMENTS BOUND IT, and they are gated in that order below.
+    //
+    // (7b) A SHARED WINDOW NEVER RE-FACES, ON ANY CLIENT, AND THIS IS NOT CONFIGURABLE. Verbatim:
+    //      "Da es ein Fenster für alle ist, sollen diese Fenster nach dem Greifen auch nicht die
+    //      Orientierung nach dem Spieler ändern, wie es die anderen Fenster tun." … "Das gilt wie
+    //      gesagt nur für die lokalen Fenster, Remote-Fenster (blau) sollen das gar nicht haben."
+    //      The rotation on a window that belongs to everybody is a shared fact: correcting it toward
+    //      the person who last moved it turns it AWAY from everyone else. And it is worse than
+    //      cosmetic on the SENDER — the pose that record 19/21 published is corrected locally one
+    //      frame later, so the two clients no longer agree about a pose that is supposed to be 1:1.
+    //      This gate therefore sits FIRST and outranks the dial.
+    //
+    // (8) FOR LOCAL WINDOWS IT IS A THREE-WAY SETTING, [WorldUI] WindowFacing (see WindowFaceMode
+    //     for the request verbatim and why the axis is the grab MODALITY): LaserOnly (the user's own
+    //     default), Always, Never. The modality comes from PanelGrabHandle.LastGrabWasLaser, which
+    //     is latched from the grabber's own identity at the gesture start — never guessed from how
+    //     far away the hand was.
+    //
+    // WHAT IS NOT TOUCHED: this is a ONE-SHOT ON RELEASE in every mode. Nothing here makes a window
+    // follow the head, and the standing project rule that nothing re-orients with head movement is
+    // unaffected.
     void IPanelGrabOwner.OnGrabFinished()
     {
         if (_frame == null)
+            return;
+        if (!WantsReFaceOnRelease())
             return;
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)
@@ -260,6 +342,57 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     /// <summary>Below this the released panel already faces the player — no snap, no log.</summary>
     private const float ReFaceEpsilonDeg = 0.5f;
+
+    /// <summary>
+    /// Does THIS release re-derive the facing? The two gates of the block above, in order:
+    /// the non-negotiable shared-window rule first, the player's dial second.
+    ///
+    /// <para>Logged once per refused release rather than silently, because "my window did not turn"
+    /// and "my window turned" are the same complaint from opposite directions and the log has to say
+    /// which rule decided it — the shared-window rule reads identically to the Never mode from the
+    /// outside, and confusing the two would send the next round looking at the wrong file.</para>
+    /// </summary>
+    private bool WantsReFaceOnRelease()
+    {
+        if (_shared)
+        {
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move and NOT re-faced " +
+                                  "— it is a SHARED (blue-bar) window, whose orientation belongs to " +
+                                  "the whole room. Turning it toward the player who moved it would " +
+                                  "turn it away from everyone else, and it would silently disagree " +
+                                  "with the pose this client just published on the wire. This is the " +
+                                  "user's own rule ('Remote-Fenster (blau) sollen das gar nicht " +
+                                  "haben') and it is NOT what [WorldUI] WindowFacing configures.");
+            return false;
+        }
+
+        WindowFaceMode mode = WorldUIConfig.WindowFacing != null
+            ? WorldUIConfig.WindowFacing.Value
+            : Defaults.WindowFacing;   // a release before Bind completed (scene load): ship the default
+        if (mode == WindowFaceMode.Always)
+            return true;
+        if (mode == WindowFaceMode.Never)
+        {
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move and NOT re-faced " +
+                                  "— [WorldUI] WindowFacing is Never, so a released window keeps " +
+                                  "exactly the orientation it was let go at.");
+            return false;
+        }
+
+        // LaserOnly (default). A laser carry translates only — PanelGrabHandle's laser branch writes
+        // position and returns — so the window arrives still facing the way it used to and would be
+        // read edge-on; that is the case the snap exists for. A HAND carry has already yawed the
+        // window with the wrist for the whole drag, so the player aimed it themselves.
+        bool laser = _handle != null && _handle.LastGrabWasLaser;
+        if (!laser)
+            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a HAND move and NOT " +
+                                  "re-faced — [WorldUI] WindowFacing is LaserOnly (the default): a " +
+                                  "hand carry yaws the window with your wrist for the whole drag, so " +
+                                  "the orientation you let go at is the one you aimed. A LASER drag " +
+                                  "on the same window still snaps round, because that carry never " +
+                                  "rotates it at all.");
+        return laser;
+    }
 
     // ---- per-frame follow -------------------------------------------------------------------
 
@@ -305,12 +438,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
 
+        // REMOTE POSE EASING: advance (or pin) the DRAWN pose before anything reads it this frame.
+        // Exactly ONE advance per frame, here, so the LateUpdate re-sync below cannot double the
+        // rate. See the REMOTE POSE EASING block.
+        AdvanceVisual(factor);
+
         Transform host = _panel.HostGo.transform;
-        SyncHostToFrame(host, factor, metersPerPixel, worldScale);
+        SyncHostToFrame(host, metersPerPixel, worldScale);
         // POSE-GAP INSTRUMENT (see LateSyncHost): remember what UPDATE published, so the LateUpdate
         // re-sync can say how far the window moved in between — i.e. how stale the pose is for every
         // consumer that samples it during Update.
-        _updatePos = host.position;
+        _updatePos = _visualPos;
         _updatePosValid = true;
 
         // DIAG SPAM FIX: while the host is being carried/moved, its position changes every
@@ -330,13 +468,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Copy the frame pose/scale onto the game-owned host (shared by the Update-time
+    /// Copy the DRAWN pose/scale onto the game-owned host (shared by the Update-time
     /// <see cref="Tick"/> and the LateUpdate re-sync in <see cref="HostLateSync"/>).
+    ///
+    /// <para>The drawn pose is the grab frame's for every window that is not gliding — see
+    /// <see cref="AdvanceVisual"/>, which is what makes <c>_visual*</c> and the frame identical in
+    /// every other case, so this method's output is unchanged for every private window.</para>
     /// </summary>
-    private void SyncHostToFrame(Transform host, float factor, float metersPerPixel, float worldScale)
+    private void SyncHostToFrame(Transform host, float metersPerPixel, float worldScale)
     {
-        host.SetPositionAndRotation(_frame!.position, _frame.rotation);
-        host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * factor);
+        host.SetPositionAndRotation(_visualPos, _visualRot);
+        host.localScale = Vector3.one * (metersPerPixel * worldScale * _extraScale * _visualScale);
     }
 
     /// <summary>
@@ -365,6 +507,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         Transform host = _panel.HostGo.transform;
+        // THE RE-PIN, and NOT a second easing step. The whole reason this method exists is that
+        // PanelGrabHandle moves the FRAME from its own Update in undefined order against ours, so
+        // the drawn pose has to be re-derived after every Update ran. For a window that is not
+        // gliding that means "copy the frame" — byte-for-byte what this method did before the
+        // easing existed. For one that IS gliding the drawn pose was already advanced in Tick and
+        // must be left exactly as it is: advancing it again here would run the glide at twice the
+        // intended rate and make it frame-order dependent, which is the very class of bug this
+        // method was written to close.
+        if (!_easing || !_visualValid)
+            PinVisualToFrame(factor);
 
         // POSE-GAP INSTRUMENT (ModBuild 199, CORRECTED in ModBuild 200). The re-sync below exists
         // because the frame can move AFTER the module's Update. This measures how much it actually
@@ -387,10 +539,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // the host is about to be given on the next line, minus the pose it has been carrying all
         // frame. Still windows still read 0 (the frame did not move); only a drag can move the
         // needle, which is exactly the interval under suspicion. Two floats and a subtract.
-        float unit = metersPerPixel * _spawnWorldScale * _extraScale * factor;
+        //
+        // ModBuild 226: the subject is the DRAWN pose on both ends of the subtraction, not the frame.
+        // The quantity the instrument names is "how far the window moved between Update publishing
+        // it and the eye being shown it", and since the easing landed that is the drawn pose by
+        // definition — the frame can now be ahead of the picture on purpose (a remote glide), which
+        // is not staleness and must not be reported as it. For every window that is not gliding the
+        // drawn pose IS the frame (PinVisualToFrame ran two lines up), so the number is unchanged.
+        float unit = metersPerPixel * _spawnWorldScale * _extraScale * _visualScale;
         if (_updatePosValid && unit > 1e-9f)
         {
-            float gapPx = Vector3.Distance(_frame.position, _updatePos) / unit;
+            float gapPx = Vector3.Distance(_visualPos, _updatePos) / unit;
             _panel.PoseGapSamples++;
             _panel.PoseGapSumPx += gapPx;
             if (gapPx > _panel.PoseGapWorstPx)
@@ -400,8 +559,176 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
         _updatePosValid = false;
 
-        SyncHostToFrame(host, factor, metersPerPixel, _spawnWorldScale);
+        SyncHostToFrame(host, metersPerPixel, _spawnWorldScale);
     }
+
+    // ---- REMOTE POSE EASING -----------------------------------------------------------------
+    //
+    // USER REQUEST 7a (2026-08-22, verbatim):
+    //
+    //   "Die Bewegungen der 'blauen' MP-Fenster, die 1:1 synchronisiert werden sollen, sollen auch
+    //    die Bewegung und die Position voll übertragen (flüssig, wie bei der Position des Boards
+    //    auch)!"
+    //
+    // WHAT THE BOARD DOES THAT THIS WINDOW DID NOT. The remote control board is smooth because of
+    // TWO mechanisms, and the window had NEITHER:
+    //   1. THE RECEIVER EASES. Net.RemoteControlBoard.Tick does not assign the synced pose; it
+    //      Lerp/Slerps toward it every frame at k = 1 − exp(−NetProtocol.InterpolationSharpness·dt)
+    //      and snaps only on the first apply (_poseInit), so a fresh board never flies in from the
+    //      origin. Its scale rides the SAME k — defect (e) of that round was exactly a board that
+    //      "glides while it moves and stutters while it zooms", because the scale was assigned while
+    //      the pose was eased.
+    //   2. THE SENDER RAISES ITS CADENCE WHILE THE THING MOVES. NetAvatarDriver.TickExtrasSend's
+    //      boardMoving/poseDue pair puts the whole extras packet on the rig rate (15 Hz) for as long
+    //      as the board's pose keeps changing, and back on 5 Hz the moment it settles.
+    // The shared window ASSIGNED its pose (this class's PlaceFrameAt, called straight from
+    // Net.RemoteMapStory / Net.RemoteStorySync) at whatever rate the record arrived. Half of the fix
+    // is here; the sender half is in NetAvatarDriver, keyed on SharedWindows.AnyGrabbedHere().
+    //
+    // WHY THE DRAWN POSE AND NOT THE FRAME — this is the load-bearing decision of the whole block.
+    // The obvious implementation is to ease the grab FRAME toward the received pose. It would have
+    // broken the sync outright, for two independent reasons, both in a file this lane does not own:
+    //   * Net.RemoteMapStory.TrackFrame decides "a hand here moved this window" by watching the grab
+    //     frame drift away from a baseline it records when it applies a remote pose — and the
+    //     baseline it records is the FINAL pose. An eased frame is not at that pose for the next
+    //     ~200 ms, so every remote apply would have been read back as a LOCAL user move: it sets
+    //     local.Moving, and ResolvePose's first line is `if (local.Moving) return;`. The client
+    //     would apply one pose and then refuse every following one for the rest of the drag.
+    //   * When the (self-inflicted) move "settled", the same path bumps the pose stamp and this
+    //     client would become the room's LAST MOVER — publishing a pose nobody made, which the
+    //     original dragger then follows. A stamp war built out of an animation.
+    // Easing the drawn pose leaves the frame exactly where the sender's arithmetic expects it: the
+    // frame is the AUTHORITY (it is what TryReadFrame samples, what PanelPoseWatch locks, what the
+    // grab handle carries) and _visual is the PICTURE. The bar hangs under _visual for the same
+    // reason — a bar that stepped while its window glided would be worse than either alone.
+    //
+    // WHAT THE SPLIT COSTS, stated so the next reader does not have to find it: the palm grab ZONE
+    // sits on the frame, so while a glide is in flight the near-grab volume is up to the glide error
+    // ahead of the visible bar (tens of milliseconds, centimetres at most, and only on a window a
+    // remote player is dragging out from under you). The LASER bar collider is on the bar itself and
+    // therefore always agrees with the picture, which is the one that matters — you aim at what you
+    // can see.
+    //
+    // CONVERGENCE. k = 1 − exp(−λ·dt) is the frame-rate-independent exponential: the error decays by
+    // a factor e every 1/λ = 66 ms whatever the frame rate, monotonically, and never overshoots
+    // (k ∈ (0,1) ⇒ the result is strictly between the current pose and the target). Against a
+    // CONTINUOUS stream it does not fall behind without bound either — the steady-state lag of a
+    // first-order filter tracking a constant velocity v is v/λ, i.e. 3 cm at a brisk 0.5 m/s — and
+    // the instant the drag stops that residue decays to nothing. It also TERMINATES rather than
+    // crawling: below one authored window pixel of position error (the smallest gap that can move a
+    // rendered texel — the same unit and the same threshold the pose-gap instrument above reports
+    // in) plus a tenth of a degree, the glide is ended and the drawn pose pinned to the frame
+    // outright. And it never runs at all for the cases the requirement calls out — opened, resized
+    // or re-seated all pin instead (see PlaceFrameAt, SetExtraScale, SnapFrameTo and Build).
+    //
+    // IT DOES NOT FIGHT PanelPoseWatch. The lock's subject is the grab frame, which this never
+    // touches; the frame is written once, exactly, by the same external writer as before, and that
+    // writer is already announced (ModalFallback's placements announce Writer.Placement, the two net
+    // appliers are attributed Writer.Peer through ModalFallback.9.Spawn's peerOwned predicate).
+    //
+    // REJECTED, and why:
+    //   * EASE THE FRAME. The two-paragraph reason above. This is the trap.
+    //   * A DISTANCE THRESHOLD to tell "a remote drag step" from "a re-seat" ("snap if it jumped
+    //     more than X"). Rejected: with today's sender a whole drag arrives as ONE large jump (see
+    //     the note in PlaceFrameAt), so a threshold would snap precisely the case that must glide.
+    //     The announce token is an exact answer where the threshold was a guess.
+    //   * RAISING ExtrasSendRateHz for everybody. Rejected — bandwidth is a shared budget and the
+    //     board already showed the right shape: raise the cadence only while something is moving.
+    //   * AN INTERPOLATION BUFFER (hold the last two samples and play them back one interval late).
+    //     Rejected for the reason the board rejected it: it buys exactness at the price of a fixed
+    //     added latency on a pose a human is dragging, and the project already has one accepted
+    //     answer to this exact question.
+
+    /// <summary>
+    /// Advance the DRAWN pose one frame — or pin it to the grab frame, which is what happens for
+    /// every window that is not gliding and therefore in every session without multiplayer.
+    /// </summary>
+    private void AdvanceVisual(float targetFactor)
+    {
+        if (_frame == null)
+            return;
+
+        // A HAND ON THE BAR IS ALWAYS 1:1. A carry that lagged the palm would feel like rubber, and
+        // the sender must publish exactly the pose the dragging player is looking at.
+        if (IsGrabbed)
+            _easing = false;
+
+        if (!_easing || !_visualValid)
+        {
+            PinVisualToFrame(targetFactor);
+            return;
+        }
+
+        // Unscaled: a floated window must keep gliding while the game's own clock is stopped (a
+        // halted ActionProcessor, a pause), and none of this is game state.
+        float dt = Mathf.Max(Time.unscaledDeltaTime, 0f);
+        float k = 1f - Mathf.Exp(-Net.NetProtocol.InterpolationSharpness * dt);
+        _visualPos = Vector3.Lerp(_visualPos, _frame.position, k);
+        _visualRot = Quaternion.Slerp(_visualRot, _frame.rotation, k);
+        // SCALE RIDES THE SAME k — the remote board's defect (e) ("das Bewegen ist jetzt flüssig,
+        // aber das Skalieren/Zoomen des Bretts nicht") was exactly an eased pose beside an assigned
+        // scale. A remote resize arrives in the same record as the pose; move and zoom are one
+        // motion here too.
+        _visualScale = Mathf.Lerp(_visualScale, targetFactor, k);
+
+        // TERMINATION — one authored window pixel and a tenth of a degree. Below that there is
+        // nothing left for the eye, so the glide ENDS instead of crawling toward a limit it never
+        // reaches. metersPerPixel × the panel's own scale chain is the world size of one authored
+        // pixel, i.e. the same unit the pose-gap instrument reports in.
+        float unit = WorldUIConfig.CanvasScaleMm.Value * 0.001f
+                     * _spawnWorldScale * _extraScale * Mathf.Max(_visualScale, 1e-4f);
+        bool arrived = Vector3.Distance(_visualPos, _frame.position) <= unit * PoseGapThresholdPx
+                       && Quaternion.Angle(_visualRot, _frame.rotation) <= ArrivedDegrees
+                       && Mathf.Abs(_visualScale - targetFactor) <= ArrivedScale;
+        if (arrived)
+        {
+            PinVisualToFrame(targetFactor);
+            return;
+        }
+        WriteVisual();
+    }
+
+    /// <summary>A residual rotation error below this cannot be seen at reading distance — matches
+    /// <see cref="PanelPoseWatch.TurnEpsilonDeg"/>'s order of magnitude, deliberately tighter so the
+    /// glide can never end ON the lock's own noise floor.</summary>
+    private const float ArrivedDegrees = 0.1f;
+
+    /// <summary>A residual size-factor error below this is under the wire's own quantization step
+    /// (<c>NetProtocol.EncodeStorySize</c>), so it cannot describe a size any peer actually sent.</summary>
+    private const float ArrivedScale = 0.002f;
+
+    /// <summary>Drawn pose := grab frame, glide over. The state every private window is in on every
+    /// frame of its life.</summary>
+    private void PinVisualToFrame(float factor)
+    {
+        if (_frame == null)
+            return;
+        _visualPos = _frame.position;
+        _visualRot = _frame.rotation;
+        _visualScale = factor;
+        _visualValid = true;
+        _easing = false;
+        WriteVisual();
+    }
+
+    /// <summary>Push the drawn pose onto the transform the bar hangs under. The holder is at
+    /// identity pose and identity scale (the deadlock fix), so world and local agree here.</summary>
+    private void WriteVisual()
+    {
+        if (_visual == null)
+            return;
+        _visual.SetPositionAndRotation(_visualPos, _visualRot);
+        _visual.localScale = Vector3.one * _visualScale;
+    }
+
+    // REMOTE POSE EASING state. _visualValid false = "nothing drawn yet", which pins on the next
+    // tick; _easing is armed ONLY by PlaceFrameAt, and only for a revealed shared window whose write
+    // no local placement announced.
+    private bool _visualValid;
+    private bool _easing;
+    private Vector3 _visualPos;
+    private Quaternion _visualRot = Quaternion.identity;
+    private float _visualScale = 1f;
 
     /// <summary>One authored window pixel — the smallest gap that can move a rendered texel.</summary>
     internal const float PoseGapThresholdPx = 1f;
@@ -541,6 +868,28 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// change gate below is closed for every window that is not shared.</summary>
     private Color _barTint = PrivateBarColor;
 
+    /// <summary>Is this window SHARED for this client right now — <see cref="SharedWindows.IsShared"/>
+    /// as of the last tick. False for every window in a single-player session and for every private
+    /// window in a multiplayer one, so both behaviours it gates (the release re-face and the remote
+    /// pose easing) are inert there. Written only by <see cref="SyncSharedBarTint"/>; see the note
+    /// there for why it is cached rather than asked.</summary>
+    private bool _shared;
+
+    /// <summary>
+    /// Has a REMOTE player's pose ever been applied to this window? Latched by
+    /// <see cref="PlaceFrameAt"/> on the easing path and never cleared while the window floats — the
+    /// peer analogue of <see cref="UserMoved"/>.
+    ///
+    /// <para>NOTHING IN THIS LANE READS IT YET, and that is deliberate rather than an oversight. It
+    /// exists for the presence-regain refloat (<c>ModalFallback.RefloatOpenWindows</c>, a file this
+    /// lane does not own), which skips a window the LOCAL player moved ("parked windows stay put")
+    /// but not one a REMOTE player placed — so a doff/don currently yanks a shared window back to
+    /// this player's gaze and, being a real user act, then publishes that pose to the room. The
+    /// argument for the skip is identical to <see cref="UserMoved"/>'s, with "a user" widened to
+    /// "any user"; the one-line condition is <c>wp.Grab.UserMoved || wp.Grab.PeerPlaced</c>.</para>
+    /// </summary>
+    internal bool PeerPlaced { get; private set; }
+
     /// <summary>
     /// Re-evaluate whether <paramref name="window"/> is shared FOR THIS CLIENT right now, and paint
     /// the grab bar accordingly. Called once per tick per floated window; see the block above.
@@ -554,6 +903,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // that says which kind that window was and whether this client took part in its sync.
         SharedWindowKind kind = SharedWindows.KindOf(window);
         bool shared = kind != SharedWindowKind.None && SharedWindows.ParticipatesHere(kind);
+        // THE SAME ANSWER, CACHED FOR THE TWO CONSUMERS THAT CANNOT SEE THE UIWindow (2026-08-22,
+        // requests 7a and 7b): the release re-face gate (OnGrabFinished) and the remote pose easing
+        // (PlaceFrameAt). Both are called from paths that hold the mod-owned grab and NOT the game
+        // window — the grab handle's release edge and the two net appliers — so neither can ask
+        // SharedWindows itself. This is the one place per tick that knows both halves (it is called
+        // from ModalFallback.Tick immediately before Tick(), with the window in hand), and the cached
+        // answer is therefore at most one frame old — which is the same staleness the BAR COLOUR
+        // already carries, so a window whose grab bar is blue is exactly a window that will not
+        // re-face. Recomputing it per release rather than caching would need this class to store the
+        // UIWindow, i.e. a second reference to a game object whose lifetime ModalFallback owns.
+        _shared = shared;
         Color wanted = shared ? SharedWindows.BarTint : PrivateBarColor;
         if (wanted == _barTint)
             return;
@@ -573,6 +933,33 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (_holder != null && _frame != null)
             return;
 
+        // NOTHING IS BUILT FOR AN UNBUILT MODAL (ModBuild 226), and this guard is the belt to the
+        // ModBuild-226 braces. The user, verbatim: "Als mein Mitspieler gejoint ist, kam ein LEERES
+        // FENSTER auf - sowas soll per se niemals passieren." Those were grab bars with no window:
+        // ModalFallback.8.Convert used to construct a GrabbableModal for every float and skip
+        // Build() only for hover cards — then store the unbuilt object in wp.Grab anyway. Two
+        // callers reach PlaceFrameAt on it, PlaceFrameAt calls this, and this built a holder, a
+        // brass bar and a collider around `_panel == null`: never sized (Tick returns before
+        // SyncBar), never ordered, never render-hidden, and never moved with the card the bar was
+        // supposed to belong to. The log named all 204 of them by the field initialiser they still
+        // carried — `MODAL GRAB: 'Menu'`, `_logName`'s value when Build never ran.
+        //
+        // The real repair is at the source (no GrabbableModal is constructed for a hover card any
+        // more), so this branch is expected to be DEAD. It is here because the failure it prevents
+        // is invisible: an unbuilt modal produces furniture that looks exactly like a real window's
+        // and behaves like nothing at all, and there is no other place in the class that could
+        // notice. Cheap, and it turns a silent absurdity into a refusal with a name.
+        if (_panel == null)
+        {
+            VRLog.Warn("WorldUI", $"MODAL GRAB REFUSED for '{_logName}': EnsureFrame was reached on a "
+                                  + "GrabbableModal whose Build() never ran, so there is no panel for "
+                                  + "a frame to carry. Nothing is created. This is the empty-grab-bar "
+                                  + "defect of ModBuild 225 and it should be UNREACHABLE since 226 — "
+                                  + "if this line is in the log, a caller is constructing a modal it "
+                                  + "does not build and then placing it.");
+            return;
+        }
+
         var holderGo = new GameObject($"GloomhavenVR.ModalGrab_{_logName}");
         _holder = holderGo.transform;
         // DRAG-FLICKER FIX: LateUpdate re-sync of the host from the frame — see LateSyncHost.
@@ -581,6 +968,13 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         var frameGo = new GameObject("Frame");
         _frame = frameGo.transform;
         _frame.SetParent(_holder, worldPositionStays: false);
+
+        // THE DRAWN POSE (see the REMOTE POSE EASING block). A SIBLING of the frame, not a child:
+        // it must be able to lag behind it, which a child cannot. Identical to the frame in every
+        // frame of every window that is not gliding, which is every window outside multiplayer.
+        var visualGo = new GameObject("Visual");
+        _visual = visualGo.transform;
+        _visual.SetParent(_holder, worldPositionStays: false);
 
         var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
         bar.name = "Bar";
@@ -594,7 +988,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         var barCollider = bar.GetComponent<BoxCollider>();
         barCollider.isTrigger = true;
         barCollider.size = new Vector3(1f, BarColliderPad, BarColliderPad);
-        bar.transform.SetParent(_frame, worldPositionStays: false);
+        // Under the DRAWN pose, not the frame: the visible bar and the window it belongs to must
+        // move as one object, and a glide moves the window. Its local numbers are unchanged —
+        // _visual carries the same localScale (the user grab factor) the frame does, so SyncBar's
+        // frame-local metres still mean what they meant.
+        bar.transform.SetParent(_visual, worldPositionStays: false);
         bar.transform.localScale = new Vector3(0.2f, BarThickness, BarThickness);
         var mr = bar.GetComponent<MeshRenderer>();
         // Item 3: opaque brass that OCCLUDES the menu. The bundled GloomhavenVR/Overlay shader
@@ -673,8 +1071,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             Object.Destroy(_holder.gameObject);
         _holder = null;
         _frame = null;
+        _visual = null;
         _bar = null;
         _grabZone = null;
         _handle = null;
+        _visualValid = false;
+        _easing = false;
     }
 }

@@ -527,6 +527,57 @@ internal static class MapTravelConfirm
     private static FieldInfo? _travelOptions;
     private static FieldInfo? _travelButton;
 
+    // ---- ModBuild 226: THE ONLINE CONFIRM IS A DIFFERENT OBJECT, AND IT IS THE SAME ACT ----------
+    //
+    // USER REPORT (2026-08-22), verbatim: "Im Test waren der 'Quest Beginnen'-Button und das
+    // Quest-Fenster separate 'Fenster' - nicht wie zuvor wie gewollt, dass der Button auf der Quest
+    // angezeigt wird. Siehe Button_getrennt.jpg."
+    //
+    // THE ModBuild 225 LOG SHOWS THIS CLASS WORKING AND STILL PRODUCING HIS SCREENSHOT, which is the
+    // whole point of checking before writing: "MAP TRAVEL CONFIRM placement — INSIDE the quest window
+    // 'UI Quest Popup', offset from 'directly under the quest information' by the two dials" appears
+    // four times, the drift watch reports CLEAN, and no refusal line is printed. The reconciliation
+    // is not gated out and it is not being undone. It simply parks THE WRONG OBJECT ONLINE.
+    //
+    // WHAT THE GAME DOES. Offline, the confirm is 'Adventure button' inside the container held by
+    // AdventureMapUIManager's private `travelOptions` field — that is what this class has parked
+    // since ModBuild 190. ONLINE, MapChoreographer.InitializeSelectQuestReadyUp hands the same act to
+    // a completely different object (decompiled MapChoreographer.cs:3575-3600): it initialises
+    // Singleton<UIReadyToggle> with the labels "GUI_SELECT_QUEST" ("Quest wählen") / "GUI_CANCEL",
+    // with AdventureMapUIManager.CheckTravel as its validator and, in the host branch,
+    // AdventureMapUIManager.ConfirmTravel() as its all-players-ready callback. So online the confirm
+    // is 'Multiplayer Ready Toggle' — a 307x65 UIWindow of its own, a ROOT under 'Campaign Canvas'
+    // with no ancestor window (the ModBuild 225 WINDOW IDENTITY line says exactly that) — and the
+    // catch-all floated it as a window in its own right, next to the quest card.
+    //
+    // THIS CLASS THEREFORE RESOLVES WHICH CONTAINER TO PARK instead of assuming there is one. The
+    // parking, the measured ModBuild 197 zero, the two [WorldUI] TravelButtonOffset dials, the drift
+    // watch and the verbatim restore are all UNCHANGED and shared — the lesson is to feed the real
+    // machinery, not to build a second one that looks like it.
+
+    /// <summary>
+    /// <c>UIReadyToggle.readyUpToggleState</c> — which ready-up the singleton toggle is currently
+    /// serving (decompiled UIReadyToggle.cs:106). The toggle is a SINGLETON reused for city events,
+    /// rewards, retirement and town records as well, so parking it on the quest card is only correct
+    /// while this field reads <c>Quests</c>. OPTIONAL: if the field cannot be found the online park
+    /// stands down and the offline container is used, which is exactly the pre-226 behaviour.
+    /// </summary>
+    private static FieldInfo? _readyToggleState;
+
+    /// <summary>The GameObject actually parked right now — <see cref="_travelOptions"/>'s container
+    /// offline, the ready toggle online. Recorded because <see cref="Unpark"/> must restore THE
+    /// OBJECT IT MOVED: re-deriving it from the manager field (which is what 190…225 did, correctly,
+    /// when there was only ever one candidate) would restore the wrong object's transform and leave
+    /// the moved one parented under a host that is about to disappear.</summary>
+    private static GameObject? _parked;
+
+    /// <summary>Is <see cref="_parked"/> the multiplayer ready toggle? Governs two things and
+    /// nothing else: the hold-down is skipped for it (its CanvasGroup is its own UIWindow's fade
+    /// target — holding it would be a write war with the game's tween, and this project does not win
+    /// those), and its shown-state is read from <c>UIReadyToggle.IsVisible</c> rather than from
+    /// <c>activeInHierarchy</c>, because a UIWindow hide need not deactivate the object.</summary>
+    private static bool _parkedIsReadyToggle;
+
     // ---- the placement dials' bounds -------------------------------------------------------------
     //
     // The clamp lives HERE and the bind site in WorldUIConfig reads these constants, so the range
@@ -640,6 +691,11 @@ internal static class MapTravelConfirm
 
     private static UIWindow? _host;
     private static bool _homeRecorded;
+
+    /// <summary>The container the home record below belongs to (ModBuild 226 — there are two
+    /// possible containers now, see <see cref="_parkedIsReadyToggle"/>).</summary>
+    private static GameObject? _homeOwner;
+
     private static Transform? _optionsHome;
     private static int _optionsHomeIndex;
     private static Vector2 _homeAnchorMin;
@@ -804,7 +860,7 @@ internal static class MapTravelConfirm
             return;
 
         AdventureMapUIManager? mgr = Manager();
-        GameObject? options = mgr != null ? _travelOptions?.GetValue(mgr) as GameObject : null;
+        GameObject? options = ResolveContainer(mgr, out bool readyToggle);
 
         if (!MapRoomDriver.Active || questWindow == null || options == null)
         {
@@ -820,10 +876,17 @@ internal static class MapTravelConfirm
         if (_parkStandDown)
             return;
 
-        if (!ReferenceEquals(_host, questWindow))
+        // THE CONTAINER IS PART OF THE PARKING IDENTITY (ModBuild 226), not only the window. Going
+        // online swaps the offline travel container for the ready toggle and going offline swaps it
+        // back, and either way the object we are HOLDING must be handed home before the other one is
+        // taken — otherwise the first one stays parented into a window it is no longer the confirm
+        // for. Level-triggered like everything else here: a steady state is one reference compare.
+        if (!ReferenceEquals(_host, questWindow) || !ReferenceEquals(_parked, options))
         {
-            Unpark("a different quest window took over");
-            if (!Park(questWindow, options))
+            Unpark(!ReferenceEquals(_host, questWindow)
+                ? "a different quest window took over"
+                : "the game switched which object IS the travel confirm (online ⇄ offline)");
+            if (!Park(questWindow, options, readyToggle))
                 return;
         }
 
@@ -845,7 +908,13 @@ internal static class MapTravelConfirm
         }
 
         // The game owns activeSelf (EnableTravelOptions -> travelOptions.SetActive). We only READ it.
-        bool active = options.activeInHierarchy;
+        // ModBuild 226: the ready toggle is shown and hidden through its own UIWindow, which need not
+        // deactivate the GameObject at all (UIWindow only does that when its serialized
+        // m_DisableOnZeroAlpha is set), so for that container the shown-state is the window's —
+        // UIReadyToggle.IsVisible is literally `window.IsOpen` (decompiled UIReadyToggle.cs:138).
+        // Reading activeInHierarchy for it would report "shown" forever and the confirm would stand
+        // on the quest card after the game had taken it away.
+        bool active = options.activeInHierarchy && (!_parkedIsReadyToggle || ReadyToggleVisible());
         if (active != _wasActive)
         {
             _wasActive = active;
@@ -876,15 +945,74 @@ internal static class MapTravelConfirm
                               + "zum unteren Ende der Questinfo, so dass er immer darunter liegt\"), "
                               + "offset from there only by the two [WorldUI] TravelButtonOffset "
                               + "dials — both 0 by default, which is that placement exactly. The button itself "
-                              + $"is '{(btn != null ? btn.name : "<not found>")}' — the SAME ExtendedButton "
-                              + "the flat game uses, so its label (Reisen / Quest erneut spielen), its "
-                              + "interactable state and every guard behind OnTravelButtonClick are the "
-                              + "game's own. It moves, scales, occludes and goes home with the window.");
+                              + $"is '{(_parkedIsReadyToggle ? options.name : btn != null ? btn.name : "<not found>")}' "
+                              + (_parkedIsReadyToggle
+                                  ? "— the game's MULTIPLAYER quest confirm ('Quest wählen', "
+                                    + "GUI_SELECT_QUEST). ONLINE this toggle is what commits the journey: "
+                                    + "MapChoreographer.InitializeSelectQuestReadyUp wires its all-ready "
+                                    + "callback to AdventureMapUIManager.ConfirmTravel and its gate to "
+                                    + "CheckTravel, so it is the same act the offline button performs and "
+                                    + "it belongs in the same place. Before ModBuild 226 it floated as a "
+                                    + "SEPARATE VR window beside the quest card, which is the split in "
+                                    + ".planning/debug/Button_getrennt.jpg."
+                                  : "— the SAME ExtendedButton the flat game uses, so its label (Reisen / "
+                                    + "Quest erneut spielen), its interactable state and every guard behind "
+                                    + "OnTravelButtonClick are the game's own.")
+                              + " It moves, scales, occludes and goes home with the window.");
         }
     }
 
     /// <summary>Teardown — hand the container back before the room disappears under it.</summary>
     internal static void Reset() => Unpark("map room teardown");
+
+    /// <summary>
+    /// WHICH OBJECT IS THE TRAVEL CONFIRM RIGHT NOW (ModBuild 226). The declared preference is the
+    /// multiplayer ready toggle whenever the game has it serving the QUEST ready-up, because online
+    /// that toggle is the object the journey commits through; otherwise the offline container held by
+    /// <c>AdventureMapUIManager.travelOptions</c>, which is what this class has parked since
+    /// ModBuild 190 and what still applies in single player.
+    ///
+    /// <para>THREE CONDITIONS, AND EACH ONE IS THERE FOR A REASON. (1) The singleton must exist.
+    /// (2) Its private <c>readyUpToggleState</c> must read <c>Quests</c> — the toggle is a SINGLETON
+    /// reused for city events, rewards, retirement and town records (decompiled
+    /// EReadyUpToggleStates.cs), and parking the RETIREMENT confirm onto the quest card would be a
+    /// new bug wearing this fix's clothes; while the map room stands the quest window is STICKY and
+    /// can be open during any of those. (3) It must be visible — <c>UIReadyToggle.IsVisible</c> is
+    /// <c>window.IsOpen</c> (UIReadyToggle.cs:138) — so a toggle the game has taken away does not
+    /// keep the parking alive.</para>
+    ///
+    /// <para>IF THE REFLECTION FAILS the online branch is simply never taken and the offline
+    /// container is used, i.e. exactly the ModBuild 225 behaviour. Nothing throws and nothing is
+    /// lost that was working before.</para>
+    /// </summary>
+    private static GameObject? ResolveContainer(AdventureMapUIManager? mgr, out bool readyToggle)
+    {
+        readyToggle = false;
+        if (_readyToggleState != null && Singleton<UIReadyToggle>.IsInitialized)
+        {
+            UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+            if (toggle != null
+                && _readyToggleState.GetValue(toggle) is EReadyUpToggleStates state
+                && state == EReadyUpToggleStates.Quests
+                && toggle.IsVisible)
+            {
+                readyToggle = true;
+                return toggle.gameObject;
+            }
+        }
+        return mgr != null ? _travelOptions?.GetValue(mgr) as GameObject : null;
+    }
+
+    /// <summary>Is the parked ready toggle still shown by the game? Its own public
+    /// <c>IsVisible</c> — literally <c>window.IsOpen</c> — because a UIWindow hide is a CanvasGroup
+    /// fade and need not deactivate the GameObject.</summary>
+    private static bool ReadyToggleVisible()
+    {
+        if (!Singleton<UIReadyToggle>.IsInitialized)
+            return false;
+        UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+        return toggle != null && toggle.IsVisible;
+    }
 
     // ---- parking and unparking -------------------------------------------------------------------
 
@@ -898,7 +1026,7 @@ internal static class MapTravelConfirm
     /// value 190 wrote in the same place. The only addition is the hold-down, and it goes on BEFORE
     /// the reparent so there is not even a frame of the move to see.</para>
     /// </summary>
-    private static bool Park(UIWindow questWindow, GameObject options)
+    private static bool Park(UIWindow questWindow, GameObject options, bool readyToggle)
     {
         if (questWindow.transform is not RectTransform win)
         {
@@ -911,9 +1039,15 @@ internal static class MapTravelConfirm
             return false;
         }
 
-        if (!_homeRecorded)
+        // ModBuild 226 — THE RECORD IS PER OBJECT. The latch used to be a bare bool because there was
+        // only ever one container to record; with two (offline travel options / online ready toggle)
+        // a single latch would apply the FIRST object's home to the SECOND on unpark, which is a
+        // silent corruption of the game's own HUD layout rather than a visible bug. Keyed on the
+        // object, the record is taken once per container and restored verbatim to that container.
+        if (!_homeRecorded || !ReferenceEquals(_homeOwner, options))
         {
             _homeRecorded = true;
+            _homeOwner = options;
             _optionsHome = rect.parent;
             _optionsHomeIndex = rect.GetSiblingIndex();
             _homeAnchorMin = rect.anchorMin;
@@ -924,8 +1058,22 @@ internal static class MapTravelConfirm
             _homeLocalScale = rect.localScale;
         }
 
-        EnsureHold(options);
-        SetHidden(true);
+        _parked = options;
+        _parkedIsReadyToggle = readyToggle;
+        // THE HOLD-DOWN IS SKIPPED FOR THE READY TOGGLE, DELIBERATELY (ModBuild 226). The hold writes
+        // the container's CanvasGroup alpha to suppress the one frame between the game enabling the
+        // container and this class writing a pose for it. For the offline container that CanvasGroup
+        // is ours to add and nobody else writes it. For the ready toggle the container IS a UIWindow
+        // root, and a UIWindow's CanvasGroup is the target its own show/hide TWEEN drives every frame
+        // of a fade — holding it would be a two-writer war over one value, which this project has
+        // already lost once and does not re-enter (see "Don't win a write war"). The cost is at most
+        // one frame of the button at its previous offset on the first show; the alternative is a
+        // confirm that fights its own fade.
+        if (!readyToggle)
+        {
+            EnsureHold(options);
+            SetHidden(true);
+        }
         // BEFORE THE REPARENT, so the parent's layout group never sees a rebuild with this rect in
         // its children. See the ModBuild 196 block: this is what takes the anchors and the
         // anchoredPosition out of the group's hands instead of racing it for them.
@@ -997,7 +1145,7 @@ internal static class MapTravelConfirm
     /// </summary>
     private static void Unpark(string why)
     {
-        if (_host == null && _hold == null && _layoutIgnore == null)
+        if (_host == null && _hold == null && _layoutIgnore == null && _parked == null)
         {
             // Nothing parked. Still clear the one-per-visit diagnostic latches, so a second visit
             // re-reports a failure instead of failing silently.
@@ -1023,10 +1171,16 @@ internal static class MapTravelConfirm
         _revealForcedLogged = false;
         _parkWarned = false;
 
-        if (!EnsureReflection())
-            return;
-        AdventureMapUIManager? mgr = Manager();
-        if (mgr == null || _travelOptions?.GetValue(mgr) is not GameObject options)
+        // ModBuild 226 — RESTORE THE OBJECT WE MOVED, not the object we would move today. Through
+        // ModBuild 225 this line re-derived the container from AdventureMapUIManager.travelOptions,
+        // which was correct while that was the only candidate there could be. Now that the online
+        // confirm is a different GameObject, re-deriving would hand the wrong object its home record
+        // and leave the one we actually parked inside a window that is about to be released.
+        GameObject? options = _parked;
+        _parked = null;
+        bool wasReadyToggle = _parkedIsReadyToggle;
+        _parkedIsReadyToggle = false;
+        if (options == null)
             return;
         Transform t = options.transform;
         // STILL OURS? Unity fake-null covers a destroyed window here as well: a window that no longer
@@ -1049,7 +1203,9 @@ internal static class MapTravelConfirm
             rect.localRotation = _homeLocalRotation;
             rect.localScale = _homeLocalScale;
         }
-        VRLog.Info(Scope, $"MAP TRAVEL CONFIRM: travel options handed back to their own home ({why}) — "
+        VRLog.Info(Scope, $"MAP TRAVEL CONFIRM: {(wasReadyToggle
+                              ? $"the multiplayer quest confirm '{options.name}'"
+                              : "travel options")} handed back to their own home ({why}) — "
                           + "parent, sibling index, anchors, pivot, anchoredPosition, local rotation and "
                           + "local scale all restored verbatim from the record taken before the first "
                           + "move; the hold-down (CanvasGroup alpha / blocksRaycasts) and the layout "
@@ -2125,6 +2281,20 @@ internal static class MapTravelConfirm
         _locationToTravel = AccessTools.Field(typeof(AdventureMapUIManager), "locationToTravel");
         _onConfirmCallback = AccessTools.Field(typeof(AdventureMapUIManager), "onConfirmTravelCallback");
         _travelOptions = AccessTools.Field(typeof(AdventureMapUIManager), "travelOptions");
+        // ModBuild 226 — OPTIONAL, and deliberately not in the required set below: without it the
+        // online container is never resolved and the class behaves exactly as it did in ModBuild 225
+        // (offline correct, the multiplayer confirm floating as its own window). A missing optional
+        // field must never take the working offline path down with it.
+        _readyToggleState = AccessTools.Field(typeof(UIReadyToggle), "readyUpToggleState");
+        if (_readyToggleState == null)
+            VRLog.Warn(Scope, "MAP TRAVEL CONFIRM: UIReadyToggle.readyUpToggleState was not found by "
+                              + "name, so this build cannot tell WHICH ready-up the singleton toggle is "
+                              + "serving. The multiplayer quest confirm ('Quest wählen') is therefore NOT "
+                              + "parked into the quest window and will float as a window of its own, as it "
+                              + "did before ModBuild 226. Parking it blind was rejected: the same toggle "
+                              + "serves city events, rewards, retirement and town records, and the quest "
+                              + "window is sticky in the map room, so a blind park would move the WRONG "
+                              + "confirm onto the quest card. Single player is unaffected.");
         _travelButton = AccessTools.Field(typeof(AdventureMapUIManager), "travelButton");
         if (_locationToTravel == null || _onConfirmCallback == null || _travelOptions == null)
         {

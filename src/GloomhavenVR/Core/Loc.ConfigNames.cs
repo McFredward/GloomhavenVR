@@ -61,6 +61,33 @@ internal static partial class Loc
             : null;
     }
 
+    /// <summary>
+    /// The three OPTION labels of the <c>[WorldUI] WindowFacing</c> dropdown, in the player's
+    /// language — index 0/1/2 mapping 1:1 onto <c>WorldUI.WindowFaceMode</c>
+    /// (LaserOnly/Always/Never), which is what <c>VROptionsTab.TryBuildSpecialRow</c> hands to
+    /// <c>BuildPresetRow</c>.
+    ///
+    /// <para>WHY A METHOD RATHER THAN THREE <see cref="Mod"/> KEYS, which is how the board-movement
+    /// and environment dropdowns do it: those keys live in <c>Loc.cs</c>'s single table, and this
+    /// lane does not own that file. The behaviour is the same one <see cref="Mod"/> provides — the
+    /// current language, falling back to English for any language nobody has translated into — and a
+    /// later round that wants these three back in the shared table only has to change this body.</para>
+    ///
+    /// <para>Out-of-range indices answer with the DEFAULT mode rather than throwing, matching
+    /// <c>BuildPresetRow</c>'s own clamp: a persisted value from a future build must display as
+    /// something, and the shipped default is the honest guess.</para>
+    /// </summary>
+    internal static string WindowFacingModeName(int index)
+    {
+        bool german = string.Equals(CurrentLanguage, "German", StringComparison.Ordinal);
+        return index switch
+        {
+            1 => german ? "Immer" : "Always",
+            2 => german ? "Nie" : "Never",
+            _ => german ? "Nur mit Laser" : "Laser only",
+        };
+    }
+
     private static Dictionary<string, Dictionary<string, string>>? _configNames;
 
     private static Dictionary<string, Dictionary<string, string>> BuildConfigNames() =>
@@ -575,6 +602,11 @@ internal static partial class Loc
             ["WorldUI/PokeClick"] = Pair("Poke to click", "Antippen klickt"),
             ["WorldUI/PokePressDepthMm"] = Pair("Poke depth (mm)", "Antipp-Tiefe (mm)"),
             ["WorldUI/DecisionPokeDeliberate"] = Pair("Decisions: firm press", "Entscheidung: fest"),
+            // User request 8 (2026-08-22). Named after the MOMENT, not the mechanism: the row is
+            // read next to its own dropdown ("Nur mit Laser" / "Immer" / "Nie"), so the caption's
+            // job is to say WHEN the turning happens, and "beim Loslassen" is the answer that stops
+            // anyone reading it as a head-follow.
+            ["WorldUI/WindowFacing"] = Pair("Turn to you on release", "Beim Loslassen zu dir drehen"),
             ["WorldUI/CombatLogFollowSeat"] = Pair("Combat log follows you", "Kampflog folgt dir"),
             ["WorldUI/CombatLogForward"] = Pair("Combat log: forward (m)", "Kampflog: vor (m)"),
             ["WorldUI/CombatLogRight"] = Pair("Combat log: right (m)", "Kampflog: rechts (m)"),

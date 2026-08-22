@@ -184,6 +184,40 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// <summary>Split the laser target off the palm zone: the ray grabs ONLY this bar strip.</summary>
     internal void SetBarCollider(Collider bar) => BarCollider = bar;
 
+    /// <summary>
+    /// HOW THE CURRENT (or most recent) CARRY WAS STARTED: true = the hand LASER, false = a direct
+    /// palm grab. Survives the release, so the owner can still read it in
+    /// <see cref="IPanelGrabOwner.OnGrabFinished"/>.
+    ///
+    /// <para><b>USER REQUEST 8 (2026-08-22, verbatim):</b> "Das automatische Drehen zum Spieler soll
+    /// einstellbar sein: Default soll sein, dass es nur sich dreht, wenn es mit dem Laser gegriffen
+    /// wurde, beim Greifen nicht. Aber beides oder gar nicht soll auch eine mögliche Einstellung
+    /// sein." The distinction is HOW IT WAS GRABBED, so the grab has to record its own modality —
+    /// which is what this is.</para>
+    ///
+    /// <para><b>WHY IT IS NOT <see cref="_laserCarry"/>.</b> That field is a live carry MODE, not a
+    /// record of the gesture: a second (palm) hand joining clears it (two-hand resize is a pure palm
+    /// gesture), and <see cref="OnRelease"/> clears it BEFORE the owner's
+    /// <see cref="IPanelGrabOwner.OnGrabFinished"/> runs. It is therefore false at exactly the
+    /// moment the question is asked. This flag is latched ONCE, when the FIRST hand engages, and is
+    /// never re-written mid-carry.</para>
+    ///
+    /// <para><b>IT COMES FROM THE GRABBER'S OWN IDENTITY AND IS NEVER GUESSED FROM DISTANCE.</b>
+    /// <c>RayGrabDriver</c> calls <see cref="BeginLaserCarry"/> IMMEDIATELY before
+    /// <c>ProximityGrabber.ForceGrab</c> (RayGrabDriver.cs, the TriggerDown branch), so by the time
+    /// <see cref="OnGrab"/> runs for a ray grab <see cref="_laserCarry"/> is already true; a palm
+    /// grab reaches <see cref="OnGrab"/> through <c>ProximityGrabber</c>'s own candidate scan with
+    /// it false. A distance threshold would have been a guess, and a wrong one for exactly the case
+    /// the setting is about (a laser grab at arm's length reads as "near").</para>
+    ///
+    /// <para>MIXED GESTURES KEEP THE MODALITY THEY STARTED WITH — a palm hand joining a laser carry
+    /// does not flip the answer under the player, and neither does the laser joining a palm carry
+    /// (that second case cannot even arise: <c>RayGrabDriver</c> only fires while
+    /// <c>_hand.Grabber.Held == null</c>). Which one "started it" is the only reading that is stable
+    /// for the whole carry, and the release is judged on the gesture as a whole.</para>
+    /// </summary>
+    internal bool LastGrabWasLaser { get; private set; }
+
     private IPanelGrabOwner? _owner;
     private MeshRenderer? _bar;
     private Color _barBaseColor;
@@ -249,7 +283,13 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     public void OnGrab(VRHand hand)
     {
         if (_handA == null)
+        {
             _handA = hand;
+            // GESTURE START — latch how it was started (see LastGrabWasLaser). RayGrabDriver armed
+            // _laserCarry one statement before the ForceGrab that lands here, so this reads the
+            // grabber's own identity rather than guessing from how far away the hand is.
+            LastGrabWasLaser = _laserCarry;
+        }
         else if (_handB == null && hand != _handA)
         {
             _handB = hand;

@@ -1964,6 +1964,20 @@ internal static partial class Loc
                 + "das körperliche Antippen von Entscheidungs-Dock-Knöpfen; jede andere konvertierte Fläche "
                 + "behält den Eindrück-Druck über PokePressDepthMm, und Laser-Klicks bleiben unberührt. Aus = "
                 + "Entscheidungsknöpfe drücken sich wie alles andere.",
+            ["WorldUI/WindowFacing"] =
+                "Wann sich ein schwebendes Fenster beim LOSLASSEN zu dir dreht. Die Position bleibt dabei "
+                + "immer unberührt — das Fenster steht genau dort, wo du es hingelegt hast, nur seine "
+                + "Drehung wird neu bestimmt. \"Nur mit Laser\" (Standard): nur nach einem Zug mit dem "
+                + "Laser. Ein Laserzug schiebt das Fenster nur den Strahl entlang und dreht es dabei nie, "
+                + "es käme also weiter seitlich verdreht an und wäre kaum lesbar; ein Zug MIT DER HAND "
+                + "dreht das Fenster dagegen die ganze Zeit mit deinem Handgelenk mit — dort würde ein "
+                + "Nachdrehen genau die Ausrichtung wegwerfen, die du selbst eingestellt hast. \"Immer\": "
+                + "beides (das bisherige Verhalten aller Fenster). \"Nie\": ein losgelassenes Fenster "
+                + "behält exakt die Ausrichtung, in der du es losgelassen hast. In jedem Modus ist das ein "
+                + "EINMALIGES Drehen beim Loslassen — kein Fenster folgt jemals deinem Kopf. GETEILTE "
+                + "Mehrspieler-Fenster (blauer Greifbalken) sind von allen drei Modi ausgenommen und drehen "
+                + "sich nie: sie gehören allen im Raum, ein Nachdrehen zu dir würde sie von den anderen "
+                + "wegdrehen und der Position widersprechen, die dieser Rechner gerade gesendet hat.",
             ["WorldUI/CombatLogFollowSeat"] =
                 "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). False (FIXIERT, "
                 + "Standard): die Tafel steht STATISCH IN DER WELT — bei Szenariobeginn einmal aus den "
