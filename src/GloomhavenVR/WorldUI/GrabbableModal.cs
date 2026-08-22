@@ -382,6 +382,36 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// adopted-sorting re-assert in CanvasConversion — while a panel is mid-drag that guard
     /// runs at the throttle cadence instead, which the 30-frame adoption sweep already
     /// backstops (pre-guard behavior, only ever during active movement of THIS panel).
+    ///
+    /// <para><b>ModBuild 198 — A SECOND, INDEPENDENT CAUSE OF "THE FLICKER IS BACK WHILE THE WINDOW
+    /// IS IN MY HAND" LIVES IN THIS METHOD, AND IT IS NOT FIXED HERE. READ THIS BEFORE THE NEXT
+    /// ROUND.</b> <c>ConvertedPanel.Diagnostic</c> is named for LOG VERBOSITY but
+    /// <c>CanvasConversion.4.Lifecycle.cs</c> uses it as a gate on REAL PER-FRAME WORK — three
+    /// separate pieces of it: <c>AdoptNestedCanvases</c> (its per-frame path, which otherwise falls
+    /// back to the 30-frame sweep cadence), <c>ReassertConversionFrame</c>, and above all
+    /// <c>ReassertAdoptedSorting</c>, whose own comment three lines above the call site reads
+    /// <i>"FLICKER FIX (modal hosts only) ... Re-assert every frame for the (few) modal hosts"</i>.
+    /// Setting <c>Diagnostic = false</c> below therefore switches that every-frame flicker fix down to
+    /// roughly 1 Hz <b>for exactly as long as the player is holding the window</b> — which is
+    /// precisely the condition the user reports the flicker under. The paragraph above knew about the
+    /// coupling and judged it backstopped; that judgement covers the LAYER half (and today the layer
+    /// half is covered outright, because <c>PanelSupersample</c> owns these panels' layers and sweeps
+    /// them on its own motion cadence) but NOT the SORTING half, which has no other writer.</para>
+    ///
+    /// <para><b>WHY IT WAS NOT CHANGED IN ModBuild 198, so the next round does not re-derive it.</b>
+    /// (1) The fix needs a field that separates "log this panel" from "keep this panel's per-frame
+    /// guards running" — i.e. a new flag on <c>ConvertedPanel</c> and a change at the four
+    /// <c>Lifecycle</c> call sites, both of which are another lane's files. (2) Simply keeping
+    /// <c>Diagnostic</c> true during a drag is NOT the fix: it restores hundreds of MODAL DIAG lines
+    /// per drag AND puts <c>ReassertAdoptedSorting</c> + <c>ReassertConversionFrame</c> back on every
+    /// frame of a drag, and the ModBuild 197 hardware log measures those drags already dropping 40-50 %
+    /// of their frames (e.g. "14 of 24", "9 of 19", "8 of 18" over the 16.67 ms threshold) — so the
+    /// naive version pays for one flicker cause with more judder. (3) ModBuild 198's measured primary
+    /// cause is elsewhere and is fixed there (see <c>PanelSupersample.BandLimitFactor</c>): the
+    /// displayed image was being resampled at ~1 RT texel per rendered eye pixel, whose sub-texel
+    /// phase is constant while still and sweeps while carried. If the user still reports the flicker
+    /// after that fix, THIS is the next thing to take, and it wants a <c>ConvertedPanel</c> field
+    /// rather than a change here.</para>
     /// </summary>
     private void ThrottleDiagWhileMoving(Transform host)
     {

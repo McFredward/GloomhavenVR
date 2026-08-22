@@ -304,6 +304,213 @@ internal static class RemoteAbilityCardSource
             image.sprite = ready;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //  THE PLATE-STATE FIXUP — the ACTUAL cause of "the selectable areas are greyer"
+    // ══════════════════════════════════════════════════════════════════════════════════════════════
+    //
+    // USER REPORT, three hardware rounds running (2026-08-22, ModBuild 197, verbatim): "Das
+    // Farbproblem ist unverändert wie im alten Screenshot." Photograph Farbunterschied.jpg, both
+    // cards at the same on-screen size (~320 px), sampled over 20 000+ px boxes:
+    //
+    //     feature                overlay (uGUI)     mod-built fan card
+    //     title bar              (167.2,40.1,37.1)  (165.5,54.3,50.6)   the same
+    //     card frame rail        ( 55,  6,  2)      ( 50,  3,  0)       the same
+    //     TOP action plate fill  (132.0,48.8,56.1)  ( 74.9,61.3,63.2)   COLLAPSED
+    //     BOTTOM action plate    (128.5,47.8,55.7)  ( 92.8,79.8,81.3)   COLLAPSED
+    //
+    // The plate fill fits lerp(overlay, Rec.709 luminance, ≈0.85) to within two counts per channel,
+    // and it is confined to the two action plates. THREE ROUNDS OF MEASUREMENT ELIMINATED EVERY
+    // MULTIPLICATIVE EXPLANATION, and correctly: a multiply cannot raise a green channel from 48.8 to
+    // 61.3. The ModBuild-196 round proved the halves' CanvasGroup alpha is 1.00 on both surfaces; the
+    // ModBuild-197 round proved the plates' material `_GreyOut` (the game's spent-card wash) reads
+    // 0.00 on BOTH the CLONE and the GAME-POOL population it is copied from, over 20 and 286 plate
+    // images — its census line and the "worst term 1.000 before the write" it printed came from a
+    // DIFFERENT image on the face, never from a plate. Neither round moved a pixel, because both were
+    // measuring numbers that were already correct.
+    //
+    // ─── IT IS NOT A COLOUR AT ALL. IT IS A DIFFERENT SPRITE. ─────────────────────────────────────
+    //
+    // An action plate's background is a `Selectable` target graphic, and the game skins it through
+    // Unity's SPRITE SWAP transition, not through a tint:
+    //
+    //   * `AbilityCardUISkin` ships FOUR plate sprites per half — `TopActionRegularSprite`,
+    //     `…HighlightSprite`, `…SelectedSprite` and `TopActionDisabledSprite`
+    //     (AbilityCardUISkin.cs:16-30). `GetActionSpriteState` packs the last three into a
+    //     `ReferenceToSpriteState` (AbilityCardUISkin.cs:105-113) …
+    //   * … which `FullAbilityCardAction.ApplyImage()` hands to
+    //     `ButtonSpritesAddressableLoader.AddReferenceToSprites`, whose load completion assigns
+    //     `button.spriteState = …` (ButtonLoadingContext.cs:88). `Selectable.spriteState`'s setter
+    //     calls `OnSetProperty()` → `DoStateTransition(currentSelectionState, false)`, which for
+    //     `Transition.SpriteSwap` runs `DoSpriteSwap(…)` → `image.overrideSprite = <state sprite>`.
+    //   * `currentSelectionState` returns `SelectionState.Disabled` whenever `IsInteractable()` is
+    //     false, and `Selectable.IsInteractable()` is `m_GroupsAllowInteraction && m_Interactable` —
+    //     a CONJUNCTION, of which every census so far had only ever read the second term.
+    //
+    // ─── AND THE MOD ITSELF FALSIFIES THE FIRST TERM ──────────────────────────────────────────────
+    //
+    // `RemoteCardArt.Neutralize` writes `CanvasGroup.interactable = false` on the clone root, to make
+    // a peer's card impossible to poke. That single line makes `ParentGroupAllowsInteraction()` false
+    // for EVERY Selectable under the face, so the plates' sprite swap resolves to the skin's DISABLED
+    // plate — an artwork the artist authored as a ≈0.85-desaturated version of the regular plate.
+    // That is the photograph, exactly: the plates carry different PIXELS, while the CanvasGroup alpha
+    // stays 1.00, the CanvasRenderer tint stays white (a sprite swap never touches it — which is
+    // precisely why the census's `renderedTint 1.00..1.00` was true AND useless), `_GreyOut` stays 0
+    // and `button.interactable` stays true. Every number three rounds measured is correct; none of
+    // them is the one that decides which sprite is drawn.
+    //
+    // IT ALSO PREDICTS THE POPULATION BOUNDARY, which is what makes it more than a plausible story.
+    // The defect must appear on every surface that MANUFACTURES a front (map-room hand, peers' hands,
+    // every pooled-borrow clone) because `Neutralize` runs on all of them, and must be ABSENT from
+    // the adopted scenario fan, whose face is the game's own live widget re-hosted by
+    // `Cards.CardFace.Adopt` — a path that adds a CanvasGroup for FADE only (`VRCard`:1611-1613) and
+    // never writes `interactable`. That is the split the user reports ("generell, nicht nur die
+    // Weltkarte") and the split the 2026-08-15 scenario photograph measured.
+    //
+    // ─── THE FIX: REMOVE THE TRANSITION, NOT THE SAFETY ───────────────────────────────────────────
+    //
+    // The `CanvasGroup.interactable = false` STAYS: it is anti-cheat, and conceding it to win a
+    // colour would be trading a guarantee for a look. What goes instead is the state machine that
+    // translates it into pixels — `Selectable.transition = Transition.None` on the four plate buttons
+    // of a mod-built face, which is the GAME'S OWN call for exactly this situation
+    // (`FullAbilityCardAction.DisableHoverHighlight(true)`, FullAbilityCardAction.cs:589-592, what
+    // the game runs when a card must look like a card without behaving like one). With the transition
+    // gone, `DoStateTransition` is inert for every future state change too — so the async plate load
+    // that lands seconds later cannot re-grey the face, and there is no write war to lose. The
+    // already-set `overrideSprite` is cleared in the same pass so the regular plate is what draws.
+    //
+    // WHY THIS IS NOT "SET IT INTERACTABLE INSTEAD". Making `IsInteractable()` true would mean either
+    // conceding the CanvasGroup (anti-cheat) or re-writing `m_GroupsAllowInteraction`, which Unity
+    // recomputes on every `OnCanvasGroupChanged` — a value owned by the engine, i.e. the shape of
+    // write war this project has already paid for. Removing the transition asks the engine for
+    // nothing and is written once per clone.
+    //
+    // ZERO WIRE, unchanged: nothing here reads or sends card identity; it is four property writes on
+    // an object the mod built for itself.
+
+    /// <summary>One-shot latch for the <c>REMOTE PLATE</c> diagnostic (per session, not per card).</summary>
+    private static bool s_loggedPlateFixup;
+
+    /// <summary>
+    /// Take a mod-built ability face out of Unity's DISABLED sprite-swap state — see the block
+    /// comment above for the whole derivation. Runs on every clone, unconditionally and before the
+    /// clone is ever activated: it is NOT gated behind any measurement of its own, so it cannot
+    /// repeat ModBuild 196's failure of only correcting the faces its own defect counter had found.
+    /// A clone with no <c>FullAbilityCard</c> (an item card) is left alone.
+    /// </summary>
+    internal static void NeutralizePlateLook(GameObject clone)
+    {
+        if (clone == null)
+            return;
+        try
+        {
+            var full = clone.GetComponent<FullAbilityCard>();
+            if (full == null)
+                return;
+
+            // READ IT BEFORE WRITING IT: once the four writes land, every later reading reports the
+            // CORRECTED state, so the numbers that PROVE the defect only exist in this instant.
+            var before = new System.Text.StringBuilder(160);
+            NeutralizeHalfPlates(full.topActionButton, "top", before);
+            NeutralizeHalfPlates(full.bottomActionButton, "bottom", before);
+
+            if (s_loggedPlateFixup || before.Length == 0)
+                return;
+            s_loggedPlateFixup = true;
+            VRLog.Info("Net", "REMOTE PLATE: a mod-built ability face arrived in Unity's DISABLED " +
+                              "sprite-swap state — MEASURED BEFORE THE WRITE: " + before +
+                              ". Selectable.IsInteractable() is m_GroupsAllowInteraction && " +
+                              "m_Interactable, and RemoteCardArt.Neutralize writes " +
+                              "CanvasGroup.interactable = false on the clone root (anti-cheat, and it " +
+                              "STAYS), which falsifies the FIRST term while every census so far read " +
+                              "only the second. A false IsInteractable() makes currentSelectionState " +
+                              "Disabled, and the action plate is a SPRITE-SWAP Selectable, so " +
+                              "DoSpriteSwap writes image.overrideSprite = " +
+                              "AbilityCardUISkin.Top/BottomActionDisabledSprite — the artist's " +
+                              "≈0.85-desaturated plate. THAT is the photographed grey, not _GreyOut " +
+                              "(0.00 on clone AND pool), not the CanvasGroup alpha (1.00 on both) and " +
+                              "not a tint (a sprite swap never touches the CanvasRenderer colour, " +
+                              "which is why 'renderedTint 1.00' was true and useless). Corrected by " +
+                              "the game's own DisableHoverHighlight route: transition = None on the " +
+                              "four plate buttons + overrideSprite cleared, so the regular plate draws " +
+                              "and no later state change — including the async plate load — can swap " +
+                              "it back. Read CARD HALF TONE CENSUS for the drawn SPRITE NAMES per " +
+                              "population: CLONE and GAME-LIVE printing the same plate sprite name is " +
+                              "what proves this took effect.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Net", $"REMOTE PLATE: plate-state fixup skipped ({ex.GetType().Name}: " +
+                              $"{ex.Message}) — the face keeps the disabled plate sprite.");
+        }
+    }
+
+    /// <summary>Both plate buttons of one half. <c>actionButton</c> is the big action plate the report
+    /// is about; <c>defaultActionButton</c> is the default-attack/move plate that sits in the same
+    /// rect and carries its own disabled sprite (<c>AbilityCardUISkin.defaultTopActionDisabledSprite</c>),
+    /// so leaving it out would fix one plate and keep the other.</summary>
+    private static void NeutralizeHalfPlates(FullAbilityCardAction? half, string which,
+                                             System.Text.StringBuilder before)
+    {
+        if (half == null)
+            return;
+        NeutralizePlateButton(half.actionButton, which + " action", before);
+        NeutralizePlateButton(half.defaultActionButton, which + " default", before);
+    }
+
+    private static void NeutralizePlateButton(UnityEngine.UI.Selectable? plate, string what,
+                                              System.Text.StringBuilder before)
+    {
+        if (plate == null)
+            return;
+
+        UnityEngine.UI.Selectable.Transition transition = plate.transition;
+        UnityEngine.UI.Graphic? target = plate.targetGraphic;
+        var image = target as UnityEngine.UI.Image;
+        // `Image.overrideSprite`'s GETTER returns activeSprite — the override when one is set, the
+        // plain sprite otherwise — so it IS the drawn sprite, and "a swap is live" is the REFERENCE
+        // inequality against `.sprite`, never a null test. (Reading it as a null test is how a swap
+        // hides from a probe.)
+        Sprite? drawn = image != null ? image.overrideSprite : null;
+        Sprite? plain = image != null ? image.sprite : null;
+        bool swapped = image != null && !ReferenceEquals(drawn, plain);
+        // THE DEFECT SIGNATURE IS "A SWAP TRANSITION IS ARMED WHILE A GROUP ABOVE IT IS NOT
+        // INTERACTABLE", not "a disabled sprite is already showing". This method runs on a clone that
+        // is still INACTIVE, so `IsInteractable()` here still reports the field default true — Unity
+        // has not delivered OnCanvasGroupChanged yet, and the swap it will then perform lands after
+        // activation and again when the async plate load assigns `button.spriteState`. Reading the
+        // ARMED condition rather than its consequence is the only way this line can state the defect
+        // at the one moment the correction is applied. (The consequence is measured on the live face
+        // instead — Cards.CardHalfTone's census prints the DRAWN plate sprite name per population.)
+        // includeInactive: the clone is still INACTIVE here, and the group this is about was added to
+        // its root three lines ago — the default overload would return null on every single face.
+        CanvasGroup? gate = plate.GetComponentInParent<CanvasGroup>(includeInactive: true);
+        bool armed = transition != UnityEngine.UI.Selectable.Transition.None
+                     && (swapped || (gate != null && !gate.interactable));
+        if (armed)
+        {
+            if (before.Length > 0)
+                before.Append("; ");
+            before.Append(what).Append(": transition=").Append(transition)
+                  .Append(", interactable flag=").Append(plate.interactable)
+                  .Append(", nearest CanvasGroup.interactable=")
+                  .Append(gate != null ? gate.interactable.ToString() : "(none)")
+                  .Append(", spriteState.disabledSprite='")
+                  .Append(plate.spriteState.disabledSprite != null
+                              ? plate.spriteState.disabledSprite.name : "(none)")
+                  .Append("', plate sprite now '")
+                  .Append(drawn != null ? drawn.name : "(none)")
+                  .Append(swapped ? "' via overrideSprite (a SWAP is ALREADY live)" : "'");
+        }
+
+        plate.transition = UnityEngine.UI.Selectable.Transition.None;
+        if (image != null)
+            image.overrideSprite = null;
+        // A swap never wrote this, but a ColorTint plate on some future skin would have; white = no
+        // tint, i.e. the state Selectable.InstantClearState leaves behind.
+        if (target != null && target.canvasRenderer != null)
+            target.canvasRenderer.SetColor(Color.white);
+    }
+
     /// <summary>
     /// Show <paramref name="card"/>'s REAL, fully detailed face on <paramref name="art"/>, trying the
     /// live-widget path first and the pooled borrow second. Returns which path succeeded (or

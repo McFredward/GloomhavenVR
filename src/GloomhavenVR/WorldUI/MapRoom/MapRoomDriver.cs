@@ -67,7 +67,7 @@ internal static class MapRoomDriver
     private static readonly MapLocationInteractor Locations = new();
     private static readonly MapButtonRail Buttons = new();
     private static readonly MapRoomHand Hand = new();
-    private static readonly MapRoomBenches Benches = new();
+    private static readonly MapTableLegs TableLegs = new();
 
     // Facts the rig hands over at build time so the ONE map-room line can state them all together
     // (a diagnostic split across two lines is a diagnostic a log reader has to correlate by hand).
@@ -380,14 +380,18 @@ internal static class MapRoomDriver
         // is entirely self-guarding (its own dial, its own capability latch, its own try) and never
         // throws into this call.
         Hand.Tick();
-        // The benches at both ends of the table (user: "Die world map steht auf einem Tisch mit
-        // Bänken an beinden Enden"). Gated on `have` because the whole prop is sized off the
-        // parchment's bounds, and a world<->city switch must not build it against a half-acquired
-        // renderer. Builds ONCE and is a null test on every frame after that — it is world-fixed
-        // furniture, so there is nothing to keep up to date.
+        // The four table legs at the corners of the game's own tabletop (user, against ModBuild 197:
+        // "Instead I want the TABLE to get TABLE LEGS at its 4 CORNERS, and these should STAND ON
+        // THE FLOOR of the environment"). Called UNCONDITIONALLY — not gated on `have` like the rest
+        // — because it owns a LIVE style gate: the legs exist only in the two bundled 3D
+        // environments, so a style change must be able to tear them down on the very next frame even
+        // during the frames of a world<->city switch when the parchment is momentarily unmeasurable.
+        // Its BUILD path needs the parchment and guards on it itself. Once standing it is two field
+        // reads and a reference compare — it is world-fixed furniture with nothing to keep up to
+        // date.
+        TableLegs.Tick();
         if (have)
         {
-            Benches.Tick();
             // The ONE map dump, from the room's own vantage (the flat path calls the same method
             // from its capture camera). One-shot per arm; free after that.
             FlatScreenStereo.LogMapSceneReport(
@@ -419,9 +423,9 @@ internal static class MapRoomDriver
         Hand.StandDown(reason);
         Locations.Release(reason);
         Buttons.Release(reason);
-        // The benches go with the room they furnish — the prop is world-fixed, so nothing else
+        // The table legs go with the room they furnish — the prop is world-fixed, so nothing else
         // would ever destroy it.
-        Benches.Release(reason);
+        TableLegs.Release(reason);
         Icons.Release(reason);
         // Hand the game's travel options back before the room disappears under them — a container
         // left parented into a host we are about to destroy would take the Reisen button with it.

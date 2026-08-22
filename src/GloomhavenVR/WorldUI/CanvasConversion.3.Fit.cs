@@ -1172,8 +1172,19 @@ internal static partial class CanvasConversion
     // widest fixed size that costs no apparent size at all. Pinning at 1920 instead would draw the
     // permanently-visible character column — the state the window is in most of the time — at 60 %
     // of today's size and put this panel back at roughly 1.9 authored pixels per rendered pixel,
-    // which is the sampling band ModBuild 189's legibility dial was raised to escape and which this
-    // panel cannot buy back (PanelSupersample is deliberately OFF for it).
+    // which is the sampling band ModBuild 189's legibility dial was raised to escape.
+    //
+    // CORRECTION (ModBuild 198): the 197 draft of this note ended that sentence with "and which this
+    // panel cannot buy back (PanelSupersample is deliberately OFF for it)". THE FRESH HARDWARE LOG
+    // SAYS THE OPPOSITE — "PANEL SUPERSAMPLE engaged on 'New Party display': … a 1971x1458 capture
+    // target … resolved … into a 1971x1458 MIPPED display target". The claim is struck rather than
+    // quietly deleted, because the number it was used to justify does not depend on it: 1143 px is
+    // the widest host that still renders at the FULL legibility scale (0.875 mm per uGUI px,
+    // measured off the same log's HIT RECT lines), and that is a statement about how large the
+    // content is DRAWN — which supersampling does not change, it only resamples the same apparent
+    // size more cleanly. Supersampling softens the ALIASING half of the old argument against 1920;
+    // it does not make 1920 draw the character column any bigger. If the fixed width is ever
+    // revisited, revisit it on the apparent-size argument, not on this one.
     //
     // THE COST, STATED RATHER THAN HIDDEN. 1143 px is bigger than five of the seven measured states,
     // so the window is MOSTLY EMPTY when a narrow sub-view (or none) is up: the character column is
@@ -1256,26 +1267,321 @@ internal static partial class CanvasConversion
     /// (a host that hugs its visible content and re-fits when that content changes), which is what
     /// the story box, the quest popup, the merchant, the pause menu and every HUD conversion need.
     ///
-    /// <para>IS-A, NOT RELATED-TO — the house rule this repo has broken twice.
-    /// <c>GetComponent</c> on the converted root's OWN GameObject: <c>NewPartyDisplayUI</c> caches
-    /// <c>window = GetComponent&lt;UIWindow&gt;()</c> in its own Awake (decompiled
-    /// NewPartyDisplayUI.cs:277), so the two components share one GameObject by construction and
-    /// "the UIWindow that carries a NewPartyDisplayUI" IS the character screen's window root. A
-    /// name match would not survive localisation, "(Clone)" or a prefab-variant rename.</para>
+    /// <para><b>WHY THIS PREDICATE WAS REWRITTEN — ModBuild 197 SHIPPED IT AND IT NEVER RETURNED
+    /// TRUE ONCE.</b> The whole fixed-size feature was inert on hardware: the branch's own
+    /// instrument line (<c>FIXED FIT</c>) appears ZERO times in 9 MB of fresh 197 log while
+    /// <c>Host rect fit '…New Party display'</c> shows the growth path running as before
+    /// (860→1920, 1920→328, 1066→1102→1138→1174→860). Exactly one of the three conjuncts was
+    /// false, and the same log names it. The 197 gate asked
+    /// <c>panel.Target.GetComponent&lt;NewPartyDisplayUI&gt;()</c>; the arc packer's
+    /// <c>ModalFallback.IsPermanentPanel</c> asks the OTHER two conjuncts of the same panel —
+    /// <c>panel.Target.GetComponent&lt;UIWindow&gt;()</c> and
+    /// <see cref="ModalFallback.IsMapRoomPermanent"/> — and its verdict is printed in the 197 log:
+    /// <c>[0°±23° 'GloomhavenVR.Panel_Modal_New Party display' PERMANENT/no-X]</c>. Both of those
+    /// were TRUE. Only the <c>NewPartyDisplayUI</c> conjunct can have been false, i.e.
+    /// <b><c>NewPartyDisplayUI</c> is not on the GameObject that carries the character screen's
+    /// <c>UIWindow</c>.</b></para>
     ///
-    /// <para>AND ONLY WHILE THE MAP ROOM STANDS: <see cref="ModalFallback.IsMapRoomPermanent"/> is
-    /// the same predicate that makes this window un-closable, so the fixed size applies exactly to
-    /// the presentation the user is describing. On the flat screen, in a scenario, and with VR off,
-    /// nothing here runs at all.</para>
+    /// <para><b>AND THE ARGUMENT THAT SAID IT MUST BE WAS READING THE WRONG LINE.</b> 197 justified
+    /// the <c>GetComponent</c> with "NewPartyDisplayUI caches <c>window = GetComponent&lt;UIWindow&gt;()</c>
+    /// in its own Awake (decompiled :277)". That statement is real but it is CONDITIONAL, and the
+    /// condition is the half that was skipped: the line is
+    /// <c>if ((object)window == null) { window = GetComponent&lt;UIWindow&gt;(); }</c>, and
+    /// <c>window</c> is a <c>[SerializeField]</c> (NewPartyDisplayUI.cs:155-156) — a reference the
+    /// PREFAB assigns, to any GameObject the prefab likes. The <c>GetComponent</c> is a fallback for
+    /// an unassigned field, not a contract. This is nothing like <c>QuestLogManager</c>, where
+    /// <c>[RequireComponent(typeof(UIWindow))]</c> makes Unity itself guarantee the pairing — and
+    /// even there the guarantee is about the two components, never about which GameObject the
+    /// CONVERSION happened to target.</para>
+    ///
+    /// <para><b>THE NEW TEST, AND WHY EACH HALF IS AN IDENTITY TEST.</b> Two independent exact
+    /// identities are asked, and the window is the character screen if EITHER answers yes. Neither
+    /// is a name match (localisation, <c>(Clone)</c> and prefab renames all defeat those) and
+    /// neither is a containment test (<c>GetComponentIn{Parent,Children}</c> answers "related to an
+    /// X", the slip this repo shipped twice):</para>
+    /// <list type="number">
+    /// <item><b>The window the LIVE party display drives.</b> <c>NewPartyDisplayUI.PartyDisplay</c>
+    /// is the game's own handle on the single live party display
+    /// (<c>Singleton&lt;APartyDisplayUI&gt;.Instance as NewPartyDisplayUI</c>, NewPartyDisplayUI.cs:246;
+    /// <c>Singleton&lt;T&gt;</c> is a plain static set in Awake — reading it creates nothing). Its
+    /// <c>OnShown</c> property IS its own window's event object (<c>public UnityEvent OnShown =&gt;
+    /// window.onShown;</c>, :240) and <c>UIWindow.onShown</c> is a field initialised per instance
+    /// (<c>public VisibilityEvent onShown = new VisibilityEvent();</c>, UIWindow.cs:135), so a
+    /// REFERENCE comparison against this window's <c>onShown</c> is an instance-identity test on the
+    /// <c>UIWindow</c> itself. It answers "the party display's window IS this window", with no
+    /// assumption whatsoever about which GameObject either component sits on — which is precisely
+    /// the assumption that failed. See <see cref="IsWindowOfPartyDisplay"/>.</item>
+    /// <item><b>The window's own serialized identifier.</b> <c>window.ID == UIWindowID.PartyPanel</c>.
+    /// <c>UIWindowID</c> is the game's own enum, serialized on the <c>UIWindow</c> and used by the
+    /// game's own dispatch (<c>UIWindow.GetWindow(UIWindowID)</c>); it is what
+    /// <c>ModalFallback.MapRoomPermanentIds</c> already keys the permanent set on, and it is what the
+    /// 197 log prints for this very window (<c>'New Party display' (ID PartyPanel)</c>). It is an
+    /// identifier, not a name: it survives localisation, cloning and renames.</item>
+    /// </list>
+    ///
+    /// <para><b>WHY EITHER-OR IS NOT "LOOSENING THE GATE".</b> The two surviving conjuncts are
+    /// unchanged and still do the containing work: the target must carry a <c>UIWindow</c>, and that
+    /// window must satisfy <see cref="ModalFallback.IsMapRoomPermanent"/> — which is true for at
+    /// most three windows in the game (<c>PartyPanel</c>, <c>PartyAssemblyWindow</c>, the quest log)
+    /// and only while the map room stands. Test 2 alone already picks exactly ONE of those three.
+    /// Test 1 exists so a future ID change cannot silence the feature the way this round's component
+    /// assumption did, and the gate line below prints both answers side by side and says so out loud
+    /// when they DISAGREE — so the next hardware log settles which of them is the durable one instead
+    /// of another round of inference.</para>
+    ///
+    /// <para><b>AND IT CAN NEVER AGAIN BE SILENT.</b> Every converted panel gets one
+    /// <c>FIXED FIT GATE</c> line, including — especially — the ones that do not match, and a fresh
+    /// line whenever the verdict changes. "Not armed" and "armed and stable" can no longer look
+    /// alike, because "not armed" now says so, names the target GameObject, and names which conjunct
+    /// refused. See <see cref="LogFixedFitGate"/>.</para>
     /// </summary>
     private static bool IsFixedSizeWindow(ConvertedPanel panel)
     {
         if (panel.Target == null || panel.HostRect == null)
             return false;
-        if (panel.Target.GetComponent<NewPartyDisplayUI>() == null)
-            return false;
+
+        // CONJUNCT 1 + 2 (unchanged, and both PROVEN true for this window by the 197 log — see the
+        // doc above): the converted root is a window root, and that window is one of the map room's
+        // permanent, un-closable windows.
         var window = panel.Target.GetComponent<UIWindow>();
-        return window != null && ModalFallback.IsMapRoomPermanent(window);
+        bool permanent = window != null && ModalFallback.IsMapRoomPermanent(window);
+
+        // CONJUNCT 3, REPLACED: which of the permanent windows is the CHARACTER SCREEN. Asked twice,
+        // independently, as an identity — never as containment and never by name.
+        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+        // Reset before the short-circuit, or a panel that never asks would log the note left behind
+        // by the previous panel that did — a stale instrument reading, which is the class of bug
+        // this whole round is about.
+        s_fixedFitOwnerNote = "not asked — this window is not one of the map room's permanent windows";
+        bool ownedByPartyDisplay = permanent && IsWindowOfPartyDisplay(display, window);
+        bool idIsCharacterScreen = permanent && window!.ID == UIWindowID.PartyPanel;
+        bool armed = permanent && (ownedByPartyDisplay || idIsCharacterScreen);
+
+        LogFixedFitGate(panel, window, display, permanent, ownedByPartyDisplay, idIsCharacterScreen,
+            armed);
+        return armed;
+    }
+
+    /// <summary>
+    /// IS <paramref name="window"/> THE VERY <c>UIWindow</c> INSTANCE THE LIVE PARTY DISPLAY DRIVES —
+    /// identity test 1 of <see cref="IsFixedSizeWindow"/>, argued in full there.
+    ///
+    /// <para>The comparison is <c>ReferenceEquals(display.OnShown, window.onShown)</c>: the property
+    /// returns the display's OWN window's event object and every <c>UIWindow</c> constructs its own,
+    /// so equal references mean one <c>UIWindow</c> instance. It reads no GameObject and walks no
+    /// hierarchy, which is the whole point — the 197 gate failed on exactly the hierarchy assumption
+    /// this avoids.</para>
+    ///
+    /// <para>THE PROPERTY CAN THROW, and that is handled rather than assumed away: <c>OnShown</c>
+    /// dereferences the display's serialized <c>window</c> field, which the game leaves null if the
+    /// prefab never assigned it AND the Awake fallback found no <c>UIWindow</c> on its own
+    /// GameObject. A throw here means "the party display cannot name its own window", which is a
+    /// NO for this test — it is never allowed to disarm the fit on its own, because identity test 2
+    /// answers the same question from the other side. The reason string is carried into the gate log
+    /// so the throw is visible instead of merely absorbed.</para>
+    /// </summary>
+    private static bool IsWindowOfPartyDisplay(NewPartyDisplayUI? display, UIWindow? window)
+    {
+        if (display == null)
+        {
+            s_fixedFitOwnerNote = "the game reports no live party display "
+                                  + "(Singleton<APartyDisplayUI>.Instance is null)";
+            return false;
+        }
+        if (window == null)
+        {
+            s_fixedFitOwnerNote = "this panel's target carries no UIWindow to compare against";
+            return false;
+        }
+        object? shown;
+        try
+        {
+            shown = display.OnShown;
+        }
+        catch (System.Exception ex)
+        {
+            s_fixedFitOwnerNote = $"the party display could not name its own window ({ex.GetType().Name}) "
+                                  + "— its serialized 'window' reference is null and its Awake fallback "
+                                  + "found nothing";
+            return false;
+        }
+        bool same = shown != null && ReferenceEquals(shown, window.onShown);
+        s_fixedFitOwnerNote = same
+            ? "the live party display drives THIS UIWindow instance (its OnShown IS this window's "
+              + "own onShown event object)"
+            : "the live party display drives a DIFFERENT UIWindow instance";
+        return same;
+    }
+
+    /// <summary>Why <see cref="IsWindowOfPartyDisplay"/> answered what it answered, for the gate log.
+    /// Written and read in the same call chain, on the main thread, before any await-free return —
+    /// so it is always the note that belongs to the verdict being logged.</summary>
+    private static string s_fixedFitOwnerNote = string.Empty;
+
+    /// <summary>
+    /// THE GATE'S INSTRUMENT — the line that makes ModBuild 197's failure mode impossible to repeat.
+    ///
+    /// <para>197's entire cost was that a shipped feature produced NO LOG LINE AT ALL, so "the branch
+    /// never ran" was indistinguishable from "the branch ran and the window was stable". This prints
+    /// once for EVERY converted panel — armed or not, window or not, map room or not — and again
+    /// whenever the verdict changes. A hardware log therefore always answers, for every panel: was
+    /// the fixed fit even offered this window, and if not, which conjunct said no.</para>
+    ///
+    /// <para>It also carries the census 197 needed and did not have: where <c>NewPartyDisplayUI</c>
+    /// actually SITS relative to the conversion target. That answer is diagnostic only — nothing in
+    /// <see cref="IsFixedSizeWindow"/> decides anything from it — which is why it may safely be
+    /// obtained by walking the hierarchy, the very thing a decision must not do.</para>
+    /// </summary>
+    private static void LogFixedFitGate(ConvertedPanel panel, UIWindow? window,
+        NewPartyDisplayUI? display, bool permanent, bool ownedByPartyDisplay,
+        bool idIsCharacterScreen, bool armed)
+    {
+        if (panel.HostGo == null || panel.Target == null)
+            return;
+
+        // The verdict as a bit pattern rather than a string: this runs on every fit check of every
+        // converted panel, and a formatted key would allocate once per check forever just to be
+        // thrown away. 0 is not a valid verdict (bit 0 is always set), so a fresh entry always logs.
+        bool roomStanding = MapRoom.MapRoomDriver.Active;
+        int key = 1
+                  | (armed ? 2 : 0)
+                  | (permanent ? 4 : 0)
+                  | (ownedByPartyDisplay ? 8 : 0)
+                  | (idIsCharacterScreen ? 16 : 0)
+                  | (window != null ? 32 : 0)
+                  | (roomStanding ? 64 : 0);
+        int id = panel.HostGo.GetInstanceID();
+        if (FixedFitGateLogs.TryGetValue(id, out FixedFitGateLog? seen) && seen != null
+            && seen.Key == key && seen.Owner == panel.HostGo)
+            return;
+        FixedFitGateLogs[id] = new FixedFitGateLog { Owner = panel.HostGo, Key = key };
+        PruneFixedFitGateLogs();
+
+        string host = panel.HostGo.name;
+        string target = $"'{panel.Target.name}' (path {FixedFitGatePath(panel.Target)})";
+
+        if (window == null)
+        {
+            // Short form: this is an ordinary HUD/panel conversion, not a window root at all. It
+            // still prints, because silence is the failure mode this line exists to remove.
+            VRLog.Info("WorldUI", $"FIXED FIT GATE '{host}': NOT ARMED — the conversion target {target} "
+                                  + "carries no UIWindow, so it is not a game window root and the "
+                                  + "fixed-size branch does not apply to it. It keeps the normal growth "
+                                  + "fit, byte-for-byte as in every build before this one.");
+            return;
+        }
+
+        VRLog.Info("WorldUI",
+            $"FIXED FIT GATE '{host}': {(armed ? "ARMED" : "NOT ARMED")} — conversion target {target}; "
+            + $"target carries NewPartyDisplayUI: {(panel.Target.GetComponent<NewPartyDisplayUI>() != null ? "YES" : "NO")}; "
+            + $"{DescribePartyDisplaySite(panel, display)}; "
+            + $"target carries UIWindow: YES (ID {window.ID}); map room standing: {roomStanding}; "
+            + $"IsMapRoomPermanent: {permanent}; identity 1 — the live party display drives this "
+            + $"window: {(ownedByPartyDisplay ? "YES" : "NO")} ({s_fixedFitOwnerNote}); identity 2 — "
+            + $"window ID is PartyPanel: {(idIsCharacterScreen ? "YES" : "NO")}. "
+            + (armed
+                ? "The host rect is pinned and the sub-views are fitted into it (the FIXED FIT lines "
+                  + "carry the sizes)."
+                : permanent
+                    ? "This IS one of the map room's permanent windows, but neither identity test "
+                      + "calls it the character screen — so it keeps the growth fit, which is correct "
+                      + "for the quest log and the assembly window."
+                    : "The growth fit keeps this window (it is not one of the map room's permanent "
+                      + "windows while the room stands).")
+            + (permanent && ownedByPartyDisplay != idIsCharacterScreen
+                ? " ** THE TWO IDENTITY TESTS DISAGREE ABOUT THIS WINDOW.** They are independent by "
+                  + "design and either one arms the fit, so nothing is broken right now — but one of "
+                  + "them is wrong about this window and this line is the only place that says so. "
+                  + "Report it: the fix is to drop the loser, not to keep both."
+                : string.Empty)
+            + " HOW TO READ THIS LINE: it prints once per converted panel and again on every verdict "
+            + "change, so a hardware log that contains NO 'FIXED FIT GATE' line for a window means the "
+            + "content fit never ran for it at all — not that the gate refused it. ModBuild 197 shipped "
+            + "a fixed-size branch that produced total silence and that silence was read as 'armed and "
+            + "stable'; an instrument that cannot distinguish its own failure modes agrees with every "
+            + "broken build.");
+    }
+
+    /// <summary>
+    /// WHERE <c>NewPartyDisplayUI</c> ACTUALLY SITS relative to the conversion target — the census
+    /// ModBuild 197 needed. DIAGNOSTIC ONLY: this walks the hierarchy in both directions, which is
+    /// exactly what an identity DECISION must never do (see <see cref="IsFixedSizeWindow"/>), and
+    /// nothing here feeds the decision.
+    /// </summary>
+    private static string DescribePartyDisplaySite(ConvertedPanel panel, NewPartyDisplayUI? display)
+    {
+        RectTransform target = panel.Target;
+        if (display == null)
+            return "the game reports no live party display singleton, so there is nothing to locate";
+        Transform site = display.transform;
+        if (ReferenceEquals(site, target))
+            return "the live NewPartyDisplayUI is ON the conversion target itself (0 levels away)";
+        int up = FixedFitLevelsUp(target, site);
+        if (up > 0)
+            return $"the live NewPartyDisplayUI sits on an ANCESTOR of the target, {up} level(s) UP "
+                   + $"('{site.name}')";
+        int down = FixedFitLevelsUp(site, target);
+        if (down > 0)
+            return $"the live NewPartyDisplayUI sits on a DESCENDANT of the target, {down} level(s) "
+                   + $"DOWN ('{site.name}')";
+        return $"the live NewPartyDisplayUI ('{site.name}', path {FixedFitGatePath(site)}) is in an "
+               + "UNRELATED subtree — neither an ancestor nor a descendant of the target";
+    }
+
+    /// <summary>Levels from <paramref name="node"/> up to <paramref name="ancestor"/>; 0 when
+    /// <paramref name="ancestor"/> is not an ancestor of <paramref name="node"/>.</summary>
+    private static int FixedFitLevelsUp(Transform node, Transform ancestor)
+    {
+        int levels = 0;
+        for (Transform? t = node.parent; t != null; t = t.parent)
+        {
+            levels++;
+            if (ReferenceEquals(t, ancestor))
+                return levels;
+        }
+        return 0;
+    }
+
+    /// <summary>Hierarchy path of a transform, for the gate line. Bounded so a pathological tree
+    /// cannot produce an unbounded log string.</summary>
+    private static string FixedFitGatePath(Transform node)
+    {
+        var sb = new System.Text.StringBuilder(96);
+        int guard = 0;
+        for (Transform? t = node; t != null && guard < 16; t = t.parent, guard++)
+        {
+            if (sb.Length > 0)
+                sb.Insert(0, '/');
+            sb.Insert(0, t.name);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>One gate verdict already reported for one host, so the line repeats only on a real
+    /// change of verdict.</summary>
+    private sealed class FixedFitGateLog
+    {
+        internal GameObject? Owner;
+        internal int Key;
+    }
+
+    private static readonly Dictionary<int, FixedFitGateLog> FixedFitGateLogs = new(4);
+
+    /// <summary>Drop entries whose host GameObject is gone (same pattern as the fit-loop table).</summary>
+    private static void PruneFixedFitGateLogs()
+    {
+        if (FixedFitGateLogs.Count < 8)
+            return;
+        List<int>? dead = null;
+        foreach (KeyValuePair<int, FixedFitGateLog> pair in FixedFitGateLogs)
+        {
+            if (pair.Value == null || pair.Value.Owner == null)
+                (dead ??= new List<int>(4)).Add(pair.Key);
+        }
+        if (dead == null)
+            return;
+        for (int i = 0; i < dead.Count; i++)
+            FixedFitGateLogs.Remove(dead[i]);
     }
 
     /// <summary>Per-panel state of the fixed-size fit — the captured size, the content scale we
@@ -1430,6 +1736,27 @@ internal static partial class CanvasConversion
         FixedFitState fx = GetFixedFit(panel);
         fx.Comparisons++;
 
+        // The measure and both writes below are expressed in the conversion frame, so it is repaired
+        // BEFORE anything reads the measurement — exactly as ApplyFitConverging does, and one step
+        // earlier, because a corrected frame invalidates the size/center we were handed. The height
+        // cap is excluded: this window is not in the capped family and the fixed height bounds it.
+        // On a healthy panel (the steady-state guard re-asserts every frame for modal hosts) this is
+        // six compares and no writes, and the re-measure never runs.
+        //
+        // ORDERING (ModBuild 198): this runs BEFORE the size capture below, not after it. The
+        // captured size is the one number in this whole region that is never re-derived — "one size"
+        // is a guarantee precisely because nothing writes it twice — so it must not be read out of a
+        // frame the guard is about to correct. ModBuild 23 found this very target at
+        // `localScale 0.14` with its rect grown from 1080 to 2040 px; capturing in that state would
+        // have pinned the window at a nonsense rect for its entire life, and the sanity bounds below
+        // (2160 px) would not have caught it.
+        if (ReassertConversionFrame(panel, out _, includeHeightCap: false)
+            && TryMeasureContent(panel, root, out Vector2 freshSize, out Vector2 freshCenter))
+        {
+            size = freshSize;
+            center = freshCenter;
+        }
+
         if (!fx.SizeCaptured)
         {
             // The window's OWN authored frame is the reference — the same rect the growth path
@@ -1442,19 +1769,6 @@ internal static partial class CanvasConversion
                 Mathf.Clamp(frame.width, FixedFitMinWidthPx, FixedFitMaxWidthPx),
                 Mathf.Clamp(frame.height, FixedFitMinHeightPx, FixedFitMaxHeightPx));
             fx.SizeCaptured = true;
-        }
-
-        // The measure and both writes below are expressed in the conversion frame, so it is repaired
-        // BEFORE anything reads the measurement — exactly as ApplyFitConverging does, and one step
-        // earlier, because a corrected frame invalidates the size/center we were handed. The height
-        // cap is excluded: this window is not in the capped family and the fixed height bounds it.
-        // On a healthy panel (the steady-state guard re-asserts every frame for modal hosts) this is
-        // six compares and no writes, and the re-measure never runs.
-        if (ReassertConversionFrame(panel, out _, includeHeightCap: false)
-            && TryMeasureContent(panel, root, out Vector2 freshSize, out Vector2 freshCenter))
-        {
-            size = freshSize;
-            center = freshCenter;
         }
 
         Rect host = panel.HostRect.rect;

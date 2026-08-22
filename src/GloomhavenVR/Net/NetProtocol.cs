@@ -416,7 +416,187 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 197;
+    public const ushort ModBuild = 198;
+    // Build 198: THE SUPERSAMPLER NEVER SUPERSAMPLED, AND THE GREY CARD IS A DIFFERENT PICTURE.
+    // (Five workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── (2) `PanelSupersampleFactor` HAS BEEN 1.0 SINCE THE DAY IT SHIPPED ────────────────
+    // User: "Es kommt mir so vor als wäre das ursprüngliche Flacker-Problem, das du gelöst hattest,
+    // wieder da sobald man das Fenster in der Hand hat — sobald man loslässt wird der Stand wie er
+    // beim Flackern war eingefroren." HE IS RIGHT, AND THE TRUTH IS WORSE THAN HIS GUESS: it was
+    // never fixed at all. `Defaults.PanelSupersampleFactor = 1.0f`, and the log says `1971x1458
+    // (factor 1.00)` — ONE render-target texel per authored window pixel. The feature named "Fenster
+    // scharf zeichnen" allocated exactly the resolution the window already had and band-limited
+    // nothing.
+    // ModBuild 197's "894 captures / 894 frames" was CORRECT and is confirmed across all 70 CAPTURE
+    // PATH lines (`RawQuadFrames` 0, `ResolveSizeMismatch` 0, still-captures 890-900 per 10 s
+    // forever). That worker was not wrong — it measured ONE STEP TOO EARLY. The defect lives between
+    // the finished texture and the eye, and the same lines carried it: 45 of 70 draw >50 % of their
+    // samples from UNFILTERED mip 0, 19 of them >90 %.
+    // At ~1 texel/px a bilinear resample has kernel [1-p, p] for sub-texel phase p: full response at
+    // p=0, ZERO at p=0.5. A 1-px glyph stroke therefore exists or does not depending on where the
+    // window lands on the eye's pixel grid. STILL = one fixed phase = the alias pattern FREEZES and
+    // reads as "sharp" — THAT is the breakthrough he accepted, a stilled symptom and not a fix.
+    // IN THE HAND = the phase sweeps every frame = the pattern crawls = his flicker. ON RELEASE = the
+    // phase locks wherever the hand left it = "der Stand wie er beim Flackern war wird eingefroren".
+    // HIS OWN ModBuild 195 SENTENCE IS THE DECIDING EVIDENCE — "bewege ich es nochmal und lasse los,
+    // sieht es wieder anders aus": a different release lands on a different phase. No content defect
+    // does that; a resampling phase does exactly that.
+    // The class's own header had asserted "the only thing the eye minifies is a single, properly
+    // band-limited texture" — false at factor 1.0 — and ModBuild 194's own instrument had already
+    // written "a frozen alias pattern is invisible; the same pattern under a moving window crawls".
+    // Nobody acted on it.
+    // FIX: a band-limit floor of 2.0, applied ONLY while the config still reads its shipped default
+    // (a value the user set is taken verbatim — the dropped-cfg rule). At factor 2 the eye lands on
+    // mip 1, a true 2x2 box downsample of a 2x rasterization: 4x SSAA. THE STILL WINDOW GETS SHARPER,
+    // NOT SOFTER, so the accepted win is not regressed. Paid for by `PreferredMsaa` 4 -> 1: MSAA was
+    // 87.7 of the party window's 124.2 MB (71 %) and buys almost nothing on an orthographic,
+    // panel-aligned capture whose quad edges land on texel boundaries, while glyph edges are texture
+    // content MSAA never touched. Net +18 %. A factor step-down (2.0 -> 1.75 -> ... -> 1.0) replaces
+    // the removed MSAA step-down so memory pressure degrades instead of refusing.
+    // TEXT IS NOW DEAD AS A HYPOTHESIS: the release repair ran unconditionally this time (216 of 216
+    // components regenerated) and found 0 mesh defects across 100 releases.
+    // NOT FIXED, AND IT IS THE NEXT THING IF THIS SURVIVES: `ConvertedPanel.Diagnostic` is named for
+    // log verbosity but `CanvasConversion.4.Lifecycle.cs` gates REAL per-frame work on it, including
+    // `ReassertAdoptedSorting`, whose own comment reads "FLICKER FIX (modal hosts only) … re-assert
+    // every frame". `ThrottleDiagWhileMoving` sets it false EXACTLY WHILE THE WINDOW IS HELD.
+    //
+    // ── (1) THE GREY CARD IS NOT A COLOUR OPERATION — IT IS A DIFFERENT SPRITE ────────────
+    // Third round on this. ModBuild 197 reasoned: "a multiply cannot raise green from 17 to 32, so
+    // tint, alpha and CanvasGroup are eliminated as a family". THAT REASONING WAS TRUE AND POINTED
+    // NOWHERE — no multiply is involved. Eliminating a family correctly still leaves you lost if you
+    // then assume the survivor is in the same category.
+    // `AbilityCardUISkin` ships SEPARATE DISABLED PLATE ARTWORK per half (`TopActionDisabledSprite` /
+    // `BottomActionDisabledSprite`), streamed onto `button.spriteState`. The action plate is a
+    // SpriteSwap `Selectable`, and Unity picks the artwork from `Selectable.IsInteractable()` =
+    // `m_GroupsAllowInteraction && m_Interactable` — A CONJUNCTION. `RemoteCardArt.Neutralize` writes
+    // `CanvasGroup.interactable = false` on every mod-built clone (anti-cheat), which falsifies the
+    // FIRST term. EVERY CENSUS FOR THREE ROUNDS READ ONLY THE SECOND and printed `interactable 20/20`.
+    // A sprite swap changes pixels while touching nothing anyone had measured: not the CanvasGroup
+    // alpha (1.00), not the CanvasRenderer tint (1.00 — a swap never writes it), not a material float.
+    // The artist authored the disabled plate as a ~0.85-desaturated copy, which is exactly the lerp
+    // the photograph fits.
+    // THE FALSIFIER THAT SETTLED IT was a population boundary, not a hypothesis: `GAME-POOL` — what a
+    // clone is COPIED FROM, never written by the mod — reads `_GreyOut 0.00..0.00 over 286 plate
+    // image(s)`. So `_GreyOut` was never set on an action plate on ANY surface, and ModBuild 197's
+    // remedy (which DID run and WAS read back: `CLONE _GreyOut 0.00`) was correcting a NON-PLATE
+    // Graphic that could never move a plate pixel. Verdict (c), not (a) or (b), each distinguished by
+    // its own reading.
+    // FIX: the `CanvasGroup.interactable = false` STAYS — it is anti-cheat, and conceding a guarantee
+    // to win a look is not a trade worth making. What goes is the state machine that turns it into
+    // pixels: `Selectable.transition = Transition.None` plus `overrideSprite` cleared on the four
+    // plate buttons — the game's OWN route for "look like a card without behaving like one"
+    // (`FullAbilityCardAction.DisableHoverHighlight`). With the transition gone `DoStateTransition` is
+    // inert for every LATER state change too, so the async plate load that lands seconds afterwards
+    // cannot re-grey the face. One write per clone, no war.
+    // THE NEXT LOG PROVES IT WITH A NAME, NOT A COUNTER: the census prints `DRAWN PLATE SPRITE` for
+    // CLONE and for the game-owned population. Same name = fixed.
+    //
+    // ── (4) THE ESC MENU OPENED EVERY TIME AND WAS DRAWN BY NOTHING ───────────────────────
+    // User: "Zum Testen bin ich nochmal zur 2D map gesprungen und hab da das Menu geschlossen —
+    // danach konnte ich es nicht mehr öffnen." I SUSPECTED MY OWN ModBuild 196 ANCESTOR REFUSAL AND
+    // THAT WAS WRONG: its first statement is `if (!MapRoomDriver.Active) return false;` and every
+    // failing open prints `room=False`. It fired exactly once all session, in the room, for the
+    // equipment sub-view — as designed.
+    // The log holds ELEVEN complete open/close cycles, and the toggle's own state read says the window
+    // is genuinely open on the following press. The root-canvas dump names the outlier: every other
+    // canvas on the 2D map is ScreenSpaceCamera on `UI Camera`; `UI Map Esc Menu` is
+    // **ScreenSpaceOverlay with no camera at all**. An overlay canvas is rendered by NO camera — in XR
+    // it reaches the desktop mirror only, never the eye textures — and the mod's flat screen composites
+    // the game by retargeting its CAMERAS. So it is in neither. That is why one menu and not "the UI".
+    // This is ModBuild 177's bug one mode over: 178 promoted the gate to "is there a room to float in"
+    // and assumed the flat screen would show what it handed over. For an overlay canvas that is false —
+    // SUPPRESSING X BECAUSE Y HANDLES IT REQUIRES Y TO ACTUALLY HANDLE IT.
+    // Also worth recording: he probably never saw it on the 2D map at all. The menu he closed there was
+    // the one carried from the room, which went invisible the moment it was released (`released —
+    // restored to its 2D home (open=True, convertWanted=False)`). His X press closed it BLIND.
+    // FIX: bind such a canvas to the UI camera the flat screen is already capturing — identified by
+    // `targetTexture != null`, an OUTCOME test, not a name — so it composites like the Options window
+    // beside it. If there is no captured camera, FAIL OPEN and float it in front of the player even
+    // though there is no room: a window in the wrong place beats an unreachable one. Everything is
+    // level-triggered in both directions and re-asked every tick, so a refusal cannot become permanent.
+    //
+    // ── (3) THE FIXED-SIZE BRANCH NEVER RAN, AND THE PROOF NEEDED NO NEW INSTRUMENT ───────
+    // `FIXED FIT` — a line that prints even in the stable state — appears ZERO times in 9 MB of
+    // ModBuild 197 log, while the old growth path keeps running (860->1920, 1920->328,
+    // 1066->1102->1138->1174->860).
+    // The gate had three conjuncts. A DIFFERENT function asks two of them about the SAME panel and its
+    // verdict was already in the log: `ModalFallback.IsPermanentPanel` is literally the same
+    // `target != null && target.GetComponent<UIWindow>() != null && IsMapRoomPermanent(window)`, and
+    // the arc-packer prints `'…New Party display' PERMANENT/no-X`. So only
+    // `GetComponent<NewPartyDisplayUI>()` can have been false.
+    // ModBuild 197's justification was a fallacy worth naming: it cited "NewPartyDisplayUI caches
+    // `window = GetComponent<UIWindow>()` in Awake". The full line is
+    // `if ((object)window == null) { window = GetComponent<UIWindow>(); }` on a `[SerializeField]`
+    // field — A FALLBACK FOR AN UNASSIGNED REFERENCE, NOT A CONTRACT. The class carries no
+    // `[RequireComponent]`. And even a contract would pair two COMPONENTS; it says nothing about
+    // `panel.Target` being that object.
+    // FIX: two independent EXACT identities, either of which arms. (1) `ReferenceEquals(display.OnShown,
+    // window.onShown)` — `UIWindow.onShown` is a per-instance field initialiser, so this is an
+    // instance-identity test on the UIWindow itself that reads no GameObject and walks no hierarchy,
+    // i.e. it cannot repeat the failure. (2) `window.ID == UIWindowID.PartyPanel` — the game's own
+    // enum, already the key of `MapRoomPermanentIds`; an identifier, not a name, so localisation,
+    // `(Clone)` and prefab renames cannot break it.
+    // A `FIXED FIT GATE` line now prints for EVERY converted panel including the negative, and names
+    // whether the component sits on an ANCESTOR or DESCENDANT and how many levels away — so the next
+    // log settles where it lives without another round of inference. Absence of the line explicitly
+    // means "never ran", not "refused".
+    // TWO THINGS FOUND IN THE 197 DESIGN once it could actually run:
+    //   * ITS JUSTIFICATION CONTAINED A FALSE CLAIM I REPEATED: "PanelSupersample is deliberately OFF
+    //     for it". The log says `PANEL SUPERSAMPLE engaged on 'New Party display' … 1971x1458`. The
+    //     1143 px number survives for a different reason — it is the widest host still drawn at the
+    //     full legibility scale, and supersampling resamples the same APPARENT size rather than making
+    //     1920 px draw the character column bigger.
+    //   * `fx.Size` was captured BEFORE `ReassertConversionFrame` repaired the conversion frame.
+    //     ModBuild 23 found this exact target at localScale 0.14 with its rect grown 1080->2040;
+    //     capturing there would have pinned the window on nonsense for its whole life and the 2160 px
+    //     sanity bound would not have caught it. The repair now runs first.
+    //
+    // ── (5) THE BENCHES ARE GONE — AND MODBUILD 197'S "THERE IS NO TABLE" WAS WRONG ───────
+    // User: "Es gibt tatsächlich keine Bänke, dann habe ich das wohl geträumt.. Die Bänke von dir
+    // gefallen mir aber nicht, entferne sie wieder." Removed entirely — class deleted, driver and seat
+    // wiring removed, the unused Seats/SeatFacings publication removed, the mirror group deleted. No
+    // config switch, no revival path.
+    // BUT HIS MEMORY OF A TABLE WAS RIGHT AND I TALKED HIM OUT OF IT. The bench class's own
+    // `SurveyNeighbours` — built to falsify "there is no table" — FOUND ONE: `GH_Map_TableTop_Lg`, a
+    // 1.55 x 0.15 x 2.30 m wooden slab on layer 0 whose top face sits 6 mm under the parchment. My
+    // ModBuild 197 evidence (`MAP SCENE REPORT … TOTAL 0 renderer(s)`) is scoped to the map ROOTS; the
+    // table is a SIBLING, not a child. I read a census with a narrow scope as a statement about the
+    // whole scene — the same slip that has cost this project a round before.
+    // So the legs take THE REAL TABLETOP'S OWN `sharedMaterial` (the same object, not a copy and not a
+    // lookalike) and adopt its TEXEL SCALE, so the grain on a leg is the same size as on the top; every
+    // leg vertex is clamped into the top's own trimmed UV window so an atlas cannot leak a neighbouring
+    // page. The renderer is re-derived BY MEASUREMENT, never by name (non-mod layer, footprint contains
+    // the map, slab-shaped, top flush with the map plane, smallest survivor wins).
+    // FLOOR: the ROOM's plane, not the player's — the bench's 0.12 m player-floor workaround is gone.
+    // Residual 0 mm on the plane, +-19 mm (SwampNight) / +-5 mm (Cellar) from floor relief at the
+    // corners, so the feet are cut 25 mm below: a sunk foot reads as soft ground, a floating one reads
+    // as a bug. Legs 0.10 x 0.10 m x 0.777 m at +-0.704 x +-1.078 m, 48 triangles, ONE draw call.
+    // GATE: present for Cellar and SwampNight only — absent for Default, OffBlack and mixed reality —
+    // read EVERY FRAME, so a style change builds or tears down on the next frame.
+    // A real bug was fixed while porting the winding gate: the bench's `Face()` captured its UV axes
+    // AFTER the winding flip, which mirrors V on flipped faces. Harmless on seamless tiling, fatal on a
+    // UV-clamped leg — it would have pulled a whole face onto one texel row.
+    // OPEN VISUAL RISK, stated rather than assumed away: the legs carry the tabletop's material but
+    // stand on the MOD layer while the table is on layer 0. Same camera, same pass — but a realtime
+    // light whose culling mask excludes the mod layer would light them differently. Legs in the right
+    // wood at visibly the wrong BRIGHTNESS would be the layer, not the shader.
+    //
+    // ── RESIDUALS ─────────────────────────────────────────────────────────────────────────
+    // * `SkyAlternative` has no floor accessor, so the legs find the room root by NAME string. A rename
+    //   there silently stops them (they log it and build nothing rather than standing wrong). A
+    //   two-line `TryRoomFloorY` accessor would remove the last name lookup.
+    // * `MapLocationInteractor.cs:798` still says the wood under the parchment is environment geometry.
+    //   It is `GH_Map_TableTop_Lg`, a game renderer. The 0.20 m laser rim is still correct (it
+    //   under-claims, never over-claims); only the comment is wrong.
+    // * `NormalizeCardFx` still corrects ONE non-plate Graphic per face whose worst term reads 1.000.
+    //   If that is a `_Dissolve`/`_Burn` that is MEANT to be 1, zeroing it could reveal an overlay.
+    //   Behaviour unchanged (he reported "unchanged", not "worse"); the log now names the image and the
+    //   term so the next log decides whether that pass should survive at all.
+    // * `PersistentOverlay` (order 1000, the ConfirmationBox family) is ALSO a ScreenSpaceOverlay root.
+    //   The new bind covers it automatically if ModalFallback tracks those windows; no enrollments added.
+    //
     // Build 197: THE WINDOW NEVER MOVED — EVERY EDGE DID; AND THE GREY WAS A SHADER TERM NOBODY
     // RESET. (Seven workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

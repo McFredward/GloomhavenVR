@@ -352,6 +352,28 @@ internal static partial class PanelSupersample
         {
             Reallocate(e, frame);
         }
+
+        // Kept current from the LIVE frame and the LIVE target, not only at allocation time: a frame
+        // that grew without triggering a reallocation (below RectChangeFraction, or refused by the
+        // budget) lowers the texels-per-authored-pixel the window actually has, and that is precisely
+        // the quantity the ModBuild 198 fix is about. Two divisions.
+        RecordAchievedFactor(e);
+    }
+
+    /// <summary>
+    /// Record what <see cref="Entry.Factor"/> the render target ACTUALLY delivers for the current
+    /// capture frame — the smaller of the two per-axis ratios, because the eye sees the worse one.
+    /// <para>It is below the asked factor exactly when <see cref="MaxRtDimension"/> clipped an axis or
+    /// a reallocation was refused, and in both cases the ModBuild 198 argument is only partly in
+    /// force on this window. Making that a printed number rather than an inference is the whole
+    /// reason this exists: a build that "shipped factor 2" and a window that is running at 1.3
+    /// because its frame is 3100 px wide must not read the same in the log.</para>
+    /// </summary>
+    private static void RecordAchievedFactor(Entry e)
+    {
+        float w = e.Frame.width > 1f ? e.RtW / e.Frame.width : e.Factor;
+        float h = e.Frame.height > 1f ? e.RtH / e.Frame.height : e.Factor;
+        e.AchievedFactor = Mathf.Min(w, h);
     }
 
     /// <summary>
@@ -544,6 +566,7 @@ internal static partial class PanelSupersample
         e.RtW = rtW;
         e.RtH = rtH;
         e.Authored = frame.size;
+        RecordAchievedFactor(e);
         e.Reallocations++;
         if (old != null)
         {
@@ -924,10 +947,21 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void ReportRelease(Entry e, int gateFrames)
     {
+        // MEASURE THE RESAMPLE AT THE RELEASE INSTANT (ModBuild 198), before anything else on this
+        // line is computed. Two things follow from doing it here rather than reading the last 10 s
+        // report: the RENDERED-eye-px figures below stop reading -1 on a release that lands before
+        // this panel's first report (15 of the ModBuild 197 log's 100 release lines did), and the
+        // line can state what the eye was sampling AT THE MOMENT THE HAND LET GO — which is the only
+        // instant the user's "the state gets FROZEN" claim is about. See BandLimitFactor.
+        RenderTexture releaseShown = DisplayTexture(e);
+        string resample = SamplingSentence(e, Rig.VRRigDriver.HeadCamera,
+            releaseShown != null ? releaseShown.mipMapBias : 0f);
+
         // The world -> rendered-eye-pixel bridge is measured by SamplingSentence, i.e. on the 10 s
-        // report cadence. Before the first report of a freshly engaged panel it is 0, and dividing
-        // by a floor would print a number thousands of times too large. A release that lands in that
-        // gap says so instead, because an unlabelled wrong number is worse than a missing one.
+        // report cadence and (since ModBuild 198) on every release. Before any completed measurement
+        // it is 0, and dividing by a floor would print a number thousands of times too large. A
+        // release that lands in that gap says so instead, because an unlabelled wrong number is worse
+        // than a missing one.
         bool scaled = e.WorldPerAuthoredPx > 1e-9f && e.AuthoredPerRenderedPx > 1e-6f;
         float perAuthored = Mathf.Max(e.WorldPerAuthoredPx, 1e-9f);
         float perRendered = Mathf.Max(e.AuthoredPerRenderedPx, 1e-6f);
@@ -977,7 +1011,15 @@ internal static partial class PanelSupersample
             + "frame — that product, not the panel's filtering, is what a JUDDER reading of the "
             + "moving complaint rests on. LONGEST UNBROKEN MOTION RUN this report window: "
             + $"{e.LongestMotionRun} frame(s); if that ever equals the whole window, no release can "
-            + "be detected at all and this line would simply be absent.");
+            + "be detected at all and this line would simply be absent. "
+            + "WHAT THE EYE IS SAMPLING AT THIS EXACT RELEASE — the ModBuild 198 field, and the one "
+            + "that decides the FROZEN half of the report. The displayed texture is NOT frozen: the "
+            + "capture camera keeps rendering and resolving every frame after a release (the CAPTURE "
+            + "PATH field's still-capture count climbs by ~900 per 10 s report window forever), so "
+            + "the quad is re-photographed at 90 Hz from a settled canvas. What can freeze is the "
+            + "sub-texel PHASE at which the eye resamples that photograph, and only a reading below "
+            + "the threshold below can produce it — "
+            + resample);
     }
 
     /// <summary>

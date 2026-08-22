@@ -196,6 +196,48 @@ namespace GloomhavenVR.Cards;
 /// largest CLONE-vs-overlay deviation, and counts the graphics it read. If the next log shows
 /// CLONE <c>_GreyOut</c> at 0 with the fan still grey, this diagnosis is falsified in one line and
 /// the next round starts from a measurement rather than from this paragraph.</para>
+///
+/// <para>═══ ModBuild 198: THAT IS EXACTLY WHAT THE 197 LOG SHOWED — IT IS A SPRITE, NOT A COLOUR ═══</para>
+///
+/// <para>The paragraph above asked for its own falsification and got it, in the line it asked for.
+/// ModBuild 197's census ran 34 times and printed, every time:</para>
+/// <code>
+///   GAME-POOL  143 faces/286 halves: alpha 1.00..1.00, interactable 286/286, renderedTint 1.00..1.00,
+///              shader 'GUI/AbilityCard_Shd', _GreyOut 0.00..0.00 over 286 plate image(s)
+///   CLONE       10 faces/ 20 halves: alpha 1.00..1.00, interactable  20/20,  renderedTint 1.00..1.00,
+///              shader 'GUI/AbilityCard_Shd', _GreyOut 0.00..0.00 over  20 plate image(s)
+/// </code>
+/// <para>GAME-POOL is the population a clone is COPIED FROM and is never written to by this class, so
+/// its 0.00 over 286 images is the unbiased reading: <b><c>_GreyOut</c> was never set on an action
+/// plate on any surface.</b> The <c>CARD FX REST</c> writes the same log reports (10 images, worst
+/// term 1.000) landed on ONE non-plate image per face — the sweep walks every <c>Graphic</c> — which
+/// is why they were real writes that moved no pixel. Diagnosis (c): the fix ran, the write was
+/// consumed, and <c>_GreyOut</c> is simply not the term.</para>
+///
+/// <para>THE TERM IS <c>Image.overrideSprite</c>. The action plate is a <c>Selectable</c> whose
+/// transition is SPRITE SWAP, and <c>AbilityCardUISkin</c> ships a separate DISABLED plate artwork
+/// per half (<c>TopActionDisabledSprite</c>/<c>BottomActionDisabledSprite</c>,
+/// AbilityCardUISkin.cs:22/30, packed by <c>GetActionSpriteState</c> and streamed onto
+/// <c>button.spriteState</c> by <c>ButtonLoadingContext</c>). Unity picks between them from
+/// <c>Selectable.IsInteractable()</c> — which is <c>m_GroupsAllowInteraction &amp;&amp;
+/// m_Interactable</c>, a CONJUNCTION — and <c>RemoteCardArt.Neutralize</c> writes
+/// <c>CanvasGroup.interactable = false</c> on every mod-built clone (anti-cheat), which falsifies the
+/// FIRST term. Every census so far read only the second one and printed <c>interactable 20/20</c>.
+/// A sprite swap changes PIXELS without touching the CanvasGroup alpha, the CanvasRenderer tint or
+/// any material float — which is precisely why three rounds of correct measurements were all
+/// useless, and why "a multiply cannot raise green from 17 to 32" was true and pointed nowhere: no
+/// multiply is involved, the two cards are drawing DIFFERENT ARTWORK.</para>
+///
+/// <para>The remedy is in <see cref="Net.RemoteAbilityCardSource.NeutralizePlateLook"/> (the
+/// <c>CanvasGroup</c> stays; the TRANSITION goes, through the game's own
+/// <c>FullAbilityCardAction.DisableHoverHighlight</c> route). What changed HERE is the measurement:
+/// the census now prints, per population, the EFFECTIVE <c>IsInteractable()</c>, how many halves
+/// carry a live <c>overrideSprite</c>, the <c>Graphic.color</c> vertex tint (never read before) and
+/// above all the NAME OF THE SPRITE THE PLATE ACTUALLY DRAWS. Two populations printing the same
+/// plate sprite name is an OUTCOME; a "corrections written" counter never was one. And
+/// <see cref="MaybeDumpPlateDiff"/> adds the brute-force backstop this file should have had two
+/// rounds ago: every property of both plates, enumerated off the shader's own property table,
+/// printed where they differ and counted where they agree.</para>
 /// </summary>
 internal static class CardHalfTone
 {
@@ -263,6 +305,12 @@ internal static class CardHalfTone
     {
         s_nextCensus = 0f;
         s_lastVerdict = null;
+        // The diff pair belongs to the scene that is going away; the latch clears with it so the next
+        // scene gets its own reading rather than inheriting a stale "already reported".
+        s_diffClone = null;
+        s_diffReference = null;
+        s_diffReferenceRank = int.MaxValue;
+        s_diffLogged = false;
         foreach (KeyValuePair<int, Material> entry in s_restCopies)
         {
             if (entry.Value != null)
@@ -522,6 +570,7 @@ internal static class CardHalfTone
 
         int corrected = 0;
         float worst = 0f;
+        string? worstWhere = null;
         for (int i = 0; i < graphics.Length; i++)
         {
             Graphic g = graphics[i];
@@ -539,7 +588,15 @@ internal static class CardHalfTone
             g.material = rest;
             corrected++;
             if (deviation > worst)
+            {
                 worst = deviation;
+                // NAME THE IMAGE AND THE TERM. The ModBuild-197 log printed "worst term 1.000" and
+                // 10 corrected images while EVERY action plate independently read _GreyOut 0.00 —
+                // so this pass has always been correcting something that is NOT a plate, and the log
+                // could not say what. It can now, which is the difference between a fixed number and
+                // a readable one.
+                worstWhere = $"'{g.name}' ({WorstTermName(source)})";
+            }
         }
 
         if (corrected == 0)
@@ -552,8 +609,13 @@ internal static class CardHalfTone
         s_fxLogged = true;
         VRLog.Info(Scope, "CARD FX REST: a mod-built card front was drawing through card-FX materials " +
                           $"that had never been reset — {corrected} card image(s) on this face, worst " +
-                          $"term {worst:F3} away from rest BEFORE the write (0 = the game's own rest " +
-                          "value). Corrected to _GreyOut = _Flow = _Dissolve = _Burn = 0 on a PRIVATE " +
+                          $"term {worst:F3} away from rest BEFORE the write on {worstWhere ?? "(unknown)"} " +
+                          "(0 = the game's own rest " +
+                          "value). NOTE (ModBuild 198): this is NOT the reported colour defect — the " +
+                          "action plates read _GreyOut 0.00 on the CLONE and on the GAME-POOL widget " +
+                          "they are copied from, so whatever image is named above, it is not a plate. " +
+                          "The plate defect is a SPRITE SWAP; see REMOTE PLATE. Corrected to " +
+                          "_GreyOut = _Flow = _Dissolve = _Burn = 0 on a PRIVATE " +
                           "copy of each material, which is exactly what CardEffects.RestoreCard() " +
                           "(CardEffects.cs:466) writes and the ONLY place the game ever writes it. A " +
                           "mod-built front never gets that call: the borrowed pool widget is spawned " +
@@ -590,6 +652,22 @@ internal static class CardHalfTone
         worst = Mathf.Max(worst, Mathf.Abs(SafeGet(material, DissolveId)));
         worst = Mathf.Max(worst, Mathf.Abs(SafeGet(material, BurnId)));
         return worst;
+    }
+
+    /// <summary>Which of the four rest terms is the one that is off — so the log can NAME it instead
+    /// of printing an anonymous magnitude.</summary>
+    private static string WorstTermName(Material material)
+    {
+        float grey = Mathf.Abs(SafeGet(material, GreyOutId));
+        float flow = Mathf.Abs(SafeGet(material, FlowId));
+        float dissolve = Mathf.Abs(SafeGet(material, DissolveId));
+        float burn = Mathf.Abs(SafeGet(material, BurnId));
+        float best = grey;
+        string name = "_GreyOut";
+        if (flow > best) { best = flow; name = "_Flow"; }
+        if (dissolve > best) { best = dissolve; name = "_Dissolve"; }
+        if (burn > best) { name = "_Burn"; }
+        return name;
     }
 
     /// <summary>A term the low-effect material variant may not expose reads as already-at-rest —
@@ -667,6 +745,23 @@ internal static class CardHalfTone
         public int FxZeroBounds;   // plates whose _PosAndBounds is still the material default
         public Vector4 FxBoundsSample;
 
+        // ═══ THE TERM THAT ACTUALLY DECIDES THE PLATE'S PIXELS (ModBuild 198) ═══
+        // The action plate is a SPRITE-SWAP Selectable, so what it draws is
+        // `overrideSprite ?? sprite` — chosen by Unity from `currentSelectionState`, i.e. from
+        // Selectable.IsInteractable(), which is `m_GroupsAllowInteraction && m_Interactable`. Three
+        // rounds read the second term (the `interactable` column above) and never the conjunction,
+        // and none of them ever read which SPRITE was drawn. Both are here now, and the sprite NAME
+        // is the outcome measurement: CLONE and GAME-LIVE printing the same plate sprite is the
+        // proof, and printing different ones is the defect, in one line either way.
+        public int Effective;        // halves whose Selectable.IsInteractable() is TRUE
+        public int Overridden;       // halves drawing through an overrideSprite (a live swap)
+        public int SwapTransition;   // halves still carrying Transition.SpriteSwap
+        public string? PlateSprite;  // the DRAWN plate sprite name
+        public bool MixedPlates;
+        public float MinGraphicAlpha;   // Graphic.color.a — vertex colour, NOT the CanvasRenderer's
+        public float MaxGraphicAlpha;
+        public string? GraphicColor;    // one sample of Graphic.color, never measured before 198
+
         public void Seed()
         {
             MinAlpha = float.PositiveInfinity;
@@ -675,7 +770,34 @@ internal static class CardHalfTone
             MaxTint = float.NegativeInfinity;
             MinGrey = float.PositiveInfinity;
             MaxGrey = float.NegativeInfinity;
+            MinGraphicAlpha = float.PositiveInfinity;
+            MaxGraphicAlpha = float.NegativeInfinity;
         }
+
+        /// <summary>One half's plate-draw state — what the engine actually puts on screen.</summary>
+        public void AddPlate(bool effective, bool overridden, bool swap, string? sprite,
+                             Color graphicColor)
+        {
+            if (effective) Effective++;
+            if (overridden) Overridden++;
+            if (swap) SwapTransition++;
+            if (graphicColor.a < MinGraphicAlpha) MinGraphicAlpha = graphicColor.a;
+            if (graphicColor.a > MaxGraphicAlpha) MaxGraphicAlpha = graphicColor.a;
+            GraphicColor ??= $"{graphicColor.r:F2},{graphicColor.g:F2},{graphicColor.b:F2},{graphicColor.a:F2}";
+            if (sprite == null)
+                return;
+            if (PlateSprite == null) PlateSprite = sprite;
+            else if (PlateSprite != sprite) MixedPlates = true;
+        }
+
+        public readonly string DescribePlate() =>
+            $", EFFECTIVE IsInteractable() {Effective}/{Halves}, spriteSwap {SwapTransition}/{Halves}, " +
+            $"overrideSprite live on {Overridden}/{Halves}, DRAWN PLATE SPRITE " +
+            $"'{PlateSprite ?? "(none)"}'{(MixedPlates ? " (MIXED)" : string.Empty)}, " +
+            $"Graphic.color {GraphicColor ?? "n/a"} (alpha " +
+            (Halves > 0 && MinGraphicAlpha <= MaxGraphicAlpha
+                ? $"{MinGraphicAlpha:F2}..{MaxGraphicAlpha:F2})"
+                : "n/a)");
 
         public void AddFx(float grey, float otherWorst, Vector4 posAndBounds)
         {
@@ -724,7 +846,7 @@ internal static class CardHalfTone
                    $"interactable {Interactable}/{Halves}, buttonEnabled {ButtonsEnabled}/{Halves}, " +
                    $"renderedTint {MinTint:F2}..{MaxTint:F2} (avg {SumTint / Halves:F2}), " +
                    $"shader '{Shader ?? "n/a"}'{(MixedShaders ? " (MIXED)" : string.Empty)}" +
-                   DescribeFx();
+                   DescribePlate() + DescribeFx();
         }
     }
 
@@ -759,6 +881,10 @@ internal static class CardHalfTone
             return;
         }
 
+        s_diffClone = null;
+        s_diffReference = null;
+        s_diffReferenceRank = int.MaxValue;
+
         Bucket game = default, adopted = default, clone = default, pool = default;
         game.Seed();
         adopted.Seed();
@@ -790,9 +916,10 @@ internal static class CardHalfTone
                 ref Bucket bucket = ref (isAdopted
                     ? ref adopted
                     : ref (owned ? ref clone : ref (pooled ? ref pool : ref game)));
+                int population = isAdopted ? 2 : (owned ? 3 : (pooled ? 1 : 0));
                 bucket.Faces++;
-                Sample(ref bucket, face.topActionButton);
-                Sample(ref bucket, face.bottomActionButton);
+                Sample(ref bucket, face.topActionButton, population);
+                Sample(ref bucket, face.bottomActionButton, population);
             }
             catch (System.Exception ex)
             {
@@ -802,8 +929,9 @@ internal static class CardHalfTone
         }
 
         s_censuses++;
+        MaybeDumpPlateDiff();
         int compared = game.Faces + adopted.Faces + clone.Faces + pool.Faces;
-        string verdict = Verdict(game, adopted, clone);
+        string verdict = Verdict(game, adopted, clone, pool);
         string line = $"CARD HALF TONE CENSUS #{s_censuses}: compared {compared} ability face(s) " +
                       $"({skipped} skipped as assets/unreadable); " +
                       $"{game.Describe("GAME-LIVE(the overlay's population)")}; " +
@@ -829,15 +957,48 @@ internal static class CardHalfTone
 
     /// <summary>Name the divergence as a sentence, or say plainly that there is none — including
     /// when a population was empty, so an absent comparison never reads as a passing one.</summary>
-    private static string Verdict(in Bucket game, in Bucket adopted, in Bucket clone)
+    private static string Verdict(in Bucket game, in Bucket adopted, in Bucket clone, in Bucket pool)
     {
         if (game.Halves == 0)
             return "VERDICT: no GAME-LIVE face was in the scene (no window was showing ability rows), " +
                    "so nothing was compared against the overlay this pass — this is NOT a pass, it is " +
                    "a missing reference. Read the GAME-POOL numbers instead: they are what a clone " +
-                   "would have inherited.";
+                   "would have inherited" +
+                   (clone.PlateSprite != null && pool.PlateSprite != null
+                       ? clone.PlateSprite == pool.PlateSprite
+                           ? $", and on the DRAWN PLATE SPRITE they agree ('{clone.PlateSprite}')."
+                           : $", and on the DRAWN PLATE SPRITE they do NOT: CLONE draws " +
+                             $"'{clone.PlateSprite}' where the pooled source draws '{pool.PlateSprite}' " +
+                             $"— effective IsInteractable() {clone.Effective}/{clone.Halves} vs " +
+                             $"{pool.Effective}/{pool.Halves}. A sprite-swap Selectable whose " +
+                             "IsInteractable() is false draws the skin's DISABLED plate; that is " +
+                             "different ARTWORK and no colour term can correct it."
+                       : ".");
         float gameAlpha = game.SumAlpha / game.Halves;
-        var parts = new List<string>(4);
+        var parts = new List<string>(5);
+        // THE DRAWN SPRITE FIRST — the ModBuild-198 subject and the only term that has ever been
+        // able to raise a green channel while every colour number stayed correct. Two populations
+        // printing the same plate sprite name is the OUTCOME this class exists to report; a "written"
+        // counter never was one.
+        if (clone.PlateSprite != null && game.PlateSprite != null)
+        {
+            parts.Add(clone.PlateSprite == game.PlateSprite
+                ? $"CLONE and overlay plates draw the SAME sprite ('{clone.PlateSprite}'), " +
+                  $"overrideSprite live on {clone.Overridden}/{clone.Halves} vs " +
+                  $"{game.Overridden}/{game.Halves} — the sprite-swap divergence is CLOSED"
+                : $"CLONE plates draw '{clone.PlateSprite}' where the overlay draws " +
+                  $"'{game.PlateSprite}' — DIFFERENT ARTWORK, not a colour. Effective " +
+                  $"IsInteractable() {clone.Effective}/{clone.Halves} vs {game.Effective}/{game.Halves}, " +
+                  $"spriteSwap {clone.SwapTransition}/{clone.Halves} vs " +
+                  $"{game.SwapTransition}/{game.Halves}: a false IsInteractable() on a SpriteSwap " +
+                  "Selectable draws AbilityCardUISkin.*ActionDisabledSprite, and no alpha, tint or " +
+                  "material term can explain or correct that");
+        }
+        else if (clone.Halves > 0 && clone.PlateSprite == null)
+        {
+            parts.Add("no CLONE plate carried a sprite at all, so the plate reading is MISSING, not " +
+                      "equal — the action background never streamed (see REMOTE FRONT)");
+        }
         // THE CARD-FX TERM FIRST — it is the reported defect (see the class doc); the alpha columns
         // below are the ModBuild-196 subject and are kept because they are cheap, not because they
         // were ever the answer.
@@ -874,7 +1035,10 @@ internal static class CardHalfTone
             : "VERDICT: " + string.Join("; ", parts.ToArray()) + ".";
     }
 
-    private static void Sample(ref Bucket bucket, FullAbilityCardAction? half)
+    /// <summary><paramref name="population"/>: 0 = GAME-LIVE (the overlay, the preferred diff
+    /// reference), 1 = GAME-POOL (the fallback reference — it is what a clone is copied from),
+    /// 2 = ADOPTED, 3 = CLONE (the diff subject).</summary>
+    private static void Sample(ref Bucket bucket, FullAbilityCardAction? half, int population)
     {
         if (half == null)
             return;
@@ -885,6 +1049,36 @@ internal static class CardHalfTone
         float tint = 1f;
         string? shader = null;
         Graphic? target = button != null ? button.targetGraphic : null;
+        if (button != null)
+        {
+            // THE PLATE'S DRAWN SPRITE, and the EFFECTIVE gate that picks it. `IsInteractable()` is
+            // `m_GroupsAllowInteraction && m_Interactable`; the `interactable` column above is only
+            // the second term, and a false first term (a CanvasGroup above the face) is what put a
+            // mod-built plate on the skin's DISABLED artwork for three hardware rounds.
+            var image = target as Image;
+            // Image.overrideSprite's GETTER returns activeSprite (the override if there is one, the
+            // plain sprite otherwise) — so it IS the drawn sprite, and "a swap is live" is the
+            // REFERENCE inequality against .sprite, never a null test.
+            Sprite? drawn = image != null ? image.overrideSprite : null;
+            Sprite? plain = image != null ? image.sprite : null;
+            bool effective;
+            try { effective = button.IsInteractable(); }
+            catch (System.Exception) { effective = interactable; }
+            bucket.AddPlate(effective, !ReferenceEquals(drawn, plain),
+                            button.transition == Selectable.Transition.SpriteSwap,
+                            drawn != null ? drawn.name : null,
+                            target != null ? target.color : Color.white);
+            if (image != null)
+            {
+                if (population == 3)
+                    s_diffClone = image;
+                else if (population <= 1 && population < s_diffReferenceRank)
+                {
+                    s_diffReference = image;
+                    s_diffReferenceRank = population;   // a GAME-LIVE plate always beats a pooled one
+                }
+            }
+        }
         if (target != null)
         {
             if (target.canvasRenderer != null)
@@ -919,6 +1113,192 @@ internal static class CardHalfTone
             }
         }
         bucket.AddHalf(alpha, interactable, enabled, tint, shader);
+    }
+
+    // ---------------------------------------------- the brute-force plate diff (once a session) --
+
+    /// <summary>The two plate images the next diff compares: a mod-built one and the best available
+    /// game-owned reference. Re-picked on every census, so a diff that has not fired yet always uses
+    /// the freshest pair.</summary>
+    private static Image? s_diffClone;
+    private static Image? s_diffReference;
+    private static int s_diffReferenceRank = int.MaxValue;
+    private static bool s_diffLogged;
+
+    /// <summary>
+    /// EVERY readable property of the two action plates, side by side, printed the first time both
+    /// populations are in the scene at once.
+    ///
+    /// <para>WHY BRUTE FORCE. Three hardware rounds each shipped ONE hypothesis (the half
+    /// CanvasGroup's alpha; then the material's <c>_GreyOut</c>), each measured its own term, each
+    /// found it already correct, and each cost a full test round to learn only that. A diff of the
+    /// WHOLE property distribution cannot miss the term the way a hypothesis can: it enumerates the
+    /// shader's own property table (<c>Shader.GetPropertyCount/GetPropertyName/GetPropertyType</c>),
+    /// the material keywords, the sprite identities, the vertex colour, the CanvasRenderer state and
+    /// the canvas the plate draws on, prints only what DIFFERS, and counts what agrees so an empty
+    /// diff can never be confused with a diff that never ran.</para>
+    ///
+    /// <para>One shot per session: it is a wide reflection walk, and a difference this stable does
+    /// not need a cadence.</para>
+    /// </summary>
+    private static void MaybeDumpPlateDiff()
+    {
+        if (s_diffLogged || s_diffClone == null || s_diffReference == null)
+            return;
+        s_diffLogged = true;
+        try
+        {
+            var sb = new System.Text.StringBuilder(1024);
+            int same = 0;
+            sb.Append("CARD PLATE DIFF: every readable property of the action plate a MOD-BUILT front " +
+                      "draws with, against the same plate on a ")
+              .Append(s_diffReferenceRank == 0 ? "GAME-LIVE (the overlay's own)" : "GAME-POOL (parked)")
+              .Append(" face. Only DIFFERENCES are listed; agreements are counted. — ");
+            int before = sb.Length;
+
+            Image a = s_diffClone, b = s_diffReference;
+            Add(sb, ref same, "sprite", Name(a.sprite), Name(b.sprite));
+            Add(sb, ref same, "DRAWN sprite (overrideSprite)", Name(a.overrideSprite), Name(b.overrideSprite));
+            Add(sb, ref same, "swap live", (!ReferenceEquals(a.overrideSprite, a.sprite)).ToString(),
+                                           (!ReferenceEquals(b.overrideSprite, b.sprite)).ToString());
+            Add(sb, ref same, "sprite texture", TexName(a.sprite), TexName(b.sprite));
+            Add(sb, ref same, "Graphic.color", Col(a.color), Col(b.color));
+            Add(sb, ref same, "Graphic.enabled", a.enabled.ToString(), b.enabled.ToString());
+            Add(sb, ref same, "Image.type", a.type.ToString(), b.type.ToString());
+            Add(sb, ref same, "CanvasRenderer.color", a.canvasRenderer != null ? Col(a.canvasRenderer.GetColor()) : "n/a",
+                                                      b.canvasRenderer != null ? Col(b.canvasRenderer.GetColor()) : "n/a");
+            Add(sb, ref same, "CanvasRenderer.inheritedAlpha",
+                a.canvasRenderer != null ? a.canvasRenderer.GetInheritedAlpha().ToString("F3") : "n/a",
+                b.canvasRenderer != null ? b.canvasRenderer.GetInheritedAlpha().ToString("F3") : "n/a");
+            AddSelectable(sb, ref same, a, b);
+            AddCanvas(sb, ref same, a, b);
+            AddMaterials(sb, ref same, a, b);
+
+            if (sb.Length == before)
+                sb.Append("NOTHING DIFFERS at all");
+            sb.Append(". ").Append(same).Append(" further properties are IDENTICAL on both plates. If ")
+              .Append("the fan still reads grey against an empty diff, the cause is NOT on the plate ")
+              .Append("Graphic — look one level out (the canvas, the camera, a parent tint).");
+            VRLog.Info(Scope, sb.ToString());
+        }
+        catch (System.Exception ex)
+        {
+            LogErrorOnce("plate diff", ex);
+        }
+    }
+
+    private static void Add(System.Text.StringBuilder sb, ref int same, string label, string a, string b)
+    {
+        if (a == b)
+        {
+            same++;
+            return;
+        }
+        sb.Append(label).Append(": CLONE ").Append(a).Append(" vs REF ").Append(b).Append("; ");
+    }
+
+    private static string Name(Object? o) => o != null ? "'" + o.name + "'" : "(null)";
+
+    private static string TexName(Sprite? s) =>
+        s != null && s.texture != null ? $"'{s.texture.name}' {s.texture.width}x{s.texture.height}" : "(none)";
+
+    private static string Col(Color c) => $"({c.r:F3},{c.g:F3},{c.b:F3},{c.a:F3})";
+
+    /// <summary>The Selectable state that PICKS the sprite — including the conjunction
+    /// <c>IsInteractable()</c> and each of its two terms separately, so a future reading can never
+    /// again mistake the flag for the gate.</summary>
+    private static void AddSelectable(System.Text.StringBuilder sb, ref int same, Image a, Image b)
+    {
+        Selectable? sa = a.GetComponent<Selectable>();
+        Selectable? sb2 = b.GetComponent<Selectable>();
+        Add(sb, ref same, "Selectable.IsInteractable()",
+            sa != null ? sa.IsInteractable().ToString() : "n/a",
+            sb2 != null ? sb2.IsInteractable().ToString() : "n/a");
+        Add(sb, ref same, "Selectable.interactable(flag)",
+            sa != null ? sa.interactable.ToString() : "n/a",
+            sb2 != null ? sb2.interactable.ToString() : "n/a");
+        Add(sb, ref same, "Selectable.transition",
+            sa != null ? sa.transition.ToString() : "n/a",
+            sb2 != null ? sb2.transition.ToString() : "n/a");
+        Add(sb, ref same, "Selectable.enabled",
+            sa != null ? sa.enabled.ToString() : "n/a",
+            sb2 != null ? sb2.enabled.ToString() : "n/a");
+        Add(sb, ref same, "spriteState.disabledSprite",
+            sa != null ? Name(sa.spriteState.disabledSprite) : "n/a",
+            sb2 != null ? Name(sb2.spriteState.disabledSprite) : "n/a");
+        Add(sb, ref same, "nearest CanvasGroup(interactable/alpha)", GroupOf(a), GroupOf(b));
+    }
+
+    private static string GroupOf(Graphic g)
+    {
+        CanvasGroup? group = g.GetComponentInParent<CanvasGroup>(includeInactive: true);
+        return group != null
+            ? $"'{group.name}' interactable={group.interactable} alpha={group.alpha:F2}"
+            : "(none)";
+    }
+
+    /// <summary>The canvas the plate draws on. A world-space canvas the mod created carries Unity's
+    /// DEFAULT <c>additionalShaderChannels</c>, and a UI-effect shader that reads a channel the canvas
+    /// does not feed gets zeroes — a divergence no material property would ever show.</summary>
+    private static void AddCanvas(System.Text.StringBuilder sb, ref int same, Image a, Image b)
+    {
+        Canvas? ca = a.canvas;
+        Canvas? cb = b.canvas;
+        Add(sb, ref same, "canvas.renderMode",
+            ca != null ? ca.renderMode.ToString() : "n/a", cb != null ? cb.renderMode.ToString() : "n/a");
+        Add(sb, ref same, "canvas.additionalShaderChannels",
+            ca != null ? ca.additionalShaderChannels.ToString() : "n/a",
+            cb != null ? cb.additionalShaderChannels.ToString() : "n/a");
+        Add(sb, ref same, "canvas.sortingLayer/order",
+            ca != null ? $"{ca.sortingLayerName}/{ca.sortingOrder}" : "n/a",
+            cb != null ? $"{cb.sortingLayerName}/{cb.sortingOrder}" : "n/a");
+    }
+
+    /// <summary>Both plates' materials, property by property, off the shader's OWN property table —
+    /// the part that cannot miss a term because it never names one.</summary>
+    private static void AddMaterials(System.Text.StringBuilder sb, ref int same, Image a, Image b)
+    {
+        Material? ma = a.materialForRendering;
+        Material? mb = b.materialForRendering;
+        Add(sb, ref same, "material", Name(ma), Name(mb));
+        Add(sb, ref same, "material shader",
+            ma != null && ma.shader != null ? "'" + ma.shader.name + "'" : "(null)",
+            mb != null && mb.shader != null ? "'" + mb.shader.name + "'" : "(null)");
+        Add(sb, ref same, "material keywords",
+            ma != null ? string.Join("|", ma.shaderKeywords) : "n/a",
+            mb != null ? string.Join("|", mb.shaderKeywords) : "n/a");
+        if (ma == null || mb == null || ma.shader == null || mb.shader == null
+            || ma.shader != mb.shader)
+            return;   // different shaders: the line above already says so, and the tables would not align
+
+        Shader shader = ma.shader;
+        int count = shader.GetPropertyCount();
+        for (int i = 0; i < count; i++)
+        {
+            string name = shader.GetPropertyName(i);
+            int id = shader.GetPropertyNameId(i);
+            switch (shader.GetPropertyType(i))
+            {
+                case UnityEngine.Rendering.ShaderPropertyType.Color:
+                    Add(sb, ref same, name, Col(ma.GetColor(id)), Col(mb.GetColor(id)));
+                    break;
+                case UnityEngine.Rendering.ShaderPropertyType.Vector:
+                    Add(sb, ref same, name, ma.GetVector(id).ToString("F2"), mb.GetVector(id).ToString("F2"));
+                    break;
+                case UnityEngine.Rendering.ShaderPropertyType.Float:
+                case UnityEngine.Rendering.ShaderPropertyType.Range:
+                    Add(sb, ref same, name, ma.GetFloat(id).ToString("F3"), mb.GetFloat(id).ToString("F3"));
+                    break;
+                case UnityEngine.Rendering.ShaderPropertyType.Texture:
+                    Add(sb, ref same, name,
+                        Name(ma.GetTexture(id)) + ma.GetTextureScale(id).ToString("F2"),
+                        Name(mb.GetTexture(id)) + mb.GetTextureScale(id).ToString("F2"));
+                    break;
+                default:
+                    same++;
+                    break;
+            }
+        }
     }
 
     private static void LogErrorOnce(string what, System.Exception ex)

@@ -330,7 +330,19 @@ internal sealed class RemoteCardArt
 
     /// <summary>Make the clone purely cosmetic: remove uGUI raycasters and add a blocking
     /// <see cref="CanvasGroup"/> so a local poke/laser can never drive a remote card's buttons.
-    /// The clone is still inactive here (no Awake has run), so component removal is side-effect free.</summary>
+    /// The clone is still inactive here (no Awake has run), so component removal is side-effect free.
+    ///
+    /// <para>THE <c>interactable = false</c> BELOW HAS A VISIBLE SIDE EFFECT, and it was the reported
+    /// colour defect for three hardware rounds. It makes <c>Selectable.IsInteractable()</c> false for
+    /// every button under the face (that method is <c>m_GroupsAllowInteraction &amp;&amp;
+    /// m_Interactable</c>, and this falsifies the FIRST term — the one no census had read), which puts
+    /// the two action plates in <c>SelectionState.Disabled</c>; the plates are SPRITE-SWAP Selectables,
+    /// so the engine then draws the skin's DISABLED plate artwork, a ≈0.85-desaturated copy of the
+    /// regular one. The line STAYS — it is anti-cheat and it is cheap — and
+    /// <see cref="RemoteAbilityCardSource.NeutralizePlateLook"/> removes the TRANSITION that turns it
+    /// into pixels, using the game's own <c>DisableHoverHighlight</c> route. The whole derivation, the
+    /// photographed numbers and why every earlier remedy measured clean and changed nothing are in the
+    /// block comment above that method.</para></summary>
     private static void Neutralize(GameObject clone)
     {
         var raycasters = clone.GetComponentsInChildren<UnityEngine.UI.GraphicRaycaster>(includeInactive: true);
@@ -345,6 +357,10 @@ internal sealed class RemoteCardArt
             cg = clone.AddComponent<CanvasGroup>();
         cg.interactable = false;
         cg.blocksRaycasts = false; // immediate + robust: blocks all raycasts to the subtree this frame
+
+        // …and immediately undo the LOOK that line implies, never the safety it buys. Unconditional:
+        // no defect count gates it, so it cannot silently skip the faces it was shipped to correct.
+        RemoteAbilityCardSource.NeutralizePlateLook(clone);
     }
 
     /// <summary>

@@ -63,8 +63,14 @@ internal static partial class PanelSupersample
           .Append(" ms CPU submit each — which includes SUBMITTING the resolve blit and the mip "
                   + "generation but not their GPU time, so if frame time regresses in this build "
                   + "the first suspect is N panels x (one full-target blit + one mip chain) per "
-                  + "frame, and the lever is MaxPanels or CaptureIntervalFrames, not this number. "
-                  + "MOTION (this 10 s window): ").Append(e.MotionFrames)
+                  + "frame, and this number cannot see it. THE ModBuild 198 FACTOR IS NOW THE FIRST "
+                  + "LEVER on that GPU cost and it must be named here: raising the factor to 2.0 "
+                  + "quadruples the pixels in both the blit and the mip chain, partly offset by the "
+                  + "MSAA 4x -> 1x trade on the read side (the blit no longer resolves four samples). "
+                  + "If the MOTION BUDGET field below shows this build's frames worse than ModBuild "
+                  + "197's, lower [WorldUI] PanelSupersampleFactor before touching MaxPanels or "
+                  + "CaptureIntervalFrames — a user-set value is taken verbatim and disables the "
+                  + "floor. MOTION (this 10 s window): ").Append(e.MotionFrames)
           .Append(" frame(s) with a pose/scale/rect change out of ").Append(e.MotionTicks)
           .Append(" comparison(s), ").Append(e.GeometryDirtyEvents)
           .Append(" of them a RESIZE/RESCALE that forced a re-measure; ").Append(e.Reallocations)
@@ -545,12 +551,25 @@ internal static partial class PanelSupersample
     /// </summary>
     private static string SamplingSentence(Entry e, Camera? head, float shownBias)
     {
+        // THE INSTRUMENT'S OWN BAIL-OUT COUNTERS (ModBuild 198). Every early return below used to
+        // print a sentence and leave no trace, so a session in which this never completed a single
+        // measurement and a session in which it measured 900 clean ones left the same evidence — the
+        // "verify the instrument before you trust it" rule. The counts ride the report line.
         if (head == null)
+        {
+            e.SamplingNoHead++;
             return "SAMPLING NOT MEASURED (no head camera);";
+        }
         if (!TryEyeTarget(out float eyeW, out float eyeH))
+        {
+            e.SamplingNoEyeTarget++;
             return "SAMPLING NOT MEASURED (no readable per-eye render target);";
+        }
         if (!TryRenderedSize(e.Panel.HostRect, head, eyeW, eyeH, out float pxW, out float pxH))
+        {
+            e.SamplingOffScreen++;
             return "SAMPLING NOT MEASURED (the window is behind the eye or sub-pixel this scan);";
+        }
         // Measured against the HOST RECT, not the capture frame, so the number stays directly
         // comparable with what PANEL SAMPLING reported for the same window before this path existed
         // — that comparability is the whole point of duplicating the probe's arithmetic here. RT
@@ -560,7 +579,10 @@ internal static partial class PanelSupersample
         float authoredPerPixel = Mathf.Max(e.HostRectAtMeasure.width / Mathf.Max(pxW, 0.01f),
             e.HostRectAtMeasure.height / Mathf.Max(pxH, 0.01f));
         e.AuthoredPerRenderedPx = authoredPerPixel;
-        float texelsPerPixel = authoredPerPixel * e.Factor;
+        // ACHIEVED, not asked (ModBuild 198). A target clipped by MaxRtDimension carries fewer texels
+        // per authored pixel than the factor says, and quoting the ASK here would have this line
+        // report a band-limited window that is not one. See RecordAchievedFactor.
+        float texelsPerPixel = authoredPerPixel * Mathf.Max(e.AchievedFactor, 0.01f);
         // THE MIP LOD THIS MINIFICATION ACTUALLY SELECTS, and how much UNFILTERED level 0 survives
         // it. This is the ModBuild 194 addition and it exists to make one specific hypothesis about
         // the residual moving shimmer decidable from the log instead of arguable: trilinear does NOT
@@ -576,6 +598,34 @@ internal static partial class PanelSupersample
         float lod = Mathf.Max(0f, Mathf.Log(Mathf.Max(texelsPerPixel, 1e-4f), 2f));
         float level0Weight = lod >= 1f ? 0f : 1f - lod;
         float bias = shownBias;
+
+        e.SamplingMeasured++;
+        e.TexelsPerRenderedPx = texelsPerPixel;
+        if (e.TexelsPerRenderedPxWorst <= 0f || texelsPerPixel < e.TexelsPerRenderedPxWorst)
+            e.TexelsPerRenderedPxWorst = texelsPerPixel;
+        e.Level0Weight = level0Weight;
+        // Magnification (authoredPerPixel < 1) cannot alias — level 0 is then the RIGHT level and its
+        // weight of 1 is not a defect. Only a MINIFIED window reading level 0 is the ModBuild 198
+        // case, so the counter tests both conditions rather than the weight alone.
+        if (level0Weight > 0f && authoredPerPixel > 1f)
+            e.Level0Readings++;
+
+        // THE ONE-LINE VERDICT. Three readings must be distinguishable at a glance and never print
+        // the same shape: the fix IS in force (texels >= 2, no level 0 at all), the fix is PARTLY in
+        // force (level 0 present but the window is magnified, i.e. harmless), and the fix is NOT in
+        // force (level 0 present on a minified window — the defect the user reports).
+        string verdict = texelsPerPixel >= BandLimitedTexelsPerPixel
+            ? "BAND-LIMITED: the eye reads no unfiltered level 0 at all, so there is no sub-texel "
+              + "phase term left to sweep while the window is carried — this is what the ModBuild 198 "
+              + "factor floor exists to deliver"
+            : authoredPerPixel <= 1f
+                ? "MAGNIFIED: the window is drawn LARGER than its authored size, so level 0 is the "
+                  + "correct level and its weight is not a defect (no minification, nothing to alias)"
+                : "NOT BAND-LIMITED — THIS IS THE ModBuild 198 DEFECT LIVE: the eye is reading an "
+                  + "UNFILTERED level of a MINIFIED image, whose sub-texel phase is constant while "
+                  + "the window is still (reads as sharp) and sweeps every frame while it is carried "
+                  + "(reads as the flicker), then LOCKS at whatever phase the release left behind";
+
         return $"drawn into {pxW:F0}x{pxH:F0} rendered px through the LEFT eye of a "
                + $"{eyeW:F0}x{eyeH:F0} per-eye target ({XRSettings.stereoRenderingMode}, viewportScale "
                + $"{XRSettings.renderViewportScale:F2}) = {texelsPerPixel:F2} RT texels per rendered "
@@ -583,7 +633,29 @@ internal static partial class PanelSupersample
                + "PANEL SAMPLING reported for this window before this build, and is now filtered "
                + $"rather than point-sampled) -> trilinear MIP LOD {lod:F2} at mipMapBias "
                + $"{bias:F2}, so {level0Weight * 100f:F0} % of every texture sample still comes from "
-               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification;";
+               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification. RESAMPLE VERDICT — "
+               + $"{texelsPerPixel:F2} RT texels per rendered eye px against a threshold of "
+               + $"{BandLimitedTexelsPerPixel:F2} (the rate at which trilinear stops blending level 0 "
+               + $"at all), WORST {e.TexelsPerRenderedPxWorst:F2} over {e.SamplingMeasured} completed "
+               + "measurement(s) since engage — this instrument samples once per report AND once per "
+               + $"release, so a session with many drags has many samples ({e.Level0Readings} of them "
+               + $"read unfiltered level 0 on a MINIFIED window; instrument bail-outs: {e.SamplingNoHead} no head camera, "
+               + $"{e.SamplingNoEyeTarget} no readable eye target, {e.SamplingOffScreen} off-screen) "
+               + $"-> {verdict}. FACTOR: asked {e.Factor:F2} RT texels per authored px "
+               + $"(config {e.ConfigFactor:F2}"
+               + (e.FactorFloored
+                   ? $", raised to the {BandLimitFactor:F2} band-limit floor because the config value "
+                     + "is still the shipped default"
+                   : ", taken verbatim — this is a value the user set")
+               + $"), ACHIEVED {e.AchievedFactor:F2}"
+               + (e.AchievedFactor < e.Factor - 0.01f
+                   ? $" — LOWER THAN ASKED because the {MaxRtDimension} px per-axis ceiling clipped "
+                     + $"a {e.Frame.width:F0}x{e.Frame.height:F0} capture frame, so the fix is only "
+                     + "partly in force on this window"
+                   : " (nothing clipped it)")
+               + ". CAVEAT ON EVERY LEVEL-0 FIGURE ABOVE: it is a LOWER BOUND, because anisotropic "
+               + $"filtering (aniso {AnisoLevel}) selects the LOD from the MINOR axis' rate, so a "
+               + "window yawed away from the head reads MORE level 0 than this line states;";
     }
 
     // THE ModBuild 192 OVERFLOW WARN IS GONE, and deliberately so. It compared the host rect with

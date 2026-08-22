@@ -126,6 +126,42 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 198** (bundle UNCHANGED — plugin DLL only) — the supersampler never supersampled, and the
+  grey card is a different picture. *(Five workers.)* **Nothing on the wire.**
+  * **`PanelSupersampleFactor` HAS BEEN 1.0 SINCE IT SHIPPED.** The log says `1971x1458 (factor 1.00)`
+    and the constant says `1.0f` — one target texel per authored pixel, band-limiting nothing. The
+    accepted "Durchbruch beim Flackern" was **a stilled symptom, not a fix**: at ~1 texel/px the
+    bilinear kernel's response at Nyquist is full at sub-texel phase 0 and **zero at 0.5**, so a still
+    window freezes one alias phase (reads as sharp), a held window sweeps the phase every frame (his
+    flicker), and a release **locks** the phase wherever the hand left it (his "frozen broken state").
+    His own ModBuild 195 sentence — *"bewege ich es nochmal und lasse los, sieht es wieder anders aus"* —
+    is the deciding evidence: **a different release lands on a different phase.**
+  * **MEASURING ONE STEP TOO EARLY LOOKS EXACTLY LIKE MEASURING CORRECTLY.** 197's "894 captures / 894
+    frames" was right and is confirmed across all 70 lines. The capture path is flawless. The defect is
+    between the finished texture and the eye — 45 of 70 lines draw >50 % of samples from unfiltered
+    mip 0. Three rounds of capture-side counters could not see it by construction.
+  * **A CORRECT ELIMINATION CAN STILL POINT NOWHERE.** "A multiply cannot raise green from 17 to 32"
+    was true and killed the tint/alpha family — but no multiply was involved. The action plate is a
+    **SpriteSwap Selectable** and the skin ships separate *disabled artwork*; `IsInteractable()` is a
+    **conjunction**, our anti-cheat `CanvasGroup.interactable = false` falsifies the first term, and
+    every census for three rounds read only the second (`interactable 20/20`). What settled it was a
+    **population boundary**: `GAME-POOL` — never written by the mod — reads `_GreyOut 0.00`.
+  * **THE PROOF THAT NEEDED NO NEW INSTRUMENT.** The fixed-size branch printed `FIXED FIT` zero times.
+    A *different* function asks two of its three conjuncts about the same panel and its verdict was
+    already in the log (`PERMANENT/no-X`), so only the third could be false. And 197's justification was
+    a fallacy: `if (window == null) window = GetComponent<UIWindow>()` on a `[SerializeField]` field is a
+    **fallback for an unassigned reference, not a contract** — and a contract would pair two components,
+    never establish that `panel.Target` is that object.
+  * **AN OVERLAY CANVAS IS RENDERED BY NO CAMERA.** The ESC menu opened all eleven times and was drawn by
+    nothing: it is the one `ScreenSpaceOverlay` root on the 2D map, so it misses the eye textures *and*
+    the flat screen (which retargets the game's **cameras**). My own 196 change was suspected and
+    **exonerated by its own first line**. He never saw the menu on the 2D map at all — the one he closed
+    there was carried from the room and went invisible on release; he closed it blind.
+  * **A CENSUS WITH A NARROW SCOPE IS NOT A STATEMENT ABOUT THE SCENE.** 197 concluded "the game has no
+    table" from `TOTAL 0 renderer(s)` — which counts the map **roots**. `GH_Map_TableTop_Lg` is a
+    *sibling*: a real 1.55 × 2.30 m slab 6 mm under the parchment. **The user's memory was right and I
+    talked him out of it.** The instrument built to falsify the claim is what found it.
+
 - **ModBuild 197** (bundle UNCHANGED — plugin DLL only) — the window never moved, every edge did; and
   the grey was a shader term nobody reset. *(Seven workers.)* **Nothing on the wire.**
   * **196's PERF FIX IS CONFIRMED ON HARDWARE:** ModalFallback 12.692 → **0.032 ms**, session frametime

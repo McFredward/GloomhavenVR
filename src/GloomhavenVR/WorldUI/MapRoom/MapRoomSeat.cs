@@ -41,29 +41,17 @@ internal static class MapRoomSeat
     /// Height of the parchment's TOP face above the player's tracking floor, real metres. A real
     /// dining table is 0.72–0.78 m; the map reads as something lying ON such a table, so the
     /// parchment's own top surface — not its underside and not its centre — is what sits here.
-    /// Phase 2 puts an actual table under it at this height; Phase 1 already stands the player as
-    /// though the table were there, so Phase 2 cannot change the player's eye line.
+    ///
+    /// <para>AND THERE REALLY IS A TABLE UNDER IT — a fact, since ModBuild 198, rather than the
+    /// plan it used to be. The game's map scene contains <c>GH_Map_TableTop_Lg</c>, a 1.55 x 2.30 m
+    /// slab 0.15 m thick whose TOP FACE measures 6 mm under the parchment (found by
+    /// <c>MapTableLegs.TryFindTable</c>, which sweeps the whole scene rather than the map roots the
+    /// <c>MAP SCENE REPORT</c>'s census is scoped to). So this constant is not the mod standing the
+    /// player at an imaginary table: it is the mod agreeing with the game's own furniture, and the
+    /// two agree to within the map's thickness. Nothing here changes because of that — the eye line
+    /// was already right — but a later round must not "add" a table that is already there.</para>
     /// </summary>
     internal const float TableTopHeightMeters = 0.78f;
-
-    /// <summary>
-    /// Height of a BENCH SEAT above the same tracking floor, real metres — the room's second piece
-    /// of furniture height, kept beside <see cref="TableTopHeightMeters"/> so the two can never
-    /// drift apart in two different files.
-    ///
-    /// <para>0.45 m is MEASURED furniture, not a number that looked right: it is the seat height the
-    /// cellar's stool was rescaled to (<c>BuildEnvironmentRooms.StoolSeatH</c>, whose own log line
-    /// says "a real stool and a real table are 0.45 and 0.75, i.e. 60 %") and the one
-    /// <c>BuildMapTable</c> then used for the map table's benches. <see cref="MapRoomBenches"/> is
-    /// the only reader.</para>
-    ///
-    /// <para>IT IS NOT AN INPUT TO <see cref="Solve"/>, AND THAT IS THE POINT. This class's contract
-    /// is that the player's eye line is fixed by <see cref="TableTopHeightMeters"/> alone —
-    /// "Phase 1 already stands the player as though the table were there, so Phase 2 cannot change
-    /// the player's eye line". Adding furniture must therefore add a constant here and change
-    /// nothing else, which is exactly what this is.</para>
-    /// </summary>
-    internal const float SeatHeightMeters = 0.45f;
 
     /// <summary>
     /// Standing clearance between the map's own EDGE and the player, real metres — the same

@@ -49,6 +49,34 @@ namespace GloomhavenVR.WorldUI;
 /// shimmer and any per-pixel screen-space rivalry go together, because there is no longer a
 /// per-pixel race between 475 graphics and the eye's sample grid; there is one texture fetch.</para>
 ///
+/// <para><b>MODBUILD 198 — THE SENTENCE ABOVE IS WHERE THIS CLASS WENT WRONG, AND THE ModBuild 197
+/// LOG MEASURES IT.</b> <i>"The rasterization then happens at 1:1 (or better) … and the only thing
+/// the eye minifies is a single, properly band-limited texture."</i> The first half was shipped and
+/// the second half does not follow from it. At 1:1 the capture holds ONE texel per authored pixel,
+/// and the log's own sampling field says the eye then draws that window at 1.0 to 2.2 authored
+/// pixels per RENDERED pixel — so the texture IS minified, and the only band-limited thing available
+/// is mip LEVEL 1, which trilinear does not fully reach until 2 texels per rendered pixel. At factor
+/// 1.0 the eye therefore keeps reading unfiltered LEVEL 0 — 45 of the 70 ModBuild 197 state lines at
+/// half weight or more, 19 of them at 90 % or more, and factor measured as exactly 1.00 on every
+/// single line. <b>The "supersample" path was supersampling nothing.</b></para>
+///
+/// <para>THE SYMPTOM THAT FOLLOWS IS THE ONE THE USER KEEPS REPORTING, both halves of it. A bilinear
+/// fetch at ~1 texel per pixel has a sub-texel PHASE; its response at Nyquist runs from full contrast
+/// at phase 0 to ZERO at phase 0.5. Still window = one fixed phase = looks sharp and fixed. Window in
+/// the hand = the phase sweeps every frame = the same alias pattern crawls = <i>"the ORIGINAL flicker
+/// problem is BACK as soon as you have the window IN YOUR HAND"</i>. Release = the phase LOCKS =
+/// <i>"the state as it was during the flickering gets FROZEN, which can lead to certain elements not
+/// being displayed"</i>, and a second release lands on a different phase, which is his ModBuild 195
+/// <i>"bewege ich es nochmal und lasse los, sieht es wieder anders aus"</i>. The fix and the whole
+/// derivation are at <see cref="BandLimitFactor"/>; the instrument that decides it from one line of
+/// log is the RESAMPLE VERDICT field.</para>
+///
+/// <para>AND IT EXPLAINS WHY THREE ROUNDS OF CAPTURE-SIDE COUNTERS FOUND NOTHING. They were right:
+/// captures equal resolves exactly, moving and still; the quad never showed the raw target; no
+/// resolve ever mismatched; and captures continue at ~900 per 10 s report window after a release, so
+/// nothing about the TEXTURE is stale or frozen. The defect is one step later, between the finished
+/// texture and the eye, where no capture counter can see it.</para>
+///
 /// <para><b>MODBUILD 193 — THE PATH WORKS, AND THE 192 LOG NAMED ITS OWN THREE DEFECTS.</b> The
 /// user's verdict on 192: <i>"Durchbruch beim Flackern! Die Option 'Fenster scharf zeichnen' hat
 /// das Flackern beendet. Allerdings tritt das flackern dann noch auf während dessen man das Fenster
@@ -322,26 +350,132 @@ internal static partial class PanelSupersample
     /// Hard VRAM ceiling for ONE panel: capture target + its depth/stencil + its MSAA surfaces +
     /// the separate mipped display target, all together. The allocator steps MSAA down 4 → 2 → 1
     /// until the estimate fits and logs which step it took.
-    /// <para>128 MB, sized from the measurement above: the largest window this mod has ever floated
-    /// is the fitted 1920x1080 party display, which costs 79.1 MB of capture target (colour 7.9 +
-    /// depth/stencil 7.9 + 4x multisample 63.3) plus 10.6 MB of mipped display target = 89.7 MB at
-    /// factor 1.0. 96 MB (the ModBuild 192 value) no longer clears that once the mip target exists,
-    /// and a cap a real window cannot fit under is not a cap, it is an outage.</para>
+    /// <para>160 MB (ModBuild 198, raised from 128). THE ARITHMETIC, from the ModBuild 197 hardware
+    /// log's own numbers rather than from an estimate. The largest window this mod floats is the
+    /// party display at a measured 1971x1458 capture frame. At the OLD operating point (factor 1.0,
+    /// MSAA 4x) it cost 124.2 MB: capture 109.6 (colour 11.0 + depth/stencil 11.0 + 4x multisample
+    /// 87.7) + mipped display 14.6. At the NEW one (<see cref="BandLimitFactor"/> 2.0, MSAA 1x) it
+    /// costs 146.2 MB: capture 87.7 (colour 43.9 + depth/stencil 43.9, no multisample surfaces) +
+    /// mipped display 58.5. That is +18 % for the same window, and it buys the whole of the fix
+    /// described in <see cref="BandLimitFactor"/>. 128 MB would refuse it outright, and a cap a real
+    /// window cannot fit under is not a cap, it is an outage.</para>
     /// </summary>
-    private const long MaxPanelVramBytes = 128L * 1024 * 1024;
+    private const long MaxPanelVramBytes = 160L * 1024 * 1024;
 
     /// <summary>
     /// Hard VRAM ceiling across every supersampled panel — THE real bound, and the one the cap
-    /// message quotes. 384 MB holds four full-size 1920x1080 MSAA-4x windows, or all eight of the
-    /// arc's typical ~14–30 MB windows with room to spare. A panel that cannot fit even at MSAA 1x
-    /// is refused with a Warn and keeps today's rendering.
+    /// message quotes. 448 MB (ModBuild 198, raised from 384) so the ceiling still holds exactly
+    /// THREE full-size windows after the factor/MSAA trade above: 3 x 146.2 = 438.6 MB, where 384 MB
+    /// held 3 x 124.2 = 372.6 MB. How many windows this path can serve is therefore unchanged; only
+    /// what each of them buys changed. All eight of the arc's typical ~14–30 MB windows still fit
+    /// with room to spare. A panel that cannot fit even at MSAA 1x is refused with a Warn and keeps
+    /// today's rendering.
     /// </summary>
-    private const long MaxTotalVramBytes = 384L * 1024 * 1024;
+    private const long MaxTotalVramBytes = 448L * 1024 * 1024;
 
-    /// <summary>MSAA sample count the allocator ASKS for (stepped down by the budget, and again if
-    /// the driver refuses to create the surface). MSAA resolves the RT's own geometry edges; the mip
-    /// chain resolves everything the eye then minifies. The two are complementary, not redundant.</summary>
-    private const int PreferredMsaa = 4;
+    /// <summary>
+    /// MSAA sample count the allocator ASKS for (stepped down by the budget, and again if the driver
+    /// refuses to create the surface).
+    ///
+    /// <para><b>ONE, from FOUR — ModBuild 198, and this is a TRADE, not a saving.</b> MSAA 4x was
+    /// costing 87.7 MB of the party window's 124.2 MB — <b>71 % of the entire per-panel budget</b> —
+    /// and on this content it buys almost nothing, for a reason specific to what this camera renders.
+    /// The capture camera is ORTHOGRAPHIC and exactly aligned to the panel plane
+    /// (<see cref="SyncProjection"/>), and uGUI draws axis-aligned quads in that plane, so at an
+    /// integer factor a quad's edges land on exact texel boundaries and there is no geometry edge for
+    /// multisampling to resolve. What the eye actually sees the edges of — glyphs, icons, card art —
+    /// is TEXTURE content (TMP samples an SDF atlas), and MSAA has never touched texture content.
+    /// Only rotated or fractionally-placed quads benefit, and they are a small minority.</para>
+    ///
+    /// <para><b>AND SUPERSAMPLING SUBSUMES IT.</b> Rendering at <see cref="BandLimitFactor"/> = 2 and
+    /// box-filtering down one mip level is four samples per authored pixel applied to EVERYTHING —
+    /// geometry edges AND texture content — which is strictly more than 4x MSAA delivered, at less
+    /// memory than 4x MSAA cost. The two were documented here as "complementary, not redundant";
+    /// against a 1:1 factor that was true, but the money was in the wrong one of the two.</para>
+    ///
+    /// <para>The step-down machinery is kept — it is what degrades gracefully if a future factor or a
+    /// larger window pushes past the budget — and simply has nothing to step down from at 1.</para>
+    /// </summary>
+    private const int PreferredMsaa = 1;
+
+    /// <summary>
+    /// <b>THE MINIMUM RENDER-TARGET TEXELS PER AUTHORED PIXEL — the ModBuild 198 fix, and the whole
+    /// of the "the flicker is back as soon as the window is IN MY HAND" report.</b>
+    ///
+    /// <para><b>WHAT THE ModBuild 197 LOG MEASURED.</b> All 70 of its state lines report
+    /// <c>texelsPerPixel / authoredPerPixel = 1.00</c>, i.e. the session ran at
+    /// <c>[WorldUI] PanelSupersampleFactor = 1.0</c> — its shipped default — so <b>the "supersample"
+    /// path was allocating exactly one render-target texel per authored window pixel and
+    /// supersampling nothing</b>. Read the whole distribution of the sampling field rather than its
+    /// mode: authored pixels per RENDERED eye pixel runs 0.73 to 2.18 with the mode at ~1.05, so the
+    /// quad is displayed at roughly <b>one RT texel per rendered eye pixel</b> for most of a session.
+    /// 45 of those 70 lines have half or more of every texture sample coming from UNFILTERED mip
+    /// level 0, and 19 of them have 90 % or more.</para>
+    ///
+    /// <para><b>WHY THAT IS EXACTLY "STILL = FIXED, IN MY HAND = BROKEN".</b> Sampling a texture at
+    /// ~1 texel per pixel with a bilinear filter is a resample whose kernel is <c>[1-p, p]</c> for
+    /// the sub-texel phase p. At p = 0 it reproduces the source exactly; at p = 0.5 it averages two
+    /// neighbours and its response at Nyquist is ZERO. A one-pixel glyph stroke therefore swings
+    /// between full contrast and NO CONTRAST as p sweeps — and p is a function of where the window
+    /// sits relative to the eye's pixel grid. <b>A still window has a CONSTANT phase: the pattern
+    /// freezes and reads as "sharp".</b> A window in the hand sweeps the phase every frame: the same
+    /// pattern crawls, which is the flicker. <b>And on release the phase LOCKS at whatever value the
+    /// hand left behind</b> — which is the user's "the state as it was during the flickering gets
+    /// FROZEN, which can lead to certain elements not being displayed", and his earlier ModBuild 195
+    /// words <i>"bewege ich es nochmal und lasse los, sieht es wieder anders aus"</i>: another
+    /// release, another resting phase, another set of strokes washed out. No content defect can
+    /// produce that signature; a resampling phase produces exactly it.</para>
+    ///
+    /// <para><b>WHY ModBuild 197's "894 CAPTURES / 894 FRAMES" WAS RIGHT AND STILL MISSED IT.</b> It
+    /// measured the CAPTURE, and the capture is flawless — this log confirms it on every panel:
+    /// captures equal resolves exactly, moving and still; 0 frames on which the quad showed the raw
+    /// target; 0 resolves with mismatched sizes; and ~900 captures per 10 s report window continuing
+    /// forever after a release, so the displayed texture is re-captured at 90 Hz and is never stale.
+    /// The defect is one step LATER, in how the eye samples the finished texture, and no
+    /// capture-side counter can see it.</para>
+    ///
+    /// <para><b>WHY 2.0 AND NOT A MIP BIAS.</b> A positive <c>mipMapBias</c> would also stop the eye
+    /// reading level 0 and costs no memory — but it forces a level COARSER than the eye's rate, i.e.
+    /// it pays for stability in blur, and the still-window sharpness is this project's accepted win.
+    /// Factor 2.0 instead makes mip level 1 — the level the eye lands on at ~1 authored px per
+    /// rendered px — a proper 2x2 box downsample of a 2x rasterization. That level carries the
+    /// authored resolution with its near-Nyquist content already attenuated by the box filter, so the
+    /// phase term has far less to modulate AND the image is 4x-supersampled rather than merely
+    /// rasterized. The still window gets SHARPER, not softer.</para>
+    ///
+    /// <para><b>THE COST IS PAID FOR IN <see cref="PreferredMsaa"/>,</b> not in new memory: +18 % per
+    /// full-size window, and the same three of them fit the session ceiling as before.</para>
+    ///
+    /// <para><b>THIS IS A FLOOR ON THE DEFAULT, NEVER AN OVERRIDE OF A TUNED VALUE.</b> It applies
+    /// only while <c>[WorldUI] PanelSupersampleFactor</c> still reads its shipped default; a value
+    /// the user has actually set is taken verbatim (this project's "tuned cfg drops are current"
+    /// rule). Which of the two happened is printed once per panel at engage, with both numbers.</para>
+    /// </summary>
+    private const float BandLimitFactor = 2f;
+
+    /// <summary>
+    /// RT texels per RENDERED eye pixel at and above which the hardware's trilinear filter stops
+    /// blending in unfiltered mip level 0 at all — i.e. the threshold the resample instrument judges
+    /// every measurement against. TWO, and it is arithmetic, not a preference: the selected LOD is
+    /// <c>log2(texels per pixel)</c> and level 0 keeps a weight of <c>1 - LOD</c> until LOD reaches
+    /// 1, which is exactly 2 texels per pixel.
+    /// <para>Anisotropic filtering makes this a LOWER BOUND rather than a guarantee: aniso selects
+    /// the LOD from the MINOR axis' rate, so a window yawed away from the head reads a lower LOD —
+    /// more level 0 — than this figure states. That is a deliberate trade (see
+    /// <see cref="AnisoLevel"/>) and the instrument says so on the line.</para>
+    /// </summary>
+    private const float BandLimitedTexelsPerPixel = 2f;
+
+    /// <summary>How much the allocator gives back per step when a panel does not fit its VRAM budget,
+    /// and the floor it stops at. 1.0 is deliberately the floor and not lower: at factor 1.0 the
+    /// window has exactly ModBuild 197's behaviour, which is a known, shipped, playable state, whereas
+    /// below 1.0 the capture would be COARSER than the authored art and would soften text that the
+    /// direct path renders sharp. See the step-down loop in <see cref="Engage"/> for why a factor
+    /// concession replaced the MSAA concession.</summary>
+    private const float FactorStepDown = 0.25f;
+
+    /// <summary>Floor for <see cref="FactorStepDown"/> — see it.</summary>
+    private const float MinStepDownFactor = 1f;
 
     /// <summary>Anisotropic level on the RT. The floated windows in the map room are yawed away from
     /// the head by up to 85°, which is precisely the case aniso exists for — at 0/1 the far edge of
@@ -625,7 +759,31 @@ internal static partial class PanelSupersample
         internal int Msaa;
         internal int MipCount;
         internal long VramBytes;
+
+        /// <summary>Render-target texels per AUTHORED window pixel this entry was allocated at — the
+        /// value <see cref="ResolveFactor"/> returned, i.e. AFTER the
+        /// <see cref="BandLimitFactor"/> floor. What the target actually ACHIEVED can still be lower
+        /// if <see cref="MaxRtDimension"/> clipped an axis; that is <see cref="AchievedFactor"/>.</summary>
         internal float Factor;
+
+        /// <summary>The raw <c>[WorldUI] PanelSupersampleFactor</c> value, before the floor. Printed
+        /// next to <see cref="Factor"/> so the log never has to be guessed at.</summary>
+        internal float ConfigFactor;
+
+        /// <summary>True when <see cref="BandLimitFactor"/> raised an untouched DEFAULT config value;
+        /// false when the user's own tuned value was taken verbatim. See <see cref="ResolveFactor"/>.</summary>
+        internal bool FactorFloored;
+
+        /// <summary>
+        /// THE FACTOR THE RENDER TARGET ACTUALLY GOT, per axis, as
+        /// <c>min(RtW / Frame.width, RtH / Frame.height)</c>. It differs from <see cref="Factor"/>
+        /// only when <see cref="MaxRtDimension"/> clipped an axis (a capture frame wider than
+        /// 4096 / factor), and then the whole ModBuild 198 argument is silently only partly in force
+        /// on this window. It is printed with <see cref="Factor"/> and the ceiling on one line so
+        /// "asked 2.00, achieved 2.00" and "asked 2.00, achieved 1.31 (clipped by the 4096 px
+        /// ceiling)" can never look alike.
+        /// </summary>
+        internal float AchievedFactor;
 
         /// <summary>
         /// THE CAPTURE FRAME, in HOST-LOCAL uGUI pixels — what the camera frames, what the display
@@ -704,6 +862,45 @@ internal static partial class PanelSupersample
         /// rendered px per frame can only be a sub-pixel SAMPLING problem. Those two want opposite
         /// fixes and the log could not tell them apart before ModBuild 194.</summary>
         internal float AuthoredPerRenderedPx;
+
+        // ---- THE RESAMPLE INSTRUMENT (ModBuild 198) --------------------------------------------
+        // The one thing three rounds of capture-side counters could not see: what the EYE does with
+        // the finished texture. Every field below is written by SamplingSentence on the report
+        // cadence AND re-read on every release, and every one of them is printed next to the
+        // comparison it is judged against — see BandLimitFactor for the physics and AppendResample
+        // for the sentence.
+
+        /// <summary>How many times <see cref="SamplingSentence"/> COMPLETED a measurement in this
+        /// report window, and how many times it bailed out and why. Without these a session in which
+        /// the head camera was never found and a session in which everything measured clean print
+        /// the same absence.</summary>
+        internal int SamplingMeasured;
+        internal int SamplingNoHead;
+        internal int SamplingNoEyeTarget;
+        internal int SamplingOffScreen;
+
+        /// <summary>RT texels per RENDERED eye pixel at the last completed measurement — the number
+        /// the whole ModBuild 198 argument turns on. Compared against
+        /// <see cref="BandLimitedTexelsPerPixel"/> (2.0), the rate at which the eye stops reading
+        /// unfiltered mip level 0 at all.</summary>
+        internal float TexelsPerRenderedPx;
+
+        /// <summary>The WORST (lowest) <see cref="TexelsPerRenderedPx"/> seen in this report window.
+        /// The worst case is what the eye complains about, so a mean would hide exactly the frames
+        /// this instrument exists to find.</summary>
+        internal float TexelsPerRenderedPxWorst;
+
+        /// <summary>Weight the hardware's trilinear filter gives to UNFILTERED mip level 0 at
+        /// <see cref="TexelsPerRenderedPx"/>, 0..1. This is the aliasing that crawls under motion and
+        /// freezes on release. A LOWER BOUND, not an exact figure: anisotropic filtering selects the
+        /// LOD from the MINOR axis rate and therefore raises this on any yawed window.</summary>
+        internal float Level0Weight;
+
+        /// <summary>Completed measurements in this report window on which the eye read ANY unfiltered
+        /// level 0 (<see cref="Level0Weight"/> above zero) while the window was MINIFIED, i.e. frames
+        /// on which the ModBuild 198 defect was live. Printed over
+        /// <see cref="SamplingMeasured"/>.</summary>
+        internal int Level0Readings;
 
         internal int NextSweepFrame;
         internal int NextContentFrame;
@@ -1302,6 +1499,28 @@ internal static partial class PanelSupersample
         }
     }
 
+    /// <summary>
+    /// The render-target texels per AUTHORED window pixel this panel will be allocated at, and where
+    /// that number came from.
+    ///
+    /// <para>The whole argument is in <see cref="BandLimitFactor"/>. The rule here is narrow: a
+    /// <c>[WorldUI] PanelSupersampleFactor</c> the user has actually SET is taken verbatim, because a
+    /// tuned value is a ruling and this project does not re-express one; a factor still sitting on
+    /// its shipped default is a policy nobody chose, and the ModBuild 197 log proves that policy was
+    /// allocating one texel per authored pixel and supersampling nothing. Both numbers reach the
+    /// engage line so the log always says which branch ran.</para>
+    /// </summary>
+    private static float ResolveFactor(out float configured, out bool floored)
+    {
+        configured = WorldUIConfig.PanelSupersampleFactor != null
+            ? WorldUIConfig.PanelSupersampleFactor.Value
+            : Defaults.PanelSupersampleFactor;
+        // Mathf.Approximately, not ==, because BepInEx round-trips the value through the .cfg text.
+        floored = Mathf.Approximately(configured, Defaults.PanelSupersampleFactor)
+                  && configured < BandLimitFactor;
+        return Mathf.Clamp(floored ? BandLimitFactor : configured, 0.5f, 2f);
+    }
+
     private static void Engage(ConvertedPanel panel)
     {
         Camera? head = VRRigDriver.HeadCamera;
@@ -1321,15 +1540,15 @@ internal static partial class PanelSupersample
 
         string window = panel.Target != null ? panel.Target.name : panel.HostGo.name;
         Rect rect = panel.HostRect.rect;
-        float factor = Mathf.Clamp(
-            WorldUIConfig.PanelSupersampleFactor != null ? WorldUIConfig.PanelSupersampleFactor.Value : 1f,
-            0.5f, 2f);
+        float factor = ResolveFactor(out float configured, out bool floored);
 
         var e = new Entry
         {
             Panel = panel,
             Window = window,
             Factor = factor,
+            ConfigFactor = configured,
+            FactorFloored = floored,
             Frame = rect,
             HostRectAtMeasure = rect,
             Authored = rect.size,
@@ -1364,16 +1583,40 @@ internal static partial class PanelSupersample
             msaa /= 2;
             vram = VramBytesFor(rtW, rtH, msaa);
         }
+
+        // THE FACTOR STEP-DOWN (ModBuild 198) — and it exists because this build REMOVED the lever
+        // the loop above used to be. With PreferredMsaa at 4 a window that did not fit was degraded
+        // 4x -> 2x -> 1x, a 3.4x reduction, and was refused only after that; at PreferredMsaa 1 that
+        // loop cannot step at all, so without this a memory-pressured window would go straight from
+        // "supersampled" to "refused, keeps today's shimmer" — a graceful degradation silently traded
+        // for an outage. Stepping the FACTOR is the same shape of concession and a better one: a
+        // window at factor 1.5 still has half the fix, and one at 1.0 is exactly ModBuild 197's
+        // behaviour rather than nothing at all. What it actually got is on the engage line and in the
+        // report's ACHIEVED field, so a degraded window never reads like a full-strength one.
+        float askedFactor = factor;
+        while (factor > MinStepDownFactor + 1e-3f && vram > budget)
+        {
+            factor = Mathf.Max(MinStepDownFactor, factor - FactorStepDown);
+            rtW = Mathf.Clamp(Mathf.RoundToInt(frame.width * factor), 16, MaxRtDimension);
+            rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * factor), 16, MaxRtDimension);
+            vram = VramBytesFor(rtW, rtH, msaa);
+        }
+        e.Factor = factor;
         if (vram > budget)
         {
             Refused.Add(panel.HostGo.GetInstanceID());
             VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': its {rtW}x{rtH} capture + mip "
-                              + $"targets would cost {Mb(vram)} MB even at MSAA 1x, against a "
-                              + $"remaining budget of {Mb(budget)} MB (per-panel cap "
-                              + $"{Mb(MaxPanelVramBytes)} MB, session {Mb(_vramTotal)} of "
-                              + $"{Mb(MaxTotalVramBytes)} MB across {Entries.Count} panel(s)). THE "
-                              + "CONSEQUENCE: this window keeps today's direct rendering and will "
-                              + "still shimmer. Lower [WorldUI] PanelSupersampleFactor to fit it.");
+                              + $"targets would cost {Mb(vram)} MB even at MSAA {msaa}x and factor "
+                              + $"{factor:F2} (stepped down from {askedFactor:F2}, floor "
+                              + $"{MinStepDownFactor:F2}), against a remaining budget of "
+                              + $"{Mb(budget)} MB (per-panel cap {Mb(MaxPanelVramBytes)} MB, session "
+                              + $"{Mb(_vramTotal)} of {Mb(MaxTotalVramBytes)} MB across "
+                              + $"{Entries.Count} panel(s)). THE CONSEQUENCE: this window keeps "
+                              + "today's direct rendering and will still shimmer. BOTH automatic "
+                              + "concessions are already exhausted here, so the remaining levers are "
+                              + "closing another floated window or lowering [WorldUI] "
+                              + "PanelSupersampleFactor below "
+                              + $"{MinStepDownFactor:F2} by hand.");
             return;
         }
 
@@ -1413,6 +1656,7 @@ internal static partial class PanelSupersample
         e.RtH = rtH;
         e.Msaa = msaa;
         e.VramBytes = VramBytesFor(rtW, rtH, msaa);
+        RecordAchievedFactor(e);
         AttachMipTarget(e, rtW, rtH);
 
         if (!BuildCamera(e, panel) || !BuildDisplay(e, panel))
@@ -1441,13 +1685,40 @@ internal static partial class PanelSupersample
             ? $" MSAA was stepped {askedMsaa}x -> {msaa}x to fit the {Mb(budget)} MB budget left for "
               + "this panel; the supersampled rasterization and the mip chain are unaffected."
             : string.Empty;
+        // THE FACTOR DECISION, stated with both numbers (ModBuild 198). A build that "ships factor 2"
+        // and a session running at 1.0 because the user tuned it down must never read alike, and a
+        // target the 4096 px ceiling clipped must not be reported as the factor it asked for.
+        string factorNote = " FACTOR: "
+            + (e.FactorFloored
+                ? $"{e.ConfigFactor:F2} RT texels per authored px is still the SHIPPED DEFAULT, so it "
+                  + $"was raised to the {BandLimitFactor:F2} band-limit floor"
+                : $"{e.ConfigFactor:F2} RT texels per authored px is a value the USER SET, so it was "
+                  + "taken verbatim and the band-limit floor did not apply")
+            + (factor < askedFactor - 1e-3f
+                ? $", then STEPPED DOWN {askedFactor:F2} -> {factor:F2} to fit the {Mb(budget)} MB "
+                  + $"left for this panel (floor {MinStepDownFactor:F2} = ModBuild 197's behaviour); "
+                  + "below 2.00 the eye still reads some unfiltered mip level 0, so the carried-window "
+                  + "flicker is only partly removed on THIS window"
+                : string.Empty)
+            + $"; the target achieves {e.AchievedFactor:F2}"
+            + (e.AchievedFactor < e.Factor - 0.01f
+                ? $", LOWER than the {e.Factor:F2} asked, because the {MaxRtDimension} px per-axis "
+                  + $"ceiling clipped this {frame.width:F0}x{frame.height:F0} capture frame."
+                : ".")
+            + " WHY THIS NUMBER IS THE FIX: at one texel per authored pixel the eye resamples this "
+            + "window at ~1 texel per rendered pixel, and a bilinear resample at that rate has a "
+            + "sub-texel PHASE whose response at Nyquist runs from full contrast to zero. A still "
+            + "window holds one phase and reads sharp; a carried window sweeps it every frame and "
+            + "reads as the flicker; a released window LOCKS it, which is why letting go freezes "
+            + "whatever the drag left behind. Two texels per authored pixel puts the eye on a mip "
+            + "level that was box-filtered down from a 2x rasterization instead.";
         VRLog.Info(Scope, $"PANEL SUPERSAMPLE engaged on '{window}': the window's canvas now renders "
                           + $"into a {rtW}x{rtH} capture target (MSAA {msaa}x, D24S8) which is "
                           + $"resolved after every frame into a {rtW}x{rtH} MIPPED display target "
                           + $"(mips {(e.MipRt != null ? e.MipRt.mipmapCount : rt.mipmapCount)}, "
                           + $"Trilinear, aniso {AnisoLevel}) — {Mb(e.VramBytes)} MB for the pair — "
                           + "through a dedicated orthographic camera, and a mod-owned quad at the "
-                          + $"window's exact world pose shows that texture.{msaaNote}{frameNote} The "
+                          + $"window's exact world pose shows that texture.{factorNote}{msaaNote}{frameNote} The "
                           + $"host canvas itself is moved to this panel's PRIVATE capture layer "
                           + $"{e.Layer} (mask 0x{1 << e.Layer:X8}; {FreeLayers.Count} of "
                           + $"{PoolSize} pool layer(s) still free) — no other panel is ever on it, "

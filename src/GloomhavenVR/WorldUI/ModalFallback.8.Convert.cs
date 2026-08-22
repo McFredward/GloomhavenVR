@@ -182,6 +182,12 @@ internal static partial class ModalFallback
         // free of any visible frame — nothing renders between this statement and the reveal gate's
         // hide, which runs later in this same Update (CanvasConversion.Tick).
         ReleasePreConvertHide(window, "the conversion takes over (its own pre-reveal hide records the true state)");
+        // Part 12 — and put the canvas back the way the game had it BEFORE the conversion adopts
+        // it. A window we re-bound onto the flat screen's UI camera is about to be re-parented
+        // under a world-space host, where its render mode is inherited from that host anyway; the
+        // adoption must record the game's own state, not ours, or the release would restore a
+        // Screen-Space-Camera binding to a camera that is no longer capturing anything.
+        ReleaseScreenBind(window, "the float takes over — the window draws itself now");
         try
         {
             var rect = window.transform as RectTransform;

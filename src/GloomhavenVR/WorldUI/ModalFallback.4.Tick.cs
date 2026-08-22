@@ -218,6 +218,9 @@ internal static partial class ModalFallback
         // Round 8: hand every pre-convert blackout back BEFORE anything else — a game window we
         // switched off must never survive the module (see part 11).
         ReleaseAllPreConvertHide("module shutdown");
+        // Part 12: and hand back every canvas we re-bound onto the flat screen's UI camera — a
+        // game canvas the mod moved must never outlive the module that moved it.
+        ReleaseAllScreenBind("module shutdown");
         RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
         Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
         ReleaseAllWindows("module shutdown");
@@ -271,6 +274,7 @@ internal static partial class ModalFallback
         if (!e.Shown)
         {
             ReleasePreConvertHide(e.Window, "the game hid it again");
+            ReleaseScreenBind(e.Window, "the game hid it again");
             if (Open.Remove(e.Window))
                 VRLog.Info("WorldUI", $"Modal fallback: window '{e.Window.name}' (ID {e.Id}) hidden — untracked.");
             return;
@@ -1756,7 +1760,8 @@ internal static partial class ModalFallback
     /// prune plus the three ID-less deadlock polls and the rebuild of the open set;
     /// <c>CatchAll</c> part 10's unknown-window enrollment (ModalFallback.10.CatchAll.cs);
     /// <c>ErrorBox</c> the GlobalErrorMessage poll and float; <c>Decide</c> the sticky/blocking
-    /// scans that produce want/wantLock; <c>Release</c> the release loop, the arc-slot release
+    /// scans that produce want/wantLock PLUS part 12's presentation step (the flat-screen canvas
+    /// bind and the fail-open stranded set); <c>Release</c> the release loop, the arc-slot release
     /// and the Failed prune; <c>Convert</c> TryConvertWindow for newly opened windows;
     /// <c>Raycast</c> the raycaster and sticky-visibility re-asserts; <c>GrabFollow</c> the grab
     /// frame follow and the hover-card pose; <c>Destinations</c> the guildmaster banner
@@ -2178,16 +2183,29 @@ internal static partial class ModalFallback
         // ---- window-style conversions (P8) ------------------------------------------
         // The manual chord's full screen needs the windows back in the 2D composite;
         // style=screen and scenario exit release everything too.
-        bool convertWanted = want && WorldUIConfig.ModalWindowStyle
-                             && !FlatScreen.ManualScreenActive
-                             && WorldUIConfig.ConversionActive;
+        bool convertWanted = want && ConvertBaseActive;
+
+        // ModBuild 198 (part 12) — WHERE IS EACH OPEN WINDOW ACTUALLY BEING SHOWN. Outside a room
+        // this class hands its windows to the flat screen, which composites the game's CAMERAS;
+        // a window whose root canvas is Screen-Space-OVERLAY is rendered by no camera at all, so
+        // that hand-off showed it NOWHERE — the map ESC menu, opened eleven times in the 197 log
+        // and never seen. This step binds such a canvas onto the UI camera the screen is
+        // capturing, and when it cannot, marks the window STRANDED so the loops below float it
+        // anyway (fail open). It also prints the verdict line the 197 log did not have. Placed
+        // here because it needs the finished OpenWindows and must run before the release/convert
+        // loops read StrandedFloat; measured inside the Decide phase, whose scans it joins.
+        TickScreenBind(floatPathOwnsWindows: convertWanted);
 
         EnterPhase(PhaseRelease);
         // 1. Release conversions whose window closed/died or that are no longer wanted.
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];
-            bool alive = convertWanted && wp.Window != null && wp.Panel.IsAlive;
+            // ModBuild 198: PER-WINDOW, not global. A window the fail-open path floated because
+            // nothing else can draw it (StrandedFloat) must not be torn down again by the next
+            // tick's release pass just because there is still no room — that oscillation would be
+            // the unreachable menu again, one frame at a time. FloatWantedFor asks both questions.
+            bool alive = wp.Window != null && wp.Panel.IsAlive && FloatWantedFor(wp.Window, convertWanted);
             // Item 6: a sticky reachable menu the user has NOT closed stays floated even when the
             // game hid it (not in OpenWindows) — parallel windows. Every other window releases as
             // soon as it leaves the open set (or convert is no longer wanted, or the user closed it).
@@ -2254,17 +2272,18 @@ internal static partial class ModalFallback
         }
 
         EnterPhase(PhaseConvert);
-        // 3. Convert newly opened windows.
-        if (convertWanted)
+        // 3. Convert newly opened windows — plus, since ModBuild 198, any window the presentation
+        //    step proved is drawn by nothing at all (StrandedFloat). The per-window test is the
+        //    same one the release loop above uses, so the two can never disagree about a window.
+        for (int i = 0; i < OpenWindows.Count; i++)
         {
-            for (int i = 0; i < OpenWindows.Count; i++)
-            {
-                UIWindow window = OpenWindows[i];
-                if (IsConverted(window) || ContainsWindow(Failed, window))
-                    continue;
-                if (!TryConvertWindow(window))
-                    Failed.Add(window);
-            }
+            UIWindow window = OpenWindows[i];
+            if (!FloatWantedFor(window, convertWanted))
+                continue;
+            if (IsConverted(window) || ContainsWindow(Failed, window))
+                continue;
+            if (!TryConvertWindow(window))
+                Failed.Add(window);
         }
 
         EnterPhase(PhaseRaycast);
