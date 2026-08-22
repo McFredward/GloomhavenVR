@@ -183,6 +183,10 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> PanelMipLodOffset = null!;
 
+    /// <summary>Write a supersampled window's stale CanvasRenderer inherited alphas back to what the
+    /// CanvasGroup chain says they should be. See <c>DrawReason.StaleInheritedAlpha</c>.</summary>
+    internal static ConfigEntry<bool> PanelRepairInheritedAlpha = null!;
+
     // ---- behavior ----------------------------------------------------------------------
     // [WorldUI] ForceMouseMode is GONE (user ruling 2026-08-13): mouse mode is now pinned
     // unconditionally while VR runs. Its OFF let the game load the 'Game_gamepad' scene variants
@@ -543,6 +547,18 @@ internal static class WorldUIConfig
                 "below 1.0 saves memory and starts to soften the text. Has no effect while " +
                 "PanelSupersample is off. Range 0.5-2.",
                 new AcceptableValueRange<float>(0.5f, 2f)));
+        PanelRepairInheritedAlpha = _file.Bind("WorldUI", "PanelRepairInheritedAlpha",
+            Defaults.PanelRepairInheritedAlpha,
+            new ConfigDescription(
+                "Repairs elements that randomly stay INVISIBLE in a floated window after you drag " +
+                "and release it - missing labels, missing icons, missing character boxes. The cause " +
+                "is a CanvasRenderer left holding an inherited alpha of 0 while the CanvasGroup " +
+                "chain above it says the element is fully visible: two values for the same thing " +
+                "that uGUI failed to keep in step. The repair writes the second into the first, and " +
+                "ONLY when they disagree - an element the game means to hide reads 0 on both and is " +
+                "never touched, so this cannot reveal a closed sub-view. Turn it off if something " +
+                "appears that should not; the mod's log names every element it repaired."));
+
         PanelMipLodOffset = _file.Bind("WorldUI", "PanelMipLodOffset",
             Defaults.PanelMipLodOffset,
             new ConfigDescription(

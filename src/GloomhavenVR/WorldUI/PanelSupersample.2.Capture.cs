@@ -2863,6 +2863,10 @@ internal static partial class PanelSupersample
     /// <summary>Non-text graphics one census will sample the capture under, the grid it samples each of
     /// them on, and how many it will name. 24 plates at 6x6 is 864 texel reads — under one percent of
     /// what the glyph judging already spends, and it is charged to the same per-frame pool.</summary>
+    /// <summary>Stale inherited alphas one census will repair. A bound, not a policy: if a window ever
+    /// needs more than this the line says so and the number itself is the finding.</summary>
+    private const int MaxInheritedRepairsPerCensus = 512;
+
     private const int MaxInkPlates = 24;
     private const int InkPlateSamples = 6;
     private const int MaxInkPlatesNamed = 8;
@@ -3661,6 +3665,10 @@ internal static partial class PanelSupersample
         /// <summary>The non-text graphics that believed they drew inside this census's strip, and what
         /// the capture holds where each says it is. See <see cref="InkPlate"/>; the verdict is
         /// deliberately one-sided and only names the unambiguous case.</summary>
+        /// <summary>Graphics whose stale inherited alpha this census repaired, and how many of them the
+        /// line names. See <see cref="DrawReason.StaleInheritedAlpha"/>.</summary>
+        internal int InheritedRepairs, InheritedRepairNamed, StaleSeen, StaleNoGroup;
+
         internal readonly List<InkPlate> Plates = new(MaxInkPlates);
         internal int PlatesSeen, PlatesOutsideStrip, PlatesBlank, PlatesPresent, PlatesUnjudged;
         internal string PlateNote = string.Empty;
@@ -3799,12 +3807,16 @@ internal static partial class PanelSupersample
     private static readonly List<DrawLedgerEntry> DrawGained = new(64);
     private static readonly List<int> DrawEvict = new(64);
     private static readonly StringBuilder DrawSb = new(1024);
-    private static readonly int[] DrawReasonCount = new int[9];
+    // Sized from the enum rather than a literal: ModBuild 211 added StaleInheritedAlpha = 9 and a
+    // hand-kept literal would have indexed out of range on the first graphic that hit it.
+    private static readonly int[] DrawReasonCount =
+        new int[System.Enum.GetValues(typeof(DrawReason)).Length + 1];
 
     /// <summary>Component indices in the order the registration search will spend its budget on them —
     /// fully opaque empty-producers first. See FitInkComponents for why walk order was the wrong one.</summary>
     private static readonly List<int> InkSearchOrder = new(MaxInkCandidateComponents);
     private static readonly StringBuilder InkPlateSb = new(512);
+    private static readonly StringBuilder InkRepairSb = new(512);
 
     // ---- THE DRAW-STATE LEDGER (ModBuild 210) ---------------------------------------------------
     //
@@ -3863,8 +3875,10 @@ internal static partial class PanelSupersample
     /// same <see cref="InkAlphaFloor"/>, so the ledger and the ink census can never disagree about
     /// whether a component drew.
     /// </summary>
-    private static DrawReason ClassifyDraw(Graphic g, RectTransform host, bool clipEmpty)
+    private static DrawReason ClassifyDraw(Graphic g, RectTransform host, bool clipEmpty,
+                                           out float groupAlpha)
     {
+        groupAlpha = 1f;
         if (!g.isActiveAndEnabled)
             return DrawReason.Inactive;
         CanvasRenderer cr = g.canvasRenderer;
@@ -3876,9 +3890,18 @@ internal static partial class PanelSupersample
             return DrawReason.OwnAlpha;
         if (cr.GetAlpha() <= InkAlphaFloor)
             return DrawReason.RendererAlpha;
+
+        // ---- THE COMPARISON ModBuild 210 COULD NOT MAKE -----------------------------------------
+        // The group chain is measured HERE, unconditionally, and BEFORE the inherited-alpha test
+        // returns. ModBuild 210 tested inherited alpha first and returned on the first hit, so a
+        // renderer holding a stale zero and a legitimately hidden panel produced the SAME answer —
+        // and this window has 155 legitimately hidden components, so that answer said nothing. The
+        // whole finding is the DISAGREEMENT between two independent measurements of the same thing.
+        groupAlpha = InkGroupChainAlpha(g.transform, host, out string _);
+        bool groupHides = groupAlpha <= InkAlphaFloor;
         if (cr.GetInheritedAlpha() <= InkAlphaFloor)
-            return DrawReason.InheritedAlpha;
-        if (InkGroupChainAlpha(g.transform, host, out string _) <= InkAlphaFloor)
+            return groupHides ? DrawReason.InheritedAlpha : DrawReason.StaleInheritedAlpha;
+        if (groupHides)
             return DrawReason.GroupAlpha;
         if (clipEmpty)
             return DrawReason.ClippedOut;
@@ -3891,7 +3914,64 @@ internal static partial class PanelSupersample
     private static void NoteDrawState(Entry e, InkCensus c, RectTransform host, Rect frame, Graphic g,
                                       bool clipEmpty)
     {
-        DrawReason reason = ClassifyDraw(g, host, clipEmpty);
+        DrawReason reason = ClassifyDraw(g, host, clipEmpty, out float groupAlpha);
+
+        // ---- THE REPAIR (ModBuild 211) ------------------------------------------------------------
+        // It acts on EXACTLY ONE state and nowhere else: the renderer says it inherits zero alpha while
+        // the CanvasGroup chain above it, walked independently, says the graphic is visible. Those two
+        // are measurements of the SAME quantity, uGUI maintains the first during its rebuild and the
+        // second is the authority on what it should hold, so a disagreement is a stale value and not a
+        // decision anybody made.
+        //
+        // WHY IT IS SAFE TO WRITE, and this is the line that decides it: the repair NEVER reveals a
+        // panel that is meant to be hidden, because a hidden panel's group chain reads zero and lands
+        // in DrawReason.InheritedAlpha, which this branch does not touch. The 155 legitimately hidden
+        // components on this window are therefore out of reach by construction rather than by a
+        // threshold. It is capped per census and every repair is NAMED, so if something appears that
+        // should not, the log says which graphic and the dial turns it off.
+        //
+        // AND IT IS NOT GATED BEHIND THE INSTRUMENT. This project has shipped a fix that could only run
+        // when the diagnostic that was meant to test it had already fired, and then read "no
+        // improvement" as evidence. The repair runs on its own dial; the count is reported either way.
+        // HOW IT REPAIRS, and the route is forced rather than chosen: CanvasRenderer in Unity 2021.3.5f1
+        // exposes GetAlpha, SetAlpha and GetInheritedAlpha — and NO SetInheritedAlpha. The inherited
+        // value is written by the native canvas during its rebuild and by nothing else, so the only
+        // lever is to make that rebuild happen again. Nudging the nearest CanvasGroup does exactly
+        // that and nothing else: the alpha is written to a hair off and straight back, which marks the
+        // group dirty and re-propagates the accumulated alpha over its whole subtree. The value the
+        // game set is restored in the same statement, so there is no state left behind to fight over.
+        if (reason == DrawReason.StaleInheritedAlpha)
+        {
+            c.StaleSeen++;
+            CanvasGroup? group = WorldUIConfig.PanelRepairInheritedAlpha.Value
+                                 && c.InheritedRepairs < MaxInheritedRepairsPerCensus
+                ? NearestGroup(g.transform, host)
+                : null;
+            if (group != null)
+            {
+                float groupWas = group.alpha;
+                group.alpha = groupWas >= 0.5f ? groupWas - 0.001f : groupWas + 0.001f;
+                group.alpha = groupWas;
+                c.InheritedRepairs++;
+                if (c.InheritedRepairNamed < MaxDrawStateNamed)
+                {
+                    c.InheritedRepairNamed++;
+                    InkRepairSb.Append(" '").Append(g.gameObject.name).Append("' (")
+                               .Append(g.GetType().Name).Append(") via group '")
+                               .Append(group.gameObject.name).Append("' at alpha ")
+                               .Append(groupWas.ToString("F3")).Append(';');
+                }
+            }
+            else if (WorldUIConfig.PanelRepairInheritedAlpha.Value)
+            {
+                // NO GROUP TO NUDGE. That is a finding in its own right and it is counted rather than
+                // silently skipped: if the graphics in this state have no CanvasGroup above them at
+                // all, then the zero was not written by a group and the next round needs a different
+                // lever — a nested Canvas boundary is the first suspect.
+                c.StaleNoGroup++;
+            }
+        }
+
         DrawReasonCount[(int)reason]++;
 
         int key = DrawPathHash(g.transform, host);
@@ -4005,7 +4085,19 @@ internal static partial class PanelSupersample
               .Append(DrawReasonCount[(int)DrawReason.OwnAlpha]).Append(" at authored alpha 0, ")
               .Append(DrawReasonCount[(int)DrawReason.RendererAlpha]).Append(" at renderer alpha 0, ")
               .Append(DrawReasonCount[(int)DrawReason.InheritedAlpha])
-              .Append(" at inherited alpha 0, ")
+              .Append(" at inherited alpha 0 WITH THE GROUP CHAIN AGREEING (a legitimately hidden "
+                      + "panel — this window has six sub-views and most of it is supposed to be in "
+                      + "this state), ")
+              .Append(DrawReasonCount[(int)DrawReason.StaleInheritedAlpha])
+              .Append(" AT INHERITED ALPHA 0 WHILE THE CANVASGROUP CHAIN SAYS THEY ARE FULLY VISIBLE "
+                      + "— THIS IS THE FINDING AND IT IS THE ONE NUMBER ON THIS LINE THAT CANNOT BE "
+                      + "ANYTHING ELSE. Two independent measurements of the same quantity disagree: "
+                      + "uGUI maintains the renderer's inherited alpha during its rebuild, the "
+                      + "transform walk says what it should hold, and a graphic in this state draws "
+                      + "NOTHING while it is not culled, its own colour is opaque, its mesh is intact "
+                      + "and nothing above it is faded. That is the exact state eight builds of ink "
+                      + "census measured and could not name, and it takes an Image the same way it "
+                      + "takes a label. ")
               .Append(DrawReasonCount[(int)DrawReason.GroupAlpha])
               .Append(" behind a CanvasGroup chain at 0, ")
               .Append(DrawReasonCount[(int)DrawReason.ClippedOut]).Append(" clipped away entirely, ")
@@ -4023,6 +4115,29 @@ internal static partial class PanelSupersample
               .Append("tab the user closed, counted here and NEVER as a loss, because an instrument ")
               .Append("that reports the user's own navigation as a defect is worse than no ")
               .Append("instrument.");
+
+        // ---- THE REPAIR'S OWN REPORT (ModBuild 211) ----------------------------------------------
+        DrawSb.Append(" THE REPAIR: ")
+              .Append(WorldUIConfig.PanelRepairInheritedAlpha.Value
+                  ? $"{c.InheritedRepairs} of {c.StaleSeen} stale renderer(s) were repaired by nudging "
+                    + "the nearest CanvasGroup, which makes the canvas re-propagate the accumulated "
+                    + "alpha over its subtree (CanvasRenderer in this Unity exposes GetInheritedAlpha "
+                    + "and NO setter, so the value cannot be written directly — the rebuild is the "
+                    + $"only lever). {c.StaleNoGroup} had NO CanvasGroup above them at all, which is "
+                    + "its own finding: a zero that no group wrote needs a different lever, and a "
+                    + "nested Canvas boundary is the first suspect. The repair touches ONLY the "
+                    + "disagreement above — a panel the game means to hide reads zero on BOTH "
+                    + "measurements and is out of reach by construction rather than by a threshold, "
+                    + "so this can never reveal a closed sub-view. The group's own alpha is restored "
+                    + $"in the same statement. Capped at {MaxInheritedRepairsPerCensus} per census. "
+                    + "Switch it off with [WorldUI] PanelRepairInheritedAlpha if anything appears "
+                    + "that should not."
+                  : "SWITCHED OFF by [WorldUI] PanelRepairInheritedAlpha, so the count above is what "
+                    + "the picture is still carrying. Nothing was written.")
+              .Append(InkRepairSb.Length > 0
+                  ? " REPAIRED, NAMED:" + InkRepairSb
+                  : string.Empty);
+        InkRepairSb.Length = 0;
 
         AppendDrawTransitions(DrawSb, "STOPPED DRAWING", DrawLost);
         AppendDrawTransitions(DrawSb, "STARTED DRAWING", DrawGained);
@@ -4534,6 +4649,8 @@ internal static partial class PanelSupersample
         c.Plates.Clear();
         c.PlatesSeen = c.PlatesOutsideStrip = c.PlatesBlank = c.PlatesPresent = c.PlatesUnjudged = 0;
         c.PlateNote = string.Empty;
+        c.InheritedRepairs = c.InheritedRepairNamed = c.StaleSeen = c.StaleNoGroup = 0;
+        InkRepairSb.Length = 0;
         c.Glyphs.Clear();
         c.Comps.Clear();
         InkCandidates.Clear();
@@ -5148,6 +5265,30 @@ internal static partial class PanelSupersample
     /// <paramref name="note"/> with their alphas so a surprising product can be traced to an object
     /// instead of argued about.</para>
     /// </summary>
+    /// <summary>The nearest enabled <see cref="CanvasGroup"/> between <paramref name="from"/> and
+    /// <paramref name="host"/> inclusive — the one whose alpha the ModBuild 211 repair nudges to make
+    /// the canvas re-propagate. Null when the chain holds none, which is itself reported.
+    /// <para>The walk terminates on <c>ignoreParentGroups</c> for the same reason
+    /// <see cref="InkGroupChainAlpha"/> does: that is where uGUI stops accumulating, so a group above
+    /// it does not own this graphic's alpha and nudging it would repair nothing.</para></summary>
+    private static CanvasGroup? NearestGroup(Transform from, RectTransform host)
+    {
+        Transform? cur = from;
+        int guard = 0;
+        while (cur != null && ++guard < 64)
+        {
+            var cg = cur.GetComponent<CanvasGroup>();
+            if (cg != null && cg.enabled)
+                return cg;
+            if (cg != null && cg.ignoreParentGroups)
+                return null;
+            if (ReferenceEquals(cur, host))
+                break;
+            cur = cur.parent;
+        }
+        return null;
+    }
+
     private static float InkGroupChainAlpha(Transform from, RectTransform host, out string note)
     {
         note = string.Empty;

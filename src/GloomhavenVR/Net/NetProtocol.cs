@@ -416,7 +416,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 210;
+    public const ushort ModBuild = 211;
+    // Build 211: A RENDERER HOLDING AN INHERITED ALPHA OF 0 WHILE EVERYTHING ABOVE IT IS OPAQUE.
+    // The 210 ledger named the graphics that came BACK from not drawing on the party window —
+    // 'Portrait', 'XP bar', 'Title', 'Icon', 'Shield', 'Shadow', 'Separator Image', 'RawImage',
+    // 'Party Name', 'Party Display UI' — 215 resumptions over 24 censuses with ZERO losses, and the
+    // dominant reason was InheritedAlpha. Images AND labels, which is what the user's "es betrifft
+    // auch bilder/symbole" requires, and he added that whole character boxes under the 'Neuer Söldner'
+    // button vanish the same way. A CanvasRenderer at inherited alpha 0 draws NOTHING while it is not
+    // culled, its own colour is opaque, its mesh is intact, its atlas is fine and its material is
+    // right — character for character the state eight builds of ink census measured and could not
+    // explain.
+    //
+    // WHAT 210 COULD NOT SAY, because of an ordering flaw in my own classifier: whether the CanvasGroup
+    // chain AGREED. It tested inherited alpha before the group chain and returned on the first hit, so
+    // a stale renderer and a legitimately hidden panel produced the same answer — and this window has
+    // 155 legitimately hidden components, so that answer said nothing. 211 measures both, always, and
+    // reports the DISAGREEMENT as its own class: inherited alpha 0 while the independently walked
+    // group chain says fully visible.
+    //
+    // THE REPAIR, and its route is forced rather than chosen: CanvasRenderer in 2021.3.5f1 exposes
+    // GetAlpha, SetAlpha and GetInheritedAlpha and NO SetInheritedAlpha — the value is written by the
+    // native canvas during its rebuild and by nothing else. So the repair nudges the nearest
+    // CanvasGroup off its value and straight back, which marks it dirty and re-propagates the
+    // accumulated alpha over the subtree, leaving no state behind to fight over. It acts ONLY on the
+    // disagreement: a panel the game means to hide reads zero on BOTH measurements and is out of reach
+    // by construction rather than by a threshold, so it can never reveal a closed sub-view. Every
+    // repair is named; [WorldUI] PanelRepairInheritedAlpha (default true) switches it off. Graphics in
+    // the stale state with NO group above them are counted separately — a zero no group wrote needs a
+    // different lever and a nested Canvas boundary is the first suspect.
+    //
+    // FALSIFIED THIS ROUND BY THE USER'S OWN TEST, verified in force in the log (the session contains
+    // readings at -1.10, -0.95, -0.07 and 0.00, each with "asked and in force AGREE"): the mip LOD
+    // bias is NOT the cause. My 210 report named it and was wrong.
+    // Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 210: THE MEASURED POPULATION WAS THE WRONG ONE — IT WAS TMP TEXT, AND THE DEFECT TAKES
     // IMAGES TOO. Asked directly whether the broken picture loses images as well as text, the user
     // answered: "es betrifft auch bilder/symbole! Die auch random je nachdem wann man loslässt da sind

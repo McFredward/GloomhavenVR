@@ -1162,9 +1162,31 @@ internal static partial class PanelSupersample
         /// <summary><c>CanvasRenderer.GetAlpha()</c> is at zero — somebody wrote the renderer alpha.</summary>
         RendererAlpha = 4,
 
-        /// <summary><c>CanvasRenderer.GetInheritedAlpha()</c> is at zero — the canvas's own accumulated
-        /// value, which is maintained during the render pass and can disagree with the group chain.</summary>
+        /// <summary><c>CanvasRenderer.GetInheritedAlpha()</c> is at zero AND the independently measured
+        /// <c>CanvasGroup</c> chain agrees that it should be — a legitimately hidden panel.</summary>
         InheritedAlpha = 5,
+
+        /// <summary>
+        /// <b>THE ONE THIS BUILD EXISTS FOR: the renderer's inherited alpha is at zero while the
+        /// CanvasGroup chain above it, measured independently by walking the transforms, says the
+        /// graphic is FULLY VISIBLE.</b>
+        ///
+        /// <para>uGUI propagates alpha down to each <c>CanvasRenderer</c> during its rebuild. A renderer
+        /// holding a stale zero draws NOTHING while every other test passes: it is not culled, its own
+        /// colour is opaque, its mesh is intact, its material and atlas are fine, and nothing above it
+        /// is faded. That is character for character the state eight builds of census measured and
+        /// could not explain — and it takes an Image exactly as it takes a label, which is what the
+        /// user's "es betrifft auch bilder/symbole" requires.</para>
+        ///
+        /// <para>The ModBuild 210 ledger named the graphics that came BACK from this state on the party
+        /// window — 'Portrait', 'XP bar', 'Title', 'Icon', 'Shield', 'Shadow', 'Separator Image',
+        /// 'RawImage', 'Party Name' — 215 resumptions over 24 censuses with ZERO losses, which is the
+        /// signature of graphics that were already stuck when the ledger first saw them. What 210 could
+        /// NOT say is whether the group chain agreed, because the classifier tested inherited alpha
+        /// BEFORE the group chain and returned on the first hit. That ordering flaw is why this value
+        /// exists.</para>
+        /// </summary>
+        StaleInheritedAlpha = 9,
 
         /// <summary>The measured product of the <c>CanvasGroup</c> chain up to the host is at zero. A
         /// legitimately hidden panel lands here, which is why the ledger reports TRANSITIONS and not a
