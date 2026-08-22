@@ -1228,20 +1228,114 @@ internal static partial class CanvasConversion
     //   ones it was pinned at so a hardware log states it rather than implying it.
     //
     //   THE OPEN SUB-VIEW is scaled and seated on its OWN root (the GameObject NewPartyDisplayUI
-    //   serialises), against the frame's RIGHT edge. One rule, no modes: a view that fits in the
-    //   empty space beside the column lands there untouched, a view that is too wide overlaps the
-    //   column by exactly the amount it is too wide — which is what the flat game does with these
-    //   views anyway. Measured off the 196/198 logs, against a 1143 px frame with 12 px margins:
-    //   enhancement cards 388 px and equipment 532 px and ability cards 738 px and equipment +
-    //   inventory 808 px all seat beside the column at scale 1.000 (they used to be drawn at 0.595
-    //   whenever a wide tab had been open); perks and the character selector are 1620 px roots and
-    //   seat at 1119/1620 = 0.69, which is LARGER than the 0.595 they are drawn at today.
+    //   serialises), against THE COLUMN'S RIGHT EDGE — see the next block for why that is not the
+    //   frame's right edge, which is what ModBuild 199 shipped and what both of the 200 reports are.
     //
-    // THE COST, STATED. The two full-screen views cover the column while they are open — deliberately,
-    // and the log prints how many px of it they cover. The alternative was to fit them into the ~800
-    // px left of the column, which is 0.49 and illegible, and the alternative to THAT was to let them
-    // spill, which crops content. Scaling the sub-view rather than clipping it is the user's own
-    // instruction. Everything else in the window keeps full size at all times.
+    // =============================================================================================
+    // ModBuild 200 — THE ONE LINE OF THE 199 DESIGN THAT WAS WRONG, AND THE TWO FAULTS IT MADE
+    // =============================================================================================
+    //
+    // THE SIZE IS FIXED AND HE CONFIRMED IT ("Das Character-Fenster ist nun stabil in der Größe").
+    // Nothing below reopens the base/sub-view split, the one-shot host size, the column pin or the
+    // ModBuild 196 converged guard. Exactly one quantity changes: WHAT THE SUB-VIEW IS SEATED ON.
+    //
+    // 199 seated the scaled sub-view flush against the FRAME'S RIGHT EDGE. That single choice
+    // produces both of his reports, and its own hardware log states each of them in numbers:
+    //
+    //   (c) THE GAP. 'Character Items Equipment Content' needs 543 px, is drawn at 1.000, and its
+    //       right edge lands on the frame's right edge minus a 12 px margin, i.e. at +560. The
+    //       column's right edge is at -560+328 = -232. Between them: 248 px of empty frame
+    //       (photograph 'character_ui_lücke.jpg'; measured off it against the 328 px column,
+    //       ~272 px — the same number through a lens at an angle). 'Character Ability Cards
+    //       Display Variant' needs 749 px and leaves 42 px, which is the narrow dark strip in
+    //       'character_ui_auflösung.jpg'. His words: "ich will GAR KEINE Lücken."
+    //
+    //   (a) THE OVERLAP. 'Campaign Adventure Party Assembly Variant' needs 1648 px, is scaled to
+    //       1143/1648 = 0.693, and 1143 px seated on the right edge of a 1143 px frame reaches all
+    //       the way back to the left edge: the 199 line's own words, "covering 340 px of the
+    //       column" (photograph 'character_ui_überlagerung.jpg', the selector over the character
+    //       list). His words: "es ÜBERLAGERT sie."
+    //
+    // A right-edge seat makes the distance from the column a FUNCTION OF THE SUB-VIEW'S WIDTH. That
+    // is also the "man sieht wie es dahin springt": every tab lands somewhere else.
+    //
+    // SEATING ON THE COLUMN'S RIGHT EDGE removes both by construction, not by tuning. The seated
+    // left edge IS the seam, so the gap is 0 px and the overlap is 0 px for every sub-view, at every
+    // scale, and the seat is the same x for all six — nothing moves between tabs but the content.
+    //
+    // WHAT THE SEAM IS DERIVED FROM, AND WHY NOT FROM THE LIVE MEASURE. The seam is
+    // BasePin.x + (base width at the pin) = -560 + 328 = -232 px, captured ONCE on a pass with no
+    // sub-view open, exactly like the pin itself. It is NOT the live base union's right edge, and
+    // the 199 hardware log is the reason: while the ability-card view is open the base union reads
+    // 886x1095 and then 939x1095 and then 328x1080 again, alternating within seconds (174 and 165
+    // graphics against 139). Something transient — a hover preview, in the two frames it is up — is
+    // drawn under the target and owned by none of the six serialized sub-view roots, so it lands in
+    // the base. A seam taken from that would sit ~600 px too far right, would leave the ability-card
+    // view 245 px of slot instead of 803, would scale it to 0.33, and would move again on the next
+    // pass. That is precisely the jump this round removes, so the seam is a capture, never a reading.
+    //
+    // THE SLOT, AND THE NUMBER THAT COMES OUT OF IT. Seam -232 to the frame's right edge +571.5 is
+    // 803 px of usable width, against 1143 px for a right-edge seat. Every narrow view still fits
+    // untouched (543 and 749 measured; 388 and 808 from the 196 census), so four of the six are
+    // unaffected in size and merely move ~250 px left onto the column. The two full-screen views
+    // pay for it: 1648 px scales to 803/1648 = 0.487 instead of 0.693.
+    //
+    // THE COST, STATED IN THE UNITS THE COMPLAINT IS IN — and this is report (b), "die Auflösung …
+    // so niedrig, dass man den Text kaum lesen kann, besonders in der KARTENAUSWAHL". At the pinned
+    // 1143x1080 px = 1000x945 mm the window draws 0.875 mm per authored px (HIT RECT, same log), so
+    // at the 1.2 m reading distance one authored px is 2.51 arc-minutes and the game's body caps —
+    // 13.5 authored px, measured off 'character_ui_auflösung.jpg' against the 328 px column (see
+    // FixedFitBodyCapPx) — are ~34 arc-minutes. The slot is seam -232 to frame right +572 = 803 px.
+    // Per sub-view, at this seam:
+    //
+    //   enhancement cards       388 px → 1.000 → 0.875 mm/px → 33.8' cap → 1.27 rendered px/authored
+    //   equipment               543 px → 1.000 → 0.875 mm/px → 33.8' cap → 1.27
+    //   ability cards           749 px → 1.000 → 0.875 mm/px → 33.8' cap → 1.27
+    //   equipment + inventory   808 px → 0.994 → 0.870 mm/px → 33.6' cap → 1.26
+    //   perks                  1620 px → 0.496 → 0.434 mm/px → 16.8' cap → 0.63
+    //   character selector     1648 px → 0.487 → 0.426 mm/px → 16.5' cap → 0.62
+    //
+    // (Rendered px per authored px from this repo's own calibration: the legibility dial's doc
+    // states a 1920 px window reaches 1:1 at legibility 1.65, i.e. at 0.8x1.65 m / 1920 px =
+    // 0.6875 mm per authored px. Anything above that line is supersampled; anything below is the
+    // undersampling band ModBuild 189 was raised to escape.)
+    //
+    // SO: THE FOUR NARROW VIEWS ARE COMFORTABLE AND THE TWO FULL-SCREEN ONES ARE NOT — and a
+    // right-edge seat did not make them comfortable either (0.693 → 0.606 mm/px → 23.5' → 0.88
+    // rendered px per authored px, still under 1:1). AND THE VIEW HE NAMED IS ALREADY AT SCALE
+    // 1.000: 'character_ui_auflösung.jpg' is the ability-card selection, which the log shows drawn
+    // at 1.000 with nothing scaled at all. Report (b) is therefore NOT caused by sub-view scaling
+    // and cannot be fixed by any seating rule: it is the window's own density. The lever for it is
+    // solid angle and nothing else, and it is already shipped and in his hands — see below.
+    //
+    // THE FOUR WAYS OUT OF (b), WITH THE PRICE OF EACH. At a 1.00 m window, 1.20 m away, beside a
+    // 328 px column, a 1648 px view can be drawn exactly four ways and there is no fifth:
+    //
+    //   1. 0.487, no gap, no overlap                        — THIS BUILD.
+    //   2. 0.693, 340 px of the column covered              — ModBuild 199. He rejected it, (a).
+    //   3. 1.000, 845 px (0.74 m) hanging outside the frame — the hit rect and the supersample
+    //      capture both already grow to cover content drawn outside the host frame, so it would
+    //      WORK; it makes the window 1.74 m / 72° across and reads as "the window got bigger",
+    //      which is the complaint the last four builds were about.
+    //   4. 0.679, with the column HIDDEN while the view is open — a mode, and the column
+    //      disappearing under him is the same class of surprise as (a).
+    //
+    //   NONE of the four changes the density of the ability-card view he actually named. Two things
+    //   do, and neither is a seating rule:
+    //
+    //   * [WorldUI] WindowLegibility (shipped, user-facing, live at the next re-fit). It is the
+    //     window's physical width: 1.25 → 1.00 m → 0.875 mm/px → 45° of view; 1.45 → 1.16 m →
+    //     1.015 mm/px → 52°; 1.75 → 1.40 m → 1.225 mm/px → 61°. It lifts EVERY view including the
+    //     four already at scale 1.000, and it costs angular footprint against a standing 45° ruling
+    //     and a measured ±32° usable cone. Its default is NOT changed here: 61° is past a size he
+    //     has already called too big once, and that is his ruling to move, not ours.
+    //   * The two-hand resize, which already rides on top of the dial and already wins, per window
+    //     and temporarily. That is the right tool for "the perks list is too small RIGHT NOW".
+    //
+    //   AND ONE THAT LOOKS LIKE A WAY OUT AND IS NOT: the standing 1.20 m → 1.85 m reading-distance
+    //   offer. Rendered pixels are bought with SOLID ANGLE; moving the same window further away is
+    //   35 % LESS apparent size and therefore 35 % worse for (b). It is a window-PACKING remedy and
+    //   should be judged as one — it must not be taken in the belief that it helps legibility.
     //
     // WHY THE ModBuild 196 CONVERGED GUARD IS NOT REOPENED, AND STILL IS NOT BY THE 199 SPLIT. This
     // branch never calls <see cref="ApplyFitConverging"/> and never calls
@@ -1341,6 +1435,32 @@ internal static partial class CanvasConversion
     /// <summary>How often a settled fixed-size window restates its counters, so a hardware log can
     /// tell "never ran" (no line at all) from "stable" from "still resizing".</summary>
     private const float FixedFitStableLogSeconds = 20f;
+
+    /// <summary>
+    /// Reading distance the FIXED FIT line's arc-minute figures are quoted at, real metres. A MIRROR
+    /// of <c>ModalFallback.WindowDistanceMeters</c> (private there, and this lane does not own that
+    /// file) and used for NOTHING but the log text — no placement, no scale and no seat reads it, so
+    /// a drift between the two costs a wrong number in a diagnostic and can never move a window.
+    /// If the two ever disagree, the HIT RECT line's own millimetre figure is the authority.
+    /// </summary>
+    private const float FixedFitReadingDistanceMeters = 1.2f;
+
+    /// <summary>
+    /// Arc-minutes subtended by one millimetre at <see cref="FixedFitReadingDistanceMeters"/>:
+    /// <c>atan(0.001 / 1.2) in arc-minutes</c> = 2.865. Written out rather than computed so the
+    /// constant carries its derivation; the small-angle error at this size is under 0.001 %.
+    /// </summary>
+    private const float MmToArcMinAtReadingDistance = 2.865f;
+
+    /// <summary>
+    /// The game's body-text CAP HEIGHT in authored uGUI px, for the legibility figure the FIXED FIT
+    /// line prints. MEASURED, not assumed: off '.planning/debug/character_ui_auflösung.jpg', whose
+    /// character column is a known 328 authored px wide, the ability-card names and the equipment
+    /// row labels both read 13-14 authored px of cap. Diagnostic only — nothing is placed or scaled
+    /// from it. At the pinned 0.875 mm per authored px that is ~34 arc-minutes, comfortable; the two
+    /// full-screen sub-views land at ~17, which is the honest cost of the 803 px slot.
+    /// </summary>
+    private const float FixedFitBodyCapPx = 13.5f;
 
     /// <summary>
     /// IS THIS THE MAP ROOM'S PERMANENT CHARACTER SCREEN — the one window this whole region applies
@@ -1717,6 +1837,18 @@ internal static partial class CanvasConversion
         /// this is unchanged is a foreign write and nothing else — see the concede branch.</summary>
         internal float WrittenScale = 1f;
         internal Vector2 WrittenShift;
+
+        // ---- the ModBuild 200 seating report, host-local px, filled by SolveSubViewPlacement ----
+
+        /// <summary>Where this member ENDS UP once the solved scale and shift are on it — the rect
+        /// the log prints, so "seated flush" is a stated number and not an intention.</summary>
+        internal Vector2 SeatedMin, SeatedMax;
+
+        /// <summary>Empty px between the column seam and this member's left edge, and px of this
+        /// member drawn left of the seam. The group's LEFTMOST member has 0 of each by
+        /// construction; a second member open at the same time keeps its own offset from it, which
+        /// is its own arrangement and not a gap this fit introduced.</summary>
+        internal float GapPx, OverlapPx;
     }
 
     /// <summary>Per-panel state of the fixed-size fit — the captured size, the pinned column corner,
@@ -1740,6 +1872,21 @@ internal static partial class CanvasConversion
         internal Vector2 BasePin;
         internal bool BasePinned;
         internal Vector2 BaseSizeAtPin;
+
+        /// <summary>THE COLUMN SEAM (ModBuild 200): the host-local x every open sub-view's LEFT edge
+        /// is seated on, so the gap and the overlap are both 0 px by construction and identical for
+        /// all six views. Captured ONCE, on a pass with no sub-view open, from the base union's own
+        /// right edge — never from the live union, which the 199 hardware log shows reading 886 and
+        /// 939 px instead of 328 whenever transient hover content lands in it. See the ModBuild 200
+        /// block in the region note.</summary>
+        internal float ColumnSeamX;
+        internal bool SeamCaptured;
+
+        /// <summary>The base width the seam was taken from, and whether the safety clamp had to
+        /// pull the seam back off a provisional (sub-view-contaminated) reading — both printed, so
+        /// a seam that is not the column cannot look like one that is.</summary>
+        internal float SeamBaseWidth;
+        internal bool SeamClamped;
 
         // ---- live base reading, refilled by every measure pass (the proof line) ---------------
         internal bool BaseVisible;
@@ -1766,7 +1913,15 @@ internal static partial class CanvasConversion
         internal int ViewPlates;
         internal string PlateName = string.Empty;
         internal Vector2 PlateSize;
+
+        /// <summary>The GROUP's seating report (worst case over the open members): px of empty
+        /// frame between the seam and the leftmost seated edge, px drawn left of the seam, px drawn
+        /// right of the frame, and the slot width the scale was solved against. Both of the first
+        /// two must read 0 — that is the whole of reports (a) and (c).</summary>
+        internal float ViewGapPx;
         internal float ViewOverlapPx;
+        internal float ViewSpillPx;
+        internal float ViewSlotPx;
 
         internal int Comparisons;
         internal int Deviations;
@@ -1980,6 +2135,9 @@ internal static partial class CanvasConversion
             }
         }
 
+        // ---- 2b. THE COLUMN SEAM, captured once, on a pass with the column ALONE ----------------
+        EnsureColumnSeam(fx);
+
         // ---- 3. THE SUB-VIEW GROUP -------------------------------------------------------------
         bool havePlacement = SolveSubViewPlacement(fx, out float wantScale, out Vector2 groupShift);
         bool viewWrong = false;
@@ -2121,8 +2279,8 @@ internal static partial class CanvasConversion
                     fx.Shifts++;
                 wrote.Append(wrote.Length > 0 ? "; " : string.Empty)
                      .Append($"sub-view '{fx.ViewName}' scale {fx.ViewScale:F3} → {wantScale:F3} and " +
-                             $"seated at {groupShift.x:F0},{groupShift.y:F0} px ({placed} root(s) placed; " +
-                             "the column was not touched)");
+                             $"shifted by {groupShift.x:F0},{groupShift.y:F0} px onto the column seam " +
+                             $"x={fx.ColumnSeamX:F0} ({placed} root(s) placed; the column was not touched)");
                 fx.ViewScale = wantScale;
                 fx.ViewShift = groupShift;
             }
@@ -2377,10 +2535,16 @@ internal static partial class CanvasConversion
         if (contentGraphics > 0 && contentMax.x > contentMin.x)
             fx.ViewContentNeed = contentMax - contentMin;
 
-        // Name the widest open sub-view, for the log.
+        // Name the widest open sub-view, for the log. Every seating figure is cleared here too, so a
+        // pass on which the placement does not solve prints zeroes rather than the last pass's
+        // numbers — a stale "gap 0 px" would be exactly the "no gap" / "never checked" confusion the
+        // line exists to prevent.
         fx.ViewName = "none";
         fx.ViewNeed = Vector2.zero;
+        fx.ViewGapPx = 0f;
         fx.ViewOverlapPx = 0f;
+        fx.ViewSpillPx = 0f;
+        fx.ViewSlotPx = 0f;
         float widest = 0f;
         for (int i = 0; i < fx.Views.Count; i++)
         {
@@ -2428,13 +2592,16 @@ internal static partial class CanvasConversion
     /// whole group had scaled about the group centre — the composition of the two IS a group scale).
     /// False when nothing is open, which is the window's most common state and needs no writes.
     ///
-    /// <para>THE SEAT IS THE FRAME'S RIGHT EDGE, and that single rule replaces the "beside or on top"
-    /// decision a mode switch would have had to make. A narrow sub-view (enhancement cards 388 px,
-    /// equipment 532 px) lands entirely in the empty space to the right of the column and never
-    /// touches it; a wide one overlaps the column by exactly the amount it is too wide, which is what
-    /// the flat game does with these views anyway (the perks window is a 1620 px plate over a 1920 px
-    /// canvas — it covers the party display there too). Nothing hops between two placements, so
-    /// nothing on screen can jump when the difference is a few pixels.</para>
+    /// <para>THE SEAT IS THE COLUMN'S RIGHT EDGE (ModBuild 200), i.e. <see cref="FixedFitState.ColumnSeamX"/>,
+    /// a quantity captured ONCE from the column alone and never re-derived. Every open sub-view's
+    /// LEFT edge lands exactly on it, so the empty gap and the covered-column overlap are both 0 px
+    /// for all six views at every scale, and the seat does not move between tabs — which is what
+    /// ModBuild 199's frame-right-edge seat could not do, because it made the distance from the
+    /// column a function of the sub-view's own width (248 px of empty frame for the 543 px equipment
+    /// view, 340 px of column covered by the 1648 px selector; both photographed). The scale is then
+    /// solved against the SLOT the seam leaves — seam to the frame's right edge, 803 px of a 1143 px
+    /// frame — rather than against the whole frame. See the ModBuild 200 block in the region note for
+    /// what that costs the two full-screen views, in millimetres and arc-minutes.</para>
     ///
     /// <para>WHAT IT IS SOLVED AGAINST: the sub-view's NATURAL geometry, reconstructed by undoing our
     /// own scale and offset — <c>p0 = P0 + (p - P) / applied</c>. The measure reads world corners, so
@@ -2472,25 +2639,33 @@ internal static partial class CanvasConversion
         if (natural.x < 1f || natural.y < 1f)
             return false;
 
-        // Fitted against the FULL fixed size, not against it minus a margin: every one of these
+        // THE SLOT (ModBuild 200): from the column seam to the frame's right edge, not the whole
+        // frame. That is what makes a seated view fit without covering the column — solving against
+        // the full 1143 px and then seating on the seam would push the wide views straight out of
+        // the frame instead.
+        float frameRight = fx.Size.x * 0.5f;
+        float seam = fx.ColumnSeamX;
+        float slot = Mathf.Max(frameRight - seam, fx.Size.x * FixedFitMinSlotFraction);
+        fx.ViewSlotPx = slot;
+
+        // Fitted against the FULL fixed height, not against it minus a margin: every one of these
         // sub-views is a full-height 1080 px view, so charging them a vertical margin would scale
         // even the ones that fit (1056/1080 = 0.978) and no state of this window would ever read
         // "1.000" again — the one number the next hardware log has to be able to trust.
         wantScale = Mathf.Clamp(
-            Mathf.Min(1f, Mathf.Min(fx.Size.x / natural.x, fx.Size.y / natural.y)),
+            Mathf.Min(1f, Mathf.Min(slot / natural.x, fx.Size.y / natural.y)),
             FixedFitMinContentScale, 1f);
 
         Vector2 c = (min + max) * 0.5f;
         Vector2 scaledMin = c + (min - c) * wantScale;
         Vector2 scaledMax = c + (max - c) * wantScale;
         // Host pivot is centred, so the frame's right edge is +Size.x/2 and its centre line is y = 0.
-        // The margin is whatever is left over, capped at the fit padding: a view that fills the frame
-        // sits flush (it is a full-bleed view and a 12 px stripe of frame beside it would look like a
-        // mistake), a narrower one gets the same 12 px breathing room the column has on the left.
-        float margin = Mathf.Min(FitContentPaddingPx,
-            Mathf.Max(0f, (fx.Size.x - (scaledMax.x - scaledMin.x)) * 0.5f));
+        // THE SEAT: the group's LEFT edge lands exactly on the seam. No margin is charged on either
+        // side of it — a margin here is the gap he asked to be rid of, and on the right it would
+        // only shrink a full-bleed view for a stripe of frame nobody can see (the window has no
+        // visible backing plate; empty frame is transparent).
         groupShift = new Vector2(
-            fx.Size.x * 0.5f - margin - scaledMax.x,
+            seam - scaledMin.x,
             -(scaledMin.y + scaledMax.y) * 0.5f);
 
         for (int i = 0; i < fx.Views.Count; i++)
@@ -2499,13 +2674,89 @@ internal static partial class CanvasConversion
             if (!v.Visible)
                 continue;
             v.WantShift = c + (v.NaturalPivot - c) * wantScale + groupShift - v.NaturalPivot;
+            v.SeatedMin = c + (v.NaturalMin - c) * wantScale + groupShift;
+            v.SeatedMax = c + (v.NaturalMax - c) * wantScale + groupShift;
+            v.GapPx = Mathf.Max(0f, v.SeatedMin.x - seam);
+            v.OverlapPx = Mathf.Max(0f, seam - v.SeatedMin.x);
         }
 
-        // How far the seated sub-view reaches back over the column — the number that says whether a
-        // tab covers the character list or sits beside it. Diagnostic only.
+        // THE GROUP'S REPORT, worst case over the open members. Both of the first two are 0 by
+        // construction and are printed anyway: "0 px" and "never measured" must not look alike, and
+        // the whole of reports (a) and (c) is these two numbers.
         float leftEdge = scaledMin.x + groupShift.x;
-        fx.ViewOverlapPx = fx.BaseVisible ? Mathf.Max(0f, fx.BaseMax.x - leftEdge) : 0f;
+        fx.ViewGapPx = Mathf.Max(0f, leftEdge - seam);
+        fx.ViewOverlapPx = Mathf.Max(0f, seam - leftEdge);
+        fx.ViewSpillPx = Mathf.Max(0f, (scaledMax.x + groupShift.x) - frameRight);
         return true;
+    }
+
+    /// <summary>
+    /// Fraction of the fixed frame the sub-view slot may never fall below. A pure safety clamp on a
+    /// seam that was taken from a base union somebody else contaminated (see
+    /// <see cref="EnsureColumnSeam"/>): with the real 328 px column the slot is 803 of 1143 px =
+    /// 0.70, so this never fires in the measured case, and if it ever does the log says so.
+    /// </summary>
+    private const float FixedFitMinSlotFraction = 0.40f;
+
+    /// <summary>
+    /// CAPTURE THE COLUMN SEAM — the host-local x every open sub-view's left edge is seated on.
+    ///
+    /// <para>Taken as THE COLUMN'S PIN PLUS THE BASE UNION'S WIDTH — not the base union's live right
+    /// edge, which is not the same thing on the pass that captures it (see the comment on the
+    /// arithmetic below) — and only on a pass where NO sub-view is open,
+    /// because that is the only pass on which the base union IS the column: the ModBuild 199
+    /// hardware log has it reading 328x1080 px with 139 graphics while nothing is open and
+    /// 886x1095 / 939x1095 px with 174 / 165 graphics moments later with the ability-card view up,
+    /// alternating back and forth. Something transient is drawn under the conversion target that
+    /// none of the six serialized sub-view roots owns, so it is attributed to the base. A seam taken
+    /// from that reading would sit ~600 px too far right and would move again on the next pass,
+    /// which is the jump this round exists to remove.</para>
+    ///
+    /// <para>Until a clean pass arrives the seam is PROVISIONAL: it tracks the live reading (clamped,
+    /// so it can never eat the slot) and is not marked captured, so the first clean pass replaces it
+    /// and no pass after that ever changes it. In practice the window opens on the column with no tab
+    /// selected, so the first pass of its life is the clean one — the 199 log's first FIXED FIT line
+    /// is exactly that.</para>
+    /// </summary>
+    private static void EnsureColumnSeam(FixedFitState fx)
+    {
+        if (fx.SeamCaptured)
+            return;
+
+        float frameRight = fx.Size.x * 0.5f;
+        float limit = frameRight - fx.Size.x * FixedFitMinSlotFraction;
+
+        if (!fx.BaseVisible || !fx.BasePinned)
+        {
+            // Nothing of the base measured (or pinned) yet — seat on the frame's own left edge, so a
+            // sub-view that somehow arrives before the column is still placed deterministically.
+            fx.ColumnSeamX = -frameRight + FitContentPaddingPx;
+            return;
+        }
+
+        // PIN + WIDTH, never the live right edge. On the very first fit the base has been PINNED but
+        // its shift has not been written yet, so fx.BaseMax.x is still wherever the game left the
+        // column — the 199 log's own first line reads "renders 328x1080 px from (-984,-540) … MOVED
+        // by -425,0 px". Taking the right edge there would seat every sub-view 425 px too far left,
+        // for the whole life of the window, and it would be captured once so nothing would ever
+        // correct it. The left edge is the pin by definition; only the width is read.
+        float width = fx.BaseMax.x - fx.BaseMin.x;
+        float raw = fx.BasePin.x + width;
+        fx.SeamClamped = raw > limit;
+        fx.ColumnSeamX = Mathf.Min(raw, limit);
+        fx.SeamBaseWidth = width;
+
+        bool anyViewOpen = false;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            if (fx.Views[i].Visible)
+            {
+                anyViewOpen = true;
+                break;
+            }
+        }
+        if (!anyViewOpen)
+            fx.SeamCaptured = true; // the column alone was measured: final, never re-derived
     }
 
     /// <summary>Host-local units per parent-local unit for <paramref name="node"/> — what a wanted
@@ -2592,21 +2843,69 @@ internal static partial class CanvasConversion
             }
         }
 
+        // THE SEAM, and where it came from — so "the seat is the column's edge" is a stated number.
+        float mmPerPx = rig > 0f && unit > 0f ? unit / rig * 1000f : 0f;
+        string seam = fx.SeamCaptured || fx.BaseVisible
+            ? $"the COLUMN SEAM is x={fx.ColumnSeamX:F0} px"
+              + (fx.SeamCaptured
+                  ? $", CAPTURED ONCE from a {fx.SeamBaseWidth:F0} px base measured with no sub-view "
+                    + "open and never re-derived since"
+                  : $", still PROVISIONAL (taken from a {fx.SeamBaseWidth:F0} px base measured while a "
+                    + "sub-view was open — the first pass with the column alone replaces it)")
+              + (fx.SeamClamped
+                  ? " and CLAMPED off a base reading that would have left less than "
+                    + $"{FixedFitMinSlotFraction:P0} of the frame as slot"
+                  : string.Empty)
+              + (fx.BaseVisible && fx.BaseMax.x - fx.ColumnSeamX > 1f
+                  ? $"; the LIVE base union ends at x={fx.BaseMax.x:F0} px this pass, "
+                    + $"{fx.BaseMax.x - fx.ColumnSeamX:F0} px past the seam — that is transient "
+                    + "content none of the six serialized sub-view roots owns, and the seat "
+                    + "deliberately ignores it"
+                  : string.Empty)
+            : "the COLUMN SEAM has no base to be captured from yet";
+
         string view;
         if (fx.ViewName == "none")
         {
-            view = "no sub-view is open, so nothing is scaled and the spare width is empty frame to "
-                   + "the right of the column";
+            view = "no sub-view is open, so nothing is scaled, no seat is written, and the spare "
+                   + $"width is {fx.Size.x * 0.5f - fx.ColumnSeamX:F0} px of empty (transparent) "
+                   + "frame right of the seam";
         }
         else
         {
-            view = $"the open sub-view '{fx.ViewName}' needs {fx.ViewNeed.x:F0}x{fx.ViewNeed.y:F0} px "
-                   + $"at scale 1 and is drawn at {scale:F3}"
+            view = $"the open sub-view group needs {fx.ViewNeed.x:F0}x{fx.ViewNeed.y:F0} px at scale 1 "
+                   + $"and fits a {fx.ViewSlotPx:F0} px slot (seam x={fx.ColumnSeamX:F0} to the "
+                   + $"frame's right edge x={fx.Size.x * 0.5f:F0}) at scale {scale:F3}"
                    + (scale >= 0.999f
-                       ? " (it fits beside the column untouched)"
-                       : " (SCALED TO FIT the frame — the column keeps its size, only this view adapts)")
-                   + $", seated against the frame's right edge and covering {fx.ViewOverlapPx:F0} px of "
-                   + "the column";
+                       ? " — it fits beside the column untouched"
+                       : " — SCALED TO FIT the slot; the column keeps its size, only this view adapts")
+                   + $". GAP {fx.ViewGapPx:F0} px, OVERLAP {fx.ViewOverlapPx:F0} px"
+                   + (fx.ViewSpillPx > 1f ? $", SPILL {fx.ViewSpillPx:F0} px past the frame" : string.Empty)
+                   + (fx.ViewGapPx <= 1f && fx.ViewOverlapPx <= 1f
+                       ? " (both zero — seated flush on the column, which is the whole of the "
+                         + "'Lücke' and 'Überlagerung' reports)"
+                       : " (NON-ZERO — the seat did not land on the seam and that IS the bug)")
+                   + ". PER SUB-VIEW:";
+            int listed = 0;
+            for (int i = 0; i < fx.Views.Count; i++)
+            {
+                SubViewFit v = fx.Views[i];
+                if (!v.Visible || v.View == null)
+                    continue;
+                listed++;
+                view += $" [{v.View.name}: rect {v.SeatedMin.x:F0}..{v.SeatedMax.x:F0} x "
+                        + $"{v.SeatedMin.y:F0}..{v.SeatedMax.y:F0} px, scale {scale:F3}, gap "
+                        + $"{v.GapPx:F0} px, overlap {v.OverlapPx:F0} px"
+                        + (mmPerPx > 0f
+                            ? $", {mmPerPx * scale:F3} mm per authored px = "
+                              + $"{mmPerPx * scale * FixedFitBodyCapPx * MmToArcMinAtReadingDistance:F1}' "
+                              + $"for a {FixedFitBodyCapPx:F0} px body cap at "
+                              + $"{FixedFitReadingDistanceMeters:0.0} m"
+                            : string.Empty)
+                        + "]";
+            }
+            if (listed == 0)
+                view += " none (the group solved but no member survived the measure)";
             view += fx.ViewPlates > 0
                 ? $". BACKDROP CENSUS (diagnostic, it decides nothing): {fx.ViewPlates} full-frame "
                   + $"plate(s) inside it, the largest '{fx.PlateName}' at {fx.PlateSize.x:F0}x"
@@ -2619,7 +2918,9 @@ internal static partial class CanvasConversion
 
         VRLog.Info("WorldUI",
             $"FIXED FIT '{(panel.HostGo != null ? panel.HostGo.name : "?")}' {verdict}: host pinned at " +
-            $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}; {column}; {view}" +
+            $"{fx.Size.x:F0}x{fx.Size.y:F0} px = {physical}" +
+            (mmPerPx > 0f ? $" ({mmPerPx:F3} mm per authored px)" : string.Empty) +
+            $"; {column}; {seam}; {view}" +
             (wrote.Length > 0 ? $"; wrote {wrote}" : "; wrote nothing") +
             $". fixed fit: {fx.Comparisons} comparison(s) made, {fx.Deviations} deviation(s) found, " +
             $"{fx.Deferred} deferred by the settle gate, {fx.HostWrites} host-size write(s), " +

@@ -999,6 +999,18 @@ internal static partial class PanelSupersample
             + $"collapsed atlas UV rect at threshold {DegenerateUvArea:G3}, {e.MeshUvOutOfRange} "
             + $"sampling outside the atlas, {e.MeshNonFinite} non-finite)"
             + (e.MeshWorstBad > 0 ? $", worst: {e.MeshWorst} with {e.MeshWorstBad}" : ", no worst")
+            // THE SUB-MESH READING AT THE RELEASE INSTANT (ModBuild 200). Both counts above describe
+            // the TEXT COMPONENT; these describe the CHILD objects that draw every glyph its first
+            // material does not serve. See Entry.SubMeshesSeen. This is the family that can be
+            // perfect in the mesh and absent from the capture at the same time, which is the shape of
+            // the photograph, and it is the one the release repair has never been able to see.
+            + $"; and {e.SubMeshesSeen} TMP SUB-MESH(ES) — the child objects that draw a second atlas "
+            + "page, a fallback font or an inline sprite, and that every count above is blind to — of "
+            + $"which {e.SubMeshesInactive} inactive, {e.SubMeshesCulled} culled/transparent, "
+            + $"{e.SubMeshesNoTexture} with no bound texture and {e.SubMeshesWrongLayer} OFF THE "
+            + $"PRIVATE CAPTURE LAYER {e.Layer} (present in the mesh, present in the eye, missing "
+            + "from the texture — repaired on sight, never gated on a count)"
+            + (e.SubMeshWorst.Length > 0 ? $", worst: {e.SubMeshWorst}" : ", no worst")
             + $". THE REPAIR THEN RE-GENERATED {e.ReleaseRegenComponents} of {e.TextComponents} "
             + $"component(s) in {e.ReleaseRegenMs:F2} ms (cap {MaxRegeneratePerScan}) — ModBuild 196 "
             + "re-generated at most ONE component per release because it gated the regeneration on "

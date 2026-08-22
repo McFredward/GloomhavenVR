@@ -46,6 +46,12 @@ MIRRORS=(
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
   "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth WorldUI/ButtonCluster.cs:FingertipRadius Cards/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
+  # ModBuild 200: the fixed-fit branch reports legibility in arc-minutes, which needs the reading
+  # distance. ModalFallback owns the real one and keeps it private, so the fit carries a copy. The
+  # copy is DIAGNOSTIC-ONLY — no placement, scale or seat reads it — so a drift costs a wrong number
+  # in a log line and can never move a window. Linted anyway, because a legibility figure nobody can
+  # trust is worse than none: the whole "is the text big enough" argument is settled from that line.
+  "window reading distance : WorldUI/ModalFallback.1.Core.cs:WindowDistanceMeters WorldUI/CanvasConversion.3.Fit.cs:FixedFitReadingDistanceMeters"
   # THE "map room table rim" GROUP IS GONE, and deleting it rather than keeping it is the outcome
   # this file keeps recommending. ModBuild 197 added it for a pair — MapLocationInteractor.TableRimMeters
   # and MapRoomBenches.TableRimMeters — on the premise that the map room's table is not an object and

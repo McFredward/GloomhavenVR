@@ -885,10 +885,42 @@ internal static partial class PanelSupersample
         /// unfiltered mip level 0 at all.</summary>
         internal float TexelsPerRenderedPx;
 
-        /// <summary>The WORST (lowest) <see cref="TexelsPerRenderedPx"/> seen in this report window.
-        /// The worst case is what the eye complains about, so a mean would hide exactly the frames
-        /// this instrument exists to find.</summary>
+        /// <summary>The LOWEST <see cref="TexelsPerRenderedPx"/> seen since engage — the most
+        /// MAGNIFIED sample, i.e. the window held closest to the face.
+        /// <para><b>ModBuild 199 PRINTED THIS ALONE AND CALLED IT "WORST", AND IT MISLED THE READ OF
+        /// THE WHOLE BUILD.</b> Lowest is the worst case for ALIASING, which is what ModBuild 198 was
+        /// hunting, and it is the BEST case for LEGIBILITY, which is what the user reports now. The
+        /// 199 hardware log's 97 completed measurements run 0.95 to 3.69 with a MEDIAN of 2.50, and
+        /// only 7 of the 97 sit near 1.0 — all of them windows pulled up to the face mid-drag, several
+        /// projecting larger than the entire 3072x3264 eye target. Quoting 0.95 as the operating point
+        /// turned a 7-sample tail into a conclusion ("factor 2 traded aliasing for blur") that the
+        /// other 90 samples contradict. Both ends and the mean are now printed together, over the
+        /// comparison count, so no single number can stand in for the distribution again — this
+        /// project's "read the whole distribution" rule, applied to the instrument itself.</para></summary>
         internal float TexelsPerRenderedPxWorst;
+
+        /// <summary>The HIGHEST <see cref="TexelsPerRenderedPx"/> seen since engage — the most
+        /// MINIFIED sample, and therefore the LEAST LEGIBLE one. This is the end of the distribution
+        /// the "man kann den Text kaum lesen" report lives at, and ModBuild 199 did not record it at
+        /// all.</summary>
+        internal float TexelsPerRenderedPxMax;
+
+        /// <summary>Running sum of <see cref="TexelsPerRenderedPx"/> over
+        /// <see cref="SamplingMeasured"/>, so the line can print a MEAN next to the two extremes.
+        /// Neither extreme is the operating point on its own.</summary>
+        internal double TexelsPerRenderedPxSum;
+
+        /// <summary>Completed measurements on which the window was MINIFIED
+        /// (<see cref="AuthoredPerRenderedPx"/> &gt; 1), i.e. the eye was given FEWER pixels than the
+        /// window has authored pixels. Printed over <see cref="SamplingMeasured"/>: it is the single
+        /// number that separates a LEGIBILITY complaint from an ALIASING one, and no capture-side
+        /// factor can move it.</summary>
+        internal int MinifiedReadings;
+
+        /// <summary>The most authored pixels ever squeezed into one rendered eye pixel since engage —
+        /// the peak minification, and the direct measure of how much of the window's authored
+        /// resolution the eye never receives.</summary>
+        internal float AuthoredPerRenderedPxMax;
 
         /// <summary>Weight the hardware's trilinear filter gives to UNFILTERED mip level 0 at
         /// <see cref="TexelsPerRenderedPx"/>, 0..1. This is the aliasing that crawls under motion and
@@ -1008,6 +1040,56 @@ internal static partial class PanelSupersample
         /// here. The report says so in as many words so a future round cannot read a clean scan as
         /// "nothing is covering anything".</para></summary>
         internal int TextCulled;
+
+        // ---- THE TMP SUB-MESH FAMILY (ModBuild 200) --------------------------------------------
+        // WHAT THE CONTENT SCAN HAS NEVER LOOKED AT, and the reason four builds of clean readings sit
+        // next to a photograph of dozens of missing glyphs.
+        //
+        // A TextMeshProUGUI component does NOT draw all of its own glyphs. Whenever a string needs a
+        // SECOND ATLAS PAGE, a FALLBACK FONT or an INLINE SPRITE, TMP splits the run across extra
+        // materials and hands those quads to TMP_SubMeshUI components on CHILD GameObjects — each
+        // with its own CanvasRenderer, its own material, its own texture, its own GameObject layer
+        // and its own active state. textInfo.meshInfo[1..] holds their VERTEX DATA, which is what
+        // ScanTmpMesh reads and finds clean; NoteRendererState then asks the PARENT's CanvasRenderer
+        // whether it was drawn and never asks theirs. And MeasureContentCore's walk classifies a
+        // TMP_SubMeshUI as "a Graphic that is neither TMP_Text nor Text" and skips it outright.
+        //
+        // So the instrument's answer to "were these quads drawn?" is a measurement of a DIFFERENT
+        // OBJECT than the one that draws them. That is exactly the shape this project keeps paying
+        // for: a flawless measurement of the wrong stage looks like proof. The 199 log reads 0
+        // SUBMITTED-MESH defects out of 3,471 quads on the very window whose photograph shows the
+        // stat block rendering "c l e h Ba el n z ari b." where whole words belong — and the glyphs
+        // that DO survive are crisp and correctly positioned, which is what a per-material split
+        // looks like and is NOT what any content defect looks like.
+        //
+        // The capture path adds one failure mode of its own on top: this panel's camera culls by its
+        // PRIVATE LAYER, so a sub-mesh child born between two layer sweeps is on the game's UI layer
+        // and is INVISIBLE TO THE CAPTURE while its parent is captured normally. That is repaired
+        // here unconditionally rather than reported, because a remedy gated behind its own diagnostic
+        // is the other mistake this lane has already made.
+
+        /// <summary>TMP sub-mesh child components the last scan visited — the denominator for every
+        /// count below. Zero means the window's text needs no second material at all, and that is a
+        /// different statement from "they were all fine".</summary>
+        internal int SubMeshesSeen;
+
+        /// <summary>Sub-meshes whose GameObject was INACTIVE, so their quads drew nothing.</summary>
+        internal int SubMeshesInactive;
+
+        /// <summary>Sub-meshes whose CanvasRenderer was culled or fully transparent.</summary>
+        internal int SubMeshesCulled;
+
+        /// <summary>Sub-meshes found on a layer OTHER than this panel's private capture layer — i.e.
+        /// present in the mesh, present in the eye, MISSING FROM THE CAPTURE. Repaired on the spot;
+        /// this is the count of how many needed it.</summary>
+        internal int SubMeshesWrongLayer;
+
+        /// <summary>Sub-meshes with no material or no main texture bound — their quads sample
+        /// nothing.</summary>
+        internal int SubMeshesNoTexture;
+
+        /// <summary>The worst sub-mesh found, named, for the report.</summary>
+        internal string SubMeshWorst = string.Empty;
 
         /// <summary>Text components the last scan found completely clean. Printed as "K of M", so a
         /// scan that found nothing is visibly a scan that CHECKED something.</summary>

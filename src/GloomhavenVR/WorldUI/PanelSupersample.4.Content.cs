@@ -391,6 +391,12 @@ internal static partial class PanelSupersample
         e.MeshNonFinite = 0;
         e.MeshWorst = string.Empty;
         e.MeshWorstBad = 0;
+        e.SubMeshesSeen = 0;
+        e.SubMeshesInactive = 0;
+        e.SubMeshesCulled = 0;
+        e.SubMeshesWrongLayer = 0;
+        e.SubMeshesNoTexture = 0;
+        e.SubMeshWorst = string.Empty;
         e.ContentScanTruncated = false;
         e.RegeneratedComponents = 0;
         e.RegeneratedChars = 0;
@@ -525,6 +531,10 @@ internal static partial class PanelSupersample
         int meshBad = ScanTmpMesh(e, t, info);
 
         NoteRendererState(e, t.canvasRenderer);
+        // AND THE SUB-MESHES THIS COMPONENT HANDS ITS OTHER MATERIALS TO — see Entry.SubMeshesSeen.
+        // Done from here rather than from the outer walk on purpose: that walk skips anything
+        // !activeInHierarchy, which is precisely one of the states this needs to be able to report.
+        ScanTmpSubMeshes(e, t);
 
         if (bad > e.WorstTextBad)
         {
@@ -680,6 +690,84 @@ internal static partial class PanelSupersample
         }
         return bad;
     }
+
+    /// <summary>
+    /// <b>THE SUB-MESH SCAN — the object four builds of "0 defects out of 3,471 quads" never looked
+    /// at.</b> The full argument is on <see cref="Entry.SubMeshesSeen"/>; the short version is that a
+    /// <c>TextMeshProUGUI</c> draws only the glyphs served by its FIRST material and hands every
+    /// other one — second atlas page, fallback font, inline sprite — to a <see cref="TMP_SubMeshUI"/>
+    /// on a CHILD GameObject with its own CanvasRenderer, material, layer and active state.
+    /// <c>textInfo.meshInfo[1..]</c> carries their vertex data, which <see cref="ScanTmpMesh"/> reads
+    /// and finds clean, and <see cref="NoteRendererState"/> then asks the PARENT whether it drew.
+    ///
+    /// <para><b>THE ONE THING HERE THAT IS A FIX AND NOT A MEASUREMENT.</b> A sub-mesh born between
+    /// two capture-layer sweeps sits on the game's UI layer, which this panel's capture camera does
+    /// not cull in — so those glyphs are missing from the TEXTURE while every quad, UV and glyph
+    /// record describing them is perfect. That is repaired on sight, unconditionally, and NOT gated
+    /// on the defect count: a remedy that only runs when its own diagnostic already fired is a
+    /// remedy that never runs, which is the ModBuild 196 mistake this lane has already paid for. The
+    /// per-frame layer sweep still owns the general case; this closes the window between its
+    /// cadences for the one family of objects that is born mid-string.</para>
+    ///
+    /// <para>Cost: TMP parents its sub-meshes as DIRECT children of the text GameObject, so this is
+    /// one <c>childCount</c> loop and one <c>GetComponent</c> per child of a text component — no
+    /// recursive search and no allocation. Windows whose text needs a single material report
+    /// <c>0 sub-mesh(es)</c> and pay a single integer compare.</para>
+    /// </summary>
+    private static void ScanTmpSubMeshes(Entry e, TMP_Text t)
+    {
+        Transform parent = t.transform;
+        int layer = e.Layer;
+        for (int i = parent.childCount - 1; i >= 0; i--)
+        {
+            Transform c = parent.GetChild(i);
+            if (c == null)
+                continue;
+            var sub = c.GetComponent<TMP_SubMeshUI>();
+            if (sub == null)
+                continue;
+            e.SubMeshesSeen++;
+
+            int bad = 0;
+            if (!c.gameObject.activeInHierarchy)
+            {
+                e.SubMeshesInactive++;
+                bad++;
+            }
+
+            CanvasRenderer cr = sub.canvasRenderer;
+            if (cr != null && (cr.cull || cr.GetAlpha() <= 0.004f || cr.GetInheritedAlpha() <= 0.004f))
+            {
+                e.SubMeshesCulled++;
+                bad++;
+            }
+
+            Material mat = sub.materialForRendering;
+            if (mat == null || (mat.HasProperty(MainTexId) && mat.GetTexture(MainTexId) == null))
+            {
+                e.SubMeshesNoTexture++;
+                bad++;
+            }
+
+            // THE REPAIR. Only when this panel actually holds a private layer; a refused panel has
+            // Layer < 0 and its subtree must stay exactly where the game put it.
+            if (layer >= 0 && c.gameObject.layer != layer)
+            {
+                e.SubMeshesWrongLayer++;
+                bad++;
+                if (!IsRecorded(e, c))
+                    e.Relayered.Add(new LayerRecord { Transform = c, OriginalLayer = c.gameObject.layer });
+                c.gameObject.layer = layer;
+            }
+
+            if (bad > 0 && e.SubMeshWorst.Length == 0)
+                e.SubMeshWorst = Describe(c.gameObject.name, t.text);
+        }
+    }
+
+    /// <summary>Cached <c>_MainTex</c> id for <see cref="ScanTmpSubMeshes"/> — a string lookup per
+    /// sub-mesh per scan would be the most expensive line in the walk.</summary>
+    private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
 
     private static bool Finite(Vector3 v) =>
         !(float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z)

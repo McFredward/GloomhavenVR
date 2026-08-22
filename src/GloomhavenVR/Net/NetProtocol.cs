@@ -416,7 +416,136 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 199;
+    public const ushort ModBuild = 200;
+    // Build 200: THE WINDOW IS NOT BLURRED, IT IS SMALL; AND THE MISSING GLYPHS LIVE ON CHILD
+    // OBJECTS NOTHING EVER SCANNED. (Three workers, isolated worktrees.) Nothing on the wire.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
+    // ── I READ `WORST` AS THE OPERATING POINT AND IT IS THE TAIL ──────────────────────────
+    // The ModBuild 199 floor took effect at last: 138 of 138 lines read `asked 2.00 … ACHIEVED 2.00`.
+    // I then quoted `RESAMPLE VERDICT — 0.95 … 1.12 RT texels per eye px against a threshold of 2.00`
+    // and told the user I had traded aliasing for blur. THAT WAS WRONG, and it is the
+    // read-the-whole-distribution error under my own name. Counted over all 97 completed
+    // measurements: 7 at ~1.0, 15 at ~1.5, 28 at ~2.0, 47 at ~2.5, 31 at ~3.0, 10 at ~3.5 —
+    // **median ~2.5**, and **70 of 97 read 0 % unfiltered level 0**. The seven ~1.0 samples are
+    // windows he pulled up to his face mid-drag, projecting larger than the whole 3072x3264 eye.
+    // The instrument fed me that tail by construction: `WORST` is defined as the MINIMUM
+    // texels-per-pixel — the worst case for ALIASING (198's question) and the BEST case for
+    // LEGIBILITY (his question now). It carried no maximum, no mean and no count for the minified end.
+    // BLUR IS ALSO FALSIFIED FROM THE PHOTOGRAPH: crops of `character_ui_überlagerung.jpg` show
+    // "Gesundheit / Fertigkeitskarten / Gebundene Gegenstände" and the title crisp, complete and
+    // full-contrast with clean umlauts. No blur signature anywhere in the frame.
+    //
+    // ── (2b) THE WINDOW IS SIMPLY TOO SMALL, AND NO CAPTURE FACTOR CAN REACH IT ───────────
+    // The party window is authored 1143x1080 and is drawn into 650-950 rendered eye px all session —
+    // 1.2 to 1.85 authored px per eye px, i.e. the player receives 56-75 % of the authored resolution.
+    // Trilinear then correctly selects LOD 1.2-1.8 of a 2x target, a level at or below authored — which
+    // is exactly why 0 % level 0. The image is correctly filtered and correctly band-limited.
+    // SO RAISING THE FACTOR IS ARITHMETICALLY USELESS and it was NOT raised: the factor buys texels per
+    // AUTHORED pixel, and a minified window's sampler already selects a level at or coarser than
+    // authored, so every level above that is one the hardware never reads. Factor 4 = the identical
+    // physical resolution at 4x the VRAM — and unaffordable anyway (peak this session 388.6 of 448 MB,
+    // the party window alone 145.1 MB).
+    // Two real levers only: the window's SIZE IN THE EYE, and a negative mipMapBias. The bias is
+    // quantified on the line and deliberately left at 0.00 — it would buy ~25 % of one blur term while
+    // re-introducing level-0 weight on a minified window and confounding the open flicker question.
+    // AND THE VIEW HE NAMED IS ALREADY AT SCALE 1.000. `character_ui_auflösung.jpg` is the ability-card
+    // selection, logged at 1.000, nothing scaled. Report (2b) is therefore NOT caused by sub-view
+    // scaling and NO SEATING RULE CAN FIX IT. The only currency is solid angle.
+    // Measured legibility at 0.875 mm/authored px, 1.20 m, 13.5 px cap height: the four narrow
+    // sub-views sit at 33.8', the two full-screen ones at 16.5-16.8'. Under 199's right-edge seat those
+    // two were 23.5' — also under 1:1, so 199 never made them comfortable either; it only made them
+    // less bad and paid with the overlap he rejected.
+    // The lever is his own `[WorldUI] WindowLegibility`: 1.25 today = 1.00 m / 45° / 33.8'; 1.45 =
+    // 1.16 m / 52° / 39.2'; 1.75 = 1.40 m / 61° / 47.4'. NOT changed as a default — 61° is past a size
+    // he has already called too big once, and the two-hand resize is the right tool for "this list is
+    // too small RIGHT NOW".
+    // AND I WITHDRAW MY OWN STANDING OFFER as a remedy for this: 1.20 m -> 1.85 m makes (2b) 35 % WORSE,
+    // because rendered pixels are bought with solid angle. It remains a WINDOW-PACKING remedy and must
+    // never again be offered under both labels.
+    //
+    // ── (2a)(2c) ONE SEAT FIXED BOTH, AND THE "JUMP" HAD ITS OWN CAUSE ────────────────────
+    // 199 seated the scaled sub-view against the FRAME's right edge. A 532 px equipment root in a
+    // 1143 px frame beside a 328 px column therefore left ~283 px of gap; a 1620 px selector scaled to
+    // 1144 px filled the frame and covered the column. Both are now seated on the COLUMN SEAM, so
+    // `gap = max(0, seatedLeft - seam) ≡ 0` and `overlap = max(0, seam - seatedLeft) ≡ 0` BY
+    // CONSTRUCTION, for all six views at every scale — not by tuning. The seat x is identical for all
+    // six, so nothing moves between tabs but the content.
+    // HIS "man sieht wie es dahin springt" HAS A SEPARATE CAUSE and it is why the seam must not be read
+    // live: the 199 log shows the base union alternating 328x1080 (139 graphics) -> 886x1095 (174) ->
+    // 939x1095 (165) -> 328x1080, because a hover preview is drawn under the target and belongs to NONE
+    // of the six serialised sub-view roots. A seam from that reading would sit ~600 px too far right,
+    // squash the card list to 0.33, and move again next pass. The seam is now captured ONCE, on a pass
+    // with no sub-view open. It also cannot use `BaseMax.x` even on a clean pass: on the FIRST fit the
+    // base is pinned but its shift is not written yet, so pin + width is the only correct arithmetic.
+    //
+    // ── (2a, second half) THE MISSING GLYPHS: TMP SUB-MESHES ON CHILD OBJECTS ────────────
+    // A `TextMeshProUGUI` draws only the glyphs its FIRST material serves. A second atlas page, a
+    // fallback font or an inline sprite goes to a `TMP_SubMeshUI` on a CHILD GameObject with its own
+    // CanvasRenderer, material, texture, LAYER and active state. `textInfo.meshInfo[1..]` holds their
+    // vertices — which `ScanTmpMesh` read and found PERFECT — and `NoteRendererState` then asked the
+    // PARENT's renderer whether it drew. Worse, `MeasureContentCore`'s walk classified a
+    // `TMP_SubMeshUI` as "a Graphic that is neither TMP_Text nor Text" and SKIPPED IT ENTIRELY.
+    // SO "EVERY QUAD IS PERFECT" AND "HALF THE WORD IS MISSING" WERE NEVER IN CONTRADICTION.
+    // Whole distribution of the 41 release scans: quads examined 27 -> 3,648, ZERO submitted-mesh
+    // defects in every one; text-source defects 25x zero and 16x exactly `1 not visible` out of ~3,200
+    // lookups — noise, against dozens of missing glyphs in the photograph.
+    // The photograph fits this and nothing else: the surviving glyphs are crisp, correctly kerned and
+    // correctly positioned, the missing ones are a scattered codepoint subset, and "HAUCHDÜNN" two
+    // lines above — a DIFFERENT FONT — is flawless. That is a per-material split; no content defect
+    // looks like that.
+    // The capture path adds its own failure on top: this panel's camera culls by its PRIVATE LAYER, so
+    // a sub-mesh born between two layer sweeps sits on the game's UI layer and is invisible to the
+    // capture while its parent is captured normally. `ScanTmpSubMeshes` now walks each text
+    // component's direct children, counts inactive / culled / no-texture / OFF THE CAPTURE LAYER, and
+    // REPAIRS THE LAYER UNCONDITIONALLY ON SIGHT — not gated on any defect count. `0 sub-mesh(es)`
+    // falsifies the whole family outright, which is a different statement from "all clean".
+    //
+    // ── (3) THE POSE-GAP PROBE WAS SUBTRACTING A VALUE FROM ITSELF ───────────────────────
+    // All 95 lines: 84,647 samples, mean 0.00, WORST 0.00, 0 over threshold — in a session the same
+    // lines independently count 225 MOVING frames in runs of 88/57/43/18/13/5/1. `Tick()` writes the
+    // host from the frame and THEN stores `_updatePos = host.position`; `LateSyncHost` measured
+    // `Distance(host.position, _updatePos)` and nothing in between writes the host. The stale quantity
+    // is the FRAME — `PanelGrabHandle` moves it from its own MonoBehaviour Update, in undefined order
+    // against the module's. Now measured against `_frame.position`.
+    // JUDDER IS RULED OUT: 48.2 % of 1,324 MOVING frames over the real 11.11 ms budget vs 48.5 % of
+    // 82,611 STILL frames. Dragging costs nothing measurable; the ~48 % is vsync-boundary jitter that
+    // is there when nothing is happening. The existing pacing field's 16.67 ms threshold is a 60 Hz
+    // number and hid exactly this.
+    //
+    // ── (1) THE LEG GAP: `bounds.min.y` IS NOT THE UNDERSIDE OVER A CORNER ───────────────
+    // Two of my three hypotheses were falsified by the worker before it touched anything. Per-leg floor
+    // relief was IMPOSSIBLE in 199's code (one `footY`, one `legTopY`, `Box()` spanning 0..legHeight —
+    // all four heads at exactly the same world Y). The "25 mm spent at the wrong end" is falsified by
+    // the log's own arithmetic closing to 0.02 units.
+    // AND IT IS A REAL GAP, PROVED FROM THE JPEG rather than eyeballed: at x=1700..1860 there is a lit
+    // horizontal bar 15-16 px tall confined to exactly the near leg's screen width, absent either side
+    // of it, sitting under the slab's dark side face. That bar is the leg's TOP CAP — an up-facing
+    // face. The camera is above the tabletop, so an up-facing face 5 mm inside a 148 mm board CANNOT BE
+    // SEEN AT ALL. Its visibility is the proof.
+    // TWO CORRECTIONS TO MY BRIEF: the fault is on ALL FOUR legs, not just the far one — the near leg's
+    // cap is lit and the far one's is not, which is the entire visual difference; and the near leg is
+    // the one where the gap is actually measurable.
+    // Cause: `Renderer.bounds` is axis-aligned and `min.y` is the LOWEST POINT ANYWHERE IN THE MESH, not
+    // the underside over a corner, and this mesh is NOT CPU-READABLE so its apron/moulding/bevel cannot
+    // be sampled. Fix: hang the head 20 mm down from the TOP face — unambiguous, and independently
+    // confirmed every build by the parchment lying on it (7 mm residual, printed). At the real slab
+    // that is 128 mm above the AABB floor, so a gap is not unlikely, it is UNREPRESENTABLE. Per-leg
+    // raycasts against the table's and the room's own colliders refine it where they answer; where they
+    // do not, the residual is proved against `top.min.y`, a hard LOWER BOUND on the underside anywhere.
+    //
+    // ── RESIDUALS ─────────────────────────────────────────────────────────────────────────
+    // * THE LEGS WEAR ARBITRARY ATLAS PAGES. `GH_Map_Table_D` is 2048x2048 and the tabletop's mesh is
+    //   not CPU-readable, so the legs are mapped over the FULL 0..1 sheet and sample whatever pages fall
+    //   under them — the mitred-corner and inset-panel lines visible on the near leg in the photo. Right
+    //   wood, wrong page. Needs a chosen sub-rect or a readable mesh; a different decision.
+    // * Transient base contamination: ~35 graphics appear under the conversion target while the
+    //   ability-card view is open and belong to none of the six sub-view roots. The seat ignores them
+    //   and logs them, but they are still DRAWN and can overlap a seated sub-view for those frames.
+    // * `SkyAlternative` still has no floor accessor; the room is found by name string.
+    // * Never opened on hardware: perks, enhancement cards, battle goals — their legibility rows come
+    //   from the 196/199 census, not from a measurement of those views.
+    //
     // Build 199: THE TABLE THE LEGS WERE BUILT FOR WAS THE MAP, AND THE ModBuild 198 EXPERIMENT
     // NEVER RAN. (Five workers, isolated worktrees.) Nothing on the wire.
     // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****

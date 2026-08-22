@@ -126,6 +126,39 @@ FanCloseDuration` note in that script.
 
 Newest first. Each entry names the *root cause*, because that is what generalises.
 
+- **ModBuild 200** (bundle UNCHANGED — plugin DLL only) — the window is not blurred, it is small; and the
+  missing glyphs live on child objects nothing ever scanned. *(Three workers.)* **Nothing on the wire.**
+  * **I READ `WORST` AS THE OPERATING POINT AND IT IS THE TAIL.** I quoted `0.95 … 1.12 texels per eye
+    px` and told the user I had traded aliasing for blur. Counted properly: 7/15/28/47/31/10 across the
+    buckets, **median ~2.5**, and **70 of 97 read 0 % unfiltered level 0**. The ~1.0 samples are windows
+    he pulled to his face mid-drag. The field is defined as the **minimum** — the worst case for
+    *aliasing*, the **best** case for *legibility*. My own read-the-whole-distribution rule, broken by me.
+  * **NO CAPTURE FACTOR CAN FIX A WINDOW THAT IS TOO SMALL.** The party window is authored 1143×1080 and
+    drawn into 650–950 eye px, so 56–75 % of the authored resolution reaches the eye and the sampler
+    already selects a level at or coarser than authored. Factor 4 = identical physical resolution at 4×
+    the VRAM. **And the view he named is already at scale 1.000**, so no seating rule could ever have
+    fixed it. The only currency is solid angle.
+  * **I WITHDREW MY OWN STANDING 1.85 m OFFER as a legibility remedy** — further away is 35 % *worse*.
+    It stays a window-*packing* remedy and must never again be offered under both labels.
+  * **GAP AND OVERLAP WERE ONE SEAT.** Seating the sub-view on the column seam makes both identically
+    zero *by construction*, not by tuning. And the "jump" had its own cause: the seam must not be read
+    live, because a hover preview belonging to **none** of the six sub-view roots swings the base union
+    328 → 939 px and would put the seam ~600 px too far right.
+  * **"EVERY QUAD IS PERFECT" AND "HALF THE WORD IS MISSING" WERE NEVER IN CONTRADICTION.** TMP puts
+    glyphs a second material serves on a **`TMP_SubMeshUI` child** with its own renderer, texture, layer
+    and active state. The scan read those children's vertices, found them perfect, then asked the
+    **parent** whether it drew — and the outer walk skipped the children entirely as "neither text nor
+    Text". The photograph proves it: surviving glyphs crisp and correctly kerned, missing ones a
+    scattered codepoint subset, and a heading in a **different font** flawless.
+  * **THE POSE-GAP PROBE SUBTRACTED A VALUE FROM ITSELF** — 84,647 samples of 0.00 in a session with 225
+    moving frames, because nothing writes the host between the two reads. The stale quantity is the
+    *frame*. Judder is ruled out separately: 48.2 % of moving frames over budget vs **48.5 % of still**.
+  * **`bounds.min.y` IS NOT THE UNDERSIDE OVER A CORNER.** It is the lowest point anywhere in the mesh,
+    and this mesh is not CPU-readable. Two of my three hypotheses were falsified before any edit, and
+    the gap was proved from the JPEG: a **lit horizontal bar confined to the leg's own screen width** is
+    the leg's up-facing top cap, which a camera above the tabletop could not see if it were inside the
+    board. Now hung from the **top** face, so a gap is unrepresentable rather than unlikely.
+
 - **ModBuild 199** (bundle UNCHANGED — plugin DLL only) — the table the legs were built for was the map,
   and the ModBuild 198 experiment never ran. *(Five workers.)* **Nothing on the wire.**
   * **I VERIFIED A CODE PATH AND NOT THE OUTCOME, AND SAID SO IN WRITING.** 198's band-limit floor only

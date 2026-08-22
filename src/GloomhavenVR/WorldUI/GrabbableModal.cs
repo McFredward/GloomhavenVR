@@ -365,17 +365,31 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         Transform host = _panel.HostGo.transform;
 
-        // POSE-GAP INSTRUMENT (ModBuild 199). The re-sync above exists because the frame can move
-        // AFTER the module's Update. This measures how much it actually does, in the window's OWN
-        // AUTHORED PIXELS — which is the unit the complaint is in: a gap of N px means every consumer
-        // that sampled the host pose during Update (PanelSupersample.Tick runs at the end of
-        // CanvasConversion.Tick, in Update) is working from a pose N authored pixels behind what the
-        // eye will be shown this frame. Still windows read 0 by construction; only a drag can move
-        // the needle, which is exactly the interval under suspicion. Two floats and a subtract.
+        // POSE-GAP INSTRUMENT (ModBuild 199, CORRECTED in ModBuild 200). The re-sync below exists
+        // because the frame can move AFTER the module's Update. This measures how much it actually
+        // does, in the window's OWN AUTHORED PIXELS — which is the unit the complaint is in: a gap of
+        // N px means every consumer that sampled the host pose during Update (PanelSupersample.Tick
+        // runs at the end of CanvasConversion.Tick, in Update) is working from a pose N authored
+        // pixels behind what the eye will be shown this frame.
+        //
+        // WHAT ModBuild 199 SHIPPED WAS ZERO BY CONSTRUCTION, AND THE LOG PROVES IT: 95 report lines,
+        // 84,647 samples, mean 0.00 px, WORST 0.00 px, 0 over threshold — across a session containing
+        // 225 frames the guard budget independently counted as MOVING. It compared
+        // host.position against _updatePos, and _updatePos IS host.position as Tick left it: nothing
+        // between Update and here writes the host, so the instrument was subtracting a value from
+        // itself. A flawless measurement of the wrong stage looks exactly like proof, and this one
+        // "proved" the pose gap does not exist.
+        //
+        // THE STALE QUANTITY IS THE FRAME, NOT THE HOST. PanelGrabHandle moves _frame from its OWN
+        // MonoBehaviour Update, in undefined order against the module's Update. So the real staleness
+        // is how far the FRAME has travelled since Update published the host from it — i.e. the pose
+        // the host is about to be given on the next line, minus the pose it has been carrying all
+        // frame. Still windows still read 0 (the frame did not move); only a drag can move the
+        // needle, which is exactly the interval under suspicion. Two floats and a subtract.
         float unit = metersPerPixel * _spawnWorldScale * _extraScale * factor;
         if (_updatePosValid && unit > 1e-9f)
         {
-            float gapPx = Vector3.Distance(host.position, _updatePos) / unit;
+            float gapPx = Vector3.Distance(_frame.position, _updatePos) / unit;
             _panel.PoseGapSamples++;
             _panel.PoseGapSumPx += gapPx;
             if (gapPx > _panel.PoseGapWorstPx)

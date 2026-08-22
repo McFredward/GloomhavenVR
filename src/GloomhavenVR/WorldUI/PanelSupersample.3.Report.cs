@@ -444,6 +444,28 @@ internal static partial class PanelSupersample
           .Append(" non-finite. Worst: ")
           .Append(e.MeshWorstBad > 0 ? e.MeshWorst + " with " + e.MeshWorstBad + " defect(s)"
                                      : "none — every mesh quad was clean")
+          .Append(". TMP SUB-MESHES (ModBuild 200 — THE OBJECT EVERY COUNT ABOVE IS BLIND TO. A "
+                  + "TextMeshProUGUI draws only the glyphs its FIRST material serves; a second atlas "
+                  + "page, a fallback font or an inline sprite goes to a TMP_SubMeshUI on a CHILD "
+                  + "GameObject with its own CanvasRenderer, material, LAYER and active state. Their "
+                  + "vertex data is inside the meshInfo the mesh scan reads and finds clean, and the "
+                  + "cull test above asks the PARENT. So 'every quad is perfect' and 'half the word "
+                  + "is missing from the capture' are not in contradiction — they are measurements of "
+                  + "two different objects): ")
+          .Append(e.SubMeshesSeen)
+          .Append(" sub-mesh(es) on the last scan, of which ").Append(e.SubMeshesInactive)
+          .Append(" INACTIVE, ").Append(e.SubMeshesCulled)
+          .Append(" CULLED or fully transparent, ").Append(e.SubMeshesNoTexture)
+          .Append(" with NO MATERIAL OR NO BOUND TEXTURE, and ").Append(e.SubMeshesWrongLayer)
+          .Append(" NOT ON THIS PANEL'S PRIVATE CAPTURE LAYER ").Append(e.Layer)
+          .Append(" — that last count is glyphs that are present in the mesh, present in the eye and "
+                  + "MISSING FROM THE TEXTURE, and it is REPAIRED ON SIGHT rather than reported "
+                  + "(unconditional, never gated on a defect count). A denominator of 0 means this "
+                  + "window's text needs a single material and this family CANNOT be its fault, which "
+                  + "is a different finding from 'they were all clean'. Worst: ")
+          .Append(e.SubMeshWorst.Length > 0 ? e.SubMeshWorst
+                                            : "none — every sub-mesh was active, drawn, textured and "
+                                              + "on the capture layer")
           .Append(". FONT ATLASES behind this window: ").Append(e.AtlasNote)
           .Append(". REPAIRS: ").Append(e.ReleaseRepairs)
           .Append(" release repair(s) (2 per release: one ").Append(ReleaseSettleFrames)
@@ -603,6 +625,13 @@ internal static partial class PanelSupersample
         e.TexelsPerRenderedPx = texelsPerPixel;
         if (e.TexelsPerRenderedPxWorst <= 0f || texelsPerPixel < e.TexelsPerRenderedPxWorst)
             e.TexelsPerRenderedPxWorst = texelsPerPixel;
+        if (texelsPerPixel > e.TexelsPerRenderedPxMax)
+            e.TexelsPerRenderedPxMax = texelsPerPixel;
+        e.TexelsPerRenderedPxSum += texelsPerPixel;
+        if (authoredPerPixel > e.AuthoredPerRenderedPxMax)
+            e.AuthoredPerRenderedPxMax = authoredPerPixel;
+        if (authoredPerPixel > 1f)
+            e.MinifiedReadings++;
         e.Level0Weight = level0Weight;
         // Magnification (authoredPerPixel < 1) cannot alias — level 0 is then the RIGHT level and its
         // weight of 1 is not a defect. Only a MINIFIED window reading level 0 is the ModBuild 198
@@ -633,11 +662,17 @@ internal static partial class PanelSupersample
                + "PANEL SAMPLING reported for this window before this build, and is now filtered "
                + $"rather than point-sampled) -> trilinear MIP LOD {lod:F2} at mipMapBias "
                + $"{bias:F2}, so {level0Weight * 100f:F0} % of every texture sample still comes from "
-               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification. RESAMPLE VERDICT — "
+               + $"UNFILTERED level 0 at {texelsPerPixel:F2}x minification. {LegibilitySentence(e, authoredPerPixel)} "
+               + $"RESAMPLE VERDICT — "
                + $"{texelsPerPixel:F2} RT texels per rendered eye px against a threshold of "
                + $"{BandLimitedTexelsPerPixel:F2} (the rate at which trilinear stops blending level 0 "
-               + $"at all), WORST {e.TexelsPerRenderedPxWorst:F2} over {e.SamplingMeasured} completed "
-               + "measurement(s) since engage — this instrument samples once per report AND once per "
+               + "at all). THE WHOLE DISTRIBUTION SINCE ENGAGE, because one end of it is not the "
+               + $"operating point: LOWEST {e.TexelsPerRenderedPxWorst:F2} (most MAGNIFIED — the "
+               + "window held up to the face, the best case for legibility and the worst for "
+               + $"aliasing), MEAN {(e.SamplingMeasured > 0 ? e.TexelsPerRenderedPxSum / e.SamplingMeasured : 0.0):F2}, "
+               + $"HIGHEST {e.TexelsPerRenderedPxMax:F2} (most MINIFIED — the worst case for "
+               + $"legibility), over {e.SamplingMeasured} completed "
+               + "measurement(s) — this instrument samples once per report AND once per "
                + $"release, so a session with many drags has many samples ({e.Level0Readings} of them "
                + $"read unfiltered level 0 on a MINIFIED window; instrument bail-outs: {e.SamplingNoHead} no head camera, "
                + $"{e.SamplingNoEyeTarget} no readable eye target, {e.SamplingOffScreen} off-screen) "
@@ -685,6 +720,61 @@ internal static partial class PanelSupersample
         pxW = w * viewport;
         pxH = h * viewport;
         return pxW >= 2f && pxH >= 2f;
+    }
+
+    /// <summary>
+    /// <b>THE LEGIBILITY TERM — the one quantity this instrument has never carried, and the whole of
+    /// the ModBuild 199 report "die Auflösung der Fensterelemente ist stellenweise so gering, dass
+    /// man den Text kaum lesen kann".</b>
+    ///
+    /// <para><b>WHY IT IS A DIFFERENT QUESTION FROM EVERYTHING ELSE ON THIS LINE.</b> Every other
+    /// number here judges ALIASING: how much unfiltered mip level 0 the eye reads, whether the
+    /// band-limit floor is in force, what the sub-texel phase can do while the window is carried.
+    /// Aliasing is about which LEVEL the sampler picks. LEGIBILITY is about how many RENDERED EYE
+    /// PIXELS the window is given at all, and the sampler cannot change that number by one pixel. A
+    /// window minified 1.5x is showing the player two thirds of its authored resolution no matter how
+    /// perfectly it is filtered, and no matter how many texels the capture target holds.</para>
+    ///
+    /// <para><b>AND THAT IS WHY RAISING <see cref="BandLimitFactor"/> AGAIN CANNOT HELP.</b> The
+    /// factor sets RT texels per AUTHORED pixel. In the minified regime the eye's rate is already
+    /// BELOW authored, so trilinear selects a mip level at or coarser than authored, and every level
+    /// the factor adds ABOVE authored is a level the sampler never selects. The ModBuild 199 hardware
+    /// log measures the party window at a median 2.50 RT texels per rendered eye px (1.25 authored px
+    /// per rendered px) with 70 of 97 samples reading 0 % level 0 — a correctly band-limited,
+    /// correctly filtered, MINIFIED image. Doubling the factor to 4 would move that to LOD 2.25 of a
+    /// 4x target, which is the SAME physical resolution at 4x the VRAM. The lever is the window's
+    /// SIZE IN THE EYE (its world scale and its distance), which this file does not own, or a
+    /// negative <c>mipMapBias</c>, which trades the blur back for the aliasing the last two builds
+    /// bought — and is printed on this same line as 0.00 so the next round can price it.</para>
+    ///
+    /// <para>Stated in the user's own terms: the effective resolution delivered, as a percentage of
+    /// what the window was authored at, and the authored text height that survives it. 8 authored px
+    /// is roughly the smallest stroke this game's UI font draws a legible glyph with; below that a
+    /// stroke lands on less than one eye pixel and NOTHING downstream can put it back.</para>
+    /// </summary>
+    private static string LegibilitySentence(Entry e, float authoredPerPixel)
+    {
+        if (authoredPerPixel <= 1f)
+            return "LEGIBILITY: the window is MAGNIFIED (every authored pixel covers "
+                   + $"{1f / Mathf.Max(authoredPerPixel, 1e-4f):F2} rendered eye px), so the eye is "
+                   + "given the window's full authored resolution and legibility is not sampling-bound "
+                   + "here — this is the END of the distribution, not its operating point; read the "
+                   + "HIGHEST figure below for the worst case.";
+        float delivered = 100f / authoredPerPixel;
+        float smallestLegible = 8f * authoredPerPixel;
+        return $"LEGIBILITY: the window is MINIFIED {authoredPerPixel:F2}x, so the eye receives "
+               + $"{delivered:F0} % of the authored resolution (peak minification since engage "
+               + $"{e.AuthoredPerRenderedPxMax:F2}x = {100f / Mathf.Max(e.AuthoredPerRenderedPxMax, 1e-4f):F0} %, "
+               + $"and {e.MinifiedReadings} of {e.SamplingMeasured} completed measurement(s) were "
+               + "minified at all), against a threshold of 1.00 authored px per rendered px (the rate "
+               + "at which the eye is given every pixel the window drew). AT THIS RATE THE SMALLEST "
+               + $"LEGIBLE AUTHORED TEXT IS ~{smallestLegible:F0} px tall, because an 8-authored-px "
+               + "stroke — about the floor for this game's UI font — arrives as "
+               + $"{8f / authoredPerPixel:F1} eye px. THIS IS NOT A FILTERING FAULT AND NO CAPTURE "
+               + "FACTOR CAN REACH IT: the factor buys RT texels per AUTHORED pixel, and a minified "
+               + "window's sampler already selects a mip level at or below authored resolution, so "
+               + "every level above it is one the hardware never reads. The levers are the window's "
+               + "size in the eye and a negative mipMapBias (printed above, currently 0.00);";
     }
 
     private static bool TryRenderedSize(RectTransform? rect, Camera head, float eyeW, float eyeH,

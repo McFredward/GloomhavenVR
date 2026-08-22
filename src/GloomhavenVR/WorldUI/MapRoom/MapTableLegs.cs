@@ -56,6 +56,38 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <see cref="MinTableThicknessMeters"/>, against a 0.6 mm map and a 148 mm table). Either one alone
 /// would have changed 198's answer.</para>
 ///
+/// <para>MODBUILD 200: THE GAP, AND WHY 199'S ARITHMETIC WAS RIGHT AND ITS PREMISE WRONG. The user
+/// photographed daylight between the legs and the table (<c>.planning/debug/Tischbeine_Lücke.jpg</c>)
+/// against a build whose own line reads <c>the leg tops end at y=-29.62, which is 5.0 mm UP INTO the
+/// slab from its underside (y=-30.61)</c>. Both statements are true, because they are about different
+/// surfaces. <c>Renderer.bounds.min.y</c> is the lowest point ANYWHERE in the mesh; the leg has to
+/// meet the underside over a CORNER. Any apron, skirt, moulding, bevel or slight tilt in
+/// <c>GH_Map_TableTop_Lg</c> puts the box's floor below the wood, and the leg stops short by exactly
+/// that difference. The photograph is what distinguishes the two: the near leg's TOP CAP is visible
+/// and lit — a bright horizontal bar confined to precisely the leg's own screen width, sitting under
+/// the slab's dark side face — and an up-facing face 5 mm inside a 148 mm board cannot be seen from a
+/// camera above that board. The fault is on BOTH near and far legs, not only the far one; the far
+/// one's cap is simply unlit and reads as dark-on-dark.</para>
+///
+/// <para>THE PROFILE CANNOT BE SAMPLED, SO THE REFERENCE FACE IS CHANGED INSTEAD. The tabletop's mesh
+/// is NOT CPU-readable — this class's own texture line says so — so its triangles cannot be walked.
+/// Two things are done about that, and the second is what makes the fix structural:</para>
+/// <list type="number">
+///   <item>PER LEG, EACH CORNER IS PROBED. <see cref="TryMeasureUnderside"/> casts a ray up under the
+///   corner against the table's own collider and <see cref="TryMeasureFloor"/> casts one down against
+///   the room's, so where colliders exist the underside and the ground are MEASURED where the leg
+///   actually is. The four legs no longer share a length.</item>
+///   <item>WHERE NOTHING ANSWERS, THE HEAD IS HUNG FROM THE **TOP** FACE. The top face is
+///   unambiguous and is confirmed independently every build (the parchment lies on it; the sweep
+///   prints the residual, 7 mm). <see cref="HeadInsetBelowTopFaceMeters"/> puts the head 20 mm below
+///   it — 128 mm above the box's floor at the real tabletop — so whatever the true underside is, as
+///   long as it lies inside the slab's own AABB the head is inside the wood and the leg emerges
+///   exactly at it. A gap is then not unlikely; it is unrepresentable.</item>
+/// </list>
+/// <para><see cref="DescribeLegs"/> prints one row per leg — floor Y, underside Y, length, and the
+/// residual gap in millimetres — plus the comparison count, so "no gap" and "never measured" cannot
+/// print the same thing.</para>
+///
 /// <para>THEY STAND ON THE ROOM'S FLOOR, NOT ON THE PLAYER'S. Those are two different planes and the
 /// gap between them is why the bench class buried its feet. The room is placed by the diorama rule
 /// (<c>SkyAlternative.TryPlaceRoom</c>: floor = board underside − FloatGap) and the seat by
@@ -87,7 +119,11 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// seat's scale, the head camera's culling mask and the scene's lights. It writes no game transform,
 /// no game material, no rig value, and it has no Update of its own — it is world-fixed furniture, so
 /// after the build frame <see cref="Tick"/> is two field reads and a reference compare. No collider,
-/// deliberately: the laser's pick path must not start finding furniture.</para>
+/// deliberately: the laser's pick path must not start finding furniture. The two per-leg probes
+/// ModBuild 200 adds are <c>Physics.RaycastAll</c> QUERIES — they read the physics scene and write
+/// nothing to it, they run on the build frame only (eight casts, once), and a hit is only believed
+/// when its collider belongs to the tabletop's or the room's own hierarchy, so nothing the player
+/// carries and nothing a window owns can be mistaken for a table or a floor.</para>
 ///
 /// <para>THAT MATTERS BECAUSE OF WHAT ELSE SHIPPED IN 198: every floating window moved to below the
 /// table in the same build. It was not this class. Nothing here names or can reach a Canvas, a
@@ -111,7 +147,9 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// difference exactly like the environment itself already is.</para>
 ///
 /// <para>COST: one combined mesh, <see cref="TriangleCount"/> triangles, ONE MeshRenderer with ONE
-/// material = ONE draw call, built once, no per-frame allocation and no shadow pass.</para>
+/// material = ONE draw call, built once, no per-frame allocation and no shadow pass. Four legs of
+/// four different lengths cost exactly the same as four of one length — the extra shaft ModBuild 200
+/// buries in the slab is hidden geometry, not extra geometry.</para>
 /// </summary>
 internal sealed class MapTableLegs
 {
@@ -138,9 +176,16 @@ internal sealed class MapTableLegs
     internal const float EdgeInsetMeters = 0.02f;
 
     /// <summary>
-    /// How far the leg's head pushes up into the SLAB, measured from the slab's UNDERSIDE, real
-    /// metres. Parts that share a face exactly z-fight along it; 5 mm of overlap is invisible and
-    /// guarantees no daylight at the joint.
+    /// How far the leg's head pushes up into the SLAB, measured from a PROBED underside, real metres.
+    /// Parts that share a face exactly z-fight along it; 5 mm of overlap is invisible and guarantees
+    /// no daylight at the joint.
+    ///
+    /// <para>SINCE ModBuild 200 THIS APPLIES ONLY WHERE <see cref="TryMeasureUnderside"/> ACTUALLY
+    /// FOUND THE FACE under that corner. Where it did not — the captured table carries an unreadable
+    /// mesh and may carry no collider either — the head is hung from the slab's TOP face instead and
+    /// this constant is not used for that leg; see <see cref="HeadInsetBelowTopFaceMeters"/> for why
+    /// 199's "5 mm up from <c>bounds.min.y</c>" was measuring from a surface that is not the
+    /// underside.</para>
     ///
     /// <para>THE REFERENCE FACE IS THE UNDERSIDE, AND ModBuild 198 SHIPPED THE OTHER ONE. There it
     /// read <c>top.min.y + WeldMeters</c> where <c>top</c> was — because of the selection bug fixed
@@ -161,6 +206,67 @@ internal sealed class MapTableLegs
     /// number is raised to 1.
     /// </summary>
     internal const float WeldMaxThicknessFraction = 0.25f;
+
+    /// <summary>
+    /// HOW DEEP THE HEAD IS BURIED, MEASURED DOWN FROM THE SLAB'S **TOP** FACE, real metres — and
+    /// this constant is ModBuild 200's whole fix.
+    ///
+    /// <para>THE GAP ModBuild 199 SHIPPED. Its own hardware line reads <c>the leg tops end at
+    /// y=-29.62, which is 5.0 mm UP INTO the slab from its underside (y=-30.61)</c>, and the
+    /// arithmetic closes perfectly — yet the user photographed daylight between the leg and the
+    /// table. The photograph settles which of the two is wrong: the near leg's TOP CAP is visible and
+    /// lit (<c>.planning/debug/Tischbeine_Lücke.jpg</c>, a bright horizontal bar confined to exactly
+    /// the leg's own screen width, sitting under the slab's dark side face). An up-facing face that is
+    /// 5 mm INSIDE a 148 mm board cannot be seen from a camera above the board. So the number that is
+    /// wrong is <c>top.min.y</c>: <c>Renderer.bounds</c> is an axis-aligned box and its
+    /// <c>min.y</c> is the LOWEST POINT ANYWHERE IN THE MESH, not the height of the underside over the
+    /// CORNERS. Any apron, skirt, moulding, bevel or slight tilt in <c>GH_Map_TableTop_Lg</c> — a
+    /// single unreadable mesh, see the texture line, so its profile cannot be sampled — puts the box's
+    /// floor below the wood the leg actually has to meet, and the leg stops in mid-air by exactly that
+    /// difference.</para>
+    ///
+    /// <para>THE CORRECTION IS TO CHANGE THE REFERENCE FACE, not to add a fudge. The TOP face is
+    /// unambiguous and is confirmed by a second, independent measurement every build: the parchment
+    /// lies ON it, and the sweep prints the residual (7 mm in the captured session). The bottom face
+    /// is a guess about a profile nobody has measured. So the head is placed
+    /// <see cref="HeadInsetBelowTopFaceMeters"/> DOWN FROM THE TOP FACE, which at the real tabletop
+    /// puts it 20 mm below the top and 128 mm ABOVE the box's floor. Whatever the true underside is,
+    /// as long as it lies anywhere inside the slab's own AABB the head is inside the wood and the leg
+    /// EMERGES exactly at it. A gap is then not unlikely, it is unrepresentable — and the extra
+    /// 128 mm of shaft is hidden inside the board, at zero cost (the same 48 triangles).</para>
+    ///
+    /// <para>IT STILL CANNOT POKE THROUGH THE TOP, which is the fault ModBuild 198 shipped and 199
+    /// fixed: 20 mm below the top face is 27 mm below the map's visible surface, and the inset is
+    /// additionally capped at <see cref="HeadInsetMaxThicknessFraction"/> of the measured thickness so
+    /// a thin board narrows the burial instead of pushing the head out of the bottom.</para>
+    ///
+    /// <para>20 mm rather than 5: it must also clear a CHAMFER on the top edge. The leg's outer face
+    /// stands only <see cref="EdgeInsetMeters"/> = 20 mm inside the slab's edge, so a head buried only
+    /// a few millimetres could be exposed by a bevelled corner. 20 mm down and 20 mm in is a 45°
+    /// chamfer's worth of cover.</para>
+    /// </summary>
+    internal const float HeadInsetBelowTopFaceMeters = 0.020f;
+
+    /// <inheritdoc cref="HeadInsetBelowTopFaceMeters"/>
+    internal const float HeadInsetMaxThicknessFraction = 0.40f;
+
+    /// <summary>How far BELOW the slab's AABB floor the per-leg underside probe starts, real metres.
+    /// The probe is an upward ray under each corner (see <see cref="TryMeasureUnderside"/>); it starts
+    /// clear of the box so a collider face exactly on the box floor is still in front of it.</summary>
+    private const float UndersideProbeMarginMeters = 0.05f;
+
+    /// <summary>How far ABOVE and BELOW the room's floor plane the per-leg floor probe looks, real
+    /// metres. Sized against the relief the plane's own doc quotes (about +/-19 mm in SwampNight), with
+    /// two orders of magnitude of slack, and NOT so far that it could find the tabletop above or a
+    /// cellar below. See <see cref="TryMeasureFloor"/>.</summary>
+    private const float FloorProbeUpMeters = 0.30f;
+
+    /// <inheritdoc cref="FloorProbeUpMeters"/>
+    private const float FloorProbeDownMeters = 0.30f;
+
+    /// <summary>A residual at or below this many millimetres is reported as ZERO gap. It is a
+    /// print-rounding threshold, not a tolerance the geometry is allowed to spend.</summary>
+    private const float GapFreeMillimetres = 0.05f;
 
     /// <summary>
     /// The minimum THICKNESS a candidate tabletop must have, real metres — and this one constant is
@@ -300,6 +406,27 @@ internal sealed class MapTableLegs
     private readonly List<Vector3> _norms = new(128);
     private readonly List<Vector2> _uvs = new(128);
     private readonly List<int> _tris = new(192);
+
+    // ---- ONE ROW PER LEG. Every one of these is measured UNDER ITS OWN CORNER; the legs no longer
+    // share a length. Allocated once with the class, written on the build frame only. ------------
+    private readonly float[] _legX = new float[LegCount];
+    private readonly float[] _legZ = new float[LegCount];
+    /// <summary>The floor Y under this leg — the probed ground if <see cref="_legFloorMeasured"/>,
+    /// otherwise the room's floor plane.</summary>
+    private readonly float[] _legFloorY = new float[LegCount];
+    /// <summary>The slab underside Y above this leg — the probed face if
+    /// <see cref="_legHeadMeasured"/>, otherwise the slab AABB's floor, which is a hard LOWER BOUND on
+    /// the underside anywhere and therefore the worst case the residual is proved against.</summary>
+    private readonly float[] _legUndersideY = new float[LegCount];
+    private readonly float[] _legHeadY = new float[LegCount];
+    private readonly float[] _legFootY = new float[LegCount];
+    private readonly float[] _legHeight = new float[LegCount];
+    /// <summary>Millimetres of open air between this leg's head and the underside reference above it.
+    /// Must read 0.0 on every leg.</summary>
+    private readonly float[] _legGapMm = new float[LegCount];
+    private readonly bool[] _legHeadMeasured = new bool[LegCount];
+    private readonly bool[] _legFloorMeasured = new bool[LegCount];
+
     private Rect _uvRect = new(0f, 0f, 1f, 1f);
     private Vector2 _uvCentre = new(0.5f, 0.5f);
     private float _uvWorldPerU = 1f;
@@ -471,41 +598,108 @@ internal sealed class MapTableLegs
             Refuse("NOT BUILT: no tabletop was found. " + candidates);
             return;
         }
-        if (!TryFindRoomFloor(style, out float floorY, out string floorSource))
+        if (!TryFindRoomFloor(style, out float floorY, out Transform? roomRoot, out string floorSource))
         {
             Refuse("NOT BUILT: " + floorSource);
             return;
         }
 
         Bounds top = table.bounds;
-        float footY = floorY - FootSinkMeters * scale;
-        // THE LEG HEAD STOPS INSIDE THE SLAB, MEASURED FROM ITS UNDERSIDE. top.min.y is the real
-        // board's bottom face (the sweep now guarantees a board and not a decal — see
-        // MinTableThicknessMeters), and the weld is additionally capped at a quarter of the measured
-        // thickness, so no arithmetic here can put the head through the top face. ModBuild 198's own
-        // line is the counter-example this replaces: 5 mm up from the underside of a 0.6 mm parchment
-        // is 4.4 mm ABOVE it.
         float slabThickness = Mathf.Abs(top.size.y);
+        // The weld is only used where an underside was actually MEASURED under the corner; see below.
         float weld = Mathf.Min(WeldMeters * scale, slabThickness * WeldMaxThicknessFraction);
-        float legTopY = top.min.y + weld;
-        float headBelowTopFace = top.max.y - legTopY;
-        float legHeight = legTopY - footY;
-        if (legHeight < MinLegHeightMeters * scale || legHeight > MaxLegHeightMeters * scale)
+        // THE HEAD'S REFERENCE FACE IS THE SLAB'S **TOP**, AND THAT IS ModBuild 200'S WHOLE FIX.
+        // ModBuild 199 welded 5 mm up from top.min.y and its arithmetic closed — but top.min.y is the
+        // lowest point ANYWHERE in an unreadable mesh, not the underside over a CORNER, so any apron,
+        // moulding, bevel or tilt left the head short by that difference. The user photographed the
+        // near leg's lit top CAP, which cannot be seen at all if the head is inside the board.
+        // See HeadInsetBelowTopFaceMeters.
+        float headInset = Mathf.Min(HeadInsetBelowTopFaceMeters * scale,
+                                    slabThickness * HeadInsetMaxThicknessFraction);
+        float anchoredHeadY = top.max.y - headInset;
+
+        float side = LegSideMeters * scale;
+        float inset = (LegSideMeters * 0.5f + EdgeInsetMeters) * scale;
+        // Guard a table so small the insets cross: the legs then sit on the centre line rather than
+        // outside the top, which is ugly but bounded.
+        float cornerX = Mathf.Max(Mathf.Abs(top.size.x) * 0.5f - inset, side * 0.5f);
+        float cornerZ = Mathf.Max(Mathf.Abs(top.size.z) * 0.5f - inset, side * 0.5f);
+
+        // ---- ONE MEASUREMENT PASS PER LEG, BEFORE ANY GameObject EXISTS ------------------------
+        // Each leg gets its OWN floor, its OWN head and therefore its OWN length. Nothing is created
+        // until all four have passed the plausibility window, so a refusal cannot leave half a prop
+        // standing. Two probes per leg, on the build frame only, and both are read-only queries.
+        int headsMeasured = 0, floorsMeasured = 0, gapFree = 0;
+        float tallest = 0f, shortest = float.MaxValue;
+        for (int i = 0; i < LegCount; i++)
         {
-            Refuse($"NOT BUILT: the derived leg height is {legHeight / scale:F3} m "
-                   + $"({legHeight:F1} world units), outside the plausible "
-                   + $"{MinLegHeightMeters:F2}..{MaxLegHeightMeters:F2} m window — the tabletop's "
-                   + $"underside is y={top.min.y:F2} and the room floor is y={floorY:F2} "
-                   + $"({floorSource}). One of those two planes is not what this class thinks it "
-                   + "is; nothing is built rather than a wrong prop.");
+            float sx = (i & 1) == 0 ? -1f : 1f;
+            float sz = (i & 2) == 0 ? -1f : 1f;
+            _legX[i] = top.center.x + cornerX * sx;
+            _legZ[i] = top.center.z + cornerZ * sz;
+
+            // THE FLOOR UNDER **THIS** CORNER. The plane is exact but the floor ART is not (both
+            // rooms have a gentle relief outside their play disc), so the ground itself is probed
+            // first and the plane is the fallback.
+            _legFloorMeasured[i] = TryMeasureFloor(roomRoot, _legX[i], _legZ[i], floorY, scale,
+                                                   out float groundY);
+            _legFloorY[i] = _legFloorMeasured[i] ? groundY : floorY;
+            _legFootY[i] = _legFloorY[i] - FootSinkMeters * scale;
+            if (_legFloorMeasured[i])
+                floorsMeasured++;
+
+            // THE SLAB'S UNDERSIDE OVER **THIS** CORNER. Probed if the table carries a collider;
+            // otherwise the head is anchored to the TOP face, which needs no knowledge of the
+            // underside at all, and the residual is proved against top.min.y — a hard lower bound on
+            // where the underside can possibly be.
+            _legHeadMeasured[i] = TryMeasureUnderside(table, _legX[i], _legZ[i], top, scale,
+                                                      out float undersideY);
+            if (_legHeadMeasured[i])
+            {
+                headsMeasured++;
+                _legUndersideY[i] = undersideY;
+                // Up into the wood by the weld, but never nearer the top face than the weld itself:
+                // "cannot emerge from the top" survives a measurement that lands anywhere.
+                _legHeadY[i] = Mathf.Min(undersideY + weld, top.max.y - weld);
+            }
+            else
+            {
+                _legUndersideY[i] = top.min.y;
+                _legHeadY[i] = anchoredHeadY;
+            }
+
+            _legHeight[i] = _legHeadY[i] - _legFootY[i];
+            // THE RESIDUAL, IN MILLIMETRES: open air between the head and the underside reference
+            // above it. Negative means the head is INSIDE the wood, which is the intent, so it is
+            // reported as zero gap; a positive number is the ModBuild 199 defect coming back.
+            _legGapMm[i] = Mathf.Max(0f, _legUndersideY[i] - _legHeadY[i]) / scale * 1000f;
+            if (_legGapMm[i] <= GapFreeMillimetres)
+                gapFree++;
+            tallest = Mathf.Max(tallest, _legHeight[i]);
+            shortest = Mathf.Min(shortest, _legHeight[i]);
+        }
+
+        for (int i = 0; i < LegCount; i++)
+        {
+            if (_legHeight[i] >= MinLegHeightMeters * scale && _legHeight[i] <= MaxLegHeightMeters * scale)
+                continue;
+            Refuse($"NOT BUILT: leg {i} at ({_legX[i]:F2}, {_legZ[i]:F2}) derives a height of "
+                   + $"{_legHeight[i] / scale:F3} m ({_legHeight[i]:F1} world units), outside the "
+                   + $"plausible {MinLegHeightMeters:F2}..{MaxLegHeightMeters:F2} m window — its head "
+                   + $"is y={_legHeadY[i]:F2} (the slab spans y={top.min.y:F2}..{top.max.y:F2}) and its "
+                   + $"foot is y={_legFootY[i]:F2} (floor y={_legFloorY[i]:F2}, {floorSource}). One of "
+                   + "those two planes is not what this class thinks it is; NOTHING is built rather "
+                   + "than a wrong prop, and no GameObject has been created at this point.");
             return;
         }
 
-        // THE FRAME. Origin at the TABLETOP's horizontal centre and at the ROOM FLOOR vertically,
-        // unrotated. The table's own AABB is the frame the legs belong to — they are its legs — and
-        // anchoring the vertical to the floor is what makes "standing on the floor" structural
-        // rather than arithmetic that can drift.
-        var origin = new Vector3(top.center.x, footY, top.center.z);
+        // THE FRAME. Origin at the TABLETOP's horizontal centre and at the ROOM FLOOR PLANE
+        // vertically, unrotated. The table's own AABB is the frame the legs belong to — they are its
+        // legs — and anchoring the vertical to the floor plane is what makes "standing on the floor"
+        // structural rather than arithmetic that can drift. Each leg's own foot and head are then
+        // offsets from that one plane, so the four rows in the log and the four boxes in the mesh are
+        // the same numbers.
+        var origin = new Vector3(top.center.x, floorY, top.center.z);
         _root = new GameObject(RootName);
         _root.transform.SetPositionAndRotation(origin, Quaternion.identity);
 
@@ -514,25 +708,17 @@ internal sealed class MapTableLegs
         _uvs.Clear();
         _tris.Clear();
 
-        float side = LegSideMeters * scale;
         // Pick the SKIN before the UVs, because the UV decision depends on the texture that skin
         // carries (its wrap mode decides whether the grain may repeat at all).
         Material? skin = PickTableMaterial(table, out int skinIndex, out string materialSource);
-        AdoptTableUvs(table, skin, top, scale, legHeight, side, out string uvSource);
+        AdoptTableUvs(table, skin, top, scale, tallest, side, out string uvSource);
 
-        float inset = (LegSideMeters * 0.5f + EdgeInsetMeters) * scale;
-        // Guard a table so small the insets cross: the legs then sit on the centre line rather than
-        // outside the top, which is ugly but bounded.
-        float cornerX = Mathf.Max(Mathf.Abs(top.size.x) * 0.5f - inset, side * 0.5f);
-        float cornerZ = Mathf.Max(Mathf.Abs(top.size.z) * 0.5f - inset, side * 0.5f);
-
-        for (int sx = -1; sx <= 1; sx += 2)
+        for (int i = 0; i < LegCount; i++)
         {
-            for (int sz = -1; sz <= 1; sz += 2)
-            {
-                var centre = new Vector3(cornerX * sx, legHeight * 0.5f, cornerZ * sz);
-                Box(centre, new Vector3(side, legHeight, side));
-            }
+            var centre = new Vector3(_legX[i] - top.center.x,
+                                     (_legFootY[i] + _legHeadY[i]) * 0.5f - floorY,
+                                     _legZ[i] - top.center.z);
+            Box(centre, new Vector3(side, _legHeight[i], side));
         }
 
         _mesh = new Mesh { name = "GloomhavenVR.MapTableLegs" };
@@ -571,9 +757,139 @@ internal sealed class MapTableLegs
         _builtAgainstParchment = parchment;
         _builtAgainstTable = table;
         _lastRefusal = "";
-        Report(style, mixedReality, seat, parch, table, top, floorY, footY, legHeight, side,
-               cornerX, cornerZ, scale, weld, headBelowTopFace, slabThickness, skinIndex, layer,
-               floorSource, materialSource, uvSource, layerSource, candidates);
+        Report(style, mixedReality, seat, parch, table, top, floorY, side, cornerX, cornerZ, scale,
+               weld, headInset, anchoredHeadY, slabThickness, tallest, shortest, headsMeasured,
+               floorsMeasured, gapFree, skinIndex, layer, floorSource, materialSource, uvSource,
+               layerSource, candidates);
+    }
+
+    // ---- the two per-leg probes ------------------------------------------------------------------
+
+    /// <summary>
+    /// THE SLAB'S UNDERSIDE DIRECTLY OVER ONE CORNER, by an upward ray against the TABLE'S OWN
+    /// collider — the measurement ModBuild 199 did not have and whose absence is the gap the user
+    /// photographed.
+    ///
+    /// <para>WHY A RAY AND NOT THE MESH. <c>GH_Map_TableTop_Lg</c>'s mesh is NOT CPU-readable — this
+    /// class's own texture line says so in the captured session ("the tabletop's mesh is not
+    /// CPU-readable"), which is also why the legs fall back to the whole 0..1 sheet — so its triangles
+    /// cannot be walked. A collider CAN be queried whether or not the mesh is readable, so this is the
+    /// only honest way to ask "how high is the wood, HERE".</para>
+    ///
+    /// <para>ONLY THE TABLE'S OWN COLLIDERS COUNT. The hit's transform must be the tabletop's or a
+    /// descendant of it; an ancestor is deliberately NOT accepted, because a map-root picking volume
+    /// is an ancestor and would answer with its own box. The LOWEST qualifying hit wins — going up
+    /// from under the slab, the first face met is its underside — and the hit must lie inside the
+    /// slab's own AABB, so a collider that does not model this board cannot move the head.</para>
+    ///
+    /// <para>If the table has no collider the probe simply says no, the head is anchored to the TOP
+    /// face instead (see <see cref="HeadInsetBelowTopFaceMeters"/>), and the log prints
+    /// "0 of 4 measured" so a reader can never mistake "no gap" for "never looked". Read-only: a
+    /// raycast queries the physics scene and writes nothing to it. One cast per leg, on the build
+    /// frame only.</para>
+    /// </summary>
+    private static bool TryMeasureUnderside(MeshRenderer table, float x, float z, Bounds top,
+                                            float scale, out float undersideY)
+    {
+        undersideY = 0f;
+        try
+        {
+            Transform tableTf = table.transform;
+            float margin = UndersideProbeMarginMeters * scale;
+            var from = new Vector3(x, top.min.y - margin, z);
+            float distance = Mathf.Abs(top.size.y) + 2f * margin;
+            RaycastHit[] hits = Physics.RaycastAll(from, Vector3.up, distance, ~0,
+                                                   QueryTriggerInteraction.Ignore);
+            bool found = false;
+            float best = 0f;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider c = hits[i].collider;
+                if (c == null)
+                    continue;
+                Transform t = c.transform;
+                if (t != tableTf && !t.IsChildOf(tableTf))
+                    continue;
+                float y = hits[i].point.y;
+                if (y < top.min.y - margin * 0.5f || y > top.max.y)
+                    continue;
+                if (!found || y < best)
+                {
+                    best = y;
+                    found = true;
+                }
+            }
+            if (!found)
+                return false;
+            undersideY = best;
+            return true;
+        }
+        catch
+        {
+            // A physics query cannot normally throw, but this whole path runs inside the map room's
+            // per-frame body and an escape there starves the player's input. The legs lose one
+            // measurement; nothing else notices.
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// THE GROUND UNDER ONE CORNER, by a downward ray against the ENVIRONMENT ROOM'S own colliders.
+    ///
+    /// <para>The room root's Y is the floor PLANE and is exact (see <see cref="TryFindRoomFloor"/>),
+    /// but the floor ART is not flat: both rooms carry a gentle relief outside their dead-flat play
+    /// disc — about +/-19 mm perceived at this table's corner radius in SwampNight and about +/-5 mm
+    /// in the Cellar. <see cref="FootSinkMeters"/> exists to swallow exactly that, downward. This
+    /// probe removes the need to swallow it at all WHEN the room has a collider: the foot is then cut
+    /// under the ground that is actually there, per corner, and the sink is spent on soft ground
+    /// rather than on an unknown.</para>
+    ///
+    /// <para>Only colliders under the room root count, and only within
+    /// <see cref="FloorProbeUpMeters"/>/<see cref="FloorProbeDownMeters"/> of the plane, so the
+    /// tabletop above and anything under the floor cannot answer. The HIGHEST qualifying hit wins —
+    /// coming down, that is the surface the leg would rest on. Falls back to the plane, and the log
+    /// says which of the four legs used which.</para>
+    /// </summary>
+    private static bool TryMeasureFloor(Transform? room, float x, float z, float planeY, float scale,
+                                        out float groundY)
+    {
+        groundY = planeY;
+        if (room == null)
+            return false;
+        try
+        {
+            float up = FloorProbeUpMeters * scale, down = FloorProbeDownMeters * scale;
+            var from = new Vector3(x, planeY + up, z);
+            RaycastHit[] hits = Physics.RaycastAll(from, Vector3.down, up + down, ~0,
+                                                   QueryTriggerInteraction.Ignore);
+            bool found = false;
+            float best = 0f;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider c = hits[i].collider;
+                if (c == null)
+                    continue;
+                Transform t = c.transform;
+                if (t != room && !t.IsChildOf(room))
+                    continue;
+                float y = hits[i].point.y;
+                if (y > planeY + up || y < planeY - down)
+                    continue;
+                if (!found || y > best)
+                {
+                    best = y;
+                    found = true;
+                }
+            }
+            if (!found)
+                return false;
+            groundY = best;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -1031,9 +1347,11 @@ internal sealed class MapTableLegs
     /// two-line <c>internal static bool TryRoomFloorY(out float)</c> on <c>SkyAlternative</c> would
     /// retire the lookup; it is flagged in this round's report.</para>
     /// </summary>
-    internal static bool TryFindRoomFloor(SkyStyle style, out float floorY, out string source)
+    internal static bool TryFindRoomFloor(SkyStyle style, out float floorY, out Transform? roomRoot,
+                                          out string source)
     {
         floorY = 0f;
+        roomRoot = null;
         string name = "GloomhavenVR.SkyAlternative.Room." + style;
         GameObject? room = GameObject.Find(name);
         if (room == null)
@@ -1046,6 +1364,7 @@ internal sealed class MapTableLegs
                      + "its root.";
             return false;
         }
+        roomRoot = room.transform;
         floorY = room.transform.position.y;
         source = $"the room root '{name}' transform.position.y = {floorY:F2} — SkyAlternative writes "
                  + "the computed floor plane straight into it and never writes it again, and the "
@@ -1335,11 +1654,11 @@ internal sealed class MapTableLegs
     /// residual left over, and the mesh's own winding gate.
     /// </summary>
     private void Report(SkyStyle style, bool mixedReality, MapRoomSeat.Seat seat, Bounds parch,
-                        MeshRenderer table, Bounds top, float floorY, float footY, float legHeight,
-                        float side, float cornerX, float cornerZ, float scale, float weld,
-                        float headBelowTopFace, float slabThickness, int skinIndex, int layer,
-                        string floorSource, string materialSource, string uvSource, string layerSource,
-                        string tableSurvey)
+                        MeshRenderer table, Bounds top, float floorY, float side, float cornerX,
+                        float cornerZ, float scale, float weld, float headInset, float anchoredHeadY,
+                        float slabThickness, float tallest, float shortest, int headsMeasured,
+                        int floorsMeasured, int gapFree, int skinIndex, int layer, string floorSource,
+                        string materialSource, string uvSource, string layerSource, string tableSurvey)
     {
         // THE WINDING GATE, ON THE FINISHED SOLID. Cheap (48 triangles) and it runs once.
         float volume = 0f;
@@ -1385,29 +1704,39 @@ internal sealed class MapTableLegs
             + $"and {Mathf.Abs(top.size.z) / Mathf.Max(Mathf.Abs(parch.size.z), 1e-4f):F2}x along, so "
             + "THESE ARE THE TABLE'S CORNERS AND NOT THE MAP'S. If those two factors ever read 1.00 "
             + "the sweep has picked the parchment again, which is exactly the ModBuild 198 defect.\n"
-            + $"  leg       : {LegSideMeters:F3} x {LegSideMeters:F3} m section x "
-            + $"{legHeight / scale:F3} m tall ({side:F1} x {side:F1} x {legHeight:F1} world units), "
-            + $"corners at +/-{cornerX / scale:F3} x +/-{cornerZ / scale:F3} m "
-            + $"(+/-{cornerX:F1} x +/-{cornerZ:F1} world units) from the tabletop's centre, i.e. its "
-            + $"outer face {EdgeInsetMeters * 1000f:F0} mm inside the top's edge.\n"
-            + $"  the head  : the leg tops end at y={(footY + legHeight):F2}, which is "
-            + $"{weld / scale * 1000f:F1} mm UP INTO the slab from its underside (y={top.min.y:F2}) and "
-            + $"therefore {headBelowTopFace / scale * 1000f:F1} mm BELOW the slab's TOP face "
-            + $"(y={top.max.y:F2}) and {(parch.max.y - (footY + legHeight)) / scale * 1000f:F1} mm below "
-            + "the map's visible surface. NOTHING CAN EMERGE: the weld is "
-            + $"min({WeldMeters * 1000f:F0} mm, {WeldMaxThicknessFraction:P0} of the measured "
-            + $"{slabThickness / scale * 1000f:F0} mm thickness). ModBuild 198's line is the "
-            + "counter-example — 5 mm up from the underside of a 0.6 mm parchment put the heads 4.4 mm "
-            + "ABOVE the map, which is the four pale rectangles the user photographed.\n"
+            + $"  leg       : {LegSideMeters:F3} x {LegSideMeters:F3} m section, "
+            + $"{shortest / scale:F3}..{tallest / scale:F3} m tall ({shortest:F1}..{tallest:F1} world "
+            + $"units) — EACH LEG HAS ITS OWN LENGTH, see the four rows below. Corners at "
+            + $"+/-{cornerX / scale:F3} x +/-{cornerZ / scale:F3} m (+/-{cornerX:F1} x "
+            + $"+/-{cornerZ:F1} world units) from the tabletop's centre, i.e. its outer face "
+            + $"{EdgeInsetMeters * 1000f:F0} mm inside the top's edge; section {side:F1} world units.\n"
+            + $"  the head  : referenced to the slab's **TOP** face y={top.max.y:F2}, "
+            + $"{headInset / scale * 1000f:F1} mm down (head plane y={anchoredHeadY:F2}), which is "
+            + $"{(anchoredHeadY - top.min.y) / scale * 1000f:F1} mm ABOVE the slab AABB's floor "
+            + $"(y={top.min.y:F2}) and {(parch.max.y - anchoredHeadY) / scale * 1000f:F1} mm below the "
+            + "map's visible surface. THAT REFERENCE FACE IS ModBuild 200'S FIX: 199 welded "
+            + $"{WeldMeters * 1000f:F0} mm up from top.min.y, and top.min.y is the LOWEST POINT ANYWHERE "
+            + "in an unreadable mesh, not the underside over a CORNER — any apron, moulding, bevel or "
+            + "tilt left the head short by the difference, which is the daylight in "
+            + "Tischbeine_Lücke.jpg (the near leg's lit top CAP is visible there, and a cap 5 mm inside "
+            + "a 148 mm board cannot be). Measuring DOWN FROM THE TOP needs no knowledge of the "
+            + "underside at all: wherever the wood ends, the leg emerges exactly there. NOTHING CAN "
+            + $"EMERGE UPWARD either — the inset is min({HeadInsetBelowTopFaceMeters * 1000f:F0} mm, "
+            + $"{HeadInsetMaxThicknessFraction:P0} of the measured "
+            + $"{slabThickness / scale * 1000f:F0} mm thickness), and where an underside WAS probed the "
+            + $"head is capped at {weld / scale * 1000f:F1} mm below the top face as well.\n"
+            + $"  per leg   : {DescribeLegs(top, floorY, scale, headsMeasured, floorsMeasured, gapFree)}\n"
             + $"  material  : {materialSource}.\n"
             + $"{DescribeMaterials(table, "the TABLETOP renderer:", "              ")}\n"
             + $"              the legs wear mat[{skinIndex}] of that list, the same object.\n"
-            + $"  texture   : {uvSource}. At that scale the {legHeight / scale:F2} m leg carries "
-            + $"{legHeight / _uvWorldPerV:F2} UV unit(s) of grain down its length and "
+            + $"  texture   : {uvSource}. At that scale the {tallest / scale:F2} m leg carries "
+            + $"{tallest / _uvWorldPerV:F2} UV unit(s) of grain down its length and "
             + $"{side / _uvWorldPerU:F2} across its face; mapping mode "
             + $"{(_uvTile ? "TILE (sampler wraps, no window)" : $"FIT (window {_uvRect.xMin:F3}..{_uvRect.xMax:F3}, {_uvRect.yMin:F3}..{_uvRect.yMax:F3})")}.\n"
-            + $"  the floor : the feet are cut at y={footY:F2} — the room floor y={floorY:F2} minus "
-            + $"{FootSinkMeters * 1000f:F0} mm ({FootSinkMeters * scale:F1} world units). SOURCE: "
+            + $"  the floor : each foot is cut {FootSinkMeters * 1000f:F0} mm "
+            + $"({FootSinkMeters * scale:F1} world units) under the ground READ AT ITS OWN CORNER — the "
+            + $"four values are in the per-leg rows above, and {floorsMeasured} of {LegCount} were "
+            + "probed against the room's own colliders rather than taken from the plane. SOURCE: "
             + $"{floorSource}. The player's own tracking floor is y={seat.FloorPosition.y:F2}, i.e. "
             + $"{playerAboveRoomFloor * 1000f:F0} mm ABOVE the room floor — the two planes this room "
             + "has always disagreed on, and the reason the legs are stood on the ROOM's one: they are "
@@ -1415,8 +1744,9 @@ internal sealed class MapTableLegs
             + "have a gentle floor relief outside their dead-flat play disc (BuildEnvironmentRooms: "
             + "ForestY is identically 0 inside r=1.7 authored m and ramps over 1.7..4.6; CellarFloorY "
             + $"is +/-6 mm authored), which at this table's corner radius is about +/-19 mm (swamp) "
-            + $"and +/-5 mm (cellar) perceived. The {FootSinkMeters * 1000f:F0} mm sink swallows it "
-            + "downward on purpose: a sunk foot reads as soft ground, a floating one reads as a bug.\n"
+            + $"and +/-5 mm (cellar) perceived. Where the probe answered, that relief is MEASURED and "
+            + $"not swallowed; where it did not, the {FootSinkMeters * 1000f:F0} mm sink spends the "
+            + "error downward on purpose: a sunk foot reads as soft ground, a floating one as a bug.\n"
             + $"  heights   : tabletop top {(top.max.y - floorY) / scale:F3} m above the room floor "
             + $"and {(top.max.y - seat.FloorPosition.y) / scale:F3} m above the player's; parchment "
             + $"top {topAbovePlayerFloor:F3} m above the player's floor — CROSS-CHECK, that last one "
@@ -1444,6 +1774,48 @@ internal sealed class MapTableLegs
             + "'wrong material' against 'wrong UV window' without a second photograph. If they poke "
             + "out of the top, 'the head' line already says in millimetres that they cannot. If they "
             + "are inside-out or half-missing, the winding gate line says so. If they appear where "
-            + "they should not, the 'gate' line says which style was read.");
+            + "they should not, the 'gate' line says which style was read. AND IF A LEG STILL SHOWS "
+            + "DAYLIGHT AT THE TABLE, read the per-leg rows: the gap column is per corner and in "
+            + "millimetres, so it names WHICH leg and BY HOW MUCH — and if all four read 0.0 mm while "
+            + "the headset shows a gap, then the head is inside the slab's AABB and the wood above it "
+            + "is not, i.e. the tabletop renderer's box is larger than the board it draws, and the "
+            + "next number to raise is HeadInsetBelowTopFaceMeters (it is measured DOWN FROM THE TOP, "
+            + "so raising it moves the head DOWN and lowering it moves the head UP into the board).");
+    }
+
+    /// <summary>
+    /// THE FOUR ROWS — one per leg, and the counts that keep "no gap" from looking like "never
+    /// measured". For each corner: the floor Y under it, the slab underside reference above it, the
+    /// resulting length, and the residual gap at the head IN MILLIMETRES. All four gap figures must
+    /// read 0.0 mm; the trailing count says how many of the four actually do, so a build in which the
+    /// loop never ran cannot print the same thing as a build in which it ran and passed.
+    /// </summary>
+    private string DescribeLegs(Bounds top, float planeY, float scale, int headsMeasured,
+                                int floorsMeasured, int gapFree)
+    {
+        var sb = new StringBuilder(512);
+        sb.Append($"{gapFree} of {LegCount} leg(s) read ZERO gap at the head "
+                  + $"(threshold {GapFreeMillimetres:F2} mm); {headsMeasured} of {LegCount} took a "
+                  + "PROBED slab underside and the rest the top-face anchor, and "
+                  + $"{floorsMeasured} of {LegCount} took a PROBED ground and the rest the room's floor "
+                  + $"plane y={planeY:F2}. {LegCount} comparison(s) were made, so a silent skip cannot "
+                  + "look like a pass.");
+        for (int i = 0; i < LegCount; i++)
+        {
+            string cx = (i & 1) == 0 ? "-x" : "+x";
+            string cz = (i & 2) == 0 ? "-z" : "+z";
+            sb.Append($"\n              leg {i} ({cx},{cz}) at ({_legX[i]:F2}, {_legZ[i]:F2}): "
+                      + $"floor y={_legFloorY[i]:F2} "
+                      + $"({(_legFloorMeasured[i] ? "PROBED" : "plane")}"
+                      + $"{(_legFloorMeasured[i] ? $", {(_legFloorY[i] - planeY) / scale * 1000f:+0.0;-0.0;0.0} mm of relief" : "")}"
+                      + $"), foot y={_legFootY[i]:F2}, underside y={_legUndersideY[i]:F2} "
+                      + $"({(_legHeadMeasured[i] ? "PROBED" : "slab AABB floor — a LOWER BOUND, so this row proves the worst case")}"
+                      + $"), head y={_legHeadY[i]:F2} "
+                      + $"({(_legHeadY[i] - _legUndersideY[i]) / scale * 1000f:F1} mm into the wood, "
+                      + $"{(top.max.y - _legHeadY[i]) / scale * 1000f:F1} mm below the top face), "
+                      + $"length {_legHeight[i] / scale:F3} m ({_legHeight[i]:F1} world units), "
+                      + $"GAP {_legGapMm[i]:F1} mm{(_legGapMm[i] <= GapFreeMillimetres ? "" : "  <-- DAYLIGHT")}");
+        }
+        return sb.ToString();
     }
 }
