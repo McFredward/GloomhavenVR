@@ -337,6 +337,65 @@ internal static class FloatRefusalTable
             + "control that is a child of it can never be taken off screen by this row",
             heldBy: StoryComposite.HoldsStoryFloatBack,
             whyHeld: () => StoryComposite.StoryClaimWhy),
+
+        // -------------------------------------------------------------------------------------
+        // ROW 4 — THE PRE-SCENARIO LOADOUT SCREEN, AFTER THE STORY HAS BEEN TOLD. CONDITIONAL, and
+        // this row is the one that has to justify itself hardest, because ModBuild 234's deadlock was
+        // a row on this exact component.
+        //
+        // ModBuild 238 — USER REPORT, verbatim, and it SUPERSEDES the arrangement ModBuild 236
+        // shipped for the phase AFTER the story: "Ich möchte das letzte lokale Storyfenster mit nur
+        // dem Hintergrund doch nicht haben. Nachdem die Story erzählt wurde soll die Character-UI für
+        // die persönlichen Quests spawnen und das Storyfenster verschwinden. Hat man für all seine
+        // zugewiesenen Charactere die Quest ausgewählt soll der Button der jetzt auf dem Fenster mit
+        // nur dem Bild zu sehen ist 'Verlies betreten' am unteren Rand der character-UI zu sehen
+        // sein, wo man ihn betätigen kann. So braucht man nicht die Übersicht über zwei Fenster
+        // behalten."
+        //
+        // WHAT THE WINDOW IS AT THAT MOMENT. UILoadoutQuestWindow.FinishIntroduction LeanTweens
+        // paperFitter.transitionPercent 0 -> 1 (:101-107) once the player has clicked through the
+        // last page, which expands the quest illustration into a full-window backdrop. From then on
+        // the window carries a picture and — later — one button. The picture is the thing the user
+        // has now twice pointed at and rejected (.planning/debug/story_fertig.jpg, and this round's
+        // report), and the button belongs on the Character-UI where the battle goals were chosen.
+        //
+        // ROW 3's DOC SAYS "THE HOST IS NEVER WITHHELD", AND THAT SENTENCE IS ABOUT THE INTRO. It
+        // stays true for the interval it was written about: while the story is being told, ROW 3's
+        // claim stands, this row's does not, and the ModBuild 237 log's count of ZERO
+        // FLOAT WITHDRAWN lines for 'UI Loadout Window' must stay zero for that phase. The two claims
+        // are mutually exclusive by construction — StoryComposite.TerminatedBy is the first clause of
+        // this one and the terminator of that one, read once per tick and passed to both.
+        //
+        // WHY THIS CANNOT BE ModBuild 234 AGAIN, AND THE ANSWER IS NOT CARE, IT IS THE PREDICATE.
+        // That deadlock was: this row withheld the window the single-player continue button is a
+        // CHILD of (UILoadoutManager.confirmationButton, switched on by
+        // SetActiveSinglePlayerLongConfirmButton, UILoadoutManager.cs:88-95) and the claim never
+        // lapsed, because every clause of it was a value the mod itself wrote. The second clause of
+        // THIS claim is LoadoutConfirmPark.ContinueReachableOffTheLoadout: the game's own
+        // CanShowConfirmationButton plus the game's own switch on the control, plus a measurement
+        // that the control is painting inside a live floated panel WHICH IS NOT THIS WINDOW. It is
+        // false the instant the park is not landing, it is a level with no latch anywhere in it, and
+        // the exclusion of the subject is what stops it measuring its own effect
+        // [[a-claim-must-not-measure-itself]]. StoryComposite's deadlock floor is the second,
+        // independent guard on the same fact.
+        new(typeof(UILoadoutManager), FloatRefusalClass.PastThePointOfNoReturn,
+            "the quest intro is OVER and this window has nothing left on it but the backdrop picture "
+            + "the illustration expanded into. The user's ruling for this phase is that it must not "
+            + "be on screen at all — \"Ich möchte das letzte lokale Storyfenster mit nur dem "
+            + "Hintergrund doch nicht haben\" — and the one control that was on it, 'Verlies "
+            + "betreten', is being drawn at the bottom edge of the Character-UI instead, so there is "
+            + "one window to watch and not two",
+            "nothing is done to it. It keeps its ordinary 2D rendering on the canvas the game put it "
+            + "on, which the 3D map room does not draw, and NOTHING is written to it: no Hide, no "
+            + "Escape, no SetActive, no CanvasGroup. THE CONTINUE CONTROL IS DRAWN INSIDE THE FLOATED "
+            + "CHARACTER-UI 'New Party display' by WorldUI/LoadoutConfirmPark — offline the "
+            + "single-player long confirm UILoadoutManager.confirmationButton, online the "
+            + "UIReadyToggle every client presses for itself — parked at that window's own painted "
+            + "bottom edge, above the grab bar, on the host root's own layer. THE REFUSAL IS FALSE "
+            + "WITHIN ONE TICK IF THAT STOPS BEING TRUE, and then this window floats again with its "
+            + "own button on it: ugly, and not a deadlock",
+            heldBy: StoryComposite.HoldsLoadoutBackdropBack,
+            whyHeld: () => StoryComposite.LoadoutBackdropWhy),
     };
 
     /// <summary>
@@ -380,6 +439,46 @@ internal static class FloatRefusalTable
         heldBy: _ => true,   // never reached: the check above returns before the table loop
         whyHeld: () => StoryComposite.CurtainWhy);
 
+    /// <summary>
+    /// ROW 0b — THE QUEST-JOURNEY CURTAIN (ModBuild 238). Like <see cref="CurtainRow"/> it is NOT in
+    /// <see cref="Rules"/> and must never be put there: its subject is ONE window INSTANCE, frozen at
+    /// the moment the game itself committed the party to a quest, and its <c>Component</c> is
+    /// <c>typeof(UIWindow)</c> only because the record demands a type.
+    ///
+    /// <para><b>IT IS THE SAME CLASS AS ROW 0 AND AN EARLIER INSTANT.</b> ROW 0 rises when the game
+    /// hides the rest of its own UI for the quest-start MESSAGE; this one rises at the CONFIRM, which
+    /// the ModBuild 237 hardware log puts hundreds of lines earlier. The user's ruling names that
+    /// earlier instant explicitly — <i>"Die Liste der Quests das Fenster soll schon direkt zum Beginn
+    /// des Point of no returns verschwinden, also in dem moment in dem eine Quest bestätigt wird und
+    /// die Animation 'der Reise' beginnt."</i></para>
+    ///
+    /// <para><b>WHY IT IS A ROW OF ITS OWN RATHER THAN A SECOND RISING EDGE ON ROW 0.</b> ROW 0
+    /// FREEZES the whole float set at its edge, and at the confirm that set contains the Character-UI
+    /// — which re-opens minutes later carrying the battle-goal picker and the ENTER DUNGEON button. A
+    /// frozen reference to a Singleton that comes back as the same instance would refuse it then, and
+    /// that is the ModBuild 234 deadlock rebuilt from parts. This row's subject is exactly one window
+    /// and it is one with no advancing control on it. See <see cref="QuestJourneyCurtain"/> for the
+    /// three game terms it is keyed on and for why every alternative signal is worse.</para>
+    /// </summary>
+    private static readonly FloatRefusalRule JourneyRow = new(
+        typeof(UIWindow), FloatRefusalClass.PastThePointOfNoReturn,
+        "the party has COMMITTED to a quest and the journey has begun, and THE GAME HAS CLOSED THIS "
+        + "WINDOW ITSELF: MapChoreographer.OnMoveClick runs HideTravelOption at :1448, "
+        + "LockOptionsInteraction(locked: true, this) at :1449 and QuestManager.OnPartyMove at :1450, "
+        + "whose whole body is questPopups.HideAll and questLog.HideLogScreen. The only reason the "
+        + "quest list is still in the room is this mod's map-room permanence ruling, and the user's "
+        + "ruling for this instant overrides it: \"Die Liste der Quests das Fenster soll schon direkt "
+        + "zum Beginn des Point of no returns verschwinden\"",
+        "nothing is done to it. It keeps its ordinary 2D rendering on the canvas the game put it on, "
+        + "which the 3D map room does not draw, so it is simply not seen — and it floats again the "
+        + "instant the GAME re-opens it, or the map options are unlocked, or the bridge runs out. "
+        + "THIS IS A NARROW, INTERVAL-ONLY REVERSAL of the map-room permanence ruling: the window is "
+        + "not closed and cannot be closed by the player (ModalFallback.CloseFloatedWindow still "
+        + "refuses it, the escape chord still skips it, it still has no X), only its float is "
+        + "withheld, and at every other moment the permanence ruling governs it in full",
+        heldBy: _ => true,   // never reached: the check in Refuses returns before the table loop
+        whyHeld: () => QuestJourneyCurtain.Why);
+
     /// <summary>Windows whose refusal is in force RIGHT NOW — the edge state behind the one-line-per
     /// -edge logging. Never a policy input: the verdict is always recomputed.</summary>
     private static readonly HashSet<UIWindow> RefusedNow = new();
@@ -413,6 +512,15 @@ internal static class FloatRefusalTable
         if (StoryComposite.CurtainRefuses(window))
         {
             rule = CurtainRow;
+            return true;
+        }
+        // ROW 0b, for ROW 0's reason and one instant earlier. It is asked after ROW 0 only because a
+        // window refused by both must report the wider claim; the two are never in conflict, because
+        // ROW 0b's subject is a single instance and ROW 0's frozen set is taken from the FLOATED
+        // windows, which by then no longer include it.
+        if (QuestJourneyCurtain.Refuses(window))
+        {
+            rule = JourneyRow;
             return true;
         }
         GameObject go = window.gameObject;
@@ -508,8 +616,12 @@ internal static class FloatRefusalTable
                 continue;
             return $"{rule.Class} row for {rule.Component.Name} — \"{rule.WhyHeld()}\"";
         }
-        // No identity row matches, so the refusal that just ended was ROW 0, the story curtain: it is
-        // the only rule in this table keyed on a window INSTANCE rather than on a component type.
+        // No identity row matches, so the refusal that just ended was one of the two INSTANCE rows.
+        // They are told apart by asking the claimant whether this window was ITS subject — the same
+        // ModBuild 235 discipline that put this method here: a diagnostic that names the wrong
+        // claimant sends the next round to the wrong file [[an-instrument-can-assert-a-cause]].
+        if (QuestJourneyCurtain.WasSubject(window))
+            return $"{JourneyRow.Class} ROW 0b, the quest-journey curtain — \"{JourneyRow.WhyHeld!()}\"";
         return $"{CurtainRow.Class} ROW 0, the story curtain — \"{CurtainRow.WhyHeld!()}\"";
     }
 
@@ -574,6 +686,10 @@ internal static class FloatRefusalTable
             return $"the REFUSAL TABLE refuses it as a {FloatRefusalClass.PastThePointOfNoReturn} "
                    + $"(ROW 0, the story curtain): {CurtainRow.Reason}. INSTEAD: {CurtainRow.Instead}. "
                    + $"The curtain's own words: \"{StoryComposite.CurtainWhy}\"";
+        if (QuestJourneyCurtain.Refuses(window))
+            return $"the REFUSAL TABLE refuses it as a {FloatRefusalClass.PastThePointOfNoReturn} "
+                   + $"(ROW 0b, the quest-journey curtain): {JourneyRow.Reason}. INSTEAD: "
+                   + $"{JourneyRow.Instead}. The curtain's own words: \"{QuestJourneyCurtain.Why}\"";
         GameObject go = window.gameObject;
         for (int i = 0; i < Rules.Length; i++)
         {

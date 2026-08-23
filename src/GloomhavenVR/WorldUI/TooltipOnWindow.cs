@@ -145,6 +145,18 @@ namespace GloomhavenVR.WorldUI;
 /// back on release, on stand-down and on teardown — and the moment the game re-parents the box
 /// itself (it does, on every hover: <c>SetParent(target, worldPositionStays: false)</c>) the record
 /// is dropped and re-taken instead of fought over.</description></item>
+/// <item><description>THE NUMBER
+/// (<see cref="KeepRaisedOverlayOnTop(RectTransform, ConvertedPanel)"/>, from
+/// <see cref="Settle"/> and <see cref="TickRaises"/>) — <b>and the raise above is INCOMPLETE without
+/// it</b>. "Last sibling" is a hierarchy fact, and uGUI does not order a canvas that carries
+/// <c>overrideSorting</c> by hierarchy at all: such a canvas is its own entry in the transparent
+/// sort. Two states in this very window therefore beat a perfectly executed raise — the box's own
+/// canvas still carrying the game's absolute <c>sortingOrder = 10</c> against a ladder that starts
+/// at 100, and a CONCEDED sibling canvas pinned into <c>host+1 … host+14</c> while the raised box
+/// draws at <c>host+0</c>. The remedy is one reserved number at the top of the window's own ladder
+/// slot (<c>CanvasConversion.RaisedOverlayOrderOffset</c>), written by the ladder's own single
+/// writer as an order FOLLOWER, exactly like the close X and the grab bar. This class still writes
+/// no sorting value itself, and it does not fight for the flag.</description></item>
 /// <item><description>FLATTEN (<see cref="Flatten"/>, every frame from <see cref="LateTick"/>).
 /// Converted WINDOWS are never flattened: <c>CanvasConversion.Convert</c> takes <c>flatten2D</c> as
 /// an opt-in and <c>ModalFallback</c> does not pass it (only PropInfo / StatPanel / EnemyReveal do),
@@ -502,6 +514,7 @@ internal static class TooltipOnWindow
         + $"homeDead={_raisesDroppedHomeDead} declinedForeign={_raisesDeclinedForeign} "
         + $"bySweep={_raisesReleasedBySweep} showEdgesWithNoWidget={_showEdgesWithNoWidget} "
         + $"flagRepairs={_previewFlagRepairs} leakedCanvasesCleared={_leakedCanvasesCleared} "
+        + $"overlayFlagWrites={_overlayFlagWrites} overlayWidgetsWithNoCanvas={OverlayNoCanvas.Count} "
         + $"flattenRecords={Flattened.Count} | SHOWS judged={_showsJudged} "
         + $"neverDisplayed={_showsNeverDisplayed} offWindow={_showsOffWindow} "
         + $"transparent={_showsTransparent} displayable={_showsDisplayable} "
@@ -649,6 +662,7 @@ internal static class TooltipOnWindow
 
         TickSilentHoverWatch();
         TickShowWatches();
+        TickOverlayVerdict();
         TickLedger();
     }
 
@@ -668,6 +682,7 @@ internal static class TooltipOnWindow
                         + _raisesDroppedHomeDead * 7 + _raisesDeclinedForeign * 5
                         + _raisesReleasedBySweep * 3 + _showEdgesWithNoWidget * 11
                         + _previewFlagRepairs * 19 + _leakedCanvasesCleared * 23
+                        + _overlayFlagWrites * 53 + OverlayNoCanvas.Count * 59
                         + _showsJudged * 29 + _showsNeverDisplayed * 37 + _showsOffWindow * 41
                         + _showsTransparent * 43 + _showsDisplayable * 47;
         if (signature == _ledgerSignature)
@@ -702,7 +717,18 @@ internal static class TooltipOnWindow
             + "because GraphicRaycaster (Script) depends on it' in the 194 log, from the first un-hover "
             + "onward). This counter should rise once per hide; if it STOPS rising while hovering "
             + "continues, the canvases are leaking again by some other route and 'Can't add component "
-            + "'Canvas' to Full' will be back in the log right beside it. flattenRecords: the size of "
+            + "'Canvas' to Full' will be back in the log right beside it. overlayFlagWrites: times the "
+            + "raised-overlay pin had to write overrideSorting back on. This must track HOVERS — at "
+            + "most one or two per hover, because the only writer that clears it is the mod's own "
+            + "adoption sweep and the pin marks the adoption record so that sweep stops. A count "
+            + "climbing at frame rate is the ModBuild-179 write war coming back and the pin must be "
+            + "re-cut, not turned up. overlayWidgetsWithNoCanvas: distinct raised widgets that have "
+            + "no Canvas of their own, so no number could be owned for them; those still draw in "
+            + "hierarchy order and can still lose to an overriding sibling — a non-zero value names "
+            + "the families a future round has to cover another way, and nothing is ADDED to them "
+            + "here on purpose, because adding a Canvas to the ability-card preview is what makes "
+            + "the game's own AddComponent return null and re-creates the ModBuild-194 decay. "
+            + "flattenRecords: the size of "
             + "the flatten undo list — bounded by the live pooled subtree, so it plateaus; a number that "
             + "grows for ever is a prune that stopped working. THE SHOWS BLOCK is the second half and "
             + "it answers a different question: 'judged' counts item-tooltip show requests that were "
@@ -743,6 +769,10 @@ internal static class TooltipOnWindow
         // Then RAISE, and only then clamp — the clamp writes through the widget's own parent
         // basis, so it must be the last of the three and it must see the FINAL parent.
         string raiseNote = RaiseToWindowTop(rect, owner, homeOwner);
+        // Pin the number on the SAME call that took the raise, so the very first frame of a hover is
+        // already ordered correctly. The game creates the preview's Canvas immediately before calling
+        // ChangeFullCardPosition, which is what brought us here, so there is a canvas to pin.
+        KeepRaisedOverlayOnTop(rect, owner);
 
         RectTransform host = owner.HostRect;
         Quaternion hostRot = host.rotation;
@@ -846,6 +876,12 @@ internal static class TooltipOnWindow
         int drawOrder = overriding ? nested!.sortingOrder : hostOrder;
         int painters = CountLaterPainters(rect, owner);
         string clippers = DescribeClippers(rect, owner);
+        // THE TERM THE OLD LINE DID NOT HAVE. Everything else on this line is a hierarchy fact, and
+        // hierarchy is not consulted for a canvas that sorts as its own entry. Measured here, once,
+        // on the same cadence as the rest of the line.
+        OverlayScratch.Clear();
+        int rivals = CanvasConversion.DescribeOverridingCanvases(owner, own, OverlayScratch, 6,
+            out int highestRival);
         return "LOCAL TOOLTIP draw order (measured AFTER the raise, not assumed): the box hangs at "
                + $"sibling {index + 1} of {siblings} under '{(parent != null ? parent.name : "<none>")}'; "
                + $"{raiseNote} It draws at order {drawOrder} "
@@ -853,16 +889,27 @@ internal static class TooltipOnWindow
                    ? $"(its own canvas '{nested!.name}' has overrideSorting TRUE, so that number IS its order)"
                    : $"(inherited from the host — nearest canvas '{(nested != null ? nested.name : "<none>")}' "
                      + "has overrideSorting false, so HIERARCHY order decides)")
-               + $", host canvas order {hostOrder}. {SortingVerdict(nested, owner, overriding, drawOrder, hostOrder)} "
-               + $"STILL PAINTING AFTER IT inside this window's content: {painters} sibling(s) on its "
+               + $", host canvas order {hostOrder}. "
+               + $"{SortingVerdict(nested, owner, overriding, drawOrder, hostOrder, rivals, highestRival)} "
+               + $"OTHER ADOPTED CANVASES IN THIS WINDOW THAT SORT AS THEIR OWN ENTRY (conceded to a "
+               + $"game writer, or kept on top by the adoption) — these are the ones HIERARCHY CANNOT "
+               + $"REACH, and the count below cannot see them: {rivals}"
+               + (rivals == 0 ? "." : $" — {OverlayScratch}; highest {highestRival}.")
+               + $" STILL PAINTING AFTER IT inside this window's content: {painters} sibling(s) on its "
                + $"whole ancestor chain up to the window root. CLIPPERS it is still a descendant of "
                + $"(enabled RectMask2D / stencil Mask between it and the host, named): {clippers}. "
                + AlphaChain(rect, owner) + " "
                + "READ IT LIKE THIS, AND IT ANSWERS THE WHOLE QUESTION WITHOUT GUESSING: 0 later "
-               + "painters + 0 clippers + effective alpha 1.000 + order STRICTLY ABOVE the host order "
+               + "painters + 0 clippers + effective alpha 1.000 + ZERO other overriding canvases at or "
+               + "above this box's order + order STRICTLY ABOVE the host order "
                + "(or hierarchy order with the flag cleared) = the box is genuinely on top of its "
                + "window and anything still invisible is NOT a draw-order, clipping or alpha problem "
-               + "(look at activity or the raise being declined). A NON-ZERO painter count means the "
+               + "(look at activity or the raise being declined). THE OVERRIDING-CANVAS COUNT IS NEW "
+               + "AND IT IS THE ONE TERM THE PREVIOUS VERSION OF THIS LINE COULD NOT PRODUCE: every "
+               + "other number here is a hierarchy fact, and uGUI does not consult hierarchy for a "
+               + "canvas with overrideSorting, so a conceded sibling pinned into the window's "
+               + "host+1..host+14 band painted this box out while the line still read '0 later "
+               + "painters, 0 clippers, SORTING VERDICT: OK'. A NON-ZERO painter count means the "
                + "raise did not reach the top level — the box is still nested inside window content "
                + "and that content paints over it, which is the ModBuild-190 failure verbatim. A "
                + "NON-ZERO clipper count naming a scroll VIEWPORT means the box is still cut to that "
@@ -905,10 +952,33 @@ internal static class TooltipOnWindow
     /// owner instead.</para>
     /// </summary>
     private static string SortingVerdict(Canvas? nested, ConvertedPanel owner, bool overriding,
-        int drawOrder, int hostOrder)
+        int drawOrder, int hostOrder, int rivals, int highestRival)
     {
+        // THE BLIND SPOT, CLOSED. Both of the old exits below reasoned about the box and its HOST and
+        // nothing else, and "the flag is clear so hierarchy decides" was returned as a clean bill of
+        // health for exactly the state in the photograph: a box correctly raised to last sibling,
+        // drawing at its host's own order, with a DIFFERENT canvas in the same window sorting as its
+        // own entry above it. Hierarchy is not consulted for that canvas, so no hierarchy fact on
+        // this line — sibling index, later-painter count, the raise note — could ever have caught it.
+        // This test runs FIRST because it beats both of the others: a rival at or above the box's
+        // number wins whatever the box's relation to its host is.
+        if (rivals > 0 && highestRival >= drawOrder)
+        {
+            return "SORTING VERDICT: **THIS BOX IS PAINTED OVER BY ANOTHER CANVAS IN ITS OWN WINDOW, "
+                   + $"AND THE RAISE CANNOT REACH IT** — the box draws at {drawOrder} and the highest "
+                   + $"overriding canvas in this window draws at {highestRival}, named in the census "
+                   + "clause that follows. An overriding canvas is its own entry in Unity's transparent "
+                   + "sort — sortingLayer, then sortingOrder, then distance — and never consults "
+                   + "hierarchy, so making the box the last sibling of the content root does nothing "
+                   + "to it and EQUAL IS A LOSS as surely as below is. THE REMEDY IS A NUMBER, NOT A "
+                   + "REPARENT: CanvasConversion.RaisedOverlayOrderOffset reserves the top of this "
+                   + "window's own ladder slot for exactly this box; if this line is printed while "
+                   + "that pin is in place, the pin did not take and the RAISE LEDGER's "
+                   + "overlayFlagWrites and overlayWidgetsWithNoCanvas counters say which half failed.";
+        }
+
         if (!overriding)
-            return "SORTING VERDICT: OK — the flag is clear, so hierarchy order decides and the raise above is what places this box.";
+            return "SORTING VERDICT: OK — the flag is clear, so hierarchy order decides, the raise above is what places this box, and no other canvas in this window sorts as its own entry above it.";
 
         bool conceded = false;
         for (int i = 0; i < owner.AdoptedCanvases.Count; i++)
@@ -1056,6 +1126,16 @@ internal static class TooltipOnWindow
     /// walk stops at <c>owner.Target</c> because above that the only siblings are the mod's own
     /// decorations (the close X, the grab bar), which carry their own overriding canvases and are
     /// deliberately above everything.
+    ///
+    /// <para>WHAT THIS NUMBER CANNOT SEE, STATED HERE BECAUSE ITS SILENCE WAS READ AS A PASS FOR A
+    /// WHOLE BUILD. It is a HIERARCHY measurement, and for a box raised to the last child of the
+    /// content root it is 0 BY CONSTRUCTION — there are no later siblings left, so the value carries
+    /// no information about that state at all. uGUI does not order a canvas with
+    /// <c>overrideSorting</c> by hierarchy, so a conceded or kept sibling canvas anywhere in the same
+    /// window paints over the box while this returns 0. That gap is the reason
+    /// <c>CanvasConversion.DescribeOverridingCanvases</c> exists and why its census is printed
+    /// alongside this count on the same line; the two together are the whole picture, neither alone
+    /// is.</para>
     /// </summary>
     private static int CountLaterPainters(RectTransform rect, ConvertedPanel owner)
     {
@@ -1526,6 +1606,202 @@ internal static class TooltipOnWindow
     }
 
     /// <summary>
+    /// THE OTHER HALF OF THE RAISE — AND THE HALF THAT WAS MISSING. <see cref="KeepLastSibling"/>
+    /// answers "am I the last thing drawn in my host's own batch"; it does not and cannot answer
+    /// "does anything in this window draw in a batch of its OWN, above mine". A canvas with
+    /// <c>overrideSorting</c> is sorted as its own entry — sortingLayer, then sortingOrder, then
+    /// distance — and NEVER by hierarchy, so a sibling in that state is completely unaffected by
+    /// where this box sits among its siblings. Two such states put a raised box behind its own
+    /// window, and the photograph cannot tell them apart:
+    ///
+    /// <list type="bullet">
+    /// <item><description>The box's own canvas still carries the game's number. The loadout screen
+    /// gives the ability-card preview a Canvas with <c>overrideSorting = true, sortingOrder = 10</c>
+    /// on every hover and destroys it on every un-hover (AbilityCardUI.cs:1049-1061). 10 is correct
+    /// on the flat game's order-0 canvas and a guaranteed loss here: the converted ladder starts at
+    /// <c>CanvasConversion.PanelOrderBase</c> = 100, so the box draws under EVERY converted window in
+    /// the room, its own included — background plate, rows and all.</description></item>
+    /// <item><description>A DIFFERENT canvas in the same window is conceded and pinned into
+    /// <c>host+1 … host+14</c>, while a raised box with the flag cleared draws at the host's own
+    /// order. Equal is a loss and lower is a loss; hierarchy is not consulted either way.</description></item>
+    /// </list>
+    ///
+    /// <para>ONE REMEDY COVERS BOTH, and it is the standing ruling rather than a new policy: CONCEDE
+    /// THE FLAG, OWN THE NUMBER. The number is <c>CanvasConversion.RaisedOverlayOrderOffset</c> —
+    /// the top of this window's own 16-wide slot, strictly above the whole conceded band and strictly
+    /// below the next window on the ladder, so nothing was taken from any other window. It is written
+    /// by registering the canvas as an ORDER FOLLOWER of its panel, i.e. by the same single writer
+    /// (<c>ApplyPanelOrder</c>) that already moves the close X and the grab bar with their window,
+    /// running LAST in the frame; this class writes no sorting number of its own.</para>
+    ///
+    /// <para>NOT A WRITE WAR. The only per-frame writer of this flag was the mod's own adoption
+    /// sweep, which clears <c>overrideSorting</c> on every nested canvas it did not carve out;
+    /// <c>CanvasConversion.KeepRaisedOverlayOnTop</c> marks the adoption record so that sweep
+    /// RE-ASSERTS the flag instead. The game writes the flag exactly once per hover, at
+    /// <c>AddComponent</c>. The flag is therefore written at most once per hover by this path, which
+    /// is what <c>overlayFlagWrites</c> in the ledger must show: a count that tracks hovers, not
+    /// frames.</para>
+    ///
+    /// <para>NOTHING IS ADDED AND NOTHING LEAKS. A widget with no Canvas of its own is left alone —
+    /// adding one to the ability-card preview would make the game's next <c>AddComponent&lt;Canvas&gt;</c>
+    /// return null and re-create the ModBuild-194 decay verbatim. The canvas the game does add is
+    /// destroyed on the hide edge, which drops the follower entry in <c>ApplyPanelOrder</c>'s own
+    /// null sweep and the adoption record in the next prune.</para>
+    ///
+    /// <para>COST: one <c>GetComponent&lt;Canvas&gt;</c> and two short list scans per RAISED widget
+    /// per frame — the raised set is 0 or 1 in a normal session and is bounded by
+    /// <see cref="Raised"/>. No subtree walk, no scene query.</para>
+    /// </summary>
+    private static void KeepRaisedOverlayOnTop(RectTransform rect, ConvertedPanel owner)
+    {
+        // NOT UNTIL THE PANEL IS ON THE LADDER. RegisterOrderFollower seats the new entry immediately
+        // by re-applying panel.DrawSortingOrder — which is still 0 for a panel that has not had its
+        // first TickPanelOrder, and applying 0 would write the HOST's own canvas down to 0 as well.
+        // A window is ranked on the first frame it is alive, so this only ever skips the gap between
+        // Convert and that frame, in which nothing is drawn in the right order anyway.
+        if (owner.HostCanvas == null || !owner.OrderListed)
+            return;
+        Canvas own = rect.GetComponent<Canvas>();
+        if (own == null)
+        {
+            // No sorting root of its own: its number would be inert, so there is nothing to own.
+            // Counted per WIDGET, not per frame — this is a property of the widget family.
+            OverlayNoCanvas.Add(rect.GetInstanceID());
+            return;
+        }
+        int want = owner.DrawSortingOrder + CanvasConversion.RaisedOverlayOrderOffset;
+        // THE NUMBER: ride the panel's ladder as a follower, like the close X and the grab bar.
+        // Idempotent per canvas; the entry is pruned automatically once the canvas is destroyed.
+        CanvasConversion.RegisterOrderFollower(owner, own, CanvasConversion.RaisedOverlayOrderOffset);
+        // THE FLAG: kept, and the adoption told to stop clearing it.
+        CanvasConversion.KeepRaisedOverlayOnTop(owner, own, want, out bool flagWritten);
+        if (flagWritten)
+            _overlayFlagWrites++;
+    }
+
+    /// <summary>Rect instance IDs of raised widgets that have no Canvas of their own, so this class
+    /// cannot own a number for them (see <see cref="KeepRaisedOverlayOnTop(RectTransform,
+    /// ConvertedPanel)"/>). A SET, so the ledger reports widgets rather than frames.</summary>
+    private static readonly HashSet<int> OverlayNoCanvas = new();
+
+    /// <summary>Times the raised-overlay pin actually had to write <c>overrideSorting</c>. Must track
+    /// HOVERS, not frames: a count climbing at frame rate would mean a second writer is clearing the
+    /// flag again and this is back to being a write war.</summary>
+    private static int _overlayFlagWrites;
+
+    /// <summary>Frames between two FULL CARD PREVIEW ON TOP verdicts. The measurement walks the
+    /// window's adopted-canvas list, so it is sampled rather than run per frame — and skipped again
+    /// whenever the resulting verdict is identical to the last one printed.</summary>
+    private const int OverlayVerdictIntervalFrames = 240;
+
+    private static int _overlayVerdictFrame = int.MinValue;
+    private static int _overlayVerdictSignature = int.MinValue;
+
+    /// <summary>Scratch for the overriding-canvas census; reused, never re-allocated per frame.</summary>
+    private static readonly System.Text.StringBuilder OverlayScratch = new(160);
+
+    /// <summary>
+    /// THE FALSIFIER FOR "THE PREVIEW IS ON TOP", MEASURED OFF THE OBJECTS RATHER THAN OFF THE
+    /// INTENT. Every number in it is read back from the live canvas or the live adoption record after
+    /// the writes have happened, and the verdict is a comparison of NUMBERS between the box and every
+    /// other canvas in the same window that sorts as its own entry — which is precisely what
+    /// <see cref="CountLaterPainters"/> (a hierarchy walk, 0 by construction for a raised box) and the
+    /// old <see cref="SortingVerdict"/> (the box's own canvas against the host, and nothing else)
+    /// could not see. In the photographed state the old pair read "0 later painters, 0 clippers,
+    /// SORTING VERDICT: OK" while the card was painted out.
+    ///
+    /// <para>Sampled on <see cref="OverlayVerdictIntervalFrames"/> and de-duplicated on the verdict's
+    /// own signature, so a held hover writes ONE line and a session of hovering writes one line per
+    /// distinct outcome.</para>
+    /// </summary>
+    private static void TickOverlayVerdict()
+    {
+        if (Raised.Count == 0)
+            return;
+        if (_overlayVerdictFrame != int.MinValue
+            && Time.frameCount - _overlayVerdictFrame < OverlayVerdictIntervalFrames)
+            return;
+        _overlayVerdictFrame = Time.frameCount;
+
+        for (int i = 0; i < Raised.Count; i++)
+        {
+            RaiseRecord rec = Raised[i];
+            if (rec.Rect == null || rec.Owner == null || !rec.Owner.IsAlive)
+                continue;
+            if (!rec.Rect.gameObject.activeInHierarchy)
+                continue;
+            EmitOverlayVerdict(rec.Rect, rec.Owner);
+            return; // one raised overlay at a time is the normal case; one line is the budget
+        }
+    }
+
+    private static void EmitOverlayVerdict(RectTransform rect, ConvertedPanel owner)
+    {
+        Canvas own = rect.GetComponent<Canvas>();
+        int hostOrder = owner.HostCanvas != null ? owner.HostCanvas.sortingOrder : 0;
+        bool overriding = own != null && own.overrideSorting;
+        int boxOrder = overriding ? own!.sortingOrder : hostOrder;
+
+        OverlayScratch.Clear();
+        int rivals = CanvasConversion.DescribeOverridingCanvases(owner, own, OverlayScratch, 6,
+            out int highestRival);
+        string rivalList = rivals == 0
+            ? "none (no other canvas in this window sorts as its own entry)"
+            : OverlayScratch.ToString();
+
+        bool ok = own != null && overriding && (rivals == 0 || boxOrder > highestRival)
+                  && boxOrder > hostOrder;
+        int margin = rivals == 0 ? boxOrder - hostOrder : boxOrder - highestRival;
+
+        int signature = (ok ? 1 : 0) * 1_000_003 + boxOrder * 8191 + hostOrder * 131
+                        + (rivals == 0 ? 0 : highestRival) * 17 + rivals;
+        if (signature == _overlayVerdictSignature)
+            return;
+        _overlayVerdictSignature = signature;
+
+        string failing;
+        if (own == null)
+            failing = "the box has NO CANVAS OF ITS OWN, so it has no number to own and draws in "
+                      + "hierarchy order inside its host's batch — any overriding sibling beats it "
+                      + "whatever its sibling index";
+        else if (!overriding)
+            failing = "the box's own canvas has overrideSorting FALSE, so its sortingOrder is INERT "
+                      + "and hierarchy decides it — the pin did not take, or the adoption cleared "
+                      + "the flag after this class asserted it";
+        else if (boxOrder <= hostOrder)
+            failing = $"the box's order {boxOrder} is not strictly above its host's {hostOrder} — "
+                      + "EQUAL IS A LOSS, and this is the state the game's own sortingOrder = 10 "
+                      + "produces against a ladder that starts at 100";
+        else
+            failing = $"a rival overriding canvas in the SAME window outranks it: highest rival "
+                      + $"order {highestRival} against the box's {boxOrder}";
+
+        VRLog.Info(Scope,
+            $"FULL CARD PREVIEW ON TOP: {(ok ? "CONFIRMED" : "NOT ACHIEVED")} — box '{rect.name}' in "
+            + $"'{(owner.HostGo != null ? owner.HostGo.name : "?")}'. Its OWN canvas: "
+            + (own == null
+                ? "<none>"
+                : $"'{own.name}' overrideSorting={own.overrideSorting} sortingOrder={own.sortingOrder}")
+            + $"; adoption state: {CanvasConversion.AdoptionStateOf(owner, own)}. Effective draw "
+            + $"order {boxOrder} against a host at {hostOrder} and a reserved offset of "
+            + $"+{CanvasConversion.RaisedOverlayOrderOffset}. OTHER canvases in this window that sort "
+            + $"as their own entry, out of {owner.AdoptedCanvases.Count} adopted: {rivals} — {rivalList}. "
+            + "Highest order that is NOT the box: "
+            + (rivals == 0 ? $"{hostOrder} (the host itself)" : highestRival.ToString())
+            + $"; margin {margin}. "
+            + (ok
+                ? "The box outranks every one of them by a positive margin, so nothing in this window "
+                  + "can paint over it and any remaining invisibility is alpha, clipping or activity "
+                  + "— read the EFFECTIVE ALPHA and CLIPPERS terms, not this one."
+                : "THE FAILING TERM IS: " + failing + ".")
+            + " READ IT LIKE THIS, AND NOTE WHAT IT REPLACES: the sibling-index and later-painter "
+            + "counts on the draw-order line are a HIERARCHY measurement and they score 0 by "
+            + "construction for a box raised to last sibling. They cannot see an overriding canvas, "
+            + "because uGUI does not consult hierarchy for one. This line compares NUMBERS, which is "
+            + "the comparison the renderer actually makes.");
+    }
+
+    /// <summary>
     /// Per-frame upkeep of the raised set, and — since ModBuild 195 — THE RELEASE OF LAST RESORT.
     ///
     /// <para>Three jobs. (1) Drop records whose widget or window died, restoring first while it is
@@ -1568,6 +1844,10 @@ internal static class TooltipOnWindow
                 Raised[i] = rec;
             }
             KeepLastSibling(rec.Rect);
+            // …and the half a sibling index cannot express: a number strictly above every canvas in
+            // this window that sorts as its own entry. See the method's own doc for why the raise
+            // alone was never enough.
+            KeepRaisedOverlayOnTop(rec.Rect, rec.Owner);
         }
     }
 

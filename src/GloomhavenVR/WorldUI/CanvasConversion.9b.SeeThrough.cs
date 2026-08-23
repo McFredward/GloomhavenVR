@@ -263,12 +263,12 @@ internal static partial class CanvasConversion
             return;
 
         // Everything measurably FARTHER is the prefix [0..behindCount-1] of the far->near array.
-        int behindCount = FirstRungNearerThan(rungs, n, eyeDistance + OrderSwapMarginMeters, strict: false);
+        int behindCount = FirstRungNearerThan(rungs, n, eyeDistance + OrderSwapMargin, strict: false);
         if (behindCount > 0)
             behindTop = rungs[behindCount - 1].BehindTop;
 
         // Everything measurably NEARER is the suffix [frontFrom..n-1].
-        int frontFrom = FirstRungNearerThan(rungs, n, eyeDistance - OrderSwapMarginMeters, strict: true);
+        int frontFrom = FirstRungNearerThan(rungs, n, eyeDistance - OrderSwapMargin, strict: true);
         if (frontFrom < n)
             frontFloor = rungs[frontFrom].FrontBase;
     }

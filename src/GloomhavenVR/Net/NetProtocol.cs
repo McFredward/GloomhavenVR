@@ -416,7 +416,106 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 237;
+    public const ushort ModBuild = 238;
+    // Build 238: THE GAME HAD ALREADY CLOSED THE QUEST LIST, AND THE ANTI-FLICKER MARGIN WAS 0.1 mm.
+    // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved, record 21 byte-identical.
+    // Bundle untouched (70,218,494 bytes, unchanged since 172). Three lanes, disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 (UNCHANGED — request 1
+    // is a LEVEL READ, not a patch).
+    //
+    //   1. THE QUEST LIST NOW GOES AT THE CONFIRM, AND THE MOD WAS THE ONLY REASON IT DID NOT.
+    //   User: it must disappear at the START of the point of no return, the moment a quest is
+    //   confirmed and the journey animation begins. THE GAME ALREADY DOES THIS: every confirm path
+    //   funnels into MapChoreographer.OnMoveClick, whose :1450 calls QuestManager.OnPartyMove, whose
+    //   whole body is questPopups.HideAll and questLog.HideLogScreen. The window stayed in the room
+    //   because of THIS MOD's own map-room permanence ruling. So the remedy is to stop overriding a
+    //   moment the game already has, not to invent one. The edge is read as a LEVEL from three
+    //   public terms that turn together at :1448-1450 — no travel location selected, the map's option
+    //   interaction locked, and the game's own quest-log window closed — never as a patch on a
+    //   private method that would fire once with no way to notice it was wrong.
+    //   THE ALTERNATIVES ARE ALL WORSE AND ONE OF THEM WOULD HAVE REBUILT THE BUG BEING FIXED:
+    //   MapChoreographer.MovingToLocation only turns on after the rules-DLL round trip returns, i.e.
+    //   SEVERAL FRAMES LATE, which is the half of the complaint being repaired; PartyToken.IsMoving is
+    //   the animation, and the token teleports behind a full-screen fade; GameActionType.SelectQuest
+    //   is multiplayer-only and MoveToNewNode sits inside an IsHost branch, so a client never sees it,
+    //   and driving a host-authoritative path for local presentation is forbidden here; and IsLocked
+    //   alone is a refcount with seven other writers, which is exactly why "no location selected" is
+    //   the separating term.
+    //   IT IS A NEW ROW, NOT AN EARLIER EDGE ON THE 234 CURTAIN, AND THAT DISTINCTION IS THE WHOLE
+    //   SAFETY ARGUMENT. RaiseCurtain FREEZES THE FLOAT SET, and at the confirm that set contains
+    //   'New Party display'. An earlier curtain edge would therefore refuse the Character-UI again
+    //   when it returns carrying the battle-goal picker AND the Enter button — the ModBuild 234
+    //   deadlock rebuilt from parts. The new row's subject is exactly one window, and one with no
+    //   advancing control on it.
+    //
+    //   2. THE HOVER CARD IS NOT BEHIND THE MENU, IT IS PAINTED OVER BY IT — AND IT IS NOT A HOVER
+    //   CARD. My reading was a plane intersection and it was wrong. The card's white glyphs BLEED
+    //   THROUGH the occluder at ~8 % of white: a depth rejection or a clip contributes exactly zero,
+    //   and only alpha compositing leaves 8 %. The blue art staying invisible in the same region is
+    //   arithmetic, not evidence against it (0.08 x 46 is under the photo's noise floor, 0.08 x 255
+    //   is not) — a second independent proof. Row scans at four heights show one straight boundary
+    //   with the card losing over the WHOLE overlap; an intersection would show a second boundary
+    //   with the card winning on one side. Built-in forward uGUI is ZWrite Off in any case.
+    //   The widget is the loadout list's own FullAbilityCard child, switched on by
+    //   AbilityCardUI.ToggleFullCardPreview. It has no UIWindow, is never floated, is never converted,
+    //   and IsMapRoomHoverCard does not match it — so every mechanism I suspected cannot touch it.
+    //   TWO STATES PRODUCE THAT PHOTOGRAPH AND THE BUILD CANNOT TELL THEM APART AFTER THE FACT, SO
+    //   BOTH ARE FIXED BY ONE REMEDY. (a) The game AddComponents a Canvas with overrideSorting and
+    //   sortingOrder = 10. TEN IS ABSOLUTE, and PanelOrderBase is 100 — so a preview still carrying
+    //   the game's own number draws below EVERY converted window in the room, its own host included.
+    //   (b) Where the mod has CONCEDED that flag, conceded canvases are pinned to host+1 and up, and
+    //   a raise-to-top is INERT because an overriding canvas never consults hierarchy. Remedy: the box
+    //   rides its panel's ladder as an ORDER FOLLOWER at a RESERVED offset (host+15, the conceded band
+    //   narrowed to host+1..14 to make room, and nothing sits between it and the next host's band),
+    //   and the flag is conceded rather than fought — the mod's own sweep stops clearing it, so there
+    //   is at most one flag write per hover instead of a per-frame war.
+    //   AND THE INSTRUMENT COULD NOT SEE ANY OF IT. CountLaterPainters is a hierarchy walk, so a
+    //   raised box scores 0 BY CONSTRUCTION; SortingVerdict compared only the box's own canvas against
+    //   the host. In exactly the photographed state it read "0 later painters, 0 clippers, SORTING
+    //   VERDICT: OK". Eight more clean measurements would have agreed with a broken build. The verdict
+    //   now enumerates every overriding canvas in the same window and compares NUMBERS.
+    //
+    //   3. A BOUND NAMED "…Meters" WAS COMPARED AGAINST WORLD DISTANCES, FOR THE SECOND TIME IN THIS
+    //   PROJECT. PanelEyeDistance returns Vector3.Distance between two WORLD points; the map room runs
+    //   at ~198 world units per real metre; OrderSwapMarginMeters = 0.02 was compared straight against
+    //   those numbers. The anti-flicker margin was therefore 0.1 mm of apparent distance — not
+    //   conservative, ABSENT: one real millimetre of head motion moves the measured number by ~0.2
+    //   world units, ten times the gate. Only the six-frame stability streak was holding the ladder
+    //   together, and a SUSTAINED head move — leaning back, looking up at a high window — clears six
+    //   frames trivially, so adjacent panels swapped draw order on HEAD POSITION. It also made
+    //   tiedAndDominant, the rule that puts a modal in front of the HUD panel it is a dialog for,
+    //   essentially unable to fire there. Same class as the laser drawn 0.15 mm wide at 198x.
+    //   ALL SIX comparison sites were converted in one build — the four in parts 9 and 9b as well —
+    //   because two tolerances answering the same question is how this survived.
+    //   THIS IS THE ONLY HEAD-POSITION-DEPENDENT TERM ANYWHERE NEAR THE REPORT, and it ranks PANELS,
+    //   not in-window widgets. Whether it is causal for the photographed defect or merely circumstance
+    //   is decided by one question put to the user: does pulling the menu down to eye level bring the
+    //   card forward?
+    //
+    //   4. THE LOADOUT BACKDROP IS WITHDRAWN AFTER THE STORY AND THE ENTER BUTTON MOVES TO THE
+    //   CHARACTER-UI. This SUPERSEDES what 236 shipped for the phase after the intro, at the user's
+    //   request ("Ich möchte das letzte lokale Storyfenster mit nur dem Hintergrund doch nicht
+    //   haben"). The story phase itself is unchanged. LoadoutConfirmPark's 236 stand-down is removed
+    //   rather than inverted. A LATENT DEFECT SURFACED WITH IT: that parker never wrote a LAYER, and
+    //   it parks into a converted window whose supersample capture camera culls BY LAYER — invisible
+    //   only because 236 had stood it down.
+    //   FIVE INDEPENDENT BOUNDS, NONE OF THEM A LATCH, STAND BETWEEN THIS AND A 234-SHAPED DEADLOCK:
+    //   the withdrawal requires the continue control to be measured reachable in a floated window that
+    //   is NOT the loadout screen; an honesty clause requires at least one other float to exist, which
+    //   closes the case where the game wants no control and the Character-UI is not up and the room
+    //   would have emptied; the deadlock floor's control arm was widened to see this phase at all and
+    //   now stands all three suppressions down together; the cycle caps are derived from the churn
+    //   fuse rather than chosen; and the quest log carries no advancing control.
+    //   THE PARK AND THE 236 GRAB BAR AGREE BY CONSTRUCTION, NOT BY TUNING: the parked control becomes
+    //   a new active direct child of the conversion target, which is part one of the ink signature, so
+    //   the park itself opens a new bar generation — no cadence, no waiting — and the bar's Y is a min
+    //   against the ink, so it is pushed BELOW the button and never through it.
+    //
+    //   5. AND ONE INSTRUMENT RETRACTED. STORY WINDOW SHARED logged NOT ACHIEVED as a WARNING 24 times
+    //   in the 237 log while the player was reading no story at all: its early-return could never fire
+    //   because MapStoryController.window exists for the whole scene life. It has a third verdict now,
+    //   RESTING, at Info.
+    //
     // Build 237: THE SHARED WINDOW FOLLOWS THE STORY INTO ITS NEW HOST.
     // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved, record 21 byte-identical.
     // Bundle untouched (70,218,494 bytes, unchanged since 172). One lane, four files.

@@ -161,8 +161,59 @@ internal static partial class CanvasConversion
     /// micro-motion moves a panel's measured distance by well under a millimetre per frame; 2 cm is
     /// far outside that and far inside any deliberate reposition (a grabbed window travels 5-30 cm
     /// per frame - hardware log, GrabbableModal.LateSyncHost).
+    ///
+    /// <para>THIS IS THE AUTHORED REAL-WORLD VALUE AND IT IS NOT WHAT ANY COMPARISON MAY USE. Every
+    /// distance on this ladder is a WORLD distance, and the two are the same number only outside a
+    /// scenario. Use <see cref="OrderSwapMargin"/>; see <see cref="s_orderSwapMarginWorld"/> for the
+    /// defect that reading this constant directly produced at ~198 world units per metre. The
+    /// paragraph above only becomes TRUE once the conversion is applied — before it, "2 cm is far
+    /// outside head micro-motion" described 0.1 mm.</para>
     /// </summary>
     private const float OrderSwapMarginMeters = 0.02f;
+
+    /// <summary>
+    /// <see cref="OrderSwapMarginMeters"/> CONVERTED INTO THE UNIT EVERY COMPARISON ON THIS LADDER IS
+    /// ACTUALLY MADE IN, refreshed once per pass at the top of <see cref="TickPanelOrder"/>.
+    ///
+    /// <para>THE DEFECT THIS REMOVES. <see cref="PanelEyeDistance"/> returns
+    /// <c>Vector3.Distance</c> between two WORLD points, so every distance on this ladder — and every
+    /// <c>eyeDistance</c> the <see cref="OrderAboveDistance"/> callers hand in, which they compute the
+    /// same way — is in WORLD units. The map room's diorama runs at ~198 world units per real metre
+    /// (<see cref="PanelLayout.WorldScale"/> is the rig's lossy scale), so comparing those numbers
+    /// against a bare 0.02 made the anti-flicker margin 0.02/198 = 0.1 mm of APPARENT distance: not a
+    /// conservative margin, an absent one. The constant's own doc claims "head micro-motion moves a
+    /// panel's measured distance by well under a millimetre per frame; 2 cm is far outside that" —
+    /// at 198x, one real millimetre of head motion moves the number by ~0.2 world units, TEN TIMES
+    /// the ungated value. Only <see cref="OrderSwapStableFrames"/> was still holding the sequence
+    /// together, and a SUSTAINED head move (leaning back, looking up at a window mounted high) clears
+    /// a six-frame streak trivially — so two panels at nearly the same distance could swap draw order
+    /// on head POSITION. Two further consequences, both of them silent: <c>tiedAndDominant</c> at
+    /// insertion (the one rule that still puts a modal in front of the HUD panel it is a dialog for)
+    /// required |dd| ≤ 0.02 WORLD units and could essentially never fire in the map room, and
+    /// <see cref="OrderAboveDistance"/>'s documented "a tie means the surface I must draw over" rule
+    /// was dead for every caller there (WristHud, CardGlow, BoardVisual, the quest surfaces).</para>
+    ///
+    /// <para>Same bug class as the laser drawn 0.15 mm wide at 198x rig scale: a bound named "…Meters"
+    /// compared against a world-unit product. The constant above keeps the authored REAL-WORLD value
+    /// — that is the number a human tunes — and this is the only value any comparison may use.</para>
+    ///
+    /// <para>ALL SIX COMPARISON SITES WERE SWITCHED OVER IN THE SAME BUILD, which matters because two
+    /// tolerances answering the same question is how this defect survived in the first place: the four
+    /// in parts 9 and 9b (<c>CanvasConversion.9.Furniture.cs</c> and
+    /// <c>CanvasConversion.9b.SeeThrough.cs</c>) run INSIDE this pass, at steps 5 and 6 of
+    /// <see cref="TickPanelOrder"/>, so the value below is already fresh for them and nothing else was
+    /// needed. <b>Any NEW comparison against a <see cref="PanelEyeDistance"/> result must use
+    /// <see cref="OrderSwapMargin"/>, never the authored constant.</b></para>
+    /// </summary>
+    private static float s_orderSwapMarginWorld = OrderSwapMarginMeters;
+
+    /// <summary>The live swap margin, in WORLD units — see <see cref="s_orderSwapMarginWorld"/>. Read
+    /// per comparison; re-derived once per <see cref="TickPanelOrder"/> pass, never per panel.</summary>
+    private static float OrderSwapMargin => s_orderSwapMarginWorld;
+
+    /// <summary>The world scale the live margin was derived from, kept for the diagnostic line so the
+    /// number in the log can be checked rather than believed.</summary>
+    private static float s_orderSwapMarginScale = 1f;
 
     /// <summary>Consecutive frames the margin must be exceeded before the swap is applied. The
     /// second, independent flicker gate: a one-frame excursion (a tween overshoot, a single stale
@@ -294,7 +345,9 @@ internal static partial class CanvasConversion
             ConvertedPanel p = OrderedPanels[i];
             if (p == null || !p.IsAlive)
                 continue;
-            if (p.OrderDistance >= eyeDistance - OrderSwapMarginMeters && p.DrawSortingOrder > order)
+            // WORLD units on both sides: p.OrderDistance is PanelEyeDistance's world measure and
+            // every caller computes its eyeDistance the same way. See s_orderSwapMarginWorld.
+            if (p.OrderDistance >= eyeDistance - OrderSwapMargin && p.DrawSortingOrder > order)
                 order = p.DrawSortingOrder;
         }
         return order;
@@ -340,6 +393,13 @@ internal static partial class CanvasConversion
         if (cam == null)
             return;
         Vector3 eye = cam.transform.position;
+
+        // THE MARGIN IS AUTHORED IN REAL METRES AND EVERY DISTANCE BELOW IS A WORLD DISTANCE.
+        // Convert once per pass, before the first comparison — steps (3)…(6) and every
+        // OrderAboveDistance caller in the frame read the same value. See s_orderSwapMarginWorld for
+        // the defect this removes and for the four sites in parts 9/9b that still have to follow.
+        s_orderSwapMarginScale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+        s_orderSwapMarginWorld = OrderSwapMarginMeters * s_orderSwapMarginScale;
 
         s_orderDistanceMeasures = 0;
         s_orderWrites = 0;
@@ -393,9 +453,9 @@ internal static partial class CanvasConversion
                     // is the one thing ModalHostSortingOrder still decides: two panels the player
                     // cannot tell apart in depth put the modal in front of the HUD panel it is a
                     // dialog for.
-                    bool nearerThanOther = panel.OrderDistance < other.OrderDistance - OrderSwapMarginMeters;
+                    bool nearerThanOther = panel.OrderDistance < other.OrderDistance - OrderSwapMargin;
                     bool tiedAndDominant = !nearerThanOther
-                                           && panel.OrderDistance <= other.OrderDistance + OrderSwapMarginMeters
+                                           && panel.OrderDistance <= other.OrderDistance + OrderSwapMargin
                                            && panel.BaseSortingOrder > other.BaseSortingOrder;
                     if (nearerThanOther || tiedAndDominant)
                         continue;
@@ -417,7 +477,7 @@ internal static partial class CanvasConversion
         {
             ConvertedPanel far = OrderedPanels[i];
             ConvertedPanel near = OrderedPanels[i + 1];
-            if (far.OrderDistance >= near.OrderDistance - OrderSwapMarginMeters)
+            if (far.OrderDistance >= near.OrderDistance - OrderSwapMargin)
             {
                 far.OrderSwapStreak = 0;
                 far.OrderSwapPeer = null;
@@ -641,6 +701,55 @@ internal static partial class CanvasConversion
                               (OrderedPanels.Count > listed ? $"; +{OrderedPanels.Count - listed} more." : ".") +
                               " Nearer = higher order = painted later; no panel writes depth, so every " +
                               "transparent pixel shows what is behind it.");
+        LogOrderMargin();
+    }
+
+    /// <summary>
+    /// THE FALSIFIER FOR THE UNIT FIX — the margin in BOTH units, the scale it was derived from, and
+    /// the closest pair of panel distances it is actually being asked to separate. Rides
+    /// <see cref="LogPanelOrder"/>'s throttle, so it appears exactly as often as the ladder line and
+    /// never on its own cadence.
+    ///
+    /// <para>WHAT FALSIFIES WHAT. If <c>world</c> is ~0.02 while <c>scale</c> reads ~198, the
+    /// conversion did not run and the margin is still 0.1 mm of apparent distance — the defect is
+    /// back. If the closest pair's separation is SMALLER than the margin, those two panels are inside
+    /// the hysteresis band and their relative order is being held by the persistent sequence alone,
+    /// which is the intended behaviour and the thing that stops head motion from re-sorting them.</para>
+    /// </summary>
+    private static void LogOrderMargin()
+    {
+        float nearest = -1f, secondNearest = -1f;
+        string nearestName = "<none>", secondName = "<none>";
+        int n = OrderedPanels.Count;
+        if (n >= 1)
+        {
+            ConvertedPanel p = OrderedPanels[n - 1];
+            nearest = p.OrderDistance;
+            nearestName = p.HostGo != null ? p.HostGo.name : "<dead>";
+        }
+        if (n >= 2)
+        {
+            ConvertedPanel p = OrderedPanels[n - 2];
+            secondNearest = p.OrderDistance;
+            secondName = p.HostGo != null ? p.HostGo.name : "<dead>";
+        }
+        float sep = n >= 2 ? Mathf.Abs(nearest - secondNearest) : -1f;
+        VRLog.Info("WorldUI",
+            $"PANEL ORDER MARGIN: {OrderSwapMarginMeters:F3} m authored, {OrderSwapMargin:F4} world "
+            + $"units live, derived from world scale {s_orderSwapMarginScale:F2} world units per real "
+            + $"metre. The two NEAREST panels on the ladder are '{secondName}' at "
+            + $"{secondNearest:F3} and '{nearestName}' at {nearest:F3} "
+            + $"world units from the eye, separated by {sep:F4} world units, i.e. "
+            + $"{(n >= 2 && sep < OrderSwapMargin ? "INSIDE" : "outside")} the margin. "
+            + $"Stability streak required: {OrderSwapStableFrames} frames. READ IT LIKE THIS: the live "
+            + "margin MUST be the authored value times the scale — PanelEyeDistance measures world "
+            + "units and the constant is authored in real metres, and comparing them raw is what made "
+            + "the anti-flicker gate 0.1 mm of apparent distance in a 198x diorama. A live margin that "
+            + "still reads ~0.020 while the scale reads ~198 means the per-pass conversion did not "
+            + "run and every order-swap decision is again carried by the six-frame streak alone, "
+            + "which a sustained head move clears trivially. A separation reported INSIDE the margin "
+            + "is the gate DOING ITS JOB: those two panels keep the order the persistent sequence "
+            + "already gave them, whatever the head does.");
     }
 }
 

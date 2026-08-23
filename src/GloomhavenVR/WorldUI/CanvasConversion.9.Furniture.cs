@@ -288,7 +288,9 @@ internal static partial class CanvasConversion
                         clusterFloor = i; // rigid sub-ladder: band must stay below this slot
                     continue;
                 }
-                if (p.OrderDistance > dist + OrderSwapMarginMeters)
+                // WORLD units on both sides: OrderDistance is PanelEyeDistance's world measure.
+                // See CanvasConversion.8.Order.s_orderSwapMarginWorld.
+                if (p.OrderDistance > dist + OrderSwapMargin)
                     desired++;
             }
             if (desired > clusterFloor)
@@ -428,7 +430,7 @@ internal static partial class CanvasConversion
             if (group.AppliedRank < 0 || !group.Anchor.FurnitureOrderAlive)
                 continue;
             int bandBase = FurnitureBandBase(group.AppliedRank);
-            if (group.Distance >= eyeDistance - OrderSwapMarginMeters)
+            if (group.Distance >= eyeDistance - OrderSwapMargin)
             {
                 int bandTop = bandBase + FurnitureBandWidth - 1;
                 if (bandTop > order)

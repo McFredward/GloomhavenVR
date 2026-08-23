@@ -820,10 +820,14 @@ internal static partial class CanvasConversion
     /// apart and never less. The whole of one window — host at +0, its conceded canvases, its
     /// followers — must therefore stay inside <c>[host, host+15]</c>, or a FARTHER window's innards
     /// climb into a NEARER window's slot, which is the defect part 8 exists to remove. With the lift
-    /// at +1 that leaves offsets 0..14, i.e. fifteen distinct ranks.</para>
+    /// at +1 that left offsets 0..14, i.e. fifteen distinct ranks — and since
+    /// <see cref="RaisedOverlayOrderOffset"/> reserved the TOP of the slot for a raised hover overlay
+    /// it leaves offsets 0..13, fourteen ranks, band <c>host+1 … host+14</c>. That reservation is
+    /// what makes "raised to the window's top" mean something against a canvas that does not consult
+    /// hierarchy; the rank it costs comes out of a set whose largest measured size is 1.</para>
     ///
     /// <para>CAN N EXCEED IT? YES, IN PRINCIPLE. The party window has ~21 adopted canvases, so if the
-    /// game ever conceded all of them the eligible set would be 21 &gt; 15 and the top six would have
+    /// game ever conceded all of them the eligible set would be 21 &gt; 14 and the top eight would have
     /// to share a rank. Measured, the eligible set on that window is 1, and the largest anywhere in
     /// the ModBuild 202 log is 1 (three concessions in the whole session, on three different
     /// windows). The clamp is therefore dead code in the shipped scene and is written to STAY dead
@@ -840,7 +844,192 @@ internal static partial class CanvasConversion
     /// can be re-cut then, in the file that owns them, against a real case instead of a hypothetical
     /// one.</para>
     /// </summary>
-    private const int ConcededOrderMaxOffset = PanelOrderStep - ConcededOrderLift - 1;
+    private const int ConcededOrderMaxOffset = PanelOrderStep - ConcededOrderLift - 2;
+
+    /// <summary>
+    /// THE ONE ORDER IN A WINDOW'S SLOT THAT NOTHING INSIDE THAT WINDOW MAY TAKE — reserved for a
+    /// hover overlay this mod has RAISED to the window's content root
+    /// (<c>TooltipOnWindow.RaiseToWindowTop</c>): the ability-card full preview and the local-tooltip
+    /// families.
+    ///
+    /// <para>WHY A RESERVED NUMBER AND NOT A HIERARCHY WRITE. The raise makes the box the LAST CHILD
+    /// of the content root, which decides the question for every canvas that draws inside the host's
+    /// own batch — and for no other. A canvas with <c>overrideSorting</c> is sorted as its OWN entry
+    /// (sortingLayer → sortingOrder → distance) and NEVER by hierarchy, so a conceded sibling pinned
+    /// anywhere in <c>host+<see cref="ConcededOrderLift"/> … host+{ConcededOrderLift +
+    /// ConcededOrderMaxOffset}</c> paints straight over a box drawing at the host's own order, and the
+    /// raise is inert against it. The same applies with the flag left set: the game gives its preview
+    /// canvas the ABSOLUTE order 10 <c>(AbilityCardUI.cs:1049-1061)</c>, which is below
+    /// <c>PanelOrderBase</c> (100) and therefore below every converted window in the room — correct on
+    /// the flat game's order-0 canvas, a guaranteed loss here. Both states have the same photograph.
+    /// Owning the NUMBER answers both.</para>
+    ///
+    /// <para>WHY <c>PanelOrderStep - 1</c> AND WHAT NOW SITS BETWEEN IT AND THE NEXT WINDOW. It is the
+    /// TOP of this window's own slot: <c>CanvasConversion.8.Order.PanelOrderStep</c> is 16, so the
+    /// next panel on the ladder starts at <c>host+16</c> and NOTHING at all sits between the two. No
+    /// order was stolen from another window. Inside this window it is strictly above the whole
+    /// conceded band, which is why <see cref="ConcededOrderMaxOffset"/> above was narrowed by one
+    /// (the band is now host+1..host+14, fifteen ranks down to fourteen) — the clamp it feeds has
+    /// never been reached on hardware, the largest conceded set ever measured being 1, so the cost of
+    /// the reservation is a rank in a set that has never had two members.</para>
+    ///
+    /// <para>WHAT IT OUTRANKS, STATED RATHER THAN DISCOVERED. Every follower of this window:
+    /// <see cref="ModalCloseButton.XOrderOffset"/> at +2, the grab bar at +4, and the game's hover
+    /// tooltip laid on a menu plane at <c>WorldTooltips.MenuPanelSortingLift</c> (+10). A raised hover
+    /// overlay draws over its window's close X and grab bar while it is up. That is the intended
+    /// trade — the overlay is transient, it exists for as long as a pointer rests on a row, and the
+    /// alternative is the reported defect — but it IS a change, so it is written here rather than
+    /// left to be found in a screenshot.</para>
+    /// </summary>
+    internal const int RaisedOverlayOrderOffset = PanelOrderStep - 1;
+
+    /// <summary>
+    /// KEEP ONE RAISED OVERLAY'S OWN CANVAS SORTING AS ITS OWN ENTRY, at a number this mod owns —
+    /// the FLAG half of the reservation above. Idempotent, change-gated, and deliberately NOT a
+    /// second writer of the sortingOrder: that number is written by
+    /// <c>ApplyPanelOrder</c> through <c>RegisterOrderFollower</c>, which runs last in the frame.
+    ///
+    /// <para>NO WRITE WAR, BY CONSTRUCTION AND NOT BY HOPE. The game sets
+    /// <c>overrideSorting = true</c> exactly ONCE per hover, at <c>AddComponent</c>
+    /// (AbilityCardUI.cs:1049-1061); the writer that keeps clearing it is this mod's own
+    /// <c>AdoptCanvas</c>. Marking the adoption record <see cref="NestedCanvasRecord.KeepOverrideSorting"/>
+    /// makes that sweep RE-ASSERT the flag instead of clearing it, and re-assert
+    /// <see cref="NestedCanvasRecord.OverlaySortingOrder"/> — which is kept equal to the follower's
+    /// number here, so the two agree and neither writes. The flag is therefore flipped at most once
+    /// per hover, on the frame after the adoption first sees the canvas, and never again.</para>
+    ///
+    /// <para>NOTHING LEAKS WHEN THE PREVIEW DIES. The game destroys this Canvas on the hide edge
+    /// (and <c>TooltipOnWindow.CompleteCanvasTeardown</c> finishes the job when Unity refuses), which
+    /// drops the adoption record on the next prune and the order follower inside
+    /// <c>ApplyPanelOrder</c>'s own null sweep. There is no state on the panel that outlives the
+    /// canvas.</para>
+    ///
+    /// <para>Returns TRUE when the canvas is a known adopted record of this panel, i.e. when the
+    /// mark could be placed — FALSE on the first frame of a hover, before the adoption sweep has
+    /// seen the freshly added Canvas. The caller writes the flag either way; the mark only decides
+    /// whether the adoption will argue about it afterwards.</para>
+    /// </summary>
+    internal static bool KeepRaisedOverlayOnTop(ConvertedPanel panel, Canvas canvas, int wantOrder,
+        out bool flagWritten)
+    {
+        flagWritten = false;
+        if (panel == null || canvas == null)
+            return false;
+
+        // The FLAG. One write per hover: the adoption cleared it when it first adopted the canvas.
+        if (!canvas.overrideSorting)
+        {
+            canvas.overrideSorting = true;
+            flagWritten = true;
+        }
+
+        bool marked = false;
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            if (!ReferenceEquals(rec.Canvas, canvas))
+                continue;
+            marked = true;
+            bool dirty = false;
+            if (!rec.KeepOverrideSorting)
+            {
+                rec.KeepOverrideSorting = true;
+                dirty = true;
+            }
+            if (rec.OverlaySortingOrder != wantOrder)
+            {
+                rec.OverlaySortingOrder = wantOrder;
+                dirty = true;
+            }
+            // A canvas the mod pins on top must never also be ranked inside the conceded band; the
+            // rebase excludes KeepOverrideSorting-without-concession by design, and the reset here
+            // keeps the cached offsets dense if this record had ever been ranked.
+            if (rec.RebaseOffset != 0)
+            {
+                rec.RebaseOffset = 0;
+                dirty = true;
+                panel.AdoptedOrderRebaseDirty = true;
+            }
+            if (dirty)
+                panel.AdoptedCanvases[i] = rec;
+            break;
+        }
+        return marked;
+    }
+
+    /// <summary>
+    /// THE TERM THE OLD DRAW-ORDER VERDICT COULD NOT SEE. Every canvas of <paramref name="panel"/>
+    /// that is sorted as its OWN entry right now — conceded to a game writer, or kept on top by the
+    /// adoption — with its live <c>sortingOrder</c>, EXCLUDING <paramref name="except"/>.
+    ///
+    /// <para>WHY IT HAD TO BE ADDED. <c>TooltipOnWindow.CountLaterPainters</c> is a pure hierarchy
+    /// walk, so a box raised to last sibling scores 0 by construction, and
+    /// <c>TooltipOnWindow.SortingVerdict</c> only ever compared the box's OWN nearest canvas against
+    /// the host. Neither can see a DIFFERENT overriding canvas in the same window, which is exactly
+    /// what outranks a raised box: hierarchy is not consulted for such a canvas at all. In the
+    /// photographed state the evidence line therefore read "0 later painters, 0 clippers, SORTING
+    /// VERDICT: OK" while the card was painted out — eight more clean measurements would have agreed
+    /// with a broken build.</para>
+    ///
+    /// <para>Cost: one pass over a list the panel already holds — measured at 1 conceded entry and
+    /// ~21 adopted entries on the party window — with no Unity call beyond the null test and the
+    /// order read. No allocation: the names are appended into the caller's builder.</para>
+    /// </summary>
+    /// <param name="highest">Highest live sortingOrder among the reported canvases, or
+    /// <see cref="int.MinValue"/> when there are none.</param>
+    /// <returns>How many overriding canvases were found.</returns>
+    internal static int DescribeOverridingCanvases(ConvertedPanel panel, Canvas? except,
+        System.Text.StringBuilder into, int maxNamed, out int highest)
+    {
+        highest = int.MinValue;
+        int found = 0;
+        if (panel == null)
+            return 0;
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            Canvas c = rec.Canvas;
+            if (c == null || ReferenceEquals(c, except) || !c.overrideSorting)
+                continue;
+            found++;
+            if (c.sortingOrder > highest)
+                highest = c.sortingOrder;
+            if (found > maxNamed)
+                continue;
+            into.Append(found > 1 ? ", " : string.Empty)
+                .Append('\'').Append(c.name).Append("' at ").Append(c.sortingOrder)
+                .Append(rec.ConcededOverrideSorting ? " CONCEDED" : " kept");
+        }
+        if (found > maxNamed)
+            into.Append(", +").Append(found - maxNamed).Append(" more");
+        return found;
+    }
+
+    /// <summary>
+    /// WHO OWNS THIS CANVAS'S SORTING, in one clause, read off the adoption record rather than
+    /// inferred. The three answers are genuinely different states and the remedy for each is
+    /// different, so the verdict line must not blur them.
+    /// </summary>
+    internal static string AdoptionStateOf(ConvertedPanel panel, Canvas? canvas)
+    {
+        if (panel == null || canvas == null)
+            return "no canvas";
+        for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
+        {
+            NestedCanvasRecord rec = panel.AdoptedCanvases[i];
+            if (!ReferenceEquals(rec.Canvas, canvas))
+                continue;
+            if (rec.ConcededOverrideSorting)
+                return "adopted, CONCEDED to a game writer — the mod owns the number, the game owns the flag";
+            if (rec.KeepOverrideSorting)
+                return $"adopted, KEPT ON TOP by the mod — the mod owns both the flag and the number, "
+                       + $"and the adoption re-asserts {rec.OverlaySortingOrder}";
+            return "adopted, flag CLEARED by the adoption — this canvas's sortingOrder is INERT and "
+                   + "hierarchy order decides it";
+        }
+        return "not adopted yet — the adoption sweep has not seen this canvas; it still carries "
+               + "whatever the game gave it";
+    }
 
     /// <summary>
     /// Re-derive the cached <see cref="NestedCanvasRecord.RebaseOffset"/> of every rebase-eligible
@@ -960,10 +1149,11 @@ internal static partial class CanvasConversion
                 $"ADOPTED ORDER BAND OVERFLOW '{panel.HostGo.name}': {eligible} conceded nested "
                 + $"canvas(es) need {eligible} distinct order(s) above the host, but the band is only "
                 + $"{ConcededOrderMaxOffset + 1} wide (CanvasConversion.8.Order.PanelOrderStep is "
-                + $"{PanelOrderStep} and the lift is {ConcededOrderLift}, so orders host+"
-                + $"{ConcededOrderLift}..host+{ConcededOrderLift + ConcededOrderMaxOffset} are all "
-                + $"this window may use before it reaches the NEXT window's slot at host+"
-                + $"{PanelOrderStep}). {clamped} canvas(es) were CLAMPED to the top of the band and "
+                + $"{PanelOrderStep}, the lift is {ConcededOrderLift} and host+"
+                + $"{RaisedOverlayOrderOffset} is reserved for a raised hover overlay, so orders "
+                + $"host+{ConcededOrderLift}..host+{ConcededOrderLift + ConcededOrderMaxOffset} are "
+                + $"all this window may use before it reaches that reservation and then the NEXT "
+                + $"window's slot at host+{PanelOrderStep}). {clamped} canvas(es) were CLAMPED to the top of the band and "
                 + "therefore still tie with each other. This is the one case the sibling rebase "
                 + "cannot fully express; it has never been reached on hardware (the largest conceded "
                 + "set ever measured is 1). Printed ONCE per window.");
@@ -1276,7 +1466,8 @@ internal static partial class CanvasConversion
             + $"sortingOrder. Those conceded canvases had {distinct} DISTINCT authored "
             + $"sortingOrder(s) spanning {authored}; the mod writes them at {written} against a host "
             + $"at {hostOrder} (band host+{ConcededOrderLift}..host+"
-            + $"{ConcededOrderLift + ConcededOrderMaxOffset}, next window's slot at host+"
+            + $"{ConcededOrderLift + ConcededOrderMaxOffset}, raised-overlay reservation at host+"
+            + $"{RaisedOverlayOrderOffset}, next window's slot at host+"
             + $"{PanelOrderStep}). {panel.RebaseLifted} of them sit at a NON-ZERO sibling offset, "
             + $"i.e. {panel.RebaseLifted} canvas(es) are drawn in a different order relative to their "
             + "siblings than ModBuild 202 drew them (202 pinned every conceded canvas of a window to "

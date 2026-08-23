@@ -1060,8 +1060,20 @@ internal static class RemoteMapStory
     /// same predicate one tick later and reported by its own line, <c>SHARED WINDOW BAR</c>, so the
     /// two together are the proof and neither pretends to be it alone.</para>
     ///
+    /// <para><b>ModBuild 238 — THERE ARE THREE VERDICTS NOW AND THE THIRD IS WHY.</b> Through
+    /// ModBuild 237 this line had two, and the negative one fired as a WARNING 24 times in one
+    /// hardware session while the player was not reading a story at all: every one of those lines
+    /// says "no composite is standing, so MapStoryController.window carries its own kind", which is
+    /// the resting state of the campaign map and not a fault. A line whose own subject — "the window
+    /// the player is reading the story in" — does not exist cannot be judging anything, and this
+    /// project has already had to retract wrong instrument text twice. So the resting state says so,
+    /// at Info, in its own words; CONFIRMED and NOT ACHIEVED are reserved for the ticks on which
+    /// there IS a story to share.</para>
+    ///
     /// <para>GREP: <c>STORY WINDOW SHARED: CONFIRMED</c> — the request is met.
-    /// <c>STORY WINDOW SHARED: NOT ACHIEVED</c> — it is not, with the failing clause named.</para>
+    /// <c>STORY WINDOW SHARED: NOT ACHIEVED</c> — it is not, with the failing clause named.
+    /// <c>STORY WINDOW SHARED: RESTING</c> — there is no story on screen here, so neither of the
+    /// other two is being claimed. It must NEVER be a Warning.</para>
     /// </summary>
     private static void ReportSharedStory(UICharacterStoryBox? box)
     {
@@ -1089,8 +1101,29 @@ internal static class RemoteMapStory
         bool applying = _storyAppliedFrame != int.MinValue
                         && now - _storyAppliedFrame <= SharedRecentFrames;
 
-        bool ok = window != null && haveGrab && floated && blue;
-        string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";
+        // =========================================================================================
+        // ModBuild 238 — THE SUBJECT OF THE SENTENCE HAS TO EXIST BEFORE THE SENTENCE CAN BE FALSE.
+        // =========================================================================================
+        //
+        // This line's own subject is "the window the player is reading the story in". In the ModBuild
+        // 237 hardware log it fired as a WARNING 24 times — :1962, :2931, :3018, :3107, :3133, :3250,
+        // :3338, :3703, :3810, :4200, :4838, :5635, :5800, :5911, :6024, :6129, :6237 and on — and
+        // every one of them says "no composite is standing, so MapStoryController.window carries its
+        // own kind", i.e. THE PLAYER IS NOT READING ANY STORY AT ALL. The early re-arm above only
+        // catches the case where there is neither a window nor a box, and on the campaign map there
+        // is ALWAYS a window: MapStoryController is a Singleton whose serialized `window` field
+        // exists for the whole life of the scene whether it is open or not. So the guard never fired
+        // and the instrument judged a claim with no subject, at Warning level, for the rest of the
+        // session.
+        //
+        // THIS PROJECT HAS HAD TO RETRACT WRONG INSTRUMENT TEXT TWICE ([[verify-the-instrument-first]],
+        // [[an-instrument-can-assert-a-cause]]) AND A THIRD MUST NOT STAND. The fix is not to silence
+        // the line — an absence is exactly what nobody can diagnose — but to say plainly which of the
+        // three states it is in. RESTING is not a verdict about sharing; it is the statement that
+        // there is nothing to share yet, and it goes out at Info.
+        bool storyOnScreen = box != null || floated;
+        bool ok = storyOnScreen && window != null && haveGrab && floated && blue;
+        string verdict = !storyOnScreen ? "RESTING" : ok ? "CONFIRMED" : "NOT ACHIEVED";
         string key = verdict + "|" + (window != null ? window.name : "<none>") + "|" + haveGrab
                      + floated + blue + publishing + applying;
 
@@ -1136,6 +1169,22 @@ internal static class RemoteMapStory
             + $"; the story box itself is {(box != null ? "on screen" : "not on screen")} and its PAGE "
             + "sync is independent of every clause above";
 
+        if (!storyOnScreen)
+        {
+            VRLog.Info(Scope, "STORY WINDOW SHARED: RESTING — there is no story on screen on this "
+                              + "client, so there is nothing for the window half to be about. THIS IS "
+                              + "THE ORDINARY STATE OF THE CAMPAIGN MAP AND IT IS NOT A FAULT: "
+                              + "MapStoryController is a Singleton whose serialized window exists for "
+                              + "the whole life of the scene whether it is open or not, so a window "
+                              + "resolving for the kind means only that the object is there. The "
+                              + "clauses below are printed for continuity, not as a verdict — a "
+                              + "verdict needs a subject, and the subject of this line is \"the window "
+                              + "the player is reading the story in\". MEASURED THIS TICK: " + measured
+                              + ". WHAT TO EXPECT NEXT: the moment a map story box opens or the mod "
+                              + "floats the story window, this line becomes CONFIRMED or NOT ACHIEVED "
+                              + "and those are the two that mean something.");
+            return;
+        }
         if (ok)
         {
             VRLog.Info(Scope, "STORY WINDOW SHARED: CONFIRMED — the window the story is being told in "

@@ -123,6 +123,16 @@ internal static class LoadoutConfirmPark
     private static bool _standDownWarned;
     private static bool _parkLogged;
 
+    // ---- the layer record (ModBuild 238) ---------------------------------------------------------
+
+    /// <summary>Every transform of the moved control whose layer this class overwrote, and the value
+    /// the GAME had there. <c>StoryComposite.LayerTx</c>/<c>LayerWas</c>, for its reason and with its
+    /// restore guard.</summary>
+    private static readonly List<Transform> LayerTx = new(16);
+    private static readonly List<int> LayerWas = new(16);
+    private static int _layerWritten = -1;
+    private static int _layerSkipped;
+
     // ---- the measured zero ---------------------------------------------------------------------
 
     private static bool _anchorValid;
@@ -152,6 +162,16 @@ internal static class LoadoutConfirmPark
     private const int MaxReachReports = 6;
 
     private static UIWindow? _reachHost;
+
+    // ---- the ModBuild 238 falsifier's change gate -------------------------------------------------
+
+    private static string _enterVerdict = string.Empty;
+    private static int _enterReports;
+    private static float _enterNextAt;
+
+    /// <summary><see cref="MaxReachReports"/>'s number and argument, kept separate so the two lines
+    /// cannot silence each other.</summary>
+    private const int MaxEnterReports = 6;
 
     // ---- the public reads ----------------------------------------------------------------------
 
@@ -194,6 +214,58 @@ internal static class LoadoutConfirmPark
             return false;
         }
     }
+
+    /// <summary>
+    /// CAN THE PLAYER REACH THE CONTINUE CONTROL SOMEWHERE THAT IS NOT THE LOADOUT SCREEN? The
+    /// question — and the ONLY question — <c>StoryComposite</c> may ask before it withholds the
+    /// loadout window's float.
+    ///
+    /// <para><b>THE EXCLUSION IS THE WHOLE POINT AND IT IS NOT A DETAIL.</b>
+    /// <see cref="ConfirmReachable"/> answers TRUE when the control is drawing inside ANY floated
+    /// window, and the loadout screen is one of them. A suppressor that gated itself on that would
+    /// oscillate once per tick — withhold, control unreachable, release, control reachable, withhold —
+    /// which is a claim measuring its own effect [[a-claim-must-not-measure-itself]]. So this asks the
+    /// question with the subject removed: is the control drawing inside a live floated panel that is
+    /// NOT this window?</para>
+    ///
+    /// <para>TRUE when the game is not asking for a control at all, because then there is nothing to
+    /// be unreachable — the battle-goal phase is exactly that state, and it is the phase in which the
+    /// user wants the background window gone. FALSE is therefore precisely "withholding this window
+    /// would strand the player", and nothing weaker. Never throws; the fail direction is FALSE, i.e.
+    /// the window keeps its float.</para>
+    /// </summary>
+    internal static bool ContinueReachableOffTheLoadout(UIWindow? loadout)
+    {
+        try
+        {
+            UILoadoutManager? lm = Manager();
+            if (lm == null || !GameWantsConfirmShown())
+                return true;
+            GameObject? control = ResolveControl(lm, out _);
+            if (control == null || !control.activeInHierarchy)
+                return false;
+            UIWindow? drawnIn = FloatedAncestorWindow(control.transform);
+            if (drawnIn == null || (loadout != null && ReferenceEquals(drawnIn, loadout)))
+                return false;
+            ConvertedPanel? panel = ModalFallback.PanelFor(drawnIn);
+            if (panel == null || control.transform is not RectTransform rect
+                || drawnIn.transform is not RectTransform win)
+                return false;
+            TryPaintedBounds(rect, win, panel, exclude: null, out _, out int drawn);
+            return drawn > 0;
+        }
+        catch (System.Exception)
+        {
+            // A suppression must never be granted by a measurement that failed.
+            return false;
+        }
+    }
+
+    /// <summary>The map room's Character-UI window, or null. Exposed for
+    /// <c>StoryComposite.ComposedHost</c>, which has to be able to name the ONE window the player is
+    /// meant to be watching once the backdrop has been withdrawn — a falsifier that kept naming the
+    /// withdrawn window would report NOT ACHIEVED for the state this round exists to produce.</summary>
+    internal static UIWindow? CharacterUI => CharacterWindow();
 
     /// <summary>Where the confirm is being drawn right now, for another subsystem's log line. Never
     /// null.</summary>
@@ -264,40 +336,38 @@ internal static class LoadoutConfirmPark
 
         GameObject? control = ResolveControl(lm, out bool readyToggle);
 
-        // ModBuild 236 — IF THE CONTROL IS ALREADY DRAWN IN A WINDOW THE PLAYER CAN SEE, THIS CLASS
-        // DOES NOTHING AT ALL.
+        // ==========================================================================================
+        // ModBuild 238 — THE ModBuild 236 STAND-DOWN IS GONE, AND THE USER'S OWN WORDS ARE WHY.
+        // ==========================================================================================
         //
-        // WHY THE CONDITION IS "the loadout screen is floated" AND NOT "the control is inside a
-        // floated window". The second question is the one ConfirmReachable asks, and asking it HERE
-        // would flap: once this class has parked the control into the Character-UI, the control IS
-        // inside a floated window — its own park — so the answer would flip every time it acted on
-        // it. The loadout window's float is a fact about a window this class never touches, so the
-        // level is stable whichever way it goes.
+        // 236 short-circuited here with "the loadout screen is floating with the confirm button on
+        // it, so there is nothing for this class to fix", because the round before that the user had
+        // asked for the button to stay on the window the story was told in. He has since changed his
+        // mind about the phase AFTER the story, verbatim (2026-08-23):
         //
-        // AND IT IS THE OFFLINE CONTROL ONLY, BY CONSTRUCTION. UILoadoutManager.confirmationButton is
-        // a CHILD of the loadout window (:88-95), so a floated loadout screen draws it. The ONLINE
-        // control is UIReadyToggle — a Singleton that is its OWN window root under 'Campaign Canvas'
-        // and is refused by ROW 2 of the refusal table as a bare control, so it is never inside the
-        // loadout screen and the park below is still the only thing that draws it. The user's own
-        // ruling for that case has not changed: pressing it is a LOCAL act, so it belongs on the
-        // LOCAL Character-UI.
+        //   "Ich möchte das letzte lokale Storyfenster mit nur dem Hintergrund doch nicht haben.
+        //    Nachdem die Story erzählt wurde soll die Character-UI für die persönlichen Quests
+        //    spawnen und das Storyfenster verschwinden. Hat man für all seine zugewiesenen Charactere
+        //    die Quest ausgewählt soll der Button der jetzt auf dem Fenster mit nur dem Bild zu sehen
+        //    ist 'Verlies betreten' am unteren Rand der character-UI zu sehen sein, wo man ihn
+        //    betätigen kann. So braucht man nicht die Übersicht über zwei Fenster behalten."
         //
-        // THIS IS THE OTHER HALF OF ModBuild 236's INVERSION. StoryComposite no longer withholds the
-        // loadout screen's float — it withholds the STORY window's — so through the whole
-        // pre-scenario interval the loadout screen is on screen with its own confirm button on it,
-        // and that is exactly the window the user asked for the button to appear on: "Es soll immer
-        // noch das exakt gleiche Fenster sein." Moving it to the Character-UI would now be this mod
-        // taking the button OFF the window he named.
-        if (!readyToggle && loadout != null && FloatedByMod(loadout))
-        {
-            Unpark("the loadout screen is floating with the confirm button on it, so there is "
-                   + "nothing for this class to fix");
-            // TickClaim drops the claim itself on this path (the offline confirm is a plain Button,
-            // not a UIWindow, so the float gate never sees it and there is nothing to claim).
-            TickClaim(control, readyToggle, parked: false);
-            ReportReach(lm, loadout);
-            return;
-        }
+        // So the condition does not merely invert, it DISAPPEARS: there is no state left in which the
+        // right answer is "leave the confirm on the loadout screen". The park is now unconditional on
+        // the one term that has always gated it and that is not a value this class writes — IS THE
+        // CHARACTER-UI A LIVE FLOATED PANEL — and that term is checked a few lines below.
+        //
+        // WHY THAT IS THE STABLE LEVEL AND "the loadout screen is being withheld" IS NOT. The
+        // withholding is StoryComposite's, and StoryComposite gates it on THIS class having parked
+        // the control (see StoryComposite.TickLoadoutBackdrop). Asking about it here would be a claim
+        // measuring itself [[a-claim-must-not-measure-itself]] and would flap once per tick. The
+        // Character-UI's float is a fact about a window this class never touches.
+        //
+        // NOTHING ABOUT THE STORY PHASE CHANGES. During the intro the game has not switched the
+        // confirm on and the Character-UI is not floated (the ModBuild 237 log releases it at :2847,
+        // because MapChoreographer.OnMoveClick hides it at :1455, and re-floats it at :3391 AFTER
+        // FinishIntroduction), so this class stands down on its own for the whole story without
+        // needing a rule that says so.
 
         UIWindow? host = CharacterWindow();
         bool hostFloated = host != null && FloatedByMod(host);
@@ -347,6 +417,14 @@ internal static class LoadoutConfirmPark
             ReportReach(lm, loadout);
             return;
         }
+
+        // THE LAYER, EVERY TICK, AND ONLY WHEN IT HAS DRIFTED. See WriteLayers for the second writer
+        // this repairs after; the write is change-gated on the HOST ROOT'S OWN live layer, which is
+        // exactly the value CanvasConversion.ApplyModLayer and PanelSupersample.ApplyCaptureLayer
+        // want the subtree to have, so this cannot start a write war [[dont-win-a-write-war]].
+        int hostLayer = host.gameObject.layer;
+        if (LayerDrifted(control, hostLayer))
+            WriteLayers(hostLayer, control.transform);
 
         ApplyPose(host, control);
         TickClaim(control, readyToggle, parked: true);
@@ -498,9 +576,82 @@ internal static class LoadoutConfirmPark
         rect.pivot = new Vector2(0.5f, 1f);   // its TOP edge is what we place
         rect.localRotation = Quaternion.identity;
         rect.localScale = Vector3.one;
+        WriteLayers(host.gameObject.layer, rect);
         ApplyPose(host, control);
         return true;
     }
+
+    /// <summary>
+    /// WRITE THE HOST ROOT'S OWN LAYER OVER THE MOVED CONTROL, recording what the game had there so
+    /// the hand-back can put it back. <c>StoryComposite.WriteLayers</c>, and it is NOT optional here
+    /// either.
+    ///
+    /// <para><b>WHY ModBuild 238 HAD TO ADD IT.</b> Per-window capture cameras cull BY LAYER
+    /// ([[one-shared-layer-leaks]]) and the Character-UI is ALREADY CONVERTED when the confirm
+    /// arrives: 'New Party display' is floated, relayered onto the mod layer and given its own
+    /// supersample capture camera long before the game switches the button on.
+    /// <c>CanvasConversion.ApplyModLayer</c> and <c>PanelSupersample.ApplyCaptureLayer</c> both
+    /// re-sweep for late children, but on their OWN cadence, so a subtree that arrives between two
+    /// sweeps is drawn by the wrong camera or by two — the exact failure this project has shipped
+    /// before, where every state test still reads "parked, active, claimed" and the player sees
+    /// nothing ([[measure-the-picture-not-the-state]]). Through ModBuild 237 this class never wrote a
+    /// layer at all; the defect was latent only because ModBuild 236 had stood the park down.</para>
+    ///
+    /// <para>A FOREIGN RENDER SUBTREE IS SKIPPED WHOLE — <c>CanvasConversion.ApplyModLayer</c>'s own
+    /// rule for its own reason: a real <c>Renderer</c> under a uGUI tree is 3D owned by another camera
+    /// and descending into it would take its children with it. <c>CanvasRenderer</c> is not a
+    /// <c>Renderer</c>, so ordinary uGUI is unaffected.</para>
+    /// </summary>
+    private static void WriteLayers(int layer, Transform root)
+    {
+        RestoreLayers();
+        _layerWritten = layer;
+        _layerSkipped = 0;
+        WriteLayerWalk(root, layer);
+    }
+
+    private static void WriteLayerWalk(Transform t, int layer)
+    {
+        if (t.GetComponent<Renderer>() != null)
+        {
+            _layerSkipped++;
+            return;   // and NOT its children either — that is the whole point
+        }
+        if (t.gameObject.layer != layer)
+        {
+            LayerTx.Add(t);
+            LayerWas.Add(t.gameObject.layer);
+            t.gameObject.layer = layer;
+        }
+        for (int i = t.childCount - 1; i >= 0; i--)
+            WriteLayerWalk(t.GetChild(i), layer);
+    }
+
+    /// <summary>Hand every layer this class wrote back to the value the GAME had there — and only
+    /// where the transform is STILL on the layer we wrote. That guard is
+    /// <c>PanelSupersample.RestoreLayers</c>'s, for its reason: a transform somebody else has since
+    /// re-layered is no longer ours to hand back, and writing our stale value would strand it on a
+    /// layer no camera renders.</summary>
+    private static void RestoreLayers()
+    {
+        for (int i = 0; i < LayerTx.Count; i++)
+        {
+            Transform? t = LayerTx[i];
+            if (t != null && t.gameObject.layer == _layerWritten)
+                t.gameObject.layer = LayerWas[i];
+        }
+        LayerTx.Clear();
+        LayerWas.Clear();
+        _layerWritten = -1;
+    }
+
+    /// <summary>Has somebody else put the moved control back on another layer? One int compare in the
+    /// steady state. It exists because of a real second writer rather than as belt-and-braces: the
+    /// release of ANY panel restores that panel's own <c>Relayered</c> records with no "is it still
+    /// mine" guard, and those records can name a transform this class is holding —
+    /// <c>StoryComposite.LayersDrifted</c>'s argument verbatim.</summary>
+    private static bool LayerDrifted(GameObject control, int layer) =>
+        _layerWritten >= 0 && control.layer != layer;
 
     /// <summary>
     /// Put the control back. The TRANSFORM is restored only while the object is still parented under
@@ -525,6 +676,8 @@ internal static class LoadoutConfirmPark
 
         try
         {
+            // THE LAYER GOES BACK FIRST, while the transforms are still the ones we recorded.
+            RestoreLayers();
             if (_addedIgnore != null)
             {
                 Object.Destroy(_addedIgnore);
@@ -937,6 +1090,9 @@ internal static class LoadoutConfirmPark
         _reachVerdict = string.Empty;
         _reachReports = 0;
         _reachHost = null;
+        _enterVerdict = string.Empty;
+        _enterReports = 0;
+        _enterNextAt = float.NegativeInfinity;
     }
 
     /// <summary>
@@ -1044,14 +1200,19 @@ internal static class LoadoutConfirmPark
             _reachVerdict = string.Empty;
             _reachReports = 0;
         }
-        if (_reachReports >= MaxReachReports)
-            return;
         if (!GameWantsConfirmShown())
         {
             _reachVerdict = string.Empty;   // the question is not being asked; re-arm the edge
+            _enterVerdict = string.Empty;
             return;
         }
 
+        // ITS OWN COUNTER AND ITS OWN GATE: the two lines answer different requests and one must not
+        // be able to silence the other.
+        ReportEnterDungeon(lm);
+
+        if (_reachReports >= MaxReachReports)
+            return;
         bool ok = MeasureReach(lm, out string measuredCore, out bool readyToggle);
         string verdict = ok ? "CONFIRMED" : "NO";
         if (verdict == _reachVerdict)
@@ -1101,6 +1262,222 @@ internal static class LoadoutConfirmPark
                           + "'cannot park' line to see why it is not.");
     }
 
+    // ---- ModBuild 238's falsifier ------------------------------------------------------------------
+
+    /// <summary>
+    /// THE TOP EDGE OF THE WINDOW'S GRAB BAR, in <paramref name="win"/>'s own authored uGUI px, or
+    /// <c>float.NaN</c> when there is no bar to measure.
+    ///
+    /// <para><b>WHY IT IS FOUND BY WALKING AND NOT ASKED FOR.</b> <c>GrabbableModal</c> exposes no
+    /// accessor for the bar — <c>_bar</c>, <c>_inkRect</c> and the derived <c>barTopPx</c> are all
+    /// private and the class is another lane's — so this reads the same transform its own
+    /// <c>GRAB BAR CLEARS THE INK</c> line reads, from the one place that is public: the holder is
+    /// registered as a render root of the panel (<c>CanvasConversion.AddRenderRoot(_panel, _holder)</c>
+    /// in <c>GrabbableModal.Build</c>), which puts it in <c>ConvertedPanel.ExtraRenderRoots</c>. The
+    /// names are <c>GloomhavenVR.ModalGrab_*</c> for the holder and <c>Visual/Bar</c> for the strip,
+    /// both written by that same method.</para>
+    ///
+    /// <para><b>AND IT IS MEASURED THROUGH WORLD SPACE ON PURPOSE.</b> The bar's own local numbers are
+    /// frame-local METRES and the control's are the window's authored PIXELS; converting through the
+    /// world puts both in one space with no assumption about how the host rect and the game window
+    /// root are related. The bar rides the DRAWN pose rather than the frame, so during a remote glide
+    /// the two can disagree for a few frames — that is a transient of the multiplayer easing and not
+    /// a placement fault, and it is why this number is only ever printed by a rate-limited line.</para>
+    /// </summary>
+    private static float BarTopInWindowPx(ConvertedPanel? panel, RectTransform win)
+    {
+        try
+        {
+            if (panel == null)
+                return float.NaN;
+            for (int i = 0; i < panel.ExtraRenderRoots.Count; i++)
+            {
+                Transform? root = panel.ExtraRenderRoots[i];
+                if (root == null
+                    || !root.name.StartsWith("GloomhavenVR.ModalGrab_", System.StringComparison.Ordinal))
+                    continue;
+                Transform? bar = root.Find("Visual/Bar");
+                if (bar == null)
+                    continue;
+                // The strip is a unit cube scaled by the bar transform, so its top face is local
+                // y = +0.5 — the same half-thickness GrabbableModal.ReportBarPlacement adds.
+                Vector3 top = bar.TransformPoint(new Vector3(0f, 0.5f, 0f));
+                return win.InverseTransformPoint(top).y;
+            }
+            return float.NaN;
+        }
+        catch (System.Exception)
+        {
+            return float.NaN;
+        }
+    }
+
+    /// <summary>
+    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE USER'S ModBuild 238 REQUEST IS
+    /// SATISFIED: <i>"soll der Button … 'Verlies betreten' am unteren Rand der character-UI zu sehen
+    /// sein, wo man ihn betätigen kann. So braucht man nicht die Übersicht über zwei Fenster
+    /// behalten."</i>
+    ///
+    /// <para>Every clause is read back THIS TICK from the object the player is looking at — the
+    /// control's own name and kind, its parent chain, its rect in the host's authored px, its layer
+    /// against the host root's layer, the host window's rect, and the grab bar's top edge in the SAME
+    /// units so the clearance between them is a subtraction rather than a claim.</para>
+    ///
+    /// <para><b>WHY THE CLEARANCE IS THE CLAUSE THAT MATTERS.</b> ModBuild 236 moved the grab bar to
+    /// sit below the window's LOWEST DRAWN GRAPHIC and centred on the drawn ink
+    /// (<c>GrabbableModal.SyncBar</c>, <c>PanelInkBounds</c>), because it had been landing on the
+    /// reward row of the last battle goal — <c>.planning/debug/quest_überlap.jpg</c>. A control parked
+    /// at the bottom edge of that same window must not land in the band the bar will occupy. The two
+    /// agree BY CONSTRUCTION and this line is the measurement that says so rather than the assertion:
+    /// the bar's y is <c>Mathf.Min(hostRect.yMin, ink.yMin) - gap</c>, the parked control's ink is
+    /// CLAMPED into the host rect by <see cref="RefreshAnchor"/>, and the control is a GAME-named
+    /// child of the conversion target so <c>PanelInkBounds</c> counts it as ink while the bar's own
+    /// holder is excluded by its <c>GloomhavenVR.</c> prefix. So the bar is pushed below the button
+    /// and never the other way round. The re-capture that makes it happen is not a timer either: the
+    /// park makes the control a new ACTIVE DIRECT CHILD of <c>panel.Target</c>, which is part one of
+    /// <c>PanelInkBounds.ActiveSetSignature</c>, so the park itself opens a new bar generation.</para>
+    ///
+    /// <para>GREP: <c>ENTER DUNGEON ON THE CHARACTER UI: CONFIRMED</c> — the request is met.
+    /// <c>… NOT ACHIEVED</c> — it is not, with the failing term named.</para>
+    /// </summary>
+    private static void ReportEnterDungeon(UILoadoutManager lm)
+    {
+        if (_enterReports >= MaxEnterReports)
+            return;
+        // ON THE ANCHOR'S OWN CADENCE, and for the anchor's own reason: the verdict below is decided
+        // by two Graphic sweeps and a transform walk, the thing they measure changes when the roster
+        // or a sub-panel changes, and running them per frame would buy nothing in a room whose Update
+        // budget is already the one the perf line complains about.
+        float now = Time.unscaledTime;
+        if (now < _enterNextAt)
+            return;
+        _enterNextAt = now + AnchorRefreshIntervalSeconds;
+
+        GameObject? control = ResolveControl(lm, out bool readyToggle);
+        UIWindow? host = CharacterWindow();
+        bool parked = control != null && _parked != null && ReferenceEquals(_parked, control)
+                      && _host != null && ReferenceEquals(_host, host);
+        bool hostFloated = host != null && FloatedByMod(host);
+        ConvertedPanel? panel = ModalFallback.PanelFor(host);
+
+        Rect frame = default;
+        Rect ink = default;
+        int drawn = 0;
+        int controlLayer = -1;
+        int hostLayer = -1;
+        float barTop = float.NaN;
+        float clearance = float.NaN;
+        string chain = "<not parked>";
+        bool underHost = false;
+
+        if (control != null && host != null && host.transform is RectTransform win
+            && control.transform is RectTransform rect)
+        {
+            frame = win.rect;
+            underHost = ReferenceEquals(rect.parent, win);
+            controlLayer = control.layer;
+            hostLayer = host.gameObject.layer;
+            TryPaintedBounds(rect, win, panel, exclude: null, out ink, out drawn);
+            barTop = BarTopInWindowPx(panel, win);
+            if (!float.IsNaN(barTop) && drawn > 0)
+                clearance = ink.yMin - barTop;
+        }
+
+        // THE VERDICT. Every term is measured and none of them is a value this class merely intended.
+        // The clearance clause is deliberately NOT part of it when there is no bar to measure: a
+        // window whose grab frame has not been built yet is a transient, and a falsifier that failed
+        // on it would cry wolf for the two ticks between the float and the frame.
+        bool ok = parked && hostFloated && panel != null && underHost && drawn > 0
+                  && controlLayer == hostLayer
+                  && (float.IsNaN(barTop) || clearance > 0f);
+
+        // THE CHANGE GATE BEFORE THE STRING, for the reason the sweeps above already argue: this is
+        // asked on every tick from the moment the game switches the control on until the scenario
+        // loads [[one-line-owned-the-frame]].
+        string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";
+        if (verdict == _enterVerdict)
+            return;
+        _enterVerdict = verdict;
+        _enterReports++;
+
+        if (control != null)
+        {
+            var sb = new System.Text.StringBuilder(64);
+            Transform? t = control.transform;
+            for (int guard = 0; t != null && guard < 6; guard++, t = t.parent)
+            {
+                if (sb.Length > 0)
+                    sb.Append(" < ");
+                sb.Append(t.name);
+            }
+            chain = sb.ToString();
+        }
+
+        string measured =
+            $"THE CONTROL: '{(control != null ? control.name : "<the mod cannot resolve which object IS the confirm>")}' "
+            + $"({(readyToggle ? "UIReadyToggle — the MULTIPLAYER ready toggle, which every player presses for himself"
+                               : "UILoadoutManager.confirmationButton — the SINGLE-PLAYER long confirm, 'Verlies betreten'")}), "
+            + $"activeInHierarchy={(control != null && control.activeInHierarchy)}, drawing {drawn} "
+            + "graphic(s) the conversion's own fit counts. PARENT CHAIN, nearest first: "
+            + $"{chain}; parented directly to the host root={underHost}; this class has it parked="
+            + $"{parked}. ITS RECT in the host's own authored px: ink "
+            + $"{ink.xMin:F0}..{ink.xMax:F0} x {ink.yMin:F0}..{ink.yMax:F0}. LAYER {controlLayer} "
+            + $"against the host root's own layer {hostLayer} "
+            + $"({LayerTx.Count} transform(s) written, {_layerSkipped} foreign render subtree(s) "
+            + "skipped whole; per-window capture cameras cull BY LAYER, so a mismatch here is a "
+            + "control drawn by the wrong camera or by two). THE HOST: "
+            + $"'{(host != null ? host.name : "<none>")}' floated={hostFloated}, live panel="
+            + $"{panel != null}, rect {frame.xMin:F0}..{frame.xMax:F0} x {frame.yMin:F0}..{frame.yMax:F0} "
+            + $"({frame.width:F0}x{frame.height:F0} px). THE GRAB BAR: top edge "
+            + (float.IsNaN(barTop) ? "NOT MEASURABLE — no grab frame is built for this window yet"
+                                   : $"y={barTop:F0} px")
+            + ", CLEARANCE between the control's painted bottom and that edge = "
+            + (float.IsNaN(clearance) ? "not measurable"
+                                      : $"{clearance:F0} px (positive means the bar is BELOW the button, which is the wanted order)")
+            + $". THE ZERO the placement was solved from: {_anchorWhy}"
+            + (_anchorValid
+                ? $" — the host's painted content {_anchorContent.yMin:F0}..{_anchorContent.yMax:F0} px "
+                  + $"from {_anchorContentCount} graphic(s), the control's own ink EXCLUDED so the "
+                  + $"solve is a fixed point, gap {ConfirmGapPx:F0} px"
+                : string.Empty);
+
+        if (ok)
+        {
+            VRLog.Info(Scope, "ENTER DUNGEON ON THE CHARACTER UI: CONFIRMED — the continue control is "
+                              + "drawn at the bottom edge of the floated Character-UI, inside the same "
+                              + "window the battle goals were chosen in, and the window's grab bar is "
+                              + "below it rather than over it. MEASURED THIS TICK: " + measured
+                              + ". USER REQUEST THIS LINE ANSWERS: \"Hat man für all seine zugewiesenen "
+                              + "Charactere die Quest ausgewählt soll der Button der jetzt auf dem "
+                              + "Fenster mit nur dem Bild zu sehen ist 'Verlies betreten' am unteren "
+                              + "Rand der character-UI zu sehen sein, wo man ihn betätigen kann. So "
+                              + "braucht man nicht die Übersicht über zwei Fenster behalten.\" NOTHING "
+                              + "WAS WRITTEN TO THE GAME: no Show, no Hide, no Escape, no SetActive, no "
+                              + "CanvasGroup — the control's own visibility is still the game's and this "
+                              + "is a re-parent of a local uGUI subtree on this client.");
+            return;
+        }
+        VRLog.Warn(Scope, "ENTER DUNGEON ON THE CHARACTER UI: NOT ACHIEVED — the continue control is "
+                          + "not where the user asked for it. MEASURED THIS TICK: " + measured
+                          + ". READ IT LIKE THIS, AND THE FAILING TERM IS THE ONE THAT READS WRONG "
+                          + "ABOVE. parked=False or a parent chain that does not start at the host "
+                          + "means the park did not happen — look up for LOADOUT CONFIRM UNPARKED or a "
+                          + "'cannot park' line. host floated=False means the Character-UI is not on "
+                          + "screen and there is nothing to be part of; that is the ordinary state "
+                          + "during the story and it is not a fault there. 0 drawn graphic(s) means "
+                          + "the game still has the control switched off, which is what the whole "
+                          + "battle-goal phase looks like. A layer that differs from the host root's "
+                          + "is the serious one: the control is being drawn by the wrong camera or by "
+                          + "two, and every state test in this file will still read 'parked'. A "
+                          + "NEGATIVE clearance means the button has landed in the band the ModBuild "
+                          + "236 grab bar occupies — that is .planning/debug/quest_überlap.jpg "
+                          + "happening to the button instead of to the rewards row, and the place to "
+                          + "start is GrabbableModal's own GRAB BAR CLEARS THE INK line for this same "
+                          + "window on the same tick. THIS LINE IS NOT A DEADLOCK REPORT: whether the "
+                          + "player can reach the control at all is LOADOUT CONFIRM REACHABLE beside "
+                          + "it, and that is the line that fails towards letting him continue.");
+    }
+
     /// <summary>Module teardown. Hands the control back and lets go of the claim — a claim that
     /// outlived this class would keep the game's own confirm off screen with nothing left to park it
     /// into, which is the one failure mode this whole file exists to be incapable of.</summary>
@@ -1117,5 +1494,9 @@ internal static class LoadoutConfirmPark
         ResetAnchor("module teardown");
         ResetReach();
         PaintScratch.Clear();
+        LayerTx.Clear();
+        LayerWas.Clear();
+        _layerWritten = -1;
+        _layerSkipped = 0;
     }
 }

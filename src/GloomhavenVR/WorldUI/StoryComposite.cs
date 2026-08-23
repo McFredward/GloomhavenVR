@@ -1116,6 +1116,14 @@ internal static class StoryComposite
         _heldLastPass = _heldThisPass;
         _heldThisPass = 0;
 
+        // ModBuild 238 — THE EARLIEST EDGE OF ALL, AND IT IS BEFORE ANYTHING THIS CLASS OWNS. The
+        // quest list must go at the CONFIRM, not when the story message arrives, and the confirm is
+        // hundreds of log lines earlier than the curtain's own edge. It is a level of its own with a
+        // subject of its own — see QuestJourneyCurtain for why it cannot be a second rising edge on
+        // TickCurtain — and it is ticked here because this is the earliest per-tick point of
+        // ModalFallback and because the refusal it raises must be settled before the release loop.
+        QuestJourneyCurtain.Tick();
+
         UIWindow? story = StoryWindow();
         UIWindow? loadout = LoadoutWindow();
 
@@ -1176,6 +1184,13 @@ internal static class StoryComposite
         // the parker parks into. Same call site, same reason, as this method's own unpark.
         LoadoutConfirmPark.Tick();
 
+        // ModBuild 238 — THE BACKGROUND WINDOW IS WITHDRAWN ONCE THE STORY IS TOLD, and this call is
+        // AFTER the parker on purpose: the level it computes asks whether the continue control is
+        // drawing somewhere that is not the loadout screen, and on the tick the game switches that
+        // control on the parker has to have moved it already or the answer would be a false NO for
+        // one tick and cost a float this class would then have to withdraw.
+        TickLoadoutBackdrop(loadout, terminator);
+
         // ModBuild 233 — THE CLAIM AND THE FALSIFIER, IN THAT ORDER AND BOTH FROM MEASUREMENT.
         // The claim decides whether the STORY window is drawn by us this tick (ModBuild 236: it used
         // to be the loadout screen); the falsifier then states, from a fresh read of the float set,
@@ -1197,7 +1212,7 @@ internal static class StoryComposite
         // 236 adds the third, which answers the reported complaint directly.
         ReportOnlyWindow(ComposedHost(story, loadout));
         ReportGap();
-        ReportContinuity(loadout);
+        ReportContinuity(loadout, terminator);
 
         bool openedThisTick = false;
         if (gateWanted && !_gateOpen)
@@ -1263,6 +1278,13 @@ internal static class StoryComposite
     {
         if (_dock != null && _parkHost != null)
             return _parkHost;
+        // ModBuild 238 — ONCE THE BACKDROP IS WITHDRAWN THE ONE WINDOW IS THE CHARACTER-UI. That is
+        // the whole of the user's new request for this phase: "So braucht man nicht die Übersicht
+        // über zwei Fenster behalten." A falsifier that kept naming the window this round exists to
+        // take OFF the screen would report NOT ACHIEVED for exactly the state it is meant to confirm
+        // — the class of instrument defect this project has already had to retract twice.
+        if (_backdropStanding)
+            return LoadoutConfirmPark.CharacterUI ?? story ?? loadout;
         return story ?? loadout;
     }
 
@@ -1436,6 +1458,281 @@ internal static class StoryComposite
                         + "responsibility but its own";
         }
         _claimStanding = want;
+    }
+
+    // ---- the loadout BACKDROP withdrawal (ModBuild 238) -----------------------------------------
+
+    private static bool _backdropStanding;
+    private static GameObject? _backdropObject;
+    private static bool _backdropLifted;
+    private static int _backdropCycles;
+    private static bool _backdropCapReported;
+    private static string _backdropWhy =
+        "the quest-intro composite has never withheld the loadout screen's float";
+    private static string _backdropVerdict = string.Empty;
+    private static int _backdropReports;
+
+    /// <summary>Same derivation as <see cref="MaxWithdrawCycles"/> and <see cref="MaxCurtainCycles"/>:
+    /// the catch-all churn fuse suppresses a window's NAME on its 4th enrolment inside 60 s, a REFUSED
+    /// window is never counted, and each claim that falls costs exactly one re-float — so two cycles
+    /// plus the first float is 3, at the fuse's limit and never over it.</summary>
+    private const int MaxBackdropCycles = 2;
+
+    /// <summary><see cref="MaxOneWindowReports"/>'s number and argument.</summary>
+    private const int MaxBackdropReports = 6;
+
+    /// <summary>
+    /// IS THE MOD WITHHOLDING THIS LOADOUT WINDOW'S FLOAT RIGHT NOW? The question
+    /// <c>FloatRefusalTable</c>'s ROW 4 asks, and a PURE read — no state, no logging, safe from the
+    /// recursive ancestor walk that re-enters <c>Refuses</c> several times per tick.
+    ///
+    /// <para>Asked ABOUT A SPECIFIC GameObject: <c>UILoadoutManager</c> is a Singleton and a claim
+    /// about one open of it must never withhold another.</para>
+    /// </summary>
+    internal static bool HoldsLoadoutBackdropBack(GameObject? loadoutWindowObject) =>
+        _backdropStanding && loadoutWindowObject != null
+        && ReferenceEquals(loadoutWindowObject, _backdropObject);
+
+    /// <summary>The claim's own words, printed verbatim by the refusal line and by the lapse warning.
+    /// Never null.</summary>
+    internal static string LoadoutBackdropWhy => _backdropWhy;
+
+    /// <summary>
+    /// RECOMPUTE THE LEVEL THAT WITHHOLDS THE LOADOUT SCREEN AFTER THE STORY HAS BEEN TOLD.
+    ///
+    /// <para><b>USER REQUEST (2026-08-23), verbatim, and it SUPERSEDES what ModBuild 236 shipped for
+    /// the phase after the story:</b> <i>"Ich möchte das letzte lokale Storyfenster mit nur dem
+    /// Hintergrund doch nicht haben. Nachdem die Story erzählt wurde soll die Character-UI für die
+    /// persönlichen Quests spawnen und das Storyfenster verschwinden. Hat man für all seine
+    /// zugewiesenen Charactere die Quest ausgewählt soll der Button der jetzt auf dem Fenster mit nur
+    /// dem Bild zu sehen ist 'Verlies betreten' am unteren Rand der character-UI zu sehen sein, wo
+    /// man ihn betätigen kann. So braucht man nicht die Übersicht über zwei Fenster
+    /// behalten."</i></para>
+    ///
+    /// <para><b>NOTHING ABOUT THE STORY PHASE CHANGES.</b> The story is still told inside the loadout
+    /// window, one window, picture above and dialog directly under it — ModBuild 236's inversion, and
+    /// the ModBuild 237 log's <c>FLOAT WITHDRAWN: 'UI Loadout Window'</c> count of ZERO is the thing
+    /// that must stay zero for the intro. This level cannot stand while the intro is running because
+    /// its first clause IS the intro's end: <see cref="TerminatedBy"/>, the same value the composite
+    /// itself ends on, read once per tick in <see cref="Tick"/> and passed down so the two can never
+    /// disagree about which tick that was.</para>
+    ///
+    /// <para><b>THE SECOND CLAUSE IS THE DEADLOCK GUARD AND IT IS THE ONLY REASON THIS IS SAFE.</b>
+    /// ModBuild 234 deadlocked this exact flow by withholding the window the only advancing control
+    /// was a child of, and that control is a child of THIS window offline
+    /// (<c>UILoadoutManager.confirmationButton</c>, switched on by
+    /// <c>SetActiveSinglePlayerLongConfirmButton</c>, UILoadoutManager.cs:88-95). So the level asks
+    /// <see cref="LoadoutConfirmPark.ContinueReachableOffTheLoadout"/>: is the control drawing inside
+    /// a live floated panel that is NOT this window? It answers TRUE for free while the game is not
+    /// asking for a control at all — the whole battle-goal phase — and it answers FALSE the instant
+    /// the game asks and the park has not landed. FALSE means this level does not stand, the loadout
+    /// screen floats with its own button on it, and the player continues. THE FAIL DIRECTION IS
+    /// TOWARDS THE PLAYER BEING ABLE TO GO ON, every tick, with no latch anywhere in it.</para>
+    ///
+    /// <para><b>AND IT MUST NOT MEASURE ITSELF.</b> The obvious predicate — "the control is reachable"
+    /// — is TRUE while this window floats precisely BECAUSE it floats, so gating on it would
+    /// oscillate once per tick [[a-claim-must-not-measure-itself]]. The exclusion of the subject is
+    /// what makes the level stable, and it is why the read has its own method rather than reusing
+    /// <c>ConfirmReachable</c>.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing here goes on the wire, and both network modes end in the same place.
+    /// Offline the control is <c>confirmationButton</c>, a child of this window, and
+    /// <c>LoadoutConfirmPark</c> moves it to the Character-UI. Online it is <c>UIReadyToggle</c>,
+    /// which is its own window root and is refused by ROW 2 as a bare control, and the same parker
+    /// puts it in the same place. <c>SetActiveConfirmationButton</c> branches only on
+    /// <c>FFSNetwork.IsOnline</c> and has no host test, so pressing it is a LOCAL act in both.</para>
+    /// </summary>
+    private static void TickLoadoutBackdrop(UIWindow? loadout, string? terminator)
+    {
+        bool want = false;
+        string why = string.Empty;
+        // THE HONESTY CLAUSE, and it is the curtain's word for word: this claim may only stand while
+        // the mod is floating at least one window it is NOT withholding. Without it there is a real
+        // reachable state — the battle-goal phase, where the game is not asking for a continue
+        // control, so the deadlock clause below is satisfied for free — in which withholding this
+        // window would leave the room with nothing in it at all. That is ModBuild 231's ending, and
+        // [[parent-wins-needs-a-real-parent]]: suppressing X because Y is showing the player
+        // something requires Y to ACTUALLY be showing it.
+        bool somethingElseOnScreen = loadout != null
+                                     && ModalFallback.CountFloatsOtherThan(loadout) > 0;
+        if (!_backdropLifted && MapRoomDriver.Active && loadout != null && loadout.IsOpen
+            && terminator != null && somethingElseOnScreen
+            && LoadoutConfirmPark.ContinueReachableOffTheLoadout(loadout))
+        {
+            want = true;
+            why = "the quest intro is OVER and the window has nothing left on it but the backdrop "
+                  + "picture — " + terminator + ". The user's ruling for this phase is that this "
+                  + "window must not be there at all: \"Ich möchte das letzte lokale Storyfenster mit "
+                  + "nur dem Hintergrund doch nicht haben.\" THE CONTINUE CONTROL IS NOT ON IT: "
+                  + LoadoutConfirmPark.Where + ", and this claim is re-measured every tick against "
+                  + "that fact with THIS window excluded from the answer, so the instant the control "
+                  + "is not drawing anywhere else the claim is false and this window floats again "
+                  + "with its own button on it";
+        }
+
+        if (want && !_backdropStanding)
+        {
+            if (_backdropCycles >= MaxBackdropCycles)
+            {
+                if (!_backdropCapReported)
+                {
+                    _backdropCapReported = true;
+                    VRLog.Warn(Scope, "LOADOUT BACKDROP CLAIM CAPPED — the composite has already asked "
+                                      + $"{_backdropCycles} time(s) for "
+                                      + $"'{loadout!.name}' to stand down and it will not ask again "
+                                      + "until the point-of-no-return gate closes. THE CAP IS DERIVED, "
+                                      + "NOT CHOSEN: ModalFallback's catch-all churn fuse suppresses a "
+                                      + "window's NAME for the whole session on its 4th enrolment "
+                                      + "inside 60 s, a REFUSED window is never counted, and each "
+                                      + "claim that falls costs exactly one re-float — so "
+                                      + $"{MaxBackdropCycles} cycles plus the first float is 3, at the "
+                                      + "fuse's limit. FROM HERE THE BACKGROUND WINDOW STAYS ON "
+                                      + "SCREEN, which is the ModBuild 237 presentation: two windows, "
+                                      + "ugly, and NOT a deadlock.");
+                }
+                want = false;
+            }
+            else
+            {
+                _backdropCycles++;
+                _backdropWhy = why;
+                _backdropObject = loadout!.gameObject;
+                VRLog.Info(Scope, $"LOADOUT BACKDROP CLAIM RAISED (cycle {_backdropCycles} of "
+                                  + $"{MaxBackdropCycles}) on '{loadout.name}': {why}. "
+                                  + "FloatRefusalTable's conditional UILoadoutManager row now refuses "
+                                  + "to float it, and WithdrawRefusedFloat plus the release loop's "
+                                  + "ModBuild 235 refusal clause take down the float that already "
+                                  + "exists. NOTHING IS WRITTEN TO THE GAME — no Hide, no Escape, no "
+                                  + "SetActive, no CanvasGroup — the window keeps its ordinary 2D "
+                                  + "rendering on the canvas the game put it on, which the 3D map room "
+                                  + "does not draw. THE ModBuild 234 DEADLOCK CANNOT COME BACK THROUGH "
+                                  + "THIS ROW: that one withheld this very window while the only "
+                                  + "advancing control was a child of it and the claim never lapsed. "
+                                  + "This claim's second clause is exactly the absence of that state, "
+                                  + "re-measured every tick with this window excluded from the answer, "
+                                  + "so it cannot be true while the control is only reachable here.");
+            }
+        }
+        else if (!want && _backdropStanding)
+        {
+            VRLog.Info(Scope, "LOADOUT BACKDROP CLAIM LAPSED on "
+                              + $"'{(loadout != null ? loadout.name : "<the loadout window is gone>")}' — "
+                              + (loadout == null || !loadout.IsOpen
+                                  ? "the loadout screen closed"
+                                  : terminator == null
+                                      ? "the quest intro is running again, so the story is being told "
+                                        + "in this window and it must be on screen"
+                                      : _backdropLifted
+                                          ? "the deadlock floor stood it down"
+                                          : !somethingElseOnScreen
+                                          ? "THE HONESTY CLAUSE: the mod is floating nothing this "
+                                            + "claim is not withholding, so there would be nothing on "
+                                            + "screen at all"
+                                          : "THE CONTINUE CONTROL IS NOT DRAWING IN ANY OTHER FLOATED "
+                                            + "WINDOW, so withholding this one would leave the player "
+                                            + "with nothing to press — that is the safety valve and "
+                                            + "not a regression")
+                              + ", so this window floats again from this tick with everything on it "
+                              + "(nothing was ever written to it). "
+                              + $"{_backdropCycles} of {MaxBackdropCycles} cycle(s) used.");
+            _backdropObject = null;
+            _backdropWhy = "the loadout backdrop claim has lapsed; that window is nobody's "
+                           + "responsibility but its own";
+        }
+        _backdropStanding = want;
+        ReportBackdrop(loadout, terminator);
+    }
+
+    /// <summary>
+    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE BACKGROUND WINDOW IS ACTUALLY GONE.
+    ///
+    /// <para>It speaks only once <see cref="TerminatedBy"/> says the intro is over, so it is silent
+    /// for the whole story phase — where the loadout screen floating is the CORRECT state and a
+    /// warning about it would be the third wrong instrument this project has had to retract. Every
+    /// clause is re-read this tick from the float set itself.</para>
+    ///
+    /// <para>GREP: <c>LOADOUT BACKGROUND WITHDRAWN: CONFIRMED</c> — the request is met.
+    /// <c>… NOT ACHIEVED</c> — it is not, with the failing term named and every window still standing
+    /// listed by name.</para>
+    /// </summary>
+    private static void ReportBackdrop(UIWindow? loadout, string? terminator)
+    {
+        if (loadout == null || !loadout.IsOpen || terminator == null || !MapRoomDriver.Active)
+        {
+            _backdropVerdict = string.Empty;   // the question is not being asked; re-arm the edge
+            return;
+        }
+        if (_backdropReports >= MaxBackdropReports)
+            return;
+
+        int total = ModalFallback.CountFloatsOtherThan(null);
+        bool loadoutFloated = FloatedByMod(loadout, total);
+
+        // THE CHANGE GATE FIRST, THEN THE STRING. This line is asked on every tick of the whole
+        // battle-goal phase, and two of the clauses below are Graphic sweeps — building the message
+        // and throwing it away would be a per-frame cost for nothing [[one-line-owned-the-frame]].
+        string verdict = loadoutFloated ? "NOT ACHIEVED" : "CONFIRMED";
+        if (verdict == _backdropVerdict)
+            return;
+        _backdropVerdict = verdict;
+        _backdropReports++;
+
+        FloatScratch.Clear();
+        ModalFallback.CollectFloatedWindows(FloatScratch, null);
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 0; i < FloatScratch.Count; i++)
+        {
+            UIWindow w = FloatScratch[i];
+            if (w == null)
+                continue;
+            if (sb.Length > 0)
+                sb.Append("; ");
+            sb.Append('\'').Append(w.name).Append("' ID ").Append(w.ID);
+        }
+        string standing = sb.Length > 0 ? sb.ToString() : "none at all";
+        FloatScratch.Clear();
+
+        string measured =
+            $"'UI Loadout Window' resolved as '{loadout.name}' (ID {loadout.ID}), IsOpen=True, "
+            + $"floated by the mod={loadoutFloated}; this class's backdrop claim is standing="
+            + $"{_backdropStanding} and FloatRefusalTable.Refuses says "
+            + $"{FloatRefusalTable.Refuses(loadout)}; the intro ended because {terminator}; the "
+            + "continue control is reachable somewhere that is NOT this window="
+            + $"{LoadoutConfirmPark.ContinueReachableOffTheLoadout(loadout)} and "
+            + $"{LoadoutConfirmPark.Where}; the honesty clause — the mod is floating "
+            + $"{ModalFallback.CountFloatsOtherThan(loadout)} window(s) this claim is not withholding "
+            + $"— reads {ModalFallback.CountFloatsOtherThan(loadout) > 0}; "
+            + $"{_backdropCycles} of {MaxBackdropCycles} cycle(s) used, "
+            + $"lifted by the deadlock floor={_backdropLifted}. EVERY WINDOW THE MOD IS STILL "
+            + $"FLOATING, {total} in total: {standing}";
+
+        if (!loadoutFloated)
+        {
+            VRLog.Info(Scope, "LOADOUT BACKGROUND WITHDRAWN: CONFIRMED — the window that carried only "
+                              + "the backdrop picture is no longer being floated, so the player has "
+                              + "one window to watch and not two. MEASURED THIS TICK: " + measured
+                              + ". USER REQUEST THIS LINE ANSWERS: \"Ich möchte das letzte lokale "
+                              + "Storyfenster mit nur dem Hintergrund doch nicht haben. Nachdem die "
+                              + "Story erzählt wurde soll die Character-UI für die persönlichen Quests "
+                              + "spawnen und das Storyfenster verschwinden.\" WHAT IT DOES NOT CLAIM: "
+                              + "that the window is closed. It is not — nothing was written to the "
+                              + "game. See ENTER DUNGEON ON THE CHARACTER UI for whether the control "
+                              + "that used to be on it is where he asked for it instead, and LOADOUT "
+                              + "CONFIRM REACHABLE for whether he can press it at all.");
+            return;
+        }
+        VRLog.Warn(Scope, "LOADOUT BACKGROUND WITHDRAWN: NOT ACHIEVED — the story is told and the "
+                          + "background window is still on screen. MEASURED THIS TICK: " + measured
+                          + ". READ IT LIKE THIS: 'reachable somewhere that is NOT this window'=False "
+                          + "is the SAFE failure and the most likely one — the continue control is not "
+                          + "drawing in any other floated window, so this claim deliberately does not "
+                          + "stand and the player keeps the button he can press. Look at ENTER DUNGEON "
+                          + "ON THE CHARACTER UI for why the park did not land, and at whether 'New "
+                          + "Party display' is in the list of standing windows above; if it is not "
+                          + "floated there is nothing to park into and that is the term to fix. "
+                          + "claim standing=True with floated=True instead means the refusal is being "
+                          + "asked and something is not listening — grep FLOAT WITHDRAWN and FLOAT "
+                          + "RELEASED ON REFUSAL for this window's name.");
     }
 
     // ---- the story curtain (ModBuild 234) ------------------------------------------------------
@@ -1884,8 +2181,10 @@ internal static class StoryComposite
 
         string measured = $"the composed host '{(host != null ? host.name : "<none>")}' floated="
                           + $"{storyFloated} (ModBuild 236: while the composite stands that host is the "
-                          + "LOADOUT window with the story dialog parked inside it, and outside the "
-                          + "composite it is whichever of the two halves is up); OTHER floated "
+                          + "LOADOUT window with the story dialog parked inside it. ModBuild 238: once "
+                          + "the intro is over and the backdrop claim stands it is the CHARACTER-UI, "
+                          + "which is where the continue control has been parked; outside both it is "
+                          + "whichever of the two intro halves is up); OTHER floated "
                           + $"window(s): {others} [{standing}]; the curtain's frozen member set is "
                           + $"[{_curtainNames}]";
         if (ok)
@@ -2053,11 +2352,24 @@ internal static class StoryComposite
     /// the player has grabbed is his forever (ModBuild 183) and moving it back would be the worse
     /// bug.</para>
     ///
+    /// <para><b>ModBuild 238 — THE SECOND READ MOVED, AND SAYING WHY IS THE POINT.</b> Up to
+    /// ModBuild 237 it was taken when the GAME asked for a continue control, because that control was
+    /// on this window. The user has since retracted that arrangement — <i>"Ich möchte das letzte
+    /// lokale Storyfenster mit nur dem Hintergrund doch nicht haben"</i> — and this window is now
+    /// WITHDRAWN before that moment arrives, so the old trigger would find no panel, return early and
+    /// say nothing at all. An instrument that quietly stops answering is the thing nobody can
+    /// diagnose. The read is therefore taken at <see cref="TerminatedBy"/> instead: the instant the
+    /// game says the intro is over, which is strictly earlier and is the last instant at which the
+    /// question still has a subject. WHAT IT MEASURES IS NOW EXACTLY THE HALF OF THE USER'S SENTENCE
+    /// THAT SURVIVES — that the story was told, start to finish, in ONE panel that never respawned
+    /// and never re-placed itself. Where the BUTTON ends up is a different question and it has its own
+    /// line, <c>ENTER DUNGEON ON THE CHARACTER UI</c>.</para>
+    ///
     /// <para>GREP: <c>STORY WINDOW CONTINUITY: CONFIRMED</c> — the fix.
     /// <c>STORY WINDOW CONTINUITY: BROKEN</c> — "ein ganz neues Fenster", with both ids and both
     /// poses.</para>
     /// </summary>
-    private static void ReportContinuity(UIWindow? loadout)
+    private static void ReportContinuity(UIWindow? loadout, string? terminator)
     {
         if (loadout == null || !loadout.IsOpen)
         {
@@ -2093,7 +2405,9 @@ internal static class StoryComposite
             return;
         }
 
-        if (!LoadoutConfirmPark.GameWantsConfirmShown())
+        // THE SECOND READ, at the game's own end of the intro rather than at the confirm — see the
+        // ModBuild 238 paragraph above for why that had to move.
+        if (terminator == null)
             return;
         if (_contReports >= MaxOneWindowReports)
             return;
@@ -2113,8 +2427,8 @@ internal static class StoryComposite
 
         string measured =
             $"at the first dialog page the host panel was instance {_contPanelId} at world "
-            + $"({_contPos.x:F2},{_contPos.y:F2},{_contPos.z:F2}); now that the game says a continue "
-            + $"control should be showable it is instance {nowId} at world "
+            + $"({_contPos.x:F2},{_contPos.y:F2},{_contPos.z:F2}); now that the game says the intro is "
+            + $"over — {terminator} — it is instance {nowId} at world "
             + $"({t.position.x:F2},{t.position.y:F2},{t.position.z:F2}) — same panel: {samePanel}, "
             + $"moved {movedMm:F0} mm and turned {turnedDeg:F1}° at the live rig scale "
             + $"(rig {RigScale():F1} world units per tracking metre), player grabbed it at some point "
@@ -2123,12 +2437,17 @@ internal static class StoryComposite
 
         if (ok)
         {
-            VRLog.Info(Scope, "STORY WINDOW CONTINUITY: CONFIRMED — the continue control is appearing on "
-                              + "the SAME panel the story was told in, and that panel has not been "
-                              + "re-spawned or re-placed. MEASURED: " + measured + ". USER REPORT THIS "
-                              + "LINE ANSWERS: \"Sobald die Story fertig erzählt wurde, spawned nun ein "
-                              + "ganz neues Fenster mit einem Hintergrund auf dem dann der Button später "
-                              + "erscheint … Es soll immer noch das exakt gleiche Fenster sein.\"");
+            VRLog.Info(Scope, "STORY WINDOW CONTINUITY: CONFIRMED — the story was told from the first "
+                              + "page to the last in ONE panel, and that panel was never re-spawned or "
+                              + "re-placed while it was being read. MEASURED: " + measured + ". USER "
+                              + "REPORT THIS LINE ANSWERS: \"Sobald die Story fertig erzählt wurde, "
+                              + "spawned nun ein ganz neues Fenster mit einem Hintergrund … Es soll "
+                              + "immer noch das exakt gleiche Fenster sein.\" WHAT IT NO LONGER CLAIMS "
+                              + "(ModBuild 238): that the continue control appears on this window. It "
+                              + "does not, by the user's own later ruling — the window is withdrawn "
+                              + "once the intro ends and the control is parked on the Character-UI. "
+                              + "See ENTER DUNGEON ON THE CHARACTER UI and LOADOUT BACKGROUND "
+                              + "WITHDRAWN for those two.");
             return;
         }
         VRLog.Warn(Scope, "STORY WINDOW CONTINUITY: BROKEN — the window the continue control appears on "
@@ -2219,7 +2538,14 @@ internal static class StoryComposite
         // continue control shown and the mod cannot find it drawing anywhere, then EVERYTHING clever
         // this class is doing stands down for the rest of the gate — the dialog goes home, the story
         // window floats on its own, the curtain lifts — and the count is kept.
-        if (!_floorLifted && (_claimStanding || _dock != null) && !LoadoutConfirmPark.ConfirmReachable())
+        // ModBuild 238 — THE BACKDROP CLAIM JOINS THE ARM'S TRIGGER SET, and it has to. That claim
+        // withholds the very window the ModBuild 234 deadlock was about, and it stands in a phase
+        // where the composite itself is already down (no dock, no story claim), so the old trigger
+        // would never have looked at it. Its own second clause is the primary guard and this is the
+        // backstop: two independent mechanisms, because the fault they prevent is the one the player
+        // cannot work around.
+        if (!_floorLifted && (_claimStanding || _dock != null || _backdropStanding)
+            && !LoadoutConfirmPark.ConfirmReachable())
         {
             VRLog.Warn(Scope, "MODAL DEADLOCK FLOOR TRIPPED (CONTROL ARM) — the game wants a "
                               + "pre-scenario continue control shown and the mod cannot find it drawing "
@@ -2247,6 +2573,21 @@ internal static class StoryComposite
             // floats of windows that were standing when the player committed, and the cheapest thing
             // to be wrong about at this moment is a quest log that came back a few seconds early.
             _curtainLifted = true;
+            // ModBuild 238 — AND SO DO THE OTHER TWO SUPPRESSIONS THIS LANE OWNS. When the floor
+            // trips, EVERYTHING clever stands down: the backdrop claim hands the loadout screen back
+            // with its own confirm button on it, and the quest-journey curtain hands the quest list
+            // back. Both are cheap to be wrong about and neither may be the reason the room has
+            // nothing to press in it. The counts are kept — lift the verdict, keep the count.
+            _backdropStanding = false;
+            _backdropObject = null;
+            _backdropLifted = true;
+            _backdropWhy = "the deadlock floor's control arm stood the backdrop withdrawal down: the "
+                           + "game wanted a continue control shown and the mod could not find it "
+                           + "drawing anywhere";
+            QuestJourneyCurtain.Lift("StoryComposite's deadlock floor tripped its CONTROL ARM — the "
+                                     + "game wants a pre-scenario continue control shown and the mod "
+                                     + "cannot find it drawing anywhere, so everything this lane "
+                                     + "suppresses stands down together");
         }
 
         // ModBuild 234 — THE CURTAIN GETS THE SAME FLOOR, AND IT IS A BACKSTOP RATHER THAN THE
@@ -2639,6 +2980,20 @@ internal static class StoryComposite
         // budget is spent on is a Singleton whose instance never changes.
         _claimCycles = 0;
         _claimCapReported = false;
+        // ModBuild 238 — THE BACKDROP CLAIM'S BUDGET IS REFILLED HERE AND ONLY HERE, for the claim's
+        // reason: a new point-of-no-return edge is a new quest and a new 60 s fuse window, and the
+        // loadout window it is spent on is a Singleton whose instance never changes. The claim itself
+        // is dropped too, because the gate closing means the loadout screen is gone and a claim about
+        // a window that is not there is a suppression with no subject.
+        _backdropStanding = false;
+        _backdropObject = null;
+        _backdropCycles = 0;
+        _backdropCapReported = false;
+        _backdropLifted = false;
+        _backdropVerdict = string.Empty;
+        _backdropReports = 0;
+        _backdropWhy = "the loadout backdrop claim is not standing; that window is nobody's "
+                       + "responsibility but its own";
         // And the floor's stand-down is per gate for the same reason: whatever was unreachable
         // belonged to the quest that just ended.
         _floorLifted = false;
@@ -3749,6 +4104,17 @@ internal static class StoryComposite
         // park claim that outlived this class would keep the game's own confirm off screen with
         // nothing left to draw it.
         LoadoutConfirmPark.Reset();
+        // ModBuild 238 — and the quest-journey curtain, for the same reason as everything else in
+        // this block: a refusal that outlived this class would be a suppression with no owner.
+        QuestJourneyCurtain.Reset();
+        _backdropStanding = false;
+        _backdropObject = null;
+        _backdropLifted = false;
+        _backdropCycles = 0;
+        _backdropCapReported = false;
+        _backdropVerdict = string.Empty;
+        _backdropReports = 0;
+        _backdropWhy = "the loadout backdrop claim has been torn down with the module";
         _storyGameOpenAt = float.NegativeInfinity;
         if (_gateOpen)
             CloseGate();
