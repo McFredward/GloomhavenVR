@@ -1,75 +1,110 @@
-GloomhavenVR @VERSION@ — install
-================================
+GloomhavenVR @VERSION@ — how to install it
+==========================================
 
-Requirements: Gloomhaven (digital, Steam/GOG, v1.1.x), Windows, a PC-VR OpenXR
-runtime (Quest Link / Virtual Desktop / Steam Link / SteamVR), BepInEx 5.4.23.5.
+Play Gloomhaven (digital) as a room-scale VR board game: you stand at the table
+and pick your cards up with your hands.
 
-1. Install BepInEx 5.4.23.5 (x64):
-   https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5
-   Extract BepInEx_win_x64_5.4.23.5.zip into the Gloomhaven install folder
-   (the folder containing GH.exe). Run the game once flat, quit, and check that
-   BepInEx/LogOutput.log now exists.
+WHAT YOU NEED
+  * Gloomhaven (digital) for PC, version 1.1.x — Steam or GOG.
+  * Windows, and a PC-VR headset. Developed and tested on a Quest 3 over
+    Virtual Desktop. Other headsets and streaming apps (Quest Link, Steam Link,
+    SteamVR) should work, but have not been tested.
+  * BepInEx 5.4.23.5 — a small, free program that lets mods run at all. You
+    install it once. Step 1 below.
 
-2. Extract THIS zip into the same Gloomhaven install folder, merging the
-   BepInEx/ directory. You should end up with:
-     BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
-     BepInEx/plugins/GloomhavenVR/RuntimeDeps/  (Unity XR assemblies)
-     BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
-     BepInEx/patchers/GloomhavenVR/Natives/     (UnityOpenXR + openxr_loader)
-
-3. Make sure your OpenXR runtime is active (Meta: Quest Link app as active
-   OpenXR runtime; Virtual Desktop: VDXR; Steam Link: SteamVR), put the headset
-   on standby-awake, then start the game normally.
-
-   ON THE VERY FIRST START THE GAME WILL CLOSE AND REOPEN BY ITSELF, once. That
-   is expected — see below. It happens only that one time.
-
-4. First launch writes config files to BepInEx/config/ (dev.gloomhavenvr*.cfg).
-   Set [General] Enabled = false in dev.gloomhavenvr.cfg to run vanilla.
+Everything else the mod needs is already inside this zip. Nothing else to
+download.
 
 
-Why the game restarts itself once
+1. INSTALL BepInEx, ONCE
+   Download BepInEx_win_x64_5.4.23.5.zip from
+     https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5
+   and unpack it into your Gloomhaven folder — the folder with GH.exe in it.
+   (On Steam: right-click the game -> Manage -> Browse local files.)
+
+   Then start the game once the normal way and quit again. A new folder called
+   BepInEx should now contain a file called LogOutput.log. That file appearing
+   is your proof it worked.
+
+2. INSTALL GloomhavenVR
+   Unpack THIS zip into that same Gloomhaven folder and let Windows merge the
+   BepInEx folder when it asks. To check it landed in the right place, look for
+   these two folders:
+
+     BepInEx\plugins\GloomhavenVR\
+     BepInEx\patchers\GloomhavenVR\
+
+   If either one is missing, unpack the zip again rather than moving files
+   around by hand.
+
+3. TELL YOUR HEADSET SOFTWARE TO HAND PC GAMES OVER
+   Every headset has one setting that decides which app shows PC VR games. It is
+   usually called the OpenXR runtime.
+     Virtual Desktop  -> choose VDXR in the Virtual Desktop streamer settings.
+     Quest Link       -> Meta Quest Link app, Settings, General, OpenXR Runtime,
+                         "Set Meta Quest Link as active".
+     Steam Link       -> SteamVR Settings, OpenXR, "Set SteamVR as OpenXR
+                         runtime".
+
+4. START THE GAME
+   Put the headset on and start Gloomhaven the way you normally do.
+
+   THE FIRST TIME YOU START IT AFTER INSTALLING OR UPDATING, THE GAME WILL CLOSE
+   AND REOPEN BY ITSELF — ONCE. That is meant to happen. It is not a crash.
+   See below.
+
+
+WHY THE GAME RESTARTS ITSELF ONCE
 ---------------------------------
-Unity normally submits every draw call on ONE thread, and on this game that
-thread is the whole bottleneck in a scenario. Switching on "graphics jobs" moved
-the measured frame from 17.5 ms to 11.14 ms and the headset from a locked 45 Hz
-to a clean 90 Hz — the ghosting on head movement disappeared entirely.
+The mod switches on a speed setting that the game only reads while it is
+starting up, so it can never take effect on the run that switches it on. Rather
+than telling you to quit and start again, the mod does it for you.
 
-It is a two-line change to a file the game already has (GH_Data/boot.config),
-and Unity reads that file during engine startup, before any mod code exists. So
-the mod can write the setting, but never for the run that writes it. Rather than
-telling you to quit and start again, it closes the game and brings it back.
+On the test machine that setting was the difference between a stuttery 45 frames
+per second and a smooth 90, and the smearing when you turn your head went away.
 
-This happens once, after installing or updating the mod. It cannot repeat: the
-restarted game is marked as such and will not restart again, and a counter stops
-it after two attempts if the setting somehow never sticks. Nothing of yours is
-at risk — it runs during engine startup, before any save or campaign is loaded.
+It happens once, after installing or updating. It cannot get stuck in a loop,
+and it happens during start-up, before any save game is touched.
 
-Don't want it? Set [Core] AutoRestartForGraphicsJobs = false in
-dev.gloomhavenvr.cfg and restart the game yourself when the log asks you to.
+Don't want it? Open BepInEx\config\dev.gloomhavenvr.cfg and, under the [Core]
+heading, set AutoRestartForGraphicsJobs = false. The game will then ask you to
+restart it yourself instead.
 
-Don't want a game file touched at all? Set [Core] EnableGraphicsJobs = false and
-add this to the game's Steam launch options instead:
-  -force-gfx-jobs native
-That works from the very first start and no file is written.
-
-This is the ONLY game file the mod writes: two key=value lines, every other line
-preserved, and the original copied once to boot.config.gloomhavenvr-backup.
-If the game ever fails to start, copy that backup over boot.config — the mod
-cannot help you there, because it never runs.
-
-Undoing it, in the order you would want them:
-  * Set [Core] EnableGraphicsJobs = false. The mod writes the two keys back to 0
-    on the next start. Nothing else in the file is touched.
-  * Or copy boot.config.gloomhavenvr-backup over boot.config yourself. That is
-    the file exactly as it was before the mod ever ran, and it works whether or
-    not the mod is still installed.
+This is the ONLY game file the mod ever changes: two lines added to
+GH_Data\boot.config, everything else in it left alone, and the original saved
+next to it as boot.config.gloomhavenvr-backup. If the game ever refuses to
+start, copy that backup back over boot.config — the mod cannot fix that for you,
+because at that point it never gets to run.
 
 
-Trouble
--------
-Headset black / game stays flat? Add the launch option -force-d3d11 (desktop
-OpenXR needs D3D11).
+SETTINGS
+--------
+Everything is adjustable from inside the headset: open the game's own Options
+window and pick the VR Options tab.
 
-Full troubleshooting: INSTALL.md and docs/TESTING-P1.md in the project
-repository.
+To play the game completely unmodified for a while, open
+BepInEx\config\dev.gloomhavenvr.cfg and, under the [General] heading, set
+Enabled = false. You do not have to uninstall anything.
+
+
+PLAYING WITH OTHER PEOPLE
+-------------------------
+Everyone playing together needs the same version of the mod — if two people have
+different versions, the game says so instead of letting the session go quietly
+wrong. People without the mod at all can still play with you normally.
+
+
+IF SOMETHING GOES WRONG
+-----------------------
+The game starts on your monitor instead of in the headset, or the headset stays
+black? First check step 3 above. If that is right and it still happens, add
+-force-d3d11 to the game's launch options in Steam or GOG.
+
+Something else? There is one file to send, in your Gloomhaven folder:
+  BepInEx\LogOutput.log
+Send that whole file, say what you were doing, and say which headset you use and
+how you connect it.
+
+The full guide — playing, all the settings, known rough edges, uninstalling —
+is the README on the project page:
+  https://github.com/McFredward/GloomhavenVR

@@ -299,11 +299,26 @@ immediately afterwards.
 And it has no previous tag: `main` carries ~2,140 commits of history and nothing to
 compare against. `scripts/release-notes.sh` handles that deliberately — it does **not**
 print 2,140 commit subjects (that would exceed GitHub's 125,000-character release-body
-limit and the API call would fail outright). It prints one honest sentence — *"First
-release … 2,141 commits of development from 2026-07-14 to <date> published for the
-first time"* — plus a link to the full commit history. Every later release lists the
-real commit subjects since the previous tag, capped at 100 with an explicit "… and N
-more", with the `chore(release):` bookkeeping commits filtered out.
+limit and the API call would fail outright). It says plainly that this is the first
+release and links to the full commit history instead.
+
+Every later release still lists the real commit subjects since the previous tag, capped
+at 100 with an explicit "… and N more" and with `chore(release):` commits filtered out —
+but they sit inside a collapsed `<details>` block labelled as the developers' own change
+log, because **the release body is read by players** and a raw commit subject is not a
+sentence a player can use.
+
+The player-facing "What's new" section comes from **`packaging/release-highlights/<version>.md`**
+if that file exists; its contents are pasted in verbatim. That file is the only place
+player-language release notes can come from — there is no automatic way to derive them
+from commit subjects, and the script does not pretend there is. When the file is absent
+the script says so in the body and prints a reminder on stderr. Write it on `dev` before
+you release; see `packaging/release-highlights/README.md`.
+
+`scripts/release-notes.sh` no longer reads any source file. It used to parse `ModBuild`
+out of `NetProtocol.cs` for a "**Multiplayer:** ModBuild N" line; that number means
+nothing to a player, and dropping it means a refactor of `NetProtocol.cs` can no longer
+silently blank a line in a release body.
 
 One failure mode to be aware of: a workflow runs from the version of itself **at the
 pushed commit**. If you ever push a commit to `main` that predates `.github/workflows/`,

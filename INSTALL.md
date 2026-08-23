@@ -1,19 +1,22 @@
-# GloomhavenVR — installation
+# GloomhavenVR — how to install it
 
-**The install guide now lives in the [README](README.md).** It is the single source of truth for
-what a player needs to do, and it is kept in step with the release zip that
-`scripts/package-release.sh` produces.
+**The install guide lives in the [README](README.md).** It is the one place that is kept in step
+with the zip you download, so it is the one to follow.
 
 Go straight to:
 
-- [Requirements](README.md#requirements) — game version, OS, headset, OpenXR runtime selection
-- [Install](README.md#install) — BepInEx, the release zip, the exact folder layout
-- [First launch](README.md#first-launch) — including the one-time self-restart and how to opt out
-- [Settings](README.md#settings) — the in-VR options tab and the config files
-- [Troubleshooting](README.md#troubleshooting) — what to check, where the log is, what to send
+- [What you need](README.md#what-you-need) — the game, your PC, your headset, and the one free
+  program you install first
+- [Install](README.md#install) — the two steps, and how to check you unpacked into the right place
+- [Starting the game the first time](README.md#starting-the-game-the-first-time) — including why it
+  closes and reopens itself once
+- [Updating](README.md#updating)
+- [Settings](README.md#settings) — the settings tab inside the headset
+- [If something goes wrong](README.md#if-something-goes-wrong) — what to check, where the log file
+  is, and what to send
 - [Uninstall](README.md#uninstall)
 
-The short version that ships inside the zip is generated from
+The short version that ships inside the zip as `INSTALL.txt` is generated from
 [`packaging/INSTALL.txt.in`](packaging/INSTALL.txt.in).
 
 Building the mod from source: [`docs/DEVELOPING.md`](docs/DEVELOPING.md).
