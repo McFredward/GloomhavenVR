@@ -31,8 +31,9 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///
 /// <para>AND IT IS NOT ANCHORED TO THE ORBIT CAMERA. Test #8 anchored the rig to
 /// <c>CameraController.s_CameraController</c> on the map scene and produced "giant map below the
-/// player, black flat window"; that failure is written into the <c>[Rig] Experimental3DMap</c>
-/// config description, and <c>VRRigDriver.UpdateBody</c> carries the standing warning that the
+/// player, black flat window"; that failure is written into the <c>[Rig] Vanilla2DMap</c>
+/// config description (as <c>[Rig] Experimental3DMap</c> until ModBuild 230 renamed and
+/// inverted it), and <c>VRRigDriver.UpdateBody</c> carries the standing warning that the
 /// switch "must never silently re-enable the broken orbit-camera anchoring". The seat here comes
 /// from the PARCHMENT RENDERER'S WORLD BOUNDS (<see cref="MapRoomSeat"/>); the orbit camera is
 /// read for one horizontal direction and one culling mask, both with pure fallbacks.</para>
@@ -221,10 +222,19 @@ internal static class MapRoomDriver
     /// </summary>
     internal static void TickPredicate()
     {
-        if (Plugin.Experimental3DMap == null || !Plugin.Experimental3DMap.Value)
+        // THE SWITCH INVERTED AND WAS RENAMED AT ModBuild 230 (user ruling: the 3D map room is the
+        // default presentation, and the dial names the OPT-OUT — see Plugin.Vanilla2DMap's doc).
+        // The SHAPE of this guard is deliberately unchanged: a NULL entry still stands the room
+        // down. That is not an accident of the inversion but the same safety it had before — null
+        // means Plugin.Awake has not bound the config yet, and a room built during a half-finished
+        // boot is the one failure mode this line has always existed to prevent. Only the readable
+        // state moved: "the 3D switch is off" became "the vanilla switch is on".
+        if (Plugin.Vanilla2DMap == null || Plugin.Vanilla2DMap.Value)
         {
             if (Wanted)
-                _verdict = "[Rig] Experimental3DMap is off";
+                _verdict = Plugin.Vanilla2DMap == null
+                    ? "[Rig] Vanilla2DMap is not bound yet"
+                    : "[Rig] Vanilla2DMap is on (the game's flat 2D map was chosen)";
             Wanted = false;
             _absentFrames = 0;
             return;
@@ -275,7 +285,7 @@ internal static class MapRoomDriver
         if (!Wanted || !ReferenceEquals(shown, _verdictShown))
         {
             _verdictShown = shown;
-            _verdict = $"[Rig] Experimental3DMap on AND MapChoreographer map '{shown.name}' is active in "
+            _verdict = $"[Rig] Vanilla2DMap off AND MapChoreographer map '{shown.name}' is active in "
                        + "the hierarchy AND its parchment has measurable world bounds";
         }
         Wanted = true;

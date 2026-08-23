@@ -172,16 +172,21 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   false while a mode is active (UIGuildmasterHUD.cs:441) so uGUI's <c>Toggle.Set</c> merely
 ///   re-asserts <c>isOn</c>. In the room it DOES have something to do: it closes the window. So the
 ///   cap stays lit and pressable, and the press routes to
-///   <c>GuildmasterDestinations.CloseMode</c>.</item>
+///   <c>GuildmasterDestinations.HandleCapPress</c>.</item>
 /// </list>
 ///
-/// <para>THE SECOND PRESS CLOSES, AND IT IS THE X's OWN ROUTE. <c>CloseMode</c> is
-/// <c>LeaveMode</c> asked by mode instead of by window: it presses the bar's MAP (or CITY) button,
-/// so <c>UIGuildmasterHUD.UpdateCurrentMode</c> runs <c>modes[current].Exit()</c> — the only thing
-/// that takes the party display back out of selection mode. It is restricted to the six modes that
-/// ARE windows; <c>WorldMap</c> and <c>City</c> are the map surface this room is built on and
-/// "closing" one of them would mean silently swapping the player between the world map and the city
-/// map, so <see cref="IsClosableMode"/> refuses them by name and says so.</para>
+/// <para>THE SECOND PRESS CLOSES, AND IT IS THE X's OWN ROUTE, ALL OF IT (ModBuild 230). The whole
+/// decision is <c>GuildmasterDestinations.Decide</c>, made ONCE per press against what is observably
+/// standing — the live world-space panel first, the game's <c>UIWindow.IsOpen</c> second, the mode
+/// enum only as a tiebreaker — and the close is <c>ModalFallback.CloseFloatedWindow</c>, the single
+/// routine that releases the map room's parallel float AND runs the game-side
+/// <c>UIGuildmasterHUD.UpdateCurrentMode</c> → <c>modes[current].Exit()</c>, which is still the only
+/// thing that takes the party display back out of selection mode. ModBuild 222/226 had those as two
+/// branches and the log proves each press only ever took one of them, so closing took two presses:
+/// see GuildmasterDestinations, section 8, for the four occurrences in his ModBuild 229 log. The six
+/// modes that ARE windows toggle; <c>WorldMap</c> and <c>City</c> are the map surface this room is
+/// built on and "closing" one of them would mean silently swapping the player between the world map
+/// and the city map, so <c>Decide</c> answers <c>Refused</c> for them and says so.</para>
 ///
 /// <para>MULTIPLAYER. A cap's appearance is local presentation and always was. The close drives one
 /// <c>pointerClick</c> on the bar's own map Toggle — the same dispatch the window X has sent since
@@ -1032,6 +1037,13 @@ internal sealed class MapButtonRail
     /// the test would have put <c>ModalFallback</c>'s converted-window scan into a predicate that
     /// runs for every cap on every frame — the ModBuild 196 mistake, for a boolean that is already
     /// true.</para>
+    ///
+    /// <para>ModBuild 230 KEEPS THAT CALL, AND IT IS NOW LOAD-BEARING RATHER THAN MERELY THRIFTY.
+    /// <c>GuildmasterDestinations.Decide</c> samples the float set, and it does so ONCE PER TRIGGER
+    /// PULL. If this predicate — which runs for every cap on every frame — asked the same question,
+    /// the room would pay a converted-window walk per cap per frame for a value that decides nothing
+    /// until a press happens. Nothing in the ModBuild 230 change is per-frame; see section 8 of
+    /// <c>GuildmasterDestinations</c> for the cost statement.</para>
     /// </summary>
     private static bool Pressable(Cap c)
     {
@@ -1068,9 +1080,15 @@ internal sealed class MapButtonRail
     /// <para>ModBuild 226: the six-way table itself moved to
     /// <c>GuildmasterDestinations.IsWindowMode</c>, unchanged member for member. It had to become
     /// one table rather than two, because that class now asks the same question on its own account
-    /// — <c>IsLeftoverWindowStanding</c> must know which modes HAVE a window before it can ask that
+    /// — the standing-window sample must know which modes HAVE a window before it can ask that
     /// window anything — and two copies of a six-way switch is the shape a later round gets
     /// half-right. The reasoning above is the reasoning for that table and stays here.</para>
+    ///
+    /// <para>ModBuild 230: this method's ONLY remaining caller is <see cref="Pressable"/>. The press
+    /// path no longer consults it — <c>GuildmasterDestinations.Decide</c> reads the same
+    /// <c>IsWindowMode</c> table directly and answers <c>Refused</c> for the two map surfaces — so
+    /// there is still exactly one table and the rail and the destination class still cannot
+    /// disagree about which modes have a window.</para>
     /// </summary>
     private static bool IsClosableMode(EGuildmasterMode mode) =>
         GuildmasterDestinations.IsWindowMode(mode);
@@ -1687,54 +1705,33 @@ internal sealed class MapButtonRail
         //     current mode … nothing was dispatched"). With the merchant still on the table and the
         //     mode machine back at the map, a press here took the OPEN branch below and re-entered
         //     the mode instead of closing what he was looking at. The window is asked directly —
-        //     GuildmasterDestinations.IsLeftoverWindowStanding, which reads UIWindow.IsOpen and the
-        //     mod's own float set. NOTHING IS REMEMBERED: a flag saying "this cap opened it" would
-        //     be wrong the moment he uses the window's own X, which in this room he can, always.
+        //     226's IsLeftoverWindowStanding, which read UIWindow.IsOpen and the mod's own float set
+        //     (it is GuildmasterDestinations.Sample/Decide since 230). NOTHING IS REMEMBERED: a flag
+        //     saying "this cap opened it" would be wrong the moment he uses the window's own X,
+        //     which in this room he can, always.
+        //
+        //     ModBuild 230 — AND THE TWO STATES WERE TWO PRESSES. He reported it a third time:
+        //     "Die Fenster … gehen erst durch zwei-maliges erneutes Drücken auf den Tasten wieder
+        //     zu. Die Tasten soll Tiggles sein." The block that stood here asked the MODE first
+        //     (toggle.isOn) and only fell through to the panel when the mode had already left — so
+        //     press 2 took the mode branch, exited the mode, and left the map room's STICKY parallel
+        //     float standing and re-shown, and press 3 took the panel branch and released it. His
+        //     ModBuild 229 log has that pair four times over, ten to twenty lines apart with a full
+        //     frame of panel maintenance between them (Player.log:27933 then 27943 for the merchant;
+        //     the reading is written out in full in GuildmasterDestinations, section 8).
+        //
+        //     There is ONE question now and the panel is asked first, because the panel is what he
+        //     is pressing the button to get rid of: GuildmasterDestinations.Decide returns Open,
+        //     Close, TabSwitch or Refused from one sample of the observable state, and HandleCapPress
+        //     performs it and prints the single GUILDMASTER WINDOW PRESS line that names the
+        //     destination, the state observed, the branch taken and the state left behind. The rail
+        //     keeps exactly one job here: dispatch the game's own press when the answer is "open".
+        //     toggle.isOn is passed in for the LOG only — it is the fact ModBuild 222 keyed the close
+        //     on, and printing it beside the panel state is what makes the next disagreement between
+        //     the two visible in one line instead of costing another test round.
         EGuildmasterMode mode = button.GuildmasterMode;
-        bool modeIsCurrent = toggle != null && toggle.isOn;
-        UIWindow? standing = null;
-        string standingWhy = string.Empty;
-        bool leftoverStanding = false;
-        if (!modeIsCurrent)
-            leftoverStanding = GuildmasterDestinations.IsLeftoverWindowStanding(mode, out standing,
-                                                                               out standingWhy);
-        if (modeIsCurrent || leftoverStanding)
-        {
-            if (!IsClosableMode(mode))
-            {
-                VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while it is ALREADY the "
-                                  + "current mode — and this one is not closable, so nothing was "
-                                  + "dispatched. WorldMap and City are map SURFACES, not windows: this "
-                                  + "room is built on one of them, and the only thing 'close' could mean "
-                                  + "for a map is switching to the other one, which would move the player "
-                                  + "between the world map and the city on a second press. The toggle-close "
-                                  + "is restricted to the six modes that ARE windows (merchant, temple, "
-                                  + "trainer, enchantress, town records, mercenary log).");
-                return;
-            }
-            VRLog.Info(Scope, $"MAP TABLE BUTTON '{mode}' pressed ({source}) while its window is OPEN — "
-                              + "this is the CLOSE, not a second open. Routed to "
-                              + "GuildmasterDestinations.CloseMode. WHICH OF THE TWO STATES: "
-                              + (modeIsCurrent
-                                  ? "the mode machine still has this mode CURRENT (toggle.isOn), so the "
-                                    + "close is the return to the map — the same dispatch this window's own "
-                                    + "X has used since ModBuild 184. The game's mode machine has no "
-                                    + "'close', only 'switch mode', and only UpdateCurrentMode -> Exit takes "
-                                    + "the party display back out of selection mode."
-                                  : $"the mode machine has ALREADY left this mode, and the window is standing "
-                                    + $"anyway — {standingWhy}. Returning to the map would dispatch nothing "
-                                    + "there (that is the 'ALREADY the current mode' no-op ModBuild 222 left "
-                                    + "in the log), so the close goes through the WINDOW'S OWN X path, "
-                                    + $"ModalFallback.CloseFloatedWindow on "
-                                    + $"'{(standing != null ? standing.name : "?")}'.")
-                              + " The flat game cannot do either of these — RefreshSelected sets "
-                              + "toggle.interactable = !toggle.isOn (UIGuildmasterButton.cs:209) and "
-                              + "allowSwitchOff is false while a mode is active (UIGuildmasterHUD.cs:441), "
-                              + "so a repeat click there is a no-op. Nothing new goes on the wire; a second "
-                              + "press can only LEAVE, never re-commit what the first one bought.");
-            GuildmasterDestinations.CloseMode(mode, $"a second press on its own table cap ({source})");
+        if (GuildmasterDestinations.HandleCapPress(mode, source, toggle != null && toggle.isOn))
             return;
-        }
 
         if (toggle != null && !toggle.IsInteractable())
         {

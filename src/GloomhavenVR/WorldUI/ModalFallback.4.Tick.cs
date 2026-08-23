@@ -2197,6 +2197,17 @@ internal static partial class ModalFallback
         TickScreenBind(floatPathOwnsWindows: convertWanted);
 
         EnterPhase(PhaseRelease);
+        // 0. ModBuild 230 — THE LIVENESS RULE, user: "Es darf niemals leere Fenster geben -
+        //    verschwindet das Objekt das in dem Fenster dargestellt wird, soll auch das Fenster
+        //    verschwinden." Judge every floated window's CONTENT before the release loop runs, so a
+        //    window found dead this tick leaves through that one existing teardown with its whole
+        //    chrome — grab holder, X, collider, arc slot — instead of through a second, partial
+        //    path. It marks and never releases; the loop below is still the only releaser. The
+        //    whole rule, its two failure shapes and what the ModBuild 226 reveal-edge test could and
+        //    could not see live in ModalFallback.9.Spawn.cs. Its self-cost is inside this phase's
+        //    number (ModalFallback.Release in the MODAL TICK BREAKDOWN) and is additionally printed
+        //    per-window-walk by its own MODAL LIVENESS CENSUS line.
+        TickWindowLiveness();
         // 1. Release conversions whose window closed/died or that are no longer wanted.
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
@@ -2215,7 +2226,13 @@ internal static partial class ModalFallback
             // restores the box to the invisible 2D stack and the dismiss-chained tutorial dies
             // there. The float releases normally the moment the message is genuinely dismissed
             // (current message nulled / next message's DisplayDelay in effect).
-            bool stillOpen = alive && !wp.UserClosing
+            // ModBuild 230: the liveness verdict OVERRIDES every keep-alive clause below it, and it
+            // has to. The two shapes it fires on are "the content was destroyed" and "the content
+            // draws nothing" — a window in either state is exactly what the sticky clause and the
+            // scripted-message clause exist to keep floating, so leaving them ahead of it would keep
+            // the empty frame for the same reasons that produced it. The verdict is not a guess: see
+            // wp.EmptyReleaseShape, which is printed verbatim in the release line below.
+            bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending
                              && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky
                                  || ScriptedLevelMessageActive(wp.Window));
             if (stillOpen)
@@ -2250,11 +2267,68 @@ internal static partial class ModalFallback
                 StoreChainPose(wp);
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
+            // ModBuild 230: read the chrome BEFORE it is torn down, so the release line can state
+            // what actually went with the window rather than what usually does. That distinction is
+            // the whole point of the report: in .planning/debug/leeres_fenster2.jpg the content went
+            // and the chrome did not.
+            bool hadGrab = wp.Grab != null;
+            bool hadClose = wp.Panel != null && wp.Panel.HostRect != null
+                            && wp.Panel.HostRect.Find("GloomhavenVR.ModalCloseX") != null;
             wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host
             CanvasConversion.Release(wp.Panel); // restores the exact 2D home
-            VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released — restored to its 2D home " +
-                                  $"(open={wp.Window != null && wp.Window.IsOpen}, " +
-                                  $"convertWanted={convertWanted}).");
+            if (wp.EmptyReleasePending)
+            {
+                // HOLD IT OUT OF THE FLOAT SET UNTIL ITS CONTENT COMES BACK. The game may still
+                // report this window open (that is precisely the failure: open, standing, drawing
+                // nothing), so without this the convert loop three steps below would re-float it
+                // into the same dark state on the very next tick, forever. The hold lifts on a
+                // close/re-open or the moment the window is measured drawing again — see
+                // EmptyHeldNow. Nothing is done to the GAME's window here: no Hide, no Escape, no
+                // state write, and nothing on the wire. This is a presentation release.
+                //
+                // THE BLOCKING/NON-BLOCKING SPLIT IS ModBuild 226's, COPIED DELIBERATELY rather than
+                // re-decided. A BLOCKING window that has gone dark is a prompt the player must
+                // answer and cannot see, so it goes into `Failed` — which is a term of ScreenWanted,
+                // so the full flat screen rises for it. That is the DurabilityPanel rule: a wrongly
+                // screened window is recoverable, a dropped blocker is a deadlock. Everything else
+                // goes into the hold, which has no screen term, so one dark map-room panel can never
+                // raise the whole flat screen because some unrelated blocking window is up.
+                string holdKind = "none — the window is already gone";
+                if (wp.Window != null)
+                {
+                    if (IsBlockingWindow(wp.Window))
+                    {
+                        if (!ContainsWindow(Failed, wp.Window))
+                            Failed.Add(wp.Window);
+                        holdKind = "Failed (blocking → the flat screen rises so the prompt can still be answered)";
+                    }
+                    else
+                    {
+                        EmptyHold.Add(wp.Window);
+                        holdKind = "EmptyHold (non-blocking → no screen; it re-floats when it draws again)";
+                    }
+                }
+                VRLog.Warn("WorldUI", $"EMPTY WINDOW RELEASED: '{name}' (ID " +
+                                      $"{(wp.Window != null ? wp.Window.ID.ToString() : "?")}) — " +
+                                      $"{wp.EmptyReleaseShape}. It had been standing for " +
+                                      $"{(Time.unscaledTime - wp.FloatedAt):F1} s, was last measured " +
+                                      $"drawing something {(wp.LastDrawnAt > 0f ? $"{(Time.unscaledTime - wp.LastDrawnAt):F1} s ago" : "NEVER since it floated")}, " +
+                                      $"and the liveness rule had been armed for it since " +
+                                      $"{(wp.LivenessArmed ? $"{(Time.unscaledTime - wp.LivenessArmedAt):F1} s ago by {wp.LivenessArmReason}" : "never (the GONE shape needs no arming)")}. " +
+                                      $"TORN DOWN WITH IT: the world host and its collider/raycaster, " +
+                                      $"the grab bar ({(hadGrab ? "present" : "none — this window had no grab holder")}), " +
+                                      $"the X ({(hadClose ? "present" : "none — this window floats without one")}), " +
+                                      $"and the window's arc slot. It {(wp.Transient ? "IS" : "is NOT")} a transient " +
+                                      $"announcement. RE-FLOAT GATE: {holdKind}. USER RULING (ModBuild 230): \"Es darf " +
+                                      "niemals leere Fenster geben - verschwindet das Objekt das in dem " +
+                                      "Fenster dargestellt wird, soll auch das Fenster verschwinden.\"");
+            }
+            else
+            {
+                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released — restored to its 2D home " +
+                                      $"(open={wp.Window != null && wp.Window.IsOpen}, " +
+                                      $"convertWanted={convertWanted}).");
+            }
         }
 
         // 1b. SLOT RELEASE (map room): every window that just left the float set gives its arc slot
@@ -2281,6 +2355,15 @@ internal static partial class ModalFallback
             if (!FloatWantedFor(window, convertWanted))
                 continue;
             if (IsConverted(window) || ContainsWindow(Failed, window))
+                continue;
+            // ModBuild 230: this window was released for drawing nothing and is STILL reported open,
+            // so re-floating it now would rebuild the empty frame the release just removed. Held
+            // until its content comes back (or it closes) — the same "retry only after the condition
+            // changes" shape Failed uses, keyed on the condition that actually decided it. Placed
+            // here rather than only in CatchAllEligible because THIS window is ID-tracked: the
+            // ModBuild 226 EmptyRefused set is consulted by the catch-all alone, which is why an
+            // enrolled ID could never have been held by it.
+            if (EmptyHeldNow(window))
                 continue;
             if (!TryConvertWindow(window))
                 Failed.Add(window);

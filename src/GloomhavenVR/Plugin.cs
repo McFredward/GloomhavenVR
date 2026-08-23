@@ -68,17 +68,64 @@ public class Plugin : BaseUnityPlugin
     /// </summary>
     internal static ConfigEntry<bool> SpawnInCircle = null!;
 
-    /// <summary>[Rig] Experimental3DMap — RESERVED placeholder, currently unimplemented.
+    /// <summary>[Rig] Vanilla2DMap — show the game's ORIGINAL FLAT 2D CAMPAIGN MAP instead of the
+    /// 3D map room. Default <c>false</c>: a fresh install stands IN the map.
     ///
-    /// <para>KEEP — DO NOT UNBIND, even though no code reads <c>.Value</c> (refactor Batch D,
-    /// verified at HEAD). A bound entry is a PERSISTED USER SETTING (CHARTER §5): unbinding it
-    /// drops the key from every existing .cfg. Its 9-line description is also the only
-    /// surviving record of the test-#8 decision to keep the campaign map flat, and
-    /// <c>VRRigDriver</c> carries the matching comment at the site that would implement it.
-    /// It is deliberately NOT prefixed "LEGACY — superseded by X" (Batch E) either: nothing
-    /// superseded it, it was never implemented, and the description already says so
-    /// plainly.</para></summary>
-    internal static ConfigEntry<bool> Experimental3DMap = null!;
+    /// <para>THE RULING THAT INVERTED IT (ModBuild 230, verbatim): <i>"Die '3D-Map' Einstellung ist
+    /// nicht mehr Experimentell und sollte der Standart sein. Nenne die neue Einstellung eher so
+    /// etwas wie 'Vanilla 2D map' oder etwas ähnliches passendes was standartmäßig aus sein soll.
+    /// Die Einstellung soll außerhalb von Erweitert einstellbar sein."</i> Until 229 this entry was
+    /// <c>[Rig] Experimental3DMap</c> (default false, ON built the room). Not one line of the
+    /// FEATURE changed here — the DIAL did: the key now names the thing that is off, so the mod's
+    /// default presentation is the map room and the flat map is the opt-out. The single reader
+    /// inverted with it (<c>WorldUI/MapRoom/MapRoomDriver.cs:224</c>), and so did the four
+    /// dependency rules that fold the map-room family (<c>VROptionsTab.8.Dependencies.cs</c>).</para>
+    ///
+    /// <para>THE DOC THAT USED TO STAND HERE WAS FALSE, and had been for seventy-odd builds. It
+    /// read "RESERVED placeholder, currently unimplemented" and "no code reads <c>.Value</c>
+    /// (refactor Batch D, verified at HEAD)", which stopped being true at ModBuild 158 when the
+    /// map room shipped behind this very switch. Two derived documents inherited the error and
+    /// still carry it (<c>.planning/menu-audit/03-core-rig-perf.md:30</c> "DEAD … zero readers",
+    /// <c>docs/INTERFACES-P2.md:339</c> "reserved, unimplemented placeholder") — this is the
+    /// original, corrected at the source. It matters mechanically as well as editorially: the
+    /// prefix "RESERVED —" is one of <c>ConfigCatalog.RetiredMarkers</c>, so a description that
+    /// had ever been rewritten to match that doc would have deleted the row from every menu page
+    /// in the mod (<c>ConfigCatalog.Describe</c> → <c>IsRetired</c> → <c>return null</c>).</para>
+    ///
+    /// <para>MULTIPLAYER: nothing on the wire depends on which side of this switch a peer is on.
+    /// Extension records 20 and 21 (the map room and its shared windows) are written only while
+    /// this client's own room stands — <c>RemoteMapRoom.Sample</c>/<c>RemoteMapStory.Sample</c>
+    /// are guarded by <c>MapRoomDriver.Active</c> — and both <c>Resolve</c> passes return on the
+    /// same comparison, so a peer on the flat map neither sends nor applies them and its packets
+    /// stay byte-identical to a pre-record build (<c>Net/NetAvatarDriver.cs:1665-1670, 2931-2933</c>).
+    /// The handshake compares <c>NetProtocol.ModBuild</c> and nothing else, so a mixed table is
+    /// legal; what changes at 230 is only which side is the majority.</para></summary>
+    internal static ConfigEntry<bool> Vanilla2DMap = null!;
+
+    /// <summary>[Rig] MapPresentationMigrated230 — one-shot migration marker, not a setting.
+    /// False on a fresh install; set true the first time a build carries a pre-230 install's
+    /// <c>[Rig] Experimental3DMap</c> choice across to <see cref="Vanilla2DMap"/>. Kept out of the
+    /// menu by <c>ConfigCatalog.NotOffered</c>, for the reason that table's own doc gives: setting
+    /// a marker back to false does not undo its migration, it RE-ARMS it.</summary>
+    internal static ConfigEntry<bool> MapPresentationMigrated230 = null!;
+
+    /// <summary>
+    /// The raw text of <c>[Rig] Experimental3DMap</c> as it stood in the main config FILE at the
+    /// moment <c>Awake</c> began — before the first <c>Config.Bind</c> could write to it — or
+    /// <c>null</c> when the file did not exist or did not carry that key.
+    ///
+    /// <para>THIS IS THE ONLY THING THAT CAN TELL THE THREE STARTING STATES APART, and the whole
+    /// reason it is read from the file rather than from BepInEx. A renamed key is an ORPHAN: it is
+    /// still in the .cfg (BepInEx 5 preserves orphaned entries across a save, which is why the line
+    /// does not simply vanish at 230) but it is no longer bound, so <c>Config.TryGetEntry</c>
+    /// cannot see it and <c>ConfigFile.OrphanedEntries</c> is <c>protected internal</c> in
+    /// BepInEx.Core 5.4.20 — which this project references un-publicized (see GloomhavenVR.csproj:
+    /// only the GAME assemblies carry <c>Publicize="true"</c>). Re-BINDING the old key to read it
+    /// would defeat the purpose: BepInEx returns the shipped default when the key is absent, so a
+    /// fresh install and a returning player who left the switch at its old default would both read
+    /// <c>false</c> and be indistinguishable. The file itself is the only place where "the key is
+    /// not there at all" is a value.</para></summary>
+    private static string? _legacy3DMapRaw;
 
     /// <summary>
     /// [MapRoom] Size factor for the campaign map's LOCATION ICONS in the 3D map room
@@ -299,6 +346,15 @@ public class Plugin : BaseUnityPlugin
     {
         VRLog.Init(Logger);
 
+        // READ THE CONFIG FILE BEFORE THE FIRST BIND TOUCHES IT. BepInEx writes the whole file on
+        // the first Bind (ConfigFile.Save runs when SaveOnConfigSet is on, which is the default),
+        // so this line has to stand ahead of every Bind in Awake — including the [General] Enabled
+        // one below — or the snapshot would be of a file the mod has already rewritten. It costs
+        // one File.ReadAllLines of a ~200-line text file, once per process, and it is the input to
+        // the ModBuild 230 map-presentation one-shot further down (see _legacy3DMapRaw's doc for
+        // why nothing in the BepInEx API can answer this).
+        _legacy3DMapRaw = ReadRawConfigValueBeforeBind(Config.ConfigFilePath, "Rig", "Experimental3DMap");
+
         // The main plugin config is the one file the mod does NOT create through
         // ModuleConfig.Create (BaseUnityPlugin owns it), so it is registered by hand — otherwise
         // the in-VR config browser (Debug ▸ Alle Einstellungen) could not reach the cross-cutting
@@ -408,20 +464,106 @@ public class Plugin : BaseUnityPlugin
             "offline (the solo seat is unchanged). Off = every player keeps the same shared seat " +
             "as before. Every outcome is written to the log (seated / waiting for a peer / no " +
             "board yet / off).");
-        Experimental3DMap = Config.Bind(
-            "Rig", "Experimental3DMap", Defaults.Experimental3DMap,
-            "EXPERIMENTAL, off by default: stand IN the campaign map instead of looking at it " +
-            "on the flat screen. The map becomes a table-sized parchment you walk around and " +
-            "lean over, and in multiplayer you see each other there. Off = the flat 2D map, " +
-            "unchanged in every detail. Being built in phases — today it seats you at the " +
-            "parchment; the table, the pressable location icons, the floating placards and the " +
-            "movable windows arrive with the later phases, so expect an unfurnished room. " +
-            "The earlier attempt failed by anchoring to the game's own camera (test #8: giant " +
-            "map below the player, black flat window); this one anchors to the PARCHMENT'S own " +
-            "bounds, which is what that note was warning about. Everything is written to the " +
-            "log — look for MAP ROOM ENGAGED and MAP SCENE REPORT.");
+        // ---- [Rig] Vanilla2DMap — WHICH CAMPAIGN MAP YOU GET, and it ships OFF -----------------
+        //
+        // The description must NOT begin "RESERVED —", "LEGACY — no effect" or "DEPRECATED —":
+        // those three prefixes are ConfigCatalog.RetiredMarkers and any of them takes the row out
+        // of every page of the menu (ConfigCatalog.Describe → IsRetired → return null), which is
+        // the exact opposite of the ruling this entry exists to serve.
+        Vanilla2DMap = Config.Bind(
+            "Rig", "Vanilla2DMap", Defaults.Vanilla2DMap,
+            "OFF BY DEFAULT, and off is the 3D map room: you stand IN the campaign map, which is " +
+            "a table-sized parchment you walk around and lean over, and in multiplayer you see " +
+            "each other there. Turn this ON to get the game's ORIGINAL FLAT 2D MAP back instead, " +
+            "on the 2D screen, unchanged in every detail. Everything the room adds goes with it " +
+            "when you do: the pressable location icons, the travel confirmation, the shared map " +
+            "windows and story pages, the map-room card hand and the five [MapRoom] size dials, " +
+            "which is why the options pane folds all of those away while this is on. The room was " +
+            "shipped as [Rig] Experimental3DMap up to ModBuild 229 and was off by default; it is " +
+            "the default presentation from 230 and this entry is the way back, so an existing " +
+            "config's choice is carried across once, automatically ([Rig] " +
+            "MapPresentationMigrated230). Multiplayer: which map you are on is a purely local " +
+            "choice — nothing about it is negotiated, no packet depends on it, and two players on " +
+            "different presentations is a supported table. Everything is written to the log — " +
+            "look for MAP ROOM ENGAGED and MAP SCENE REPORT.");
+
+        // ---- THE ModBuild 230 ONE-SHOT: an INVERTED, RENAMED key must not silently re-decide ---
+        //
+        // WHY IT IS NEEDED AT ALL. BepInEx reads the FILE, not the shipped default, so flipping a
+        // default only ever reaches a FRESH install — the same fact the ModBuild 227 one-shot in
+        // Core/PerfConfig.cs:474-518 was written for. Here it bites twice as hard, because the key
+        // was RENAMED as well as inverted: to a returning player [Rig] Vanilla2DMap is a brand-new
+        // entry that binds at its shipped default (false = the room), and their old
+        // Experimental3DMap line becomes an orphan the mod no longer reads. Without this block a
+        // player who deliberately chose the flat map would be put in the map room at the next
+        // start with no line in the log saying why.
+        //
+        // THE THREE STARTING STATES, AND HOW THEY ARE TOLD APART. _legacy3DMapRaw is the raw text
+        // of [Rig] Experimental3DMap as it stood in the file BEFORE the first bind (read at the top
+        // of Awake), so "the key is not in the file" is itself a value here — which is what makes
+        // the third state observable at all:
+        //   * "true"  — they were IN the 3D map room  → Vanilla2DMap = false. Same picture.
+        //   * "false" — they had the flat map         → Vanilla2DMap = true.  Same picture.
+        //   * absent  — no cfg file, or a file written before the key ever existed: they never
+        //               made this choice → nothing is written and the SHIPPED DEFAULT stands,
+        //               i.e. the 3D map room. That is the ruling ("sollte der Standart sein"),
+        //               and it is the only reading of "never touched it" the data can support: a
+        //               bound entry is written to the file on first bind, so an install that ran
+        //               any build from 158 onward carries the key whether or not a human ever
+        //               looked at it, and "false in the file" cannot be told from "never opened
+        //               the menu". Where the two readings disagree this one keeps the player's
+        //               PICTURE stable, which is the promise the log line makes.
+        //
+        // A MARKER, NOT A FORCE — the 227 block's own words, and the reason the marker exists
+        // rather than just the raw read: BepInEx 5 PRESERVES orphaned entries when it saves, so
+        // the Experimental3DMap line stays in the file for ever and a re-read every start would
+        // overwrite the player's later choice on every single boot. Keyed on the marker, the
+        // transfer happens exactly once; after it, Vanilla2DMap is an ordinary switch and setting
+        // it either way sticks. Setting the marker back to false re-runs the one-shot.
+        MapPresentationMigrated230 = Config.Bind(
+            "Rig", "MapPresentationMigrated230", Defaults.MapPresentationMigrated230,
+            "One-shot migration marker, not a setting. Do not edit. FALSE on a fresh install; set "
+            + "TRUE the first time this build carries a pre-ModBuild-230 config's [Rig] "
+            + "Experimental3DMap choice across to [Rig] Vanilla2DMap, which replaced it and means "
+            + "the opposite. Once it is true, Vanilla2DMap is an ordinary switch and stays wherever "
+            + "you put it. Setting this back to false re-runs the one-shot against the old key, "
+            + "which is still in this file as an unread leftover.");
+        if (!MapPresentationMigrated230.Value)
+        {
+            MapPresentationMigrated230.Value = true;
+            // bool.TryParse is the right reader and not merely a convenient one: BepInEx writes
+            // bools with TomlTypeConverter, i.e. lowercase "true"/"false", and TryParse is
+            // case-insensitive and whitespace-tolerant, so a hand-edited "True" migrates too. Any
+            // value that is not a bool at all (a hand-edit typo) falls through to "leave it alone",
+            // which lands the player on the new default rather than on a guess.
+            if (_legacy3DMapRaw != null && bool.TryParse(_legacy3DMapRaw, out bool had3DMap))
+            {
+                bool wantVanilla = !had3DMap;
+                if (Vanilla2DMap.Value != wantVanilla)
+                    Vanilla2DMap.Value = wantVanilla;
+                VRLog.Info("Core", "One-shot migration: [Rig] Experimental3DMap = "
+                                   + (had3DMap ? "true" : "false") + " in this install's config "
+                                   + "became [Rig] Vanilla2DMap = " + (wantVanilla ? "true" : "false")
+                                   + " — the same map you had before, under the key that replaced "
+                                   + "it and means the opposite. The 3D map room is the DEFAULT "
+                                   + "presentation from ModBuild 230, so the new entry is the way "
+                                   + "back to the flat 2D map rather than the way into the room. "
+                                   + "This runs exactly once; the row is 'Originale 2D-Karte' under "
+                                   + "Umgebung & Ton ▸ Kampagnenkarte and it stays wherever you put "
+                                   + "it. The old key is left in the file as an unread leftover.");
+            }
+            else
+            {
+                VRLog.Info("Core", "One-shot migration: this config carries no readable [Rig] "
+                                   + "Experimental3DMap line, so there is no earlier map choice to "
+                                   + "carry over and [Rig] Vanilla2DMap keeps its shipped default "
+                                   + "(off = the 3D map room, which is the default presentation "
+                                   + "from ModBuild 230). Expected on a fresh install.");
+            }
+        }
+
         // ---- [MapRoom] the 3D map room's own dials --------------------------------------------
-        // Bound in the MAIN config file next to [Rig] Experimental3DMap, which is the switch that
+        // Bound in the MAIN config file next to [Rig] Vanilla2DMap, which is the switch that
         // decides whether these do anything at all — a player who found that switch is one section
         // away from the three dials that tune what it turned on.
         //
@@ -434,7 +576,7 @@ public class Plugin : BaseUnityPlugin
             "MapRoom", "IconScale", Defaults.MapIconScale,
             new ConfigDescription(
                 "SIZE of the WORLD MAP's location icons WHILE YOU STAND IN THE 3D MAP ROOM "
-                + "([Rig] Experimental3DMap) — the village, scenario and boss markers on the "
+                + "([Rig] Vanilla2DMap off) — the village, scenario and boss markers on the "
                 + "parchment. Range 0.5-4, default 1 = the size they have always had, so nothing "
                 + "changes until you move this; the floor is there because an icon scaled to "
                 + "nothing is a scenario you can no longer point at. The factor multiplies each "
@@ -672,6 +814,70 @@ public class Plugin : BaseUnityPlugin
     /// Arcane MCP span to the glove's real-world hand bulk. Live-applied per frame
     /// via VRHand.SyncVisualOffset — no rebuild needed.
     /// </summary>
+    /// <summary>
+    /// Read ONE raw value straight out of a BepInEx .cfg file, without binding anything. Returns
+    /// the text to the right of the '=' (trimmed) when the key stands under the given section, and
+    /// <c>null</c> when the file is missing, unreadable, or simply does not carry that key.
+    ///
+    /// <para>WHY THIS EXISTS: see <see cref="_legacy3DMapRaw"/>. Short version — a RENAMED key is
+    /// an orphan, and the mod cannot see orphans through the BepInEx API it has (OrphanedEntries is
+    /// protected internal in un-publicized BepInEx.Core), while re-binding the old key would erase
+    /// the one distinction the migration turns on: "absent" versus "present and equal to the old
+    /// default". Only the file has that distinction, so the file is what is read.</para>
+    ///
+    /// <para>THE PARSER IS DELIBERATELY MINIMAL AND MATCHES THE WRITER, not the TOML spec. BepInEx
+    /// 5's ConfigFile.Save emits exactly three shapes: blank lines, '#' comment lines, '[Section]'
+    /// headers and "Key = value" lines — one entry per line, never quoted for bools, never
+    /// continued. So: skip blanks and '#', track the current section from '[...]', split the first
+    /// '=' and compare the trimmed key ordinally-case-insensitively (BepInEx's own ConfigDefinition
+    /// comparer is ordinal, but a hand-edited file is the case this is reading and a human types
+    /// what they remember). Anything it cannot make sense of yields null, which the caller treats
+    /// as "no earlier choice" — the safe direction, because that leaves the shipped default alone
+    /// instead of acting on a guess.</para>
+    ///
+    /// <para>NEVER THROWS. It runs at the very top of Awake, before the log has a level and before
+    /// a single module exists; an IO fault here must degrade to "no migration", not to a plugin
+    /// that fails to load. That is also why it does not use VRLog on the failure path — VRLog.Init
+    /// has run, but a config-file read that failed is not worth a line at Warn on every start of an
+    /// install that simply has no config yet.</para>
+    /// </summary>
+    private static string? ReadRawConfigValueBeforeBind(string path, string section, string key)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path))
+                return null;
+
+            string current = string.Empty;
+            string[] lines = System.IO.File.ReadAllLines(path);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                if (line.Length == 0 || line[0] == '#')
+                    continue;
+                if (line[0] == '[' && line[line.Length - 1] == ']')
+                {
+                    current = line.Substring(1, line.Length - 2).Trim();
+                    continue;
+                }
+                if (!string.Equals(current, section, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                int eq = line.IndexOf('=');
+                if (eq <= 0)
+                    continue;
+                if (!string.Equals(line.Substring(0, eq).Trim(), key, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                return line.Substring(eq + 1).Trim();
+            }
+        }
+        catch (Exception)
+        {
+            // Deliberately swallowed — see the doc above. "Could not read it" and "it was not
+            // there" are the same instruction to the caller: leave the shipped default alone.
+        }
+        return null;
+    }
+
     private void BindHandStyleEntries()
     {
         string[] styles = { "Glove", "Plate", "Arcane" }; // index == (int)Hands.HandStyle

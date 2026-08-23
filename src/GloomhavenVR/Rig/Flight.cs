@@ -65,6 +65,16 @@ namespace GloomhavenVR.Rig;
 /// take a degree of turning away — see <see cref="TickVerticalLift"/> for the axis-separation rule
 /// and <see cref="LiftAllowed"/> for who outranks it.</para>
 ///
+/// <para>A LASER-CARRIED WINDOW OUTRANKS BOTH OF THIS CLASS'S FORWARD-AXIS FEATURES, on its own
+/// hand and only while it is held (user request 2026-08-23: <i>"Wenn hoch/runter mit dem joystick
+/// auch aktiviert ist dann overruled das ranziehen diese Option so lange man ein Fenster mit dem
+/// Laser festhält."</i>). The claim is published by <c>WorldUI.LaserCarryReel</c>, queried in
+/// <see cref="Update"/> for forward/backward flight and in <see cref="LiftAllowed"/> for the
+/// vertical lift, and both refusals name it in the log rather than going quiet — a silent
+/// suppression is indistinguishable from a broken stick, which is the lesson this class's whole
+/// <see cref="ReportIdle"/> mechanism exists for. STRAFE IS NOT AFFECTED and neither is turning:
+/// both are the SIDEWAYS axis, the reel takes only up/down.</para>
+///
 /// <para>WHAT IT DELIBERATELY LEAVES ALONE. The rig ROOT moves; no game object is ever touched
 /// (the house rule for every comfort feature). The board keeps its own contract: in FOLGEN it comes
 /// along because the player moved, in FIXIERT it stays exactly where it was pinned — flight never
@@ -112,6 +122,10 @@ internal sealed class Flight : MonoBehaviour
     /// Change-gated — see <see cref="ReportIdle"/>.</summary>
     private string? _idleReason = "not evaluated yet";
 
+    /// <summary>The reel gate's stable reason — see the gate in <see cref="Update"/>. A constant so
+    /// the per-frame change-gate compares an interned literal and allocates nothing.</summary>
+    private const string ReelIdleReason = "a laser carry owns this hand's stick";
+
     /// <summary>
     /// SAY WHY THE STICK DOES NOTHING (ModBuild 180). Every early-out above this point used to
     /// return in silence, so "Ich kann mich nicht mit dem Joystick fortbewegen trotz richtiger
@@ -123,11 +137,23 @@ internal sealed class Flight : MonoBehaviour
     /// <para>Change-gated to one line per transition, so a session in which flight is simply on
     /// costs one line and a session in which it is refused says which gate refused it.</para>
     /// </summary>
-    private void ReportIdle(string? reason)
+    private void ReportIdle(string? reason) => ReportIdle(reason, null);
+
+    /// <summary>
+    /// <see cref="ReportIdle(string?)"/> with a separately supplied ATTRIBUTION clause, for a gate
+    /// whose reason is stable but whose detail is expensive to compose (the reel: it has to ask the
+    /// carrying handle for its name and live distance). The caller compares
+    /// <see cref="_idleReason"/> against the stable reason FIRST and only builds the detail on a
+    /// real transition — [Optimize] LeanLogStrings, since this gate can be true for many seconds at
+    /// a stretch and the reason is what the change-gate keys on anyway.
+    /// </summary>
+    private void ReportIdle(string? reason, string? detail)
     {
         if (reason == _idleReason)
             return;
         _idleReason = reason;
+        if (reason != null && detail != null)
+            reason += " — " + detail;
         VRLog.Info("Comfort", reason == null
             ? "stick flight: LIVE — past every gate; the stick now moves the player."
             : $"stick flight: doing nothing because {reason}. (Mode {VRModeStateMachine.CurrentMode}, "
@@ -212,6 +238,43 @@ internal sealed class Flight : MonoBehaviour
         {
             ReportIdle($"the {hand.Side} hand is world-grabbing (thumbstick CLICK held) — the drag "
                        + "already moves the player, so the same stick may not also fly");
+            return;
+        }
+        // A LASER CARRY'S REEL OUTRANKS FORWARD/BACKWARD FLIGHT ON ITS OWN HAND (user request
+        // 2026-08-23: "Wenn hoch/runter mit dem joystick auch aktiviert ist dann overruled das
+        // ranziehen diese Option so lange man ein Fenster mit dem Laser festhält.").
+        //
+        // The ruling names the VERTICAL LIFT, which is handled in LiftAllowed below. This gate is
+        // the same ruling applied to the OTHER claimant on the same axis, and it is not an
+        // extension of the request so much as the only way to honour it: forward/backward flight
+        // reads `stick.y` on [Comfort] FlightHand, the reel reads `Thumbstick.y` on the hand
+        // holding the window, and WITH THE SHIPPED DEFAULTS THOSE ARE THE SAME CONTROLLER —
+        // Defaults.FlightHand is Right and the laser carry only ever runs on the dominant hand
+        // (RayGrabDriver.cs:56), which is Right out of the box. Left unarbitrated, pulling a window
+        // toward you would fly you at it at the same time: two motions, one thumb, and the window
+        // would never appear to get closer.
+        //
+        // THE REEL WINS, and by the rule this class already applies twice (ScrollAllowed, and
+        // LiftAllowed's menu-scrolling clause): AN AIMED, DELIBERATE ACT ON A SURFACE THE PLAYER IS
+        // POINTING AT BEATS AMBIENT LOCOMOTION. The player is holding a trigger on a specific
+        // window's drag bar; flight is available again the instant they let go. It is also the
+        // narrower claim of the two — one hand, only while the trigger is down.
+        //
+        // TURNING IS NOT PART OF THIS AND CANNOT BE: the reel takes stick Y, turning takes stick X
+        // (SnapTurn.cs:147), and the reel never stamps UiScrollFocus, which is the only channel
+        // that can suppress a turn. TURN NEVER, ModBuild 138.
+        if (WorldUI.LaserCarryReel.OwnsStick(hand))
+        {
+            // [Optimize] LeanLogStrings: the reason is a constant the change-gate keys on; the
+            // attribution (which asks the carrying handle for its name and live distance) is only
+            // composed on the frame the verdict flips.
+            if (_idleReason != ReelIdleReason)
+                ReportIdle(ReelIdleReason,
+                    $"{WorldUI.LaserCarryReel.Describe()}, and [Comfort] LaserCarryReel gives the "
+                    + "window's distance that hand's up/down for as long as the trigger is held. Let "
+                    + "go of the window and flight is back the same frame; switch the option off and "
+                    + "this stops happening. Turning is untouched either way (it reads the sideways "
+                    + "axis)");
             return;
         }
         ReportIdle(null); // past every gate: flight is live on this hand
@@ -344,9 +407,24 @@ internal sealed class Flight : MonoBehaviour
     /// <summary>True while the wedge is satisfied and the lift is running (hysteresis state).</summary>
     private bool _lifting;
 
-    /// <summary>Last logged stand-down verdict, so the diagnostic is edge-only (this file's contract).
-    /// Null = nothing logged yet, so the first verdict of a session is always written.</summary>
-    private bool? _liftBlocked;
+    /// <summary>
+    /// Last logged stand-down verdict, so the diagnostic is edge-only (this file's contract).
+    /// Null = nothing logged yet, so the first verdict of a session is always written.
+    ///
+    /// <para>IT HOLDS THE SUPPRESSOR'S KEY, NOT A BOOLEAN, since ModBuild 230 — a change forced by
+    /// the reel (2026-08-23) and correct for the three suppressors that were already here. With a
+    /// <c>bool?</c> the line was written on allowed↔blocked transitions ONLY, so a change of
+    /// SUPPRESSOR while already blocked was silent. That is not hypothetical for the reel: the
+    /// shipped default configuration has FlightHand and TurnHand on the same controller, which
+    /// means <c>flightOwnsForward</c> is permanently true and the lift is permanently blocked — so
+    /// the one line the user needs when he grabs a window ("the reel took it") would never have
+    /// been written at all. Keying on WHO is suppressing keeps the edge-only contract (one line per
+    /// verdict, never per frame) while making a handover between suppressors visible.</para>
+    ///
+    /// <para>The key is one of four interned literals rather than the sentence itself, so the
+    /// per-frame comparison neither allocates nor formats anything — see <see cref="LiftAllowed"/>.</para>
+    /// </summary>
+    private string? _liftBlocked = "not evaluated yet"; // sentinel, so the FIRST verdict always logs
 
     /// <summary>Throttle for the axis-decision attribution line (unscaled seconds).</summary>
     private const float LiftDiagSeconds = 5f;
@@ -446,8 +524,14 @@ internal sealed class Flight : MonoBehaviour
     /// <summary>
     /// May the turn stick's forward axis be read as vertical lift this tick?
     ///
-    /// <para>Three claimants outrank it, and all three are asked of the TURN hand specifically:</para>
+    /// <para>Four claimants outrank it, and all four are asked of the TURN hand specifically:</para>
     /// <list type="number">
+    /// <item><b>A LASER-CARRY REEL</b> on this same hand (user ruling 2026-08-23, quoted at the
+    /// gate below). While the player holds a window at a distance with the laser and
+    /// <c>[Comfort] LaserCarryReel</c> is on, that hand's up/down winds the window's distance and
+    /// this feature stands down for the duration of the hold — the request states the precedence
+    /// outright, so there is nothing to arbitrate. It is also the narrowest and most transient of
+    /// the four: one hand, only while a trigger is held on a specific window's drag bar.</item>
     /// <item><b>FORWARD FLIGHT</b>, when <c>[Comfort] FlightHand</c> and <c>TurnHand</c> resolve to
     /// the same physical controller. Then one forward axis has two claimants and there is no signal
     /// left to tell them apart — pitch, hand, mode, nothing differs — so it must be arbitrated, and
@@ -472,17 +556,33 @@ internal sealed class Flight : MonoBehaviour
     /// </summary>
     private bool LiftAllowed(VRHand hand)
     {
+        // THE REEL IS ASKED FIRST, and the order is the user's ruling rather than convenience: the
+        // 2026-08-23 request is specifically that pulling a laser-held window toward you OVERRULES
+        // this feature ("dann overruled das ranziehen diese Option so lange man ein Fenster mit dem
+        // Laser festhält"), so when the reel and one of the older three are both live, the log has
+        // to name the reel — that is the one the player just caused and the only one whose remedy
+        // is "let go of the window".
+        bool reeling = WorldUI.LaserCarryReel.OwnsStick(hand);
         bool flightOwnsForward = ComfortSettings.FlightEnabled.Value
                                  && SameHand(ComfortSettings.FlightHand.Value,
                                              ComfortSettings.TurnHand.Value);
         bool scrolling = UiScrollFocus.IsScrolling(hand);
         bool grabbing = WorldGrab.Instance != null && WorldGrab.Instance.IsHandGrabbing(hand);
-        bool allowed = !flightOwnsForward && !scrolling && !grabbing;
+        bool allowed = !reeling && !flightOwnsForward && !scrolling && !grabbing;
 
-        if (_liftBlocked != !allowed)
+        // [Optimize] LeanLogStrings: the VERDICT is a bare interned literal, so the per-frame path
+        // through this method allocates nothing; the SENTENCE (which interpolates config values,
+        // UiScrollFocus.Describe and LaserCarryReel.Describe) is composed only on the frame the
+        // verdict actually changes. Building it unconditionally would allocate a string every
+        // frame in the SHIPPED DEFAULT configuration, where flightOwnsForward is permanently true.
+        string? key = !allowed
+            ? reeling ? "reel" : flightOwnsForward ? "flight" : scrolling ? "scroll" : "worldgrab"
+            : null;
+
+        if (_liftBlocked != key)
         {
-            _liftBlocked = !allowed;
-            if (allowed)
+            _liftBlocked = key;
+            if (key == null)
             {
                 VRLog.Info("Comfort", $"stick vertical lift: ACTIVE on the {hand.Side} turn stick — "
                                       + "push it forward to rise, back to sink, at "
@@ -491,16 +591,22 @@ internal sealed class Flight : MonoBehaviour
             }
             else
             {
-                string why = flightOwnsForward
-                    ? "forward/backward FLIGHT already owns this stick's forward axis — [Comfort] "
-                      + $"FlightHand ({ComfortSettings.FlightHand.Value}) and TurnHand "
-                      + $"({ComfortSettings.TurnHand.Value}) resolve to the same controller. Put them "
-                      + "on different hands (the arrangement this mod is built around is turn right / "
-                      + "fly left), or switch [Comfort] FlightEnabled off, and the lift is yours"
-                    : scrolling
-                        ? $"menu scrolling owns it — [{UiScrollFocus.Describe(hand)}]. It comes back "
-                          + "by itself the moment the beam leaves the list"
-                        : "this hand is dragging the world, which is already moving the player";
+                string why = key switch
+                {
+                    "reel" => $"a LASER CARRY owns it — {WorldUI.LaserCarryReel.Describe()}, and [Comfort] "
+                              + "LaserCarryReel winds that window's distance with this stick's up/down while "
+                              + "the trigger is held (the user's 2026-08-23 ruling: the reel overrules this "
+                              + "option for the duration of the hold). Let go of the window and the lift is "
+                              + "back the same frame",
+                    "flight" => "forward/backward FLIGHT already owns this stick's forward axis — [Comfort] "
+                                + $"FlightHand ({ComfortSettings.FlightHand.Value}) and TurnHand "
+                                + $"({ComfortSettings.TurnHand.Value}) resolve to the same controller. Put them "
+                                + "on different hands (the arrangement this mod is built around is turn right / "
+                                + "fly left), or switch [Comfort] FlightEnabled off, and the lift is yours",
+                    "scroll" => $"menu scrolling owns it — [{UiScrollFocus.Describe(hand)}]. It comes back "
+                                + "by itself the moment the beam leaves the list",
+                    _ => "this hand is dragging the world, which is already moving the player",
+                };
                 VRLog.Info("Comfort", $"stick vertical lift: STANDING DOWN on the {hand.Side} turn "
                                       + $"stick — {why}. Turning is untouched either way.");
             }

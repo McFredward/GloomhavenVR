@@ -94,7 +94,8 @@ internal sealed partial class FlatScreen
         if (LoadingIndicator.FlatScreenSuppressed)
             return false;
 
-        // 3D MAP ROOM GATE ([Rig] Experimental3DMap): while the player is STANDING IN the campaign
+        // 3D MAP ROOM GATE ([Rig] Vanilla2DMap off, which is the default from ModBuild 230):
+        // while the player is STANDING IN the campaign
         // map, the flat screen is not a second view of it — it is a lit quad hanging in front of
         // the map, and the stereo compositor behind it would fight the map room for the parchment
         // renderer. Same shape as the loading gate above: a per-tick read of live state, so the

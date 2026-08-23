@@ -398,9 +398,23 @@ internal enum SkyStyle
 /// would clip them away. <see cref="MinFarWorldUnits"/> hands
 /// <c>VRRigDriver.TickClipPlanes</c> the larger of the two budgets, each plus the head's
 /// distance to that branch's origin (the player can fly away from either) — 0 when idle, still
-/// capped by the depth-precision far/near ratio. OffBlack is IDLE for this purpose: it never
-/// sets <c>_active</c>, so <see cref="MinFarWorldUnits"/> returns 0 and the clip planes keep the
-/// game's own values. A style that shows nothing must never widen the depth range.
+/// capped by the depth-precision far/near ratio. OffBlack is IDLE for this purpose: it despawns
+/// both branch roots before it returns, so <see cref="MinFarWorldUnits"/> returns 0 and the clip
+/// planes keep the game's own values. A style that shows nothing must never widen the depth range.
+///
+/// THAT BUDGET IS GATED ON THE GEOMETRY AND NOT ON A FLAG, since ModBuild 230, and the reason is
+/// the most expensive single word this file has shipped. It read <c>if (!_active) return 0f;</c>,
+/// and <c>_active</c> was set at the BOTTOM of <see cref="Tick"/>, below four optional subsystems.
+/// EnvSound threw on a stale voice on every frame of the 3D map room, TickGuard isolated it
+/// exactly as designed, the room and the sky and the sound and the light all came up — and
+/// <c>_active</c> stayed false, the budget answered 0, and the head camera kept the map rig's
+/// seeded 1000-world-unit far plane at rig scale 198.12: a hard black wall 5.05 PERCEIVED METRES
+/// from his eyes in every direction, which is his "großer schwarzer Rahmen um den Spieler ... Es
+/// folgt den Kopfbewegungen" report in full. A far plane cannot be seen by any state instrument
+/// and no log line printed it after activation. Two things changed: the budget asks whether the
+/// branch roots EXIST (a fact about the scene, which is what the far plane must cover), and
+/// <see cref="Core.ViewConeProbe"/> now watches the achieved far plane against this budget every
+/// frame for two float reads and reports the moment it falls short.
 ///
 /// MR PRECEDENCE (the user's rule: MR ON ⇒ the sky is ALWAYS off): <see cref="MixedReality.Tick"/>
 /// calls <see cref="StandDown"/> FIRST on its MR-on path — the environment despawns and the
@@ -710,7 +724,41 @@ internal static class SkyAlternative
     /// </summary>
     internal static float MinFarWorldUnits(float rigScale)
     {
-        if (!_active)
+        // GATE ON THE GEOMETRY, NOT ON THE FLAG. This line used to read `if (!_active) return 0f;`
+        // and that one word cost the whole 3D-map-room session in his ModBuild 229 log:
+        //
+        //   _active is set at the BOTTOM of Tick (see the ACTIVATION note there), after four
+        //   OPTIONAL subsystems. On 2026-08-23 EnvSound.ApplyScale dereferenced a stale Voice
+        //   whose AudioSource the previous rig teardown had destroyed and threw a
+        //   NullReferenceException on EVERY FRAME of the map room — EnvSound.cs:1982 →
+        //   SkyAlternative.cs:876 → MixedReality.cs:678, 19,853 isolated throws in one
+        //   Player.log ("[Rig] Tick 'Rig.MixedReality' is still throwing"). TickGuard isolated
+        //   it exactly as designed, so the room placed, the sky placed, the sound bank built and
+        //   the map light aimed — every visible symptom said the environment was fine. But Tick
+        //   never reached `_active = true`, this method answered 0 for the entire session, and
+        //   VRRigDriver.TickClipPlanes therefore kept the map rig's SEEDED far plane of 1000
+        //   world units at rig scale 198.12: A FAR PLANE 5.05 PERCEIVED METRES IN FRONT OF HIS
+        //   EYES. Everything past it — the 45 m star dome, the tree bands, the far ground, and
+        //   the map table itself the moment he flew five metres from it — was clipped away and
+        //   the head camera's SolidColor [Rig] VoidColor clear showed through as hard RGB(0,0,0).
+        //
+        // That is his report word for word ("ein großer schwarzer Rahmen um den Spieler ... dass
+        // man garnicht den Sternenhimmel sehen kann - fliegt man weiter weg, verdeckt auch teile
+        // des Tischs. Es folgt den Kopfbewegungen"): a far plane IS view-space, so its boundary
+        // is always exactly that far ahead in whatever direction you look, which is what
+        // "follows head movements" describes and what no world-anchored shell can imitate. And
+        // .planning/debug/3dmap_schwarzer_block.mp4 at t≈10 s shows the tabletop SLICED along a
+        // straight line with nothing behind the cut — a clip plane's signature, not a renderer's.
+        //
+        // The far plane's job is to cover THE GEOMETRY THAT IS IN THE SCENE, which is a fact
+        // about the scene, so ask the scene. The two branch roots exist between
+        // EnsureEnvironment and DespawnEnvironment and nowhere else, so this reads the same
+        // window `_active` was meant to describe without depending on a method that has four
+        // chances to throw before it gets to say so. OffBlack still answers 0 — its Tick block
+        // calls DespawnEnvironment before it returns, so both roots are null and a style that
+        // shows nothing still never widens the depth range (class doc FAR PLANE, and the
+        // rejected alternative "Making OffBlack set _active"). Idle/Default: both null too.
+        if (_skyGo == null && _roomGo == null)
             return 0f;
         Camera? head = VRRigDriver.HeadCamera;
 
@@ -851,40 +899,31 @@ internal static class SkyAlternative
         // see GhvrIndoorId for why the two rooms have to be distinguishable at all.
         ApplyIndoor(style);
         EnsureEnvironment(style, anchor);
-        TickEnvClock(); // the shared-clock walk — one float compare once settled (EnvClockSeconds)
 
-        // THE ONE GAME LIGHT THAT HAS TO AGREE WITH THE ROOM'S MOON (see TickMapLight). Ticked here,
-        // AFTER EnsureEnvironment, because the aim is derived from the PLACED room's own moon and the
-        // room is what EnsureEnvironment lands. Steady-state cost while it holds the light: one
-        // Quaternion.Angle compare; in a scenario (where it never engages): four bool compares.
-        TickMapLight(style);
-
-        // ENV SOUND — the environment HEARD. Ticked here, after TickEnvClock, and the order matters:
-        // every sound it schedules (the drip landing, the rat crossing, an apparition's cue) is a
-        // function of EnvClockSeconds, so it must run on the clock value for THIS frame rather than
-        // the last one, or every cue would be systematically one frame stale.
+        // ---- ACTIVATION, AND WHY IT IS HERE AND NOT AT THE BOTTOM ------------------------------
+        // EnsureEnvironment has returned, so both branch roots exist and the SKY branch — the star
+        // dome, the moon, the shooting stars — is placed and drawing. THAT is what "the environment
+        // is shown" means, and everything downstream that has to know it (the far-plane budget in
+        // MinFarWorldUnits, the zoom scale-follow in NotifyRigScaled, the shared-clock ownership in
+        // EnvClockMillis) is asking about exactly this fact and nothing further.
         //
-        // The four arguments are the four things it needs and NONE of them has an accessor, which is
-        // deliberate: the branch roots are private with no getter (see ElementMood's class doc on why
-        // that is a design fact rather than an oversight), so handing them in keeps the encapsulation
-        // intact instead of opening the environment up to the whole mod. The room is passed only once
-        // it is PLACED — before that it is hidden at an unresolved pose, and a spatialised sound at an
-        // unresolved pose would come from the wrong corner of the room.
+        // Up to and including ModBuild 229 this block sat at the BOTTOM of the method, below four
+        // OPTIONAL subsystems, and that ordering is the whole of his "großer schwarzer Rahmen"
+        // report. EnvSound.ApplyScale threw a NullReferenceException on a stale Voice on every
+        // frame of the 3D map room (EnvSound.cs:1982 → this method → MixedReality.cs:678; 19,853
+        // isolated throws in .planning/debug/Player.log). TickGuard did its job one level up and
+        // the frame kept running, but this method never got past the sound: `_active` stayed false
+        // for the entire session, MinFarWorldUnits answered 0, and the head camera kept the map
+        // rig's seeded 1000-world-unit far plane — 5.05 perceived metres at rig scale 198.12 —
+        // so the sky, the trees and eventually the table were clipped to the black camera clear.
+        // The whole session's log is missing this line, which is itself the tell: grep for
+        // "Sky alternative ON" in a map-room log and its ABSENCE now means the environment did not
+        // come up, rather than meaning nothing in particular.
         //
-        // Like the haunt above and unlike the element mood, this is attached to GEOMETRY: it is only
-        // reached on the MR-OFF branch, which is exactly the gating it wants.
-        EnvSound.Tick(_roomPlaced ? _roomGo : null, style, anchor.lossyScale.x);
-
-        // HAUNT FIGURES — the apparitions that are real game monsters (Core/HauntFigures.cs).
-        // Ticked HERE, immediately after the sound and for the same three reasons: it needs THIS
-        // frame's shared clock (TickEnvClock ran above), it needs the room root, and neither the
-        // root nor the applied style has an accessor — handing them in keeps that encapsulation
-        // rather than opening the branches up to the whole mod. Like the sound and unlike the
-        // element mood it is attached to GEOMETRY, so the MR-OFF-only gating this method already
-        // provides is exactly the gating it wants. The room is passed only once PLACED: a monster
-        // walking past a window whose pose is not resolved yet would walk through the wrong wall.
-        HauntFigures.Tick(_roomPlaced ? _roomGo : null, style);
-
+        // A REQUIRED step (the sphere, the room, the sky) may abort the tick; an OPTIONAL one — a
+        // sound, a light, a ghost, a clock walk — may not, and must not be able to un-say that the
+        // environment is standing. That is the same reopen guarantee TickGuard gives the frame,
+        // applied one level down, and it is why the four calls below are individually isolated.
         if (!_active || !_loggedActive)
         {
             _active = true;
@@ -897,10 +936,81 @@ internal static class SkyAlternative
                                "middle of it like a tabletop diorama — and the SKY is world-anchored " +
                                "but rig-scale tracked " +
                                "(perceived-constant, a distant sky at every zoom). MR overrides it off; " +
-                               "leaving the scenario despawns it.");
+                               "leaving the scenario despawns it. THE FAR PLANE IS NOW BUDGETED for " +
+                               $"this environment ({EnvMinFarMeters:F0} m × rig scale for the sky, the " +
+                               "room's own world extent for the room, each plus the head's distance to " +
+                               "that branch's origin) — the audit line below reports whether the camera " +
+                               "actually took it.");
+            ViewConeProbe.Arm("environment activated");
         }
+
+        // ---- the OPTIONAL subsystems, each isolated -------------------------------------------
+        // Order is unchanged and still load-bearing (see each note). What changed in ModBuild 230
+        // is only that a throw in one of them can no longer take the other three, SkyBackdrop.Tick
+        // on MixedReality.cs:679, or the activation above down with it. TickGuard names the step,
+        // so the Player.log now attributes a fault to 'Sky.EnvSound' instead of to the whole of
+        // 'Rig.MixedReality' — which in his log named a subsystem four frames of call stack away
+        // from the thing that was actually broken.
+        _stepStyle = style;
+        _stepRigScale = anchor.lossyScale.x;
+        TickGuard.Run("Sky.EnvClock", EnvClockStep, "Core");
+        TickGuard.Run("Sky.MapLight", MapLightStep, "Core");
+        TickGuard.Run("Sky.EnvSound", EnvSoundStep, "Core");
+        TickGuard.Run("Sky.HauntFigures", HauntFiguresStep, "Core");
+
+        // ---- the clip-plane audit ---------------------------------------------------------------
+        // Two float reads and a compare per frame in the steady state; it fires a report only when
+        // the camera's far plane does NOT cover the budget this class just asked for, and then at
+        // most once per cooldown. See ViewConeProbe: a fix that is only verified by "he stopped
+        // complaining" is a fix nobody can re-check, and this class has now shipped one whole
+        // session in which every log line looked healthy while the view was five metres deep.
+        ViewConeProbe.TickWatchdog(_stepRigScale);
         return true;
     }
+
+    // ---- arguments for the isolated optional steps ---------------------------------------------
+    // Static fields plus four delegates allocated ONCE, rather than lambdas that capture `style`
+    // and the rig scale: a capturing lambda allocates a closure object every frame it is built, and
+    // this is a per-frame path. The delegates below close over nothing but statics, so the runtime
+    // caches them and the isolation above costs four static reads and four calls.
+    private static SkyStyle _stepStyle;
+    private static float _stepRigScale;
+
+    /// <summary>The shared-clock walk — one float compare once settled (see EnvClockSeconds).</summary>
+    private static readonly System.Action EnvClockStep = TickEnvClock;
+
+    /// <summary>THE ONE GAME LIGHT THAT HAS TO AGREE WITH THE ROOM'S MOON (see TickMapLight). Runs
+    /// AFTER EnsureEnvironment because the aim is derived from the PLACED room's own moon and the
+    /// room is what EnsureEnvironment lands. Steady-state cost while it holds the light: one
+    /// Quaternion.Angle compare; in a scenario (where it never engages): four bool compares.</summary>
+    private static readonly System.Action MapLightStep = () => TickMapLight(_stepStyle);
+
+    /// <summary>ENV SOUND — the environment HEARD. Runs after the clock walk, and the order matters:
+    /// every sound it schedules (the drip landing, the rat crossing, an apparition's cue) is a
+    /// function of EnvClockSeconds, so it must run on the clock value for THIS frame rather than the
+    /// last one, or every cue would be systematically one frame stale.
+    ///
+    /// <para>The three arguments are the three things it needs and NONE of them has an accessor,
+    /// which is deliberate: the branch roots are private with no getter (see ElementMood's class doc
+    /// on why that is a design fact rather than an oversight), so handing them in keeps the
+    /// encapsulation intact instead of opening the environment up to the whole mod. The room is
+    /// passed only once it is PLACED — before that it is hidden at an unresolved pose, and a
+    /// spatialised sound at an unresolved pose would come from the wrong corner of the room.</para>
+    ///
+    /// <para>Like the haunt and unlike the element mood, this is attached to GEOMETRY: it is only
+    /// reached on the MR-OFF branch, which is exactly the gating it wants. IT IS ALSO THE STEP THAT
+    /// THREW 19,853 TIMES in his ModBuild 229 map-room log — see the ACTIVATION note above for what
+    /// that cost and why this call is isolated rather than trusted.</para></summary>
+    private static readonly System.Action EnvSoundStep =
+        () => EnvSound.Tick(_roomPlaced ? _roomGo : null, _stepStyle, _stepRigScale);
+
+    /// <summary>HAUNT FIGURES — the apparitions that are real game monsters (Core/HauntFigures.cs).
+    /// Runs immediately after the sound and for the same three reasons: it needs THIS frame's shared
+    /// clock, it needs the room root, and neither the root nor the applied style has an accessor.
+    /// The room is passed only once PLACED: a monster walking past a window whose pose is not
+    /// resolved yet would walk through the wrong wall.</summary>
+    private static readonly System.Action HauntFiguresStep =
+        () => HauntFigures.Tick(_roomPlaced ? _roomGo : null, _stepStyle);
 
     /// <summary>
     /// MR-precedence stand-down, called on <see cref="MixedReality.Tick"/>'s MR-ON path BEFORE
@@ -2709,10 +2819,13 @@ internal static class SkyAlternative
     /// GameObject cannot. Because this is the ONLY teardown path in the file, "no environment
     /// shown" and "no environment instance exists" are the same statement.</para>
     ///
-    /// <para>Clearing <see cref="_active"/> here is load-bearing beyond bookkeeping: it is what
-    /// returns <see cref="MinFarWorldUnits"/> to 0 and what makes <see cref="NotifyRigScaled"/>
-    /// early-out, so a style that shows nothing neither widens the depth range nor chases a sky
-    /// that is no longer there.</para>
+    /// <para>NULLING THE TWO ROOTS here is what returns <see cref="MinFarWorldUnits"/> to 0, so a
+    /// style that shows nothing never widens the depth range; clearing <see cref="_active"/> is
+    /// what makes <see cref="NotifyRigScaled"/> early-out rather than chase a sky that is no longer
+    /// there. Those used to be the SAME statement — the far plane read the flag — and ModBuild 230
+    /// separated them, because the flag was set at the bottom of a method with four chances to
+    /// throw before it got there and a whole session's far plane hung on that. The far-plane budget
+    /// now asks the geometry; see <see cref="MinFarWorldUnits"/>.</para>
     /// </summary>
     private static void DespawnEnvironment()
     {
@@ -2723,6 +2836,35 @@ internal static class SkyAlternative
         // rig teardown — because all of them funnel through here.
         ReleaseMapLight("the environment stood down (style change, mixed reality, the room closed, "
                         + "or the rig tore down)", conceded: false);
+
+        // AND THE SOUND, FOR THE SAME REASON AND BEFORE THE ROOTS GO. EnvSound parents its own root
+        // to the ROOM branch (EnvSound.cs:1503, `_root.transform.SetParent(roomGo.transform)`), so
+        // the Object.Destroy below takes every AudioSource it owns with it — while EnvSound's own
+        // `_built` flag, its Beds list and its Shots list all survive, still holding Voice records
+        // whose Source is a destroyed component. THAT IS THE ROOT TRIGGER OF ModBuild 229'S BLACK
+        // FRAME, and it is worth writing out in full because the chain is four subsystems long:
+        //
+        //   Deactivate → DespawnEnvironment destroys the room when he leaves the SCENARIO
+        //     ("[Core] Sky alternative OFF", his Player.log line 25774) without telling EnvSound;
+        //   he enters the 3D MAP ROOM, where the rig scale is 198.12 instead of the scenario's
+        //     4.44, so EnvSound.Tick's zoom check (EnvSound.cs:1475) fires ApplyScale;
+        //   ApplyScale walks the stale Beds/Shots and dereferences a destroyed AudioSource
+        //     (EnvSound.cs:1982) — NullReferenceException, every frame, 19,853 of them;
+        //   the throw unwound Tick before it could set `_active`, so MinFarWorldUnits answered 0
+        //     and the head camera kept a far plane 5.05 perceived metres from his eyes.
+        //
+        // MR's StandDown() and the full RestoreAll() already handed the sound down before calling
+        // Deactivate; the ORDINARY path — leaving a room, or choosing OffBlack — did not, and the
+        // ordinary path is the one a player actually takes. The class doc above says this method is
+        // the only teardown path in the file and that "no environment shown" therefore means "no
+        // trace of us on a game object"; the sound was the counter-example. The two callers that
+        // already stand it down are unchanged and simply hit StandDown's early-out here.
+        //
+        // NOT ReleaseAll: an ordinary despawn keeps the synthesized clips, which are ~2 MB of noise
+        // that is inert while nobody plays it and expensive to rebuild on every style toggle. Only
+        // RestoreAll (VR stopped, rig destroyed) releases them, and it still does.
+        EnvSound.StandDown("the environment was despawned (the room closed, the style changed to "
+                           + "one with no room, mixed reality took over, or the rig tore down)");
 
         if (_skyGo != null)
         {
@@ -2743,6 +2885,11 @@ internal static class SkyAlternative
                                        // leave every shader in the game believing it still stands
         _active = false;
         _loggedActive = false;
+        // A pending view-cone report describes an environment that no longer exists. Firing it one
+        // frame later would print a torn-down scene under a headline about a live one — the exact
+        // "measured the wrong stage" shape this project has already paid a build for. The watchdog
+        // BUDGET is deliberately not reset (see ViewConeProbe.Disarm).
+        ViewConeProbe.Disarm();
     }
 
     /// <summary>Back to vanilla: re-enable the game sphere and destroy both branch roots.

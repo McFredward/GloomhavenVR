@@ -41,7 +41,7 @@ internal sealed partial class FlatScreenStereo
         _mapBaseCapture = false;
         _blackConsecutive = 0;
         _nonBlackMapConsecutive = 0;
-        VRLog.Info("WorldUI", "MAP RENDER stood down: the 3D map room ([Rig] Experimental3DMap) has taken "
+        VRLog.Info("WorldUI", "MAP RENDER stood down: the 3D map room ([Rig] Vanilla2DMap off) has taken "
                               + "ownership of the campaign-map parchment. The flat map capture released its "
                               + "override, its private RT and its camera; it re-engages through the ordinary "
                               + "detection the moment the room stands down.");
@@ -349,6 +349,17 @@ internal sealed partial class FlatScreenStereo
         if (rh == null || !rh.HasPose)
             return;
         if (GloomhavenVR.Hands.Interact.UiScrollFocus.IsScrolling(rh))
+            return;
+        // ModBuild 230, found while wiring the laser-carry reel: this was the ONE stick-Y reader in
+        // the mod with no holding gate of its own. Every other one is dead while a panel is carried
+        // because it returns on `!_hand.Ray.Active` and RayInteractor.Active is `… && !IsHolding`;
+        // this method is reached from the flat map's own tick instead. It cannot bite in the 3D map
+        // room (MapRoomOwnsParchment forces _mapBaseCapture false above), so the reachable case is
+        // narrow — the FLAT campaign map with a floated window laser-held over it — but it is real,
+        // and zooming the map while dragging a window toward you is exactly the kind of double
+        // effect the player would have no way to attribute. Settled the same way as every other
+        // contest here: the hand that is carrying something owns its own stick.
+        if (LaserCarryReel.OwnsStick(rh))
             return;
         if (_mapFov <= 0f)
             _mapFov = MapDefaultFov;
@@ -1188,7 +1199,7 @@ internal sealed partial class FlatScreenStereo
     /// feature have to be planned against, emitted once per map entry.
     ///
     /// <para>WHY IT IS ONE METHOD AND NOT SEVERAL. It is the ONLY logger for this question; both
-    /// the flat map render (which is what runs when [Rig] Experimental3DMap is off) and the 3D map
+    /// the flat map render (which is what runs when [Rig] Vanilla2DMap is ON) and the 3D map
     /// room call it, so the two modes produce comparable output instead of two dialects. It is
     /// static for the same reason: the map room has no <c>FlatScreenStereo</c> instance.</para>
     ///

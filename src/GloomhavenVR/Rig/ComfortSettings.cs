@@ -207,6 +207,15 @@ internal static class ComfortSettings
     /// Off by default; the axis rule and the arbitration live in <see cref="Flight"/>.</summary>
     public static ComfortSetting<bool> TurnStickVertical { get; private set; } = null!;
 
+    /// <summary>Wind a LASER-HELD window closer/further with the holding hand's stick Y
+    /// (<c>WorldUI.PanelGrabHandle.TickCarryReel</c>). On by default — the user asked for the
+    /// behaviour; the row exists so it can be switched off.</summary>
+    public static ComfortSetting<bool> LaserCarryReel { get; private set; } = null!;
+
+    /// <summary>Reel speed at full stick deflection, in APPARENT meters/second (same unit and the
+    /// same reason as <see cref="FlightMaxSpeed"/>).</summary>
+    public static ComfortSetting<float> LaserCarryReelSpeed { get; private set; } = null!;
+
     // TableHeightOffset ("Tischhöhe") lived here. REMOVED — user ruling 2026-08, see the
     // preset comment above: free locomotion replaced it. Do not re-add a height dial; the
     // answer to "the table sits wrong for me" is stick flight and the stick-click world grab,
@@ -378,6 +387,27 @@ internal static class ComfortSettings
             "it lifts at all, so a diagonal push at 45 degrees is a pure turn. Needs the turn hand " +
             "and the flight hand to be DIFFERENT hands - with both on one controller, forward and " +
             "backward flight already owns that axis and keeps it, and this does nothing.");
+        // ON BY DEFAULT, and unlike TurnStickVertical above that is not a contradiction: the user
+        // asked for the BEHAVIOUR ("implementiere sie") and named the switch only so it can be
+        // turned OFF ("als Option an/ausschaltbar"). A window pulled toward the player is also a
+        // strictly safer motion than the vertical lift — the player is not moved, one window is,
+        // and only while they hold its bar with the trigger.
+        LaserCarryReel = Bind("LaserCarryReel", Defaults.LaserCarryReel,
+            "While you hold a window at a distance with the laser, push that hand's thumbstick " +
+            "forward to pull the window toward you and back to push it away. Turning is never " +
+            "affected: turning reads the sideways axis and this reads only up/down. While the " +
+            "reel has the stick, that hand's up/down flying (TurnStickVertical) and its " +
+            "forward/backward flying stand down for as long as the window is held, and come back " +
+            "the moment you let go - the log names them when they do. Off = the stick keeps doing " +
+            "whatever it did before, and a laser-held window stays at the distance you grabbed it.");
+        LaserCarryReelSpeed = Bind("LaserCarryReelSpeed", Defaults.LaserCarryReelSpeed,
+            "How fast the window travels at FULL stick deflection, in apparent meters per second - " +
+            "meters as the scene looks to you, not world units, so it feels identical on a " +
+            "zoomed-in scenario table and in the map room. Partial deflection ramps linearly from " +
+            "the deadzone, like menu scrolling does. The window cannot be pulled closer than about " +
+            "an arm's length (it would be cut off and unreadable) nor pushed past the reach of the " +
+            "laser that is holding it (you could not get it back).",
+            new AcceptableValueRange<float>(0.25f, 6f));
         // "TableHeightOffset" was bound here. REMOVED (user ruling 2026-08). BepInEx keeps the
         // orphaned line in an existing comfort.cfg until the file is rewritten; it binds to
         // nothing and does nothing, which is the intended outcome — no migration is needed for
@@ -458,6 +488,8 @@ internal static class ComfortSettings
         FlightMaxSpeed.Detach();
         FlightHand.Detach();
         TurnStickVertical.Detach();
+        LaserCarryReel.Detach();
+        LaserCarryReelSpeed.Detach();
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();
         DebugGizmos.Detach();

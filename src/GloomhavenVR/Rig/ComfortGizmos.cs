@@ -87,6 +87,22 @@ internal sealed class ComfortGizmos : MonoBehaviour
                 : "  |  lift armed");
         }
 
+        // THE REEL, ON THE LINE THAT ANSWERS "what is this stick doing" (user request 2026-08-23).
+        // Shown only while a reel is actually live, and it is deliberately appended to the TURN
+        // line rather than given one of its own: the reel's whole visible consequence in this
+        // overlay is that the lift and forward flight went away, and a reader chasing that has to
+        // find the reason next to the thing that disappeared. LaserCarryReel.OwnsStick re-derives
+        // its answer per call (never a latch), so this cannot show a stale claim.
+        if (ComfortSettings.IsBound && ComfortSettings.LaserCarryReel.Value)
+        {
+            bool left = WorldUI.LaserCarryReel.OwnsStick(VRHands.Left);
+            bool right = WorldUI.LaserCarryReel.OwnsStick(VRHands.Right);
+            if (left || right)
+                _sb.Append("  |  REEL ").Append(left ? 'L' : 'R').Append(": ")
+                   .Append(WorldUI.LaserCarryReel.Describe())
+                   .Append(" (this hand's up/down winds the window; turning unaffected)");
+        }
+
         _sb.Append("\nclamp ").Append(RigClamp.LastClampActive ? "ACTIVE (head lifted)" : "ok");
         if (comfort != null && comfort.ChordProgress > 0f)
             _sb.Append("  |  recenter chord ").Append((comfort.ChordProgress * 100f).ToString("F0")).Append('%');

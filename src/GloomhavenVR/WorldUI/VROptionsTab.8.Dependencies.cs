@@ -58,6 +58,29 @@ internal static partial class VROptionsTab
     private static readonly Func<object?, bool> On = static v => v is bool b && b;
 
     /// <summary>
+    /// Parent bool is OFF — the mirror of <see cref="On"/>, added at ModBuild 230 for the four
+    /// rules that fold the 3D map room's family.
+    ///
+    /// <para>SEMANTICS READ OFF <see cref="DependencyMet"/> RATHER THAN ASSUMED, because the whole
+    /// hazard of an inverted rule is that getting it backwards greys out exactly the rows that
+    /// should be live. The predicate's answer is used ONE way (:357): FALSE folds the child away,
+    /// TRUE shows it. The two tolerant paths sit outside the predicate and are untouched by it — a
+    /// parent that has left the catalog returns true (:351-353, "the parent dial is gone — the
+    /// child degrades to always-visible") and a predicate that THROWS returns true (:360-362, "an
+    /// unreadable parent must not hide a working child"). So <c>Off</c> must be true exactly while
+    /// the parent reads false, and that is what it is.</para>
+    ///
+    /// <para>IT IS THE EXACT MIRROR OF <see cref="On"/>, DELIBERATELY NOT <c>!On(v)</c>. The two
+    /// spellings agree on every bool and differ only for a value that is not a bool at all, where
+    /// <c>v is bool b &amp;&amp; !b</c> folds the child away — identically to <c>On</c> — while
+    /// <c>!On(v)</c> would show it. The parents named below are <c>ConfigEntry&lt;bool&gt;</c>, so
+    /// <c>BoxedValue</c> is a boxed bool by construction and the difference is unreachable today;
+    /// symmetry is what makes it stay unreachable, because two predicates that disagree about the
+    /// one state nobody can reach is a divergence nobody would think to look for.</para>
+    /// </summary>
+    private static readonly Func<object?, bool> Off = static v => v is bool b && !b;
+
+    /// <summary>
     /// Parent value's name equals <paramref name="name"/> — one comparison shape for enums (boxed
     /// member → member name) and curated strings alike, case-insensitive because the string
     /// entries' own readers compare that way (see ConfigCatalog.CuratedChoices).
@@ -87,6 +110,10 @@ internal static partial class VROptionsTab
         // for the same reason the three rows above are: Flight.Update returns before the lift is
         // evaluated when FlightEnabled is off.
         ["Comfort/TurnStickVertical"] = new("Comfort", "FlightEnabled", On),
+        // The reel's speed only means anything while the reel itself is on. The reel is NOT folded
+        // under FlightEnabled: it overrules flight rather than extending it, and it must stay
+        // reachable for a player who flies with neither stick.
+        ["Comfort/LaserCarryReelSpeed"] = new("Comfort", "LaserCarryReel", On),
 
         // ---- Komfort ▸ Welt greifen: every gesture dial rides the grab, the two clamps ride the
         //      pinch ("Two-grip pinch scales the table") — ScaleMin/Max chain through ScaleEnabled
@@ -115,20 +142,28 @@ internal static partial class VROptionsTab
         // only run for an engaged entry).
         ["WorldUI/PanelMipLodOffset"] = new("WorldUI", "PanelSupersample", On),
 
-        // ---- Grafik ▸ Darstellung: the map-room card hand exists only inside the 3D map room.
-        //      Not an inference from its name: the hand is engaged from exactly one place
+        // ---- Umgebung & Ton ▸ Kampagnenkarte: the map-room card hand exists only inside the 3D
+        //      map room. Not an inference from its name: the hand is engaged from exactly one place
         //      (MapRoomDriver.Engage → Hand.Engage), and the room's mode predicate returns on its
-        //      first line while the switch is off ("if (Plugin.Experimental3DMap == null ||
-        //      !Plugin.Experimental3DMap.Value)", MapRoomDriver.TickPredicate), so nothing is ever
+        //      first line while the flat map is chosen ("if (Plugin.Vanilla2DMap == null ||
+        //      Plugin.Vanilla2DMap.Value)", MapRoomDriver.TickPredicate:231), so nothing is ever
         //      built for this dial to show or hide. Same parent, same evidence shape as the
         //      [MapRoom] section rule below.
-        ["WorldUI/MapRoomHand"] = new("Rig", "Experimental3DMap", On),
+        //
+        //      THE PARENT AND THE POLARITY BOTH CHANGED AT ModBuild 230 and they changed TOGETHER:
+        //      [Rig] Experimental3DMap == On became [Rig] Vanilla2DMap == Off, which is the same
+        //      world state ("the 3D map room is the presentation") expressed through the key that
+        //      replaced it. Flipping one without the other is the silent failure this comment
+        //      exists to make impossible to commit by halves: keeping On here would have folded
+        //      the whole map-room family away for every player on the NEW DEFAULT, i.e. for almost
+        //      everyone, and it would have looked like the rows had simply been deleted.
+        ["WorldUI/MapRoomHand"] = new("Rig", "Vanilla2DMap", Off),
         // The travel-confirm button is parked only inside the 3D map room: MapTravelConfirm
         // .Reconcile is called from exactly one place (MapRoomDriver, guarded by
-        // MapRoomDriver.Active) and its own first branch unparks whenever !Active — so with the 3D
-        // map off there is no parked container for either offset to move.
-        ["WorldUI/TravelButtonOffsetXWindowHeights"] = new("Rig", "Experimental3DMap", On),
-        ["WorldUI/TravelButtonOffsetYWindowHeights"] = new("Rig", "Experimental3DMap", On),
+        // MapRoomDriver.Active) and its own first branch unparks whenever !Active — so with the
+        // flat map chosen there is no parked container for either offset to move.
+        ["WorldUI/TravelButtonOffsetXWindowHeights"] = new("Rig", "Vanilla2DMap", Off),
+        ["WorldUI/TravelButtonOffsetYWindowHeights"] = new("Rig", "Vanilla2DMap", Off),
 
         // ---- Grafik ▸ Darstellung: the element-mood strength is the tuning OF the toggle — its
         //      bound description opens with "Has no effect at all while 'EnvironmentResponse' is
@@ -227,12 +262,17 @@ internal static partial class VROptionsTab
         ["FigureGrab"] = new("FigureGrab", "GrabFigures", On),
         // All five [MapRoom] dials size things drawn by MapIconLayer (the icons, the party marker
         // and the route), and that layer only exists while
-        // the 3D map room stands (MapRoomDriver.TickActive, which never runs with the switch off:
-        // "if (Plugin.Experimental3DMap == null || !Plugin.Experimental3DMap.Value)" is the mode
+        // the 3D map room stands (MapRoomDriver.TickActive, which never runs while the flat map is
+        // chosen: "if (Plugin.Vanilla2DMap == null || Plugin.Vanilla2DMap.Value)" is the mode
         // predicate's first line). The bound descriptions say so in their first sentence — "WHILE
         // YOU STAND IN THE 3D MAP ROOM", "The flat 2D map is NOT affected" — so this is the
         // truly-inert case the class doc reserves section rules for, not an arguable one.
-        ["MapRoom"] = new("Rig", "Experimental3DMap", On),
+        //
+        // INVERTED WITH ITS PARENT AT ModBuild 230 (see the three WorldUI rules above): the state
+        // being tested is unchanged, only the key that expresses it. Note what a mis-flip would do
+        // HERE specifically — a section rule claims the WHOLE [MapRoom] section, so five dials
+        // would vanish from Erweitert ▸ Umgebung for every player on the new default at once.
+        ["MapRoom"] = new("Rig", "Vanilla2DMap", Off),
         // The five peer-board-fade thresholds (OccludedAlpha, On/OffFraction, the two exit dwells)
         // tune a fade that Mode=Off removes outright — and "removes" is literal here rather than
         // arguable: the bound description of Mode says "Off = today's behaviour (nothing is

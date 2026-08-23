@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -761,6 +762,184 @@ internal static partial class ModalFallback
             : "it is the map room's CHARACTER SCREEN, which has no X and is not closable in this "
               + "phase (user ruling). Closing it would strand its nested character display as a "
               + "separate window, which is the split he reported.";
+
+    /// <summary>
+    /// A TRANSIENT ANNOUNCEMENT (ModBuild 230) — a one-shot popup the game puts up to TELL the
+    /// player something and takes away again on the next click, as opposed to a window the player
+    /// opened and owns.
+    ///
+    /// <para>USER RULING, verbatim: <i>"Als ich von einem Szenario in die Map-Umgebung gewechselt
+    /// bin wurde ein neues Szenario freigeschaltet. Dafür erschien ein neues Fenster, statt das
+    /// Fenster zu schließen habe ich auf die Info geklickt. Dadurch ist die Info verschwunden aber
+    /// nicht das Fenster. Daher a) Solche flüchtigen Infos sollten nicht mit dem 'x' schließbar
+    /// sein, es soll eher als Dialog behandelt werden was damit geschlossen wird, wenn der user
+    /// draufklickt."</i></para>
+    ///
+    /// <para>THIS IS NOT A SECOND CATEGORY FOR AN EXISTING ONE. The mod already keeps a family of
+    /// windows that float WITHOUT an X, each with its own reason: the click-through story box, the
+    /// end-of-scenario results windows, the reward showcase, scripted level messages and the map
+    /// room's permanent screens (the chain in <c>ModalFallback.8.Convert</c>). What none of them
+    /// covered is a popup that is neither a decision nor a permanent surface — an announcement. It
+    /// joins that same chain rather than getting a mechanism of its own, and it is the only member
+    /// whose reason is "it is over as soon as you touch it".</para>
+    ///
+    /// <para>THE ONE PROVEN MEMBER IS THE UNLOCK-LOCATION FLOW, and it is matched by COMPONENT on
+    /// the window's OWN GameObject — the IS-A form of the question, for the reason
+    /// <see cref="IsMapRoomHoverCard"/> spells out (this project has shipped
+    /// <c>GetComponentIn{Parent,Children}</c> twice where it meant "IS an X"). The pairing is
+    /// provable from the decompile plus the ModBuild 229 hardware log:
+    /// <c>UIUnlockLocationFlowManager</c> is <c>[RequireComponent(typeof(ControllerInputAreaLocal))]</c>
+    /// and takes that component off its own GameObject in <c>Awake</c>
+    /// (decompiled/GH.Runtime/UIUnlockLocationFlowManager.cs:14/50), and the log's controller-area
+    /// registration names that object — <c>Register area Unlock location (object UI Unlock Locations
+    /// Flow Manager (ControllerInputAreaLocal))</c> — as the SAME object the mod floats as the
+    /// UIWindow <c>'UI Unlock Locations Flow Manager'</c> (ID UnlockQuestPopup). If the pairing were
+    /// ever to change, this returns false and the window keeps its X: the fail-safe direction is
+    /// the status quo, not a window with no way out.</para>
+    ///
+    /// <para>WHY THE POPUP IS TRANSIENT AND NOT MERELY SMALL, from the flow manager itself:
+    /// <c>ShowUnlockedLocations</c> calls <c>window.Show()</c> ONCE for a whole sequence and
+    /// <c>window.Hide()</c> once at its end (:78, :117); in between, each unlocked location is a
+    /// <c>popup.Show(quest)</c> / <c>popup.Hide()</c> pair driven by a promise chain that only
+    /// advances when <c>Continue()</c> runs (:139-160). <c>Continue</c> is wired to the flow's own
+    /// <c>continueButton.onClick</c> (:48) and to <c>KeyAction.UI_SUBMIT</c> (:52). So the window is
+    /// a FRAME around content the game swaps and blanks on its own — which is exactly why it was
+    /// left standing with nothing in it.</para>
+    ///
+    /// <para>NOT INCLUDED, AND CHECKED RATHER THAN ASSUMED: <see cref="UIWindowID.IntroductionScreen"/>.
+    /// The FTUE concept screens are shown through <c>UIIntroductionManager</c>, which owns a
+    /// <c>LevelMessageUILayoutGroup</c> and drives it with <c>layoutGroup.Show(message,
+    /// onClosedPressedAction, autocloseCondition)</c> (decompiled/GH.Runtime/GLOO.Introduction/
+    /// UIIntroductionManager.cs:29/99) — i.e. they are level MESSAGES, and there is a standing user
+    /// ruling for those ("the player MUST engage with a tutorial hint", the <c>isLevelMsg</c> arm of
+    /// the X chain). Adding them here would quietly overturn that ruling, and a trade-off written in
+    /// a comment is not one the user agreed to.</para>
+    ///
+    /// <para>MULTIPLAYER: nothing new goes on the wire for this. A transient announcement is LOCAL
+    /// PRESENTATION of a fact the game already synchronises — the unlock itself travels as game
+    /// state, and both the dismiss and the flow it advances run inside the game through its own
+    /// button, so every peer's flow manager reaches the same place by the same route it does on the
+    /// flat screen. This predicate reads only local scene components and sends nothing.</para>
+    /// </summary>
+    internal static bool IsTransientAnnouncement(UIWindow? window) =>
+        window != null && window.GetComponent<UIUnlockLocationFlowManager>() != null;
+
+    /// <summary>Which transient rule a window matched, phrased for the hardware log. Only meaningful
+    /// when <see cref="IsTransientAnnouncement"/> is true — and phrased as what was MEASURED (a
+    /// component on this GameObject), not as a claim about what the window will do next.</summary>
+    internal static string TransientAnnouncementReason(UIWindow? window) =>
+        "it is the UNLOCK-LOCATION announcement (matched by a UIUnlockLocationFlowManager on the "
+        + "window's own GameObject). The flow shows the window ONCE for a whole sequence and swaps "
+        + "the popup inside it per location, so the window is a frame around content the game "
+        + "blanks on its own — a fleeting info, not a window the player owns";
+
+    /// <summary>
+    /// THE TRANSIENT'S REPLACEMENT FOR THE X: a full-host, invisible catcher that forwards a click
+    /// to the GAME'S OWN dismiss button.
+    ///
+    /// <para>User ruling (b) of the same report: <i>"es soll eher als Dialog behandelt werden was
+    /// damit geschlossen wird, wenn der user draufklickt."</i> On the flat screen that dismissal is
+    /// a click on the flow's <c>continueButton</c>, and this dispatches EXACTLY that: an
+    /// <c>ExecuteEvents</c> pointer click at the game's Button, which is the same event the uGUI
+    /// input module delivers there. Nothing mod-side is hidden and no game state is written, so the
+    /// flow manager's promise chain advances the way it always does — this project's rule is to
+    /// commit through UI seams, and inventing a mod-side "hide it" would leave the flow thinking
+    /// its popup is still up.</para>
+    ///
+    /// <para>IT CANNOT STEAL A CLICK FROM THE GAME. The catcher is made the FIRST child of the host,
+    /// and a uGUI <see cref="GraphicRaycaster"/> orders its hits by graphic depth — a graphic drawn
+    /// earlier loses to one drawn later. So every real game element under the window still wins its
+    /// own clicks; the catcher only receives what landed on the window and on nothing interactive.
+    /// It is named with the <c>GloomhavenVR.</c> prefix, which is the prefix both the content fit
+    /// and the liveness measurement already skip, so it can never make an empty window look full.</para>
+    ///
+    /// <para>AND IT RESPECTS THE GAME'S OWN GATING. The dismiss target is resolved AT CLICK TIME and
+    /// only an <c>interactable</c> Button is accepted, because the flow deliberately turns its
+    /// continue button off while a camera focus is in flight (UIUnlockLocationFlowManager.cs:142/150,
+    /// back on at :157). A click during that window does nothing here for the same reason it does
+    /// nothing on the flat screen.</para>
+    /// </summary>
+    private static void AttachTransientDismiss(ConvertedPanel panel, UIWindow window)
+    {
+        if (panel == null || panel.HostRect == null || window == null)
+            return;
+        try
+        {
+            int layer = panel.HostGo != null ? panel.HostGo.layer : 5;
+            var go = new GameObject("GloomhavenVR.TransientDismiss") { layer = layer };
+            var rect = go.AddComponent<RectTransform>();
+            rect.SetParent(panel.HostRect, worldPositionStays: false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+            rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
+            rect.SetAsFirstSibling(); // loses every raycast tie to real game content — see the doc
+            var img = go.AddComponent<Image>();
+            img.color = new Color(0f, 0f, 0f, 0f); // invisible; Graphic raycasting ignores alpha
+            img.raycastTarget = true;
+            UIWindow target = window;
+            var button = go.AddComponent<Button>();
+            button.targetGraphic = img;
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(() => DismissTransient(target));
+            VRLog.Info("WorldUI", $"MODAL TRANSIENT DISMISS: '{window.name}' (ID {window.ID}) carries a "
+                                  + "full-host click catcher instead of an X — a click anywhere on it "
+                                  + "that no game element claimed is forwarded to the window's own "
+                                  + "dismiss Button as an ExecuteEvents pointer click, i.e. the same "
+                                  + "dispatch the flat screen delivers. The catcher is the host's FIRST "
+                                  + "child, so every real game widget still wins its own clicks.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"MODAL TRANSIENT DISMISS: could not build the click catcher for "
+                                  + $"'{window.name}' ({ex.GetType().Name}: {ex.Message}) — the window's "
+                                  + "own button still dismisses it, and the escape chord still closes it.");
+        }
+    }
+
+    /// <summary>Forward a catcher click to the window's own dismiss Button. Resolved per click (the
+    /// game toggles <c>interactable</c> as its flow advances) and logged once per resolution change,
+    /// so the log names the button that was actually driven rather than the one we hoped for.</summary>
+    private static void DismissTransient(UIWindow window)
+    {
+        if (window == null)
+            return;
+        Button? dismiss = null;
+        TransientButtonScratch.Clear();
+        window.GetComponentsInChildren(includeInactive: false, TransientButtonScratch);
+        for (int i = 0; i < TransientButtonScratch.Count; i++)
+        {
+            Button b = TransientButtonScratch[i];
+            if (b == null || !b.isActiveAndEnabled || !b.IsInteractable())
+                continue;
+            if (b.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue; // our own catcher — forwarding to it would be a loop
+            dismiss = b;
+            break;
+        }
+        if (dismiss == null)
+        {
+            VRLog.Info("WorldUI", $"MODAL TRANSIENT DISMISS: click on '{window.name}' (ID {window.ID}) "
+                                  + $"found NO interactable Button among {TransientButtonScratch.Count} "
+                                  + "under the window, so nothing was dispatched. That is the correct "
+                                  + "outcome while the game has its own continue button switched off "
+                                  + "(the unlock flow does exactly that during a camera focus); it is "
+                                  + "also what this line would say if the window simply has no button.");
+            return;
+        }
+        var data = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
+        ExecuteEvents.Execute(dismiss.gameObject, data, ExecuteEvents.pointerClickHandler);
+        VRLog.Info("WorldUI", $"MODAL TRANSIENT DISMISS: click on '{window.name}' (ID {window.ID}) "
+                              + $"forwarded to the game's own '{dismiss.gameObject.name}' Button as a "
+                              + "pointer click. The mod hid nothing and wrote no game state — whatever "
+                              + "the game does next (advance its flow, hide the window) is the game's.");
+    }
+
+    /// <summary>Scratch for the dismiss-target resolution (per click, never per frame).</summary>
+    private static readonly List<Button> TransientButtonScratch = new(8);
 
     /// <summary>The map room's un-closable screen: the party display and the assembly window it
     /// carries. The quest log belongs to the same rule but cannot be named here (its ID is None) —

@@ -67,7 +67,12 @@ MIRRORS=(
   # the flat composite that carries the main menu (FlatScreen). Same gesture, same felt
   # speed — the whole point is that a list scrolls identically wherever it is shown, so
   # the deadzone and the notch rate must be tuned together.
-  "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen.6.Pointer.cs:StickScrollDeadzone"
+  # FOURTH SITE since 2026-08-23: the laser-carry REEL (PanelGrabHandle.TickCarryReel) winds a
+  # laser-held window's distance with the same thumb, in the same posture — trigger held down,
+  # hand pointing at a surface — as all three scroll paths. Its comment says it mirrors
+  # RayUguiDriver's number; this is that claim made machine-checked rather than left as prose.
+  # No new GROUP: this is one more site on the value the group already owns.
+  "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen.6.Pointer.cs:StickScrollDeadzone WorldUI/PanelGrab.cs:ReelDeadzone"
   "thumbstick scroll speed (wheel notches/s) : Hands/Interact/RayUguiDriver.cs:ScrollNotchesPerSecond WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollNotchesPerSecond WorldUI/FlatScreen.6.Pointer.cs:StickScrollNotchesPerSecond"
 
   # The remote board's INERT keycaps (Net/RemoteBoardFurniture.InertCap) rebuild the local

@@ -245,6 +245,97 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private float _carryDistance;
     private Vector3 _carryOffset;
 
+    // ---- THE REEL (user request 2026-08-23) -------------------------------------------------
+    //
+    // VERBATIM: "Ich hatte vor ein paar Runden auch darum gebeten, dass man die Fenster die man mit
+    // dem Laser festhält mit dem Controller zu einem ziehen kann (als Option an/ausschaltbar). Ich
+    // finde diese Option nicht. Falls sie noch nicht existiert, implementiere sie. Wenn hoch/runter
+    // mit dem joystick auch aktiviert ist dann overruled das ranziehen diese Option so lange man
+    // ein Fenster mit dem Laser festhält."
+    //
+    // NOTHING NEW IS CARRIED HERE. The laser carry above already holds the window at a captured
+    // along-ray distance; the reel is a DIAL ON THAT ONE NUMBER and nothing else. It writes
+    // _carryDistance and never touches the position, the rotation, the scale or the offset — so
+    // every property the carry already guarantees (translate only, the owner keeps authoring the
+    // rotation, the beam-strike point is preserved) survives untouched, and a window a peer sees
+    // moves for exactly the reason it already moved.
+    //
+    // THE UNIT IS THE PERCEIVED METRE, converted at USE time through the live rig scale
+    // (VRHand.WorldScale — "Diorama scale at this hand … Multiply 'real meters' by this"). A dial
+    // written in world units would mean something different in a scenario (~198x) than in the map
+    // room (~4.4x) — a factor of 45 — and this project has shipped exactly that bug before (the
+    // aim laser drawn 0.15 mm wide because a "…Meters" bound was clamped against a world-unit
+    // product). The clamp WINDOW is likewise stored in perceived metres and multiplied by the live
+    // scale each frame, so a mid-carry world re-scale moves the bounds with the picture.
+    //
+    // MULTIPLAYER: NOTHING NEW GOES ON THE WIRE, and this is a FINDING rather than a decision to
+    // send less. The two cases were checked and only one of them is real:
+    //
+    //   * A PRIVATE window's distance is local presentation — no peer has an opinion about it and
+    //     none is told.
+    //   * A SHARED window (SharedWindows.IsShared — the blue-barred ones whose pose is synced 1:1)
+    //     IS movable by the reel, and its pose ALREADY TRAVELS, by the very path a laser drag
+    //     already uses. GrabbableModal's IPanelGrabOwner.GrabRoot is its `_frame`
+    //     (GrabbableModal.cs:249), the laser carry writes `root.position`, and the reel writes only
+    //     `_carryDistance`, which that same write consumes one line later. Net/RemoteStorySync's
+    //     TrackFrame (RemoteStorySync.cs:399) and Net/RemoteMapStory's watch THAT TRANSFORM drift
+    //     from a baseline and publish the settled pose (records 19 / 21) in seat-anchor-local real
+    //     metres; TrackFrame's own doc names its three legitimate writers and the grab handle is
+    //     the first of them. So a reeled shared window is, on the wire, indistinguishable from one
+    //     dragged by sweeping the arm — which is the requirement. Opening a second channel for the
+    //     distance would be a second source of truth for one position, and the two could only ever
+    //     disagree.
+    //
+    // AND IT STILL CANNOT TURN TO A PLAYER. The reel is translation along the aim ray, exactly like
+    // the carry it drives: it never writes root.rotation, so the pose that gets published carries a
+    // new position and a bit-identical rotation. The one path that re-faces a window on release
+    // (GrabbableModal.OnGrabFinished) is gated as it was and is not touched here.
+    private float _reelMinMeters;      // perceived-metre floor for _carryDistance/scale
+    private float _reelMaxMeters;      // perceived-metre ceiling
+    private float _reelStartMeters;    // engage distance, for the release travel readout
+    private float _reelReachMeters;    // measured panel geometry around the root (see ArmReel)
+    private long _reelSelfTicks;       // Stopwatch ticks spent inside TickCarryReel this carry
+    private int _reelSelfFrames;       // frames TickCarryReel ran this carry (self-cost readout)
+
+    /// <summary>
+    /// Stick-Y deadzone for the reel. MIRRORS <c>RayUguiDriver.ScrollDeadzone</c>
+    /// (RayUguiDriver.cs:48 = 0.3f, applied at :319) rather than <see cref="Rig.Flight"/>'s 0.2,
+    /// and the choice is deliberate: the reel is a POINTING-HAND control performed with the same
+    /// thumb that is holding the trigger down, which is exactly the posture the scroll deadzone was
+    /// tuned for. <c>ModalFallback.ResultsScrollDeadzone</c> (ModalFallback.5.ResultsScroll.cs:16)
+    /// is a third copy of the same number for the same reason. Flight's smaller value belongs to a
+    /// stick the player is holding at rest, which is a different thumb posture.
+    /// </summary>
+    private const float ReelDeadzone = 0.3f;
+
+    /// <summary>
+    /// How much clear air the panel's NEAREST point keeps in front of it, counted in head
+    /// near-plane depths. See <see cref="ArmReel"/> for the whole derivation.
+    /// </summary>
+    private const float ReelNearClipStandoffs = 6f;
+
+    /// <summary>
+    /// The mod's DESIGN near plane in PERCEIVED metres — a documented read of
+    /// <c>Rig.VRRigDriver.BaseNearMeters</c> (VRRigDriver.cs:98 = 0.05f), used as a FLOOR under the
+    /// live <see cref="Camera.nearClipPlane"/> reading.
+    ///
+    /// <para>WHY THE LIVE VALUE ALONE IS NOT USABLE, which is the non-obvious half. The head camera
+    /// sets <c>near = clamp(BaseNearMeters × rigScale, MinNearClip, MaxNearClip)</c>
+    /// (VRRigDriver.HeadCamera.cs:257) with <c>MaxNearClip = 0.5</c> world units. At the scenario's
+    /// ~198x rig scale the unclamped value would be 9.9, so the clamp bites and the live near plane
+    /// is 0.5 world units — <b>2.5 perceived millimetres</b>. That clamp is a DEPTH-PRECISION
+    /// compromise (a near plane that far out would wreck the z-buffer ratio against the far plane),
+    /// not a statement that a window may sit 2.5 mm from the player's eye. Taking the live reading
+    /// at face value would collapse the reel's near bound to nothing at exactly the scale the
+    /// player spends the game in.</para>
+    ///
+    /// <para>Deliberately NOT added to <c>scripts/check-mirrors.sh</c>: this is not a second TUNING
+    /// site for the near plane, it is a lower bound on a comfort clamp. If VRRigDriver's base ever
+    /// moves, the live reading moves with it and the max() below simply stops selecting this floor
+    /// — nothing silently drifts out of agreement.</para>
+    /// </summary>
+    private const float ReelDesignNearMeters = 0.05f;
+
     // Gesture anchors (captured on every hand-count change).
     private Vector3 _anchorPos;        // palm (one-hand) or midpoint (two-hand) at engage
     private float _anchorHeading;      // pair heading at engage (two-hand), LEVEL-frame deg
@@ -295,7 +386,24 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             _handB = hand;
             // A second (palm) hand joining ends laser-carry: two-hand resize is a pure
             // palm gesture (both midpoints), so hand it back to the normal pair carry.
+            //
+            // THE REEL STANDS DOWN WITH IT, and this is the WHOLE two-hand rule — there is no
+            // second arbitration anywhere. The two-hand gesture already owns distance: it carries
+            // the root to the palm MIDPOINT (:565 below) and pinch-scales it against
+            // _anchorDistance, so a reel writing _carryDistance at the same time would be a second
+            // claimant on the one quantity the pinch exists to control, and the frame after the
+            // second hand let go the window would jump to whatever the reel had wound to. Clearing
+            // the carry mode is therefore enough by construction: TickCarryReel is only ever
+            // reached from the `_laserCarry && _handB == null` branch, and LaserCarryReel.OwnsStick
+            // re-derives its answer from the same two fields, so Flight's stick comes back to it in
+            // the SAME frame the pinch starts. If the palm hand later lets go, the carry continues
+            // one-handed as a plain palm carry (OnRelease re-anchors) — it does NOT re-arm the
+            // laser reel, because the gesture is no longer a laser hold and the player's laser hand
+            // may by then be pointing somewhere else entirely.
             _laserCarry = false;
+            // Reported against _handA, the hand that was DOING the carrying — `hand` here is the
+            // palm that just joined and never held the reel.
+            ReportReelReleased(_handA, "a second hand joined — the two-hand pinch owns distance now");
         }
         else
             return;
@@ -319,11 +427,101 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         _laserCarry = true;
         _carryDistance = distance;
         _carryOffset = root.position - hitPoint;
-        VRLog.Info(_logChannel, $"{_logName} grab: LASER-CARRY armed ({hand.Side}, {distance / Mathf.Max(hand.WorldScale, 1e-4f):F2} m).");
+        ArmReel(hand);
+        LaserCarryReel.Claim(this);
+        VRLog.Info(_logChannel, $"{_logName} grab: LASER-CARRY armed ({hand.Side}, "
+                                + $"{_reelStartMeters:F2} m). REEL "
+                                + (Rig.ComfortSettings.IsBound
+                                    ? Rig.ComfortSettings.LaserCarryReel.Value
+                                        ? $"ON at {Rig.ComfortSettings.LaserCarryReelSpeed.Value:F2} perceived m/s "
+                                          + "(stick forward pulls in, back pushes out), window "
+                                          + $"{_reelMinMeters:F2}..{_reelMaxMeters:F2} m "
+                                          + $"(panel reach {_reelReachMeters:F2} m around the root); this hand's "
+                                          + "stick Y is the reel's for the whole hold and vertical flight stands down"
+                                        : "OFF ([Comfort] LaserCarryReel) — the stick keeps whatever it does today"
+                                    : "unavailable (ComfortSettings not bound)")
+                                + ".");
+    }
+
+    /// <summary>
+    /// Derive this carry's reel window and reset its accounting. Runs ONCE per engage — the whole
+    /// per-frame cost of the feature is <see cref="TickCarryReel"/>, which reads these numbers.
+    ///
+    /// <para><b>THE NEAR BOUND IS MEASURED, NOT GUESSED.</b> It is the sum of two real quantities:
+    /// <list type="number">
+    /// <item><b>The panel's own size around the root</b>, taken from the geometry this very grab
+    /// already produced: <c>|_carryOffset|</c> is the distance from the beam's strike point to the
+    /// window root, and the struck collider's own half-diagonal
+    /// (<see cref="Collider.bounds"/><c>.extents.magnitude</c>) is how far that strike point's
+    /// surface reaches around itself. For a modal grabbed by its top drag bar that sum is roughly
+    /// half the window's height plus half its width — i.e. a LOWER BOUND on how far the drawn
+    /// window sticks out toward the player from the point the distance is measured to. It is a
+    /// lower bound rather than the true extent because the handle deliberately knows nothing about
+    /// the panel's content (the frame carries a converted uGUI canvas, and
+    /// <c>CanvasRenderer</c> is not a <c>Renderer</c>, so there is no bounds to read there); it is
+    /// nonetheless the panel's real geometry rather than a constant, and it is what makes a big
+    /// window stop further out than a small one.</item>
+    /// <item><b>The head's near plane</b>, <see cref="ReelNearClipStandoffs"/> deep — see
+    /// <see cref="ReelDesignNearMeters"/> for why the live reading needs a floor under it. Six
+    /// near-plane depths is 0.30 perceived metres of clear air in front of the panel's nearest
+    /// point: the near end of a distance a person can actually read a window at, and far enough
+    /// that no part of it is being cut by the clip plane.</item>
+    /// </list>
+    /// A typical floated modal therefore stops at roughly 0.3 + 0.3 = 0.6 perceived metres —
+    /// about arm's length, which is what the request asks for — and a window the player has
+    /// pinched down to a postcard is allowed closer, because it can be read closer.</para>
+    ///
+    /// <para><b>THE FAR BOUND IS THE LASER'S OWN REACH</b>,
+    /// <see cref="Hands.Interact.RayGrabDriver.MaxDistanceMeters"/> minus the same panel reach, so
+    /// the drag bar can never be pushed past the distance at which the ray that pushed it would
+    /// still find it. That is the honest definition of "lost": a window beyond it cannot be
+    /// re-grabbed, hovered or clicked by any far-ray path in the mod. Readability further out is
+    /// the player's own business — they can push a window to twenty metres and then reel it back,
+    /// and they can pinch it larger with two hands.</para>
+    ///
+    /// <para><b>THE WINDOW IS WIDENED TO INCLUDE THE ENGAGE DISTANCE.</b> A grab must never move
+    /// the thing it grabs: if the player laser-grabs a window that already sits closer than the
+    /// derived floor (or further than the ceiling), snapping it on the first carry frame would be a
+    /// visible jerk caused by a comfort clamp they did not ask for. Widening instead means the reel
+    /// can always give back exactly where the window came from and refuses only to make an
+    /// out-of-window situation WORSE.</para>
+    /// </summary>
+    private void ArmReel(VRHand hand)
+    {
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        _reelStartMeters = _carryDistance / scale;
+        _reelSelfTicks = 0L;
+        _reelSelfFrames = 0;
+
+        // The struck collider — the same one RayGrabDriver ray-tested (RayGrabDriver.cs:84): the
+        // narrow bar strip when the owner published one, else the registered grab zone.
+        Collider? struck = BarCollider != null ? BarCollider : GetComponent<Collider>();
+        float reachWorld = _carryOffset.magnitude;
+        if (struck != null)
+            reachWorld += struck.bounds.extents.magnitude;
+        _reelReachMeters = reachWorld / scale;
+
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        float nearMeters = head != null && head.nearClipPlane > 0f
+            ? Mathf.Max(head.nearClipPlane / scale, ReelDesignNearMeters)
+            : ReelDesignNearMeters;
+
+        float floor = _reelReachMeters + nearMeters * ReelNearClipStandoffs;
+        float ceiling = Hands.Interact.RayGrabDriver.MaxDistanceMeters - _reelReachMeters;
+        // Degenerate geometry (a panel whose own reach exceeds the laser's) must not invert the
+        // window; a one-centimetre band is still a usable, monotone clamp.
+        ceiling = Mathf.Max(ceiling, floor + 0.01f);
+
+        _reelMinMeters = Mathf.Min(floor, _reelStartMeters);
+        _reelMaxMeters = Mathf.Max(ceiling, _reelStartMeters);
     }
 
     /// <summary>Disarm a laser-carry that never took (ForceGrab refused).</summary>
-    internal void CancelLaserCarry() => _laserCarry = false;
+    internal void CancelLaserCarry()
+    {
+        _laserCarry = false;
+        LaserCarryReel.Release(this);
+    }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
     {
@@ -350,6 +548,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         {
             bool wasLaser = _laserCarry;
             _laserCarry = false;
+            if (wasLaser)
+                ReportReelReleased(hand, "the trigger was let go");
             VRLog.Info(_logChannel, $"{_logName} grab: released ({hand.Side}{(wasLaser ? ", laser-carry" : "")}).");
             _owner?.OnGrabFinished();
         }
@@ -403,6 +603,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         VRInteractables.UnregisterGrabbable(this);
         _handA = _handB = null;
         _laserCarry = false;
+        LaserCarryReel.Release(this);
     }
 
     // ------------------------------------------------------------------ per-frame --
@@ -416,6 +617,14 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         // Defensive: a hand can vanish (tracking loss/hot reload) without OnRelease.
         if (_handA != null && !_handA.HasPose)
         {
+            // CLOSE THE REEL'S BOOKS HERE TOO. This exit does not run OnRelease, so without it a
+            // tracking dropout mid-carry would leave an "armed" line in the log with no matching
+            // "closed" line — and an unpaired engage is exactly the shape that makes a reader
+            // suspect a latch. The stick claim itself was never at risk (LaserCarryReel.OwnsStick
+            // re-derives from _handA, which is about to be cleared); this is about the log telling
+            // the truth about how the carry ended.
+            if (_laserCarry && _handB == null)
+                ReportReelReleased(_handA, "the carrying hand lost tracking");
             _handA = _handB;
             _handB = null;
             if (_handA != null) ReAnchor();
@@ -434,9 +643,12 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         if (_handA != null && !ReferenceEquals(_handA.Grabber.Held, this))
         {
             VRLog.Warn(_logChannel, $"GRAB STATE heal: {_logName} dropped stale grip slot ({_handA.Side} no longer holds the bar).");
+            if (_laserCarry && _handB == null)
+                ReportReelReleased(_handA, "the grip slot was healed away (the grabber no longer holds this bar)");
             _handA = _handB;
             _handB = null;
             _laserCarry = false;
+            LaserCarryReel.Release(this); // the claim dies with the carry, healed slot included
             if (_handA != null) ReAnchor();
             else _owner?.OnGrabFinished();
         }
@@ -458,6 +670,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         // otherwise fight a second rotation writer).
         if (_laserCarry && _handB == null)
         {
+            TickCarryReel(); // 2026-08-23: the grabbing hand's stick Y winds _carryDistance
             _handA.GetAimRay(out Vector3 rayOrigin, out Vector3 rayDir);
             Vector3 laserTarget = rayOrigin + rayDir * _carryDistance + _carryOffset;
             root.position = Vector3.Lerp(root.position, laserTarget, k);
@@ -574,6 +787,112 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
     }
 
+    // ------------------------------------------------------------------ the reel --
+
+    /// <summary>
+    /// Wind the laser carry's along-ray distance from the GRABBING hand's stick Y. Called only from
+    /// the one-hand laser branch of <see cref="Update"/>, so every precondition the reel has
+    /// (a live laser carry, exactly one hand, that hand tracked) is already proven by the caller.
+    ///
+    /// <para><b>DIRECTION</b> is the request's: forward/up pulls the window TOWARD the player,
+    /// back/down pushes it away. So a positive stick Y SUBTRACTS from the along-ray distance.</para>
+    ///
+    /// <para><b>THE RESPONSE CURVE MIRRORS <c>RayUguiDriver.TickStickScroll</c></b>
+    /// (RayUguiDriver.cs:318-325) rather than inventing a second feel: deadzone test on |y|,
+    /// deadzone-NORMALIZED linear response so speed ramps from 0 at the deadzone edge to the full
+    /// dial at full deflection, signed by the stick, integrated against
+    /// <see cref="Time.unscaledDeltaTime"/>. Linear and not squared, again following the scroll and
+    /// deliberately NOT <see cref="Rig.Flight"/> (Flight.cs:244-246, which squares): flight is
+    /// ambient travel where creep near centre is the point, while this is an aimed placement
+    /// gesture on a surface the player is looking at — the same argument that gave the scroll its
+    /// linear curve. Unscaled time for the same reason every other stick path in the mod uses it:
+    /// the game pauses behind dialogs, and a window that stops reeling exactly when a dialog is up
+    /// would read as the feature being broken.</para>
+    ///
+    /// <para><b>THE CLAMP RUNS ONLY WHEN THE REEL IS ON.</b> With the option off this method's only
+    /// effect is the two timestamp reads: it must not quietly re-position a carry that is behaving
+    /// exactly as it did before this feature existed.</para>
+    ///
+    /// <para><b>SELF-COST</b> is measured rather than asserted — see the release line, which reports
+    /// microseconds per frame over the whole hold. The two <c>Stopwatch.GetTimestamp</c> calls are
+    /// themselves inside the measurement, so the number is an over-report of the work, and the whole
+    /// method only ever runs while a window is being laser-carried.</para>
+    /// </summary>
+    private void TickCarryReel()
+    {
+        long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+        _reelSelfFrames++;
+
+        VRHand hand = _handA!;
+        if (Rig.ComfortSettings.IsBound && Rig.ComfortSettings.LaserCarryReel.Value)
+        {
+            // Apparent metres -> world units through the LIVE rig scale, AT USE TIME. Reading it
+            // here rather than caching the engage value is what makes the dial mean the same thing
+            // in a ~198x scenario and in the ~4.4x map room, and keeps it meaning that if the other
+            // hand re-scales the world mid-carry.
+            float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+            float y = hand.Thumbstick.y;
+            if (Mathf.Abs(y) >= ReelDeadzone)
+            {
+                float response = (Mathf.Abs(y) - ReelDeadzone) / (1f - ReelDeadzone);
+                float meters = Mathf.Sign(y) * response
+                               * Rig.ComfortSettings.LaserCarryReelSpeed.Value * Time.unscaledDeltaTime;
+                _carryDistance -= meters * scale; // + stick = closer
+            }
+            _carryDistance = Mathf.Clamp(_carryDistance, _reelMinMeters * scale, _reelMaxMeters * scale);
+        }
+
+        _reelSelfTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+    }
+
+    /// <summary>
+    /// One line per finished reel: where the window ended up, how far it travelled, and what the
+    /// per-frame work actually cost. Written from BOTH ways a laser carry can end (trigger release
+    /// and a second hand joining) so the log never shows an engage without its matching close.
+    /// </summary>
+    private void ReportReelReleased(VRHand? hand, string why)
+    {
+        LaserCarryReel.Release(this);
+        float scale = hand != null ? Mathf.Max(hand.WorldScale, 1e-4f) : 1f;
+        float endMeters = _carryDistance / scale;
+        float travel = endMeters - _reelStartMeters;
+        // ticks -> microseconds; Stopwatch.Frequency is ticks per second.
+        double microsPerFrame = _reelSelfFrames > 0
+            ? _reelSelfTicks * 1e6 / System.Diagnostics.Stopwatch.Frequency / _reelSelfFrames
+            : 0.0;
+        VRLog.Info(_logChannel, $"{_logName} grab: LASER-CARRY reel closed ({hand?.Side.ToString() ?? "?"}, {why}) — "
+                                + $"{_reelStartMeters:F2} m -> {endMeters:F2} m "
+                                + $"({(travel <= 0f ? "pulled in" : "pushed out")} {Mathf.Abs(travel):F2} m, "
+                                + $"window {_reelMinMeters:F2}..{_reelMaxMeters:F2} m). "
+                                + $"Reel self-cost {microsPerFrame:F2} us/frame over {_reelSelfFrames} frames "
+                                + "(measured, includes the two timestamp reads that measure it).");
+        _reelSelfTicks = 0L;
+        _reelSelfFrames = 0;
+    }
+
+    /// <summary>
+    /// Is THIS handle's reel the live claimant on its hand's stick Y right now? Re-derived from the
+    /// carry state on every read — never a latch. See <see cref="LaserCarryReel"/> for why that
+    /// matters and what it is queried by.
+    /// </summary>
+    internal bool ReelLive =>
+        _laserCarry && _handA != null && _handB == null && isActiveAndEnabled
+        && Rig.ComfortSettings.IsBound && Rig.ComfortSettings.LaserCarryReel.Value;
+
+    /// <summary>The hand whose stick this handle's reel claims (valid while <see cref="ReelLive"/>).</summary>
+    internal VRHand? ReelHand => _handA;
+
+    /// <summary>Attribution for the suppression log: what is holding the stick, and where it is.</summary>
+    internal string ReelDescription
+    {
+        get
+        {
+            float scale = _handA != null ? Mathf.Max(_handA.WorldScale, 1e-4f) : 1f;
+            return $"'{_logName}' held by the {(_handA != null ? _handA.Side.ToString() : "?")} laser "
+                   + $"at {_carryDistance / scale:F2} m";
+        }
+    }
+
     // ------------------------------------------------------------------ helpers --
 
     private void ReAnchor()
@@ -613,4 +932,134 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 
     private static float HeadingDegrees(Vector3 dir) =>
         Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+}
+
+/// <summary>
+/// THE ONE PLACE ANYONE ASKS "is a laser-carry reel holding this hand's stick Y right now?" —
+/// the arbitration seam for the user's 2026-08-23 override ruling: <i>"Wenn hoch/runter mit dem
+/// joystick auch aktiviert ist dann overruled das ranziehen diese Option so lange man ein Fenster
+/// mit dem Laser festhält."</i>
+///
+/// <para><b>STICK Y ONLY, AND THAT IS NON-NEGOTIABLE.</b> TURNING MAY NEVER BE BLOCKED (standing
+/// user ruling, ModBuild 138). Turning is stick X — <c>SnapTurn.cs:147</c> reads
+/// <c>hand.Thumbstick.x</c> and nothing else drives the yaw; AoE pattern rotation is X as well
+/// (<c>AoeControl.cs:196</c>). The reel reads <c>Thumbstick.y</c> (PanelGrabHandle.TickCarryReel)
+/// and this class publishes a claim on the Y axis alone. Nothing on this path can reach turning:
+/// the reel does not stamp <c>UiScrollFocus</c>, which is the only signal <c>SnapTurn</c>'s
+/// <c>ScrollTurnGate</c> (SnapTurn.cs:154-156) can ever be suppressed by, so a laser carry leaves
+/// the yaw exactly as it was before this feature existed.</para>
+///
+/// <para><b>IT IS A QUERY, NOT A LATCH.</b> The slot below holds a handle, and every read
+/// RE-DERIVES the verdict from that handle's live carry state (<see cref="PanelGrabHandle.ReelLive"/>
+/// — laser carry armed, exactly one hand, component enabled, the option on) and clears the slot the
+/// moment the derivation fails. A boolean written on engage and cleared on release would be one
+/// missed teardown path away from a stick that never comes back: this mod has paid for that class
+/// of bug more than once (the 2026-08-04 sentinel latch, and the grab-slot heal a hundred lines
+/// above, which exists because a stale hold froze a bar's grabbability forever). Here the worst a
+/// missed <see cref="Release"/> can do is cost one extra field read.</para>
+///
+/// <para><b>WHY A SINGLE SLOT IS EXACT.</b> A laser carry can only be started by
+/// <c>RayGrabDriver</c>, which runs on the DOMINANT hand only (RayGrabDriver.cs:56,
+/// <c>VRHands.Primary != _hand</c>) and only while that hand holds nothing
+/// (<c>_hand.Grabber.Held == null</c>, :141). At most one laser carry can therefore exist at a
+/// time, and the arriving claim legitimately supersedes any stale one.</para>
+///
+/// <para><b>EVERY OTHER CONSUMER OF THE SAME STICK WHILE A WINDOW IS LASER-HELD</b>, checked
+/// against the source rather than assumed, with the verdict for each:</para>
+/// <list type="bullet">
+/// <item><b>Snap / smooth turn</b> — <c>SnapTurn.cs:147</c>, <c>Thumbstick.x</c>. NOT A CONSUMER OF
+/// Y and therefore untouched, unconditionally. (SnapTurn also passes <c>Thumbstick.y</c> to its
+/// <c>ScrollTurnGate</c> at :155, but only as a re-arm input to a suppression that is itself keyed
+/// on <c>UiScrollFocus.IsScrolling</c> — which the reel never stamps. So even that path cannot see
+/// the reel.) TURN NEVER.</item>
+/// <item><b>AoE pattern rotation</b> — <c>AoeControl.cs:196</c>, <c>Thumbstick.x</c>. Same: not a Y
+/// consumer, untouched.</item>
+/// <item><b>The world grab</b> — <c>WorldGrab.cs:199</c> reads <c>ThumbstickClick</c>, the stick
+/// pushed straight DOWN, not the analog axis at all. Untouched.</item>
+/// <item><b>Generic uGUI stick scroll</b> — <c>RayUguiDriver.TickStickScroll</c>, Y. CANNOT BE LIVE
+/// on the carrying hand, by construction and not by arbitration: <c>RayUguiDriver.Tick</c> returns
+/// at its first gate when <c>_hand.Ray.Active</c> is false (RayUguiDriver.cs:112), and
+/// <c>RayInteractor.Active</c> is <c>… &amp;&amp; !IsHolding</c> (RayInteractor.cs:459) — a laser
+/// carry IS a hold. The pointer is <c>Cancel()</c>ed, so there is no hovered ScrollRect for the
+/// scroll to find. Nothing to decide.</item>
+/// <item><b>The flat-screen stick scroll</b> — <c>FlatScreen.6.Pointer.cs:658</c>, Y. Dead for the
+/// same reason one level up: its tick bails when <c>pick.TryGetPick</c> returns false
+/// (FlatScreen.6.Pointer.cs:29-34), and <c>TryGetPick</c> returns <c>Active</c>. Nothing to
+/// decide.</item>
+/// <item><b>The results-window scroll</b> — <c>ModalFallback.5.ResultsScroll.cs:175</c>, Y (another
+/// lane's file, read only). Its laser half is dead for the same reason as the two above
+/// (<c>hand.RayUgui.Hovered</c> is null while holding). Its POKE half
+/// (<c>hand.Poke.HoveredUi</c>) is not gated on the ray, so in principle the carrying hand's
+/// FINGERTIP could be inside a results window while its laser carries a different one at range.
+/// THE REEL DOES NOT CONTEST THAT and both would run: it is geometrically self-contradictory (the
+/// carried window sits at the captured ray distance, metres from the fingertip), it costs a scroll
+/// nothing to also move, and buying it would mean editing a file this lane does not own. Recorded
+/// as a known, unreachable-in-practice overlap rather than left unexamined.</item>
+/// <item><b>Forward/backward stick flight</b> — <c>Flight.Update</c>, Y on
+/// <c>[Comfort] FlightHand</c>. GENUINELY COLLIDES, and with the shipped defaults on the SAME
+/// controller. THE REEL WINS, deliberately and out loud — see the gate in Flight.Update for the
+/// argument and the log line.</item>
+/// <item><b>Vertical lift</b> — <c>Flight.TickVerticalLift</c>, Y on <c>[Comfort] TurnHand</c>.
+/// GENUINELY COLLIDES. THE REEL WINS: that is the user's ruling verbatim. See
+/// <c>Flight.LiftAllowed</c>.</item>
+/// <item><b>Level strafe</b> — <c>Flight.Update</c>, <c>stick.x</c>. Not a Y consumer; unaffected,
+/// so a player can still slide sideways while reeling a window in.</item>
+/// <item><b>Campaign-map zoom</b> — <c>FlatScreenStereo.3.Map.cs:355</c>, the RIGHT hand's Y, and
+/// the ONE reader in the mod with no holding gate. It is inert in the 3D map room
+/// (<c>MapRoomOwnsParchment</c> forces <c>_mapBaseCapture</c> false, FlatScreenStereo.3.Map.cs:38),
+/// so the overlap can only arise on the FLAT campaign map with a floated window laser-held over it.
+/// Left unchanged by this lane — that file is not ours — and reported to the integrator with the
+/// one-line guard that would settle it the way every other contest here is settled.</item>
+/// </list>
+///
+/// <para><b>COST TO THE CALLER.</b> <see cref="OwnsStick"/> in the common case (nothing is being
+/// laser-carried, which is nearly every frame of a session) is one static field read and one
+/// Unity-null compare — no config read, no scene lookup, no allocation. Only while a carry really
+/// is live does it reach the handle's property, which is five field reads and two static config
+/// reads. It is safe to call unconditionally from a per-frame path such as
+/// <c>Rig.Flight.Update</c>.</para>
+/// </summary>
+internal static class LaserCarryReel
+{
+    private static PanelGrabHandle? _owner;
+
+    /// <summary>A laser carry just engaged on <paramref name="handle"/>; it becomes the claimant.</summary>
+    internal static void Claim(PanelGrabHandle handle) => _owner = handle;
+
+    /// <summary>That carry ended. Idempotent, and a no-op if some other handle has claimed since.</summary>
+    internal static void Release(PanelGrabHandle handle)
+    {
+        if (ReferenceEquals(_owner, handle))
+            _owner = null;
+    }
+
+    /// <summary>
+    /// Does a live reel own <paramref name="hand"/>'s stick Y this frame? False for every hand
+    /// while nothing is laser-carried, false for the OTHER hand while one is, and false whenever
+    /// <c>[Comfort] LaserCarryReel</c> is off — the option's whole job is to hand the axis back.
+    /// </summary>
+    internal static bool OwnsStick(VRHand? hand)
+    {
+        PanelGrabHandle? owner = _owner;
+        // Unity-null aware on purpose: the handle's GameObject can be destroyed under us (window
+        // closed, mode teardown, hot reload) without any release path running.
+        if (owner == null)
+        {
+            _owner = null;
+            return false;
+        }
+        if (!owner.ReelLive)
+        {
+            _owner = null;
+            return false;
+        }
+        return hand != null && ReferenceEquals(owner.ReelHand, hand);
+    }
+
+    /// <summary>Attribution for a suppressor's log line — never call it per frame.</summary>
+    internal static string Describe()
+    {
+        PanelGrabHandle? owner = _owner;
+        return owner == null || !owner.ReelLive ? "no laser carry" : owner.ReelDescription;
+    }
 }

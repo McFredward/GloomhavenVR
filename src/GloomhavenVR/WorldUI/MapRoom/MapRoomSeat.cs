@@ -15,7 +15,8 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///
 /// <para>IT IS DELIBERATELY NOT ANCHORED TO <c>CameraController.s_CameraController</c>. That is
 /// the mistake hardware test #8 already made and it is written into the config description of
-/// <c>[Rig] Experimental3DMap</c> in those words: anchoring the rig to the orbit camera on the map
+/// <c>[Rig] Vanilla2DMap</c> in those words (it was <c>[Rig] Experimental3DMap</c> until
+/// ModBuild 230 renamed and inverted it): anchoring the rig to the orbit camera on the map
 /// scene produced "giant map below the player, black flat window", and
 /// <c>VRRigDriver.UpdateBody</c> carries the standing warning that the switch "must never silently
 /// re-enable the broken orbit-camera anchoring". The orbit camera is read here for exactly ONE

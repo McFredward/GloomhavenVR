@@ -546,8 +546,18 @@ internal static partial class ModalFallback
             // screen, it SPLIT it: the assembly window nested inside the party display lost its
             // parent and floated on its own. See IsMapRoomPermanent for the log lines that show it.
             bool isMapRoomPermanent = IsMapRoomPermanent(window);
+            // ModBuild 230 — AND A TRANSIENT ANNOUNCEMENT, user ruling (a): "Solche flüchtigen Infos
+            // sollten nicht mit dem 'x' schließbar sein, es soll eher als Dialog behandelt werden was
+            // damit geschlossen wird, wenn der user draufklickt." The X is not merely redundant on
+            // such a window, it is the trap he fell into: he clicked the info (which IS the dismiss),
+            // the info went, and the X stayed behind as the only thing left in the frame. It joins
+            // the existing no-X chain rather than getting a mechanism of its own, and it is the ONLY
+            // member of that chain that gets something back in exchange — the full-host click
+            // catcher below. See IsTransientAnnouncement for the decompiled evidence and for the one
+            // candidate family (the FTUE intro screens) deliberately NOT enrolled.
+            bool isTransient = IsTransientAnnouncement(window);
             if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
-                && !isMapRoomPermanent)
+                && !isMapRoomPermanent && !isTransient)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
@@ -560,7 +570,12 @@ internal static partial class ModalFallback
                                           // the wrong cause, which is exactly the kind of line this
                                           // project has had to retract before.
                                           : isMapRoomPermanent ? MapRoomPermanentReason(window)
+                                          : isTransient ? TransientAnnouncementReason(window)
                                           : "click-through story box")}).");
+            // ModBuild 230: the transient's replacement for the X. Built AFTER the X decision and
+            // before the WindowPanel so a failure to build it cannot cost the window its float.
+            if (isTransient)
+                AttachTransientDismiss(panel, window);
 
             var wp = new WindowPanel
             {
@@ -580,7 +595,25 @@ internal static partial class ModalFallback
                 // ModBuild 180: in the 3D map room EVERY floated window is sticky — the game's
                 // single-window discipline (open the merchant, the temple disappears) is wrong for
                 // a room where the windows are objects on a table. See MapRoomParallel.
-                Sticky = NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window),
+                // ModBuild 230 — AND A TRANSIENT ANNOUNCEMENT IS NEVER STICKY, WHICH IS THE ROOT
+                // CAUSE OF THE REPORT AND NOT A TIDY-UP. The ModBuild 229 log has the whole sequence:
+                // the unlock popup floats in the map room, the player clicks the info, the game runs
+                // its own dismiss and calls window.Hide() ("UIWindow hidden: 'UI Unlock Locations
+                // Flow Manager'" / "hidden — untracked"), and the float SURVIVED that — 174 log lines
+                // later the same window is being hovered and grabbed. It survived because
+                // MapRoomParallel makes every non-confirmation window in the map room sticky, and
+                // sticky means "the release loop keeps this floated when the game hides it". That
+                // rule was written for windows the player OPENS and wants side by side (the merchant
+                // and the temple, user ruling of ModBuild 180). An announcement the game takes away
+                // is the opposite case: keeping it is keeping a frame around content that has left.
+                // The window stays NON-BLOCKING (MapRoomParallel is untouched, so IsBlockingWindow
+                // still reads false and no ModalUI lock is raised) — only the stickiness goes.
+                Sticky = (NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window))
+                         && !isTransient,
+                Transient = isTransient,
+                // ModBuild 230 (liveness): the clock every grace and dwell in TickWindowLiveness is
+                // measured from, and the "had been standing for" term of its release line.
+                FloatedAt = Time.unscaledTime,
                 HoverCard = isHoverCard,
                 WindowCanvasGroup = window.GetComponent<CanvasGroup>(),
                 // Item 6 (empty-shell fix): cache the window's own Canvas so ReassertStickyVisible can

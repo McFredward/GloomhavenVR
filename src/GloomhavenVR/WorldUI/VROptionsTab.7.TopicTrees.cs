@@ -260,9 +260,18 @@ internal static partial class VROptionsTab
             // ruling on the same two rows: "die Pfeile, wo man den echten Wert einfach einstellen
             // kann"). Sideways first, then height: the order of the log line he tunes from.
             //
-            // All three fold under [Rig] Experimental3DMap (VROptionsTab.8.Dependencies.cs), so on
+            // All three fold under the campaign-map switch (VROptionsTab.8.Dependencies.cs), so on
             // a flat-map install this heading does not appear at all — BuildTreeTopicBody resolves
             // a whole top before drawing it and skips one with nothing visible under it.
+            //
+            // THE PARENT AND THE POLARITY BOTH CHANGED AT ModBuild 230: it is [Rig] Vanilla2DMap
+            // == Off now, where it was [Rig] Experimental3DMap == On (user ruling — the 3D map
+            // room became the default and the dial names the opt-out). Nothing HERE had to change
+            // for it, and that is the point worth recording: this file names rows, the dependency
+            // file names the state, and the fold followed the rename because the three BoardRefs
+            // below are unchanged. What DID change is which way round the heading's absence is the
+            // unusual case — it now appears by default and disappears only for a player who has
+            // switched the flat 2D map back on.
             LocKey = "vr_pt_maproom",
             Subs = new BoardSub[]
             {

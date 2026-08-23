@@ -450,6 +450,103 @@ internal static class GuildmasterDestinations
     //  the window's OWN X button — the one path that already handles both halves: an open game
     //  window gets Escape()/Hide(), and a window the game has already hidden gets its parallel VR
     //  float released. The mode-is-current case is untouched and still returns to the map.
+    //
+    //  (ModBuild 230 CORRECTED THAT LAST SENTENCE. "The mode-is-current case is untouched" is
+    //  precisely what made the close take two presses — see section 8, immediately below.)
+    // =========================================================================================
+
+    // =========================================================================================
+    //  8 — THE TWO BRANCHES WERE TWO PRESSES (ModBuild 230)
+    //
+    //  USER REPORT, verbatim: "Die Fenster die man durch Drücken der Tasten in der Map-Umgebung
+    //  öffnen kann, zB der Händler gehen erst durch zwei-maliges erneutes Drücken auf den Tasten
+    //  wieder zu. Die Tasten soll Tiggles sein, also einmal drücken öffnet das Fenster sofern es
+    //  geschlossen ist, nochmal drücken schließt das Fenster sofern es noch offen sein sollte."
+    //
+    //  WHAT THE TWO PRESSES ACTUALLY WERE, from his ModBuild 229 log, and it is not an inference —
+    //  the two branches ModBuild 226 wrote into CloseMode each printed their own line, and they are
+    //  TWENTY LOG LINES APART with a whole frame of panel maintenance between them:
+    //
+    //    Player.log:27898  'UI Shop Item Window' floated WITH its background       <- press 1, OPEN
+    //    Player.log:27922  MAP TABLE BUTTON 'Merchant' pressed … its window is OPEN <- press 2
+    //    Player.log:27933  GUILDMASTER WINDOW: … by RETURNING TO WorldMap           <- branch (B)
+    //      …and immediately after it, 27934-27941: MIP BAKE ARRIVAL on 'UI Shop Item Window',
+    //      PANEL SUPERSAMPLE re-allocated 'UI Shop Item Window' to 3968x2288, HIT RECT … commit #2,
+    //      Ray-uGUI canvas 'GloomhavenVR.Panel_Modal_UI Shop Item Window' world rect 237x133 — i.e.
+    //      the mod was still building, supersampling and RAY-TESTING that panel. It stood.
+    //    Player.log:27942  MAP TABLE BUTTON 'Merchant' pressed … its window is OPEN <- press 3
+    //    Player.log:27943  GUILDMASTER WINDOW: … through the WINDOW'S OWN X PATH    <- branch (A)
+    //    Player.log:27946  MODAL CLOSE (X button): … releasing the parallel VR float only
+    //    Player.log:27949  MODAL WINDOW: 'UI Shop Item Window' released
+    //
+    //  The same shape repeats four times in that one session (27762/27769 and 27836/27852 on the
+    //  MercenaryLog cap, 27933/27943 and 28009/28023 on the Merchant cap) and not once does a single
+    //  press produce both lines — CloseMode returns after whichever branch it took.
+    //
+    //  WHY BRANCH (B) COULD NOT CLOSE ANYTHING HE COULD SEE. ReturnHome presses the bar's map
+    //  button, UpdateCurrentMode runs the destination's Exit, and the game hides its window. In the
+    //  flat game that IS the close, because the game owns the screen. In this room it is not, by the
+    //  mod's own explicit ruling: every window floated while the room stands is STICKY
+    //  (ModalFallback.MapRoomParallel, ModBuild 180 — "Anders als in Flat soll es hier möglich sein
+    //  mehrere Fenster parallel offen zu haben"), and the release loop reads
+    //
+    //      stillOpen = alive && !wp.UserClosing && (ContainsWindow(OpenWindows, wp.Window) ||
+    //                                               wp.Sticky || ScriptedLevelMessageActive(...))
+    //      (ModalFallback.4.Tick.cs:2218-2220)
+    //
+    //  — a sticky float does NOT release when the game hides its window; only WindowPanel.UserClosing
+    //  releases it, and the only writer of that flag is ModalFallback.CloseFloatedWindow
+    //  (ModalFallback.7.Close.cs:113-115). Worse, step 4b of the same tick walks the converted set
+    //  and re-asserts alpha 1 / raycasts on for exactly this state ("if (!wp.Window.IsOpen ||
+    //  !wp.Window.IsVisible) ReassertStickyVisible(wp)", ModalFallback.4.Tick.cs:2306-2313). So
+    //  press 2 exited the mode and the room immediately re-showed the panel. The merchant stayed on
+    //  the table, unchanged, and the only thing that had happened was invisible.
+    //
+    //  THE PREDICATE WAS THE OTHER HALF. IsLeftoverWindowStanding refused to answer at all while the
+    //  mode machine still had a window mode current (its clause 2, "if (IsWindowMode(current)) return
+    //  false"), so on press 2 — Merchant current, merchant panel standing — the cap could only take
+    //  the mode-keyed branch. The panel-keyed branch became reachable only AFTER press 2 had moved
+    //  the mode machine home. Two questions, asked in two presses, about one window.
+    //
+    //  THE FIX IS ONE QUESTION AND ONE ACTION. <see cref="Decide"/> asks what is OBSERVABLY standing
+    //  — the live VR float first, the game's own IsOpen second, the mode enum only third and only as
+    //  a tiebreaker — and every Close goes through ModalFallback.CloseFloatedWindow, which is the ONE
+    //  routine that already performs BOTH halves in the right order and has since ModBuild 184:
+    //
+    //      1. wp.UserClosing = true                      -> the parallel float releases next tick
+    //      2. GuildmasterDestinations.LeaveMode(window)   -> the game-side mode Exit, but ONLY when
+    //                                                       this window IS the current mode's (the
+    //                                                       ModBuild 226 guard, kept verbatim)
+    //      3. window.IsOpen ? Escape()/Hide() : reset the forced CanvasGroup back to hidden
+    //
+    //  There is no ordering left to get wrong and no orphan either way: a mode that is active is
+    //  exited (so the party display comes back out of selection mode — section 2, still the reason
+    //  Hide() alone is never enough), and a float that stands is released, whether one or both of
+    //  those is true. It is idempotent by construction: after it runs nothing is standing, so the
+    //  next press falls to Open.
+    //
+    //  THE ONE CARVE-OUT, AND IT IS NOT A THIRD STATE. TownRecords and MercenaryLog are two MODES
+    //  over ONE UIWindow (UIGuildmasterHUD.cs:248-254; see ModeWindow). While one of them is current
+    //  and that shared window stands, a press on the OTHER cap is a TAB SWITCH — "show me the
+    //  mercenary log" — and it stays one, because there is no second panel to close and the press
+    //  still changes what he sees. Pressing the cap whose tab is already showing closes it, exactly
+    //  like every other destination. So each cap is still a strict toggle of its own content and no
+    //  press is ever a no-op. This is the ONLY case in which a standing window does not close, it is
+    //  decided by window IDENTITY (ReferenceEquals on ModeWindow) rather than by name or by mode, and
+    //  Decide names it on the press line so the next log shows it happening.
+    //
+    //  MULTIPLAYER: unchanged in both directions and by construction. Every fact read here —
+    //  UIWindow.IsOpen, UIGuildmasterHUD.CurrentMode, the mod's own converted-window list — is local
+    //  presentation the game already maintains per client, nothing is broadcast, nothing is read from
+    //  a host, and the close is still the same single pointerClick on the local bar plus a local
+    //  float release. A second player pressing his own table cap runs this identical code against his
+    //  own HUD singleton and his own float set.
+    //
+    //  COST: zero per-frame work is added. Decide() and Observe() run ONLY inside
+    //  MapButtonRail.Press — that is, on a trigger pull — and Reconcile's per-tick path is untouched,
+    //  so the ModBuild 196 budget work and its DESTINATIONS SUB-STEP BREAKDOWN line are unaffected.
+    //  Pressable(), which DOES run per cap per frame, deliberately still consults none of this (see
+    //  its own doc for why that was already the right call in ModBuild 226).
     // =========================================================================================
 
     /// <summary>
@@ -508,58 +605,255 @@ internal static class GuildmasterDestinations
     }
 
     /// <summary>
-    /// IS THIS MODE'S WINDOW STANDING IN THE ROOM WHILE THE MODE MACHINE HAS ALREADY MOVED ON?
-    /// The state the ModBuild 222 close cannot see — see section 7 of the class doc.
+    /// WHAT ONE PRESS OF A TABLE CAP CAN DO. Exactly one of these, decided once, in
+    /// <see cref="Decide"/> — see section 8 of the class doc.
+    /// </summary>
+    internal enum CapPress
+    {
+        /// <summary>Nothing of this destination is standing — dispatch the game's own press and let
+        /// the window open exactly as it always has.</summary>
+        Open,
+
+        /// <summary>This destination's panel is standing in the room — close it, the whole way, in
+        /// THIS press: the game-side mode Exit and the parallel float release both.</summary>
+        Close,
+
+        /// <summary>The SHARED town-records window is standing under the OTHER of its two modes.
+        /// This press switches its tab, which is a visible change and not a close; there is no
+        /// second panel to close. The only case in which a standing window does not close.</summary>
+        TabSwitch,
+
+        /// <summary>A map SURFACE (WorldMap/City) that is already the current mode. A click there
+        /// commits nothing at all (<c>allowSwitchOff</c> is false while a mode is active), and
+        /// "closing" a map would mean switching the player to the other map. Nothing dispatched.
+        /// </summary>
+        Refused,
+    }
+
+    /// <summary>
+    /// THE OBSERVABLE STATE OF ONE DESTINATION, sampled from the three places that can disagree —
+    /// and the whole ModBuild 230 defect was that they DID disagree and only one of them was asked.
     ///
-    /// <para>THE GATE IS DELIBERATELY NARROW, and each clause pays for itself:</para>
+    /// <para><paramref name="floatWithId"/> is the strong answer: <c>FloatedWindowWithId</c> walks
+    /// the converted set newest-first and skips panels that are dead, host-less or already flagged
+    /// <c>UserClosing</c> (ModalFallback.4.Tick.cs:361-372), so a hit that is <c>ReferenceEquals</c>
+    /// to this window means a live world-space panel the player can look at and point at RIGHT NOW.
+    /// It is ID-keyed, and <c>UITownRecordsWindow</c> carries <c>UIWindowID.None</c> (his log:
+    /// "'UI Town Records Window' (ID None)"), which is an id other windows also carry — so the whole
+    /// returned reference is kept rather than a bool, because WHICH window came back is exactly what
+    /// separates "id-shadowed by a neighbour" from "there is no live float with this id at all".</para>
+    ///
+    /// <para><paramref name="floatByGrab"/> closes that gap from the other side:
+    /// <c>TryGetGrabFor</c> is keyed on the window OBJECT (ModalFallback.3.WindowPanel.cs:221-235),
+    /// so no id can shadow it. It does not exclude <c>UserClosing</c>, so it stays true for the one
+    /// tick between a close and the release pass — which is honest, because the panel is still drawn
+    /// during that tick. Pressing again inside that ~11 ms therefore re-runs an idempotent close
+    /// rather than opening a second window on top of one that is leaving. The pair is reported
+    /// separately in the log so a reader can always tell which of them answered, and their
+    /// combination is what <see cref="Describe"/> turns into the words STANDS / RELEASING / none.</para>
+    ///
+    /// <para><paramref name="gameOpen"/> is the game's own <c>UIWindow.IsOpen</c>, which covers the
+    /// frames after the window opens but before <c>ModalFallback.Tick</c> has converted it, and the
+    /// case where conversion failed or was refused outright and there is no float at all.</para>
+    ///
+    /// <para>ASKED, NEVER REMEMBERED — unchanged from ModBuild 226 and the reason it survives. There
+    /// is no "this cap opened it" flag anywhere in this class, because such a flag is wrong the
+    /// instant the player uses the window's own X, which in this room he can, on any window, at any
+    /// time.</para>
+    /// </summary>
+    private static void Sample(EGuildmasterMode mode, out UIWindow? window, out bool gameOpen,
+                               out UIWindow? floatWithId, out bool floatByGrab,
+                               out EGuildmasterMode current)
+    {
+        current = CurrentMode();
+        window = IsWindowMode(mode) ? ModeWindow(mode) : null;
+        gameOpen = window != null && window.IsOpen;
+        floatWithId = window != null ? ModalFallback.FloatedWindowWithId(window.ID) : null;
+        floatByGrab = window != null && ModalFallback.TryGetGrabFor(window, out _);
+    }
+
+    /// <summary>
+    /// THE SAMPLE IN WORDS, and the words are chosen so the AFTER line of a close is unambiguous —
+    /// which is the whole reason the ModBuild 229 log could not settle this report by itself.
+    ///
+    /// <para>The four states, and how each is decided rather than guessed:</para>
+    /// <list type="bullet">
+    ///   <item><b>STANDS</b> — the id-keyed live-float lookup returned THIS window. A world-space
+    ///   panel is up, not flagged for release, with a living host. He can see it.</item>
+    ///   <item><b>RELEASING</b> — this window is in the converted set (object-keyed grab) but NO live
+    ///   float carries its id at all. <c>FloatedWindowWithId</c> excludes exactly one thing a
+    ///   converted panel can be: flagged <c>UserClosing</c> / dead / host-less. So this is the one
+    ///   tick between a close and the release pass, and on the AFTER half of a close line it is the
+    ///   SUCCESS reading, not a failure.</item>
+    ///   <item><b>STANDS (id-shadowed …)</b> — converted, and some OTHER window is the live float for
+    ///   this id. Only reachable for <c>UIWindowID.None</c>. Named with the shadowing window so it
+    ///   can never be mistaken for the RELEASING case above.</item>
+    ///   <item><b>none</b> — not converted at all. Combined with <c>IsOpen=False</c> this is the
+    ///   closed state, full stop.</item>
+    /// </list>
+    /// </summary>
+    private static string Describe(EGuildmasterMode mode, UIWindow? window, bool gameOpen,
+                                   UIWindow? floatWithId, bool floatByGrab, EGuildmasterMode current)
+    {
+        string floatState;
+        if (window != null && ReferenceEquals(floatWithId, window))
+            floatState = "STANDS (live world-space panel, id-keyed)";
+        else if (floatByGrab && floatWithId == null)
+            floatState = "RELEASING (converted, but no LIVE float carries this id — it is flagged "
+                         + "UserClosing and its host drops on the next ModalFallback tick)";
+        else if (floatByGrab)
+            floatState = $"STANDS (converted, but the live float for this id is "
+                         + $"'{(floatWithId != null ? floatWithId.name : "?")}' — id-shadowed, which "
+                         + "only UIWindowID.None can do)";
+        else
+            floatState = "none (not in the converted set)";
+        return $"mode={mode} window={(window != null ? $"'{window.name}' (ID {window.ID})" : "<unresolved>")} "
+               + $"IsOpen={gameOpen} float={floatState} currentMode={current} home={HomeMode()} "
+               + $"roomActive={MapRoomDriver.Active}";
+    }
+
+    /// <summary>
+    /// ONE LINE OF STATE, in the words the next log has to be readable in. Called twice per press —
+    /// once BEFORE the decision and once AFTER the action — so a single grep answers "did one press
+    /// reach the closed state?" without another hardware round.
+    /// </summary>
+    internal static string Observe(EGuildmasterMode mode)
+    {
+        Sample(mode, out UIWindow? window, out bool gameOpen, out UIWindow? floatWithId,
+               out bool floatByGrab, out EGuildmasterMode current);
+        return Describe(mode, window, gameOpen, floatWithId, floatByGrab, current);
+    }
+
+    /// <summary>
+    /// THE WHOLE DECISION, ONCE, AGAINST WHAT IS STANDING. Section 8 of the class doc is the
+    /// evidence; this is the rule:
+    ///
     /// <list type="number">
-    ///   <item>the mode must BE a window mode at all, or there is nothing to stand;</item>
-    ///   <item>the mode machine must be AT HOME (WorldMap/City). If some OTHER destination is the
-    ///   current mode, a press on this cap is a mode SWITCH and must stay one — pressing Temple
-    ///   while the merchant is open has always meant "show me the temple", and turning that into
-    ///   "close the temple's leftover float" would be a second, unrequested behaviour change. It
-    ///   is also what keeps <c>TownRecords</c> and <c>MercenaryLog</c> honest: while either of
-    ///   them is current, pressing the other still switches the shared window's tab;</item>
-    ///   <item>the window must exist and must actually be STANDING — its own <c>IsOpen</c>, or a
-    ///   live float in <c>ModalFallback</c>'s converted set. The float test is what catches the
-    ///   case the game itself calls closed, which is the whole point.</item>
+    ///   <item>a mode that is not a window mode is a map SURFACE — it opens (or, if it is already
+    ///   current, a click would commit nothing, so it is <see cref="CapPress.Refused"/> and the cap
+    ///   says so instead of dispatching a silent no-op);</item>
+    ///   <item>if the SHARED town-records window is standing under the OTHER of its two modes, this
+    ///   press is a <see cref="CapPress.TabSwitch"/> — decided by window IDENTITY, never by name;</item>
+    ///   <item>otherwise the press CLOSES if anything of this destination is observably standing —
+    ///   the live float, or the game's own IsOpen, or (as a tiebreaker only) the mode enum saying
+    ///   this mode is current, which in practice implies the window is shown and is kept purely so a
+    ///   momentarily unresolvable window can never turn a press into a no-op;</item>
+    ///   <item>and it OPENS otherwise.</item>
     /// </list>
     ///
-    /// <para>ASKED, NEVER REMEMBERED. There is no "the cap opened this" flag anywhere in this
-    /// class, because such a flag goes stale the instant the player uses the window's own X — and
-    /// in this room he can, on any window, at any time.</para>
+    /// <para>THE ORDER OF THE THREE STANDING SIGNALS IS THE FIX. ModBuild 226 asked the mode enum
+    /// first and only fell through to the panel when the enum had already left; that is what took two
+    /// presses. The panel is asked first now because the panel is what he is pressing the button to
+    /// get rid of, and a mode that has exited while the panel still stands is not "closed".</para>
     /// </summary>
-    internal static bool IsLeftoverWindowStanding(EGuildmasterMode mode, out UIWindow? window,
-                                                  out string why)
+    internal static CapPress Decide(EGuildmasterMode mode, out UIWindow? window, out string observed)
     {
-        window = null;
-        why = string.Empty;
-        if (!MapRoomDriver.Active || !IsWindowMode(mode))
-            return false;
+        Sample(mode, out window, out bool gameOpen, out UIWindow? floatWithId, out bool floatByGrab,
+               out EGuildmasterMode current);
+        observed = Describe(mode, window, gameOpen, floatWithId, floatByGrab, current);
+        bool floatById = window != null && ReferenceEquals(floatWithId, window);
 
-        EGuildmasterMode current = CurrentMode();
-        if (IsWindowMode(current))
-            return false; // another destination owns the mode machine — a press here is a switch
+        bool modeIsCurrent = current == mode && current != EGuildmasterMode.None;
 
-        window = ModeWindow(mode);
-        if (window == null)
-            return false;
+        if (!IsWindowMode(mode))
+            return modeIsCurrent ? CapPress.Refused : CapPress.Open;
 
-        if (window.IsOpen)
+        // Outside the room the flat rules apply verbatim. The caps only exist while the room stands,
+        // so this is a guard against a torn-down rail's last frame, not a reachable behaviour.
+        if (!MapRoomDriver.Active || window == null)
+            return CapPress.Open;
+
+        bool standing = floatById || floatByGrab || gameOpen;
+
+        // TownRecords / MercenaryLog: two modes, ONE UIWindow (UIGuildmasterHUD.cs:248-254). While
+        // the other mode owns it and it is standing, this press switches the tab — it is not a
+        // close, because there is no panel of this mode's own to close, and it is not a no-op either.
+        if (standing && !modeIsCurrent && IsWindowMode(current)
+            && ReferenceEquals(ModeWindow(current), window))
+            return CapPress.TabSwitch;
+
+        return standing || modeIsCurrent ? CapPress.Close : CapPress.Open;
+    }
+
+    /// <summary>
+    /// THE CAP'S ONE ENTRY POINT, and the one line per press the next log is read by. Returns TRUE
+    /// when the press was fully handled here (a close, or a refusal) and the rail must NOT dispatch
+    /// the game's own click; FALSE when the press is an open or a tab switch and the rail dispatches
+    /// exactly as it always has.
+    ///
+    /// <para><paramref name="toggleIsOn"/> is the rail's OWN reading of the game's bar toggle, passed
+    /// in for the log alone. It is the fact ModBuild 222 keyed the close on, and printing it beside
+    /// the panel state is what makes a future disagreement between the two visible in one line
+    /// instead of costing another test round.</para>
+    /// </summary>
+    internal static bool HandleCapPress(EGuildmasterMode mode, string source, bool toggleIsOn)
+    {
+        CapPress decision = Decide(mode, out UIWindow? window, out string before);
+        string head = $"GUILDMASTER WINDOW PRESS: {mode} ({source}) -> {decision}. "
+                      + $"OBSERVED BEFORE: {before} toggle.isOn={toggleIsOn}.";
+
+        switch (decision)
         {
-            why = $"the game still reports '{window.name}' (ID {window.ID}) OPEN while the current "
-                  + $"guildmaster mode is {current}";
-            return true;
+            case CapPress.Close:
+                // ONE ACTION, BOTH HALVES. See section 8: this is the only routine that flags the
+                // parallel float for release AND runs the game-side mode Exit (through LeaveMode,
+                // whose ModBuild 226 guard keeps it from exiting somebody else's mode) AND hides a
+                // window the game still has open. Nothing here decides an order; the order is that
+                // method's, and it has been right since ModBuild 184.
+                CloseMode(mode, window, source);
+                VRLog.Info(Scope, head + " LEFT BEHIND: " + Observe(mode)
+                                  + " — READ THE LEFT BEHIND HALF AS THE VERDICT, it is the whole point "
+                                  + "of this line. float=RELEASING or float=none, together with "
+                                  + "IsOpen=False and a currentMode that is no longer this one, means ONE "
+                                  + "PRESS REACHED THE CLOSED STATE, which is the entirety of the ModBuild "
+                                  + "230 report ('nochmal drücken schließt das Fenster'). RELEASING is the "
+                                  + "normal reading here and is a success: the float is flagged and its "
+                                  + "host drops on the next ModalFallback tick — look for 'MODAL WINDOW: "
+                                  + "… released' within a few lines to see it land. float=STANDS on this "
+                                  + "line is the FAILURE reading: the release did not take, and the next "
+                                  + "press would be the second one all over again. That is exactly what "
+                                  + "ModBuild 229 did on every mode-is-current press, because returning to "
+                                  + "the map exits the mode while the sticky float survives the release "
+                                  + "loop and is re-shown by ModalFallback's own ReassertStickyVisible in "
+                                  + "the same tick (see section 8). IsOpen=True with float=none means the "
+                                  + "opposite failure — the game window outlived the panel. READING ORDER: "
+                                  + "this line is printed AFTER the act, so the MODAL CLOSE / GUILDMASTER "
+                                  + "WINDOW / MAP TABLE BUTTON lines directly ABOVE it belong to this one "
+                                  + "press. They are labelled '(X button)' because the close IS the "
+                                  + "window's own X route — ModalFallback.CloseFloatedWindow — not because "
+                                  + "an X was touched; the physical action is named in this line's own "
+                                  + "source field.");
+                return true;
+
+            case CapPress.Refused:
+                VRLog.Info(Scope, head + " WorldMap and City are map SURFACES, not windows: this room is "
+                                  + "built on one of them, and the only thing 'close' could mean for a map "
+                                  + "is switching to the other one, i.e. silently moving the player between "
+                                  + "the world map and the city on a second press. A re-click would commit "
+                                  + "nothing anyway (toggleGroup.allowSwitchOff is false while a mode is "
+                                  + "active, UIGuildmasterHUD.cs:441), so nothing was dispatched. This cap "
+                                  + "should already have been inert — MapButtonRail.Pressable refuses it — "
+                                  + "so this line appearing means the mirror was one frame behind the game.");
+                return true;
+
+            case CapPress.TabSwitch:
+                VRLog.Info(Scope, head + " TownRecords and MercenaryLog are two MODES over ONE UIWindow "
+                                  + "(UIGuildmasterHUD.cs:248-254), and the OTHER one currently owns it. "
+                                  + "So this press switches the shared window's TAB — a visible change, "
+                                  + "not a close, and not a no-op: there is no panel of this mode's own to "
+                                  + "close. Pressing the cap whose tab is already showing closes it like "
+                                  + "every other destination, so each cap remains a strict toggle of its "
+                                  + "own content. Dispatching the game's own press.");
+                return false;
+
+            default:
+                VRLog.Info(Scope, head + " Nothing of this destination is standing, so this is the OPEN "
+                                  + "half of the toggle and the game's own press goes out unchanged. The "
+                                  + "next press on this cap will read the panel this one creates and close "
+                                  + "it — the state that decides that is on this line's LEFT BEHIND "
+                                  + "counterpart after the close.");
+                return false;
         }
-        if (ReferenceEquals(ModalFallback.FloatedWindowWithId(window.ID), window))
-        {
-            why = $"the game has already hidden '{window.name}' (ID {window.ID}) — the current "
-                  + $"guildmaster mode is {current} — but the map room is still floating it in "
-                  + "parallel (ModalFallback.MapRoomParallel), so it IS on the table in front of him";
-            return true;
-        }
-        window = null;
-        return false;
     }
 
     /// <summary>
@@ -649,48 +943,63 @@ internal static class GuildmasterDestinations
     /// window's own X button, the one path that releases a float whose game window is already
     /// hidden — and nothing else about this method changed: while the mode IS current, the close is
     /// still the return home, still one pointerClick on the bar's own map Toggle.</para>
+    ///
+    /// <para>ModBuild 230 — AND THAT "NOTHING ELSE CHANGED" IS WHAT COST HIM THE SECOND PRESS. There
+    /// is now ONE close and it is <c>ModalFallback.CloseFloatedWindow</c> for every case, because
+    /// that routine already does BOTH halves and in the only order that leaves no orphan: it flags
+    /// the parallel float for release (<c>wp.UserClosing</c>, ModalFallback.7.Close.cs:113-115),
+    /// then calls straight back into <see cref="LeaveMode"/> for the game-side mode Exit — which
+    /// still runs whenever this window IS the current mode's, so the ModBuild 184/195 party-display
+    /// fix is untouched and the ModBuild 226 guard still stops it exiting somebody ELSE'S mode —
+    /// and then hides the game window if the game still has it open. The old branch (B), a bare
+    /// <see cref="ReturnHome"/>, exited the mode and left the sticky float standing; see section 8
+    /// of the class doc for the log lines that show it happening four times in one session.
+    /// <see cref="ReturnHome"/> survives as <see cref="LeaveMode"/>'s body and has no other
+    /// caller.</para>
+    ///
+    /// <para>THE HOME==MODE REFUSAL IS GONE WITH THE BRANCH IT GUARDED. It only ever protected
+    /// <see cref="ReturnHome"/> from being asked to return to the mode it was closing, i.e. a
+    /// WorldMap/City cap reaching this path; that is now impossible one level up —
+    /// <see cref="Decide"/> answers <see cref="CapPress.Refused"/> for a non-window mode and never
+    /// <see cref="CapPress.Close"/> — and <see cref="LeaveMode"/> carries the same invariant anyway,
+    /// since a map surface's <see cref="ModeWindow"/> is null and can never be
+    /// <c>ReferenceEquals</c> to the window being closed.</para>
     /// </summary>
-    internal static bool CloseMode(EGuildmasterMode mode, string source)
+    internal static bool CloseMode(EGuildmasterMode mode, UIWindow? window, string source)
     {
         if (!MapRoomDriver.Active)
             return false;
-
-        // (A) THE WINDOW IS STANDING BUT ITS MODE IS NOT. Ask the WINDOW, close it the way the X
-        //     does. Tested first because in this state HomeMode() is already the current mode and
-        //     ReturnHome below would be a no-op with a confident-looking log line.
-        if (IsLeftoverWindowStanding(mode, out UIWindow? standing, out string why) && standing != null)
+        if (window == null)
         {
-            VRLog.Info(Scope, $"GUILDMASTER WINDOW: closing the {mode} window from its own table cap "
-                              + $"({source}) through the WINDOW'S OWN X PATH, not by returning to the map "
-                              + $"— {why}. The game's mode machine has already run this destination's "
-                              + "Exit, so UpdateCurrentMode has nothing left to do and pressing the bar's "
-                              + "map button would dispatch nothing (that is the 'ALREADY the current mode' "
-                              + "line ModBuild 222 left in the log). What is still on the table is the map "
-                              + "room's parallel float, and ModalFallback.CloseFloatedWindow is exactly "
-                              + "what the window's own X runs: Escape()/Hide() when the game still has it "
-                              + "open, and a release of the parallel float when the game has already "
-                              + "hidden it. NOTHING NEW GOES ON THE WIRE — this is the same local UI close "
-                              + "the X has performed since ModBuild 184.");
-            ModalFallback.CloseFloatedWindow(standing);
-            return true;
-        }
-
-        EGuildmasterMode home = HomeMode();
-        if (home == mode)
-        {
-            VRLog.Warn(Scope, $"GUILDMASTER WINDOW: asked to close mode {mode} by returning to "
-                              + $"{home} — but that is the SAME mode, so the press would be a no-op. "
-                              + "Refused. This can only happen if a WorldMap/City cap reached the "
-                              + "toggle-close path, which MapButtonRail.IsClosableMode exists to "
-                              + "prevent; nothing was dispatched.");
+            VRLog.Warn(Scope, $"GUILDMASTER WINDOW: asked to close mode {mode} ({source}) but its "
+                              + "UIWindow could not be resolved off UIGuildmasterHUD's own serialized "
+                              + "references (no HUD reachable, or this mode owns no window). Nothing was "
+                              + "dispatched — there is nothing on the table to close, and pressing the "
+                              + "bar's map button on a guess would exit whatever mode IS current. "
+                              + "Decide() only asks for a close when it has a window, so this line means "
+                              + "the HUD went away between the sample and the act.");
             return false;
         }
-        return ReturnHome(source, $"closing the {mode} window from its own table cap");
+
+        // THE ONE CLOSE. Both halves, in the order ModalFallback.CloseFloatedWindow already fixed:
+        // flag the parallel float for release, run the mode's own Exit through LeaveMode when this
+        // window IS the current mode's, hide the game window if the game still has it open. Nothing
+        // new goes on the wire — this is the same local UI close the window's own X has performed
+        // since ModBuild 184, and the purchase, blessing or enhancement a destination may have
+        // committed was committed by ITS own button, not by leaving it.
+        ModalFallback.CloseFloatedWindow(window);
+        return true;
     }
 
-    /// <summary>The one close: press the bar's map button, exactly as a flat player leaves a shop.
-    /// <paramref name="source"/> travels into the cap press's own log line; <paramref name="what"/>
-    /// is the human sentence for this line.</summary>
+    /// <summary>THE GAME-SIDE HALF of a close: press the bar's map button, exactly as a flat player
+    /// leaves a shop, so <c>UpdateCurrentMode -> Exit</c> runs. <paramref name="source"/> travels
+    /// into the cap press's own log line; <paramref name="what"/> is the human sentence for this one.
+    ///
+    /// <para>ModBuild 230: this is no longer a close ON ITS OWN and has exactly one caller,
+    /// <see cref="LeaveMode"/>, which <c>ModalFallback.CloseFloatedWindow</c> reaches after it has
+    /// already flagged the parallel float for release. Called alone it exits the mode and leaves the
+    /// map room's sticky float standing — which is precisely the state the user reported as needing a
+    /// second press (section 8 of the class doc).</para></summary>
     private static bool ReturnHome(string source, string what)
     {
         EGuildmasterMode home = HomeMode();

@@ -75,7 +75,8 @@ internal static class ConfigCatalog
     /// <c>rig.cfg</c> and the module table below sent the whole file to <see cref="Visual"/>.
     /// Nobody looks for a volume slider under Graphics. Finding 3 was the mirror image: the
     /// environment family (<c>[Sky]</c> 1 entry, <c>[Elements]</c> 2, <c>[Haunt]</c> 2, <c>[Rig]
-    /// Experimental3DMap</c> 1) each fell under <see cref="MinClusterSize"/> and was swept into
+    /// Vanilla2DMap</c> 1 — <c>Experimental3DMap</c> until ModBuild 230 renamed and inverted it)
+    /// each fell under <see cref="MinClusterSize"/> and was swept into
     /// Visual's "Allgemein" collector, so the environment CHOOSER sat in a grab-bag two rows from
     /// the environment's own mood dials. A topic each fixes both permanently and mechanically: a
     /// setting added to one of those sections tomorrow lands in the right place with no edit
@@ -459,6 +460,15 @@ internal static class ConfigCatalog
         ["Comfort/TableScaleDefault25Applied"] = "internal one-shot marker — false re-arms the "
             + "2.5x table-scale migration (ComfortSettings.cs:414-427), which moves the world out "
             + "from under a player who had already scaled it by hand",
+        // ModBuild 230's map-presentation one-shot, listed the moment it was bound rather than
+        // after somebody found it sitting between two real settings. Same harm as the three above
+        // and one more besides: false does not "undo" the migration, it re-runs it against the
+        // ORPHANED [Rig] Experimental3DMap line still in the file — so a player who has since
+        // chosen the other map has that choice overwritten at the next start by a row that looks
+        // like it only re-armed some bookkeeping. Its bound description opens with "Do not edit."
+        ["Rig/MapPresentationMigrated230"] = "internal one-shot marker — false re-arms the "
+            + "ModBuild 230 transfer of [Rig] Experimental3DMap to [Rig] Vanilla2DMap "
+            + "(Plugin.cs), which overwrites whichever campaign map the player has since chosen",
         ["Comfort/SavedScaleMultiplier"] = "an OUTPUT, not a setting: written automatically after "
             + "every two-grip scale gesture, so a menu edit is overwritten by the next pinch and "
             + "only shows at all on a rig rebuild — a control that visibly does nothing",
@@ -560,8 +570,7 @@ internal static class ConfigCatalog
         // dead entries (WristHud twins, shared hand seats + trims, map-capture knobs, WorldScale,
         // HeldScale family, ForceFarMode, …) were DELETED outright in the 2026-08 dead-settings
         // sweep; what remains marked retired is the deliberate residue: LEGACY-SEED entries that
-        // feed one-time migrations, the reserved [Rig] Experimental3DMap placeholder, and the
-        // parked world tilt ([Rig] WorldTiltDegrees + the three MaskedReaim* companions, kept for
+        // feed one-time migrations and the parked world tilt ([Rig] WorldTiltDegrees + the three MaskedReaim* companions, kept for
         // the documented revival). Those stay BOUND so the seeds and the parked tuning survive;
         // they simply stop being offered.
         if (IsRetired(entry))
@@ -917,7 +926,7 @@ internal static class ConfigCatalog
                     return ConfigTopic.Diagnostics;
                 case "MapRoom":
                     // The 3D map room's own dials file with the SWITCH that turns the room on —
-                    // [Rig] Experimental3DMap, which the "Rig" case below sends to the same topic.
+                    // [Rig] Vanilla2DMap, which the "Rig" case below sends to the same topic.
                     // A player who just found that switch is then on the same page as the dials
                     // that tune what it turned on, which is the whole complaint the per-board page
                     // was rearranged for. (They also FOLD OUT under it: VROptionsTab's
@@ -939,10 +948,18 @@ internal static class ConfigCatalog
                     // [Rig] is genuinely two things: where the world sits, and how it is drawn.
                     // VoidColor and ForwardRendering stood in this list until the 2026-08-22
                     // settings audit UNBOUND both (a: "Etwas was das spiel kaputt macht wenn man es
-                    // umstellt ist nicht optional") — Experimental3DMap is what is left of the
-                    // "how it is drawn" half, and the test stays a list because the next such key
-                    // costs one word here rather than a second branch.
-                    return key is "Experimental3DMap"
+                    // umstellt ist nicht optional") — the campaign-map switch is what is left of
+                    // the "how it is drawn" half, and the test stays a list because the next such
+                    // key costs one word here rather than a second branch.
+                    //
+                    // RENAMED AND INVERTED AT ModBuild 230 (user ruling: the 3D map room is the
+                    // default and the dial names the opt-out). The TOPIC did not move with it —
+                    // "which campaign map you get" is the same "which world you stand in" question
+                    // whichever way the switch is phrased — but the KEY had to, and this line is
+                    // the one place in the catalog that names it. Getting it wrong would not throw:
+                    // the row would simply file under Movement, i.e. land on the wrong Erweitert
+                    // page, silently.
+                    return key is "Vanilla2DMap"
                         ? ConfigTopic.Environment
                         : ConfigTopic.Movement;
                 default:

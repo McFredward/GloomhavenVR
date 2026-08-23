@@ -178,6 +178,71 @@ internal static partial class ModalFallback
 
         /// <summary>Next unscaled time a fruitless scroll-target search may retry (1 s throttle).</summary>
         public float NextResultsScrollSearch;
+
+        // ---- ModBuild 230: THE LIVENESS RULE (user: "Es darf niemals leere Fenster geben") ------
+        //
+        // Every field below is written ONLY by TickWindowLiveness / the convert that created this
+        // entry (ModalFallback.9.Spawn.cs carries the whole rule and its evidence). They exist here
+        // because the rule is per-FLOAT state and WindowPanel is the float; a parallel dictionary
+        // keyed by UIWindow would go stale exactly when a window is destroyed under us, which is
+        // one of the two failure shapes the rule has to catch.
+
+        /// <summary>Unscaled time this float was created (the convert that built it). The
+        /// "how long had it been standing" term of the release line, and the base the bounded
+        /// liveness grace is measured from.</summary>
+        public float FloatedAt;
+
+        /// <summary>
+        /// Has the emptiness half of the liveness rule been ARMED for this float? Until it is, a
+        /// window that draws nothing is left alone — that is the spawn-to-first-paint window this
+        /// project has twice shipped a false positive into. Arms on the FIRST frame the window is
+        /// measured drawing something, or when <c>LivenessGraceSeconds</c> have passed since the
+        /// float was created, whichever comes first — so the grace is bounded by construction and a
+        /// permanently-un-armed population is impossible rather than merely unlikely.
+        /// </summary>
+        public bool LivenessArmed;
+
+        /// <summary>Unscaled time <see cref="LivenessArmed"/> flipped, and which of the two arming
+        /// conditions did it — both printed, because "armed by grace expiry" and "armed by first
+        /// paint" mean very different things about a window that is later released.</summary>
+        public float LivenessArmedAt;
+        public string LivenessArmReason = string.Empty;
+
+        /// <summary>Unscaled time this float was first measured drawing NOTHING in an unbroken run,
+        /// or 0 while it is drawing something. The release fires only after the run reaches
+        /// <c>EmptyDwellSeconds</c>, so a window whose content is swapped (the unlock flow hides its
+        /// popup for the duration of a camera focus) is never mistaken for a stranded shell.</summary>
+        public float EmptySince;
+
+        /// <summary>Last unscaled time this float was measured drawing something. Reported in the
+        /// release line so the log states when the content actually went, not just when we looked.</summary>
+        public float LastDrawnAt;
+
+        /// <summary>Frame number the next liveness measurement may run on (the walk is strided —
+        /// see <c>LivenessCheckStride</c>). Zero = due now.</summary>
+        public int LivenessNextCheckFrame;
+
+        /// <summary>
+        /// Set by <c>TickWindowLiveness</c> when this float has been judged dead. The release loop
+        /// in part 4 reads it as an unconditional "release this", which is what makes the liveness
+        /// rule own the WHOLE window — panel, grab holder, X, collider and arc slot all leave
+        /// through the one existing teardown rather than through a second, partial one.
+        /// </summary>
+        public bool EmptyReleasePending;
+
+        /// <summary>Which shape fired (GONE / DARK) and the sub-reason, phrased for the log.
+        /// Only meaningful while <see cref="EmptyReleasePending"/> is set.</summary>
+        public string EmptyReleaseShape = string.Empty;
+
+        // ---- ModBuild 230: TRANSIENT ANNOUNCEMENTS (user: no X, click to dismiss) ---------------
+
+        /// <summary>
+        /// This float is a TRANSIENT ANNOUNCEMENT (<see cref="IsTransientAnnouncement"/>): a
+        /// one-shot popup the game puts up to tell the player something and takes away again on the
+        /// next click. It carries NO close button, it is never <see cref="Sticky"/>, and a click
+        /// anywhere on it is routed to the game's own dismiss button.
+        /// </summary>
+        public bool Transient;
     }
 
     // ---- STORY WINDOW SYNC (wire record 19) seam ---------------------------------------------

@@ -299,6 +299,12 @@ internal static partial class ModalFallback
                 return false;
             ClearEmptyRefusal(window);
         }
+        // ModBuild 230: and the liveness rule's own hold — this window was floated, drew nothing for
+        // the whole dwell and was released for it. Same rule, later edge: 226 refuses a window that
+        // was born empty, 230 releases one that went dark while standing. The un-enrolled path needs
+        // the check here for the same reason the enrolled one needs it in the convert loop.
+        if (EmptyHeldNow(window))
+            return false;
         // HOTFIX (hardware round 2026-08-01): known HUD OWNERS, matched by COMPONENT (their
         // window IDs are all scene-serialized None, so the ID set above cannot carry them).
         // These are permanent flat-HUD subsystems the mod already owns elsewhere — floating
@@ -712,6 +718,7 @@ internal static partial class ModalFallback
         NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
         EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set
+        EmptyHold.Clear();           // ModBuild 230 — the liveness rule's re-float hold
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

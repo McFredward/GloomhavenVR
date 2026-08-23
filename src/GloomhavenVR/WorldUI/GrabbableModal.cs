@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.UI; // the game's UIWindow lives here (decompiled/GH.Runtime/UnityEngine.UI/UIWindow.cs)
@@ -108,6 +109,29 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Vector3 _diagLastPos;
     private Quaternion _diagLastRot = Quaternion.identity;
     private float _diagNextAllowed;
+
+    /// <summary>
+    /// EVERY GrabbableModal THAT HAS ACTUALLY BUILT ITS HOLDER (ModBuild 230).
+    ///
+    /// <para>The holder is a SCENE-ROOT tree — <c>EnsureFrame</c> creates
+    /// <c>GloomhavenVR.ModalGrab_*</c> with no parent, because the game-owned host FOLLOWS the frame
+    /// rather than hanging off it. That inversion is what makes this the one piece of window chrome
+    /// that does not die when its panel is released: destroying the host cannot reach it. Every
+    /// release path in <see cref="ModalFallback"/> calls <see cref="Destroy"/> first and is correct
+    /// today, so this list is not a fix — it is the only way anything could NOTICE a holder that
+    /// outlived its window, which is the artefact the user photographed three of in one frame
+    /// (.planning/debug/leeres_fenster2.jpg). <c>ModalFallback.SweepOrphanChrome</c> reads it.</para>
+    ///
+    /// <para>Registration is in <see cref="EnsureFrame"/>, NOT in the constructor, on purpose: an
+    /// un-built GrabbableModal owns nothing visible, and listing one would make the sweep's
+    /// "holders against windows" comparison mean something else than it says.</para>
+    /// </summary>
+    internal static readonly List<GrabbableModal> LiveHolders = new(8);
+
+    /// <summary>The name this modal reports itself under in the log — the window name
+    /// <see cref="Build"/> was given. Exposed so the orphan sweep can NAME what it destroyed; the
+    /// ModBuild 225 round cost a build precisely because the stray bars carried no identity.</summary>
+    internal string LogName => _logName;
 
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
@@ -1029,6 +1053,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // registration hides the bar in the very frame it was created (it is built at the PRE-FIT
         // rect/scale, which is exactly the wrong place the user saw it pop in at).
         CanvasConversion.AddRenderRoot(_panel, _holder);
+        // ModBuild 230: the holder exists from here, so from here it is sweepable (see LiveHolders).
+        if (!LiveHolders.Contains(this))
+            LiveHolders.Add(this);
         VRLog.Info("WorldUI", $"MODAL GRAB: '{_logName}' is now a grabbable/scalable world element " +
                               "(grip the bar to move, two hands to resize 0.5x-2x).");
     }
@@ -1067,6 +1094,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <summary>Destroy the mod-owned holder (the game host is released separately by the caller).</summary>
     internal void Destroy()
     {
+        LiveHolders.Remove(this); // ModBuild 230 — leaves the sweep's live set with the holder itself
         if (_holder != null)
             Object.Destroy(_holder.gameObject);
         _holder = null;

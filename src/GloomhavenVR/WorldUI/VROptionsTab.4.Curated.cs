@@ -386,7 +386,8 @@ internal static partial class VROptionsTab
                         // them. Same shape as the [MapRoom] size dials below.
                         //
                         // THE WHOLE WORLD BLOCK MOVED ONE TAB DOWN (audit question (c)):
-                        // [Compat] WallFade, [Sky] Style, [Rig] Experimental3DMap, [WorldUI]
+                        // [Compat] WallFade, [Sky] Style, the campaign-map switch ([Rig]
+                        // Vanilla2DMap since ModBuild 230, Experimental3DMap before it), [WorldUI]
                         // MapRoomHand, [Elements] ×2, [Haunt] ×2 and [EnvSound] ×2 are the
                         // "Umgebung & Ton" tab now, under headings that name what they are. They
                         // are the same ConfigEntries and the same order; only the page changed.
@@ -405,9 +406,12 @@ internal static partial class VROptionsTab
                         // row the rescue back at 193. The five stay adjacent, in the same reading
                         // order, one navigation level deeper.
                         //
-                        // They still fold under [Rig] Experimental3DMap wherever they are shown
-                        // (VROptionsTab.8.Dependencies, DependentSections claims the whole [MapRoom]
-                        // section), so on a flat-map install they are off screen exactly as before.
+                        // They still fold under the campaign-map switch wherever they are shown
+                        // ([Rig] Vanilla2DMap == Off since ModBuild 230; VROptionsTab.8
+                        // .Dependencies, DependentSections claims the whole [MapRoom] section), so
+                        // on a flat-map install they are off screen exactly as before — note that
+                        // "a flat-map install" is now the OPT-OUT rather than the default, so these
+                        // five are on screen for most players where before they were hidden.
                         //
                         // DO NOT RE-PROMOTE without a fresh ruling: this is the second placement of
                         // the same family, and the user named the destination himself.
@@ -468,7 +472,7 @@ internal static partial class VROptionsTab
                     Entries = new CuratedEntry[]
                     {
                         // THE SWITCH. Put on a curated page at ModBuild 192 for the reason [Rig]
-                        // Experimental3DMap was at 176: the dial existed, was bound and was wired,
+                        // the campaign-map switch was at 176: the dial existed, was bound and was wired,
                         // and was still unreachable in practice. ModBuild 191 shipped the
                         // supersample pair OFF by default and the hardware log of the session
                         // testing it contains zero PANEL SUPERSAMPLE lines — the path never ran,
@@ -487,6 +491,19 @@ internal static partial class VROptionsTab
                         // AND THE SIZE. [WorldUI] WindowLegibility is the other way to spend
                         // headset pixels on a window, and the two belong on one screen.
                         new("WorldUI", "WindowLegibility", ""),
+                        // AND THE DISTANCE — new in ModBuild 230, on this page and not on
+                        // Bewegung, because the player's sentence for it is about a WINDOW ("die
+                        // Fenster die man mit dem Laser festhält … zu einem ziehen"), and this is
+                        // the page he is already on when he is thinking about how a window reads.
+                        // It is a locomotion row only in the sense that it TAKES a stick axis from
+                        // the two flight rows on Bewegung while a window is held; that trade is
+                        // stated in its own German description rather than by filing it next to
+                        // the rows it overrules, where it would read as a flight setting and be
+                        // folded under [Comfort] FlightEnabled — which it must NOT be, since it
+                        // has to stay reachable for a player who flies with neither stick.
+                        // Same empty caption keys, same documented degradation as above.
+                        new("Comfort", "LaserCarryReel", ""),
+                        new("Comfort", "LaserCarryReelSpeed", ""),
                         // ITS TWO CALIBRATION DIALS ARE OFF THE CURATED PAGE (2026-08-22 settings
                         // audit, question (b): "Prüfe jede Einstellung ob du sie User zutrauen
                         // würdest, wenn nicht gehören sie in Erweitert."). Both fail that test in
@@ -666,18 +683,76 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
-                    // THE 3D CAMPAIGN MAP — the other "which world am I standing in" decision, and
+                    // THE CAMPAIGN MAP — the other "which world am I standing in" decision, and
                     // the reason it was curated at ModBuild 176 still holds: without a row it was
                     // unreachable in practice (no display name, so the menu spaced the raw key out
                     // to "Experimental 3D Map") and the user asked where it was.
+                    //
+                    // ==================================================================
+                    //  ModBuild 230 — WHY THIS TAB, AND WHY THE ROW WAS ALREADY HERE
+                    // ==================================================================
+                    // THE RULING, third clause, verbatim: "Die Einstellung soll außerhalb von
+                    // Erweitert einstellbar sein." VERIFIED AGAINST THE CODE RATHER THAN ACTED ON:
+                    // the row was ALREADY outside Erweitert at HEAD and had been since ModBuild
+                    // 176. This list is what puts a row on a curated tab — VROptionsTab.3.Content
+                    // .BuildCurated:146 resolves every CuratedEntry through Lookup and
+                    // draws it — and "Rig/Experimental3DMap" was named right here, in this
+                    // section, on the "Umgebung & Ton" tab. What was NOT reachable was the row's
+                    // MEANING: see the caption note below, which is the defect that made the row
+                    // read as a wall of prose rather than as a setting. So the third clause is
+                    // answered by keeping the placement and fixing the label, and by writing down
+                    // the evidence that the placement works so the next reader does not re-derive
+                    // it from the same wrong premise.
+                    //
+                    // THE MECHANISM, CHECKED END TO END (ConfigCatalog.Rebuild → Describe →
+                    // TopicOf, because this file's comments are not evidence about that file):
+                    //   1. Rebuild walks every registered module's ConfigFile and calls Describe
+                    //      per entry. Describe drops an entry ONLY on two tests: IsRetired (the
+                    //      description starts "LEGACY — no effect" / "RESERVED —" / "DEPRECATED —")
+                    //      and membership of NotOffered. [Rig] Vanilla2DMap fails both — its bound
+                    //      description opens "OFF BY DEFAULT, and off is the 3D map room" and the
+                    //      key is not in that table — so it IS in the catalog.
+                    //   2. TopicOf's "Rig" case is a one-key list and this key is the one entry on
+                    //      it: ConfigTopic.Environment. That is what decides the ERWEITERT page it
+                    //      also appears on (Erweitert ▸ Umgebung), and it was renamed with the key.
+                    //   3. Lookup (VROptionsTab.4.Curated.cs:1314) finds it by "Rig/Vanilla2DMap"
+                    //      out of the same catalog, and WARNS instead of silently skipping when a
+                    //      curated key no longer exists — which is the safety net under a rename:
+                    //      a typo here produces "curated entry [Rig] Vanilla2DMap no longer exists"
+                    //      in the log rather than a row that quietly disappears.
+                    //   4. IsRowVisible then applies the variant filter and the dependency fold.
+                    //      This row declares no dependency and is exempt from the [MapRoom] section
+                    //      rule anyway (it is in [Rig], not [MapRoom]), so it always draws.
+                    //
+                    // AND IT IS THE RIGHT TAB, not merely the tab it was on. "Umgebung & Ton" is
+                    // the tab whose own header argues it holds "not how the world is DRAWN, but
+                    // which world you are in … and the 3D map you travel it on" — which is exactly
+                    // what this switch decides. The competing candidate is "Brett & Karten", the
+                    // play-surface tab; it loses because the campaign map is not the play surface
+                    // (the board is), and because the five [MapRoom] dials and the two travel
+                    // offsets that fold under this switch are already filed under Umgebung and
+                    // Menüs & Tafeln respectively. A player asking "which map do I get" is asking
+                    // the same question as "which world am I standing in", one heading above.
                     LocKey = "sec_map3d",
                     Entries = new CuratedEntry[]
                     {
-                        new("Rig", "Experimental3DMap", "vr_o_3dmap"),
-                        // The map room's card hand, DIRECTLY under the switch that builds the room.
-                        // It folds under Experimental3DMap (VROptionsTab.8.Dependencies.cs), so it
-                        // is only ever on screen while there is a map room for it to be in. Empty
-                        // caption key: the localized name and the German description carry the row.
+                        // THE CAPTION KEY CHANGED WITH THE ENTRY, and fixing it was overdue on its
+                        // own account. "vr_o_3dmap" was NOT a caption: Loc.cs:711 held a five-line
+                        // paragraph under it and there was no "h_vr_o_3dmap" hint at all, so
+                        // CuratedEntry.Caption (=> Loc.Mod(CaptionKey)) handed BuildItem an entire
+                        // explanatory text as the row's LABEL — the one place in this list where
+                        // the caption/hint pair every other row uses was inverted. "vr_o_2dmap"
+                        // restores the shape: a short label ("Originale 2D-Karte") plus
+                        // "h_vr_o_2dmap" for the sentence that explains it, exactly like
+                        // vr_o_sky / h_vr_o_sky two headings up.
+                        new("Rig", "Vanilla2DMap", "vr_o_2dmap"),
+                        // The map room's card hand, DIRECTLY under the switch that decides whether
+                        // there is a room. It folds under Vanilla2DMap == Off
+                        // (VROptionsTab.8.Dependencies.cs), so it is only ever on screen while
+                        // there is a map room for it to be in — which is now the DEFAULT state,
+                        // i.e. this row is visible out of the box where before it was hidden out of
+                        // the box. Empty caption key: the localized name and the German description
+                        // carry the row.
                         new("WorldUI", "MapRoomHand", ""),
                         // NOT HERE, and neither is on this page by accident:
                         //   * the five [MapRoom] SIZE dials — "Symbolgrößen gehören ins ERWEITERT

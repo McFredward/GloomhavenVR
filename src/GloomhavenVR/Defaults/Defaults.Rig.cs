@@ -30,6 +30,23 @@ internal static partial class Defaults
     internal const float FlightMaxSpeed = 1.43362f;                 // => [Comfort] FlightMaxSpeed
     internal const TurnHandChoice FlightHand = TurnHandChoice.Right;  // => [Comfort] FlightHand
     internal const bool TurnStickVertical = false;                  // => [Comfort] TurnStickVertical  (pinned: the user asked for it as an OPTION, and its off state is the pre-feature behaviour)
+    // ---- the laser-carry reel (user request 2026-08-23) — it OVERRULES the two rows above ----
+    //
+    // ON, and that is the request rather than an opinion: "Falls sie noch nicht existiert,
+    // implementiere sie" asks for the behaviour, and "als Option an/ausschaltbar" asks only that
+    // the switch exist. Contrast TurnStickVertical directly above, which is pinned OFF because
+    // there the user asked to be able to SET it and its off state is the pre-feature behaviour.
+    // While a laser carry holds a hand, this takes that hand's stick Y and BOTH flight rows stand
+    // down for the duration — see Flight.cs, where each stand-down names itself in the log rather
+    // than going quiet, because a silent suppression is indistinguishable from a broken stick.
+    internal const bool LaserCarryReel = true;                       // => [Comfort] LaserCarryReel
+    // 2.0 apparent m/s at full deflection: a window grabbed at a typical 3-4 m reaches arm's
+    // length in under two seconds, and the linear (not squared) response means half a stick is
+    // half that. APPARENT metres, converted through the live rig scale at use time, so it feels
+    // the same at the 198x map room and the 4.4x scenario — a bound written in world units would
+    // be 45x wrong in one of the two, which this project has shipped before. Untuned: the first
+    // hardware round is expected to move it, which is what a dial with a declared range is for.
+    internal const float LaserCarryReelSpeed = 2f;                   // => [Comfort] LaserCarryReelSpeed
     // [Comfort] TableHeightOffset is GONE (user ruling 2026-08: free locomotion replaced it).
     // No line here on purpose — a tuned cfg that still carries the key is reported as UNMAPPED
     // by scripts/rebase-defaults.py, which is exactly right for a retired key.

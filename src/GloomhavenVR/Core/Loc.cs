@@ -708,18 +708,35 @@ internal static partial class Loc
         ["vr_tt_stop"] = Pair("Switch all test triggers off", "Alle Test-Auslöser ausschalten"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
-        ["vr_o_3dmap"] = Pair(
-            "EXPERIMENTAL. Stand IN the campaign map instead of viewing it on the flat screen: "
-            + "the map becomes a table-sized parchment you walk around and lean over, and other "
-            + "players see you doing it. Off = the flat 2D map, unchanged in every detail. Built "
-            + "in phases — today it seats you at the parchment; the table, the pressable location "
-            + "icons and the floating signs come later.",
-            "EXPERIMENTELL. Steh IN der Kampagnenkarte, statt sie auf der flachen Leinwand "
-            + "anzusehen: die Karte wird zu einem tischgroßen Pergament, um das du herumgehst und "
-            + "über das du dich beugst; im Mehrspieler seht ihr euch dabei. Aus = die flache "
-            + "2D-Karte, in jedem Detail unverändert. Wird in Phasen gebaut — heute setzt es dich "
-            + "an das Pergament; der Tisch, die drückbaren Ortssymbole und die schwebenden Schilder "
-            + "kommen später."),
+        // ---- Umgebung & Ton ▸ Kampagnenkarte -------------------------------------------------
+        // "vr_o_3dmap" IS RETIRED (ModBuild 230) AND THIS IS THE WHOLE STORY, because it was two
+        // faults in one key. (1) It captioned [Rig] Experimental3DMap, which no longer exists: the
+        // ruling renamed and inverted it to [Rig] Vanilla2DMap, so a key nothing references would
+        // have been left behind — the exact dangling string this file's other retirements name.
+        // (2) It was never a caption at all. Every other curated row here is a PAIR — a short
+        // label plus an "h_"-prefixed hint (vr_o_sky / h_vr_o_sky, vr_o_haunt / h_vr_o_haunt) —
+        // and this one had the hint's TEXT under the label's KEY and no h_ entry whatsoever, so
+        // CuratedEntry.Caption handed the row builder a five-line paragraph to print as the row's
+        // name. Both halves are fixed by the pair below; nothing "moved", the old key is gone.
+        //
+        // THE LABEL IS WRITTEN FROM THE OFF STATE, which is what a row's label has to be when the
+        // row ships off: "Originale 2D-Karte" (user's own framing: "Nenne die neue Einstellung
+        // eher so etwas wie 'Vanilla 2D map'"). It says what turning it ON gets you, and the hint
+        // says what leaving it OFF gets you — deliberately in that order, because the default is
+        // the room and a player reading this row is a player considering leaving it.
+        ["vr_o_2dmap"] = Pair("Original 2D map", "Originale 2D-Karte"),
+        ["h_vr_o_2dmap"] = Pair(
+            "Off — the normal setting — puts you IN the campaign map: it becomes a table-sized "
+            + "parchment you walk around and lean over, with pressable locations, and in "
+            + "multiplayer you see each other there. Turn this on to get the game's original flat "
+            + "2D map back on the screen instead, unchanged in every detail. Your fellow players "
+            + "are unaffected — everyone chooses this for themselves.",
+            "Aus — die normale Einstellung — stellt dich IN die Kampagnenkarte: Sie wird zu einem "
+            + "tischgroßen Pergament, um das du herumgehst und über das du dich beugst, mit "
+            + "drückbaren Orten, und im Mehrspieler seht ihr euch dabei. Schalte dies ein, um "
+            + "stattdessen die originale flache 2D-Karte auf der Leinwand zurückzubekommen, in "
+            + "jedem Detail unverändert. Deine Mitspieler stört das nicht — das entscheidet jeder "
+            + "für sich."),
         ["h_vr_o_mirroreye"] = Pair("What the desktop window mirrors while you play — for whoever is watching at the desk.", "Was das Desktop-Fenster beim Spielen zeigt — für alle, die am Monitor zuschauen."),
         // Brett & Karten
         ["vr_o_spawnleft"] = Pair("Board starts on the left", "Brett startet links"),
@@ -860,7 +877,12 @@ internal static partial class Loc
         ["sec_environment"] = Pair("Environment", "Umgebung"),
         ["sec_haunt"] = Pair("Creepy", "Grusel"),
         ["sec_sound"] = Pair("Sound", "Ton"),
-        ["sec_map3d"] = Pair("3D map", "Karte 3D"),
+        // TEXT-ONLY RENAME AT ModBuild 230 (the LocKey stays "sec_map3d", the same way cat_debug
+        // kept its key when it became "Erweitert"): the heading used to name the feature the one
+        // row under it switched ON, and that row now names the OPT-OUT. "Karte 3D" over a row
+        // called "Originale 2D-Karte" reads as a contradiction; "Kampagnenkarte" names the subject
+        // both rows are about — which map you get, and your card hand while you are in it.
+        ["sec_map3d"] = Pair("Campaign map", "Kampagnenkarte"),
         // Brett & Karten — the play surface's own tab (2026-08 overhaul, audit 05 S6).
         ["vr_sec_controlboard"] = Pair("Control board", "Kontrollbrett"),
         // One row ([FigureGrab] GrabFigures), and it earns a heading because it is the master of a
@@ -1060,7 +1082,7 @@ internal static partial class Loc
         ["cfg_topic_visual"] = Pair("Picture & rendering", "Bild & Darstellung"),
         // THE TWO TOPICS THE 2026-08-22 SETTINGS AUDIT ADDED, and the heading above is the reason
         // both were needed: [EnvSound] rides rig.cfg, so every volume dial the mod has was filed
-        // under a topic that says PICTURE, and [Sky]/[Elements]/[Haunt]/[Rig] Experimental3DMap
+        // under a topic that says PICTURE, and [Sky]/[Elements]/[Haunt]/[Rig] Vanilla2DMap
         // each fell under MinClusterSize and were swept into that topic's "Allgemein" collector.
         // Erweitert is the catalog's own index, so a topic each fixes the misfiling mechanically:
         // a setting added to one of those sections tomorrow lands correctly with no edit at all.

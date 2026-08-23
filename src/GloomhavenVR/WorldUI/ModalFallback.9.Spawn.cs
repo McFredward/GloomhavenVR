@@ -1750,6 +1750,22 @@ internal static partial class ModalFallback
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' released ({reason}) — restored to its 2D home.");
         }
         Converted.Clear();
+        // ModBuild 230: and then the net, because a grab holder is a SCENE-ROOT tree that nothing
+        // above can reach except through the WindowPanel that owned it. The loop above destroyed
+        // every holder it could see; anything still registered after Converted is empty is by
+        // definition owned by nobody, and on a module shutdown it would outlive the module itself.
+        // Silent when there is nothing to do, which is every ordinary teardown.
+        for (int i = GrabbableModal.LiveHolders.Count - 1; i >= 0; i--)
+        {
+            GrabbableModal stray = GrabbableModal.LiveHolders[i];
+            VRLog.Warn("WorldUI", $"ORPHAN CHROME DESTROYED at teardown ({reason}): the grab holder "
+                                  + $"'{stray.LogName}' was still registered after every floated window "
+                                  + "had been released, so no WindowPanel owned it. It has been "
+                                  + "destroyed. This sweep compares two live sets; it cannot observe "
+                                  + "which path dropped the holder, and the name above is the window to "
+                                  + "trace back through the MODAL WINDOW release lines.");
+            stray.Destroy();
+        }
         // Flush the pose lock in the same breath: a bulk release (scenario exit, VR off) may be the
         // last thing that ever happens to these windows, and the per-window POSE WATCH verdict must
         // not be lost just because ModalFallback.Tick is never called again. Mark-and-sweep with
@@ -2018,6 +2034,502 @@ internal static partial class ModalFallback
                 return true;
         }
         return false;
+    }
+
+    // ---- THE LIVENESS RULE (ModBuild 230) ------------------------------------------------------
+    //
+    // USER RULING, verbatim (2026-08-23, .planning/debug/leeres_fenster2.jpg): "Es darf niemals
+    // leere Fenster geben - verschwindet das Objekt das in dem Fenster dargestellt wird, soll auch
+    // das Fenster verschwinden."
+    //
+    // WHAT THE ModBuild 226 TEST ABOVE ACTUALLY TESTS, AND WHY IT DID NOT COVER THIS. Two things,
+    // and BOTH of them have to be extended rather than one:
+    //
+    //   1. IT RUNS ONCE. RefuseEmptyFloat is called from CanvasConversion.CompleteReveal — the
+    //      reveal EDGE, once per float. Its own comment says so and gives the reason ("a per-frame
+    //      check would cost a component walk on every panel forever"). So it can only ever answer
+    //      "was this window born empty?". The window in the report was NOT born empty: the ModBuild
+    //      229 log has it convert, fit to 540x149 px and commit a HIT RECT "from 6 visible
+    //      graphic(s)" — it had content, the player clicked it, and the content left AFTERWARDS.
+    //      Nothing looks at a floated window again from that moment until the game closes it.
+    //
+    //   2. IT IS A PRESENCE TEST, NOT A DRAWN TEST — deliberately, and the deliberation is the
+    //      point. HasAnyDrawnContent asks "is there any active Graphic with a non-degenerate rect,
+    //      or any Renderer, under the target?" and its doc comment argues at length why the
+    //      VISIBILITY form of the question would be wrong AT THE REVEAL EDGE (a window mid-fade has
+    //      every graphic at alpha 0 and is about to be perfectly fine). That argument is correct
+    //      there and useless here: the popup this report is about is hidden by a GUIAnimator
+    //      (UILocationPopup.Hide → showAnimator.Stop + GoInitState, decompiled/GH.Runtime/
+    //      UILocationPopup.cs:24-28), which leaves every Graphic ACTIVE, ENABLED and full-size and
+    //      merely takes its alpha away. HasAnyDrawnContent returns TRUE for that window forever.
+    //      Re-running the ModBuild 226 test every frame would therefore have caught NOTHING.
+    //
+    // So the rule below is a genuinely different measurement, gated by time instead of by hope:
+    //
+    //   SHAPE "GONE"  — the conversion target (or the UIWindow) was DESTROYED under us. Nothing can
+    //                   bring it back, so it releases immediately, with no dwell.
+    //   SHAPE "DARK"  — the target still exists and DRAWS NOTHING: either its subtree is inactive,
+    //                   or not one Graphic under it passes the content fit's own visibility verdict
+    //                   (CanvasConversion.CountsAsFitContent — enabled, un-culled, effective alpha
+    //                   ≥ 0.05, non-degenerate rect, not clipped out of its scroll viewport, not
+    //                   mod-owned) and no enabled Renderer draws either.
+    //
+    // WHY CountsAsFitContent AND NOT A FRESH PREDICATE. This project has shipped a second copy of a
+    // visibility test twice and both times the copy was weaker than the original and accepted what
+    // the original had rejected (the MR plate's GlyphTrueRect, documented in that method). The fit
+    // is the one instrument in this mod that is calibrated against real windows, its verdict is
+    // already exposed for exactly this reason, and the fit log prints the same rejects
+    // ("rejected 0 culled/disabled, 1 faint") next to the release line, so the two can be read
+    // against each other in one grep.
+    //
+    // THE THREE GUARDS AGAINST A FALSE POSITIVE, because the failure mode of a liveness rule is
+    // eating a working window:
+    //   * NOT BEFORE THE REVEAL. While ConvertedPanel.RevealPending is set the MOD ITSELF has the
+    //     panel switched off (SetPanelRenderVisible(false), re-applied every frame of the gate) —
+    //     measuring then would read our own hide back, which is the exact mistake the ModBuild 226
+    //     Renderer arm above documents.
+    //   * NOT BEFORE THE RULE IS ARMED. A float arms on the first frame it is measured drawing
+    //     something, OR when LivenessGraceSeconds have elapsed — whichever is first. The second
+    //     clause is what makes this a bounded grace rather than a settle gate that can never open;
+    //     this project has shipped one of those (the supersample settle gate) and the lesson was
+    //     that a gate whose opening depends on the thing it is gating never opens.
+    //   * NOT BEFORE THE DWELL. A window must draw nothing for EmptyDwellSeconds without a break.
+    //     That is not padding: the unlock flow this report comes from hides its popup and runs a
+    //     ~1 s camera focus between two unlocked locations (UIUnlockLocationFlowManager.cs:150-158,
+    //     focusMoveDuration initialiser :22), so a shorter dwell would release the window in the
+    //     GAP between two announcements and the second one would never be seen.
+    //
+    // AND ONE GUARD AGAINST A LOOP. A window released for DARKness may still be reported open by
+    // the game, so the convert loop would re-float it on the very next tick, into the same dark
+    // state, forever. EmptyHold holds it out of the float set until it is measured DRAWING again
+    // (or until it closes) — the same "retry only after the condition changes" shape Failed and
+    // EmptyRefused use, keyed on the condition that actually matters here.
+
+    /// <summary>
+    /// Bounded grace after a float is created during which the DARK shape is not judged at all,
+    /// seconds. A float that is measured drawing something arms earlier; this is the ceiling, so a
+    /// window can never sit un-armed forever. 1.5 s is comfortably past the 0.6 s reveal deadline
+    /// (CanvasConversion.RevealMaxWaitSeconds) that bounds how long a window may stay hidden, so
+    /// every float is revealed and judged well inside it.
+    /// </summary>
+    private const float LivenessGraceSeconds = 1.5f;
+
+    /// <summary>
+    /// How long a floated window must draw NOTHING, without a break, before it is released,
+    /// seconds. See the dwell paragraph above for why this is 2 s and not a frame: the named case
+    /// legitimately blanks its own content for the duration of a ~1 s camera focus between two
+    /// announcements, and releasing in that gap would lose the second announcement.
+    /// </summary>
+    private const float EmptyDwellSeconds = 2f;
+
+    /// <summary>
+    /// The dwell for a window whose SCRIPTED LEVEL MESSAGE the game still considers displayed,
+    /// seconds — longer, and the asymmetry is the DurabilityPanel rule rather than caution.
+    ///
+    /// <para>The release loop's do-no-harm guard (<c>ScriptedLevelMessageActive</c>, part 4 step 1)
+    /// says such a window is "NEVER released, whatever the poll flags momentarily read", because
+    /// releasing a tutorial box mid-message restores it to the invisible 2D stack and the
+    /// dismiss-chained tutorial dies there. That guard is backed by a user ruling and the liveness
+    /// rule may not silently overturn it — but "never" and "even when it is provably drawing
+    /// nothing" are different claims, and only the first one was ever agreed. So the rule still
+    /// applies, at a dwell long enough that no inter-message gap can reach it: a stranded tutorial
+    /// frame leaves after 6 s, and a chain with a DisplayDelay between messages is untouched. The
+    /// cost of being wrong in each direction is not symmetric — a wrongly-released blocker is
+    /// recoverable (it re-floats when its content returns, at the stored chain pose), a dropped one
+    /// is a deadlock — which is why this number is generous rather than tight.</para>
+    /// </summary>
+    private const float ScriptedMessageDwellSeconds = 6f;
+
+    /// <summary>Frames between DARK measurements of one float. The walk is a
+    /// GetComponentsInChildren over the window subtree; at 6 frames it runs ~12x/second per floated
+    /// window, which the census line below reports the measured cost of.</summary>
+    private const int LivenessCheckStride = 6;
+
+    /// <summary>Seconds between MODAL LIVENESS CENSUS lines. The census exists so a population that
+    /// is permanently in grace (or a rule that silently never runs) cannot be mistaken for a
+    /// working check — a scan that only logs on success hides that it never ran.</summary>
+    private const float LivenessCensusSeconds = 20f;
+
+    /// <summary>Seconds between orphan-chrome sweeps (grab holders whose window is gone).</summary>
+    private const float ChromeSweepSeconds = 5f;
+
+    private static readonly List<Graphic> LiveCheckGraphics = new(128);
+    private static readonly List<Renderer> LiveCheckRenderers = new(16);
+
+    /// <summary>
+    /// Windows released by the DARK shape, held out of the float set until they are measured
+    /// drawing again or the game closes them. See the loop guard above.
+    /// </summary>
+    private static readonly HashSet<UIWindow> EmptyHold = new();
+
+    private static float _nextEmptyHoldProbe;
+    private static float _nextLivenessCensus;
+    private static float _nextChromeSweep;
+
+    // Self-cost accumulators for the census line (the instrument states its own price).
+    private static long _livenessTicks;
+    private static int _livenessFrames;
+    private static int _livenessWalks;
+
+    // Orphan-chrome sweep results, reported by the census rather than by a line of their own.
+    private static int _chromeSweeps;
+    private static int _chromeLive;
+    private static int _chromeOrphansSinceCensus;
+
+    /// <summary>
+    /// Is <paramref name="window"/> currently held out of the float set because it was released for
+    /// drawing nothing? Consulted by the convert loop (part 4 step 3) and by the catch-all, and
+    /// PRUNED here — this is the one place the set is read, so the prune cannot drift from it.
+    /// </summary>
+    private static bool EmptyHeldNow(UIWindow? window)
+    {
+        if (window == null || EmptyHold.Count == 0 || !EmptyHold.Contains(window))
+            return false;
+        // A close/re-open clears the hold outright, exactly like Failed and EmptyRefused: the
+        // player asked for the window again and nothing this rule measured survives that.
+        if (!window.IsOpen)
+        {
+            EmptyHold.Remove(window);
+            VRLog.Info("WorldUI", $"MODAL LIVENESS: hold on '{window.name}' (ID {window.ID}) released "
+                                  + "— the game has closed the window, so its next open is judged afresh.");
+            return false;
+        }
+        // Still open: the hold lifts the moment its content comes back. Probed at 6 Hz on the
+        // GAME-side window (it is back at its 2D home, so there is no panel to ask the fit about) —
+        // deliberately the LOOSER of the two tests, because a false "it is back" only causes a
+        // re-float, which the floated-side measurement then judges properly.
+        float now = Time.unscaledTime;
+        if (now < _nextEmptyHoldProbe)
+            return true;
+        _nextEmptyHoldProbe = now + 1f / 6f;
+        if (!DrawsAnythingLoose(window.transform))
+            return true;
+        EmptyHold.Remove(window);
+        VRLog.Info("WorldUI", $"MODAL LIVENESS: hold on '{window.name}' (ID {window.ID}) released — "
+                              + "the window is drawing content again (at least one enabled, un-culled "
+                              + "Graphic above the 0.05 effective-alpha floor with a non-degenerate "
+                              + "rect), so it may float again. It was held out of the float set "
+                              + "because it had been released for drawing nothing.");
+        return false;
+    }
+
+    /// <summary>
+    /// Does anything under <paramref name="root"/> draw right now? The panel-free form of the
+    /// question (no host to take host-local bounds against, no clipper walk), used ONLY to decide
+    /// whether a held-out window's content has come back. Enabled + un-culled + effective alpha
+    /// above the fit's own floor + non-degenerate rect; mod-owned children never count.
+    /// </summary>
+    private static bool DrawsAnythingLoose(Transform root)
+    {
+        LiveCheckGraphics.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckGraphics);
+        for (int i = 0; i < LiveCheckGraphics.Count; i++)
+        {
+            Graphic g = LiveCheckGraphics[i];
+            if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
+                continue;
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+                continue;
+            Rect r = g.rectTransform != null ? g.rectTransform.rect : default;
+            if (r.width < 0.5f || r.height < 0.5f)
+                continue;
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue;
+            return true;
+        }
+        LiveCheckRenderers.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckRenderers);
+        for (int i = 0; i < LiveCheckRenderers.Count; i++)
+        {
+            Renderer rend = LiveCheckRenderers[i];
+            if (rend != null && rend.enabled
+                && !rend.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Does this float's content draw anything RIGHT NOW, judged with the content fit's own
+    /// visibility verdict? <paramref name="darkReason"/> carries the sub-reason when the answer is
+    /// no, so the release line states what was measured rather than asserting a mechanism.
+    /// </summary>
+    private static bool MeasureDrawsSomething(WindowPanel wp, out string darkReason)
+    {
+        darkReason = string.Empty;
+        ConvertedPanel panel = wp.Panel;
+        Transform root = panel.Target;
+        if (!root.gameObject.activeInHierarchy)
+        {
+            // UIWindow.ChangeActive deactivates the whole window GameObject at zero alpha when its
+            // serialized m_DisableOnZeroAlpha is set (decompiled/GH.Runtime/UnityEngine.UI/
+            // UIWindow.cs:742-747). An inactive subtree draws nothing at all, so this IS the dark
+            // shape — and it is a separate sub-reason because it is the only one a reader can act
+            // on without opening the scene (the game switched the object off; nothing is broken).
+            darkReason = "its subtree is INACTIVE (a UIWindow with m_DisableOnZeroAlpha "
+                         + "deactivates itself at zero alpha, UIWindow.cs:742-747)";
+            return false;
+        }
+        _livenessWalks++;
+        // Per-pass memo hygiene: CountsAsFitContent caches clipper/authored-offset answers keyed by
+        // Transform and a fit pass clears them at its own start. An outside caller must do the same
+        // or it reads answers cached against a layout that has since moved (that contract is stated
+        // on BeginContentQuery itself).
+        CanvasConversion.BeginContentQuery();
+        LiveCheckGraphics.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckGraphics);
+        int graphics = LiveCheckGraphics.Count;
+        for (int i = 0; i < graphics; i++)
+        {
+            if (CanvasConversion.CountsAsFitContent(panel, LiveCheckGraphics[i]))
+                return true;
+        }
+        LiveCheckRenderers.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckRenderers);
+        for (int i = 0; i < LiveCheckRenderers.Count; i++)
+        {
+            // `enabled` IS read here, unlike in the ModBuild 226 reveal-edge test, and the asymmetry
+            // is deliberate: that test runs while the mod's own render hide is still on, this one
+            // runs only after RevealPending has cleared, so a disabled Renderer here is the GAME's
+            // statement and not an echo of ours. The 3D character/enemy previews draw through these
+            // and carry no Graphic at all, so they must be counted.
+            Renderer rend = LiveCheckRenderers[i];
+            if (rend != null && rend.enabled
+                && !rend.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                return true;
+        }
+        darkReason = $"not one of {graphics} Graphic(s) under it passes the content fit's own "
+                     + $"visibility verdict and none of {LiveCheckRenderers.Count} Renderer(s) is "
+                     + "enabled";
+        return false;
+    }
+
+    /// <summary>
+    /// THE LIVENESS PASS. Called from <see cref="Tick"/>'s release phase, immediately BEFORE the
+    /// release loop, so a window judged dead this tick leaves through that ONE existing teardown —
+    /// panel, grab holder, X, collider, arc slot and pose bookkeeping included. It never releases
+    /// anything itself and it never touches the game's window state: this is local presentation
+    /// only, and a transient popup's flow state stays entirely the game's (nothing goes on the wire
+    /// for it either — see the multiplayer note on <see cref="IsTransientAnnouncement"/>).
+    /// </summary>
+    private static void TickWindowLiveness()
+    {
+        long begin = System.Diagnostics.Stopwatch.GetTimestamp();
+        float now = Time.unscaledTime;
+        int frame = Time.frameCount;
+        int armed = 0;
+        int inGrace = 0;
+        float oldestGraceAge = 0f;
+
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.EmptyReleasePending)
+                continue;
+
+            // SHAPE "GONE" — the target or the window was destroyed under us. No dwell: a destroyed
+            // object never comes back, and every tick we wait is a tick of chrome with nothing in it.
+            if (wp.Window == null || wp.Panel == null || !wp.Panel.IsAlive
+                || wp.Panel.HostGo == null || wp.Panel.HostRect == null)
+            {
+                wp.EmptyReleasePending = true;
+                wp.EmptyReleaseShape =
+                    wp.Window == null
+                        ? "GONE — the game UIWindow object was DESTROYED"
+                        : wp.Panel == null || !wp.Panel.IsAlive
+                            ? "GONE — the conversion target (the window rect we moved onto the host) was DESTROYED"
+                            : "GONE — the mod-owned world host this window was moved onto no longer exists";
+                continue;
+            }
+
+            if (wp.Panel.RevealPending)
+            {
+                // The mod itself has this panel switched off. Not a measurement, not a grace: there
+                // is nothing to measure yet, and the reveal gate's own 0.6 s deadline bounds it.
+                inGrace++;
+                float ageHidden = now - wp.FloatedAt;
+                if (ageHidden > oldestGraceAge) oldestGraceAge = ageHidden;
+                continue;
+            }
+
+            if (frame < wp.LivenessNextCheckFrame)
+            {
+                if (wp.LivenessArmed) armed++;
+                else
+                {
+                    inGrace++;
+                    float a = now - wp.FloatedAt;
+                    if (a > oldestGraceAge) oldestGraceAge = a;
+                }
+                continue;
+            }
+            wp.LivenessNextCheckFrame = frame + LivenessCheckStride;
+
+            bool draws = MeasureDrawsSomething(wp, out string darkReason);
+            if (draws)
+            {
+                wp.LastDrawnAt = now;
+                wp.EmptySince = 0f;
+                if (!wp.LivenessArmed)
+                {
+                    wp.LivenessArmed = true;
+                    wp.LivenessArmedAt = now;
+                    wp.LivenessArmReason = "FIRST PAINT";
+                    VRLog.Info("WorldUI", $"MODAL LIVENESS ARMED: '{wp.Window.name}' (ID {wp.Window.ID}) "
+                                          + $"after {(now - wp.FloatedAt) * 1000f:F0} ms — it has been "
+                                          + "measured drawing content, so from here on it is watched: if "
+                                          + "it stops drawing for "
+                                          + $"{EmptyDwellSeconds:F1} s the whole float is released.");
+                }
+                armed++;
+                continue;
+            }
+
+            if (!wp.LivenessArmed)
+            {
+                // Bounded grace. The ceiling is what makes a permanently-un-armed window impossible;
+                // the census below prints the population either way so the claim can be checked.
+                if (now - wp.FloatedAt < LivenessGraceSeconds)
+                {
+                    inGrace++;
+                    float a = now - wp.FloatedAt;
+                    if (a > oldestGraceAge) oldestGraceAge = a;
+                    continue;
+                }
+                wp.LivenessArmed = true;
+                wp.LivenessArmedAt = now;
+                wp.LivenessArmReason = "GRACE EXPIRY";
+                VRLog.Info("WorldUI", $"MODAL LIVENESS ARMED: '{wp.Window.name}' (ID {wp.Window.ID}) "
+                                      + $"after the bounded {LivenessGraceSeconds:F1} s grace — it has "
+                                      + "NEVER been measured drawing anything since it floated. That is "
+                                      + "not yet a verdict: the dwell still has to run, and this line "
+                                      + "exists so a window that arms this way is distinguishable in the "
+                                      + "log from one that armed by painting.");
+            }
+            armed++;
+
+            if (wp.EmptySince <= 0f)
+            {
+                wp.EmptySince = now;
+                continue;
+            }
+            // The scripted-level-message dwell is read LIVE, not latched at the start of the run: a
+            // chain whose current message ends mid-dwell must fall back to the ordinary bar rather
+            // than keep the longer one for a window that is no longer protected by anything.
+            bool scripted = ScriptedLevelMessageActive(wp.Window);
+            float dwell = scripted ? ScriptedMessageDwellSeconds : EmptyDwellSeconds;
+            if (now - wp.EmptySince < dwell)
+                continue;
+
+            wp.EmptyReleasePending = true;
+            wp.EmptyReleaseShape = $"DARK — {darkReason}"
+                                   + $" (dwell {dwell:F1} s"
+                                   + (scripted
+                                       ? ", the longer bar: the game still considers this window's "
+                                         + "scripted level message displayed"
+                                       : string.Empty)
+                                   + ")";
+        }
+
+        // ---- orphan chrome, then census + self-cost ---------------------------------------------
+        if (now >= _nextChromeSweep)
+        {
+            _nextChromeSweep = now + ChromeSweepSeconds;
+            _chromeSweeps++;
+            SweepOrphanChrome();
+        }
+
+        _livenessTicks += System.Diagnostics.Stopwatch.GetTimestamp() - begin;
+        _livenessFrames++;
+        if (now >= _nextLivenessCensus)
+        {
+            _nextLivenessCensus = now + LivenessCensusSeconds;
+            // A HashSet keyed by UIWindow compares by REFERENCE, not by Unity's overloaded ==, so a
+            // window destroyed with its scene stays in the hold as a dead key forever. EmptyHeldNow
+            // never trips over one (it null-checks with the Unity operator first), but the count
+            // this line prints would drift upward and stop meaning anything — and a census that
+            // reports a number nobody can act on is worse than no census.
+            EmptyHold.RemoveWhere(w => w == null);
+            double usPerFrame = _livenessFrames > 0
+                ? _livenessTicks * 1_000_000.0 / System.Diagnostics.Stopwatch.Frequency / _livenessFrames
+                : 0.0;
+            // SILENT WHEN THERE IS NOTHING TO FALSIFY — no float standing, nothing held out, no
+            // orphan destroyed — because a line that says "0 of 0" every 20 s for a whole session
+            // trains a reader to skip the one that says something. The CADENCE is unconditional
+            // (the timer and the accumulators are reset either way), so every line that IS printed
+            // still covers exactly one 20 s window and the numbers stay comparable.
+            if (Converted.Count > 0 || EmptyHold.Count > 0 || _chromeOrphansSinceCensus > 0)
+            {
+                VRLog.Info("WorldUI", $"MODAL LIVENESS CENSUS: {Converted.Count} floated window(s) — "
+                                      + $"{armed} ARMED, {inGrace} still in the bounded "
+                                      + $"{LivenessGraceSeconds:F1} s grace (oldest {oldestGraceAge * 1000f:F0} ms). "
+                                      + $"{EmptyHold.Count} window(s) held out of the float set for having been "
+                                      + "released dark. THIS LINE IS THE FALSIFIER: the grace has a ceiling, so an "
+                                      + "'in grace' age above it, or a population that is never ARMED, means the "
+                                      + "rule is not running rather than that every window is fine. COST: "
+                                      + $"{usPerFrame:F1} us/frame averaged over {_livenessFrames} tick(s), of "
+                                      + $"which {_livenessWalks} subtree walk(s) (stride {LivenessCheckStride} "
+                                      + "frames per window; a window behind the reveal gate is not walked at "
+                                      + $"all). CHROME: {_chromeSweeps} orphan sweep(s) in this window saw "
+                                      + $"{_chromeLive} live grab holder(s) and destroyed "
+                                      + $"{_chromeOrphansSinceCensus} orphan(s).");
+            }
+            _livenessTicks = 0;
+            _livenessFrames = 0;
+            _livenessWalks = 0;
+            _chromeSweeps = 0;
+            _chromeOrphansSinceCensus = 0;
+        }
+    }
+
+    /// <summary>
+    /// ORPHANED CHROME: a mod-owned grab holder that no floated window owns any more.
+    ///
+    /// <para>WHY THIS EXISTS SEPARATELY FROM THE RULE ABOVE. The grab holder is a SCENE-ROOT tree
+    /// (GrabbableModal.EnsureFrame builds <c>GloomhavenVR.ModalGrab_*</c> at the scene root — the
+    /// host follows the frame, not the other way round), so it is the one piece of window chrome
+    /// that does NOT die with the host when a panel is released. Every release path in this class
+    /// calls <c>wp.Grab?.Destroy()</c> first and is therefore correct today; this sweep is the net
+    /// under all of them, because the artefact it catches — a tan bar hanging in mid-air with no
+    /// window on it — is exactly what the user photographed THREE of in one frame
+    /// (.planning/debug/leeres_fenster2.jpg) and there is no other place in the mod that could
+    /// notice one. It states what it found rather than asserting how it got there: this sweep
+    /// cannot observe which release path dropped a holder, and a verdict that named one would be a
+    /// mechanism the instrument cannot see.</para>
+    /// </summary>
+    private static void SweepOrphanChrome()
+    {
+        _chromeLive = GrabbableModal.LiveHolders.Count;
+        int destroyed = 0;
+        for (int i = GrabbableModal.LiveHolders.Count - 1; i >= 0; i--)
+        {
+            GrabbableModal holder = GrabbableModal.LiveHolders[i];
+            bool owned = false;
+            for (int j = 0; j < Converted.Count; j++)
+            {
+                if (ReferenceEquals(Converted[j].Grab, holder))
+                {
+                    owned = true;
+                    break;
+                }
+            }
+            if (owned)
+                continue;
+            VRLog.Warn("WorldUI", $"ORPHAN CHROME DESTROYED: the grab holder '{holder.LogName}' is not "
+                                  + "owned by any of the "
+                                  + $"{Converted.Count} floated window(s), so it is a brass bar with no "
+                                  + "window on it — the artefact of .planning/debug/leeres_fenster2.jpg. "
+                                  + "It has been destroyed. WHAT THIS LINE DOES NOT SAY: which release "
+                                  + "path dropped it. This sweep compares two live sets and cannot "
+                                  + "observe that; if it appears, the holder's name is the window to "
+                                  + "trace back through the MODAL WINDOW release lines.");
+            holder.Destroy();
+            destroyed++;
+        }
+        _chromeOrphansSinceCensus += destroyed;
+        // Deliberately SILENT when nothing was orphaned. The counts are reported by the census line
+        // instead, on its own throttle, so "the sweep found nothing" and "the sweep never ran" are
+        // still distinguishable without a line every 5 s.
     }
 
     private static void LogPollTransition(ref bool state, bool now, string what)

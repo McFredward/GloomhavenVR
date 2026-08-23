@@ -145,6 +145,8 @@ internal static partial class Loc
             // the STICK rather than after "flight", because that is the thing the player is looking
             // for on the row: which controller grows a new function.
             ["Comfort/TurnStickVertical"] = Pair("Up/down on turn stick", "Hoch/Runter am Drehstick"),
+            ["Comfort/LaserCarryReel"] = Pair("Reel laser-held windows", "Laser-Fenster heranziehen"),
+            ["Comfort/LaserCarryReelSpeed"] = Pair("Reel speed (m/s)", "Ziehgeschwindigkeit (m/s)"),
             // THE FLIGHT FAMILY, FOUR NAMES, ADDED BY THE 2026-08-22 SETTINGS AUDIT (§3.4). They
             // had none, on the argument that the four rows carry hand-written curated captions on
             // the Komfort tab — which is true and is exactly why the gap was invisible. THE SAME
@@ -221,12 +223,27 @@ internal static partial class Loc
             ["SelectionReady/Enabled"] = Pair("Selection reminder pulse", "Auswahl-Erinnerung"),
 
             // ---- [Rig] — the world frame ----------------------------------------------------
-            // The 3D campaign map had NO display name, so the menu fell back to spacing the raw
-            // key out to "Experimental 3D Map" and it sat unlabelled among the leftovers under
+            // The campaign-map switch had NO display name, so the menu fell back to spacing the
+            // raw key out to "Experimental 3D Map" and it sat unlabelled among the leftovers under
             // Erweitert. User, 2026-08-20: "Wo finde ich die Einstellung die 3D map zu sehen wie
             // du sie implementiert hast statt die 2D Karte?" A feature nobody can find is off.
-            ["Rig/Experimental3DMap"] =
-                Pair("3D campaign map (experimental)", "3D-Kampagnenkarte (experimentell)"),
+            //
+            // RENAMED AND INVERTED AT ModBuild 230 (user: "Die '3D-Map' Einstellung ist nicht mehr
+            // Experimentell und sollte der Standart sein. Nenne die neue Einstellung eher so etwas
+            // wie 'Vanilla 2D map' … was standartmäßig aus sein soll."). Two things follow for the
+            // NAME specifically:
+            //   * The word "experimentell" is gone, and not just moved — it is the label that
+            //     would keep telling a player the default presentation is a trial.
+            //   * The name describes the ON state, because that is what a name on a row that ships
+            //     OFF has to describe. "Originale 2D-Karte" — the game's own map, the one the flat
+            //     build shows — reads as a setting rather than as a mod internal, and it is the
+            //     user's own framing translated rather than a coinage.
+            // This is the name the ERWEITERT catalog page shows (ConfigCatalog.Describe sets
+            // item.Display from here); the curated row on Umgebung & Ton carries the same words
+            // through Loc key "vr_o_2dmap", and the two are kept identical on purpose — a row a
+            // player finds twice under two different names is a row they think they mis-set.
+            ["Rig/Vanilla2DMap"] =
+                Pair("Original 2D map", "Originale 2D-Karte"),
 
             // ---- [MapRoom] — the 3D map room's own dials -------------------------------------
             // Named "Karte 3D: …" so the three rows read as one family and sort together wherever
@@ -262,7 +279,7 @@ internal static partial class Loc
             // section — it is bound on worldui's file by the code that owns it — but the FEATURE
             // is the 3D map room's, so it is named here with its two siblings and carries the
             // same "Karte 3D: …" prefix. Without a line here the menu spaced the raw key out to
-            // "Map Room Hand", which is the same gap [Rig] Experimental3DMap had at ModBuild 176.
+            // "Map Room Hand", which is the same gap the campaign-map switch itself had at ModBuild 176.
             ["WorldUI/MapRoomHand"] =
                 Pair("3D map: show your card hand", "Karte 3D: Handkarten zeigen"),
             // The map room's travel-confirm PLACEMENT dials (ModBuild 194, user ruling: "Geb mir

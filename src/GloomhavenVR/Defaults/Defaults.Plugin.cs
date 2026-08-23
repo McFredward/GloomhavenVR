@@ -27,7 +27,24 @@ internal static partial class Defaults
     // at all — no head tracking, no hand anchor, no anchor for the 2D screen that carries the
     // main menu. The menu rig is unconditional (Rig/VRRigDriver.cs).
     internal const bool SpawnInCircle = true;                                // => [Rig] SpawnInCircle
-    internal const bool Experimental3DMap = false;                           // => [Rig] Experimental3DMap
+    // THE 3D MAP ROOM IS THE DEFAULT PRESENTATION FROM ModBuild 230, and the dial that used to
+    // turn it ON now turns it OFF (user ruling, verbatim: "Die '3D-Map' Einstellung ist nicht mehr
+    // Experimentell und sollte der Standart sein. Nenne die neue Einstellung eher so etwas wie
+    // 'Vanilla 2D map' oder etwas ähnliches passendes was standartmäßig aus sein soll.").
+    // [Rig] Experimental3DMap (bool, default false, ON = the room) is gone; [Rig] Vanilla2DMap
+    // (bool, default false, ON = the game's flat map) replaces it, and the single reader inverted
+    // with it (WorldUI/MapRoom/MapRoomDriver.cs:224).
+    //
+    // PINNED, because the cfg SNAPSHOT under .planning/debug/default/ still carries the tester's
+    // pre-230 world: dev.gloomhavenvr.cfg:189 reads "Experimental3DMap = false", and the one-shot
+    // in Plugin.cs turns exactly that into "Vanilla2DMap = true" on his machine so his chosen
+    // presentation does not change under him. The next snapshot taken from that install will
+    // therefore show Vanilla2DMap = true against a shipped default of false, and rebase-defaults
+    // would offer to "fix" the default by rebasing it to true — which is the user ruling above,
+    // undone by a script. The marker is what stops that: a migrated per-install value is not
+    // evidence about what a FRESH install should start with.
+    internal const bool Vanilla2DMap = false;                                // => [Rig] Vanilla2DMap  (pinned: user ruling ModBuild 230 — the 3D map room is the default, so the opt-out ships OFF; the cfg snapshot carries a MIGRATED value, not a chosen default)
+    internal const bool MapPresentationMigrated230 = false;                  // => [Rig] MapPresentationMigrated230  (pinned: one-shot migration marker — a fresh install must start false, or a returning player's Experimental3DMap choice is never carried over to Vanilla2DMap)
     // All THREE map-room icon dials ship at 1 on purpose: 1 reproduces the pre-dial draw matrix
     // exactly, so the build that introduces them changes nothing until a slider is moved.
     //

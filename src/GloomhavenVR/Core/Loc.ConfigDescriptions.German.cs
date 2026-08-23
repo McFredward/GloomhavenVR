@@ -611,6 +611,23 @@ internal static partial class Loc
                 + "deutlich senkrechter als seitlich sein (etwa 56 Grad), bevor er überhaupt hebt — "
                 + "ein diagonaler Stoß bei 45 Grad ist also reines Drehen. Braucht einen Stick an "
                 + "der Dreh-Hand; aus = dieser Stick dreht nur, wie bisher.",
+            ["Comfort/LaserCarryReel"] =
+                "Während du ein Fenster mit dem Laser auf Distanz festhältst, zieht ein Druck des "
+                + "Thumbsticks dieser Hand nach vorn das Fenster zu dir heran, nach hinten schiebt es "
+                + "weg. Das Drehen ist davon nie betroffen: Drehen liest die Seitwärts-Achse, dies nur "
+                + "hoch/runter. Solange das Heranziehen den Stick hat, ruhen an dieser Hand das "
+                + "Hoch/Runter-Fliegen (TurnStickVertical) und das Vor/Zurück-Fliegen — und kommen in "
+                + "dem Moment zurück, in dem du loslässt; das Log nennt beide beim Namen. Aus = der "
+                + "Stick tut wieder, was er vorher tat, und ein per Laser gehaltenes Fenster bleibt "
+                + "auf der Entfernung, auf der du es gegriffen hast.",
+            ["Comfort/LaserCarryReelSpeed"] =
+                "Wie schnell das Fenster bei VOLLEM Stick-Ausschlag wandert, in scheinbaren Metern pro "
+                + "Sekunde — Meter so, wie die Szene für dich aussieht, nicht in Welteinheiten; es "
+                + "fühlt sich deshalb am herangezoomten Szenariotisch genauso an wie im Kartenraum. "
+                + "Teilausschlag steigt linear ab der Totzone, wie beim Menü-Scrollen. Näher als etwa "
+                + "eine Armlänge lässt sich das Fenster nicht ziehen (es wäre angeschnitten und "
+                + "unlesbar), und nicht weiter weg, als der Laser reicht, der es hält (du kämst nicht "
+                + "mehr heran).",
             // Comfort/TableHeightOffset ist ENTFALLEN (Nutzer-Entscheid 2026-08: durch das freie
             // Bewegen — Stick-Flug und Welt-Greifen — wird die Tischhöhe nicht mehr gebraucht).
             // Kein Eintrag mehr nötig: der Schlüssel wird nirgends mehr gebunden.
@@ -895,17 +912,31 @@ internal static partial class Loc
                 + "gesendet. Ohne Wirkung im Einzelspieler/Offline (der Solo-Platz bleibt unverändert). "
                 + "Aus = alle Spieler behalten wie bisher denselben gemeinsamen Platz. Jeder Ausgang wird "
                 + "protokolliert (platziert / wartet auf Mitspieler / noch kein Brett / aus).",
-            ["Rig/Experimental3DMap"] =
-                "EXPERIMENTELL, standardmäßig aus: Steh IN der Kampagnenkarte, statt sie auf der flachen "
-                + "Leinwand anzusehen. Die Karte wird zu einem tischgroßen Pergament, um das du herumgehst "
-                + "und über das du dich beugst; im Mehrspieler seht ihr euch dabei. Aus = die flache "
-                + "2D-Karte, in jedem Detail unverändert. Wird in Phasen gebaut — heute setzt es dich an "
-                + "das Pergament; der Tisch, die drückbaren Ortssymbole, die schwebenden Schilder und die "
-                + "verschiebbaren Fenster kommen mit den späteren Phasen, es ist also noch ein unmöblierter "
-                + "Raum. Der frühere Versuch scheiterte daran, dass er sich an der Kamera des Spiels "
-                + "festmachte (Test #8: riesige Karte unter dem Spieler, schwarzes flaches Fenster); dieser "
-                + "hier macht sich an den Maßen des PERGAMENTS fest, wovor jene Notiz gewarnt hat. Alles "
-                + "steht im Log — suche nach MAP ROOM ENGAGED und MAP SCENE REPORT.",
+            // DIE KAMPAGNENKARTE, umbenannt und umgedreht in ModBuild 230 (Nutzer-Entscheid: der
+            // 3D-Kartenraum ist die Standarddarstellung, der Schalter benennt den Ausstieg). Der
+            // Text ist NEU GESCHRIEBEN und nicht bloß negiert, aus drei Gründen:
+            //   * Er beschreibt jetzt zuerst den AUS-Zustand, weil das der Auslieferungszustand
+            //     ist. Wer die Zeile liest, hat den Kartenraum bereits und überlegt auszusteigen.
+            //   * "EXPERIMENTELL" ist ersatzlos gestrichen — genau das war der Entscheid.
+            //   * Der Absatz über Test #8 (Orbit-Kamera, "riesige Karte unter dem Spieler") ist
+            //     hier weg. Er war eine Entwicklungsnotiz in einem Spieler-Tooltip und ist an der
+            //     Stelle aufgehoben, an der er etwas bewacht: MapRoomDriver / MapRoomSeat, wo die
+            //     stehende Warnung gegen die Orbit-Kamera-Verankerung im Klassenkopf steht.
+            // LÄNGE: ConfigCatalog.MaxDescriptionChars ist 620 nach Whitespace-Kollaps, und die
+            // drei [MapRoom]-Texte darunter mussten deshalb schon einmal nachgeschnitten werden —
+            // sie standen bei 1062 und 772 gegen einen 620er Schnitt, wurden also mitten im Wort
+            // abgeschnitten. Dieser Text MISST 606 (nachgerechnet, nicht geschätzt), und die
+            // erste Fassung lag bei 792: der Hinweis auf die Log-Zeilen und der ausführliche
+            // Mehrspieler-Satz sind genau deswegen gefallen. Wer diesen Text ändert, zählt neu.
+            ["Rig/Vanilla2DMap"] =
+                "STANDARDMÄSSIG AUS, und aus heißt: 3D-Kartenraum. Du stehst IN der Kampagnenkarte, "
+                + "sie wird zu einem tischgroßen Pergament, um das du herumgehst und über das du dich "
+                + "beugst; im Mehrspieler seht ihr euch dabei. EIN holt stattdessen die originale flache "
+                + "2D-Karte des Spiels zurück, in jedem Detail unverändert. Alles, was der Raum "
+                + "mitbringt, geht dann mit: drückbare Orte, Reisebestätigung, gemeinsame Karten- und "
+                + "Story-Fenster, Handkarten und die fünf [MapRoom]-Größenregler — deshalb blendet das "
+                + "Menü all das aus, solange dies EIN ist. Jeder entscheidet das für sich; im "
+                + "Mehrspieler hängt kein Paket daran.",
             // ---- [MapRoom] ----
             // ONE DIAL PER KARTE (ModBuild 193, user: "Trenne die Größe des Symbole auf der Weltkarte
             // und die Symbole auf der Karte für Gloomhaven. Die müssen separat justiert werden.").
@@ -916,7 +947,7 @@ internal static partial class Loc
             // icon. Collapsed lengths now: IconScale 612, CityIconScale 603, GloomhavenIconScale 616.
             ["MapRoom/IconScale"] =
                 "GRÖSSE der Ortssymbole auf der WELTKARTE, solange du im 3D-Kartenraum stehst "
-                + "([Rig] Experimental3DMap) — die Dorf-, Szenario- und Bossmarker auf dem Pergament. "
+                + "([Rig] Vanilla2DMap aus) — die Dorf-, Szenario- und Bossmarker auf dem Pergament. "
                 + "Bereich 0.5-4, Standard 1 = die Größe, die sie immer hatten. Die Untergrenze gibt es, "
                 + "weil ein auf nichts geschrumpftes Symbol ein Szenario ist, das du nicht mehr anvisieren "
                 + "kannst. Der Faktor vergrößert nur den Marker, er ordnet die Karte nicht neu. Getrennt "

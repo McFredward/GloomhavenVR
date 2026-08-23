@@ -32,8 +32,18 @@ namespace GloomhavenVR.Hands.Interact;
 /// </summary>
 internal sealed class RayGrabDriver
 {
-    /// <summary>Max pointing distance in meters (scale 1) — matches the ray interactor.</summary>
-    private const float MaxDistanceMeters = 20f;
+    /// <summary>
+    /// Max pointing distance in meters (scale 1) — matches the ray interactor.
+    ///
+    /// <para>INTERNAL since 2026-08-23 because it is now also the reel's FAR BOUND:
+    /// <see cref="PanelGrabHandle"/>'s stick-driven carry distance may not push a window past the
+    /// distance at which THIS loop would still find its bar, or the player would have shoved a
+    /// window somewhere no far-ray path in the mod can reach it again. Reading the one number that
+    /// defines the reach is the only way those two can never disagree — the alternative, a second
+    /// "how far may a window go" constant, is a value that drifts the first time this one is tuned.
+    /// Nothing else about it changed, and it is still applied here exactly as before.</para>
+    /// </summary>
+    internal const float MaxDistanceMeters = 20f;
 
     /// <summary>A physics hit closer than the bar by more than this blocks the grab (meters, scale 1).</summary>
     private const float OcclusionEpsilonMeters = 0.005f;

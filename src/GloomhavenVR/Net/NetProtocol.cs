@@ -416,7 +416,128 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 229;
+    public const ushort ModBuild = 230;
+    // Build 230: THE BLACK BOX WAS NOTHING AT ALL, AND FOUR OTHER THINGS. NO WIRE CHANGE. Bundle
+    // untouched (70,218,494 bytes, unchanged since 172). Five lanes on disjoint files.
+    //
+    //   1. THE "BLACK FRAME AROUND THE PLAYER" IS THE FAR CLIP PLANE, AND NOTHING DRAWS IT. In the
+    //   3D map room the head camera ran at near 0.50 / far 1000 WORLD UNITS against a rig scale of
+    //   198.12 (Player.log 'MAP rig built'), i.e. a view distance of 5.05 PERCEIVED METRES. What he
+    //   photographed is [Rig] VoidColor showing where the plane removed the scene. Every number
+    //   closes: the star dome at 45 authored m = 8915 wu is 9x beyond it ("garnicht den
+    //   Sternenhimmel"); the room art's 3585 wu radius leaves only the nearest trunks and the
+    //   fronds overhead, which is exactly what the frames show; and the table is 455 wu deep, so
+    //   flying out puts its far half across the plane — at t~9.5s of his video the TABLETOP AND THE
+    //   PARCHMENT ON IT, two renderers with two materials, are cut by ONE straight line with pure
+    //   black past it. Only a clip plane does that. "Es folgt den Kopfbewegungen" is the tell: a far
+    //   plane is view-space, so it sits that far ahead in whatever direction you look, and no
+    //   world-anchored shell can imitate it.
+    //   WHY THE PLANE WAS WRONG — A FOUR-LINK CHAIN, ALL OF IT IN THE LOG: EnvSound parents its root
+    //   to the room branch (EnvSound.cs:1503); SkyAlternative.DespawnEnvironment destroyed that root
+    //   on leaving the scenario WITHOUT telling EnvSound, whose _built flag and Voice records
+    //   survived holding destroyed AudioSources; entering the map room changed the rig scale, which
+    //   fired EnvSound's zoom check and dereferenced one (EnvSound.cs:1982); the throw unwound
+    //   SkyAlternative.Tick two lines BEFORE `_active = true`; and MinFarWorldUnits gates on
+    //   `_active`, so it returned 0 and VRRigDriver.TickClipPlanes kept the seeded far of 1000.
+    //   TickGuard isolated it exactly as designed — room placed, sky placed, sound built, light
+    //   aimed — so the only visible symptom was the view distance.
+    //   THE EVIDENCE I MISSED FOR A WHOLE ROUND: `grep -c "threw"` reads 1. The count lives in the
+    //   repeat line — `Tick 'Rig.MixedReality' is still throwing (19853 time(s))`, i.e. EVERY FRAME
+    //   of the map room — and 'Sky alternative ON' appears exactly once in 22 MB, in the scenario,
+    //   never for the map room. Its ABSENCE was the diagnosis. I searched for sky and environment
+    //   lines and never once for throws, in a project that restored stack traces process-wide for
+    //   precisely this.
+    //   FIXED: MinFarWorldUnits gates on the GEOMETRY (`_skyGo == null && _roomGo == null`) rather
+    //   than on a flag — the far plane's job is to cover what is in the scene, so ask the scene;
+    //   activation moved above the optional subsystems (a required step may abort a tick, an
+    //   optional one may not, and must not be able to un-say that the environment is standing); the
+    //   four optional steps are individually TickGuard-isolated, which also restored SkyBackdrop.Tick
+    //   (it had not run for a single frame of the map room); and DespawnEnvironment now stands
+    //   EnvSound down, closing the hole that MR's own teardown already covered.
+    //   NEW INSTRUMENT Core/ViewConeProbe.cs: a 5x3 fan through the head camera's viewport naming
+    //   the nearest renderer per ray (path, layer, shader, queue, bounds and distance in wu AND
+    //   perceived m, mask membership) and splitting a no-hit into the three reasons it can OBSERVE —
+    //   BEYOND THE FAR PLANE / NOT IN THE CULLING MASK / NO RENDERER'S BOUNDS AT ALL — each naming
+    //   clearFlags and the clear colour. It deliberately does NOT use Physics.Raycast:
+    //   SkyAlternative.StripColliders destroys every collider under both branches, so a physics fan
+    //   would report NO HIT for every ray and "prove" the clear is showing in a room full of trees.
+    //
+    //   2. THE MAP-TABLE CAPS ARE STRICT TOGGLES NOW. CloseMode had two branches and each press took
+    //   only one. Confirmed four times in one session (e.g. Player.log:27922 press -> :27933 "by
+    //   RETURNING TO WorldMap" -> :27942 press -> :27943 "through the WINDOW'S OWN X PATH" ->
+    //   :27949 released). Mechanism: every map-room float is Sticky (MapRoomParallel), and the
+    //   release loop only frees on wp.UserClosing, whose one writer is CloseFloatedWindow — so the
+    //   first press's mode exit was invisible, and step 4b even re-asserted alpha and raycasts for
+    //   that state. The predicate compounded it: IsLeftoverWindowStanding refused to answer while a
+    //   window mode was current, so the panel branch was unreachable by construction. One press now
+    //   Observes (live panel first, IsOpen second, mode enum only as tiebreaker), Decides
+    //   (Open/Close/TabSwitch/Refused) and performs it through the one routine that does both halves
+    //   in an order that leaves no orphan. The party display's selection-mode Exit still runs
+    //   whenever a mode is genuinely active. TownRecords/MercenaryLog are two modes over ONE
+    //   UIWindow, so the other cap is a TabSwitch, not a close — named in the log, never a no-op.
+    //
+    //   3. THE 3D MAP IS THE DEFAULT. [Rig] Experimental3DMap is renamed and inverted to
+    //   [Rig] Vanilla2DMap (default false), with a one-shot migration keyed on the RAW cfg text read
+    //   before the first Bind rewrites the file — the only place where "absent" is distinguishable
+    //   from "left at the old default", since BepInEx returns the shipped default for both. Marker
+    //   [Rig] MapPresentationMigrated230 gates it, because BepInEx 5 PRESERVES orphaned lines and an
+    //   ungated re-read would overwrite the player's later choice on every boot.
+    //   MY PREMISE THAT THE ROW WAS BURIED IN ERWEITERT WAS FALSE: it had been on the curated
+    //   Umgebung & Ton page since ModBuild 176. What was unreachable was its MEANING — Loc.cs:711
+    //   held a five-line paragraph under the CAPTION key with no hint key at all, so the row's label
+    //   was an essay. The mod had been saying so all along and nobody read it:
+    //   `[WorldUI] OPTION NAME TOO LONG: 'EXPERIMENTELL. Steh IN der Kampagnenkarte, …'`.
+    //   Now vr_o_2dmap (label) + h_vr_o_2dmap (the sentence), and sec_map3d's TEXT becomes
+    //   "Kampagnenkarte" — "Karte 3D" over a row called "Originale 2D-Karte" is a contradiction.
+    //   The dependency fold inverted with it (new `Off` predicate, the exact mirror of `On` rather
+    //   than `!On`, so an unreadable parent folds identically under both); flipping the key without
+    //   the polarity would have hidden the whole map-room family from everyone on the new default.
+    //
+    //   4. NO WINDOW OUTLIVES ITS CONTENT, AND A TRANSIENT ANNOUNCEMENT IS A DIALOG. ModBuild 226's
+    //   RefuseEmptyFloat missed this for two independent reasons, and either alone would have shipped
+    //   nothing: it runs ONCE at the reveal edge (so it can only answer "was this born empty?" — his
+    //   window was not; it converted, fitted to 540x149 and committed a HIT RECT from 6 visible
+    //   graphics), and it is a PRESENCE test, while UILocationPopup.Hide is
+    //   `showAnimator.Stop(); GoInitState()` (decompiled UILocationPopup.cs:24-28), which leaves every
+    //   Graphic active, enabled and full-size and takes only the alpha — so re-running it per frame
+    //   would have caught nothing. GONE and DARK genuinely needed different measurements.
+    //   THE ROOT CAUSE IS STICKINESS, not emptiness: UIUnlockLocationFlowManager shows ONE window for
+    //   a whole sequence and swaps a UILocationPopup inside it per location; his click ran the game's
+    //   dismiss, the game hid the window, and the float survived because MapRoomParallel makes every
+    //   map-room window sticky. Right for merchant-beside-temple (the MB180 ruling), exactly wrong for
+    //   an announcement the game takes away. Transient announcements are now recognised by the
+    //   component on the window's own GameObject, get NO X, are never sticky, and forward a click to
+    //   the game's own dismiss Button through ExecuteEvents — the flat-screen dispatch, nothing
+    //   mod-side, nothing written to game state.
+    //   AND THE THREE ORPHAN GRAB BARS IN HIS SCREENSHOT WERE A SECOND, SEPARATE DEFECT: a grab
+    //   holder is a SCENE-ROOT tree (GrabbableModal.EnsureFrame) that no host teardown can reach.
+    //   Holders are registered now and swept.
+    //   Two premises of mine were wrong: MB226's EmptyRefused set is consulted only by
+    //   CatchAllEligible, so it could never have held an ID-enrolled window; and this family is NOT
+    //   under the frame-order lock (its 7 orderings are VRHand x2, BoardDriver, FigureGrabDriver x2,
+    //   WallSegmentFade, VRRigDriver).
+    //
+    //   5. REEL A LASER-HELD WINDOW IN AND OUT — requested rounds ago, never built, no trace of it in
+    //   the repo or in .planning. The carry already existed (PanelGrab._carryDistance, the pose at
+    //   :461); this drives it from the grabbing hand's stick Y. Speed in APPARENT metres per second
+    //   converted through the live rig scale, so it feels identical at 198x and 4.4x — a world-unit
+    //   bound would be 45x wrong in one of the two, which this project has shipped before. The near
+    //   bound is DERIVED, not guessed: panel reach (|_carryOffset| + the struck collider's extents)
+    //   plus 6x a near clip floored at the DESIGN 0.05 m, because the live nearClipPlane clamps to
+    //   2.5 perceived MILLIMETRES at 198x and that clamp is a depth-precision compromise, not a
+    //   readability statement. Far = the far-ray's own reach minus panel reach: the honest definition
+    //   of "lost" is "no far-ray path can reach it again". Curve mirrors RayUguiDriver.TickStickScroll
+    //   and the deadzone is now a FOURTH site on the existing check-mirrors group, so the prose claim
+    //   is machine-checked.
+    //   THE OVERRIDE IS THE USER'S RULING AND BOTH HALVES NAME THEMSELVES: forward/back flight stands
+    //   down through Flight's ReportIdle, and the vertical lift's _liftBlocked had to become a
+    //   SUPPRESSOR KEY rather than a bool — with a bool, a handover between suppressors while already
+    //   blocked was silent, and in the shipped default config the forward suppressor is permanently
+    //   true, so the one line worth reading would never have been written. Turning is stick X and is
+    //   untouched; every stick consumer was read from source rather than assumed, and the one reader
+    //   with no holding gate of its own (the FLAT campaign map's zoom) now yields to the carrying
+    //   hand.
+    //
     // Build 229: THE ROUND WHERE THREE OF MY OWN ANSWERS TURNED OUT TO BE HALF-ANSWERS.
     // NO WIRE CHANGE. Bundle untouched (70,218,494 bytes, unchanged since 172). Three lanes on
     // disjoint files. Every finding below was read out of the ModBuild 228 hardware log, not

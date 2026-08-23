@@ -527,7 +527,8 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // UNLESS the 3D map room is on and a campaign map is provably open, which is
         // the MAP rig (BuildMapRig, VRRigDriver.MapRig.cs).
         //
-        // [Rig] Experimental3DMap IS NOW IMPLEMENTED, and the warning that used to
+        // [Rig] Vanilla2DMap (its OFF state; [Rig] Experimental3DMap's ON state until
+        // ModBuild 230 renamed and inverted the key) IS IMPLEMENTED, and the warning that used to
         // stand here still binds its implementation: it must never re-enable the
         // broken orbit-camera anchoring of test #8. It does not — the map rig's seat
         // and scale come from the PARCHMENT RENDERER'S WORLD BOUNDS, and
