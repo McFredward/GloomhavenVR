@@ -412,6 +412,389 @@ def make_bird(rate=RATE):
     return d
 
 
+
+# ---- the OTHER FIVE night calls — ModBuild 241 ------------------------------
+#
+# "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in der Nacht
+# passen für mehr Varianz (nicht mehr Häufigkeit)."  Five more animals on the
+# SAME schedule — see EnvSound.Bank.cs, THE WOOD'S VOCABULARY, and
+# EnvSoundSchedule.DeckDraw for the deck that holds the event rate constant.
+#
+# Every constant here MIRRORS one in EnvSoundBank and must move when it moves.
+# `Stack` is EnvSoundBank.HarmonicStack, character for character: the Chebyshev
+# recurrence sin(k p) = 2 cos(p) sin((k-1) p) - sin((k-2) p), which is there so
+# the added synthesis is ~330 k trig calls instead of ~1.2 M.
+
+
+class Stack:
+    """EnvSoundBank.HarmonicStack."""
+
+    def __init__(self, phase):
+        self.cos2 = 2.0 * math.cos(phase)
+        self.prev = 0.0
+        self.cur = math.sin(phase)
+
+    @property
+    def current(self):
+        return self.cur
+
+    def next(self):
+        nxt = self.cos2 * self.cur - self.prev
+        self.prev = self.cur
+        self.cur = nxt
+        return nxt
+
+
+def noise_band(n, rate, seed, lo, hi):
+    """EnvSoundBank.NoiseBand."""
+    b = white(n, seed)
+    high_pass(b, rate, lo)
+    low_pass(b, rate, hi)
+    normalise(b, 1.0)
+    return b
+
+
+def shoulders(u, atk, rel):
+    """EnvSoundBank.Shoulders."""
+    e = min(1.0, u / atk) * min(1.0, (1.0 - u) / rel)
+    return e * e * (3.0 - 2.0 * e)
+
+
+KeWickSeconds = 0.46
+KeWickPeak = 0.80
+KeWickSeed = 0x2C51D000
+KeWickSyllables = ((0.000, 0.075, 0.55, 880.0, 0.10, 0.80),
+                   (0.135, 0.235, 1.00, 1150.0, 0.34, 0.55))
+KeWickH = (1.0, 0.55, 0.38, 0.22, 0.12)
+KeWickBreath = 0.16
+KeWickBreathLoHz = 1000.0
+KeWickBreathHiHz = 4500.0
+
+
+def make_kewick(rate=RATE):
+    n = int(rate * KeWickSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, KeWickSeed, KeWickBreathLoHz, KeWickBreathHiHz)
+    for (st, ln, lv, f0, bend, skew) in KeWickSyllables:
+        a = int(st * rate)
+        m = int(ln * rate)
+        ph = 0.0
+        for i in range(m):
+            if a + i >= n:
+                break
+            u = i / m
+            f = f0 * (1.0 + bend * math.sin(PI * (u ** skew)))
+            ph += 2 * PI * f / rate
+            env = shoulders(u, 0.09, 0.45)
+            s = Stack(ph)
+            tone = KeWickH[0] * s.current
+            for k in range(1, len(KeWickH)):
+                tone += KeWickH[k] * s.next()
+            d[a + i] += lv * env * (tone + KeWickBreath * nb[a + i])
+    normalise(d, KeWickPeak)
+    return d
+
+
+FoxSeconds = 1.06
+FoxPeak = 0.76
+FoxSeed = 0x6B0FA000
+FoxJitterSeed = 0x6B0FB000
+FoxBarks = ((0.000, 0.115, 1.00),
+            (0.400, 0.105, 0.88),
+            (0.870, 0.100, 0.72))
+FoxF0 = 450.0
+FoxFall = 0.72
+FoxHarm = 16
+FoxTilt = 0.56
+FoxJitter = 0.075
+FoxJitterHz = 130.0
+FoxThroatLoHz = 900.0
+FoxThroatHiHz = 3600.0
+FoxThroatLoTilt = 0.55
+FoxNoise = 0.40
+
+
+def make_fox(rate=RATE):
+    n = int(rate * FoxSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, FoxSeed, FoxThroatLoHz, FoxThroatHiHz)
+    jit = white(n, FoxJitterSeed)
+    low_pass(jit, rate, FoxJitterHz)
+    normalise(jit, 1.0)
+
+    weight = [1.0 / (k ** FoxTilt) for k in range(1, FoxHarm + 1)]
+    wsum = sum(weight)
+    weight = [w / wsum for w in weight]
+
+    for (st, ln, lv) in FoxBarks:
+        a = int(st * rate)
+        m = int(ln * rate)
+        ph = 0.0
+        for i in range(m):
+            if a + i >= n:
+                break
+            u = i / m
+            f = FoxF0 * (1.0 + (FoxFall - 1.0) * u) * (1.0 + FoxJitter * jit[a + i])
+            ph += 2 * PI * f / rate
+            env = shoulders(u, 0.06, 0.55)
+            s = Stack(ph)
+            tone = weight[0] * s.current
+            for k in range(1, FoxHarm):
+                tone += weight[k] * s.next()
+            d[a + i] += lv * env * (tone + FoxNoise * nb[a + i])
+    high_pass(d, rate, FoxThroatLoHz * FoxThroatLoTilt)
+    low_pass(d, rate, FoxThroatHiHz)
+    normalise(d, FoxPeak)
+    return d
+
+
+RavenSeconds = 1.14
+RavenPeak = 0.74
+RavenSeed = 0x3D96C000
+RavenCalls = ((0.000, 0.340, 1.00),
+              (0.720, 0.310, 0.72))
+RavenF0 = 285.0
+RavenFall = 0.88
+RavenHarm = 18
+RavenFormantHz = 1150.0
+RavenFormantBw = 620.0
+RavenSub = 0.38
+RavenNoise = 0.14
+RavenNoiseLoHz = 800.0
+RavenNoiseHiHz = 3000.0
+
+
+def make_raven(rate=RATE):
+    n = int(rate * RavenSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, RavenSeed, RavenNoiseLoHz, RavenNoiseHiHz)
+    for (st, ln, lv) in RavenCalls:
+        a = int(st * rate)
+        m = int(ln * rate)
+        ph = 0.0
+        for i in range(m):
+            if a + i >= n:
+                break
+            u = i / m
+            f = RavenF0 * (1.0 + (RavenFall - 1.0) * u)
+            ph += 2 * PI * f / rate
+            env = shoulders(u, 0.07, 0.30)
+            s = Stack(ph)
+            tone = 0.0
+            wsum = 0.0
+            for k in range(1, RavenHarm + 1):
+                value = s.current if k == 1 else s.next()
+                dev = (k * f - RavenFormantHz) / RavenFormantBw
+                w = 1.0 / (1.0 + dev * dev)
+                tone += w * value
+                wsum += w
+            tone = (tone / max(wsum, 1e-6)) * (
+                1.0 - RavenSub * 0.5 * (1.0 - math.cos(0.5 * ph)))
+            d[a + i] += lv * env * (tone + RavenNoise * nb[a + i])
+    normalise(d, RavenPeak)
+    return d
+
+
+RoeDeerSeconds = 0.34
+RoeDeerPeak = 0.78
+RoeDeerSeed = 0x51A27000
+RoeDeerJitterSeed = 0x51A26000
+RoeDeerLength = 0.260
+RoeDeerF0 = 235.0
+RoeDeerFall = 0.68
+RoeDeerHarm = 14
+RoeDeerTilt = 0.72
+RoeDeerFormantHz = 700.0
+RoeDeerFormantBw = 700.0
+RoeDeerJitter = 0.10
+RoeDeerJitterHz = 190.0
+RoeDeerNoise = 0.34
+RoeDeerNoiseLoHz = 300.0
+RoeDeerNoiseHiHz = 1800.0
+RoeDeerAttack = 0.018
+RoeDeerDecay = 6.0
+RoeDeerRelease = 0.10
+
+
+def make_roedeer(rate=RATE):
+    n = int(rate * RoeDeerSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, RoeDeerSeed, RoeDeerNoiseLoHz, RoeDeerNoiseHiHz)
+    jit = white(n, RoeDeerJitterSeed)
+    low_pass(jit, rate, RoeDeerJitterHz)
+    normalise(jit, 1.0)
+    tilt = [1.0 / (k ** RoeDeerTilt) for k in range(1, RoeDeerHarm + 1)]
+    m = int(RoeDeerLength * rate)
+    ph = 0.0
+    for i in range(m):
+        if i >= n:
+            break
+        u = i / m
+        f = RoeDeerF0 * (1.0 + (RoeDeerFall - 1.0) * u) * (1.0 + RoeDeerJitter * jit[i])
+        ph += 2 * PI * f / rate
+        env = (min(1.0, u / RoeDeerAttack) * math.exp(-RoeDeerDecay * u)
+               * min(1.0, (1.0 - u) / RoeDeerRelease))
+        s = Stack(ph)
+        tone = 0.0
+        wsum = 0.0
+        for k in range(1, RoeDeerHarm + 1):
+            value = s.current if k == 1 else s.next()
+            dev = (k * f - RoeDeerFormantHz) / RoeDeerFormantBw
+            w = tilt[k - 1] / (1.0 + dev * dev)
+            tone += w * value
+            wsum += w
+        d[i] += env * (tone / max(wsum, 1e-6) + RoeDeerNoise * nb[i])
+    normalise(d, RoeDeerPeak)
+    return d
+
+
+OwletSeconds = 1.86
+OwletPeak = 0.72
+OwletSeed = 0x1F3B8000
+OwletRasps = ((0.000, 0.50, 1.00),
+              (1.200, 0.44, 0.80))
+OwletF0 = 3350.0
+OwletFall = 0.87
+OwletH2 = 0.18
+OwletRaspHz = 42.0
+OwletRaspDepth = 0.30
+OwletNoise = 1.15
+OwletNoiseLoHz = 2500.0
+OwletNoiseHiHz = 7500.0
+
+
+def make_owletbeg(rate=RATE):
+    n = int(rate * OwletSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, OwletSeed, OwletNoiseLoHz, OwletNoiseHiHz)
+    for (st, ln, lv) in OwletRasps:
+        a = int(st * rate)
+        m = int(ln * rate)
+        ph = 0.0
+        for i in range(m):
+            if a + i >= n:
+                break
+            u = i / m
+            f = OwletF0 * (1.0 + (OwletFall - 1.0) * u)
+            ph += 2 * PI * f / rate
+            env = shoulders(u, 0.16, 0.34)
+            env *= 1.0 - OwletRaspDepth * 0.5 * (
+                1.0 - math.cos(2 * PI * OwletRaspHz * (i / rate)))
+            tone = math.sin(ph) + OwletH2 * math.sin(2 * ph)
+            d[a + i] += lv * env * (tone + OwletNoise * nb[a + i])
+    normalise(d, OwletPeak)
+    return d
+
+
+# ---- THE DECK — EnvSoundSchedule.DeckDraw, character for character ----------
+#
+# The mechanism that answers "mehr Varianz (nicht mehr Häufigkeit)": the SLOT
+# schedule is untouched, and this decides only WHICH clip a slot that was
+# already going to sound reaches for.  night_call_report() drives it.
+_M64 = (1 << 64) - 1
+_M32 = (1 << 32) - 1
+
+NightCallDeck = (0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 6)
+NightCallDeckSalt = 0x4E43444B
+NightCallNames = ("Owl", "KeWick", "NightBird", "OwletBeg", "Raven", "Fox", "RoeDeer")
+
+
+def _split_mix(state):
+    state = (state + 0x9E3779B97F4A7C15) & _M64
+    z = state
+    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _M64
+    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _M64
+    return state, (z ^ (z >> 31)) & _M32
+
+
+def deal(deck, cycle, salt):
+    """EnvSoundSchedule.Deal."""
+    d = list(deck)
+    s = ((cycle & _M64) * 0x9E3779B97F4A7C15 + salt) & _M64
+    for i in range(len(d) - 1, 0, -1):
+        s, u = _split_mix(s)
+        k = (u * (i + 1)) >> 32
+        d[i], d[k] = d[k], d[i]
+    return d
+
+
+def deck_draw(index, deck=NightCallDeck, salt=NightCallDeckSalt, whole=False):
+    """EnvSoundSchedule.DeckDraw."""
+    m = len(deck)
+    cycle, j = divmod(index, m)
+    cur = deal(deck, cycle, salt)
+    back = deal(deck, cycle - 1, salt)
+    prev1, prev2 = back[m - 1], back[m - 2]
+
+    for t in range(0, m - 1):
+        if cur[t] == prev1 or cur[t] == prev2:
+            both, one = -1, -1
+            for k in range(t + 1, m - 1):
+                if cur[k] == prev1:
+                    continue
+                if one < 0:
+                    one = k
+                if cur[k] != prev2:
+                    both = k
+                    break
+            pick = both if both >= 0 else (one if cur[t] == prev1 else -1)
+            if pick >= 0:
+                cur[t], cur[pick] = cur[pick], cur[t]
+        prev1, prev2 = cur[t], prev1
+
+    if m >= 6 and (cur[m - 2] == cur[m - 3] or cur[m - 2] == cur[m - 1]):
+        for k in range(m - 4, 0, -1):
+            a, b = cur[k], cur[m - 2]
+            if a == cur[m - 1] or a == cur[m - 3]:
+                continue
+            if b == cur[k - 1] or b == cur[k + 1]:
+                continue
+            cur[k], cur[m - 2] = b, a
+            break
+
+    return cur if whole else cur[j]
+
+
+def night_call_report(draws=400000):
+    """THE ROUND'S HEADLINE NUMBERS: the deck repeats itself far less often than a
+    weighted draw of the same shares would, and its shares are exact."""
+    seq = [deck_draw(i) for i in range(draws)]
+    rep = sum(1 for i in range(1, draws) if seq[i] == seq[i - 1])
+    rep2 = sum(1 for i in range(2, draws) if seq[i] == seq[i - 2])
+    counts = [seq.count(v) for v in range(len(NightCallNames))]
+    naive = sum((c / draws) ** 2 for c in counts)
+    print(f"{draws} draws from a {len(NightCallDeck)}-card deck")
+    print(f"  immediate repeats   {100.0 * rep / (draws - 1):.4f}%")
+    print(f"  one-apart repeats   {100.0 * rep2 / (draws - 2):.4f}%")
+    print(f"  a weighted draw of the same shares: {100.0 * naive:.2f}% at BOTH")
+    for v, name in enumerate(NightCallNames):
+        last, worst = -1, 0
+        for i, x in enumerate(seq):
+            if x == v:
+                worst = max(worst, i - last)
+                last = i
+        print(f"  {name:<10s} {100.0 * counts[v] / draws:5.2f}% "
+              f"(deck {NightCallDeck.count(v)}/{len(NightCallDeck)})  "
+              f"longest drought {worst} calls")
+
+
+def vocabulary_report():
+    """The table in EnvSoundBank's THE WOOD'S VOCABULARY, regenerated."""
+    made = (("Owl", make_owl()), ("RoeDeer", make_roedeer()), ("Raven", make_raven()),
+            ("Fox", make_fox()), ("KeWick", make_kewick()), ("NightBird", make_bird()),
+            ("OwletBeg", make_owletbeg()))
+    total = 0
+    for name, d in made:
+        c, spread = audible(d)
+        b = bands(d)
+        print(f"  {name:<10s} {len(d) / RATE:5.2f} s  centroid {c:7.0f} Hz  "
+              f"spread {spread:4.2f} oct  bands "
+              + "/".join(f"{x:4.1f}" for x in b))
+        if name not in ("Owl", "NightBird"):
+            total += len(d)
+    print(f"  ADDED {total} samples = {total / RATE:.2f} s = "
+          f"{total * 4 / 1024 / 1024:.3f} MB of float32")
+
 # ---- the insect floor ------------------------------------------------------
 #
 # THIS IS THE CLIP THE TRACTOR TURNED OUT TO BE IN. mb221_chirr's modulator is

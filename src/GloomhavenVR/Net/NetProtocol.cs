@@ -416,7 +416,166 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 240;
+    public const ushort ModBuild = 241;
+    // Build 241: THE CRATE WAS ON ITS END, THE METEORS WERE FALLING ON HIM, AND A WINDOW TURNED
+    // ABOUT A POINT 859 mm OFF ITS OWN PICTURE.
+    // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
+    // 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — no new Harmony patch).
+    // BUNDLE CHANGED: 70,218,494 -> 70,205,832 bytes, the first move since ModBuild 172. Format 7,
+    // Unity 2021.3.5f1, verified. Six lanes on disjoint files.
+    //
+    //   1. THE CRATE IN THE NIGHT WOOD, AND THE FLOAT WAS THE SAME NUMBER AS THE TILT.
+    //   "eine Kiste die schräg auf dem Waldboden liegt … statt so schräg stehend" (kiste.jpg).
+    //   e3 was (-14, 24, 78); Unity composes Euler as Ry*Rx*Rz, so local up landed at
+    //   (-0.914, 0.202, 0.352) — 78.4 deg off vertical — and a 78 deg roll stands
+    //   wooden_crate_01's LONG axis upright (footprint 0.49 x 0.63 m, height 0.68 m).
+    //   THE AIR UNDER IT WAS NOT A MISSING `bed` and the source says so: Rest() grounds with
+    //   GroundLift(), the 99.5th percentile of per-vertex lift, so the LOWEST corner touches down
+    //   and everything else keeps the height the pose gives it — simulated against ForestY the
+    //   bottom face ran from 5.6 cm buried to 67.9 cm airborne. The BEDDING A PHOTOSCAN IN block
+    //   states in as many words that for "a barrel, a stool or a crate" plain GroundLift is exactly
+    //   correct, so this prop was RIGHT to be the one without `bed`. New pose e3 (-4, 24, 1),
+    //   sink 0.07: 4.1 deg, spent mostly as pitch about the long axis (base height spread is
+    //   0.784*|sin z|*cos x + 0.389*|sin x|, so a degree of roll costs two of pitch). Bottom face
+    //   now -7.4 to +0.1 cm. Note the positional yaw argument is DEAD for any prop passing e3
+    //   (Prop(): euler3 ?? (0, yaw, 0)); the acting yaw is e3.y.
+    //
+    //   2. THE SHOOTING STARS, SECOND REPORT, AND ModBuild 134 NEVER TOUCHED THE TRAJECTORY.
+    //   "viel zu nah, manchmal fallen sie direkt in die Lichtung eine vor die Füße." 134 answered
+    //   the first report by changing SIZE and ANCHOR, which is why it came back.
+    //   Ry(30)*Rx(115)*(0,0,1) = (-0.211, -0.906, -0.366): 65 deg BELOW horizontal, and 26..38 m/s
+    //   over 1.6 s is 42..61 m of travel from y=40. Sweeping the whole 44x44 m spawn box, the worst
+    //   trajectory passed 0.10 m FROM THE VIEWER and end-of-life y spanned +11.6 to -24.4 m. Worse,
+    //   SkyAlternative seats ShootingStars on the SKY branch, which the runtime rides on the player,
+    //   so that plane hung over his head BY CONSTRUCTION.
+    //   THE INVARIANT IS PROVEN, NOT SAMPLED: for a straight line d(r^2)/dt / 2 = p0.v + |v|^2 t,
+    //   so p0.v >= 0 at spawn means r never decreases; and because the Box shape is PERPENDICULAR
+    //   to travel, f.P = f.A for EVERY spawn point independent of plane size. One dot product
+    //   decides it for the whole emitter and the builder throws if it is not positive. Radiant at
+    //   46 m / elev 66 deg / 118 deg round from the moon, travel 12 deg down and 45 deg outward,
+    //   plane 14x10 m, lifetime 1.6 -> 0.5 s. Distance to the player 0.10 m -> 39.58..58.3 m; arc
+    //   per streak 60-75 deg -> 15-22 deg; elevation floor 42 deg = CanopyMask's open sky, so none
+    //   burns out behind a treetop. Angular size HELD as an angle (startSize 0.21 -> 0.2415,
+    //   velocityScale 0.075 -> 0.08625 at the new 46 m). The old size was never BOUNDED — the
+    //   streaks reached the player, where 0.21 m subtends everything, which is the other half of
+    //   "viel zu nah".
+    //
+    //   3. THE WOOD GETS A VOCABULARY, AND THE EVENT RATE IS UNCHANGED BY CONSTRUCTION.
+    //   "Füge noch mehr verschiedene Tiersounds hinzu … für mehr Varianz (nicht mehr Häufigkeit)."
+    //   Five new synthesized calls beside the tawny owl and the night bird: a female tawny's
+    //   ke-wick, a fox's three hoarse barks, a raven's dry rasps, one roe-deer cough and a fledged
+    //   owlet's begging rasp. Centroid ladder 394 / 518 / 1150 / 1390 / 1926 / 3055 / 3532 Hz; the
+    //   two closest pairs are separated on spread, duration and burst count instead of band.
+    //   THE RATE IS HELD AT THE SLOT, WHICH IS THE ONLY PLACE IT CAN BE HELD: NightCallSlot 41 s,
+    //   NightCallMean 15.5 s and NightCallSkip 0.22 are byte-for-byte untouched, and the whole
+    //   schedule change is one substitution — the coin flip that chose owl-or-bird becomes a card
+    //   drawn from a 16-card deck. Still <= 1 call per 41 s slot, still 22 % skipped, realised mean
+    //   gap ~53 s. A ROUND THAT WANTS MORE VARIETY MUST ADD CARDS, NEVER SLOTS.
+    //   NO REPEATS AND THE SAME SEQUENCE ON EVERY CLIENT: EnvSoundSchedule.DeckDraw shuffles a
+    //   4/3/3/2/2/1/1 multiset per cycle from the cycle index alone and repairs adjacency across
+    //   the cycle boundary. Measured over 400,000 draws, immediate repeats 0.0723 % against 17.19 %
+    //   for a weighted draw of the same shares, shares exact, longest drought bounded at 31 calls.
+    //   All 64-bit integer (splitmix64 + Lemire), no float, no Time.time, nothing per-client — two
+    //   clients that agree on the shared clock slot deal the identical card. NOTHING WENT ON THE
+    //   WIRE; it rides SkyAlternative.EnvClockSeconds exactly as before. Nothing got louder either:
+    //   every new peak is below the owl's 0.050 and the two fast-attack cues (fox 9 ms, deer 5 ms)
+    //   are the two quietest and sit on the farthest rings. Bank cost +0.89 MB / 4.86 s of audio.
+    //
+    //   4a. THE RE-FACE TURNED THE FRAME AND THE PLAYER SEES THE PICTURE. One term was wrong twice:
+    //   PanelPlacement.Facing(_frame.position, ...) derived the target ANGLE from the frame origin
+    //   and _frame.rotation = facing turned the body about that same origin. For New Party display
+    //   the drawn centre is 818 px left of that origin, and at 1.050 mm/px that is 859 mm — so the
+    //   largest re-face this log recorded (43.7 deg) swung the PICTURE 2*0.859*sin(21.85) = 639 mm
+    //   sideways, to an angle that was 36 deg wrong at 1.2 m. The pivot is now
+    //   HostRect.TransformPoint(ink.center) and Facing() is fed the same point; on a window whose
+    //   ink fills its frame the position write is the identity and the behaviour is bit-for-bit
+    //   unchanged. THE HOST RECT, NOT _frame: PanelInkBounds measures through
+    //   host.InverseTransformPoint and the two transforms share a pose but not a scale.
+    //   The shared-window gate is untouched and still runs first, so MP is unaffected.
+    //
+    //   4b. A HOVER WAS A WHOLE NEW GENERATION, WHICH WAS LOUDER THAN THE UNION.
+    //   "Mouseovers sollen den Greifbalken nicht vergrößern … WICHTIG: Das soll nicht für andere
+    //   Elemente gelten wie z.B. die Auswahl der persönlichen Quest." The six-type transient table
+    //   ModBuild 201 built for exactly this ("nothing may shift because of mouseovers") existed and
+    //   PanelInkBounds had never asked it; it now lives in ONE place, TransientFamilies, used by
+    //   both instruments. But TooltipOnWindow.RaiseToWindowTop ends with rect.SetParent(owner.Target),
+    //   so for the length of a hover the widget is a DIRECT CHILD of the conversion target — the
+    //   very set ActiveSetSignature hashes. Every hover AND un-hover was therefore a generation
+    //   event: envelope discarded, re-seeded, release run cancelled, and a generation's first commit
+    //   is exempt from the repeat gate so the tooltip went straight in. One window reached
+    //   generation 51 in a session. The distribution says the rest: that window's union BOTTOM took
+    //   2 distinct values while its CENTRE swept 824 px across 13.
+    //   THE PERSONAL-QUEST ROWS CANNOT BE CAUGHT: the test is six component types on the node or an
+    //   ancestor and nothing else — not size, position, lifetime, transparency or "does it stick out
+    //   of the frame", every one of which would also describe Rewards at y=-628. A future round that
+    //   wants to widen this must add a NAMED FAMILY BY TYPE, never a property test.
+    //   NOT COVERED, AND NOT FIXABLE BY IDENTITY: the Enchantress card list.
+    //   UINewEnhancementWindow.OnHoveredCard and OnSelectedCardToEnhance both route to ShowCard,
+    //   writing into the window's own permanent widgets — hover and click are the same code path
+    //   there, so no component type separates them and excluding it would break selection.
+    //
+    //   5. THE MAP IS WHAT THE WINDOWS HAVE TO STAND BESIDE, AND 1.20 m COULD NOT DO IT.
+    //   "gerne noch mehr das es so zu beginn spawned wie ideale_position.jpg zeigt. Ist das
+    //   vereinbar mit der Logik die du im Halbkreis implementiert hast?" Yes, with exactly one new
+    //   term. The photograph was MEASURED, not inferred: his windows sit at +/-26 deg with inner
+    //   edges at +/-21.4 deg, and the map parchment subtends +/-21.3 deg from where he stood — he
+    //   placed them on the map's silhouette to a tenth of a degree. That is not a different arc
+    //   centre, span or height reference; the selection rule was "the free interval NEAREST THE
+    //   GAZE", i.e. centre-SEEKING, and his layout is centre-AVOIDING. The MAP CHANNEL is the new
+    //   term: the parchment's own angular interval, measured per placement from its renderer bounds
+    //   and booked as occupied. Character screen 0.0 deg -> -27.4 deg, quest list +30.0 -> +28.9;
+    //   inner edges within 0.4 deg of the photograph.
+    //   HIS TWO ASKS WERE ONE ASK. At 1.20 m the layout does not fit at all — clearing a +/-21 deg
+    //   map inside +/-40 deg needs half-width <= 9.5 deg, the binding window is 0.388 m, so
+    //   0.85*D >= 1.16 m and D >= 1.37 m; the quest list had been landing at 41 deg, outside the
+    //   field of view. WindowDistanceMeters 1.20 -> 1.40 m: 14 % less apparent size linearly, and
+    //   because the map room's steep-gaze clamp already multiplies by 0.85 the EXPERIENCED distance
+    //   goes 1.02 -> 1.19 m, which is the "bisschen weiter weg". 1.30 does not reach the geometry;
+    //   1.65 costs 27 %, which is not "nicht viel". maxLevels 7 -> 12, so the 0.90 m floor stops
+    //   being reachable at all; fullWidthDeg 53 -> 46. ArcSeats' own "WindowDistanceMeters is a
+    //   tuned, accepted value and is NOT changed here" is superseded in place rather than left to
+    //   contradict the code, and check-mirrors.sh caught the copy in CanvasConversion.3.Fit.cs,
+    //   which is the whole reason that lint names the pair.
+    //
+    //   6. THE CONTINUE BUTTON SAT ON THE FOURTH CHARACTER AND TOOK HIS CLICKS.
+    //   "Er sollte eher rechts neben den Charakteren angezeigt werden, mittig zentriert … Das
+    //   Auftauchen der Questinfos … muss ihn entsprechend verschieben." ModBuild 239 put the ink
+    //   24 px BELOW the painted content; that window's content fills the frame vertically
+    //   (y -540..540), so "below the content" is off the panel and RefreshAnchor's frame clamp
+    //   pulled it flush with y=-540 — flush with the bottom of a column that is roster all the way
+    //   down IS on top of the last character. The clamp did its job; the construction had no room
+    //   to be right.
+    //   THE OVERLAP WAS ALSO THE SECOND HALF OF THE REPORT: Park does SetAsLastSibling, so the
+    //   plate takes that row's clicks including its battle-goal toggle. Neither the game nor the mod
+    //   ever disables the picker (CanShowConfirmationButton returns true while ActiveDisplay ==
+    //   BATTLE_GOALS; nothing in src/ writes interactable or a CanvasGroup on the party display), so
+    //   "ich kann die Quest nicht mehr ändern" was OCCLUSION — a gate no flag can see.
+    //   TWO MEASUREMENTS ON TWO SUBJECTS, because the report has two zeros: vertically the ink
+    //   centres on the CHARACTER BLOCK (the union of NewPartyDisplayUI.CharacterSlots, taken by
+    //   reference off the serialized list, never by name and never through GetComponentInChildren);
+    //   horizontally its LEFT edge sits one gap right of EVERYTHING the window paints, because right
+    //   of the rows alone would be underneath the quest information the moment it opened. The reflow
+    //   is the existing 0.2 s anchor cadence, armed early when ActiveSetSignature changes — no
+    //   second loop, and no feedback loop since both unions exclude the control.
+    //
+    //   FOUND, NOT FIXED, AND IT PREDATES THIS ROUND: TryClaimArcSeat computes every angle at
+    //   WindowDistanceMeters * scale, but ClampSpawnPose then pitch-clamps any spawn steeper than
+    //   15 deg down and multiplies the distance by SteepGazePullFactor 0.85. In the map room that
+    //   fires ALWAYS (18 MODAL SPAWN CLAMP lines in this log at gaze 16-21 deg below eye level), so
+    //   every map-room window hangs ~18 % nearer than the packer believes and is ~18 % angularly
+    //   WIDER than the interval it booked. The fix belongs in the 9.Spawn <-> ArcSeats coupling and
+    //   would change every scenario placement too, so it is not taken blind.
+    //   ALSO FOUND: the environment bake is NON-DETERMINISTIC — two bakes from byte-identical source
+    //   reorder children and reassign fileIDs, giving a 2,548-line prefab diff that is pure churn
+    //   (all 64 transforms verified set-identical by name, position, rotation and scale).
+    //
+    //   TESTING THIS BUILD. The crate and the meteors are the night forest. For 4b, sweep the laser
+    //   across a card list with hover previews and watch the bar hold still. For 4a, drag a window
+    //   well off to one side and release it — the PICTURE must stay put while it turns. For 5, enter
+    //   the map room cold and look at where the first two windows land. For 6, open a personal quest
+    //   AFTER the continue button is already up: LOADOUT CONFIRM RESEATED is the only evidence a
+    //   still photograph cannot give.
+    //
     // Build 240: THE OTHER HALF OF THE ENHANCEMENT — A PEER'S HAND FAN WENT STALE TOO.
     // NO WIRE CHANGE. Version byte 3, no record moves, record 21 and every other record
     // byte-identical. Bundle untouched. Wire tests 146,839 (UNCHANGED — nothing went on the wire).

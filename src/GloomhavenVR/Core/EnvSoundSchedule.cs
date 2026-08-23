@@ -431,4 +431,229 @@ internal static class EnvSoundSchedule
         float gap = -m * Mathf.Log(u);
         return Mathf.Clamp(gap, m * PoissonGapMin, m * PoissonGapMax);
     }
+
+    // =============================================================================================
+    //  THE DECK — ModBuild 241. WHICH of several clips a scheduled event uses, WITHOUT touching
+    //  how often the event happens.
+    // =============================================================================================
+    //
+    //  USER REQUEST, 2026-08-24, verbatim, and the parenthesis is the whole specification:
+    //
+    //      "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in der Nacht passen für
+    //       mehr Varianz (nicht mehr Häufigkeit)."
+    //
+    //  THE TRAP THIS FUNCTION EXISTS TO AVOID. The wood's night calls are ONE EVENT PER 41 s SLOT
+    //  (EnvSound.TickNightCall). The obvious way to add five animals is to give each its own
+    //  schedule, and that multiplies the rate by (5+2)/2 — which is the thing he ruled out, in
+    //  brackets, before anyone could ship it. So the schedule is not touched at all: NightCallSlot,
+    //  NightCallMean and NightCallSkip are byte-for-byte what ModBuild 223 shipped and 226 declined
+    //  to re-tune. The ONLY thing that changed is which clip a slot that was already going to sound
+    //  reaches for, and that decision is this function.
+    //
+    //  WHY A DECK AND NOT A WEIGHTED DRAW. A weighted draw over seven clips repeats itself
+    //  back-to-back once in 5.8 calls (sum of the squared shares = 17.19%), and a repeat is the one
+    //  thing that makes a synthesized wood sound synthesized — two identical owls a minute apart is
+    //  a sample player, not a wood. It also has no memory, so a session can go forty minutes without
+    //  a fox and then produce two in a row. A DECK fixes both by construction:
+    //
+    //    * the deck is a fixed MULTISET (four hoots, three ke-wicks, ... one fox), shuffled once per
+    //      cycle and dealt in order, so the long-run share of each clip is EXACTLY its multiplicity
+    //      and the longest possible drought is 2m-1 calls rather than unbounded;
+    //    * a bounded repair pass then walks the dealt cards and pushes apart any card that matches
+    //      the one before it (hard rule) or the one before that (soft rule).
+    //
+    //  MEASURED over 400,000 consecutive draws of the shipped 16-card deck, against the 17.19% a
+    //  weighted draw of the same shares would give at BOTH distances:
+    //
+    //      immediate repeats   0.0723%     (1 call in 1,383, i.e. about one per 20 hours of play)
+    //      one-apart repeats   4.1503%
+    //      realised shares     exact, to the last draw
+    //      longest drought     13 (hoot) .. 31 (fox, roe deer) calls, i.e. bounded
+    //
+    //  MULTIPLAYER: PURE FUNCTION OF THE INDEX, AND INTEGER-ONLY. Two clients that agree on the slot
+    //  agree on the card, because everything below is 64-bit integer arithmetic — no float, no
+    //  Haunt.Hash cascade, no Time.time and nothing per-client. That matters more here than for the
+    //  perch: two players hearing a call from slightly different trees is a shrug, two players
+    //  hearing DIFFERENT ANIMALS in the same second is a bug report. Integer ops are also why this
+    //  does not reach for Haunt.Hash: the hash takes a FLOAT slot index and this needs m-1 = 15
+    //  decorrelated draws per cycle, which would have meant either a sixteenth hash channel (the
+    //  documented range is 0..7 and is a mirror of EnvHaunt.cginc's table) or feeding it synthetic
+    //  slot numbers. Neither is a thing to do to a contract shared with a shader.
+    //
+    //  TERMINATION BY CONSTRUCTION, this file's standing contract: every loop below is a `for` over
+    //  a count fixed before it starts, there is no accumulator whose convergence decides how long it
+    //  runs, and no repair is retried. The worst case is m + m + m + m compares. A repair that
+    //  cannot find a legal partner leaves the card where it is — the deck is still dealt, one
+    //  adjacency is imperfect, and that is the whole of the 0.0723%.
+
+    /// <summary>The largest deck this will deal. Not a safety bound — the loops are all bounded by
+    /// <c>deck.Length</c> whatever it is — but a statement of intent: a deck is a VOCABULARY, and a
+    /// vocabulary of more than 64 clips is a bank problem rather than a schedule problem.</summary>
+    internal const int DeckMaxCards = 64;
+
+    /// <summary>
+    /// WHICH CARD OF <paramref name="deck"/> the event with index <paramref name="index"/> gets.
+    /// The deck is dealt in cycles of <c>deck.Length</c>; each cycle is a fresh shuffle of the same
+    /// multiset, repaired so a card very rarely follows itself. See THE DECK above.
+    ///
+    /// <para>A PURE FUNCTION of <paramref name="index"/>, <paramref name="deck"/> and
+    /// <paramref name="salt"/>, in integer arithmetic only — which is what makes every client in a
+    /// room deal the same card for the same shared-clock slot with zero wire bytes.</para>
+    /// </summary>
+    /// <param name="index">The event index — for the wood, the 41 s call slot from
+    /// <see cref="TrySlot"/>, which is non-negative by construction. A negative index is not an
+    /// error and is not clamped; it deals from a cycle with a negative number, which is still a
+    /// deterministic deal.</param>
+    /// <param name="deck">The multiset, as card values. Never modified — the shuffle and the repair
+    /// both work on a copy. Returns 0 for a null or empty deck, which is the caller's own first
+    /// entry and therefore never a card it does not have.</param>
+    /// <param name="salt">Separates one deck's stream from another's, so two decks of the same
+    /// length in the same session do not deal in lockstep.</param>
+    internal static byte DeckDraw(long index, byte[] deck, uint salt)
+    {
+        if (deck == null || deck.Length == 0)
+            return 0;
+        if (deck.Length == 1 || deck.Length > DeckMaxCards)
+            return deck[0];
+
+        int m = deck.Length;
+        // FLOOR division and a NON-NEGATIVE remainder. C#'s `/` truncates toward zero and `%` keeps
+        // the dividend's sign, so a negative index would otherwise index the copy out of range. The
+        // wood never passes one; this is the same belt-and-braces as TrySlot's third compare, and
+        // for the same reason — the bound is what stops an edit elsewhere becoming a crash here.
+        long cycle = index >= 0 ? index / m : ((index + 1) / m) - 1;
+        int j = (int)(index - cycle * m);
+
+        var cur = new byte[m];
+        Deal(cur, deck, cycle, salt);
+
+        // THE PREVIOUS CYCLE'S LAST TWO CARDS, so the repair below reaches ACROSS the cycle boundary
+        // rather than starting each cycle blind — a deck that shuffles cleanly inside itself and
+        // then repeats a card at every 16th call has moved the fault, not fixed it.
+        //
+        // back[m-1] is EXACT: index m-1 is frozen — no repair below ever writes it — so the raw deal
+        // of cycle-1 IS what that slot played. back[m-2] is an APPROXIMATION, because the forward
+        // pass may swap into m-2; only the soft one-apart rule leans on it, and the cost of it being
+        // wrong is a one-apart repeat, never an immediate one.
+        var back = new byte[m];
+        Deal(back, deck, cycle - 1, salt);
+        byte prev1 = back[m - 1];
+        byte prev2 = back[m - 2];
+
+        for (int t = 0; t < m - 1; t++)
+        {
+            if (cur[t] == prev1 || cur[t] == prev2)
+            {
+                // Look for a partner further down the deck. `both` clears the hard rule AND the soft
+                // one; `one` clears only the hard rule and is the fallback. Neither may be m-1.
+                int both = -1;
+                int one = -1;
+                for (int k = t + 1; k < m - 1; k++)
+                {
+                    if (cur[k] == prev1)
+                        continue;
+                    if (one < 0)
+                        one = k;
+                    if (cur[k] != prev2)
+                    {
+                        both = k;
+                        break;
+                    }
+                }
+
+                // A SOFT-ONLY COLLISION IS NOT WORTH A SOFT-ONLY CURE. If this card only broke the
+                // one-apart rule, swapping it for another card that also breaks it changes nothing
+                // and costs a shuffle's worth of variety, so that trade is declined.
+                int pick = both >= 0 ? both : (cur[t] == prev1 ? one : -1);
+                if (pick >= 0)
+                {
+                    byte swap = cur[t];
+                    cur[t] = cur[pick];
+                    cur[pick] = swap;
+                }
+            }
+
+            prev2 = prev1;
+            prev1 = cur[t];
+        }
+
+        // THE TWO TAIL PAIRS THE FORWARD PASS CANNOT REACH — (m-3, m-2) and (m-2, m-1). It runs out
+        // of partners at m-2 (its range excludes m-1 by contract) and never inspects m-1 at all. One
+        // bounded BACKWARD scan fixes both: swap m-2 with an earlier card whose two neighbours and
+        // whose own new neighbours all come out different. Confined to 1..m-4 so the two
+        // neighbourhoods cannot overlap and one check cannot invalidate the other, and m-1 is never
+        // written — which is the invariant `back[m-1]` above depends on.
+        if (m >= 6 && (cur[m - 2] == cur[m - 3] || cur[m - 2] == cur[m - 1]))
+        {
+            for (int k = m - 4; k >= 1; k--)
+            {
+                byte a = cur[k];
+                byte b = cur[m - 2];
+                if (a == cur[m - 1] || a == cur[m - 3])
+                    continue;
+                if (b == cur[k - 1] || b == cur[k + 1])
+                    continue;
+                cur[k] = b;
+                cur[m - 2] = a;
+                break;
+            }
+        }
+
+        return cur[j];
+    }
+
+    /// <summary>
+    /// One cycle's deal: <paramref name="deck"/> copied into <paramref name="into"/> and shuffled
+    /// by a Fisher-Yates whose whole draw sequence comes from <paramref name="cycle"/>. Unbiased in
+    /// the sense that matters here — every permutation reachable, no index favoured by a modulo
+    /// fold — and identical on every machine, because <see cref="SplitMix"/> is integer-only.
+    /// </summary>
+    private static void Deal(byte[] into, byte[] deck, long cycle, uint salt)
+    {
+        int m = deck.Length;
+        for (int i = 0; i < m; i++)
+            into[i] = deck[i];
+
+        // The cycle index is AVALANCHED before it is used, not fed in raw: consecutive seeds must
+        // produce unrelated deals, and any counter-based generator handed 7 and then 8 gives two
+        // streams a listener would hear as related.
+        ulong state;
+        unchecked
+        {
+            state = (ulong)cycle * 0x9E3779B97F4A7C15UL + salt;
+        }
+
+        for (int i = m - 1; i > 0; i--)
+        {
+            // Lemire's multiply-shift into 0..i: the top 32 bits of `u * (i+1)`. One multiply, no
+            // divide, no modulo bias worth the name at these sizes, and — the property this is here
+            // for — no branch whose outcome could differ between two clients.
+            uint u = SplitMix(ref state);
+            int k;
+            unchecked
+            {
+                k = (int)(((ulong)u * (ulong)(i + 1)) >> 32);
+            }
+            byte swap = into[i];
+            into[i] = into[k];
+            into[k] = swap;
+        }
+    }
+
+    /// <summary>SplitMix64's step and finaliser, returning the top-quality low 32 bits. Chosen over
+    /// <see cref="EnvSoundRng"/> for the deal for two reasons: xorshift32 seeded from a counter
+    /// gives visibly related first outputs for adjacent seeds (which is exactly what a cycle index
+    /// is), and adding a method to <see cref="EnvSoundRng"/> would put the bank's byte-identical
+    /// draw sequences in play for a change that has nothing to do with them.</summary>
+    private static uint SplitMix(ref ulong state)
+    {
+        unchecked
+        {
+            state += 0x9E3779B97F4A7C15UL;
+            ulong z = state;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+            return (uint)(z ^ (z >> 31));
+        }
+    }
 }

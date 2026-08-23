@@ -94,6 +94,38 @@ internal enum EnvSoundClip
     /// <see cref="Owl"/>, so the wood does not repeat itself.</summary>
     NightBird,
 
+    // ---- THE OTHER FIVE NIGHT CALLS — ModBuild 241 -------------------------------------------
+    //
+    // "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in der Nacht passen für mehr
+    // Varianz (nicht mehr Häufigkeit)." Five more animals, and NOT ONE MORE EVENT PER MINUTE: the
+    // schedule is untouched and a slot that was already going to sound now deals a card from a
+    // seven-clip deck instead of tossing a coin between two. See THE WOOD'S VOCABULARY in this file
+    // and THE NIGHT CALLS' DECK in EnvSound.cs.
+
+    /// <summary>THE FEMALE TAWNY OWL'S "KE-WICK" — the sharp two-syllable contact call that pairs
+    /// with <see cref="Owl"/>'s hoot, and the sound most people actually mean by "an owl at night".
+    /// One-shot, 0.46 s, centroid 1926 Hz. See <c>MakeKeWick</c>.</summary>
+    KeWick,
+
+    /// <summary>A RED FOX BARKING — three hoarse, broadband barks. One-shot, 1.06 s, centroid
+    /// 1390 Hz and the widest spectral spread in the bank (1.21 oct). The RAREST card in the deck
+    /// with the roe deer. See <c>MakeFox</c>.</summary>
+    Fox,
+
+    /// <summary>A CORVID RASPING ON ITS ROOST — two dry "kraa"s. One-shot, 1.14 s, centroid
+    /// 1150 Hz. See <c>MakeRaven</c>.</summary>
+    Raven,
+
+    /// <summary>A ROE DEER'S ALARM BARK — ONE short percussive cough, the shortest and most
+    /// sudden thing the wood says. One-shot, 0.34 s, centroid 518 Hz, 5.3 ms attack. See
+    /// <c>MakeRoeDeer</c>.</summary>
+    RoeDeer,
+
+    /// <summary>A YOUNG LONG-EARED OWL BEGGING — two long thin rasps, the "squeaky gate hinge" of a
+    /// central-European wood in late summer. One-shot, 1.86 s, centroid 3532 Hz and NOISE where
+    /// <see cref="NightBird"/> is a whistle. See <c>MakeOwletBeg</c>.</summary>
+    OwletBeg,
+
     Creak,
     Breath,
     Drag,
@@ -270,6 +302,22 @@ internal static class EnvSoundBank
     /// <see cref="MakeNightBird"/>.</summary>
     internal static AudioClip? NightBird { get; private set; }
 
+    /// <summary>The FEMALE tawny owl's "ke-wick". One-shot, 0.46 s. See <see cref="MakeKeWick"/>.</summary>
+    internal static AudioClip? KeWick { get; private set; }
+
+    /// <summary>A red fox barking. One-shot, 1.06 s. See <see cref="MakeFox"/>.</summary>
+    internal static AudioClip? Fox { get; private set; }
+
+    /// <summary>A corvid rasping on its roost. One-shot, 1.14 s. See <see cref="MakeRaven"/>.</summary>
+    internal static AudioClip? Raven { get; private set; }
+
+    /// <summary>A roe deer's alarm bark. One-shot, 0.34 s. See <see cref="MakeRoeDeer"/>.</summary>
+    internal static AudioClip? RoeDeer { get; private set; }
+
+    /// <summary>A young long-eared owl begging. One-shot, 1.86 s. See
+    /// <see cref="MakeOwletBeg"/>.</summary>
+    internal static AudioClip? OwletBeg { get; private set; }
+
     // ---- the haunt cues ---------------------------------------------------------------------
     //
     // SIX CUES FOR SIX APPARITIONS, and the design rule they all obey is the coordinator's, which
@@ -384,6 +432,11 @@ internal static class EnvSoundBank
         EnvSoundClip.Flutter => Flutter,
         EnvSoundClip.Owl => Owl,
         EnvSoundClip.NightBird => NightBird,
+        EnvSoundClip.KeWick => KeWick,
+        EnvSoundClip.Fox => Fox,
+        EnvSoundClip.Raven => Raven,
+        EnvSoundClip.RoeDeer => RoeDeer,
+        EnvSoundClip.OwletBeg => OwletBeg,
         EnvSoundClip.Drip => Drip,
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
@@ -431,6 +484,11 @@ internal static class EnvSoundBank
             Rumble = MakeRumble(rate);
             Owl = MakeOwl(rate);
             NightBird = MakeNightBird(rate);
+            KeWick = MakeKeWick(rate);
+            Fox = MakeFox(rate);
+            Raven = MakeRaven(rate);
+            RoeDeer = MakeRoeDeer(rate);
+            OwletBeg = MakeOwletBeg(rate);
 
             Creak = MakeCreak(rate);
             Breath = MakeBreath(rate);
@@ -479,6 +537,7 @@ internal static class EnvSoundBank
         Bed = null; Flutter = null;
         Drip = null; Squeak = null; Skitter = null;
         Rumble = null; Owl = null; NightBird = null;
+        KeWick = null; Fox = null; Raven = null; RoeDeer = null; OwletBeg = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
         Roar = null; Crackle = null; Ember = null;
 
@@ -2151,6 +2210,623 @@ internal static class EnvSoundBank
 
         Normalise(d, BirdPeak);
         return Finish("NightBird", d, rate);
+    }
+
+    // =============================================================================================
+    //  THE WOOD'S VOCABULARY — ModBuild 241. FIVE MORE ANIMALS AND NOT ONE MORE EVENT PER MINUTE.
+    // =============================================================================================
+    //
+    //  USER REQUEST, 2026-08-24, verbatim, and the bracket is the acceptance criterion rather than
+    //  an aside:
+    //
+    //      "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in der Nacht passen für
+    //       mehr Varianz (nicht mehr Häufigkeit)."
+    //
+    //  THE RATE IS HELD, AND HERE IS THE MECHANISM THAT HOLDS IT, NAMED SO THE NEXT ROUND DOES NOT
+    //  "IMPROVE" THE VARIETY BY TURNING IT UP. The wood sounds AT MOST ONE CALL PER 41 s SLOT and
+    //  78% of slots carry one, i.e. a call about every 53 s — `EnvSound.NightCallSlot`,
+    //  `NightCallMean` and `NightCallSkip`, all three byte-for-byte what ModBuild 223 shipped and
+    //  what 226 deliberately declined to re-tune ("er hat 'ansonsten finde ich es sehr gut' über den
+    //  Build geschrieben, in dem diese Zahlen stecken"). NOTHING in this round touches them. What
+    //  changed is one line in `EnvSound.TickNightCall`: where it used to toss a weighted coin
+    //  between two clips, it now DEALS A CARD from a seven-card vocabulary —
+    //  `EnvSoundSchedule.DeckDraw`. Seven clips on the same schedule is seven times the vocabulary
+    //  at exactly the same number of events; seven clips on seven schedules would have been seven
+    //  times the events, which is the sentence in brackets.
+    //
+    //  THE SEVEN, AND WHY EACH IS DISTINGUISHABLE FROM THE OTHER SIX. Every number below is measured
+    //  off the finished buffer, by .planning/envsound-replica's own instruments — `audible()` for
+    //  the centroid and spread over 200 Hz-12 kHz (the band a Quest 3 returns) and `bands()` for the
+    //  split; the attack is the 10-90% rise of a 5 ms RMS envelope. The generators driven were a
+    //  line-for-line transcription of the five below, INCLUDING the HarmonicStack recurrence, and it
+    //  agrees with the tuning prototype to 9e-14 — so these are this file's numbers and not a
+    //  neighbouring implementation's.
+    //
+    //  THE REPLICA DOES NOT YET CARRY THESE FIVE GENERATORS, and it should: room.py holds make_owl
+    //  and make_bird for exactly this reason, and a table whose instrument has been thrown away is a
+    //  claim rather than a measurement. That file is outside this round's lane; the patch adding
+    //  make_kewick / make_fox / make_raven / make_deer / make_owlet beside them went to the
+    //  integrator with this change.
+    //
+    //                  dur     centroid  spread   attack   the rhythm, which is the other half of it
+    //    Owl          2.30 s    394 Hz   0.22 oct  37 ms   3 fluty phrases, tremolo on the last
+    //    RoeDeer      0.34 s    518 Hz   1.18 oct   5 ms   ONE cough. Nothing else here is one event
+    //    Raven        1.14 s   1150 Hz   0.71 oct  18 ms   2 dry rasps 0.72 s apart
+    //    Fox          1.06 s   1390 Hz   1.21 oct   9 ms   3 hoarse barks, 0.40 and 0.47 s apart
+    //    KeWick       0.46 s   1926 Hz   0.69 oct   —      2 syllables 0.135 s apart, the 2nd higher
+    //    NightBird    0.78 s   3055 Hz   0.14 oct  26 ms   3 thin whistles 0.235 s apart
+    //    OwletBeg     1.86 s   3532 Hz   0.48 oct  54 ms   2 long rasps 1.20 s apart
+    //
+    //  The centroid ladder is 394 / 518 / 1150 / 1390 / 1926 / 3055 / 3532 Hz. The two closest pairs
+    //  are Raven-Fox (0.27 oct) and NightBird-OwletBeg (0.21 oct), and BOTH are separated on the
+    //  other three columns instead: the fox is 1.21 oct of spread against the raven's 0.71 and has
+    //  three bursts against two, and the owlet is NOISE (0.48 oct) where the night bird is a
+    //  near-pure whistle (0.14 oct) and lasts 1.86 s against 0.78. A ladder that separated only on
+    //  centroid would be seven notes; these are seven animals.
+    //
+    //  EVERY ONE OF THEM HAS A THROAT, which is MakeOwl's rule and MakeDrips' scar — "a pure glided
+    //  sine reads as a bell, not a bird". No call below is a sine with an envelope on it: the
+    //  ke-wick is a five-harmonic reed with breath noise, the fox and the roe deer are harmonic
+    //  stacks whose FUNDAMENTAL IS JITTERED by band-limited noise (that is hoarseness — irregular
+    //  vocal folds — and it is the single thing that stops a bark sounding like a buzzer), the raven
+    //  is a formant-shaped stack with a PERIOD-DOUBLING sub-oscillation at f0/2 (corvid calls really
+    //  do this, and it is where the rasp comes from), and the owlet is more noise than tone.
+    //
+    //  REJECTED, and the first is the one a later round will want to re-propose:
+    //
+    //    * A NIGHTJAR'S CHURR. It is the best "different rhythm, different duration" candidate in
+    //      central Europe — a long mechanical trill unlike anything else here — and it is exactly
+    //      the shape THE NIGHT CALLS rejected a frog for: "a PULSED low-mid buzz at 30-45 Hz, which
+    //      is a low-mid carrier with a hard periodic envelope — the exact shape that had just been
+    //      removed from the chirr". A nightjar's churr is a low-mid carrier pulsed at about 30 Hz.
+    //      That ruling is two rounds old, it was written about a beat the user reported twice in his
+    //      own words ("im Hintergrund ein Traktor", "super nervig"), and a round about VARIETY is
+    //      not the round to re-litigate it with no hardware in the loop.
+    //    * CRICKETS, in any form. Refused at ModBuild 226 with a user sentence attached; see
+    //      MakeChirr, DELETED above. Not re-opened, not re-argued, not partially re-introduced as
+    //      "an event".
+    //    * A VIXEN'S SCREAM rather than a fox's bark. It is the more famous sound and it is a
+    //      genuine one, but it is a SCREAM — the whole point of it is that it is startling — against
+    //      a feature whose standing rule is "nie aufdringlich" and a bank whose one design law is
+    //      that the frightening sound is never the loud one. The bark keeps the fox and loses the
+    //      jump.
+    //    * A WOOD PIGEON'S PHRASE. Rejected on band, not on taste: a five-note coo sits at 480-600
+    //      Hz with a near-sine timbre, which is the owl's cell in the table above. Adding a card
+    //      that is hard to tell from a card already in the deck adds frequency, not variety.
+    //    * RECORDINGS, for THE NIGHT CALLS' reason, which has not changed: a recorded bird brings a
+    //      recorded WOOD with it — its own reverb, its own distance, its own weather — which is then
+    //      heard inside ours. A synthesized call has the room it is played in.
+    //
+    //  THE COST, stated rather than left to be discovered. 233,279 samples at 48 kHz = 4.86 s of
+    //  new mono PCM = 933,116 bytes = 0.89 MB of float32, against a bank that was about 2 MB, and
+    //  every byte of it is resident for the session. The synthesis is one pass per clip on the frame
+    //  the room is first placed; the harmonic stacks are the only new work of any size and they use
+    //  the Chebyshev recurrence below rather than one Mathf.Sin per harmonic per sample, which takes
+    //  the added trig from ~1.2 M calls to ~330 k. The remaining arithmetic is 233 k noise draws,
+    //  eight one-pole filter passes over them and ~750 k formant divides. That should be on the
+    //  order of 20-30 ms on top of the bank's measured ~112 ms — an OPERATION COUNT, not a
+    //  measurement: this file cannot be built outside Unity, so the real number is whatever
+    //  Build()'s own log line says on the next hardware run, and that line is the place to check it.
+
+    /// <summary>
+    /// SIN(k*phase) FOR A WHOLE HARMONIC STACK FROM ONE SIN AND ONE COS — the Chebyshev recurrence
+    /// <c>sin(k p) = 2 cos(p) sin((k-1) p) - sin((k-2) p)</c>, seeded with <c>sin(0 p) = 0</c> and
+    /// <c>sin(1 p) = sin p</c>.
+    ///
+    /// <para>WHY IT IS HERE AT ALL. Three of the five calls below sum 12-18 harmonics per sample.
+    /// Written the obvious way that is 1.2 million <c>Mathf.Sin</c> calls added to a bank build that
+    /// already takes ~112 ms and runs on the main thread on the frame the room is placed — see
+    /// <see cref="Build"/>'s log line for why that frame is watched. The recurrence replaces every
+    /// harmonic after the first with one multiply and one subtract. It is EXACT in exact arithmetic
+    /// and holds to 9.4e-15 in double over k = 1..18; in float, over the same range, the drift is
+    /// far below anything a spectrum shows.</para>
+    ///
+    /// <para>Caller-driven rather than a loop of its own so the weights can be anything — a fixed
+    /// tilt, a formant that slides as the fundamental falls — without this having to know.</para>
+    /// </summary>
+    private struct HarmonicStack
+    {
+        private float _cos2;   // 2 cos(p), the recurrence's only coefficient
+        private float _prev;   // sin((k-1) p)
+        private float _cur;    // sin(k p)
+
+        /// <summary>Start a stack at <paramref name="phase"/>. After this, <see cref="Current"/> is
+        /// the FUNDAMENTAL — the first harmonic is not a step, it is the seed.</summary>
+        internal HarmonicStack(float phase)
+        {
+            _cos2 = 2f * Mathf.Cos(phase);
+            _prev = 0f;
+            _cur = Mathf.Sin(phase);
+        }
+
+        /// <summary>sin(k*phase) for the harmonic the stack is standing on.</summary>
+        internal float Current => _cur;
+
+        /// <summary>Step to the next harmonic and return it.</summary>
+        internal float Next()
+        {
+            float next = _cos2 * _cur - _prev;
+            _prev = _cur;
+            _cur = next;
+            return next;
+        }
+    }
+
+    /// <summary>A band of noise, normalised to unity — the "throat" every call below dips into.
+    /// One-pole either side, which is the same pair of filters <see cref="MakeOwl"/> builds its
+    /// breath from; the skirts are gentle and that is wanted, because a brick-walled band of noise
+    /// reads as a filter sweep rather than as air.</summary>
+    private static float[] NoiseBand(int n, int rate, uint seed, float loHz, float hiHz)
+    {
+        var b = new float[n];
+        var r = new Rng(seed);
+        for (int i = 0; i < n; i++)
+            b[i] = r.Next();
+        HighPass(b, rate, loHz);
+        LowPass(b, rate, hiHz);
+        Normalise(b, 1f);
+        return b;
+    }
+
+    /// <summary>A smoothstepped open and close on a note, as a fraction of its own length. Both
+    /// shoulders, because a click at either end is what turns a call into a chirp —
+    /// <see cref="MakeOwl"/> makes the argument in full.</summary>
+    private static float Shoulders(float u, float attack, float release)
+    {
+        float e = Mathf.Min(1f, u / attack) * Mathf.Min(1f, (1f - u) / release);
+        return e * e * (3f - 2f * e);
+    }
+
+    // ---- 1. THE KE-WICK ---------------------------------------------------------------------
+
+    /// <summary>THE TWO SYLLABLES — (start, length, level, f0, bend, skew). A tawny owl's female
+    /// answers the male's hoot with a short "ke" and a longer, higher, sharply inflected "wick", and
+    /// the pair is what a central-European wood at night actually sounds like to most people: the
+    /// hoot is the famous one, the ke-wick is the common one.
+    ///
+    /// <para>BEND AND SKEW ARE THE INFLECTION. A "wick" does not glide one way like the hoot does —
+    /// it rises hard, tops out, and falls away, so the frequency follows an ARC
+    /// <c>sin(pi * u^skew)</c> rather than a line. A skew below 1 puts the top of the arc EARLY in
+    /// the syllable, which is what makes it sound flicked rather than swelled; 0.55 puts it at
+    /// u = 0.32.</para></summary>
+    private static readonly float[][] KeWickSyllables =
+    {
+        new[] { 0.000f, 0.075f, 0.55f,  880f, 0.10f, 0.80f },
+        new[] { 0.135f, 0.235f, 1.00f, 1150f, 0.34f, 0.55f },
+    };
+
+    /// <summary>The reed, harmonic by harmonic. The hoot is a FLUTE (H2 0.20, H3 0.06 and nothing
+    /// else); the ke-wick is the same bird's other voice and it is not fluty at all — it is sharp,
+    /// slightly harsh, and reads that way because it carries five harmonics with a shallow tilt.
+    /// This is also what puts it at 1926 Hz with a 880-1150 Hz fundamental: what the ear hears in a
+    /// ke-wick is the STACK, not the note.</summary>
+    private static readonly float[] KeWickHarmonics = { 1.00f, 0.55f, 0.38f, 0.22f, 0.12f };
+
+    /// <summary>The breath, as a fraction of the tone, and the band it occupies. 0.16 against the
+    /// hoot's 0.055: a ke-wick is a much breathier call than a hoot, and the band sits over the
+    /// reed rather than under it (the hoot's breath is 300-1200 Hz, below its own stack).</summary>
+    private const float KeWickBreath = 0.16f;
+    private const float KeWickBreathLoHz = 1000f;
+    private const float KeWickBreathHiHz = 4500f;
+
+    private const float KeWickSeconds = 0.46f;
+    private const float KeWickPeak = 0.80f;
+    private const uint KeWickSeed = 0x2C51D000u;
+
+    /// <summary>THE FEMALE TAWNY OWL'S CONTACT CALL. Two syllables, the second higher and inflected.</summary>
+    private static AudioClip MakeKeWick(int rate)
+    {
+        int n = (int)(rate * KeWickSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, KeWickSeed, KeWickBreathLoHz, KeWickBreathHiHz);
+
+        for (int p = 0; p < KeWickSyllables.Length; p++)
+        {
+            int at = (int)(KeWickSyllables[p][0] * rate);
+            int len = (int)(KeWickSyllables[p][1] * rate);
+            float level = KeWickSyllables[p][2];
+            float f0 = KeWickSyllables[p][3];
+            float bend = KeWickSyllables[p][4];
+            float skew = KeWickSyllables[p][5];
+            if (len <= 0)
+                continue;
+
+            float phase = 0f;
+            for (int i = 0; i < len && at + i < n; i++)
+            {
+                float u = i / (float)len;
+                // THE ARC, integrated into a phase — MakeOwl's standing trap, restated because it
+                // is the one mistake this whole family of generators keeps offering: writing
+                // sin(2*pi*f(t)*t) sweeps at twice the intended rate and lands on the wrong note.
+                float f = f0 * (1f + bend * Mathf.Sin(Mathf.PI * Mathf.Pow(u, skew)));
+                phase += 2f * Mathf.PI * f / rate;
+
+                float env = Shoulders(u, 0.09f, 0.45f);
+                var stack = new HarmonicStack(phase);
+                float tone = KeWickHarmonics[0] * stack.Current;
+                for (int k = 1; k < KeWickHarmonics.Length; k++)
+                    tone += KeWickHarmonics[k] * stack.Next();
+
+                d[at + i] += level * env * (tone + KeWickBreath * nb[at + i]);
+            }
+        }
+
+        Normalise(d, KeWickPeak);
+        return Finish("KeWick", d, rate);
+    }
+
+    // ---- 2. THE FOX -------------------------------------------------------------------------
+
+    /// <summary>THE THREE BARKS — (start, length, level). A red fox barks in short SERIES, and the
+    /// gaps are 0.400 and 0.470 s rather than one number twice: three evenly spaced bursts inside
+    /// one second is a 2.4 Hz beat, and this file has deleted a whole cue for less. Falling in
+    /// level, because a series does.</summary>
+    private static readonly float[][] FoxBarks =
+    {
+        new[] { 0.000f, 0.115f, 1.00f },
+        new[] { 0.400f, 0.105f, 0.88f },
+        new[] { 0.870f, 0.100f, 0.72f },
+    };
+
+    /// <summary>The fox's fundamental, the fall across one bark, and the harmonic stack.
+    /// 450 Hz falling to 324 (0.72) is a real fox bark's pitch contour — a bark DROPS, and a bark
+    /// that does not is a beep. Sixteen harmonics on a shallow 1/k^0.56 tilt is a near-sawtooth
+    /// larynx: broadband on purpose, which is what makes this the widest-spread clip in the bank
+    /// (1.21 octaves) and what a fox actually is.</summary>
+    private const float FoxF0 = 450f;
+    private const float FoxFall = 0.72f;
+    private const int FoxHarmonics = 16;
+    private const float FoxTilt = 0.56f;
+
+    /// <summary>THE HOARSENESS, and it is the constant that decides whether this is an animal.
+    /// A fox's vocal folds do not close cleanly, so the fundamental WANDERS by a few per cent from
+    /// cycle to cycle. 7.5% of noise low-passed at 130 Hz is that wander. Take it out and the same
+    /// harmonic stack reads as a car horn: a stack with a perfectly steady f0 is what a synthesizer
+    /// makes and what a throat cannot.</summary>
+    private const float FoxJitter = 0.075f;
+    private const float FoxJitterHz = 130f;
+
+    /// <summary>The throat the barks are shaped by, and the noise mixed into them. The band is
+    /// applied TWICE: as the band of the noise, and (after every bark is summed) as a pair of poles
+    /// over the whole buffer, which is what a mouth does to its own output. The low corner on the
+    /// buffer is deliberately 0.55 of the noise's, so the fundamental is thinned rather than
+    /// removed — you hear a fox's bark through its harmonics, not its pitch.</summary>
+    private const float FoxThroatLoHz = 900f;
+    private const float FoxThroatHiHz = 3600f;
+    private const float FoxThroatLoTilt = 0.55f;
+    private const float FoxNoise = 0.40f;
+
+    private const float FoxSeconds = 1.06f;
+    private const float FoxPeak = 0.76f;
+    private const uint FoxSeed = 0x6B0FA000u;
+    private const uint FoxJitterSeed = 0x6B0FB000u;
+
+    /// <summary>A RED FOX BARKING, on the ground between the trunks. Three hoarse bursts.</summary>
+    private static AudioClip MakeFox(int rate)
+    {
+        int n = (int)(rate * FoxSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, FoxSeed, FoxThroatLoHz, FoxThroatHiHz);
+
+        // The pitch wander, once for the whole clip, so all three barks are the same animal.
+        var jit = new float[n];
+        var jr = new Rng(FoxJitterSeed);
+        for (int i = 0; i < n; i++)
+            jit[i] = jr.Next();
+        LowPass(jit, rate, FoxJitterHz);
+        Normalise(jit, 1f);
+
+        // The tilt is fixed, so its weights are computed ONCE rather than per sample — and
+        // normalised by their own sum, so FoxNoise means a real fraction of the tone rather than a
+        // fraction of however many harmonics happen to be summed.
+        var weight = new float[FoxHarmonics];
+        float wsum = 0f;
+        for (int k = 1; k <= FoxHarmonics; k++)
+        {
+            weight[k - 1] = 1f / Mathf.Pow(k, FoxTilt);
+            wsum += weight[k - 1];
+        }
+        for (int k = 0; k < FoxHarmonics; k++)
+            weight[k] /= wsum;
+
+        for (int p = 0; p < FoxBarks.Length; p++)
+        {
+            int at = (int)(FoxBarks[p][0] * rate);
+            int len = (int)(FoxBarks[p][1] * rate);
+            float level = FoxBarks[p][2];
+            if (len <= 0)
+                continue;
+
+            float phase = 0f;
+            for (int i = 0; i < len && at + i < n; i++)
+            {
+                float u = i / (float)len;
+                float f = FoxF0 * (1f + (FoxFall - 1f) * u) * (1f + FoxJitter * jit[at + i]);
+                phase += 2f * Mathf.PI * f / rate;
+
+                float env = Shoulders(u, 0.06f, 0.55f);
+                var stack = new HarmonicStack(phase);
+                float tone = weight[0] * stack.Current;
+                for (int k = 1; k < FoxHarmonics; k++)
+                    tone += weight[k] * stack.Next();
+
+                d[at + i] += level * env * (tone + FoxNoise * nb[at + i]);
+            }
+        }
+
+        HighPass(d, rate, FoxThroatLoHz * FoxThroatLoTilt);
+        LowPass(d, rate, FoxThroatHiHz);
+        Normalise(d, FoxPeak);
+        return Finish("Fox", d, rate);
+    }
+
+    // ---- 3. THE RAVEN -----------------------------------------------------------------------
+
+    /// <summary>THE TWO RASPS — (start, length, level). A corvid disturbed on its roost does not
+    /// call once and it does not call ten times; it rasps, waits, and rasps again a little quieter.
+    /// 0.72 s apart, which is far outside the 0.2 s the ear starts hearing as a rhythm.</summary>
+    private static readonly float[][] RavenCalls =
+    {
+        new[] { 0.000f, 0.340f, 1.00f },
+        new[] { 0.720f, 0.310f, 0.72f },
+    };
+
+    /// <summary>The raven's fundamental and its fall. 285 Hz is a corvid's voice; the 0.88 fall is
+    /// gentler than the fox's because a "kraa" is HELD, not spat.</summary>
+    private const float RavenF0 = 285f;
+    private const float RavenFall = 0.88f;
+    private const int RavenHarmonics = 18;
+
+    /// <summary>THE FORMANT — a fixed resonance in the bird's throat at 1150 Hz with a 620 Hz
+    /// half-width, applied to each harmonic by where IT lands rather than by its index. That
+    /// distinction is the whole timbre: because the formant is fixed in hertz and the fundamental
+    /// falls, the harmonics SLIDE THROUGH it over the length of the rasp, which is what a throat
+    /// does and what a fixed 1/k tilt cannot imitate. It is also what makes this dry: 64.6% of the
+    /// energy lands in 1-2 kHz and almost none below 500 Hz, so it is a rasp rather than a
+    /// growl.</summary>
+    private const float RavenFormantHz = 1150f;
+    private const float RavenFormantBw = 620f;
+
+    /// <summary>THE PERIOD DOUBLING, and this is where the rasp comes from. Corvid calls are full of
+    /// nonlinear phenomena; the commonest is a sub-oscillation at HALF the fundamental, which fills
+    /// in half-integer harmonics and reads to the ear as roughness rather than as a lower note.
+    /// Implemented as an amplitude modulation at f0/2 — <c>cos(phase/2)</c>, i.e. locked to the
+    /// carrier's own phase rather than to the clock, so it cannot drift into a beat. 142 Hz is a
+    /// PITCH, not a rhythm: it is nowhere near the 30-45 Hz pulsing THE NIGHT CALLS rejected a frog
+    /// for.</summary>
+    private const float RavenSub = 0.38f;
+
+    /// <summary>The breath in the rasp. Modest — 0.14 — because the raven's harshness is already in
+    /// the sub-oscillation; noise on top of that would take it from a bird towards a hiss.</summary>
+    private const float RavenNoise = 0.14f;
+    private const float RavenNoiseLoHz = 800f;
+    private const float RavenNoiseHiHz = 3000f;
+
+    private const float RavenSeconds = 1.14f;
+    private const float RavenPeak = 0.74f;
+    private const uint RavenSeed = 0x3D96C000u;
+
+    /// <summary>A CORVID ON ITS ROOST. Two dry rasps with a period-doubled buzz in them.</summary>
+    private static AudioClip MakeRaven(int rate)
+    {
+        int n = (int)(rate * RavenSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, RavenSeed, RavenNoiseLoHz, RavenNoiseHiHz);
+
+        for (int p = 0; p < RavenCalls.Length; p++)
+        {
+            int at = (int)(RavenCalls[p][0] * rate);
+            int len = (int)(RavenCalls[p][1] * rate);
+            float level = RavenCalls[p][2];
+            if (len <= 0)
+                continue;
+
+            float phase = 0f;
+            for (int i = 0; i < len && at + i < n; i++)
+            {
+                float u = i / (float)len;
+                float f = RavenF0 * (1f + (RavenFall - 1f) * u);
+                phase += 2f * Mathf.PI * f / rate;
+
+                float env = Shoulders(u, 0.07f, 0.30f);
+
+                // THE STACK THROUGH THE FORMANT. The weights are recomputed per sample on purpose —
+                // see RavenFormantHz. Normalised by their own sum so the shape decides the timbre
+                // and not the level.
+                var stack = new HarmonicStack(phase);
+                float tone = 0f;
+                float wsum = 0f;
+                for (int k = 1; k <= RavenHarmonics; k++)
+                {
+                    float value = k == 1 ? stack.Current : stack.Next();
+                    float dev = (k * f - RavenFormantHz) / RavenFormantBw;
+                    float w = 1f / (1f + dev * dev);
+                    tone += w * value;
+                    wsum += w;
+                }
+                tone = (tone / Mathf.Max(wsum, 1e-6f))
+                       * (1f - RavenSub * 0.5f * (1f - Mathf.Cos(0.5f * phase)));
+
+                d[at + i] += level * env * (tone + RavenNoise * nb[at + i]);
+            }
+        }
+
+        Normalise(d, RavenPeak);
+        return Finish("Raven", d, rate);
+    }
+
+    // ---- 4. THE ROE DEER --------------------------------------------------------------------
+
+    /// <summary>ONE BARK, and the one is the design. A roe deer that has seen something coughs once
+    /// — sometimes twice, minutes apart — and the shortness is the whole character: at 0.34 s this
+    /// is by a factor of two the briefest thing the wood says, and it is the only card in the deck
+    /// that is a SINGLE event rather than a phrase. A second bark inside the clip would have made it
+    /// a rhythm and taken that away.</summary>
+    private const float RoeDeerSeconds = 0.34f;
+    private const float RoeDeerLength = 0.260f;
+
+    /// <summary>The deer's fundamental and its fall. 235 Hz down to 160 (0.68) in a quarter of a
+    /// second is a very hard drop — harder than the fox's — which is what makes it read as a cough
+    /// rather than a call.</summary>
+    private const float RoeDeerF0 = 235f;
+    private const float RoeDeerFall = 0.68f;
+    private const int RoeDeerHarmonics = 14;
+    private const float RoeDeerTilt = 0.72f;
+
+    /// <summary>The throat resonance, low and broad — 700 Hz over a 700 Hz half-width. Wider than
+    /// the raven's because this is a barrel of a chest with a short mouth on it rather than a
+    /// bird's syrinx, and the audible result is that the energy is SPREAD (1.18 oct) instead of
+    /// banded.</summary>
+    private const float RoeDeerFormantHz = 700f;
+    private const float RoeDeerFormantBw = 700f;
+
+    /// <summary>Hoarseness, as for the fox but harder — 10% at 190 Hz. A roe deer's bark is not a
+    /// clean note at any point in its length.</summary>
+    private const float RoeDeerJitter = 0.10f;
+    private const float RoeDeerJitterHz = 190f;
+
+    /// <summary>The breath, and it is a THIRD of this sound rather than a trace: 0.34 of the tone
+    /// over 300-1800 Hz. What separates a deer's bark from a dog's is how much of it is air.</summary>
+    private const float RoeDeerNoise = 0.34f;
+    private const float RoeDeerNoiseLoHz = 300f;
+    private const float RoeDeerNoiseHiHz = 1800f;
+
+    /// <summary>THE ENVELOPE, and it is the only percussive one in this family. A 1.8% linear
+    /// attack over a 0.26 s burst is 4.7 ms, which is what puts the measured 10-90% rise at 5.3 ms
+    /// against the owl's 37 — this is a sound with a FRONT. The decay is exponential at 6.0 per
+    /// length (a chest emptying, not a note ending) and a 10% release shoulder takes the last
+    /// fraction of a per cent to zero, so the buffer cannot end on a step.</summary>
+    private const float RoeDeerAttack = 0.018f;
+    private const float RoeDeerDecay = 6.0f;
+    private const float RoeDeerRelease = 0.10f;
+
+    private const float RoeDeerPeak = 0.78f;
+    private const uint RoeDeerSeed = 0x51A27000u;
+    private const uint RoeDeerJitterSeed = 0x51A26000u;
+
+    /// <summary>A ROE DEER'S ALARM BARK. One short percussive cough, from the ground, far off.</summary>
+    private static AudioClip MakeRoeDeer(int rate)
+    {
+        int n = (int)(rate * RoeDeerSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, RoeDeerSeed, RoeDeerNoiseLoHz, RoeDeerNoiseHiHz);
+
+        var jit = new float[n];
+        var jr = new Rng(RoeDeerJitterSeed);
+        for (int i = 0; i < n; i++)
+            jit[i] = jr.Next();
+        LowPass(jit, rate, RoeDeerJitterHz);
+        Normalise(jit, 1f);
+
+        var tilt = new float[RoeDeerHarmonics];
+        for (int k = 1; k <= RoeDeerHarmonics; k++)
+            tilt[k - 1] = 1f / Mathf.Pow(k, RoeDeerTilt);
+
+        int len = (int)(RoeDeerLength * rate);
+        float phase = 0f;
+        for (int i = 0; i < len && i < n; i++)
+        {
+            float u = i / (float)len;
+            float f = RoeDeerF0 * (1f + (RoeDeerFall - 1f) * u) * (1f + RoeDeerJitter * jit[i]);
+            phase += 2f * Mathf.PI * f / rate;
+
+            float env = Mathf.Min(1f, u / RoeDeerAttack)
+                        * Mathf.Exp(-RoeDeerDecay * u)
+                        * Mathf.Min(1f, (1f - u) / RoeDeerRelease);
+
+            var stack = new HarmonicStack(phase);
+            float tone = 0f;
+            float wsum = 0f;
+            for (int k = 1; k <= RoeDeerHarmonics; k++)
+            {
+                float value = k == 1 ? stack.Current : stack.Next();
+                float dev = (k * f - RoeDeerFormantHz) / RoeDeerFormantBw;
+                float w = tilt[k - 1] / (1f + dev * dev);
+                tone += w * value;
+                wsum += w;
+            }
+
+            d[i] += env * (tone / Mathf.Max(wsum, 1e-6f) + RoeDeerNoise * nb[i]);
+        }
+
+        Normalise(d, RoeDeerPeak);
+        return Finish("RoeDeer", d, rate);
+    }
+
+    // ---- 5. THE OWLET'S BEG -----------------------------------------------------------------
+
+    /// <summary>THE TWO RASPS — (start, length, level). A fledged long-eared owl begs all night in
+    /// July and August, and everyone who has walked a German wood in late summer has heard it: a
+    /// long, thin, drawn-out "psiiiih" every few seconds, which is why the local name for it is a
+    /// squeaky gate hinge. 1.20 s apart, which is far too long to read as a rhythm and is the reason
+    /// this clip is the longest in the set at 1.86 s.</summary>
+    private static readonly float[][] OwletRasps =
+    {
+        new[] { 0.000f, 0.50f, 1.00f },
+        new[] { 1.200f, 0.44f, 0.80f },
+    };
+
+    /// <summary>The rasp's carrier and its downward inflection. 3350 Hz falling to 2915 (0.87): a
+    /// beg SAGS, and a level one sounds like a smoke alarm. H2 at 0.18 and nothing above it — the
+    /// tone in this call is thin by design, because the character is not in the tone.</summary>
+    private const float OwletF0 = 3350f;
+    private const float OwletFall = 0.87f;
+    private const float OwletH2 = 0.18f;
+
+    /// <summary>THE SQUEAK — a 42 Hz amplitude roughness at 30% depth. That is what makes this a
+    /// hinge rather than a whistle, and 42 Hz on a 3.35 kHz carrier is a TIMBRE (sidebands at
+    /// +-42 Hz, 1.2% of the carrier), which is a different thing entirely from a 30-45 Hz pulse on a
+    /// low-mid carrier — the shape THE NIGHT CALLS rejected a frog for, and the one this file has
+    /// deleted a bed over. Nothing here beats, because there is nothing low enough to beat.</summary>
+    private const float OwletRaspHz = 42f;
+    private const float OwletRaspDepth = 0.30f;
+
+    /// <summary>THE NOISE IS THE SOUND. At 1.15 of the tone, this is the only call in the bank whose
+    /// breath outweighs its voice, and that is what separates it from <see cref="NightBird"/> at the
+    /// other end of a 0.21 octave gap: 0.48 octaves of spectral spread against the bird's 0.14. Two
+    /// clips can sit at 3.0 and 3.5 kHz and still be unmistakable if one is a whistle and the other
+    /// is a rasp.</summary>
+    private const float OwletNoise = 1.15f;
+    private const float OwletNoiseLoHz = 2500f;
+    private const float OwletNoiseHiHz = 7500f;
+
+    private const float OwletSeconds = 1.86f;
+    private const float OwletPeak = 0.72f;
+    private const uint OwletSeed = 0x1F3B8000u;
+
+    /// <summary>A YOUNG LONG-EARED OWL BEGGING. Two long rasps, high and noisy.</summary>
+    private static AudioClip MakeOwletBeg(int rate)
+    {
+        int n = (int)(rate * OwletSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, OwletSeed, OwletNoiseLoHz, OwletNoiseHiHz);
+
+        for (int p = 0; p < OwletRasps.Length; p++)
+        {
+            int at = (int)(OwletRasps[p][0] * rate);
+            int len = (int)(OwletRasps[p][1] * rate);
+            float level = OwletRasps[p][2];
+            if (len <= 0)
+                continue;
+
+            float phase = 0f;
+            for (int i = 0; i < len && at + i < n; i++)
+            {
+                float u = i / (float)len;
+                float f = OwletF0 * (1f + (OwletFall - 1f) * u);
+                phase += 2f * Mathf.PI * f / rate;
+
+                float env = Shoulders(u, 0.16f, 0.34f);
+                env *= 1f - OwletRaspDepth * 0.5f
+                            * (1f - Mathf.Cos(2f * Mathf.PI * OwletRaspHz * (i / (float)rate)));
+
+                float tone = Mathf.Sin(phase) + OwletH2 * Mathf.Sin(2f * phase);
+                d[at + i] += level * env * (tone + OwletNoise * nb[at + i]);
+            }
+        }
+
+        Normalise(d, OwletPeak);
+        return Finish("OwletBeg", d, rate);
     }
 
     // ---- the haunt cues ---------------------------------------------------------------------------
