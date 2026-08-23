@@ -15,6 +15,17 @@
 # zip, so the tag, the release title, the zip name and the DLL's stamped version all
 # come from this single line by construction — they cannot drift apart.
 #
+# WHO CALLS THE BUMPING MODES. Only .github/workflows/release.yml, and only AFTER the
+# release is published, and only against `dev`. A release publishes the number that is
+# ALREADY in the csproj — the release run reads it with the no-argument mode above and
+# writes nothing — and the bump that follows prepares the NEXT one. The number in the
+# csproj on `dev` is therefore always the version the next release will carry, never
+# the one that was just released.
+#
+# The bump must never be committed onto `main`. `main` is only ever a fast-forward of
+# `dev`; a commit made directly on it makes the next `git push origin dev:main` a
+# non-fast-forward, which is precisely the wedge this arrangement was written to undo.
+#
 # NOT the same thing as NetProtocol.ModBuild. That is the multiplayer wire-compat
 # counter and is bumped by hand on every shared build; this is the user-facing
 # release number. Do not couple them.

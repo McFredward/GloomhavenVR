@@ -14,11 +14,20 @@
 # See docs/CI-CD.md for the whole pipeline and for what CI deliberately cannot check.
 name: CI
 
+# PULL REQUESTS TO `main` ARE INCLUDED ON PURPOSE. The repository is public, so anyone
+# who is not a collaborator can only contribute by forking and opening a pull request,
+# and a branch ruleset on `main` (docs/CI-CD.md §2.1) makes a PR the only way in for
+# collaborators too. A PR targeting a branch this workflow does not list gets no gates
+# at all — silently. This is also the job a "require status checks" rule would select.
+#
+# A pull_request run from a FORK gets a read-only token and no secrets. Nothing here
+# needs either: the artifact upload is guarded to push events, and every gate is a
+# local read of the tree.
 on:
   push:
     branches: [dev]
   pull_request:
-    branches: [dev]
+    branches: [dev, main]
 
 permissions:
   contents: read
