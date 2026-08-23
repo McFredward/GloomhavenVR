@@ -6,13 +6,17 @@ page and the game can never show two different logos.
 
 ## Demo GIFs — to be added
 
-`gifs/` is where the README's six demo clips go. Each one has a visible placeholder in the README
-at the spot it belongs; dropping the file in with the exact name below makes the placeholder's
-`<!-- GIF: ... -->` comment the line to replace with an image.
+`gifs/` is where the README's six demo clips go. The README is the project's pitch and these six
+clips carry it, so they matter more than any paragraph on the page.
+
+Each one has a visible placeholder in the README at the spot it belongs; dropping the file in with
+the exact name below makes the placeholder's `<!-- GIF: ... -->` comment the line to replace with
+an image. `overview.gif` sits at the very top under the wordmark; the other five sit one under each
+feature line, in the order below.
 
 | File | What it should show |
 |---|---|
-| `gifs/overview.gif` | The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming the board with the two-handed world grab. |
+| `gifs/overview.gif` | The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming the board with the two-handed world grab. This is the one that has to sell it in three seconds. |
 | `gifs/card-fan.gif` | Palm rolls up, the fan opens, a card is grabbed with the trigger and dropped into a board slot; then a top/bottom half is poked. |
 | `gifs/figure-grab.gif` | A miniature picked off the board, held up, scaled with the second hand, gliding back on release. |
 | `gifs/windows.gif` | A window opens in front of the player, is grabbed by its bar, moved and resized, then reeled closer with the thumbstick. |
