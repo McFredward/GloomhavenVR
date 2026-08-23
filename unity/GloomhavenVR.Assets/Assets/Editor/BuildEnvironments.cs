@@ -2994,75 +2994,343 @@ namespace GloomhavenVR
                 // player, where 0.21 m subtends everything, which is the other
                 // half of "viel zu nah". It is bounded now by the 39.6 m floor.
                 //
-                // Rate is deliberately untouched (~one every 8 s): frequency was
-                // not the complaint.
+                // (ModBuild 241 left the rate alone at ~one every 8 s: frequency
+                // was not that round's complaint. ModBuild 242 below is where it
+                // became one.)
+                //
+                // ================= USER FINDING, ModBuild 242 ==================
+                // Verbatim, 2026-08-24, testing 241 — the THIRD report on this
+                // emitter and the first that KEEPS something: "Die Sternschnuppen
+                // sind zu häufig und zu oft an der selben Stelle am Himmel. Von
+                // der Entfernung her aber perfekt. Auch mal intensiver, mal
+                // weniger intensiv — bring mehr Randomness rein, aber nicht zu
+                // häufig."
+                //
+                // Four statements, and they pull against each other:
+                //   (a) THE DISTANCE IS RIGHT. 241's invariant is not touched. It
+                //       is APPLIED SIX TIMES — see THE BOUND below.
+                //   (b) too frequent: 0.13/s (7.7 s) -> one every 18.7 s.
+                //   (c) too often in the same place.
+                //   (d) intensity must vary, and vary asymmetrically.
+                //
+                // WHY (c) IS A CONSEQUENCE OF HOW 241 SOLVED (a). The proof that
+                // no streak approaches needs ONE dot product to cover every spawn
+                // point, and that only works because the spawn plane is
+                // PERPENDICULAR to travel: f.P = f.A for every P on it. One plane
+                // ⟂ one direction ⟹ one radiant ⟹ every streak is a near-parallel
+                // line through the same patch of sky. Honest physics (a shower
+                // HAS a radiant) and, at one streak per eight seconds, monotonous.
+                //
+                // THE BOUND, KEPT — SIX PERPENDICULAR PLANES, NOT ONE CONE.
+                // Of the three ways to widen the sky the streaks use:
+                //   * several radiants, each with its own proven f.A > 0, sharing
+                //     the rate — the bound is per emitter, so it holds overall;
+                //   * one huge plane with a shallow CONE of directions — the
+                //     bound then has to hold for every direction in the cone, and
+                //     it does not: for a perturbation of angle θ off f the worst
+                //     case is cos θ (f.A) - sin θ (|A_perp| + hx + hy), and with
+                //     241's numbers (f.A = 4.20, |A_perp| = 45.8, hx+hy = 12)
+                //     that goes negative at θ = 4.2 deg. Four degrees buys no
+                //     spread at all, and buying more means pushing the travel
+                //     radially outward until the streak barely moves across the
+                //     sky at all;
+                //   * shape.randomDirectionAmount — the same arithmetic, except
+                //     the perturbation is unbounded-ish and per particle. That is
+                //     precisely how the streaks got into the clearing in 240.
+                // So: SIX radiants. Each keeps 241's construction exactly (plane
+                // ⟂ travel, f.A > 0 checked before the emitter is created), so
+                // the guarantee is not weakened by one degree — it is repeated.
+                // The bake CHECKS all of it per radiant and throws on any floor.
+                //
+                // WHAT THE SIX BUY, AND WHAT IS FREE. The plane's SIZE never
+                // enters the invariant (f.P = f.A whatever the size), and the
+                // exact nearest spawn point is separable:
+                //     dmin = sqrt( (f.A)^2 + max(0,|A.X|-hx)^2 + max(0,|A.Y|-hy)^2 )
+                // X is exactly horizontal (LookRotation's up hint is world up),
+                // and |A.X| = R cos(elev) cos(out) is only ~13 m while |A.Y| is
+                // ~44 m. Widening the plane ALONG X therefore costs almost
+                // nothing — the whole approach term saturates once hx > |A.X| —
+                // while widening it along Y would eat the 39.6 m floor 1:1. So
+                // every plane is stretched horizontally (17 -> up to 38 deg of
+                // sky) and hy stays at 5 m on all six. Six radiants x a wide band
+                // each covers most of the open cone; the one quadrant deliberately
+                // left empty is the moon's (241 reason 3, now a checked floor of
+                // 24 deg from the moon for every point of every trajectory).
+                //
+                // THE TRAVEL FAMILY IS 241'S, UNCHANGED: speed 26..38 m/s, life
+                // 0.5 s, so 13..19 m of arc, 15..22 deg. That is deliberate — the
+                // brightness spread below is a MAPPING of the speed draw, not a
+                // widening of it, so nothing about the trajectories moves.
+                //
+                // (d) INTENSITY, AND WHY IT IS DRIVEN BY SPEED. A two-constant
+                // MinMaxCurve is a UNIFORM draw, and worse, each start property
+                // draws its own independent random: uniform startSize and uniform
+                // startColor would produce big faint ones and small bright ones,
+                // which both read as broken. Shuriken has exactly one per-particle
+                // random that other modules can READ, and that is the speed —
+                // sizeBySpeed and colorBySpeed are deterministic functions of it.
+                // Speed is constant over the life here (no gravity, no noise, no
+                // force/velocity module — the bake asserts that), so one uniform
+                // draw u in [0,1] fixes size, width, drawn length and alpha
+                // TOGETHER, through a curve that can be as non-linear as we like.
+                // The distribution is therefore a heavy tail by construction and
+                // not by hope, and it is printed by the bake:
+                //     u        0.00  0.25  0.50  0.75  0.90  0.99  1.00
+                //     size x   0.66  0.78  0.96  1.26  1.73  2.48  2.60
+                //     alpha    0.46  0.55  0.67  0.81  0.91  0.99  1.00
+                //     flux/med 0.38  0.60  1.00  1.75  2.93  4.91  5.25
+                // (flux = alpha x width x drawn length, i.e. the light an
+                // additive quad actually deposits.) Half of them are dimmer than
+                // 241's single constant; one in ten is ~3x the median; one in
+                // twenty-five is 4x. THE FIREBALL IS THAT TAIL, not a seventh
+                // emitter: a separate rare system would have to sit at ONE
+                // radiant, so every fireball of the session would arrive in the
+                // same patch of sky — the exact complaint this round is fixing.
+                // At 18.7 s mean spacing a >=3x streak comes every ~3.3 min and a
+                // >=4x every ~8 min.
+                // NOT DONE: "lasts a touch longer" for the bright ones. There is
+                // no lifetime-by-speed in Shuriken, and a second INDEPENDENT
+                // uniform on startLifetime would break the one thing that makes
+                // this read right (bigger => brighter => longer). Lifetime stays
+                // the 241 constant; the bright ones are faster, so they still
+                // cross more sky and draw a longer streak.
+                //
+                // RHYTHM. Six emitters cannot share a rateOverTime: a constant
+                // rate is a metronome, all six would start their accumulator
+                // together, and 1/rate at these rates is longer than the prewarm
+                // credit, so the first streak would not arrive for over a minute.
+                // Instead each radiant is a looping system whose DURATION is its
+                // own period (97..131 s, mutually prime) carrying ONE burst of one
+                // at its own phase. Deterministic and exactly countable —
+                // sum(1/T) = 0.05355/s, one every 18.7 s — while the six periods
+                // being incommensurate means the arrival PATTERN does not repeat
+                // in any session. Radiant 1's phase is 5.7 s: it is under the 6 s
+                // the preview harness fast-forwards, so every preview render
+                // catches a real streak in flight, and it is also the first thing
+                // the player sees on arriving in the wood.
                 const float MeteorShellR = 46f;      // just outside StarRadius (44) / the 45 m dome
-                const float MeteorElevDeg = 66f;     // radiant elevation — inside the canopy's open cone
-                const float MeteorMoonOffDeg = 118f; // ...and this far round the sky from the moon
-                const float MeteorDescentDeg = 12f;  // travel: shallow, downward, never a plunge
-                const float MeteorOutwardDeg = 45f;  // ...and tipped outward, which is what keeps f.A > 0
-                const float MeteorLife = 0.5f;
-                float meteorAz = Mathf.Atan2(MoonDir.x, MoonDir.z) + MeteorMoonOffDeg * Mathf.Deg2Rad;
-                var meteorAt = new Vector3(
-                    MeteorShellR * Mathf.Cos(MeteorElevDeg * Mathf.Deg2Rad) * Mathf.Sin(meteorAz),
-                    MeteorShellR * Mathf.Sin(MeteorElevDeg * Mathf.Deg2Rad),
-                    MeteorShellR * Mathf.Cos(MeteorElevDeg * Mathf.Deg2Rad) * Mathf.Cos(meteorAz));
-                // horizontal radial and tangent at the radiant; the travel bearing
-                // is `out` degrees from tangential toward outward, then pitched
-                // down by `descent`.
-                var meteorRad = new Vector3(Mathf.Sin(meteorAz), 0f, Mathf.Cos(meteorAz));
-                var meteorTan = new Vector3(Mathf.Cos(meteorAz), 0f, -Mathf.Sin(meteorAz));
-                var meteorFwd = (Mathf.Cos(MeteorDescentDeg * Mathf.Deg2Rad)
-                                 * (Mathf.Cos(MeteorOutwardDeg * Mathf.Deg2Rad) * meteorTan
-                                  + Mathf.Sin(MeteorOutwardDeg * Mathf.Deg2Rad) * meteorRad)
-                               - Mathf.Sin(MeteorDescentDeg * Mathf.Deg2Rad) * Vector3.up).normalized;
-                if (Vector3.Dot(meteorFwd, meteorAt) <= 0f)
-                    throw new Exception("[GloomhavenVR][Env] ShootingStars: f.A = "
-                        + Vector3.Dot(meteorFwd, meteorAt).ToString("F3") + " m <= 0 — the streaks would "
-                        + "close on the player. Raise MeteorOutwardDeg or lower MeteorDescentDeg.");
-                var meteor = NewPS(t, "ShootingStars", meteorAt, Vector3.zero, Mat("FX_StarStreak.mat"));
-                // Derived, like the axe's: LookRotation puts +Z on the travel
-                // bearing and — because the up hint is world up — the box shape's
-                // local X exactly horizontal, so the plane's long half-extent
-                // costs no height spread at all and only its short one does.
-                meteor.transform.localRotation = Quaternion.LookRotation(meteorFwd, Vector3.up);
-                var mm = meteor.main;
-                mm.simulationSpace = ParticleSystemSimulationSpace.World;
-                mm.duration = 20f;
-                mm.startLifetime = MeteorLife;
-                mm.startSpeed = new ParticleSystem.MinMaxCurve(26f, 38f); // a touch slower = elegant
-                mm.startSize = 0.2415f;     // 0.21 * 46/40 — same angular width as ModBuild 134
-                mm.startColor = new Color(0.95f, 0.93f, 0.85f, 0.78f); // warm-white ember
-                mm.maxParticles = 4;
-                var me = meteor.emission; me.rateOverTime = 0.13f; // infrequent: ~one every 8 s
-                var msh = meteor.shape; msh.enabled = true; msh.shapeType = ParticleSystemShapeType.Box;
-                // spawn plane ⟂ travel direction; 17.3 x 12.4 deg of sky at 46 m.
-                // Its SIZE does not enter the "never approaches" invariant (f.P =
-                // f.A for every point of a perpendicular plane) — it only sets how
-                // near a streak may BEGIN. |A + aX + bY|^2 is separable in the two
-                // in-plane coordinates, so that minimum is exact rather than a
-                // corner sample: a = clamp(-A.X, ±7) = +7, b = clamp(-A.Y, ±5) =
-                // -5, giving 39.58 m.
-                msh.scale = new Vector3(14f, 10f, 0.1f);
-                var mcol = meteor.colorOverLifetime; mcol.enabled = true;
-                mcol.color = new ParticleSystem.MinMaxGradient(Grad(
-                    (0f, new Color(1, 1, 1, 0f)), (0.1f, new Color(1, 1, 1, 1f)),
-                    (0.7f, new Color(1, 1, 1, 0.8f)), (1f, new Color(1, 1, 1, 0f))));
-                var mr = meteor.GetComponent<ParticleSystemRenderer>();
-                // Stretch aligns the quad to the particle's WORLD velocity — the
-                // head only picks the (invisible, sprite is radially symmetric)
-                // roll around that axis. cameraVelocityScale pinned to 0 so no
-                // camera-motion term can ever creep into the stretch.
-                // The comet texture (Env_Streak.png) is symmetric about its long
-                // axis, so that roll stays invisible — same rule as the old dot.
-                mr.renderMode = ParticleSystemRenderMode.Stretch;
-                // 0.075 * 46/40 — see the ANGULAR SIZE block above: drawn length
-                // is lengthScale*size + velocityScale*speed, and both terms are
-                // scaled by the distance so the streak subtends the ModBuild 134
-                // angle (3.739 deg at the mean speed) at the new 46 m shell.
-                mr.velocityScale = 0.08625f;
-                mr.lengthScale = 1f;
-                mr.cameraVelocityScale = 0f;
+                const float MeteorLife = 0.5f;       // 241: 13..19 m of arc = 15..22 deg
+                const float MeteorSpeedMin = 26f, MeteorSpeedMax = 38f;   // 241's family, untouched
+                const float MeteorSizeNom = 0.2415f; // 0.21 * 46/40 — ModBuild 134's angular width
+                const float MeteorVelScale = 0.08625f;                    // 0.075 * 46/40
+                // ---- the floors this bake ENFORCES (241 stated them in prose;
+                // a design that merely usually holds is what shipped twice) ----
+                const float MeteorMinFaM = 2.5f;          // f.A: the whole "never approaches" proof
+                const float MeteorMinBeginM = 39.4f;      // 241 measured 39.58 m and the user calls it perfect
+                const float MeteorMinElevDeg = 41f;       // CanopyMask is ragged from ~38 to ~50 deg
+                const float MeteorMinStartElevDeg = 48f;  // ...and a streak must never BEGIN in the foliage
+                const float MeteorMinMoonSepDeg = 24f;    // never across the moon disc (1.4 deg) or its halo
+                const float MeteorIntervalLoS = 15f, MeteorIntervalHiS = 25f;
+                // az from the moon, elevation, outward, descent, tangential sense,
+                // plane half-extents, period, phase. Deliberately all different:
+                // six copies of one pose at six azimuths would still be six
+                // identical streaks. Sense flips the TANGENTIAL component only, so
+                // f.A (radial + vertical) is untouched by it and half the sky
+                // runs the other way.
+                var meteorRadiants = new[]
+                {
+                    // 1 is ModBuild 241's radiant, kept to the degree — it is the
+                    // one that was measured, and it still sets the 39.58 m floor.
+                    (az: 118f, elev: 66f, outw: 45f, desc: 12f, sense: +1f, hx:  7f, hy: 5f, period:  97f, phase:  5.7f),
+                    (az:  52f, elev: 72f, outw: 45f, desc:  8f, sense: +1f, hx: 13f, hy: 5f, period: 103f, phase: 24f),
+                    (az: 165f, elev: 70f, outw: 60f, desc: 10f, sense: +1f, hx: 15f, hy: 5f, period: 109f, phase: 43f),
+                    (az: 215f, elev: 68f, outw: 50f, desc:  9f, sense: -1f, hx: 13f, hy: 5f, period: 113f, phase: 61f),
+                    (az: 262f, elev: 71f, outw: 45f, desc:  8f, sense: -1f, hx: 16f, hy: 5f, period: 127f, phase: 78f),
+                    (az: 305f, elev: 73f, outw: 55f, desc:  7f, sense: -1f, hx: 13f, hy: 5f, period: 131f, phase: 93f),
+                };
+                // The one draw, mapped. u = (speed - 26)/12, uniform; both curves
+                // are piecewise LINEAR (explicit tangents) so the quantiles below
+                // are the curve's own numbers and not a spline's guess at them.
+                var meteorSizeBySpeed = LinCurve(
+                    (0f, 0.66f), (0.30f, 0.80f), (0.55f, 1.00f),
+                    (0.80f, 1.32f), (0.94f, 1.90f), (1f, 2.60f));
+                // ...and the colour with it: cool and thin at the faint end, warm
+                // ember at the bright one. Alpha is a MULTIPLIER on startColor,
+                // which is therefore alpha 1 — a gradient can only take it down,
+                // and 241's accepted 0.78 lands at the 69th percentile.
+                var meteorSpeedGrad = Grad(
+                    (0f,    new Color(0.88f, 0.93f, 1.00f, 0.46f)),
+                    (0.30f, new Color(0.94f, 0.97f, 1.00f, 0.57f)),
+                    (0.55f, new Color(1.00f, 1.00f, 1.00f, 0.70f)),
+                    (0.80f, new Color(1.00f, 0.99f, 0.96f, 0.84f)),
+                    (0.94f, new Color(1.00f, 0.97f, 0.90f, 0.94f)),
+                    (1f,    new Color(1.00f, 0.95f, 0.84f, 1.00f)));
+                float meteorRateSum = 0f, meteorWorstFa = float.MaxValue, meteorWorstBegin = float.MaxValue;
+                float meteorWorstElev = float.MaxValue, meteorWorstMoon = float.MaxValue, meteorFarthest = 0f;
+                for (int mi = 0; mi < meteorRadiants.Length; mi++)
+                {
+                    var rd = meteorRadiants[mi];
+                    float meteorAz = Mathf.Atan2(MoonDir.x, MoonDir.z) + rd.az * Mathf.Deg2Rad;
+                    var meteorAt = new Vector3(
+                        MeteorShellR * Mathf.Cos(rd.elev * Mathf.Deg2Rad) * Mathf.Sin(meteorAz),
+                        MeteorShellR * Mathf.Sin(rd.elev * Mathf.Deg2Rad),
+                        MeteorShellR * Mathf.Cos(rd.elev * Mathf.Deg2Rad) * Mathf.Cos(meteorAz));
+                    // horizontal radial and tangent at the radiant; the travel
+                    // bearing is `outw` degrees from tangential toward outward,
+                    // then pitched down by `desc`.
+                    var meteorRad = new Vector3(Mathf.Sin(meteorAz), 0f, Mathf.Cos(meteorAz));
+                    var meteorTan = rd.sense * new Vector3(Mathf.Cos(meteorAz), 0f, -Mathf.Sin(meteorAz));
+                    var meteorFwd = (Mathf.Cos(rd.desc * Mathf.Deg2Rad)
+                                     * (Mathf.Cos(rd.outw * Mathf.Deg2Rad) * meteorTan
+                                      + Mathf.Sin(rd.outw * Mathf.Deg2Rad) * meteorRad)
+                                   - Mathf.Sin(rd.desc * Mathf.Deg2Rad) * Vector3.up).normalized;
+                    // THE INVARIANT, per radiant. p.v >= 0 at spawn => r(t) never
+                    // decreases; the plane is ⟂ f so f.P = f.A for every spawn
+                    // point, whatever the plane's size.
+                    float meteorFa = Vector3.Dot(meteorFwd, meteorAt);
+                    if (meteorFa < MeteorMinFaM)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1} "
+                            + $"(moon+{rd.az:F0} deg, elev {rd.elev:F0} deg): f.A = {meteorFa:F3} m < "
+                            + $"{MeteorMinFaM:F1} m — the streaks would close on the player. "
+                            + "Raise outw or lower desc.");
+                    // LookRotation puts +Z on the travel bearing and — because the
+                    // up hint is world up — the box shape's local X exactly
+                    // horizontal, so the plane's long half-extent costs no height
+                    // spread at all and only its short one does.
+                    var meteorRot = Quaternion.LookRotation(meteorFwd, Vector3.up);
+                    var meteorX = meteorRot * Vector3.right;
+                    var meteorY = meteorRot * Vector3.up;
+                    // Exact nearest spawn point: |A + aX + bY|^2 is separable in a
+                    // and b, so this is the true minimum, not a corner sample.
+                    float meteorBegin = Mathf.Sqrt(meteorFa * meteorFa
+                        + Mathf.Pow(Mathf.Max(0f, Mathf.Abs(Vector3.Dot(meteorAt, meteorX)) - rd.hx), 2f)
+                        + Mathf.Pow(Mathf.Max(0f, Mathf.Abs(Vector3.Dot(meteorAt, meteorY)) - rd.hy), 2f));
+                    var sweep = MeteorSweep(meteorAt, meteorFwd, meteorX, meteorY,
+                                            rd.hx, rd.hy, MeteorLife * MeteorSpeedMax);
+                    if (sweep.dMin < meteorBegin - 0.01f)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}: the "
+                            + $"closed form says the nearest spawn is {meteorBegin:F3} m but a sweep of "
+                            + $"the plane found {sweep.dMin:F3} m — the separable minimum is wrong.");
+                    if (meteorBegin < MeteorMinBeginM)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}: a streak "
+                            + $"may begin {meteorBegin:F2} m from the player, under the {MeteorMinBeginM:F1} m "
+                            + "floor the user called perfect in ModBuild 241. Shrink hy.");
+                    if (sweep.elevDeg < MeteorMinElevDeg || sweep.startElevDeg < MeteorMinStartElevDeg)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}: the family "
+                            + $"reaches down to {sweep.elevDeg:F1} deg (spawns from {sweep.startElevDeg:F1} deg) "
+                            + $"against floors {MeteorMinElevDeg:F0}/{MeteorMinStartElevDeg:F0} deg — streaks "
+                            + "would burn out inside the canopy. Shrink hx or raise elev.");
+                    if (sweep.moonSepDeg < MeteorMinMoonSepDeg)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}: passes "
+                            + $"{sweep.moonSepDeg:F1} deg from the moon (floor {MeteorMinMoonSepDeg:F0} deg) — "
+                            + "it would be washed out by the halo. Move its azimuth off the moon.");
+                    meteorRateSum += 1f / rd.period;
+                    meteorWorstFa = Mathf.Min(meteorWorstFa, meteorFa);
+                    meteorWorstBegin = Mathf.Min(meteorWorstBegin, meteorBegin);
+                    meteorWorstElev = Mathf.Min(meteorWorstElev, sweep.elevDeg);
+                    meteorWorstMoon = Mathf.Min(meteorWorstMoon, sweep.moonSepDeg);
+                    meteorFarthest = Mathf.Max(meteorFarthest, sweep.dMax);
+
+                    // All six carry the SAME node name: the runtime splits shell
+                    // children onto the sky/room branches by name and walks every
+                    // child, so duplicates are fine (the two 'Fireflies' swarms are
+                    // the precedent) — and ShootingStars must stay on the sky
+                    // branch, which is what this name buys.
+                    var meteor = NewPS(t, "ShootingStars", meteorAt, Vector3.zero, Mat("FX_StarStreak.mat"));
+                    meteor.transform.localRotation = meteorRot;
+                    var mm = meteor.main;
+                    mm.simulationSpace = ParticleSystemSimulationSpace.World;
+                    mm.duration = rd.period;    // the loop IS this radiant's period
+                    mm.prewarm = false;         // bursts are incompatible with prewarm
+                    mm.startLifetime = MeteorLife;
+                    mm.startSpeed = new ParticleSystem.MinMaxCurve(MeteorSpeedMin, MeteorSpeedMax);
+                    mm.startSize = MeteorSizeNom;
+                    // alpha 1: colorBySpeed can only multiply DOWN from here.
+                    mm.startColor = new Color(0.95f, 0.93f, 0.85f, 1f); // warm-white ember
+                    mm.gravityModifier = 0f;    // straight lines, or the invariant is not about this path
+                    mm.maxParticles = 3;
+                    var me = meteor.emission;
+                    me.rateOverTime = 0f;
+                    me.SetBursts(new[] { new ParticleSystem.Burst(rd.phase, 1, 1, 1, 0.01f) });
+                    var msh = meteor.shape; msh.enabled = true; msh.shapeType = ParticleSystemShapeType.Box;
+                    msh.scale = new Vector3(2f * rd.hx, 2f * rd.hy, 0.1f);
+                    // Spelled out rather than left to the defaults: ANY per-particle
+                    // perturbation of the direction voids the single dot product
+                    // that bounds this whole emitter.
+                    msh.randomDirectionAmount = 0f;
+                    msh.sphericalDirectionAmount = 0f;
+                    msh.randomPositionAmount = 0f;
+                    var mcol = meteor.colorOverLifetime; mcol.enabled = true;
+                    mcol.color = new ParticleSystem.MinMaxGradient(Grad(
+                        (0f, new Color(1, 1, 1, 0f)), (0.1f, new Color(1, 1, 1, 1f)),
+                        (0.7f, new Color(1, 1, 1, 0.8f)), (1f, new Color(1, 1, 1, 0f))));
+                    // ---- the one draw, read twice ----
+                    var msz = meteor.sizeBySpeed; msz.enabled = true;
+                    msz.range = new Vector2(MeteorSpeedMin, MeteorSpeedMax);
+                    msz.size = new ParticleSystem.MinMaxCurve(1f, meteorSizeBySpeed);
+                    var mcs = meteor.colorBySpeed; mcs.enabled = true;
+                    mcs.range = new Vector2(MeteorSpeedMin, MeteorSpeedMax);
+                    mcs.color = new ParticleSystem.MinMaxGradient(meteorSpeedGrad);
+                    // sizeBySpeed and colorBySpeed read the CURRENT speed, so the
+                    // "one draw fixes everything" claim is only true while nothing
+                    // touches the velocity. Checked, not assumed — and the same
+                    // check is what keeps p(t) a straight line for the invariant.
+                    if (meteor.noise.enabled || meteor.forceOverLifetime.enabled
+                        || meteor.velocityOverLifetime.enabled || meteor.limitVelocityOverLifetime.enabled
+                        || meteor.inheritVelocity.enabled || mm.gravityModifier.constant != 0f)
+                        throw new Exception($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}: something "
+                            + "writes the velocity (noise/force/velocity/limit/inherit/gravity). That breaks "
+                            + "BOTH the straight-line approach bound and the constant-speed premise of "
+                            + "sizeBySpeed/colorBySpeed.");
+                    var mr = meteor.GetComponent<ParticleSystemRenderer>();
+                    // Stretch aligns the quad to the particle's WORLD velocity — the
+                    // head only picks the (invisible, sprite is radially symmetric)
+                    // roll around that axis. cameraVelocityScale pinned to 0 so no
+                    // camera-motion term can ever creep into the stretch.
+                    // The comet texture (Env_Streak.png) is symmetric about its long
+                    // axis, so that roll stays invisible — same rule as the old dot.
+                    mr.renderMode = ParticleSystemRenderMode.Stretch;
+                    // drawn length = lengthScale*size + velocityScale*speed, and
+                    // sizeBySpeed scales the first term, so a bright meteor is
+                    // wider AND longer off the same draw. Both terms carry the
+                    // ModBuild 134 angle at the 46 m shell (3.739 deg at the mean
+                    // speed) — see the ANGULAR SIZE block above.
+                    mr.velocityScale = MeteorVelScale;
+                    mr.lengthScale = 1f;
+                    mr.cameraVelocityScale = 0f;
+
+                    Debug.Log($"[GloomhavenVR][Env] ShootingStars radiant {mi + 1}/{meteorRadiants.Length} moon+{rd.az:F0} deg "
+                        + $"elev {rd.elev:F0} deg (out {rd.outw:F0}, down {rd.desc:F0}, sense {rd.sense:+0;-0}): "
+                        + $"f.A = {meteorFa:F2} m, begins {meteorBegin:F2} m out, family {sweep.dMin:F1}.."
+                        + $"{sweep.dMax:F1} m, elevation {sweep.elevDeg:F1}..{sweep.elevMaxDeg:F1} deg "
+                        + $"(spawns >= {sweep.startElevDeg:F1}), {sweep.moonSepDeg:F1} deg off the moon, "
+                        + $"plane {2f * rd.hx:F0}x{2f * rd.hy:F0} m = "
+                        + $"{2f * Mathf.Atan(rd.hx / MeteorShellR) * Mathf.Rad2Deg:F1}x"
+                        + $"{2f * Mathf.Atan(rd.hy / MeteorShellR) * Mathf.Rad2Deg:F1} deg of sky, "
+                        + $"one every {rd.period:F0} s from t={rd.phase:F1} s.");
+                }
+                if (1f / meteorRateSum < MeteorIntervalLoS || 1f / meteorRateSum > MeteorIntervalHiS)
+                    throw new Exception($"[GloomhavenVR][Env] ShootingStars: mean interval "
+                        + $"{1f / meteorRateSum:F1} s is outside {MeteorIntervalLoS:F0}..{MeteorIntervalHiS:F0} s. "
+                        + "ModBuild 241 shipped 7.7 s and the user called it 'zu häufig'.");
+                {
+                    // The distribution, printed rather than promised. flux = the
+                    // light an additive quad deposits = alpha x width x length.
+                    float Flux(float u)
+                    {
+                        float w = MeteorSizeNom * meteorSizeBySpeed.Evaluate(u);
+                        return meteorSpeedGrad.Evaluate(u).a
+                             * w * (w + MeteorVelScale * Mathf.Lerp(MeteorSpeedMin, MeteorSpeedMax, u));
+                    }
+                    float medFlux = Flux(0.5f);
+                    string dist = "";
+                    foreach (float u in new[] { 0f, 0.25f, 0.5f, 0.75f, 0.9f, 0.99f, 1f })
+                    {
+                        float s = meteorSizeBySpeed.Evaluate(u);
+                        float w = MeteorSizeNom * s;
+                        float len = w + MeteorVelScale * Mathf.Lerp(MeteorSpeedMin, MeteorSpeedMax, u);
+                        dist += $" | u={u:F2} size x{s:F2} alpha {meteorSpeedGrad.Evaluate(u).a:F2}"
+                              + $" width {w / MeteorShellR * Mathf.Rad2Deg:F3} deg"
+                              + $" length {len / MeteorShellR * Mathf.Rad2Deg:F2} deg"
+                              + $" flux {Flux(u) / medFlux:F2}x median";
+                    }
+                    Debug.Log($"[GloomhavenVR][Env] ShootingStars: {meteorRadiants.Length} radiants, mean interval "
+                        + $"{1f / meteorRateSum:F2} s (241: 7.69 s). WORST CASE OVER ALL SIX — f.A = "
+                        + $"{meteorWorstFa:F2} m > 0, nearest a streak may begin {meteorWorstBegin:F2} m "
+                        + $"(241: 39.58 m), farthest {meteorFarthest:F1} m, lowest elevation "
+                        + $"{meteorWorstElev:F1} deg, closest to the moon {meteorWorstMoon:F1} deg."
+                        + dist);
+                }
 
                 // ---- room interior: the night forest and its clearing, under
                 // 'RoomGeo' (see BuildEnvironmentRooms.BuildForestRoom) ----
@@ -3077,6 +3345,56 @@ namespace GloomhavenVR
             {
                 UnityEngine.Object.DestroyImmediate(root);
             }
+        }
+
+        /// <summary>A piecewise-LINEAR AnimationCurve through the given keys.
+        /// Unity's default (auto) tangents make a spline, which can overshoot
+        /// between keys — for a curve whose quantiles are the whole point of the
+        /// feature (ShootingStars' brightness draw) the value between two keys
+        /// has to be the value the table says it is.</summary>
+        private static AnimationCurve LinCurve(params (float t, float v)[] k)
+        {
+            var keys = new Keyframe[k.Length];
+            for (int i = 0; i < k.Length; i++)
+            {
+                float inT = i == 0 ? 0f : (k[i].v - k[i - 1].v) / (k[i].t - k[i - 1].t);
+                float outT = i == k.Length - 1 ? 0f : (k[i + 1].v - k[i].v) / (k[i + 1].t - k[i].t);
+                keys[i] = new Keyframe(k[i].t, k[i].v, inT, outT);
+            }
+            return new AnimationCurve(keys);
+        }
+
+        /// <summary>Sweeps ONE meteor radiant's whole streak family — every spawn
+        /// point of the box plane (A ± hx X ± hy Y) carried the full travel along
+        /// f — and reports what the player would measure: how near and how far a
+        /// streak ever gets, how low it ever rides, how high it spawns, and how
+        /// close it passes to the moon. Every number the ShootingStars block
+        /// asserts on comes from here or from the closed form it cross-checks
+        /// against; ModBuild 241 stated the same quantities in a comment, which is
+        /// how the plane could be widened without anyone noticing they had moved.
+        /// Distances are metres, angles degrees, all from the sky branch origin —
+        /// which the runtime seats on the PLAYER.</summary>
+        private static (float dMin, float dMax, float startElevDeg, float elevDeg, float elevMaxDeg, float moonSepDeg)
+            MeteorSweep(Vector3 a, Vector3 f, Vector3 x, Vector3 y, float hx, float hy, float travel)
+        {
+            float dMin = float.MaxValue, dMax = 0f;
+            float startElev = 180f, elev = 180f, elevMax = -180f, moon = 180f;
+            for (int i = 0; i <= 12; i++)
+                for (int j = 0; j <= 8; j++)
+                {
+                    var spawn = a + x * (hx * (i / 6f - 1f)) + y * (hy * (j / 4f - 1f));
+                    for (int k = 0; k <= 12; k++)
+                    {
+                        var p = spawn + f * (travel * k / 12f);
+                        float r = p.magnitude;
+                        float e = Mathf.Asin(p.y / r) * Mathf.Rad2Deg;
+                        dMin = Mathf.Min(dMin, r); dMax = Mathf.Max(dMax, r);
+                        elev = Mathf.Min(elev, e); elevMax = Mathf.Max(elevMax, e);
+                        if (k == 0) startElev = Mathf.Min(startElev, e);
+                        moon = Mathf.Min(moon, Mathf.Acos(Mathf.Clamp(Vector3.Dot(p / r, MoonDir), -1f, 1f)) * Mathf.Rad2Deg);
+                    }
+                }
+            return (dMin, dMax, startElev, elev, elevMax, moon);
         }
 
         private static void FireflyPS(Transform parent, Vector3 pos)

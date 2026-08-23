@@ -416,7 +416,233 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 241;
+    public const ushort ModBuild = 242;
+    // Build 242: A NAME PREFIX ATE OUR OWN MENU, THE EMPTY FRAME WAS CATCHING THE BEAM, AND THE
+    // WALLS WERE OBEYING A RULE WRITTEN FOR A GIANT.
+    // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
+    // 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — no new Harmony patch).
+    // BUNDLE CHANGED: 70,205,832 -> 70,226,449 bytes. Format 7, Unity 2021.3.5f1, verified.
+    // Five lanes on disjoint files.
+    //
+    //   1. THE SHOOTING STARS: SIX RADIANTS, BECAUSE FOUR DEGREES OF SPREAD WAS ALL ONE COULD BUY.
+    //   "zu häufig und zu oft an der selben Stelle am Himmel. Von der Entfernung her aber perfekt.
+    //   Auch mal intensiver, mal weniger intensiv."
+    //   The distance is right and 241's proof is what makes it right, so the spread could not come
+    //   from weakening it. The arithmetic is now IN THE FILE so nobody re-proposes the cheap
+    //   options: for a per-particle perturbation of angle t off f, the worst case is
+    //   cos(t)*(f.A) - sin(t)*(|A_perp| + hx + hy), and with 241's numbers (f.A = 4.20,
+    //   |A_perp| = 45.8, hx+hy = 12) that goes NEGATIVE AT t = 4.2 deg. Four degrees buys no
+    //   spread, so `randomDirectionAmount` and a shallow cone are both dead ends. Instead 241's
+    //   construction is REPEATED SIX TIMES: six emitters, each with its own perpendicular spawn
+    //   plane and its own f.A > 0.
+    //   THE PLANE'S SIZE NEVER ENTERS THE INVARIANT and the minimum distance is SEPARABLE, so the
+    //   horizontal half-width SATURATES — past |A.X| ~ 13 m it costs nothing at all — while the
+    //   vertical would eat the 39.6 m floor 1:1. Every plane is stretched horizontally (17 deg to
+    //   38 deg of sky) and hy stays 5 m on all six.
+    //   WORST CASE OVER ALL SIX: f.A = 3.86 m, nearest begin 39.58 m — IDENTICAL to 241's, set by
+    //   radiant 1, which is 241's pose kept to the degree. Farthest 60.9 m (was 57.7). Lowest
+    //   elevation 41.4 deg against 241's 42.0 — 0.6 deg closer to the canopy edge, the only
+    //   measurable regression, and it is now a floor the BAKE ENFORCES (241 only stated it in
+    //   prose, which is how a plane could have been widened without anyone noticing). Five floors
+    //   throw the bake — f.A, begin distance, elevation, moon separation, mean interval — and a
+    //   sixth cross-validates the closed form against a 13x9x13 brute-force sweep that reproduces
+    //   241's published numbers exactly.
+    //   THE RATE: rateOverTime is GONE. A constant rate is a metronome and six accumulators would
+    //   start together. Each radiant is a looping system whose DURATION IS ITS OWN PERIOD —
+    //   97/103/109/113/127/131 s, mutually prime — carrying one burst of one. Sum(1/T) = 0.05355/s,
+    //   mean interval 18.67 s against 241's 7.69, i.e. 2.43x rarer, and incommensurate periods mean
+    //   the arrival pattern never repeats in a session.
+    //   BRIGHTNESS IS ONE DRAW READ TWICE. startSize and startColor are independent random streams,
+    //   so uniform draws would give big-faint and small-bright. Shuriken has exactly one per-particle
+    //   random that other modules can READ — the speed — so sizeBySpeed and colorBySpeed are both
+    //   functions of the same u. THE SPEED RANGE IS 241's 26-38 m/s UNTOUCHED: the tail is a
+    //   MAPPING, not a widening, so no trajectory moved. Flux runs 0.38x at u=0 through 1.00x at
+    //   the median to 5.25x at the top; the median holds ModBuild 134's accepted angular size to
+    //   0.4 %, and 241's alpha now sits at the 69th percentile. A >=3x streak arrives every ~3.3
+    //   min. NO SEPARATE FIREBALL EMITTER, deliberately: a rare system must sit at ONE radiant, so
+    //   every fireball of the session would arrive in the same patch of sky — this round's
+    //   complaint. The tail IS the fireball.
+    //   HONEST CAVEAT, unchanged since 134: the VISIBLE streak measures ~1.5 deg against the
+    //   3.73 deg quad, because the comet sprite's tail falls below threshold. The "3.739 deg" in
+    //   the 134 and 241 comments is quad geometry, not what the eye measures.
+    //
+    //   2. THREE MORE VOICES, AND AN INSTRUMENT THAT MEASURES THE SHIPPED CODE.
+    //   "ein paar gruseligere Tiersounds … wie man es aus der Pop-Kultur kennt. Aber auch nicht
+    //   aufdringlich. Gerne eventuell auch Insekten Sounds."
+    //   ModBuild 241's note claimed its replica "matches the shipped C# to 9e-14 — so these are this
+    //   file's numbers". PYTHON AGREEING WITH PYTHON PROVES NOTHING ABOUT THE C# THAT SHIPS. The
+    //   missing instrument now exists (the shipped EnvSound.Bank.cs and EnvSoundSchedule.cs compiled
+    //   against a 55-line UnityEngine shim, dumping the real float32 buffers) and every number in
+    //   that file is re-measured against it. It also caught that 241's two new replica reports were
+    //   WIRED INTO NOTHING — room.py's __main__ never called them, so DeckDraw had no reachable
+    //   instrument for a whole round.
+    //   Wolf howl 2.90 s / 828 Hz / 232 ms attack; barn-owl screech 1.20 s / 4439 Hz; insect
+    //   stridulation 0.72 s / 6567 Hz. Ladder now 394/518/828/1150/1390/1926/3055/3532/4439/6567 Hz
+    //   — the howl fills the one clear octave the seven-card table had.
+    //   EERIE BY TIMBRE AND DISTANCE, NEVER BY A TRANSIENT, which is what "nicht aufdringlich" means
+    //   operationally. The howl's contour is not a glide (smoothstep on, hold, sag) and its vibrato
+    //   RAMPS IN over the first third, so there is no onset to jump at; the envelope autocorrelation
+    //   was checked for the beat this file has form for and shows no peak at the vibrato's own
+    //   period. The barn owl is the churchyard screech WITH THE SHRIEK REMOVED: two noise bands
+    //   equal-power crossfaded so it darkens as the bird runs out of air, over a voiced core at 0.90
+    //   of the hiss — measured 1/3-octave flatness 0.247, below the rain control's 0.493 and below
+    //   the shipped-and-liked fox's 0.269.
+    //   THE INSECT IS A CARD, NOT A CHANNEL, and it restores the USER'S ruling over a lane's. 226
+    //   deleted a cricket BED and wrote down what would be allowed instead — "it should arrive as
+    //   EVENTS on the shared clock". 241's blanket "not in any form, not even as an event" was a
+    //   lane's own caution and is corrected, with the bed's deletion left untouchable. A second
+    //   emitter is refused on arithmetic: there is no rate at which one adds no events. So the
+    //   insect spends 2 cards of 20 and THE WOOD MAKES THE SAME NUMBER OF SOUNDS IT DID BEFORE.
+    //   DECK 16 -> 20 CARDS AND THE REPEAT RATE IMPROVES: immediate repeats 0.0723 % -> 0.0318 %,
+    //   one-apart 4.15 % -> 2.04 %, because the repair's failure rate falls as the largest
+    //   multiplicity's SHARE falls. Slot, mean and skip byte-for-byte untouched; new cards APPENDED
+    //   so no existing card value changes animal. Nothing got louder — all three are quieter than
+    //   the quietest card already there.
+    //   A REAL FLOAT32 BUG INTRODUCED AND FIXED IN THE SAME ROUND: the howl's 2.55 s phase
+    //   accumulator reaches 9,450 rad, where float32 spacing is 5.7e-4, so every add rounded away
+    //   0.7 % of itself and the buffer diverged 0.92 peak-relative from the replica. Wrapping the
+    //   phase (exact, since only sines are taken of it) brings it to 9.1e-3. Applied to the two new
+    //   generators ONLY, so no shipped clip changes.
+    //
+    //   3. A NAME PREFIX WAS DOING A JOB IT COULD NOT DO.
+    //   "Im Optionsmenu-Fenster ist die ganze Zeit ein langer Greifbalken BIS ich in die VR Optionen
+    //   gehe … ich verstehe nicht warum unser mod-eigenes Menü da nicht berücksichtigt wird."
+    //   PanelInkBounds skipped every subtree named "GloomhavenVR.*" as mod chrome, and VROptionsTab
+    //   names its objects GloomhavenVR.OptionsTab / .OptionsTabWindow / .Content / .SubTabs /
+    //   .RowTemplate.* / .Control.*. The whole VR settings pane was skipped and the union collapsed
+    //   onto the game's own left column.
+    //   THE EXCLUSION NEVER ONCE DID ITS STATED JOB, and this is MEASURED. Its purpose was to keep
+    //   frame-anchored furniture out of the union — but ModalCloseX is parented to HostRect and the
+    //   walk's root is parented to that SAME HostRect, so the X is a SIBLING of the root and was
+    //   never reachable; and the supersample quad is a scene ROOT, not a child of the host. THE
+    //   ModBuild 241 CLASS COMMENT CLAIMING IT IS "parented to the host as well" WAS FALSE and is
+    //   corrected — that false premise was half the justification for the exclusion that caused this
+    //   bug. Across the whole 241 session the excluded count reads 0 on New Party display (13 lines),
+    //   Quest Log Manager (3), UI Quest Popup (2), UI Loadout Window (2), UI Event Window (2), Map
+    //   Story Window (2) and UI Map Esc Menu (1) — and 1 or 2 on exactly one window, ours.
+    //   It is replaced by an explicit named table rather than deleted, because the prefix was
+    //   accidentally carrying a SECOND, REAL rule: mod-drawn overlay art that BREATHES (FocusRing /
+    //   SelectionRing pulsed by Board.FocusCue, 26 applied re-fits of Panel_InitiativeTrack, host
+    //   height oscillating 182/186/188/190 px). Numbers: VR tab open x -783..-384 (399 px) against a
+    //   NATIVE tab open, same window, same frame, x -796..712 (1508 px). ALSO FIXED UNREPORTED:
+    //   GloomhavenVR.OptionsTab is the "VR Optionen" ROW in the game's own category column, eaten on
+    //   every sample since ModBuild 236.
+    //
+    //   4. THE INVISIBLE COLLIDER IS NOT A COLLIDER.
+    //   "das 'x' weit rechts, der Balken klein und zwischen dem linken Teil und dem X unsichtbare
+    //   Collider für den Laser … Wenn kleineres Fenster, dann voll mit verschobenem X und ohne
+    //   unsichtbaren Collider."
+    //   Three invisible interactive things surround a floated window and two are innocent:
+    //   GrabbableModal's BoxCollider is palm-grab only and has ridden the ink since 236; the X's own
+    //   34x34 HitPlane DID sit out over empty forest and is fixed with the plate. The real one is THE
+    //   HOST CANVAS PLANE: RayUguiDriver.TryIntersect wins its pick on the four world corners of
+    //   TryGetHitRect ALONE, before any graphic is raycast — so a beam crossing empty transparent
+    //   frame wins the canvas, sets bestDist (shadowing every canvas behind it), draws its reticle
+    //   and blocks the world grab. For the options window that rect reached x=776 for a picture
+    //   stopping at x=518: a 258 px = 200 mm live strip painting nothing.
+    //   TryGetHitRect's contract said the rect "by construction is never NARROWER than the frame …
+    //   the correct contract for a ray test, which must never shrink below the window the player can
+    //   see". THE SECOND HALF IS THE REAL RULE and is preserved exactly — `content` IS the window the
+    //   player can see. What is given up is the frame. And because shrinking an interactive area is
+    //   the ONE direction that can kill input on a button that is really there, it is granted on the
+    //   same terms an ink release is: a 64 px pad, a 32 px dead band taken BY VALUE from
+    //   InkReleaseDeadBandPx, a run of 3 agreeing samples carrying the OUTERMOST rect forward,
+    //   immediate reset to the host rect on any unmeasurable sample, growth still committing on
+    //   sight. THE HIT RECT LINE GAINS A THIRD STATE (NARROWED) and prints its committed count even
+    //   when that count is zero — a counter nobody prints is a counter nobody can falsify.
+    //   THE X now seats its top-right corner one gap OUTSIDE the ink's top-right corner (outside, not
+    //   inset: the ink is a tight box and an inset lands on a drawn row). An UPWARD clamp was
+    //   mandatory — the options window's ink is y -540..1287 against a frame ending at 540. When the
+    //   ink fills the frame both clamps bite and the placement is bit-for-bit the shipped one.
+    //   THE CORNER IS A READING: he wrote "oben links" and the X has always been top-RIGHT; in the
+    //   photograph the ink IS the left column, so its top-right corner lies in the upper-LEFT region.
+    //   The literal top-left is one line, marked "// THE CORNER".
+    //
+    //   5. THE CHARACTER-UI WAS SEATED FOURTEEN LINES BEFORE THE STORY WINDOW LEFT.
+    //   "ich hätte gerne dass sie sich an exakt der selben Stelle auswechseln. Aktuell spawnt die
+    //   Character-UI noch im Halbkreis daneben — obwohl das Fenster ja bereits verschwunden ist."
+    //   IT WAS NEVER MISSING A POSE, IT WAS MISSING AN EVENT. The log: :9036 the Character-UI is
+    //   placed, :9037 it claims a seat against an occupancy that still lists the story window at
+    //   -4 +-24 deg, :9050 the withdrawal edge, :9051 the story window released. It HAS to be that
+    //   way — the backdrop claim's deadlock clause only stands once the continue control is parked
+    //   inside it. So the allocator did the only correct thing available and seated it 32 deg away.
+    //   There is no seat-inheritance line anywhere in the 13,366-line log.
+    //   THE SEAT IS TRANSFERRED, NOT RE-CLAIMED, and the registry needed no new operation: a transfer
+    //   is one release plus one in-place rewrite of an entry that already exists. The old slot is
+    //   cleared FIRST so the depth ladder cannot rank the arriving window against one on its way out;
+    //   the arriving window keeps its own angular widths, which are a property of what IT draws. The
+    //   direction and distance are measured LIVE from the head to the landed drawn centre, so the
+    //   handover is immune to the still-unfixed SteepGazePullFactor mismatch below.
+    //   "THE SAME PLACE" IS THE DRAWN CENTRE, and the difference is 566 mm of nothing: at the edge
+    //   the frame origins are 1,739 mm apart while the drawn centres are 794 mm apart, and the
+    //   Character-UI's frame origin sits 1.40*tan(22 deg) = 566 mm from its own character column.
+    //   Anchor the swap on the frame origin and the numbers match while the column lands half a metre
+    //   off — the same class of error, on the same window, that 241 fixed for the release re-face.
+    //   Scale is deliberately NOT copied: it is a per-window legibility contract, and "dieselbe
+    //   Stelle" is a place, not a size.
+    //   A PLATE-RULE GAP THAT BITES THIS SUBJECT SPECIFICALLY: PanelInkBounds excludes a graphic
+    //   filling the frame as a Plate, and the story window at that edge is "nichts als das
+    //   Hintergrundbild" — potentially all plate, no ink. A tier-2 fallback sits between the ink and
+    //   the frame origin, and every tier is named on the line.
+    //   AND A WRITE WAR THE LOG PREDICTED: the pre-reveal re-place at :9100 replays the arc seat
+    //   FIFTY LINES after the withdrawal. So the handover is applied at the edge and that ONE
+    //   re-place CONSUMES it, re-measuring at the final rect while the window is still render-hidden
+    //   — one writer with better inputs, not a second writer.
+    //
+    //   6. THE WALLS WERE OBEYING A RULE WRITTEN FOR A GIANT, AND MY OWN READING OF IT WAS WRONG.
+    //   "wenn ich mich so klein mache, dass ich IN der Map stehe, dann sollten alle Wände voll
+    //   sichtbar sein … Hier muss ein guter Mittelweg gefunden werden."
+    //   I EXPECTED THE COVERAGE METRIC TO BE FIRING HARD INSIDE. It does the opposite: inside the
+    //   room the fractions collapse to raw 0.00-0.13 against the same walls' 0.81 / 0.38 / 0.31 at
+    //   headY 10.67, because the numerator is frustum-culled and vis falls from 16/16 to 0-11/16.
+    //   Line 10796 is the whole story: ema0.00 and still ON 1.00. So it is TWO things, neither a
+    //   broken metric — the walls were faded BEFORE he shrank and the un-fade dwell holds them, and
+    //   his head enters wall AABBs, which takes BlockedFraction's hard 1f path (identifiable because
+    //   it reports the room total as visible regardless of the frustum) exactly twice in the whole
+    //   25 MB session, both inside this window. LATCH WARN fired ZERO times all session: the defect
+    //   is the POLICY, not the machinery.
+    //   THE TEST IS BOARD GEOMETRY, NOT WORLD SCALE, and the log falsifies scale as a term: he rides
+    //   it from 8.28 down to 1.15 wu/m inside ONE scenario while the map room sits at 198.12. Signed
+    //   point-to-AABB distance against the BOARD VOLUME — the union XZ footprint of every
+    //   decision-valid room AND its walls, floor plane to MEDIAN wall crest. Walls are folded in
+    //   because the room renderers are FLOOR proxies; the crest is a median because a keep's stacked
+    //   superstructure would otherwise put it above every wall in the scenario.
+    //   BARS CALIBRATED AGAINST THE LOG: enter at -0.10*C, leave at +0.35*C, dwells 0.20 s in /
+    //   2.5 s out — the delayed direction is the one that DELETES geometry. With the logged crest
+    //   3.54 that is headY < 3.19 to enter and > 4.78 to leave; all 17 shrunk samples and all giant
+    //   samples clear their bar, and the band sits in a 5.4 wu gap containing no steady-state sample
+    //   at all. A DOORWAY IS NOT A BOUNDARY CASE, which is the point of using the board and not the
+    //   room.
+    //   RAISED BAR, NOT HARD OFF: inside, 0.25/0.10 becomes 0.98/0.90. Since the fractions read
+    //   0.00-0.13 in there, 0.98 is unreachable by any wall he can LOOK at — but the head-inside-AABB
+    //   hard 1f still clears it after ~0.75 s, so walking into stone still opens it and he cannot be
+    //   trapped facing a blank. Already-faded walls are released immediately on the rising edge,
+    //   which SATISFIES the dwell's reasoning rather than weakening it: the dwell exists so ROTATION
+    //   alone almost never brings a wall back, and this is a translation or rescale of >= 0.45*C.
+    //   MULTIPLAYER FALLS OUT OF WHERE THE RULE ACTS. It gates seg.State, so own fades are suppressed
+    //   AND the broadcast stops with them (SampleFadedKeys reads seg.State and nothing else) — a
+    //   client standing inside must not send a peer a fade it has itself overruled. PEER fades are
+    //   untouched: RemoteWantsFade composes at the target independently, and suppressing those would
+    //   silently rewrite a receiver-side setting for other players.
+    //   The map room is unaffected, checked not assumed: it prints 0 -> 0 LOGICAL rooms and Tick
+    //   returns at its empty-rooms guard.
+    //
+    //   STILL OPEN, CARRIED FORWARD FROM 241: TryClaimArcSeat computes angles at
+    //   WindowDistanceMeters * scale while ClampSpawnPose multiplies the distance by
+    //   SteepGazePullFactor 0.85, which fires on EVERY map-room window — so each hangs ~18 % nearer
+    //   and is ~18 % angularly wider than the interval it booked. NEW THIS ROUND: between :9051 and
+    //   :9078 the loadout window is released, re-converted, given a NEW seat, refused and released
+    //   again — a full convert-and-teardown cycle right after a 74.94 ms frame spike, with STORY
+    //   WINDOW CONTINUITY: BROKEN at :9077. And the env bake is still NON-DETERMINISTIC.
+    //
+    //   TESTING THIS BUILD, and one item carries a real risk. THE NARROWED HIT RECT is the one
+    //   change that can KILL INPUT on a button that is really there: if anything stops reacting to
+    //   the laser, grep HIT RECT for NARROWED and that line is the first suspect. Otherwise: the
+    //   night sky for the streaks (mean 18.7 s apart now, a bright one every ~3.3 min); the options
+    //   window for a full-width bar and an X beside the drawn content; a quest intro for WINDOW
+    //   HANDOVER: DONE, whose millimetre figure is the verdict; and shrink into a scenario for
+    //   INSIDE THE MAP with BOARD VOLUME beside it.
+    //
     // Build 241: THE CRATE WAS ON ITS END, THE METEORS WERE FALLING ON HIM, AND A WINDOW TURNED
     // ABOUT A POINT 859 mm OFF ITS OWN PICTURE.
     // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
