@@ -860,6 +860,10 @@ internal static partial class WallSegmentFade
             _splitAnchors.Clear();
             _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
             _lastRoomCensusAnchored = -1;
+            // A cached board volume belongs to the scene it was measured in: judging a new
+            // scenario's head position against the old scenario's box could stand the fade
+            // policy down for the frames between the load and the first commit.
+            InvalidateBoardVolume();
             _lastLoggedMountedCount = -1;    // re-print the dressing census for the new scene
             _lastLoggedMountedRejected = -1;
             _lastLoggedStackedCount = -1;    // …and the stacked-shell census
@@ -932,6 +936,10 @@ internal static partial class WallSegmentFade
                 if (_wasActive)
                 {
                     ClearAllBlocks("inactive (toggle off / no scenario / no head)");
+                    // The INSIDE-the-map verdict describes a board that is no longer being
+                    // watched; a stale YES would stand the fade policy down on the next
+                    // scenario's very first frames.
+                    ResetInsideBoardState();
                     // PERF S2: a census in flight is measured against a scene we are no longer
                     // watching — resume would commit it blind. Drop it and its snapshot; the
                     // next active tick opens a fresh cycle.
@@ -967,6 +975,17 @@ internal static partial class WallSegmentFade
             Transform headT = head!.transform;
             Vector3 headPos = headT.position;
             UpdatePerspectiveState(headT, now);
+
+            // INSIDE THE MAP (user report 2026-08-24: "wenn ich mich so klein mache, dass ich IN
+            // der Map stehe, dann sollten alle Wände voll sichtbar sein"). A point against ONE
+            // cached Bounds — see WallSegmentFade.Inside.cs for the test, its two bars, the
+            // release-on-entry and why the fade criterion is right outside and blind inside.
+            // Called EVERY frame and not on the evaluation cadence below: it is ~15 float ops,
+            // and the boundary crossing is a deliberate act whose edge must not wait out a
+            // skipped evaluation. rigScale is diagnostic ONLY — every bar in the test is in
+            // world units, compared against world-unit geometry.
+            float rigScale = headT.lossyScale.x;
+            bool insideBoard = UpdateInsideBoard(headPos, now, rigScale);
 
             // [Optimize] WallFadeEvalInterval (2026-07 perf pass). The expensive half of this tick
             // is the DECISION: UpdateSampleVisibility projects every room's floor samples through
@@ -1019,6 +1038,22 @@ internal static partial class WallSegmentFade
             float offFraction = WallFadeTuning.Off;
             float exitDwellMoved = WallFadeTuning.DwellMoved;
             float exitDwellStationary = WallFadeTuning.DwellStationary;
+            // INSIDE THE MAP: the stand-down is a RAISED BAR, not a second code path — one
+            // substituted threshold pair, so the identical Schmitt trigger, dwell hysteresis,
+            // ramp and delivery run. 0.98 is unreachable from inside the board by any wall the
+            // player can look at (the ModBuild 241 log reads 0.00-0.13 in there), and reachable
+            // only through BlockedFraction's hard 1f for a head inside the wall's own AABB —
+            // the head-in-stone escape hatch. The normal bars are kept for the census, which
+            // reports how many walls the raised bar actually spared.
+            float normalOnFraction = onFraction;
+            float normalOffFraction = offFraction;
+            if (insideBoard)
+            {
+                onFraction = InsideOnFraction;
+                offFraction = InsideOffFraction;
+                if (evaluate)
+                    BeginInsideCensus();
+            }
             foreach (Segment seg in _segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -1077,6 +1112,11 @@ internal static partial class WallSegmentFade
                     {
                         seg.Smooth += (fraction - seg.Smooth) * fracStep;
                     }
+                    // Census BEFORE the verdict, against the bars that WOULD have applied — the
+                    // falsifier's "spared" count has to be measured on the live coverage, not
+                    // inferred from the outcome the raised bar produced.
+                    if (insideBoard)
+                        NoteInsideSpared(seg, normalOnFraction, normalOffFraction);
                     bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
                     if (raw != seg.PendingRaw)
                     {
@@ -1143,6 +1183,15 @@ internal static partial class WallSegmentFade
             {
                 _nextDiagTime = now + DiagIntervalSeconds;
                 LogDiagnostic(headPos, visibleCount);
+            }
+
+            // The INSIDE falsifier, on the same cadence and only while the rule is IN FORCE —
+            // its edges print unthrottled from UpdateInsideBoard, and the BOARD VOLUME line
+            // proves the rule was armed even in a session where the player never went in.
+            if (insideBoard && now >= _nextInsideLogTime && !PerfConfig.Quiet)
+            {
+                _nextInsideLogTime = now + InsideLogIntervalSeconds;
+                LogInsideState(headPos, rigScale, edge: false);
             }
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
@@ -2487,6 +2536,12 @@ internal static partial class WallSegmentFade
                 // the pass has run, so every number in it is an outcome (WallSegmentFade.PropUnit.cs).
                 using (Phase(CommitPhase.UnitCensus))
                     LogPropUnitCensus();
+                // INSIDE THE MAP (user report 2026-08-24 — WallSegmentFade.Inside.cs): cache the
+                // board's own volume for the per-frame O(1) "is the player standing IN the map"
+                // test. Deliberately after GateBounds, which is itself deliberately last: this
+                // phase reads the room registry AND every segment's FINAL decision AABB.
+                using (Phase(CommitPhase.BoardVolume))
+                    CommitBoardVolume();
             }
             finally
             {

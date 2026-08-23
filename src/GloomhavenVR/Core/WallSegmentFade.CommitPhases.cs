@@ -78,9 +78,10 @@ internal static partial class WallSegmentFade
             GateBounds,
             StandCensus,
             UnitCensus,
+            BoardVolume,
         }
 
-        private const int CommitPhaseCount = (int)CommitPhase.UnitCensus + 1;
+        private const int CommitPhaseCount = (int)CommitPhase.BoardVolume + 1;
 
         /// <summary>Short names for the BUDGET clause. Kept in enum order (see
         /// <see cref="CommitPhase"/>) — index IS the enum value.</summary>
@@ -89,7 +90,7 @@ internal static partial class WallSegmentFade
             "Figures", "TileAnchors", "RoomRegistry", "DeadSegments", "WallCache", "Doors",
             "GateSeed", "Adopt", "Water", "Samples", "Rooms", "Ground", "Engulf", "Ground2",
             "Stacked", "PropUnits", "Siblings", "Mounted", "WireKeys", "GateLift", "GateBounds",
-            "StandCensus", "UnitCensus",
+            "StandCensus", "UnitCensus", "BoardVolume",
         };
 
         /// <summary>Full <see cref="PerfMonitor"/> step names, built once at type load so the
