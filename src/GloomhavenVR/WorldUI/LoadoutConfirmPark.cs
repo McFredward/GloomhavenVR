@@ -72,18 +72,148 @@ namespace GloomhavenVR.WorldUI;
 /// <c>Show</c>/<c>Hide</c>/<c>Escape</c>/<c>SetActive</c> on a game window and never touches the ready
 /// toggle's own state — <c>ToggleVisibility</c>, <c>SetInteractable</c> and the ready-up itself stay
 /// the game's. Two players may legitimately disagree about every verdict in it.</para>
+///
+/// <para>=====================================================================================
+/// ModBuild 241 — THE SEAT MOVED FROM UNDER THE ROSTER TO BESIDE IT, AND IT NOW RE-SOLVES
+/// =====================================================================================</para>
+///
+/// <para><b>USER REPORT, 2026-08-24, verbatim:</b> <i>"Der 'Verlies betreten' Button ist jetzt auf dem
+/// richtigen Fenster aber an einer komischen Position, siehe betreten_button.jpg. Er sollte eher
+/// rechts neben den Charakteren angezeigt werden, mittig zentriert. Es muss aber noch möglich sein
+/// auch im Nachgang bevor man den Button drückt noch eine persönliche Quest zu ändern. Das Auftauchen
+/// der Questinfos obwohl der Button schon da ist muss ihn entsprechend verschieben, damit sich nichts
+/// überlagert."</i></para>
+///
+/// <para><b>WHAT THE PHOTO SHOWS</b> (<c>.planning/debug/betreten_button.jpg</c>). The floated
+/// Character-UI is a tall narrow column: the title <i>Die Löscher</i>, three party stat bars, then
+/// four character rows stacked vertically (Hilde Die 2Te, Scream, Lastglowworm, Cryonaris). The
+/// <i>VERLIES BETRETEN</i> plate sits at the very BOTTOM of that column, ON TOP of the fourth row —
+/// Cryonaris' portrait and his gold line are behind it, and the bottom of his icon strip (the battle
+/// goal toggle is the LAST icon in it) is under the plate's top edge. The brass grab bar is
+/// immediately below the plate.</para>
+///
+/// <para><b>THE MECHANISM, AND IT IS ONE CLAMP.</b> ModBuild 239's zero put the control's painted TOP
+/// edge <see cref="ConfirmGapPx"/> BELOW the window's painted BOTTOM edge and centred it horizontally
+/// on the painted content. On this window the painted content fills the frame vertically — the roster
+/// column runs from the title at y=+540 to the last row at y=-540 — so "below the content" is below
+/// the frame, and <see cref="RefreshAnchor"/>'s frame clamp (which exists so a uGUI mask can never
+/// cull the control, and which is KEPT) then pulled the control back up until its ink sat flush with
+/// the frame's bottom edge. Flush with the bottom edge of a column that is roster all the way down IS
+/// on top of the last character. The clamp did exactly what it was written to do; the construction it
+/// was protecting had no room to be right.</para>
+///
+/// <para><b>THE COORDINATES, from the ModBuild 239 hardware log</b>
+/// (<c>.planning/debug/LogOutput.log</c>), all in the game window root's own authored uGUI px unless
+/// stated:</para>
+/// <list type="bullet">
+/// <item>the game window root 'New Party display' rect is <c>x -960..960, y -540..540</c>
+/// (<c>ENTER DUNGEON …</c>, :9115). The mod's HOST rect around it is a DIFFERENT transform and a
+/// different number, <c>x -994..994</c>, 1988x1080 — the two lines print both and they are not
+/// interchangeable.</item>
+/// <item>with the battle-goal picker CLOSED the window draws <c>x -982..-653</c>, 330 px wide, centred
+/// at <c>x=-817</c>, <c>y -540..540</c> — measured twice on the same tick by two independent
+/// instruments that share none of their code, <c>HIT RECT</c> (<c>DRAWN CONTENT 330x1080 px at
+/// (-817,0) from 137 visible graphic(s)</c>, :9121) and <c>GRAB BAR CLEARS THE INK</c>
+/// (<c>the ink union spans x -982..-653 … 137 graphic(s) unioned</c>, :9123). THAT 330 px COLUMN IS
+/// "die Charaktere". The frame around it is 1920 px wide: five sixths of this window is empty.</item>
+/// <item>with the picker OPEN the same union is <c>x -982..-88</c>, 894 px wide, centred at
+/// <c>x=-535</c>, and it reaches down to <c>y=-628</c> on a graphic literally called <c>Rewards</c>
+/// (:9117, 179 graphics). So the quest information the user means by <i>"die Questinfos"</i> draws in
+/// the band from <c>x=-653</c> to <c>x=-88</c> — immediately to the RIGHT of the roster column, which
+/// is the band ModBuild 239's centring would have put the button in.</item>
+/// <item>the control's own painted ink is <c>307x65 px</c>. At :9115, with the picker open, it sat at
+/// <c>x -679..-372, y -540..-475</c> — centred on the 894 px union's centre, i.e. inside the picker.
+/// In the photograph the picker is closed, so the same rule put it at <c>x -960..-653</c>, the width
+/// of the column and squarely on Cryonaris.</item>
+/// </list>
+///
+/// <para><b>WHAT REPLACES IT.</b> The seat is now two independent measurements instead of one:</para>
+/// <list type="number">
+/// <item><b>THE VERTICAL ZERO IS THE CHARACTER BLOCK ITSELF</b>, not the window's content and
+/// emphatically not its frame. <see cref="TryCharacterBlock"/> unions the painted bounds of the game's
+/// OWN <c>NewPartyDisplayUI.CharacterSlots</c> — the four <c>NewPartyCharacterUI</c> rows, by
+/// reference off the display's serialized list, never by name and never by a scene sweep — and the
+/// control's ink centre is put on that block's centre. "Rechts neben den Charakteren, mittig
+/// zentriert" is then a statement about the rows and nothing else: it does not move when the title,
+/// the stat bars or a popup change, because none of those is a character row.</item>
+/// <item><b>THE HORIZONTAL ZERO IS THE RIGHT EDGE OF EVERYTHING THE WINDOW DRAWS</b>, plus the gap.
+/// Not the block's right edge: the quest information appears BETWEEN the block and the frame's right
+/// half, and a seat measured off the block alone would be underneath it the moment it opened. Right of
+/// the whole drawn union is the only x that satisfies <i>"damit sich nichts überlagert"</i> in both
+/// states, and it is why the button moves ~565 px right when the picker opens (union right edge
+/// -653 → -88) and back when it closes.</item>
+/// </list>
+///
+/// <para><b>AND IT RE-SOLVES, WHICH IS THE THIRD REQUIREMENT.</b> The placement was already a cadence
+/// — <see cref="AnchorRefreshIntervalSeconds"/>, four times a second, with
+/// <see cref="OffsetEpsilonPx"/> suppressing the write when the answer has not moved — so requirement
+/// three needed no second loop, only a faster edge. <see cref="ApplyPose"/> now also re-solves
+/// IMMEDIATELY when <c>PanelInkBounds.ActiveSetSignature</c> changes; that signature's part two is the
+/// game's own <c>ActiveDisplay</c> plus which sub-view roots are open, and it exists precisely because
+/// the battle-goal picker's root is not a direct child of the conversion target and part one alone
+/// misses it. THE CADENCE IS STILL THE GUARANTEE and the signature is the fast path, which is the
+/// right way round: if the picker is ever shown by something an <c>activeInHierarchy</c> read cannot
+/// see, the seat is late by one cadence rather than wrong forever. That the edge does fire on this
+/// window is not assumed — the ModBuild 239 log has <c>GRAB BAR CLEARS THE INK</c> for
+/// 'New Party display' moving from generation 4 to generation 5 with <c>cause: the set of open
+/// sub-views changed</c> as the picker closed (:9117 and :9123). One int compare per tick buys
+/// it.</para>
+///
+/// <para><b>NOTHING GATES THE PICKER, AND THAT IS MEASURED RATHER THAN ASSERTED.</b> The user's second
+/// sentence is the standing ModBuild 239 ruling again (<i>"Ich will, dass es voll bedienbar ist egal
+/// welche Fenster offen sind"</i>, which produced <c>MapRoom/CharacterUiOperability</c>). Two answers,
+/// both of them readings and not intentions. (a) THE GAME does not gate it: the confirm's own
+/// precondition <c>UILoadoutManager.CanShowConfirmationButton()</c> returns TRUE while
+/// <c>ActiveDisplay == BATTLE_GOALS</c> (UILoadoutManager.cs:111-119), i.e. the button and an open
+/// quest picker are a state the flat game already ships. (b) THIS MOD does not gate it either — no
+/// line in this file writes <c>interactable</c>, a <c>CanvasGroup</c>, <c>SetActive</c> or a selection
+/// mode — but until this round it OCCLUDED it, which is the same thing to a hand: the plate is a
+/// <c>Button</c> whose graphics take raycasts, <see cref="Park"/> puts it at
+/// <c>SetAsLastSibling</c> so it is drawn and hit-tested ABOVE the roster, and it was parked across the
+/// fourth row. <c>ENTER DUNGEON ON THE CHARACTER UI</c> now carries a per-slot term that reads each
+/// row's <c>battleGoalToggle.IsInteractable()</c> AND whether the control's ink intersects that
+/// toggle's rect, so a hardware log states the answer instead of leaving it to be inferred from a
+/// photograph. <see cref="CharacterUiOperability"/> cannot fight this: its re-arm only ever RAISES
+/// <c>buttonsCanvasGroup.interactable</c>/<c>blocksRaycasts</c> on assigned slots, it writes no
+/// geometry, and its own verdict is scoped to ticks on which a guildmaster destination window is open
+/// — of which there are none during a loadout.</para>
+///
+/// <para><b>ALTERNATIVES REJECTED.</b>
+/// <list type="bullet">
+/// <item><i>Keep it under the roster and shorten the column.</i> That is presentation code resizing a
+/// game window's content, which this file may not do, and the column is roster all the way to the
+/// frame edge anyway.</item>
+/// <item><i>Seat it against the window's frame — e.g. a fixed fraction of the 1920 px rect.</i> The
+/// drawn column is 330 px of that 1920 and is pinned to the LEFT (centre x=-817). A frame-derived seat
+/// puts the button roughly 900 px out in transparent nothing. This window has produced that exact bug
+/// twice already — the ModBuild 234 arc reservation (88° booked to draw 14°) and the ModBuild 236 grab
+/// bar — and <c>PanelInkBounds</c>' class comment is the write-up of both.</item>
+/// <item><i>Seat it right of the CHARACTER BLOCK only.</i> Correct with the picker closed, underneath
+/// the picker the moment it opens. Rejected by requirement three, in the same sentence that asks for
+/// it.</item>
+/// <item><i>Hard-code the ~565 px offset the picker adds.</i> That is coding against today's numbers.
+/// Another lane is changing <c>PanelInkBounds</c> this same round so that mouseover and tooltip
+/// subtrees stop counting as ink, and every union quoted above will move under this file. The seat is
+/// therefore expressed as a PROPERTY — right of whatever the window is drawing, centred on whatever
+/// the character rows are — and never as a distance.</item>
+/// <item><i>Add a second re-solve loop keyed on the picker's own open/close event.</i> There is
+/// already a cadence, an epsilon and an ink measurement here, and a second timer on the same subject
+/// is how two writers start disagreeing. The signature edge feeds the EXISTING refresh instead of
+/// running beside it.</item>
+/// </list></para>
 /// </summary>
 internal static class LoadoutConfirmPark
 {
     private const string Scope = "WorldUI";
 
-    /// <summary>Gap between the Character-UI's painted BOTTOM edge and the confirm's painted TOP
-    /// edge, in the host window's own authored uGUI px. Deliberately a constant and not a config
-    /// dial: the user asked for the button to be on the Character-UI, not for a spacing control, and
-    /// every new dial is a surface somebody has to tune. It is the same 24 px
-    /// <c>StoryComposite.ImageGapPx</c> uses between the quest picture and the dialog, for the same
-    /// reason — on a committed panel that is roughly 17-25 mm, visibly one gap and never a
-    /// separation.</summary>
+    /// <summary>Gap between the Character-UI's painted RIGHT edge and the confirm's painted LEFT edge,
+    /// in the host window's own authored uGUI px. (Through ModBuild 239 this was the gap under the
+    /// window's painted BOTTOM edge; the axis changed, the number and the argument did not.)
+    /// Deliberately a constant and not a config dial: the user asked for the button to be beside the
+    /// characters, not for a spacing control, and every new dial is a surface somebody has to tune. It
+    /// is the same 24 px <c>StoryComposite.ImageGapPx</c> uses between the quest picture and the
+    /// dialog, for the same reason — on a committed panel that is roughly 17-25 mm, visibly one gap and
+    /// never a separation.</summary>
     private const float ConfirmGapPx = 24f;
 
     /// <summary>Below this the re-place is skipped, in authored uGUI px — <c>MapTravelConfirm</c>'s
@@ -143,6 +273,39 @@ internal static class LoadoutConfirmPark
     private static int _anchorContentCount;
     private static Rect _anchorControl;
     private static int _anchorControlCount;
+
+    /// <summary>The union of the game's own character rows, host-local px, and how many rows and
+    /// graphics went into it. This is the block the seat is centred against; see
+    /// <see cref="TryCharacterBlock"/>.</summary>
+    private static bool _anchorBlockValid;
+    private static Rect _anchorBlock;
+    private static int _anchorBlockSlots;
+    private static int _anchorBlockGraphics;
+
+    /// <summary>Where the last solve asked the control's INK to land — the seat, not the pivot. Kept
+    /// so the re-seat line and the falsifier can print the requested rectangle beside the one the
+    /// control actually occupies, which is the only way a reader can tell a bad solve from a bad
+    /// write.</summary>
+    private static Rect _anchorSeat;
+
+    /// <summary>ModBuild 241 — the reflow edge. <c>PanelInkBounds.ActiveSetSignature</c> of the host
+    /// panel as of the last solve. Its part two is the game's <c>ActiveDisplay</c> plus which sub-view
+    /// roots are open, so it changes on the tick the quest information appears or goes away; a change
+    /// pulls the next <see cref="RefreshAnchor"/> forward to THIS tick instead of waiting out
+    /// <see cref="AnchorRefreshIntervalSeconds"/>. <c>int.MinValue</c> is the "never sampled" value and
+    /// is compared for equality only — never subtracted [[sentinel-overflow-and-silent-scans]].</summary>
+    private static int _anchorSignature = int.MinValue;
+
+    /// <summary>The re-seat line's change gate and budget. See <see cref="ReportReseat"/>.</summary>
+    private static Rect _reseatFrom;
+    private static bool _reseatFromValid;
+    private static int _reseatReports;
+
+    /// <summary>Cap on <c>LOADOUT CONFIRM RESEATED</c> lines per loadout screen, and the move that
+    /// earns one. <see cref="MaxReachReports"/>'s number and argument; the distance is one
+    /// <see cref="ConfirmGapPx"/>, i.e. the smallest move that can change whether two things touch,
+    /// so settling jitter cannot spend the budget.</summary>
+    private const int MaxReseatReports = 6;
 
     // ---- the claim (online only) ---------------------------------------------------------------
 
@@ -681,7 +844,12 @@ internal static class LoadoutConfirmPark
         rect.SetAsLastSibling();
         rect.anchorMin = Vector2.up;
         rect.anchorMax = Vector2.up;
-        rect.pivot = new Vector2(0.5f, 1f);   // its TOP edge is what we place
+        // ITS LEFT-HAND MIDDLE IS WHAT WE PLACE (ModBuild 241; through 239 it was the top edge, and
+        // that pair of numbers is the whole axis change). The arithmetic in RefreshAnchor does not
+        // DEPEND on this value — it measures the pivot-to-ink offset off the live transform every
+        // solve, so any pivot solves correctly — but a pivot that names the edge the placement is
+        // about is what stops the next reader deriving the wrong offset from the wrong corner.
+        rect.pivot = new Vector2(0f, 0.5f);
         rect.localRotation = Quaternion.identity;
         rect.localScale = Vector3.one;
         WriteLayers(host.gameObject.layer, rect);
@@ -851,36 +1019,50 @@ internal static class LoadoutConfirmPark
         _anchorContentCount = 0;
         _anchorControl = default;
         _anchorControlCount = 0;
+        _anchorBlockValid = false;
+        _anchorBlock = default;
+        _anchorBlockSlots = 0;
+        _anchorBlockGraphics = 0;
+        _anchorSeat = default;
+        _anchorSignature = int.MinValue;
+        _reseatFrom = default;
+        _reseatFromValid = false;
         _anchorWhy = why;
     }
 
     /// <summary>
     /// WHERE THE CONFIRM GOES, AND WHY THAT PLACE IS DERIVED RATHER THAN DIALLED.
     ///
-    /// <para>The zero is the Character-UI's OWN PAINTED CONTENT: the control's painted TOP edge is put
-    /// <see cref="ConfirmGapPx"/> below the window's painted BOTTOM edge, horizontally centred on that
-    /// content's centre. This is <c>MapTravelConfirm</c>'s ModBuild 197 construction with the quest
-    /// information swapped for the roster, and it is the right one here for three reasons that are all
-    /// measurements rather than preferences:</para>
+    /// <para><b>TWO ZEROS, ON TWO DIFFERENT SUBJECTS, AND THE SPLIT IS THE ModBuild 241 FIX.</b>
+    /// VERTICALLY the control's painted centre is put on the centre of the CHARACTER BLOCK — the union
+    /// of the game's own <c>NewPartyCharacterUI</c> rows, see <see cref="TryCharacterBlock"/>.
+    /// HORIZONTALLY its painted LEFT edge is put <see cref="ConfirmGapPx"/> to the right of the RIGHT
+    /// EDGE OF EVERYTHING THE WINDOW PAINTS. The two subjects are deliberately different, because the
+    /// two requirements are: <i>"rechts neben den Charakteren … mittig zentriert"</i> is about the rows,
+    /// and <i>"Das Auftauchen der Questinfos … muss ihn entsprechend verschieben, damit sich nichts
+    /// überlagert"</i> is about everything else. Three reasons, all measurements rather than
+    /// preferences:</para>
     /// <list type="number">
-    /// <item><b>It is where the flat game puts it.</b> Offline the continue button is the loadout
-    /// screen's bottom-centre confirm; online the ready toggle is a bottom bar. Under the roster,
-    /// centred, is the same reading order the player already knows.</item>
-    /// <item><b>It cannot land on top of anything.</b> The zero is the union of what the window is
+    /// <item><b>It cannot land on top of anything.</b> Both zeros are unions of what the window is
     /// ACTUALLY painting this tick — the roster grows and shrinks as characters are added, a sub-panel
     /// opens, a battle goal is picked — so a fixed fraction of the window would sit over the roster on
-    /// one party size and off the panel on another. The union moves with it.</item>
+    /// one party size and off the panel on another. The unions move with it.</item>
+    /// <item><b>The frame is not a usable zero on this window and the log says so in numbers.</b> The
+    /// game window root is 1920x1080 px and the roster column is 330 px of it, pinned to the left at
+    /// centre x=-817. Anything derived from the frame lands in transparent nothing; see the ModBuild
+    /// 240 section of this class's doc for the two instruments that measured it.</item>
     /// <item><b>The host rect follows it for free.</b> <c>CanvasConversion</c>'s fit commits the
-    /// drawn-content union as the host rect, so a control placed just under the content is inside the
-    /// fitted panel by construction — no height dial and no second layout step.</item>
+    /// drawn-content union as the host rect and the parked control is a GAME-named child of the
+    /// conversion target, so a control placed one gap beyond that union is inside the fitted panel by
+    /// construction — no width dial and no second layout step.</item>
     /// </list>
     ///
     /// <para><b>THE SWEEP EXCLUDES THE PARKED CONTROL, AND THAT IS WHAT MAKES IT A FIXED POINT RATHER
-    /// THAN A FEEDBACK LOOP.</b> If the control's own graphics were in the union, every solve would
-    /// push it one gap further down, once per cadence, forever. The control's pivot-to-content offset
-    /// is measured separately and subtracted, exactly as <c>MapTravelConfirm.MaybeRefreshAnchor</c>
-    /// does, so translating the control moves its pivot and its ink by the SAME vector and re-solving
-    /// after a write reproduces the same answer with zero gain.</para>
+    /// THAN A FEEDBACK LOOP.</b> If the control's own graphics were in either union, every solve would
+    /// push it one gap further right, once per cadence, forever. The control's pivot-to-ink offset is
+    /// measured separately and subtracted, exactly as <c>MapTravelConfirm.MaybeRefreshAnchor</c> does,
+    /// so translating the control moves its pivot and its ink by the SAME vector and re-solving after a
+    /// write reproduces the same answer with zero gain.</para>
     ///
     /// <para>A FAILED REFRESH NEVER CLEARS A GOOD ANCHOR: the character screen switches whole
     /// sub-panels off, and a sweep that finds nothing must keep the last good measurement rather than
@@ -893,6 +1075,26 @@ internal static class LoadoutConfirmPark
         Rect frame = win.rect;
         if (Mathf.Abs(frame.height) <= 0f)
             return;
+
+        // THE REFLOW EDGE, ModBuild 241. The cadence below is the steady state; this is what makes the
+        // re-solve happen on the tick the quest information appears rather than up to
+        // AnchorRefreshIntervalSeconds after it. It PULLS THE EXISTING REFRESH FORWARD and does not run
+        // a second solve of its own — one subject, one writer. The signature is cheap by construction
+        // (one childCount loop plus seven property reads on a singleton, PanelInkBounds' own accounting)
+        // and it is compared for EQUALITY only, so the int.MinValue sentinel cannot overflow anything
+        // [[sentinel-overflow-and-silent-scans]]. Parking the control changes the signature once, on the
+        // tick of the park, because the control becomes a new active direct child of the conversion
+        // target; after that it is constant, so this cannot become a loop.
+        ConvertedPanel? signaturePanel = ModalFallback.PanelFor(host);
+        if (signaturePanel != null)
+        {
+            int signature = PanelInkBounds.ActiveSetSignature(signaturePanel);
+            if (signature != _anchorSignature)
+            {
+                _anchorSignature = signature;
+                _anchorNextRefreshAt = float.NegativeInfinity;
+            }
+        }
 
         float now = Time.unscaledTime;
         if (now >= _anchorNextRefreshAt)
@@ -931,23 +1133,91 @@ internal static class LoadoutConfirmPark
                                 + "SetActiveSinglePlayerLongConfirmButton switches on at :94)")
                           + $" was moved from '{(_home != null ? _home.name : "<none>")}' INTO the "
                           + $"floated Character-UI '{host.name}' (ID {host.ID}). THE PLACE IS DERIVED, "
-                          + "NOT DIALLED: its painted TOP edge sits "
-                          + $"{ConfirmGapPx:F0} authored px below the window's own painted BOTTOM edge "
+                          + "NOT DIALLED, AND IT IS TWO MEASUREMENTS ON TWO SUBJECTS (ModBuild 241). "
+                          + "VERTICALLY its painted centre is on the centre of the CHARACTER BLOCK — "
+                          + $"{_anchorBlock.xMin:F0}..{_anchorBlock.xMax:F0} x "
+                          + $"{_anchorBlock.yMin:F0}..{_anchorBlock.yMax:F0} px, unioned this tick from "
+                          + $"{_anchorBlockSlots} of the game's own NewPartyCharacterUI row(s) "
+                          + $"({_anchorBlockGraphics} graphic(s)), read off "
+                          + "NewPartyDisplayUI.CharacterSlots by reference and never by name. "
+                          + $"HORIZONTALLY its painted LEFT edge sits {ConfirmGapPx:F0} authored px to "
+                          + "the RIGHT of the right edge of everything the window paints "
                           + $"({_anchorContent.xMin:F0}..{_anchorContent.xMax:F0} x "
                           + $"{_anchorContent.yMin:F0}..{_anchorContent.yMax:F0} px, unioned this tick "
                           + $"from {_anchorContentCount} drawn graphic(s) that passed the CONVERSION'S "
                           + "OWN fit visibility verdict, with this control's own "
                           + $"{_anchorControlCount} graphic(s) EXCLUDED so the solve is a fixed point "
                           + "and not a feedback loop), CLAMPED into the window's own rect so a uGUI "
-                          + "mask can never cull it, horizontally centred on that content — the "
-                          + "same construction MapTravelConfirm's ModBuild 197 zero uses on the quest "
-                          + "card, with the quest information swapped for the roster. WHY HERE AND NOT "
+                          + "mask can never cull it. THE SEAT THE INK WAS ASKED FOR: "
+                          + $"{_anchorSeat.xMin:F0}..{_anchorSeat.xMax:F0} x "
+                          + $"{_anchorSeat.yMin:F0}..{_anchorSeat.yMax:F0} px. WHY TWO SUBJECTS: "
+                          + "\"rechts neben den Charakteren … mittig zentriert\" is about the ROWS, and "
+                          + "\"das Auftauchen der Questinfos … muss ihn entsprechend verschieben, damit "
+                          + "sich nichts überlagert\" is about everything else the window draws — so the "
+                          + "vertical zero is the rows and the horizontal zero is the whole union, and "
+                          + "the button steps right when the quest information opens. WHY HERE AND NOT "
                           + "ON THE STORY WINDOW: pressing it is a LOCAL act (see this class's doc for "
                           + "the source), and the user's ruling was \"abhängig von der Antwort … "
                           + "entweder auf der lokalen Character-UI oder dem MP-Fenster mit der "
                           + "Story\". NOTHING WAS WRITTEN TO THE GAME: no Show, no Hide, no Escape, no "
                           + "SetActive, no CanvasGroup — this is a re-parent of a local uGUI subtree "
                           + "on this client and nothing goes on the wire.");
+    }
+
+    /// <summary>
+    /// THE LINE THAT PROVES REQUIREMENT THREE HAPPENED — <i>"Das Auftauchen der Questinfos obwohl der
+    /// Button schon da ist muss ihn entsprechend verschieben, damit sich nichts überlagert."</i>
+    ///
+    /// <para>It fires when the SEAT (the rectangle the ink was asked to occupy) has moved by more than
+    /// one <see cref="ConfirmGapPx"/> since the last time it spoke, so a settling layout's sub-pixel
+    /// jitter cannot spend the budget and a genuine re-flow always does. It prints both rectangles and
+    /// the two unions the seat was solved from, so a reader can tell WHICH of the two subjects moved:
+    /// a jump in the content union with the block union unchanged is the quest information opening,
+    /// which is the case the user is describing.</para>
+    ///
+    /// <para>GREP: <c>LOADOUT CONFIRM RESEATED</c>. Its absence across a session in which the user
+    /// opened a quest picker is the falsification — either the signature edge is blind or the solve is
+    /// not moving.</para>
+    /// </summary>
+    private static void ReportReseat()
+    {
+        if (!_anchorValid)
+            return;
+        if (!_reseatFromValid)
+        {
+            _reseatFromValid = true;
+            _reseatFrom = _anchorSeat;
+            return;
+        }
+        Vector2 moved = _anchorSeat.center - _reseatFrom.center;
+        if (Mathf.Abs(moved.x) < ConfirmGapPx && Mathf.Abs(moved.y) < ConfirmGapPx)
+            return;
+        Rect from = _reseatFrom;
+        _reseatFrom = _anchorSeat;
+        if (_reseatReports >= MaxReseatReports)
+            return;
+        _reseatReports++;
+        VRLog.Info(Scope, "LOADOUT CONFIRM RESEATED: the continue control's seat moved by "
+                          + $"({moved.x:F0},{moved.y:F0}) authored px, from "
+                          + $"{from.xMin:F0}..{from.xMax:F0} x {from.yMin:F0}..{from.yMax:F0} to "
+                          + $"{_anchorSeat.xMin:F0}..{_anchorSeat.xMax:F0} x "
+                          + $"{_anchorSeat.yMin:F0}..{_anchorSeat.yMax:F0}. WHAT MOVED UNDER IT: the "
+                          + "window's whole painted union is now "
+                          + $"{_anchorContent.xMin:F0}..{_anchorContent.xMax:F0} x "
+                          + $"{_anchorContent.yMin:F0}..{_anchorContent.yMax:F0} from "
+                          + $"{_anchorContentCount} graphic(s) (the control's own excluded), and the "
+                          + "character block is "
+                          + (_anchorBlockValid
+                              ? $"{_anchorBlock.xMin:F0}..{_anchorBlock.xMax:F0} x "
+                                + $"{_anchorBlock.yMin:F0}..{_anchorBlock.yMax:F0} from "
+                                + $"{_anchorBlockSlots} row(s)"
+                              : "NOT MEASURABLE this tick, so the whole union is standing in for it")
+                          + ". READ IT LIKE THIS: a horizontal move with the block unchanged is the "
+                          + "quest information opening or closing beside the roster, which is the "
+                          + "user's ModBuild 241 requirement three and the only thing this line exists "
+                          + "to evidence. A vertical move means the roster itself changed height. "
+                          + "NOTHING WAS WRITTEN TO THE GAME to produce it: this is an anchoredPosition "
+                          + "on a re-parented local uGUI subtree.");
     }
 
     private static void RefreshAnchor(RectTransform win, RectTransform rect, Rect frame)
@@ -980,30 +1250,147 @@ internal static class LoadoutConfirmPark
             return;
         }
 
+        // THE CHARACTER BLOCK — the vertical zero, and the ONLY subject the phrase "mittig zentriert"
+        // is about. Measured off the game's own row list; a failure here is not fatal, the whole
+        // painted union stands in for it and _anchorWhy says so, because a button beside the column at
+        // the wrong height is a cosmetic fault and no button at all is a deadlock.
+        bool haveBlock = TryCharacterBlock(win, panel, exclude: rect, out Rect block,
+                                           out int blockSlots, out int blockGraphics);
+        Rect band = haveBlock ? block : content;
+
         // THE CONTROL'S OWN PIVOT-TO-INK OFFSET. RectTransform.position IS the pivot's world
         // position, so this is exact whatever anchors the rect is carrying — which is the point:
         // a second writer that re-anchors it between two of our ticks cannot corrupt the solve.
         Vector3 pivotLocal = win.InverseTransformPoint(rect.position);
-        float inkTopFromPivot = ctrl.yMax - pivotLocal.y;
-        float inkCentreFromPivot = ctrl.center.x - pivotLocal.x;
+        float inkLeftFromPivot = ctrl.xMin - pivotLocal.x;
+        float inkMidYFromPivot = ctrl.center.y - pivotLocal.y;
+        float inkW = Mathf.Abs(ctrl.width);
+        float inkHalfH = Mathf.Abs(ctrl.height) * 0.5f;
+
+        // RIGHT OF EVERYTHING THE WINDOW DRAWS, NOT RIGHT OF THE ROWS. content already contains the
+        // block, so the Max is a guard and not a second opinion: block is the RAW union and content is
+        // the frame-clamped one, and on a window whose rows reached outside their own frame the raw
+        // number is the one that must win, or the seat would be solved against a clipped edge.
+        float wantLeft = Mathf.Max(content.xMax, band.xMax) + ConfirmGapPx;
+        float wantMidY = band.center.y;
 
         // AND THE CONTROL MUST STAY INSIDE THE WINDOW'S OWN RECT, WHICH IS NOT A COSMETIC BOUND.
         // The character screen clips its content with uGUI masks, and a control pushed past the
-        // window's bottom edge would be CULLED — invisible, while every state test in this file still
-        // read "parked, active, claimed". That is the exact failure mode this project has shipped
-        // before ([[measure-the-picture-not-the-state]]), and it would be a deadlock wearing the
-        // fix's clothes. So the ink is clamped into the frame: if the painted content already reaches
-        // the bottom of the window, the confirm sits flush with that bottom edge and overlaps the
-        // last of the roster rather than falling off the panel. Ugly beats unreachable, every time.
-        float inkTop = Mathf.Clamp(content.yMin - ConfirmGapPx,
-                                   frame.yMin + Mathf.Abs(ctrl.height), frame.yMax);
-        _anchorPivot = new Vector2(content.center.x - inkCentreFromPivot, inkTop - inkTopFromPivot);
+        // window's edge would be CULLED — invisible, while every state test in this file still read
+        // "parked, active, claimed". That is the exact failure mode this project has shipped before
+        // ([[measure-the-picture-not-the-state]]), and it would be a deadlock wearing the fix's
+        // clothes. So the ink is clamped into the frame. WHAT THAT COSTS WHEN IT BITES, stated rather
+        // than hidden: if the drawn content ever reaches so far right that there is no room left for
+        // the control between it and the frame's right edge, the clamp pulls the control back over
+        // that content and the two overlap. Ugly beats unreachable, every time — and unlike ModBuild
+        // 239's vertical clamp, which fired on EVERY tick of the shipped build because the roster
+        // column is content all the way to the frame's bottom edge, this one has 1920 - 894 - 307 =
+        // 719 px of slack in the worst state the ModBuild 239 hardware log recorded (the union with
+        // the battle-goal picker open). Whether it ever fires is on the falsifier line as the
+        // difference between the requested seat and the measured ink.
+        float left = Mathf.Clamp(wantLeft, frame.xMin, Mathf.Max(frame.xMin, frame.xMax - inkW));
+        float midY = Mathf.Clamp(wantMidY, frame.yMin + inkHalfH, Mathf.Max(frame.yMin + inkHalfH,
+                                                                            frame.yMax - inkHalfH));
+
+        _anchorPivot = new Vector2(left - inkLeftFromPivot, midY - inkMidYFromPivot);
+        _anchorSeat = Rect.MinMaxRect(left, midY - inkHalfH, left + inkW, midY + inkHalfH);
         _anchorValid = true;
         _anchorContent = content;
         _anchorContentCount = rawCount;
         _anchorControl = ctrl;
         _anchorControlCount = ctrlCount;
-        _anchorWhy = "resolved";
+        _anchorBlockValid = haveBlock;
+        _anchorBlock = block;
+        _anchorBlockSlots = blockSlots;
+        _anchorBlockGraphics = blockGraphics;
+        _anchorWhy = haveBlock
+            ? $"resolved — vertically centred on {blockSlots} character row(s), horizontally one "
+              + $"{ConfirmGapPx:F0} px gap right of everything the window paints"
+            : "resolved, BUT THE CHARACTER ROWS COULD NOT BE MEASURED (NewPartyDisplayUI.CharacterSlots "
+              + "is empty, gone, or none of its rows painted a graphic the fit counts) — the window's "
+              + "whole painted union is standing in for the block, so the button is beside the content "
+              + "at the content's mid-height rather than the roster's";
+        ReportReseat();
+    }
+
+    /// <summary>Scratch for <see cref="TryCharacterBlock"/>'s per-row unions. Never held across a
+    /// call.</summary>
+    private static readonly List<NewPartyCharacterUI> SlotScratch = new(8);
+
+    /// <summary>
+    /// <b>WHERE THE CHARACTER ROWS ACTUALLY ARE, in <paramref name="win"/>'s own authored uGUI px.</b>
+    ///
+    /// <para>The subject of <i>"rechts neben den Charakteren angezeigt … mittig zentriert"</i>, and it
+    /// is read off the game's OWN list: <c>NewPartyDisplayUI.CharacterSlots</c>, the serialized
+    /// <c>List&lt;NewPartyCharacterUI&gt;</c> the display drives. No name match, no scene sweep, no
+    /// <c>GetComponentInChildren</c> — the rows are enumerated by reference from the component that
+    /// owns them, so this cannot answer "something related to a character row"
+    /// ([[containment-is-not-identity]]).</para>
+    ///
+    /// <para><b>DRAWN-NESS IS THE FILTER, NOT SLOT STATE.</b> Each row is unioned through the same
+    /// <see cref="TryPaintedBounds"/> the rest of this file uses, i.e. through the CONVERSION'S OWN fit
+    /// visibility verdict, and a row that contributes no counted graphic contributes no rectangle. An
+    /// empty or available slot that still paints its frame is therefore part of the block — because it
+    /// is part of the column the player sees, which is what "neben den Charakteren" means — while a
+    /// row held at <c>CanvasGroup.alpha</c> 0 is not, which no <c>activeInHierarchy</c> test could have
+    /// told us ([[inherited-alpha-is-not-the-group]]). <c>IsHidden</c> is checked first only because it
+    /// is one bool against a subtree walk.</para>
+    ///
+    /// <para><b>AND THE PARKED CONTROL IS EXCLUDED</b> — <paramref name="exclude"/> is threaded through
+    /// for the same reason it is threaded through the content sweep. The control is parented to the
+    /// window ROOT and not into a row, so today it cannot be inside one; passing it anyway costs one
+    /// reference compare per graphic and means a future round that parks it elsewhere does not
+    /// silently acquire a feedback loop.</para>
+    ///
+    /// <para>Never throws. FALSE means "the previous answer, or the whole content union, must stand
+    /// in" and never "place it at the origin".</para>
+    /// </summary>
+    private static bool TryCharacterBlock(RectTransform win, ConvertedPanel? panel,
+                                          RectTransform? exclude, out Rect block, out int slots,
+                                          out int graphics)
+    {
+        block = default;
+        slots = 0;
+        graphics = 0;
+        try
+        {
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            List<NewPartyCharacterUI>? rows = display != null ? display.CharacterSlots : null;
+            if (rows == null || rows.Count == 0)
+                return false;
+
+            SlotScratch.Clear();
+            SlotScratch.AddRange(rows);
+            float minX = float.MaxValue, minY = float.MaxValue;
+            float maxX = float.MinValue, maxY = float.MinValue;
+            for (int i = 0; i < SlotScratch.Count; i++)
+            {
+                NewPartyCharacterUI? row = SlotScratch[i];
+                if (row == null || row.IsHidden || row.transform is not RectTransform rt)
+                    continue;
+                if (!TryPaintedBounds(rt, win, panel, exclude, out Rect one, out int counted)
+                    || counted == 0)
+                    continue;
+                slots++;
+                graphics += counted;
+                if (one.xMin < minX) minX = one.xMin;
+                if (one.yMin < minY) minY = one.yMin;
+                if (one.xMax > maxX) maxX = one.xMax;
+                if (one.yMax > maxY) maxY = one.yMax;
+            }
+            SlotScratch.Clear();
+            if (slots == 0 || maxX <= minX || maxY <= minY)
+                return false;
+            block = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return true;
+        }
+        catch (System.Exception)
+        {
+            SlotScratch.Clear();
+            slots = 0;
+            graphics = 0;
+            return false;
+        }
     }
 
     private static readonly List<Graphic> PaintScratch = new(64);
@@ -1201,6 +1588,10 @@ internal static class LoadoutConfirmPark
         _enterVerdict = string.Empty;
         _enterReports = 0;
         _enterNextAt = float.NegativeInfinity;
+        // The re-seat budget is per LOADOUT SCREEN and not per park: a park/unpark cycle inside one
+        // loadout (online ⇄ offline swaps the control) must not buy a fresh six lines, and the next
+        // EnterLoadout must not inherit a spent one.
+        _reseatReports = 0;
     }
 
     /// <summary>
@@ -1421,29 +1812,46 @@ internal static class LoadoutConfirmPark
     }
 
     /// <summary>
-    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE USER'S ModBuild 238 REQUEST IS
-    /// SATISFIED: <i>"soll der Button … 'Verlies betreten' am unteren Rand der character-UI zu sehen
-    /// sein, wo man ihn betätigen kann. So braucht man nicht die Übersicht über zwei Fenster
-    /// behalten."</i>
+    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE USER'S REQUEST IS SATISFIED. ModBuild
+    /// 238's: <i>"soll der Button … 'Verlies betreten' … zu sehen sein, wo man ihn betätigen kann. So
+    /// braucht man nicht die Übersicht über zwei Fenster behalten."</i> ModBuild 241's: <i>"Er sollte
+    /// eher rechts neben den Charakteren angezeigt werden, mittig zentriert. Es muss aber noch möglich
+    /// sein auch im Nachgang bevor man den Button drückt noch eine persönliche Quest zu ändern. Das
+    /// Auftauchen der Questinfos … muss ihn entsprechend verschieben, damit sich nichts
+    /// überlagert."</i>
     ///
     /// <para>Every clause is read back THIS TICK from the object the player is looking at — the
     /// control's own name and kind, its parent chain, its rect in the host's authored px, its layer
-    /// against the host root's layer, the host window's rect, and the grab bar's top edge in the SAME
-    /// units so the clearance between them is a subtraction rather than a claim.</para>
+    /// against the host root's layer, the host window's rect, the character rows' own rects, and the
+    /// grab bar's top edge in the SAME units so the clearance between them is a subtraction rather than
+    /// a claim.</para>
     ///
-    /// <para><b>WHY THE CLEARANCE IS THE CLAUSE THAT MATTERS.</b> ModBuild 236 moved the grab bar to
-    /// sit below the window's LOWEST DRAWN GRAPHIC and centred on the drawn ink
-    /// (<c>GrabbableModal.SyncBar</c>, <c>PanelInkBounds</c>), because it had been landing on the
-    /// reward row of the last battle goal — <c>.planning/debug/quest_überlap.jpg</c>. A control parked
-    /// at the bottom edge of that same window must not land in the band the bar will occupy. The two
-    /// agree BY CONSTRUCTION and this line is the measurement that says so rather than the assertion:
-    /// the bar's y is <c>Mathf.Min(hostRect.yMin, ink.yMin) - gap</c>, the parked control's ink is
-    /// CLAMPED into the host rect by <see cref="RefreshAnchor"/>, and the control is a GAME-named
-    /// child of the conversion target so <c>PanelInkBounds</c> counts it as ink while the bar's own
-    /// holder is excluded by its <c>GloomhavenVR.</c> prefix. So the bar is pushed below the button
-    /// and never the other way round. The re-capture that makes it happen is not a timer either: the
-    /// park makes the control a new ACTIVE DIRECT CHILD of <c>panel.Target</c>, which is part one of
-    /// <c>PanelInkBounds.ActiveSetSignature</c>, so the park itself opens a new bar generation.</para>
+    /// <para><b>WHAT HAPPENED TO THE ModBuild 238 GRAB-BAR CLEARANCE TERM — IT IS NOW UNFALSIFIABLE,
+    /// AND THAT IS WHY IT IS NO LONGER A PASS/FAIL TERM.</b> The contract it enforced was: a control
+    /// parked at the BOTTOM EDGE of this window must not land in the band the ModBuild 236 grab bar
+    /// occupies (<c>.planning/debug/quest_überlap.jpg</c>). ModBuild 241 moved the control off the
+    /// bottom edge, and the contract now holds by an argument no measurement can contradict:
+    /// <c>GrabbableModal</c> places the bar's top at <c>Mathf.Min(hostRect.yMin, ink.yMin) - gap</c>,
+    /// the parked control is a GAME-named child of the conversion target so <c>PanelInkBounds</c>
+    /// counts it INTO that same <c>ink</c>, and therefore <c>barTop &lt; control.ink.yMin</c> is
+    /// arithmetic and not a hope. A guard whose failing branch cannot be reached is reassurance and not
+    /// a guard [[gated-remedy-never-ran]], so it has been REMOVED from the verdict — while the two
+    /// numbers stay ON the line, because they are still the fastest way to see that the bar followed
+    /// the button. WHAT REPLACES IT IN THE VERDICT is the term the ModBuild 241 report is actually
+    /// about: does the control's painted ink INTERSECT anything the window draws — any character row,
+    /// or any row's battle-goal toggle. That one can fail, it failed in the photograph, and it is the
+    /// difference between the two builds.</para>
+    ///
+    /// <para><b>THE QUEST-PICKER TERM, AND WHY IT IS GEOMETRY AND NOT A FLAG.</b> <i>"Es muss aber
+    /// noch möglich sein … noch eine persönliche Quest zu ändern"</i> can be broken two ways and only
+    /// one of them shows up in a state test. The game does not gate it —
+    /// <c>UILoadoutManager.CanShowConfirmationButton()</c> is TRUE while <c>ActiveDisplay ==
+    /// BATTLE_GOALS</c> (:111-119), i.e. an open picker and a visible confirm are a shipped flat-game
+    /// state — and this mod writes no <c>interactable</c>, no <c>CanvasGroup</c> and no selection mode.
+    /// But <see cref="Park"/> puts the control at <c>SetAsLastSibling</c>, so it is drawn AND hit-tested
+    /// above the roster, and a plate lying across a row's icon strip takes that row's clicks with every
+    /// flag still reading true. So the line reports both halves per row: the toggle's own
+    /// <c>IsInteractable()</c>, and whether the control's ink covers the toggle's rect.</para>
     ///
     /// <para>GREP: <c>ENTER DUNGEON ON THE CHARACTER UI: CONFIRMED</c> — the request is met.
     /// <c>… NOT ACHIEVED</c> — it is not, with the failing term named.</para>
@@ -1477,6 +1885,8 @@ internal static class LoadoutConfirmPark
         float clearance = float.NaN;
         string chain = "<not parked>";
         bool underHost = false;
+        bool clear = true;
+        string rows = "the character rows were not measured this tick";
 
         if (control != null && host != null && host.transform is RectTransform win
             && control.transform is RectTransform rect)
@@ -1489,15 +1899,16 @@ internal static class LoadoutConfirmPark
             barTop = BarTopInWindowPx(panel, win);
             if (!float.IsNaN(barTop) && drawn > 0)
                 clearance = ink.yMin - barTop;
+            rows = DescribeRows(win, panel, rect, ink, drawn > 0, out clear);
         }
 
         // THE VERDICT. Every term is measured and none of them is a value this class merely intended.
-        // The clearance clause is deliberately NOT part of it when there is no bar to measure: a
-        // window whose grab frame has not been built yet is a transient, and a falsifier that failed
-        // on it would cry wolf for the two ticks between the float and the frame.
+        // THE ModBuild 241 TERM IS `clear` — the control's ink touches no character row and no row's
+        // battle-goal toggle. The grab-bar clearance is NOT a term any more; see this method's doc for
+        // why it can no longer fail and why it is still printed.
         bool ok = parked && hostFloated && panel != null && underHost && drawn > 0
                   && controlLayer == hostLayer
-                  && (float.IsNaN(barTop) || clearance > 0f);
+                  && clear;
 
         // THE CHANGE GATE BEFORE THE STRING, for the reason the sweeps above already argue: this is
         // asked on every tick from the moment the game switches the control on until the scenario
@@ -1542,27 +1953,44 @@ internal static class LoadoutConfirmPark
             + ", CLEARANCE between the control's painted bottom and that edge = "
             + (float.IsNaN(clearance) ? "not measurable"
                                       : $"{clearance:F0} px (positive means the bar is BELOW the button, which is the wanted order)")
+            + " — PRINTED, NOT JUDGED, since ModBuild 241: the control no longer sits at the bottom "
+            + "edge and PanelInkBounds counts it INTO the very union the bar is placed under, so this "
+            + "number cannot go negative and a term that cannot fail is not a guard. THE ROWS: " + rows
             + $". THE ZERO the placement was solved from: {_anchorWhy}"
             + (_anchorValid
-                ? $" — the host's painted content {_anchorContent.yMin:F0}..{_anchorContent.yMax:F0} px "
-                  + $"from {_anchorContentCount} graphic(s), the control's own ink EXCLUDED so the "
-                  + $"solve is a fixed point, gap {ConfirmGapPx:F0} px"
+                ? $" — the character block {_anchorBlock.xMin:F0}..{_anchorBlock.xMax:F0} x "
+                  + $"{_anchorBlock.yMin:F0}..{_anchorBlock.yMax:F0} px from {_anchorBlockSlots} row(s) "
+                  + $"(measurable={_anchorBlockValid}) for the vertical centre, the host's whole painted "
+                  + $"content {_anchorContent.xMin:F0}..{_anchorContent.xMax:F0} x "
+                  + $"{_anchorContent.yMin:F0}..{_anchorContent.yMax:F0} px from {_anchorContentCount} "
+                  + "graphic(s) for the right-hand edge, the control's own ink EXCLUDED from both so the "
+                  + $"solve is a fixed point, gap {ConfirmGapPx:F0} px; THE SEAT ASKED FOR was "
+                  + $"{_anchorSeat.xMin:F0}..{_anchorSeat.xMax:F0} x {_anchorSeat.yMin:F0}.."
+                  + $"{_anchorSeat.yMax:F0} — if that differs from the ink above, the frame clamp bit or "
+                  + "somebody else is writing the rect"
                 : string.Empty);
 
         if (ok)
         {
             VRLog.Info(Scope, "ENTER DUNGEON ON THE CHARACTER UI: CONFIRMED — the continue control is "
-                              + "drawn at the bottom edge of the floated Character-UI, inside the same "
-                              + "window the battle goals were chosen in, and the window's grab bar is "
-                              + "below it rather than over it. MEASURED THIS TICK: " + measured
-                              + ". USER REQUEST THIS LINE ANSWERS: \"Hat man für all seine zugewiesenen "
-                              + "Charactere die Quest ausgewählt soll der Button der jetzt auf dem "
-                              + "Fenster mit nur dem Bild zu sehen ist 'Verlies betreten' am unteren "
-                              + "Rand der character-UI zu sehen sein, wo man ihn betätigen kann. So "
-                              + "braucht man nicht die Übersicht über zwei Fenster behalten.\" NOTHING "
-                              + "WAS WRITTEN TO THE GAME: no Show, no Hide, no Escape, no SetActive, no "
-                              + "CanvasGroup — the control's own visibility is still the game's and this "
-                              + "is a re-parent of a local uGUI subtree on this client.");
+                              + "drawn BESIDE the character rows of the floated Character-UI, vertically "
+                              + "centred on them, inside the same window the battle goals were chosen "
+                              + "in, and its ink touches no row and no row's battle-goal toggle. "
+                              + "MEASURED THIS TICK: " + measured
+                              + ". USER REQUEST THIS LINE ANSWERS (2026-08-24): \"Der 'Verlies betreten' "
+                              + "Button ist jetzt auf dem richtigen Fenster aber an einer komischen "
+                              + "Position, siehe betreten_button.jpg. Er sollte eher rechts neben den "
+                              + "Charakteren angezeigt werden, mittig zentriert. Es muss aber noch "
+                              + "möglich sein auch im Nachgang bevor man den Button drückt noch eine "
+                              + "persönliche Quest zu ändern. Das Auftauchen der Questinfos obwohl der "
+                              + "Button schon da ist muss ihn entsprechend verschieben, damit sich "
+                              + "nichts überlagert.\" THE THIRD SENTENCE IS NOT ON THIS LINE: whether "
+                              + "the button actually MOVED when the quest information opened is "
+                              + "LOADOUT CONFIRM RESEATED, because a still picture of a good position "
+                              + "cannot evidence a re-flow. NOTHING WAS WRITTEN TO THE GAME: no Show, "
+                              + "no Hide, no Escape, no SetActive, no CanvasGroup — the control's own "
+                              + "visibility is still the game's and this is a re-parent of a local uGUI "
+                              + "subtree on this client.");
             return;
         }
         VRLog.Warn(Scope, "ENTER DUNGEON ON THE CHARACTER UI: NOT ACHIEVED — the continue control is "
@@ -1576,14 +2004,134 @@ internal static class LoadoutConfirmPark
                           + "the game still has the control switched off, which is what the whole "
                           + "battle-goal phase looks like. A layer that differs from the host root's "
                           + "is the serious one: the control is being drawn by the wrong camera or by "
-                          + "two, and every state test in this file will still read 'parked'. A "
-                          + "NEGATIVE clearance means the button has landed in the band the ModBuild "
-                          + "236 grab bar occupies — that is .planning/debug/quest_überlap.jpg "
-                          + "happening to the button instead of to the rewards row, and the place to "
-                          + "start is GrabbableModal's own GRAB BAR CLEARS THE INK line for this same "
-                          + "window on the same tick. THIS LINE IS NOT A DEADLOCK REPORT: whether the "
-                          + "player can reach the control at all is LOADOUT CONFIRM REACHABLE beside "
-                          + "it, and that is the line that fails towards letting him continue.");
+                          + "two, and every state test in this file will still read 'parked'. AN "
+                          + "OVERLAP IN 'THE ROWS' IS THE ModBuild 241 FAULT ITSELF — the plate lying "
+                          + "across a character row is betreten_button.jpg, and because Park puts the "
+                          + "control at SetAsLastSibling it takes that row's clicks as well as covering "
+                          + "it, which is the half of the report that reads \"es muss aber noch möglich "
+                          + "sein … noch eine persönliche Quest zu ändern\". If the overlap is there "
+                          + "while THE SEAT ASKED FOR is clear of the rows, the frame clamp bit and the "
+                          + "window has no room to the right of its own content; if the seat itself "
+                          + "overlaps, the character block measured wrong and the row count on this "
+                          + "line says how many rows it found. THIS LINE IS NOT A DEADLOCK REPORT: "
+                          + "whether the player can reach the control at all is LOADOUT CONFIRM "
+                          + "REACHABLE beside it, and that is the line that fails towards letting him "
+                          + "continue.");
+    }
+
+    /// <summary>
+    /// <b>DOES THE PARKED CONTROL TOUCH ANY CHARACTER ROW, AND CAN EACH ROW'S QUEST PICKER STILL BE
+    /// PRESSED?</b> The ModBuild 241 term, per row, measured off the game's own objects.
+    ///
+    /// <para>Two independent readings per row, because the requirement can break two ways.
+    /// <c>battleGoalToggle.IsInteractable()</c> is Unity's own answer and already folds in every
+    /// <c>CanvasGroup</c> above the control, so it catches a gate. The rect intersection catches an
+    /// OCCLUSION, which no flag can see: the parked control is a sibling at
+    /// <c>SetAsLastSibling</c> and therefore hit-tested first, so ink lying over a toggle takes its
+    /// clicks with <c>IsInteractable()</c> still true.</para>
+    ///
+    /// <para><paramref name="clear"/> — the verdict term — is FALSE only on a real intersection. A row
+    /// that cannot be measured, a toggle that is absent (single player never shows some of them) or a
+    /// tick on which the control paints nothing all leave it TRUE: a falsifier must not fail on its own
+    /// blindness, it must say it is blind, and the string does.</para>
+    /// </summary>
+    private static string DescribeRows(RectTransform win, ConvertedPanel? panel, RectTransform ctrlRect,
+                                       Rect ctrlInk, bool inkValid, out bool clear)
+    {
+        clear = true;
+        try
+        {
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            List<NewPartyCharacterUI>? rows = display != null ? display.CharacterSlots : null;
+            if (rows == null || rows.Count == 0)
+                return "NewPartyDisplayUI exposes no character rows this tick, so the overlap term is "
+                       + "UNJUDGED rather than passed";
+
+            var sb = new System.Text.StringBuilder(160);
+            int seen = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                NewPartyCharacterUI? row = rows[i];
+                if (row == null || row.IsHidden || row.transform is not RectTransform rt)
+                    continue;
+                if (!TryPaintedBounds(rt, win, panel, ctrlRect, out Rect one, out int counted)
+                    || counted == 0)
+                    continue;
+                seen++;
+                bool hits = inkValid && Overlaps(ctrlInk, one);
+                if (hits)
+                    clear = false;
+
+                Selectable? goal = row.battleGoalToggle;
+                string picker;
+                if (goal == null || !goal.gameObject.activeInHierarchy)
+                {
+                    picker = "quest picker absent";
+                }
+                else
+                {
+                    bool live = goal.IsInteractable();
+                    bool covered = inkValid && goal.transform is RectTransform gt
+                                   && TryLocalBounds(win, gt, out Rect gb) && Overlaps(ctrlInk, gb);
+                    if (covered)
+                        clear = false;
+                    picker = $"quest picker interactable={live}, covered by the confirm={covered}";
+                }
+
+                if (sb.Length > 0)
+                    sb.Append("; ");
+                sb.Append("row ").Append(row.SlotIndex).Append(' ')
+                  .Append($"{one.xMin:F0}..{one.xMax:F0} x {one.yMin:F0}..{one.yMax:F0}")
+                  .Append(" confirm overlaps it=").Append(hits).Append(", ").Append(picker);
+            }
+            if (seen == 0)
+                return "no character row painted a graphic the fit counts this tick, so the overlap "
+                       + "term is UNJUDGED rather than passed";
+            return $"{seen} drawn row(s) — " + sb;
+        }
+        catch (System.Exception e)
+        {
+            clear = true;
+            return $"the row walk threw ({e.GetType().Name}), so the overlap term is UNJUDGED rather "
+                   + "than passed";
+        }
+    }
+
+    /// <summary>Do two host-local rectangles share any area? A strict test — touching edges are not an
+    /// overlap, because the seat is solved to put them exactly one gap apart and a &gt;= here would
+    /// report the correct answer as a fault.</summary>
+    private static bool Overlaps(Rect a, Rect b) =>
+        a.xMax > b.xMin && b.xMax > a.xMin && a.yMax > b.yMin && b.yMax > a.yMin;
+
+    /// <summary>A RectTransform's axis-aligned bounds in <paramref name="win"/>'s local px, through
+    /// world corners so any chain of scales or rotations is measured where it actually lands. Used for
+    /// the quest-picker toggle, which has no Graphic of its own worth sweeping for.</summary>
+    private static bool TryLocalBounds(RectTransform win, RectTransform rt, out Rect bounds)
+    {
+        bounds = default;
+        try
+        {
+            Rect local = rt.rect;
+            if (local.width < 0.5f || local.height < 0.5f)
+                return false;
+            rt.GetWorldCorners(Corners);
+            Vector3 first = win.InverseTransformPoint(Corners[0]);
+            float minX = first.x, maxX = first.x, minY = first.y, maxY = first.y;
+            for (int i = 1; i < 4; i++)
+            {
+                Vector3 p = win.InverseTransformPoint(Corners[i]);
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.y > maxY) maxY = p.y;
+            }
+            bounds = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return true;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>Module teardown. Hands the control back and lets go of the claim — a claim that
@@ -1601,6 +2149,7 @@ internal static class LoadoutConfirmPark
         _addedIgnore = null;
         ResetAnchor("module teardown");
         ResetReach();
+        SlotScratch.Clear();
         PaintScratch.Clear();
         LayerTx.Clear();
         LayerWas.Clear();
