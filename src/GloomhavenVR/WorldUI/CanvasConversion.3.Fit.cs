@@ -1767,15 +1767,20 @@ internal static partial class CanvasConversion
     /// file) and used for NOTHING but the log text — no placement, no scale and no seat reads it, so
     /// a drift between the two costs a wrong number in a diagnostic and can never move a window.
     /// If the two ever disagree, the HIT RECT line's own millimetre figure is the authority.
+    /// WAS 1.2 until ModBuild 241, when the user asked for windows to spawn "ein bisschen (nicht
+    /// viel) weiter weg" and the real constant moved to 1.40; scripts/check-mirrors.sh is what
+    /// caught this copy, which is the whole reason that lint names this pair.
     /// </summary>
-    private const float FixedFitReadingDistanceMeters = 1.2f;
+    private const float FixedFitReadingDistanceMeters = 1.40f;
 
     /// <summary>
     /// Arc-minutes subtended by one millimetre at <see cref="FixedFitReadingDistanceMeters"/>:
-    /// <c>atan(0.001 / 1.2) in arc-minutes</c> = 2.865. Written out rather than computed so the
+    /// <c>atan(0.001 / 1.40) in arc-minutes</c> = 2.456 (it was 2.865 at the pre-ModBuild-241
+    /// reading distance of 1.2 m, so arc-minute figures from an older log read ~17 % high against
+    /// figures from a newer one). Written out rather than computed so the
     /// constant carries its derivation; the small-angle error at this size is under 0.001 %.
     /// </summary>
-    private const float MmToArcMinAtReadingDistance = 2.865f;
+    private const float MmToArcMinAtReadingDistance = 2.456f;
 
     /// <summary>
     /// The game's body-text CAP HEIGHT in authored uGUI px, for the legibility figure the FIXED FIT

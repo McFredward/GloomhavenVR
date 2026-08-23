@@ -633,8 +633,12 @@ internal static partial class ModalFallback
     /// <summary>Floor on the pulled-in reading distance, real metres. The depth ladder may spend at
     /// most <c>WindowDistanceMeters − this</c> in total, so a deep stack cannot walk the newest
     /// window to arm's length, where a 1 m panel is both unreadable and physically in the way of
-    /// the control board. 0.90 m allows seven generations before it binds, i.e. more than the
-    /// registry can hold.</summary>
+    /// the control board. Since ModBuild 241 raised the reading distance to 1.40 m this allows
+    /// TWELVE generations before it binds — and the deepest level an <see cref="MaxWindowClaims"/>
+    /// registry can produce is 7 (a chain of eight windows each in front of the last), so the floor
+    /// is no longer reachable at all: it went from 0.02 m of margin at the old 1.20 m to 0.27 m.
+    /// The "two windows share a plane" branch in the audit is therefore now a falsifier for a
+    /// mis-computed level rather than a state the room can reach by being busy.</summary>
     private const float MinOverlapDistanceMeters = 0.90f;
 
     /// <summary>
@@ -768,10 +772,14 @@ internal static partial class ModalFallback
     /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>
     private static readonly ArcClaim[] _arcClaims = new ArcClaim[MaxWindowClaims];
 
-    /// <summary>Spawn-only scratch for the candidate angles the packer tests (one per standing
-    /// claim edge, plus dead centre). Static because this path runs a handful of times per session
-    /// on the Unity main thread and a per-spawn allocation would be pure litter.</summary>
-    private static readonly float[] _arcCandidates = new float[1 + 2 * MaxWindowClaims];
+    /// <summary>Spawn-only scratch for the candidate angles the packer tests: dead centre, the two
+    /// edges of the map room's MAP CHANNEL (ArcSeats.cs — the parchment's own angular interval, the
+    /// one thing in that room that is not a window and must never be covered), and two per standing
+    /// claim edge. Static because this path runs a handful of times per session on the Unity main
+    /// thread and a per-spawn allocation would be pure litter. The +3 is 1 + 2 and both terms are
+    /// load-bearing: the claim loops guard with <c>candidateCount + 1 &lt; Length</c>, so a full
+    /// registry of <see cref="MaxWindowClaims"/> fills this array exactly and never past it.</summary>
+    private static readonly float[] _arcCandidates = new float[3 + 2 * MaxWindowClaims];
 
     /// <summary>One-time geometry report (see <see cref="LogArcGeometryOnce"/>).</summary>
     private static bool _arcGeometryLogged;
@@ -1257,12 +1265,18 @@ internal static partial class ModalFallback
     ///
     /// <para>WHY IT IS COMPUTED AND PRINTED RATHER THAN APPLIED. Pushing the window further DOES buy
     /// the angle — a 1.00 m panel is 45.2° at 1.20 m and 31.0° at 1.80 m — but it costs apparent
-    /// size in exact proportion, and <c>WindowDistanceMeters</c> is a tuned value the user approved
-    /// and this lane does not own (ModalFallback.1.Core.cs). ModBuild 193 rejected spending it to
-    /// buy a non-overlap the user had called optional, and that reasoning stands for an ordinary
-    /// overlap. What it did NOT price is this case: the covered window is un-closable, so the
-    /// overlap is not optional for him at all. Rather than reverse his tuning unilaterally, the line
-    /// states the number — "both fit at X m, which is Y % smaller" — and he decides.</para>
+    /// size in exact proportion. ModBuild 193 rejected spending it to buy a non-overlap the user had
+    /// called optional, and that reasoning stands for an ordinary overlap. What it did NOT price is
+    /// this case: the covered window is un-closable, so the overlap is not optional for him at all.
+    /// Rather than reverse a tuned value unilaterally, the line states the number — "both fit at
+    /// X m, which is Y % smaller" — and he decides.</para>
+    ///
+    /// <para>AND HE DID DECIDE, ModBuild 241: "die Fenster zB die Questinfo immer bisschen zu nah
+    /// spawnen, gerne ein bisschen (nicht viel) weiter weg". <c>WindowDistanceMeters</c> moved 1.20
+    /// → 1.40 m on that instruction (the whole derivation is on the constant itself, in
+    /// ModalFallback.1.Core.cs). This line keeps its job unchanged: it is the number for the NEXT
+    /// such decision, and the distance it reports is now measured from 1.40 m, so a figure quoted
+    /// from a pre-241 log is not comparable with one quoted from a later log.</para>
     ///
     /// <para>Both widths are WORLD units and the angles are ratios, so nothing here has to be
     /// converted out of the diorama scale (the "…Meters against a world-unit product" bug class).
@@ -1500,9 +1514,10 @@ internal static partial class ModalFallback
                   + $"inside the ±{cone:F1}° cone at a reading distance of {fitAt:F2} m instead of "
                   + $"{WindowDistanceMeters:F2} m — that is "
                   + $"{(1f - WindowDistanceMeters / fitAt) * 100f:F0}% less apparent size, in "
-                  + "exchange for both windows being readable at once. WindowDistanceMeters is a "
-                  + "tuned, accepted value and is NOT changed here; this line exists so the choice "
-                  + "can be made on the number rather than on a guess"
+                  + "exchange for both windows being readable at once. The reading distance was "
+                  + "last moved on the user's own instruction (ModBuild 241, 1.20 -> 1.40 m: "
+                  + "'gerne ein bisschen (nicht viel) weiter weg'); this line exists so the NEXT "
+                  + "such choice can be made on the number rather than on a guess"
                 : ". THE TRADE, MEASURED: no reading distance up to 4.00 m makes this window and "
                   + "the widest permanent one both fit inside the cone — the pair is simply wider "
                   + "than the headset's usable field, and only a NARROWER window (a tighter content "

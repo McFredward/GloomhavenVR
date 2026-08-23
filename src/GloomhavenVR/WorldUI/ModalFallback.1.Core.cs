@@ -112,8 +112,62 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static partial class ModalFallback
 {
-    /// <summary>Floating-window distance in front of the HMD, real meters (reading distance).</summary>
-    private const float WindowDistanceMeters = 1.2f;
+    /// <summary>
+    /// FLOATING-WINDOW READING DISTANCE in front of the HMD, real metres. WAS 1.20 m FROM ModBuild
+    /// 149 UNTIL ModBuild 241; the old value is recorded here so a future round does not restore it
+    /// by reflex, and the reason it is no longer right is a direct user instruction.
+    ///
+    /// <para>THE REPORT, VERBATIM (2026-08-24): "Weiterhin finde ich, dass die Fenster zB die
+    /// Questinfo immer bisschen zu nah spawnen, gerne ein bisschen (nicht viel) weiter weg." That
+    /// SUPERSEDES every earlier line in this repo that says this constant is tuned, accepted and
+    /// not to be changed — ModalFallback.4.Tick.cs's THE TRADE, MEASURED text and ArcSeats.cs's
+    /// same clause both said exactly that, both have been rewritten, and Net/NetProtocol.cs still
+    /// carries the sentence in a historical ModBuild note that is not ours to edit.</para>
+    ///
+    /// <para>WHY 1.20 m WAS NEVER THE DISTANCE HE ACTUALLY GOT, WHICH IS THE HALF OF THIS THE
+    /// REPORT COULD NOT SEE. <c>ClampSpawnPose</c> (ModalFallback.9.Spawn.cs) pitch-clamps any
+    /// spawn whose gaze runs more than <c>MaxSpawnPitchDeg</c> = 15° below eye level and shortens
+    /// the distance by <c>SteepGazePullFactor</c> = 0.85. In the map room the player is ALWAYS
+    /// looking down at the table: the 2026-08-24 hardware log carries 18 MODAL SPAWN CLAMP lines
+    /// at gaze 16°..21° below eye level, every one of them pulled ×0.85. So the window he called
+    /// "zu nah" was hanging at 1.20 × 0.85 = 1.02 m, not at 1.20 m, and the named example — the
+    /// quest popup at log line 7674 — is one of those lines. The nominal number has to be raised
+    /// past the point where the pull lands, not to where it reads well on paper.</para>
+    ///
+    /// <para>WHY 1.40 AND NOT 1.30 OR 1.65 — IT IS THE SMALLEST STEP THAT MAKES HIS OWN IDEAL
+    /// LAYOUT REACHABLE. <c>.planning/debug/ideale_position.jpg</c> is a photograph of the map room
+    /// with the character screen and the world-quest list hand-placed either side of the map, and
+    /// ArcSeats.cs's new map channel reproduces it by seating windows clear of the parchment's own
+    /// angular width (±21° from where he stands). For a window to sit BESIDE a ±21° map and still
+    /// keep its outer edge inside the measured ±40° binocular overlap, its own drawn width must fit
+    /// in what is left: 21° + 2 × half-width ≤ 40°, i.e. half-width ≤ 9.5°. The two windows in that
+    /// photograph measure 0.315 m and 0.388 m across (hardware log: a 328 px column and a 390 px
+    /// window, at their logged claim distances), so the binding one needs 0.85 × D ≥ 0.194 /
+    /// tan 9.5° = 1.16 m ⇒ D ≥ 1.37 m. At the old 1.20 m the quest list's outer edge lands at
+    /// 41°, OUTSIDE the field of view, the channel search finds no free interval and the packer
+    /// falls back to seating it over the map — i.e. HIS FIRST ASK IS NOT EXPRESSIBLE AT THE OLD
+    /// READING DISTANCE. 1.40 m clears the requirement by 0.03 m and is the smallest round step
+    /// that does. 1.65 m (what the log's own THE TRADE line computed for one collision) buys more
+    /// room but costs 27 % of apparent size, which is not "nicht viel"; 1.30 m does not reach.</para>
+    ///
+    /// <para>WHAT IT COSTS, IN THE ARITHMETIC THE ARC LINES ALREADY PRINT. Apparent size scales as
+    /// 1/distance, so 1.20 → 1.40 is 1 − 1.20/1.40 = 14 % less apparent size (linear; ~26 % less
+    /// area). A full-width 1920 px window is 1.20 m across and therefore subtends 2·atan(0.60/1.40)
+    /// = 46° instead of 53° — 7° of field of view handed back, and still only ONE of those fits
+    /// side by side in the ±40° arc, so <c>fullWidthFit</c> does not change. The depth ladder gets
+    /// deeper for free: <c>maxLevels</c> = (1.40 − 0.90)/0.04 = 12 instead of 7, while the deepest
+    /// level an 8-seat registry can actually produce is still 7 (a chain of eight), so the
+    /// <see cref="MinOverlapDistanceMeters"/> floor moves from 0.02 m of margin to 0.27 m and the
+    /// "two windows share a plane" degenerate state stops being reachable at all.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY NOT CHANGED. <see cref="LevelMessageDistanceMeters"/> (0.95 m)
+    /// keeps its own value: it answers the OPPOSITE report ("the tutorial boxes read as too far
+    /// away at the shared 1.2 m", 2026-08-02) and widening the gap between the two families is the
+    /// intended effect, not a drift. And the ×0.85 steep-gaze pull itself is NOT touched here — it
+    /// is a real readability rule for a player reading the board, it lives in a file this lane does
+    /// not own, and correcting it silently would change every scenario placement as well.</para>
+    /// </summary>
+    private const float WindowDistanceMeters = 1.40f;
 
     /// <summary>
     /// Closer float distance for the LEVEL-MESSAGE family (tutorial boxes / help-text action

@@ -37,7 +37,8 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para>THE ARITHMETIC THIS EXISTS TO PUT IN THE LOG. A floated full-screen window is
 /// 1920x1080 uGUI px at <c>CanvasScaleMm</c> 1 mm/px scaled to <c>ModalTargetWidthMeters</c> = 0.80 m
-/// (ModalFallback.1.Core) and parked at <c>WindowDistanceMeters</c> = 1.2 m, i.e. ~36.9° x ~21.3°.
+/// (ModalFallback.1.Core) and parked at <c>WindowDistanceMeters</c> = 1.40 m since ModBuild 241
+/// (1.2 m before it), i.e. ~31.9° x ~18.3°.
 /// Against a ~3072x3264 per-eye target over a ~110°x~96° FOV (~28 px/° H) that window lands on
 /// roughly 1030 x 720 rendered pixels — so its 1920 authored pixels are MINIFIED by ~1.9x before a
 /// single texture is sampled. On a mipless bilinear texture minification is the textbook recipe for

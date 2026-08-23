@@ -95,6 +95,52 @@ namespace GloomhavenVR.WorldUI;
 /// the drawn interval — see <see cref="ArcSeatDepthLevel"/>.</item>
 /// </list>
 ///
+/// <para>ModBuild 241 — THE MAP IS NOT A WINDOW, AND UNTIL NOW THE PACKER DID NOT KNOW THAT. His
+/// report, verbatim: "Ich mag den Halbkreis würde aber bei der Map gerne noch mehr das es so zu
+/// beginn spawned wie ideale_position.jpg zeigt." He asked whether that is compatible with the
+/// half-circle logic. It is, with ONE new term, and the term is named honestly here rather than
+/// special-cased: <see cref="TryMapChannelDeg"/>, the MAP CHANNEL.</para>
+///
+/// <para>WHAT THE PHOTOGRAPH ACTUALLY CONSTRAINS, MEASURED OFF IT RATHER THAN INFERRED.
+/// <c>.planning/debug/ideale_position.jpg</c> is the map room with two windows hand-placed either
+/// side of the table. Its horizontal scale is not guessed: the same two windows appear in the
+/// 2026-08-24 hardware log's ARC AUDIT at world yaw 67° and 119°, i.e. 52° apart, and they are
+/// 942 screen px apart in the photograph ⇒ 0.0552°/px ⇒ 110° across the frame, which is the
+/// headset FOV <c>PanelSamplingProbe</c> independently quotes. On that scale:</para>
+/// <list type="bullet">
+/// <item>THE TWO WINDOWS SIT AT ±26° and their common bisector falls on screen x 908 while the
+/// parchment's own centre falls on 905 — 0.2° apart. HE CENTRED THE PAIR ON THE MAP; the arc
+/// centre and the arc span are both exactly what this file already uses.</item>
+/// <item>THEIR INNER EDGES ARE AT ±21.4°, and the parchment's near edge subtends ±21.3° from where
+/// he is standing. That is the whole rule: the windows clear the MAP'S OWN SILHOUETTE, to within
+/// a tenth of a degree, and nothing else in the photograph is that tight a coincidence.</item>
+/// <item>THEY ARE FURTHER AWAY THAN THEY SPAWN — 10.0° and 8.7° wide against 0.388 m and 0.315 m
+/// of real window ⇒ ~2.2 m, against the 1.20 m the packer then used. And they read LOWER, which is
+/// the SAME fact: the spawn pose is <c>headPos + fwd × distance</c>, so with the gaze 16-21° below
+/// eye level (18 MODAL SPAWN CLAMP lines in that log) a longer distance IS a lower window. The
+/// photograph cannot separate "lower" from "further" without the camera pitch, and this build
+/// therefore changes ONE of them (see <c>WindowDistanceMeters</c>, 1.20 → 1.40 m) and not both.</item>
+/// </list>
+///
+/// <para>THE MAP CHANNEL, AND WHY IT IS A NEW TERM RATHER THAN AN EXISTING DIAL. It was worth
+/// looking: a different arc CENTRE is wrong (the photograph is symmetric about the gaze), a
+/// different arc SPAN is wrong (±26° is well inside the measured ±40°), a fixed "first two seats at
+/// ±N" is a rule this packer does not have and could not degrade from, and the height reference is
+/// not what the photograph is about. The choice rule is the thing that cannot express it: "the free
+/// interval NEAREST THE GAZE wins" is CENTRE-SEEKING and his layout is CENTRE-AVOIDING, and no
+/// setting of any existing constant turns one into the other. So one term is added: the parchment's
+/// own angular interval, measured per placement off <c>MapRoomDriver.ParchmentRenderer.bounds</c>
+/// and the live head, is treated as occupied. It is MEASURED, NOT PICKED — walk closer to the table
+/// and the map subtends more and the windows move further out, which is the same sentence as "do
+/// not cover the map" and needs no second constant.</para>
+///
+/// <para>AND IT IS A DEMAND, NOT A RESERVATION — the degradation rule. The channel is honoured only
+/// when a seat exists that satisfies it AND every standing seat AND the field-of-view bound. When
+/// no such seat exists — three, four, six windows open, or one window wider than the room left
+/// beside the map — the search falls through to EXACTLY the code that ran before this build, ties
+/// and all, and the placement line says which of the two answered. A busy room therefore behaves
+/// as it always did, and the map is kept clear only while keeping it clear is free.</para>
+///
 /// <para>WHAT IS DELIBERATELY UNCHANGED. Height and every spawn clamp (board-top floor, eye cap,
 /// pitch flatten) — a seat is a YAW and a DEPTH and nothing else. Facing is still yaw-only and
 /// still points at the player, applied once at spawn. A window is placed ONCE and is then the
@@ -538,6 +584,203 @@ internal static partial class ModalFallback
         return true;
     }
 
+    /// <summary>
+    /// Sanity bound on either side of the MAP CHANNEL, degrees. A parchment that measures wider
+    /// than this from the head is one we have misread or a player leaning bodily over the table,
+    /// and a channel that swallows the arc would only make every window fall through to the
+    /// pre-ModBuild-241 path anyway — this bounds the number that gets PRINTED so the log stays
+    /// readable when that happens.
+    /// </summary>
+    private const float MapChannelMaxHalfDeg = 55f;
+
+    /// <summary>
+    /// THE MAP CHANNEL — the angular interval, in degrees off <paramref name="gazeYawDeg"/>, that
+    /// the PARCHMENT ITSELF occupies from where the player is standing. It is the one thing in this
+    /// room that is not a window and that no window may cover; see the class header for the
+    /// photograph it comes from.
+    ///
+    /// <para>IT IS MEASURED, NOT PICKED, and from the room's own authority: the four horizontal
+    /// corners of <c>MapRoomDriver.ParchmentRenderer.bounds</c> — the same renderer bounds
+    /// <c>MapRoomSeat</c> solves the whole room from and <c>TryGetParchmentFrame</c> publishes as
+    /// the multiplayer shared frame — projected from the live head position. Only the head's
+    /// HORIZONTAL position is read, which is exactly the part <c>HeadEyeHeight</c>'s spawn-time
+    /// correction never touches ("only the height — the horizontal position and the forward stay
+    /// the camera's own"), so this cannot inherit the ModBuild 198 head-on-the-floor failure.
+    /// Because it is derived per placement, it needs no constant: standing closer to the table
+    /// widens it and pushes the windows further out, which is the same rule, and a diorama re-scale
+    /// carries it along for free. NOTHING HERE IS IN METRES: every quantity is a world POSITION and
+    /// every result is a DEGREE, so there is no "…Meters compared against a world-unit product" to
+    /// get wrong. It is also the same number on every client — the parchment bounds are shared
+    /// (see <c>MapRoomDriver.TryGetParchmentFrame</c>) — so nothing here needs a wire field.</para>
+    ///
+    /// <para>WHAT IT CANNOT DO, STATED SO THE NEXT ROUND DOES NOT RE-DISCOVER IT. A window WIDER
+    /// than the room left beside the map cannot be moved off it: a full-screen 1920 px window
+    /// subtends ~45° at the reading distance, the map takes ~42°, and 45 + 42 does not fit in the
+    /// 80° the eye covers. The channel yields for those (the loadout and event windows) and they
+    /// are still seated over the map, exactly as before. Only a NARROWER window — which is what the
+    /// character column and the quest list are, and what his photograph shows — can flank it.</para>
+    ///
+    /// <para>IT IS ASYMMETRIC ON PURPOSE. The player does not always stand square to the table, and
+    /// a half-angle would then keep clear of a map that is not there on one side while allowing a
+    /// window onto it on the other. <c>lo</c> and <c>hi</c> are what the corners actually measure.</para>
+    ///
+    /// <para>EVERY FAILURE ANSWERS "NO CHANNEL", which is exactly the pre-ModBuild-241 behaviour:
+    /// no parchment (the room is standing down), no head camera, a degenerate bounds, or any corner
+    /// past ±90° — that last one means the map wraps around the player, where "the interval it
+    /// occupies" stops being a single interval and a wrap-safe answer would be a fiction. The
+    /// caller degrades to the old search and the placement line says so.</para>
+    /// </summary>
+    private static bool TryMapChannelDeg(float gazeYawDeg, out float loDeg, out float hiDeg,
+        out string note)
+    {
+        loDeg = 0f;
+        hiDeg = 0f;
+        note = "NO MAP CHANNEL this placement — the parchment could not be measured (the room is "
+               + "standing down, the head camera is not up yet, or the map wraps past ±90° from "
+               + "the gaze, which is not one interval), so this window was seated by exactly the "
+               + "search every build before ModBuild 241 used";
+        MeshRenderer? parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (parchment == null || head == null)
+            return false;
+        Bounds b = parchment.bounds;
+        if (b.size.x <= 1e-3f || b.size.z <= 1e-3f)
+            return false;
+
+        Vector3 headPos = head.transform.position;
+        float lo = float.MaxValue;
+        float hi = float.MinValue;
+        for (int i = 0; i < 4; i++)
+        {
+            float cx = (i & 1) == 0 ? b.min.x : b.max.x;
+            float cz = (i & 2) == 0 ? b.min.z : b.max.z;
+            Vector3 flat = new Vector3(cx - headPos.x, 0f, cz - headPos.z);
+            if (flat.sqrMagnitude < 1e-6f)
+                return false; // standing exactly on a corner: no honest angle to take
+            float d = Mathf.DeltaAngle(gazeYawDeg, WorldYawDeg(flat));
+            if (Mathf.Abs(d) > 90f)
+                return false; // the map is not one interval from here
+            lo = Mathf.Min(lo, d);
+            hi = Mathf.Max(hi, d);
+        }
+
+        loDeg = Mathf.Max(lo, -MapChannelMaxHalfDeg);
+        hiDeg = Mathf.Min(hi, MapChannelMaxHalfDeg);
+        if (hiDeg - loDeg < 1f)
+            return false; // the map is a sliver from here: nothing to keep clear of
+        note = $"THE MAP CHANNEL IS [{loDeg:F0}°,{hiDeg:F0}°] off this spawn's gaze — the "
+               + $"{hiDeg - loDeg:F0}° the parchment itself occupies from where the player is "
+               + "standing, measured off the map renderer's own world bounds and the live head, "
+               + "never a constant. Nothing may be seated on it: the map is what he is looking at "
+               + "in this room ('ideale_position.jpg'), and it is the only thing here that is not "
+               + "a window and cannot be moved or closed";
+        return true;
+    }
+
+    /// <summary>True when a window of half-width <paramref name="halfAngle"/> seated at
+    /// <paramref name="offsetDeg"/> off the gaze lies WHOLLY outside the map channel — i.e. beside
+    /// the map rather than over any part of it. No neighbour gap is added, deliberately:
+    /// <see cref="NeighbourGapDegrees"/> exists so two WINDOWS do not read as one wide window with
+    /// a seam, and a window whose edge touches the map's silhouette does not read as the map. The
+    /// photograph says the same thing — his inner edges measure ±21.4° against a ±21.3° map.</summary>
+    private static bool ArcSeatClearsMapChannel(float offsetDeg, float halfAngle, float loDeg,
+        float hiDeg) =>
+        offsetDeg + halfAngle <= loDeg + 1e-3f || offsetDeg - halfAngle >= hiDeg - 1e-3f;
+
+    /// <summary>
+    /// THE FREE-INTERVAL SEARCH, shared by the spawn claim and the pre-reveal re-seat so the two
+    /// can never drift apart (they were a copy-paste pair before ModBuild 241).
+    ///
+    /// <para>THE CANDIDATES. The gaze itself, the two edges of the MAP CHANNEL, and for every
+    /// standing seat the two angles that put this window exactly against that seat's left and right
+    /// edge. One of those is always the optimum: the nearest-to-gaze feasible position is either the
+    /// gaze, or flush against something. No stepping and no search tolerance.</para>
+    ///
+    /// <para>TWO PASSES, AND THE SECOND ONE IS THE OLD CODE UNCHANGED. Pass 0 runs only when a map
+    /// channel was measured and additionally demands that the seat clear it; pass 1 is the search
+    /// exactly as it stood before this build. A candidate at a channel edge always clears the
+    /// channel by construction, so a candidate that could win pass 1 but not pass 0 does not exist —
+    /// pass 1 is reached only when the channel is genuinely unsatisfiable, and it then behaves as
+    /// though the channel had never been measured.</para>
+    ///
+    /// <para>THE TIE GOES LEFT IN PASS 0 AND RIGHT IN PASS 1, and the asymmetry is deliberate. With
+    /// an empty room and a symmetric map the two channel edges are equally near the gaze, so the
+    /// tie decides which side of the map the FIRST window takes and the second window then takes
+    /// the other. In his loadout the character screen claims first and 'ideale_position.jpg' has it
+    /// on the LEFT, so pass 0 fills left first and the pair reproduces the photograph. Nothing here
+    /// knows WHICH window it is seating — this file holds no per-window knowledge anywhere and is
+    /// not about to start — so a burst that opens in a different order swaps the two sides, and
+    /// that is the honest limit of what a side preference can promise. Pass 1's RIGHT-first tie,
+    /// the side every build since 183 has filled first, is untouched.</para>
+    /// </summary>
+    /// <param name="clearsChannel">True when the returned seat is one that keeps the map clear
+    /// (pass 0); false when the channel had to be given up (pass 1).</param>
+    private static bool ArcSeatFreeInterval(float gazeYawDeg, float centreLimit, float halfAngle,
+        bool haveChannel, float channelLo, float channelHi,
+        out float best, out bool clearsChannel)
+    {
+        best = 0f;
+        clearsChannel = false;
+
+        int n = 0;
+        _arcCandidates[n++] = 0f;
+        if (haveChannel)
+        {
+            _arcCandidates[n++] = channelLo - halfAngle;
+            _arcCandidates[n++] = channelHi + halfAngle;
+        }
+        for (int i = 0; i < _arcClaims.Length && n + 1 < _arcCandidates.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                continue;
+            float standOffset = Mathf.DeltaAngle(gazeYawDeg, _arcSeatWorldYaw[i]);
+            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
+            _arcCandidates[n++] = standOffset + edge;
+            _arcCandidates[n++] = standOffset - edge;
+        }
+
+        for (int pass = haveChannel ? 0 : 1; pass <= 1; pass++)
+        {
+            bool have = false;
+            float pick = 0f;
+            for (int c = 0; c < n; c++)
+            {
+                float a = _arcCandidates[c];
+                if (Mathf.Abs(a) > centreLimit + 1e-3f)
+                    continue;
+                if (!ArcSeatIsFree(gazeYawDeg + a, halfAngle))
+                    continue;
+                if (pass == 0 && !ArcSeatClearsMapChannel(a, halfAngle, channelLo, channelHi))
+                    continue;
+                bool nearer = Mathf.Abs(a) < Mathf.Abs(pick) - 1e-3f;
+                bool tied = Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(pick)) <= 1e-3f;
+                bool sideWins = pass == 0 ? a < pick : a > pick;
+                if (!have || nearer || (tied && sideWins))
+                {
+                    have = true;
+                    pick = a;
+                }
+            }
+            if (!have)
+                continue;
+            best = pick;
+            clearsChannel = pass == 0;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Push a seat that was chosen to clear the MAP CHANNEL back out to the channel's edge
+    /// after a depth step has made the window angularly WIDER. One step is 0.04 m against a reading
+    /// distance of well over a metre, so this is a fraction of a degree in practice — but a seat
+    /// that was chosen for a property has to keep it, and the alternative is a window whose inner
+    /// edge creeps onto the map by exactly the amount the ladder bought.</summary>
+    private static float ArcSeatReClearChannel(float seatOffset, float halfAngle, float loDeg,
+        float hiDeg) =>
+        seatOffset >= 0f
+            ? Mathf.Max(seatOffset, hiDeg + halfAngle)
+            : Mathf.Min(seatOffset, loDeg - halfAngle);
+
     /// <summary>The worst overlap in degrees between a window of half-width
     /// <paramref name="halfAngle"/> at world yaw <paramref name="worldYaw"/> and any standing seat
     /// (0 = clear of all of them), plus the name of the seat it intrudes on most.</summary>
@@ -728,7 +971,18 @@ internal static partial class ModalFallback
                               + $"window is {ModalTargetWidthMeters * legibility:F2} m across at "
                               + $"the {WindowDistanceMeters:F2} m reading distance = "
                               + $"{fullWidthDeg:F0}° of view, so at most {fullWidthFit} of THOSE "
-                              + "fit side by side in the whole field of view. THEREFORE OVERLAP IS "
+                              + "fit side by side in the whole field of view. AND THE MAP IS NOT A "
+                              + "WINDOW (ModBuild 241): the parchment's own angular interval, "
+                              + "measured per placement off its renderer bounds and the live head, "
+                              + "is kept CLEAR — 'bei der Map gerne noch mehr das es so zu beginn "
+                              + "spawned wie ideale_position.jpg zeigt', a photograph in which two "
+                              + "windows sit at ±26° either side of a map that subtends ±21° from "
+                              + "where he stands. It is a DEMAND, not a reservation: when no angle "
+                              + "can satisfy it and the standing windows at once, it yields and "
+                              + "the search is the one that ran before, which is what keeps three, "
+                              + "four and six open windows behaving exactly as they did. Every "
+                              + "placement line states the channel it measured and whether it was "
+                              + "honoured. THEREFORE OVERLAP IS "
                               + "THE NORMAL CASE AND IS NOT A FAILURE — his five-window loadout "
                               + $"draws ~160° into {2f * arcHalf:F0}° of arc. ANGLE IS STILL THE "
                               + "FIRST LEVER: the free interval NEAREST THE GAZE wins, neighbours "
@@ -763,13 +1017,14 @@ internal static partial class ModalFallback
     /// window's EDGES, so his first rule holds for every branch below without a special case. Only
     /// when NO free interval remains anywhere in the field of view does the depth ladder engage.</para>
     ///
-    /// <para>THE CHOICE RULE — THE FREE INTERVAL NEAREST THE CURRENT GAZE. The candidates are the
-    /// gaze itself plus, for every standing seat, the two angles that put this window exactly
-    /// against that seat's left and right edge. One of those is always the optimum: the
-    /// nearest-to-gaze feasible position is either the gaze itself or flush against something, so
-    /// testing 1 + 2N angles finds it exactly, with no stepping and no search tolerance. The
-    /// smallest |offset| that is inside the arc and clear of everything wins; a tie between the two
-    /// sides goes RIGHT, the side every build since 183 has filled first.</para>
+    /// <para>THE CHOICE RULE — THE FREE INTERVAL NEAREST THE CURRENT GAZE, EXCEPT THAT THE MAP IS
+    /// ALSO A THING TO BE CLEAR OF. The candidates are the gaze itself, the two edges of the MAP
+    /// CHANNEL, and for every standing seat the two angles that put this window exactly against that
+    /// seat's left and right edge; one of those is always the optimum, so testing 3 + 2N angles
+    /// finds it exactly, with no stepping and no search tolerance. The smallest |offset| that is
+    /// inside the arc and clear of everything wins. See <see cref="ArcSeatFreeInterval"/> for the
+    /// two passes and for why the map-clearing pass breaks its tie LEFT while the fallback pass
+    /// keeps the RIGHT-first tie every build since 183 has used.</para>
     ///
     /// <para>LATE ARRIVALS TAKE A FREE SEAT AND NOTHING RESHUFFLES. A window that opens ten seconds
     /// after the others runs this same search against whatever is standing at that moment and takes
@@ -886,36 +1141,13 @@ internal static partial class ModalFallback
             centreLimit = 0f;
 
         // ---- (b) AS FEW COLLISIONS AS POSSIBLE — his second rule: the free interval nearest the
-        //          gaze, if one exists at all inside the bound above.
-        int candidateCount = 0;
-        _arcCandidates[candidateCount++] = 0f;
-        for (int i = 0; i < _arcClaims.Length && candidateCount + 1 < _arcCandidates.Length; i++)
-        {
-            if (_arcClaims[i].Panel == null)
-                continue;
-            float standOffset = Mathf.DeltaAngle(gazeYawDeg, _arcSeatWorldYaw[i]);
-            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
-            _arcCandidates[candidateCount++] = standOffset + edge;
-            _arcCandidates[candidateCount++] = standOffset - edge;
-        }
-        bool haveFree = false;
-        float bestFree = 0f;
-        for (int c = 0; c < candidateCount; c++)
-        {
-            float a = _arcCandidates[c];
-            if (Mathf.Abs(a) > centreLimit + 1e-3f)
-                continue;
-            if (!ArcSeatIsFree(gazeYawDeg + a, halfAngle))
-                continue;
-            // Nearest the gaze wins; a tie between the two sides of a step goes RIGHT (+).
-            if (!haveFree
-                || Mathf.Abs(a) < Mathf.Abs(bestFree) - 1e-3f
-                || (Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(bestFree)) <= 1e-3f && a > bestFree))
-            {
-                haveFree = true;
-                bestFree = a;
-            }
-        }
+        //          gaze, if one exists at all inside the bound above. Since ModBuild 241 the MAP
+        //          ITSELF is one of the things a seat has to be clear of, and that demand is tried
+        //          first and given up when it cannot be met (see ArcSeatFreeInterval).
+        bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
+            out string channelNote);
+        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveChannel,
+            channelLo, channelHi, out float bestFree, out bool clearsChannel);
 
         // The chosen position of the DRAWN CENTRE, degrees off the spawn gaze. `yawDeg` (the HOST
         // rect's angle, which is what the placement rotates to) is derived from it below.
@@ -925,9 +1157,17 @@ internal static partial class ModalFallback
         if (haveFree)
         {
             seatOffset = bestFree;
-            why = cleanBefore + overlapBefore == 0
+            why = cleanBefore + overlapBefore == 0 && !clearsChannel
                 ? $"the room was empty, so it took the gaze itself; the window draws {halfAngle * 2f:F0}° "
                   + $"wide and the measured field of view is ±{arcHalf:F1}°"
+                : cleanBefore + overlapBefore == 0
+                ? $"the room was empty BUT THE MAP IS NOT NOTHING, so it took the nearest angle "
+                  + $"BESIDE the map instead of the gaze itself: {seatOffset:F0}°±{halfAngle:F0}° "
+                  + $"of {halfAngle * 2f:F0}°-wide DRAWN content, inside the measured "
+                  + $"±{arcHalf:F1}° field of view. THIS IS THE ModBuild 241 CHANGE and it is the "
+                  + "whole of his report ('bei der Map gerne noch mehr das es so zu beginn spawned "
+                  + "wie ideale_position.jpg zeigt') — the space in front of and above the map "
+                  + "stays clear, because the map is what he is looking at in this room"
                 : $"the FREE INTERVAL NEAREST THE GAZE ({halfAngle * 2f:F0}°-wide DRAWN content, "
                   + $"seated at {seatOffset:F0}°±{halfAngle:F0}° inside the measured "
                   + $"±{arcHalf:F1}° field of view with a {NeighbourGapDegrees:F0}° gap) — ANGLE "
@@ -961,7 +1201,16 @@ internal static partial class ModalFallback
                   + $"takes the angle that collides with the FEWEST windows ({collisions} here), "
                   + "tie-broken by least PERMANENT surface buried, then furthest from every "
                   + "neighbour, then nearest the gaze; (3) the depth ladder below puts it in FRONT "
-                  + "of what it collides with";
+                  + "of what it collides with"
+                  + (haveChannel
+                      ? ". THE MAP CHANNEL WAS GIVEN UP, WHICH IS ITS STATED DEGRADATION: no angle "
+                        + $"inside ±{arcHalf:F1}° both cleared the map's own "
+                        + $"[{channelLo:F0}°,{channelHi:F0}°] and cleared every standing window, so "
+                        + "the ModBuild 241 demand yielded and this window was seated by exactly "
+                        + "the search that ran before it. Keeping the map clear is a demand, never "
+                        + "a reservation — it is honoured while it is free and never at the cost of "
+                        + "his first rule"
+                      : "");
         }
 
         // THE SEAT IS THE DRAWN CENTRE; THE PLACEMENT POSITIONS THE HOST RECT. Subtracting the
@@ -991,6 +1240,11 @@ internal static partial class ModalFallback
             halfAngle = geo.DrawnHalfDeg;
             widerThanArc = arcHalf - halfAngle < 0f;
             centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            // A seat chosen to clear the map keeps that property at its final width: the extra
+            // degrees the step bought are spent moving AWAY from the map, not onto it. The in-view
+            // clamp still has the last word on the line below — the field of view is never given up.
+            if (clearsChannel)
+                seatOffset = ArcSeatReClearChannel(seatOffset, halfAngle, channelLo, channelHi);
             float reclamped = Mathf.Clamp(seatOffset, -centreLimit, centreLimit);
             bool clampBit = Mathf.Abs(reclamped - seatOffset) > 0.05f;
             seatOffset = reclamped;
@@ -1051,6 +1305,14 @@ internal static partial class ModalFallback
         // Graded on the DRAWN interval: the band answers "can he read it without moving", and what
         // he reads is the content, not the frame.
         why += ". " + ArcSeatBand(seatOffset, halfAngle);
+        why += ". " + channelNote
+               + (haveChannel
+                   ? clearsChannel
+                       ? $" — HONOURED: this window's drawn interval is "
+                         + $"[{seatOffset - halfAngle:F0}°,{seatOffset + halfAngle:F0}°] and lies "
+                         + "wholly beside it"
+                       : " — NOT honoured this time (see above)"
+                   : "");
         why += ". GEOMETRY: " + geo.Note;
 
         float overlapDeg = ArcSeatWorstOverlapDeg(worldYaw, halfAngle, out string overlapWith);
@@ -1073,9 +1335,13 @@ internal static partial class ModalFallback
                 ? $". THE TRADE, MEASURED: this window and the widest permanent one would BOTH fit "
                   + $"inside the measured ±{arcHalf:F1}° field of view at a reading distance of "
                   + $"{fitAt:F2} m instead of {WindowDistanceMeters:F2} m — that is "
-                  + $"{(1f - WindowDistanceMeters / fitAt) * 100f:F0}% less apparent size. "
-                  + "WindowDistanceMeters is a tuned, accepted value and is NOT changed here; this "
-                  + "line exists so the choice can be made on the number rather than on a guess"
+                  + $"{(1f - WindowDistanceMeters / fitAt) * 100f:F0}% less apparent size. The "
+                  + "reading distance was last moved on the user's own instruction (ModBuild 241, "
+                  + "1.20 -> 1.40 m: 'die Fenster zB die Questinfo immer bisschen zu nah spawnen, "
+                  + "gerne ein bisschen (nicht viel) weiter weg'), so this line no longer describes "
+                  + "an untouchable constant — it is the number for the NEXT such decision, and it "
+                  + "is measured from the CURRENT distance, so a figure from a pre-241 log is not "
+                  + "comparable with one from a later log"
                 : ". THE TRADE, MEASURED: no reading distance up to 4.00 m makes this window and "
                   + "the widest permanent one both fit inside the field of view — the pair is wider "
                   + $"than the {2f * arcHalf:F0}° the eye covers, and only a NARROWER window (a "
@@ -1197,34 +1463,14 @@ internal static partial class ModalFallback
 
         float arcHalf = ArcPlacementHalfDeg();
         float centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
-        int candidateCount = 0;
-        _arcCandidates[candidateCount++] = 0f;
-        for (int i = 0; i < _arcClaims.Length && candidateCount + 1 < _arcCandidates.Length; i++)
-        {
-            if (_arcClaims[i].Panel == null)
-                continue;
-            float standOffset = Mathf.DeltaAngle(gazeYawDeg, _arcSeatWorldYaw[i]);
-            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
-            _arcCandidates[candidateCount++] = standOffset + edge;
-            _arcCandidates[candidateCount++] = standOffset - edge;
-        }
-        bool haveFree = false;
-        float bestFree = 0f;
-        for (int c = 0; c < candidateCount; c++)
-        {
-            float a = _arcCandidates[c];
-            if (Mathf.Abs(a) > centreLimit + 1e-3f)
-                continue;
-            if (!ArcSeatIsFree(gazeYawDeg + a, halfAngle))
-                continue;
-            if (!haveFree
-                || Mathf.Abs(a) < Mathf.Abs(bestFree) - 1e-3f
-                || (Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(bestFree)) <= 1e-3f && a > bestFree))
-            {
-                haveFree = true;
-                bestFree = a;
-            }
-        }
+        // THE SAME SEARCH THE SPAWN PATH RUNS, and since ModBuild 241 literally the same method:
+        // this is the placement that decides where a map-room window actually ends up (the spawn
+        // claim books the FRAME, because at that instant nothing is measurable yet), so the map
+        // channel has to be honoured HERE above all.
+        bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
+            out string channelNote);
+        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveChannel,
+            channelLo, channelHi, out float bestFree, out bool clearsChannel);
 
         float seatOffset;
         string how;
@@ -1233,14 +1479,22 @@ internal static partial class ModalFallback
             seatOffset = bestFree;
             how = $"took the FREE INTERVAL NEAREST THE GAZE at {seatOffset:F0}°±{halfAngle:F0}° "
                   + $"inside the measured ±{arcHalf:F1}° field of view (standing set [{standing}]) "
-                  + "and collides with nothing";
+                  + "and collides with nothing"
+                  + (clearsChannel
+                      ? ", BESIDE THE MAP rather than over it (ModBuild 241 — his "
+                        + "'ideale_position.jpg')"
+                      : "");
         }
         else
         {
             seatOffset = ArcSeatSpreadDeg(gazeYawDeg, centreLimit, halfAngle);
             how = $"found THE FIELD OF VIEW (±{arcHalf:F1}°) FULL even at its true drawn width, so "
                   + $"it stays inside it — his first rule — and takes the angle {seatOffset:F0}° "
-                  + "that collides with the fewest windows (standing set [" + standing + "])";
+                  + "that collides with the fewest windows (standing set [" + standing + "])"
+                  + (haveChannel
+                      ? ", the map channel having yielded because no angle could satisfy it and "
+                        + "the standing set at once"
+                      : "");
         }
 
         float worldYaw = gazeYawDeg + seatOffset;
@@ -1259,6 +1513,10 @@ internal static partial class ModalFallback
             geo.ReDeriveAt(nominalDist - foregroundPullWorld);
             halfAngle = geo.DrawnHalfDeg;
             centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            // A seat chosen to clear the map keeps that property at its final, wider size — same
+            // rule as the spawn path, and the in-view clamp below still has the last word.
+            if (clearsChannel)
+                seatOffset = ArcSeatReClearChannel(seatOffset, halfAngle, channelLo, channelHi);
             seatOffset = Mathf.Clamp(seatOffset, -centreLimit, centreLimit);
             worldYaw = gazeYawDeg + seatOffset;
             hostWorldYaw = worldYaw - geo.OffsetDeg;
@@ -1299,6 +1557,12 @@ internal static partial class ModalFallback
                      + "what the depth level above is for"
                    : ". MEASURED: it overlaps nothing in angle")
                + ". " + ArcSeatBand(seatOffset, halfAngle)
+               + ". " + channelNote
+               + (haveChannel && clearsChannel
+                   ? $" — HONOURED: this window's drawn interval is "
+                     + $"[{seatOffset - halfAngle:F0}°,{seatOffset + halfAngle:F0}°] and lies "
+                     + "wholly beside it"
+                   : "")
                + ". No other window was read for anything but collision and none was moved";
         return true;
     }
