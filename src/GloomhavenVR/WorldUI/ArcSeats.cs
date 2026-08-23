@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 using GloomhavenVR.Core;
 
 namespace GloomhavenVR.WorldUI;
@@ -1951,5 +1952,573 @@ internal static partial class ModalFallback
                                   + $"({ex.GetType().Name}: {ex.Message}). The placement itself is "
                                   + "unaffected — only the falsifier is missing from this line.");
         }
+    }
+
+    // ---- THE HANDOVER: ONE WINDOW TAKES ANOTHER'S PLACE (ModBuild 242) --------------------------
+    //
+    // USER REPORT (2026-08-24, testing ModBuild 241), verbatim:
+    //
+    //   "Nachdem die Story vorbei ist verschwindet das Fenster und stattdessen kommt die Character-UI
+    //    wieder (was gewollt ist) — ich hätte gerne dass sie sich an exakt der selben Stelle
+    //    auswechseln. Aktuell spawnt die Character-UI noch im Halbkreis daneben — obwohl das Fenster
+    //    ja bereits verschwunden ist."
+    //
+    // THE MECHANISM, READ OFF HIS OWN ModBuild 241 LOG (.planning/debug/LogOutput.log). The two
+    // events happen in the wrong order and neither one knows about the other:
+    //   :9036-9042  the Character-UI converts and floats. The arc registry it asks for a seat still
+    //               holds the story window at `-4°±24° (world 76°)`, so the ONLY thing the packer
+    //               can do is put it somewhere else: `'New Party display' claimed reservation 0 at
+    //               60° from the spawn gaze, world yaw 140°, frame 72°, drawn 14° at offset -32°`,
+    //               i.e. its DRAWN column lands at world yaw 108° — 32° beside the story window.
+    //   :9050       LOADOUT BACKDROP CLAIM RAISED — the story window is withdrawn.
+    //   :9101       the one pre-reveal re-place runs at the final fitted geometry and confirms the
+    //               same seat: world yaw 140°, and the audit stamps it
+    //               `*** OUTSIDE THE FIELD OF VIEW by 16° ***`.
+    // So "im Halbkreis daneben" is not a bug in the packer. The packer did the only correct thing
+    // available to it; NOBODY EVER TOLD IT THE OTHER WINDOW WAS ABOUT TO LEAVE. There is no
+    // seat-inheritance line anywhere in that 13,366-line log: all twelve MAP ROOM WINDOW SLOT
+    // RELEASED lines are pure give-ups and no window ever claims a released interval.
+    //
+    // WHICH POSE IS CAPTURED, AND AT WHICH EDGE. The LIVE pose of the story window at the instant
+    // StoryComposite raises the backdrop claim (StoryComposite.TickLoadoutBackdrop, the
+    // `LOADOUT BACKDROP CLAIM RAISED` branch) — the last tick on which that window is still floated
+    // and its transform is still real. NOT its spawn pose and NOT its registry entry: it is a SHARED
+    // (blue) window whose pose is synced by wire record 21 (Net.RemoteMapStory), a PEER may have
+    // dragged it, the local player may have dragged it, and a shared window deliberately never
+    // re-faces. The registry would answer where the packer PUT it; the transform answers where it
+    // IS. [[measure-the-picture-not-the-state]].
+    //
+    // WHAT "EXACTLY THE SAME PLACE" RESOLVES TO, AND WHY IT IS NOT THE FRAME. The two windows are
+    // not the same size and never will be — the story window fills its frame, the Character-UI draws
+    // a narrow character column inside a 1988 px sheet. His own log measures the consequence:
+    // `FIXED FIT 'GloomhavenVR.Panel_Modal_New Party display' APPLIED: host pinned at 1988x1080 px =
+    // ... the CHARACTER COLUMN renders 328x1080 px from (-984,-540)`, and the arc line puts that
+    // column at `offset -22°`, which at the 1.40 m reading distance is 1.40·tan(22°) = 566 mm from
+    // the point the window is positioned by. So matching FRAME ORIGINS would leave the thing he
+    // actually looks at more than half a metre off, and it would look exactly like the fix not
+    // working. The invariant is therefore THE DRAWN CENTRE — the same choice, for the same reason
+    // and through the same instrument, that ModBuild 241 made when it moved the release re-face
+    // pivot to `HostRect.TransformPoint(ink.center)` (NetProtocol's build-241 note 4a: 859 mm of
+    // frame-origin error swung the picture 639 mm sideways on a 43.7° turn).
+    //
+    // TWO INSTRUMENTS, TWO QUESTIONS, ON PURPOSE. The POSITION is matched on PanelInkBounds' ink
+    // union, because that class's whole job is "what does the player actually see"; the
+    // RESERVATION is re-derived through MeasureArcDrawnGeometry, because a seat has to be
+    // comparable with the other seven seats in the registry and those are all measured that way.
+    // Mixing them would put a number from one instrument into a comparison built for the other
+    // ([[instrument-measures-one-term]]). Nothing here reads a NUMBER out of PanelInkBounds' docs —
+    // only the property — because that file is being changed this same round.
+    //
+    // THE SEAT IS TRANSFERRED, NOT RE-CLAIMED, AND THAT IS THE WHOLE POINT. A pose without a
+    // reservation is worse than the bug: the next window to open would be seated straight through
+    // the Character-UI, because ArcSeatIsFree/ArcSeatFreeInterval only ever consult _arcClaims. A
+    // FRESH claim is what ModBuild 241 already does and it is precisely "im Halbkreis daneben". So
+    // the leaving window's slot is released FIRST — so the depth ladder cannot see a window that is
+    // going away — and the arriving window's OWN slot is then rewritten in place with the inherited
+    // direction, distance, depth pull and promise-frame, keeping its own angular widths (they are a
+    // property of what IT draws, not of the seat). The registry needed no new field and no new
+    // array: a transfer is one release plus one in-place rewrite of an entry that already exists.
+    //
+    // WHY IT IS APPLIED TWICE, AND WHY THAT IS NOT A WRITE WAR. The arriving window is usually still
+    // behind the reveal gate at the withdrawal edge, and ModalFallback's ONE pre-reveal re-place
+    // (TickPoseRePlaceOne) is what runs the placement again at the final fitted geometry — in his
+    // log that is :9100/:9101, fifty lines AFTER the edge, and it would put the Character-UI straight
+    // back on its arc seat. So the handover is applied immediately at the edge (correct even if no
+    // re-place ever comes, e.g. a Character-UI that was already revealed) and the anchor is left
+    // standing so that the ONE re-place CONSUMES it instead of replaying the arc. The re-place is
+    // not a second, competing writer — it is the same writer, once, with better inputs: the ink is
+    // re-measured at the final rect, so the drawn centre lands on the captured point at the geometry
+    // the player will actually see. After that the anchor is cleared and nothing re-places again.
+    //
+    // NOTHING HERE FOLLOWS THE HEAD, AND NOTHING HERE BLOCKS TURNING. Both writes are ONE-SHOT at a
+    // named edge; there is no per-frame term anywhere in this block, no head sampling outside the
+    // single seat re-derivation, and the arriving window is left standing in the room exactly as
+    // every other floated window is. The standing project rule is untouched.
+    //
+    // A WINDOW THE PLAYER HAS PLACED IS HIS FOREVER. If the Character-UI was already open and the
+    // player had moved it himself, the swap DOES NOT HAPPEN and says so: GrabbableModal.UserMoved is
+    // the same latch the presence-regain refloat honours, and the standing ruling is that a window
+    // he touched stays where he put it. A window the MOD placed is fair game — that is the case he
+    // is reporting. A window he is holding RIGHT NOW is refused for the same reason.
+    //
+    // MULTIPLAYER: NOTHING GOES ON THE WIRE, AND BOTH CLIENTS LAND IN THE SAME PLACE. The captured
+    // pose is the SHARED story window's, which record 21 already keeps 1:1 across clients; the
+    // Character-UI is a private, per-client window that is never synced. Each client therefore
+    // computes the same target from the same shared input and moves its own local window onto it —
+    // consistency without a single new byte, and without this class ever asking who the host is. The
+    // one legitimate divergence is a client whose player has moved HIS Character-UI: that client
+    // keeps his pose, which is the correct answer for a private window and not a desync.
+    //
+    // ALTERNATIVES REJECTED.
+    //   (a) Seat the Character-UI on top of the story window when it FLOATS (:9036) instead of at
+    //       the withdrawal edge. It floats BEFORE the withdrawal by construction — the backdrop
+    //       claim's deadlock clause requires the continue control to already be parked inside it —
+    //       so this would put two windows in one spot for as long as the player takes to click
+    //       through the last story page, which is worse than the bug.
+    //   (b) Copy the story window's SCALE too. Its scale is a legibility contract derived per window
+    //       from its own fitted width (DeriveWindowScale / the 5b re-derivation); copying it would
+    //       resize his character sheet, which he did not ask for. "Dieselbe Stelle" is a place, not
+    //       a size.
+    //   (c) Match host rects instead of drawn centres — the 566 mm error measured above.
+    //   (d) Add a Transfer() to the registry as a new operation. There is nothing to add: the two
+    //       primitives already exist and a third one would be a second way to write _arcClaims,
+    //       i.e. a second writer of one truth ([[a-remedy-knows-one-writer]]).
+    //   (e) Let ReleaseFinishedArcSlots free the leaving seat on its own a tick or two later. Then
+    //       the depth ladder would rank the arriving window against a window that is on its way out
+    //       and push it one rung nearer for a collision that does not exist.
+
+    /// <summary>The panel a handover is waiting to be re-applied to at its final fitted geometry, or
+    /// null. Reference-compared, never name-compared: a panel is destroyed and rebuilt on every
+    /// convert, so a stale anchor can never match a later open of the same window.</summary>
+    private static ConvertedPanel? _handoverPanel;
+
+    /// <summary>WORLD point the arriving window's DRAWN CENTRE must land on — the leaving window's
+    /// drawn centre, sampled live at the withdrawal edge.</summary>
+    private static Vector3 _handoverCentreWorld;
+
+    /// <summary>WORLD rotation the arriving window inherits — the leaving window's live rotation.</summary>
+    private static Quaternion _handoverRot = Quaternion.identity;
+
+    /// <summary>The leaving window's seat, captured before its slot was released: world yaw of its
+    /// DRAWN centre, its reading distance in WORLD units, the gaze its placement promise was made
+    /// in, and its depth term in real metres. −1 in <see cref="_handoverSeatSlot"/> means the
+    /// leaving window held no reservation at all (the registry was full when it opened).</summary>
+    private static int _handoverSeatSlot = -1;
+    private static float _handoverSeatWorldYaw;
+    private static float _handoverSeatDistWorld;
+    private static float _handoverSeatGazeYaw;
+    private static float _handoverSeatDepthPull;
+
+    /// <summary>Log name of the window that left, kept because the re-place happens long after its
+    /// host has been destroyed.</summary>
+    private static string _handoverFrom = "?";
+
+    /// <summary>What raised the handover, verbatim on both log lines.</summary>
+    private static string _handoverTrigger = "?";
+
+    /// <summary>Frame after which a stored anchor is dropped unconsumed.</summary>
+    private static int _handoverExpiresFrame = -1;
+
+    /// <summary>
+    /// How long a stored handover may wait for the ONE pre-reveal re-place, in frames. It is a
+    /// CEILING and not a schedule: the re-place is itself bounded by the reveal deadline (0.6 s),
+    /// so ten seconds at 60 Hz is two orders of magnitude of headroom, and past it the anchor is
+    /// dropped rather than applied to a window the player has been looking at for ten seconds.
+    /// </summary>
+    private const int HandoverGraceFrames = 600;
+
+    /// <summary>
+    /// THE DRAWN CENTRE of <paramref name="panel"/> in its host rect's OWN local space, so the same
+    /// point can be re-projected through the transform after it has been moved — which is what makes
+    /// the read-back on the log line a falsifier of the arithmetic rather than a second measurement
+    /// of the ink.
+    ///
+    /// <para>Returns false (and <c>local</c> = the frame origin) when nothing is measurable. That is
+    /// never silent: the caller prints the note.</para>
+    /// </summary>
+    private static bool TryDrawnCentreLocal(ConvertedPanel panel, out Vector3 local, out string note)
+    {
+        local = Vector3.zero;
+        if (panel.HostRect == null)
+        {
+            note = "THE FRAME ORIGIN (this window has no host RectTransform to map anything through)";
+            return false;
+        }
+        if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink) && ink.Valid
+            && ink.Rect.width > 0.5f && ink.Rect.height > 0.5f)
+        {
+            local = new Vector3(ink.Rect.center.x, ink.Rect.center.y, 0f);
+            // ONLY Valid / Rect / Graphics ARE READ, and that is deliberate: PanelInkBounds' census
+            // fields are being reworked in a parallel lane, so this codes against the three
+            // properties that ARE its contract and against no number at all.
+            note = $"THE DRAWN CENTRE ({local.x:F0},{local.y:F0} px in this window's own authored "
+                   + $"pixels; ink union {ink.Rect.width:F0}x{ink.Rect.height:F0} px over "
+                   + $"{ink.Graphics} visible graphic(s))";
+            return true;
+        }
+        // TIER 2 — THE ARC'S OWN MEASURE OF DRAWN CONTENT, and it exists because of a real gap
+        // rather than as belt and braces: PanelInkBounds counts a graphic that fills the frame as a
+        // PLATE and leaves it out of the union, so a window whose only remaining content IS a
+        // full-frame picture — which is precisely what the story window is at the withdrawal edge,
+        // "nichts als das Hintergrundbild" — can answer "no ink at all". CanvasConversion's fit
+        // verdict has no plate rule and answers for that window. The offset is taken as
+        // content.center − host.center, i.e. as a DIFFERENCE, so it does not assume where either
+        // rect's origin sits.
+        if (CanvasConversion.TryMeasureDrawnContent(panel, out Rect content, out Rect hostRect2,
+                out int contributors)
+            && content.width > 0.5f && content.height > 0.5f)
+        {
+            local = new Vector3(content.center.x - hostRect2.center.x,
+                content.center.y - hostRect2.center.y, 0f);
+            note = $"THE DRAWN CENTRE ({local.x:F0},{local.y:F0} px), measured through "
+                   + "CanvasConversion's fit verdict because PanelInkBounds had no union for this "
+                   + $"window — {content.width:F0}x{content.height:F0} px of content from "
+                   + $"{contributors} graphic(s) inside a {hostRect2.width:F0}x{hostRect2.height:F0} "
+                   + "px frame. THE USUAL CAUSE IS THE PLATE RULE: a graphic that fills the frame is "
+                   + "not ink, and a window showing nothing but a full-frame picture is all plate";
+            return true;
+        }
+        note = "THE FRAME ORIGIN (neither PanelInkBounds nor CanvasConversion's fit verdict could "
+               + "measure anything this window draws, so what it DRAWS is unknown and only the frame "
+               + "origins can be matched — if the window's content is not centred in its frame this "
+               + "WILL be visibly off, which is the ModBuild 241 defect and is said out loud here "
+               + "rather than discovered later)";
+        return false;
+    }
+
+    /// <summary>
+    /// HAND ONE FLOATED WINDOW'S PLACE TO ANOTHER. See the block comment above for the whole design.
+    /// Called once per withdrawal edge from <c>StoryComposite.TickLoadoutBackdrop</c>.
+    /// </summary>
+    /// <param name="leaving">The window whose float is being withdrawn THIS tick — still floated,
+    /// still transformed, which is the entire reason the edge is the right moment.</param>
+    /// <param name="arriving">The window that must take its place.</param>
+    /// <param name="trigger">Why, verbatim, for the log line.</param>
+    /// <returns>True when the arriving window was actually moved.</returns>
+    internal static bool BeginWindowHandover(UIWindow? leaving, UIWindow? arriving, string trigger)
+    {
+        string refusal;
+        try
+        {
+            if (leaving == null || arriving == null || ReferenceEquals(leaving, arriving))
+            {
+                refusal = "one of the two windows is not there, or they are the same window";
+            }
+            else
+            {
+                WindowPanel? wpLeave = FindPanel(leaving);
+                WindowPanel? wpArrive = FindPanel(arriving);
+                ConvertedPanel? pLeave = wpLeave != null && wpLeave.Panel.IsAlive ? wpLeave.Panel : null;
+                ConvertedPanel? pArrive = wpArrive != null && wpArrive.Panel.IsAlive ? wpArrive.Panel : null;
+                GrabbableModal? grab = wpArrive != null ? wpArrive.Grab : null;
+                if (pLeave == null || pLeave.HostRect == null)
+                {
+                    refusal = $"'{leaving.name}' is not a live floated panel at this edge, so there "
+                              + "is no live pose to hand over. THE EDGE IS THE POINT: this is asked "
+                              + "on the tick the claim is RAISED, which is the last tick that window "
+                              + "is still floated — if this fires, the claim is being raised later "
+                              + "than the withdrawal instead of before it";
+                }
+                else if (pArrive == null || pArrive.HostRect == null)
+                {
+                    refusal = $"'{arriving.name}' is not a live floated panel, so there is nothing to "
+                              + "put in the leaving window's place. The backdrop claim's own deadlock "
+                              + "clause should make this unreachable — it only stands while the "
+                              + "continue control is parked inside this very window";
+                }
+                else if (grab == null)
+                {
+                    refusal = $"'{arriving.name}' has no grab frame, and the frame is the ONE entry "
+                              + "point every external pose writer uses (writing the host directly "
+                              + "would be snapped straight back next tick)";
+                }
+                else if (grab.IsGrabbed)
+                {
+                    refusal = $"THE PLAYER IS HOLDING '{arriving.name}' RIGHT NOW. His grab outranks "
+                              + "every mod placement; the swap is abandoned, not deferred";
+                }
+                else if (grab.UserMoved || grab.PeerPlaced)
+                {
+                    refusal = $"'{arriving.name}' IS A WINDOW THE PLAYER HAS PLACED HIMSELF "
+                              + $"(UserMoved={grab.UserMoved}, PeerPlaced={grab.PeerPlaced}) and a "
+                              + "window he has moved is his forever — the same latch the "
+                              + "presence-regain refloat honours. NOT A FAILURE: he asked for the "
+                              + "Character-UI to take the story window's place, not for it to be "
+                              + "taken away from wherever he parked it";
+                }
+                else
+                {
+                    // CAPTURE FIRST, from the world and not from the registry — a peer or the local
+                    // player may have dragged this window and the registry would not know.
+                    RectTransform hostLeave = pLeave.HostRect;
+                    TryDrawnCentreLocal(pLeave, out Vector3 localLeave, out string leaveNote);
+                    _handoverCentreWorld = hostLeave.TransformPoint(localLeave);
+                    _handoverRot = hostLeave.rotation;
+                    _handoverFrom = leaving.name;
+                    _handoverTrigger = trigger;
+
+                    // THE SEAT, captured and then RELEASED — in that order, and before the arriving
+                    // window's own entry is touched, so the depth ladder below cannot rank it
+                    // against a window that is on its way out.
+                    _handoverSeatSlot = -1;
+                    _handoverSeatWorldYaw = 0f;
+                    _handoverSeatDistWorld = 0f;
+                    _handoverSeatGazeYaw = 0f;
+                    _handoverSeatDepthPull = 0f;
+                    for (int i = 0; i < _arcClaims.Length; i++)
+                    {
+                        if (!ReferenceEquals(_arcClaims[i].Panel, pLeave))
+                            continue;
+                        _handoverSeatSlot = i;
+                        _handoverSeatWorldYaw = _arcSeatWorldYaw[i];
+                        _handoverSeatDistWorld = _arcClaims[i].DistanceWorld;
+                        _handoverSeatGazeYaw = _arcClaims[i].SpawnGazeWorldYaw;
+                        _handoverSeatDepthPull = _arcClaims[i].DepthPullMeters;
+                        _arcClaims[i] = default;
+                        _arcSeatWorldYaw[i] = 0f;
+                        break;
+                    }
+
+                    _handoverPanel = pArrive;
+                    _handoverExpiresFrame = Time.frameCount + HandoverGraceFrames;
+                    ApplyWindowHandover(pArrive, grab, arriving.name,
+                        "AT THE WITHDRAWAL EDGE, from the pose the leaving window is standing in "
+                        + "this very tick (" + leaveNote + ")");
+                    return true;
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            refusal = $"the handover threw ({ex.GetType().Name}: {ex.Message}) and was abandoned; "
+                      + "nothing was moved and no reservation was written";
+            _handoverPanel = null;
+        }
+        VRLog.Warn("WorldUI", $"WINDOW HANDOVER: NOT DONE ({trigger}) — {refusal}. CONSEQUENCE: the "
+                              + "arriving window keeps the seat the arc allocator gave it, which is "
+                              + "the ModBuild 241 presentation the user reported as \"im Halbkreis "
+                              + "daneben\". Nothing is broken by this — it is the previous "
+                              + "behaviour, said out loud.");
+        return false;
+    }
+
+    /// <summary>
+    /// Is <paramref name="panel"/> carrying a handover the ONE pre-reveal re-place should consume
+    /// instead of replaying its arc seat? Pure read; called from
+    /// <c>ModalFallback.TickPoseRePlaceOne</c>.
+    /// </summary>
+    private static bool HandoverPending(ConvertedPanel panel) =>
+        _handoverPanel != null && ReferenceEquals(_handoverPanel, panel)
+        && Time.frameCount <= _handoverExpiresFrame;
+
+    /// <summary>
+    /// Consume the stored handover at the arriving window's FINAL fitted geometry — the one moment
+    /// its real rect exists while it is still render-hidden, so the correction is invisible by
+    /// construction. Clears the anchor either way: this runs at most once per open.
+    /// </summary>
+    private static bool TryConsumeHandover(ConvertedPanel panel, GrabbableModal? grab, out string note)
+    {
+        note = string.Empty;
+        if (!HandoverPending(panel))
+        {
+            if (_handoverPanel != null && ReferenceEquals(_handoverPanel, panel))
+            {
+                _handoverPanel = null;
+                note = "the stored window handover EXPIRED unconsumed — the pre-reveal re-place did "
+                       + "not arrive within " + HandoverGraceFrames + " frames, so the pose written "
+                       + "at the withdrawal edge stands as it is";
+                return false;
+            }
+            return false;
+        }
+        _handoverPanel = null;
+        if (grab == null || panel.HostRect == null)
+        {
+            note = "the stored window handover could not be re-applied at the final geometry: this "
+                   + "window has no "
+                   + (grab == null ? "grab frame" : "host RectTransform")
+                   + " any more. The edge-time pose stands";
+            return false;
+        }
+        ApplyWindowHandover(panel, grab, panel.HostGo != null ? panel.HostGo.name : "?",
+            "AT THE FINAL FITTED GEOMETRY, replacing the arc re-place — the ink is re-measured "
+            + "against the rect the player will actually see, and the window is still render-hidden, "
+            + "so this correction is invisible by construction");
+        note = "TOOK THE STORED WINDOW HANDOVER instead of replaying its arc seat — see WINDOW "
+               + "HANDOVER: DONE for the millimetres";
+        return true;
+    }
+
+    /// <summary>
+    /// Move <paramref name="panel"/> so that its DRAWN CENTRE lands exactly on the captured point at
+    /// the captured rotation, then rewrite its reservation in place, then READ THE RESULT BACK and
+    /// print the difference. The read-back is the falsifier and it can fail: it re-projects the SAME
+    /// host-local point through the transform after the write, so a non-zero millimetre figure means
+    /// the arithmetic or the frame→host pin is wrong, not that the ink moved.
+    /// </summary>
+    private static void ApplyWindowHandover(ConvertedPanel panel, GrabbableModal grab, string name,
+        string stage)
+    {
+        RectTransform hostRect = panel.HostRect;
+        float worldScale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+        bool inked = TryDrawnCentreLocal(panel, out Vector3 local, out string inkNote);
+
+        Vector3 fromFrame = hostRect.position;
+        Quaternion fromRot = hostRect.rotation;
+        Vector3 fromCentre = hostRect.TransformPoint(local);
+
+        // ROTATE THE RIGID BODY ABOUT ITS OWN DRAWN CENTRE, THEN TRANSLATE THAT CENTRE ONTO THE
+        // TARGET. Written as one expression so the drawn centre is a fixed point of the rotation by
+        // construction — the same shape as the release re-face's pivot arithmetic, and the reason a
+        // window whose ink fills its frame sees the identity here.
+        Quaternion delta = _handoverRot * Quaternion.Inverse(fromRot);
+        Vector3 toFrame = _handoverCentreWorld - delta * (fromCentre - fromFrame);
+        // ANNOUNCE IT TO THE POSE LOCK, as a PLACEMENT, which is what it is. Without this the lock
+        // classifies the write as Unattributed and writes the locked pose straight back — and it
+        // would do that only in the ALREADY-REVEALED case, i.e. the "the Character-UI was already
+        // open" branch, which is exactly the one a pre-reveal test would never reach. Writer
+        // .Placement is the same token the spawn, the presence-regain refloat and the pre-reveal
+        // re-place carry: allowed, and NOTED once per window. The narrower ruling that a window the
+        // PLAYER moved is his forever is honoured a level up, by refusing the whole handover on
+        // GrabbableModal.UserMoved.
+        PanelPoseWatch.Announce(panel, PanelPoseWatch.Writer.Placement,
+            "ModalFallback's window handover — the arriving window is taking the place of "
+            + $"'{_handoverFrom}' at the user's 2026-08-24 request");
+        grab.PlaceFrameAt(toFrame, _handoverRot);
+
+        // ---- THE FALSIFIER. Same host-local point, transform written; nothing re-measured. -------
+        Vector3 landedCentre = hostRect.TransformPoint(local);
+        float missMm = Vector3.Distance(landedCentre, _handoverCentreWorld) / worldScale * 1000f;
+        float missYawDeg = Quaternion.Angle(hostRect.rotation, _handoverRot);
+        float centreMovedMm = Vector3.Distance(fromCentre, landedCentre) / worldScale * 1000f;
+        float frameMovedMm = Vector3.Distance(fromFrame, hostRect.position) / worldScale * 1000f;
+        float originGapMm = Vector3.Distance(hostRect.position, _handoverCentreWorld)
+                            / worldScale * 1000f;
+
+        string seatNote = RewriteHandoverSeat(panel, hostRect, local, worldScale);
+
+        VRLog.Info("WorldUI",
+            $"WINDOW HANDOVER: DONE ({_handoverTrigger}) — '{name}' has taken the place of "
+            + $"'{_handoverFrom}', {stage}. CAPTURED POSE of the leaving window: drawn centre "
+            + $"({_handoverCentreWorld.x:F2},{_handoverCentreWorld.y:F2},{_handoverCentreWorld.z:F2}) "
+            + $"world units, yaw {_handoverRot.eulerAngles.y:F1}°. THE ARRIVING WINDOW'S RESULT, "
+            + $"READ BACK OFF ITS TRANSFORM AFTER THE WRITE (not asserted): drawn centre "
+            + $"({landedCentre.x:F2},{landedCentre.y:F2},{landedCentre.z:F2}), yaw "
+            + $"{hostRect.rotation.eulerAngles.y:F1}° — DIFFERENCE {missMm:F1} mm and "
+            + $"{missYawDeg:F2}° of yaw. ANYTHING ABOVE ~1 mm HERE IS A BUG IN THIS METHOD: the "
+            + "landing point is the SAME host-local point re-projected through the transform, so it "
+            + "measures the arithmetic and the frame→host pin, never the ink. IT MOVED: the drawn "
+            + $"centre travelled {centreMovedMm:F0} mm and the frame origin {frameMovedMm:F0} mm — "
+            + "the two differ by exactly the offset of this window's content inside its own frame, "
+            + $"which is why the frame is NOT the invariant (its origin now sits {originGapMm:F0} mm "
+            + $"from the point the player is looking at). MEASURED ON: {inkNote}"
+            + (inked ? string.Empty
+                     : ". WARNING — THE INK FALLBACK IS IN USE and this swap is only as good as the "
+                       + "assumption that this window's content is centred in its frame")
+            + ". THE ARC RESERVATION: " + seatNote
+            + ". USER REQUEST THIS LINE ANSWERS: \"ich hätte gerne dass sie sich an exakt der selben "
+            + "Stelle auswechseln. Aktuell spawnt die Character-UI noch im Halbkreis daneben\". "
+            + "NOTHING WENT ON THE WIRE: the captured pose is the SHARED window's, which record 21 "
+            + "already keeps 1:1 on every client, and the arriving window is private — so every "
+            + "client computes this same target from the same input and needs no new traffic.");
+    }
+
+    /// <summary>
+    /// Rewrite the arriving panel's registry entry IN PLACE with the inherited direction, distance,
+    /// depth term and promise-frame, keeping its own angular widths. Returns the text the handover
+    /// line prints. Writes nothing when the arriving window holds no slot — a placement with no
+    /// reservation is a real state (the registry can be full) and it is reported, not invented.
+    /// </summary>
+    private static string RewriteHandoverSeat(ConvertedPanel panel, RectTransform hostRect,
+        Vector3 inkLocal, float worldScale)
+    {
+        int slot = -1;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (ReferenceEquals(_arcClaims[i].Panel, panel))
+            {
+                slot = i;
+                break;
+            }
+        }
+        if (slot < 0)
+        {
+            return "NOT TRANSFERRED — the arriving window holds no reservation of its own to rewrite "
+                   + (_handoverSeatSlot >= 0
+                       ? $"(the leaving window's slot {_handoverSeatSlot} was released and is now "
+                         + "free). CONSEQUENCE: the next window to open can be seated through this "
+                         + "one. This is reachable only with a full registry"
+                       : "and the leaving window held none either, so there was nothing to transfer");
+        }
+
+        // WHERE IT NOW IS, measured from the head — not from what was asked for. A seat is a
+        // direction and a distance, and the window has just been written; reading the registry back
+        // would be reading our own claim [[a-claim-must-not-measure-itself]].
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null && _handoverSeatSlot < 0)
+        {
+            // BOTH SOURCES OF A DIRECTION ARE GONE — no head to measure the landed one from and no
+            // inherited one to copy. Writing world yaw 0° here would book a seat pointing at world
+            // forward, which is a lie the packer would then honour for every later window. Leaving
+            // the entry exactly as it is books a seat that is merely STALE, and the arc audit's
+            // live-vs-reserved drift is the instrument that already reports that.
+            return "NOT REWRITTEN — there is no head camera to measure the landed direction from and "
+                   + "the leaving window held no reservation to inherit one from, so the arriving "
+                   + "window keeps the interval it already had. The POSE was still handed over; only "
+                   + "the reservation is stale, and MAP ROOM ARC AUDIT's live-vs-reserved drift is "
+                   + "where that shows up";
+        }
+        Vector3 centre = hostRect.TransformPoint(inkLocal);
+        float seatYaw = _handoverSeatWorldYaw;
+        float seatDist = _handoverSeatDistWorld;
+        string measuredFrom;
+        if (head != null)
+        {
+            Vector3 toCentre = centre - head.transform.position;
+            Vector3 flat = new Vector3(toCentre.x, 0f, toCentre.z);
+            if (flat.sqrMagnitude > 1e-6f)
+                seatYaw = WorldYawDeg(flat);
+            seatDist = Mathf.Max(toCentre.magnitude, 1e-3f);
+            measuredFrom = "measured live from the head to the landed drawn centre";
+        }
+        else
+        {
+            measuredFrom = "copied from the leaving window's registry entry — no head camera was "
+                           + "available to measure the landed direction, which is the degraded path";
+        }
+        if (seatDist <= 1e-3f)
+            seatDist = Mathf.Max(_handoverSeatDistWorld, WindowDistanceMeters * worldScale);
+
+        // The angular widths stay THIS window's own: they are a property of what it draws, measured
+        // through the same instrument every other seat in the registry is measured through.
+        float halfWidthWorld = Mathf.Max(hostRect.rect.width * 0.5f * Mathf.Abs(hostRect.lossyScale.x),
+            1e-4f);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, seatDist);
+
+        ArcClaim held = _arcClaims[slot];
+        float heldYaw = _arcSeatWorldYaw[slot];
+        float heldHalf = held.HalfWidthDeg;
+        // Release our own entry before the depth ladder and the overlap reader run, or this window
+        // collides with itself — the fuse-that-counted-the-player lesson, in miniature.
+        _arcClaims[slot] = default;
+
+        float hostWorldYaw = seatYaw - geo.OffsetDeg;
+        ArcSeatFootprint(hostWorldYaw, geo.FrameHalfDeg, geo.OffsetDeg, geo.DrawnHalfDeg,
+            out float footYaw, out float footHalf);
+        int rank = ArcSeatDepthLevel(footYaw, footHalf, slot, out string blockers);
+        float overlapDeg = ArcSeatWorstOverlapDeg(seatYaw, geo.DrawnHalfDeg, out string overlapWith);
+
+        float gazeRef = _handoverSeatSlot >= 0 ? _handoverSeatGazeYaw : held.SpawnGazeWorldYaw;
+        held.CentreDeg = Mathf.DeltaAngle(gazeRef, seatYaw);
+        held.SpawnGazeWorldYaw = gazeRef;
+        held.HalfWidthDeg = geo.DrawnHalfDeg;
+        held.DrawnOffsetDeg = geo.OffsetDeg;
+        held.FrameHalfWidthDeg = geo.FrameHalfDeg;
+        held.DistanceWorld = seatDist;
+        held.OverlapRank = rank;
+        // The depth term a presence-regain refloat replays. Derived from the distance this window
+        // now actually hangs at rather than inherited verbatim, so a refloat reproduces the DISTANCE
+        // and not merely the leaving window's ladder rung.
+        held.DepthPullMeters = (WindowDistanceMeters * worldScale - seatDist) / worldScale;
+        held.OverlapDeg = overlapDeg;
+        _arcClaims[slot] = held;
+        _arcSeatWorldYaw[slot] = seatYaw;
+
+        return $"TRANSFERRED, not re-claimed. Slot {_handoverSeatSlot} (the leaving window's) was "
+               + $"released at the edge and slot {slot} — the arriving window's OWN entry — was "
+               + $"rewritten in place: its drawn centre moves from world yaw {heldYaw:F0}°±"
+               + $"{heldHalf:F0}° to {seatYaw:F0}°±{geo.DrawnHalfDeg:F0}° at {seatDist / worldScale:F2} m "
+               + $"({measuredFrom}), inheriting the leaving window's promise frame (spawn gaze "
+               + $"{gazeRef:F0}°) so the arc audit grades this seat in the frame it was promised in. "
+               + $"ITS DEPTH TERM IS DERIVED FROM THE DISTANCE IT NOW HANGS AT, {held.DepthPullMeters:F2} m "
+               + $"against the leaving window's {_handoverSeatDepthPull:F2} m — a presence-regain "
+               + "refloat therefore reproduces the PLACE, not the leaving window's ladder rung. "
+               + $"ITS ANGULAR WIDTHS ARE STILL ITS OWN: {geo.Note}. Depth level {rank} against "
+               + $"[{blockers}]"
+               + (overlapDeg > 0.5f
+                   ? $", and it still overlaps '{overlapWith}' by {overlapDeg:F0}° in angle, which "
+                     + "is what the depth level is for"
+                   : ", overlapping nothing in angle")
+               + ". NO SECOND SEAT WAS TAKEN and no other window was moved";
     }
 }

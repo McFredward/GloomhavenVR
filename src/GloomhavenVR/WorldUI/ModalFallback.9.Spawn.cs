@@ -1759,6 +1759,36 @@ internal static partial class ModalFallback
         if (!fitDone || scalePending)
             return; // still settling — retry next tick, bounded by the reveal deadline
 
+        // A STORED WINDOW HANDOVER OUTRANKS THE ARC REPLAY, AND IT IS THE SAME ONE-SHOT RATHER THAN
+        // A SECOND WRITER (ModBuild 242 — see the handover block at the end of ArcSeats.cs). When
+        // one floated window has just been withdrawn and another was told to take its exact place,
+        // replaying the arc seat here would put the arriving window straight back beside the window
+        // it was supposed to replace: that is literally what his ModBuild 241 log records, the
+        // Character-UI re-confirming world yaw 140° at :9100/:9101 fifty lines after the story
+        // window was withdrawn at :9050. Consuming the handover here instead re-measures the ink
+        // against the FINAL rect — the one moment the real geometry exists while the window is
+        // still render-hidden — so the correction is invisible for the same reason this whole
+        // method is.
+        Vector3 handoverFrom = panel.HostGo.transform.position;
+        if (TryConsumeHandover(panel, grab, out string handoverNote))
+        {
+            panel.PoseRePlaced = true;
+            panel.PoseRePlacedFrom = handoverFrom;
+            panel.PoseRePlacedTo = panel.HostGo.transform.position;
+            panel.PoseRePlaceReason = handoverNote;
+            done = true;
+            return;
+        }
+        if (handoverNote.Length > 0)
+        {
+            // NEVER SILENTLY: a handover that could not be consumed leaves the window on the pose
+            // written at the withdrawal edge and lets the arc replay below run over it, which looks
+            // exactly like the fix not working.
+            VRLog.Warn("WorldUI", $"MODAL POSE RE-PLACE: '{panel.HostGo.name}' — {handoverNote}. The "
+                                  + "ordinary arc re-place runs from here, so this window may be "
+                                  + "moved off the place it was handed.");
+        }
+
         // Replay the spawn placement against the FINAL rect + FINAL extraScale. The grab carries
         // the scale (SetExtraScale, step 5b), so only position/rotation are re-derived here.
         Vector2 half = PanelWorldHalfSize(panel, anchor.Scale * extraScale);

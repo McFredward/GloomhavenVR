@@ -1611,6 +1611,7 @@ internal static class StoryComposite
                                   + "This claim's second clause is exactly the absence of that state, "
                                   + "re-measured every tick with this window excluded from the answer, "
                                   + "so it cannot be true while the control is only reachable here.");
+                HandOverToCharacterUI(loadout);
             }
         }
         else if (!want && _backdropStanding)
@@ -1641,6 +1642,96 @@ internal static class StoryComposite
         }
         _backdropStanding = want;
         ReportBackdrop(loadout, terminator);
+    }
+
+    /// <summary>
+    /// TRUE once this quest's handover has been attempted. The swap is a ONE-SHOT per
+    /// point-of-no-return gate, for the same reason the backdrop claim's cycle budget is: a claim
+    /// that lapses and is raised again is the SAME quest, and swapping twice would move a window the
+    /// player may well have been reading for the whole interval in between.
+    /// </summary>
+    private static bool _handoverDone;
+
+    /// <summary>
+    /// HAND THE STORY WINDOW'S PLACE TO THE CHARACTER-UI — one shot, at the withdrawal edge.
+    ///
+    /// <para><b>USER REPORT (2026-08-24, testing ModBuild 241), verbatim:</b> <i>"Nachdem die Story
+    /// vorbei ist verschwindet das Fenster und stattdessen kommt die Character-UI wieder (was
+    /// gewollt ist) — ich hätte gerne dass sie sich an exakt der selben Stelle auswechseln. Aktuell
+    /// spawnt die Character-UI noch im Halbkreis daneben — obwohl das Fenster ja bereits verschwunden
+    /// ist."</i></para>
+    ///
+    /// <para><b>THE MECHANISM.</b> Nothing about the withdrawal changes. The Character-UI has already
+    /// floated by the time this runs — it MUST have, because the backdrop claim's deadlock clause
+    /// only stands while the continue control is parked inside it — and it was seated by the arc
+    /// allocator at a moment when the story window still held its reservation, so the allocator did
+    /// the only correct thing available to it and put the Character-UI beside it. His log:
+    /// <c>:9037 'New Party display' claimed reservation 0 at 60° from the spawn gaze, world yaw
+    /// 140°</c> against the story window's <c>-4°±24° (world 76°)</c> — 32° of separation, and the
+    /// pre-reveal re-place at <c>:9101</c> confirms it with
+    /// <c>*** OUTSIDE THE FIELD OF VIEW by 16° ***</c>. What was missing is a HANDOVER, and this is
+    /// it: <c>ModalFallback.BeginWindowHandover</c> captures the story window's LIVE pose on this
+    /// tick — the last tick it is still floated — and moves the Character-UI so that its DRAWN
+    /// CENTRE lands on the story window's DRAWN CENTRE, transferring the arc reservation rather than
+    /// releasing one and claiming another.</para>
+    ///
+    /// <para><b>WHY THE LIVE POSE AND NOT THE SPAWN POSE.</b> The story window is the SHARED (blue)
+    /// window: <c>SharedWindowIdentity</c> gives it <c>SharedWindowKind.MapStory</c> and wire record
+    /// 21 (<c>Net.RemoteMapStory</c>) syncs its pose 1:1, so a PEER may have dragged it, the local
+    /// player may have dragged it, and a shared window deliberately never re-faces. Where it stands
+    /// at this instant is a fact about the world; where it was placed is a fact about the packer.
+    /// Only the first one is what he is looking at.</para>
+    ///
+    /// <para><b>WHAT IS NOT CLAIMED.</b> Not the scale — the Character-UI keeps its own legibility
+    /// scale, because "dieselbe Stelle" is a place and not a size, and its scale is derived from its
+    /// own fitted width. Not the rect — the two windows draw different content at different widths
+    /// and never could share one. See the handover block in ArcSeats.cs for the rest, including the
+    /// millimetre reason the frame origin is the wrong invariant.</para>
+    /// </summary>
+    private static void HandOverToCharacterUI(UIWindow loadout)
+    {
+        if (_handoverDone)
+            return;
+        _handoverDone = true;
+        ModalFallback.BeginWindowHandover(loadout, CharacterWindow(),
+            "the quest intro is over and the loadout backdrop claim has just been raised, so this "
+            + "is the last tick the story window is still floated");
+    }
+
+    /// <summary>
+    /// THE WINDOW THE MOD IS FLOATING WHOSE ID IS <c>PartyPanel</c> — the map room's Character-UI.
+    ///
+    /// <para>Identified by the window's own serialized <c>ID</c> over the set of windows the mod is
+    /// actually floating, which is <c>LoadoutConfirmPark.CharacterWindow</c>'s identity exactly and
+    /// for the reason written there: there are TWO <c>UIWindow</c> components one level apart in
+    /// that hierarchy and no containment test can separate them ([[containment-is-not-identity]]).
+    /// The float-set half is what makes the answer a window that HAS a host rect and a grab frame to
+    /// be moved by. Null while it is not floated is the CORRECT answer, and the handover's own
+    /// refusal line says what that means.</para>
+    /// </summary>
+    private static UIWindow? CharacterWindow()
+    {
+        FloatScratch.Clear();
+        try
+        {
+            ModalFallback.CollectFloatedWindows(FloatScratch, null);
+            for (int i = 0; i < FloatScratch.Count; i++)
+            {
+                UIWindow w = FloatScratch[i];
+                if (w != null && w.ID == UIWindowID.PartyPanel)
+                    return w;
+            }
+        }
+        catch (System.Exception)
+        {
+            // A reader that throws must not take the withdrawal edge down with it; null reads as
+            // "not floated" and the handover reports that in its own words.
+        }
+        finally
+        {
+            FloatScratch.Clear();
+        }
+        return null;
     }
 
     /// <summary>
@@ -2992,6 +3083,10 @@ internal static class StoryComposite
         _backdropLifted = false;
         _backdropVerdict = string.Empty;
         _backdropReports = 0;
+        // ModBuild 242 — AND THE HANDOVER IS RE-ARMED HERE AND ONLY HERE, for the same reason as the
+        // budget above: a new point-of-no-return edge is a new quest, with a new story window to
+        // hand a place over from.
+        _handoverDone = false;
         _backdropWhy = "the loadout backdrop claim is not standing; that window is nobody's "
                        + "responsibility but its own";
         // And the floor's stand-down is per gate for the same reason: whatever was unreachable
@@ -4114,6 +4209,7 @@ internal static class StoryComposite
         _backdropCapReported = false;
         _backdropVerdict = string.Empty;
         _backdropReports = 0;
+        _handoverDone = false;
         _backdropWhy = "the loadout backdrop claim has been torn down with the module";
         _storyGameOpenAt = float.NegativeInfinity;
         if (_gateOpen)
