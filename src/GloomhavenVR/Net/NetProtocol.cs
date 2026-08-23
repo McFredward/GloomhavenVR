@@ -416,7 +416,140 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 233;
+    public const ushort ModBuild = 234;
+    // Build 234: THE REVIVAL FIRED ONE WINDOW TOO LATE, AND A WINDOW BOOKED 88 DEGREES TO DRAW 14.
+    // NO WIRE CHANGE. Version byte stays 3, no record moves, MaxSize unmoved. Bundle untouched
+    // (70,218,494 bytes, unchanged since 172). Three lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 (UNCHANGED — no new
+    // Harmony patch this build).
+    //
+    //   WHAT LANDED FIRST, WITH ITS OWN PROOF: ModBuild 233's composite WORKS. The falsifier built
+    //   for exactly this printed "STORY COMPOSITE ONE WINDOW: CONFIRMED" on hardware and story2.jpg
+    //   shows it — one window, illustration above, dialog below, shared blue bar, no X. Three builds.
+    //
+    //   1a. HIS QUESTION ANSWERED FROM THE LOG: there was simply no illustration yet at story1.jpg.
+    //   The window that OWNS it (UILoadoutManager.questInfo.imagePaper) is not shown until 439 lines
+    //   AFTER the story box. And the two screenshots are TWO SEPARATE OPENINGS of the story window,
+    //   each with its own [AREA MANAGER] Register area StoryBox — the map's quest-start message
+    //   chain, then EMapMessageTrigger.Loadout from UILoadoutQuestWindow.ShowIntroductionText. Not
+    //   two pages of one window, which is what I had assumed.
+    //
+    //   1b. THE GAP WAS 888 PIXELS AGAINST A SETTING OF 24. MapStoryController.dialogBox is a tall,
+    //   mostly transparent rect whose painted strip is pinned to its BOTTOM; 231 measured the
+    //   authored rect. The fit line has both numbers in one breath: picture bottom 540, painted
+    //   dialog top -348. [[tight-box-is-not-the-rect]] again — and note 231 picked the right OBJECT
+    //   and the wrong one of its TWO RECTS. Now unioned over the graphics CanvasConversion's own
+    //   CountsAsFitContent counts, on BOTH rects, re-measured every tick because the dialog grows
+    //   with the text (168 px at three lines, 270 at eight).
+    //   THE HEIGHT FIXES ITSELF: the empty band was INSIDE the fitted rect and the content was
+    //   overflowing the 1080 px frame by 1555 px ("[frame-clamped]"). 720+24+270 = 1014 fits, so the
+    //   clamp stops firing. No new machinery and no height dial.
+    //
+    //   1c. THE STORY CURTAIN — the gate moves EARLIER and closes MORE, on the user's ruling: "Ich
+    //   möchte aber das zu diesem Zeitpunkt alle anderen Fenster verschwinden und nur dieses Fenster
+    //   sichtbar ist (Point of no return überschritten)." The story box opened 480 lines BEFORE the
+    //   loadout screen, so at story1.jpg's moment the gate had not fired and the quest info, the
+    //   quest log and a gold panel were all still standing.
+    //   THE EDGE IS THE GAME'S OWN STATEMENT, not a heuristic: MapStoryController.isVisibleOtherUI,
+    //   written by ShowOtherGUI(!message.HideOtherGUI). Three properties follow from that rather
+    //   than from a guess — it is change-gated so it fires ONCE PER CHAIN not per page; only a
+    //   quest-start message carries HideOtherGUI (the loadout intro passes hideOtherUI:false
+    //   explicitly, as do temple/achievement/town-records); and the flat client hides its own UI at
+    //   exactly this moment, which is presentation parity rather than a mod invention.
+    //   PointOfNoReturn is WIDENED to a union rather than given a second gate, so there is still
+    //   exactly ONE OPENED line, ONE named-set close and ONE lock/unlock pair per quest.
+    //   MEMBERSHIP IS FROZEN AT THE EDGE. That is the whole difference from ModBuild 231, whose
+    //   exclusion was re-evaluated every tick and therefore swallowed the loadout sequence's own
+    //   windows the moment they opened. The loadout screen, the battle-goal picker, the party
+    //   display and the popup the loadout re-shows all open AFTER the edge and can never be members.
+    //   THE QUEST LOG IS WITHHELD, NOT CLOSED — a narrow, interval-only reversal of the map-room
+    //   permanence ruling. CloseFloatedWindow still refuses it, the escape chord still skips it, it
+    //   still has no X; only its FLOAT is withheld, and at every other moment permanence governs.
+    //   The lever is a FloatRefusalTable row and not ReleaseFloatsExcept, for the reason that
+    //   method's rewritten note now states: a release lasts one tick because the catch-all re-enrols
+    //   the still-open window, and re-enrolment is what the churn fuse COUNTS. A refusal is asked at
+    //   the top of that loop and continues before the count.
+    //   KNOWN SIDE EFFECT, STATED RATHER THAN BURIED: MapButtonRail.Pressable reads PointOfNoReturn,
+    //   so the guildmaster caps now also go dead during any map message the game hides its own UI
+    //   for — travel and intro chains as well as quest starts — then unlock. Self-limiting (20 s
+    //   ceiling on the bridge); the fail direction is a merchant unreachable for a few extra
+    //   seconds, never one that stays unreachable.
+    //
+    //   2a. THE REVIVAL WAS CORRECT AND FIRED ONE WINDOW TOO LATE. ModBuild 233's SubViewRevival
+    //   lifted the hold on 'New Party display' — one line AFTER the catch-all had already floated
+    //   'UI Battle Goal Picker Window' alone. The picker then ended up ADOPTED into the revived host
+    //   AND CONVERTED into a host of its own. Questauswahl.jpg is that state.
+    //   MY HYPOTHESIS FOR WHY WAS WRONG AND THE LANE PROVED IT: I said the picker had "only just
+    //   opened". Its Show is SIX LINES EARLIER than the sibling the revival did fire for — it was
+    //   the OLDER of the two. The failing term is DrawsAnythingLoose ON THE CHILD, established by
+    //   ELIMINATION (host open per WINDOW IDENTITY; child open because it survived the !IsOpen prune
+    //   and was floated; budget untouched because the revival that DID fire reports 1/2, so the
+    //   picker's call never reached the counter). The mechanism: UIWindow.IsOpen flips at the START
+    //   of the show transition — m_CurrentVisualState is assigned before StartAlphaTween — while the
+    //   CanvasGroup alpha climbs from 0 against a 0.05 floor. A WINDOW IS OPEN AND NOT DRAWING FOR
+    //   THE LENGTH OF ITS FADE, and CatchAllGraceTicks is 2. It was a per-child coin flip.
+    //   FIXED BY PREVENTION: the precondition now measures the HOST'S OWN SUBTREE — literally the
+    //   call EmptyHeldNow makes to lift the hold, so the revival is a same-tick fast path for a lift
+    //   that was coming within 167 ms anyway and can never be a weaker second copy of a visibility
+    //   test. Provably sufficient for the reported trace: DrawsAnythingLoose is a subtree walk, so
+    //   the sibling measured drawing at the next line proves the host was drawing on that same tick.
+    //   PLUS A RETRACTION AS THE INVARIANT, because prevention cannot cover the ordering where the
+    //   descendant floated on an EARLIER tick — from then on `oursAlready` short-circuits its
+    //   evaluation forever. Live floats are matched by ConvertedPanel.OriginalParent and NOT by live
+    //   parent: a converted window has already been reparented out of the host, which is why every
+    //   hierarchy test reads clean and why this went unseen for a build.
+    //   NO NEW NUMBER: MaxRevivalsPerWindow is now COMPUTED as ChurnMaxFloats - 1. One cycle costs
+    //   the sub-view exactly one churn count; budget plus the one fallback float must stay at or
+    //   under the fuse or the name is session-suppressed and shown NOWHERE (ModBuild 231 verbatim).
+    //   Same inequality StoryComposite.MaxWithdrawCycles derives, reached from the other side.
+    //   NEW WARNING 'DOUBLE HOST': fires when a window holds a conversion of its own while its
+    //   Canvas is in another host's adoption list. It tests the adoption RECORD, not the hierarchy.
+    //
+    //   2b. THE HALF CIRCLE, AND A WINDOW THAT BOOKED 88 DEGREES TO DRAW 14. His five windows asked
+    //   for 233 degrees of arc; the allocator was packing them into the headset's COMFORTABLE
+    //   READING CONE, measured at ±32° from his own projection matrix. From the third window on,
+    //   every placement logged "NO free interval is left inside the cone" and the overflow branch
+    //   put it back in the middle. Working as designed; the design answered the wrong question.
+    //   PLACEMENT NOW HAS ITS OWN ARC — ±90°, applied to each window's EDGES so no part of any
+    //   window crosses behind the shoulder — and the reading cone keeps its real job: it GRADES each
+    //   seat (COMFORT BAND / IN VIEW / HEAD TURN) instead of being the packing area.
+    //   ModBuild 192's rejection of ±85° is answered by the SEARCH ORDER, not by the bound: 192 used
+    //   FIXED seats indexed by window count, so the fourth went outward whether or not the middle
+    //   was free. This takes the free interval NEAREST THE CURRENT GAZE, so the outer arc is reached
+    //   only when everything closer is genuinely occupied.
+    //   A LATENT FRAME BUG THAT ±90° WOULD HAVE DETONATED: claims were stored in gaze-relative
+    //   degrees and compared to each other as if they shared a frame. A 40° head turn between two
+    //   spawns makes +10° and +50° THE SAME WORLD DIRECTION while the registry swears they are 40°
+    //   apart. Bounded by the cone at ±32° and invisible in his log (2.6° of drift); at ±90° it
+    //   would alias two windows onto one spot AND print a line proving they were apart. Seats are
+    //   now held in absolute world yaw.
+    //   THE CO-DOMINANT CAUSE: 'New Party display' reserved 88° and drew 14°. Its host rect is
+    //   1988 px wide and the character column renders 328 px of it at the far left — 1648 px of
+    //   empty transparent frame, and the reservation was measured from the frame. ANGLE IS NOW
+    //   DECIDED BY WHAT A WINDOW DRAWS (width AND offset), DEPTH BY WHAT IT FRAMES.
+    //   THE HAZARD WAS REAL AND IS OLDER THAN THIS BUILD: the hit rect IS the host rect for that
+    //   window — a 2.087 x 1.134 m invisible collider around a 0.34 m column — and RayUguiDriver
+    //   awards a click to the NEAREST plane. In ModBuild 233 that sheet sits at 1.04 m, nearer than
+    //   three other windows, so FOUR windows were already behind it with no depth protection. The
+    //   remedy is a 0.04 m depth step for a window whose transparent frame overhangs a neighbour's
+    //   content (3.2 % smaller, and it is the ONLY remedy that never moves a window already
+    //   standing) rather than shrinking the hit rect, whose "always contains the host rect" contract
+    //   the ray, poke, grab and close-X geometry all rest on.
+    //   AND THE RULE GENERALISES BOTH WAYS: 'New Party display' is the only phantom frame in the
+    //   room, but three of the other four DRAW WIDER THAN THEIR FRAME (the quest popup 512 -> 590,
+    //   the battle-goal picker 535 -> 566), so the old rule UNDER-reserved for them and two windows
+    //   28° apart could visibly touch. "Reserve the drawn union, offset included" is simply the
+    //   correct rule and is applied to every window with no per-window knowledge anywhere.
+    //   MEASURED AGAINST HIS EXACT BURST: overlapping pairs 9 -> 3 (half circle alone) -> 1; clear
+    //   seats 0/5 -> 3/5; windows sitting behind an invisible frame 4 -> 0.
+    //   THE RESIDUAL IS STATED, NOT HIDDEN: one pair still overlaps because the room is at 93 % arc
+    //   occupancy (167.8° of 180°). A greedy first-come packer that may never re-pack a placed
+    //   window will leave a hole at that density, and re-packing is what the standing ruling forbids
+    //   ("ohne explizite Bewegung vom User, sollen sie ihre Position nicht verändern"). The audit
+    //   line names the pair.
+    //   KNOWN COST: the arc audit takes a fresh content walk per standing window per placement
+    //   (~85 us x N). On a presence-regain refloat — the one path that re-places every open window
+    //   in a single frame — that is O(N^2), about 11 ms, on top of an event that already hitches.
     // Build 233: A LISTENER THAT THREW TOOK THE REST OF THE CHAIN WITH IT, AND A PICTURE PARKED AT 0x0.
     // NO WIRE CHANGE. Version byte stays 3, no record moves, MaxSize unmoved. Bundle untouched
     // (70,218,494 bytes, unchanged since 172). Three lanes on disjoint files.

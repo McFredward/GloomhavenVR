@@ -1528,6 +1528,54 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// THE FLOATED WINDOWS, AS OBJECTS — appended to <paramref name="into"/>, skipping
+    /// <paramref name="skip"/> and anything already flagged for release. ModBuild 234's story
+    /// curtain takes exactly one of these snapshots, at its rising edge, and FREEZES it: see
+    /// <see cref="ReleaseFloatsExcept"/>'s note for why an exclusion is safe when it is evaluated
+    /// once and fatal when it is evaluated every tick.
+    ///
+    /// <para>This is the object-valued sibling of <see cref="CountFloatsOtherThan"/> and it is
+    /// deliberately a plain reader: it closes nothing, releases nothing and writes nothing, so the
+    /// caller owns the whole of the decision and the log line that goes with it.</para>
+    /// </summary>
+    /// <returns>How many windows were appended.</returns>
+    internal static int CollectFloatedWindows(List<UIWindow> into, UIWindow? skip)
+    {
+        int n = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            if (skip != null && ReferenceEquals(wp.Window, skip))
+                continue;
+            into.Add(wp.Window);
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// The <see cref="ConvertedPanel"/> this window is floated in, or null when it is not floated.
+    ///
+    /// <para>Exists so <c>StoryComposite</c> can ask <c>CanvasConversion.CountsAsFitContent</c> —
+    /// THE FIT'S OWN VISIBILITY VERDICT — which graphics of the story window are actually PAINTED.
+    /// [[tight-box-is-not-the-rect]]: ModBuild 231-233 placed the quest picture against
+    /// <c>MapStoryController.dialogBox</c>'s authored RectTransform, which is a tall, mostly
+    /// transparent host; the drawn dialog is the small 'Dialog/DialogContent' rect at its very
+    /// bottom, and the difference was 786-888 authored px of black between the picture and the text.
+    /// A panel is what that verdict needs (it does the clipper and authored-offset arithmetic
+    /// host-relative), so it is handed out here rather than re-derived.</para>
+    /// </summary>
+    internal static ConvertedPanel? PanelFor(UIWindow? window)
+    {
+        if (window == null)
+            return null;
+        WindowPanel? wp = FindPanel(window);
+        return wp != null && wp.Panel.IsAlive ? wp.Panel : null;
+    }
+
+    /// <summary>
     /// RELEASE EVERY FLOATED WINDOW EXCEPT ONE — presentation only, no game state, nothing on the
     /// wire. Returns how many were released and fills <paramref name="names"/> with their names for
     /// the caller's log line.
@@ -1562,16 +1610,46 @@ internal static partial class ModalFallback
     /// <para>The kept window is compared by REFERENCE and may be null, in which case everything
     /// goes.</para>
     ///
-    /// <para><b>ModBuild 232 — NO CALLERS, AND THAT IS DELIBERATE. DO NOT REACH FOR THIS.</b> Its
-    /// only caller was <c>StoryComposite</c>'s point-of-no-return gate, and it was half of the
-    /// deadlock that cost a session: an exclusion rule ("everything except one") cannot promise what
-    /// it is pointing at, so the pre-scenario loadout sequence's own windows — the story box, the
-    /// quest popup, the battle-goal picker, the party display — were all inside its scope the moment
-    /// they opened. The replacement asks the opposite question: a NAMED set enumerated from the
-    /// game's own singletons, closed through <see cref="CloseFloatedWindow"/>, so anything not named
-    /// is out of scope by construction rather than by luck. If a future round needs "close these
-    /// specific floats", add a predicate-shaped entry point beside this one — never resurrect the
-    /// exclusion.</para>
+    /// <para>=================================================================================
+    /// ModBuild 234 — THE "DO NOT REACH FOR THIS" NOTE, REWRITTEN, BECAUSE IT SAID THE WRONG THING
+    /// =================================================================================</para>
+    ///
+    /// <para>ModBuild 232 left a note here that ended <i>"never resurrect the exclusion"</i>. That
+    /// sentence is FALSE as written and it is worth exactly one paragraph to say what is actually
+    /// forbidden, because ModBuild 234 was asked for an exclusion — <i>"alle anderen Fenster
+    /// verschwinden und nur dieses Fenster [ist] sichtbar"</i> — and a rule that reads "never" would
+    /// have sent it looking for a worse mechanism.</para>
+    ///
+    /// <list type="number">
+    /// <item><b>FORBIDDEN: a STANDING exclusion.</b> That is what ModBuild 231 shipped — a
+    /// level-triggered re-sweep that kept releasing anything that floated after the edge. An
+    /// exclusion evaluated repeatedly cannot promise what it is pointing at: every window the
+    /// pre-scenario loadout sequence opens (the story box, the battle-goal picker, the party
+    /// display, the loadout screen itself) enters its scope the moment it opens, and 231 duly ate
+    /// all four. The defect is the STANDING part, not the EXCEPT part.</item>
+    ///
+    /// <item><b>SANCTIONED: an exclusion evaluated ONCE, at an edge, and FROZEN into a set of
+    /// window INSTANCES.</b> "Everything floated at this instant except X" is a finite list of
+    /// objects the moment it is taken, and nothing that opens afterwards can join it. That is the
+    /// same membership guarantee <c>StoryComposite.EdgeClosed</c> has, arrived at from the other
+    /// side, and it is what <c>StoryComposite</c>'s ModBuild 234 story curtain uses.</item>
+    ///
+    /// <item><b>AND THIS PARTICULAR ROUTINE IS STILL NOT THE RIGHT LEVER, FOR A REASON THAT HAS
+    /// NOTHING TO DO WITH EXCLUSION.</b> A release is undone by the very next tick: the game window
+    /// is still open, the catch-all finds it in <c>UnknownShown</c>, <c>IsFloatedByUs</c> is now
+    /// false, and it is re-enrolled AND re-counted by the churn fuse
+    /// (<c>ModalFallback.10.CatchAll.cs</c>: <c>FloatChurn[name].Count++</c>, <c>ChurnMaxFloats</c>
+    /// 3). Four release/re-float cycles session-suppress that window's NAME. So a release keeps a
+    /// window away for exactly one tick and pays a fuse count for it. Whatever has to STAY away must
+    /// go through <c>FloatRefusalTable</c> instead, which is asked at the TOP of that loop and
+    /// <c>continue</c>s before the count — a refused window is never enrolled and never counted, and
+    /// <c>WithdrawRefusedFloat</c> takes down a float that already exists.</item>
+    /// </list>
+    ///
+    /// <para><b>SO: STILL NO CALLERS, AND THE HONEST REASON IS (3), NOT (1).</b> Keep it for the case
+    /// it is genuinely right for — a wholesale teardown at a moment when nothing is expected to come
+    /// back (room teardown, scene change). For "these windows must stay away for an interval", use a
+    /// refusal; for "close this window for good", use <see cref="CloseFloatedWindow"/>.</para>
     /// </summary>
     internal static int ReleaseFloatsExcept(UIWindow? keep, out string names)
     {

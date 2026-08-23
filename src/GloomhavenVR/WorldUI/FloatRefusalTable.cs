@@ -7,10 +7,13 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// WHICH CLASS OF REFUSAL A ROW OF <see cref="FloatRefusalTable"/> records. There are exactly two,
-/// and the point of naming them is that they are the two kinds of object for which the catch-all's
-/// default — "float anything you do not recognise, because a dropped window is a silent deadlock" —
-/// is the WRONG default rather than merely an ugly one.
+/// WHICH CLASS OF REFUSAL A ROW OF <see cref="FloatRefusalTable"/> records.
+///
+/// <para>The first two name the kinds of OBJECT for which the catch-all's default — "float anything
+/// you do not recognise, because a dropped window is a silent deadlock" — is the WRONG default
+/// rather than merely an ugly one. The third, added at ModBuild 234, is different in kind: it is not
+/// about what an object IS but about WHEN it may be seen, and its own doc says why that difference
+/// is what keeps it safe.</para>
 /// </summary>
 internal enum FloatRefusalClass
 {
@@ -31,6 +34,21 @@ internal enum FloatRefusalClass
     /// <c>ExtendedScrollRect</c>: "not a window in any sense the player would recognise".
     /// </summary>
     BareControl,
+
+    /// <summary>
+    /// PAST THE POINT OF NO RETURN: an ordinary window, refused for a bounded INTERVAL rather than
+    /// for what it is. The party has committed to a quest, the game itself has hidden the rest of
+    /// its own UI for the story message that says so, and the user's ruling is that only that one
+    /// window may be on screen — <i>"Ich möchte aber das zu diesem Zeitpunkt alle anderen Fenster
+    /// verschwinden und nur dieses Fenster sichtbar ist (Point of no return überschritten)."</i>
+    ///
+    /// <para>THIS CLASS IS DIFFERENT IN KIND FROM THE OTHER TWO AND THE DIFFERENCE IS WHAT KEEPS IT
+    /// SAFE. They say "this object is not a window"; this one says "this window is fine and it is
+    /// not this window's moment". So it is never unconditional, it is never keyed on a component
+    /// type, and it is always about a set of window INSTANCES frozen at one instant — see
+    /// <c>StoryComposite.CurtainMembers</c> and <c>StoryComposite.CurtainRefuses</c>.</para>
+    /// </summary>
+    PastThePointOfNoReturn,
 }
 
 /// <summary>
@@ -52,7 +70,7 @@ internal sealed class FloatRefusalRule
     /// <summary>The game component that identifies this object. Matched on the window's own GameObject.</summary>
     public readonly Type Component;
 
-    /// <summary>Which of the two refusal classes this row is.</summary>
+    /// <summary>Which refusal class this row is.</summary>
     public readonly FloatRefusalClass Class;
 
     /// <summary>One sentence, in the terms the user would use, for why this must not be a window.</summary>
@@ -287,6 +305,47 @@ internal static class FloatRefusalTable
             whyHeld: () => StoryComposite.LoadoutClaimWhy),
     };
 
+    /// <summary>
+    /// ROW 0 — THE STORY CURTAIN (ModBuild 234). It is NOT in <see cref="Rules"/> and it must never
+    /// be put there: every entry in that array is matched by <c>GetComponent(rule.Component)</c>, and
+    /// this row's subject is a set of window INSTANCES rather than a component type. Its
+    /// <c>Component</c> is <c>typeof(UIWindow)</c> only because the record demands a type, and it
+    /// would match EVERY window if the loop were ever allowed to see it. It is consulted by the
+    /// explicit check at the top of <see cref="Refuses(UIWindow?, out FloatRefusalRule?)"/> instead.
+    ///
+    /// <para><b>WHY AN INSTANCE SET IS A LEGITIMATE SHAPE HERE, GIVEN THAT ModBuild 231's EXCLUSION
+    /// COST A SESSION.</b> 231 re-evaluated "everything except one" every tick, so the pre-scenario
+    /// loadout sequence's own windows entered its scope the moment they opened and it closed all
+    /// four. <c>StoryComposite</c> evaluates the exclusion ONCE, at the rising edge, and freezes the
+    /// result: nothing that opens afterwards can join the set, which is the same membership
+    /// guarantee <c>StoryComposite.EdgeClosed</c> has. The claim is additionally bounded by the
+    /// composite's honesty clause (it lapses within a tick unless the mod is floating the story box
+    /// or the loadout screen), by the gate, by a cycle cap derived from <c>ChurnMaxFloats</c>, and by
+    /// the deadlock floor.</para>
+    ///
+    /// <para><b>AND IT IS THE RIGHT LEVER RATHER THAN A RELEASE</b> for the reason
+    /// <c>ModalFallback.ReleaseFloatsExcept</c>'s note now states: a release lasts one tick, because
+    /// the catch-all re-enrols the still-open window — and re-enrolment is what the churn fuse
+    /// COUNTS. A refusal is asked at the top of that loop and <c>continue</c>s before the count.</para>
+    /// </summary>
+    private static readonly FloatRefusalRule CurtainRow = new(
+        typeof(UIWindow), FloatRefusalClass.PastThePointOfNoReturn,
+        "the party has committed to a quest and the game itself has hidden the rest of its own UI "
+        + "for the story message that says so (MapStoryController.isVisibleOtherUI is false, set by "
+        + "ShowOtherGUI(!message.HideOtherGUI)). This window was one of the ones the mod was "
+        + "floating at that instant, and the user's ruling for that instant is that only the story "
+        + "box may be on screen: \"Ich möchte aber das zu diesem Zeitpunkt alle anderen Fenster "
+        + "verschwinden und nur dieses Fenster sichtbar ist (Point of no return überschritten)\"",
+        "nothing is done to it. It keeps its ordinary 2D rendering on the canvas the game put it "
+        + "on, which the 3D map room does not draw, so it is simply not seen — and it floats again, "
+        + "with everything on it, the moment the curtain lapses. FOR THE QUEST LOG SPECIFICALLY this "
+        + "is a NARROW, INTERVAL-ONLY reversal of the map-room permanence ruling: it is not closed "
+        + "and it cannot be closed (ModalFallback.CloseFloatedWindow still refuses it, the escape "
+        + "chord still skips it, it still has no X), its float is merely withheld, and at every "
+        + "other moment the permanence ruling governs it in full",
+        heldBy: _ => true,   // never reached: the check above returns before the table loop
+        whyHeld: () => StoryComposite.CurtainWhy);
+
     /// <summary>Windows whose refusal is in force RIGHT NOW — the edge state behind the one-line-per
     /// -edge logging. Never a policy input: the verdict is always recomputed.</summary>
     private static readonly HashSet<UIWindow> RefusedNow = new();
@@ -313,6 +372,15 @@ internal static class FloatRefusalTable
         rule = null;
         if (window == null)
             return false;
+        // ROW 0 FIRST, AND OUTSIDE THE LOOP — see CurtainRow for why it cannot live in the table.
+        // It is an interval, not an identity, so it outranks every identity row: a window that is
+        // ALSO refused for what it is stays refused either way, and one that is not is refused only
+        // for as long as the curtain stands.
+        if (StoryComposite.CurtainRefuses(window))
+        {
+            rule = CurtainRow;
+            return true;
+        }
         GameObject go = window.gameObject;
         for (int i = 0; i < Rules.Length; i++)
         {
@@ -442,6 +510,10 @@ internal static class FloatRefusalTable
     {
         if (window == null)
             return null;
+        if (StoryComposite.CurtainRefuses(window))
+            return $"the REFUSAL TABLE refuses it as a {FloatRefusalClass.PastThePointOfNoReturn} "
+                   + $"(ROW 0, the story curtain): {CurtainRow.Reason}. INSTEAD: {CurtainRow.Instead}. "
+                   + $"The curtain's own words: \"{StoryComposite.CurtainWhy}\"";
         GameObject go = window.gameObject;
         for (int i = 0; i < Rules.Length; i++)
         {

@@ -72,8 +72,17 @@ internal static partial class ModalFallback
     /// (the observed Notification/PhaseBanner pattern: show→hide every few seconds), and every
     /// re-float pays a full conversion. Suppress it for the session (one Warn) — the manual A/X
     /// screen chord still reaches it, and the Warn drives explicit enrollment/exclusion.</summary>
-    private const int ChurnMaxFloats = 3;
-    private const float ChurnWindowSeconds = 60f;
+    /// <remarks>INTERNAL since ModBuild 234, and the visibility is the point: two other rules bound
+    /// themselves by this number and both used to do it in prose. <c>StoryComposite
+    /// .MaxWithdrawCycles</c> derives 2 from it ("1 + cycles ≤ 3"), and
+    /// <see cref="SubViewRevival.MaxRevivalsPerWindow"/> now COMPUTES itself from it rather than
+    /// repeating the arithmetic in a comment that the next edit of this constant would silently
+    /// falsify.</remarks>
+    internal const int ChurnMaxFloats = 3;
+
+    /// <remarks>INTERNAL for the same reason: <see cref="SubViewRevival"/> uses this literal window
+    /// so the two fuses cannot drift apart about what "recently" means for the same window.</remarks>
+    internal const float ChurnWindowSeconds = 60f;
 
     /// <summary>Per-window-name Warn latch: ONE "enroll it explicitly" line per window type.</summary>
     private static readonly HashSet<string> CatchAllWarned = new();
@@ -132,6 +141,10 @@ internal static partial class ModalFallback
             // print nothing, and a re-open with no claim in force would fake a lapse warning about a
             // parker that never had a chance to run. See FloatRefusalTable.Forget.
             FloatRefusalTable.Forget(window);
+            // ModBuild 234 — and the retraction bridge, for the same reason and with the same scope:
+            // it is about ONE float of ONE open of this window, and a close ends it. Without this the
+            // set would also grow for the whole session, one entry per closed window.
+            SubViewRetracted.Remove(window);
             return;
         }
         if (IsFallbackWindow(window.ID))
@@ -155,6 +168,13 @@ internal static partial class ModalFallback
         // Part 2 enrollment #2 — mid-scenario reward showcase (see AddRewardShowcaseWindow).
         AddRewardShowcaseWindow(inScenario);
 
+        // ModBuild 234 — the double-hosting audit, ABOVE the early return and above every gate in
+        // this method on purpose: it reports on the state the CONVERT loop produced last tick, so a
+        // run in which no unknown window is tracked at all (and a room in which the catch-all is
+        // standing down) must still be able to print it. It is the only line that can see a window
+        // wearing two hosts at once. See AuditDoubleHosting.
+        AuditDoubleHosting();
+
         if (UnknownShown.Count == 0)
             return;
 
@@ -177,6 +197,7 @@ internal static partial class ModalFallback
             // also what makes a re-opened singleton (both table rows are singletons) print its
             // refusal line again instead of silently inheriting the last life's verdict.
             FloatRefusalTable.Forget(UnknownScratch[i]);
+            SubViewRetracted.Remove(UnknownScratch[i]); // ModBuild 234 — same scope, same prune
         }
         UnknownScratch.Clear();
 
@@ -235,6 +256,26 @@ internal static partial class ModalFallback
             {
                 WithdrawRefusedFloat(window);
                 continue;
+            }
+
+            // ModBuild 234 — AND A FLOAT THIS PASS HAS JUST RETRACTED IS ASKED IN THE SAME POSITION,
+            // FOR THE SAME REASON AS THE BLOCK ABOVE IT. RetractSubViewFloats drops `Sticky` and takes
+            // the window out of OpenWindows, but the panel does not go away until the release loop
+            // runs three phases later — and until it does, `IsFloatedByUs` is still TRUE, so the
+            // `oursAlready` branch immediately below would put the window straight back into
+            // OpenWindows and the release loop's keep-alive test would then hold the very float we
+            // just gave up. A withdrawal that the next statement can undo is not a withdrawal; that
+            // is the ModBuild 232 lesson one block up, applied to the second event class.
+            //
+            // IT CANNOT LATCH, WHICH IS THE WHOLE DESIGN. The entry is dropped the moment the panel
+            // is actually gone, and from that tick the ordinary path decides afresh — "parent wins"
+            // refuses it while the revived host stands, and if that host never converts the window
+            // floats again by itself. Nothing here is a session verdict (ModBuild 231).
+            if (SubViewRetracted.Count > 0 && SubViewRetracted.Contains(window))
+            {
+                if (IsFloatedByUs(window))
+                    continue; // the release loop has not taken the panel yet — keep it out of the set
+                SubViewRetracted.Remove(window);
             }
 
             // ModBuild 186 — A WINDOW WE ARE ALREADY FLOATING IS RE-ADDED UNCONDITIONALLY, AND
@@ -711,6 +752,9 @@ internal static partial class ModalFallback
             // Re-arm the stand-down latch: if this host is ever held out again, that is a NEW event
             // and its falsifier line must print rather than be swallowed by a latch set minutes ago.
             AncestorHeldOutWarned.Remove(above.name);
+            // ModBuild 234 — AND EVERY DESCENDANT THIS PASS HAS ALREADY TAKEN IS GIVEN BACK. See
+            // RetractSubViewFloats: the ModBuild 233 hardware log lost this race by ONE window.
+            RetractSubViewFloats(above);
             return true;
         }
         if (ContainsWindow(Failed, above) || EmptyHold.Contains(above) || FloatRefusalTable.Refuses(above))
@@ -886,24 +930,309 @@ internal static partial class ModalFallback
         ReleasePreConvertHide(window, "the refusal table refuses to float it — its 2D rendering is "
                                       + "handed back at once rather than sitting on the blackout budget");
 
+        if (!DropOwnFloat(window))
+            return;
+        VRLog.Info("WorldUI", $"FLOAT WITHDRAWN: '{window.name}' (ID {window.ID}) was already "
+                              + "floated when the refusal table refused it, so the float is given "
+                              + "up: its map-room stickiness is dropped and it is not re-added to "
+                              + "the open set, which means the ordinary release loop takes it down "
+                              + "on the next tick — panel, grab bar, close cross and arc slot "
+                              + "together — and CanvasConversion.Release restores its exact 2D "
+                              + "home. NOTHING WAS WRITTEN TO THE GAME: this is not the X-button "
+                              + "path (that one hides the window, which would take a control away "
+                              + "from a game that still needs it), only the mod's own flag.");
+    }
+
+    /// <summary>
+    /// THE WITHDRAWAL PRIMITIVE ITSELF (extracted verbatim from <see cref="WithdrawRefusedFloat"/>,
+    /// ModBuild 234): drop THIS class's own <c>Sticky</c> flag on a live float of
+    /// <paramref name="window"/> so the ordinary release loop takes it down. Returns true when a
+    /// live float was actually given up — i.e. when the caller has something to report.
+    ///
+    /// <para>THE LEVER IS <see cref="WindowPanel.Sticky"/> AND STILL DELIBERATELY NOT
+    /// <see cref="WindowPanel.UserClosing"/>; the whole argument is on the caller above and it is not
+    /// repeated here so it cannot drift into two versions. There is exactly ONE way to un-float
+    /// something in this class and this is it.</para>
+    ///
+    /// <para>A window whose <c>Sticky</c> is already clear returns FALSE, not true: it is on its way
+    /// out through the release loop already and a second "withdrawn" line for it would be an edge
+    /// that never happened.</para>
+    /// </summary>
+    private static bool DropOwnFloat(UIWindow window)
+    {
         for (int i = 0; i < Converted.Count; i++)
         {
             WindowPanel wp = Converted[i];
             if (!ReferenceEquals(wp.Window, window) || wp.UserClosing || !wp.Panel.IsAlive)
                 continue;
             if (!wp.Sticky)
-                return; // already on its way out through the ordinary release loop
+                return false; // already on its way out through the ordinary release loop
             wp.Sticky = false;
-            VRLog.Info("WorldUI", $"FLOAT WITHDRAWN: '{window.name}' (ID {window.ID}) was already "
-                                  + "floated when the refusal table refused it, so the float is given "
-                                  + "up: its map-room stickiness is dropped and it is not re-added to "
-                                  + "the open set, which means the ordinary release loop takes it down "
-                                  + "on the next tick — panel, grab bar, close cross and arc slot "
-                                  + "together — and CanvasConversion.Release restores its exact 2D "
-                                  + "home. NOTHING WAS WRITTEN TO THE GAME: this is not the X-button "
-                                  + "path (that one hides the window, which would take a control away "
-                                  + "from a game that still needs it), only the mod's own flag.");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Per-child-name latch for the retraction line below — one line per sub-view type.</summary>
+    private static readonly HashSet<string> SubViewRetractWarned = new();
+
+    /// <summary>Scratch for the retraction sweep (it removes from <see cref="OpenWindows"/> while
+    /// reading it, so the read is done backwards and the names are collected for one log line).</summary>
+    private static readonly List<UIWindow> RetractScratch = new(4);
+
+    /// <summary>
+    /// Windows whose float <see cref="RetractSubViewFloats"/> has given up but whose panel the
+    /// release loop has not taken down yet — see the guard in <see cref="TickCatchAll"/> for why the
+    /// bridge is needed and why it cannot latch. Membership is dropped the moment
+    /// <see cref="IsFloatedByUs"/> goes false, and on any close/prune with the rest of the per-window
+    /// edge state.
+    /// </summary>
+    private static readonly HashSet<UIWindow> SubViewRetracted = new();
+
+    /// <summary>
+    /// A REVIVAL MUST TAKE BACK WHAT THE SAME PASS ALREADY FLOATED (ModBuild 234).
+    ///
+    /// <para><b>THE ModBuild 233 RULE IS CORRECT AND FIRED ONE WINDOW TOO LATE.</b> The hardware log
+    /// (<c>.planning/debug/Player.log</c>, one pass, in this order):</para>
+    /// <code>
+    /// :15867  PARENT WINS STOOD DOWN: 'New Party display' … the float loop is holding it out
+    /// :15868  CATCH-ALL: unknown scenario window 'UI Battle Goal Picker Window' (ID None) floated
+    /// :15870  SUB-VIEW REVIVAL: the liveness hold on 'New Party display' is LIFTED because its
+    ///             nested sub-view 'Party Display UI ' … is open and MEASURED DRAWING right now.
+    /// :15873  Adopted nested canvas 'UI Battle Goal Picker Window' in 'GloomhavenVR.Panel_Modal_New Party display'
+    /// :15894  Converted 'Modal_New Party display' to world space (1920x1080 px)
+    /// :15904  Adopted nested canvas 'UI Battle Goal Picker Window' in 'GloomhavenVR.Panel_Modal_UI Battle Goal Picker Window'
+    /// :15907  Converted 'Modal_UI Battle Goal Picker Window' to world space (535x1042 px)
+    /// </code>
+    /// <para>The picker is adopted INTO the revived host at :15873 and then converted into a host of
+    /// its OWN at :15907, which reparents it straight back out — the picture in
+    /// <c>.planning/debug/Questauswahl.jpg</c>, the character UI on the left and the two battle-goal
+    /// cards floating in front of it with close crosses. Prevention (the widened precondition in
+    /// <see cref="SubViewRevival.ShouldReviveHost"/>) closes the ordering that actually shipped; this
+    /// closes the OTHER ordering, where the descendant floated on an earlier tick — from that tick on
+    /// the <c>oursAlready</c> re-add at the top of <see cref="TickCatchAll"/> short-circuits its
+    /// evaluation, so no later revival could ever have reconsidered it.</para>
+    ///
+    /// <para><b>TWO POPULATIONS, ONE SWEEP</b>, because a descendant can be in either state when the
+    /// hold lifts and only one of them has a panel to take down:</para>
+    /// <list type="number">
+    /// <item><b>Already floated.</b> Given up through <see cref="DropOwnFloat"/> — the ModBuild 232
+    /// discipline, unchanged and not re-invented: <c>Sticky</c> drops, nothing is re-added to
+    /// <see cref="OpenWindows"/>, and the ordinary release loop takes the panel, the grab bar, the X
+    /// and the arc slot together while <c>CanvasConversion.Release</c> restores the exact 2D home.
+    /// NOTHING IS WRITTEN TO THE GAME — no <c>Hide</c>, no <c>Escape</c>, no <c>CanvasGroup</c>.
+    /// <b>Matched by its 2D HOME and not by its live parent</b>, which is the whole reason this
+    /// sweep can work at all: a converted window has been REPARENTED under our own host, so
+    /// <c>transform.IsChildOf(host)</c> is FALSE for exactly the windows that need retracting. The
+    /// 2D home is <c>ConvertedPanel.OriginalParent</c>, the same field the release restores to.</item>
+    /// <item><b>Enrolled or appended this pass but not yet converted.</b> No panel exists yet (the
+    /// convert loop runs two phases later), so there is nothing for <see cref="DropOwnFloat"/> to
+    /// find — the lever is membership in <see cref="OpenWindows"/>, and dropping it there is what
+    /// stops the conversion from ever happening. That is the ModBuild 233 case exactly.</item>
+    /// </list>
+    ///
+    /// <para><b>ORDER MAKES THIS SAME-TICK.</b> Tick runs PhasePolls → PhaseCatchAll (here) →
+    /// PhaseRelease → PhaseConvert. The release loop's keep-alive test is
+    /// <c>ContainsWindow(OpenWindows, w) || w.Sticky || ScriptedLevelMessageActive(w)</c>
+    /// (ModalFallback.4.Tick.cs), and this sweep falsifies the first two — so a retracted descendant
+    /// is released BEFORE the host is converted in the same tick, and the host then adopts it back at
+    /// its 2D home. The player never sees a frame of the double state.</para>
+    ///
+    /// <para>The third term is left standing deliberately: a level-message window whose scripted
+    /// message the game still considers displayed is NEVER released (a user-ruling do-no-harm guard),
+    /// and this rule may not overturn a different rule from inside itself. If that ever holds a
+    /// descendant floated, <see cref="AuditDoubleHosting"/> is what says so.</para>
+    ///
+    /// <para><b>NO NEW NUMBER, AND THE OLD ONE STOPS BEING A PREFERENCE.</b> A withdrawal is a second
+    /// event class and the honest question is whether the catch-all churn fuse counts it. It does —
+    /// on the DESCENDANT's name, one count per float that is later taken back (the count was already
+    /// spent when the float happened; the retraction adds none of its own, and the tick after the
+    /// host floats the descendant is refused by "parent wins" before the counter at all). So one
+    /// revive/withdraw cycle costs the descendant exactly one churn count, and the worst case over a
+    /// 60 s window is <c>MaxRevivalsPerWindow</c> cycles plus the ONE fallback float that happens
+    /// once the revival budget is spent. That must stay at or under <see cref="ChurnMaxFloats"/> or
+    /// the sub-view is session-suppressed BY NAME and shown nowhere — the ModBuild 231 defect. It is
+    /// the same inequality StoryComposite.MaxWithdrawCycles derives, and it forces the number the
+    /// revival budget already carried: see <see cref="SubViewRevival.MaxRevivalsPerWindow"/>, which
+    /// now computes it instead of asserting it.</para>
+    /// </summary>
+    private static void RetractSubViewFloats(UIWindow host)
+    {
+        Transform hostT = host.transform;
+        RetractScratch.Clear();
+
+        // (1) Live floats of descendants — matched by their 2D HOME, because a converted window no
+        //     longer lives under the host at all.
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow? w = wp.Window;
+            if (w == null || ReferenceEquals(w, host) || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            Transform home = wp.Panel.OriginalParent;
+            if (home == null || !home.IsChildOf(hostT))
+                continue;
+            if (wp.HoverCard || !IsRetractableSubView(w))
+                continue;
+            if (!DropOwnFloat(w))
+                continue;
+            SubViewRetracted.Add(w);
+            RetractScratch.Add(w);
+            LogSubViewRetraction(w, host, hadPanel: true);
+        }
+
+        // (2) Windows this tick has enrolled or appended but not yet converted — the lever is
+        //     membership, and the convert loop two phases from here reads exactly this list.
+        for (int i = OpenWindows.Count - 1; i >= 0; i--)
+        {
+            UIWindow w = OpenWindows[i];
+            if (w == null || ReferenceEquals(w, host))
+                continue;
+            if (!w.transform.IsChildOf(hostT))
+                continue;
+            if (!IsRetractableSubView(w) || IsMapRoomHoverCard(w))
+                continue;
+            OpenWindows.RemoveAt(i);
+            if (!ContainsWindow(RetractScratch, w))
+                LogSubViewRetraction(w, host, hadPanel: false);
+        }
+        RetractScratch.Clear();
+    }
+
+    /// <summary>
+    /// MAY THE RETRACTION TAKE THIS DESCENDANT BACK? The rule is not "it is under the host" but
+    /// "'parent wins' would have refused it in the first place" — a retraction that reclaims a window
+    /// the suppression rule itself exempts would be a NEW suppression wearing the revival's clothes.
+    ///
+    /// <para>So it mirrors <see cref="CatchAllEligible"/>'s own exemptions, term for term: the
+    /// PARALLEL-WINDOW FAMILIES (<see cref="NonBlockingMenus"/>,
+    /// <see cref="MultiplayerRosterMenus"/>) are exempt there under the ModBuild 180 ruling — "Anders
+    /// als in Flat soll es hier möglich sein mehrere Fenster parallel offen zu haben" — and their
+    /// parents are not stable placement facts anyway (<c>MainOptionOptions</c> re-parents the options
+    /// window at RUNTIME). Hover cards are excluded by the callers: a hover card is not a sub-view of
+    /// anything, it is a transient popup whose own life cycle IS show/hide, and dropping one out of
+    /// the open set for a single tick is the ModBuild 184/186 oscillation ("Es kommen nun gar keine
+    /// Mouseovers mehr") re-created from a new direction.</para>
+    /// </summary>
+    private static bool IsRetractableSubView(UIWindow window)
+        => !NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID);
+
+    /// <summary>The retraction's one line per sub-view type. <paramref name="hadPanel"/> separates
+    /// the two populations honestly: a window with a live float has had a PANEL taken down, a window
+    /// that was only in the open set was stopped BEFORE any conversion happened. Reporting the second
+    /// as the first would be an instrument asserting an event it did not observe.</summary>
+    private static void LogSubViewRetraction(UIWindow w, UIWindow host, bool hadPanel)
+    {
+        if (!SubViewRetractWarned.Add(w.name))
             return;
+        VRLog.Warn("WorldUI", $"SUB-VIEW FLOAT RETRACTED: '{w.name}' (ID {w.ID}) "
+                              + (hadPanel
+                                  ? "was ALREADY FLOATED as a window of its own"
+                                  : "was in the float set and about to be converted into a window of "
+                                    + "its own (no panel existed yet)")
+                              + $", but the liveness hold on its host '{host.name}' (ID {host.ID}) "
+                              + "has just been lifted, so the host floats on THIS tick and renders it "
+                              + "inside itself where the game lays it out. "
+                              + (hadPanel
+                                  ? "The float is given up the ModBuild 232 way — our own Sticky flag "
+                                    + "is dropped and the window is not carried in the open set, so "
+                                    + "the ordinary release loop (which runs BEFORE the convert loop "
+                                    + "in this same tick) takes the panel, the grab bar, the close "
+                                    + "cross and the arc slot down together and "
+                                    + "CanvasConversion.Release restores the exact 2D home. "
+                                  : "It is simply dropped from the open set, so the conversion never "
+                                    + "happens at all. ")
+                              + "NOTHING WAS WRITTEN TO THE GAME: no Hide, no Escape, no CanvasGroup "
+                              + "— the window the game still needs is untouched. WHY THIS LINE "
+                              + "EXISTS: ModBuild 233 floated 'UI Battle Goal Picker Window' one "
+                              + "pass before the revival fired for a sibling, and it ended up "
+                              + "adopted into the host AND converted into a host of its own at the "
+                              + "same time (Player.log:15868 vs :15907, photographed as "
+                              + "Questauswahl.jpg). IF THIS LINE APPEARS the race still happens and "
+                              + "only the repair is working; if it never appears AND no CATCH-ALL "
+                              + "line names this window, the PREVENTION in SubViewRevival is doing "
+                              + "the job and there was nothing to take back.");
+    }
+
+    /// <summary>Per-window-name latch for the double-hosting warning — one line per window type.</summary>
+    private static readonly HashSet<string> DoubleHostWarned = new();
+
+    /// <summary>
+    /// THE ONE STATE THE SCREENSHOT SHOWS AND NO OTHER LINE IN THIS PROJECT WOULD CATCH: a window
+    /// that holds a CONVERSION OF ITS OWN while its canvas is also ADOPTED into another host's
+    /// conversion (ModBuild 234).
+    ///
+    /// <para>Both hosts are named, because the pair is the diagnosis: in the ModBuild 233 log the
+    /// picker's canvas sits in <c>GloomhavenVR.Panel_Modal_New Party display</c>'s adoption list
+    /// (:15873) and in <c>GloomhavenVR.Panel_Modal_UI Battle Goal Picker Window</c> as its own
+    /// conversion target (:15907). Neither host's own logging can see the other one.</para>
+    ///
+    /// <para><b>WHY THE TEST IS ON THE ADOPTION RECORD AND NOT ON THE HIERARCHY.</b> A conversion
+    /// REPARENTS its target under its own host, so by the time the state exists the window is no
+    /// longer a descendant of the host that adopted it and every containment test reads clean —
+    /// which is precisely why this went unseen for a build. <c>ConvertedPanel.AdoptedCanvases</c>
+    /// holds the Canvas by reference and survives the reparent.</para>
+    ///
+    /// <para><b>AND THE CANVAS IS THE WINDOW'S OWN, NOT ONE UNDER IT</b> —
+    /// <c>GetComponent</c>, never <c>GetComponentInChildren</c>. A surface that docks a row from
+    /// INSIDE a floated window legitimately adopts a canvas beneath it; that is not this state, and
+    /// counting it would make this warning fire on working configurations
+    /// ([[containment-is-not-identity]]).</para>
+    ///
+    /// <para>Cheap enough to run every tick: <c>Converted</c> holds at most a handful of windows and
+    /// the inner walks are over live panels and their two-entry adoption lists.</para>
+    /// </summary>
+    private static void AuditDoubleHosting()
+    {
+        if (Converted.Count == 0)
+            return;
+        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            UIWindow? window = wp.Window;
+            if (window == null || wp.Panel == null || !wp.Panel.IsAlive)
+                continue;
+            var own = window.GetComponent<Canvas>();
+            if (own == null)
+                continue;
+            for (int p = 0; p < panels.Count; p++)
+            {
+                ConvertedPanel other = panels[p];
+                if (other == null || ReferenceEquals(other, wp.Panel))
+                    continue;
+                bool adopted = false;
+                for (int a = 0; a < other.AdoptedCanvases.Count; a++)
+                {
+                    if (ReferenceEquals(other.AdoptedCanvases[a].Canvas, own))
+                    {
+                        adopted = true;
+                        break;
+                    }
+                }
+                if (!adopted)
+                    continue;
+                if (DoubleHostWarned.Add(window.name))
+                {
+                    string ownHost = wp.Panel.HostGo != null ? wp.Panel.HostGo.name : "<destroyed>";
+                    string otherHost = other.HostGo != null ? other.HostGo.name : "<destroyed>";
+                    VRLog.Warn("WorldUI", $"DOUBLE HOST: '{window.name}' (ID {window.ID}) holds a "
+                                          + $"conversion of its OWN ('{ownHost}') and its own Canvas "
+                                          + "is at the same time in the nested-canvas adoption list "
+                                          + $"of '{otherHost}'. THAT IS THE STATE IN "
+                                          + ".planning/debug/Questauswahl.jpg — the character UI with "
+                                          + "the battle-goal cards floating in front of it instead of "
+                                          + "inside it — and it is not reachable by any hierarchy "
+                                          + "test, because the second conversion reparented the "
+                                          + "window out of the first host's subtree. IT MUST NEVER "
+                                          + "APPEAR: a window belongs to exactly one host. Read the "
+                                          + "SUB-VIEW REVIVAL, SUB-VIEW FLOAT RETRACTED and "
+                                          + "PARENT WINS STOOD DOWN lines for these two names next, "
+                                          + "in that order — they say which pass took the window and "
+                                          + "which one failed to give it back.");
+                }
+                break;
+            }
         }
     }
 
@@ -915,6 +1244,10 @@ internal static partial class ModalFallback
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
         AncestorRefusalWarned.Clear();
         AncestorHeldOutWarned.Clear();
+        SubViewRetractWarned.Clear();  // ModBuild 234 — the retraction's per-sub-view latch
+        DoubleHostWarned.Clear();      // ModBuild 234 — and the double-hosting audit's
+        SubViewRetracted.Clear();      // ModBuild 234 — the one-tick bridge to the release loop
+        RetractScratch.Clear();
         NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
         EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set

@@ -5281,6 +5281,81 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
+    /// WHAT THIS WINDOW ACTUALLY DRAWS, in its host RectTransform's own local space (uGUI px),
+    /// beside the host rect it was measured against — for a caller that has to reason about the
+    /// window's VISIBLE extent rather than about its frame.
+    ///
+    /// <para>THE ONE CALLER, AND WHY NEITHER EXISTING SURFACE COULD SERVE. The map room's arc
+    /// allocator books every floated window an angular reservation, and it sized those from the
+    /// host rect. For one window the two are not remotely the same: 'New Party display' has a
+    /// 1988 px frame around a 328 px character column sitting at x −818 — 1648 px of empty
+    /// transparent frame — so it reserved 88° of a 180° arc for something that occupies 14°.
+    /// <see cref="TryGetHitRect"/> cannot express that: it returns <c>Content ∪ Host</c>, which by
+    /// construction is never NARROWER than the frame. That is its contract and it is the correct
+    /// contract for a ray test, which must never shrink below the window the player can see. And
+    /// the cached <c>HitRectEntry.Content</c> cannot be read instead, because its measurement runs
+    /// on a 30-frame staggered cadence and the moment the allocator needs it is earlier than that
+    /// cadence reaches. From his ModBuild 233 log, in order: the pre-reveal re-place for that
+    /// window logs at line 15939 and its FIRST hit-rect commit lands at 15943 — four lines later. A
+    /// cached read would have returned nothing at exactly the moment it mattered.</para>
+    ///
+    /// <para>SO IT MEASURES, and it measures through <see cref="TryMeasureDrawnUnion"/> — the same
+    /// walk, the same per-graphic verdict, the same mask and alpha rules as the content fit and the
+    /// hit rect. A graphic this call counts is a graphic those two would have counted; there is no
+    /// second opinion anywhere in this file about what "visible" means. What it does NOT do is
+    /// write: no entry is created, no cadence is disturbed, no rect is committed, and the hit rect
+    /// the laser tests against is not touched by this call in any way.</para>
+    ///
+    /// <para>COST: one subtree walk (~85 µs for the 251-transform equipment window, per the
+    /// ModBuild 194 flatness line). The caller is event-gated — spawn and the one pre-reveal
+    /// re-place, never per frame — so this is a handful of walks per session.</para>
+    ///
+    /// <para>False when nothing is measurable at all: the window is still hidden behind the reveal
+    /// gate, or mid fade-in, and no graphic passes the visibility test. The caller then falls back
+    /// to the host rect, which is the behaviour of every build before ModBuild 234. That is the
+    /// NORMAL answer at spawn time, and it is the reason the allocator asks again at the re-place.</para>
+    ///
+    /// <para>Never throws: this is reached from the placement path, and an unguarded exception
+    /// there starves VR input.</para>
+    /// </summary>
+    internal static bool TryMeasureDrawnContent(ConvertedPanel? panel, out Rect content,
+        out Rect host, out int contributors)
+    {
+        content = default;
+        host = default;
+        contributors = 0;
+        try
+        {
+            if (panel == null || panel.HostRect == null || panel.Target == null)
+                return false;
+            host = panel.HostRect.rect;
+            if (host.width < 1f || host.height < 1f)
+                return false; // degenerate host (not laid out yet) — nothing to measure against
+            RectTransform root = ResolveFitRoot(panel, panel.FitContentRoot);
+            if (!TryMeasureDrawnUnion(panel, root, host, out content, out contributors, out _, out _))
+                return false;
+            return content.width >= 1f && content.height >= 1f;
+        }
+        catch (System.Exception e)
+        {
+            if (!s_hitRectFaultLogged)
+            {
+                s_hitRectFaultLogged = true;
+                VRLog.Warn("WorldUI", "DRAWN CONTENT: the visible-extent measurement threw "
+                                      + $"{e.GetType().Name} ('{e.Message}') and was swallowed so "
+                                      + "the placement path keeps running. WHAT THIS MEANS: the map "
+                                      + "room's arc reservations fall back to the HOST RECT, which "
+                                      + "is the behaviour of every build before ModBuild 234 — a "
+                                      + "window with a wide transparent frame books more arc than "
+                                      + "it draws and the room packs more tightly than it needs to. "
+                                      + "Nothing is mis-placed and nothing becomes unclickable. "
+                                      + "Reported once.");
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Re-measure this panel's hit rect if its check is due. Called FIRST from
     /// <see cref="TickFit"/> — before every one of that method's early returns — because the hit
     /// rect must keep tracking a window whose SIZING fit has finished forever (a one-shot menu

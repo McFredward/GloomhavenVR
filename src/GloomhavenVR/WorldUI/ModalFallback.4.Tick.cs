@@ -657,9 +657,47 @@ internal static partial class ModalFallback
         /// <summary>Centre of the reserved interval, degrees from the spawn gaze, + = right.</summary>
         public float CentreDeg;
 
-        /// <summary>Half the window's angular width at the distance it was placed at, degrees. The
-        /// reserved interval is <c>CentreDeg ± HalfWidthDeg</c>.</summary>
+        /// <summary>
+        /// Half the window's angular width at the distance it was placed at, degrees. The reserved
+        /// interval is <c>CentreDeg ± HalfWidthDeg</c>.
+        ///
+        /// <para>SINCE ModBuild 234 THIS IS WHAT THE WINDOW DRAWS, NOT WHAT ITS FRAME SPANS — see
+        /// <see cref="FrameHalfWidthDeg"/> for the frame, and the ArcSeats.cs header for why the
+        /// two had to be separated. Until the drawn extent is measurable (it is not at spawn: the
+        /// window is still behind the reveal gate and no graphic passes the visibility test) this
+        /// falls back to the frame and the two are equal, which is the pre-234 behaviour exactly.</para>
+        /// </summary>
         public float HalfWidthDeg;
+
+        /// <summary>
+        /// Angular offset of the DRAWN content's centre from the HOST RECT's centre, degrees at
+        /// <see cref="DistanceWorld"/>, + = to the player's right. Zero for every window whose
+        /// content is centred in its own frame, which is nearly all of them.
+        ///
+        /// <para>WHY A RESERVATION NEEDS AN OFFSET AT ALL. 'New Party display' draws a 328 px
+        /// character column at x −818 inside a 1988 px frame, so its visible column sits ~36° to
+        /// the LEFT of the rect the placement positions. Booking a narrower interval without
+        /// recording where that interval actually SITS would reserve the wrong 14° — the packer
+        /// would keep the middle of an empty frame clear and seat the next window straight through
+        /// the character column. The seat search therefore places the window so that
+        /// <c>hostCentre + DrawnOffsetDeg</c> lands in the free interval, and the host centre is
+        /// recovered from the seat by subtracting this.</para>
+        /// </summary>
+        public float DrawnOffsetDeg;
+
+        /// <summary>
+        /// Half the HOST RECT's angular width at <see cref="DistanceWorld"/>, degrees — the
+        /// window's collider footprint, centred on <c>CentreDeg − DrawnOffsetDeg</c>.
+        ///
+        /// <para>IT IS KEPT BECAUSE THE LASER STILL SEES IT. The hit rect a ray is tested against
+        /// is <c>Content ∪ Host</c> and therefore never shrinks below the frame — measured, from
+        /// his own log: <c>HIT RECT 'New Party display': host rect 1988x1080; DRAWN CONTENT
+        /// 328x1080 at (-818,0); LARGER = the host rect → HIT RECT 1988x1080</c>, i.e. a 2.09 m
+        /// invisible sheet. Angle is decided by what the window DRAWS; DEPTH is decided by what it
+        /// FRAMES, so a window seated inside someone else's empty frame is still unambiguously the
+        /// nearer plane and still wins the ray. See <c>ArcSeatFramePush</c>.</para>
+        /// </summary>
+        public float FrameHalfWidthDeg;
 
         /// <summary>Reading distance this claim was measured at, WORLD units (already scaled).
         /// Kept so <see cref="NarrowArcClaim"/> can re-measure the same window's angular width from
@@ -669,6 +707,13 @@ internal static partial class ModalFallback
         /// <summary>0 = the window got a free interval. ≥1 = it is the k-th window that had to
         /// overlap, which is also its depth-ladder index.</summary>
         public int OverlapRank;
+
+        /// <summary>Total depth term this seat carries, REAL metres: positive = pulled toward the
+        /// head (the overflow rule's foreground ladder), negative = pushed away (the phantom-frame
+        /// push, <c>ArcSeatFramePush</c>). Stored rather than re-derived so a presence-regain
+        /// refloat reproduces the same distance instead of recomputing a rank it no longer has the
+        /// inputs for.</summary>
+        public float DepthPullMeters;
 
         /// <summary>Worst overlap with any neighbour at claim time, degrees (0 = none). Printed on
         /// the spawn line so "these two are on top of each other" is answerable from the log.</summary>

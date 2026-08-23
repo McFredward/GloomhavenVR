@@ -266,8 +266,186 @@ namespace GloomhavenVR.WorldUI;
 /// it is measured this tick and the NOT ACHIEVED form prints the same measurements, so the line
 /// cannot be true while the screenshot is still two windows.</para>
 ///
+/// <para>=====================================================================================
+/// SECTION 5 — ModBuild 234: THE GAP, AND THE CURTAIN
+/// =====================================================================================</para>
+///
+/// <para><b>ModBuild 233 WORKED AND THE LOG SAYS SO.</b> Player.log:15300 —
+/// <c>STORY COMPOSITE ONE WINDOW: CONFIRMED … story box 'Map Story Window' floated=True; loadout
+/// screen 'UI Loadout Window' floated=False; parked picture 'Image' 1280x720 px,
+/// activeInHierarchy=True, sprite='CR_DF_03_Demon (VR-…'</c>, and story2.jpg is one window with the
+/// crypt illustration over the dialog on one blue bar with no cross. NOTHING IN SECTIONS 1-4 IS
+/// REDESIGNED HERE. Two separate faults are fixed.</para>
+///
+/// <para><b>FAULT 1 — THE GAP. USER REPORT (verbatim):</b> <i>"allerdings ist der Abstand zwischen
+/// dem Bild und dem Dialog viel zu groß, das Dialogfenster soll direkt darunter angezeigt
+/// werden."</i></para>
+///
+/// <para><b>AND THE LOG MEASURES IT WITHOUT ANY INFERENCE.</b> The fit line for the composite
+/// (:15304) lists the rendered rects with their host-local positions:</para>
+/// <code>
+///   union (-640,-516)..(640,1260) px [frame-clamped]; top (rendered rects):
+///     'Map Story Window/Image'     1280x720 px at (-640, 540)   ← the picture: y 540 … 1260
+///     'Dialog/DialogContent'       1040x168 px at (-520,-516)   ← the DRAWN dialog: y -516 … -348
+/// </code>
+/// <para>Picture bottom 540, painted dialog top -348: <b>888 px of nothing</b> between them, against
+/// an <see cref="ImageGapPx"/> of 24. One tick later, with eight lines of text instead of three
+/// (:15323), it is 786 px. Half the composite's 1776 px of height was empty — the third of a window
+/// of black in story2.jpg, measured.</para>
+///
+/// <para><b>WHERE THE 888 CAME FROM: THE RECT BEING MEASURED WAS NOT THE DIALOG.</b>
+/// <see cref="ApplyPose"/> placed the picture 24 px above <c>MapStoryController.dialogBox</c>'s
+/// RectTransform — and <c>dialogBox</c> is a <c>UICharacterStoryBox</c>, a TALL, MOSTLY TRANSPARENT
+/// HOST whose top edge sits ~1030 px above the text it holds. The thing the player sees is
+/// 'Dialog/DialogContent' + 'Background Container/Background' + 'DialogContent/Frame', a 168-270 px
+/// strip pinned to that host's BOTTOM. The gap was correct to 24 px against a box that is not drawn.
+/// [[tight-box-is-not-the-rect]] — a tight drawn box is not the authored rect — for the second time
+/// in this project, and note that the rect WAS the dialog's and not the host window's: the ModBuild
+/// 231 design was right about which object to measure and wrong about which of its two rects.</para>
+///
+/// <para><b>WHAT IS MEASURED NOW: INK, ON BOTH RECTS.</b> <see cref="TryPaintedBounds"/> unions the
+/// world corners of every graphic under a root that the CONVERSION'S OWN FIT counts as content
+/// (<c>CanvasConversion.CountsAsFitContent</c> — the same verdict that produced the numbers above,
+/// so the placement and the fit can no longer disagree), and <see cref="ApplyPose"/> puts the
+/// PICTURE'S PAINTED BOTTOM <see cref="ImageGapPx"/> px above the DIALOG'S PAINTED TOP. Both edges,
+/// every tick, because the dialog grows with its text — three lines in story1.jpg, eight in
+/// story2.jpg, and the fit line shows the same rect at 168 px and then 270 px.</para>
+///
+/// <para><b>AND THE COMPOSITE'S HEIGHT SHRINKS BY ITSELF — THE EMPTY BAND WAS INSIDE THE FITTED
+/// RECT.</b> The fit measures the drawn-content UNION and commits it as the host rect, so the 888 px
+/// of black was not padding around the window, it WAS the window: 1096x233 → 1304x1056 →
+/// 1656x1056, and both of those carry <c>[frame-clamped]</c> because the 1776 px union no longer fit
+/// the 1080 px target frame (the HIT RECT line at :15301 says the same thing from the other side —
+/// "the window draws 184x350 px outside its own frame … FURTHEST OUTSIDE: 'Map Story Window/Image'
+/// by 1555 px"). Closing the gap to 24 px leaves 720 + 24 + 270 = 1014 px of content, which fits the
+/// frame with room to spare, so the host rect follows the content down and the clamp stops firing.
+/// No new machinery, no height dial: the fit already does exactly the right thing and was being fed
+/// a picture placed 888 px too high.</para>
+///
+/// <para><b>FAULT 2 — EVERYTHING ELSE. USER REPORT (verbatim):</b> <i>"Als ich eine Quest gestartet
+/// habe kam zuerst ein Dialogfenster ganz ohne Bild (siehe story1.jpg), prüfe ob es zu dem Zeitpunkt
+/// einfach noch kein Bild gab, dann ist das in Ordnung. Ich möchte aber das zu diesem Zeitpunkt alle
+/// anderen Fenster verschwinden und nur dieses Fenster sichtbar ist (Point of no return
+/// überschritten)."</i></para>
+///
+/// <para><b>HIS QUESTION, ANSWERED FROM THE LOG: YES, THERE WAS NO ILLUSTRATION AND IT IS IN
+/// ORDER.</b> story1.jpg is the story box at :14749. The window that OWNS the illustration —
+/// <c>UILoadoutManager</c>, through <c>questInfo.imagePaper</c> — was not shown until :15188, 439
+/// lines later, so at story1's moment there was no <c>StoryImageViewer</c> with anything in it to
+/// compose: the picture did not exist, it was not lost. The first tick the composite could look at
+/// it (:15215) reports <c>'Image' is 1280x720 px but its GameObject is NOT ACTIVE — WAITING</c>
+/// (the addressable had not landed; StoryImageViewer.cs:201), and the sprite arrives at :15285.
+/// <b>AND THEY ARE TWO SEPARATE OPENINGS, NOT TWO PAGES.</b> <c>UIWindow SHOWN: 'Map Story Window'</c>
+/// appears twice, at :14749 and :15318, each preceded by its own
+/// <c>[AREA MANAGER] Register area StoryBox</c> (:14744, :15311) — two <c>MapStoryController.Show</c>
+/// calls with different triggers: the map's own quest-start message chain first, then
+/// <c>EMapMessageTrigger.Loadout</c> from <c>UILoadoutQuestWindow.ShowIntroductionText</c>
+/// (UILoadoutQuestWindow.cs:88-93). Different text because they are different messages.</para>
+///
+/// <para><b>SO THE GATE FIRED ~480 LINES TOO LATE.</b> <c>POINT OF NO RETURN OPENED</c> is at
+/// :15228, keyed on <c>UILoadoutManager.IsOpen</c>. At story1's moment it had not fired, and the
+/// screenshot shows what that costs: the quest card ('UI Quest Popup'), the 'Weltquests' quest log
+/// and the temple's gold/blessing panel ('UI Temple Window') all standing beside the dialog — which
+/// is exactly the standing set the slot census at :14760 lists.</para>
+///
+/// <para><b>THE EDGE MOVES, AND IT MOVES BY WIDENING <see cref="PointOfNoReturn"/> RATHER THAN BY
+/// ADDING A SECOND GATE.</b> The level is now <c>the loadout screen is up OR the story curtain
+/// stands</c>, so the gate opens at whichever comes first and there is still exactly ONE opening
+/// edge, ONE named-set close and ONE destination lock per quest. A second gate would have meant two
+/// <c>OPENED</c> lines, two close sets and two lock/unlock pairs to keep in step, and the user's own
+/// framing is not that there are two events — he wrote <i>"(Point of no return überschritten)"</i>
+/// about the story-box moment itself. The loadout clause is KEPT, not replaced: a quest whose data
+/// carries no start message plays no story box at all, and that quest must still lock the merchant
+/// exactly as it does today.</para>
+///
+/// <para><b>WHAT THE CURTAIN'S EDGE ACTUALLY TESTS, AND WHY IT CANNOT FIRE ONCE PER PAGE.</b>
+/// <see cref="StoryHidesOtherUI"/> reads <c>MapStoryController.isVisibleOtherUI</c>. That flag is
+/// the GAME'S OWN decision that the current story message wants the screen to itself:
+/// <c>ShowImmediately</c> calls <c>ShowOtherGUI(!message.HideOtherGUI)</c> and
+/// <c>ShowOtherGUI</c> then hides every one of the controller's serialized <c>elementToHide</c>
+/// (MapStoryController.cs:144-165). Three properties fall out of the game's own code and none of
+/// them is a guess:</para>
+/// <list type="number">
+/// <item><b>ONCE PER CHAIN, NOT PER PAGE.</b> <c>ShowOtherGUI</c> is change-gated —
+/// <c>if (isVisibleOtherUI == show) return;</c> — so the flag falls on the FIRST page of a message
+/// chain and stays down for every page after it. It comes back up in <c>ShowNext</c> when the queue
+/// empties. A chain of eight pages produces one edge.</item>
+/// <item><b>ONCE PER QUEST START.</b> A map message built from a <c>CMapMessageState</c> takes
+/// <c>HideOtherGUI</c>'s field initialiser, <c>true</c> (StoryController.cs:29,50-59) — that is the
+/// quest-start chain. The LOADOUT intro passes <c>hideOtherUI: false</c> explicitly
+/// (UILoadoutQuestWindow.cs:93), and so do the temple, achievement and town-records messages. So the
+/// second story box of a quest start does NOT raise a second edge, and an ordinary shopping-trip
+/// message raises none.</item>
+/// <item><b>IT IS PRESENTATION PARITY, NOT A NEW POLICY.</b> The flat client hides its own UI here.
+/// The mod's floated windows ARE this room's UI. Extending the game's own instant to them is the
+/// smallest defensible reading of <i>"alle anderen Fenster verschwinden"</i>, and it is a fact read
+/// off the game rather than a heuristic about what a story box means.</item>
+/// </list>
+///
+/// <para><b>THE CURTAIN ITSELF: AN EXCLUSION EVALUATED ONCE AND THEN FROZEN.</b>
+/// <see cref="OpenGate"/> snapshots every window the mod is floating at the edge, minus the story
+/// box and minus the loadout screen, into <see cref="CurtainMembers"/> — and nothing is ever
+/// appended to it afterwards. <see cref="CurtainRefuses"/> then refuses to float exactly those
+/// instances while the curtain stands. THE DIFFERENCE FROM ModBuild 231, WHICH IS THE WHOLE POINT:
+/// 231 re-evaluated "everything except one" every tick, so the loadout sequence's own windows
+/// entered its scope the moment they opened and it closed all four. A frozen instance set cannot
+/// acquire a member: the battle-goal picker, the party display, the quest popup the loadout re-shows
+/// and the loadout screen were not floated at :14749 and can never be in it. That is the same
+/// membership guarantee <see cref="EdgeClosed"/> has, arrived at from the other side, and it is why
+/// an exclusion is the right shape HERE and was the wrong shape THERE.</para>
+///
+/// <para><b>AND IT IS A REFUSAL, NOT A RELEASE — WHICH IS THE OTHER HALF OF NOT REPEATING 231.</b>
+/// <c>ModalFallback.ReleaseFloatsExcept</c> is not used and its "DO NOT REACH FOR THIS" note has
+/// been rewritten to say the true thing (what is forbidden is a STANDING exclusion; a one-shot
+/// frozen one is sanctioned). The honest reason it is still not the lever is different and worse: a
+/// release lasts ONE TICK, because the game window is still open and the catch-all re-enrols it —
+/// and re-enrolment is what the churn fuse COUNTS. Four cycles session-suppress the window's name,
+/// which is the ModBuild 231 death. <c>FloatRefusalTable.Refuse</c> is asked at the TOP of that loop
+/// and <c>continue</c>s before the count, so a refused window is never counted at all, and
+/// <c>WithdrawRefusedFloat</c> takes down a float that already exists. NOTHING IS WRITTEN TO THE
+/// GAME: no <c>Hide</c>, no <c>Escape</c>, no <c>SetActive</c>, no <c>CanvasGroup</c>. Every member
+/// keeps its ordinary 2D rendering on a canvas the 3D map room does not draw, and floats again with
+/// everything on it the moment the curtain lapses.</para>
+///
+/// <para><b>THE QUEST LOG IS IN THE SET, AND THAT IS A DELIBERATE, NARROW REVERSAL.</b> ModBuild
+/// 233's <see cref="CollectNamedSet"/> left it out on the grounds that it is the map room's
+/// PERMANENT window (<c>ModalFallback.IsMapRoomPermanent</c> / <c>MapRoomPermanentReason</c>, "which
+/// has no X and is not closable in the map room") and said that changing it was a change to the
+/// PERMANENCE ruling, to be made by the user. HE HAS NOW MADE IT: <i>"Ich möchte aber das zu diesem
+/// Zeitpunkt alle anderen Fenster verschwinden und nur dieses Fenster sichtbar ist."</i> THE
+/// REVERSAL IS FOR THIS INTERVAL AND NOTHING ELSE. At every other moment the permanence ruling still
+/// governs in full: no X on the quest log, refused by <c>CloseFloatedWindow</c>, skipped by the
+/// escape chord, re-shown against the game's own hides. The curtain does not touch any of that —
+/// it never calls <c>CloseFloatedWindow</c>, so it never needs a way past
+/// <c>MapRoomPermanentReason</c>; it withholds the FLOAT for a bounded interval and hands it back.
+/// The player has not "closed" the quest log and cannot: when the curtain lapses it comes back on
+/// its own, with no X, exactly as before.</para>
+///
+/// <para><b>WHY THE CURTAIN CANNOT OUTLIVE ITSELF — FIVE BOUNDS, ALL STRUCTURAL.</b></para>
+/// <list type="number">
+/// <item><b>MEMBERSHIP.</b> Frozen at the edge (above). Nothing opened later is refusable.</item>
+/// <item><b>THE HONESTY CLAUSE.</b> <see cref="TickCurtain"/> requires the mod to be FLOATING the
+/// story box or the loadout screen this tick. If neither is on screen the curtain lapses within one
+/// tick — it can never be the reason the room is empty. [[parent-wins-needs-a-real-parent]].</item>
+/// <item><b>THE GATE.</b> It lapses with <see cref="CloseGate"/>, with the 3D map room, and with
+/// <see cref="Reset"/>.</item>
+/// <item><b>THE CYCLE CAP.</b> <see cref="MaxCurtainCycles"/> is 2, derived from
+/// <c>ChurnMaxFloats</c> exactly as <see cref="MaxWithdrawCycles"/> is: a member's first float is
+/// one count and each curtain that FALLS costs one re-float, so 1 + 2 = 3 is at the fuse's limit and
+/// never over it.</item>
+/// <item><b>THE FLOOR.</b> <see cref="TickDeadlockFloor"/> now also watches the curtain: zero
+/// floated windows while it is refusing prints <c>MODAL DEADLOCK FLOOR</c> and lifts it for good.</item>
+/// </list>
+///
+/// <para><b>ONE CHANGE IS NEEDED OUTSIDE THIS FILE and the feature degrades honestly without it:</b>
+/// <c>FloatRefusalTable</c> has to ask <see cref="CurtainRefuses"/>. Until it does, the curtain still
+/// closes the guildmaster destinations and the quest popups (the named set, at the earlier edge,
+/// which is entirely inside this file) and the QUEST LOG stays up — and the falsifier
+/// <c>STORY CURTAIN ONLY WINDOW: NOT ACHIEVED</c> says so by name, every time.</para>
+///
 /// <para><b>MULTIPLAYER.</b> Nothing here goes on the wire. The park is a local re-parent of a local
-/// uGUI subtree. The close is the same local UI close the window's own X has performed since
+/// uGUI subtree. The curtain is a local decision about which local GameObject a local uGUI subtree is
+/// drawn under; two players may legitimately disagree about every verdict in it. The close is the same local UI close the window's own X has performed since
 /// ModBuild 184 — <c>UIWindow.Escape()/Hide()</c> and one <c>pointerClick</c> on the bar's own map
 /// Toggle, both local presentation; the purchase or blessing a destination may have committed was
 /// committed by ITS own button, not by leaving it. The destination lock drives the GAME'S own
@@ -280,11 +458,18 @@ internal static class StoryComposite
 {
     private const string Scope = "WorldUI";
 
-    /// <summary>Gap between the dialog's top edge and the image's bottom edge, in the story
-    /// window's own authored uGUI pixels. Deliberately a constant and not a config dial: the user
-    /// asked for "den Dialog unter dem Bild", not for a spacing control, and every new dial is a
-    /// surface somebody has to tune. 24 px at the window's 1920x1080 authored scale is about 1.5 %
-    /// of its height — visibly one gap, never a separation.</summary>
+    /// <summary>Gap between the dialog's PAINTED top edge and the image's PAINTED bottom edge, in
+    /// the story window's own authored uGUI pixels. Deliberately a constant and not a config dial:
+    /// the user asked for "den Dialog unter dem Bild", not for a spacing control, and every new dial
+    /// is a surface somebody has to tune.
+    ///
+    /// <para><b>ModBuild 234: THE NUMBER DID NOT CHANGE AND THE NUMBER WAS NEVER THE BUG.</b> It was
+    /// applied to the authored rect of a mostly-transparent host, so the DRAWN gap came out at
+    /// 888 px (Player.log:15304) and then 786 px (:15323). Both edges are now measured as ink —
+    /// see <see cref="ApplyPose"/> and <see cref="TryPaintedBounds"/> — and 24 px is roughly 17-25 mm
+    /// on the composite's committed panel: visibly one gap, never a separation. The falsifier
+    /// <c>STORY COMPOSITE GAP</c> states the millimetres against
+    /// <see cref="MaxGapMillimetres"/>.</para></summary>
     private const float ImageGapPx = 24f;
 
     /// <summary>Below this the re-place is skipped, in authored uGUI px. Same purpose as
@@ -457,15 +642,25 @@ internal static class StoryComposite
     private static bool _holdLifted;
 
     /// <summary>
-    /// IS THE PLAYER PAST THE POINT OF NO RETURN — i.e. is the pre-scenario LOADOUT screen up in the
-    /// 3D map room?
+    /// IS THE PLAYER PAST THE POINT OF NO RETURN?
     ///
-    /// <para>Read from the GAME and from one public property: <c>UILoadoutManager.IsOpen</c>
-    /// (decompiled/GH.Runtime/UILoadoutManager.cs:57, <c>_window.IsOpen</c>). That window is opened
-    /// when the party has committed to a quest and it stays open until the scenario is entered, so
-    /// it IS the interval the user described ("zu diesem Zeitpunkt"). Deliberately NOT keyed on the
-    /// story box: the story box closes when the player clicks through the intro, and the merchant
-    /// must stay shut for the rest of the loadout screen too.</para>
+    /// <para><b>ModBuild 234 WIDENED THIS, AND THE WIDENING IS THE FIX FOR THE SECOND FAULT.</b> Up
+    /// to ModBuild 233 the answer was <c>UILoadoutManager.IsOpen</c> alone, and the hardware log
+    /// shows that firing ~480 lines after the quest-start story box was already on screen with three
+    /// other windows beside it (:14749 vs :15228). The level is now the UNION of two facts, so the
+    /// gate opens at whichever comes first and there is still exactly ONE rising edge per quest:</para>
+    /// <list type="number">
+    /// <item><b>THE STORY CURTAIN</b> — <see cref="_curtainStanding"/>, driven by
+    /// <see cref="StoryHidesOtherUI"/>: the game itself has hidden the rest of its UI for the
+    /// message chain that is being shown. See the class doc, SECTION 5, for why that flag is one
+    /// edge per chain and one chain per quest start.</item>
+    /// <item><b>THE LOADOUT SCREEN</b> — <c>UILoadoutManager.IsOpen</c>
+    /// (decompiled/GH.Runtime/UILoadoutManager.cs:57, <c>_window.IsOpen</c>), KEPT and not replaced.
+    /// That window is opened when the party has committed and stays open until the scenario is
+    /// entered, so it is what holds the level up for the rest of the interval — the story box closes
+    /// when the player clicks through the intro and the merchant must stay shut after that. It is
+    /// also the only clause that fires for a quest whose data carries no start message at all.</item>
+    /// </list>
     ///
     /// <para>THE 3D-ROOM GATE IS PART OF THE ANSWER, not a caveat. Everything this class enforces is
     /// about floated world-space windows and the map room's 3D caps; with the 3D map switched off
@@ -475,15 +670,62 @@ internal static class StoryComposite
     /// <c>MapButtonRail.Pressable</c> makes every cap dead and grey even if the game-side lock-out
     /// below is ever defeated. It is NOT required for the caps to go dead — see
     /// <see cref="SetDestinationsLocked"/>, which drives the game's own
-    /// <c>Toggle.interactable</c> that <c>Pressable</c> already reads. This property is a pure read
-    /// of game state and has never been part of the deadlock: it closes nothing and holds
-    /// nothing.</para>
+    /// <c>Toggle.interactable</c> that <c>Pressable</c> already reads. <b>NOTE FOR THAT LANE:</b>
+    /// this property now also reads true during a full-attention story message, i.e. the caps go
+    /// dead a little earlier than before and for the duration of any map message the GAME has
+    /// decided should own the screen. That is the user's own framing of the moment
+    /// (<i>"Zu diesem Zeitpunkt ist der 'Point of Return' schon überschritten"</i>) and it is
+    /// self-limiting: the curtain lapses with its own bounds. This property is still a pure read of
+    /// state — it closes nothing and holds nothing.</para>
     /// </summary>
-    internal static bool PointOfNoReturn =>
+    internal static bool PointOfNoReturn => _curtainStanding || LoadoutScreenOpen;
+
+    /// <summary>The ModBuild 233 level, unchanged and still the clause that holds the gate up for the
+    /// whole pre-scenario interval.</summary>
+    private static bool LoadoutScreenOpen =>
         MapRoomDriver.Active
         && Singleton<UILoadoutManager>.IsInitialized
         && Singleton<UILoadoutManager>.Instance != null
         && Singleton<UILoadoutManager>.Instance.IsOpen;
+
+    /// <summary>
+    /// HAS THE GAME HIDDEN THE REST OF ITS OWN UI FOR THE STORY MESSAGE ON SCREEN RIGHT NOW?
+    ///
+    /// <para>One field, read from the game: <c>MapStoryController.isVisibleOtherUI</c>.
+    /// <c>ShowImmediately</c> calls <c>ShowOtherGUI(!message.HideOtherGUI)</c> and
+    /// <c>ShowOtherGUI</c> hides every serialized <c>elementToHide</c> when that is false
+    /// (MapStoryController.cs:144-165). So <c>isVisibleOtherUI == false</c> is not an inference
+    /// about what a story box means — it is the game stating that THIS message owns the screen.</para>
+    ///
+    /// <para>WHY THIS AND NOT <c>messageTrigger</c>, WHICH LOOKS LIKE THE OBVIOUS TEST.
+    /// <c>EMapMessageTrigger.QuestStart</c> exists in the enum and is written by NO line of the
+    /// decompiled game — it arrives from the rule-library DLL through
+    /// <c>CShowMapMessages_MapClientMessage.m_messageTrigger</c>, so gating the whole feature on it
+    /// would be gating it on a value this round cannot confirm from either the source or the log.
+    /// [[verify-outcome-not-path]]. <c>HideOtherGUI</c>, by contrast, is decided in C# at every call
+    /// site: <c>true</c> by field initialiser for a map message built from a
+    /// <c>CMapMessageState</c> (StoryController.cs:29,50-59 — the quest-start chain), and explicitly
+    /// <c>false</c> for the loadout intro (UILoadoutQuestWindow.cs:93), the temple, the achievement
+    /// and the town-records messages.</para>
+    ///
+    /// <para>The window itself must also be standing, so a stale flag left behind by a chain that has
+    /// already ended cannot hold the curtain up on its own.</para>
+    /// </summary>
+    private static bool StoryHidesOtherUI(UIWindow? story)
+    {
+        try
+        {
+            if (!MapRoomDriver.Active || story == null || !Singleton<MapStoryController>.IsInitialized)
+                return false;
+            MapStoryController mc = Singleton<MapStoryController>.Instance;
+            return mc != null && !mc.isVisibleOtherUI;
+        }
+        catch (System.Exception)
+        {
+            // The curtain is presentation. A throw reaching the modal tick is not worth an edge.
+            return false;
+        }
+    }
 
     /// <summary>
     /// The story window of the composite, or null. Open-or-visible OR ALREADY FLOATED BY THE MOD —
@@ -585,6 +827,14 @@ internal static class StoryComposite
 
         UIWindow? story = StoryWindow();
         UIWindow? loadout = LoadoutWindow();
+
+        // ModBuild 234 — THE CURTAIN LEVEL IS COMPUTED FIRST, BECAUSE THE GATE NOW READS IT.
+        // PointOfNoReturn is the UNION of "the story curtain stands" and "the loadout screen is up",
+        // so the curtain's own level has to be settled before the gate edge below is evaluated
+        // against it. TickCurtain closes nothing and writes nothing to the game: it raises or drops
+        // a presentation refusal over a set of window instances frozen at its own rising edge.
+        TickCurtain(story, loadout);
+
         bool gateWanted = PointOfNoReturn;
         // The composite exists only while BOTH halves do. Outside that the image belongs where the
         // game put it.
@@ -602,6 +852,11 @@ internal static class StoryComposite
         // states, from a fresh read of the float set, whether the result is actually ONE window.
         TickLoadoutClaim(loadout);
         ReportOneWindow(story, loadout);
+        // ModBuild 234's two falsifiers, both re-measured from the live objects on this tick and
+        // neither of them reading any state this class set: "is the story box the ONLY floated
+        // window" and "is the dialog actually directly under the picture, in millimetres".
+        ReportOnlyWindow(story);
+        ReportGap();
 
         bool openedThisTick = false;
         if (gateWanted && !_gateOpen)
@@ -751,6 +1006,246 @@ internal static class StoryComposite
         _claimStanding = want;
     }
 
+    // ---- the story curtain (ModBuild 234) ------------------------------------------------------
+
+    /// <summary>
+    /// THE FROZEN SET. Every window the mod was floating at the curtain's rising edge, minus the
+    /// story box (the one window that must stay) and minus the loadout screen (which has a claim of
+    /// its own, <see cref="HoldsLoadoutFloatBack"/>). Filled ONCE, in <see cref="RaiseCurtain"/>,
+    /// and nothing appends to it afterwards — that is the entire difference between this exclusion
+    /// and ModBuild 231's, and it is a property of the code rather than of a test that could be got
+    /// wrong. See the class doc, SECTION 5.
+    /// </summary>
+    private static readonly List<UIWindow> CurtainMembers = new(8);
+
+    private static bool _curtainStanding;
+    private static bool _curtainLifted;
+    private static int _curtainCycles;
+    private static bool _curtainCapReported;
+    private static string _curtainNames = "none";
+    private static string _curtainWhy =
+        "the quest-intro story curtain has never been raised in this session";
+
+    /// <summary>
+    /// How many times the curtain may be raised before it stops asking, and the number is DERIVED
+    /// from the same fuse as <see cref="MaxWithdrawCycles"/> rather than chosen.
+    /// <c>ModalFallback.10.CatchAll.cs</c> counts one churn tick per enrolment of a window the mod
+    /// is not already floating and session-suppresses the NAME on the fourth inside 60 s; a REFUSED
+    /// window is never counted; so the only counted events in a member's life are its FIRST float
+    /// and one re-float per curtain that FALLS. 1 + 2 = 3 is at the limit and never over it.
+    /// </summary>
+    private const int MaxCurtainCycles = 2;
+
+    /// <summary>
+    /// How long the curtain may stand on the BRIDGE alone — i.e. with neither the game's own
+    /// hide-other-UI level nor the loadout screen holding it up. It exists for exactly one seam,
+    /// and the hardware log measures that seam: the quest-start message chain ends at :15159
+    /// (<c>[AREA MANAGER] Set Focused Area WorldMap</c>) and the loadout window is shown 28 lines
+    /// later at :15188. Twenty seconds is two orders of magnitude of headroom over that and is a
+    /// HARD CEILING rather than a timeout to tune: past it the curtain lapses, every member floats
+    /// again, and the fail direction is a quest log that came back a few seconds early — never a
+    /// window that cannot come back.
+    /// </summary>
+    private const float CurtainBridgeSeconds = 20f;
+
+    private static float _curtainHeldAt;
+
+    /// <summary>
+    /// IS THE CURTAIN HOLDING THIS WINDOW OUT OF THE FLOAT SET RIGHT NOW? The question
+    /// <c>FloatRefusalTable</c> must ask, and — like <see cref="HoldsLoadoutFloatBack"/> — a PURE
+    /// read with no state and no logging, because that table's verdict is re-entered several times
+    /// per tick from a recursive ancestor walk and every caller must get the same answer.
+    ///
+    /// <para>The membership test is by REFERENCE against a set that was frozen at the edge, so this
+    /// method cannot refuse a window that opened afterwards however the level flaps.</para>
+    /// </summary>
+    internal static bool CurtainRefuses(UIWindow? window)
+    {
+        if (!_curtainStanding || _curtainLifted || window == null)
+            return false;
+        for (int i = 0; i < CurtainMembers.Count; i++)
+        {
+            if (ReferenceEquals(CurtainMembers[i], window))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>The curtain's own words for what it did, printed verbatim by the refusal line and by
+    /// the lapse warning. Never null.</summary>
+    internal static string CurtainWhy => _curtainWhy;
+
+    /// <summary>
+    /// Recompute the curtain LEVEL and print one line per EDGE.
+    ///
+    /// <para><b>THE HONESTY CLAUSE IS THE FIRST BOUND AND IT IS NOT OPTIONAL.</b> The curtain may
+    /// only stand while the mod is actually FLOATING the story box or the loadout screen — i.e.
+    /// while there is something on screen for the player to read. Take that away and the curtain
+    /// would be hiding every window in the room and showing nothing in their place, which is
+    /// ModBuild 231's ending exactly. [[parent-wins-needs-a-real-parent]]: suppressing X because Y
+    /// is showing the player something requires Y to ACTUALLY be showing it.</para>
+    ///
+    /// <para><b>THE HOLD CONDITION IS DELIBERATELY WIDER THAN THE EDGE CONDITION.</b> The edge is
+    /// the game's own <see cref="StoryHidesOtherUI"/>; the hold is that OR the gate being open OR
+    /// the loadout screen being up. That is what carries the curtain across the seam between the
+    /// quest-start message chain and the loadout screen — the log's own gap between :15159 (the
+    /// chain ends, focus returns to WorldMap) and :15188 (the loadout window is shown) — without
+    /// letting go and re-taking, which would cost two edges and two churn counts per member.</para>
+    /// </summary>
+    private static void TickCurtain(UIWindow? story, UIWindow? loadout)
+    {
+        int total = ModalFallback.CountFloatsOtherThan(null);
+        bool onScreen = (story != null && FloatedByMod(story, total))
+                        || (loadout != null && FloatedByMod(loadout, total));
+        bool gameLevel = StoryHidesOtherUI(story);
+
+        // THE SEAM BRIDGE. Its clock is reset by the two REAL reasons to hold, never by the curtain
+        // itself — the hold below must not consult _gateOpen, because the gate's own level is the
+        // union of the curtain and the loadout screen and a curtain that held "because the gate is
+        // open" would hold the gate open forever. A latch that is its own reason to latch is not a
+        // level at all.
+        bool realReason = gameLevel || LoadoutScreenOpen;
+        if (realReason)
+            _curtainHeldAt = Time.unscaledTime;
+
+        if (_curtainStanding)
+        {
+            bool bridging = Time.unscaledTime - _curtainHeldAt <= CurtainBridgeSeconds;
+            bool hold = MapRoomDriver.Active && onScreen && (realReason || bridging);
+            if (!hold)
+                CloseCurtain(!MapRoomDriver.Active ? "the 3D map room stood down"
+                             : !onScreen ? "the mod is no longer floating either half of the quest "
+                                           + "intro, so there is nothing on screen to be alone with"
+                             : $"the game stopped hiding its own UI for this message and no loadout "
+                               + $"screen followed within {CurtainBridgeSeconds:F0} s, so this was not "
+                               + "a quest start after all");
+            return;
+        }
+
+        if (!gameLevel || !MapRoomDriver.Active)
+            return;
+        if (!onScreen)
+            return;   // the honesty clause: never hide everything and show nothing
+        if (_curtainCycles >= MaxCurtainCycles)
+        {
+            if (!_curtainCapReported)
+            {
+                _curtainCapReported = true;
+                VRLog.Warn(Scope, $"STORY CURTAIN CAPPED — it has already been raised {_curtainCycles} "
+                                  + "time(s) since the last point-of-no-return gate closed and it will "
+                                  + "not be raised again until one does. THE CAP IS DERIVED, NOT CHOSEN: "
+                                  + "ModalFallback's catch-all churn fuse suppresses a window's NAME for "
+                                  + "the whole session on its 4th enrolment inside 60 s, a REFUSED window "
+                                  + "is never counted, and each curtain that FALLS costs its members "
+                                  + $"exactly one re-float — so {MaxCurtainCycles} cycles plus the first "
+                                  + "float is 3, at the fuse's limit and never over it. FROM HERE EVERY "
+                                  + "WINDOW FLOATS NORMALLY, which is the ModBuild 233 presentation: the "
+                                  + "quest log and the map's other panels stand beside the story box. Ugly, "
+                                  + "and NOT a deadlock. IF YOU ARE READING THIS IN A HARDWARE LOG the "
+                                  + "curtain is flapping — grep STORY CURTAIN LAPSED for what kept "
+                                  + "dropping it.");
+            }
+            return;
+        }
+        RaiseCurtain(story, loadout);
+    }
+
+    /// <summary>
+    /// Freeze the member set and raise the curtain. ONE line, at the edge, naming every member.
+    /// </summary>
+    private static void RaiseCurtain(UIWindow? story, UIWindow? loadout)
+    {
+        CurtainMembers.Clear();
+        ModalFallback.CollectFloatedWindows(CurtainMembers, story);
+        // The loadout screen is NOT a curtain member: it has a claim of its own that knows when the
+        // composite is drawing its illustration and when it must have its screen back. Two claims on
+        // one window would be two writers of one decision — [[a-remedy-knows-one-writer]].
+        for (int i = CurtainMembers.Count - 1; i >= 0; i--)
+        {
+            if (loadout != null && ReferenceEquals(CurtainMembers[i], loadout))
+                CurtainMembers.RemoveAt(i);
+        }
+
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 0; i < CurtainMembers.Count; i++)
+        {
+            if (sb.Length > 0)
+                sb.Append("; ");
+            sb.Append('\'').Append(CurtainMembers[i].name).Append("' (permanent map-room window: ")
+              .Append(ModalFallback.IsMapRoomPermanent(CurtainMembers[i])).Append(')');
+        }
+        _curtainNames = sb.Length > 0 ? sb.ToString() : "none";
+        _curtainCycles++;
+        _curtainStanding = true;
+        _curtainLifted = false;
+        _curtainWhy = $"the quest-start story message owns the screen — the game itself has hidden "
+                      + "every one of MapStoryController's own elementToHide objects for it "
+                      + "(isVisibleOtherUI is false), and this window is one of the "
+                      + $"{CurtainMembers.Count} the mod was floating at that instant. It is not "
+                      + "closed, hidden or written to in any way; its float is withheld until the "
+                      + "pre-scenario interval is over, and then it comes back with everything on it";
+
+        VRLog.Info(Scope, $"STORY CURTAIN RAISED (cycle {_curtainCycles} of {MaxCurtainCycles}) — the "
+                          + "game has hidden the rest of its own UI for this story message "
+                          + "(MapStoryController.isVisibleOtherUI is false, set by "
+                          + "ShowOtherGUI(!message.HideOtherGUI) at MapStoryController.cs:144-165), so "
+                          + "the mod withdraws the floats that are the VR equivalent of the UI it just "
+                          + $"took away. FROZEN MEMBER SET, {CurtainMembers.Count} window(s): "
+                          + $"[{_curtainNames}]. THE SET IS TAKEN ONCE AND NEVER APPENDED TO — the "
+                          + "battle-goal picker, the party display, the loadout screen and the quest "
+                          + "popup the loadout re-shows all open AFTER this instant and are therefore "
+                          + "out of scope BY CONSTRUCTION, which is the one thing ModBuild 231's "
+                          + "level-triggered version of this rule could not promise. NOTHING IS WRITTEN "
+                          + "TO THE GAME: no Hide, no Escape, no SetActive, no CanvasGroup — this is a "
+                          + "FloatRefusalTable refusal (asked at the top of the catch-all loop, so the "
+                          + "churn fuse never counts it) and WithdrawRefusedFloat takes down the floats "
+                          + "that already exist. THE QUEST LOG IS IN THE SET ON PURPOSE and that is a "
+                          + "NARROW REVERSAL of the permanence ruling FOR THIS INTERVAL ONLY — at every "
+                          + "other moment it still has no X, is still refused by CloseFloatedWindow and "
+                          + "is still skipped by the escape chord. USER RULING: \"Ich möchte aber das zu "
+                          + "diesem Zeitpunkt alle anderen Fenster verschwinden und nur dieses Fenster "
+                          + "sichtbar ist (Point of no return überschritten).\" IF THE MEMBERS ARE STILL "
+                          + "ON SCREEN AFTER THIS LINE, FloatRefusalTable is not asking CurtainRefuses "
+                          + "on this build — see STORY CURTAIN ONLY WINDOW for the measurement.");
+    }
+
+    /// <summary>Drop the curtain: the members float again from the next tick, with everything on
+    /// them. ONE line per edge, and the count is kept.</summary>
+    private static void CloseCurtain(string why)
+    {
+        if (!_curtainStanding)
+            return;
+        _curtainStanding = false;
+        VRLog.Info(Scope, $"STORY CURTAIN LAPSED — {why}. The {CurtainMembers.Count} member(s) "
+                          + $"[{_curtainNames}] float again from this tick with everything on them; "
+                          + "the quest log returns to being the map room's permanent, X-less window and "
+                          + "the permanence ruling governs it again in full. NOTHING HAS TO BE UNDONE, "
+                          + "because nothing was written: the curtain only ever withheld a float. "
+                          + $"{_curtainCycles} of {MaxCurtainCycles} cycle(s) used"
+                          + (_curtainLifted ? ", and the deadlock floor had already lifted this one — "
+                                              + "see MODAL DEADLOCK FLOOR above" : string.Empty) + ".");
+        CurtainMembers.Clear();
+        _curtainNames = "none";
+        _curtainWhy = "the quest-intro story curtain has lapsed; every window is nobody's "
+                      + "responsibility but its own";
+    }
+
+    /// <summary>How many curtain members the GAME still has open, i.e. how many windows would float
+    /// right now if the curtain were not standing. The floor's input, and nothing else reads it.</summary>
+    private static int CurtainWithheldNow()
+    {
+        if (!_curtainStanding || _curtainLifted)
+            return 0;
+        int n = 0;
+        for (int i = 0; i < CurtainMembers.Count; i++)
+        {
+            UIWindow m = CurtainMembers[i];
+            if (m != null && m.IsOpen)
+                n++;
+        }
+        return n;
+    }
+
     // ---- the falsifier ---------------------------------------------------------------------
 
     /// <summary>
@@ -836,6 +1331,202 @@ internal static class StoryComposite
                           + "means the host itself is not on screen and nothing should have been refused.");
     }
 
+    // ---- ModBuild 234's two falsifiers ---------------------------------------------------------
+
+    /// <summary>Above this the picture is not "directly under" anything, in real millimetres at the
+    /// live rig scale. The intent is <see cref="ImageGapPx"/> = 24 authored px, which on the
+    /// composite's committed host works out at roughly 17-25 mm; 40 mm is comfortably above that and
+    /// two orders of magnitude below what ModBuild 233 shipped (786-888 authored px, i.e. more than
+    /// half a metre of black on the panel). A threshold that only a genuinely fixed build can pass,
+    /// and that a build with the old basis cannot pass by accident.</summary>
+    private const float MaxGapMillimetres = 40f;
+
+    private static readonly List<UIWindow> FloatScratch = new(8);
+    private static string _onlyWindowVerdict = string.Empty;
+    private static int _onlyWindowReports;
+    private static string _gapVerdict = string.Empty;
+    private static int _gapReports;
+
+    /// <summary>
+    /// FALSIFIER 1 — IS THE STORY BOX THE ONLY FLOATED WINDOW IN THE ROOM RIGHT NOW?
+    ///
+    /// <para>This is the clause <see cref="ReportOneWindow"/> explicitly does NOT make: that line is
+    /// about the two halves of the quest intro and says so, and it prints the total beside its
+    /// verdict precisely so a reader can see the difference rather than infer it. The user's ModBuild
+    /// 233 ruling asks the wider question — <i>"alle anderen Fenster verschwinden und nur dieses
+    /// Fenster sichtbar ist"</i> — so it gets its own line, its own grep string and its own
+    /// measurement, taken this tick from the float set itself and NOT from the curtain's own state
+    /// (a curtain that believes it is standing is not evidence that anything vanished).</para>
+    ///
+    /// <para>GREP: <c>STORY CURTAIN ONLY WINDOW: CONFIRMED</c> — the fix.
+    /// <c>STORY CURTAIN ONLY WINDOW: NOT ACHIEVED</c> — the complaint, with every window that is
+    /// still standing named.</para>
+    /// </summary>
+    private static void ReportOnlyWindow(UIWindow? story)
+    {
+        if (!_curtainStanding)
+        {
+            _onlyWindowVerdict = string.Empty;
+            _onlyWindowReports = 0;
+            return;
+        }
+        FloatScratch.Clear();
+        int others = ModalFallback.CollectFloatedWindows(FloatScratch, story);
+        bool storyFloated = story != null && FloatedByMod(story);
+        bool ok = storyFloated && others == 0;
+
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 0; i < FloatScratch.Count; i++)
+        {
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(FloatScratch[i].name).Append("' (a curtain member: ")
+              .Append(CurtainRefuses(FloatScratch[i])).Append(')');
+        }
+        string standing = sb.Length > 0 ? sb.ToString() : "none";
+        FloatScratch.Clear();
+
+        string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";
+        if (verdict == _onlyWindowVerdict || _onlyWindowReports >= MaxOneWindowReports)
+            return;
+        _onlyWindowVerdict = verdict;
+        _onlyWindowReports++;
+
+        string measured = $"story box '{(story != null ? story.name : "<none>")}' floated="
+                          + $"{storyFloated}; OTHER floated window(s): {others} [{standing}]; the "
+                          + $"curtain's frozen member set is [{_curtainNames}]";
+        if (ok)
+        {
+            VRLog.Info(Scope, "STORY CURTAIN ONLY WINDOW: CONFIRMED — the story box is the ONLY window "
+                              + "the mod is floating. MEASURED THIS TICK: " + measured + ". USER RULING "
+                              + "THIS LINE ANSWERS: \"Ich möchte aber das zu diesem Zeitpunkt alle "
+                              + "anderen Fenster verschwinden und nur dieses Fenster sichtbar ist (Point "
+                              + "of no return überschritten).\" Nothing was written to the game to "
+                              + "achieve it: the members' floats are withheld and they come back, with "
+                              + "everything on them, when the curtain lapses.");
+            return;
+        }
+        VRLog.Warn(Scope, "STORY CURTAIN ONLY WINDOW: NOT ACHIEVED — something other than the story box "
+                          + "is still floating past the point of no return. MEASURED THIS TICK: "
+                          + measured + ". READ IT LIKE THIS: a window listed with 'a curtain member: "
+                          + "True' means CurtainRefuses says no and it is STILL floating, i.e. "
+                          + "FloatRefusalTable is not asking CurtainRefuses on this build — that is the "
+                          + "one change this feature needs outside StoryComposite.cs and its absence "
+                          + "looks exactly like this. 'a curtain member: False' means the window opened "
+                          + "AFTER the curtain's edge and is out of scope by construction, which is "
+                          + "deliberate (it is what stops this rule from eating the loadout sequence the "
+                          + "way ModBuild 231 did) — if such a window must also go, it has to go at the "
+                          + "edge, not by widening the set afterwards. story floated=False means the "
+                          + "host itself is not on screen and the curtain should already have lapsed.");
+    }
+
+    /// <summary>
+    /// FALSIFIER 2 — IS THE PICTURE ACTUALLY DIRECTLY ABOVE THE DIALOG?
+    ///
+    /// <para>Both edges are re-measured HERE, from the live objects, rather than carried over from
+    /// <see cref="ApplyPose"/>. That is the whole point: a number the placement computed and then
+    /// reported back would agree with every broken build, which is the mistake ModBuild 232's own
+    /// BUILT line made when it printed <c>'Image' 0x0 px</c> and still ended "are now ONE window"
+    /// ([[an-instrument-can-assert-a-cause]]). The gap is converted to real millimetres at the live
+    /// rig scale, because "24 px" means nothing to a reader and half a metre of black is what the
+    /// user actually saw.</para>
+    ///
+    /// <para>GREP: <c>STORY COMPOSITE GAP: CONFIRMED</c> — the fix.
+    /// <c>STORY COMPOSITE GAP: TOO FAR</c> — the complaint, with the measured millimetres.</para>
+    /// </summary>
+    private static void ReportGap()
+    {
+        if (_parked == null || _parkHost == null)
+        {
+            _gapVerdict = string.Empty;
+            _gapReports = 0;
+            return;
+        }
+        // Past the report cap this line can say nothing more, so it stops MEASURING as well — two
+        // subtree walks per tick for a verdict that will not be printed is the kind of instrument
+        // cost that gets a whole sweep blamed for a frame later on.
+        if (_gapReports >= MaxOneWindowReports)
+            return;
+        var win = _parkHost.transform as RectTransform;
+        if (win == null || !Singleton<MapStoryController>.IsInitialized)
+            return;
+        MapStoryController mc = Singleton<MapStoryController>.Instance;
+        var dialog = mc != null && mc.dialogBox != null
+            ? mc.dialogBox.transform as RectTransform
+            : null;
+        if (dialog == null || !dialog.gameObject.activeInHierarchy)
+            return;
+
+        ConvertedPanel? panel = ModalFallback.PanelFor(_parkHost);
+        if (!TryPaintedBounds(dialog, win, panel, out Rect ink, out int nDialog) || nDialog == 0)
+            return;
+        if (!TryPaintedBounds(_parked, win, panel, out Rect pic, out int nPic) || nPic == 0)
+            return;
+
+        float gapPx = pic.yMin - ink.yMax;
+        float rig = RigScale();
+        float mm = Mathf.Abs(gapPx) * Mathf.Abs(win.lossyScale.y) / Mathf.Max(rig, 1e-4f) * 1000f;
+        bool scaleKnown = rig > 1e-3f && Mathf.Abs(win.lossyScale.y) > 1e-6f;
+        bool ok = gapPx >= -OffsetEpsilonPx
+                  && (scaleKnown ? mm <= MaxGapMillimetres
+                                 : Mathf.Abs(gapPx) <= ImageGapPx * 3f);
+
+        string verdict = ok ? "CONFIRMED" : "TOO FAR";
+        if (verdict == _gapVerdict || _gapReports >= MaxOneWindowReports)
+            return;
+        _gapVerdict = verdict;
+        _gapReports++;
+
+        string measured =
+            $"picture '{_parked.name}' painted bottom edge at y={pic.yMin:F0}, dialog "
+            + $"'{dialog.name}' painted top edge at y={ink.yMax:F0} (both in the story window's own "
+            + $"authored px, both unioned this tick from {nPic} and {nDialog} drawn graphic(s) that "
+            + "passed the CONVERSION'S OWN fit visibility verdict) ⇒ GAP "
+            + $"{gapPx:F0} authored px = {(scaleKnown ? $"{mm:F0} mm" : "n/a mm (no rig scale)")} at "
+            + $"the live rig scale (rig {rig:F1} world units per tracking metre, host "
+            + $"{Mathf.Abs(win.lossyScale.y):F4} world units per authored px), against a bound of "
+            + $"{MaxGapMillimetres:F0} mm. INTENT: {ImageGapPx:F0} px. PLACED AGAINST: {_poseBasis}. "
+            + $"Painted dialog strip {ink.width:F0}x{ink.height:F0} px; painted picture "
+            + $"{pic.width:F0}x{pic.height:F0} px";
+
+        if (ok)
+        {
+            VRLog.Info(Scope, "STORY COMPOSITE GAP: CONFIRMED — the dialog is directly under the "
+                              + "picture. MEASURED THIS TICK: " + measured + ". USER REPORT THIS LINE "
+                              + "ANSWERS: \"allerdings ist der Abstand zwischen dem Bild und dem Dialog "
+                              + "viel zu groß, das Dialogfenster soll direkt darunter angezeigt "
+                              + "werden.\" FOR SCALE: ModBuild 233's own fit line measured this gap at "
+                              + "888 authored px (:15304) and 786 px one tick later (:15323) — more "
+                              + "than half a metre on the panel — because it placed the picture against "
+                              + "the dialog HOST's rect instead of the dialog's ink.");
+            return;
+        }
+        VRLog.Warn(Scope, "STORY COMPOSITE GAP: TOO FAR — the dialog is not directly under the picture. "
+                          + "MEASURED THIS TICK: " + measured + ". READ IT LIKE THIS: a gap of several "
+                          + "hundred authored px means the placement is running on the AUTHORED-RECT "
+                          + "fallback (the 'PLACED AGAINST' clause says which basis ran) — i.e. no "
+                          + "graphic under MapStoryController.dialogBox passed the fit's visibility "
+                          + "verdict, so there was no ink to place against. A NEGATIVE gap means the "
+                          + "picture is overlapping the dialog and ImageGapPx is being applied against "
+                          + "an ink offset this method measured differently from ApplyPose. A gap near "
+                          + "the intent in px but over the bound in mm means the panel is simply drawn "
+                          + "much larger than ModBuild 233's — read the host scale in the line above "
+                          + "before changing ImageGapPx.");
+    }
+
+    private static float RigScale()
+    {
+        try
+        {
+            Transform? rig = Rig.VRRigDriver.RigRoot;
+            return rig != null ? Mathf.Abs(rig.lossyScale.x) : 1f;
+        }
+        catch (System.Exception)
+        {
+            return 1f;
+        }
+    }
+
     /// <summary>
     /// Age the two-tick bridge and say ONE line when it is over. After this counter reaches zero
     /// <see cref="HoldsBack"/> is incapable of refusing anything until the next rising edge, so the
@@ -872,9 +1563,27 @@ internal static class StoryComposite
     /// </summary>
     private static void TickDeadlockFloor()
     {
+        int floated = ModalFallback.CountFloatsOtherThan(null);
+
+        // ModBuild 234 — THE CURTAIN GETS THE SAME FLOOR, AND IT IS A BACKSTOP RATHER THAN THE
+        // PRIMARY GUARD. TickCurtain's honesty clause already refuses to let the curtain stand
+        // unless the mod is floating the story box or the loadout screen, so "zero floated windows
+        // while the curtain withholds one" ought to be unreachable. IF THIS EVER FIRES, THE HONESTY
+        // CLAUSE IS THE BUG and the line below says so by name — which is exactly what a floor is
+        // for. It is checked before the bridge because it is the cheaper of the two to be wrong
+        // about: a curtain lifted for nothing costs a quest log back on screen.
+        int withheld = CurtainWithheldNow();
+        if (withheld > 0
+            && TripsDeadlockFloor("StoryComposite.CurtainRefuses (the point-of-no-return story curtain)",
+                                  floated, withheld,
+                                  $"its frozen member set is [{_curtainNames}] and the game still has "
+                                  + $"{withheld} of them open; the curtain's own honesty clause was "
+                                  + "supposed to make this state impossible, so THAT clause is where the "
+                                  + "next round starts"))
+            _curtainLifted = true;
+
         if (_holdLifted || _heldLastPass <= 0)
             return;
-        int floated = ModalFallback.CountFloatsOtherThan(null);
         if (!TripsDeadlockFloor("StoryComposite.HoldsBack (the point-of-no-return convert-loop bridge)",
                                 floated, _heldLastPass,
                                 $"the most recent window it refused was '{_heldLastName}'; the gate closed "
@@ -1141,10 +1850,21 @@ internal static class StoryComposite
         // leaves the machine at home and the lock a pure presentation change on top of it.
         int caps = SetDestinationsLocked(true, loadout);
 
-        VRLog.Info(Scope, $"POINT OF NO RETURN OPENED — the pre-scenario loadout screen is up "
-                          + "(UILoadoutManager.IsOpen), so the party has committed to a quest. THIS IS A "
-                          + "ONE-SHOT AT THE RISING EDGE: there is no level-triggered sweep in this build "
-                          + "and nothing in StoryComposite closes a window after this line. CLOSED "
+        string edge = _curtainStanding
+            ? "the STORY CURTAIN (ModBuild 234) — the game has hidden the rest of its own UI for the "
+              + "quest-start message chain (MapStoryController.isVisibleOtherUI is false), which is "
+              + $"the moment the user named. {CurtainMembers.Count} floated window(s) are held out by "
+              + $"the curtain's frozen member set [{_curtainNames}]"
+            : "the PRE-SCENARIO LOADOUT SCREEN (UILoadoutManager.IsOpen) — this quest played no "
+              + "full-attention story message, so the ModBuild 233 edge is the one that fired and the "
+              + "curtain is not standing";
+
+        VRLog.Info(Scope, $"POINT OF NO RETURN OPENED at edge: {edge}. So the party has committed to a "
+                          + "quest. THIS IS A ONE-SHOT AT THE RISING EDGE: there is no level-triggered "
+                          + "sweep in this build and nothing in StoryComposite closes a window after this "
+                          + "line. GREP THIS STRING: it must appear EXACTLY ONCE per quest start — the "
+                          + "gate's level is the UNION of the curtain and the loadout screen precisely so "
+                          + "that the two halves of one commitment cannot produce two edges. CLOSED "
                           + $"{_closedAtOpen} of {NamedSet.Count} NAMED member(s) [{names}] "
                           + $"({skipped} member(s) were neither open nor floated and were left alone) and "
                           + $"LOCKED {caps} guildmaster destination(s) plus the city encounter. THE SET IS "
@@ -1221,6 +1941,14 @@ internal static class StoryComposite
     private static void CloseGate()
     {
         _gateOpen = false;
+        // THE CURTAIN DIES WITH THE GATE, ALWAYS AND FIRST. A curtain that outlived the interval it
+        // was raised for would be a standing suppression with no owner, which is the one shape this
+        // whole file exists to be incapable of. The cycle budget is refilled here and only here, so
+        // one quest start can raise it at most MaxCurtainCycles times.
+        CloseCurtain("the point-of-no-return gate closed");
+        _curtainCycles = 0;
+        _curtainCapReported = false;
+        _curtainLifted = false;
         int caps = SetDestinationsLocked(false, null);
         VRLog.Info(Scope, $"POINT OF NO RETURN CLOSED — the loadout screen is gone. UNLOCKED {caps} "
                           + $"guildmaster destination(s) and the city encounter; the {_closedAtOpen} "
@@ -1778,9 +2506,31 @@ internal static class StoryComposite
     /// to sweep for. That is the difference from <c>MapTravelConfirm</c>, which has to sweep the
     /// window's content because it does not know what its member will sit under.</para>
     ///
+    /// <para><b>ModBuild 234 — AND "THE DIALOG" IS ITS INK, NOT ITS RECT. THIS IS THE WHOLE OF THE
+    /// SECOND REPORTED FAULT.</b> <i>"allerdings ist der Abstand zwischen dem Bild und dem Dialog
+    /// viel zu groß, das Dialogfenster soll direkt darunter angezeigt werden."</i>
+    /// <c>MapStoryController.dialogBox</c> is a <c>UICharacterStoryBox</c> whose RectTransform is a
+    /// TALL, MOSTLY TRANSPARENT HOST; the strip the player sees is pinned to its BOTTOM. The fit line
+    /// at Player.log:15304 measures both in the same breath —
+    /// <c>'Map Story Window/Image' 1280x720px at (-640,540)</c> and
+    /// <c>'Dialog/DialogContent' 1040x168px at (-520,-516)</c> — so the picture's bottom was 540 and
+    /// the painted dialog's top was -348: <b>888 px of nothing</b>, against an
+    /// <see cref="ImageGapPx"/> of 24 that was perfectly applied to the wrong edge.
+    /// [[tight-box-is-not-the-rect]].</para>
+    ///
+    /// <para><b>SO BOTH EDGES ARE NOW INK, MEASURED WITH THE FIT'S OWN VERDICT.</b>
+    /// <see cref="TryPaintedBounds"/> unions only the graphics
+    /// <c>CanvasConversion.CountsAsFitContent</c> counts — the same test that produced the numbers
+    /// above, so the placement and the host fit can no longer disagree about what is drawn. The
+    /// picture's PAINTED BOTTOM goes <see cref="ImageGapPx"/> px above the dialog's PAINTED TOP; the
+    /// offset between the picture's rect bottom and its ink is measured on the object and subtracted,
+    /// so a sprite with transparent margin would be handled the same way.</para>
+    ///
     /// <para>RE-APPLIED EVERY TICK because the dialog grows: the ModBuild 231 log shows the map story
-    /// box fitting 1096x233 → 1096x289 as its text lands. Change-gated on
-    /// <see cref="OffsetEpsilonPx"/> so a settled layout costs one comparison and no write.</para>
+    /// box fitting 1096x233 → 1096x289 as its text lands, and the composite's own fit shows the same
+    /// painted strip at 168 px (three lines, story1.jpg) and 270 px (eight lines, story2.jpg).
+    /// Change-gated on <see cref="OffsetEpsilonPx"/> so a settled layout costs one comparison and no
+    /// write.</para>
     /// </summary>
     private static void ApplyPose(RectTransform win)
     {
@@ -1800,20 +2550,153 @@ internal static class StoryComposite
         if (dialog == null || !dialog.gameObject.activeInHierarchy)
             return;
 
-        Vector3[] corners = Corners;
-        dialog.GetWorldCorners(corners);
-        // GetWorldCorners: 0 bottom-left, 1 TOP-LEFT, 2 TOP-RIGHT, 3 bottom-right.
-        Vector3 topLeft = win.InverseTransformPoint(corners[1]);
-        Vector3 topRight = win.InverseTransformPoint(corners[2]);
-        float top = Mathf.Max(topLeft.y, topRight.y);
-        float centreX = (topLeft.x + topRight.x) * 0.5f;
+        ConvertedPanel? panel = ModalFallback.PanelFor(_parkHost);
+        float top;
+        float centreX;
+        if (TryPaintedBounds(dialog, win, panel, out Rect ink, out int inkCount) && inkCount > 0)
+        {
+            top = ink.yMax;
+            centreX = ink.center.x;
+            _poseBasis = $"the dialog's PAINTED top edge, unioned from {inkCount} drawn graphic(s) "
+                         + $"under '{dialog.name}' ({ink.width:F0}x{ink.height:F0} px of a "
+                         + $"{RectSizeOf(dialog).x:F0}x{RectSizeOf(dialog).y:F0} px host rect)";
+        }
+        else
+        {
+            // FALLBACK, AND IT IS THE ModBuild 231-233 BEHAVIOUR VERBATIM: the authored rect. It is
+            // wrong by ~888 px on this prefab and it is kept anyway, because "no graphic under the
+            // dialog passed the fit's visibility verdict" is a state in which a picture placed
+            // somewhere plausible beats no composite at all. The basis string says which was used,
+            // so a hardware log never has to guess which branch ran.
+            Vector3[] corners = Corners;
+            dialog.GetWorldCorners(corners);
+            // GetWorldCorners: 0 bottom-left, 1 TOP-LEFT, 2 TOP-RIGHT, 3 bottom-right.
+            Vector3 topLeft = win.InverseTransformPoint(corners[1]);
+            Vector3 topRight = win.InverseTransformPoint(corners[2]);
+            top = Mathf.Max(topLeft.y, topRight.y);
+            centreX = (topLeft.x + topRight.x) * 0.5f;
+            _poseBasis = $"the dialog's AUTHORED rect top edge — NOT its ink, because no graphic "
+                         + $"under '{dialog.name}' passed the fit's own visibility verdict this tick. "
+                         + "This is the ModBuild 231-233 basis and on the shipped prefab it sits about "
+                         + "888 px above the drawn dialog";
+        }
 
-        var want = new Vector2(centreX, top + ImageGapPx);
+        // The picture's own INK offset: how far its painted bottom sits above its rect bottom. The
+        // parked rect's pivot is (0.5,0) and its anchors are collapsed to the window's centre, so
+        // anchoredPosition.y IS its rect bottom in this space. For a full-bleed Image this is 0 and
+        // the whole clause costs one measurement.
+        float inkOffset = 0f;
+        if (TryPaintedBounds(_parked, win, panel, out Rect pic, out int picCount) && picCount > 0)
+            inkOffset = pic.yMin - _parked.anchoredPosition.y;
+
+        var want = new Vector2(centreX, top + ImageGapPx - inkOffset);
         if ((_parked.anchoredPosition - want).sqrMagnitude > OffsetEpsilonPx * OffsetEpsilonPx)
             _parked.anchoredPosition = want;
     }
 
     private static readonly Vector3[] Corners = new Vector3[4];
+
+    /// <summary>Which edge <see cref="ApplyPose"/> last placed against — ink or authored rect.
+    /// Printed by the BUILT line and by the gap falsifier so neither can assert a basis it did not
+    /// use ([[an-instrument-can-assert-a-cause]]).</summary>
+    private static string _poseBasis = "nothing has been placed yet";
+
+    private static Vector2 RectSizeOf(RectTransform rt) => rt.rect.size;
+
+    /// <summary>Scratch for <see cref="TryPaintedBounds"/>. One list, reused, never resized in the
+    /// steady state — this runs once per tick per rect while the composite stands.</summary>
+    private static readonly List<Graphic> PaintScratch = new(48);
+
+    /// <summary>
+    /// THE PAINTED BOUNDS OF A SUBTREE, in <paramref name="win"/>'s local (authored uGUI) space.
+    ///
+    /// <para><b>THE VISIBILITY VERDICT IS BORROWED, NOT RE-INVENTED.</b> With a
+    /// <paramref name="panel"/> in hand this asks <c>CanvasConversion.CountsAsFitContent</c> — the
+    /// fit's own four-reason test (culled / faint / empty / clipped out, plus the skip for this
+    /// mod's own cue art). That matters for more than tidiness: the numbers this method produces are
+    /// compared against the numbers the FIT produces in the same log, and a second, weaker predicate
+    /// is exactly how <c>MrBacking.GlyphTrueRect</c> once unioned back in the text the fit had
+    /// already judged invisible. Same lesson, same shared method.</para>
+    ///
+    /// <para><b>WITHOUT A PANEL IT FALLS BACK TO A MINIMAL LOCAL TEST</b>, and it has to: the park
+    /// happens on the tick the story window OPENS, one tick before the conversion measures it, so
+    /// there is genuinely no <c>ConvertedPanel</c> yet on the first call. The fallback is
+    /// deliberately conservative (active, enabled, not culled, not transparent, non-degenerate) and
+    /// the <paramref name="counted"/> figure is reported, so a caller can see how much it was
+    /// working from.</para>
+    /// </summary>
+    private static bool TryPaintedBounds(RectTransform root, RectTransform win,
+                                         ConvertedPanel? panel, out Rect local, out int counted)
+    {
+        local = default;
+        counted = 0;
+        try
+        {
+            PaintScratch.Clear();
+            root.GetComponentsInChildren(includeInactive: false, PaintScratch);
+            if (PaintScratch.Count == 0)
+                return false;
+            if (panel != null)
+                CanvasConversion.BeginContentQuery();
+
+            float minX = float.MaxValue, minY = float.MaxValue;
+            float maxX = float.MinValue, maxY = float.MinValue;
+            Vector3[] corners = Corners;
+            for (int i = 0; i < PaintScratch.Count; i++)
+            {
+                Graphic g = PaintScratch[i];
+                if (g == null)
+                    continue;
+                if (panel != null)
+                {
+                    if (!CanvasConversion.CountsAsFitContent(panel, g))
+                        continue;
+                }
+                else if (!CountsAsPaintedHere(g))
+                {
+                    continue;
+                }
+                var rt = g.rectTransform;
+                if (rt == null)
+                    continue;
+                Vector2 size = rt.rect.size;
+                if (size.x < 1f || size.y < 1f)
+                    continue;
+                rt.GetWorldCorners(corners);
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 p = win.InverseTransformPoint(corners[c]);
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.y < minY) minY = p.y;
+                    if (p.y > maxY) maxY = p.y;
+                }
+                counted++;
+            }
+            PaintScratch.Clear();
+            if (counted == 0)
+                return false;
+            local = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return true;
+        }
+        catch (System.Exception)
+        {
+            // A measurement is never worth a throw reaching the modal tick. The caller falls back to
+            // the authored rect and says so.
+            PaintScratch.Clear();
+            counted = 0;
+            return false;
+        }
+    }
+
+    /// <summary>The minimal "is this drawn?" test, used ONLY when there is no converted panel to ask
+    /// the fit's own verdict of (the first tick of a park). Deliberately weaker and deliberately
+    /// stated as such.</summary>
+    private static bool CountsAsPaintedHere(Graphic g) =>
+        g.enabled && g.gameObject.activeInHierarchy
+        && (g.canvasRenderer == null || !g.canvasRenderer.cull)
+        && g.color.a > 0.02f
+        && !g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal);
 
     private static void Unpark(string why)
     {
@@ -1908,8 +2791,12 @@ internal static class StoryComposite
                           + "here the picture's size depends on nothing outside this class, so the "
                           + "paper-expand tween cannot reach it. LAYOUT: the picture is parked under "
                           + $"'{win.name}' with pivot (0.5,0) at anchored ({pos.x:F0},{pos.y:F0}) px — its "
-                          + $"BOTTOM edge {ImageGapPx:F0} px above the measured TOP edge of "
-                          + "MapStoryController.dialogBox, i.e. the dialog UNDER the image, one panel, one "
+                          + $"PAINTED bottom edge {ImageGapPx:F0} px above the PAINTED top edge of "
+                          + $"MapStoryController.dialogBox, measured against {_poseBasis} (ModBuild 234: "
+                          + "the ink, not the authored rect — that host is ~888 px taller than the strip "
+                          + "it draws and the difference IS the gap the user reported), i.e. the dialog "
+                          + "DIRECTLY UNDER the image; see STORY COMPOSITE GAP for the millimetres. One "
+                          + "panel, one "
                           + $"grab bar, no X. SHARED: {shared} (kind {kind}) — the bar this panel wears is "
                           + "the one SharedWindows.IsShared decides, and the pose it publishes is record 21 "
                           + "entry kind 1. THE LOADOUT SCREEN NOW STANDS DOWN: see the STORY COMPOSITE "
@@ -1958,5 +2845,25 @@ internal static class StoryComposite
         _oneWindowReports = 0;
         _parkedSize = Vector2.zero;
         _parkedSprite = string.Empty;
+        // ModBuild 234 — AND THE CURTAIN MUST DIE WITH THE MODULE FOR THE SAME REASON THE LOADOUT
+        // CLAIM MUST: a standing refusal that outlived this class would hold a set of windows out of
+        // the float set with nobody left to lapse it. CloseCurtain is called through CloseGate above
+        // when the gate was open; these lines are the belt for the case where it was not.
+        CloseCurtain("module teardown");
+        CurtainMembers.Clear();
+        _curtainStanding = false;
+        _curtainLifted = false;
+        _curtainCycles = 0;
+        _curtainCapReported = false;
+        _curtainHeldAt = 0f;
+        _curtainNames = "none";
+        _curtainWhy = "the quest-intro story curtain has been torn down with the module";
+        _onlyWindowVerdict = string.Empty;
+        _onlyWindowReports = 0;
+        _gapVerdict = string.Empty;
+        _gapReports = 0;
+        _poseBasis = "nothing has been placed yet";
+        FloatScratch.Clear();
+        PaintScratch.Clear();
     }
 }
