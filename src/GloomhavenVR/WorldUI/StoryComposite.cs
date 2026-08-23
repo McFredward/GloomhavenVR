@@ -172,13 +172,99 @@ namespace GloomhavenVR.WorldUI;
 /// loadout window instead of once per tick — forty identical warnings for one refusal is an
 /// instrument defect, not a diagnosis.</para>
 ///
-/// <para><b>WHAT THIS BUILD DELIBERATELY DOES NOT DO: it does not suppress the loadout window.</b>
-/// ModBuild 231's picture was "the story leads, the loadout screen floats later", and it bought that
-/// by holding the loadout window out of the float set — which is precisely what blew the churn fuse
-/// and cost him the session. Both windows now float; the picture moves, the loadout screen keeps
-/// everything else it draws. If the second window is unwanted the answer is a rule about what the
-/// loadout screen DRAWS, not a rule about what the mod REFUSES TO SHOW, and that is a decision for
-/// the user and not a trade-off to be written into a comment ([[comment-is-not-consent]]).</para>
+/// <para>=====================================================================================
+/// SECTION 4 — ModBuild 233: WHY THE STORY WINDOW IS THE HOST, AND WHAT HAPPENS TO THE OTHER ONE
+/// =====================================================================================</para>
+///
+/// <para><b>USER REPORT (ModBuild 232 hardware, .planning/debug/story_getrennt3.jpg, verbatim):</b>
+/// <i>"Das Dialogfenster der Story und das Fenster mit dem Bild sind immer noch zwei getrennte
+/// Fenster. Außerdem ist die Zeichnung/Bild nicht mehr richtig zu sehen!"</i> The screenshot shows
+/// the loadout window floating with a close cross and a BLANK PARCHMENT where the illustration
+/// should be, and the story dialog floating below it on its own blue bar. Two windows, and the
+/// picture gone as well.</para>
+///
+/// <para><b>THE PICTURE WENT MISSING FOR A REASON THE LOG NAMES TWICE AND NEITHER LINE IS A
+/// MYSTERY.</b> The ModBuild 232 log picks the rect at <c>'Image' is 1280x720 px … (67 % x 67 %)</c>
+/// (:5224) and then reports the built composite at <c>'Image' 0x0 px</c> (:5225). Between those two
+/// measurements <see cref="Park"/> set <c>anchorMin = anchorMax = (0.5,0.5)</c>. <c>imageHolder</c>
+/// is a STRETCH child of <c>'Paper'</c>, so its <c>sizeDelta</c> is the inset pair and its drawn
+/// size came entirely from its parent: collapsing the anchors to a point without writing
+/// <c>sizeDelta</c> leaves <c>rect.size == sizeDelta ==</c> 0x0. The same arithmetic run backwards
+/// explains :5408's <c>'Image' is 1814x1020 px</c> — that is AFTER the unpark restored the stretch
+/// anchors and AFTER <c>UILoadoutQuestWindow.FinishIntroduction</c> expanded <c>'Paper'</c>, so the
+/// rect was reporting the paper's post-tween size. One rect, three different numbers, none of them
+/// wrong: the thing being measured is DRIVEN BY ITS PARENT and it is ANIMATED. The fix is to stop
+/// depending on either — see <see cref="Park"/>, which captures the measured size into
+/// <c>sizeDelta</c> so the composite OWNS the number from then on, and the parked rect is an
+/// anchor-point rect with <c>ignoreLayout</c> whose parent is no longer <c>'Paper'</c>, so the
+/// expand tween cannot reach it at all.</para>
+///
+/// <para><b>AND IT WAS PARKED BEFORE IT HAD ANYTHING TO DRAW.</b> :5224 ends
+/// <c>its sprite is NOT LOADED YET</c>, and that was printed as part of an ACCEPTANCE. The
+/// illustration arrives through an addressable (<c>StoryImageViewer.LoadImages</c> →
+/// <c>token.Load</c> → <c>Addressables.LoadAssetAsync&lt;Sprite&gt;</c>, StoryImageViewer.cs:59-76),
+/// and until it lands the viewer keeps <c>imageHolder.gameObject</c> DEACTIVATED
+/// (<c>LoadImages</c> :201, re-activated only at <c>Show</c> :234). So the mod parked an inactive,
+/// sprite-less, parent-driven rect and called it a picture. <see cref="Judge"/> now WAITS on all
+/// three facts — laid out, active, sprite present — and "not ready yet" is an Info state that says
+/// so, never a refusal.</para>
+///
+/// <para><b>WHICH WINDOW IS THE ONE WINDOW: THE STORY WINDOW, AND THE LOADOUT SCREEN LOSES ON THREE
+/// COUNTS THAT ARE ALL FACTS RATHER THAN PREFERENCES.</b>
+/// <list type="number">
+/// <item><b>The blue bar.</b> The user asked for one <i>blaues</i> — multiplayer-synced — window.
+/// <c>SharedWindows</c> keys the shared kind <c>MapStory</c> off
+/// <c>MapStoryController.Instance.window</c> (SharedWindows.cs:161-163), i.e. off the STORY window
+/// instance. Hosting on it costs nothing; hosting on the loadout screen would mean teaching
+/// <c>SharedWindows</c> and the net record a second identity for the same kind.</item>
+/// <item><b>The missing X.</b> "Weiterhin darf dieses Story-Fenster kein 'x' haben, da man
+/// durchklicken muss." The story window already has none: <c>ModalFallback.8.Convert.cs</c>'s
+/// <c>isStoryBox</c> chain resolves <c>MapStoryController.window</c> by reference and puts it in the
+/// no-X family. The loadout window is not in it and the ModBuild 232 screenshot shows its cross.</item>
+/// <item><b>The refusal has to be able to NAME the loser, and only one of the two can be named.</b>
+/// <c>FloatRefusalTable</c> identifies a window by a component on its OWN GameObject, never by name
+/// ([[containment-is-not-identity]]). <c>UILoadoutManager</c> is on the loadout window's own
+/// GameObject — the ModBuild 232 identity line reads <c>components [RectTransform, CanvasRenderer,
+/// UILoadoutManager, CanvasGroup, UIWindow, Image, ControllerInputArea]</c> and
+/// <c>[RequireComponent(typeof(UIWindow), typeof(ControllerInputArea))]</c> makes it so by
+/// construction. <c>MapStoryController</c> is NOT on the story window: it holds it as a serialized
+/// <c>window</c> field (MapStoryController.cs:41-42). So a table row can refuse the loadout screen
+/// and could not have refused the story box.</item>
+/// </list></para>
+///
+/// <para><b>WHAT HAPPENS TO THE LOADOUT SCREEN, AND WHY IT IS NOT THE ModBuild 231 HOLD.</b> It is
+/// WITHDRAWN from the float set by <c>FloatRefusalTable</c>'s conditional row, held by
+/// <see cref="HoldsLoadoutFloatBack"/>. The difference from 231's convert-loop hold is not a matter
+/// of degree:</para>
+/// <list type="bullet">
+/// <item><b>The fuse never sees it.</b> <c>ModalFallback.10.CatchAll.cs</c> asks
+/// <c>FloatRefusalTable.Refuse</c> at the TOP of its loop (:234) and <c>continue</c>s — before
+/// <c>oursAlready</c>, before <c>CatchAllEligible</c> and before the <c>FloatChurn[name].Count++</c>
+/// at :289. A convert-loop hold, by contrast, leaves the window to be re-enrolled and re-counted
+/// every single tick, which is exactly how 231 reached "re-floated 4× in 60s — SUPPRESSED FOR THIS
+/// SESSION".</item>
+/// <item><b>It can withdraw a float that already exists</b> (<c>WithdrawRefusedFloat</c>: drop
+/// <c>Sticky</c>, let the ordinary release loop take the panel, grab bar and slot down, let
+/// <c>CanvasConversion.Release</c> restore the exact 2D home). A hold can only ever starve a
+/// conversion that has not happened yet, and the loadout screen floats long BEFORE the story box
+/// opens — which is the other reason 231's shape could not have worked.</item>
+/// <item><b>It is a LEVEL with a bounded number of edges.</b> The claim is recomputed from live
+/// measurement every tick and lapses within one tick when the composite stops standing; and
+/// <see cref="MaxWithdrawCycles"/> caps how many times it may be raised for one loadout window, at a
+/// number DERIVED from the same fuse (see that field). Past the cap the claim never stands again for
+/// that window, says so once, and the presentation degrades to the ModBuild 232 status quo — two
+/// windows — which is ugly and is not a deadlock.</item>
+/// <item><b>Nothing is written to the game.</b> No <c>Hide</c>, no <c>Escape</c>, no
+/// <c>SetActive</c>, no <c>CanvasGroup</c>. The loadout screen keeps its ordinary 2D rendering on
+/// 'Campaign Canvas', which the 3D map room does not draw; its confirm button, its hotkeys and its
+/// own <c>FinishIntroduction</c> tween are untouched and it floats again, with everything on it, the
+/// moment the intro is over.</item>
+/// </list>
+///
+/// <para><b>THE ONE GREP THAT IS ONLY TRUE IF THE COMPLAINT IS FIXED:</b>
+/// <c>STORY COMPOSITE ONE WINDOW: CONFIRMED</c>. See <see cref="ReportOneWindow"/> — every clause of
+/// it is measured this tick and the NOT ACHIEVED form prints the same measurements, so the line
+/// cannot be true while the screenshot is still two windows.</para>
 ///
 /// <para><b>MULTIPLAYER.</b> Nothing here goes on the wire. The park is a local re-parent of a local
 /// uGUI subtree. The close is the same local UI close the window's own X has performed since
@@ -217,9 +303,19 @@ internal static class StoryComposite
 
     /// <summary>A rect smaller than this in either axis has not been laid out yet — the viewer
     /// deactivates <c>imageHolder</c> until the addressable sprite lands
-    /// (StoryImageViewer.cs:196-199), and an inactive rect can measure zero. "Not yet" is not a
+    /// (StoryImageViewer.cs:201/234), and an inactive rect can measure zero. "Not yet" is not a
     /// refusal and must not be reported as one.</summary>
     private const float MinParkSizePx = 2f;
+
+    /// <summary>Above this the loadout screen's paper has begun (or finished) its expand tween, so
+    /// the quest intro is OVER: <c>UILoadoutQuestWindow.Show</c> sets
+    /// <c>paperFitter.transitionPercent = 0f</c> (:52) and <c>FinishIntroduction</c> is the only
+    /// thing that raises it, from 0 to 1 over <c>expandPaperDuration</c> (:101-107). Used only to
+    /// tell "the intro has not started drawing yet" (WAITING, Info) apart from "the intro is over
+    /// and there is no illustration left to compose" (also Info) — a story box that opens AFTER the
+    /// expand is an ordinary map message and refusing it is the correct, unremarkable answer. The
+    /// ModBuild 232 log printed that case as a WARNING twice (:5408, :5409).</summary>
+    private const float PaperExpandedEpsilon = 0.01f;
 
     // ---- park state ---------------------------------------------------------------------------
 
@@ -230,11 +326,23 @@ internal static class StoryComposite
     private static Vector2 _homeAnchorMax;
     private static Vector2 _homePivot;
     private static Vector2 _homeAnchoredPos;
+    private static Vector2 _homeSizeDelta;
     private static Quaternion _homeRotation = Quaternion.identity;
     private static Vector3 _homeScale = Vector3.one;
     private static LayoutElement? _addedIgnore;
     private static UIWindow? _parkHost;
     private static bool _composeLogged;
+
+    /// <summary>The size the composite OWNS for the parked picture, in the story window's authored
+    /// uGUI px, measured live at the instant of the park (see <see cref="Park"/>). It is written
+    /// into the rect's <c>sizeDelta</c> and re-asserted if anything degenerates it, which is what
+    /// makes the composite independent of both the async sprite and the paper-expand tween.</summary>
+    private static Vector2 _parkedSize;
+
+    /// <summary>The name of the sprite that was on the picture when it was parked — printed by the
+    /// BUILT line and by the falsifier, because "0x0 px" and "NOT LOADED YET" are the two ways this
+    /// feature has already shipped broken and both belong in the same line.</summary>
+    private static string _parkedSprite = string.Empty;
 
     /// <summary>Change-gate for the candidate report (secondary objective 5a). The ModBuild 231 log
     /// carries FORTY byte-identical refusal warnings for ONE decision, because the choice was
@@ -243,7 +351,63 @@ internal static class StoryComposite
     private static UIWindow? _pickHost;
     private static string _pickReported = string.Empty;
     private static int _pickReports;
-    private const int MaxPickReportsPerHost = 3;
+
+    /// <summary>Raised from 3 to 6 in ModBuild 233, and the reason is a trap the cap itself would
+    /// have sprung. The pick now has a WAITING state whose text carries the rect's MEASURED size,
+    /// and that size changes as the layout settles — so several distinct WAITING lines can be
+    /// printed before the illustration arrives, and a cap of 3 could be spent entirely on "not yet"
+    /// and swallow the one line that says WHAT WAS PARKED. Six leaves room for the whole normal
+    /// sequence (a couple of waits, the park, the hand-back) and is still nowhere near ModBuild
+    /// 231's forty copies of one refusal.</summary>
+    private const int MaxPickReportsPerHost = 6;
+
+    // ---- the loadout-float claim (ModBuild 233) -----------------------------------------------
+
+    /// <summary>
+    /// How many times the claim may be RAISED for one loadout window instance, and the number is
+    /// derived from the same fuse that cost ModBuild 231 the session rather than chosen.
+    ///
+    /// <para><c>ModalFallback.10.CatchAll.cs</c> counts one churn tick per <c>OpenWindows.Add</c> of
+    /// a window the mod is not already floating (:286-291) and suppresses the NAME for the session
+    /// when <c>churn.Count &gt; ChurnMaxFloats</c>, i.e. on the fourth. A refused window is never
+    /// counted (the refusal <c>continue</c>s at :234-238, long before that block), so the only
+    /// counted events in a composite's life are the loadout screen's FIRST float and one re-float
+    /// per claim that FALLS. That is <c>1 + cycles</c> counts, so <c>cycles ≤ 2</c> keeps the total
+    /// at or under 3 and the fuse cannot blow however badly the composite flaps.</para>
+    ///
+    /// <para>Past the cap the claim is dead for this loadout window: both halves float, which is the
+    /// ModBuild 232 presentation and therefore a known-survivable one, and
+    /// <c>STORY COMPOSITE CLAIM CAPPED</c> says so exactly once.</para>
+    /// </summary>
+    private const int MaxWithdrawCycles = 2;
+
+    /// <summary>The live level. Recomputed from measurement in <see cref="Tick"/> every tick and
+    /// never latched — <see cref="HoldsLoadoutFloatBack"/> is a PURE read of it, because
+    /// <c>FloatRefusalTable.Refuses</c> is re-entered several times per tick from a recursive
+    /// ancestor walk and every caller must get the same answer.</summary>
+    private static bool _claimStanding;
+
+    /// <summary>The exact loadout window GameObject the claim is about. A claim about one object
+    /// must never refuse another — <c>UILoadoutManager</c> is a Singleton and the refusal row asks
+    /// by GameObject for the same reason the ready-toggle row does.</summary>
+    private static GameObject? _claimObject;
+
+    /// <summary>The loadout window instance <see cref="_claimCycles"/> is counted against, so a new
+    /// quest starts from a clean budget.</summary>
+    private static UIWindow? _claimHost;
+    private static int _claimCycles;
+    private static bool _claimCapReported;
+    private static string _claimWhy = "the quest-intro composite has never claimed the loadout screen";
+
+    // ---- the falsifier's change gate ----------------------------------------------------------
+
+    private static string _oneWindowVerdict = string.Empty;
+    private static int _oneWindowReports;
+
+    /// <summary>Cap on <c>STORY COMPOSITE ONE WINDOW</c> lines per composite. The verdict is
+    /// change-gated as well, so this only bites if the state genuinely oscillates — in which case
+    /// six lines are already the diagnosis and a seventh is noise.</summary>
+    private const int MaxOneWindowReports = 6;
 
     // ---- gate state ---------------------------------------------------------------------------
 
@@ -321,9 +485,25 @@ internal static class StoryComposite
         && Singleton<UILoadoutManager>.Instance != null
         && Singleton<UILoadoutManager>.Instance.IsOpen;
 
-    /// <summary>The story window of the composite, or null. Open-or-visible, never "floated": the
-    /// park has to happen on the tick the window OPENS, one tick before the conversion measures it,
-    /// or the panel's first fit would size itself to the dialog alone and then jump.</summary>
+    /// <summary>
+    /// The story window of the composite, or null. Open-or-visible OR ALREADY FLOATED BY THE MOD —
+    /// and the third clause is a ModBuild 233 fix rather than belt-and-braces.
+    ///
+    /// <para>The first two clauses alone flap. The ModBuild 232 log has
+    /// <c>STICKY FIGHT: 'Map Story Window' has been re-shown 3 frames running — something in the
+    /// game is hiding it EVERY frame</c> (:5257) and, five lines later, an
+    /// <c>UNPARKED — the story box closed</c> immediately followed by a fresh <c>BUILT</c> (:5261,
+    /// :5263): the window's own <c>IsOpen</c>/<c>IsVisible</c> went false for a tick while the mod
+    /// kept the FLOAT standing throughout. Under ModBuild 233 that one-tick dropout would also drop
+    /// the loadout claim and spend one of its <see cref="MaxWithdrawCycles"/>, so the question has
+    /// to be asked of the thing that is actually stable: is the mod drawing this window right now?
+    /// [[dont-win-a-write-war]] — concede the flag the game is rewriting, own the fact.</para>
+    ///
+    /// <para>The park still has to happen on the tick the window OPENS, one tick before the
+    /// conversion measures it, or the panel's first fit would size itself to the dialog alone and
+    /// then jump — which is why the open/visible clauses come first and the float clause only
+    /// EXTENDS the answer, never replaces it.</para>
+    /// </summary>
     private static UIWindow? StoryWindow()
     {
         if (!Singleton<MapStoryController>.IsInitialized)
@@ -331,7 +511,9 @@ internal static class StoryComposite
         MapStoryController mc = Singleton<MapStoryController>.Instance;
         if (mc == null || mc.window == null)
             return null;
-        return mc.window.IsOpen || mc.window.IsVisible ? mc.window : null;
+        if (mc.window.IsOpen || mc.window.IsVisible)
+            return mc.window;
+        return FloatedByMod(mc.window) ? mc.window : null;
     }
 
     private static UIWindow? LoadoutWindow()
@@ -340,6 +522,42 @@ internal static class StoryComposite
             return null;
         UILoadoutManager lm = Singleton<UILoadoutManager>.Instance;
         return lm != null ? lm.GetComponent<UIWindow>() : null;
+    }
+
+    /// <summary>
+    /// HAS THE QUEST INTRO ALREADY FINISHED? Read from the game's own tween target:
+    /// <c>UILoadoutQuestWindow.Show</c> sets <c>paperFitter.transitionPercent = 0f</c> (:52) and the
+    /// ONLY thing that raises it is <c>FinishIntroduction</c>, which LeanTweens it 0 → 1 once the
+    /// player has clicked through the last page (:101-107). So a value above
+    /// <see cref="PaperExpandedEpsilon"/> means "the paper is expanding or expanded", i.e. the
+    /// illustration is no longer a small picture waiting to be composed but a full-window backdrop
+    /// for the loadout UI.
+    ///
+    /// <para>This is a DIAGNOSTIC ONLY: it decides the severity of a report line, never whether the
+    /// composite stands. The composite is gated on the picture itself (parked, sized, active,
+    /// sprited) so that a prefab without this fitter, or a future asset change, can only cost a
+    /// nicer log line — [[verify-outcome-not-path]], do not gate behaviour on a field that looks
+    /// like it should mean something.</para>
+    /// </summary>
+    private static bool PaperExpanded(UIWindow loadout)
+    {
+        try
+        {
+            if (!Singleton<UILoadoutManager>.IsInitialized)
+                return false;
+            UILoadoutManager lm = Singleton<UILoadoutManager>.Instance;
+            UILoadoutQuestWindow? info = lm != null ? lm.questInfo : null;
+            AspectRatioFitterTransition? fitter = info != null ? info.paperFitter : null;
+            return fitter != null && fitter.transitionPercent > PaperExpandedEpsilon;
+        }
+        catch (System.Exception)
+        {
+            // The severity of one log line is not worth a throw reaching the modal tick. The
+            // `loadout` argument is kept so a future round has the window to name if this ever
+            // needs to say WHICH screen it could not read.
+            _ = loadout;
+            return false;
+        }
     }
 
     // ---- the per-tick step --------------------------------------------------------------------
@@ -379,6 +597,12 @@ internal static class StoryComposite
                    : loadout == null || !loadout.IsOpen ? "the loadout screen closed"
                    : "the 3D map room stood down");
 
+        // ModBuild 233 — THE CLAIM AND THE FALSIFIER, IN THAT ORDER AND BOTH FROM MEASUREMENT.
+        // The claim decides whether the loadout screen is drawn by us this tick; the falsifier then
+        // states, from a fresh read of the float set, whether the result is actually ONE window.
+        TickLoadoutClaim(loadout);
+        ReportOneWindow(story, loadout);
+
         bool openedThisTick = false;
         if (gateWanted && !_gateOpen)
         {
@@ -399,6 +623,217 @@ internal static class StoryComposite
         if (!openedThisTick)
             TickHoldBridge();
         TickDeadlockFloor();
+    }
+
+    // ---- the loadout-float claim ---------------------------------------------------------------
+
+    /// <summary>
+    /// IS THE MOD DRAWING THIS LOADOUT WINDOW SOMEWHERE BETTER RIGHT NOW? The question
+    /// <c>FloatRefusalTable</c>'s conditional row asks, and a PURE read — no state, no logging, safe
+    /// from the recursive ancestor walk that re-enters <c>Refuses</c> several times per tick.
+    ///
+    /// <para>The answer is a level computed once per tick by <see cref="TickLoadoutClaim"/> from
+    /// live measurement, and it is asked ABOUT A SPECIFIC GameObject: <c>UILoadoutManager</c> is a
+    /// Singleton and a claim about one open of it must never refuse another.</para>
+    ///
+    /// <para><b>THE FAIL DIRECTION IS FIXED AND IT IS THE ONLY THING THAT MATTERS HERE.</b> Every
+    /// clause of the claim is a POSITIVE fact about the composite standing (a picture parked, with a
+    /// non-degenerate rect and a loaded sprite, under a story window the mod is floating). If any of
+    /// them stops being true — the sprite never arrives, the story box closes, the park throws, this
+    /// class stops running — the claim is false within one tick and the loadout screen floats with
+    /// everything on it. There is no state in which this method can hide a window that is not being
+    /// shown somewhere else. [[parent-wins-needs-a-real-parent]]: suppressing X because Y handles it
+    /// requires Y to ACTUALLY handle it, so the test is "Y is handling it", not "Y ought to be".
+    /// </para>
+    /// </summary>
+    internal static bool HoldsLoadoutFloatBack(GameObject? loadoutWindowObject) =>
+        _claimStanding && loadoutWindowObject != null
+        && ReferenceEquals(loadoutWindowObject, _claimObject);
+
+    /// <summary>The claim's own words for what it did with the loadout screen, printed verbatim by
+    /// the refusal line and by the lapse warning. Never null.</summary>
+    internal static string LoadoutClaimWhy => _claimWhy;
+
+    /// <summary>
+    /// Recompute the claim LEVEL, count its rising edges against <see cref="MaxWithdrawCycles"/> and
+    /// print ONE line per edge.
+    ///
+    /// <para>The claim stands only while <b>all</b> of these are measured true this tick: the
+    /// picture is parked (<see cref="_parked"/>), its rect is non-degenerate in both axes, its
+    /// GameObject is active in the hierarchy, its <c>Image</c> has a sprite, its parent is the story
+    /// window it was parked under, and the mod is FLOATING that story window. The last clause is the
+    /// one that makes the refusal honest: a story window that is parked into but not floated is not
+    /// on screen, and refusing the loadout screen then would show the player nothing at all.</para>
+    /// </summary>
+    private static void TickLoadoutClaim(UIWindow? loadout)
+    {
+        // A new loadout window instance gets a fresh cycle budget: the cap exists to protect ONE
+        // window's churn record inside ONE 60 s fuse window, not to ration the feature.
+        if (!ReferenceEquals(loadout, _claimHost))
+        {
+            _claimHost = loadout;
+            _claimCycles = 0;
+            _claimCapReported = false;
+        }
+
+        bool want = false;
+        string why = string.Empty;
+        if (loadout != null && _parked != null && _parkHost != null)
+        {
+            Vector2 size = _parked.rect.size;
+            var img = _parked.GetComponent<Image>();
+            Sprite? spriteOn = img != null ? img.sprite : null;
+            bool sized = size.x >= MinParkSizePx && size.y >= MinParkSizePx;
+            bool active = _parked.gameObject.activeInHierarchy;
+            bool underHost = _parked.parent != null
+                             && ReferenceEquals(_parked.parent, _parkHost.transform);
+            bool storyFloated = FloatedByMod(_parkHost);
+            want = sized && active && spriteOn != null && underHost && storyFloated;
+            if (want)
+                why = $"the quest illustration ('{_parked.name}', {size.x:F0}x{size.y:F0} px, sprite "
+                      + $"'{spriteOn!.name}') has been moved INTO the floated story window "
+                      + $"'{_parkHost.name}', with MapStoryController's dialog box directly under it "
+                      + "— one panel, one blue shared grab bar, no close cross. The loadout screen "
+                      + "has nothing left on it that the player can read during the intro";
+        }
+
+        if (want && !_claimStanding)
+        {
+            if (_claimCycles >= MaxWithdrawCycles)
+            {
+                if (!_claimCapReported)
+                {
+                    _claimCapReported = true;
+                    VRLog.Warn(Scope, $"STORY COMPOSITE CLAIM CAPPED — the composite has already asked "
+                                      + $"{_claimCycles} time(s) for '{(loadout != null ? loadout.name : "<none>")}' "
+                                      + "to stand down and it will not ask again for this window. THE CAP IS "
+                                      + "DERIVED, NOT CHOSEN: ModalFallback's catch-all churn fuse suppresses a "
+                                      + "window's NAME for the whole session on its 4th enrolment inside 60 s, a "
+                                      + "REFUSED window is never counted, and each claim that falls costs exactly "
+                                      + $"one re-float — so {MaxWithdrawCycles} cycles plus the first float is 3, "
+                                      + "one under the fuse. FROM HERE BOTH HALVES FLOAT, which is the ModBuild "
+                                      + "232 presentation: two windows, ugly, and NOT a deadlock. IF YOU ARE "
+                                      + "READING THIS IN A HARDWARE LOG the composite is flapping — grep "
+                                      + "STORY COMPOSITE UNPARKED for what kept taking the picture away.");
+                }
+                want = false;
+            }
+            else
+            {
+                _claimCycles++;
+                _claimWhy = why;
+                _claimObject = loadout!.gameObject;
+                VRLog.Info(Scope, $"STORY COMPOSITE CLAIM RAISED (cycle {_claimCycles} of "
+                                  + $"{MaxWithdrawCycles}) on '{loadout.name}': {why}. FloatRefusalTable's "
+                                  + "conditional row now refuses to float it, and because that refusal is "
+                                  + "asked at the TOP of the catch-all loop it also WITHDRAWS the float it "
+                                  + "already has (ModalFallback.10.CatchAll.cs:234 → WithdrawRefusedFloat: "
+                                  + "Sticky dropped, ordinary release loop takes panel + grab bar + slot "
+                                  + "down, CanvasConversion.Release restores the exact 2D home). NOTHING IS "
+                                  + "WRITTEN TO THE GAME — no Hide, no Escape, no SetActive, no CanvasGroup — "
+                                  + "and this is NOT ModBuild 231's convert-loop hold: a refused window is "
+                                  + "never enrolled and therefore never counted by the churn fuse.");
+            }
+        }
+        else if (!want && _claimStanding)
+        {
+            VRLog.Info(Scope, $"STORY COMPOSITE CLAIM LAPSED on "
+                              + $"'{(loadout != null ? loadout.name : "<the loadout window is gone>")}' — the "
+                              + "composite is no longer standing, so the loadout screen floats again from "
+                              + "this tick with everything on it (its own paper-expand tween, its confirm "
+                              + "button and its hotkeys were never touched). This is the level ending, not a "
+                              + "failure: the ordinary end of it is the player clicking through the last "
+                              + $"page of the intro. {_claimCycles} of {MaxWithdrawCycles} cycle(s) used.");
+            _claimObject = null;
+            _claimWhy = "the quest-intro composite has stood down; the loadout screen is nobody's "
+                        + "responsibility but its own";
+        }
+        _claimStanding = want;
+    }
+
+    // ---- the falsifier ---------------------------------------------------------------------
+
+    /// <summary>
+    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE USER'S COMPLAINT IS FIXED.
+    ///
+    /// <para><b>WHY IT EXISTS.</b> ModBuild 231 and ModBuild 232 both reported this feature working
+    /// while the hardware showed it broken — 232's own <c>STORY COMPOSITE BUILT</c> line contains the
+    /// string <c>'Image' 0x0 px</c> and still ends with "are now ONE window"
+    /// ([[judge-the-render-against-the-complaint]], [[an-instrument-can-assert-a-cause]]). So this
+    /// line asserts nothing. Every clause is read back this tick from the object the player is
+    /// looking at, and the NOT ACHIEVED form prints the SAME measurements so a failure is as
+    /// legible as a success.</para>
+    ///
+    /// <para><b>WHAT IT DOES NOT CLAIM, SAID OUT LOUD.</b> It does not say the room contains exactly
+    /// one floated window: the map room's permanent quest log has no X and is floated by an earlier
+    /// user ruling (<c>ModalFallback.IsMapRoomPermanent</c>), and it is visible on the right-hand
+    /// side of story_getrennt3.jpg. The claim is about THE TWO HALVES OF THE QUEST INTRO — the story
+    /// box and the loadout screen — of which exactly one may be floated. The total is printed beside
+    /// it so the reader can see the difference rather than infer it
+    /// ([[one-contributor-is-not-the-union]]).</para>
+    ///
+    /// <para>GREP: <c>STORY COMPOSITE ONE WINDOW: CONFIRMED</c> — the fix.
+    /// <c>STORY COMPOSITE ONE WINDOW: NOT ACHIEVED</c> — the complaint, with the reason.</para>
+    /// </summary>
+    private static void ReportOneWindow(UIWindow? story, UIWindow? loadout)
+    {
+        if (loadout == null || !loadout.IsOpen)
+        {
+            _oneWindowVerdict = string.Empty;
+            _oneWindowReports = 0;
+            return;
+        }
+        if (story == null && _parked == null)
+            return;   // no intro composite is being attempted this tick; nothing to falsify
+
+        int total = ModalFallback.CountFloatsOtherThan(null);
+        bool storyFloated = story != null && FloatedByMod(story, total);
+        bool loadoutFloated = FloatedByMod(loadout, total);
+        Vector2 size = _parked != null ? _parked.rect.size : Vector2.zero;
+        var img = _parked != null ? _parked.GetComponent<Image>() : null;
+        Sprite? sprite = img != null ? img.sprite : null;
+        bool active = _parked != null && _parked.gameObject.activeInHierarchy;
+        bool sized = size.x >= MinParkSizePx && size.y >= MinParkSizePx;
+
+        bool ok = storyFloated && !loadoutFloated && _parked != null && sized && active
+                  && sprite != null;
+
+        string measured =
+            $"story box '{(story != null ? story.name : "<none>")}' floated={storyFloated}; "
+            + $"loadout screen '{loadout.name}' floated={loadoutFloated}; parked picture "
+            + $"{(_parked != null ? "'" + _parked.name + "'" : "<nothing parked>")} "
+            + $"{size.x:F0}x{size.y:F0} px, activeInHierarchy={active}, sprite="
+            + $"{(sprite != null ? "'" + sprite.name + "'" : "NONE")}; the mod is floating {total} "
+            + "window(s) in total (the map room's permanent quest log is one of them and is not part "
+            + "of this claim)";
+
+        string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";
+        if (verdict == _oneWindowVerdict || _oneWindowReports >= MaxOneWindowReports)
+            return;
+        _oneWindowVerdict = verdict;
+        _oneWindowReports++;
+
+        if (ok)
+        {
+            VRLog.Info(Scope, "STORY COMPOSITE ONE WINDOW: CONFIRMED — the quest intro is ONE floated "
+                              + "window. MEASURED THIS TICK: " + measured + ". That is the user's ruling "
+                              + "satisfied on all four counts: one window, the picture ABOVE the dialog, "
+                              + "the shared blue MapStory bar, and no close cross (the story window is in "
+                              + "ModalFallback.8.Convert's isStoryBox no-X family). USER REPORT THIS LINE "
+                              + "ANSWERS: \"Das Dialogfenster der Story und das Fenster mit dem Bild sind "
+                              + "immer noch zwei getrennte Fenster. Außerdem ist die Zeichnung/Bild nicht "
+                              + "mehr richtig zu sehen!\"");
+            return;
+        }
+        VRLog.Warn(Scope, "STORY COMPOSITE ONE WINDOW: NOT ACHIEVED — the quest intro is not one window "
+                          + "with a visible picture yet. MEASURED THIS TICK: " + measured + ". READ IT "
+                          + "LIKE THIS: loadout floated=True means FloatRefusalTable's UILoadoutManager "
+                          + "row did not fire — either the row is not in the table on this build (it is "
+                          + "the one change this feature needs outside StoryComposite.cs) or "
+                          + "StoryComposite.HoldsLoadoutFloatBack returned false, and the CLAIM lines "
+                          + "above say which. A 0x0 or sprite=NONE picture means the park ran before the "
+                          + "addressable landed, which is the ModBuild 232 defect. story floated=False "
+                          + "means the host itself is not on screen and nothing should have been refused.");
     }
 
     /// <summary>
@@ -654,6 +1089,12 @@ internal static class StoryComposite
     /// a handful, at most eight times, ONCE per gate.</summary>
     private static bool FloatedByMod(UIWindow window, int total) =>
         ModalFallback.CountFloatsOtherThan(window) < total;
+
+    /// <summary>The same question when the caller has no total in hand. Two walks of a list that is
+    /// never longer than a handful; called a few times per tick, not per window.</summary>
+    private static bool FloatedByMod(UIWindow? window) =>
+        window != null
+        && ModalFallback.CountFloatsOtherThan(window) < ModalFallback.CountFloatsOtherThan(null);
 
     private static void OpenGate(UIWindow? loadout)
     {
@@ -1022,7 +1463,8 @@ internal static class StoryComposite
             RectTransform? pick = Judge(holder != null ? holder.transform as RectTransform : null,
                                         winRect, "StoryImageViewer.imageHolder (the Image "
                                                  + "quest.LoadoutImageId's sprite is assigned to, "
-                                                 + "StoryImageViewer.cs:227)", out string why1);
+                                                 + "StoryImageViewer.cs:233)", out string why1,
+                                        out bool wait1);
             if (pick != null)
             {
                 ReportPick(loadout, $"parking '{pick.name}' — {why1}", warn: false);
@@ -1035,7 +1477,8 @@ internal static class StoryComposite
                     ? container.transform as RectTransform
                     : null;
             pick = Judge(containerRect, winRect, "StoryImageViewer.container (the group the viewer "
-                                                 + "switches on around the holder)", out string why2);
+                                                 + "switches on around the holder)", out string why2,
+                         out bool wait2);
             if (pick != null)
             {
                 ReportPick(loadout, $"parking '{pick.name}' — {why2}", warn: false);
@@ -1043,13 +1486,36 @@ internal static class StoryComposite
             }
 
             pick = Judge(viewer.transform as RectTransform, winRect,
-                         "the StoryImageViewer's own transform (last resort)", out string why3);
+                         "the StoryImageViewer's own transform (last resort)", out string why3,
+                         out bool wait3);
             if (pick != null)
             {
                 ReportPick(loadout, $"parking '{pick.name}' — {why3}", warn: false);
                 return pick;
             }
 
+            // THREE OUTCOMES, THREE SEVERITIES, AND THE ModBuild 232 LOG IS THE ARGUMENT FOR
+            // SEPARATING THEM. That log carries two byte-identical WARNINGS (:5408, :5409) for a
+            // state that is completely normal — a map story box opening AFTER the intro, when the
+            // paper has already expanded and there is no illustration to compose. A warning that
+            // fires on the normal path is how a real finding gets missed.
+            if (PaperExpanded(loadout))
+            {
+                ReportPick(loadout, "the quest intro is OVER — UILoadoutQuestWindow.FinishIntroduction "
+                                    + "has expanded the paper (paperFitter.transitionPercent is above "
+                                    + $"{PaperExpandedEpsilon:0.00}), so this story box is an ordinary map "
+                                    + "message and there is no quest illustration to compose with it. "
+                                    + "Nothing is wrong and nothing is refused. What the candidates "
+                                    + "measured: imageHolder: " + why1, warn: false);
+                return null;
+            }
+            if (wait1 || wait2 || wait3)
+            {
+                ReportPick(loadout, "WAITING for the quest illustration — it has not finished arriving "
+                                    + "yet and the composite will be built the moment it has. This is not "
+                                    + "a refusal and needs no action. imageHolder: " + why1, warn: false);
+                return null;
+            }
             ReportPick(loadout, "no candidate qualified. imageHolder: " + why1 + " | container: "
                                 + why2 + " | viewer: " + why3 + ". The picture and the dialog stay "
                                 + "two windows this run, which is the status quo and not a new failure",
@@ -1065,12 +1531,25 @@ internal static class StoryComposite
         }
     }
 
-    /// <summary>Measure one candidate against the window it lives in. Returns the rect when it
-    /// qualifies, otherwise null with <paramref name="why"/> naming the exact test it failed — the
-    /// string that ends up in the ONE report line.</summary>
+    /// <summary>
+    /// Measure one candidate against the window it lives in. Returns the rect when it qualifies,
+    /// otherwise null with <paramref name="why"/> naming the exact test it failed — the string that
+    /// ends up in the ONE report line.
+    ///
+    /// <para><b><paramref name="waiting"/> IS THE ModBuild 233 ADDITION AND IT IS THE WHOLE
+    /// DIFFERENCE BETWEEN "not yet" AND "no".</b> Three of the tests below are about a rect that has
+    /// not finished becoming a picture: it has not been laid out, its GameObject is switched off, or
+    /// its <c>Image</c> has no sprite. All three are the NORMAL state for the first few hundred
+    /// milliseconds of every quest intro, because the illustration comes down an addressable
+    /// (StoryImageViewer.cs:59-76) and the viewer deactivates <c>imageHolder</c> until it lands
+    /// (:201, re-activated at :234). ModBuild 232 treated "sprite NOT LOADED YET" as an acceptance
+    /// and parked a 0x0, inactive, sprite-less rect; the picture was then invisible for the whole
+    /// intro. Waiting costs a few ticks. Parking early costs the feature.</para>
+    /// </summary>
     private static RectTransform? Judge(RectTransform? rect, RectTransform winRect, string what,
-                                        out string why)
+                                        out string why, out bool waiting)
     {
+        waiting = false;
         if (rect == null)
         {
             why = $"{what}: not present on this prefab";
@@ -1085,16 +1564,18 @@ internal static class StoryComposite
         Vector2 rs = rect.rect.size;
         if (rs.x < MinParkSizePx || rs.y < MinParkSizePx)
         {
-            why = $"{what}: '{rect.name}' measures {rs.x:F0}x{rs.y:F0} px — WAITING, not refused "
-                  + "(the viewer keeps it deactivated until the addressable sprite lands)";
+            waiting = true;
+            why = $"{what}: '{rect.name}' measures {rs.x:F0}x{rs.y:F0} px — WAITING for its first "
+                  + "layout, not refused";
             return null;
         }
         if (ws.x > 1f && ws.y > 1f
             && (rs.x > ws.x * MaxParkFractionOfWindow || rs.y > ws.y * MaxParkFractionOfWindow))
         {
             why = $"{what}: '{rect.name}' is {rs.x:F0}x{rs.y:F0} px of a {ws.x:F0}x{ws.y:F0} px window, "
-                  + $"i.e. more than {MaxParkFractionOfWindow:P0} of it — that is the loadout screen's "
-                  + "full-window group (the parent of the 1920x1080 'Blur'), not the quest picture";
+                  + $"i.e. more than {MaxParkFractionOfWindow:P0} of it — that is either the loadout "
+                  + "screen's full-window group (the parent of the 1920x1080 'Blur') or a paper that "
+                  + "has already run its expand tween, and neither is the quest picture";
             return null;
         }
         var graphic = rect.GetComponent<Graphic>();
@@ -1105,12 +1586,30 @@ internal static class StoryComposite
                   + "picture";
             return null;
         }
+        // THE TWO "NOT YET" TESTS. Both are read off the GAME's own switches, in the order the
+        // viewer flips them: it activates the holder and assigns the sprite in the same callback
+        // (StoryImageViewer.cs:233-234), so a rect that fails either is mid-load and nothing else.
+        if (!rect.gameObject.activeInHierarchy)
+        {
+            waiting = true;
+            why = $"{what}: '{rect.name}' is {rs.x:F0}x{rs.y:F0} px but its GameObject is NOT ACTIVE — "
+                  + "WAITING, not refused (StoryImageViewer.LoadImages deactivates the holder at :201 "
+                  + "and only re-activates it at :234, once the addressable sprite has landed)";
+            return null;
+        }
+        if (image != null && image.sprite == null)
+        {
+            waiting = true;
+            why = $"{what}: '{rect.name}' is {rs.x:F0}x{rs.y:F0} px and active, but its sprite is NOT "
+                  + "LOADED YET — WAITING, not refused. Parking it now is exactly the ModBuild 232 "
+                  + "defect: the composite would carry an empty rect and the player would see the "
+                  + "blank parchment of story_getrennt3.jpg";
+            return null;
+        }
         why = $"{what}: '{rect.name}' is {rs.x:F0}x{rs.y:F0} px of a {ws.x:F0}x{ws.y:F0} px window "
               + $"({rs.x / Mathf.Max(1f, ws.x):P0} x {rs.y / Mathf.Max(1f, ws.y):P0}), draws through "
-              + $"{graphic.GetType().Name}"
-              + (image != null
-                  ? $" and its sprite is {(image.sprite != null ? "'" + image.sprite.name + "'" : "NOT LOADED YET")}"
-                  : string.Empty);
+              + $"{graphic.GetType().Name}, is active in the hierarchy"
+              + (image != null ? $" and carries sprite '{image.sprite.name}'" : string.Empty);
         return rect;
     }
 
@@ -1164,19 +1663,73 @@ internal static class StoryComposite
             Unpark("the game re-parented the quest picture");
             return;
         }
+
+        // ModBuild 233 — RE-MEASURE, EVERY TICK, AND HAND BACK RATHER THAN SHOW NOTHING.
+        //
+        // The composite OWNS the parked rect's size (see Park), so the ordinary case is that this
+        // costs one Vector2 compare and writes nothing. The two states worth acting on are the two
+        // ways ModBuild 232 shipped an invisible picture, and both are now measured on the object
+        // itself instead of assumed from the moment of the park:
+        //   * the rect has gone degenerate — something outside this class drove its size; re-assert
+        //     the number we measured, because that is the one thing here that is allowed to own it;
+        //   * the GAME has taken the picture away (StoryImageViewer.LoadImages deactivates the
+        //     holder for the next image, StoryImageViewer.Hide switches the container off, or the
+        //     sprite reference is gone) — that is not ours to fight, so give the rect back and let
+        //     the claim on the loadout screen lapse with it. A composite that is drawing nothing
+        //     must never be the reason the loadout screen is hidden.
+        if (_parked.rect.size != _parkedSize && _parkedSize.x >= MinParkSizePx
+            && _parkedSize.y >= MinParkSizePx)
+            _parked.sizeDelta = _parkedSize;
+        var live = _parked.GetComponent<Image>();
+        if (!_parked.gameObject.activeInHierarchy)
+        {
+            Unpark("the game deactivated the quest picture's own GameObject (StoryImageViewer "
+                   + "switches the holder off between images, StoryImageViewer.cs:201)");
+            return;
+        }
+        if (live != null && live.sprite == null)
+        {
+            Unpark($"the quest picture lost its sprite (it was '{_parkedSprite}') — the viewer is "
+                   + "loading a different image, so the rect is no longer a picture");
+            return;
+        }
         ApplyPose(win);
     }
 
+    /// <summary>
+    /// Move the picture into the story window and MAKE THE COMPOSITE OWN ITS SIZE.
+    ///
+    /// <para><b>THE <c>sizeDelta</c> WRITE IS THE ModBuild 232 FIX AND IT IS NOT OPTIONAL.</b>
+    /// <c>imageHolder</c> is a STRETCH child of <c>'Paper'</c> — <c>anchorMin</c>/<c>anchorMax</c>
+    /// spread it across its parent and its <c>sizeDelta</c> is the inset pair, so its drawn size is
+    /// entirely its parent's. Collapsing the anchors to a point (which is what makes the rect
+    /// placeable under the story window at all) therefore leaves <c>rect.size == sizeDelta</c>,
+    /// which for a full-bleed stretch child is (0,0). That is the whole of "die Zeichnung/Bild ist
+    /// nicht mehr richtig zu sehen": ModBuild 232's own BUILT line reads <c>'Image' 0x0 px</c>.
+    /// Writing the size that was MEASURED one line earlier fixes it and buys something better than a
+    /// fix — from this point the parked rect's size does not depend on the loadout screen at all, so
+    /// neither the async sprite nor <c>FinishIntroduction</c>'s paper-expand tween (which drives
+    /// <c>'Paper'</c>, no longer this rect's parent) can move it. [[a-remedy-knows-one-writer]].</para>
+    ///
+    /// <para>The size is captured BEFORE the anchor write, because after it the rect no longer knows
+    /// what it was.</para>
+    /// </summary>
     private static bool Park(UIWindow story, RectTransform win, RectTransform image)
     {
         try
         {
+            // MEASURED FIRST — everything below changes what this rect would answer.
+            Vector2 measured = image.rect.size;
+            var img = image.GetComponent<Image>();
+            _parkedSprite = img != null && img.sprite != null ? img.sprite.name : "<no Image>";
+
             _home = image.parent;
             _homeIndex = image.GetSiblingIndex();
             _homeAnchorMin = image.anchorMin;
             _homeAnchorMax = image.anchorMax;
             _homePivot = image.pivot;
             _homeAnchoredPos = image.anchoredPosition;
+            _homeSizeDelta = image.sizeDelta;
             _homeRotation = image.localRotation;
             _homeScale = image.localScale;
 
@@ -1195,8 +1748,10 @@ internal static class StoryComposite
             image.anchorMin = new Vector2(0.5f, 0.5f);
             image.anchorMax = new Vector2(0.5f, 0.5f);
             image.pivot = new Vector2(0.5f, 0f);   // its BOTTOM edge is what we place
+            image.sizeDelta = measured;            // ← the size the composite now owns
             image.localRotation = Quaternion.identity;
             image.localScale = Vector3.one;
+            _parkedSize = measured;
             _parked = image;
             _parkHost = story;
             _composeLogged = false;
@@ -1271,6 +1826,7 @@ internal static class StoryComposite
         _parked = null;
         _parkHost = null;
         _composeLogged = false;
+        _parkedSize = Vector2.zero;
         try
         {
             if (_addedIgnore != null)
@@ -1291,14 +1847,25 @@ internal static class StoryComposite
             image.anchorMin = _homeAnchorMin;
             image.anchorMax = _homeAnchorMax;
             image.pivot = _homePivot;
+            // sizeDelta BEFORE anchoredPosition, and it is restored AT ALL because the park
+            // overwrote it (see Park). For a stretch child sizeDelta is the INSET PAIR, not a size:
+            // leaving the park's absolute pixels in it would hand the loadout screen back a picture
+            // inset by 1280x720 on every edge. This is the other half of the ModBuild 232 defect —
+            // the same field, in the other direction.
+            image.sizeDelta = _homeSizeDelta;
             image.anchoredPosition = _homeAnchoredPos;
             image.localRotation = _homeRotation;
             image.localScale = _homeScale;
             VRLog.Info(Scope, $"STORY COMPOSITE UNPARKED — {why}. The quest picture is back under "
-                              + $"'{_home.name}' at sibling {_homeIndex} with its authored anchors, pivot "
-                              + "and offset restored verbatim, so the loadout screen's own paper-expand "
-                              + "tween (UILoadoutQuestWindow.FinishIntroduction) runs on the rect it was "
-                              + "authored against.");
+                              + $"'{_home.name}' at sibling {_homeIndex} with its authored anchors, pivot, "
+                              + $"sizeDelta ({_homeSizeDelta.x:F0},{_homeSizeDelta.y:F0}) and offset "
+                              + "restored verbatim, so the loadout screen's own paper-expand tween "
+                              + "(UILoadoutQuestWindow.FinishIntroduction) runs on the rect it was authored "
+                              + "against — the tween drives 'Paper', and this rect stretches to whatever "
+                              + "'Paper' becomes, which is exactly what it did before the mod touched it. "
+                              + "THE CLAIM ON THE LOADOUT SCREEN GOES WITH IT: the refusal is conditional on "
+                              + "this park and lapses on the next tick, so the loadout window floats again "
+                              + "with everything on it.");
         }
         catch (System.Exception e)
         {
@@ -1331,20 +1898,25 @@ internal static class StoryComposite
                           + $"MapStoryController — the DIALOG) and "
                           + $"'{(loadout != null ? loadout.name : "<no loadout window>")}' "
                           + $"(component UILoadoutManager — the IMAGE) are now ONE window. THE IMAGE CAME "
-                          + $"FROM THE LOADOUT SCREEN: '{image.name}' {imageSize.x:F0}x{imageSize.y:F0} px, "
-                          + "the rect UILoadoutQuestWindow.imagePaper draws quest.LoadoutImageId into "
-                          + "(UILoadoutQuestWindow.cs:52-60, StoryImageViewer.cs:227). LAYOUT: the picture "
-                          + $"is parked under '{win.name}' with pivot (0.5,0) at anchored "
-                          + $"({pos.x:F0},{pos.y:F0}) px — its BOTTOM edge {ImageGapPx:F0} px above the "
-                          + "measured TOP edge of MapStoryController.dialogBox, i.e. the dialog UNDER the "
-                          + $"image, one panel, one grab bar, no X. SHARED: {shared} (kind {kind}) — "
-                          + "the bar this panel wears is the one SharedWindows.IsShared decides, and the "
-                          + "pose it publishes is record 21 entry kind 1. THE LOADOUT SCREEN KEEPS ITS OWN "
-                          + "FLOAT: this build does not suppress it, because every mechanism that held a "
-                          + "window the game reports open out of the float set blew ModalFallback's "
-                          + "catch-all churn fuse (ModBuild 231, 'UI Loadout Window re-floated 4× in 60s "
-                          + "— suppressed for this session'). USER RULING: \"Dialog und Bild soll ein "
-                          + "einziges 'blaues' Fenster sein, mit dem Dialog unter dem Bild.\"");
+                          + $"FROM THE LOADOUT SCREEN: '{image.name}' {imageSize.x:F0}x{imageSize.y:F0} px "
+                          + $"carrying sprite '{_parkedSprite}', the rect UILoadoutQuestWindow.imagePaper "
+                          + "draws quest.LoadoutImageId into (UILoadoutQuestWindow.cs:55-63, "
+                          + "StoryImageViewer.cs:233). THAT SIZE IS MEASURED AND THEN OWNED: it was read "
+                          + "off the rect a line before the anchors were collapsed to a point and written "
+                          + "straight into sizeDelta, which is what ModBuild 232 omitted — its BUILT line "
+                          + "says '0x0 px' and that is the blank parchment of story_getrennt3.jpg. From "
+                          + "here the picture's size depends on nothing outside this class, so the "
+                          + "paper-expand tween cannot reach it. LAYOUT: the picture is parked under "
+                          + $"'{win.name}' with pivot (0.5,0) at anchored ({pos.x:F0},{pos.y:F0}) px — its "
+                          + $"BOTTOM edge {ImageGapPx:F0} px above the measured TOP edge of "
+                          + "MapStoryController.dialogBox, i.e. the dialog UNDER the image, one panel, one "
+                          + $"grab bar, no X. SHARED: {shared} (kind {kind}) — the bar this panel wears is "
+                          + "the one SharedWindows.IsShared decides, and the pose it publishes is record 21 "
+                          + "entry kind 1. THE LOADOUT SCREEN NOW STANDS DOWN: see the STORY COMPOSITE "
+                          + "CLAIM RAISED line for the refusal that withdraws its float, and STORY "
+                          + "COMPOSITE ONE WINDOW for whether that actually produced one window. USER "
+                          + "RULING: \"Dialog und Bild soll ein einziges 'blaues' Fenster sein, mit dem "
+                          + "Dialog unter dem Bild.\"");
     }
 
     /// <summary>Module teardown. Hands the picture back and unlocks the destinations — leaving a
@@ -1373,5 +1945,18 @@ internal static class StoryComposite
         _pickHost = null;
         _pickReported = string.Empty;
         _pickReports = 0;
+        // THE CLAIM MUST DIE WITH THE MODULE. A standing claim that outlived this class would be a
+        // loadout screen the refusal table keeps refusing while nothing is drawing it anywhere —
+        // the one failure mode this whole design is built to be incapable of.
+        _claimStanding = false;
+        _claimObject = null;
+        _claimHost = null;
+        _claimCycles = 0;
+        _claimCapReported = false;
+        _claimWhy = "the quest-intro composite has been torn down with the module";
+        _oneWindowVerdict = string.Empty;
+        _oneWindowReports = 0;
+        _parkedSize = Vector2.zero;
+        _parkedSprite = string.Empty;
     }
 }

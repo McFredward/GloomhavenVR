@@ -416,7 +416,112 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 232;
+    public const ushort ModBuild = 233;
+    // Build 233: A LISTENER THAT THREW TOOK THE REST OF THE CHAIN WITH IT, AND A PICTURE PARKED AT 0x0.
+    // NO WIRE CHANGE. Version byte stays 3, no record moves, MaxSize unmoved. Bundle untouched
+    // (70,218,494 bytes, unchanged since 172). Three lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 76/128 -> 77/129, deliberate:
+    // one new class (LoadoutHostingGuard) with one prefix, manifest regenerated.
+    //
+    //   3 (HIS PRIORITY). HOSTING FROM INSIDE A SCENARIO DID NOTHING. "Wenn ich auf den button
+    //   gedrückt habe, ist nichts passiert!" The click landed, Bolt started, the peer could have
+    //   joined — and then nothing. FFSNet.NetworkManager.CreateSession's LAST statement is
+    //   HostingStartedEvent?.Invoke(), UnityEvent.Invoke walks m_RuntimeCalls with NO per-listener
+    //   catch, and a STALE UILoadoutManager.OnSwitchedToMultiplayer threw a NullReferenceException
+    //   out of MPConfirmEnterScenario. EVERY LISTENER AFTER IT DIED WITH IT.
+    //   THE NULL IS PROVED, NOT INFERRED — the lane disassembled GH.Runtime.dll with Mono.Cecil:
+    //   IL_00f4 loads Singleton<UIMapMultiplayerController>.Instance and IL_00f9 (the logged offset)
+    //   is the callvirt on it. That singleton is the CAMPAIGN MAP's; inside a scenario it is null.
+    //   THE LEAK SITE: MultiplayerStartup arms that listener in its OFFLINE branch, i.e. on every
+    //   single-player run of the loadout screen, and the only removal is OnDestroy — OnHidden/
+    //   OnDisable run ClearEvents, which drops the party-display and quest subscriptions and NOT the
+    //   hosting event. So hiding the loadout screen leaves it armed for the rest of the session.
+    //   WHAT THE PLAYER ACTUALLY LOST, enumerated from source rather than guessed: the scenario's
+    //   whole multiplayer UI and join plumbing (Choreographer.OnSwitchedToMultiplayer), the Esc
+    //   menu's online checkbox, ping-tile input, voice chat, and — registered LAST, so guaranteed
+    //   lost — UIMultiplayerEscSubmenu.OnHostingStartedCallback, which is the Host button's OWN
+    //   completion: show the invite code, hide "Start Session", raise the session-started toast.
+    //   THAT is "nichts passiert". Presses 2-4 did literally nothing because ToggleServer
+    //   early-outs once FFSNetwork.IsOnline.
+    //   VERDICT: VANILLA. No mod frame on the stack; grep of src/ for HostingStarted|HostingEnded|
+    //   MultiplayerStartup|ToggleServer|StartSession returns zero live references; the mod's only
+    //   contact with the loadout screen is the world-space float, and the log proves it was released
+    //   BEFORE the scenario loaded (MAP ROOM WINDOW SWEEP, several lines above "Unloading 2192
+    //   unused Assets"). What could NOT be determined and is deliberately not asserted: whether the
+    //   stale manager is a DESTROYED MonoBehaviour still held alive by the delegate or a live but
+    //   deactivated one. Both are vanilla and both produce this. The instrument settles it next run.
+    //   THE FIX IS A PREFIX ON THE STALE LISTENER (LoadoutHostingGuard) — the thing that throws, not
+    //   its caller; NetworkManager and Bolt are untouched, per standing ruling.
+    //   AND THE INSTRUMENT IS WORTH AS MUCH AS THE FIX (HostingChainWatch). A listener that silently
+    //   amputates the rest of a UnityEvent is invisible BY CONSTRUCTION. It observes without patching
+    //   anything forbidden — Application.logMessageReceived (an Exception whose stack contains
+    //   InvokableCall.Invoke IS an amputation, and the frame above it names the listener, readable
+    //   only because ModBuild 136 restored the game's stack traces), the SessionID edge, and the
+    //   roster by reflection over m_Calls.m_RuntimeCalls. It prints the roster in invocation order
+    //   with <== THREW HERE / <== SKIPPED markers, and it RE-RUNS the skipped listeners on the next
+    //   Update, each isolated, only if the thrower is locatable in the pre-invoke roster and each
+    //   entry is still registered — so nothing can ever run twice. All three reflection handles
+    //   resolve once and the class degrades to a strict no-op after one Warning if Unity renames them.
+    //
+    //   1. THE STORY PICTURE WAS PARKED AT 0x0, AND THE ARITHMETIC IS THE WHOLE STORY. ModBuild 232
+    //   picked the rect at 1280x720 and built it at 'Image' 0x0 px. imageHolder is a STRETCH CHILD
+    //   of 'Paper': its size is its parent's, and its own sizeDelta is the inset pair. Park collapsed
+    //   anchorMin = anchorMax = (0.5,0.5), at which instant rect.size == sizeDelta == 0x0. The same
+    //   arithmetic backwards explains the 1814x1020 that later tripped the >90 % guard: that is the
+    //   rect AFTER the unpark restored the stretch anchors and AFTER FinishIntroduction expanded the
+    //   paper. Both numbers I read as measurement error were correct measurements of two different
+    //   states of the same rect. NOW: the size is captured BEFORE the anchor write and then OWNED
+    //   (sizeDelta = measured), so the expand tween — which drives 'Paper' — cannot reach it; the
+    //   async sprite is a distinct WAITING state at Info, never an acceptance and never a refusal;
+    //   and Unpark restores sizeDelta too, without which a stretch child would go home inset by
+    //   1280x720 px on every edge.
+    //   THE SECOND WINDOW GOES AWAY ON THE OPPOSITE PATH FROM ModBuild 231's. 231 held the loadout
+    //   screen out of the CONVERT loop, where the catch-all re-enrols and re-counts it every tick;
+    //   the churn fuse suppressed its name for the session after four ticks and the player had
+    //   nothing to click. A FloatRefusalTable row is asked at the TOP of that loop and continues
+    //   BEFORE the count, so it is never counted at all — and it can WITHDRAW a float that already
+    //   happened, which a hold cannot, and which matters because the loadout screen floats long
+    //   before the story box opens. Capped at MaxWithdrawCycles = 2, derived from ChurnMaxFloats = 3
+    //   (a refused window is never counted, so the only counted events are the first float plus one
+    //   re-float per claim that falls). Past the cap the presentation degrades to the 232 status quo
+    //   — two windows, ugly, not a deadlock. Nothing is written to the game.
+    //   AND A FALSIFIER, BECAUSE I REPORTED THIS FEATURE AS WORKING TWICE WHILE THE HARDWARE SHOWED
+    //   IT BROKEN: "STORY COMPOSITE ONE WINDOW: CONFIRMED" measures, in the tick it prints, that the
+    //   story box is floated, that the loadout screen is NOT, and that the parked picture has a
+    //   non-zero size and a loaded sprite. It cannot print while his screenshot is still true.
+    //
+    //   2. THE CHARACTER UI AND THE PRIVATE QUEST. Both windows in his photograph are catch-all
+    //   floats of CHILDREN — 'UI Battle Goal Picker Window' and 'Party Display UI ' — and the host
+    //   'New Party display' never re-floated at all. The release the lane checked first was CORRECT:
+    //   the map choreographer had faded the party panel for the journey and its UIWindow was closed.
+    //   THE DEFECT IS ONE PHASE LATER. When the content comes back (UILoadoutManager
+    //   EnableLoadoutInteraction -> PartyDisplay.Show -> AutoselectCharacter -> OpenBattleGoalPanel),
+    //   the catch-all reads EmptyHold by CONTAINMENT one phase before EmptyHeldNow's 6 Hz probe
+    //   could lift it, floats the children alone, and the conversion REPARENTS THEM OUT OF THE
+    //   HOST'S SUBTREE — after which the host can never be measured drawing again and the hold
+    //   latches for the session.
+    //   SO ModBuild 232's "PARENT WINS STOOD DOWN" IS COMPLETED RATHER THAN REVERSED: a live
+    //   sub-view no longer floats PAST a held-out host, it REVIVES it, and the child is then adopted
+    //   as a nested canvas where the game lays it out. Only the liveness hold is revivable — Failed
+    //   (the flat screen is already raised) and the refusal table (a standing ruling) are not.
+    //   THE BUDGET IS 2 PER HOST PER 60 s, DELIBERATELY BELOW the churn fuse's 3: that fuse counts
+    //   floats a PLAYER can cause, and ModBuild 231 proved what happens when a fuse mistakes a thumb
+    //   for a loop — a revival is never a player gesture. On exhaustion the fallback is the 232
+    //   behaviour (children float alone, ugly, reachable), never "show nothing".
+    //   REQUIREMENT (a) IS ITS OWN RULE: the liveness release is held off while a battle-goal
+    //   selection is live, on four LIVE game terms, one of which is the bound — NewPartyDisplayUI
+    //   .Hide does NOT close battleGoalSelector, so without the window's own IsOpen term the other
+    //   three would latch and the hold would outlive the selection, which is the ModBuild 230 defect
+    //   in a new hat.
+    //
+    //   ALSO FIXED, UNREPORTED: the MODAL RENDER PHASE VIOLATION at teardown is a FALSE POSITIVE and
+    //   an expensive one. A mod MonoBehaviour Update IS a frame phase — Unity never runs one inside
+    //   a camera render — but only WorldUIModule marked its ticks, and the rig's teardown reaches a
+    //   panel reveal. The violation line LATCHES, so one false alarm silenced the detector for the
+    //   whole session. VRRigDriver.Update now marks its phase.
+    //   AND THE TOOLING TRAP FROM ModBuild 232 IS WORSE THAN RECORDED: patch-inventory.py's scanner
+    //   blanks comments but not string OR character literals, and it reports an offset with NO
+    //   filename. It cost a cycle in 232 (a '[') and was hit again here (a '(').
     // Build 232: THE ROOM EMPTIED ITSELF TWICE, AND THE OTHER PLAYER NEVER GOT THE BUTTON.
     // NO WIRE CHANGE. Version byte stays 3, no record gains or loses a field, MaxSize unmoved.
     // Bundle untouched (70,218,494 bytes, unchanged since 172). Four lanes on disjoint files.

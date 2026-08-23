@@ -2223,8 +2223,15 @@ internal static partial class ModalFallback
     /// question (no host to take host-local bounds against, no clipper walk), used ONLY to decide
     /// whether a held-out window's content has come back. Enabled + un-culled + effective alpha
     /// above the fit's own floor + non-degenerate rect; mod-owned children never count.
+    ///
+    /// <para>ModBuild 233 — INTERNAL, and deliberately shared rather than copied.
+    /// <see cref="SubViewRevival.ShouldReviveHost"/> asks the same question about a nested sub-view
+    /// ("is the host drawing one level down?") and must get the same answer as
+    /// <see cref="EmptyHeldNow"/> does about the host, or the two halves of the hold could disagree
+    /// about the same subtree. This project has shipped a second copy of a visibility test twice and
+    /// both copies were weaker than the original.</para>
     /// </summary>
-    private static bool DrawsAnythingLoose(Transform root)
+    internal static bool DrawsAnythingLoose(Transform root)
     {
         LiveCheckGraphics.Clear();
         root.GetComponentsInChildren(includeInactive: false, LiveCheckGraphics);
@@ -2430,6 +2437,26 @@ internal static partial class ModalFallback
                                       + "log from one that armed by painting.");
             }
             armed++;
+
+            // ModBuild 233 — REQUIREMENT (a): THE CHARACTER UI MAY NOT CLOSE WHILE THE PRIVATE
+            // QUESTS ARE BEING CHOSEN. User: "Das Fenster [soll] sich nicht schließen und
+            // Character-UI sichtbar bleiben bis die private Quests vollständig ausgewählt wurde."
+            //
+            // Placed AHEAD of the dwell clock rather than beside the dwell BAR, and the difference
+            // is the whole guard: EmptySince is left at 0 while a selection is live, so when the
+            // selection ends the dwell starts from that moment instead of retro-counting the
+            // seconds it was held. A blank the rule was told to ignore must not be bankable.
+            //
+            // The predicate is the GAME's own state, four live terms including the party display's
+            // own UIWindow.IsOpen, so the hold cannot outlive the selection — see
+            // SubViewRevival.SelectionHoldsRelease for each citation and for the honest statement of
+            // what this does NOT do (it would not have fired at Player.log:4635, where the panel was
+            // already closed and the release was correct).
+            if (SubViewRevival.SelectionHoldsRelease(wp.Window, out _))
+            {
+                wp.EmptySince = 0f;
+                continue;
+            }
 
             if (wp.EmptySince <= 0f)
             {

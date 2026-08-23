@@ -430,7 +430,7 @@ internal static partial class ModalFallback
         // inside the map room, where the ModBuild 225 log shows both the ESC menu and the options
         // window floating standalone, i.e. neither had an ancestor for the rule to find.
         if (!NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID)
-            && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
+            && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window, allowRevival: true))
             return false;
         // ModBuild 226 — the live-floated ancestor AND the declared sibling groups, in one call, so
         // the catch-all path and the enrolled path cannot disagree about what is one panel. The
@@ -555,13 +555,22 @@ internal static partial class ModalFallback
     /// child is inside the ancestor's subtree by construction, so the ancestor's float already
     /// renders it. See the call site for why this is map-room scoped.
     /// </summary>
-    private static bool HasOpenAncestorWindow(UIWindow window)
+    /// <param name="window">The child whose float this call decides.</param>
+    /// <param name="allowRevival">ModBuild 233 — may this call LIFT a liveness hold on the ancestor
+    /// (see <see cref="SubViewRevival"/>)? False by default, and the default is the load-bearing
+    /// value: <c>ExplainRefusal</c> in ModalFallback.4.Tick.cs calls this walk and its own doc
+    /// states it is "deliberately READ-ONLY … a diagnostic must not change the state it reports
+    /// on". Only <see cref="CatchAllEligible"/>, which is the decision, passes true. A probe that
+    /// spends the decision it was asked to observe is the ModBuild 226 RenderTargetProbe mistake.
+    /// </param>
+    private static bool HasOpenAncestorWindow(UIWindow window, bool allowRevival = false)
     {
         Transform? t = window.transform.parent;
         while (t != null)
         {
             var above = t.GetComponent<UIWindow>();
-            if (above != null && !ReferenceEquals(above, window) && AncestorWillBeFloated(above))
+            if (above != null && !ReferenceEquals(above, window)
+                && AncestorWillBeFloated(above, window, allowRevival))
             {
                 if (AncestorRefusalWarned.Add(window.name))
                     VRLog.Info("WorldUI", $"MAP ROOM: window '{window.name}' (ID {window.ID}) is NOT " +
@@ -638,7 +647,14 @@ internal static partial class ModalFallback
     /// (the permanently-open guildmaster HUD above the shop window) is still refused by
     /// <see cref="CatchAllEligible"/> and so still does not win.</para>
     /// </summary>
-    private static bool AncestorWillBeFloated(UIWindow above)
+    /// <param name="above">The candidate ancestor.</param>
+    /// <param name="child">The window that is deferring to it — the sub-view whose float this call
+    /// decides. ModBuild 233 needs it: a held-out ancestor with a LIVE child is revived rather than
+    /// bypassed, and "is the child drawing" is the whole precondition of that. See
+    /// <see cref="SubViewRevival"/>.</param>
+    /// <param name="allowRevival">May this call lift a liveness hold? See the caller's parameter
+    /// doc — false for the read-only refusal diagnostic, true for the eligibility decision.</param>
+    private static bool AncestorWillBeFloated(UIWindow above, UIWindow child, bool allowRevival)
     {
         if (IsConverted(above))
             return true;
@@ -667,6 +683,36 @@ internal static partial class ModalFallback
         // NOT consulted for the mirror-image reason — it counts its own calls for the census line —
         // and it does not need to be: it is a two-tick bridge whose members are windows the gate has
         // just closed, which cannot be a live ancestor of anything for longer than that.
+        //
+        // ModBuild 233 — A HELD-OUT HOST WITH A LIVE SUB-VIEW IS REVIVED, NOT BYPASSED. This is the
+        // COMPLETION of the 232 rule below it, not a reversal: 232 asked "may a child defer to a
+        // host that will not exist?" and answered no, which was right. What it never asked is
+        // whether the host could be made to exist. When the reason for the hold is the LIVENESS hold
+        // specifically — the host was released for drawing nothing — and the very child now asking
+        // to float is itself drawing, then the host is not empty at all; its content is one level
+        // down, and rebuilding it renders the child INSIDE it (the adopted-nested-canvas path the
+        // ModBuild 232 log already shows working at Player.log:3551). The 232 answer floated the
+        // child beside the host instead, and the user photographed both windows side by side:
+        // .planning/debug/character_ui_quest_getrennt.jpg.
+        //
+        // ORDER IS WHY THIS WORKS IN ONE TICK. Tick runs PhasePolls (OpenWindows is rebuilt, and the
+        // party display is ID-enrolled so it is IN that list) → PhaseCatchAll (here) → PhaseRelease
+        // → PhaseConvert. Lifting the hold here is already lifted when the convert loop's
+        // EmptyHeldNow asks two phases later, so the host floats on THIS tick and the player never
+        // sees a frame of either the detached state or an absent one.
+        //
+        // Only the LIVENESS hold is revivable. `Failed` means the conversion threw and the flat
+        // screen has already risen for it; the refusal table is a standing ruling that this window
+        // must not be a frame of its own. Neither is "the content is one level down", and reviving
+        // either would be overturning a different rule from inside this one.
+        if (allowRevival && EmptyHold.Contains(above) && SubViewRevival.ShouldReviveHost(above, child))
+        {
+            EmptyHold.Remove(above);
+            // Re-arm the stand-down latch: if this host is ever held out again, that is a NEW event
+            // and its falsifier line must print rather than be swallowed by a latch set minutes ago.
+            AncestorHeldOutWarned.Remove(above.name);
+            return true;
+        }
         if (ContainsWindow(Failed, above) || EmptyHold.Contains(above) || FloatRefusalTable.Refuses(above))
         {
             if (AncestorHeldOutWarned.Add(above.name))
@@ -873,6 +919,7 @@ internal static partial class ModalFallback
         EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set
         EmptyHold.Clear();           // ModBuild 230 — the liveness rule's re-float hold
+        SubViewRevival.Reset();      // ModBuild 233 — the revival budget and its two edge latches
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

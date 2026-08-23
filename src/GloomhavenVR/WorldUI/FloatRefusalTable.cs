@@ -42,7 +42,7 @@ internal enum FloatRefusalClass
 /// word: the game localises its UI, Unity appends <c>(Clone)</c> to instantiated copies, and a
 /// prefab variant can be renamed by an asset update without any code change. A component type
 /// survives all three, and it also survives the <c>UIWindowID</c> being <c>None</c> — which it is
-/// for both of the rows below and for most of the windows this table will ever be asked about.
+/// for every one of the rows below and for most of the windows this table will ever be asked about.
 /// The test is always <c>GetComponent</c> on the window's OWN GameObject: the IS-A form of the
 /// question, because this project has twice shipped <c>GetComponentIn{Parent,Children}</c> where it
 /// meant "IS an X" and both times caught a whole screen.</para>
@@ -230,6 +230,61 @@ internal static class FloatRefusalTable
             heldBy: go => MapRoom.ReadyToggleParkClaim.Claimed
                           && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, go),
             whyHeld: () => MapRoom.ReadyToggleParkClaim.Why),
+
+        // -------------------------------------------------------------------------------------
+        // ROW 3 — THE PRE-SCENARIO LOADOUT SCREEN, WHILE THE QUEST INTRO IS BEING CLICKED THROUGH.
+        // CONDITIONAL, and outside that one interval this window is a perfectly ordinary panel that
+        // MUST float: the player picks his loadout on it and presses "Enter Dungeon" on it.
+        //
+        // USER REPORT (ModBuild 232 hardware, .planning/debug/story_getrennt3.jpg, verbatim): "Das
+        // Dialogfenster der Story und das Fenster mit dem Bild sind immer noch zwei getrennte
+        // Fenster. Außerdem ist die Zeichnung/Bild nicht mehr richtig zu sehen!" The screenshot is
+        // this window, floated, with a close cross and a BLANK PARCHMENT where the illustration
+        // should be, and the story dialog floating separately below it.
+        //
+        // WHY IT IS A ScreenSpaceVeil *WHILE THE CLAIM STANDS*, and only then. During the intro
+        // UILoadoutQuestWindow has hidden its hotkeys (HideHotkeys, :54/:75-85) and set
+        // paperFitter.transitionPercent = 0 (:52), so the screen is a full-canvas dark sheet plus
+        // one small paper — and StoryComposite has moved the paper's illustration into the story
+        // window. What is left is a 1920x1080 sheet with nothing on it the player can read, which is
+        // this class's definition of a veil word for word. The moment the player clicks through the
+        // last page, FinishIntroduction expands the paper and the real loadout UI appears; the claim
+        // lapses within a tick and this row stops applying. The class name describes the object
+        // UNDER THE CONDITION, which is what a conditional row is for.
+        //
+        // THE IDENTITY IS EXACT. UILoadoutManager carries
+        // [RequireComponent(typeof(UIWindow), typeof(ControllerInputArea))] (UILoadoutManager.cs:18)
+        // and caches _window = GetComponent<UIWindow>() in Awake (:68), so the manager and the
+        // window are ONE GameObject by construction — the IS-A form this table requires. The
+        // ModBuild 232 identity line confirms it on the shipped prefab: "WINDOW IDENTITY 'UI Loadout
+        // Window' (ID None): path Campaign Canvas/UI Loadout Window; rect 1920x1080; components
+        // [RectTransform, CanvasRenderer, UILoadoutManager, CanvasGroup, UIWindow, Image,
+        // ControllerInputArea]".
+        //
+        // AND THE CLAIM IS THE OPPOSITE OF ModBuild 231's HOLD. 231 held this exact window out of
+        // the CONVERT loop, where the catch-all re-enrols and re-counts it every tick, and the churn
+        // fuse suppressed its name for the session after four ticks ("CATCH-ALL FUSE: window 'UI
+        // Loadout Window' re-floated 4x in 60s") — the player was left with nothing to click. A
+        // refusal is asked at the TOP of that loop and `continue`s before the count, so it is never
+        // counted at all; StoryComposite additionally caps how many times it may raise the claim, at
+        // a number derived from ChurnMaxFloats. See StoryComposite.MaxWithdrawCycles.
+        new(typeof(UILoadoutManager), FloatRefusalClass.ScreenSpaceVeil,
+            "it is the PRE-SCENARIO LOADOUT SCREEN and the quest intro is being clicked through on "
+            + "it right now. For that interval it is a full-canvas dark sheet whose only readable "
+            + "content is the quest illustration — its hotkeys are hidden (UILoadoutQuestWindow "
+            + "HideHotkeys) and its paper has not expanded yet (transitionPercent 0) — and the "
+            + "illustration has been moved into the story window. Floating it as well is the second "
+            + "window with the blank parchment in story_getrennt3.jpg: \"Das Dialogfenster der Story "
+            + "und das Fenster mit dem Bild sind immer noch zwei getrennte Fenster\"",
+            "its quest illustration is drawn INSIDE the story window, directly above "
+            + "MapStoryController's dialog box, as ONE floated panel wearing the shared blue "
+            + "MapStory grab bar and no close cross — StoryComposite. The loadout screen itself "
+            + "keeps its ordinary 2D rendering on 'Campaign Canvas', which the 3D map room does not "
+            + "draw, and NOTHING is done to it: its confirm button, its hotkeys and its own "
+            + "FinishIntroduction paper-expand tween are untouched, and it floats again with "
+            + "everything on it the moment the intro is over",
+            heldBy: StoryComposite.HoldsLoadoutFloatBack,
+            whyHeld: () => StoryComposite.LoadoutClaimWhy),
     };
 
     /// <summary>Windows whose refusal is in force RIGHT NOW — the edge state behind the one-line-per

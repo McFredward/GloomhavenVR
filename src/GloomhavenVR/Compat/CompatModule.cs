@@ -69,6 +69,19 @@ internal sealed class CompatModule : IVRModule
         //    shader gate with a substituted constant occlusion map (property precedence
         //    MPB > material > global). OFF = every wall bit-for-bit solid.
         VRSession.Harmony?.PatchAll(typeof(WallFadeDisable));
+
+        // PRIORITY (user report, ModBuild 232): "Ich konnte im Szenario den Multiplayer nicht mehr
+        // starten. Wenn ich auf den button gedrückt habe, ist nichts passiert!" A STALE
+        // UILoadoutManager.OnSwitchedToMultiplayer listener — armed by every single-player run of
+        // the loadout screen and only ever removed in OnDestroy — throws a NullReferenceException
+        // out of MPConfirmEnterScenario (UILoadoutManager.cs:516, a null
+        // Singleton<UIMapMultiplayerController>) the next time the player hosts. UnityEvent.Invoke
+        // has no per-listener catch, so that throw amputates every listener after it on
+        // HostingStartedEvent — including the Host button's OWN completion callback. The guard
+        // declines the stale listener; the watch makes this failure class loud forever and re-runs
+        // whatever a future thrower amputates. Both are documented in their own headers.
+        VRSession.Harmony?.PatchAll(typeof(LoadoutHostingGuard));
+        HostingChainWatch.Install();
         // The GAME's own card particles are authored for its full-size 2D card and spray across
         // the diorama when a card is swept to a pile — pinned off through the game's own low-spec
         // switch (see CardParticlesOff; live-gated by [Cards] GameCardParticles).
@@ -202,6 +215,7 @@ internal sealed class CompatModule : IVRModule
         // whole design is "degrade cleanly", so the distinction is worth stating correctly.
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
+        HostingChainWatch.Uninstall(); // drops the log hook and the driver GO — the Harmony guard goes with UnpatchSelf
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert

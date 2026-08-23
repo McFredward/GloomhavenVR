@@ -500,12 +500,32 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     private void Update()
     {
-        using (Core.PerfMonitor.Scope("Rig.Update"))
-            UpdateBody();
-        // AFTER the body on purpose: the rig may have been (re)built, recentered or torn down
-        // this frame, and the guard's whole job is to compare THIS frame's final head pose
-        // against the last one — see VRRigDriver.OriginGuard.cs.
-        Core.TickGuard.Run("Rig.OriginGuard", TickOriginGuard);
+        // ModBuild 233 — A MOD MonoBehaviour Update IS A FRAME PHASE, AND NOT SAYING SO SILENCED A
+        // DETECTOR FOR A WHOLE SESSION. CanvasConversion's render-phase assertion treats a live-or-
+        // stale Camera.current as a violation only when the call did NOT come from a marked frame
+        // phase, and the ONLY place that marked one was WorldUIModule. The rig's teardown reaches a
+        // panel reveal (TearDownRig -> MapRoomDriver.StandDown -> ModalFallback.ReleaseMapRoomFloats
+        // -> CanvasConversion.Release -> SetPanelRenderVisible), so that reveal was reported as a
+        // MODAL RENDER PHASE VIOLATION against a STALE Camera.current — the same false positive the
+        // s_framePhaseDepth doc already records for ModBuild 23. Unity never runs a MonoBehaviour
+        // Update inside a camera render, so the flip is seen by BOTH MultiPass eye passes and there
+        // is no one-eye hazard. THE COST WAS THE REAL PROBLEM: the violation line LATCHES, so one
+        // false alarm during teardown silenced the detector for the rest of the run
+        // (ModBuild 232 hardware, Player.log:5921). This marker is the fix.
+        WorldUI.CanvasConversion.BeginFramePhase("Rig.Update");
+        try
+        {
+            using (Core.PerfMonitor.Scope("Rig.Update"))
+                UpdateBody();
+            // AFTER the body on purpose: the rig may have been (re)built, recentered or torn down
+            // this frame, and the guard's whole job is to compare THIS frame's final head pose
+            // against the last one — see VRRigDriver.OriginGuard.cs.
+            Core.TickGuard.Run("Rig.OriginGuard", TickOriginGuard);
+        }
+        finally
+        {
+            WorldUI.CanvasConversion.EndFramePhase();
+        }
     }
 
     private void UpdateBody()
