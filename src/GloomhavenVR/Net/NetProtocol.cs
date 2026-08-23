@@ -416,7 +416,126 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 234;
+    public const ushort ModBuild = 235;
+    // Build 235: A CLAIM THAT OUTLIVED ITS SUBJECT BECAUSE THE MOD WAS ANSWERING ITS OWN QUESTION.
+    // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched
+    // (70,218,494 bytes, unchanged since 172). Four lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 (UNCHANGED).
+    //
+    //   4. THE DEADLOCK, AND MY READING OF IT WAS RIGHT ABOUT THE CONSEQUENCE AND WRONG ABOUT THE
+    //   MECHANISM. After the battle goals were chosen no continue button ever appeared. I said the
+    //   ROW 3 loadout claim "never lapsed" — true — and guessed it was a missing lapse condition. It
+    //   was not: BOTH of the claim's "is the story box on screen" terms are values THIS MOD WRITES.
+    //   The game closed the story box (:11533); ModalFallback.ReassertStickyVisible then force-showed
+    //   it for the rest of the session (:11534 STICKY FIGHT, warn at 3 frames, CONCEDE at 20 — never
+    //   reached). UIWindow.IsVisible is literally `m_CanvasGroup.alpha > 0`, the exact field the
+    //   re-assert pins to 1, and FloatedByMod is the mod's own float set. So the claim measured
+    //   itself and stayed true. [[fuse-was-hiding-a-loop]]: "owned elsewhere" must exclude your own
+    //   claim. In single player the continue button is UILoadoutManager.confirmationButton, a child
+    //   of the window the claim was suppressing — no window, no button, no way forward.
+    //   WHY THE DEADLOCK FLOOR MISSED IT: it requires floatedNow == 0, and the census read 3 floated
+    //   windows for the whole stuck period. Its premise — a deadlock is an EMPTY ROOM — is too
+    //   narrow. This one was a FULL room with the only control that advances the game locked inside
+    //   a suppressed window. It gains a CONTROL ARM that trips on exactly that.
+    //   THREE INDEPENDENT BOUNDS NOW: StoryWindow()'s two mod-written terms may only extend the
+    //   answer 1.0 s past the last tick the GAME said IsOpen; the claim also answers to two facts the
+    //   mod does not write (the game's own FinishIntroduction paper tween, and the game saying a
+    //   continue control should be showable); and the confirm is no longer on the suppressed window
+    //   at all.
+    //   HIS QUESTION, ANSWERED FROM SOURCE: in the flat game EVERY player sees the button, not only
+    //   the host. UILoadoutManager.SetActiveConfirmationButton (:98-108) branches only on
+    //   FFSNetwork.IsOnline — ready toggle online, long-confirm offline — and contains no host test
+    //   at all; the online branch is set up by MPConfirmEnterScenario, which runs on every client,
+    //   and its all-ready callback is `if (FFSNetwork.IsHost) ConfirmEnterScenario()`. Everyone
+    //   confirms FOR HIMSELF and the host commits last. That makes it a LOCAL act, so by his own
+    //   rule it belongs on the LOCAL Character-UI — LoadoutConfirmPark parks it into
+    //   'New Party display' at the ModBuild 197 construction (painted top edge 24 px below the
+    //   roster's painted bottom edge, centred on it), with MapTravelConfirm's whole restore
+    //   discipline. The two ready-toggle parkers are mutually exclusive BY THE GAME'S OWN FIELD
+    //   (readyUpToggleState): MapQuestReadyUp claims it only while it reads Quests, this one only
+    //   while it does not — [[a-remedy-knows-one-writer]].
+    //   AND CanShowConfirmationButton() ALONE COULD NOT HAVE CAUSED HIS RUN: it is false only while a
+    //   non-battle-goal sub-panel is open, and he had finished picking goals. The button was
+    //   showable; it was drawn on Campaign Canvas, which the 3D map room does not render.
+    //
+    //   3. THE QUEST LIST SURVIVED THE CURTAIN — AND ModBuild 234'S OWN DIAGNOSIS OF WHY WAS WRONG.
+    //   That build's NOT ACHIEVED line said "FloatRefusalTable is not asking CurtainRefuses on this
+    //   build". The hook shipped and IS asked. Two members, two different failures, both structural:
+    //   'Quest Log Manager' (ID None, catch-all path) is never ASKED — CatchAllObserve drops a window
+    //   from UnknownShown the moment the game hides it, and the game hid the quest log 684 lines
+    //   BEFORE the curtain rose; TickCatchAll only iterates UnknownShown. Its float stayed alive on
+    //   WindowPanel.Sticky alone. 'UI Quest Popup' (enrolled path) IS asked and correctly kept out of
+    //   OpenWindows — but the release keep-alive reads `OpenWindows || Sticky`, and Sticky outvotes
+    //   the refusal. So the table could only withdraw a float on ONE of THREE paths, and which path a
+    //   window takes is an accident of whether its prefab carries a serialized UIWindowID.
+    //   FIXED IN THE ONE PLACE WHERE "IS THIS FLOAT STILL WANTED" IS DECIDED: the release loop now
+    //   asks the table, and a refused float falls through to the ORDINARY release. UserClosing is NOT
+    //   set, so nothing is written to the game: CloseFloatedWindow still refuses the quest log, it
+    //   still has no X, and outside the interval its permanence ruling governs in full.
+    //   INSTRUMENT BUG FIXED IN PASSING: FloatRefusalTable.WarnLapse printed the ready-toggle
+    //   claimant's words for EVERY row it fired on, so a curtain or loadout lapse was reported in the
+    //   words of a claim about a different object owned by a different parker.
+    //
+    //   1. A CHARACTER IS ALWAYS SELECTED IN THE MAP TOO. Three things share the name and only one is
+    //   the selection: NewPartyDisplayUI.selectedCharacter, written by exactly one private method.
+    //   NewPartyCharacterUI.OnHighlight is merely a sprite swap (and has zero callers), and
+    //   AdventureState.MapState.MapParty.SelectedCharacters is the ROSTER — savegame state whose
+    //   writer is a networked party-composition change. Confusing the third for the first would have
+    //   re-composed his party on every selection.
+    //   WHY IT DROPS TO NOBODY: NewPartyDisplayUI.Hide(…, deselectCurrentCharacter: true) clears it
+    //   BY DESIGN, and the only thing that ever re-fills it is UILoadoutManager.AutoselectCharacter,
+    //   registered on OnShown only while the loadout window is up. Outside that, nothing re-selects.
+    //   OFFLINE NEEDED ITS OWN BRANCH: NetworkControllable's ctor returns before any controller is
+    //   assigned when !FFSNetwork.IsOnline, so PlayerRegistry is empty and IsUnderMyControl is never
+    //   set. Asking the registry in single player would answer "0 assigned to everyone" and make the
+    //   ruling read as permanently violated. The class branches on IsOnline, never on "the registry
+    //   looks empty" — the game's own `!FFSNetwork.IsOnline || it.IsUnderMyControl` idiom.
+    //   THE CHOICE COPIES THE GAME'S PREFERENCE with one deliberate omission: AutoselectCharacter
+    //   also requires GetChosenBattleGoal == null, which outside that flow answers "nobody" once all
+    //   goals are chosen — manufacturing the very empty state the ruling removes.
+    //   Local presentation, no wire change; the peer-visible effect is that record 20's existing
+    //   character key is non-zero where it used to be 0.
+    //
+    //   2. THE ENCHANTRESS' CARD LIST — AND BOTH OF MY HYPOTHESES WERE IMPOSSIBLE. I suggested it was
+    //   adopted as a nested canvas or suppressed by "parent wins". UIPartyCharacterEnhancementAbility
+    //   CardsDisplay CARRIES NO UIWindow, so it can be neither. The real cause is this mod's own
+    //   fixed-fit branch, which recognises it as one of six serialized sub-view roots and seats it
+    //   against the character column's right edge — the photograph is that machinery working
+    //   correctly on an object that belongs elsewhere. And it does belong elsewhere: UINewEnhancement
+    //   Window holds THE SAME INSTANCE in its own serialized cardsDisplay and drives it directly, so
+    //   the scene wires one object into two owners.
+    //   THE TRAP NEITHER EXISTING PARK HAD: 'New Party display' runs on a private supersample capture
+    //   layer and every transform under it has been swept onto it. A plain reparent would have left
+    //   the list on that layer, rendered by a capture camera that no longer frames it — a perfectly
+    //   placed, perfectly sized, totally invisible list ([[one-shared-layer-leaks]]). The park writes
+    //   the destination root's own layer and the hand-back the home parent's, both read LIVE.
+    //   The anchor is derived, not dialled: the free band is measured from the enchantress window's
+    //   PAINTED ink with full-frame backdrop plates excluded — without that exclusion the ink is the
+    //   whole frame and there is no band at all.
+    //
+    //   5. THE HALF CIRCLE IS OVERRULED. User: "Das ist die wichtigste Regel: Im SIchtfeld! Prio zwei
+    //   ist dann so wenig kollisionen wie möglich - wenn das nicht vermeidbar ist dann sollte das neue
+    //   Fenster näher heran vor dem anderen Fenster spawnen." ModBuild 234's ±90° cut overlaps from 9
+    //   to 1 by seating windows where he has to turn to find them. That trade is now inverted.
+    //   THE ARC IS THE MEASURED BINOCULAR-OVERLAP HALF-ANGLE — ±40° on his Quest 3, recovered by
+    //   dividing ViewConeComfortFraction back out of the comfort cone, so arc and cone can never
+    //   disagree about which projection matrix they came from. Beyond it a window is monocular and in
+    //   the nose-occlusion region under MultiPass; that is not "im Sichtfeld" under any reading.
+    //   Comfort stays the GRADING, not the bound. Consequence, stated rather than discovered later:
+    //   his five windows draw ~160° into 80° of supply — 200 % subscribed, so OVERLAP IS NOW THE
+    //   EXPECTED STATE.
+    //   ONE DEPTH LADDER REPLACES TWO. Level = 1 + max(level of every standing window whose FOOTPRINT
+    //   this one intersects) — a MAX, not a running count, so a window never marches forward for a
+    //   collision it is not part of. Footprint is drawn UNION frame, i.e. exactly the hit rect's
+    //   contract, which folds 234's separate phantom-frame push into the same mechanism. Step 0.04 m,
+    //   derived: nearer is angularly WIDER, so an over-large step feeds the overlap it remedies (a
+    //   0.14 m version turned a 45° window into a 71° one over four generations). Floor 0.90 m ⇒
+    //   7 levels, and reaching it needs a chain of 8 standing windows — the registry's exact
+    //   capacity. After a step the geometry is re-derived at the pulled distance and re-clamped, so
+    //   the field of view is never given up to buy depth.
+    //   THE RAY CONSEQUENCE IS STATED ON EVERY STEPPING PLACEMENT: the nearer window swallows clicks
+    //   aimed at the one behind it wherever the footprints overlap — correct, it is the one he just
+    //   opened — and when it closes nothing is left over, because a hit rect lives on its own host.
     // Build 234: THE REVIVAL FIRED ONE WINDOW TOO LATE, AND A WINDOW BOOKED 88 DEGREES TO DRAW 14.
     // NO WIRE CHANGE. Version byte stays 3, no record moves, MaxSize unmoved. Bundle untouched
     // (70,218,494 bytes, unchanged since 172). Three lanes on disjoint files.

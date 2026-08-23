@@ -437,8 +437,32 @@ namespace GloomhavenVR.WorldUI;
 /// floated windows while it is refusing prints <c>MODAL DEADLOCK FLOOR</c> and lifts it for good.</item>
 /// </list>
 ///
-/// <para><b>ONE CHANGE IS NEEDED OUTSIDE THIS FILE and the feature degrades honestly without it:</b>
-/// <c>FloatRefusalTable</c> has to ask <see cref="CurtainRefuses"/>. Until it does, the curtain still
+/// <para><b>ONE CHANGE IS NEEDED OUTSIDE THIS FILE and the feature degrades honestly without it.</b>
+/// ModBuild 234 said that change was "<c>FloatRefusalTable</c> has to ask
+/// <see cref="CurtainRefuses"/>". <b>THAT WAS WRONG, AND THE ModBuild 234 LOG SAYS SO.</b> The table
+/// DOES ask — the ROW 0 hook is in <c>FloatRefusalTable.Refuses</c> and it shipped — and the quest
+/// log stayed on screen anyway. The real reason is one line further down the chain and it is stated
+/// here so the next round does not re-verify the hook:</para>
+/// <list type="number">
+/// <item><b>'Quest Log Manager' (<c>UIWindowID.None</c>, catch-all path) is never ASKED.</b>
+/// <c>ModalFallback.CatchAllObserve</c> drops a window from <c>UnknownShown</c> the moment the game
+/// hides it, and the game hid the quest log at Player.log:10503 — 684 lines BEFORE the curtain rose
+/// at :11187. <c>TickCatchAll</c> only iterates <c>UnknownShown</c>, so <c>FloatRefusalTable.Refuse</c>
+/// was never called for it and <c>WithdrawRefusedFloat</c> was never reached. That is why
+/// <c>FLOAT REFUSED: 'Quest Log Manager'</c> appears nowhere in the log. Its float stayed alive on
+/// <c>WindowPanel.Sticky</c> alone, with <c>ReassertStickyVisible</c> force-showing a window the game
+/// had closed.</item>
+/// <item><b>'UI Quest Popup' (<c>UIWindowID.QuestPopup</c>, enrolled path) IS asked and it changes
+/// nothing.</b> The <c>Open</c> normalisation loop in <c>ModalFallback.4.Tick.cs</c> already does
+/// <c>if (FloatRefusalTable.Refuses(window)) continue;</c>, so the window is correctly kept out of
+/// <c>OpenWindows</c> — and the release loop's keep-alive then reads
+/// <c>ContainsWindow(OpenWindows, …) || wp.Sticky</c>, so <c>Sticky</c> outvotes the refusal.</item>
+/// </list>
+/// <para>So the refusal table could only ever WITHDRAW a float on one of the three paths into
+/// <c>ModalFallback</c>, and which path a window takes is an accident of whether its prefab carries a
+/// serialized <c>UIWindowID</c>. The change is one clause in the release keep-alive — a refused
+/// window is never kept alive by stickiness — and it is in
+/// <c>.planning/debug/modalfallback-release-honours-refusal.diff</c>. Without it the curtain still
 /// closes the guildmaster destinations and the quest popups (the named set, at the earlier edge,
 /// which is entirely inside this file) and the QUEST LOG stays up — and the falsifier
 /// <c>STORY CURTAIN ONLY WINDOW: NOT ACHIEVED</c> says so by name, every time.</para>
@@ -501,6 +525,25 @@ internal static class StoryComposite
     /// expand is an ordinary map message and refusing it is the correct, unremarkable answer. The
     /// ModBuild 232 log printed that case as a WARNING twice (:5408, :5409).</summary>
     private const float PaperExpandedEpsilon = 0.01f;
+
+    /// <summary>
+    /// How long <see cref="StoryWindow"/> may keep answering "the story box is up" from the two
+    /// MOD-WRITTEN facts (<c>UIWindow.IsVisible</c>, which is a <c>CanvasGroup.alpha</c> this mod
+    /// pins to 1 on a sticky float, and the mod's own float set) after the GAME's own
+    /// <c>UIWindow.IsOpen</c> has gone false. See <see cref="StoryWindow"/> for the full argument and
+    /// the ModBuild 234 log lines.
+    ///
+    /// <para>THE NUMBER IS THE JOB IT HAS TO DO AND NOTHING MORE. The ModBuild 232 dropout it exists
+    /// to cover is ONE TICK long; a second is two orders of magnitude of headroom over that at 50 Hz,
+    /// and it is a HARD CEILING rather than a timeout to tune. It is the same one second, chosen for
+    /// the same reason, as <c>MapRoom.ReadyToggleParkClaim.ClaimLifetimeSeconds</c>: long enough to
+    /// outlive a frame hitch or a guarded throw, far too short to outlive a stand-down.</para>
+    /// </summary>
+    private const float StoryFloatGraceSeconds = 1.0f;
+
+    /// <summary>The last <c>Time.unscaledTime</c> at which the GAME (never the mod) reported the story
+    /// window open. <see cref="StoryFloatGraceSeconds"/> is measured from it.</summary>
+    private static float _storyGameOpenAt = float.NegativeInfinity;
 
     // ---- park state ---------------------------------------------------------------------------
 
@@ -745,6 +788,53 @@ internal static class StoryComposite
     /// conversion measures it, or the panel's first fit would size itself to the dialog alone and
     /// then jump — which is why the open/visible clauses come first and the float clause only
     /// EXTENDS the answer, never replaces it.</para>
+    ///
+    /// <para>=====================================================================================
+    /// ModBuild 235 — TWO OF THE THREE CLAUSES ARE VALUES THIS MOD ITSELF WRITES, AND THAT IS THE
+    /// WHOLE OF THE REPORTED DEADLOCK
+    /// =====================================================================================</para>
+    ///
+    /// <para><b>USER REPORT (ModBuild 234 hardware, item 4, verbatim):</b> <i>"DEADLOCK: Nachdem ich
+    /// für jeden Character die Quest ausgewählt habe, muss irgendwo der button erscheinen damit es
+    /// weiter gehen kann. Der ist nie erschienen, man konnte nicht weiter vorranschreiten."</i></para>
+    ///
+    /// <para><b>THE MECHANISM, FROM THE LOG AND THE GAME'S OWN SOURCE, WITH NO INFERENCE LEFT IN
+    /// IT.</b> The player clicked through the last intro page and the game closed the story box —
+    /// <c>Player.log:11533 UIWindow hidden: 'Map Story Window'</c>. The mod's sticky re-assert then
+    /// took it back: <c>ModalFallback.ReassertStickyVisible</c> (ModalFallback.7.Close.cs:267-290)
+    /// writes <c>CanvasGroup.alpha = 1</c>, <c>Canvas.enabled = true</c> and
+    /// <c>GameObject.SetActive(true)</c> on any STICKY float whose game window is hidden. The very
+    /// next line is <c>:11534 STICKY FIGHT: 'Map Story Window' has been re-shown 3 frames running</c>
+    /// — the WARN threshold, not the concede threshold, which is 20 — so the game stopped hiding it,
+    /// the re-assert won, and from that instant the mod was drawing a story box the GAME had
+    /// closed.</para>
+    ///
+    /// <para><b>AND THEN THIS METHOD ACCEPTED THE MOD'S OWN WRITE AS PROOF.</b> Of its three clauses,
+    /// exactly one is a value the mod never touches:</para>
+    /// <list type="bullet">
+    /// <item><c>IsOpen</c> is <c>m_CurrentVisualState == VisualState.Shown</c>
+    /// (UnityEngine.UI/UIWindow.cs:317) — the game's own state machine, honest.</item>
+    /// <item><c>IsVisible</c> is literally <c>m_CanvasGroup != null &amp;&amp; m_CanvasGroup.alpha &gt; 0</c>
+    /// (UIWindow.cs:305-315) — the exact field <c>ReassertStickyVisible</c> pins to 1.</item>
+    /// <item><c>FloatedByMod</c> is the mod's own float set.</item>
+    /// </list>
+    /// <para>So after :11534 the second and third clauses were both TRUE BECAUSE OF THIS MOD, this
+    /// method kept returning the window, <c>composeWanted</c> stayed true, the park stayed up, every
+    /// clause of <see cref="TickLoadoutClaim"/>'s <c>want</c> stayed measured-true — and
+    /// <c>STORY COMPOSITE CLAIM LAPSED</c> never appears in the ModBuild 234 log at all. The
+    /// <c>UILoadoutManager</c> refusal row therefore stood for the rest of the session, and in single
+    /// player the continue button is a CHILD of that window
+    /// (<c>UILoadoutManager.confirmationButton</c>, switched on by
+    /// <c>SetActiveSinglePlayerLongConfirmButton</c>, :88-95). No loadout screen, no button.
+    /// [[fuse-was-hiding-a-loop]]: "owned elsewhere" must exclude your own claim.</para>
+    ///
+    /// <para><b>THE FIX IS A BOUND, NOT A DELETION.</b> The ModBuild 233 reason for the extra clauses
+    /// is real and is kept — the ModBuild 232 log's <c>STICKY FIGHT</c> / <c>UNPARKED</c> / <c>BUILT</c>
+    /// triple shows the window's own flags going false for ONE TICK while the float stood throughout,
+    /// and dropping the claim for that tick would spend one of <see cref="MaxWithdrawCycles"/>. So the
+    /// mod-written clauses may now only EXTEND the answer for <see cref="StoryFloatGraceSeconds"/>
+    /// past the last tick the GAME said <c>IsOpen</c>. A one-tick dropout is still covered; a game
+    /// window that is closed for good can no longer be kept alive by the mod's own re-show.</para>
     /// </summary>
     private static UIWindow? StoryWindow()
     {
@@ -753,9 +843,17 @@ internal static class StoryComposite
         MapStoryController mc = Singleton<MapStoryController>.Instance;
         if (mc == null || mc.window == null)
             return null;
-        if (mc.window.IsOpen || mc.window.IsVisible)
+        // THE ONE HONEST TERM FIRST, and it is the only one that may RESTART the clock.
+        if (mc.window.IsOpen)
+        {
+            _storyGameOpenAt = Time.unscaledTime;
             return mc.window;
-        return FloatedByMod(mc.window) ? mc.window : null;
+        }
+        // Both remaining terms are mod-written (see the doc block), so they may only extend the
+        // answer, and only briefly. Past the grace the story box is gone whatever the mod is drawing.
+        if (Time.unscaledTime - _storyGameOpenAt > StoryFloatGraceSeconds)
+            return null;
+        return mc.window.IsVisible || FloatedByMod(mc.window) ? mc.window : null;
     }
 
     private static UIWindow? LoadoutWindow()
@@ -847,6 +945,21 @@ internal static class StoryComposite
                    : loadout == null || !loadout.IsOpen ? "the loadout screen closed"
                    : "the 3D map room stood down");
 
+        // ModBuild 235 — THE CONFIRM PARKER, BEFORE THE CLAIM THAT USED TO HIDE IT.
+        //
+        // The order is load-bearing in one direction only: TickLoadoutClaim asks
+        // LoadoutConfirmPark.GameWantsConfirmShown() as one of its terminators, and that read is PURE
+        // (it resolves the control and reads two game fields; it never looks at the park), so it
+        // would give the same answer either side of this call. What running the parker FIRST buys is
+        // that on the tick the game switches the confirm on, the control is already parked into the
+        // Character-UI before anything downstream measures whether it is reachable — one fewer frame
+        // in which the falsifier could truthfully report a button nobody can see.
+        //
+        // IT IS CALLED FROM HERE RATHER THAN FROM ModalFallback because this is the earliest per-tick
+        // point that runs BEFORE the release loop, and the release loop destroys the host GameObject
+        // the parker parks into. Same call site, same reason, as this method's own unpark.
+        LoadoutConfirmPark.Tick();
+
         // ModBuild 233 — THE CLAIM AND THE FALSIFIER, IN THAT ORDER AND BOTH FROM MEASUREMENT.
         // The claim decides whether the loadout screen is drawn by us this tick; the falsifier then
         // states, from a fresh read of the float set, whether the result is actually ONE window.
@@ -910,6 +1023,62 @@ internal static class StoryComposite
     internal static string LoadoutClaimWhy => _claimWhy;
 
     /// <summary>
+    /// HAS THE THING THIS CLAIM WAS RAISED FOR ENDED? Returns the sentence to print when it has, and
+    /// null while the quest intro is genuinely still being clicked through.
+    ///
+    /// <para><b>THE RULE THIS METHOD IS: A CLAIM THAT SUPPRESSES A WINDOW MUST NOT BE ABLE TO OUTLIVE
+    /// THE THING IT WAS RAISED FOR.</b> Up to ModBuild 234 every clause of the claim was a property of
+    /// the PARK (a rect with a sprite, under a host the mod is floating), and none of them is a
+    /// property of the INTRO. When the mod's own sticky re-show kept the story box on screen after the
+    /// game had closed it, all of them stayed true and the claim stood for the rest of the session —
+    /// see <see cref="StoryWindow"/> for the log lines. So the claim now also has to answer to two
+    /// facts THE MOD DOES NOT WRITE, and either one alone ends it.</para>
+    ///
+    /// <list type="number">
+    /// <item><b>THE PAPER HAS EXPANDED.</b> <c>UILoadoutQuestWindow.Show</c> sets
+    /// <c>paperFitter.transitionPercent = 0f</c> (:52) and the ONLY thing that raises it is
+    /// <c>FinishIntroduction</c>, which LeanTweens it 0 → 1 once the player has clicked through the
+    /// last page (:101-107). That is the game stating, in one float, that the intro is over and the
+    /// loadout screen is about to become a real screen. <see cref="PaperExpanded"/> already read it —
+    /// as a DIAGNOSTIC ONLY, deciding the severity of a log line and nothing else. It decides
+    /// behaviour now, and the [[verify-outcome-not-path]] caveat that kept it diagnostic is answered
+    /// by clause 2: a prefab without this fitter loses nothing, because the second clause is
+    /// independent of it.</item>
+    /// <item><b>THE GAME WANTS A CONTINUE CONTROL SHOWN.</b>
+    /// <see cref="LoadoutConfirmPark.GameWantsConfirmShown"/> — the game's own
+    /// <c>UILoadoutManager.CanShowConfirmationButton()</c> plus its own switch on the control. This is
+    /// the clause that speaks to the user's actual complaint rather than to a proxy for it: the whole
+    /// cost of the fault was a button that never appeared, so the moment the game says a button should
+    /// appear, no presentation claim of this mod's may be standing between it and the player.</item>
+    /// </list>
+    ///
+    /// <para>Both are pure reads and both fail SAFE: a throw or an unreadable field yields "not
+    /// terminated" from clause 1 and "the game is not asking" from clause 2, which can only make the
+    /// claim last longer — and the claim's own park clauses, the cycle cap, the deadlock floor and
+    /// <see cref="LoadoutConfirmPark"/> drawing the control somewhere else all still bound it. There is
+    /// no failure of this method that can reproduce the ModBuild 234 state, because that state
+    /// required the mod to be the ONLY thing showing the story box, which
+    /// <see cref="StoryWindow"/> no longer allows.</para>
+    /// </summary>
+    private static string? TerminatedBy(UIWindow? loadout)
+    {
+        if (loadout == null)
+            return null;   // no loadout screen at all: the park clauses answer this one
+        if (PaperExpanded(loadout))
+            return "the quest intro is OVER — UILoadoutQuestWindow.FinishIntroduction has started "
+                   + "expanding the paper (paperFitter.transitionPercent is above "
+                   + $"{PaperExpandedEpsilon:0.00}), which is the game's own statement that the player "
+                   + "has clicked through the last page and the loadout screen is about to become a "
+                   + "real screen";
+        if (LoadoutConfirmPark.GameWantsConfirmShown())
+            return "THE GAME WANTS A CONTINUE CONTROL SHOWN (UILoadoutManager.CanShowConfirmationButton() "
+                   + "is true and the game has switched the control on), so no presentation claim of "
+                   + "this mod's may stand between it and the player — that is the ModBuild 234 "
+                   + "deadlock's own condition, used here as the thing that makes it impossible";
+        return null;
+    }
+
+    /// <summary>
     /// Recompute the claim LEVEL, count its rising edges against <see cref="MaxWithdrawCycles"/> and
     /// print ONE line per edge.
     ///
@@ -933,7 +1102,12 @@ internal static class StoryComposite
 
         bool want = false;
         string why = string.Empty;
-        if (loadout != null && _parked != null && _parkHost != null)
+        // ModBuild 235 — THE TWO TERMINATORS THAT ARE READ OFF THE GAME, EVALUATED FIRST AND
+        // RECORDED, so the LAPSED line can name which fact ended the claim instead of saying only
+        // that it ended. See TerminatedBy for why they exist and why neither could be inferred from
+        // anything this class already had.
+        string? terminator = TerminatedBy(loadout);
+        if (terminator == null && loadout != null && _parked != null && _parkHost != null)
         {
             Vector2 size = _parked.rect.size;
             var img = _parked.GetComponent<Image>();
@@ -993,12 +1167,17 @@ internal static class StoryComposite
         else if (!want && _claimStanding)
         {
             VRLog.Info(Scope, $"STORY COMPOSITE CLAIM LAPSED on "
-                              + $"'{(loadout != null ? loadout.name : "<the loadout window is gone>")}' — the "
-                              + "composite is no longer standing, so the loadout screen floats again from "
+                              + $"'{(loadout != null ? loadout.name : "<the loadout window is gone>")}' — "
+                              + (terminator ?? "the composite is no longer standing")
+                              + ", so the loadout screen floats again from "
                               + "this tick with everything on it (its own paper-expand tween, its confirm "
                               + "button and its hotkeys were never touched). This is the level ending, not a "
                               + "failure: the ordinary end of it is the player clicking through the last "
-                              + $"page of the intro. {_claimCycles} of {MaxWithdrawCycles} cycle(s) used.");
+                              + $"page of the intro. {_claimCycles} of {MaxWithdrawCycles} cycle(s) used. "
+                              + "GREP THIS STRING: it is ABSENT from the whole ModBuild 234 log, and that "
+                              + "absence IS the reported deadlock — the claim outlived the intro and took "
+                              + "the single-player continue button off screen with the window it was "
+                              + "refusing.");
             _claimObject = null;
             _claimWhy = "the quest-intro composite has stood down; the loadout screen is nobody's "
                         + "responsibility but its own";
@@ -1111,11 +1290,28 @@ internal static class StoryComposite
         if (_curtainStanding)
         {
             bool bridging = Time.unscaledTime - _curtainHeldAt <= CurtainBridgeSeconds;
-            bool hold = MapRoomDriver.Active && onScreen && (realReason || bridging);
+            // ModBuild 235 — THE HOLD'S HONESTY CLAUSE IS WIDER THAN THE RAISE'S, AND IT HAS TO BE.
+            //
+            // The RAISE asks for the story box or the loadout screen because those are the two things
+            // the curtain is raised FOR. The HOLD must ask the weaker, honest question — "is there
+            // anything on screen that this curtain is not withholding?" — because the interval it
+            // covers outlives both of them: the story box closes when the player clicks through the
+            // intro, and the loadout screen's own float is withheld by a DIFFERENT claim
+            // (HoldsLoadoutFloatBack) for part of the same interval. Under the old clause the curtain
+            // fell in the seam between the two and the quest log came back for the rest of the
+            // pre-scenario phase, which is exactly the window the user asked for it to be gone in.
+            //
+            // IT IS STILL AN HONESTY CLAUSE AND STILL THE SAME PROMISE: the curtain can never be the
+            // reason the room is empty, because the thing it counts is floated windows it is NOT
+            // responsible for. In the reported run that set is the Character-UI, which is where the
+            // continue button now lives.
+            bool somethingLeft = onScreen || AnyNonMemberFloated();
+            bool hold = MapRoomDriver.Active && somethingLeft && (realReason || bridging);
             if (!hold)
                 CloseCurtain(!MapRoomDriver.Active ? "the 3D map room stood down"
-                             : !onScreen ? "the mod is no longer floating either half of the quest "
-                                           + "intro, so there is nothing on screen to be alone with"
+                             : !somethingLeft ? "the mod is floating nothing this curtain is not "
+                                                + "withholding, so there would be nothing on screen "
+                                                + "to be alone with"
                              : $"the game stopped hiding its own UI for this message and no loadout "
                                + $"screen followed within {CurtainBridgeSeconds:F0} s, so this was not "
                                + "a quest start after all");
@@ -1205,8 +1401,14 @@ internal static class StoryComposite
                           + "is still skipped by the escape chord. USER RULING: \"Ich möchte aber das zu "
                           + "diesem Zeitpunkt alle anderen Fenster verschwinden und nur dieses Fenster "
                           + "sichtbar ist (Point of no return überschritten).\" IF THE MEMBERS ARE STILL "
-                          + "ON SCREEN AFTER THIS LINE, FloatRefusalTable is not asking CurtainRefuses "
-                          + "on this build — see STORY CURTAIN ONLY WINDOW for the measurement.");
+                          + "ON SCREEN AFTER THIS LINE, THE TABLE IS ASKING AND THE RELEASE LOOP IS NOT "
+                          + "LISTENING: ModBuild 234 shipped the ROW 0 hook and the quest log stayed up "
+                          + "anyway, because a float already standing is kept alive by WindowPanel.Sticky "
+                          + "regardless of OpenWindows, and a window the game has already hidden is no "
+                          + "longer in the catch-all's UnknownShown to be asked about at all. The fix is "
+                          + "one clause in ModalFallback's release keep-alive (see this class's SECTION 5 "
+                          + "and .planning/debug/modalfallback-release-honours-refusal.diff) — see STORY "
+                          + "CURTAIN ONLY WINDOW for the measurement either way.");
     }
 
     /// <summary>Drop the curtain: the members float again from the next tick, with everything on
@@ -1228,6 +1430,27 @@ internal static class StoryComposite
         _curtainNames = "none";
         _curtainWhy = "the quest-intro story curtain has lapsed; every window is nobody's "
                       + "responsibility but its own";
+    }
+
+    /// <summary>
+    /// Is the mod floating at least one window this curtain is NOT withholding? The honesty clause's
+    /// input while the curtain stands (see <see cref="TickCurtain"/>), and the only question that
+    /// answers "does the player still have something on screen" without asking about a specific
+    /// window the interval is allowed to outlive.
+    ///
+    /// <para>Measured from the float set every time, never from curtain state: a curtain that
+    /// believes it is standing is not evidence that anything is or is not on screen
+    /// ([[measure-the-picture-not-the-state]]).</para>
+    /// </summary>
+    private static bool AnyNonMemberFloated()
+    {
+        FloatScratch.Clear();
+        ModalFallback.CollectFloatedWindows(FloatScratch, null);
+        bool any = false;
+        for (int i = 0; i < FloatScratch.Count && !any; i++)
+            any = !CurtainRefuses(FloatScratch[i]);
+        FloatScratch.Clear();
+        return any;
     }
 
     /// <summary>How many curtain members the GAME still has open, i.e. how many windows would float
@@ -1409,10 +1632,17 @@ internal static class StoryComposite
         VRLog.Warn(Scope, "STORY CURTAIN ONLY WINDOW: NOT ACHIEVED — something other than the story box "
                           + "is still floating past the point of no return. MEASURED THIS TICK: "
                           + measured + ". READ IT LIKE THIS: a window listed with 'a curtain member: "
-                          + "True' means CurtainRefuses says no and it is STILL floating, i.e. "
-                          + "FloatRefusalTable is not asking CurtainRefuses on this build — that is the "
-                          + "one change this feature needs outside StoryComposite.cs and its absence "
-                          + "looks exactly like this. 'a curtain member: False' means the window opened "
+                          + "True' means CurtainRefuses says NO FLOAT and the window is floating anyway. "
+                          + "ModBuild 234 read that as 'FloatRefusalTable is not asking CurtainRefuses' "
+                          + "and that was WRONG — the hook shipped and it is asked. The real cause is "
+                          + "one line further down: ModalFallback's release keep-alive reads "
+                          + "'in OpenWindows || wp.Sticky', so a float that already exists survives a "
+                          + "refusal that only removes it from OpenWindows; and a window the game has "
+                          + "already hidden (the quest log, hidden 684 log lines before the curtain "
+                          + "rose) has left the catch-all's UnknownShown, so it is never asked at all "
+                          + "and never even prints a FLOAT REFUSED line. The change is one clause in "
+                          + "that keep-alive — see .planning/debug/modalfallback-release-honours-"
+                          + "refusal.diff. 'a curtain member: False' means the window opened "
                           + "AFTER the curtain's edge and is out of scope by construction, which is "
                           + "deliberate (it is what stops this rule from eating the loadout sequence the "
                           + "way ModBuild 231 did) — if such a window must also go, it has to go at the "
@@ -1564,6 +1794,49 @@ internal static class StoryComposite
     private static void TickDeadlockFloor()
     {
         int floated = ModalFallback.CountFloatsOtherThan(null);
+
+        // ModBuild 235 — THE SECOND ARM, AND THE ModBuild 234 LOG IS THE WHOLE ARGUMENT FOR IT.
+        //
+        // THE FLOOR BELOW MEASURES AN EMPTY ROOM, AND THE REPORTED DEADLOCK WAS A FULL ONE. When the
+        // tester was stuck the mod was floating THREE windows (the census reads "3 floated window(s)
+        // — 3 ARMED" for the rest of the session): the quest log, the story box the mod's own sticky
+        // re-show was keeping alive, and the Character-UI. `floated > 0`, so TripsDeadlockFloor
+        // returned false on every one of those ticks and was right to — by its own definition. Its
+        // premise is simply too narrow: a deadlock is not a room with nothing in it, it is a CONTROL
+        // THE GAME WANTS SHOWN THAT THE PLAYER CANNOT REACH, and a room can be full of windows while
+        // the one control that moves the game forward is inside the window this class is refusing.
+        //
+        // SO THE FLOOR NOW ALSO WATCHES THE CONTROL. LoadoutConfirmPark answers both halves from the
+        // game and from measurement — "the game says a continue control should be showable" and "the
+        // mod cannot find it drawing anywhere" — and it prints the naming WARNING itself
+        // (LOADOUT CONFIRM REACHABLE: NO, with FloatRefusalTable.Describe naming the suppressor). All
+        // that is left here is the consequence: this class's own two suppressions stand down, in the
+        // order that costs least to be wrong about. "Lift the verdict, keep the count."
+        if (_claimStanding && !LoadoutConfirmPark.ConfirmReachable())
+        {
+            VRLog.Warn(Scope, "MODAL DEADLOCK FLOOR TRIPPED (CONTROL ARM) — the game wants a "
+                              + "pre-scenario continue control shown and the mod cannot find it drawing "
+                              + "anywhere, while StoryComposite's loadout claim is refusing to float "
+                              + "'UI Loadout Window' — the window the single-player continue button is a "
+                              + $"CHILD of. {LoadoutConfirmPark.Where}. THE CLAIM IS BEING LIFTED NOW and "
+                              + "the loadout screen floats again with everything on it from this tick. "
+                              + "THE COUNT IS KEPT: this claim has used "
+                              + $"{_claimCycles} of {MaxWithdrawCycles} cycle(s) and the next round can "
+                              + "still see that the rule fired. WHY THIS ARM EXISTS: the older floor "
+                              + "below measures ZERO floated windows, and the ModBuild 234 deadlock had "
+                              + "THREE — a full room with the one control that moves the game forward "
+                              + "locked inside a suppressed window. USER REPORT: \"Der ist nie "
+                              + "erschienen, man konnte nicht weiter vorranschreiten.\" See "
+                              + "LOADOUT CONFIRM REACHABLE: NO above for the suppressor by name.");
+            _claimStanding = false;
+            _claimObject = null;
+            _claimWhy = "the deadlock floor's control arm lifted this claim: the game wanted a "
+                        + "continue control shown and the mod could not find it drawing anywhere";
+            // The curtain goes with it. It is not the suppressor named above, but it withholds the
+            // floats of windows that were standing when the player committed, and the cheapest thing
+            // to be wrong about at this moment is a quest log that came back a few seconds early.
+            _curtainLifted = true;
+        }
 
         // ModBuild 234 — THE CURTAIN GETS THE SAME FLOOR, AND IT IS A BACKSTOP RATHER THAN THE
         // PRIMARY GUARD. TickCurtain's honesty clause already refuses to let the curtain stand
@@ -2812,6 +3085,11 @@ internal static class StoryComposite
     internal static void Reset()
     {
         Unpark("module teardown");
+        // ModBuild 235 — and the confirm parker goes with it, for the reason its own Reset states: a
+        // park claim that outlived this class would keep the game's own confirm off screen with
+        // nothing left to draw it.
+        LoadoutConfirmPark.Reset();
+        _storyGameOpenAt = float.NegativeInfinity;
         if (_gateOpen)
             CloseGate();
         Greyed.Clear();

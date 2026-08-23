@@ -242,9 +242,15 @@ internal static class FloatRefusalTable
             + "wählen' confirm, i.e. the same act the offline flow puts on the quest card itself. "
             + "Floated on its own it is the button hanging in mid-air inside its own frame of "
             + "frei_schwebender_button_multiplayer.jpg",
-            "it is drawn INSIDE the window whose decision it confirms — MapTravelConfirm parks it "
-            + "under the quest information, on the same measured zero and the same two [WorldUI] "
-            + "TravelButtonOffset dials the offline travel button already uses",
+            "it is drawn INSIDE the window whose decision it confirms. THERE ARE NOW TWO PARKERS AND "
+            + "THE GAME'S OWN readyUpToggleState FIELD DECIDES WHICH IS SPEAKING (ModBuild 235): "
+            + "while it reads Quests, MapRoom/MapTravelConfirm parks the toggle under the quest "
+            + "information on the ModBuild 197 measured zero; while it reads anything else and the "
+            + "loadout screen is open (MPConfirmEnterScenario leaves it at its NotSet default, "
+            + "UIReadyToggle.cs:452/467), WorldUI/LoadoutConfirmPark parks it into the floated "
+            + "Character-UI 'New Party display', under that window's own painted content. The two "
+            + "conditions are mutually exclusive by that field, so exactly one of them ever writes "
+            + "this claim",
             heldBy: go => MapRoom.ReadyToggleParkClaim.Claimed
                           && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, go),
             whyHeld: () => MapRoom.ReadyToggleParkClaim.Why),
@@ -279,6 +285,29 @@ internal static class FloatRefusalTable
         // [RectTransform, CanvasRenderer, UILoadoutManager, CanvasGroup, UIWindow, Image,
         // ControllerInputArea]".
         //
+        // ModBuild 235 — AND THIS ROW SHIPPED A DEADLOCK, WHICH IS WHY THE PARAGRAPH BELOW IS HERE
+        // RATHER THAN ONLY IN StoryComposite.
+        //
+        // USER REPORT (ModBuild 234 hardware, item 4, verbatim): "DEADLOCK: Nachdem ich für jeden
+        // Character die Quest ausgewählt habe, muss irgendwo der button erscheinen damit es weiter
+        // gehen kann. Der ist nie erschienen, man konnte nicht weiter vorranschreiten." THE WINDOW
+        // THIS ROW REFUSES CARRIES THE SINGLE-PLAYER CONTINUE BUTTON: UILoadoutManager's private
+        // serialized `confirmationButton` is a CHILD of it, switched on by
+        // SetActiveSinglePlayerLongConfirmButton (UILoadoutManager.cs:88-95). The log shows the
+        // refusal taken at Player.log:11483, the float withdrawn at :11484 — and no further float of
+        // 'UI Loadout Window' anywhere in the remaining ~1000 lines, because the claim behind this
+        // row never lapsed (`STORY COMPOSITE CLAIM LAPSED` is absent from the whole file).
+        //
+        // TWO INDEPENDENT THINGS NOW STOP THAT, AND THE SECOND IS THE ONE THAT MATTERS.
+        //   1. The claim can no longer outlive the intro: StoryComposite.TerminatedBy drops it on the
+        //      game's own paper-expand tween and on the game's own "a continue control should be
+        //      showable", and StoryComposite.StoryWindow no longer accepts the mod's own sticky
+        //      re-show as evidence that the story box is up.
+        //   2. WorldUI/LoadoutConfirmPark moves the confirm OFF this window entirely, into the
+        //      floated Character-UI, for the whole pre-scenario interval — so even a claim that stood
+        //      wrongly could not take the button with it. Deadlock insurance is not a fix that has to
+        //      be right; it is a control the player can reach whether or not the fix is.
+        //
         // AND THE CLAIM IS THE OPPOSITE OF ModBuild 231's HOLD. 231 held this exact window out of
         // the CONVERT loop, where the catch-all re-enrols and re-counts it every tick, and the churn
         // fuse suppressed its name for the session after four ticks ("CATCH-ALL FUSE: window 'UI
@@ -300,7 +329,11 @@ internal static class FloatRefusalTable
             + "keeps its ordinary 2D rendering on 'Campaign Canvas', which the 3D map room does not "
             + "draw, and NOTHING is done to it: its confirm button, its hotkeys and its own "
             + "FinishIntroduction paper-expand tween are untouched, and it floats again with "
-            + "everything on it the moment the intro is over",
+            + "everything on it the moment the intro is over. AND ITS CONTINUE BUTTON IS NOT ON IT "
+            + "MEANWHILE (ModBuild 235): WorldUI/LoadoutConfirmPark draws that control inside the "
+            + "floated Character-UI 'New Party display' for the whole pre-scenario interval, so this "
+            + "refusal cannot take the player's way forward with it even if the claim behind it were "
+            + "wrong — which in ModBuild 234 it was",
             heldBy: StoryComposite.HoldsLoadoutFloatBack,
             whyHeld: () => StoryComposite.LoadoutClaimWhy),
     };
@@ -450,6 +483,35 @@ internal static class FloatRefusalTable
         return refuse;
     }
 
+    /// <summary>
+    /// THE LAST WORDS OF THE CLAIM THAT ACTUALLY HELD THIS WINDOW — asked of the row that matches it,
+    /// never of a fixed one.
+    ///
+    /// <para><b>ModBuild 235 FIXES AN INSTRUMENT DEFECT HERE, and it is exactly the class of defect
+    /// this table's own doc warns about.</b> Through ModBuild 234 the lapse warning printed
+    /// <c>ReadyToggleParkClaim.Why</c> for EVERY window it fired on — so a lapse of the story
+    /// curtain's ROW 0, or of the loadout screen's ROW 3, would have been reported in the words of a
+    /// claim about the multiplayer ready toggle, which is a different object owned by a different
+    /// parker. A diagnostic that names the wrong claimant sends the next round to the wrong file
+    /// ([[an-instrument-can-assert-a-cause]]). The row is found the same way <see cref="Refuses"/>
+    /// finds it, so the two can never disagree about which claim was in force.</para>
+    /// </summary>
+    private static string LastWordsFor(UIWindow window)
+    {
+        if (ReferenceEquals(window.gameObject, null))
+            return CurtainRow.WhyHeld!();
+        for (int i = 0; i < Rules.Length; i++)
+        {
+            FloatRefusalRule rule = Rules[i];
+            if (window.GetComponent(rule.Component) == null || rule.WhyHeld == null)
+                continue;
+            return $"{rule.Class} row for {rule.Component.Name} — \"{rule.WhyHeld()}\"";
+        }
+        // No identity row matches, so the refusal that just ended was ROW 0, the story curtain: it is
+        // the only rule in this table keyed on a window INSTANCE rather than on a component type.
+        return $"{CurtainRow.Class} ROW 0, the story curtain — \"{CurtainRow.WhyHeld!()}\"";
+    }
+
     private static void WarnLapse(UIWindow window)
     {
         string name = window.name;
@@ -460,7 +522,7 @@ internal static class FloatRefusalTable
         bool last = printed + 1 == MaxLapseWarnings;
         VRLog.Warn(Scope, $"FLOAT REFUSAL LAPSED: '{name}' (ID {window.ID}) is still open, but the "
                           + "subsystem that had taken responsibility for drawing it somewhere better "
-                          + $"STOPPED CLAIMING IT (last words: \"{ReadyToggleParkClaimWhy()}\"). The "
+                          + $"STOPPED CLAIMING IT (last words: {LastWordsFor(window)}). The "
                           + "refusal is therefore off and this window floats on its own again from "
                           + "this tick — that is the SAFETY VALVE, not a regression: a bare control "
                           + "in a frame of its own is ugly, a confirm the player cannot reach is a "
@@ -474,9 +536,6 @@ internal static class FloatRefusalTable
                                 + "the log once per lapse."
                               : string.Empty));
     }
-
-    /// <summary>The claim's own last words, for the lapse line. Safe when nothing was ever claimed.</summary>
-    private static string ReadyToggleParkClaimWhy() => MapRoom.ReadyToggleParkClaim.Why;
 
     /// <summary>
     /// Drop every trace of this window (the game closed it). Called from the catch-all's own

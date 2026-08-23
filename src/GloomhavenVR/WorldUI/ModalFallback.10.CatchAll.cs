@@ -175,6 +175,19 @@ internal static partial class ModalFallback
         // wearing two hosts at once. See AuditDoubleHosting.
         AuditDoubleHosting();
 
+        // ModBuild 235 — THE ENCHANTRESS COMPOSITE, and it sits ABOVE both early returns for the
+        // same reason the audit does: it owns a PARK, and a park must be able to be handed back on a
+        // tick in which nothing is tracked and the catch-all is standing down. Putting it below
+        // `UnknownShown.Count == 0` would make the hand-back depend on some unrelated unknown window
+        // still being open, which is exactly the shape of "a gated remedy never ran"
+        // ([[gated-remedy-never-ran]]).
+        //
+        // IT CANNOT REACH ANY GATE IN THIS FILE. The object it moves carries no UIWindow, so it is
+        // never in OpenWindows, never in Converted, never counted by the churn fuse and never a
+        // subject of the refusal table, "parent wins", the retraction bridge or the DOUBLE HOST
+        // audit. See the class note on EnchantressComposite for why that is structural.
+        EnchantressComposite.Tick();
+
         if (UnknownShown.Count == 0)
             return;
 
@@ -1253,6 +1266,12 @@ internal static partial class ModalFallback
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set
         EmptyHold.Clear();           // ModBuild 230 — the liveness rule's re-float hold
         SubViewRevival.Reset();      // ModBuild 233 — the revival budget and its two edge latches
+        // ModBuild 235 — the enchantress composite, and it must run BEFORE anything below destroys a
+        // host: Reset() hands the card list back to the character UI first and only then clears its
+        // latches, so a shutdown can never leave a GAME object parented under a window this layer is
+        // about to forget. Same ordering rule, same reason, as the StoryComposite.Reset call in
+        // ModalFallback.9.Spawn.cs:1803.
+        EnchantressComposite.Reset();
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();

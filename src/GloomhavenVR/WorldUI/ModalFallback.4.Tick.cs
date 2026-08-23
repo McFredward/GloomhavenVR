@@ -658,6 +658,23 @@ internal static partial class ModalFallback
         public float CentreDeg;
 
         /// <summary>
+        /// WORLD YAW OF THE GAZE THIS WINDOW WAS PLACED FROM — the frame in which the promise "im
+        /// Sichtfeld" was made to it, and the reference the arc audit grades it against.
+        ///
+        /// <para>WHY THE AUDIT CANNOT USE THE CURRENT GAZE INSTEAD. Turning is free and is the one
+        /// thing this mod may never block, so a window placed thirty seconds and a 90° turn ago is
+        /// legitimately behind the player now. Grading it against where he is looking THIS instant
+        /// would make the falsifier scream about a placement that was correct, and a falsifier that
+        /// cries wolf is worse than none. Grading it against its OWN spawn gaze asks the only
+        /// question the packer is answerable for: was it in the field of view WHEN IT ARRIVED.</para>
+        ///
+        /// <para>It is a recorded fact about a moment, not a measurement of the window — the
+        /// window's position on that line is measured live off its transform, and the two are kept
+        /// visibly separate in the audit text for that reason.</para>
+        /// </summary>
+        public float SpawnGazeWorldYaw;
+
+        /// <summary>
         /// Half the window's angular width at the distance it was placed at, degrees. The reserved
         /// interval is <c>CentreDeg ± HalfWidthDeg</c>.
         ///
@@ -704,8 +721,17 @@ internal static partial class ModalFallback
         /// its final fitted size without re-deriving the placement.</summary>
         public float DistanceWorld;
 
-        /// <summary>0 = the window got a free interval. ≥1 = it is the k-th window that had to
-        /// overlap, which is also its depth-ladder index.</summary>
+        /// <summary>
+        /// THE DEPTH LEVEL on the map room's one depth ladder. 0 = this window's FOOTPRINT (what it
+        /// draws ∪ what its frame spans, i.e. the hit rect) intersects nothing standing and it
+        /// hangs at the nominal reading distance. k ≥ 1 = it is one step in front of the deepest
+        /// window it intersects — the user's rule 3, "wenn das nicht vermeidbar ist dann sollte das
+        /// neue Fenster näher heran vor dem anderen Fenster spawnen".
+        ///
+        /// <para>IT IS A MAX, NOT A RUNNING COUNT (it was "the k-th window that had to overlap"
+        /// before this build). Two windows that do not touch each other may share a level, so the
+        /// ladder never marches a window toward the player for a collision it is not part of.</para>
+        /// </summary>
         public int OverlapRank;
 
         /// <summary>Total depth term this seat carries, REAL metres: positive = pulled toward the
@@ -1627,19 +1653,30 @@ internal static partial class ModalFallback
             string name = _arcClaims[i].Name ?? "<window>";
             float centre = _arcClaims[i].CentreDeg;
             float half = _arcClaims[i].HalfWidthDeg;
+            int level = _arcClaims[i].OverlapRank;
             _arcClaims[i] = default;
             CountArcClaims(out int clean, out int overlapping);
             VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOT RELEASED: '{name}' gave up the interval "
-                                  + $"{centre:F0}°±{half:F0}° from its spawn gaze (+ = right) — it "
-                                  + "is no longer floated (the player closed it, the game released "
-                                  + "it, or the room ended). "
+                                  + $"{centre:F0}°±{half:F0}° from its spawn gaze (+ = right) at "
+                                  + $"depth level {level} — it is no longer floated (the player "
+                                  + "closed it, the game released it, or the room ended). "
                                   + $"{clean + overlapping}/{MaxWindowClaims} reservations still "
-                                  + $"held ({clean} clear of everything, {overlapping} overlapping): "
-                                  + $"[{ArcOccupancyText()}]. NOTHING WAS MOVED: every window still "
-                                  + "standing keeps the exact pose it claimed at spawn (user "
-                                  + "ruling). The freed angle goes to the next window that opens — "
-                                  + "which may be this same window re-opened, at a different angle, "
-                                  + "and that is expected.");
+                                  + $"held ({clean} at depth level 0, {overlapping} one or more "
+                                  + $"steps nearer): [{ArcOccupancyText()}]. NOTHING WAS MOVED: "
+                                  + "every window still standing keeps the exact pose it claimed at "
+                                  + "spawn (user ruling). "
+                                  + (level > 0
+                                      ? "AND THE WINDOWS IT WAS IN FRONT OF GET THEIR CLICKS BACK "
+                                        + "WITH NOTHING LEFT OVER: a window's hit rect lives on its "
+                                        + "own host, so it ceases to exist when the host does, and "
+                                        + "RayUguiDriver's nearest-plane search simply stops seeing "
+                                        + "it. Whatever was behind it is the nearest plane again "
+                                        + "from the next ray onward — no re-place, no re-sort, no "
+                                        + "state to unwind. "
+                                      : "")
+                                  + "The freed angle AND the freed depth level go to the next "
+                                  + "window that opens — which may be this same window re-opened, "
+                                  + "at a different angle, and that is expected.");
         }
     }
 
@@ -2615,9 +2652,54 @@ internal static partial class ModalFallback
             // scripted-message clause exist to keep floating, so leaving them ahead of it would keep
             // the empty frame for the same reasons that produced it. The verdict is not a guess: see
             // wp.EmptyReleaseShape, which is printed verbatim in the release line below.
-            bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending
+            // ModBuild 235 — AND A REFUSAL OUTRANKS `Sticky`, WHICH IS THE ONE THING THAT STOPPED
+            // ModBuild 234's STORY CURTAIN FROM DOING ANYTHING AT ALL.
+            //
+            // USER REPORT, item 3, verbatim: "Die Questliste als Fenster soll auch verschwinden nach
+            // dem 'Point of no return'." The curtain shipped in 234, NAMED the quest log as a frozen
+            // member (Player.log:11187) — and the window stayed on screen for the rest of the
+            // session, with no `FLOAT REFUSED: 'Quest Log Manager'` line anywhere in the log. The two
+            // members failed for two DIFFERENT reasons and both of them end on this line:
+            //
+            //   * 'Quest Log Manager' (UIWindowID.None, catch-all path). CatchAllObserve drops a
+            //     window from `UnknownShown` the moment the game hides it, and the game hid the quest
+            //     log at :10503 — 684 lines BEFORE the curtain rose. TickCatchAll only ever iterates
+            //     `UnknownShown`, so FloatRefusalTable.Refuse was never asked about it and
+            //     WithdrawRefusedFloat was never reached. The float stayed alive purely on `Sticky`,
+            //     with ReassertStickyVisible force-showing a window the game had closed.
+            //   * 'UI Quest Popup' (UIWindowID.QuestPopup, ENROLLED path). The refusal WAS consulted:
+            //     the `Open` normalisation loop above already does
+            //     `if (FloatRefusalTable.Refuses(window)) continue;`, so the window was correctly kept
+            //     OUT of OpenWindows. It changed nothing, because `|| wp.Sticky` on the next line kept
+            //     the existing float alive regardless of the set it had just been removed from.
+            //
+            // SO THE REFUSAL TABLE COULD ONLY EVER WITHDRAW A FLOAT ON ONE OF THE THREE PATHS INTO
+            // THIS CLASS, and which path a window takes is an accident of whether its prefab carries
+            // a serialized UIWindowID. One clause fixes both, and this is the honest place for it:
+            // this line is where "is this float still wanted?" is decided, and a refusal is exactly an
+            // answer of no. It is also the only lever that reaches a window the catch-all has stopped
+            // tracking.
+            //
+            // NOTHING IS WRITTEN TO THE GAME BY THIS. Falling through to the release below is the
+            // ORDINARY exit — Converted.RemoveAt, the grab holder destroyed, CanvasConversion.Release
+            // restoring the exact 2D home, the arc slot handed back. `UserClosing` is NOT set, so the
+            // `wp.Window.Hide()` gap-close below cannot fire for a refused window: refusing to DRAW
+            // something must never take it away from a game that still needs it. That is
+            // WithdrawRefusedFloat's own ruling, applied on the paths WithdrawRefusedFloat cannot
+            // reach.
+            bool refused = wp.Window != null && FloatRefusalTable.Refuses(wp.Window);
+            bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
                              && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky
                                  || ScriptedLevelMessageActive(wp.Window));
+            if (refused && alive)
+                VRLog.Info("WorldUI", $"FLOAT RELEASED ON REFUSAL: '{wp.Window!.name}' (ID " +
+                                      $"{wp.Window.ID}) — {FloatRefusalTable.Describe(wp.Window)}. The " +
+                                      "float is given up through the ORDINARY release path (panel, grab " +
+                                      "bar, close cross and arc slot together; CanvasConversion.Release " +
+                                      "restores the exact 2D home). NOTHING WAS WRITTEN TO THE GAME: " +
+                                      "UserClosing is not set, so no Hide, no Escape and no CanvasGroup " +
+                                      "write — and the window floats again, with everything on it, the " +
+                                      "moment the refusal lapses.");
             if (stillOpen)
                 continue;
             // FIX B gap-close: the user closed this float (UserClosing) but the window reports

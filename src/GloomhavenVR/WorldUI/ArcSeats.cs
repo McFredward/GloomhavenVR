@@ -4,113 +4,133 @@ using GloomhavenVR.Core;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// THE MAP ROOM'S HALF CIRCLE — where a floated window is SEATED, as opposed to how big it may be.
+/// THE MAP ROOM'S FIELD OF VIEW — where a floated window is SEATED, as opposed to how big it may be.
 ///
-/// <para>THE REPORT THIS ANSWERS (ModBuild 233, .planning/debug/Questauswahl.jpg), verbatim:
-/// "Weiterhin ist auch die Questinfo in den Sichtbereich gespawned. Es macht Sinn dass es nochmal
-/// spawned und das es ein eigenes Fenster ist, ABER es soll nicht alles auf einem Fleck spawnen
-/// sondern am Besten in einem halbkreis innerhalb des sichtbereichs ausgerichtet."</para>
+/// <para>THE RULING THIS ANSWERS, verbatim, and it OVERRULES ModBuild 234: "Der Halbkreis gefällt
+/// mir nicht so, da viele Fenster außerhalb des direkten Sichtfelds spawnen. Das ist die wichtigste
+/// Regel: Im SIchtfeld! Prio zwei ist dann so wenig kollisionen wie möglich - wenn das nicht
+/// vermeidbar ist dann sollte das neue Fenster näher heran vor dem anderen Fenster spawnen, das es
+/// keine direkte Kollision gibt."</para>
 ///
-/// <para>THE MECHANISM, FROM HIS OWN LOG. ModBuild 193 gave every window an angular RESERVATION and
-/// packed those reservations inside the headset's measured comfortable reading cone — ±32.0° on his
-/// Quest 3 (binocular overlap 40.0° × the 0.80 comfort margin). That is 64° of arc in total. The
-/// loadout burst he photographed asked for far more than 64°:</para>
-/// <code>
-///   -2°±29°  'Map Story Window'                 58°
-///   22°±10°  'Quest Log Manager'      PERMANENT 20°
-///  -18°±14°  'UI Quest Popup'                   28°
-///    0°±44°  'New Party display'      PERMANENT 88°
-///  -16°±16°  'UI Battle Goal Picker Window'     31°
-///                                    ---------------
-///                                    225° of window
-/// </code>
-/// <para>225° of window into 64° of arc. From the third window on, the packer's own log line reads
-/// "NO free interval is left inside the cone (±32.0°)" on every single spawn, the overflow rule
-/// fires every time, and the overflow rule's job is to keep the window IN THE CONE — so it puts it
-/// back in the middle, on top of everything else. Five windows, five overflow lines, one pile. The
-/// allocator was working exactly as designed and the design was answering the wrong question.</para>
-///
-/// <para>THE CORRECTION IS A SEPARATION OF TWO QUESTIONS THAT HAD ONE ANSWER:</para>
-/// <list type="bullet">
-/// <item>"HOW BIG MAY ONE WINDOW BE / IS THIS ONE COMFORTABLE TO READ WHERE IT IS?" — the measured
-/// reading cone is the right answer and it keeps that job. It is still derived per session from the
-/// projection matrix, it is still printed, and every placement is now graded against it
-/// (<see cref="ArcSeatBand"/>): a window inside ±cone needs no head movement at all.</item>
-/// <item>"WHERE DOES THE FIFTH WINDOW GO?" — the cone is the WRONG answer, because there is no fifth
-/// place in it. Placement gets its own, much wider allowance: the HALF CIRCLE IN FRONT OF THE
-/// PLAYER, <see cref="HalfCircleHalfDeg"/> = ±90°, edges included.</item>
-/// </list>
-///
-/// <para>WHY ±90° AND NOT SOMETHING ELSE — the number, defended.</para>
+/// <para>HIS PRIORITY ORDER IS NOW THE CONTRACT, AND ModBuild 234 HAD 1 AND 2 THE WRONG WAY ROUND:</para>
 /// <list type="number">
-/// <item>It is what he asked for. "Halbkreis" is 180° and 180° is ±90°.</item>
-/// <item>±90° is the SHOULDER LINE, and that is the honest boundary of "in front of me". A window
-/// past it is behind the player, which is not "innerhalb des Sichtbereichs" under any reading. The
-/// bound is applied to the window's EDGES, not its centre, so no part of any window ever crosses
-/// behind the shoulder — a 58°-wide window can be seated no further out than 61°.</item>
-/// <item>It is the smallest arc that actually HOLDS his loadout. 225° of window is more than 180°,
-/// but only because one window (the party roster) reserves 88° for a 328 px column — see the
-/// FINDING below. Every other window in that burst fits: 58 + 20 + 28 + 31 + three 2° gaps = 143°,
-/// comfortably inside 180° and impossible inside 64°. A 120° arc (±60°, "comfortable neck turn")
-/// would have held four of the five and put the fifth back on the pile; ±90° holds them all.</item>
-/// <item>THE 192 OBJECTION IS ANSWERED BY THE SEARCH ORDER, NOT BY THE BOUND. ModBuild 192 had a
-/// ±85° arc and produced "Neue Fenster spawnen irgendwo an der Seite wo man sie nicht sieht",
-/// because it seated windows at FIXED steps 0°, ±34°, ±68° indexed by how many were already open —
-/// the fourth window went to 68° whether or not the middle was empty. This allocator never does
-/// that: it takes the FREE INTERVAL NEAREST THE CURRENT GAZE, so the outer arc is reached only when
-/// everything closer in is genuinely occupied. A window is never put at 70° to avoid a 5° overlap;
-/// it is put at 70° only when the alternative is being buried, which is the thing he is looking
-/// at. And turning is free — it is the one thing this mod may never block.</item>
+/// <item>IN THE FIELD OF VIEW. Unconditional, and the most important rule. A window he has to TURN
+/// TO FIND is a failure even if the layout is perfectly spread.</item>
+/// <item>AS FEW ANGULAR COLLISIONS AS POSSIBLE. Second, and no longer allowed to buy itself arc.</item>
+/// <item>WHEN A COLLISION IS UNAVOIDABLE, THE NEW WINDOW COMES NEARER — one depth step in front of
+/// the one it collides with, so there is no direct collision. Depth resolves what angle cannot.</item>
 /// </list>
 ///
-/// <para>THE FRAME IS THE WORLD, AND THAT IS A BUG FIX. ModBuild 193 stored each reservation as
-/// "degrees from ITS OWN spawn gaze" and then compared those numbers to each other as if they
-/// shared a frame. They do not: if the player turns 40° between two spawns, a claim at +10° and a
-/// claim at +50° are the SAME world direction and the registry believes they are 40° apart. Inside
-/// a ±32° cone the error was bounded by the cone and his 233 log happens to show only 2.6° of head
-/// drift across the burst, so it never bit. Inside a ±90° arc it would bite hard and it would bite
-/// as the exact symptom being fixed — two windows on one spot, with a log line swearing they are
-/// apart. Seats are therefore held in ABSOLUTE WORLD YAW (<see cref="_arcSeatWorldYaw"/>), all
-/// comparisons go through <see cref="Mathf.DeltaAngle"/>, and the search still runs relative to the
-/// CURRENT spawn gaze so a new window still lands as close to where he is looking as the free space
-/// allows. <see cref="ArcClaim.CentreDeg"/> keeps its documented meaning (offset from that window's
-/// own spawn gaze) so every log line in ModalFallback.4.Tick.cs stays true.</para>
+/// <para>WHAT 234 DID AND WHY IT IS BEING UNDONE. It took the whole ±90° half circle as the
+/// placement arc precisely so that angles would not collide, and by that measure it SUCCEEDED —
+/// nine overlapping pairs in his burst down to one. It bought that by seating windows up to 90°
+/// from his spawn gaze, i.e. at the shoulder line, which is the thing he is now reporting. The
+/// trade is refused: overlap is cheap (depth fixes it), a window he cannot see is not.</para>
 ///
-/// <para>WHAT IS DELIBERATELY UNCHANGED. Distance, height and every spawn clamp (board-top floor,
-/// eye cap, pitch flatten) — a seat is a YAW and a depth and nothing else, exactly as in 193.
-/// Facing is still yaw-only and still points at the player, applied once at spawn. A window is
-/// placed ONCE and is then the player's: opening or closing anything never re-poses a standing
-/// window, a grabbed window is never re-placed (<c>TickPoseRePlaceOne</c> refuses on
-/// <c>grab.IsGrabbed</c> and on <c>!RevealPending</c>), and nothing here follows the head.</para>
+/// <para>THE ARC IS NOW MEASURED, NOT CHOSEN — <see cref="ArcPlacementHalfDeg"/>. Two numbers come
+/// off this session's own stereo projection matrices and both are already printed on the MAP ROOM
+/// ARC GEOMETRY line: the BINOCULAR OVERLAP half-angle (±40.0° on his Quest 3 over VDXR) and the
+/// COMFORTABLE READING CONE, which is that same number × the 0.80 comfort margin (±32.0°). The
+/// placement arc is the BINOCULAR OVERLAP, applied to each window's EDGES.</para>
+/// <list type="number">
+/// <item>IT IS THE HONEST OUTER EDGE OF "IM SICHTFELD". Inside it a direction is seen by BOTH eyes
+/// with the head still — that is literally what <c>UsableHalfConeDeg</c> measures it as, per side,
+/// as the smaller of the two eyes' extents. Outside it a window is MONOCULAR: it sits where the
+/// other eye's nose occlusion begins, and this mod renders MultiPass, where that region has shipped
+/// stereo bugs before. A window there is not "im Sichtfeld" under any reading, and it is exactly
+/// the region ±90° was reaching into.</item>
+/// <item>WHY NOT THE COMFORT CONE (±32°). That is ModBuild 193's arc and it is what produced the
+/// pile in Questauswahl.jpg: five windows, five "NO free interval is left inside the cone" lines,
+/// every one of them dumped back in the middle. The comfort margin answers a different question —
+/// "is this comfortable to READ where it is" — and it keeps that job, as the grading on every
+/// placement line (<see cref="ArcSeatBand"/>). It is not a placement bound.</item>
+/// <item>IT IS DERIVED PER SESSION AND CARRIES THE SAME SANITY BOUNDS. It is
+/// <c>UsableHalfConeDeg() / ViewConeComfortFraction</c>, i.e. the margined cone recovered to its
+/// raw value — recovered rather than re-derived so the two numbers can never disagree about which
+/// matrix they came from. The cone is clamped to [20°, 55°], so the arc is bounded to
+/// [25°, 68.75°]; a headset that legitimately reports a 110°+ binocular overlap legitimately gets a
+/// wider arc, and one that reports nonsense is clamped and says so on the geometry line.</item>
+/// <item>WHAT A WINDOW AT THE BOUND LOOKS LIKE HEAD-STILL. Its outer EDGE sits exactly where
+/// binocular overlap ends: on screen, in both eyes, without moving — but in the outer fifth of the
+/// field, past the comfort margin, read by turning the EYES through the part of the lens with the
+/// worst blur. The placement line grades it "IN VIEW" rather than "COMFORT BAND", and it is never
+/// somewhere he has to turn his HEAD to discover.</item>
+/// </list>
 ///
-/// <para>FINDING FOR THE NEXT ROUND, NOT FIXED HERE AND NOT MINE TO FIX. 'New Party display'
-/// reserves 88° of the arc and DRAWS 14°. Its own FIXED FIT line: "host pinned at 1988x1080 px =
-/// 2.09 x 1.13 m = 2087 mm wide = 82° of view at 1.2 m; the CHARACTER COLUMN renders 328x1080 px
-/// from (-982,-540) … the spare width is 1648 px of empty (transparent) frame". The reservation is
-/// measured from the host RECT because that is what the placement carries, so this one window eats
-/// 88° of a 180° arc for a column that occupies 14° at the far LEFT edge of its own frame — which
-/// is also why it appears at the side of the photograph while its reservation says 0°. The packer
-/// cannot see that and must not guess it: the fix belongs where the rect is sized. Until then the
-/// arc audit below prints the reservation next to the live measurement, so the cost is a number in
-/// the log rather than a suspicion.</para>
+/// <para>SO OVERLAP IS NOW THE NORMAL CASE, AND THAT IS ARITHMETIC. His five-window loadout draws
+/// 159.8° of content by 234's own measurement; the field of view supplies 80°. Two hundred per cent
+/// oversubscribed — no packer can seat that without collisions, so "no overlap" stops being a
+/// success criterion and DEPTH becomes the remedy, which is what he asked for in his own words.</para>
+///
+/// <para>ONE DEPTH LADDER, NOT TWO. ModBuild 234 had a foreground ladder for overflow (pull TOWARD
+/// the head, per overlap generation) and a separate one-step phantom-frame PUSH away from the head
+/// for a window whose oversized transparent frame overhung a neighbour's content. His rule 3 is the
+/// same mechanism stated more broadly, so they are now one rule, in one direction:</para>
+/// <code>
+///   depth level = 1 + max(level of every standing window this one's FOOTPRINT intersects)
+///   distance    = WindowDistanceMeters − OverlapDepthStepMeters × level, floored at
+///                 MinOverlapDistanceMeters
+/// </code>
+/// <para>The FOOTPRINT is the union of what the window DRAWS and what its FRAME spans, because that
+/// is exactly what the hit rect is (<c>Content ∪ Host</c>, a contract that never shrinks below the
+/// frame) and therefore what both the eye and the laser can be confused by. Level 0 is a window
+/// that intersects nothing and hangs at the nominal reading distance. The level is a MAX over the
+/// windows actually intersected, not a running count, so two windows that do not touch each other
+/// can share a level and the ladder never marches away for no reason.</para>
+///
+/// <para>THREE ModBuild 234 FINDINGS SURVIVE THIS CHANGE UNTOUCHED, because they were expensive:</para>
+/// <list type="bullet">
+/// <item>SEATS ARE HELD IN ABSOLUTE WORLD YAW (<see cref="_arcSeatWorldYaw"/>). 193 stored them
+/// gaze-relative and compared them to each other as if they shared a frame; a 40° head turn between
+/// two spawns makes +10° and +50° the SAME world direction while the registry swears they are 40°
+/// apart. All comparisons go through <see cref="Mathf.DeltaAngle"/>; the search still runs relative
+/// to the CURRENT spawn gaze so a new window still lands as near his gaze as the room allows.</item>
+/// <item>A RESERVATION COSTS WHAT A WINDOW DRAWS (width AND offset), NOT WHAT IT FRAMES. 'New Party
+/// display' booked 88° to draw 14° — a 328 px character column at x −818 inside a 1988 px frame —
+/// while three of the other four in that burst draw WIDER than their frame. Angle is packed on the
+/// drawn union, offset included, with no per-window knowledge anywhere.</item>
+/// <item>THE FRAME IS STILL THE COLLIDER. The hit rect is <c>Content ∪ Host</c> and RayUguiDriver
+/// awards a click to the NEAREST plane, so an oversized transparent frame catches the laser in
+/// front of whatever is behind it. That is why the depth ladder is fed by the FOOTPRINT and not by
+/// the drawn interval — see <see cref="ArcSeatDepthLevel"/>.</item>
+/// </list>
+///
+/// <para>WHAT IS DELIBERATELY UNCHANGED. Height and every spawn clamp (board-top floor, eye cap,
+/// pitch flatten) — a seat is a YAW and a DEPTH and nothing else. Facing is still yaw-only and
+/// still points at the player, applied once at spawn. A window is placed ONCE and is then the
+/// player's: opening or closing anything never re-poses a standing window, a grabbed window is
+/// never re-placed (<c>TickPoseRePlaceOne</c> refuses on <c>grab.IsGrabbed</c> and on
+/// <c>!RevealPending</c>), a revealed window is never moved (ModBuild 183's shipped bug), and
+/// nothing here follows the head. Only the ARRIVING window ever moves.</para>
 /// </summary>
 internal static partial class ModalFallback
 {
     /// <summary>
     /// THE PLACEMENT ARC — half-extent in degrees each side of the player's spawn gaze, applied to
-    /// a window's EDGES. 90° is the shoulder line: the layout is a half circle in front of him and
-    /// nothing is ever seated behind it. See the class header for the full defence of this number.
+    /// a window's EDGES. IT IS MEASURED, NEVER PICKED: it is this session's BINOCULAR OVERLAP
+    /// half-angle, read off the head camera's own stereo projection matrices.
     ///
-    /// <para>THIS IS NOT A "FIELD OF VIEW" AND MUST NEVER BE CONFUSED WITH ONE. The headset's field
-    /// of view is measured, not assumed (<see cref="UsableHalfConeDeg"/>), and it answers a
-    /// different question — whether a seat needs a head turn to read. This number answers only "how
-    /// far around may the layout reach before it stops being in front of me", which is a fact about
-    /// a human being and not about a display, so a constant is the correct form for it. It is the
-    /// one thing the ModBuild 193 tombstone forbids ("do not reintroduce a fixed half-angle") —
-    /// which was written about a fixed SEAT SPACING and a fixed guess at the DISPLAY, both of which
-    /// are still gone and still measured. What is fixed here is anatomy.</para>
+    /// <para>THE DERIVATION IS A RECOVERY, NOT A SECOND MEASUREMENT. <see cref="UsableHalfConeDeg"/>
+    /// measures the raw binocular half-field (per side, the SMALLER of the two eyes' extents — a
+    /// direction only one eye can see is not one that can be read) and then multiplies it by
+    /// <see cref="ViewConeComfortFraction"/> to get the comfortable READING cone. Dividing that
+    /// product back out returns the raw measurement exactly, so the arc and the comfort cone can
+    /// never disagree about which matrix they came from. On his Quest 3 over VDXR the geometry line
+    /// prints ±40.0° here and ±32.0° for the cone.</para>
+    ///
+    /// <para>WHY THE BINOCULAR OVERLAP IS THE RIGHT BOUND, AND ±90° IS NOT. See the class header:
+    /// inside this angle a window is on screen in both eyes WITH THE HEAD STILL, which is the only
+    /// honest reading of "im Sichtfeld"; outside it a window is monocular, in the nose-occlusion
+    /// region, in a MultiPass renderer where that region has shipped stereo bugs. ModBuild 234's
+    /// half circle reached to the shoulder line and that is the report being answered here.</para>
+    ///
+    /// <para>IT INHERITS THE CONE'S SANITY CLAMP. <c>UsableHalfConeDeg</c> clamps to
+    /// [<see cref="MinUsableHalfConeDeg"/>, <see cref="MaxUsableHalfConeDeg"/>] = [20°, 55°], so
+    /// this is bounded to [25°, 68.75°] and a misread projection matrix cannot scatter windows
+    /// behind the player — the clamp is named on the geometry line when it engages.</para>
     /// </summary>
-    private const float HalfCircleHalfDeg = 90f;
+    private static float ArcPlacementHalfDeg() =>
+        UsableHalfConeDeg() / Mathf.Max(ViewConeComfortFraction, 1e-3f);
 
     /// <summary>Two live intervals closer than this are called overlapping by the audit. Half a
     /// degree is ~1 cm at reading distance, i.e. below the width of the window's own frame art, so
@@ -141,44 +161,18 @@ internal static partial class ModalFallback
     private static readonly float[] _auditLiveHalf = new float[MaxWindowClaims];
     private static readonly float[] _auditReservedYaw = new float[MaxWindowClaims];
     private static readonly float[] _auditReservedHalf = new float[MaxWindowClaims];
-    private static readonly float[] _auditFrameYaw = new float[MaxWindowClaims];
-    private static readonly float[] _auditFrameHalf = new float[MaxWindowClaims];
     private static readonly float[] _auditDist = new float[MaxWindowClaims];
+    // The window's OWN spawn gaze — the frame in which "im Sichtfeld" was promised to it, and the
+    // reference the field-of-view assertion grades its LIVE direction against.
+    private static readonly float[] _auditSpawnGaze = new float[MaxWindowClaims];
+    // The FOOTPRINT (drawn ∪ frame) each window occupies — what the depth assertion is taken on.
+    private static readonly float[] _auditFootYaw = new float[MaxWindowClaims];
+    private static readonly float[] _auditFootHalf = new float[MaxWindowClaims];
 
-    /// <summary>
-    /// HOW MUCH DEEPER a window is seated when its own transparent frame hangs over a neighbour's
-    /// visible content — one step of the existing depth ladder, real metres.
-    ///
-    /// <para>THE MEASURED PROBLEM. The rectangle the laser is tested against is the hit rect, and
-    /// the hit rect is <c>Content ∪ Host</c> — it grows to cover content that escapes the frame and
-    /// it NEVER shrinks below the frame. His own log, for the window in question:
-    /// <c>HIT RECT 'New Party display': host rect 1988x1080 px at (0,0); DRAWN CONTENT 328x1080 px
-    /// at (-818,0) from 135 visible graphic(s); LARGER = the host rect → HIT RECT 1988x1080 px …
-    /// the interactive area is 2087x1134 mm</c>. So there is a 2.09 m invisible sheet around a
-    /// 0.34 m column, and <c>RayUguiDriver</c> resolves competing canvases by NEAREST PLANE
-    /// (<c>TryIntersect(canvas, origin, dir, bestDist, …)</c> with a shrinking budget). Seat a
-    /// readable window inside that empty frame at the same reading distance and which one takes the
-    /// click is a coin flip.</para>
-    ///
-    /// <para>ONE STEP AWAY FROM THE HEAD SETTLES IT, and it is the only remedy that never moves a
-    /// window that is already standing — the standing ones keep their distance, the window with the
-    /// oversized frame takes the step. 0.04 m at a 1.20 m reading distance is 3.2 % of apparent
-    /// size, applied while the window is still render-hidden, and it is the same ladder step the
-    /// overflow rule has always used. It is deliberately ONE step and not a ladder: the question is
-    /// binary (is this plane behind the other one), and a ladder would walk a permanent window
-    /// steadily away over a long session.</para>
-    ///
-    /// <para>WHY NOT SHRINK THE HIT RECT INSTEAD. That is the other cure and it is a bigger, riskier
-    /// change than this lane should make: "always contains the host rect" is a stated contract of
-    /// that measurement, the ray/poke plane and the mod's own grab and close-X geometry are built
-    /// on it, and shrinking it would change input behaviour for every converted window in the mod,
-    /// not only for the one with the phantom frame. Depth costs 3.2 % of one window's size and
-    /// touches nothing else.</para>
-    /// </summary>
-    private const float FramePushStepMeters = 0.04f;
-
-    /// <summary>A frame wider than its content by less than this is not worth a depth step — it is
-    /// ordinary window chrome, not a phantom sheet. 4° at reading distance is ~8 cm.</summary>
+    /// <summary>A frame wider than its content by less than this is ordinary window chrome, not a
+    /// phantom sheet, and the log lines do not call it one. 4° at reading distance is ~8 cm. It is
+    /// a REPORTING threshold only — the depth ladder is fed by the footprint union and needs no
+    /// threshold at all.</summary>
     private const float PhantomFrameThresholdDeg = 4f;
 
     /// <summary>
@@ -290,47 +284,114 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// Real metres this window must be pushed AWAY from the head so that its own transparent frame
-    /// cannot steal the laser from a neighbour's visible content. 0 for the overwhelming majority
-    /// of windows, whose frame is their content. See <see cref="FramePushStepMeters"/> for the
-    /// measurement behind the rule and for why depth rather than hit-rect surgery.
+    /// THE ANGULAR FOOTPRINT of one window: the union of what it DRAWS and what its FRAME spans,
+    /// as a centre and a half-width in world yaw.
+    ///
+    /// <para>WHY THE UNION AND NOT EITHER HALF. It is exactly the hit rect. <c>Content ∪ Host</c>
+    /// is that measurement's stated contract — it grows to cover content that escapes the frame and
+    /// it never shrinks below the frame — and <c>RayUguiDriver</c> awards a click to the NEAREST
+    /// plane. So the union is what the laser can be confused by, and it is also the widest thing
+    /// the eye can mistake for this window. The DEPTH ladder is therefore taken on the union, while
+    /// the ANGLE search stays on the drawn interval alone, which is what the player judges
+    /// "Kollision" by. Two different questions, two different intervals, one window.</para>
     /// </summary>
-    /// <param name="hostWorldYaw">Where the window's FRAME will be centred, world yaw.</param>
-    /// <param name="frameHalfDeg">Half the frame's angular width.</param>
+    /// <param name="frameWorldYaw">World yaw of the HOST RECT's centre.</param>
+    /// <param name="frameHalfDeg">Half the host rect's angular width.</param>
+    /// <param name="drawnOffsetDeg">Drawn content's offset from the frame centre.</param>
     /// <param name="drawnHalfDeg">Half the drawn content's angular width.</param>
-    /// <param name="skipSlot">This window's own registry slot, excluded from the test (a window
-    /// cannot overhang itself — the fuse-that-counted-the-player lesson).</param>
-    /// <param name="victims">Names of the neighbours whose visible content the frame covers.</param>
-    private static float ArcSeatFramePush(float hostWorldYaw, float frameHalfDeg, float drawnHalfDeg,
-        int skipSlot, out string victims)
+    private static void ArcSeatFootprint(float frameWorldYaw, float frameHalfDeg,
+        float drawnOffsetDeg, float drawnHalfDeg, out float footYaw, out float footHalf)
     {
-        victims = "(none)";
-        if (frameHalfDeg - drawnHalfDeg < PhantomFrameThresholdDeg * 0.5f)
-            return 0f; // the frame IS the content — nothing invisible to trip over
+        float lo = Mathf.Min(-frameHalfDeg, drawnOffsetDeg - drawnHalfDeg);
+        float hi = Mathf.Max(frameHalfDeg, drawnOffsetDeg + drawnHalfDeg);
+        footYaw = frameWorldYaw + (lo + hi) * 0.5f;
+        footHalf = (hi - lo) * 0.5f;
+    }
+
+    /// <summary>The footprint of the standing claim in <paramref name="slot"/>. The registry seats
+    /// the DRAWN centre, so the frame centre comes back off by subtracting the content's own offset
+    /// inside its frame.</summary>
+    private static void ArcSeatFootprint(int slot, out float footYaw, out float footHalf)
+    {
+        float frameYaw = _arcSeatWorldYaw[slot] - _arcClaims[slot].DrawnOffsetDeg;
+        ArcSeatFootprint(frameYaw, _arcClaims[slot].FrameHalfWidthDeg,
+            _arcClaims[slot].DrawnOffsetDeg, _arcClaims[slot].HalfWidthDeg, out footYaw,
+            out footHalf);
+    }
+
+    /// <summary>
+    /// THE DEPTH LADDER, AND THERE IS ONLY ONE OF THEM — the level this window must hang at so that
+    /// it is IN FRONT of everything its footprint intersects. His rule 3: "wenn das nicht
+    /// vermeidbar ist dann sollte das neue Fenster näher heran vor dem anderen Fenster spawnen, das
+    /// es keine direkte Kollision gibt."
+    ///
+    /// <para>0 = it intersects nothing and hangs at the nominal reading distance. Otherwise it is
+    /// <c>1 + max(level of every standing window it intersects)</c>. A MAX and not a running count,
+    /// deliberately: two windows that do not touch each other may share a level, so the ladder does
+    /// not march away from the player for collisions it is not part of. ONE step of separation is
+    /// all the question needs — <c>CanvasConversion.8.Order</c> rewrites every floated panel's
+    /// sorting order each frame from its MEASURED eye distance, so any consistent separation makes
+    /// the nearer window draw in front, and a bigger one would only make the window angularly wider
+    /// (see <see cref="OverlapDepthStepMeters"/>, whose own doc records the four-generation
+    /// simulation that forced 0.14 m down to 0.04 m).</para>
+    ///
+    /// <para>IT MOVES ONLY THE ARRIVING WINDOW. Standing windows keep their level and their
+    /// distance; nothing here writes any registry entry but the caller's own.</para>
+    /// </summary>
+    /// <param name="footYaw">World yaw of the arriving window's footprint centre.</param>
+    /// <param name="footHalf">Half-width of the arriving window's footprint.</param>
+    /// <param name="skipSlot">The arriving window's own registry slot, excluded — a window cannot
+    /// collide with itself (the fuse-that-counted-the-player lesson).</param>
+    /// <param name="blockers">The windows it intersects, with the degrees and their levels.</param>
+    private static int ArcSeatDepthLevel(float footYaw, float footHalf, int skipSlot,
+        out string blockers)
+    {
+        int level = 0;
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < _arcClaims.Length; i++)
         {
             if (_arcClaims[i].Panel == null || i == skipSlot)
                 continue;
-            float ov = _arcClaims[i].HalfWidthDeg + frameHalfDeg
-                       - Mathf.Abs(Mathf.DeltaAngle(hostWorldYaw, _arcSeatWorldYaw[i]));
-            if (ov <= 0.5f)
+            ArcSeatFootprint(i, out float otherYaw, out float otherHalf);
+            float ov = otherHalf + footHalf - Mathf.Abs(Mathf.DeltaAngle(footYaw, otherYaw));
+            if (ov <= ArcAuditOverlapToleranceDeg)
                 continue;
+            level = Mathf.Max(level, _arcClaims[i].OverlapRank + 1);
             if (sb.Length > 0)
                 sb.Append(", ");
             sb.Append('\'').Append(_arcClaims[i].Name ?? "?").Append("' by ")
-              .Append(ov.ToString("F0")).Append('°');
+              .Append(ov.ToString("F0")).Append("° (that one is at depth level ")
+              .Append(_arcClaims[i].OverlapRank).Append(')');
         }
-        if (sb.Length == 0)
-            return 0f;
-        victims = sb.ToString();
-        return FramePushStepMeters;
+        blockers = sb.Length == 0 ? "(none)" : sb.ToString();
+        return level;
+    }
+
+    /// <summary>How many standing windows' DRAWN intervals a window of half-width
+    /// <paramref name="halfAngle"/> at <paramref name="worldYaw"/> would collide with — his
+    /// priority 2 as a countable number, ranked ahead of everything but the field of view.</summary>
+    private static int ArcSeatCollisionCount(float worldYaw, float halfAngle)
+    {
+        int n = 0;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null)
+                continue;
+            float ov = _arcClaims[i].HalfWidthDeg + halfAngle
+                       - Mathf.Abs(Mathf.DeltaAngle(worldYaw, _arcSeatWorldYaw[i]));
+            if (ov > ArcAuditOverlapToleranceDeg)
+                n++;
+        }
+        return n;
     }
 
     /// <summary>
     /// Apply an arc window's depth term to <paramref name="pos"/>: positive
-    /// <paramref name="pullWorld"/> moves it TOWARD the head (the overflow rule's foreground
-    /// ladder), negative moves it AWAY (the phantom-frame push).
+    /// <paramref name="pullWorld"/> moves it TOWARD the head, which since this build is the ONLY
+    /// direction the ladder ever travels (his rule 3 — the new window comes nearer). The negative
+    /// branch is kept because the arithmetic is symmetric and a refloat replays a stored term, but
+    /// ModBuild 234's phantom-frame PUSH away from the head is retired: it was a second ladder for
+    /// the same question and it is now folded into <see cref="ArcSeatDepthLevel"/>.
     ///
     /// <para>IT MOVES ALONG THE WINDOW'S OWN FLATTENED RADIAL, not along the raw gaze. Writing the
     /// offset as u·d with u the rotated unit direction, its horizontal part is flatU·(h·d) with
@@ -597,22 +658,26 @@ internal static partial class ModalFallback
     {
         float cone = UsableHalfConeDeg();
         // The raw binocular overlap, i.e. the cone before the comfort margin: the outer edge of
-        // "both eyes see it without moving". Recovered rather than re-derived so the two numbers
-        // can never disagree about which matrix they came from.
-        float binocular = cone / Mathf.Max(ViewConeComfortFraction, 1e-3f);
+        // "both eyes see it without moving", and since this build also the PLACEMENT ARC.
+        float binocular = ArcPlacementHalfDeg();
         float reach = Mathf.Abs(offsetDeg) + halfAngle;
         if (reach <= cone + 0.5f)
             return $"COMFORT BAND: its edges reach {reach:F0}°, inside the measured comfortable "
                    + $"reading cone (±{cone:F1}°) — readable with the head still";
         if (reach <= binocular + 0.5f)
             return $"IN VIEW: its edges reach {reach:F0}°, past the comfortable cone (±{cone:F1}°) "
-                   + $"but inside the measured binocular overlap (±{binocular:F1}°) — on screen "
-                   + "with the head still, at the edge of comfort";
-        return $"HEAD TURN: its edges reach {reach:F0}°, past the measured binocular overlap "
-               + $"(±{binocular:F1}°) — the player turns toward it, which is free and which is the "
-               + "price of the half circle. It is IN FRONT of him (the arc is ±"
-               + $"{HalfCircleHalfDeg:F0}°, edges included) and it is not buried, which is the trade "
-               + "he asked for";
+                   + $"but inside the measured binocular overlap (±{binocular:F1}°) — on screen in "
+                   + "BOTH eyes with the head still, read by turning the eyes. This is the outer "
+                   + "fifth of the field and it is the bound the placement arc is set to";
+        // Since the placement bound IS ±binocular applied to the EDGES, this branch cannot be
+        // reached by a window this packer seated. It is left in as a falsifier: if it ever prints,
+        // the arc bound did not hold and the FIRST rule of the ruling was broken.
+        return $"OUT OF THE FIELD OF VIEW — THIS MUST NOT HAPPEN: its edges reach {reach:F0}°, past "
+               + $"the measured binocular overlap (±{binocular:F1}°), which is the placement arc "
+               + "itself. The player would have to TURN HIS HEAD to find this window, and 'im "
+               + "Sichtfeld' is the ruling's first and unconditional rule. Either the window is "
+               + "wider than the whole field of view (the line says so separately) or the centre "
+               + "bound was not applied";
     }
 
     /// <summary>
@@ -628,50 +693,75 @@ internal static partial class ModalFallback
         if (float.IsNaN(_usableHalfConeDeg))
             return; // still on the fallback: say nothing yet, retry when the rig is up
         _arcSeatGeometryLogged = true;
-        float binocular = cone / Mathf.Max(ViewConeComfortFraction, 1e-3f);
+        float arcHalf = ArcPlacementHalfDeg();
         float legibility = WindowLegibilityLive();
         float fullWidthDeg = 2f * Mathf.Atan2(ModalTargetWidthMeters * legibility * 0.5f,
             WindowDistanceMeters) * Mathf.Rad2Deg;
         int fullWidthFit = fullWidthDeg > 0.1f
-            ? Mathf.Max(1, Mathf.FloorToInt((2f * HalfCircleHalfDeg + NeighbourGapDegrees)
+            ? Mathf.Max(1, Mathf.FloorToInt((2f * arcHalf + NeighbourGapDegrees)
                                             / (fullWidthDeg + NeighbourGapDegrees)))
             : 0;
-        VRLog.Info("WorldUI", "MAP ROOM ARC GEOMETRY: windows are seated on a HALF CIRCLE in front "
-                              + $"of the player — ±{HalfCircleHalfDeg:F0}° of world yaw off the "
-                              + "spawn gaze, applied to each window's EDGES, so nothing is ever "
-                              + "placed behind the shoulder line (user request: 'es soll nicht "
-                              + "alles auf einem Fleck spawnen sondern am Besten in einem halbkreis "
-                              + "innerhalb des sichtbereichs ausgerichtet'). SIZE AND PLACEMENT ARE "
-                              + "SEPARATE QUESTIONS AND THIS LINE CARRIES BOTH ANSWERS. Placement: "
-                              + $"the ±{HalfCircleHalfDeg:F0}° arc above, filled NEAREST THE GAZE "
-                              + "FIRST, so the outer arc is reached only when everything closer in "
-                              + "is occupied. Comfort: the measured reading cone is ±"
-                              + $"{cone:F1}° and the measured binocular overlap is ±{binocular:F1}°, "
-                              + $"derived from {_coneSource} — every placement line grades itself "
-                              + "COMFORT BAND / IN VIEW / HEAD TURN against those two. For scale: a "
-                              + $"full-width 1920 px window is {ModalTargetWidthMeters * legibility:F2} m "
-                              + $"across at the {WindowDistanceMeters:F2} m reading distance = "
-                              + $"{fullWidthDeg:F0}° of view, so at most {fullWidthFit} of THOSE fit "
-                              + $"in the half circle; only {Mathf.Max(1, Mathf.FloorToInt((2f * cone + NeighbourGapDegrees) / (fullWidthDeg + NeighbourGapDegrees)))} "
-                              + "fit inside the comfortable cone, which is why placement no longer "
-                              + "uses it. Neighbours are kept "
-                              + $"{NeighbourGapDegrees:F0}° apart. WHEN THE HALF CIRCLE IS FULL the "
-                              + "next window is placed inside it anyway and overlaps — it is never "
-                              + "pushed behind the player and never hidden — at the angle that "
-                              + "buries the least PERMANENT (un-closable) window surface, then the "
-                              + "angle furthest from every neighbour, and it is pulled "
-                              + $"{OverlapDepthStepMeters:F2} m nearer per overlap generation so it "
-                              + $"draws in front, never nearer than {MinOverlapDistanceMeters:F2} m. "
-                              + $"Capacity {MaxWindowClaims} seats. A window claims ONCE at spawn "
-                              + "and keeps its angle until it stops floating; opening or closing a "
-                              + "window never moves any other window (user ruling: 'einmal "
-                              + "gespawned sind sie fix'), and a window the player has grabbed is "
-                              + "never re-placed at all.");
+        int maxLevels = OverlapDepthStepMeters > 1e-4f
+            ? Mathf.FloorToInt((WindowDistanceMeters - MinOverlapDistanceMeters)
+                               / OverlapDepthStepMeters)
+            : 0;
+        VRLog.Info("WorldUI", "MAP ROOM ARC GEOMETRY: windows are seated INSIDE THE MEASURED FIELD "
+                              + $"OF VIEW — ±{arcHalf:F1}° of world yaw off the spawn gaze, applied "
+                              + "to each window's EDGES, so no part of any window is ever placed "
+                              + "where the player would have to TURN HIS HEAD to find it. THE "
+                              + "PRIORITY ORDER IS THE USER'S, VERBATIM: 'Das ist die wichtigste "
+                              + "Regel: Im SIchtfeld! Prio zwei ist dann so wenig kollisionen wie "
+                              + "möglich - wenn das nicht vermeidbar ist dann sollte das neue "
+                              + "Fenster näher heran vor dem anderen Fenster spawnen, das es keine "
+                              + "direkte Kollision gibt.' THE ARC IS MEASURED, NOT PICKED: it is "
+                              + $"this headset's BINOCULAR OVERLAP half-angle (±{arcHalf:F1}°), "
+                              + $"i.e. the comfortable reading cone ±{cone:F1}° recovered through "
+                              + $"the {ViewConeComfortFraction:F2} comfort margin, both derived "
+                              + $"from {_coneSource}. Inside it a window is on screen in BOTH eyes "
+                              + "with the head still; outside it a window is monocular, in the "
+                              + "nose-occlusion region, in a MultiPass renderer — which is not 'im "
+                              + "Sichtfeld' under any reading. The comfort cone keeps its own job "
+                              + "and grades every placement COMFORT BAND / IN VIEW. THIS REPLACES "
+                              + "ModBuild 234's ±90° HALF CIRCLE, which was rejected: 'Der "
+                              + "Halbkreis gefällt mir nicht so, da viele Fenster außerhalb des "
+                              + "direkten Sichtfelds spawnen.' For scale: a full-width 1920 px "
+                              + $"window is {ModalTargetWidthMeters * legibility:F2} m across at "
+                              + $"the {WindowDistanceMeters:F2} m reading distance = "
+                              + $"{fullWidthDeg:F0}° of view, so at most {fullWidthFit} of THOSE "
+                              + "fit side by side in the whole field of view. THEREFORE OVERLAP IS "
+                              + "THE NORMAL CASE AND IS NOT A FAILURE — his five-window loadout "
+                              + $"draws ~160° into {2f * arcHalf:F0}° of arc. ANGLE IS STILL THE "
+                              + "FIRST LEVER: the free interval NEAREST THE GAZE wins, neighbours "
+                              + $"kept {NeighbourGapDegrees:F0}° apart, and the depth ladder is "
+                              + "reached only when NO free interval remains. THE LADDER, ONE STEP "
+                              + $"OF {OverlapDepthStepMeters:F2} m PER LEVEL: a window's level is "
+                              + "1 + the deepest level among the standing windows its FOOTPRINT "
+                              + "(drawn ∪ frame — the hit rect) intersects, so it draws IN FRONT "
+                              + "of each of them instead of merging with it. It is floored at "
+                              + $"{MinOverlapDistanceMeters:F2} m, i.e. {maxLevels} levels — a "
+                              + "window nearer than that is unreadable and is physically inside "
+                              + "the player's reach of the control board. Reaching the floor "
+                              + $"needs a chain of {maxLevels + 1} standing windows each in front "
+                              + $"of the last, and the registry holds {MaxWindowClaims}, so the "
+                              + "floor sits at the very edge of what this room can produce; when "
+                              + "it binds, the placement line says so in as many words and the "
+                              + "audit line reports the two windows as sharing a plane. Capacity "
+                              + $"{MaxWindowClaims} seats. A window claims ONCE at "
+                              + "spawn and keeps its angle and its depth until it stops floating; "
+                              + "opening or closing a window never moves any other window (user "
+                              + "ruling: 'einmal gespawned sind sie fix'), a window the player has "
+                              + "grabbed is never re-placed at all, and a window already REVEALED "
+                              + "is never moved.");
     }
 
     /// <summary>
-    /// Claim (or re-find) this window's seat on the half circle. Called from
+    /// Claim (or re-find) this window's seat inside the measured field of view. Called from
     /// <see cref="ComputeHmdPose"/> — spawn and presence-regain refloat only, NEVER per frame.
+    ///
+    /// <para>ANGLE IS THE FIRST LEVER AND DEPTH IS THE FALLBACK, in that order and never the other
+    /// way round. Every candidate angle is inside ±<see cref="ArcPlacementHalfDeg"/> applied to the
+    /// window's EDGES, so his first rule holds for every branch below without a special case. Only
+    /// when NO free interval remains anywhere in the field of view does the depth ladder engage.</para>
     ///
     /// <para>THE CHOICE RULE — THE FREE INTERVAL NEAREST THE CURRENT GAZE. The candidates are the
     /// gaze itself plus, for every standing seat, the two angles that put this window exactly
@@ -693,15 +783,17 @@ internal static partial class ModalFallback
     /// hole nothing later fits into — and the audit line prints the hole, so the cost is visible
     /// instead of theoretical.</para>
     ///
-    /// <para>WHEN THE HALF CIRCLE IS FULL — a stated policy, not an accident. The window is seated
-    /// INSIDE the arc and allowed to overlap. It is never pushed behind the player and never
-    /// deferred: "im Sichtfeld" is unconditional and not overlapping is "möglichst". The angle
-    /// chosen buries the least PERMANENT surface first (a covered closable window costs one press
-    /// of its X; a covered permanent one has no exit — ModBuild 194), then maximises the distance
-    /// to every neighbour so each window still shows a readable strip, and the window is pulled one
-    /// depth generation nearer so it draws in FRONT of what it covers rather than merging with it.
-    /// The line says so, names the victims, and prints how many degrees of window were asked of the
-    /// 180° available so the reader can tell an oversubscribed room from a packing mistake.</para>
+    /// <para>WHEN THE FIELD OF VIEW IS FULL — the normal case, and a stated policy. The window is
+    /// seated INSIDE the field of view anyway and allowed to collide. It is never pushed outside to
+    /// avoid a collision and never deferred: "Im SIchtfeld" is the first rule and "so wenig
+    /// kollisionen wie möglich" is the second. The angle chosen collides with the FEWEST standing
+    /// windows first (his priority 2 as a countable number), then buries the least PERMANENT
+    /// surface (a covered closable window costs one press of its X; a covered permanent one has no
+    /// exit — ModBuild 194), then maximises the distance to every neighbour, then sits nearest the
+    /// gaze. The window then takes ONE DEPTH STEP in front of everything its footprint intersects
+    /// (his rule 3) so it does not merge with what it covers. The line says so, names what it
+    /// collides with, and prints how many degrees of window were asked of the field of view so the
+    /// reader can tell an oversubscribed room from a packing mistake.</para>
     ///
     /// <para>EXCLUSIONS, unchanged from ModBuild 193: no arc outside the map room; a HOVER CARD
     /// never claims (<c>TickHoverCards</c> owns its pose and it churns on every mouseover); a LEVEL
@@ -715,10 +807,11 @@ internal static partial class ModalFallback
     /// on and the frame the returned offset is expressed in.</param>
     /// <param name="slot">The claimed registry index, or −1 when the registry is full.</param>
     /// <param name="yawDeg">Degrees to rotate the spawn gaze by, + = right.</param>
-    /// <param name="overlapRank">0 = it got a free interval; ≥1 = the k-th overlapping window,
-    /// which is also its depth-ladder index.</param>
+    /// <param name="overlapRank">THE DEPTH LEVEL. 0 = its footprint intersects nothing and it hangs
+    /// at the nominal reading distance; k ≥ 1 = it is one step in front of the deepest window it
+    /// intersects. See <see cref="ArcSeatDepthLevel"/>.</param>
     /// <param name="foregroundPullWorld">World units to pull the window toward the head along the
-    /// FLATTENED forward (y = 0, so the placement's height is untouched). 0 unless overlapping.</param>
+    /// FLATTENED forward (y = 0, so the placement's height is untouched). 0 at depth level 0.</param>
     /// <param name="why">Human-readable reason for the log line.</param>
     /// <returns>true when the map room's arc governs this placement.</returns>
     private static bool TryClaimArcSeat(ConvertedPanel? panel, bool levelMessage,
@@ -782,15 +875,18 @@ internal static partial class ModalFallback
         // window reserve 88° of a 180° arc for a 14° column — see the header.
         float halfAngle = geo.DrawnHalfDeg;
 
-        // ---- (a) IN FRONT OF THE PLAYER, ALWAYS: the centre bound that keeps the EDGES inside the
-        //          half circle. A window wider than the whole half circle (nothing this room has
-        //          ever produced) collapses this to 0 and is seated on the gaze.
-        float centreLimit = HalfCircleHalfDeg - halfAngle;
+        // ---- (a) IN THE FIELD OF VIEW, ALWAYS — his first and unconditional rule. The centre bound
+        //          keeps the window's EDGES, not merely its centre, inside the measured binocular
+        //          overlap. A window wider than the whole field of view collapses this to 0 and is
+        //          centred on the gaze, which is the least-bad thing available and is said out loud.
+        float arcHalf = ArcPlacementHalfDeg();
+        float centreLimit = arcHalf - halfAngle;
         bool widerThanArc = centreLimit < 0f;
         if (widerThanArc)
             centreLimit = 0f;
 
-        // ---- (b) NOT OVERLAPPING, IF POSSIBLE: the free interval nearest the gaze.
+        // ---- (b) AS FEW COLLISIONS AS POSSIBLE — his second rule: the free interval nearest the
+        //          gaze, if one exists at all inside the bound above.
         int candidateCount = 0;
         _arcCandidates[candidateCount++] = 0f;
         for (int i = 0; i < _arcClaims.Length && candidateCount + 1 < _arcCandidates.Length; i++)
@@ -825,54 +921,47 @@ internal static partial class ModalFallback
         // rect's angle, which is what the placement rotates to) is derived from it below.
         float seatOffset;
 
+        float demandAll = ArcSeatDemandDeg(halfAngle * 2f);
         if (haveFree)
         {
             seatOffset = bestFree;
-            overlapRank = 0;
-            foregroundPullWorld = 0f;
             why = cleanBefore + overlapBefore == 0
                 ? $"the room was empty, so it took the gaze itself; the window draws {halfAngle * 2f:F0}° "
-                  + $"wide and the half circle is ±{HalfCircleHalfDeg:F0}°"
+                  + $"wide and the measured field of view is ±{arcHalf:F1}°"
                 : $"the FREE INTERVAL NEAREST THE GAZE ({halfAngle * 2f:F0}°-wide DRAWN content, "
-                  + $"seated at {seatOffset:F0}°±{halfAngle:F0}° inside the "
-                  + $"±{HalfCircleHalfDeg:F0}° half circle with a {NeighbourGapDegrees:F0}° gap) — "
-                  + "it does NOT overlap anything, and the windows already standing "
+                  + $"seated at {seatOffset:F0}°±{halfAngle:F0}° inside the measured "
+                  + $"±{arcHalf:F1}° field of view with a {NeighbourGapDegrees:F0}° gap) — ANGLE "
+                  + "ALONE SOLVED THE VISIBLE COLLISION, which is the first lever and the one "
+                  + "always tried first; whether it also needs a depth step for its FRAME is "
+                  + "decided below. The windows already standing "
                   + $"[{standing}] were not touched";
         }
         else
         {
-            // ---- THE HALF CIRCLE IS FULL. In front of him wins; overlap is the price, and it is
-            //      stated, ranked and measured rather than allowed to happen.
-            overlapRank = overlapBefore + 1;
-            foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
-            float pulledDist = nominalDist - foregroundPullWorld;
-            // The pull makes the window ANGULARLY WIDER (it is nearer), so the arc bound and the
-            // reserved interval are both re-derived at the distance it will actually hang at —
-            // width AND the content's offset inside its frame, which grows the same way.
-            geo.ReDeriveAt(pulledDist);
-            halfAngle = geo.DrawnHalfDeg;
-            widerThanArc = HalfCircleHalfDeg - halfAngle < 0f;
-            centreLimit = Mathf.Max(0f, HalfCircleHalfDeg - halfAngle);
+            // ---- THE FIELD OF VIEW IS FULL, WHICH IS THE NORMAL CASE AND NOT A FAILURE. His first
+            //      rule wins outright: the window is seated inside the field of view anyway. His
+            //      second rule then picks WHICH collision (fewest windows, least permanent surface,
+            //      furthest from every neighbour, nearest the gaze) and his third rule — the depth
+            //      ladder, below — makes sure it is not a DIRECT collision.
             seatOffset = ArcSeatSpreadDeg(gazeYawDeg, centreLimit, halfAngle);
-            float pullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
-            float pulledMeters = pulledDist / Mathf.Max(scale, 1e-4f);
-            float demand = ArcSeatDemandDeg(halfAngle * 2f);
-            why = $"THE HALF CIRCLE IS FULL — no free interval is left anywhere inside "
-                  + $"±{HalfCircleHalfDeg:F0}°. This window is {halfAngle * 2f:F0}° wide and the "
-                  + $"standing set is [{standing}]; together they ask for {demand:F0}° of the "
-                  + $"{2f * HalfCircleHalfDeg:F0}° the half circle has, so this is "
-                  + (demand > 2f * HalfCircleHalfDeg
+            int collisions = ArcSeatCollisionCount(gazeYawDeg + seatOffset, halfAngle);
+            why = "THE FIELD OF VIEW IS FULL — no free interval is left anywhere inside "
+                  + $"±{arcHalf:F1}°. This window draws {halfAngle * 2f:F0}° and the standing set "
+                  + $"is [{standing}]; together they ask for {demandAll:F0}° of the "
+                  + $"{2f * arcHalf:F0}° the field of view supplies, so this is "
+                  + (demandAll > 2f * arcHalf
                       ? "GEOMETRY, NOT A PACKING MISTAKE: the windows open in this room are wider "
-                        + "than a half circle and something must overlap"
+                        + "than the field of view and something MUST collide. THAT IS THE EXPECTED "
+                        + "STATE since the arc was cut back to what the eye actually covers"
                       : "FRAGMENTATION: the total would fit, but the free space is in pieces too "
                         + "small for this window and standing windows are never re-packed (a "
                         + "re-place of a revealed window is a visible jump, user ruling)")
-                  + $". THE STATED POLICY THEN APPLIES: it is seated INSIDE the half circle anyway "
-                  + "and overlaps — never behind the player, never withheld — at the angle that "
-                  + "buries the least PERMANENT window surface, then the angle furthest from every "
-                  + $"neighbour, and pulled {pullMeters:F2} m nearer (overlap generation "
-                  + $"{overlapRank}, reading distance {pulledMeters:F2} m) so it draws IN FRONT of "
-                  + "what it covers instead of merging with it";
+                  + ". HIS PRIORITY ORDER THEN APPLIES IN ORDER: (1) it stays IN THE FIELD OF VIEW "
+                  + "— it is never parked outside to avoid a collision and never withheld; (2) it "
+                  + $"takes the angle that collides with the FEWEST windows ({collisions} here), "
+                  + "tie-broken by least PERMANENT surface buried, then furthest from every "
+                  + "neighbour, then nearest the gaze; (3) the depth ladder below puts it in FRONT "
+                  + "of what it collides with";
         }
 
         // THE SEAT IS THE DRAWN CENTRE; THE PLACEMENT POSITIONS THE HOST RECT. Subtracting the
@@ -880,43 +969,83 @@ internal static partial class ModalFallback
         // lands in the interval that was booked for it, not the middle of an empty sheet.
         float worldYaw = gazeYawDeg + seatOffset;          // drawn centre, world
         float hostWorldYaw = worldYaw - geo.OffsetDeg;     // host rect centre, world
-        yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
 
-        // DEPTH IS DECIDED BY WHAT THE WINDOW FRAMES, ANGLE BY WHAT IT DRAWS. A window whose
-        // transparent frame hangs over a neighbour's visible content is pushed one step AWAY, so
-        // the neighbour's plane is unambiguously nearer and keeps the laser (RayUguiDriver resolves
-        // competing canvases by nearest plane). Applied ONLY when this window got a free interval:
-        // an overflowing window is deliberately pulled FORWARD so it draws over what it covers, and
-        // the two would otherwise cancel. The interval booked below is the one measured at the
-        // NOMINAL distance, i.e. slightly wider than the pushed window really is — over-reserving
-        // is the safe direction, it can only cost the NEXT window a degree it did not need.
-        string pushVictims = "(none)";
-        if (overlapRank == 0)
+        // ---- (c) THE DEPTH LADDER — his rule 3, and the ONE ladder in this file since ModBuild
+        //          234's separate phantom-frame push was folded into it. The level is taken on the
+        //          FOOTPRINT (drawn ∪ frame = the hit rect), because that is what both the eye and
+        //          the laser can confuse, so a window whose transparent frame overhangs a
+        //          neighbour's content takes a step for exactly the same reason a visibly
+        //          overlapping one does. Level 0 windows never move.
+        ArcSeatFootprint(hostWorldYaw, geo.FrameHalfDeg, geo.OffsetDeg, halfAngle,
+            out float footYaw, out float footHalf);
+        overlapRank = ArcSeatDepthLevel(footYaw, footHalf, -1, out string blockers);
+        foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
+        if (overlapRank > 0)
         {
-            float push = ArcSeatFramePush(hostWorldYaw, geo.FrameHalfDeg, halfAngle, -1,
-                out pushVictims);
-            if (push > 0f)
-            {
-                foregroundPullWorld = -push * scale;
-                why += $". PHANTOM-FRAME DEPTH PUSH: its {geo.FrameHalfDeg * 2f:F0}° frame is "
-                       + $"{(geo.FrameHalfDeg - halfAngle) * 2f:F0}° wider than the "
-                       + $"{halfAngle * 2f:F0}° it draws and that empty frame hangs over "
-                       + $"{pushVictims}. The hit rect a laser is tested against never shrinks "
-                       + "below the frame, so the window is seated "
-                       + $"{push:F2} m FURTHER AWAY ({WindowDistanceMeters + push:F2} m instead of "
-                       + $"{WindowDistanceMeters:F2} m, {push / WindowDistanceMeters * 100f:F0}% "
-                       + "smaller) — the neighbours keep their distance and their clicks, and only "
-                       + "the window with the oversized frame moves";
-            }
+            // Nearer is ANGULARLY WIDER, so the booked interval and the arc bound are both
+            // re-derived at the distance the window will really hang at, and the seat is re-clamped
+            // so the EDGES are still inside the field of view at that final width. The angle itself
+            // is not re-searched: it was already the least-harmful one available.
+            float pulledDist = nominalDist - foregroundPullWorld;
+            geo.ReDeriveAt(pulledDist);
+            halfAngle = geo.DrawnHalfDeg;
+            widerThanArc = arcHalf - halfAngle < 0f;
+            centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            float reclamped = Mathf.Clamp(seatOffset, -centreLimit, centreLimit);
+            bool clampBit = Mathf.Abs(reclamped - seatOffset) > 0.05f;
+            seatOffset = reclamped;
+            worldYaw = gazeYawDeg + seatOffset;
+            hostWorldYaw = worldYaw - geo.OffsetDeg;
+            float pullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
+            float pulledMeters = pulledDist / Mathf.Max(scale, 1e-4f);
+            float wanted = OverlapDepthStepMeters * overlapRank;
+            why += $". DEPTH STEP — IT SPAWNS NEARER, IN FRONT: its footprint (what it draws UNION "
+                   + $"what its frame spans, {footHalf * 2f:F0}° — the hit rect, which is what the "
+                   + $"laser is tested against) intersects {blockers}, so it takes DEPTH LEVEL "
+                   + $"{overlapRank} = one step in front of the deepest of them. Pulled "
+                   + $"{pullMeters:F2} m nearer, reading distance {pulledMeters:F2} m instead of "
+                   + $"{WindowDistanceMeters:F2} m, which is "
+                   + $"{pullMeters / WindowDistanceMeters * 100f:F0}% larger on screen. The window "
+                   + "behind keeps its own distance and is NOT moved — only the arriving window "
+                   + "ever moves. AND NEARER MEANS IT ALSO TAKES THE RAY, DELIBERATELY: the hit "
+                   + "rect is the HOST rect (Content ∪ Host, never smaller than the frame) and "
+                   + "RayUguiDriver awards a click to the NEAREST plane, so wherever these "
+                   + "footprints overlap this window swallows clicks aimed at the one behind it. "
+                   + "That is the correct owner — it is the window the player just opened — and it "
+                   + "is temporary: a hit rect lives on its own host, so when this window closes "
+                   + "it takes its rect with it and the one behind is the nearest plane again from "
+                   + "the next ray onward, with nothing to unwind"
+                   + (wanted - pullMeters > 0.005f
+                       ? $". LADDER AT ITS LIMIT: level {overlapRank} wanted {wanted:F2} m but the "
+                         + $"floor is {MinOverlapDistanceMeters:F2} m (a window nearer than that is "
+                         + "unreadable and physically inside the player's reach of the control "
+                         + "board), so this window SHARES A PLANE with the one it should have been "
+                         + "in front of. Which of the two takes a click is then decided by the "
+                         + "sorter, not by this rule — this is the one state the ladder cannot fix "
+                         + "and it is reported rather than hidden"
+                       : "")
+                   + (clampBit
+                       ? $". Being nearer made it {halfAngle * 2f:F0}° wide, so its seat was pulled "
+                         + $"back to {seatOffset:F0}° to keep both edges inside ±{arcHalf:F1}° — "
+                         + "the field of view is never given up to buy a depth step"
+                       : "");
         }
+        else
+        {
+            why += ". DEPTH LEVEL 0: its footprint (drawn ∪ frame, i.e. the hit rect) intersects "
+                   + "nothing standing, so it hangs at the nominal reading distance and no depth "
+                   + "step was spent";
+        }
+
+        yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
 
         if (widerThanArc)
         {
-            why += $". NOTE: this window is WIDER than the whole half circle ({halfAngle * 2f:F0}° "
-                   + $"vs ±{HalfCircleHalfDeg:F0}°), so it is centred on the gaze and its edges "
-                   + $"reach {halfAngle - HalfCircleHalfDeg:F0}° behind the shoulder line each side "
-                   + "no matter where it is put — nothing can be done about that from here; it has "
-                   + "to be narrower or further away";
+            why += $". NOTE: this window is WIDER than the whole measured field of view "
+                   + $"({halfAngle * 2f:F0}° vs ±{arcHalf:F1}°), so it is centred on the gaze and "
+                   + $"its edges reach {halfAngle - arcHalf:F0}° past the binocular overlap each "
+                   + "side no matter where it is put — nothing can be done about that from here; "
+                   + "it has to be narrower or further away";
         }
 
         // Graded on the DRAWN interval: the band answers "can he read it without moving", and what
@@ -939,35 +1068,36 @@ internal static partial class ModalFallback
                    + "(standing ruling), so this overlap is not one he can clear the way he clears "
                    + "any other. The packer already chose the angle that covers the LEAST permanent "
                    + "surface; what is left is geometry, not a placement mistake";
-            float fitAt = DistanceThatWouldFitMeters(halfWidthWorld, scale, HalfCircleHalfDeg);
+            float fitAt = DistanceThatWouldFitMeters(halfWidthWorld, scale, arcHalf);
             why += fitAt > 0f
                 ? $". THE TRADE, MEASURED: this window and the widest permanent one would BOTH fit "
-                  + $"inside the ±{HalfCircleHalfDeg:F0}° half circle at a reading distance of "
+                  + $"inside the measured ±{arcHalf:F1}° field of view at a reading distance of "
                   + $"{fitAt:F2} m instead of {WindowDistanceMeters:F2} m — that is "
                   + $"{(1f - WindowDistanceMeters / fitAt) * 100f:F0}% less apparent size. "
                   + "WindowDistanceMeters is a tuned, accepted value and is NOT changed here; this "
                   + "line exists so the choice can be made on the number rather than on a guess"
                 : ". THE TRADE, MEASURED: no reading distance up to 4.00 m makes this window and "
-                  + "the widest permanent one both fit inside the half circle — the pair is wider "
-                  + "than 180° of arc, and only a NARROWER window (a tighter content fit) can "
-                  + "change that";
+                  + "the widest permanent one both fit inside the field of view — the pair is wider "
+                  + $"than the {2f * arcHalf:F0}° the eye covers, and only a NARROWER window (a "
+                  + "tighter content fit) can change that";
         }
         if (overlapDeg <= 0.5f && overlapRank > 0)
-            why += $". MEASURED: it does NOT actually overlap anything after all — it only failed "
-                   + $"to keep the full {NeighbourGapDegrees:F0}° breathing gap, so it was routed "
-                   + "through the overlap rule and carries its depth offset. The windows are edge "
-                   + "to edge, not on top of each other";
+            why += ". MEASURED: its DRAWN content does not overlap anything after all — the depth "
+                   + "step was taken because its FOOTPRINT (the hit rect, which never shrinks below "
+                   + "the frame) does. Nothing looks stacked; the step is there so the laser cannot "
+                   + "be caught by an empty sheet";
 
         int free = FirstFreeClaimIndex();
         if (free < 0)
         {
-            // Registry full: still seated, still in front of him, but holding no reservation — so a
-            // later window may land on the same angle, and the log says so rather than quietly
-            // aliasing two windows onto one seat.
+            // Registry full: still seated, still in the field of view, but holding no reservation —
+            // so a later window may land on the same angle AND at the same depth, and the log says
+            // so rather than quietly aliasing two windows onto one seat.
             slot = -1;
             why += $". THE REGISTRY IS FULL ({MaxWindowClaims} seats) — this window holds NONE, so "
-                   + "a later window may land on the same angle. It is still in front of the player "
-                   + "and grabbable; close a window to free a seat";
+                   + "a later window can neither see it in the angle search nor step in front of it "
+                   + "on the depth ladder, and may land on the same angle at the same distance. It "
+                   + "is still in the field of view and grabbable; close a window to free a seat";
             _arcSeatGeneration++;
             return true;
         }
@@ -982,6 +1112,10 @@ internal static partial class ModalFallback
             // in _arcSeatWorldYaw; this is what the release/occupancy lines in
             // ModalFallback.4.Tick.cs print, and they say "from its spawn gaze".
             CentreDeg = seatOffset,
+            // The frame the promise "im Sichtfeld" was made in. The audit grades this window's LIVE
+            // direction against it — see LogArcOverlapAudit — because the player is free to turn
+            // afterwards and a falsifier that punished him for turning would be lying.
+            SpawnGazeWorldYaw = gazeYawDeg,
             HalfWidthDeg = halfAngle,
             DrawnOffsetDeg = geo.OffsetDeg,
             FrameHalfWidthDeg = geo.FrameHalfDeg,
@@ -1059,10 +1193,10 @@ internal static partial class ModalFallback
         _arcClaims[slot] = default;
 
         float halfAngle = geo.DrawnHalfDeg;
-        CountArcClaims(out _, out int overlapBefore);
         string standing = ArcSeatOccupancyText(gazeYawDeg);
 
-        float centreLimit = Mathf.Max(0f, HalfCircleHalfDeg - halfAngle);
+        float arcHalf = ArcPlacementHalfDeg();
+        float centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
         int candidateCount = 0;
         _arcCandidates[candidateCount++] = 0f;
         for (int i = 0; i < _arcClaims.Length && candidateCount + 1 < _arcCandidates.Length; i++)
@@ -1097,43 +1231,53 @@ internal static partial class ModalFallback
         if (haveFree)
         {
             seatOffset = bestFree;
-            overlapRank = 0;
-            foregroundPullWorld = 0f;
             how = $"took the FREE INTERVAL NEAREST THE GAZE at {seatOffset:F0}°±{halfAngle:F0}° "
-                  + $"(standing set [{standing}]) and overlaps nothing";
+                  + $"inside the measured ±{arcHalf:F1}° field of view (standing set [{standing}]) "
+                  + "and collides with nothing";
         }
         else
         {
-            overlapRank = overlapBefore + 1;
-            foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
-            geo.ReDeriveAt(nominalDist - foregroundPullWorld);
-            halfAngle = geo.DrawnHalfDeg;
-            centreLimit = Mathf.Max(0f, HalfCircleHalfDeg - halfAngle);
             seatOffset = ArcSeatSpreadDeg(gazeYawDeg, centreLimit, halfAngle);
-            how = "found THE HALF CIRCLE FULL even at its true drawn width, so it takes the "
-                  + $"least-harmful overlapping angle {seatOffset:F0}° (standing set [{standing}])";
+            how = $"found THE FIELD OF VIEW (±{arcHalf:F1}°) FULL even at its true drawn width, so "
+                  + $"it stays inside it — his first rule — and takes the angle {seatOffset:F0}° "
+                  + "that collides with the fewest windows (standing set [" + standing + "])";
         }
 
         float worldYaw = gazeYawDeg + seatOffset;
         float hostWorldYaw = worldYaw - geo.OffsetDeg;
-        hostYawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
 
-        string pushVictims = "(none)";
-        float pushNote = 0f;
-        if (overlapRank == 0)
+        // THE ONE DEPTH LADDER, identical to the spawn path: the level is taken on the FOOTPRINT
+        // (drawn ∪ frame = the hit rect) and this window's own seat is already released above, so
+        // it cannot see itself as an obstacle.
+        ArcSeatFootprint(hostWorldYaw, geo.FrameHalfDeg, geo.OffsetDeg, halfAngle,
+            out float footYaw, out float footHalf);
+        overlapRank = ArcSeatDepthLevel(footYaw, footHalf, slot, out string blockers);
+        foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
+        string depthNote;
+        if (overlapRank > 0)
         {
-            float push = ArcSeatFramePush(hostWorldYaw, geo.FrameHalfDeg, halfAngle, slot,
-                out pushVictims);
-            if (push > 0f)
-            {
-                pushNote = push;
-                foregroundPullWorld = -push * scale;
-            }
+            geo.ReDeriveAt(nominalDist - foregroundPullWorld);
+            halfAngle = geo.DrawnHalfDeg;
+            centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            seatOffset = Mathf.Clamp(seatOffset, -centreLimit, centreLimit);
+            worldYaw = gazeYawDeg + seatOffset;
+            hostWorldYaw = worldYaw - geo.OffsetDeg;
+            float pullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
+            depthNote = $". DEPTH STEP: its {footHalf * 2f:F0}° footprint intersects {blockers}, so "
+                        + $"it goes to DEPTH LEVEL {overlapRank} — {pullMeters:F2} m NEARER, i.e. "
+                        + "IN FRONT of them, which is the user's rule 3. Nothing behind it moved";
         }
+        else
+        {
+            depthNote = ". DEPTH LEVEL 0: its footprint intersects nothing, so it keeps the nominal "
+                        + "reading distance";
+        }
+        hostYawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
 
         float overlapDeg = ArcSeatWorstOverlapDeg(worldYaw, halfAngle, out string overlapWith);
         _arcSeatWorldYaw[slot] = worldYaw;
         held.CentreDeg = seatOffset;
+        held.SpawnGazeWorldYaw = gazeYawDeg;
         held.HalfWidthDeg = halfAngle;
         held.DrawnOffsetDeg = geo.OffsetDeg;
         held.FrameHalfWidthDeg = geo.FrameHalfDeg;
@@ -1148,31 +1292,40 @@ internal static partial class ModalFallback
                + $"measurable at spawn); it actually draws ±{halfAngle:F0}° at offset "
                + $"{geo.OffsetDeg:F0}°, so it {how}. The host rect goes to {hostYawDeg:F0}° off the "
                + $"gaze so that the CONTENT lands on {seatOffset:F0}°. {geo.Note}"
-               + (pushNote > 0f
-                   ? $". PHANTOM-FRAME DEPTH PUSH: its empty frame hangs over {pushVictims}, so it "
-                     + $"is seated {pushNote:F2} m further away and they keep the laser"
-                   : "")
+               + depthNote
                + (overlapDeg > 0.5f
-                   ? $". MEASURED: it still overlaps '{overlapWith}' by {overlapDeg:F0}°"
-                   : ". MEASURED: it overlaps nothing")
+                   ? $". MEASURED: it still overlaps '{overlapWith}' by {overlapDeg:F0}° in ANGLE — "
+                     + "which is expected in a room asking for more arc than the eye covers, and is "
+                     + "what the depth level above is for"
+                   : ". MEASURED: it overlaps nothing in angle")
+               + ". " + ArcSeatBand(seatOffset, halfAngle)
                + ". No other window was read for anything but collision and none was moved";
         return true;
     }
 
     /// <summary>
-    /// The in-arc angle for a window that cannot avoid overlapping — the overflow remedy, in world
-    /// yaw. Sampled rather than solved because the objective has its optimum at an endpoint or a
-    /// midpoint and a ~1° sweep finds it to within half a degree, far below anything the eye can
-    /// judge; it runs once per spawn, never per frame. With nothing standing it answers 0°.
+    /// The in-view angle for a window that cannot avoid colliding — in world yaw. Sampled rather
+    /// than solved because the objective has its optimum at an endpoint or a midpoint and a ~1°
+    /// sweep finds it to within half a degree, far below anything the eye can judge; it runs once
+    /// per spawn, never per frame. With nothing standing it answers 0°.
     ///
-    /// <para>THE RANKING, in order: (1) LEAST PERMANENT SURFACE COVERED, because a covered
-    /// un-closable window has no exit and a covered closable one costs a press of its X (ModBuild
-    /// 194 — the merchant over the character screen); (2) the largest minimum distance to any
-    /// standing centre, so each window still shows a readable strip of itself; (3) nearest the
-    /// gaze; (4) RIGHT, so the ±limit tie is not settled by which end the sweep started at.</para>
+    /// <para>EVERY SAMPLE IS INSIDE THE FIELD OF VIEW BY CONSTRUCTION, because
+    /// <paramref name="centreLimit"/> is the arc bound minus this window's own half-width. So the
+    /// user's FIRST rule is not one of the criteria below — it is the domain of the search, and no
+    /// ranking here can trade it away.</para>
     ///
-    /// <para>The sweep is bounded at 241 samples, so widening the arc from ±32° to ±90° raises the
-    /// step from ~0.3° to ~0.75° rather than the iteration count.</para>
+    /// <para>THE RANKING, in his order: (1) FEWEST WINDOWS COLLIDED WITH — "Prio zwei ist dann so
+    /// wenig kollisionen wie möglich", taken literally as a count, because one collision that
+    /// depth can resolve cleanly is better than three; (2) LEAST PERMANENT SURFACE COVERED, which
+    /// decides WHICH collision when the count ties, because a covered un-closable window has no
+    /// exit and a covered closable one costs a press of its X (ModBuild 194 — the merchant over the
+    /// character screen); (3) the largest minimum distance to any standing centre, so each window
+    /// still shows a readable strip of itself; (4) nearest the gaze, which is his first rule again
+    /// as a tie-break now that every candidate satisfies it; (5) RIGHT, so the ±limit tie is not
+    /// settled by which end the sweep started at.</para>
+    ///
+    /// <para>The sweep is bounded at 241 samples, so the arc width sets the step (~0.3° over a
+    /// ±40° field of view) rather than the iteration count.</para>
     /// </summary>
     private static float ArcSeatSpreadDeg(float gazeYawDeg, float centreLimit, float halfAngle)
     {
@@ -1182,6 +1335,7 @@ internal static partial class ModalFallback
         float best = 0f;
         float bestScore = -1f;
         float bestPerm = float.MaxValue;
+        int bestHits = int.MaxValue;
         for (int s = 0; s < samples; s++)
         {
             float a = Mathf.Lerp(-centreLimit, centreLimit, s / (float)(samples - 1));
@@ -1197,21 +1351,30 @@ internal static partial class ModalFallback
             }
             if (!any)
                 return 0f;
+            int hits = ArcSeatCollisionCount(world, halfAngle);
             float perm = ArcSeatPermanentOverlapDeg(world, halfAngle);
 
-            // (1) Less PERMANENT surface covered always wins, with 0.5° of slack so a rounding-level
+            // (1) FEWER COLLISIONS always wins — his priority 2, ahead of everything except being
+            //     in the field of view, which every sample already is.
+            // (2) then less PERMANENT surface covered, with 0.5° of slack so a rounding-level
             //     difference cannot override the separation rule the player actually sees.
+            bool hitsBetter = hits < bestHits;
+            bool hitsTied = hits == bestHits;
             bool permTied = Mathf.Abs(perm - bestPerm) <= 0.5f;
             bool permBetter = perm < bestPerm - 0.5f;
             bool tied = Mathf.Abs(score - bestScore) <= 0.01f;
-            bool better = permBetter
-                          || (permTied
-                              && (score > bestScore + 0.01f
-                                  || (tied && Mathf.Abs(a) < Mathf.Abs(best) - 1e-3f)
-                                  || (tied && Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(best)) <= 1e-3f
-                                      && a > best)));
+            bool better = hitsBetter
+                          || (hitsTied
+                              && (permBetter
+                                  || (permTied
+                                      && (score > bestScore + 0.01f
+                                          || (tied && Mathf.Abs(a) < Mathf.Abs(best) - 1e-3f)
+                                          || (tied
+                                              && Mathf.Abs(Mathf.Abs(a) - Mathf.Abs(best)) <= 1e-3f
+                                              && a > best)))));
             if (better)
             {
+                bestHits = hits;
                 bestScore = score;
                 bestPerm = perm;
                 best = a;
@@ -1221,17 +1384,33 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
-    /// THE FALSIFIER. One line, measured LIVE off the standing windows' own transforms, saying
-    /// whether any two of them overlap in angle.
+    /// THE FALSIFIER, AND IT ASSERTS HIS PRIORITY ORDER. One line, measured LIVE off the standing
+    /// windows' own transforms, carrying two verdicts in his order:
+    /// <list type="number">
+    /// <item>IN THE FIELD OF VIEW — every standing window's live CENTRE is inside the measured
+    /// binocular overlap of the gaze IT WAS PLACED FROM. This is the loudest thing in the line and
+    /// a run in which any window fails it is a run in which this change did not work, no matter how
+    /// clean everything else reads.</item>
+    /// <item>NO DIRECT COLLISION — every pair that overlaps in angle is separated in DEPTH by at
+    /// least one ladder step, so the nearer one draws in front instead of merging with it and the
+    /// laser has an unambiguous nearest plane. Overlap ITSELF is no longer a verdict: the room asks
+    /// for roughly twice the arc the eye covers, so pairs are expected and the line prints the
+    /// demand-vs-supply figure right beside them so the reader can see that at a glance.</item>
+    /// </list>
     ///
     /// <para>WHY IT DOES NOT READ THE REGISTRY. The registry is what the packer BELIEVES; this line
     /// has to be able to contradict it. Every number here comes from the world instead: each
     /// window's host transform position gives its direction from the head and its distance, and its
     /// live <c>HostRect</c> width times its live lossy scale gives its true world half-width, so
-    /// the interval printed is the one the player is looking at. A run in which four windows report
-    /// the same or overlapping intervals is a run in which this change did not work — and if the
-    /// live intervals are clean while the reserved ones are not (or the reverse), the line prints
-    /// both and the disagreement is the lead.</para>
+    /// the interval printed is the one the player is looking at. The ONE thing that cannot be
+    /// measured is a historical fact — which way he was looking when a given window arrived — and
+    /// that comes from <see cref="ArcClaim.SpawnGazeWorldYaw"/>, is named as such, and is the only
+    /// registry read on the assertion path.</para>
+    ///
+    /// <para>A WINDOW THE PLAYER HAS MOVED IS EXCLUDED FROM THE FIRST VERDICT AND SAID SO. A grabbed
+    /// window is his forever; if he has dragged one behind him, the packer is not answerable for it
+    /// and a falsifier that shouted about it would be crying wolf. The test is the live-vs-reserved
+    /// disagreement this line already measures — no new plumbing, and the drift is printed.</para>
     ///
     /// <para>WHEN IT PRINTS. At the end of every arc-governed placement, spawn and pre-reveal
     /// re-place alike, tagged with <see cref="_arcSeatGeneration"/>. A burst therefore produces one
@@ -1261,8 +1440,6 @@ internal static partial class ModalFallback
             float[] liveHalf = _auditLiveHalf;
             float[] reservedYaw = _auditReservedYaw;
             float[] reservedHalf = _auditReservedHalf;
-            float[] liveFrameYaw = _auditFrameYaw;
-            float[] liveFrameHalf = _auditFrameHalf;
             float[] liveDist = _auditDist;
             int n = 0;
             for (int i = 0; i < _arcClaims.Length; i++)
@@ -1288,16 +1465,71 @@ internal static partial class ModalFallback
                 // offset inside it — the whole point of ModBuild 234.
                 liveYaw[n] = hostYaw + g.OffsetDeg;
                 liveHalf[n] = g.DrawnHalfDeg;
-                liveFrameYaw[n] = hostYaw;
-                liveFrameHalf[n] = g.FrameHalfDeg;
                 liveDist[n] = dist;
                 reservedYaw[n] = _arcSeatWorldYaw[i];
                 reservedHalf[n] = _arcClaims[i].HalfWidthDeg;
+                // The FOOTPRINT (drawn ∪ frame) — what the depth assertion is taken on, because it
+                // is what the hit rect is and therefore what the laser can be confused by.
+                ArcSeatFootprint(hostYaw, g.FrameHalfDeg, g.OffsetDeg, g.DrawnHalfDeg,
+                    out _auditFootYaw[n], out _auditFootHalf[n]);
+                // The frame the promise was made in — the only registry read on the assertion path,
+                // because which way he was looking at that moment cannot be measured now.
+                _auditSpawnGaze[n] = _arcClaims[i].SpawnGazeWorldYaw;
                 n++;
             }
 
             if (n == 0)
                 return;
+
+            float[] footYaw = _auditFootYaw;
+            float[] footHalf = _auditFootHalf;
+            float arcHalf = ArcPlacementHalfDeg();
+            float worldScale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+
+            // ---- VERDICT 1: IN THE FIELD OF VIEW. His first and unconditional rule, and the one
+            //      this whole build exists to satisfy.
+            //
+            //      THE REFERENCE IS EACH WINDOW'S OWN SPAWN GAZE, not the current one: turning is
+            //      free and a window placed before a 90° turn is legitimately behind him now, so
+            //      grading against where he is looking THIS instant would make the falsifier cry
+            //      wolf. The question asked is the only one the packer is answerable for — was it
+            //      in the field of view WHEN IT ARRIVED.
+            //
+            //      AND A WINDOW THE PLAYER MOVED IS EXCLUDED, BY AN EXACT TEST RATHER THAN A GUESS:
+            //      the reservation says where the packer PUT it. If the reserved centre was inside
+            //      the field of view and the live one is not, then something other than the packer
+            //      moved it (his own grab is the only thing allowed to) and the verdict is not
+            //      about this code. If the RESERVED centre is itself outside, that is a packer
+            //      failure and nothing excuses it.
+            var outside = new System.Text.StringBuilder();
+            var moved = new System.Text.StringBuilder();
+            int outsideCount = 0;
+            int excused = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float liveOff = Mathf.DeltaAngle(_auditSpawnGaze[i], liveYaw[i]);
+                if (Mathf.Abs(liveOff) <= arcHalf + 0.5f)
+                    continue;
+                float reservedOff = Mathf.DeltaAngle(_auditSpawnGaze[i], reservedYaw[i]);
+                if (Mathf.Abs(reservedOff) <= arcHalf + 0.5f)
+                {
+                    excused++;
+                    if (moved.Length > 0)
+                        moved.Append(", ");
+                    moved.Append('\'').Append(names[i]).Append("' reserved ")
+                         .Append(reservedOff.ToString("F0")).Append("° but stands at ")
+                         .Append(liveOff.ToString("F0")).Append('°');
+                    continue; // his window, his position — the packer put it inside the field
+                }
+                outsideCount++;
+                if (outside.Length > 0)
+                    outside.Append(", ");
+                outside.Append('\'').Append(names[i]).Append("' centre ")
+                       .Append(liveOff.ToString("F0"))
+                       .Append("° off the gaze it was placed from (RESERVED at ")
+                       .Append(reservedOff.ToString("F0")).Append("°, so the packer itself put it "
+                           + "there)");
+            }
 
             var intervals = new System.Text.StringBuilder();
             for (int i = 0; i < n; i++)
@@ -1341,79 +1573,112 @@ internal static partial class ModalFallback
                 }
             }
 
-            // SECOND FALSIFIER — THE INVISIBLE SHEET. A window's hit rect never shrinks below its
-            // frame, and RayUguiDriver awards the click to the NEAREST plane. So a transparent
-            // frame that hangs over a neighbour's content AND sits nearer than it will silently
-            // eat that neighbour's clicks. This is the failure the phantom-frame depth push exists
-            // to prevent, and this is the line that proves it did.
-            var steals = new System.Text.StringBuilder();
-            int stealCount = 0;
+            // ---- VERDICT 2: NO DIRECT COLLISION. Every pair whose FOOTPRINTS intersect must be at
+            //      least one ladder step apart in depth, so the nearer one draws in front of the
+            //      other instead of merging with it and RayUguiDriver has an unambiguous nearest
+            //      plane. This subsumes ModBuild 234's separate INVISIBLE FRAMES check: the
+            //      footprint is drawn ∪ frame, so an empty transparent sheet lying over a
+            //      neighbour's content is one of the pairs tested here, on the same rule.
+            float stepWorld = OverlapDepthStepMeters * worldScale;
+            var merged = new System.Text.StringBuilder();
+            int mergedCount = 0;
+            int separated = 0;
             for (int i = 0; i < n; i++)
             {
-                for (int j = 0; j < n; j++)
+                for (int j = i + 1; j < n; j++)
                 {
-                    if (i == j)
-                        continue;
-                    if (liveFrameHalf[i] - liveHalf[i] < PhantomFrameThresholdDeg * 0.5f)
-                        continue; // i's frame is its content — nothing invisible to trip over
-                    float ov = liveFrameHalf[i] + liveHalf[j]
-                               - Mathf.Abs(Mathf.DeltaAngle(liveFrameYaw[i], liveYaw[j]));
+                    float ov = footHalf[i] + footHalf[j]
+                               - Mathf.Abs(Mathf.DeltaAngle(footYaw[i], footYaw[j]));
                     if (ov <= ArcAuditOverlapToleranceDeg)
                         continue;
-                    // Covered, but harmless if i's plane is behind j's: the ray reaches j first.
-                    if (liveDist[i] > liveDist[j] + 1e-3f)
+                    float gap = Mathf.Abs(liveDist[i] - liveDist[j]);
+                    if (gap >= stepWorld * 0.9f)
+                    {
+                        separated++;
                         continue;
-                    stealCount++;
-                    if (steals.Length > 0)
-                        steals.Append(", ");
-                    steals.Append('\'').Append(names[i]).Append("' empty frame covers '")
-                          .Append(names[j]).Append("' by ").Append(ov.ToString("F0"))
-                          .Append("° and is NOT behind it (")
-                          .Append(liveDist[i].ToString("F1")).Append(" vs ")
-                          .Append(liveDist[j].ToString("F1")).Append(" world units)");
+                    }
+                    mergedCount++;
+                    if (merged.Length > 0)
+                        merged.Append(", ");
+                    merged.Append('\'').Append(names[i]).Append("' × '").Append(names[j])
+                          .Append("' footprints overlap by ").Append(ov.ToString("F0"))
+                          .Append("° but are only ").Append((gap / worldScale).ToString("F2"))
+                          .Append(" m apart in depth (one step is ")
+                          .Append(OverlapDepthStepMeters.ToString("F2")).Append(" m)");
                 }
             }
 
-            float span = 0f;
+            float span;
             float minYaw = float.MaxValue;
             float maxYaw = float.MinValue;
+            float drawnDemand = 0f;
             for (int i = 0; i < n; i++)
             {
                 float off = Mathf.DeltaAngle(liveYaw[0], liveYaw[i]);
                 minYaw = Mathf.Min(minYaw, off - liveHalf[i]);
                 maxYaw = Mathf.Max(maxYaw, off + liveHalf[i]);
+                drawnDemand += liveHalf[i] * 2f;
             }
             span = maxYaw - minYaw;
+            float supply = 2f * arcHalf;
 
             VRLog.Info("WorldUI", $"MAP ROOM ARC AUDIT (placement #{_arcSeatGeneration}, {trigger}): "
-                                  + $"{n} standing window(s), MEASURED LIVE off their own transforms "
-                                  + "and a fresh walk of what each one DRAWS — not read back from "
-                                  + "the registry, so this line can contradict it. Intervals are "
-                                  + "the VISIBLE content, which is what the player judges "
-                                  + "'überlappen' by: " + intervals + ". They "
-                                  + $"occupy {span:F0}° of the {2f * HalfCircleHalfDeg:F0}° half "
-                                  + "circle. VERDICT: "
+                                  // ---- HIS RULE 1, FIRST AND LOUDEST.
+                                  + "IN THE FIELD OF VIEW: "
+                                  + (outsideCount == 0
+                                      ? $"YES for all {n} — every standing window's live centre is "
+                                        + $"inside the measured ±{arcHalf:F1}° binocular overlap of "
+                                        + "the gaze it was placed from. This is the ruling's first "
+                                        + "and unconditional rule and this clause is what falsifies "
+                                        + "it: a run where any window reads OUTSIDE is a run where "
+                                        + "this did not work, whatever else the line says."
+                                      : $"*** NO — {outsideCount} WINDOW(S) OUTSIDE THE MEASURED "
+                                        + $"±{arcHalf:F1}° FIELD OF VIEW: " + outside + ". THIS IS "
+                                        + "THE FAILURE THE RULING NAMES ('Das ist die wichtigste "
+                                        + "Regel: Im SIchtfeld!') — the player has to turn his head "
+                                        + "to find these windows. Nothing else on this line matters "
+                                        + "until it reads YES. ***")
+                                  + (excused > 0
+                                      ? $" ({excused} window(s) excluded from that verdict — the "
+                                        + "packer seated them INSIDE the field of view and "
+                                        + "something else moved them out, which only the player's "
+                                        + "own grab is allowed to do, and a grabbed window is his "
+                                        + "forever: " + moved + ".)"
+                                      : "")
+                                  // ---- HIS RULE 3: collisions resolved by depth, not by angle.
+                                  + " NO DIRECT COLLISION: "
+                                  + (mergedCount == 0
+                                      ? $"YES — all {separated} intersecting pair(s) are at least "
+                                        + $"one {OverlapDepthStepMeters:F2} m ladder step apart in "
+                                        + "depth, so the newer window draws IN FRONT of the older "
+                                        + "one rather than merging with it, and the laser has an "
+                                        + "unambiguous nearest plane. Footprints are drawn ∪ frame, "
+                                        + "i.e. the hit rect, so an empty transparent sheet lying "
+                                        + "over a neighbour counts as a collision here."
+                                      : $"NO — {mergedCount} pair(s) share a plane: " + merged
+                                        + ". Those windows are visually merged and which one takes "
+                                        + "a click is decided by the sorter. Either the depth "
+                                        + $"ladder hit its {MinOverlapDistanceMeters:F2} m floor "
+                                        + "(the placement line says so in as many words) or the "
+                                        + "level was computed against a registry entry that is not "
+                                        + "the window standing there.")
+                                  // ---- HIS RULE 2, as a measurement rather than a verdict.
+                                  + $" COLLISIONS: {clashCount} pair(s) overlap in ANGLE"
                                   + (clashCount == 0
-                                      ? "CLEAN — no two standing windows overlap in angle (tolerance "
-                                        + $"{ArcAuditOverlapToleranceDeg:F1}°). This is the line the "
-                                        + "change is falsified by: if it ever reads OVERLAPPING "
-                                        + "while the half circle still has free arc, the seating "
-                                        + "did not work."
-                                      : $"OVERLAPPING — {clashCount} pair(s), worst {worst:F0}°: "
-                                        + clashes + ". That is only acceptable if the placement "
-                                        + "line for the newest window said THE HALF CIRCLE IS FULL; "
-                                        + "if it said it took a free interval, this is the bug.")
-                                  + " INVISIBLE FRAMES: "
-                                  + (stealCount == 0
-                                      ? "CLEAN — no window's transparent frame sits over another "
-                                        + "window's content while being the nearer plane, so no "
-                                        + "laser can be stolen by an empty sheet."
-                                      : $"{stealCount} HAZARD(S) — " + steals + ". Aiming at the "
-                                        + "covered window can land on the empty frame instead "
-                                        + "(RayUguiDriver awards the hit to the nearest plane). The "
-                                        + "phantom-frame depth push should have prevented this; if "
-                                        + "this line is non-empty the push did not fire, and the "
-                                        + "placement line for the covering window says why."));
+                                      ? " — none."
+                                      : $" (worst {worst:F0}°): " + clashes + ".")
+                                  + $" DEMAND vs SUPPLY: the {n} standing window(s) draw "
+                                  + $"{drawnDemand:F0}° of content into the {supply:F0}° the "
+                                  + "measured field of view supplies ("
+                                  + $"{drawnDemand / Mathf.Max(supply, 1e-3f) * 100f:F0}% "
+                                  + "subscribed), spanning "
+                                  + $"{span:F0}° end to end. AT OVER 100% OVERLAP IS GEOMETRY, NOT "
+                                  + "A PACKING MISTAKE — the arc was deliberately cut back from "
+                                  + "ModBuild 234's ±90° half circle to what the eye actually "
+                                  + "covers, and depth is what resolves what angle cannot. "
+                                  + $"INTERVALS, MEASURED LIVE off {n} transform(s) and a fresh "
+                                  + "walk of what each window DRAWS — not read back from the "
+                                  + "registry, so this line can contradict it: " + intervals);
         }
         catch (System.Exception ex)
         {

@@ -469,77 +469,27 @@ internal sealed partial class MapRoomHand
     /// <list type="number">
     /// <item>THE PARTY DISPLAY (ruling 2, the authority). <c>NewPartyDisplayUI.PartyDisplay
     /// .SelectedUISlot.Data</c>.</item>
-    /// <item>THE CHARACTER THIS CLIENT CONTROLS, when there is exactly one. <c>CMapCharacter
-    /// .IsUnderMyControl</c> (CMapCharacter.cs, the map-phase twin of the ownership test
-    /// <c>RevealGate</c> and <c>CardsGameApi.IsLocalHand</c> use). Exactly-one, because two owned
-    /// characters is precisely the case where guessing would show the wrong one.</item>
-    /// <item>THE FIRST PARTY MEMBER, offline only. Offline every merc is the player's, so there is
-    /// no wrong answer to give — only a less useful one, which the player corrects by clicking a
-    /// character. ONLINE this fallback is refused outright: showing an arbitrary teammate's loadout
-    /// because nothing was selected would be the mod inventing a selection the player did not
-    /// make.</item>
+    /// <item>THE SELECTION FLOOR, <see cref="MapCharacterSelection"/>. One of THIS client's own
+    /// characters, chosen by the game's own preference (first roster slot under our control, held
+    /// across ticks for continuity).</item>
     /// </list></para>
+    ///
+    /// <para>BOTH TIERS NOW LIVE IN <see cref="MapCharacterSelection"/> and this method is a
+    /// forward (user ruling 2026-08-15: "Auch in der Map soll gelten: Für jeden Spieler dem min 1.
+    /// Character zugewiesen wurde ist immer irgendeiner dieser Charactere direkt ausgewählt"). The
+    /// three-tier fallback this method used to own answered <b>REFUSED</b> in exactly the situation
+    /// the ruling forbids — online, nothing selected, and this client controlling MORE THAN ONE
+    /// character — which is the common multiplayer case and is why a player could stand in the map
+    /// room with an empty hand. "Two owned characters is precisely the case where guessing would
+    /// show the wrong one" was the right instinct against a GUESS, but the answer is not to show
+    /// nobody: it is to make the choice DETERMINISTIC (roster slot order, the same preference
+    /// <c>UILoadoutManager.AutoselectCharacter</c> encodes) and to keep it, which is what the floor
+    /// does. The offline arm is unchanged in behaviour — offline every merc is the player's, so
+    /// "first owned" and "first party member" are the same character.</para>
     /// </summary>
     private static CMapCharacter? ResolveCharacter(out string source)
     {
-        source = "no character resolved";
-
-        // (1) The party display.
-        try
-        {
-            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-            NewPartyCharacterUI? slot = display != null ? display.SelectedUISlot : null;
-            CMapCharacter? data = slot != null ? slot.Data : null;
-            if (data != null)
-            {
-                source = "the PARTY DISPLAY's own selection (NewPartyDisplayUI.SelectedUISlot.Data) "
-                         + "— ruling 2's authority";
-                return data;
-            }
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Debug(Scope, $"Map-room hand: the party display could not be asked ({ex.Message}) — "
-                + "falling through to the ownership fallback.");
-        }
-
-        // (2)/(3) The party roster.
-        List<CMapCharacter> party = PartyMembers();
-        if (party.Count == 0)
-            return null;
-
-        CMapCharacter? owned = null;
-        int ownedCount = 0;
-        for (int i = 0; i < party.Count; i++)
-        {
-            if (party[i].IsUnderMyControl)
-            {
-                owned ??= party[i];
-                ownedCount++;
-            }
-        }
-        if (ownedCount == 1 && owned != null)
-        {
-            source = "FALLBACK: nothing is selected in the party display, and exactly one party "
-                     + "member is under this client's control (CMapCharacter.IsUnderMyControl) — "
-                     + "selecting a character in the party screen overrides this within 250 ms (50 ms while the fan is up)";
-            return owned;
-        }
-
-        if (!FFSNetwork.IsOnline)
-        {
-            source = "FALLBACK: nothing is selected in the party display and this is an OFFLINE "
-                     + "session, so the first party member is shown (offline every merc is the "
-                     + "player's own) — selecting a character overrides this within 250 ms (50 ms while the fan is up)";
-            return party[0];
-        }
-
-        source = ownedCount > 1
-            ? "nothing is selected in the party display and this client controls " + ownedCount
-              + " characters — REFUSED rather than guessed (select one in the party screen)"
-            : "nothing is selected in the party display and this client controls no map character "
-              + "— REFUSED rather than guessed";
-        return null;
+        return MapCharacterSelection.Current(out source);
     }
 
     /// <summary>Scratch for <see cref="PartyMembers"/> — see the note in its body.</summary>

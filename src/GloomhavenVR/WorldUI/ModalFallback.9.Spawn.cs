@@ -820,20 +820,27 @@ internal static partial class ModalFallback
             // SICHTFELD spawnen, möglichst so das sie nicht mit einem anderen Fenster überlappen,
             // aber IM SICHTFELD." In view is unconditional; not overlapping is "möglichst".
             //
-            // AND SINCE ModBuild 234 THE ARC IS A HALF CIRCLE, WHICH IS A DIFFERENT QUESTION FROM
-            // THE CONE. 193 packed the reservations INSIDE the measured reading cone (±32° on his
-            // headset), and .planning/debug/Questauswahl.jpg is what that produces once the room
-            // holds more window than cone: his loadout asked for 225° of window, the third spawn
-            // onward found "NO free interval is left inside the cone" every single time, and the
-            // overflow rule — whose job is to keep the window IN the cone — put every one of them
-            // back in the middle. "es soll nicht alles auf einem Fleck spawnen sondern am Besten in
-            // einem halbkreis innerhalb des sichtbereichs ausgerichtet." So SIZE and PLACEMENT were
-            // separated: the cone still grades whether a seat is comfortable to read (and still
-            // decides how big a window may be), while placement gets the half circle in front of
-            // the player, ±90° applied to the window's EDGES, filled NEAREST THE GAZE FIRST so the
-            // outer arc is only ever reached under pressure. The seat is held in ABSOLUTE WORLD YAW
-            // — see the ArcSeats.cs header for why a ±90° arc cannot be packed in a gaze-relative
-            // frame without aliasing two windows onto one spot.
+            // AND THE ARC IS THE MEASURED FIELD OF VIEW, WHICH OVERRULES ModBuild 234's HALF CIRCLE.
+            // 234 answered "es soll nicht alles auf einem Fleck spawnen sondern am Besten in einem
+            // halbkreis innerhalb des sichtbereichs ausgerichtet" by taking the whole ±90° half
+            // circle as the placement arc. It worked on its own terms — nine overlapping pairs in
+            // his burst down to one — and it was rejected for what it cost: "Der Halbkreis gefällt
+            // mir nicht so, da viele Fenster außerhalb des direkten Sichtfelds spawnen. Das ist die
+            // wichtigste Regel: Im SIchtfeld! Prio zwei ist dann so wenig kollisionen wie möglich -
+            // wenn das nicht vermeidbar ist dann sollte das neue Fenster näher heran vor dem
+            // anderen Fenster spawnen, das es keine direkte Kollision gibt."
+            //
+            // SO THE ARC IS NOW THE HEADSET'S MEASURED BINOCULAR OVERLAP (ArcPlacementHalfDeg —
+            // ±40.0° on his Quest 3, read off the stereo projection matrices and NOT a chosen
+            // number), applied to each window's EDGES. Inside it a window is on screen in BOTH eyes
+            // with the head still; outside it a window is monocular. The comfort cone (±32°) keeps
+            // its own job and grades each seat. His five windows draw ~160° into 80° of arc, so
+            // OVERLAP IS THE NORMAL CASE and is resolved by DEPTH: the arriving window steps one
+            // ladder rung nearer, in front of whatever its footprint (drawn ∪ frame = the hit rect)
+            // intersects. Angle is still the first lever — the free interval NEAREST THE GAZE wins
+            // and the ladder is reached only when no free interval remains. The seat is held in
+            // ABSOLUTE WORLD YAW; see the ArcSeats.cs header for why a gaze-relative registry
+            // aliases two windows onto one spot after a head turn.
             //
             // THE SLOT IS STILL A YAW, AND THE ONLY OTHER TERM IS A DEPTH. The raw pose is the
             // ordinary gaze-following spawn above, ROTATED ABOUT WORLD UP by the claimed angle — so
@@ -857,10 +864,11 @@ internal static partial class ModalFallback
                 staggerIndex = arcOverlapRank;
                 pos = headPos + Quaternion.AngleAxis(arcYawDeg, Vector3.up)
                     * (fwd * (WindowDistanceMeters * scale));
-                // The depth term — positive pulls toward the head (the overflow rule's foreground
-                // ladder), negative pushes away (the phantom-frame push). Both go through the one
-                // helper so the azimuth-preserving, height-preserving construction is written once;
-                // see ApplyArcDepth for why it moves along the window's own flattened radial.
+                // The depth term — the ONE ladder: positive pulls toward the head, one step per
+                // depth level, so an arriving window that collides draws IN FRONT of what it
+                // collides with (the user's rule 3). It goes through the one helper so the
+                // azimuth-preserving, height-preserving construction is written once; see
+                // ApplyArcDepth for why it moves along the window's own flattened radial.
                 ApplyArcDepth(ref pos, headPos, fwd, arcYawDeg, scale, arcPullWorld);
             }
             else if (staggerIndex > 0)
@@ -926,7 +934,8 @@ internal static partial class ModalFallback
         // ClampSpawnPose flattens a steep gaze and floors the window above the board top, and
         // ResolveSpawnOverlap may still swing a window laterally to clear the board. Any of them can
         // move the window off the azimuth the seat chose — and the seat is the only thing that
-        // knows what else is standing in the room and where the half circle ends. So the LAST word
+        // knows what else is standing in the room and where the measured field of view ends. So the
+        // LAST word
         // belongs to the seat: the head→window direction is rotated about WORLD UP back to the claimed
         // azimuth, keeping the horizontal distance and the height (both already clamped) exactly as
         // they are. It is a yaw and nothing else, so it cannot introduce pitch or roll and the
@@ -1090,9 +1099,11 @@ internal static partial class ModalFallback
         //
         // "A WINDOW I COULD NOT SEE" IS ANSWERABLE OFF THIS ONE LINE, which is the whole reason it
         // carries the numbers it does. Read it left to right:
-        //   * half circle ±90° — the PLACEMENT arc: how far around the player the layout may reach.
-        //     Applied to the window's EDGES, so nothing is ever seated behind the shoulder line.
-        //     It is anatomy, not a display measurement, and it is deliberately NOT the cone.
+        //   * measured field of view ±F° — the PLACEMENT arc, and it is MEASURED, not chosen: this
+        //     headset's binocular overlap half-angle off its own stereo projection matrices (±40.0°
+        //     on his Quest 3). Applied to the window's EDGES, so no part of any window is ever put
+        //     where he would have to TURN HIS HEAD to find it. It replaced ModBuild 234's ±90° half
+        //     circle, which he rejected for exactly that reason.
         //   * width W° — how wide THIS window is in angle, measured from its own half-size and its
         //     own distance.
         //   * angle A° / world yaw — where it was seated, + = right of the SPAWN GAZE, and the same
@@ -1100,14 +1111,20 @@ internal static partial class ModalFallback
         //     what the player saw from where he was standing. Two windows with different offsets
         //     but the SAME world yaw is a head turn between spawns, which is the aliasing bug the
         //     world frame exists to prevent — it must never appear.
-        //   * COMFORT BAND / IN VIEW / HEAD TURN — the reading cone's remaining job, graded against
-        //     this headset's MEASURED comfortable cone and binocular overlap (the MAP ROOM ARC
-        //     GEOMETRY line, once per session, says where both numbers came from). A seat outside
-        //     the comfort band is legitimate: it means the space closer in was taken, and a head
-        //     turn is free while being buried is not.
-        //   * overlaps N° with '…' — how far it intrudes on its worst neighbour. 0 means it is
-        //     clear of everything. A non-zero number must be accompanied by "THE HALF CIRCLE IS
-        //     FULL" in the same line; if it is not, the seating is broken.
+        //   * COMFORT BAND / IN VIEW — the reading cone's remaining job, graded against this
+        //     headset's MEASURED comfortable cone and binocular overlap (the MAP ROOM ARC GEOMETRY
+        //     line, once per session, says where both numbers came from). IN VIEW is legitimate: it
+        //     means the space closer in was taken and this seat is in the outer fifth of the field,
+        //     on screen in both eyes but read by turning the eyes. A third grade, "OUT OF THE FIELD
+        //     OF VIEW", is a falsifier and must never print.
+        //   * DEPTH LEVEL k — how many 0.04 m steps NEARER than the nominal reading distance this
+        //     window hangs, one per rung of the single depth ladder. k ≥ 1 means its footprint
+        //     (drawn ∪ frame = the hit rect) intersects something standing and it was deliberately
+        //     put IN FRONT of it — the user's rule 3. It also means this window takes the ray where
+        //     the two overlap, which is correct: it is the one he just opened.
+        //   * overlaps N° with '…' — how far it intrudes on its worst neighbour. A non-zero number
+        //     is EXPECTED now (the room asks for roughly twice the arc the eye covers); what must
+        //     accompany it is a DEPTH LEVEL ≥ 1, not a free seat.
         //   * occupancy — how many seats are held and where they are, so the next window's
         //     choice can be replayed by hand from the log.
         //   * and the MAP ROOM ARC AUDIT line that follows it is the FALSIFIER: the same room
@@ -1142,6 +1159,7 @@ internal static partial class ModalFallback
             float logDrawnOffset = arcSlot >= 0 ? ArcClaimDrawnOffsetDeg(arcSlot) : 0f;
             float logSeatOffset = arcYawDeg + logDrawnOffset;   // where the CONTENT sits
             float logReach = Mathf.Abs(logSeatOffset) + logHalfAngle;
+            float logArcHalf = ArcPlacementHalfDeg();
             VRLog.Info("WorldUI", "MAP ROOM WINDOW SLOT: "
                                   + $"'{(self != null ? PanelLogName(self) : "<panel>")}' "
                                   + (arcSlot < 0
@@ -1155,20 +1173,26 @@ internal static partial class ModalFallback
                                       ? $" (PHANTOM FRAME: {(logFrameHalf - logHalfAngle) * 2f:F0}° "
                                         + "of it is empty and was handed back to the arc)"
                                       : "")
-                                  + $", so its content reaches to {logReach:F0}° — "
-                                  + $"half circle ±{HalfCircleHalfDeg:F0}° ⇒ "
-                                  + (logReach <= HalfCircleHalfDeg + 0.5f
-                                      ? "IN FRONT OF THE PLAYER"
-                                      : $"PAST THE SHOULDER by {logReach - HalfCircleHalfDeg:F0}° "
-                                        + "(the window is wider than the half circle; it is centred "
-                                        + "as far as it can be)")
+                                  + $", so its content reaches to {logReach:F0}° — measured field "
+                                  + $"of view ±{logArcHalf:F1}° ⇒ "
+                                  + (logReach <= logArcHalf + 0.5f
+                                      ? "IN THE FIELD OF VIEW"
+                                      : $"*** OUTSIDE THE FIELD OF VIEW by "
+                                        + $"{logReach - logArcHalf:F0}° — the window is wider than "
+                                        + "the whole binocular overlap and is centred as far as it "
+                                        + "can be; nothing here can fix that, it has to be narrower "
+                                        + "or further away ***")
                                   + $". {arcWhy}. Occupancy now {claimsClean + claimsOverlapping}/"
-                                  + $"{MaxWindowClaims} seats ({claimsClean} clear of "
-                                  + $"everything, {claimsOverlapping} overlapping): "
+                                  + $"{MaxWindowClaims} seats ({claimsClean} at depth level 0, "
+                                  + $"{claimsOverlapping} one or more steps nearer): "
                                   + $"[{ArcSeatOccupancyText(gazeYawDeg)}]. Pose "
                                   + $"({pos.x:F2},{pos.y:F2},{pos.z:F2}) world units at "
                                   + $"{distanceMeters:F2} m × scale {scale:F2}, yaw {rot.eulerAngles.y:F1}°"
-                                  + (staggerIndex > 0 ? $", depth generation {staggerIndex}" : "")
+                                  + (staggerIndex > 0
+                                      ? $", DEPTH LEVEL {staggerIndex} (that many "
+                                        + "steps nearer than the nominal reading distance, so it "
+                                        + "draws in front of what it collides with)"
+                                      : ", depth level 0 (nominal reading distance)")
                                   + ". After the one pre-reveal re-place this window is never posed "
                                   + "again while it floats: opening or closing any other window "
                                   + "moves nothing (user ruling), and only the player's own grab "
