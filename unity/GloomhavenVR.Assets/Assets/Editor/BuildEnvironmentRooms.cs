@@ -16887,9 +16887,51 @@ namespace GloomhavenVR
             // deadfall branches
             SProp("Branches0", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(1.4f, 0, -5.9f), 80, 1.0f, bed: 0.10f);
             SProp("Branches1", "dry_branches_medium_01", "dry_branches_medium_01", new Vector3(-6.9f, 0, -5.0f), 250, 0.9f, bed: 0.10f);
-            // the story beat at the bend of the path: something was dropped here
+            // THE CRATE AT THE BEND OF THE PATH. The authored intent is the story
+            // beat "something was dropped here" — and the pose that was carrying
+            // it said something else entirely.
+            //
+            // USER FINDING, 2026-08-24, the round after ModBuild 240 (hardware,
+            // photograph in .planning/debug/kiste.jpg):
+            // "eine Kiste die schräg auf dem Waldboden liegt, bitte drehe sie so
+            // dass sie normal hochkant auf dem Waldboden liegt". The photograph
+            // shows the crate standing on one narrow END, leaning, with a hand's
+            // depth of open air visible under its raised side.
+            //
+            // BOTH halves of that are one cause: e3 was (-14, 24, 78). Unity
+            // composes Euler as Ry*Rx*Rz, so local up ends at
+            // (-0.914, 0.202, 0.352) — 78.4 deg off vertical. wooden_crate_01 is
+            // 0.83 x 0.41 m across and 0.35 m tall with its base at local y ~= 0,
+            // so a 78 deg roll stands the LONG axis upright: the placed footprint
+            // measured 0.49 x 0.63 m and the crate reached 0.68 m tall, a box on
+            // its end rather than a box on the ground.
+            //
+            // The air underneath follows from the same number and is NOT a
+            // missing `bed`. Rest() grounds with GroundLift(), the 99.5th
+            // percentile of per-vertex lift, so the LOWEST corner touches down and
+            // everything else keeps whatever height the pose gives it: measured
+            // against ForestY over this footprint, the bottom face ran from 5.6 cm
+            // buried at the low corner to 67.9 cm in the air at the high one. That
+            // is the gap in the photograph. `bed` is for a photoscan carrying a
+            // skirt of the ground it was scanned on (see BEDDING A PHOTOSCAN IN),
+            // and that block says in as many words that for "a barrel, a stool or
+            // a crate" plain GroundLift is exactly correct — this prop is right to
+            // be the one without it.
+            //
+            // NEW POSE. Upright, base down, 4.1 deg off vertical — enough that it
+            // is not machine-placed, far short of "schräg". Yaw stays 24 deg so it
+            // is not square to the path; note the `24` positional argument is DEAD
+            // for any prop passing e3 (Prop(): `euler3 ?? new Vector3(0, yaw, 0)`),
+            // so the yaw that acts is e3.y. The tilt is spent mostly as PITCH
+            // about the long axis, which is both what a dropped chest does and the
+            // cheap direction: the base's height spread is
+            // 0.784*|sin z|*cos x + 0.389*|sin x|, so a degree of roll costs twice
+            // a degree of pitch. sink 0.06 -> 0.07 pays for the rest. Measured
+            // against ForestY the bottom face now runs -7.4 cm to +0.1 cm of
+            // clearance: every vertex of it is at or under the litter, no corner
+            // is airborne, and the crate stands 0.24 m tall.
             SProp("Crate", "wooden_crate_01", "wooden_crate_01", new Vector3(-4.1f, 0, -7.0f), 24, 0.95f,
-                e3: new Vector3(-14f, 24f, 78f), sink: 0.06f, tintExtra: 0.85f);
+                e3: new Vector3(-4f, 24f, 1f), sink: 0.07f, tintExtra: 0.85f);
             // understory
             SProp("Fern0", "fern_02", "fern_02", new Vector3(5.9f, 0, 4.3f), 0, 1.8f, cutout: true, sink: 0.05f, tintExtra: 0.72f);
             SProp("Fern1", "fern_02", "fern_02", new Vector3(-5.9f, 0, 4.8f), 200, 1.6f, cutout: true, sink: 0.05f, tintExtra: 0.72f);

@@ -61,5 +61,11 @@ buildhands.log
 # build transcript kept by scripts/ci-build.sh for the warning gate
 build-ci.log
 
+# environment bake / preview transcripts (Unity batch). build-bundles.log IS tracked —
+# it is the record of which editor wrote the shipped bundle — but the per-round bake and
+# preview logs are scratch and land at the repo root by default.
+env-build*.log
+env-preview*.log
+
 # release notes rendered by .github/workflows/release.yml
 RELEASE_NOTES.md

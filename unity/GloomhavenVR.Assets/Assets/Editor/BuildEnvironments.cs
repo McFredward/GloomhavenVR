@@ -2903,25 +2903,147 @@ namespace GloomhavenVR
 
                 // ---- shooting stars: infrequent streaks across the sky ----
                 // User finding, ModBuild 134: "Genauso wie die Sternschnuppen -
-                // die auch gerne aber weiter entfernt und nicht so groß." Two
-                // separate changes, and both were needed: the anchor went from
-                // 30 m to 40 m (the star dome is at 45 m, so they now happen
-                // among the stars instead of over the treetops) and the sprite
-                // from 0.45 to 0.21 with the stretch pulled back to match. The
-                // ANGULAR size therefore drops by 0.21/0.45 * 30/40 = 0.35x —
-                // they read as distant events, not as nearby streaks.
-                var meteor = NewPS(t, "ShootingStars", new Vector3(0, 40f, 0), new Vector3(115f, 30f, 0f), Mat("FX_StarStreak.mat"));
+                // die auch gerne aber weiter entfernt und nicht so groß." That
+                // round moved the anchor 30 m -> 40 m and shrank the sprite from
+                // 0.45 to 0.21 with the stretch pulled back to match.
+                //
+                // USER FINDING, 2026-08-24, the round after ModBuild 240, and it
+                // is the SECOND report on this emitter: "Die Sternschnuppen im
+                // Wald sind viel zu nah, manchmal fallen sie direkt in die
+                // Lichtung eine vor die Füße. Das ist nicht immersiv. Überarbeite
+                // die Sternschnuppen nochmal, dass sie zu dem Himmel passen."
+                //
+                // WHY 134 COULD NOT HAVE FIXED IT. That round changed SIZE and
+                // ANCHOR. The defect is the TRAJECTORY, and the anchor is only
+                // where the trajectory starts. The old emitter was
+                // pos (0,40,0), euler (115,30,0), lifetime 1.6 s, speed 26..38,
+                // box shape 44 x 44 x 0.1. Unity composes Euler as Ry*Rx*Rz, so
+                // the emitter's local +Z — the travel direction — came out at
+                //     f = (-0.2113, -0.9063, -0.3660),
+                // i.e. 65.0 deg BELOW the horizon: those particles were not
+                // crossing the sky, they were falling down it. Over a 1.6 s life
+                // at 26..38 m/s they covered 41.6..60.8 m, so from y = 40 they
+                // ended between y = +2.3 and y = -24.4 — at or under the clearing
+                // floor. And the 44 x 44 m spawn plane is centred on the sky
+                // branch's own origin, which the runtime seats on the PLAYER
+                // (SkyAlternative: ShootingStars rides the sky branch), so the
+                // plane hangs squarely over his head. Swept over the whole box
+                // the worst trajectory passes 0.10 m from him: spawn
+                // (7.70, 32.82, 13.34) at 26 m/s crosses y = 0 at (2.0, 0, 3.4)
+                // and carries on to y = -8.6. "Eine vor die Füße" is exact.
+                //
+                // WHAT A METEOR ACTUALLY IS, and the invariant that enforces it.
+                // A meteor is a shallow streak near the sky dome, mostly
+                // HORIZONTAL and slightly down, burning out after 10-25 deg of
+                // arc — never a thing that arrives. So the pose is DERIVED from
+                // four named angles instead of being three round Euler numbers,
+                // and the geometry is guaranteed, not hoped for:
+                //
+                //   INVARIANT: for a straight line p(t) = p0 + v t,
+                //   d(r^2)/dt / 2 = p0.v + |v|^2 t, so if p0.v >= 0 at spawn then
+                //   r(t) never decreases. The Box shape is PERPENDICULAR to the
+                //   travel direction (that is what the thin local-Z means), so
+                //   every spawn point P satisfies f.P = f.A exactly — the sign of
+                //   the radial term does not depend on the plane's size at all.
+                //   Here f.A = +4.20 m > 0, so no streak ever approaches the
+                //   player, from any spawn point, at any speed, at any time.
+                //
+                // The closest a streak can therefore BEGIN is the nearest corner
+                // of the spawn rectangle, 39.58 m out, and it only recedes from
+                // there. Measured over the whole family (box x speed x lifetime):
+                //   distance from the player 39.6 .. 58.3 m   (was 0.10 m)
+                //   world y                  33.2 .. 45.5 m   (was -24.4 m)
+                //   apparent elevation       42.0 .. 71.6 deg
+                //   arc per streak           15.3 .. 21.6 deg over 13..19 m
+                // The elevation band is not incidental: CanopyMask leaves open sky
+                // above ~42 deg from the clearing centre, so the whole band is
+                // inside the hole in the canopy and nothing ever burns out behind
+                // a treetop. y stays 33 m up — CanopyY tops out under 11 m.
+                //
+                // WHY THE PLANE MOVED OFF THE ORIGIN. Three reasons and they all
+                // point the same way: (1) a plane centred on the sky origin has
+                // its closest point ON the player, so no size of it can bound the
+                // approach distance — offsetting it is what makes the invariant
+                // above provable at all; (2) a shower has a radiant, so streaks
+                // belonging to one patch of sky is what the eye expects, whereas
+                // a uniform rain from directly overhead is what the old one was;
+                // (3) it removes "on top of him" by construction rather than by
+                // tuning. It sits 118 deg round from the moon so a streak never
+                // crosses the moon disc and is never washed out by its halo, and
+                // because the runtime yaws the whole sky branch by the BOARD yaw,
+                // that relationship to the moon is the same on every client.
+                //
+                // WHY THE LIFETIME SHRANK, 1.6 s -> 0.5 s. At 26..38 m/s a 1.6 s
+                // life is 42..61 m of travel, which at dome radius is 60-75 deg of
+                // sky — a slow searchlight sweep, not a meteor. 0.5 s gives
+                // 13..19 m = 15..22 deg, which is what a real one does, and it is
+                // also the term that keeps the travel a small fraction of the
+                // viewing distance so the streak cannot outrun the shell.
+                //
+                // ANGULAR SIZE IS PRESERVED from the ModBuild 134 tuning, which
+                // was accepted. That round's numbers, read as angles at its 40 m
+                // anchor: width 0.21/40 = 5.25 mrad (0.301 deg) and total drawn
+                // length (lengthScale*size + velocityScale*speed) =
+                // (0.21 + 0.075*32)/40 = 65.25 mrad (3.739 deg). Both are held at
+                // the new 46 m characteristic distance by scaling with it:
+                //   startSize     = 0.21 * 46/40         = 0.2415
+                //   drawn length  = 2.610 * 46/40        = 3.0015 m
+                //   velocityScale = (3.0015 - 0.2415)/32 = 0.08625
+                // — identical on-screen size and length at the mean speed. Note
+                // that it was NOT bounded before: the old streaks reached the
+                // player, where 0.21 m subtends everything, which is the other
+                // half of "viel zu nah". It is bounded now by the 39.6 m floor.
+                //
+                // Rate is deliberately untouched (~one every 8 s): frequency was
+                // not the complaint.
+                const float MeteorShellR = 46f;      // just outside StarRadius (44) / the 45 m dome
+                const float MeteorElevDeg = 66f;     // radiant elevation — inside the canopy's open cone
+                const float MeteorMoonOffDeg = 118f; // ...and this far round the sky from the moon
+                const float MeteorDescentDeg = 12f;  // travel: shallow, downward, never a plunge
+                const float MeteorOutwardDeg = 45f;  // ...and tipped outward, which is what keeps f.A > 0
+                const float MeteorLife = 0.5f;
+                float meteorAz = Mathf.Atan2(MoonDir.x, MoonDir.z) + MeteorMoonOffDeg * Mathf.Deg2Rad;
+                var meteorAt = new Vector3(
+                    MeteorShellR * Mathf.Cos(MeteorElevDeg * Mathf.Deg2Rad) * Mathf.Sin(meteorAz),
+                    MeteorShellR * Mathf.Sin(MeteorElevDeg * Mathf.Deg2Rad),
+                    MeteorShellR * Mathf.Cos(MeteorElevDeg * Mathf.Deg2Rad) * Mathf.Cos(meteorAz));
+                // horizontal radial and tangent at the radiant; the travel bearing
+                // is `out` degrees from tangential toward outward, then pitched
+                // down by `descent`.
+                var meteorRad = new Vector3(Mathf.Sin(meteorAz), 0f, Mathf.Cos(meteorAz));
+                var meteorTan = new Vector3(Mathf.Cos(meteorAz), 0f, -Mathf.Sin(meteorAz));
+                var meteorFwd = (Mathf.Cos(MeteorDescentDeg * Mathf.Deg2Rad)
+                                 * (Mathf.Cos(MeteorOutwardDeg * Mathf.Deg2Rad) * meteorTan
+                                  + Mathf.Sin(MeteorOutwardDeg * Mathf.Deg2Rad) * meteorRad)
+                               - Mathf.Sin(MeteorDescentDeg * Mathf.Deg2Rad) * Vector3.up).normalized;
+                if (Vector3.Dot(meteorFwd, meteorAt) <= 0f)
+                    throw new Exception("[GloomhavenVR][Env] ShootingStars: f.A = "
+                        + Vector3.Dot(meteorFwd, meteorAt).ToString("F3") + " m <= 0 — the streaks would "
+                        + "close on the player. Raise MeteorOutwardDeg or lower MeteorDescentDeg.");
+                var meteor = NewPS(t, "ShootingStars", meteorAt, Vector3.zero, Mat("FX_StarStreak.mat"));
+                // Derived, like the axe's: LookRotation puts +Z on the travel
+                // bearing and — because the up hint is world up — the box shape's
+                // local X exactly horizontal, so the plane's long half-extent
+                // costs no height spread at all and only its short one does.
+                meteor.transform.localRotation = Quaternion.LookRotation(meteorFwd, Vector3.up);
                 var mm = meteor.main;
                 mm.simulationSpace = ParticleSystemSimulationSpace.World;
                 mm.duration = 20f;
-                mm.startLifetime = 1.6f;
+                mm.startLifetime = MeteorLife;
                 mm.startSpeed = new ParticleSystem.MinMaxCurve(26f, 38f); // a touch slower = elegant
-                mm.startSize = 0.21f;
+                mm.startSize = 0.2415f;     // 0.21 * 46/40 — same angular width as ModBuild 134
                 mm.startColor = new Color(0.95f, 0.93f, 0.85f, 0.78f); // warm-white ember
                 mm.maxParticles = 4;
                 var me = meteor.emission; me.rateOverTime = 0.13f; // infrequent: ~one every 8 s
                 var msh = meteor.shape; msh.enabled = true; msh.shapeType = ParticleSystemShapeType.Box;
-                msh.scale = new Vector3(44f, 44f, 0.1f); // spawn plane ⟂ travel direction
+                // spawn plane ⟂ travel direction; 17.3 x 12.4 deg of sky at 46 m.
+                // Its SIZE does not enter the "never approaches" invariant (f.P =
+                // f.A for every point of a perpendicular plane) — it only sets how
+                // near a streak may BEGIN. |A + aX + bY|^2 is separable in the two
+                // in-plane coordinates, so that minimum is exact rather than a
+                // corner sample: a = clamp(-A.X, ±7) = +7, b = clamp(-A.Y, ±5) =
+                // -5, giving 39.58 m.
+                msh.scale = new Vector3(14f, 10f, 0.1f);
                 var mcol = meteor.colorOverLifetime; mcol.enabled = true;
                 mcol.color = new ParticleSystem.MinMaxGradient(Grad(
                     (0f, new Color(1, 1, 1, 0f)), (0.1f, new Color(1, 1, 1, 1f)),
@@ -2934,7 +3056,11 @@ namespace GloomhavenVR
                 // The comet texture (Env_Streak.png) is symmetric about its long
                 // axis, so that roll stays invisible — same rule as the old dot.
                 mr.renderMode = ParticleSystemRenderMode.Stretch;
-                mr.velocityScale = 0.075f;   // was 0.11: the streak shortens with the head
+                // 0.075 * 46/40 — see the ANGULAR SIZE block above: drawn length
+                // is lengthScale*size + velocityScale*speed, and both terms are
+                // scaled by the distance so the streak subtends the ModBuild 134
+                // angle (3.739 deg at the mean speed) at the new 46 m shell.
+                mr.velocityScale = 0.08625f;
                 mr.lengthScale = 1f;
                 mr.cameraVelocityScale = 0f;
 
