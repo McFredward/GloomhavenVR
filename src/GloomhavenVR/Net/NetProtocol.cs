@@ -416,7 +416,98 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 235;
+    public const ushort ModBuild = 236;
+    // Build 236: THE WINDOW THAT RESPAWNED FOUR TIMES, THE REFERENCE NOBODY ASSIGNED, AND A BAR
+    // MEASURED AGAINST A FRAME THAT IS MOSTLY EMPTY.
+    // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched
+    // (70,218,494 bytes, unchanged since 172). Three lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 (UNCHANGED).
+    //
+    //   1. THE ENCHANTRESS CARD LIST: THE CLASS SHIPPED IN 235 ASKED A REFERENCE THE GAME NEVER
+    //   ASSIGNED, AND ITS OWN COMMENT ASSERTED THE OPPOSITE. EnchantressComposite resolved the list
+    //   as NewPartyDisplayUI.PartyDisplay.EnhancementCardsDisplay and its doc called that "one
+    //   instance, two owners" — an assertion it could not observe and which the log falsifies. The
+    //   log said unreachable, i.e. NULL, and it was NOT the `as` cast on PartyDisplay: fifteen lines
+    //   earlier the fit printed "the live NewPartyDisplayUI is in an UNRELATED subtree", a sentence
+    //   DescribePartyDisplaySite can only produce from a NON-NULL display. The null term is the
+    //   serialized field itself. The reference the GAME drives is UINewEnhancementWindow.cardsDisplay
+    //   — that is what OnSelectedCharacter:223 calls Display on. Resolution now reads the shop
+    //   window's own component by GetComponent (identity, not containment), keeps the party-display
+    //   reference as a fallback, and prints WHICH answered plus a THREE-WAY equality verdict, because
+    //   ReferenceEquals(null, null) is true and would have read as agreement.
+    //   CONSEQUENCE NOBODY HAD MEASURED: CollectActiveSubViews asks the same null field, so the card
+    //   list was never a sub-view of the party panel at all. It drew beside the character column
+    //   because it is a child of that prefab. There was no contest to win.
+    //   THE SILENCE AFTER THE SECOND WAIT LINE WAS THE DEDUP LATCH, NOT A DEAD TICK: the reason
+    //   string is constant, so it printed once and was suppressed for the rest of the session, and
+    //   the only branch that clears the latch is "shop closed", which never ran while the window
+    //   stayed open. A held instrument reads exactly like a stopped one.
+    //
+    //   2. THE QUEST INTRO IS NOW ONE WINDOW BECAUSE THE HOST WAS INVERTED. The 235 composite
+    //   BORROWED the illustration out of the loadout screen into the story window and refused the
+    //   loadout screen meanwhile; when FinishIntroduction expanded the paper the claim lapsed BY
+    //   DESIGN and the loadout screen floated fresh — the "ganz neues Fenster" in the report. It
+    //   could not be fixed by extending the claim, because the HOST DIES: the game closes the story
+    //   window seconds later, and keeping a closed window drawing by pinning its alpha is the exact
+    //   mechanism that produced the 234 deadlock. A SECOND PROOF nobody had looked for: under 235
+    //   'UI Loadout Window' floats, is withdrawn, floats, is withdrawn and floats again inside one
+    //   quest start, each float carrying its own one-shot facing — four placements, four yaws.
+    //   INVERTED: the loadout screen is the host and the story window's whole content is parked into
+    //   a mod-owned dock sized to the story root's own rect, so not one anchor, pivot, sizeDelta or
+    //   offset is written and the hand-back is parent, sibling index and layer, verbatim. The
+    //   illustration is never moved now, only measured, which deletes the 232 stretch-child trap from
+    //   this path entirely. EVERY child of the story root moves, not the branch that looks like the
+    //   dialog: the advance click is UICharacterStoryBox.skipButton and the fit's own line rejects
+    //   graphics it does not name, so a full-window click catcher is indistinguishable from a faint
+    //   one — moving half the window risked a story nobody can click past. On the ordinary path the
+    //   story window is now parked and refused BEFORE it is ever enrolled, so there is no float, no
+    //   withdrawal and no churn count at all.
+    //   ONE CLAIM IN THE 235 SOURCE WAS FALSE AND IS CORRECTED IN PLACE: SECTION 4 said a refusal row
+    //   "could not have refused the story box" because MapStoryController is not on its window's own
+    //   GameObject. The 232 identity line lists MapStoryController ON that GameObject. ROW 3 is
+    //   therefore an ordinary IS-A rule, not a special case.
+    //   THE BLUE BAR IS THE NAMED RESIDUAL AND WAS REFUSED ON PURPOSE. RemoteMapStory keeps its move
+    //   baseline PER KIND, not per window instance, so re-pointing the shared identity at the composed
+    //   host would read the swap as a DRAG: it sets Moving, publishes a pose, and on settle can elect
+    //   this client last mover — pushing the loadout screen's pose onto every peer's story box. The
+    //   page, the text and the finished bit still sync, because RemoteMapStory resolves those through
+    //   MapStoryController.dialogBox directly and never through SharedWindows. Only the POSE sync and
+    //   the bar colour go inert, and only for the length of the intro. A blue bar on an unsynced
+    //   window is the false statement SharedWindows itself forbids, so half-doing it was not an option.
+    //   THE CLOSE CROSS CAME WITH THE HOST. ModalCloseButton.Attach is decided ONCE at convert time
+    //   and the loadout screen converts before the story box exists, so no live condition could take
+    //   the X away later. It joins the no-X family here, for the results-window reason as much as the
+    //   story-box one: closing it hides the window its own Enter Dungeon button is a child of, and
+    //   nothing re-opens it. That hazard was already shipped in 232 and 235; the inversion only made
+    //   it unavoidable to fix.
+    //
+    //   3. THE GRAB BAR WAS MEASURED AGAINST THE FRAME, AND THE FRAME IS MOSTLY EMPTY. Two causes,
+    //   both real. VERTICAL: 'New Party display' has a host rect of 1988x1080 and during the battle
+    //   goals it DRAWS 384 px below it — the lowest graphic in the window is literally named
+    //   'Rewards' and sits 373 px under the frame's bottom edge, which is the Belohnungen row the
+    //   report says is unreadable. SyncBar put the bar one gap under the FRAME, i.e. 373 px above the
+    //   bottom of the ink, straight across that row. HORIZONTAL: the bar was centred on the frame at
+    //   0.55 of 1988 px, while the drawn ink spans x -982..-93 — 889 px of that frame, centred at
+    //   -537. The bar's left end therefore landed inside the picker and its right end ran ~640 px
+    //   past everything drawn. This is the 234 rule in a second place: A RESERVATION MUST COST WHAT A
+    //   WINDOW DRAWS, NOT WHAT IT FRAMES.
+    //   THE HORIZONTAL CAUSE ALMOST DIED OF A PERMISSIVE INSTRUMENT: the capture-frame line reports
+    //   the union reaching the frame's right edge, set by a 'Title' whose rect is 599 px wide and
+    //   whose text is EMPTY. PanelSupersample.Draws is permissive on purpose because a capture frame
+    //   must never crop, so a naive ink union re-derives the frame and ships a no-op. PanelInkBounds
+    //   therefore excludes empty text, full-frame plates by the fit's own fractions, and the mod's own
+    //   frame-anchored furniture, and it starts at the conversion TARGET, not the host.
+    //   POLICY: the union is a CAPTURE per generation — a generation restarts only when the active
+    //   sub-view set changes or the host rect resizes — and is MONOTONE OUTWARD inside it, so it
+    //   cannot oscillate. Not monotone for the window's whole life: that is the detached-gold-plate
+    //   defect the short-panel proportioning already exists to prevent. A growth outside the settle
+    //   burst must REPEAT before it commits, because the game re-parents hover tooltips onto the
+    //   window and one sighting would pin the bar away for the rest of the generation. The bar is
+    //   never RAISED above the frame's own bottom edge and its width is CAPPED at the frame-derived
+    //   width, so no already-accepted window can get a wider or higher bar than it has today. The hit
+    //   rect is untouched; two stale claims about it in the fit, one of them a shipped log string,
+    //   are corrected rather than left to mislead the next reader.
+    //
     // Build 235: A CLAIM THAT OUTLIVED ITS SUBJECT BECAUSE THE MOD WAS ANSWERING ITS OWN QUESTION.
     // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched
     // (70,218,494 bytes, unchanged since 172). Four lanes on disjoint files.

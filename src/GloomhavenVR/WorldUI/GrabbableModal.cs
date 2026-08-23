@@ -110,6 +110,90 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Quaternion _diagLastRot = Quaternion.identity;
     private float _diagNextAllowed;
 
+    // ---- THE INK CAPTURE (ModBuild 236) ---------------------------------------------------------
+    //
+    // WHAT THE USER PHOTOGRAPHED (.planning/debug/quest_überlap.jpg, ModBuild 235): the brass bar lay
+    // across the REWARD row of the last battle goal, so its text could not be read; and in
+    // .planning/debug/story_fertig.jpg the same bar runs off to the lower right, far past anything the
+    // window draws. His ruling was explicit — "Ich will nicht das sich die Größe des Fensters
+    // dynamisch verändert wie es früher war" — so the window may NOT be resized. The bar moves instead.
+    //
+    // THE TWO GEOMETRY FACTS BEHIND IT, both measured, not inferred:
+    //   1. THE BAR SAT BELOW THE FRAME, NOT BELOW THE INK. The hardware log's capture line for
+    //      'New Party display' in the battle-goal phase reads
+    //        host rect 1988x1080 + HELD overspill L0 R32 D384 U32 px
+    //      and names the graphic that sets the bottom edge: BOTTOM (yMin) -913 set by 'Rewards' at
+    //      (-255,-913)-(284,-851). The host rect's own bottom is y=-540. The window therefore draws
+    //      373 px BELOW its own frame, and SyncBar placed the bar at -540 minus one gap — on top of
+    //      the row called 'Rewards', which is the row called 'Belohnungen' in his screenshot.
+    //   2. THE BAR WAS CENTRED ON THE FRAME, NOT ON THE INK. The same session's fit line reports what
+    //      that window actually draws in that phase: a CHARACTER COLUMN of 328x1080 px seated at
+    //      x=-982, and one open sub-view, 'UI Battle Goal Picker Window', at x -654..-93. So the ink
+    //      spans x -982..-93 — 889 px of a 1988 px frame, centred at x=-537 — while the bar was
+    //      centred at x=0 with a half-width of 0.55/2 x 1988 = 547 px. Its left end landed INSIDE the
+    //      picker and its right end ran ~640 px past the rightmost thing the window draws.
+    //
+    // THE POLICY, and why it is this one. A SEAM IS A CAPTURE, NEVER A PER-FRAME READING: a bar
+    // re-derived every tick would visibly slide ("man sieht wie es dahin springt"). So:
+    //   * A GENERATION is reset by a genuine EVENT and by nothing else — the set of active sub-view
+    //     roots changed (PanelInkBounds.ActiveSetSignature, which is what a tab press moves), or the
+    //     host rect itself resized. On a reset the envelope starts empty and the bar KEEPS ITS OLD
+    //     PLACE until the first sample of the new generation lands, so a transition costs one move.
+    //   * WITHIN a generation the union is MONOTONE OUTWARD — down, left and right only. It can never
+    //     creep back toward the content, so it cannot oscillate, and the settle burst (a sample every
+    //     InkSettleStrideFrames for InkSettleFrames) lets a view that is still sliding in push the bar
+    //     further away without ever pulling it back.
+    //   * Monotone for the WINDOW'S WHOLE LIFE was rejected. That is the detached-bar defect
+    //     BarFullSizePanelHeightMeters already exists to prevent: switch from the tall equipment view
+    //     to a short one and the bar would hang a view-height below nothing at all.
+    //   * A LOW-RATE VERIFY (InkVerifyStrideFrames, ~1 s) keeps sampling after the burst, and because
+    //     it is monotone outward its only power is to notice that content now hangs BELOW the bar. It
+    //     is what covers the case the signature cannot see: the battle-goal picker is re-seated next
+    //     to a DIFFERENT character without any sub-view opening or closing, which is precisely the
+    //     "Questinfo des letzten Characters" the user is complaining about. Outside the settle burst
+    //     a growth must REPEAT before it commits, so a hover tooltip — which the game re-parents onto
+    //     the window itself — cannot pin the bar away from the window for the rest of the generation.
+    // The bar is never raised above the frame's own bottom edge, whatever the ink says — moving it UP
+    // would change every already-accepted window in the mod for no reported reason.
+    private const int InkSettleFrames = 24;
+    private const int InkSettleStrideFrames = 4;
+    private const int InkVerifyStrideFrames = 60;
+    private const float InkReportThrottleSeconds = 1f;
+
+    private bool _inkValid;                     // a committed rectangle exists (survives a generation reset)
+    private bool _inkGenSeeded;                 // this generation has contributed a sample to it yet
+    private Rect _inkRect;                      // host-local uGUI px — the COMMITTED, monotone union
+    private int _inkGraphics;
+    private int _inkPlates;
+    private int _inkEmptyText;
+    private int _inkModChrome;
+    private bool _inkTruncated;
+    private string _inkBottomName = string.Empty;
+    private int _inkSignature;
+    private bool _inkSignatureValid;
+    private Rect _inkHostRect;
+    private bool _inkHostRectValid;
+    private int _inkGeneration;
+    private int _inkSamples;
+    private int _inkNextSampleFrame = -1;
+    private int _inkSettleUntilFrame = -1;
+    private int _inkCommitFrame = -1;
+    private string _inkCause = "the window was built";
+    private bool _inkReportDue;
+    private bool _inkFallbackDue;
+    private bool _inkFallbackReported;
+    private float _inkNextReportAllowed;
+    private int _inkReportsSuppressed;
+    private int _inkHeldFrames;
+    private Rect _inkPending;
+    private bool _inkPendingValid;
+    private int _inkGrowthsDeferred;
+
+    /// <summary>Two host-local rectangles equal to within half a uGUI pixel.</summary>
+    private static bool SameRect(Rect a, Rect b) =>
+        Mathf.Abs(a.xMin - b.xMin) <= 0.5f && Mathf.Abs(a.xMax - b.xMax) <= 0.5f
+        && Mathf.Abs(a.yMin - b.yMin) <= 0.5f && Mathf.Abs(a.yMax - b.yMax) <= 0.5f;
+
     /// <summary>
     /// EVERY GrabbableModal THAT HAS ACTUALLY BUILT ITS HOLDER (ModBuild 230).
     ///
@@ -488,7 +572,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float unit = metersPerPixel * _extraScale * worldScale;
         float halfHeight = rect.height * unit * 0.5f;
         float width = rect.width * unit;
-        SyncBar(halfHeight, width, worldScale);
+        // THE INK SEAM (ModBuild 236) — service the held capture BEFORE the bar is placed from it.
+        // Event-driven and bounded, never a per-frame re-derivation; the whole policy is on the
+        // InkSettleFrames block.
+        ServiceInkCapture(rect);
+        SyncBar(halfHeight, width, worldScale, rect, unit);
     }
 
     /// <summary>
@@ -1060,7 +1148,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                               "(grip the bar to move, two hands to resize 0.5x-2x).");
     }
 
-    private void SyncBar(float halfHeight, float width, float worldScale)
+    private void SyncBar(float halfHeight, float width, float worldScale, Rect hostRect, float unit)
     {
         if (_bar == null || _grabZone == null)
             return;
@@ -1073,7 +1161,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // height; a panel shorter than the full-size reference slims the bar thickness AND
         // pulls it closer (smaller gap) by the same factor, floored at MinBarProportion so
         // the grab/laser target never vanishes. Board-scale menus land at proportion 1 —
-        // numerically identical to the previous fixed constants.
+        // numerically identical to the previous fixed constants. The proportion is deliberately
+        // still taken from the HOST RECT and not from the ink: it is a comfort rule about how big
+        // the physical handle may be next to its window, and the window is the frame.
         float panelHeight = halfHeight * 2f / Mathf.Max(worldScale, 1e-4f);
         float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
             MinBarProportion, 1f);
@@ -1081,12 +1171,266 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float thickness = BarThickness * proportion * worldScale;
         float minWidth = MinBarWidth * worldScale;
         float zoneDepth = 0.05f * worldScale;
+
+        // THE FRAME-BASED PLACEMENT — byte-for-byte what shipped through ModBuild 235, and still the
+        // answer whenever the ink cannot be measured (see the degenerate branch below).
+        float frameBarWidth = Mathf.Max(width * BarWidthFraction, minWidth);
+        float frameZoneWidth = Mathf.Max(width * ZoneWidthFraction, minWidth);
+        float x = 0f;
         float y = -(halfHeight + gap);
-        float barWidth = Mathf.Max(width * BarWidthFraction, minWidth);
-        _bar.localPosition = new Vector3(0f, y, 0f);
+        float barWidth = frameBarWidth;
+        float zoneWidth = frameZoneWidth;
+
+        if (_inkValid && unit > 1e-9f)
+        {
+            // BELOW THE LOWEST DRAWN GRAPHIC. hostRect.yMin x unit is exactly -halfHeight for a
+            // pivot-centred host, so a window whose ink stays inside its frame is unchanged; the Min
+            // is what keeps the bar from ever RISING into the frame when the ink is short.
+            y = Mathf.Min(hostRect.yMin, _inkRect.yMin) * unit - gap;
+            // CENTRED ON THE INK. For a window whose ink fills its frame this is 0 and nothing moved.
+            x = _inkRect.center.x * unit;
+            // A FRACTION OF WHAT IS DRAWN, floored at MinBarWidth so the grab/laser target survives
+            // and capped at the frame-based width so the bar can only ever get NARROWER than the one
+            // the user has already accepted on every other window.
+            barWidth = Mathf.Clamp(_inkRect.width * unit * BarWidthFraction, minWidth, frameBarWidth);
+            zoneWidth = Mathf.Clamp(_inkRect.width * unit * ZoneWidthFraction, minWidth, frameZoneWidth);
+        }
+
+        _bar.localPosition = new Vector3(x, y, 0f);
         _bar.localScale = new Vector3(barWidth, thickness, thickness);
-        _grabZone.center = new Vector3(0f, y, 0f);
-        _grabZone.size = new Vector3(Mathf.Max(width * ZoneWidthFraction, minWidth), zoneDepth, zoneDepth);
+        // The palm grab zone rides WITH the visible handle, as it always has — it is not the hit rect
+        // (that contract, "always contains the host rect", belongs to the conversion and is untouched).
+        _grabZone.center = new Vector3(x, y, 0f);
+        _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
+
+        if (_inkReportDue || _inkFallbackDue)
+            ReportBarPlacement(hostRect, unit);
+    }
+
+    // ---- the ink capture ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Keep the held ink union current. The policy — what counts as an event, why the union is
+    /// monotone outward inside a generation, and why it is NOT monotone across the window's life — is
+    /// written out in full on the <see cref="InkSettleFrames"/> block; this method is only its
+    /// mechanism. Never throws: a throw here would stand down the window's follow tick, and the
+    /// consequence of a missed capture is merely that the bar keeps the placement it already had.
+    /// </summary>
+    private void ServiceInkCapture(Rect hostRect)
+    {
+        if (_panel == null || !_panel.IsAlive)
+            return;
+
+        int sig;
+        try
+        {
+            sig = PanelInkBounds.ActiveSetSignature(_panel);
+        }
+        catch (System.Exception)
+        {
+            return;
+        }
+
+        bool sigChanged = !_inkSignatureValid || sig != _inkSignature;
+        bool frameChanged = !_inkHostRectValid
+                            || Mathf.Abs(hostRect.xMin - _inkHostRect.xMin) > 0.5f
+                            || Mathf.Abs(hostRect.xMax - _inkHostRect.xMax) > 0.5f
+                            || Mathf.Abs(hostRect.yMin - _inkHostRect.yMin) > 0.5f
+                            || Mathf.Abs(hostRect.yMax - _inkHostRect.yMax) > 0.5f;
+        _inkSignature = sig;
+        _inkSignatureValid = true;
+        _inkHostRect = hostRect;
+        _inkHostRectValid = true;
+
+        int now = Time.frameCount;
+        if (sigChanged || frameChanged)
+        {
+            // A NEW GENERATION. The envelope restarts — the next sample REPLACES the union instead of
+            // growing it, which is how a switch from a tall view to a short one is allowed to bring
+            // the bar back up. What is NOT reset is the COMMITTED rectangle: the bar keeps the place
+            // it already has until that first new sample lands, so a tab change costs it one move and
+            // not two (and never a flash back to the frame-based placement in between).
+            _inkGeneration++;
+            _inkSamples = 0;
+            _inkGenSeeded = false;
+            _inkPendingValid = false;
+            _inkFallbackReported = false;
+            _inkNextSampleFrame = now + InkSettleStrideFrames;
+            _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkCause = frameChanged && sigChanged
+                ? "the host rect resized AND the set of open sub-views changed"
+                : frameChanged ? "the host rect resized" : "the set of open sub-views changed";
+        }
+        else if (_inkNextSampleFrame < 0)
+        {
+            _inkNextSampleFrame = now;
+            _inkSettleUntilFrame = now + InkSettleFrames;
+        }
+
+        if (now < _inkNextSampleFrame)
+            return;
+        bool settling = now <= _inkSettleUntilFrame;
+        _inkNextSampleFrame = now + (settling ? InkSettleStrideFrames : InkVerifyStrideFrames);
+
+        if (!PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) || !ink.Valid)
+        {
+            // DEGENERATE: zero drawn graphics, or zero size. Keep whatever placement is already
+            // committed (frame-based when nothing was ever captured) and SAY SO — a silent fall back
+            // to the very geometry this round replaced is the one outcome nobody could diagnose.
+            if (!_inkValid && !_inkFallbackReported)
+            {
+                _inkFallbackReported = true;
+                _inkFallbackDue = true;
+            }
+            return;
+        }
+
+        _inkSamples++;
+        Rect grown = ink.Rect;
+        if (_inkValid && _inkGenSeeded)
+        {
+            // MONOTONE OUTWARD inside the generation — down, left and right only.
+            grown = Rect.MinMaxRect(Mathf.Min(_inkRect.xMin, ink.Rect.xMin),
+                                    Mathf.Min(_inkRect.yMin, ink.Rect.yMin),
+                                    Mathf.Max(_inkRect.xMax, ink.Rect.xMax),
+                                    Mathf.Max(_inkRect.yMax, ink.Rect.yMax));
+        }
+
+        bool moved = !_inkValid || !SameRect(grown, _inkRect);
+        // The census fields always describe the LATEST sample; only the rectangle is the envelope.
+        _inkGraphics = ink.Graphics;
+        _inkPlates = ink.Plates;
+        _inkEmptyText = ink.EmptyText;
+        _inkModChrome = ink.ModChrome;
+        _inkTruncated = ink.Truncated;
+        // Name the graphic that sets the COMMITTED envelope's bottom, which is only this sample's
+        // bottom-setter when this sample is the one that owns that edge.
+        if (_inkBottomName.Length == 0 || Mathf.Abs(grown.yMin - ink.Rect.yMin) <= 0.5f)
+            _inkBottomName = ink.BottomName;
+        if (!moved)
+        {
+            _inkPendingValid = false;
+            return;
+        }
+
+        // THE REPEAT GATE — a growth found OUTSIDE the settle burst must be seen twice before it is
+        // committed. The hole it closes is a TRANSIENT: the game re-parents hover tooltips onto the
+        // window itself (TooltipOnWindow's `SetParent(target, …)`), and a monotone envelope would take
+        // one such sighting and hold the bar away from the window until the next sub-view change. Two
+        // consecutive verify samples an InkVerifyStrideFrames apart is not a hover. Inside the settle
+        // burst there is no gate at all: a view that is still arriving must be followed immediately,
+        // and the burst is the one interval in which every reading is expected to differ.
+        // The FIRST commit of a window's life is exempt: there is no held placement to protect, and
+        // the only alternative is the frame-based geometry this round exists to replace.
+        if (!settling && _inkValid)
+        {
+            if (!_inkPendingValid || !SameRect(_inkPending, grown))
+            {
+                _inkPending = grown;
+                _inkPendingValid = true;
+                _inkGrowthsDeferred++;
+                return;
+            }
+        }
+        _inkPendingValid = false;
+
+        _inkRect = grown;
+        _inkValid = true;
+        _inkGenSeeded = true;
+        _inkFallbackDue = false;
+        _inkFallbackReported = false;
+        _inkReportDue = true;
+        _inkHeldFrames = _inkCommitFrame < 0 ? 0 : now - _inkCommitFrame;
+        _inkCommitFrame = now;
+    }
+
+    /// <summary>
+    /// THE FALSIFIER, read back off the transform that was just written — not off the intent that
+    /// produced it. One greppable line per window per (re-)capture, rate-limited.
+    /// </summary>
+    private void ReportBarPlacement(Rect hostRect, float unit)
+    {
+        _inkReportDue = false;
+        bool fallback = _inkFallbackDue;
+        _inkFallbackDue = false;
+        if (_bar == null || unit <= 1e-9f)
+            return;
+        if (Time.realtimeSinceStartup < _inkNextReportAllowed)
+        {
+            _inkReportsSuppressed++;
+            return;
+        }
+        _inkNextReportAllowed = Time.realtimeSinceStartup + InkReportThrottleSeconds;
+
+        // Back out of frame-local metres into the window's own authored px — the unit the complaint
+        // is in, and the unit the capture log quotes 'Rewards' at (-255,-913)-(284,-851) in.
+        Vector3 pos = _bar.localPosition;
+        Vector3 scale = _bar.localScale;
+        float barTopPx = (pos.y + scale.y * 0.5f) / unit;
+        float barCentrePx = pos.x / unit;
+        float barHalfPx = scale.x * 0.5f / unit;
+        string suppressed = _inkReportsSuppressed > 0
+            ? $" ({_inkReportsSuppressed} earlier line(s) suppressed by the {InkReportThrottleSeconds:F0} s rate limit)"
+            : string.Empty;
+        _inkReportsSuppressed = 0;
+        string frame = $"the HOST RECT for comparison spans x {hostRect.xMin:F0}..{hostRect.xMax:F0} "
+                       + $"and y {hostRect.yMin:F0}..{hostRect.yMax:F0}, {hostRect.width:F0}x{hostRect.height:F0} px";
+
+        if (fallback || !_inkValid)
+        {
+            VRLog.Warn("WorldUI",
+                $"GRAB BAR CLEARS THE INK: NOT ACHIEVED for '{_logName}' — failing term: THE INK UNION "
+                + "COULD NOT BE MEASURED (zero drawn graphic(s) under the window's own root, or zero "
+                + "size), so the bar keeps the frame-based placement this round exists to replace: bar "
+                + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px; "
+                + $"{frame}; generation {_inkGeneration}, {_inkSamples} sample(s) taken, re-capture cause "
+                + $"was {_inkCause}.{suppressed}");
+            return;
+        }
+
+        float inkBottom = _inkRect.yMin;
+        float inkCentre = _inkRect.center.x;
+        bool clearsVertically = barTopPx <= inkBottom + 0.5f;
+        bool centredOnInk = Mathf.Abs(barCentrePx - inkCentre) <= 1f;
+        string census = $"{_inkGraphics} graphic(s) unioned, {_inkPlates} full-frame plate(s), "
+                        + $"{_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) excluded"
+                        + (_inkTruncated ? ", WALK TRUNCATED at the node budget" : string.Empty);
+        string measurement =
+            $"bar top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px, "
+            + $"all in the window's own authored px; the LOWEST drawn graphic '{_inkBottomName}' ends at "
+            + $"y={inkBottom:F0} px; the ink union spans x {_inkRect.xMin:F0}..{_inkRect.xMax:F0} "
+            + $"(width {_inkRect.width:F0} px, centre {inkCentre:F0}) and y {inkBottom:F0}..{_inkRect.yMax:F0}; "
+            + $"{frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} of that "
+            + $"generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} growth(s) "
+            + $"deferred by the repeat gate over this window's life, cause: {_inkCause}";
+
+        if (clearsVertically && centredOnInk)
+        {
+            VRLog.Info("WorldUI",
+                $"GRAB BAR CLEARS THE INK: CONFIRMED for '{_logName}' — {measurement}.{suppressed} HOW TO "
+                + "READ IT. The claim is that the brass handle is placed against what the window DRAWS "
+                + "rather than what it FRAMES, and the two numbers that would falsify it are on this "
+                + "line: the bar's top edge must be at or below the lowest drawn graphic's bottom edge, "
+                + "and the bar's centre must be the ink's centre. A window whose ink fills its frame "
+                + "reads centre 0 and a bar top one gap under the host rect — unchanged from ModBuild "
+                + "235 by construction, which is what makes an unchanged reading on those windows "
+                + "evidence rather than an absence of evidence. The ink union is MONOTONE OUTWARD "
+                + "within a generation and is only reset by an event, so a bar that never moves while "
+                + "the generation number climbs means the events fire and the content genuinely did "
+                + "not move; a generation number stuck at 1 across a session in which the user opened "
+                + "and closed sub-views means the signature is blind and is the first thing to fix.");
+            return;
+        }
+
+        string term = !clearsVertically
+            ? $"VERTICAL — the bar's top edge y={barTopPx:F0} px is ABOVE the lowest drawn graphic's "
+              + $"bottom edge y={inkBottom:F0} px by {inkBottom - barTopPx:F0} px, so it is drawn over "
+              + "content"
+            : $"HORIZONTAL CENTRE — the bar's centre x={barCentrePx:F0} px is off the ink's centre "
+              + $"x={inkCentre:F0} px by {Mathf.Abs(barCentrePx - inkCentre):F0} px";
+        VRLog.Warn("WorldUI",
+            $"GRAB BAR CLEARS THE INK: NOT ACHIEVED for '{_logName}' — failing term: {term}. {measurement}."
+            + suppressed);
     }
 
     // ---- teardown ---------------------------------------------------------------------------
@@ -1105,5 +1449,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _handle = null;
         _visualValid = false;
         _easing = false;
+        // The ink capture describes furniture that no longer exists; a rebuilt holder must measure
+        // again from scratch rather than inherit a union taken against the old host rect.
+        _inkValid = false;
+        _inkGenSeeded = false;
+        _inkPendingValid = false;
+        _inkSignatureValid = false;
+        _inkHostRectValid = false;
+        _inkNextSampleFrame = -1;
+        _inkCommitFrame = -1;
+        _inkReportDue = false;
+        _inkFallbackDue = false;
+        _inkFallbackReported = false;
     }
 }

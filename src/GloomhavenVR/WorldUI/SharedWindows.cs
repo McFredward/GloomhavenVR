@@ -85,7 +85,37 @@ internal enum SharedWindowKind : byte
 
     /// <summary>The campaign map's story box — <c>MapStoryController.window</c>. A DIFFERENT
     /// controller from the scenario's, which is why record 19 is inert on the map: it resolves only
-    /// <c>Singleton&lt;StoryController&gt;</c>.</summary>
+    /// <c>Singleton&lt;StoryController&gt;</c>.
+    ///
+    /// <para><b>ModBuild 236 — THIS KIND DELIBERATELY DID NOT FOLLOW THE COMPOSITE, AND THE REASON IS
+    /// A BASELINE. DO NOT MOVE IT WITHOUT READING THIS.</b> <c>StoryComposite</c> now parks the story
+    /// window's whole content INTO the pre-scenario loadout screen, so for the length of the quest
+    /// intro the window the player sees the story in is <c>UILoadoutManager</c>'s, not this one. The
+    /// obvious change — make <see cref="SharedWindows.KindOf"/> return <c>MapStory</c> for the
+    /// composed host, and <see cref="SharedWindows.WindowOf"/> resolve to it — was considered and
+    /// REFUSED, for three reasons of which the first is decisive:</para>
+    /// <list type="number">
+    /// <item><b><c>Net/RemoteMapStory</c> keeps its move baseline PER KIND, not per window
+    /// instance.</b> <c>TrackFrame</c> caches <c>FramePos</c>/<c>FrameRot</c>/<c>FrameSize</c> of the
+    /// grab frame <see cref="SharedWindows.TryGetGrab"/> hands it and calls any change a MOVE. Swap
+    /// the underlying transform under a live baseline and the swap itself reads as a drag: it sets
+    /// <c>Moving</c>, publishes a pose and can elect this client the room's LAST MOVER — pushing the
+    /// loadout screen's pose onto every peer's story box. The fix is a baseline reset on an identity
+    /// change, and it belongs in that file.</item>
+    /// <item><b>The composed host is the loadout screen, whose content is private by an existing user
+    /// ruling</b> ("Da jeder seine eigene UI sieht, sollen diese UI Element nicht synchronisiert
+    /// werden"): each player picks his own loadout and his own battle goals on it and presses his own
+    /// Enter Dungeon. A remote drag moving that window is a bigger claim than the bar colour.</item>
+    /// <item><b>The kind would flip under a live grab</b> when the composite stands down, changing
+    /// the release re-face gate and <c>PanelPoseWatch</c>'s <c>peerOwned</c> flag mid-carry.</item>
+    /// </list>
+    /// <para><b>WHAT IS NOT LOST, AND IT IS THE HALF THE USER ASKED FOR.</b>
+    /// <c>Net/RemoteMapStory</c> resolves the story PAGE through <c>MapStoryController.dialogBox</c>
+    /// directly (RemoteMapStory.cs:286-294, 423, 869) and never through this class, so page, text and
+    /// the finished bit keep syncing normally while the dialog is parked. What goes inert for the
+    /// length of the intro is the POSE sync and the blue bar — the composed host wears the ordinary
+    /// brass bar, which is a TRUE statement about it under the rule this file already states: a blue
+    /// bar on a window whose pose nobody syncs is the false statement, not the brass one.</para></summary>
     MapStory = 2,
 
     /// <summary>The quest-confirmation popup, <c>UIWindowID.QuestPopup</c>.</summary>

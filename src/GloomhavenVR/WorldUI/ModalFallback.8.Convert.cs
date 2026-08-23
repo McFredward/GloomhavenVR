@@ -583,8 +583,26 @@ internal static partial class ModalFallback
             // catcher below. See IsTransientAnnouncement for the decompiled evidence and for the one
             // candidate family (the FTUE intro screens) deliberately NOT enrolled.
             bool isTransient = IsTransientAnnouncement(window);
+            // ModBuild 236 — AND THE PRE-SCENARIO LOADOUT SCREEN, for the results-window reason and
+            // for the story-box reason at once.
+            //
+            // (1) IT IS THE WINDOW THE QUEST INTRO IS NOW TOLD IN. StoryComposite parks the story
+            //     window's whole content into it, so the user's ruling about the story box applies to
+            //     it directly: "Weiterhin darf dieses Story-Fenster kein 'x' haben, da man
+            //     durchklicken muss." The X decision is taken HERE, at convert time, and this window
+            //     converts before the story box exists, so no live condition could do it later.
+            // (2) CLOSING IT STRANDS THE PLAYER, WHICH IS TRUE WITH OR WITHOUT THE COMPOSITE. The X
+            //     runs CloseFloatedWindow to UIWindow.Escape/Hide; UILoadoutManager.OnHidden only
+            //     calls ClearEvents, decompiled :377 and :397-415, and nothing re-opens the screen,
+            //     while the single-player continue button is a CHILD of it, :88-95. Same shape as the
+            //     results-window exclusion above.
+            //
+            // IDENTITY IS IS-A, NOT CONTAINMENT: UILoadoutManager carries a RequireComponent for
+            // UIWindow and ControllerInputArea, :18, and caches its window with GetComponent in
+            // Awake, :68, so the manager and the window are ONE GameObject by construction.
+            bool isLoadoutScreen = window.GetComponent<UILoadoutManager>() != null;
             if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
-                && !isMapRoomPermanent && !isTransient)
+                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen)
                 ModalCloseButton.Attach(panel, window);
             else
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
@@ -598,6 +616,7 @@ internal static partial class ModalFallback
                                           // project has had to retract before.
                                           : isMapRoomPermanent ? MapRoomPermanentReason(window)
                                           : isTransient ? TransientAnnouncementReason(window)
+                                          : isLoadoutScreen ? "pre-scenario loadout screen — the quest intro is told IN this window by StoryComposite, and closing it would hide the window its own Enter Dungeon button is a child of"
                                           : "click-through story box")}).");
             // ModBuild 230: the transient's replacement for the X. Built AFTER the X decision and
             // before the WindowPanel so a failure to build it cannot cost the window its float.

@@ -263,6 +263,42 @@ internal static class LoadoutConfirmPark
         }
 
         GameObject? control = ResolveControl(lm, out bool readyToggle);
+
+        // ModBuild 236 — IF THE CONTROL IS ALREADY DRAWN IN A WINDOW THE PLAYER CAN SEE, THIS CLASS
+        // DOES NOTHING AT ALL.
+        //
+        // WHY THE CONDITION IS "the loadout screen is floated" AND NOT "the control is inside a
+        // floated window". The second question is the one ConfirmReachable asks, and asking it HERE
+        // would flap: once this class has parked the control into the Character-UI, the control IS
+        // inside a floated window — its own park — so the answer would flip every time it acted on
+        // it. The loadout window's float is a fact about a window this class never touches, so the
+        // level is stable whichever way it goes.
+        //
+        // AND IT IS THE OFFLINE CONTROL ONLY, BY CONSTRUCTION. UILoadoutManager.confirmationButton is
+        // a CHILD of the loadout window (:88-95), so a floated loadout screen draws it. The ONLINE
+        // control is UIReadyToggle — a Singleton that is its OWN window root under 'Campaign Canvas'
+        // and is refused by ROW 2 of the refusal table as a bare control, so it is never inside the
+        // loadout screen and the park below is still the only thing that draws it. The user's own
+        // ruling for that case has not changed: pressing it is a LOCAL act, so it belongs on the
+        // LOCAL Character-UI.
+        //
+        // THIS IS THE OTHER HALF OF ModBuild 236's INVERSION. StoryComposite no longer withholds the
+        // loadout screen's float — it withholds the STORY window's — so through the whole
+        // pre-scenario interval the loadout screen is on screen with its own confirm button on it,
+        // and that is exactly the window the user asked for the button to appear on: "Es soll immer
+        // noch das exakt gleiche Fenster sein." Moving it to the Character-UI would now be this mod
+        // taking the button OFF the window he named.
+        if (!readyToggle && loadout != null && FloatedByMod(loadout))
+        {
+            Unpark("the loadout screen is floating with the confirm button on it, so there is "
+                   + "nothing for this class to fix");
+            // TickClaim drops the claim itself on this path (the offline confirm is a plain Button,
+            // not a UIWindow, so the float gate never sees it and there is nothing to claim).
+            TickClaim(control, readyToggle, parked: false);
+            ReportReach(lm, loadout);
+            return;
+        }
+
         UIWindow? host = CharacterWindow();
         bool hostFloated = host != null && FloatedByMod(host);
 

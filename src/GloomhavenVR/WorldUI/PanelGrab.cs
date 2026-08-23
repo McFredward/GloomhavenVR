@@ -560,16 +560,25 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         // THE PANEL AS A RECT IN THE ROOT'S OWN PLANE, for the face guard. Both numbers come out of
         // the geometry this grab already produced, and NEITHER may be read off the registered grab
         // zone: for a floated modal that zone is a thin slab AT THE BAR
-        // (GrabbableModal.SyncBar sets size = (width*ZoneWidthFraction, 0.05, 0.05) centred on the
-        // bar, GrabbableModal.cs:1088), so its bounds say nothing about the drawn window at all.
-        //   * HALF-HEIGHT — the drag bar hangs a gap below the panel's bottom edge
-        //     (`y = -(halfHeight + gap)`, GrabbableModal.cs:1085), so the root-up component of
-        //     `_carryOffset` (root minus strike point) IS the panel's half-height plus that gap:
-        //     measured, and over-measured by the gap, which is the safe direction.
-        //   * HALF-WIDTH — the struck collider's own half-diagonal. The bar spans
-        //     BarWidthFraction of the window, so this UNDER-measures a very wide window; the guard
-        //     is a comfort floor, not an invariant, and under-measuring the width only makes it
-        //     quieter in the axis that points sideways past the player's head.
+        // (GrabbableModal.SyncBar sets size = (inkWidth*ZoneWidthFraction, 0.05, 0.05) centred on
+        // the bar), so its bounds say nothing about the drawn window at all.
+        //   * HALF-HEIGHT — the drag bar hangs a gap below the LOWEST THING THE WINDOW DRAWS
+        //     (`y = min(hostRect.yMin, ink.yMin) * unit - gap`, GrabbableModal.SyncBar), so the
+        //     root-up component of `_carryOffset` (root minus strike point) IS the panel's
+        //     half-height plus that gap plus any overspill the window draws past its own frame:
+        //     measured, and over-measured, which is the safe direction. ModBuild 236 moved the bar
+        //     DOWN on windows that draw outside their frame (the battle-goal picker hangs 373 px
+        //     below 'New Party display'), which only ever over-measures this term further — it is
+        //     read off the live geometry, never derived from the constants, so it needed no change.
+        //   * HALF-WIDTH — the struck collider's own half-diagonal. The bar spans BarWidthFraction
+        //     of the window's DRAWN INK (capped at the same fraction of the frame), so this
+        //     UNDER-measures a very wide window; the guard is a comfort floor, not an invariant, and
+        //     under-measuring the width only makes it quieter in the axis that points sideways past
+        //     the player's head.
+        //   * NOTE the bar is no longer centred on the frame: GrabbableModal centres it on the ink,
+        //     so on a window whose content is pinned to one side the strike point is off the root's
+        //     centre line in X. Both terms above are magnitudes of a MEASURED offset, so neither
+        //     assumes otherwise.
         // Owners with no separate bar collider (tray, combat log) measure their zone the same way.
         Transform? geomRoot = _owner?.GrabRoot;
         float halfHeightWorld = geomRoot != null

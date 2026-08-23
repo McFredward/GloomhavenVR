@@ -25,9 +25,11 @@ namespace GloomhavenVR.WorldUI;
 /// <list type="bullet">
 ///   <item><description><b>THE LIST</b> is
 ///   <c>UIPartyCharacterEnhancementAbilityCardsDisplay</c>, reached as
-///   <c>NewPartyDisplayUI.PartyDisplay.EnhancementCardsDisplay</c> (NewPartyDisplayUI.cs:97 and :262).
-///   Its GameObject is <c>'Enhance Ability Cards Content Display'</c> and it is a CHILD of the party
-///   display prefab — the ModBuild 152 census printed the whole path,
+///   <c>UINewEnhancementWindow.CardsDisplay</c> off the enchantress window's OWN GameObject
+///   (UINewEnhancementWindow.cs:65 and :113) — see the ModBuild 236 correction below for why the
+///   other reference is a fallback and not the answer. Its GameObject is
+///   <c>'Enhance Ability Cards Content Display'</c> and it is a CHILD of the party display prefab —
+///   the ModBuild 152 census printed the whole path,
 ///   <c>…/New Party display Variant/Enhance Ability Cards Content Display/Container/Header/Title</c>
 ///   (Player.log:1872). Its authored width is 368 px (the ModBuild 196 sub-view census, quoted in
 ///   CanvasConversion.3.Fit.cs:1138).</description></item>
@@ -40,17 +42,48 @@ namespace GloomhavenVR.WorldUI;
 ///   scene sweep.</description></item>
 /// </list>
 ///
-/// <para><b>THEIR RELATIONSHIP: UNRELATED SUBTREES THAT SHARE ONE COMPONENT INSTANCE.</b> They are
-/// not parent/child and not siblings — one lives under <c>Campaign Canvas/UI Guildmaster HUD</c>, the
-/// other under the party display. <c>UINewEnhancementWindow</c> holds the SAME
-/// <c>UIPartyCharacterEnhancementAbilityCardsDisplay</c> instance in its own
-/// <c>[SerializeField] cardsDisplay</c> (UINewEnhancementWindow.cs:65) and drives it directly —
-/// <c>cardsDisplay.Display(…)</c> on character pick (:223), <c>Deselect</c> (:253), <c>Hide</c>
-/// (:264), <c>OnAddedEnhancement</c> (:542), <c>RefreshMode</c> (:629/:648). The scene wires one
-/// object into two owners; the game's own navigation state agrees
-/// (<c>EnhancmentCardSelectState</c> reaches it through
-/// <c>NewPartyDisplayUI.PartyDisplay.EnhancementCardsDisplay</c>). So the list is the enchantress'
-/// instrument that merely LIVES in the party display's prefab.</para>
+/// <para><b>THEIR RELATIONSHIP: UNRELATED SUBTREES, TWO SERIALIZED REFERENCES, AND ONLY ONE OF THEM
+/// IS ASSIGNED ON THE LIVE OBJECTS.</b> The two windows are not parent/child and not siblings — one
+/// lives under <c>Campaign Canvas/UI Guildmaster HUD</c>, the other under the party display. Two
+/// components claim the list in the scene: <c>UINewEnhancementWindow.cardsDisplay</c>
+/// (UINewEnhancementWindow.cs:65, exposed at :113) and
+/// <c>NewPartyDisplayUI.enhancementCardsDisplay</c> (NewPartyDisplayUI.cs:97, exposed at :262).</para>
+///
+/// <para><b>ModBuild 235 SHIPPED THE ASSERTION "ONE INSTANCE, TWO OWNERS" AND THE HARDWARE LOG
+/// FALSIFIED IT IN THE SAME SESSION.</b> The shipped class asked the party-display reference, and it
+/// came back NULL for the whole run — LogOutput.log:1764,
+/// <c>NewPartyDisplayUI.EnhancementCardsDisplay is unreachable</c>, which in that code meant the
+/// returned <c>RectTransform</c> was null and not merely inactive. It was NOT the singleton that was
+/// missing: fifteen lines earlier, at LogOutput.log:1749, this mod's own fixed-fit gate printed
+/// <c>the live NewPartyDisplayUI ('Party Display UI ', path
+/// GloomhavenVR.Panel_Modal_New Party display/New Party display/Party Display UI ) is in an UNRELATED
+/// subtree</c> — a sentence <c>CanvasConversion.DescribePartyDisplaySite</c> can only produce from a
+/// NON-null <c>NewPartyDisplayUI.PartyDisplay</c> (it prints "the game reports no live party display
+/// singleton" otherwise). So the singleton resolved and its <c>enhancementCardsDisplay</c> field did
+/// not. The list the player was looking at in <c>magierin.jpg</c> at that very moment was therefore
+/// reachable through the OTHER reference only.</para>
+///
+/// <para><b>WHICH IS THE ONE THE GAME ITSELF DRIVES.</b> Every call that puts cards in that list goes
+/// through <c>UINewEnhancementWindow.cardsDisplay</c> — <c>cardsDisplay.Display(…)</c> on character
+/// pick (UINewEnhancementWindow.cs:219-228), <c>Deselect</c> (:253), <c>Hide</c> (:264),
+/// <c>OnAddedEnhancement</c> (:542), <c>RefreshMode</c> (:629/:648). So THAT is the reference this
+/// class resolves from, off the shop window's own GameObject by <c>GetComponent</c> — a question
+/// about the object itself, not about anything it contains ([[containment-is-not-identity]]). The
+/// party-display reference is kept only as a FALLBACK, and every log line this class prints names
+/// which of the two answered and whether the two are reference-equal, because that one fact is the
+/// whole diagnosis and 235 shipped without it.</para>
+///
+/// <para><b>THE SAME NULL SILENTLY DISARMED THE FIT.</b> <c>CanvasConversion.CollectActiveSubViews</c>
+/// asks <c>display.EnhancementCardsDisplay</c> (CanvasConversion.3.Fit.cs:2806) and
+/// <c>AddSubViewCandidate</c> returns immediately on a null component (:2867). With that field null
+/// the card list was never a sub-view of the party panel in the shipped session at all — so the fit
+/// and this class do NOT disagree about which transform the list is; they were both asking the same
+/// unassigned field and both getting nothing. The list renders inside the character UI for the
+/// plainest reason available: it is a child transform of the party display prefab and the party
+/// window's ordinary content fit draws it where the prefab puts it. Nothing has to be taken away from
+/// the fit — and once the list is parked under the enchantress window, <c>AddSubViewCandidate</c>'s
+/// own <c>FixedFitLevelsUp</c> test (:2872) drops it anyway on any build where that field IS
+/// assigned, so the park is self-consistent in both worlds.</para>
 ///
 /// <para><b>WHY IT RENDERS WHERE IT DOES TODAY — AND IT IS NOT AN ADOPTION.</b> The log settles it:
 /// there is no <c>Adopted nested canvas 'Enhance Ability Cards …'</c> line anywhere in the session
@@ -59,13 +92,11 @@ namespace GloomhavenVR.WorldUI;
 /// <c>MAP ROOM: window … is NOT floated on its own</c> line for it either — because it carries NO
 /// <c>UIWindow</c> at all and therefore can never be a float, an adoption or a "parent wins" subject.
 /// It renders inside the character UI for the plainest possible reason: <b>it is a child transform of
-/// the party display</b>, and this mod's fixed-fit branch recognises it as ONE OF THE SIX SERIALIZED
-/// SUB-VIEW ROOTS (<c>CanvasConversion.CollectActiveSubViews</c> asks
-/// <c>display.EnhancementCardsDisplay</c> by reference, CanvasConversion.3.Fit.cs:2806) and SEATS it
-/// against the character column's right edge inside the party window
-/// (the ModBuild 200 seam, CanvasConversion.3.Fit.cs:1272). The seam is why it is flush against the
-/// column with no gap — the mod put it exactly where it was told to. The photograph is the fixed-fit
-/// working correctly on a sub-view that belongs somewhere else.</para>
+/// the party display</b>, drawn by that window's ordinary content fit at the position the prefab
+/// authored. ModBuild 235's note said the mod's SUB-VIEW branch had seated it there; the paragraph
+/// above shows that branch never saw it, because it asks the same unassigned field. Either way the
+/// remedy is identical — move the transform — and either way nothing has to be pried away from
+/// another owner.</para>
 ///
 /// <para><b>WHY THIS IS A PARK AND NOT ONE OF THE OTHER TWO SHAPES.</b> The repo has three ways to
 /// draw X inside Y and this reuses <c>StoryComposite</c>'s, with its discipline copied verbatim
@@ -145,9 +176,18 @@ namespace GloomhavenVR.WorldUI;
 /// no <c>SetActive</c>, no <c>CanvasGroup</c>. A second player runs the identical code against his
 /// own singletons.</para>
 ///
-/// <para>GREP: <c>ENCHANTRESS COMPOSITE PARKED</c> / <c>ENCHANTRESS COMPOSITE HANDED BACK</c> /
+/// <para>GREP: <c>ENCHANTRESS COMPOSITE LIST SOURCE</c> (the ModBuild 236 diagnosis — which of the
+/// two serialized references answered, and whether they are the same object) /
+/// <c>ENCHANTRESS COMPOSITE PARKED</c> / <c>ENCHANTRESS COMPOSITE HANDED BACK</c> /
 /// <c>ENCHANTRESS COMPOSITE WAIT</c> / <c>ENCHANTRESS COMPOSITE ONE WINDOW: CONFIRMED</c> /
 /// <c>ENCHANTRESS COMPOSITE ONE WINDOW: NOT ACHIEVED</c>.</para>
+///
+/// <para><b>READING THE NEXT LOG.</b> <c>ENCHANTRESS COMPOSITE LIST SOURCE</c> prints once per
+/// distinct resolution while the enchantress window is open. If it is ABSENT from a session in which
+/// the enchantress window was opened, this class did not tick at all and nothing below it means
+/// anything ([[gated-remedy-never-ran]]) — start at <c>ModalFallback.TickCatchAll</c>, not here. If
+/// it is present and says both references are null, the list is reached some third way and the two
+/// names on that line are the two that have been ruled out.</para>
 /// </summary>
 internal static class EnchantressComposite
 {
@@ -243,6 +283,11 @@ internal static class EnchantressComposite
     private static Vector2 _lastSlot;
     private static float _lastScale = 1f;
 
+    /// <summary>The graphic that owns the LEFT EDGE of the destination window's ink union — i.e. the
+    /// single measurement that decides how wide the band is. Quoted by every basis string, because a
+    /// band that comes out too narrow is otherwise a dead end.</summary>
+    private static string _leftmostInk = "no graphic has set the left edge yet";
+
     /// <summary>The captured band and the captured scale — see the seam note in <see cref="Tick"/>.
     /// Re-derived only when <see cref="_parkFrame"/> stops matching the window's live rect.</summary>
     private static Rect _slot;
@@ -253,6 +298,21 @@ internal static class EnchantressComposite
     private static string _waitReported = string.Empty;
     private static string _oneWindowVerdict = string.Empty;
     private static int _oneWindowReports;
+
+    /// <summary>WHICH of the two serialized references answered this tick, and what the other one
+    /// said — the ModBuild 236 diagnosis, carried into every line that mentions the list. See
+    /// <see cref="ResolveList"/>.</summary>
+    private static string _listSource = "the card list has not been resolved yet this session";
+
+    /// <summary>The last <see cref="_listSource"/> that was printed as its own line, so the fact is
+    /// stated once per distinct resolution instead of once per frame.</summary>
+    private static string _listSourceReported = string.Empty;
+
+    /// <summary>Cap on <c>LIST SOURCE</c> lines per session, for <see cref="MaxOneWindowReports"/>'s
+    /// reason: a reference that flickers between two answers should say so a few times and stop.
+    /// </summary>
+    private const int MaxListSourceReports = 6;
+    private static int _listSourceReports;
 
     /// <summary>Cap on the falsifier's lines per session. <c>StoryComposite.MaxOneWindowReports</c>'s
     /// number and its reason: the verdict is change-gated, and a state that oscillates should say so
@@ -270,7 +330,6 @@ internal static class EnchantressComposite
     internal static void Tick()
     {
         UIWindow? shop = ShopWindow();
-        RectTransform? list = ListRect();
 
         // ---- the four preconditions, in the order in which they can first be false -------------
         if (shop == null || !shop.IsOpen)
@@ -297,15 +356,21 @@ internal static class EnchantressComposite
                  + "draws it.");
             return;
         }
+        // THE LIST IS RESOLVED FROM THE OBJECT THE GAME DRIVES, and only now — the shop window is
+        // the thing the primary reference hangs off, so there is nothing to ask before this point.
+        RectTransform? list = ResolveList(shop);
         if (list == null || !list.gameObject.activeInHierarchy)
         {
             Release("the game switched the card list off (UIPartyCharacterEnhancementAbilityCards"
                     + "Display.Hide deactivates its own GameObject — the enchantress calls it from "
                     + "ExitShop, UINewEnhancementWindow.cs:264)");
             Wait($"the enchantress window '{shop.name}' is floated but the card list is not being "
-                 + "drawn yet (NewPartyDisplayUI.EnhancementCardsDisplay is "
-                 + $"{(list == null ? "unreachable" : "inactive")}) — it appears when a character is "
-                 + "picked, UINewEnhancementWindow.OnSelectedCharacter:223.");
+                 + $"drawn yet — it is {(list == null ? "UNREACHABLE" : "INACTIVE")} and the two "
+                 + $"serialized references read: {_listSource}. A list that is merely INACTIVE "
+                 + "appears when a character is picked, UINewEnhancementWindow.OnSelectedCharacter"
+                 + ":219-228. A list that is UNREACHABLE means BOTH named references are null, which "
+                 + "is a different fault from the one ModBuild 235 hit, where only the party-display "
+                 + "one was.");
             return;
         }
         Vector2 listSize = _parked != null && ReferenceEquals(_parked, list) ? _parkedSize : list.rect.size;
@@ -391,6 +456,9 @@ internal static class EnchantressComposite
         _waitReported = string.Empty;
         _oneWindowVerdict = string.Empty;
         _oneWindowReports = 0;
+        _listSource = "the card list has not been resolved yet this session";
+        _listSourceReported = string.Empty;
+        _listSourceReports = 0;
         _poseBasis = "nothing has been placed yet";
         _lastSlot = Vector2.zero;
         _lastScale = 1f;
@@ -416,24 +484,153 @@ internal static class EnchantressComposite
         }
     }
 
-    /// <summary>The card list off <c>NewPartyDisplayUI</c>'s own serialized reference — the SAME
-    /// object <c>CanvasConversion.CollectActiveSubViews</c> asks for, so the fit and this class can
-    /// never disagree about which transform the sub-view is. The singleton accessor can throw before
-    /// the party display exists, hence the guard.</summary>
-    private static RectTransform? ListRect()
+    /// <summary>
+    /// THE CARD LIST, FROM THE REFERENCE THE GAME ACTUALLY DRIVES — with the other candidate read in
+    /// the same breath so the log can state whether they are the same object.
+    ///
+    /// <para>ModBuild 235 asked <c>NewPartyDisplayUI.PartyDisplay.EnhancementCardsDisplay</c> and got
+    /// null for a whole hardware session (LogOutput.log:1764) while the player was looking at the
+    /// list — and the singleton itself was alive at that moment (LogOutput.log:1749). PRIMARY is
+    /// therefore <c>UINewEnhancementWindow.CardsDisplay</c>, read by <c>GetComponent</c> off the shop
+    /// window's OWN GameObject: the component list in the WINDOW IDENTITY line for
+    /// 'Enhancements Window Variant' carries both <c>UIWindow</c> and <c>UINewEnhancementWindow</c>
+    /// (LogOutput.log:1741), so this is a question about that one object and not about anything under
+    /// or above it ([[containment-is-not-identity]]). The party-display reference stays as a FALLBACK
+    /// — on a build where it IS assigned it must resolve to the same instance, and if it ever does
+    /// not, the <c>LIST SOURCE</c> line says so in the same sentence rather than leaving it to be
+    /// re-derived a build later.</para>
+    ///
+    /// <para>Neither accessor is trusted not to throw: <c>Singleton&lt;APartyDisplayUI&gt;.Instance</c>
+    /// runs before the party display exists and <c>GetComponent</c> runs against a window the game may
+    /// be tearing down.</para>
+    /// </summary>
+    private static RectTransform? ResolveList(UIWindow shop)
     {
+        Component? fromShop = null;
+        Component? fromParty = null;
+        string shopNote;
+        string partyNote;
+
+        try
+        {
+            var enchantress = shop.GetComponent<UINewEnhancementWindow>();
+            if (enchantress == null)
+            {
+                shopNote = "the enchantress window's own GameObject carries NO UINewEnhancementWindow, "
+                           + "so there is no shop-side reference to read at all";
+            }
+            else
+            {
+                UIPartyCharacterEnhancementAbilityCardsDisplay cards = enchantress.CardsDisplay;
+                if (cards != null)
+                {
+                    // Deliberately NOT stamped with activeInHierarchy: this string is the key the
+                    // LIST SOURCE line is change-gated on, and an identity statement that carries a
+                    // state which toggles on every character pick would spend its whole cap saying
+                    // the same thing twice. The active/inactive half is on the WAIT line, where it
+                    // is the term that actually failed.
+                    fromShop = cards;
+                    shopNote = $"UINewEnhancementWindow.cardsDisplay = '{cards.name}'";
+                }
+                else
+                {
+                    shopNote = "UINewEnhancementWindow.cardsDisplay is NULL on the live enchantress "
+                               + "window";
+                }
+            }
+        }
+        catch (System.Exception e)
+        {
+            shopNote = $"reading UINewEnhancementWindow.cardsDisplay threw {e.GetType().Name}";
+        }
+
         try
         {
             NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
             if (display == null)
-                return null;
-            UIPartyCharacterEnhancementAbilityCardsDisplay cards = display.EnhancementCardsDisplay;
-            return cards != null ? cards.transform as RectTransform : null;
+            {
+                partyNote = "NewPartyDisplayUI.PartyDisplay is NULL, so the party-display reference "
+                            + "cannot be read this tick";
+            }
+            else
+            {
+                UIPartyCharacterEnhancementAbilityCardsDisplay cards = display.EnhancementCardsDisplay;
+                if (cards != null)
+                {
+                    fromParty = cards;
+                    partyNote = $"NewPartyDisplayUI.enhancementCardsDisplay = '{cards.name}' on the "
+                                + $"live singleton '{display.name}'";
+                }
+                else
+                {
+                    partyNote = $"NewPartyDisplayUI.enhancementCardsDisplay is NULL on the live "
+                                + $"singleton '{display.name}' — this is the ModBuild 235 fault, "
+                                + "verbatim";
+                }
+            }
+        }
+        catch (System.Exception e)
+        {
+            partyNote = $"reading NewPartyDisplayUI.EnhancementCardsDisplay threw {e.GetType().Name}";
+        }
+
+        // THE ONE FACT THE WHOLE DIAGNOSIS TURNS ON. ReferenceEquals over two nulls is true and would
+        // read as agreement, so the three states are named apart instead of collapsed into a bool.
+        string identity =
+            fromShop == null && fromParty == null
+                ? "NEITHER reference resolved, so there is nothing to compare"
+                : fromShop == null
+                    ? "ONLY the party-display reference resolved — the shop-side one is null, which is "
+                      + "the mirror image of what ModBuild 235 hit"
+                    : fromParty == null
+                        ? "ONLY the shop-side reference resolved — the party-display one is null, "
+                          + "which is exactly what ModBuild 235 asked for and did not get"
+                        : ReferenceEquals(fromShop, fromParty)
+                            ? "the two references ARE reference-equal, one instance with two owners"
+                            : "the two references are DIFFERENT INSTANCES, and the shop-side one is "
+                              + "the one the game calls Display on";
+
+        Component? chosen = fromShop != null ? fromShop : fromParty;
+        string picked = fromShop != null
+            ? "UINewEnhancementWindow.cardsDisplay ANSWERED and was used"
+            : fromParty != null
+                ? "the shop-side reference did not answer, so the party-display FALLBACK was used"
+                : "nothing answered, so nothing was moved";
+
+        _listSource = $"{picked}; shop-side: {shopNote}; party-side: {partyNote}; {identity}";
+        ReportListSource(shop);
+
+        if (chosen == null)
+            return null;
+        try
+        {
+            return chosen.transform as RectTransform;
         }
         catch (System.Exception)
         {
             return null;
         }
+    }
+
+    /// <summary>One line per distinct resolution, capped. It is printed the moment the resolution is
+    /// made — i.e. on every tick on which the enchantress window is open AND floated, which is the
+    /// earliest point at which the shop-side reference exists to be read — and BEFORE the list's own
+    /// reachable/active precondition can send the tick home. So a session in which the list is never
+    /// reachable still states which two references were asked and what each of them answered, which
+    /// is the fact ModBuild 235's log did not carry and could not be read back out of.</summary>
+    private static void ReportListSource(UIWindow shop)
+    {
+        if (_listSource == _listSourceReported || _listSourceReports >= MaxListSourceReports)
+            return;
+        _listSourceReported = _listSource;
+        _listSourceReports++;
+        VRLog.Info(Scope, $"ENCHANTRESS COMPOSITE LIST SOURCE — with '{shop.name}' (ID {shop.ID}) "
+                          + $"open: {_listSource}. THIS LINE IS THE DIAGNOSIS ModBuild 235 LACKED: it "
+                          + "asked only the party-display reference, that reference was null for the "
+                          + "whole session while the singleton itself was alive, and the class waited "
+                          + "forever behind a latch that prints one line per distinct reason. Any "
+                          + "later ENCHANTRESS COMPOSITE line in this log is about whichever object "
+                          + "this line says was used.");
     }
 
     // ---- the slot ------------------------------------------------------------------------------
@@ -478,7 +675,10 @@ internal static class EnchantressComposite
         {
             basis = $"the enchantress window's own content starts at x={ink.xMin:F0} px, which is its "
                     + $"own left edge ({frame.xMin:F0} px) — there is no free band on the left at all "
-                    + $"this tick (ink {ink.width:F0}x{ink.height:F0} px from {counted} graphic(s))";
+                    + $"this tick (ink {ink.width:F0}x{ink.height:F0} px from {counted} graphic(s)). "
+                    + $"THE GRAPHIC THAT OWNS THAT EDGE IS {_leftmostInk} — if that object is a "
+                    + "backdrop rather than content, it slipped past the plate test and the plate "
+                    + "fractions are the term to change, not the band";
             return false;
         }
 
@@ -490,7 +690,8 @@ internal static class EnchantressComposite
             basis = $"the free band on the enchantress window's left is only {slotWidth:F0}x"
                     + $"{frame.height:F0} px (its own content ink, {counted} graphic(s), starts at "
                     + $"x={ink.xMin:F0}), which would draw the {listSize.x:F0}x{listSize.y:F0} px card "
-                    + $"list at scale {scale:F2} — below the {MinReadableScale:F2} readable floor";
+                    + $"list at scale {scale:F2} — below the {MinReadableScale:F2} readable floor. THE "
+                    + $"GRAPHIC THAT OWNS THAT EDGE IS {_leftmostInk}";
             return false;
         }
 
@@ -499,7 +700,8 @@ internal static class EnchantressComposite
                 + $"{counted} graphic(s) with CanvasConversion.CountsAsFitContent, full-frame backdrop "
                 + $"plates and the card list itself excluded) — a slot {slotWidth:F0}x"
                 + $"{frame.height:F0} px, in which the list is CENTRED, so the margin on each side is "
-                + "half the slack and nothing here is a dial";
+                + $"half the slack and nothing here is a dial. THE GRAPHIC THAT OWNS THAT EDGE IS "
+                + _leftmostInk;
         return true;
     }
 
@@ -522,6 +724,7 @@ internal static class EnchantressComposite
     {
         local = default;
         counted = 0;
+        _leftmostInk = "no graphic passed the visibility verdict in this measurement";
         try
         {
             PaintScratch.Clear();
@@ -573,7 +776,16 @@ internal static class EnchantressComposite
                     && gMaxX - gMinX >= frame.x * PlateWidthFraction
                     && gMaxY - gMinY >= frame.y * PlateHeightFraction)
                     continue;
-                if (gMinX < minX) minX = gMinX;
+                if (gMinX < minX)
+                {
+                    minX = gMinX;
+                    // WHICH graphic owns the left edge of the union — the one term that decides how
+                    // wide the band is. Naming it turns "the band is 4 px" from a dead end into a
+                    // one-step fix ([[an-instrument-can-assert-a-cause]]: a failure line must name
+                    // the term that failed, not a guess at it).
+                    _leftmostInk = $"'{g.gameObject.name}' {gMaxX - gMinX:F0}x{gMaxY - gMinY:F0} px "
+                                   + $"with its left edge at x={gMinX:F0}";
+                }
                 if (gMinY < minY) minY = gMinY;
                 if (gMaxX > maxX) maxX = gMaxX;
                 if (gMaxY > maxY) maxY = gMaxY;
@@ -886,9 +1098,8 @@ internal static class EnchantressComposite
                           + $"character UI), from parent '{(_home != null ? _home.name : "<none>")}' at "
                           + $"sibling index {_homeIndex}. INTO: '{shop.name}' (ID {shop.ID}), whose own "
                           + $"rect is {frame.width:F0}x{frame.height:F0} authored px. THE LIST: "
-                          + $"'{list.name}' = NewPartyDisplayUI.EnhancementCardsDisplay = "
-                          + $"UINewEnhancementWindow.CardsDisplay (one instance, two owners), "
-                          + $"{_parkedSize.x:F0}x{_parkedSize.y:F0} px — the size the composite now "
+                          + $"'{list.name}', resolved as — {_listSource} — and measured "
+                          + $"{_parkedSize.x:F0}x{_parkedSize.y:F0} px, the size the composite now "
                           + "OWNS and re-asserts every tick, captured BEFORE the anchor collapse "
                           + "because a stretch child's sizeDelta is an inset pair and collapsing its "
                           + "anchors without this leaves it 0x0. THE ANCHOR, DERIVED NOT DIALLED: "
@@ -905,6 +1116,20 @@ internal static class EnchantressComposite
                           + "fuse has nothing of ours to count and the DOUBLE HOST audit has nothing "
                           + "to find. The party display simply fits with one fewer sub-view until the "
                           + "list is handed back.");
+    }
+
+    /// <summary>The list's ancestry, root first, as a slash path — the exact form of "inside" that
+    /// uGUI draws by, so the falsifier's <c>inShopTree</c> bool and this string are the same fact
+    /// stated twice, once as a verdict and once as the evidence for it. Capped so a deep prefab
+    /// cannot turn one log line into a paragraph.</summary>
+    private static string ParentChain(Transform node)
+    {
+        const int MaxLevels = 8;
+        string path = node.name;
+        int levels = 0;
+        for (Transform? t = node.parent; t != null && levels < MaxLevels; t = t.parent, levels++)
+            path = t.name + "/" + path;
+        return levels >= MaxLevels ? "…/" + path : path;
     }
 
     /// <summary>One WAIT line per distinct reason, at Info. A precondition that is not yet true is a
@@ -987,13 +1212,17 @@ internal static class EnchantressComposite
         bool ok = inShopTree && !inCharTree && insideShop == 4 && insideChar == 0 && active && sized;
 
         string measured =
-            $"card list '{list.name}' {size.x:F0}x{size.y:F0} px at scale {_lastScale:F3}, "
+            $"THE REFERENCE THAT ANSWERED — {_listSource}; card list '{list.name}' "
+            + $"{size.x:F0}x{size.y:F0} px at scale {_lastScale:F3}, "
             + $"activeInHierarchy={active}; parented inside enchantress window '{shop.name}' "
             + $"(ID {shop.ID}, rect {shopRect.width:F0}x{shopRect.height:F0} px)={inShopTree}; "
             + $"parented inside character UI '{_homeWindowName}'={inCharTree}; {insideShop} of its 4 "
             + $"world corners fall inside the enchantress window's rect (± {ContainTolerancePx:F0} px) "
             + $"and {insideChar} of 4 fall inside the character UI's rect within "
-            + $"{CharacterUiPlaneDepthPx:F0} px of its plane; the slot it was placed in measured "
+            + $"{CharacterUiPlaneDepthPx:F0} px of its plane; ITS PARENT CHAIN is {ParentChain(list)}; "
+            + $"it is centred at ({list.anchoredPosition.x:F0},{list.anchoredPosition.y:F0}) in that "
+            + $"window's local px and carries layer {list.gameObject.layer} against the destination "
+            + $"root's own layer {win.gameObject.layer}; the slot it was placed in measured "
             + $"{_lastSlot.x:F0}x{_lastSlot.y:F0} px and the placement basis was — {_poseBasis}";
 
         string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";

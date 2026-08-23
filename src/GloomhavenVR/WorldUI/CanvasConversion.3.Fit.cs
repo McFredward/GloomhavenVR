@@ -5135,9 +5135,11 @@ internal static partial class CanvasConversion
     //   agree by construction — and it would also un-clamp the supersample capture frame that is
     //   currently cropping this window. It was rejected because of what the host rect IS to
     //   everything else: ApplyFitConverging re-centres the target by -center on every applied fit,
-    //   the close-X rides the host's top-right corner, GrabbableModal sizes its grab bar from
-    //   `_panel.HostRect.rect` (GrabbableModal.cs:319), and MapRoom slots the window by the
-    //   angular width that rect subtends. The swap panel opens and closes on every item the player
+    //   the close-X rides the host's top-right corner, GrabbableModal CAPS its grab bar at a
+    //   fraction of `_panel.HostRect.rect` (since ModBuild 236 the bar is PLACED against the drawn
+    //   ink, but the frame is still the ceiling on its width and the floor under its Y), and
+    //   MapRoom slots the window by the angular width that rect subtends. The swap panel opens and
+    //   closes on every item the player
     //   swaps, so growing the host would slide the window ~185 px sideways under his hands, move
     //   the X and re-size the grab bar, once per swap — on a window whose pose the log explicitly
     //   calls PLAYER-OWNED after a grab. The shrink damping (FitStableSeconds +
@@ -5671,7 +5673,10 @@ internal static partial class CanvasConversion
             + "means this window changed nothing and behaves exactly as before. 'LARGER = the "
             + "content' means the game drew outside the window's own RectTransform (it does NOT "
             + "resize that rect) and the interactive area followed it; the window's visible frame, "
-            + "its close-X and its grab bar all still ride the HOST rect and did not move. If the "
+            + "its close-X and the hit rect's own contract all still ride the HOST rect. The GRAB "
+            + "BAR no longer does: since ModBuild 236 it is placed under the LOWEST DRAWN GRAPHIC "
+            + "and centred on the drawn ink, so on a window with overspill it moves down and in — "
+            + "see the GRAB BAR CLEARS THE INK line for the same window. If the "
             + "user reports dead input on a window, this line says whether the mod believed the "
             + "content was there at all: a hit rect equal to the host rect on a window that "
             + "visibly extends past it means the extension failed the visibility test (culled, "
