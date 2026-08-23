@@ -347,9 +347,28 @@ internal static partial class VROptionsTab
                         new("RenderQuality", "EyeResolutionScale", "vr_o_eyeres"),
                         new("RenderQuality", "MsaaLevel", "vr_o_msaa"),
                         new("RenderQuality", "ForceAnisotropic", "vr_o_aniso"),
-                        // Ruling 19: the pixel-light cap is a visible look-vs-frames trade the
-                        // game itself never exposes in VR.
-                        new("RenderQuality", "PixelLightCount", "vr_o_pixellights"),
+                        // [RenderQuality] PixelLightCount STOOD HERE under ruling 19 ("the
+                        // pixel-light cap is a visible look-vs-frames trade the game itself never
+                        // exposes in VR"). IT IS OFF THE CURATED PAGE SINCE 2026-08-23, by a newer
+                        // ruling from the same player, verbatim: "Die Pixellichter option ist zu
+                        // gefährlich für normale Nutzer, sie sollte in Erweitert verschwinden und
+                        // per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein."
+                        // Both halves shipped together: Defaults.PixelLightCount is 0 now and all
+                        // four entries of RenderQuality.Presets carry 0, so the everyday player
+                        // already HAS the cheap setting and never has to find this row — while
+                        // raising it, which is the dangerous direction, costs one navigation level.
+                        //
+                        // NOTHING IS LOST AND NOTHING HAD TO MOVE, and unlike the notes below this
+                        // was VERIFIED rather than trusted: ConfigCatalog enumerates every BOUND
+                        // entry of every module file (Rebuild → Describe) and filters on exactly two
+                        // things, IsRetired (a description prefix marker this entry does not carry)
+                        // and the NotOffered table (which holds no RenderQuality key). The module is
+                        // "rig" — [RenderQuality] rides dev.gloomhavenvr.rig.cfg — so TopicOf sends
+                        // it to ConfigTopic.Visual, i.e. Erweitert ▸ "Bild & Darstellung", under the
+                        // "cfg_sec_renderquality" heading its six siblings already produce (well
+                        // past ConfigCatalog.MinClusterSize, so it is a heading of its own and not
+                        // the "Allgemein" collector). Its stepper is unchanged: ConfigSteps keeps
+                        // ["RenderQuality/PixelLightCount"] = 1d, a light at a time.
                         // FOUR ROWS, ONE FAMILY, AND THAT IS THE WHOLE SECTION NOW. Everything
                         // below this line used to be in it; see the tab header for where each part
                         // went and why.

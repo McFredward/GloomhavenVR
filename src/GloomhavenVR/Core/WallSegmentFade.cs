@@ -2318,6 +2318,14 @@ internal static partial class WallSegmentFade
         /// or a reused snapshot), how the frame budget was spent, and the worst single frame
         /// any stage of the pipeline cost in the window. That last number is the one the
         /// integrator reads against [Perf] STEPS' 'WallFade.Rescan' worst field.
+        ///
+        /// <para>PERF S3 (2026-08-23): the line now also carries the COMMIT's phase breakdown.
+        /// The ModBuild 228 log proved the sweep (4.19 ms, rare) and the census (1.5 ms/frame
+        /// over 12–18 frames) are both fine and that the whole remaining 82–97 ms stall is the
+        /// commit — but it could not say WHICH of the commit's twenty-three phases, because
+        /// there was one number for all of them. That is the instrument blind spot this project
+        /// keeps paying for, so the breakdown is part of the same line rather than a separate
+        /// one that a capture might not have on. See WallSegmentFade.CommitPhases.cs.</para>
         /// </summary>
         private void LogRescanBudget(float now)
         {
@@ -2325,19 +2333,22 @@ internal static partial class WallSegmentFade
                 return;
             _budgetLoggedOnce = true;
             _nextBudgetLogTime = now + BudgetLogIntervalSeconds;
-            VRLog.Info(Name,
-                $"BUDGET: {_cycleCount} rescan cycle(s) completed since the last line — "
-                + $"{_factCount} scene renderer(s) classified per cycle, {_cycleSweeps} of them "
-                + $"from a FRESH FindObjectsOfType<Renderer> sweep (worst "
-                + $"{_cycleWorstSweepMillis:F2}ms) and the rest from the reused snapshot "
-                + $"(structural signature unchanged, age cap {SnapshotMaxAgeSeconds:0.0}s); "
-                + $"census spread over {_cycleClassifyFrames} frame(s) at "
-                + $"{ClassifyBudgetMillis:0.0}ms/frame ({ClassifyUrgentBudgetMillis:0.0}ms on a "
-                + $"room-reveal edge); {_factWallFade.Count} fade-capable + {_factWater.Count} "
-                + $"water renderer(s) indexed; WORST COMMIT {_cycleWorstCommitMillis:F2}ms, "
-                + $"WORST SINGLE FRAME across all stages {_cycleWorstFrameMillis:F2}ms. "
-                + "Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: "
-                + "WallFade.Rescan 118.174ms avg, worst 141.18ms, 15 stalls per 30s window).");
+            var sb = new System.Text.StringBuilder(1024);
+            sb.Append($"BUDGET: {_cycleCount} rescan cycle(s) completed since the last line — ")
+              .Append($"{_factCount} scene renderer(s) classified per cycle, {_cycleSweeps} of them ")
+              .Append("from a FRESH FindObjectsOfType<Renderer> sweep (worst ")
+              .Append($"{_cycleWorstSweepMillis:F2}ms) and the rest from the reused snapshot ")
+              .Append($"(structural signature unchanged, age cap {SnapshotMaxAgeSeconds:0.0}s); ")
+              .Append($"census spread over {_cycleClassifyFrames} frame(s) at ")
+              .Append($"{ClassifyBudgetMillis:0.0}ms/frame ({ClassifyUrgentBudgetMillis:0.0}ms on a ")
+              .Append($"room-reveal edge); {_factWallFade.Count} fade-capable + {_factWater.Count} ")
+              .Append($"water renderer(s) indexed; WORST COMMIT {_cycleWorstCommitMillis:F2}ms, ")
+              .Append($"WORST SINGLE FRAME across all stages {_cycleWorstFrameMillis:F2}ms.");
+            AppendCommitPhaseBreakdown(sb);
+            sb.Append(" Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: ")
+              .Append("WallFade.Rescan 118.174ms avg, worst 141.18ms, 15 stalls per 30s window); ")
+              .Append("ModBuild 228 still measured WORST COMMIT 96.81ms.");
+            VRLog.Info(Name, sb.ToString());
             _cycleCount = 0;
             _cycleSweeps = 0;
             _cycleClassifyFrames = 0;
@@ -2355,10 +2366,139 @@ internal static partial class WallSegmentFade
             finally { EndFigureMemo(); }
         }
 
+        /// <summary>
+        /// THE COMMIT. Every mutation of the segment table lives below this line, in the order
+        /// the comments at each call site justify — and that order is load-bearing several
+        /// times over (figures first so nothing can re-take an actor renderer; the water rects
+        /// before every adoption pass; the mounted pass last because its rule needs the final
+        /// AABBs). Nothing here may be reordered for cost.
+        ///
+        /// <para>PERF S3 (2026-08-23): the body that used to be one 300-line method is now
+        /// twenty-three named phases, each in its own <see cref="CommitPhase"/> scope. The
+        /// phases are EXACTLY the statements that were here — the five that were written inline
+        /// (<see cref="CommitTileAnchors"/>, <see cref="CommitRoomRegistry"/>,
+        /// <see cref="CommitDeadSegments"/>, <see cref="CommitWallCache"/>,
+        /// <see cref="CommitDoorRoots"/>) were lifted into methods verbatim so they could carry
+        /// a scope, and the other eighteen were already calls. No statement moved past another
+        /// one. See WallSegmentFade.CommitPhases.cs for why the measurement had to come before
+        /// the fix.</para>
+        /// </summary>
         private void RescanCore(TilesOcclusionGenerator gen)
         {
-            // Figures first (round 7): nothing below may keep or re-take an actor renderer.
-            PurgeFigureRenderers();
+            BeginCommitPhases();
+            try
+            {
+                // Figures first (round 7): nothing below may keep or re-take an actor renderer.
+                using (Phase(CommitPhase.Figures))
+                    PurgeFigureRenderers();
+                using (Phase(CommitPhase.TileAnchors))
+                    CommitTileAnchors();
+                using (Phase(CommitPhase.RoomRegistry))
+                    CommitRoomRegistry(gen);
+                using (Phase(CommitPhase.DeadSegments))
+                    CommitDeadSegments();
+                using (Phase(CommitPhase.WallCache))
+                    CommitWallCache();
+                using (Phase(CommitPhase.Doors))
+                    CommitDoorRoots();
+                // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
+                // like any wall — only the arch rect stays solid. Seeded before the adoption/
+                // stacked passes so they see the gate's bounds and face domain.
+                using (Phase(CommitPhase.GateSeed))
+                    SeedGateColumns(_doorPropScratch);
+                // Second discovery source: ADOPT every other fade-capable renderer in the scene.
+                // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
+                // Mauern — dort werden sie nicht mehr ausgeblendet"): advanced tilesets ship wall
+                // meshes as map-tile geometry, not as ProceduralWall entities, so the wall cache
+                // never listed them — yet their materials run the same WallFade shader family,
+                // because that is how the FLAT game fades them. The shader is the game's own
+                // definition of "this is a fadeable wall", so it is our discovery key too.
+                // PERF S2: the scene sweep AND the per-renderer classification both happened HERE
+                // until 2026-08-23 — one FindObjectsOfType<Renderer> plus four full walks of the
+                // resulting 8630-entry array, 118 ms on one frame every two seconds. The sweep now
+                // runs in BeginRescanCycle (rarely) and the classification in ClassifySlice (spread
+                // over frames); this pass and the three below read the finished RendererFact table.
+                // Nothing about WHICH renderers they see changed — see the PERF S2 note by the
+                // table's declaration for the argument, predicate by predicate.
+                using (Phase(CommitPhase.Adopt))
+                    AdoptShaderMatchedWalls();
+                // WATER FEATURES (user ruling 2026-08-09, brunnen.png — "lass den Brunnen niemals
+                // faden"): rebuild the fountain/pond protection rects BEFORE the ground strip and
+                // every adoption pass, so no pass can ever see a fountain's basin as fadeable and
+                // leave its water plane hanging in mid-air. See WallSegmentFade.Water.cs.
+                using (Phase(CommitPhase.Water))
+                    CollectWaterFeatures();
+
+                using (Phase(CommitPhase.Samples))
+                    RebuildSamples();
+                using (Phase(CommitPhase.Rooms))
+                    AssociateRooms();
+                using (Phase(CommitPhase.Ground))
+                    StripGroundRenderers();
+                using (Phase(CommitPhase.Engulf))
+                    NeutralizeEngulfingSegments();
+                // Second ground pass ON PURPOSE: NeutralizeEngulfingSegments creates fresh
+                // per-renderer segments AFTER the first strip, so a ground-level renderer inside a
+                // just-split group would otherwise be fade-eligible for one full rescan interval —
+                // exactly the "floor vanishes at the wall's foot" class. The pass is idempotent and
+                // the table is ~tens of segments, so running it twice is noise.
+                using (Phase(CommitPhase.Ground2))
+                    StripGroundRenderers();
+                // Fort/keep superstructures (WallSegmentFade.Stacked.cs): AFTER ground strip +
+                // engulf neutralization (needs the final base AABBs and room grids), BEFORE the
+                // mounted pass (which must see the EXTENDED AABBs so torches hanging on the shell
+                // attach to the same wall the shell rides).
+                using (Phase(CommitPhase.Stacked))
+                    CollectStackedShellPieces();
+                // PROP UNIT COHESION (user report 2026-08-19, skelet.jpg — "Der Kopf des Skeletts wird
+                // immer noch ausgeblendet"): the statue's skull sat in one wall unit's renderer list
+                // and its body in another's, and the two walls fade independently, so the statue was
+                // decapitated. Regroup every multi-part prop and give each unit ONE owner. HERE on
+                // purpose: after every pass that can put a renderer into a segment (so all the claims
+                // are in), and BEFORE the sibling and mounted passes, so both of those see the
+                // corrected lists — including the mounted pass's ownership table, whose NEAR-MISS
+                // census is what reported this defect. See WallSegmentFade.PropUnit.cs.
+                using (Phase(CommitPhase.PropUnits))
+                    EnforcePropUnitCohesion();
+                using (Phase(CommitPhase.Siblings))
+                    CollectAdoptedSiblings();
+                // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
+                // plane + hugging the wall slab), so it needs the FINAL segment table, their room
+                // association and their ground-stripped (now shell-extended) AABBs.
+                using (Phase(CommitPhase.Mounted))
+                    CollectWallMountedProps();
+                // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
+                // final table and the room labels (part of the key derivation).
+                using (Phase(CommitPhase.WireKeys))
+                    ComputeWireKeys();
+                // Gate-lift links (round 12): bind embedding walls to their gate columns.
+                using (Phase(CommitPhase.GateLift))
+                    LinkGateLifts();
+                // ROUND-14 BOUNDS GUARANTEE, deliberately LAST: no gate column may leave a rescan
+                // without a decision AABB — a boundless segment is one the coverage decision cannot
+                // reach, and an unreachable segment can hold its pieces hidden forever.
+                using (Phase(CommitPhase.GateBounds))
+                    EnsureGateBounds();
+                // The standing-prop proof line, after every collection pass has run so its "claims
+                // refused" count is the rescan's total (WallSegmentFade.Standing.cs).
+                using (Phase(CommitPhase.StandCensus))
+                    LogStandingPropCensus();
+                // The prop-unit proof line, for the same reason and in the same place: emitted after
+                // the pass has run, so every number in it is an outcome (WallSegmentFade.PropUnit.cs).
+                using (Phase(CommitPhase.UnitCensus))
+                    LogPropUnitCensus();
+            }
+            finally
+            {
+                // In a finally so a throwing phase still leaves the window arithmetic consistent
+                // — a diagnostic that lies after an exception is worse than none.
+                EndCommitPhases();
+            }
+        }
+
+        /// <summary>COMMIT PHASE 2 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
+        private void CommitTileAnchors()
+        {
             // Tile-plane anchors (round 7): each TilesOcclusionVolume knows its room's
             // renderers AND its CentralTile, whose transform sits ON the tile plane. The
             // renderer bounds are only trusted for the XZ footprint — their Y is the
@@ -2408,7 +2548,11 @@ internal static partial class WallSegmentFade
                     }
                 }
             }
+        }
 
+        /// <summary>COMMIT PHASE 3 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
+        private void CommitRoomRegistry(TilesOcclusionGenerator gen)
+        {
             // LOGICAL ROOM GROUPING (round 4): the keep ships ONE game room as SIX occlusion
             // sub-volumes ('Volume_1..6', all under map tile 'E', same CMap); treating each
             // volume renderer as its own room split the room's floor grid six ways, walls
@@ -2526,7 +2670,11 @@ internal static partial class WallSegmentFade
                 _roomCenter = combined;
                 _roomCenterInit = true;
             }
+        }
 
+        /// <summary>COMMIT PHASE 4 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
+        private void CommitDeadSegments()
+        {
             // Drop segments whose anchor died (their renderers died with them). Attachments may
             // OUTLIVE the anchor (a split piece's asset siblings live in a different subtree),
             // so restore them first — a hidden door whose owner segment vanished would otherwise
@@ -2546,7 +2694,11 @@ internal static partial class WallSegmentFade
             }
             foreach (Component dead in _deadKeys)
                 _segments.Remove(dead);
+        }
 
+        /// <summary>COMMIT PHASE 5 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
+        private void CommitWallCache()
+        {
             // STANDING PROPS (user report 2026-08-15, skelet.jpg): open a fresh verdict scope
             // for this rescan. Deliberately HERE — after the room registry has its anchored
             // floor planes (the rule measures a prop's foot against them) and before the first
@@ -2578,7 +2730,11 @@ internal static partial class WallSegmentFade
                 foreach (MeshRenderer r in seg.Renderers)
                     _claimedRenderers.Add(r);
             }
+        }
 
+        /// <summary>COMMIT PHASE 6 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
+        private void CommitDoorRoots()
+        {
             // Doorway registry (recognition only — doorways never fade, user ruling
             // 2026-08-02): the live door props, refreshed before the adoption sweep so
             // FindDoorwayRoot can re-anchor frame/pillar renderers per door.
@@ -2591,77 +2747,6 @@ internal static partial class WallSegmentFade
                 if (dp != null)
                     _doorRoots.Add(dp.transform);
             }
-            // GATE COLUMNS (user ruling 2026-08-07): the wall EMBEDDING each doorway fades
-            // like any wall — only the arch rect stays solid. Seeded before the adoption/
-            // stacked passes so they see the gate's bounds and face domain.
-            SeedGateColumns(_doorPropScratch);
-
-            // Second discovery source: ADOPT every other fade-capable renderer in the scene.
-            // The user report behind this ("fortgeschritteneres Szenario mit ganz anderen
-            // Mauern — dort werden sie nicht mehr ausgeblendet"): advanced tilesets ship wall
-            // meshes as map-tile geometry, not as ProceduralWall entities, so the wall cache
-            // never listed them — yet their materials run the same WallFade shader family,
-            // because that is how the FLAT game fades them. The shader is the game's own
-            // definition of "this is a fadeable wall", so it is our discovery key too.
-            // PERF S2: the scene sweep AND the per-renderer classification both happened HERE
-            // until 2026-08-23 — one FindObjectsOfType<Renderer> plus four full walks of the
-            // resulting 8630-entry array, 118 ms on one frame every two seconds. The sweep now
-            // runs in BeginRescanCycle (rarely) and the classification in ClassifySlice (spread
-            // over frames); this pass and the three below read the finished RendererFact table.
-            // Nothing about WHICH renderers they see changed — see the PERF S2 note by the
-            // table's declaration for the argument, predicate by predicate.
-            AdoptShaderMatchedWalls();
-
-            // WATER FEATURES (user ruling 2026-08-09, brunnen.png — "lass den Brunnen niemals
-            // faden"): rebuild the fountain/pond protection rects BEFORE the ground strip and
-            // every adoption pass, so no pass can ever see a fountain's basin as fadeable and
-            // leave its water plane hanging in mid-air. See WallSegmentFade.Water.cs.
-            CollectWaterFeatures();
-
-            RebuildSamples();
-            AssociateRooms();
-            StripGroundRenderers();
-            NeutralizeEngulfingSegments();
-            // Second ground pass ON PURPOSE: NeutralizeEngulfingSegments creates fresh
-            // per-renderer segments AFTER the first strip, so a ground-level renderer inside a
-            // just-split group would otherwise be fade-eligible for one full rescan interval —
-            // exactly the "floor vanishes at the wall's foot" class. The pass is idempotent and
-            // the table is ~tens of segments, so running it twice is noise.
-            StripGroundRenderers();
-            // Fort/keep superstructures (WallSegmentFade.Stacked.cs): AFTER ground strip +
-            // engulf neutralization (needs the final base AABBs and room grids), BEFORE the
-            // mounted pass (which must see the EXTENDED AABBs so torches hanging on the shell
-            // attach to the same wall the shell rides).
-            CollectStackedShellPieces();
-            // PROP UNIT COHESION (user report 2026-08-19, skelet.jpg — "Der Kopf des Skeletts wird
-            // immer noch ausgeblendet"): the statue's skull sat in one wall unit's renderer list
-            // and its body in another's, and the two walls fade independently, so the statue was
-            // decapitated. Regroup every multi-part prop and give each unit ONE owner. HERE on
-            // purpose: after every pass that can put a renderer into a segment (so all the claims
-            // are in), and BEFORE the sibling and mounted passes, so both of those see the
-            // corrected lists — including the mounted pass's ownership table, whose NEAR-MISS
-            // census is what reported this defect. See WallSegmentFade.PropUnit.cs.
-            EnforcePropUnitCohesion();
-            CollectAdoptedSiblings();
-            // LAST on purpose: the mounted-dressing rule is geometric (airborne over the room
-            // plane + hugging the wall slab), so it needs the FINAL segment table, their room
-            // association and their ground-stripped (now shell-extended) AABBs.
-            CollectWallMountedProps();
-            // MP sync (record 17): refresh every segment's cross-machine wire key — needs the
-            // final table and the room labels (part of the key derivation).
-            ComputeWireKeys();
-            // Gate-lift links (round 12): bind embedding walls to their gate columns.
-            LinkGateLifts();
-            // ROUND-14 BOUNDS GUARANTEE, deliberately LAST: no gate column may leave a rescan
-            // without a decision AABB — a boundless segment is one the coverage decision cannot
-            // reach, and an unreachable segment can hold its pieces hidden forever.
-            EnsureGateBounds();
-            // The standing-prop proof line, after every collection pass has run so its "claims
-            // refused" count is the rescan's total (WallSegmentFade.Standing.cs).
-            LogStandingPropCensus();
-            // The prop-unit proof line, for the same reason and in the same place: emitted after
-            // the pass has run, so every number in it is an outcome (WallSegmentFade.PropUnit.cs).
-            LogPropUnitCensus();
         }
 
         /// <summary>A renderer whose AABB TOP reaches no higher than this above its room's floor
@@ -3692,6 +3777,7 @@ internal static partial class WallSegmentFade
         private static void BeginFigureMemo()
         {
             FigureAncestryMemo.Clear();
+            GameLogicAncestryMemo.Clear();
             _figureMemoActive = true;
         }
 
@@ -3699,6 +3785,7 @@ internal static partial class WallSegmentFade
         {
             _figureMemoActive = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
+            GameLogicAncestryMemo.Clear();
         }
 
         /// <summary>Does this transform or any ancestor carry one of the figure components?
@@ -3713,6 +3800,55 @@ internal static partial class WallSegmentFade
             Transform? parent = t.parent;
             bool verdict = here || (parent != null && FigureAncestry(parent));
             FigureAncestryMemo[t] = verdict;
+            return verdict;
+        }
+
+        /// <summary>
+        /// "Is this renderer LIVE GAME LOGIC or WORLDSPACE UI?" — the second ancestry question
+        /// every adoption sweep asks, and until PERF S3 the only one that was not memoised.
+        ///
+        /// <para>THE CALL SITES, verbatim, all five of them:
+        /// <c>c.GetComponentInParent&lt;TileBehaviour&gt;() != null ||
+        /// c.GetComponentInParent&lt;Canvas&gt;() != null</c> — the stacked-shell adoption rounds
+        /// and corner collection (<c>WallSegmentFade.Stacked.cs</c>, four sites across the
+        /// rescan pass and the fast-reclaim pass) and the mounted-dressing sweep
+        /// (<c>WallSegmentFade.Mounted.cs</c>). Each of those runs the pair over a candidate set
+        /// that scales with the scene, and each pair is two ancestor walks to the scene root.</para>
+        ///
+        /// <para>WHY THE VERDICT IS UNCHANGED. Identical to the argument for
+        /// <see cref="FigureAncestryMemo"/>, term for term: the question is a property of the
+        /// CHAIN, so a transform's answer is its own components OR its parent's answer; the memo
+        /// is only consulted for a renderer whose chain is fully active (which is when
+        /// <c>GetComponentInParent&lt;T&gt;()</c>'s implicit active-only qualifier is vacuous),
+        /// and only inside the SAME <see cref="BeginFigureMemo"/>/<see cref="EndFigureMemo"/>
+        /// window, which brackets one synchronous pass during which no game code runs and
+        /// nothing can be re-parented. Anything else takes the two original calls.</para>
+        ///
+        /// <para>The third clause those call sites carry — <c>GetComponent&lt;TMP_Text&gt;()</c>
+        /// — is a question about the renderer's OWN GameObject, not its ancestry, and is left
+        /// exactly where it is.</para>
+        /// </summary>
+        private static readonly Dictionary<Transform, bool> GameLogicAncestryMemo = new(1024);
+
+        /// <summary>Does this renderer sit under a <c>TileBehaviour</c> (live game logic) or a
+        /// <c>Canvas</c> (worldspace UI)? See <see cref="GameLogicAncestryMemo"/>.</summary>
+        private static bool HasGameLogicAncestry(Component c)
+        {
+            if (_figureMemoActive && c.gameObject.activeInHierarchy)
+                return GameLogicAncestry(c.transform);
+            return c.GetComponentInParent<TileBehaviour>() != null
+                || c.GetComponentInParent<Canvas>() != null;
+        }
+
+        private static bool GameLogicAncestry(Transform t)
+        {
+            if (GameLogicAncestryMemo.TryGetValue(t, out bool cached))
+                return cached;
+            bool here = t.GetComponent<TileBehaviour>() != null
+                || t.GetComponent<Canvas>() != null;
+            Transform? parent = t.parent;
+            bool verdict = here || (parent != null && GameLogicAncestry(parent));
+            GameLogicAncestryMemo[t] = verdict;
             return verdict;
         }
 

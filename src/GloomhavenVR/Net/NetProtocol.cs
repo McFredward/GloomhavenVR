@@ -416,7 +416,118 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 228;
+    public const ushort ModBuild = 229;
+    // Build 229: THE ROUND WHERE THREE OF MY OWN ANSWERS TURNED OUT TO BE HALF-ANSWERS.
+    // NO WIRE CHANGE. Bundle untouched (70,218,494 bytes, unchanged since 172). Three lanes on
+    // disjoint files. Every finding below was read out of the ModBuild 228 hardware log, not
+    // reasoned from the source — this build's job was to stop guessing on three open questions.
+    //
+    //   1. "FANTASTISCH IS SOFTER THAN SCHÖN" IS UNITY'S TEXTURE STREAMING, AND THE LOG PROVES IT
+    //   THREE TIMES. The user reported the HIGHER game preset looking worse. QualitySettings'
+    //   streamingMipmapsActive is a PER-QUALITY-LEVEL setting the game's own quality asset carries,
+    //   and the log correlates it with the game's SetQualityLeve line in a clean A-B-A-B:
+    //     1649 Fantastic → 4629 streamingMipmaps=True budget=900MB maxLevelReduction=2
+    //    10636 Beautiful → 10873 streamingMipmaps=False
+    //    11451 Fantastic → 11499 streamingMipmaps=True
+    //    12008 Beautiful → 12279 streamingMipmaps=False (and stays)
+    //   Three transitions, all one direction. While it was on, [Perf] TEX read 47 of 47 streamed
+    //   textures in view BELOW their desired mip level (17 of 21 in another window). That is not a
+    //   budget slightly too tight; that is the scheduler not delivering here at all. masterTextureLimit
+    //   read 0 and anisotropy ForceEnable throughout — both already forced by this mod since 228 —
+    //   so streaming was the ONLY texture dial left that differs between the two presets.
+    //   SHIPS: [RenderQuality] ForceTextureStreamingOff (default ON, re-asserted per frame because
+    //   the game rewrites it on every quality swap) and TextureStreamingBudgetMB (4096, the soft
+    //   half, raise-only, consulted only when the force row is off). Costs VRAM, never frame time:
+    //   mip 0 ships inside the texture either way and a resident mip is not sampled more often,
+    //   only from a different level. [Perf] TEX now separates "off because the game says so" from
+    //   "off because this mod turned it off" so the next log cannot misread its own remedy.
+    //
+    //   2. THE FLICKER AT CAP 0: MY 228 REMEDY KNEW ONE WRITER AND THERE ARE AT LEAST FOUR.
+    //   The 228 watcher answered its question — 0 activation flips, 0 enable flips, 0 shadow-flag
+    //   changes in every window, which falsifies DynamicAmbience and ProceduralMapTile.ShowContent.
+    //   But the user ran FlickerDamping at 0, which makes LightFlicker provably inert on intensity
+    //   (decompiled ThirdParty/LightFlicker.cs:47, intensity = initialValue + noise * amount), and
+    //   the watcher STILL counted 10..148 intensity moves per 15 s window at 6..22 % after that
+    //   point (Player.log:17090 sets 0 %, :17897 reads 148 moves). So other writers exist:
+    //   UnityStandardAssets.Effects/FireLight.cs:23 (2f * PerlinNoise, NO amplitude field at all),
+    //   RFX4_ParticleLight.cs:51, RFX4_LightCurves.cs:38. And LightFlicker.cs:52-56 writes POSITION
+    //   independently of amount, which 228 never damped.
+    //   WHAT THE PICTURE DOES, measured from his video at 30 fps in the stillest window: a whole
+    //   terrain patch steps 51→60→51 (~18 %) and holds for 1..5 frames while a neighbouring block
+    //   ramps smoothly. A smooth input producing a discontinuous output is the FOUR-VERTEX-SLOT
+    //   signature: at cap 0 every renderer gets 4 slots plus SH, re-ranked every frame, and a 20 %
+    //   wobble on a near-tied pair swaps the 4th slot outright. So the cure is not "less flicker" —
+    //   it is that the RANKING INPUTS stop moving.
+    //   SHIPS: the damper OWNS THE FINAL VALUE in LateUpdate instead of editing any writer's field
+    //   (concede the flag, own the number). out = baseline + (raw - baseline) * FlickerDamping, with
+    //   the baseline an exponential rolling average advanced from the RAW value at k = 1-e^(-dt/tau),
+    //   tau = [Lights] StabiliserResponseSeconds (0.75 s). Position damped the same way on
+    //   localPosition, skipped for any frame the parent moved and released permanently for a light
+    //   whose baseline travels > 0.25 wu. FlickerDamping default 0.25 → 0.0: 34 of the 46 flicker
+    //   components carry no Light at all and animate only a MESH, so the fire still breathes.
+    //   Exclusions are three NAMED, CITED rules (own RFX4_* script; immediate parent is
+    //   RFX4_ParticleLight, which builds its lights as bare GameObjects with no script of their own,
+    //   RFX4_ParticleLight.cs:29-36; immediate parent is CharacterRevealScript, whose :72 is `+=`
+    //   and would integrate our output into its own state) — deliberately NOT ancestor-ParticleSystem
+    //   containment, which would have exempted the very torch lights the report is about.
+    //   TWO 228 DEFECTS FOUND WHILE REWRITING: ApplyPinning only iterated ENABLED lights, so a
+    //   pinned light that went inactive was never unpinned and leaked its pin forever; and the census
+    //   read the LIVE renderMode, i.e. its own writes, which is why "authored ForcePixel" climbed
+    //   1→4. Both fixed; the honest reading of that scene is 0 authored ForcePixel. The pin now has
+    //   hysteresis (1.5x score AND 20 s dwell, one swap per scan) and its shadow casting is forced
+    //   off for the duration — 228's census called that "buys a shadow map back" as if it were a
+    //   feature; it was the exact cost cap 0 exists to escape.
+    //   THE WATCHER NOW PRINTS BOTH COLUMNS — raw moves and RESIDUAL moves after damping, same 5 %
+    //   definition as 228 so the two logs compare line for line — plus the loudest movers with the
+    //   scripts on their own GameObject, and how many light-frames were skipped by warm-up versus by
+    //   an exclusion rule. A permanently-warming-up population can no longer pass for a working
+    //   damper.
+    //
+    //   3. THE PER-PIXEL LIGHT CAP IS 0 EVERYWHERE AND OFF THE FRONT PAGE. User ruling, verbatim:
+    //   "Die Pixellichter option ist zu gefährlich für normale Nutzer, sie sollte in Erweitert
+    //   verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein."
+    //   Defaults.PixelLightCount -1 → 0 (pinned against rebase-defaults, because his tuned cfg
+    //   snapshot predates the ruling), all four RenderQuality.Presets carry PixelLights 0, and the
+    //   curated Bild row is removed so ConfigCatalog puts the key on Erweitert (VERIFIED through
+    //   Rebuild→Describe→TopicOf rather than trusted from the file's own comment). Consequence
+    //   written down rather than engineered away: the cap no longer distinguishes presets, but
+    //   CurrentPresetIndex still compares it, so a hand-raised cap correctly reads back as "Eigene".
+    //   NOTE THIS PUTS LightStabiliser ON THE EVERYDAY PATH — it is gated on the effective cap being
+    //   exactly 0, which until now only two presets produced.
+    //
+    //   4. A CORRECTION I OWE: THE WALL-FADE STALL I REPORTED FIXED IN 227 IS 28 % FIXED. The class's
+    //   own BUDGET line reads WORST COMMIT 82..97 ms, roughly every 2 s, and [Perf] STEPS ranks
+    //   WallFade.Rescan first in the whole mod (83.375 ms avg, 15 frames per 30 s window). 227 sliced
+    //   the sweep (4 ms) and the classify pass (12-18 frames at 1.5 ms) and left the COMMIT atomic by
+    //   design (WallSegmentFade.cs:2097). That decision is the remaining lurch.
+    //   MY PREMISE FOR THE LANE WAS WRONG AND THE LANE CAUGHT IT: the two
+    //   FindObjectsOfType(includeInactive: true) at :3305 and :3403 are NOT on the commit path — both
+    //   are heartbeat-gated behind `!_heartbeatLogged && !PerfConfig.Quiet` and report as
+    //   WallFade.Census, which appears in 2 of 79 STEPS windows across 4 heartbeats in the session.
+    //   227 had already discharged that. THE REAL N IS NOT 848: the WALL-PATH AUDIT line counts
+    //   ~6,700 MeshRenderers walked per commit (12 native-name + 1256 toggle-native + 73 foliage +
+    //   2478 ground-band + 2843 standing-prop), and the commit's cost tracks the STANDING-PROP
+    //   population, not the fade-capable one — Rescan reads 12.460 ms at :7488 and 64.392 ms at :9623,
+    //   across which STANDING PROP goes 107 → 663 → 713.
+    //   SHIPS: RescanCore is now a 23-phase orchestrator, each phase in its own
+    //   PerfMonitor.Scope("WallFade.Commit.<Phase>") NESTED inside the load-bearing WallFade.Rescan
+    //   scope, and the BUDGET line names the top three phases plus the residual — so the next log is
+    //   the first that can say WHICH phase owns the frame. Plus two memoisations that change no
+    //   verdict: PropUnitRootOf's three per-node questions (its renderer-count cap is tested AFTER
+    //   the walk, so the expensive enumeration is always taken) and the TileBehaviour/Canvas ancestry
+    //   pair at five sites. THE COMMIT WAS DELIBERATELY NOT SLICED — a shadow-table double buffer
+    //   across 23 mutating phases is not a change to ship without hardware, and a correct 85 ms that
+    //   is finally attributable beats a broken 10 ms.
+    //
+    //   VERIFIED FROM THE 228 LOG, one open question closed: AutomaticLodIdleSkip took. Unity's
+    //   Update list in the scenario reads 415 entries against the 2,986 of the 227 reading, and the
+    //   LOD line reads `IDLE SKIP: 2019 newly disabled, 2560 held in total` — exactly the population
+    //   that returns on its own first statement. The mod is 11 of 415 Update entries (2.7 %).
+    //   STILL OPEN: [Perf] LOD measures the VR FOV penalty at 0.84x (tan(100.2/2)/tan(110.0/2)), so
+    //   every one of the 1,277 LODGroups switches to a coarser mesh that much earlier than authored.
+    //   Real, small, and deliberately not touched — cancelling it costs frame time in exactly the
+    //   scene that has none to spare.
+    //
     // Build 228: THE PIXEL-LIGHT ROUND — why the dial is so expensive, the flicker it brings at 0,
     // what really owns the game's per-frame list, and where "matschige Texturen" come from.
     // NO WIRE CHANGE. Bundle untouched. Four lanes on disjoint files.

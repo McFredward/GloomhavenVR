@@ -48,7 +48,16 @@ namespace GloomhavenVR.Core;
 /// the budget is tight, Unity keeps a texture at a lower <c>loadedMipmapLevel</c> than it wants and
 /// the surface is soft until it catches up — a defect that comes and goes with where the head is,
 /// which fits "manchmal matschig" precisely. Printed, with the count of textures whose loaded level
-/// is behind their desired one.</item>
+/// is behind their desired one.
+/// <para>THIS ONE WAS CONFIRMED BY THIS LINE AND IS NOW FIXED (ModBuild 229). The user's follow-up
+/// report — <i>"Die matschigen Texturen verschwinden, wenn ich in den Spiel-Grafik-Einstellungen
+/// 'Schön' statt 'Fantastisch' einstelle"</i> — matched this reading three times over in his
+/// ModBuild 228 log: every <c>SetQualityLeve(Fantastic)</c> was followed by
+/// <c>streamingMipmaps=True budget=900MB maxLevelReduction=2</c> and every
+/// <c>SetQualityLeve(Beautiful)</c> by <c>False</c>, and while it was True this line read 47 of 47
+/// (and 17 of 21) streamed textures BELOW their desired level. <c>Rig/RenderQuality</c> now holds
+/// streaming off by default, so the reading below states WHOSE setting it is looking at rather than
+/// letting the mod's own force read like the game's.</para></item>
 /// <item><b>NOT ENOUGH SOURCE TEXELS.</b> A 512² diffuse tiled once across a rock face that fills
 /// half a 3072x3264 eye is MAGNIFIED — the GPU is asked for more detail than exists in the file, and
 /// no filter, mip bias, MSAA or supersample setting can invent it. This is the case the user's
@@ -469,6 +478,25 @@ internal static class PerfTextureCensus
         {
             bool streaming = QualitySettings.streamingMipmapsActive;
             sb.Append(" | streamingMipmaps=").Append(streaming);
+
+            // WHOSE SETTING IS THIS? Since ModBuild 229 the mod itself can hold streaming off
+            // ([RenderQuality] ForceTextureStreamingOff, Rig/RenderQuality.ApplyTextureStreaming),
+            // and a bare "False" then reads exactly like the game's own choice — which would send
+            // the next reader looking for a game setting that is not the one in force. Both flags
+            // are read from the class that writes the field, so this clause reports state rather
+            // than inferring it.
+            bool forcedOff = false, forceRequested = false;
+            try
+            {
+                forcedOff = Rig.RenderQuality.TextureStreamingForcedOff;
+                forceRequested = Rig.RenderQuality.TextureStreamingForceRequested;
+            }
+            catch (Exception)
+            {
+                // The rig may not have bound its config yet (this line can run before the first
+                // Tick). Falling through leaves the neutral wording below, which claims nothing.
+            }
+
             if (streaming)
             {
                 sb.Append(" budget=").Append(QualitySettings.streamingMipmapsMemoryBudget.ToString("F0"))
@@ -476,11 +504,34 @@ internal static class PerfTextureCensus
                   .Append(" (ON — a starved budget holds textures BELOW their desired mip and the "
                           + "surface is soft until it catches up, which is what 'manchmal matschig' "
                           + "would look like; the population half counts how many are behind)");
+                if (forceRequested)
+                {
+                    sb.Append(" ⚠ AND THE MOD'S FORCE-OFF ROW IS ON: [RenderQuality] "
+                              + "ForceTextureStreamingOff is true, so the game has RE-ENABLED "
+                              + "streaming since the mod last asserted it — the game writes this "
+                              + "field from QualitySettings.SetQualityLevel on every quality swap. "
+                              + "The rig's per-frame re-assert turns it off again; what this reading "
+                              + "proves is that the swap happened, not that the force is broken (the "
+                              + "[Rig] TEXTURE STREAMING line names the budget it was found at)");
+                }
+            }
+            else if (forcedOff)
+            {
+                sb.Append(" (off BECAUSE THIS MOD TURNED IT OFF — [RenderQuality] "
+                          + "ForceTextureStreamingOff, asserted per frame by "
+                          + "Rig/RenderQuality.ApplyTextureStreaming. THIS IS NOT THE GAME'S OWN "
+                          + "SETTING: the game turns streaming ON at its 'Fantastic' quality level "
+                          + "and off at 'Beautiful'. Every mipped texture is resident in full here, "
+                          + "so streaming cannot be the cause of any softness on this line — and if "
+                          + "the surfaces are still soft, that is the measurement this force was "
+                          + "meant to produce: the cause is elsewhere on this line)");
             }
             else
             {
-                sb.Append(" (off — every mipped texture is resident in full, so streaming cannot be "
-                          + "the cause of an intermittent softness here)");
+                sb.Append(" (off, and the mod is not holding it off — this is the game's own state "
+                          + "for the quality level in force. Every mipped texture is resident in "
+                          + "full, so streaming cannot be the cause of an intermittent softness "
+                          + "here)");
             }
         }
         catch (Exception e)
@@ -606,11 +657,39 @@ internal static class PerfTextureCensus
         {
             sb.Append(" | STREAMING: ").Append(streamingTracked)
               .Append(" of them are streamed, ").Append(streamingBehind)
-              .Append(" currently BELOW their desired mip level")
-              .Append(streamingBehind > 0
-                  ? " ⇒ those are soft right now for a reason that has nothing to do with their "
-                    + "authored size, and raising the streaming budget is the fix"
-                  : " (none starved)");
+              .Append(" currently BELOW their desired mip level");
+            if (streamingBehind == 0)
+            {
+                sb.Append(" (none starved)");
+            }
+            else if (streamingBehind == streamingTracked)
+            {
+                // ALL OF THEM, WHICH IS A DIFFERENT FINDING FROM "MOST OF THEM". This clause says
+                // only what the two counts support: a budget that is merely tight starves the
+                // textures competing for the last few MB, not every single one in view. It does NOT
+                // claim to know WHY the system is not delivering here (the census cannot see the
+                // streaming scheduler, the camera set it resolves against, or whether the mip
+                // requests are even reaching it) — only that the two remedies are indistinguishable
+                // from where this line stands.
+                sb.Append(" ⇒ EVERY STREAMED TEXTURE IN VIEW IS BEHIND, not a few at the margin. A "
+                          + "budget that is merely tight starves the textures competing for the last "
+                          + "megabytes; all of them means the streaming system is not delivering "
+                          + "here at all. From this line the two remedies therefore look the same — "
+                          + "raising [RenderQuality] TextureStreamingBudgetMB and turning streaming "
+                          + "off with [RenderQuality] ForceTextureStreamingOff give the SAME picture "
+                          + "— and they differ only in how much VRAM stays held. WHY it is not "
+                          + "delivering is not visible from here; what is visible is that these "
+                          + "surfaces are soft for a reason that has nothing to do with their "
+                          + "authored size");
+            }
+            else
+            {
+                sb.Append(" ⇒ those are soft right now for a reason that has nothing to do with "
+                          + "their authored size. A PART of the population behind (rather than all "
+                          + "of it) is the shape of a budget that is too tight, so raising "
+                          + "[RenderQuality] TextureStreamingBudgetMB is the proportionate fix; "
+                          + "[RenderQuality] ForceTextureStreamingOff is the blunt one");
+            }
         }
 
         sb.Append(" | READABLE: ").Append(readable).Append(" of ").Append(Surfaces.Count)

@@ -513,6 +513,14 @@ internal static partial class Loc
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
             ["RenderQuality/ForceFullTextureResolution"] =
                 Pair("Force full texture resolution", "Volle Texturauflösung erzwingen"),
+            // ModBuild 229, the second half of the "matschige Texturen" answer: the game switches
+            // mipmap streaming ON at its 'Fantastic' quality level, which is why the HIGHER preset
+            // looked softer. Named for what it DOES rather than for the engine field, like its
+            // neighbour above.
+            ["RenderQuality/ForceTextureStreamingOff"] =
+                Pair("Turn off texture streaming", "Textur-Streaming abschalten"),
+            ["RenderQuality/TextureStreamingBudgetMB"] =
+                Pair("Texture streaming budget (MB)", "Textur-Streaming-Budget (MB)"),
             // ModBuild 228: the three light-stabiliser rows. They exist because "Pixellichter = 0"
             // is the mod's strongest performance lever and the user reported that it brings a
             // visible flicker with it ("Allerdings bringt '0' an manchen Elementen ein komisches
@@ -522,6 +530,12 @@ internal static partial class Loc
                      "Lichtflackern bei 0 Pixellichtern verhindern"),
             ["Lights/PinnedPixelLights"] = Pair("Pinned pixel lights", "Fest zugewiesene Pixellichter"),
             ["Lights/FlickerDamping"] = Pair("Damp torch flicker", "Fackelflackern dämpfen"),
+            // ModBuild 229: the smoothing stopped being a scale on the game's own flicker amplitude
+            // and became a MIX against a rolling baseline of each light's recent brightness. That
+            // baseline needs a time constant, and a time constant is a row — see the German
+            // description for what small and large actually feel like.
+            ["Lights/StabiliserResponseSeconds"] =
+                Pair("Light smoothing response (s)", "Reaktionszeit der Lichtglättung (s)"),
             ["Sky/Style"] = Pair("Environment", "Umgebung"),
             ["Elements/EnvironmentResponse"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
             ["Elements/ResponseStrength"] = Pair("Element effect strength", "Stärke der Elementwirkung"),

@@ -150,6 +150,116 @@ internal static partial class WallSegmentFade
         /// (<c>WallSegmentFade.Standing.cs</c> pays for that lesson already).</summary>
         private readonly Dictionary<Transform, Transform?> _propUnitRootMemo = new(128);
 
+        /// <summary>
+        /// PERF S3 (2026-08-23) — THE THREE PER-NODE FACTS <see cref="PropUnitRootOf"/> ASKS,
+        /// MEMOISED PER NODE FOR ONE COMMIT.
+        ///
+        /// <para>THE DEFECT. <see cref="PropUnitRootOf"/> climbs up to
+        /// <see cref="PropUnitMaxDepth"/> (4) ancestors and asks each one three questions, two of
+        /// which are FULL SUBTREE WALKS: <c>GetComponentsInChildren&lt;MeshRenderer&gt;</c> and
+        /// <c>GetComponentInChildren&lt;ProceduralWall&gt;(includeInactive: true)</c>. The
+        /// existing memos (<see cref="_propUnitRootMemo"/> and <c>_standingRootMemo</c>) cache
+        /// the ROOT by the renderer's own parent, so two renderers under two DIFFERENT parents
+        /// that share a grandparent each walk that grandparent's whole subtree — and the walk
+        /// only stops climbing AFTER the count comes back over the cap, so the most expensive
+        /// walk of the climb is always taken. In the ModBuild 228 scene the commit runs this
+        /// climb for every renderer under every cache wall (the standing-prop choke point in
+        /// <c>CollectWallFadeInfo</c>) — the log's 810 claimed + the wall subtrees' non-fade
+        /// meshes on top — and the shared upper nodes are map-tile content containers holding
+        /// hundreds to thousands of renderers. That is the nested walk the ~100 µs-per-renderer
+        /// commit cost is shaped like.</para>
+        ///
+        /// <para>WHY THE VERDICT CANNOT MOVE. Each entry caches the RESULT OF THE IDENTICAL CALL
+        /// on the identical node — no predicate is reformulated, no early-out is invented (an
+        /// early-out would be a different question, and <c>GetComponentsInChildren</c>'s
+        /// inactive-subtree pruning rule is not something to re-implement from memory). The only
+        /// claim being made is that the three facts are CONSTANT for the duration of one commit,
+        /// and they are: the commit runs synchronously inside one frame, no game code runs inside
+        /// it, and the class itself never calls <c>SetActive</c>, never re-parents and never adds
+        /// or destroys a <c>ProceduralWall</c> — it writes <c>renderer.enabled</c>, material
+        /// property blocks and its own segment table, none of which any of the three facts read
+        /// (<c>GetComponentsInChildren(includeInactive: false)</c> filters on GameObject
+        /// activeness, not on <c>Renderer.enabled</c>). This is the same argument
+        /// <c>FigureAncestryMemo</c> makes, and the same one the two root memos above already
+        /// rely on.</para>
+        ///
+        /// <para>LIFETIME. Cleared once per commit in <see cref="BeginStandingPropScope"/> — the
+        /// FIRST scope of the rescan, opened before any wall is refreshed — and deliberately NOT
+        /// re-cleared in <see cref="BeginPropUnitScope"/>: sharing them across the standing pass
+        /// and the prop-unit pass is where most of the saving is, and unlike the root memos these
+        /// facts do not depend on <see cref="_propUnitAnchors"/> (which IS re-read between the
+        /// two scopes, and is exactly why those two memos must stay separate). Transform keys
+        /// therefore live no longer than the existing memos' do.</para>
+        /// </summary>
+        private readonly Dictionary<Transform, int> _nodeRendererCount = new(256);
+        private readonly Dictionary<Transform, bool> _nodeIsWallEntity = new(256);
+        private readonly Dictionary<Transform, bool> _nodeContainsWallEntity = new(256);
+
+        /// <summary>True only between <see cref="BeginStandingPropScope"/> (the first scope of a
+        /// commit) and <c>EndCommitPhases</c> (its <c>finally</c>). OUTSIDE that window — the
+        /// WALL-PATH AUDIT reaches the same walk from the heartbeat, which runs after the commit
+        /// has closed — every fact is taken live, so the constancy argument above only ever has
+        /// to hold for the synchronous stretch it was made about.</summary>
+        private bool _nodeFactsActive;
+
+        /// <summary>Drop the per-node fact memos and open the window in which they may be read.
+        /// Called from <see cref="BeginStandingPropScope"/> at the top of every commit.</summary>
+        private void ClearNodeFactMemos()
+        {
+            _nodeRendererCount.Clear();
+            _nodeIsWallEntity.Clear();
+            _nodeContainsWallEntity.Clear();
+            _nodeFactsActive = true;
+        }
+
+        /// <summary>Close the window and drop the transform keys. Called from
+        /// <c>EndCommitPhases</c>.</summary>
+        private void EndNodeFactMemos()
+        {
+            _nodeFactsActive = false;
+            _nodeRendererCount.Clear();
+            _nodeIsWallEntity.Clear();
+            _nodeContainsWallEntity.Clear();
+        }
+
+        /// <summary><c>node.GetComponentsInChildren&lt;MeshRenderer&gt;(includeInactive: false)</c>
+        /// .Count, memoised — see <see cref="_nodeRendererCount"/>.</summary>
+        private int NodeRendererCount(Transform node)
+        {
+            if (_nodeFactsActive && _nodeRendererCount.TryGetValue(node, out int cached))
+                return cached;
+            _propUnitWalkScratch.Clear();
+            node.GetComponentsInChildren(includeInactive: false, _propUnitWalkScratch);
+            int count = _propUnitWalkScratch.Count;
+            _propUnitWalkScratch.Clear();
+            if (_nodeFactsActive)
+                _nodeRendererCount[node] = count;
+            return count;
+        }
+
+        /// <summary><c>node.GetComponent&lt;ProceduralWall&gt;() != null</c>, memoised.</summary>
+        private bool NodeIsWallEntity(Transform node)
+        {
+            if (_nodeFactsActive && _nodeIsWallEntity.TryGetValue(node, out bool cached))
+                return cached;
+            bool verdict = node.GetComponent<ProceduralWall>() != null;
+            if (_nodeFactsActive)
+                _nodeIsWallEntity[node] = verdict;
+            return verdict;
+        }
+
+        /// <summary><c>node.GetComponentInChildren&lt;ProceduralWall&gt;(includeInactive: true)
+        /// != null</c>, memoised.</summary>
+        private bool NodeContainsWallEntity(Transform node)
+        {
+            if (_nodeFactsActive && _nodeContainsWallEntity.TryGetValue(node, out bool cached))
+                return cached;
+            bool verdict = node.GetComponentInChildren<ProceduralWall>(includeInactive: true) != null;
+            if (_nodeFactsActive)
+                _nodeContainsWallEntity[node] = verdict;
+            return verdict;
+        }
+
         /// <summary>The rescan's units, by index; <see cref="_propUnitByRoot"/> and
         /// <see cref="_propUnitByStem"/> point into it.</summary>
         private readonly List<PropUnit> _propUnits = new(32);
@@ -441,12 +551,15 @@ internal static partial class WallSegmentFade
             Transform? best = null;
             for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
             {
-                if (_propUnitAnchors.Contains(node) || node.GetComponent<ProceduralWall>() != null)
+                // PERF S3: the three questions below are the SAME three calls this walk always
+                // made, answered out of a per-commit per-node memo — see _nodeRendererCount for
+                // why a node's answer cannot change inside one commit, and why the existing
+                // per-PARENT root memos do not already cover this (they re-walk every shared
+                // ancestor once per distinct parent, and the priciest walk of the climb is the
+                // one that decides to stop).
+                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
                     break;
-                _propUnitWalkScratch.Clear();
-                node.GetComponentsInChildren(includeInactive: false, _propUnitWalkScratch);
-                int count = _propUnitWalkScratch.Count;
-                _propUnitWalkScratch.Clear();
+                int count = NodeRendererCount(node);
                 if (count > PropUnitMaxRenderers)
                     break; // container scale — this node and everything above it are architecture
                 if (count < 2)
@@ -454,7 +567,7 @@ internal static partial class WallSegmentFade
                     node = node.parent; // a node wrapping one renderer groups nothing; keep climbing
                     continue;
                 }
-                if (node.GetComponentInChildren<ProceduralWall>(includeInactive: true) != null)
+                if (NodeContainsWallEntity(node))
                     break; // the subtree contains a wall entity: not a prop, whatever its size
                 best = node;
                 node = node.parent;

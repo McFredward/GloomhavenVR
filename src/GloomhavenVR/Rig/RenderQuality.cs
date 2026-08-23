@@ -119,6 +119,12 @@ namespace GloomhavenVR.Rig;
 /// moved, which is precisely the shape of the report this round is answering. So the trade is
 /// OFFERED instead: <see cref="Presets"/> ▸ "Ausgewogen" is 4x, "Leistung" 2x, "Schwache Hardware"
 /// off, each one visible in a named dropdown the player picks and can pick back.
+///
+/// THE THIRD DIAL IS NO LONGER A CHOICE THE PRESETS MAKE (2026-08-23, user ruling — the verbatim
+/// wording is on <see cref="Presets"/>). All four presets now carry a per-pixel light cap of 0, and
+/// the cap's own row left the curated Bild page for Erweitert. What separates the four is therefore
+/// MSAA and resolution only; the cap is still COMPARED by <see cref="CurrentPresetIndex"/>, so a
+/// hand-raised cap correctly reads back as "Eigene" instead of wearing a preset's name.
 /// NOT VERIFIED ON HARDWARE: the bandwidth arithmetic above is a model, and no GPU-time counter
 /// exists on this runtime ("gpu n/a" on every [Perf] FRAME line) to check it against. What IS
 /// measured is the ZOOM axis, and it is enough to say the samples are not this frame's wall.
@@ -172,12 +178,16 @@ internal static class RenderQuality
         internal readonly float Scale;
 
         /// <summary>
-        /// The per-pixel light cap this preset asserts (-1 = leave the game's own value alone,
-        /// which is what the two quality presets do). ADDED 2026-08-23 with the preset ROW: a
-        /// preset is one decision standing in for several dials, and leaving the third dial out
-        /// of it would have made "Leistung" a name for two thirds of a decision. It is also the
-        /// only member of the trio whose cost is a LOOK and not a sharpness, so it is the last
-        /// thing spent and the first thing named in the row's description.
+        /// The per-pixel light cap this preset asserts (-1 would mean "leave the game's own value
+        /// alone"; no preset does that any more). ADDED 2026-08-23 with the preset ROW: a preset is
+        /// one decision standing in for several dials, and leaving the third dial out of it would
+        /// have made "Leistung" a name for two thirds of a decision. It is also the only member of
+        /// the trio whose cost is a LOOK and not a sharpness.
+        ///
+        /// <para>ALL FOUR CARRY 0 SINCE THE SAME DAY (user ruling — see <see cref="Presets"/>). The
+        /// member stays a per-preset field rather than becoming a constant because the presets ARE
+        /// the place this decision is written down, and a future preset that wants a light back must
+        /// say so on its own row instead of editing a shared value out from under the other three.</para>
         /// </summary>
         internal readonly int PixelLights;
 
@@ -196,13 +206,29 @@ internal static class RenderQuality
     /// DIAG line), whereas MSAA only ever touched geometry edges, which the remaining
     /// supersample still covers. Relative per-pixel cost is noted per entry as a MODEL, not a
     /// measurement: shading ∝ scale², MSAA surface+resolve bandwidth ∝ msaa x scale².
+    ///
+    /// <para><b>THE PER-PIXEL LIGHT CAP IS 0 IN ALL FOUR SINCE 2026-08-23</b>, by user ruling,
+    /// verbatim: <i>"Die Pixellichter option ist zu gefährlich für normale Nutzer, sie sollte in
+    /// Erweitert verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0
+    /// geschaltet sein."</i> It is the strongest single performance lever the mod has and the one
+    /// whose cost is a LOOK rather than a sharpness, so it is no longer something a player can walk
+    /// into by picking the nicest-sounding preset. <see cref="LightStabiliser"/> exists to make 0
+    /// livable and is on by default; the row itself is still reachable, one level deeper, on
+    /// Erweitert ▸ Bild &amp; Darstellung.</para>
+    ///
+    /// <para><b>THE CONSEQUENCE, WRITTEN DOWN RATHER THAN ENGINEERED AWAY:</b> with the same cap in
+    /// every row the cap no longer DISTINGUISHES the presets — the four are separated by MSAA and
+    /// resolution alone. <see cref="CurrentPresetIndex"/> still compares all three, deliberately, so
+    /// a player who raises the cap by hand in Erweitert reads back as "Eigene" rather than as a
+    /// preset that is quietly no longer what its label promises. Dropping the light term from that
+    /// comparison would make the readout lie in exactly the case the ruling above is about.</para>
     /// </summary>
     private static readonly Preset[] Presets =
     {
-        new("preset_quality",     8, 1.0f, -1), // shading 100%, msaa bandwidth 100%, lights untouched
-        new("preset_balanced",    4, 0.9f, -1), // shading  81%, msaa bandwidth  41%, lights untouched
-        new("preset_performance", 2, 0.8f,  2), // shading  64%, msaa bandwidth  16%, 2 per-pixel lights
-        new("preset_minimum",     0, 0.6f,  1), // shading  36%, msaa bandwidth   5%, 1 per-pixel light
+        new("preset_quality",     8, 1.0f, 0), // shading 100%, msaa bandwidth 100%, no per-pixel lights
+        new("preset_balanced",    4, 0.9f, 0), // shading  81%, msaa bandwidth  41%, no per-pixel lights
+        new("preset_performance", 2, 0.8f, 0), // shading  64%, msaa bandwidth  16%, no per-pixel lights
+        new("preset_minimum",     0, 0.6f, 0), // shading  36%, msaa bandwidth   5%, no per-pixel lights
     };
 
     /// <summary>
@@ -234,6 +260,12 @@ internal static class RenderQuality
 
     /// <inheritdoc cref="ApplyTextureLimit"/>
     internal static ConfigEntry<bool>? ForceFullTextureResolution;
+
+    /// <inheritdoc cref="ApplyTextureStreaming"/>
+    internal static ConfigEntry<bool>? ForceTextureStreamingOff;
+
+    /// <inheritdoc cref="ApplyTextureStreaming"/>
+    internal static ConfigEntry<int>? TextureStreamingBudgetMB;
     internal static ConfigEntry<float>? EyeResolutionScale;
     internal static ConfigEntry<int>? PixelLightCount;
 
@@ -390,6 +422,34 @@ internal static class RenderQuality
             + "render the whole game at 1/8 resolution with nothing reporting it. Costs VRAM only "
             + "and no frame time: a larger mip is not sampled more often, it is sampled from a "
             + "different level. Turn off only to A/B against the game's own setting.");
+        ForceTextureStreamingOff = _file.Bind("RenderQuality", "ForceTextureStreamingOff",
+            Defaults.ForceTextureStreamingOff,
+            "Turn Unity's MIPMAP STREAMING off, so every mipped texture is resident at its full "
+            + "authored level instead of being held below it until a budget catches up. THIS IS THE "
+            + "ANSWER TO 'the higher graphics preset looks WORSE': the game authors streaming ON at "
+            + "its 'Fantastic' quality level and OFF at 'Beautiful', which the ModBuild 228 hardware "
+            + "log shows three times in a row — every SetQualityLeve(Fantastic) is followed by a "
+            + "[Perf] TEX reading of streamingMipmaps=True budget=900MB maxLevelReduction=2, and "
+            + "every SetQualityLeve(Beautiful) by streamingMipmaps=False. In the same log EVERY "
+            + "streamed texture in view read BELOW its desired mip level (47 of 47 in one window, 17 "
+            + "of 21 in another), which is what 'matschige Texturen' looks like. Costs VRAM only, for "
+            + "the same reason ForceFullTextureResolution does: mip 0 ships inside the texture either "
+            + "way and a resident mip is not sampled more often, only from a different level. "
+            + "Re-asserted per frame, because QualitySettings.SetQualityLevel re-loads the level "
+            + "asset's own value on every quality swap. Turn OFF to hand the decision back to the "
+            + "game — TextureStreamingBudgetMB below then raises its budget instead.");
+        TextureStreamingBudgetMB = _file.Bind("RenderQuality", "TextureStreamingBudgetMB",
+            Defaults.TextureStreamingBudgetMB, new ConfigDescription(
+            "Minimum mipmap-streaming budget in MB, applied ONLY while ForceTextureStreamingOff "
+            + "above is false AND the game currently has streaming on. It RAISES the game's own "
+            + "budget to at least this value and never lowers it, so a game that already asks for "
+            + "more keeps what it asked for. This is the softer half of the same fix: streaming "
+            + "keeps a texture below its desired mip level while its budget is full, and the game's "
+            + "authored budget at the 'Fantastic' level is 900 MB with maxLevelReduction=2 (measured, "
+            + "ModBuild 228 log). Raising the budget and turning streaming off produce the SAME "
+            + "picture when the budget is the only thing starving the mip chain; they differ only in "
+            + "how much VRAM is held. Inert while the row above is on.",
+            new AcceptableValueRange<int>(256, 16384)));
         EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", Defaults.EyeResolutionScale, new ConfigDescription(
             "Render resolution per eye, relative to what the OpenXR runtime asks for (1 = as asked). "
             + "THE primary GPU lever: essentially all per-pixel work — shading, rasterization, the "
@@ -416,8 +476,9 @@ internal static class RenderQuality
         // and the tombstone in PushDisplayMsaa.
 
         PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
-            "Maximum number of PER-PIXEL lights (-1 = leave the game's own value alone, which is "
-            + "what ships; the game itself runs 4). THIS IS THE STRONGEST SINGLE PERFORMANCE LEVER "
+            "Maximum number of PER-PIXEL lights. 0 IS WHAT SHIPS SINCE 2026-08-23 (user ruling: the "
+            + "row is 'zu gefährlich für normale Nutzer' as an everyday dial), -1 hands the decision "
+            + "back to the game, which runs 4. THIS IS THE STRONGEST SINGLE PERFORMANCE LEVER "
             + "THE MOD HAS IN A DUNGEON, and it is expensive for TWO reasons stacked on one number. "
             + "First, in the built-in forward renderer a renderer touched by k per-pixel lights is "
             + "DRAWN min(k, cap) TIMES — one extra full pass, draw call, vertex transform and "
@@ -453,10 +514,14 @@ internal static class RenderQuality
         // this entry to decide anything. That is the "no hidden write war against the individual
         // dials" requirement, satisfied by there being exactly one writer copying FROM the truth.
         QualityPreset = _file.Bind("RenderQuality", "QualityPreset", Defaults.QualityPreset, new ConfigDescription(
-            "Named point on the MSAA x resolution x per-pixel-light curve: 0 = Quality (MSAA 8x, "
-            + "eye 1.00x, lights untouched — what ships), 1 = Balanced (4x, 0.90x, lights "
-            + "untouched), 2 = Performance (2x, 0.80x, 2 per-pixel lights), 3 = Minimum (MSAA off, "
-            + "0.60x, 1 per-pixel light), 4 = custom, i.e. the three rows spell no preset. "
+            "Named point on the MSAA x resolution curve, with the per-pixel light cap held at 0 in "
+            + "all four: 0 = Quality (MSAA 8x, eye 1.00x — what ships), 1 = Balanced (4x, 0.90x), "
+            + "2 = Performance (2x, 0.80x), 3 = Minimum (MSAA off, 0.60x), 4 = custom, i.e. the "
+            + "three rows spell no preset. THE LIGHT CAP IS 0 EVERYWHERE by user ruling "
+            + "(2026-08-23): it is the strongest single performance lever here and the only one "
+            + "whose cost is a LOOK, so no preset hands it out silently and its row lives one level "
+            + "deeper, in Erweitert. It is still COMPARED here, so raising it by hand reads back as "
+            + "custom rather than keeping a preset's name. "
             + "READ-MOSTLY: this value is DERIVED from MsaaLevel, EyeResolutionScale and "
             + "PixelLightCount and mirrored here once whenever they change, so hand-editing the "
             + "three rows moves this one rather than being overwritten by it. Setting it applies "
@@ -506,6 +571,11 @@ internal static class RenderQuality
         ApplyEyeScale();
         ApplyAniso();
         ApplyTextureLimit();
+        // IMMEDIATELY after the mip-drop force, because the two are one subject: masterTextureLimit
+        // throws the top mips away outright, streaming keeps them out of memory until a budget
+        // catches up, and a reader chasing "matschige Texturen" has to be able to rule both out in
+        // the same breath. Same per-frame re-assert for the same reason (quality-level swaps).
+        ApplyTextureStreaming();
         ApplyPixelLights();
         // IMMEDIATELY after the cap is asserted, and nested here rather than added as a seventh
         // VRRigDriver tail step on purpose: the stabiliser is a FUNCTION of the value the line above
@@ -567,12 +637,20 @@ internal static class RenderQuality
     /// light costing six cube faces. That step function is why "bereits wenige" is already enough.
     /// <see cref="LogLightCensus"/> prints both, with the scene's own counts, at every change.</para>
     ///
-    /// <para>-1 (the default) does NOTHING, deliberately: this is a visible trade, not a cleanup.
-    /// Lights above the cap still light the scene per VERTEX, so nothing goes dark — but the
-    /// falloff on walls and floors flattens, and the ModBuild 227 census counts 44 enabled lights in
-    /// this dungeon (32 point, 12 spot; the "16 point lights" this doc used to quote was one room).
-    /// The cost of 0 is the flicker the user then reported at that setting, which is what
-    /// <see cref="LightStabiliser"/> exists for.</para>
+    /// <para><b>THE SHIPPED VALUE IS 0 SINCE 2026-08-23</b> (user ruling, verbatim: <i>"Die
+    /// Pixellichter option ist zu gefährlich für normale Nutzer, sie sollte in Erweitert
+    /// verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet
+    /// sein."</i>). That makes this an ACTIVE cap for every player rather than the passive -1 it was:
+    /// the cost is paid up front and the look is what changes. Lights above the cap still light the
+    /// scene per VERTEX, so nothing goes dark — but the falloff on walls and floors flattens, and the
+    /// ModBuild 227 census counts 44 enabled lights in this dungeon (32 point, 12 spot; the "16 point
+    /// lights" this doc used to quote was one room). The other cost of 0 is the flicker the user
+    /// reported at that setting, which is what <see cref="LightStabiliser"/> exists for and why it is
+    /// on by default.</para>
+    ///
+    /// <para>-1 still means "hands off" and still RESTORES, which is now the escape hatch rather than
+    /// the default; the row itself moved off the curated Bild page to Erweitert ▸ Bild &amp;
+    /// Darstellung with the same ruling.</para>
     /// </summary>
     private static void ApplyPixelLights()
     {
@@ -1223,6 +1301,204 @@ internal static class RenderQuality
 
     /// <inheritdoc cref="_textureLimitForced"/>
     private static int _textureLimitOriginal;
+
+    /// <summary>
+    /// TURN UNITY'S MIPMAP STREAMING OFF — the second way the game keeps a texture below the
+    /// resolution its own file carries, and the one the higher quality preset switches ON.
+    ///
+    /// <para><b>THE REPORT (user, 2026-08-23, verbatim):</b> "Die matschigen Texturen verschwinden,
+    /// wenn ich in den Spiel-Grafik-Einstellungen 'Schön' statt 'Fantastisch' einstelle." The HIGHER
+    /// preset looked softer, which is the shape of a setting that trades resolution for memory
+    /// rather than of a setting that buys quality.</para>
+    ///
+    /// <para><b>WHY THIS IS THE MECHANISM, read out of his ModBuild 228 Player.log rather than
+    /// inferred.</b> The game's own <c>SetQualityLeve(...)</c> line and this mod's <c>[Perf] TEX</c>
+    /// reading of <see cref="QualitySettings.streamingMipmapsActive"/> correlate A-B-A-B across
+    /// three transitions, all in the same direction: line 1649 <c>Fantastic</c> → line 4629
+    /// <c>streamingMipmaps=True budget=900MB maxLevelReduction=2</c>; line 10636 <c>Beautiful</c> →
+    /// line 10873 <c>False</c>; line 11451 <c>Fantastic</c> → line 11499 <c>True budget=900MB</c>;
+    /// line 12008 <c>Beautiful</c> → line 12279 <c>False</c>, and False to the end of the session.
+    /// The mod writes this field nowhere (before this build only <see cref="Core.PerfTextureCensus"/>
+    /// and <c>Core/PerfSceneProfile</c> READ it), and the game only ever calls
+    /// <c>QualitySettings.SetQualityLevel(...)</c> (decompiled
+    /// <c>GH.Runtime/Gloomhaven/GraphicSettings.cs:350</c>, <c>GH.Runtime/PlatformLayer.cs:243</c>),
+    /// which applies the QUALITY ASSET's per-level fields — so streaming-on-at-Fantastic is authored
+    /// into the game's own quality levels and nothing else has to be looked for.</para>
+    ///
+    /// <para><b>AND THE STREAMING SYSTEM WAS NOT MERELY TIGHT, IT WAS NOT DELIVERING.</b> In the same
+    /// log the <c>[Perf] TEX</c> line read "47 of them are streamed, 47 currently BELOW their desired
+    /// mip level" in one window and "21 … 17 below" in another. EVERY (or nearly every) streamed
+    /// texture in view was behind. The other two texture dials were already forced by this file and
+    /// read clean throughout — <c>masterTextureLimit</c> 0 (FULL) and anisotropy ForceEnable — so
+    /// streaming is the only remaining global texture dial that differs between the two presets.</para>
+    ///
+    /// <para><b>WHAT IT COSTS: VRAM, and nothing else</b> — the same argument as
+    /// <see cref="ApplyTextureLimit"/>. Mip 0 ships inside the texture file either way, and a
+    /// resident mip is not sampled more often, only from a different level. What streaming buys is a
+    /// smaller resident set, which matters on a memory-tight card and not on the 24 GB one this is
+    /// reported from. NOT VERIFIED ON HARDWARE: that turning it off REMOVES the reported softness.
+    /// What is verified is the correlation above and the "all streamed textures behind" reading; the
+    /// [Perf] TEX line names which of the three states it is in on the next run, so a build in which
+    /// this changed nothing still says so.</para>
+    ///
+    /// <para>PER-FRAME LIKE ITS NEIGHBOURS, for their reason: <c>SetQualityLevel</c> re-loads the
+    /// level asset's own value on every quality swap, and the log above is a record of the game doing
+    /// exactly that four times in one session. Two field reads in the steady state.</para>
+    ///
+    /// <para>THE OTHER HALF OF THE ROW: with the force OFF the decision goes back to the game, and
+    /// <c>[RenderQuality] TextureStreamingBudgetMB</c> then RAISES its budget (never lowers it) while
+    /// streaming is on. That is the softer remedy for the same starvation, and it is offered because
+    /// the two are only equivalent when the budget is the whole reason the mip chain is behind.</para>
+    /// </summary>
+    private static void ApplyTextureStreaming()
+    {
+        if (ForceTextureStreamingOff!.Value)
+        {
+            // Hand the budget back BEFORE switching the system off, so a session that walked
+            // budget-raise → force-off does not leave the game holding a number we invented.
+            if (_streamingBudgetForced)
+                ReleaseStreamingBudget("the force-off row took over");
+
+            if (!QualitySettings.streamingMipmapsActive)
+                return;
+
+            float wasBudget = QualitySettings.streamingMipmapsMemoryBudget;
+            int wasReduction = QualitySettings.streamingMipmapsMaxLevelReduction;
+            if (!_streamingForced)
+            {
+                _streamingOriginalActive = true;                 // restore point: it WAS on
+                _streamingOriginalBudget = wasBudget;
+            }
+            QualitySettings.streamingMipmapsActive = false;
+            _streamingForced = true;
+
+            // One line per DISTINCT finding. The game re-enables streaming on every swap back to
+            // 'Fantastic', and re-printing the identical sentence each time would bury the one
+            // reading that matters (the budget and reduction it was running at).
+            if (Mathf.Abs(wasBudget - _lastLoggedStreamingBudget) < 0.5f
+                && wasReduction == _lastLoggedStreamingReduction)
+                return;
+            _lastLoggedStreamingBudget = wasBudget;
+            _lastLoggedStreamingReduction = wasReduction;
+            VRLog.Info("Rig", $"TEXTURE STREAMING forced OFF (was ON at a {wasBudget:F0}MB budget "
+                              + $"with maxLevelReduction={wasReduction}). Unity's mipmap streaming "
+                              + "holds a texture BELOW its authored mip level until its budget "
+                              + "catches up, and the [Perf] TEX census read every streamed texture "
+                              + "in view as below its desired level — which is exactly what "
+                              + "\"matschige Texturen\" looks like. The game turns this on at the "
+                              + "'Fantastic' quality level and off at 'Beautiful' (three A-B-A-B "
+                              + "transitions in the ModBuild 228 log, each SetQualityLeve line "
+                              + "followed by the matching streamingMipmaps reading), which is why "
+                              + "the HIGHER preset looked softer. Costs VRAM only: mip 0 ships "
+                              + "inside the texture either way and a resident mip is not sampled "
+                              + "more often, only from a different level. If this line reads 'was "
+                              + "OFF' the game was already resident-full and the softness is "
+                              + "elsewhere; see [Perf] TEX.");
+            return;
+        }
+
+        if (_streamingForced)
+        {
+            QualitySettings.streamingMipmapsActive = _streamingOriginalActive;
+            if (_streamingOriginalBudget > 0f)
+                QualitySettings.streamingMipmapsMemoryBudget = _streamingOriginalBudget;
+            _streamingForced = false;
+            _lastLoggedStreamingBudget = -1f;
+            _lastLoggedStreamingReduction = int.MinValue;
+            VRLog.Info("Rig", $"TEXTURE STREAMING force released — restored the game's own state "
+                              + $"(streaming {(_streamingOriginalActive ? "ON" : "off")} at "
+                              + $"{_streamingOriginalBudget:F0}MB). Note the game rewrites both on "
+                              + "every quality-level swap, so what it ends up at is whatever the "
+                              + "quality level last set.");
+            return;
+        }
+
+        // ---- the softer half: raise the budget the game is running on, never lower it ----------
+        if (!QualitySettings.streamingMipmapsActive)
+        {
+            // Streaming is off and we did not turn it off — nothing to raise, and no state of ours
+            // to hold. (Releasing here would fight nothing: the raise only ever runs while on.)
+            return;
+        }
+
+        float wanted = Mathf.Clamp(TextureStreamingBudgetMB!.Value, 256, 16384);
+        float current = QualitySettings.streamingMipmapsMemoryBudget;
+        if (current >= wanted - 0.5f)
+            return;
+
+        if (!_streamingBudgetForced)
+        {
+            _streamingBudgetOriginal = current;                  // restore point
+            _streamingBudgetForced = true;
+        }
+        QualitySettings.streamingMipmapsMemoryBudget = wanted;
+
+        if (Mathf.Abs(wanted - _lastLoggedBudgetTarget) < 0.5f)
+            return;
+        _lastLoggedBudgetTarget = wanted;
+        VRLog.Info("Rig", $"TEXTURE STREAMING budget raised {current:F0}MB → {wanted:F0}MB "
+                          + $"(maxLevelReduction={QualitySettings.streamingMipmapsMaxLevelReduction}, "
+                          + "left as the game authored it). This is the SOFT half of the "
+                          + "mushy-texture fix and it only runs because [RenderQuality] "
+                          + "ForceTextureStreamingOff is false: streaming keeps a texture below its "
+                          + "desired mip while the budget is full, so a bigger budget and no "
+                          + "streaming at all give the same picture WHEN the budget is the only "
+                          + "thing starving the chain. Watch the [Perf] TEX line's 'N streamed, M "
+                          + "below desired' figures — if M stays equal to N after this, the budget "
+                          + "was not the constraint and the force-off row is the answer.");
+    }
+
+    /// <summary>Give the streaming budget back to the game (see <see cref="ApplyTextureStreaming"/>).</summary>
+    private static void ReleaseStreamingBudget(string why)
+    {
+        if (_streamingBudgetOriginal > 0f)
+            QualitySettings.streamingMipmapsMemoryBudget = _streamingBudgetOriginal;
+        _streamingBudgetForced = false;
+        _lastLoggedBudgetTarget = -1f;
+        VRLog.Info("Rig", $"TEXTURE STREAMING budget released → {_streamingBudgetOriginal:F0}MB ({why}).");
+    }
+
+    /// <summary>
+    /// Whether <see cref="ApplyTextureStreaming"/> is currently holding mipmap streaming off, plus
+    /// the state it took over from. READ BY <see cref="Core.PerfTextureCensus"/>: a
+    /// <c>streamingMipmaps=False</c> reading means two completely different things depending on this
+    /// flag — the game's own choice, or this mod's — and a census line that cannot tell them apart
+    /// reads like the game's setting and sends the next reader looking in the wrong place.
+    /// </summary>
+    internal static bool TextureStreamingForcedOff => _streamingForced;
+
+    /// <summary>
+    /// Whether the force-off ROW is on, regardless of whether it has had to act yet. The pair
+    /// (<see cref="TextureStreamingForcedOff"/> false, this true, streaming reading ON) is the
+    /// interesting third state: the game re-enabled streaming since our last assert, i.e. within the
+    /// current frame's tick order, and the census is looking at a value about to be corrected.
+    /// </summary>
+    internal static bool TextureStreamingForceRequested =>
+        ForceTextureStreamingOff != null && ForceTextureStreamingOff.Value;
+
+    /// <inheritdoc cref="ApplyTextureStreaming"/>
+    private static bool _streamingForced;
+
+    /// <inheritdoc cref="ApplyTextureStreaming"/>
+    private static bool _streamingOriginalActive;
+
+    /// <inheritdoc cref="ApplyTextureStreaming"/>
+    private static float _streamingOriginalBudget = -1f;
+
+    /// <summary>Last (budget, reduction) pair announced by the force-off branch — see its log gate.</summary>
+    private static float _lastLoggedStreamingBudget = -1f;
+
+    /// <inheritdoc cref="_lastLoggedStreamingBudget"/>
+    private static int _lastLoggedStreamingReduction = int.MinValue;
+
+    /// <summary>Whether the budget row is currently holding a raised budget, and what it replaced.</summary>
+    private static bool _streamingBudgetForced;
+
+    /// <inheritdoc cref="_streamingBudgetForced"/>
+    private static float _streamingBudgetOriginal = -1f;
+
+    /// <inheritdoc cref="_streamingBudgetForced"/>
+    private static float _lastLoggedBudgetTarget = -1f;
 
     // ---- panel accessors: "MSAA" cycle row — NO CALLER TODAY --------------------------------
     // Label/cycle pairs for three in-VR options rows (MSAA here, supersampling and graphics

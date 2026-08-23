@@ -893,8 +893,7 @@ internal static partial class WallSegmentFade
                             + "(WallSegmentFade.Standing.cs)");
                         continue;
                     }
-                    if (c.GetComponentInParent<TileBehaviour>() != null
-                        || c.GetComponentInParent<Canvas>() != null
+                    if (HasGameLogicAncestry(c)   // PERF S3: memoised TileBehaviour+Canvas pair
                         || c.GetComponent<TMPro.TMP_Text>() != null)
                     {
                         NoteMountedReject(c, anchorY, bestGap, "game logic / worldspace UI");

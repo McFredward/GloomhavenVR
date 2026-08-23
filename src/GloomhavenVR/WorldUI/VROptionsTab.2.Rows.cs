@@ -1002,9 +1002,13 @@ internal static partial class VROptionsTab
     /// it gets its own trailing entry naming the raw number, exactly as the head-mask row does,
     /// and nothing is written until a real angle is picked.</item>
     /// <item><b><c>[RenderQuality] PixelLightCount</c> → a labelled stepper.</b> Its −1 means "leave
-    /// the game's own value alone", which is what ships — a MAGIC VALUE at one end of the bar that
-    /// a bar cannot label, so the row read "-1" and said nothing. As a stepper it steps one light
-    /// at a time (the written-down step) and the readout says "Standard" at −1.</item>
+    /// the game's own value alone" — a MAGIC VALUE at one end of the bar that a bar cannot label, so
+    /// the row read "-1" and said nothing. As a stepper it steps one light at a time (the
+    /// written-down step) and the readout says "Standard" at −1. WHAT SHIPS IS 0, not −1, since the
+    /// 2026-08-23 ruling ("zu gefährlich für normale Nutzer"): the cap is 0 on a fresh install and in
+    /// all four <c>RenderQuality.Presets</c>, and the row itself left the curated Bild page for
+    /// Erweitert. The override still applies wherever the catalog builds the row, which is the only
+    /// reason the move did not turn it back into an unlabelled bar.</item>
     /// </list>
     /// </summary>
     private static bool TryBuildWidgetOverrideRow(Transform parent, ConfigCatalog.ConfigItem item,

@@ -183,6 +183,10 @@ internal static partial class WallSegmentFade
             _standingNearMiss.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
+            // PERF S3: the per-node subtree facts PropUnitRootOf reads are dropped HERE and only
+            // here — this is the first scope of the commit, and keeping them across the standing
+            // pass and the later prop-unit pass is the point of them. See _nodeRendererCount.
+            ClearNodeFactMemos();
             RefreshPropUnitAnchors();
         }
 

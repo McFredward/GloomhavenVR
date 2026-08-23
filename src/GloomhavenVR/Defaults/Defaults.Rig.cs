@@ -43,40 +43,81 @@ internal static partial class Defaults
     internal const int MsaaLevel = 8;                    // => [RenderQuality] MsaaLevel
     internal const bool ForceAnisotropic = true;         // => [RenderQuality] ForceAnisotropic
     internal const bool ForceFullTextureResolution = true; // => [RenderQuality] ForceFullTextureResolution
+    // ON, and it is the answer to "the HIGHER game preset looks worse" (user, 2026-08-23: "Die
+    // matschigen Texturen verschwinden, wenn ich in den Spiel-Grafik-Einstellungen 'Schön' statt
+    // 'Fantastisch' einstelle"). The ModBuild 228 log correlates the game's own SetQualityLeve line
+    // with [Perf] TEX three times: Fantastic ⇒ streamingMipmaps=True (900MB, maxLevelReduction=2),
+    // Beautiful ⇒ False — and while it was True, EVERY streamed texture in view read below its
+    // desired mip level (47 of 47 in one window). Non-worsening for the same reason the mip-drop
+    // force above is: it costs VRAM and never frame time. See RenderQuality.ApplyTextureStreaming.
+    internal const bool ForceTextureStreamingOff = true;  // => [RenderQuality] ForceTextureStreamingOff
+    // Only consulted while the row above is FALSE, i.e. when a player hands the decision back to the
+    // game. 4096 MB against the game's authored 900: enough headroom that the streaming system stops
+    // being the constraint on a card that has the memory (this is reported from a 24 GB one), and
+    // still a raise-only — the game keeps any larger budget it asks for itself.
+    internal const int TextureStreamingBudgetMB = 4096;   // => [RenderQuality] TextureStreamingBudgetMB
     internal const float EyeResolutionScale = 1.0f;      // => [RenderQuality] EyeResolutionScale
     // [RenderQuality] ViewportScaleFallback and RebuildRigOnMsaaChange had their lines here. Both
     // were UNBOUND by the 2026-08-22 settings audit — the fallback is now the constant
     // RenderQuality.ViewportScaleFallback, the rebuild path is deleted. See RenderQuality for why
     // neither was ever a choice a player could hold.
-    // -1 STAYS THE SHIPPED VALUE, re-examined 2026-08-23 and deliberately not changed. Its own
-    // description names the reason the round wanted it moved (a forward-path per-pixel light past
-    // the first re-submits every renderer it touches) and RenderQuality.ApplyPixelLights names the
-    // reason it is not moved: the one time it was measured it was worth ~1 %, back when main-thread
-    // submission WAS the wall, and threaded submission has since taken that wall out. What is left
-    // is a visible change to the dungeon's lighting — flatter point-light falloff on walls and
-    // floors — which a default may not make silently. It is offered instead: the "Leistung" and
-    // "Schwache Hardware" presets set it, by name, in a dropdown the player can pick back.
-    internal const int PixelLightCount = -1;             // => [RenderQuality] PixelLightCount
+    // 0 SINCE 2026-08-23, and this line used to say "-1 STAYS THE SHIPPED VALUE". WHAT CHANGED IS A
+    // USER RULING, verbatim: "Die Pixellichter option ist zu gefährlich für normale Nutzer, sie
+    // sollte in Erweitert verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0
+    // geschaltet sein." So this is now an ACTIVE cap on every install rather than the passive "leave
+    // the game alone" it was — the mod caps per-pixel lights at 0 out of the box, all four presets
+    // in RenderQuality.Presets carry the same 0, and the row itself is off the curated Bild page
+    // (VROptionsTab.4.Curated) and reachable only through Erweitert.
+    //
+    // The argument the old comment made against moving it — that flatter point-light falloff is a
+    // visible change a default may not make silently — is not refuted, it is OVERRULED: it is the
+    // strongest single performance lever the mod has (forward-path draw multiplication AND the whole
+    // shadow pipeline, see RenderQuality.ApplyPixelLights), the user has reported its effect from the
+    // headset, and the look it costs is covered by [Lights] StabiliseAtZeroCap, which is on by
+    // default and is gated on exactly this value being 0. -1 remains available as the escape hatch.
+    // PINNED, and this is the one thing about the line below that is machine-readable: the tuned cfg
+    // snapshot still carries the OLD -1, because it was dumped from a session that ran the old
+    // default — so an unmarked line would make scripts/rebase-defaults.py rebase the ruling straight
+    // back out of the source at the next drop. The marker says "the cfg is the older statement here".
+    internal const int PixelLightCount = 0;              // => [RenderQuality] PixelLightCount  (pinned: user ruling 2026-08-23 — 0 in every preset and as the shipped default; the cfg snapshot predates it)
     // 0 = the "Qualität" preset, which is exactly what the three rows above spell at their own
-    // defaults (MSAA 8x, eye 1.00x, lights untouched) — so a fresh install reads back as a named
+    // defaults (MSAA 8x, eye 1.00x, per-pixel light cap 0) — so a fresh install reads back as a named
     // preset rather than as "Eigene". This value is a MIRROR of those three, never a master; see
     // RenderQuality.QualityPreset. Any other starting number would be a lie the first tick corrects.
     internal const int QualityPreset = 0;                // => [RenderQuality] QualityPreset
 
     // ---- Rig/LightStabiliser.cs ----------------------------------------------------
-    // ON by default, and it costs nothing while the cap is at its own -1 default: the whole class
-    // is gated on the effective per-pixel cap being exactly 0, which only the "Leistung"/"Schwache
-    // Hardware" presets and a hand-set row ever produce. It exists so that 0 is a usable choice —
-    // the user's report is that 0 is the setting he WANTS and the flicker is what stops him.
+    // ON by default, and SINCE 2026-08-23 IT IS ALSO ACTIVE BY DEFAULT: the whole class is gated on
+    // the effective per-pixel cap being exactly 0, and [RenderQuality] PixelLightCount now ships at
+    // 0 for every install (see its own note above for the ruling). Until this build the gate was
+    // only opened by the "Leistung"/"Schwache Hardware" presets or a hand-set row, so this entry
+    // cost nothing on a fresh install; it is now on the everyday path and its cost is the cost of
+    // the cap being usable. It exists so that 0 is a usable choice — the user's report is that 0 is
+    // the setting he WANTS and the flicker is what stops him.
     internal const bool StabiliseAtZeroCap = true;       // => [Lights] StabiliseAtZeroCap
     // 1, not 0: pinning ONE light keeps a smooth per-pixel falloff exactly where the player is
     // looking for the price of one extra forward pass over the renderers that one light touches —
     // a rounding error against the 40-odd passes the cap just removed. 0 is the honest "pin
     // nothing" if even that is too much; the row goes to 4.
     internal const int PinnedPixelLights = 1;            // => [Lights] PinnedPixelLights
-    // 0.25 keeps a quarter of the game's authored torch wobble: enough that the fire still breathes,
-    // small enough that two nearly-tied lights stop crossing each other's rank from frame to frame.
-    // NOT VERIFIED ON HARDWARE — it is the first value to move if the next round says the torches
-    // look dead (raise) or the stepping survives (lower).
-    internal const float FlickerDamping = 0.25f;         // => [Lights] FlickerDamping
+    // 0.0 — PERFECTLY STEADY, and the reason is a census plus a user report. ModBuild 228 shipped
+    // 0.25 as "a quarter of the wobble survives"; the user's verdict was "hat schon richtig viel
+    // gebracht, das meiste Flackern ist nun weg. An manchen Stellen ist es immer noch." What is left
+    // is the four-slot re-rank, and any surviving wobble is what crosses the tie. The atmosphere
+    // does not pay for it: that build's own census counted 46 LightFlicker components of which 34
+    // carry NO Light at all and animate only a MESH, so the fire keeps moving with every light held
+    // absolutely still. And this row's meaning changed with the mechanism — it no longer scales one
+    // component's amplitude field, it is the fraction of each frame's deviation from a rolling
+    // average that survives into the rendered value, so a genuine slow change still arrives (see
+    // StabiliserResponseSeconds) and only the shake is removed. It has to be the safe value because
+    // [RenderQuality] PixelLightCount is 0 by default in this same build: this path is now what
+    // every player sees.
+    internal const float FlickerDamping = 0f;            // => [Lights] FlickerDamping
+    // 0.75 s: comfortably longer than any per-frame flicker (LightFlicker runs at speed 0.5..5.0 and
+    // FireLight at Time.time, i.e. periods well under 0.5 s) and comfortably shorter than the 0.5 s
+    // room cross-fade DynamicAmbience.SetLightLevel has to pass through — a genuine lighting change
+    // arrives about one time constant late and smoothly, a shake never arrives at all. Bounds
+    // 0.1..5.0. NOT VERIFIED ON HARDWARE: this is the value to move if the next round says lighting
+    // changes feel sluggish (lower) or a slow change still steps (raise).
+    internal const float StabiliserResponseSeconds = 0.75f; // => [Lights] StabiliserResponseSeconds
 }

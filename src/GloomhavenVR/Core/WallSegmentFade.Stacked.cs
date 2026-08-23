@@ -587,8 +587,9 @@ internal static partial class WallSegmentFade
                 {
                     if (RendererUsesWallFade(r) || RendererUsesFoliage(r)
                         || IsFigureOrActorRenderer(r)
-                        || r.GetComponentInParent<TileBehaviour>() != null
-                        || r.GetComponentInParent<Canvas>() != null
+                        // PERF S3: the TileBehaviour+Canvas ancestry pair, memoised — same two
+                        // questions, same order. See HasGameLogicAncestry in WallSegmentFade.cs.
+                        || HasGameLogicAncestry(r)
                         || r.GetComponent<TMPro.TMP_Text>() != null)
                         continue;
                     MountedProp cprop = ClassifyProp(r);
@@ -609,8 +610,7 @@ internal static partial class WallSegmentFade
                     continue; // cached shader verdicts — cheap
                 if (IsFigureOrActorRenderer(r))
                     continue; // FIGURES are never touched (round-7 ruling)
-                if (r.GetComponentInParent<TileBehaviour>() != null
-                    || r.GetComponentInParent<Canvas>() != null
+                if (HasGameLogicAncestry(r)   // PERF S3: memoised TileBehaviour+Canvas pair
                     || r.GetComponent<TMPro.TMP_Text>() != null)
                     continue;
                 Bounds ext = ClampExtensionToFace(best, EncapsulateCopy(best.Bounds, b));
@@ -1021,8 +1021,7 @@ internal static partial class WallSegmentFade
                             "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
                         continue;
                     }
-                    if (c.GetComponentInParent<TileBehaviour>() != null
-                        || c.GetComponentInParent<Canvas>() != null
+                    if (HasGameLogicAncestry(c)   // PERF S3: memoised TileBehaviour+Canvas pair
                         || c.GetComponent<TMPro.TMP_Text>() != null)
                     {
                         _stackDead.Add(c);
@@ -1106,8 +1105,7 @@ internal static partial class WallSegmentFade
                 }
                 if (a == null)
                     continue;
-                if (c.GetComponentInParent<TileBehaviour>() != null
-                    || c.GetComponentInParent<Canvas>() != null
+                if (HasGameLogicAncestry(c)   // PERF S3: memoised TileBehaviour+Canvas pair
                     || c.GetComponent<TMPro.TMP_Text>() != null)
                     continue;
                 if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))

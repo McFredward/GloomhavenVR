@@ -645,14 +645,20 @@ internal static partial class Loc
             // ("ich bin mir nicht sicher ob das überhaupt irgendwas gebracht hat"), ist genau die
             // Enttäuschung, die entsteht, wenn ein Bild-Regler gegen eine Logik-Last antritt.
             ["RenderQuality/QualityPreset"] =
-                "Ein benannter Punkt auf der Kurve aus MSAA, Augenauflösung und Pixellicht-Grenze — "
-                + "eine Entscheidung statt drei Zahlen. Qualität = MSAA 8x, Auflösung 1.00x, Lichter "
-                + "unangetastet (Auslieferungszustand). Ausgewogen = 4x, 0.90x, Lichter unangetastet. "
-                + "Leistung = 2x, 0.80x, 2 Pixellichter. Schwache Hardware = MSAA aus, 0.60x, "
-                + "1 Pixellicht. Eigene = die drei Zeilen darunter ergeben keine Voreinstellung; das "
+                "Ein benannter Punkt auf der Kurve aus MSAA und Augenauflösung — eine Entscheidung "
+                + "statt zwei Zahlen. Qualität = MSAA 8x, Auflösung 1.00x (Auslieferungszustand). "
+                + "Ausgewogen = 4x, 0.90x. Leistung = 2x, 0.80x. Schwache Hardware = MSAA aus, "
+                + "0.60x. DIE PIXELLICHT-GRENZE STEHT IN ALLEN VIEREN AUF 0 (Nutzer-Entscheid vom "
+                + "2026-08-23) — sie ist der stärkste einzelne Leistungshebel des Mods und der "
+                + "einzige, der nicht Schärfe, sondern das AUSSEHEN kostet, deshalb verteilt keine "
+                + "Voreinstellung sie stillschweigend; ihre Zeile steht in Erweitert. Sie wird hier "
+                + "aber weiterhin VERGLICHEN: Wer sie von Hand heraufsetzt, liest hier folgerichtig "
+                + "\"Eigene\" statt eines Namens, den die Einstellung nicht mehr verdient. "
+                + "Eigene = die Zeilen darunter ergeben keine Voreinstellung; das "
                 + "ist eine ANZEIGE, kein wählbarer Zustand — 'Eigene' auszuwählen tut nichts. "
-                + "NICHTS WIRD GESPERRT: Die drei Zeilen darunter bleiben einstellbar, und sobald du "
-                + "eine davon veränderst, springt diese Zeile von selbst auf 'Eigene'. "
+                + "NICHTS WIRD GESPERRT: Die beiden Zeilen darunter bleiben einstellbar (und die "
+                + "Pixellicht-Zeile in Erweitert ebenso), und sobald du eine davon veränderst, "
+                + "springt diese Zeile von selbst auf 'Eigene'. "
                 + "WAS SIE NICHT KANN, ehrlich gesagt: Alle drei Regler sind Bild- und "
                 + "Abgabe-Regler. Wenn das Bild langsam ist, weil VIEL IN DER SZENE STEHT — der "
                 + "typische Fall beim Herauszoomen auf alle Räume —, liegt die Last in der "
@@ -674,10 +680,16 @@ internal static partial class Loc
                 + "Sampleanzahlen multiplizieren sich; 8x auf einem stark supersampelten Ziel ist die teure "
                 + "Hälfte einer schon größtenteils erledigten Arbeit.",
             // Nachgetragen beim Einstellungs-Audit vom 2026-08-22: eine kuratierte Zeile im
-            // Bild-Tab, deren Hilfetext bis dahin englisch war.
+            // Bild-Tab, deren Hilfetext bis dahin englisch war. Seit dem 2026-08-23 steht die Zeile
+            // nicht mehr im Bild-Tab, sondern in Erweitert — und der Text beginnt jetzt mit dem
+            // Auslieferungswert, weil sich genau der geändert hat (Nutzer-Entscheid: "zu gefährlich
+            // für normale Nutzer").
             ["RenderQuality/PixelLightCount"] =
-                "Höchstzahl der PRO-PIXEL-Lichter (-1 = den Wert des Spiels unangetastet lassen, so "
-                + "wird ausgeliefert). Im eingebauten Forward-Renderer kostet jedes Pro-Pixel-Licht "
+                "Höchstzahl der PRO-PIXEL-Lichter. AUSGELIEFERT WIRD 0, und zwar in allen vier "
+                + "Grafik-Voreinstellungen: Diese Zahl heraufzusetzen ist die teuerste einzelne "
+                + "Grafikentscheidung in diesem Mod, deshalb steht die Zeile hier in Erweitert und "
+                + "nicht mehr im Bild-Tab. (-1 gibt die Entscheidung an das Spiel zurück, das selbst "
+                + "mit 4 läuft.) Im eingebauten Forward-Renderer kostet jedes Pro-Pixel-Licht "
                 + "ab dem zweiten einen ZUSÄTZLICHEN VOLLEN DRAW CALL für jeden Renderer, den es "
                 + "berührt — bei bis zu 5.660 sichtbaren Renderern von 8.570. ZWEITENS ist nur ein "
                 + "pro-pixel gerendertes Licht überhaupt in der Lage, einen Schatten zu werfen: von "
@@ -703,6 +715,35 @@ internal static partial class Loc
                 + "wird. Kostet NUR Grafikspeicher und keine Bildrate: eine größere Mip-Stufe wird "
                 + "nicht öfter abgetastet, sondern nur von einer anderen Stufe. Ausschalten nur, um "
                 + "gegen die Einstellung des Spiels zu vergleichen.",
+            // ModBuild 229. Zwei Zeilen, ein Befund: Der Nutzer meldete, dass die matschigen
+            // Texturen VERSCHWINDEN, wenn er im Spiel "Schön" statt "Fantastisch" einstellt — die
+            // höhere Stufe sah schlechter aus. Im Hardware-Log von ModBuild 228 folgt auf jedes
+            // SetQualityLeve(Fantastic) ein streamingMipmaps=True, auf jedes
+            // SetQualityLeve(Beautiful) ein False, dreimal hintereinander.
+            ["RenderQuality/ForceTextureStreamingOff"] =
+                "Schaltet Unitys Mipmap-Streaming ab, damit jede Textur in ihrer vollen "
+                + "gespeicherten Stufe im Speicher liegt, statt so lange darunter gehalten zu "
+                + "werden, bis ein Speicherbudget nachkommt. DAS IST DIE ANTWORT AUF \"die höhere "
+                + "Grafikstufe sieht schlechter aus\": Das Spiel schaltet Streaming in seiner "
+                + "Qualitätsstufe \"Fantastisch\" EIN und in \"Schön\" AUS. Im Hardware-Log von "
+                + "ModBuild 228 stand jedes Mal, wenn Streaming an war, JEDE gestreamte Textur im "
+                + "Blickfeld unter ihrer gewünschten Mip-Stufe (47 von 47 in einem Fenster, 17 von "
+                + "21 in einem anderen) — genau das sieht man als matschige Textur. Kostet NUR "
+                + "Grafikspeicher und keine Bildrate: Mip 0 steckt ohnehin in jeder Texturdatei, und "
+                + "eine geladene Mip-Stufe wird nicht öfter abgetastet, nur von einer anderen Stufe. "
+                + "Wird pro Bild neu gesetzt, weil das Spiel den Wert bei jedem Wechsel der "
+                + "Qualitätsstufe neu lädt. Ausschalten gibt die Entscheidung ans Spiel zurück — "
+                + "dann greift stattdessen das Budget in der Zeile darunter.",
+            ["RenderQuality/TextureStreamingBudgetMB"] =
+                "Mindest-Budget für das Mipmap-Streaming in MB. Wirkt NUR, solange "
+                + "\"Textur-Streaming abschalten\" aus ist UND das Spiel Streaming gerade "
+                + "eingeschaltet hat: Der Wert HEBT das Budget des Spiels an und senkt es nie, ein "
+                + "größeres Budget des Spiels bleibt also stehen. Das ist die sanfte Hälfte "
+                + "derselben Reparatur — Streaming hält eine Textur unter ihrer gewünschten "
+                + "Mip-Stufe, solange das Budget voll ist, und das Spiel setzt in seiner höchsten "
+                + "Stufe 900 MB an (gemessen, Log von ModBuild 228). Wenn das Budget die einzige "
+                + "Ursache ist, ergeben ein größeres Budget und abgeschaltetes Streaming dasselbe "
+                + "Bild; sie unterscheiden sich nur darin, wie viel Grafikspeicher belegt bleibt.",
             ["Lights/StabiliseAtZeroCap"] =
                 "Verhindert, dass Lichter sichtbar zwischen Qualitätsstufen springen, während die "
                 + "Pixellichter auf 0 stehen. Bei 0 konkurrieren alle 44 Lichter des Verlieses um "
@@ -719,16 +760,40 @@ internal static partial class Loc
                 + "von der Obergrenze — so lässt sich ein kleiner Teil des Gesparten genau dort "
                 + "ausgeben, wo man hinsieht: das stärkste Licht in Kopfnähe behält seinen runden "
                 + "Lichtkegel und nimmt an der Rangfolge nicht mehr teil, die übrigen rund 40 "
-                + "bleiben günstig. Die Auswahl wird alle 10 Sekunden getroffen, nie pro Bild. "
-                + "Kosten: jedes so gesetzte Licht ist ein zusätzlicher Renderdurchgang für alle "
-                + "Objekte, die es beleuchtet.",
+                + "bleiben günstig. Die Auswahl wird nicht pro Bild getroffen, und das ausgewählte "
+                + "Licht BEHÄLT seine Zuweisung, solange kein deutlich besserer Anwärter auftaucht — "
+                + "sonst würde die Wahl beim Umhergehen ständig hin- und herspringen, und genau "
+                + "dieses Springen ist das, wogegen die ganze Stabilisierung antritt. Während ein "
+                + "Licht so zugewiesen ist, wird sein SCHATTENWURF unterdrückt: Nur pro-pixel "
+                + "gerechnete Lichter zeichnen überhaupt eine Schattenkarte, und die "
+                + "Schattenberechnung zurückzukaufen wäre genau die Kosten, denen die Einstellung "
+                + "\"0 Pixellichter\" ausweichen soll. Kosten: jedes so gesetzte Licht ist ein "
+                + "zusätzlicher Renderdurchgang für alle Objekte, die es beleuchtet.",
             ["Lights/FlickerDamping"] =
-                "Wie viel vom ursprünglichen Fackelflackern des Spiels erhalten bleibt, solange die "
-                + "Stabilisierung aktiv ist (1 = unverändert, 0 = völlig ruhiges Licht). Das "
-                + "Flackern ist es, was zwei fast gleich starke Lichter von Bild zu Bild neu "
-                + "sortiert — es zu dämpfen beendet das Springen. Das Feuer atmet weiterhin, es "
-                + "überholt seinen Nachbarn nur nicht mehr. Höher stellen, wenn die Fackeln leblos "
-                + "wirken; niedriger, wenn noch etwas springt.",
+                "Wie viel vom Lichtflackern erhalten bleibt, solange die Stabilisierung aktiv ist "
+                + "(1.0 = jedes Licht genau so, wie das Spiel es geschrieben hat, 0.0 = jedes Licht "
+                + "vollkommen ruhig). Es ist eine MISCHUNG: zwischen dem Wert, den ein Spielskript "
+                + "in diesem Bild geschrieben hat, und einem gleitenden Mittelwert der eigenen "
+                + "letzten Helligkeit dieses Lichts — nicht mehr eine Skalierung der "
+                + "Flacker-Amplitude im Spielskript selbst. Warum das hilft: Das Flackern ist es, "
+                + "was zwei fast gleich starke Lichter von Bild zu Bild neu sortiert, und die "
+                + "Rangfolge entscheidet bei 0 Pixellichtern, welche vier Lichter ein Objekt "
+                + "überhaupt beleuchten. DIE FLACKERNDEN FACKEL-MODELLE BLEIBEN UNANGETASTET: 34 der "
+                + "46 Flacker-Komponenten in der Szene tragen gar kein Licht und animieren nur ein "
+                + "Mesh — das Feuer sieht also weiterhin lebendig aus. Höher stellen, wenn die "
+                + "Beleuchtung leblos wirkt; niedriger, wenn noch etwas springt.",
+            ["Lights/StabiliserResponseSeconds"] =
+                "Die Zeitkonstante des gleitenden Mittelwerts, gegen den die Lichtglättung "
+                + "Abweichungen misst (in Sekunden). Jedes stabilisierte Licht führt einen "
+                + "Referenzwert seiner eigenen letzten Helligkeit mit, und \"Fackelflackern "
+                + "dämpfen\" mischt zwischen diesem Referenzwert und dem, was das Spiel gerade "
+                + "geschrieben hat — dieser Wert bestimmt, wie schnell der Referenzwert einer echten "
+                + "Änderung folgt. KLEIN: Der Mittelwert läuft echten Helligkeitsänderungen schnell "
+                + "hinterher, dafür rutscht schnelles Flackern mit durch, weil es der Mittelwert "
+                + "selbst mitmacht. GROSS: sehr ruhiges Licht, aber eine echte Änderung der "
+                + "Raumhelligkeit — eine Fackel geht aus, ein Zauber erhellt den Raum — kommt "
+                + "verspätet an und wird für den Moment gedämpft, als wäre sie Flackern. Nur wirksam, "
+                + "solange die Pixellichter auf 0 stehen und die Stabilisierung an ist.",
             ["RenderQuality/ForceAnisotropic"] =
                 "Erzwingt anisotrope Texturfilterung für ALLE Texturen (plus eine globale Aniso-Untergrenze). "
                 + "Verringert das Flimmern in der Ferne auf flach zum Blick liegenden Texturen — "
