@@ -589,3 +589,71 @@ gate a release genuinely cannot self-serve.
 Nothing in this pipeline is destructive to the repository. It creates tags and one
 bookkeeping commit on `dev`; it deletes nothing, rewrites nothing, and writes no commit
 to `main`. The worst failure leaves an unpublished build and a red run.
+
+---
+
+## 8. Giving an agent `gh`, safely
+
+The owner asked for this before authenticating `gh` on a machine an agent drives:
+*only I push directly, and nothing gets deleted by accident.* Two controls, at two
+different layers.
+
+### 8.1 The token scope — the control that cannot be worked around
+
+Deleting a repository through the API requires the **`delete_repo`** scope, which is
+**separate** from `repo` and off unless you tick it.
+
+- **Classic token:** tick `repo`, `read:org`, `workflow`. **Leave `delete_repo`
+  unticked.** `gh auth login` through a browser requests exactly those three and never
+  asks for `delete_repo`.
+- **Fine-grained token:** `Contents: Read and write`, `Metadata: Read`, and
+  `Administration: Read and write` only if an agent is to create the branch ruleset for
+  you. Fine-grained tokens have no repository-deletion permission at all.
+
+With that token, a repository-delete call fails at GitHub with a 403 no matter what
+runs it. **This is the guarantee. Everything below is defence in depth.**
+
+What the scope does *not* cover: `repo` still permits removing releases, tags,
+branches, secrets and workflow runs. That is what the hook is for.
+
+### 8.2 The Claude Code hook — the accident guard
+
+`.claude/settings.json` installs a `PreToolUse` hook on the Bash tool,
+`.claude/hooks/guard-destructive.py`. It reads every command before it runs and exits
+2 — which blocks the call and hands the reason back to the model — for:
+
+| refused | examples |
+|---|---|
+| any `gh` argument that is a destructive verb | delete, delete-asset, remove, archive, unarchive, transfer, rename, purge, logout |
+| hiding a public repository | `gh repo edit --visibility …` |
+| the API escape hatch | `gh api -X DELETE …`, `gh api graphql` |
+| remote-destructive git | `git push --force`, `--force-with-lease`, `--delete`, `--mirror`, `--prune`, a colon refspec, a leading `+` refspec |
+
+It scans the **whole** command string, so a call hidden after `;`, `&&`, `|`, a
+newline or inside a command substitution is caught — those four were holes in the first
+draft and are now regression tests. A here-document fed to a shell is judged as the
+script it is; one fed to `git commit -F -` or `cat` is treated as data, because a
+commit message may legitimately describe the very commands this guard refuses. It
+**fails closed**: a command that mentions `gh` or `git` and cannot be parsed is
+refused, not guessed at.
+
+Ordinary work is untouched: `git push origin dev:main`, `gh release create`,
+`gh pr create`, `gh api` with GET/POST/PUT/PATCH (branch protection is created with
+`PUT`), and every local git operation including `reset --hard` and `branch -D`.
+
+```
+python3 .claude/hooks/test-guard-destructive.py
+```
+
+66 cases — 39 refusals, 26 allowances, and one unparsable command proving it fails
+closed. **Run it after editing the guard.** The three files are tracked in git on
+purpose (`.gitignore` re-includes them) so a fresh clone gets the guard; the rest of
+`.claude/` stays ignored.
+
+### 8.3 The honest limit
+
+The hook inspects the command string the Bash tool is given. A `gh` call inside a
+script file would reach the tool as `bash deploy.sh` and the hook would not see it.
+That is why §8.1 is written first and is not optional: **the token scope is the control
+that holds regardless of what the tool sees.** The hook's job is to make a slip
+impossible, not to contain an adversary.

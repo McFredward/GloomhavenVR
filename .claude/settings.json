@@ -1,0 +1,25 @@
+{
+  "$comment": [
+    "Project settings, tracked in git on purpose (see .gitignore).",
+    "PreToolUse guard: every Bash command is read before it runs, and the ones that",
+    "destroy something on GitHub are refused. See .claude/hooks/guard-destructive.py",
+    "for what is refused and why, and .claude/hooks/test-guard-destructive.py for the",
+    "cases that prove it. Run the tests after editing the guard:",
+    "  python3 .claude/hooks/test-guard-destructive.py",
+    "This is an accident guard, not a sandbox. The airtight control is the token scope:",
+    "a GitHub token issued WITHOUT delete_repo cannot delete a repository at all."
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-destructive.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -43,8 +43,12 @@ dist/
 # local debug drops (never push)
 .planning/debug/
 
-# harness worktrees/session data
-.claude/
+# harness worktrees/session data. The GUARD is the exception and is tracked on purpose:
+# a safety hook that only exists in one checkout protects one checkout. settings.local.json
+# (per-machine) and worktrees/ (churn) stay out.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 decompiled-demeo/
 unity/board-prep/out/
 unity/mask-prep/out/
