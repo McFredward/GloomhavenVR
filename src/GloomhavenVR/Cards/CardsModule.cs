@@ -68,6 +68,13 @@ internal sealed class CardsModule : IVRModule
         // once the loads are quiet (see Cards/CardArtGuard.cs).
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
 
+        // THE ENCHANTRESS EDGE (user 2026-08-23, item 4): a card enhanced at the Magierin must
+        // update in the VR hand fan at once. The map-room fan's face is an Object.Instantiate
+        // SNAPSHOT of a pool widget, so the game's own redraw cannot reach it and three latches
+        // stop it ever being re-printed — see Cards/HandFanEnhancementRefresh.cs for the chain.
+        // The commit raises no event, so the commit itself is the edge.
+        VRSession.Harmony?.PatchAll(typeof(MapPartyEnhancementShopService_AddEnhancement_FanRefresh));
+
         HandSuppression.Active = true;
 
         _driverGo = new GameObject("GloomhavenVR.Cards");

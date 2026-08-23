@@ -3,6 +3,14 @@ ressources/
 decompiled/
 *.dll
 
+# ...EXCEPT the stripped reference assemblies. These are metadata-only stubs
+# (public+internal+private SIGNATURES, zero method bodies) generated from the game's
+# managed DLLs by scripts/make-refasm.sh so the GitHub runner can compile without a
+# game install. They contain no executable game code — scripts/check-refasm.py proves
+# it by asserting every MethodDef RVA is 0, and CI re-runs that on every push.
+# See libs/RefAsm/README.md.
+!libs/RefAsm/*.dll
+
 # .NET build artifacts
 bin/
 obj/
@@ -45,3 +53,9 @@ ressources
 
 # hands asset build log (Unity batch)
 buildhands.log
+
+# build transcript kept by scripts/ci-build.sh for the warning gate
+build-ci.log
+
+# release notes rendered by .github/workflows/release.yml
+RELEASE_NOTES.md

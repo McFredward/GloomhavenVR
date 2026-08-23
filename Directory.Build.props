@@ -20,7 +20,35 @@
     <!-- Default: Steam install on Windows. Override per-machine via env var or Directory.Build.props.user. -->
     <GamePath Condition="'$(GamePath)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Gloomhaven</GamePath>
     <GameManaged Condition="'$(GameManaged)' == ''">$(GamePath)\Gloomhaven_Data\Managed</GameManaged>
+
+    <!--
+      CI FALLBACK — committed reference assemblies (libs/RefAsm).
+
+      The game's managed DLLs are the publisher's binaries: never committed, and
+      absent on a GitHub-hosted runner. libs/RefAsm holds metadata-only stubs of
+      exactly the assemblies the projects reference (scripts/make-refasm.sh,
+      libs/RefAsm/README.md) so CI can COMPILE without them.
+
+      Real install ALWAYS wins: the fallback only fires when the resolved
+      $(GameManaged) does not actually contain GH.Runtime.dll. Both slash forms are
+      tested because MSBuild's Exists() does not normalise '\' on Unix.
+    -->
+    <GhvrGameManagedIsReal>false</GhvrGameManagedIsReal>
+    <GhvrGameManagedIsReal Condition="Exists('$(GameManaged)\GH.Runtime.dll') or Exists('$(GameManaged)/GH.Runtime.dll')">true</GhvrGameManagedIsReal>
+    <GhvrUsingRefAsm>false</GhvrUsingRefAsm>
+    <GhvrUsingRefAsm Condition="'$(GhvrGameManagedIsReal)' != 'true' and Exists('$(RepoRoot)libs/RefAsm/GH.Runtime.dll')">true</GhvrUsingRefAsm>
+    <GameManaged Condition="'$(GhvrUsingRefAsm)' == 'true'">$(RepoRoot)libs/RefAsm</GameManaged>
   </PropertyGroup>
+
+  <!--
+    Say it out loud in every build log. A silent fallback is how a developer with a
+    mistyped GameManaged ends up compiling against stubs that are one game patch old
+    and never finds out.
+  -->
+  <Target Name="GhvrAnnounceRefAsm" BeforeTargets="ResolveAssemblyReferences" Condition="'$(GhvrUsingRefAsm)' == 'true'">
+    <Message Importance="high"
+             Text="GloomhavenVR: no game install at '$(GamePath)' — compiling against the committed reference assemblies in libs/RefAsm (metadata only). Regenerate them with scripts/make-refasm.sh after a game update." />
+  </Target>
 
   <PropertyGroup>
     <LangVersion>latest</LangVersion>

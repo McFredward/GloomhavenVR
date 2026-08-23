@@ -1,0 +1,22 @@
+{
+  "kind": "reference assemblies (metadata only, no method bodies) — see README.md",
+  "refasmer": "jetbrains.refasmer.clitool 2.0.3",
+  "assemblies": {
+    "Apparance.Unity.dll": { "sourceSha256": "048ff480747db33b0e305138ab01100ef0c02788b48814e9ff06fbc0eb2a18b1", "sourceBytes": 63488, "refasmBytes": 24576 },
+    "GH.Runtime.dll": { "sourceSha256": "fcfcd2e420299139b6cba9a5fedb52c9cae60bb5e1292adb84152c14d5e8f495", "sourceBytes": 5493760, "refasmBytes": 2180096 },
+    "GH.Runtime.FirstPass.dll": { "sourceSha256": "32938372ce7a964c176e488d6a6c32de8f8a11ed878a7fa6e8090dc399d7ba40", "sourceBytes": 406528, "refasmBytes": 153600 },
+    "GH.Shared.dll": { "sourceSha256": "68f3e59bcc064d1ff6cd3018f4a1a9f2540b661521070507e9cf23b38a6cd3e0", "sourceBytes": 5120, "refasmBytes": 3072 },
+    "InControl.dll": { "sourceSha256": "82c31c600d7984f0085d33427c15de3216d5253f4072396b66ba4d339bf6774b", "sourceBytes": 603136, "refasmBytes": 133120 },
+    "MapRuleLibrary.dll": { "sourceSha256": "01a11f0dda6a8728e3eb469c65e7498ffab9c07e0198e8c7923010f362a7bd93", "sourceBytes": 611328, "refasmBytes": 221184 },
+    "ScenarioRuleLibrary.dll": { "sourceSha256": "79f3245261e0c78734536989dfbfc73443deeac50ecab6922c59ec47d25cc4c3", "sourceBytes": 2770944, "refasmBytes": 941056 },
+    "ThirdParty.dll": { "sourceSha256": "7546fdf93be8cd71c27cffdcb1f2fd743c4082b24ae74bc3e00fd8b5c8b87a6c", "sourceBytes": 764928, "refasmBytes": 317440 },
+    "Unity.Addressables.dll": { "sourceSha256": "eefe7a4019700292933d1fdff39a47ccb273e1a17316ea70d8462b714964f118", "sourceBytes": 98304, "refasmBytes": 43008 },
+    "UnityEngine.CoreModule.dll": { "sourceSha256": "76b7865393e7e99bdb5eb2820fc473c515c28cd549a456380f1e3b1202069fd5", "sourceBytes": 1264192, "refasmBytes": 897536 },
+    "UnityEngine.SpatialTracking.dll": { "sourceSha256": "76c4815f082a65233789832cf0665e8c8a6526b3a842f47712f01ab942b24b9b", "sourceBytes": 10240, "refasmBytes": 6144 },
+    "UnityEngine.UI.dll": { "sourceSha256": "267daefe946bbed18d13c7c572043bee15cd265ef1b443934b3dcbcd3a351f5f", "sourceBytes": 246784, "refasmBytes": 109056 },
+    "Unity.InputSystem.dll": { "sourceSha256": "01ec4b0a7dbc61852f449ac90a5c7a50139dccf0f07fabc9981ce6260927c570", "sourceBytes": 979456, "refasmBytes": 433152 },
+    "Unity.ResourceManager.dll": { "sourceSha256": "140a2af3b1a0cb169855de323006df46b6a7dff402c463e1b51741158ef11174", "sourceBytes": 99328, "refasmBytes": 47616 },
+    "Unity.TextMeshPro.dll": { "sourceSha256": "48beaa741bb08c69e8aa9835f9cb67146d7cd5d06447390322bc358aedfdf614", "sourceBytes": 370688, "refasmBytes": 111616 },
+    "Utilities.dll": { "sourceSha256": "6a739b5e636c899ca43ede0034e10e1d276eed0df58da49d62512911ea7c219a", "sourceBytes": 47616, "refasmBytes": 12288 }
+  }
+}

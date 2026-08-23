@@ -106,11 +106,27 @@
          on Windows, so the whole default git-show output leaks into the stamp). Hash + branch +
          build time already identify the build unambiguously; install.ps1 prints the subject. -->
     <PropertyGroup>
+      <!-- GloomhavenVR.Core.BuildInfo.Commit: the SHORT (7) hash, before the -dirty suffix is
+           appended below, and EMPTY when git could not answer (no git on PATH, or a source
+           drop that is not a checkout). Nothing here may fail the build: the Execs above are
+           ContinueOnError, so a missing git leaves _GitExit non-zero and this stays empty. -->
+      <_GhvrCommit Condition="'$(_GitExit)' == '0'">$(_GitHash)</_GhvrCommit>
+      <_GhvrCommit Condition="'$(_GhvrCommit)' == 'unknown'"></_GhvrCommit>
+      <_GhvrCommit Condition="'$(_GhvrCommit)' != '' and $(_GhvrCommit.Length) &gt; 7">$(_GhvrCommit.Substring(0, 7))</_GhvrCommit>
+      <!-- Set by the release workflow (-p:GhvrReleaseBuild=true). Absent/empty = dev build. -->
+      <_GhvrIsDev>true</_GhvrIsDev>
+      <_GhvrIsDev Condition="'$(GhvrReleaseBuild)' == 'true'">false</_GhvrIsDev>
       <_GitHash Condition="'$(_GitExit)' != '0' or '$(_GitHash)' == ''">unknown</_GitHash>
       <_GitHash Condition="'$(_GitDirty)' != ''">$(_GitHash)-dirty</_GitHash>
-      <_GitBranch Condition="'$(_GitBranch)' == ''">?</_GitBranch>
+      <!-- "unknown", NOT "?": the value is pasted into an <_L Include="..."> below, and MSBuild
+           treats ? and * in an Include as WILDCARDS. A "?" branch matched no file, so the whole
+           GitBranch item silently evaporated and the generated class came out without the field —
+           i.e. the build failed to compile Plugin.cs on exactly the machine that has no git,
+           which is the one case this fallback exists for. -->
+      <_GitBranch Condition="'$(_GitBranch)' == ''">unknown</_GitBranch>
       <_BuildTime>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss'))</_BuildTime>
       <_BuildInfoFile>$(IntermediateOutputPath)BuildInfo.g.cs</_BuildInfoFile>
+      <_GhvrBuildInfoFile>$(IntermediateOutputPath)BuildInfo.Core.g.cs</_GhvrBuildInfoFile>
     </PropertyGroup>
     <ItemGroup>
       <_L Include="namespace GloomhavenVR { internal static class BuildInfo {" />
@@ -119,8 +135,25 @@
       <_L Include="public const string BuildTimeUtc = &quot;$(_BuildTime) UTC&quot;%3B } }" />
     </ItemGroup>
     <WriteLinesToFile File="$(_BuildInfoFile)" Lines="@(_L)" Overwrite="true" WriteOnlyWhenDifferent="false" />
+    <!--
+      The OTHER half of the same stamp: the RELEASE identity (semantic version + short commit +
+      dev/release), generated into the partial class whose hand-written half is
+      src/GloomhavenVR/Core/BuildInfo.cs. It is written here, in the target that already runs
+      git, so the release identity costs ZERO extra process launches per build.
+      WriteOnlyWhenDifferent on purpose: unlike the file above it carries no timestamp, so an
+      incremental build that changed nothing leaves it byte-identical and untouched.
+      NOT NetProtocol.ModBuild — see the header of Core/BuildInfo.cs.
+    -->
+    <ItemGroup>
+      <_B Include="namespace GloomhavenVR.Core { internal static partial class BuildInfo {" />
+      <_B Include="public const string Version = &quot;$(Version)&quot;%3B" />
+      <_B Include="public const string Commit = &quot;$(_GhvrCommit)&quot;%3B" />
+      <_B Include="public const bool IsDevBuild = $(_GhvrIsDev)%3B } }" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_GhvrBuildInfoFile)" Lines="@(_B)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <Compile Include="$(_BuildInfoFile)" />
+      <Compile Include="$(_GhvrBuildInfoFile)" />
     </ItemGroup>
   </Target>
 </Project>

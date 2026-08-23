@@ -1,0 +1,146 @@
+# GloomhavenVR — CI for the working branch.
+#
+# Builds the mod and runs the project's own gates on every push and pull request to
+# `dev`. It NEVER releases, NEVER tags and NEVER bumps a version — `dev` builds are
+# not shipped, by decision.
+#
+# HOW IT BUILDS WITHOUT THE GAME
+# ------------------------------
+# The runner has no Gloomhaven install. Directory.Build.props sees that $(GameManaged)
+# holds no GH.Runtime.dll and falls back to the committed reference assemblies in
+# libs/RefAsm — metadata only, no method bodies (libs/RefAsm/README.md). Nothing has
+# to be configured here for that to happen; the fallback announces itself in the log.
+#
+# See docs/CI-CD.md for the whole pipeline and for what CI deliberately cannot check.
+name: CI
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+# A second push supersedes the first: the older run is answering a question nobody is
+# asking any more. (The release workflow does the opposite — see release.yml.)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and gates
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.1.0
+        # Shallow is fine: the build stamps `git rev-parse --short HEAD`, which a
+        # depth-1 checkout answers correctly. Only the release workflow needs history.
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5.4.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'nuget.config') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Cache Unity XR package sources
+        # scripts/build-runtimedeps.sh clones three needle-mirror repos at pinned TAGS
+        # and skips the clone when the cached checkout's package.json already says the
+        # right version. Caching the checkouts turns that into a no-op on most runs.
+        uses: actions/cache@v5.1.0
+        with:
+          path: tools/RuntimeDepsBuild/sources
+          key: xrsources-${{ hashFiles('scripts/build-runtimedeps.sh') }}
+
+      # ---------------------------------------------------------------------------
+      # Gate 0 — the committed stubs must still be stubs.
+      # This is what keeps "no game code in this repository" true. It is first because
+      # everything else compiles against them.
+      # ---------------------------------------------------------------------------
+      - name: Verify reference assemblies contain no method bodies
+        run: python3 scripts/check-refasm.py
+
+      # ---------------------------------------------------------------------------
+      # The three XR assemblies the mod compiles against AND ships. They are not
+      # committed (libs/README.md); they are rebuilt from pinned package sources.
+      # ---------------------------------------------------------------------------
+      - name: Build Unity XR RuntimeDeps
+        run: bash scripts/build-runtimedeps.sh
+
+      - name: Build (0 errors, exactly 6 known warnings)
+        run: bash scripts/ci-build.sh Release
+
+      # ---------------------------------------------------------------------------
+      # Source-only gates. None of these needs the game, so all of them run.
+      # ---------------------------------------------------------------------------
+      - name: Mirrored-constant lint
+        run: bash scripts/check-mirrors.sh
+
+      - name: Per-frame order lock
+        run: bash scripts/check-frame-order.sh
+
+      - name: Patch inventory drift
+        run: bash scripts/patch-inventory.sh check
+
+      - name: Wire coverage
+        run: python3 scripts/check-wire-coverage.py
+
+      - name: Config defaults rebase
+        run: python3 scripts/rebase-defaults.py check
+
+      # ---------------------------------------------------------------------------
+      # The asset bundle IS committed (prebuilt/gloomhavenvr.bundle, 70,218,494
+      # bytes), so this gate runs in CI in full. It asserts the UnityFS wrapper is
+      # format 7 and was written by 2021.3.5f1 — a format 8 bundle silently degrades
+      # every 3D asset in the mod to its procedural fallback, which has shipped twice.
+      # ---------------------------------------------------------------------------
+      - name: Asset bundle format
+        run: bash scripts/check-bundle-format.sh
+
+      # ---------------------------------------------------------------------------
+      # Wire tests: COMPILE ONLY, and this is not a shortcut we could avoid.
+      #
+      # tests/GloomhavenVR.WireTests LOADS the game's real UnityEngine.CoreModule.dll
+      # at runtime because the golden vectors depend on Mathf.RoundToInt's banker's
+      # rounding, which sits on the quantization path. A reference assembly cannot be
+      # executed — the CLR refuses it with
+      #   BadImageFormatException: Cannot load a reference assembly for execution
+      # and the NuGet UnityEngine.Modules stub throws NullReferenceException instead.
+      # Both verified, not assumed.
+      #
+      # Compiling still buys something real: that project's <Compile Include> list is
+      # the tripwire for a moved or renamed wire file, and it fails here exactly as
+      # designed. The 146,839 byte-level assertions do not run — a developer runs
+      # scripts/wire-tests.sh. docs/CI-CD.md says so out loud.
+      # ---------------------------------------------------------------------------
+      - name: Wire tests (compile only — see docs/CI-CD.md)
+        run: |
+          dotnet build tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj \
+                       -c Release --nologo -v minimal
+          echo
+          echo "::notice title=Wire vectors not executed::The golden-vector assertions need the game's real UnityEngine.CoreModule.dll (Mathf banker's rounding) and cannot run on a hosted runner. Run scripts/wire-tests.sh locally before a release."
+
+      # ---------------------------------------------------------------------------
+      # A dev build the user can actually install, without paying 74 MB of artifact
+      # storage per push. Every install since ModBuild 172 has been plugin-DLL-only
+      # (the bundle has been byte-identical since then), so the two DLLs are what a
+      # hardware test needs. The full zip is a RELEASE artifact, not a CI one.
+      # ---------------------------------------------------------------------------
+      - name: Upload dev build (plugin + preloader only)
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: GloomhavenVR-dev-${{ github.sha }}
+          path: |
+            src/GloomhavenVR/bin/Release/net472/GloomhavenVR.dll
+            src/GloomhavenVR.Preload/bin/Release/net472/GloomhavenVR.Preload.dll
+          if-no-files-found: error
+          retention-days: 14

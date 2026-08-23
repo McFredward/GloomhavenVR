@@ -28,6 +28,31 @@ namespace GloomhavenVR.WorldUI;
 /// frame-anchored furniture would re-derive the frame and this class would answer its own question
 /// with the number it was written to replace.</para>
 ///
+/// <para><b>THE ONE THAT COST ModBuild 239 (<c>.planning/debug/grosser_abstand.jpg</c>).</b> Until
+/// that round <see cref="Draws"/> asked only for the graphic's OWN <c>color.a</c>, and that is the
+/// project's <c>[[inherited-alpha-is-not-the-group]]</c> trap written out one more time: a graphic
+/// under a <c>CanvasGroup</c> at alpha 0 has <c>enabled</c> true, <c>activeInHierarchy</c> true,
+/// <c>color.a</c> 1 and <c>canvasRenderer.cull</c> FALSE, and it puts not one pixel on the screen.
+/// <c>New Party display</c> carries such a subtree permanently — a closed rewards popup whose
+/// <c>Background Image</c> measures <c>(-270,-913)-(270,-789)</c>, i.e. 373 px BELOW the host rect's
+/// own bottom edge at y=-540 and centred on the FRAME's x rather than the column's. The ModBuild 238
+/// log has both instruments in the same session disagreeing about the same window by a factor of
+/// four and nobody read them side by side:
+/// <list type="bullet">
+/// <item><c>GRAB BAR CLEARS THE INK</c> (this class): <c>792 graphic(s) unioned</c>, union
+/// <c>x -984..992 … y -913..540</c> — and that on <c>sample 1 of generation 1, held 0 frame(s)</c>,
+/// so the monotone envelope had contributed exactly nothing to it.</item>
+/// <item><c>HIT RECT</c> (<c>CanvasConversion.TryGetVisibleHostRect</c>, same tick, same window):
+/// <c>DRAWN CONTENT 880x1080 px at (-542,0) from 182 visible graphic(s)</c> — bottom y=-540,
+/// <c>content fits inside the frame</c>.</item>
+/// </list>
+/// The bar was therefore placed at y=-930, 390 px under a window that ends at y=-540, and centred at
+/// x=+4 instead of the column's x=-542. The whole difference is the ONE term the fit's verdict has
+/// and this class did not: <c>color.a x canvasRenderer.GetInheritedAlpha() &gt;= 0.05</c>. It is
+/// restated here BY VALUE from <c>CanvasConversion.FitMinAlpha</c>, the same borrowing (and the same
+/// standing risk of drift) as the plate fractions above, and the graphics it drops are COUNTED into
+/// <see cref="Ink.Faint"/> so the falsifier can say whether this term was the whole story.</para>
+///
 /// <para>Three further exclusions, each of which was a way to measure the frame again:
 /// <list type="bullet">
 /// <item><b>FULL-FRAME BACKDROP PLATES.</b> A window's own root <c>Image</c> fills its frame; so does
@@ -59,6 +84,12 @@ internal static class PanelInkBounds
     private const float PlateWidthFraction = 0.80f;
     private const float PlateHeightFraction = 0.95f;
 
+    /// <summary>EFFECTIVE-ALPHA FLOOR, BY VALUE from <c>CanvasConversion.FitMinAlpha</c> (0.05) — the
+    /// same borrowing, for the same reason, as <see cref="PlateWidthFraction"/>. This is the term whose
+    /// absence put the grab bar 390 px under an empty frame; see the class comment for both instruments'
+    /// numbers. Graphics it rejects are counted into <see cref="Ink.Faint"/>, never silently dropped.</summary>
+    private const float FaintAlphaFloor = 0.05f;
+
     /// <summary>Node budget for one walk. A converted window is order hundreds of transforms; this is
     /// a runaway guard, not a working limit, and <see cref="Ink.Truncated"/> reports if it ever bites
     /// rather than letting a silently short union move the bar.</summary>
@@ -75,6 +106,10 @@ internal static class PanelInkBounds
         internal int Plates;
         internal int EmptyText;
         internal int ModChrome;
+        /// <summary>Drawn-but-invisible: effective alpha (own colour x inherited CanvasGroup alpha)
+        /// below <see cref="FaintAlphaFloor"/>. A non-zero count on a window whose union used to reach
+        /// far outside its frame is this term doing the work it was added for.</summary>
+        internal int Faint;
         internal bool Truncated;
         /// <summary>The graphic that set the union's BOTTOM edge — the one the bar has to clear, and
         /// the only name worth carrying into the report.</summary>
@@ -175,7 +210,14 @@ internal static class PanelInkBounds
                     if (Draws(graphic) && Intersect(clip, bounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
                     {
-                        if (plateTestUsable && visible.width >= plateW && visible.height >= plateH)
+                        // FAINT FIRST, deliberately: a graphic at effective alpha 0 draws nothing at
+                        // all, so saying "it is a full-frame plate" about it would report the weaker
+                        // of two true statements and hide the term the next reader needs.
+                        if (IsFaint(graphic))
+                        {
+                            ink.Faint++;
+                        }
+                        else if (plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;
                         }
@@ -221,9 +263,11 @@ internal static class PanelInkBounds
         return true;
     }
 
-    /// <summary>Does this graphic put pixels on the screen? The permissive part is
-    /// <c>PanelSupersample.Draws</c>'s, verbatim in effect; <see cref="IsEmptyText"/> carries the one
-    /// extra rule this class needs and the capture frame must not have.</summary>
+    /// <summary>Is this graphic switched on at all? The permissive part is
+    /// <c>PanelSupersample.Draws</c>'s, verbatim in effect. It is NOT the question "does it put pixels
+    /// on the screen" and ModBuild 238 shipped believing it was — <see cref="IsFaint"/> and
+    /// <see cref="IsEmptyText"/> carry the two extra rules this class needs and the capture frame must
+    /// not have (a capture frame must never crop; a bar placement must never chase a ghost).</summary>
     private static bool Draws(Graphic? g)
     {
         if (g == null || !g.enabled || !g.gameObject.activeInHierarchy)
@@ -232,6 +276,25 @@ internal static class PanelInkBounds
             return false;
         CanvasRenderer cr = g.canvasRenderer;
         return cr != null && !cr.cull;
+    }
+
+    /// <summary>
+    /// DRAWN BUT INVISIBLE — effective alpha below <see cref="FaintAlphaFloor"/>, where effective
+    /// alpha is the graphic's own colour alpha TIMES the alpha its CanvasRenderer inherited from every
+    /// <c>CanvasGroup</c> above it. <see cref="Draws"/> cannot answer this: a closed popup held at
+    /// <c>CanvasGroup.alpha = 0</c> passes enabled, active, <c>color.a</c> and <c>cull</c> on every
+    /// one of its graphics. Unity 2021.3.5f1 has no setter for the inherited value
+    /// (<c>[[inherited-alpha-is-not-the-group]]</c>) but the getter is exactly what the content fit
+    /// already reads, so this is the fit's verdict and not a second opinion.
+    /// </summary>
+    private static bool IsFaint(Graphic? g)
+    {
+        if (g == null)
+            return true;
+        CanvasRenderer cr = g.canvasRenderer;
+        if (cr == null)
+            return true;
+        return g.color.a * cr.GetInheritedAlpha() < FaintAlphaFloor;
     }
 
     /// <summary>A text component with nothing to typeset. Its RectTransform is frequently the width of

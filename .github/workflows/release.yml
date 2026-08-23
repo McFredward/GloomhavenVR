@@ -1,0 +1,203 @@
+# GloomhavenVR — release.
+#
+# TRIGGER: a push to `main`. `main` IS the release branch; `dev` is where work lands.
+# Pushing `dev` into `main` publishes a release. There is nothing else to do and no
+# button to press — which is why the first push to `main` deserves a moment's thought
+# before it is typed.
+#
+# WHAT IT DOES, in order
+#   1. bump the patch component of <Version> in src/GloomhavenVR/GloomhavenVR.csproj
+#   2. commit and tag that locally, so the build is stamped with a CLEAN tree and the
+#      exact commit the tag will point at
+#   3. build with GhvrReleaseBuild=true (=> BuildInfo.IsDevBuild is false) and run the
+#      same gates CI runs
+#   4. scripts/package-release.sh -> dist/GloomhavenVR-<version>.zip
+#   5. push the bump commit and the tag ATOMICALLY, then create the GitHub Release
+#      with the zip attached
+#
+# THE THREE HAZARDS AND HOW THEY ARE SOLVED — see docs/CI-CD.md for the long version.
+#
+#   Infinite loop. Step 5 pushes to `main`, which is this workflow's own trigger. Two
+#   independent guards: (a) a push made with GITHUB_TOKEN does not start a new
+#   workflow run — that is a documented, deliberate GitHub behaviour and it is the
+#   primary guard; (b) the commit subject carries `[skip ci]`, which GitHub honours
+#   for push events, so even a future switch to a PAT would not spin.
+#
+#   Tag / version disagreement. The version is computed ONCE, by
+#   scripts/bump-version.sh, into the csproj. Everything downstream reads it from
+#   there: package-release.sh names the zip with the same sed expression, the tag is
+#   v$VERSION, the release title is $VERSION, and the DLL is compiled from the very
+#   commit being tagged. The workflow then asserts the zip exists under the exact
+#   expected name before it publishes anything. They cannot drift.
+#
+#   Race with a second push. `concurrency` with cancel-in-progress FALSE queues runs
+#   instead of cancelling them (a half-published release is worse than a slow one),
+#   and before pushing, the workflow re-reads origin/main and refuses if it moved
+#   under it. Nothing is published in that case: the atomic push happens BEFORE the
+#   release is created, so a rejected push leaves no tag, no release and no orphan.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write        # push the version bump + tag, create the release.
+                         # GITHUB_TOKEN with this scope is sufficient — no PAT is
+                         # needed. It is only insufficient if `main` gets a branch
+                         # protection rule that blocks the bot (docs/CI-CD.md).
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+env:
+  # JOB-LEVEL, not `-p:` on one command: scripts/package-release.sh runs its own
+  # `dotnet build` internally, and MSBuild reads environment variables as properties,
+  # so this reaches every build in the job. A `-p:` would not.
+  GhvrReleaseBuild: 'true'
+
+jobs:
+  release:
+    name: Build, package and publish
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (full history and tags — release notes need both)
+        uses: actions/checkout@v6.1.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5.4.0
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v5.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'nuget.config') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Cache Unity XR package sources
+        uses: actions/cache@v5.1.0
+        with:
+          path: tools/RuntimeDepsBuild/sources
+          key: xrsources-${{ hashFiles('scripts/build-runtimedeps.sh') }}
+
+      - name: Verify reference assemblies contain no method bodies
+        run: python3 scripts/check-refasm.py
+
+      # ---------------------------------------------------------------------------
+      # Version, commit, tag — BEFORE the build, so the compiled DLL carries the
+      # released version number and a clean-tree git stamp (the build stamps
+      # `-dirty` onto the hash otherwise, and a release stamped `-dirty` is a bug
+      # report waiting to happen).
+      # ---------------------------------------------------------------------------
+      - name: Bump version, commit and tag
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION="$(bash scripts/bump-version.sh --patch)"
+          echo "Releasing $VERSION"
+
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists. Someone released this version already;"
+            echo "::error::set <Version> in src/GloomhavenVR/GloomhavenVR.csproj past it and push again."
+            exit 1
+          fi
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/GloomhavenVR/GloomhavenVR.csproj
+          # [skip ci] is the belt to GITHUB_TOKEN's braces — see the header.
+          git commit -m "chore(release): v$VERSION [skip ci]"
+          git tag -a "v$VERSION" -m "GloomhavenVR $VERSION"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
+
+      - name: Build Unity XR RuntimeDeps
+        run: bash scripts/build-runtimedeps.sh
+
+      - name: Fetch OpenXR natives
+        # SHA256-pinned download from the needle-mirror package tag. No Unity editor
+        # is involved: these two DLLs ship prebuilt inside com.unity.xr.openxr.
+        run: bash scripts/fetch-natives.sh
+
+      - name: Build (0 errors, exactly 6 known warnings)
+        run: bash scripts/ci-build.sh Release
+
+      - name: Mirrored-constant lint
+        run: bash scripts/check-mirrors.sh
+
+      - name: Per-frame order lock
+        run: bash scripts/check-frame-order.sh
+
+      - name: Patch inventory drift
+        run: bash scripts/patch-inventory.sh check
+
+      - name: Wire coverage
+        run: python3 scripts/check-wire-coverage.py
+
+      - name: Config defaults rebase
+        run: python3 scripts/rebase-defaults.py check
+
+      - name: Asset bundle format
+        run: bash scripts/check-bundle-format.sh
+
+      - name: Wire tests (compile only — vectors need the real game DLL)
+        run: |
+          dotnet build tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj \
+                       -c Release --nologo -v minimal
+          echo "::warning title=Wire vectors not executed for this release::The golden-vector assertions cannot run on a hosted runner (they load the game's real UnityEngine.CoreModule.dll). Run scripts/wire-tests.sh locally before pushing to main."
+
+      - name: Package
+        run: bash scripts/package-release.sh
+
+      - name: Verify the artifact matches the version being tagged
+        run: |
+          set -euo pipefail
+          ZIP="dist/GloomhavenVR-${{ steps.version.outputs.version }}.zip"
+          [[ -f "$ZIP" ]] || { echo "::error::$ZIP was not produced"; ls -la dist || true; exit 1; }
+          echo "artifact: $ZIP ($(stat -c%s "$ZIP") bytes)"
+          # The bundle is the bulk of it. If it is missing the zip is ~4 MB and the
+          # mod silently falls back to procedural visuals for every 3D asset.
+          unzip -l "$ZIP" | grep -q 'BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle' \
+            || { echo "::error::the asset bundle is not in the archive"; exit 1; }
+
+      - name: Render release notes
+        run: bash scripts/release-notes.sh "${{ steps.version.outputs.version }}" RELEASE_NOTES.md
+
+      # ---------------------------------------------------------------------------
+      # Publish. Push FIRST (atomically), release SECOND: a rejected push must leave
+      # nothing behind.
+      # ---------------------------------------------------------------------------
+      - name: Push the bump and the tag
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          REMOTE="$(git rev-parse origin/main)"
+          if [[ "$REMOTE" != "${{ github.sha }}" ]]; then
+            echo "::error::main moved from ${{ github.sha }} to $REMOTE while this release was building."
+            echo "::error::Nothing was published. The queued run for $REMOTE will release that state instead."
+            exit 1
+          fi
+          # --atomic: commit and tag land together or not at all, so there can never
+          # be a tag pointing at a commit `main` does not contain.
+          git push --atomic origin HEAD:main "refs/tags/${{ steps.version.outputs.tag }}"
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "dist/GloomhavenVR-${{ steps.version.outputs.version }}.zip" \
+            --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
+            --notes-file RELEASE_NOTES.md \
+            --verify-tag \
+            --latest
+          echo "Published ${{ steps.version.outputs.tag }}"
+          echo "::notice title=Release published::${{ steps.version.outputs.tag }} — while the repository is PRIVATE the asset needs an authenticated download; it becomes anonymously downloadable (what the in-game updater needs) the moment the repository is made public."

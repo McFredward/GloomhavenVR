@@ -488,19 +488,127 @@ internal static class LoadoutConfirmPark
     }
 
     /// <summary>
-    /// The map room's CHARACTER SCREEN — 'New Party display', ID <c>PartyPanel</c>. Asked as an IS-A
-    /// question on the display's OWN GameObject: <c>NewPartyDisplayUI.Awake</c> caches
-    /// <c>window = GetComponent&lt;UIWindow&gt;()</c> (NewPartyDisplayUI.cs:277), so the component and
-    /// the window are one GameObject by construction and a <c>GetComponent</c> here cannot reach any
-    /// other window's parts ([[containment-is-not-identity]]).
+    /// <b>THE WINDOW THE MOD IS FLOATING WHOSE ID IS <c>PartyPanel</c> — the map room's Character-UI.</b>
+    ///
+    /// <para><b>WHAT ModBuild 238 RESOLVED INSTEAD, AND WHY NOTHING IN THIS FILE RAN.</b> It asked
+    /// <c>NewPartyDisplayUI.PartyDisplay.GetComponent&lt;UIWindow&gt;()</c> and defended that with
+    /// "the component and the window are one GameObject by construction". A <c>GetComponent</c> IS an
+    /// IS-A question — but it was being asked of the WRONG GameObject, and the mod's own instrument
+    /// had already written the disproof down. <c>FIXED FIT GATE 'GloomhavenVR.Panel_Modal_New Party
+    /// display'</c> in the ModBuild 238 log:</para>
+    /// <list type="bullet">
+    /// <item><c>conversion target 'New Party display'</c>; <c>target carries UIWindow: YES (ID
+    /// PartyPanel)</c> — that is the window this mod floats, and <c>LOADOUT BACKGROUND WITHDRAWN</c>
+    /// on the same session names it the same way: <c>'New Party display' ID PartyPanel</c>.</item>
+    /// <item><c>target carries NewPartyDisplayUI: NO; the live NewPartyDisplayUI sits on a DESCENDANT
+    /// of the target, 1 level(s) DOWN ('Party Display UI ')</c>.</item>
+    /// <item><c>identity 1 — the live party display drives this window: NO (the live party display
+    /// drives a DIFFERENT UIWindow instance)</c>.</item>
+    /// </list>
+    /// <para>There are TWO <c>UIWindow</c> components in that hierarchy. ModBuild 238 returned the
+    /// descendant's, so <c>ENTER DUNGEON ON THE CHARACTER UI</c> reported <c>THE HOST: 'Party Display
+    /// UI ' floated=False, live panel=False, rect 0..300 x -540..540</c>, <c>LOADOUT CONFIRM PARKED</c>
+    /// never appeared once in the whole session, and — because <c>StoryComposite</c> refuses to
+    /// withdraw the loadout backdrop while the control is reachable NOWHERE else — the user got exactly
+    /// what he reported: "wieder ein neues Fenster mit einem Hintergrundbild und dem 'Verlies betreten'
+    /// button". One wrong term, every downstream symptom.</para>
+    ///
+    /// <para><b>THE IDENTITY USED NOW.</b> The window's own serialized <c>ID</c>, over the set of
+    /// windows <c>ModalFallback</c> is actually floating. Both halves matter: the ID is what the rest
+    /// of the mod identifies this window by (<c>CanvasConversion.3.Fit.cs</c>'s identity 2,
+    /// <c>ModalFallback.1.Core.cs</c>'s permanent-window list), and the float set is what makes the
+    /// answer a window that HAS a host rect and a grab frame to park onto. No component transform, no
+    /// <c>GetComponentInParent</c>, no <c>GetComponentInChildren</c> — none of those can distinguish
+    /// two <c>UIWindow</c>s one level apart, which is what this class needed and did not have
+    /// ([[containment-is-not-identity]], now for the third time in this project).</para>
+    ///
+    /// <para>Returning null while the window is not floated is the CORRECT answer, not a degraded one:
+    /// the caller's next test is <c>FloatedByMod</c> and its Unpark reason for a null host already
+    /// reads "there is nothing to be part of".</para>
     /// </summary>
     private static UIWindow? CharacterWindow()
     {
-        NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
-        if (display == null)
-            return null;
-        UIWindow? window = display.GetComponent<UIWindow>();
-        return window != null ? window : null;
+        FloatScratch.Clear();
+        try
+        {
+            ModalFallback.CollectFloatedWindows(FloatScratch, null);
+            for (int i = 0; i < FloatScratch.Count; i++)
+            {
+                UIWindow w = FloatScratch[i];
+                if (w != null && w.ID == UIWindowID.PartyPanel)
+                    return w;
+            }
+        }
+        catch (System.Exception)
+        {
+            // A reader that throws must not stand the whole tick down; null reads as "not floated".
+        }
+        finally
+        {
+            FloatScratch.Clear();
+        }
+        return null;
+    }
+
+    /// <summary>Scratch for <see cref="CharacterWindow"/>'s float-set walk — the set is never longer
+    /// than a handful, and reusing one list keeps a per-tick reader allocation-free.</summary>
+    private static readonly List<UIWindow> FloatScratch = new(8);
+
+    /// <summary>
+    /// <b>THE IDENTITY PROOF, ON THE FALSIFIER LINE — that the control lands on the SAME window the
+    /// battle goals were chosen in, by reference and not by name.</b>
+    ///
+    /// <para>Three terms, none of them a name comparison. (1) The window's own serialized
+    /// <c>ID</c> — the identity the rest of the mod uses for this window. (2) Whether the object the
+    /// control is parented to IS the <c>ConvertedPanel.Target</c>, i.e. the very transform
+    /// <c>CanvasConversion</c> converted: reference equality, so a descendant one level down (which is
+    /// what ModBuild 238 parked onto) reads FALSE here instead of looking convincing. (3) Whether the
+    /// live <c>NewPartyDisplayUI</c>'s battle-goal picker sits UNDER that same target — the picker is
+    /// the thing the user names in his request ("bei der Character-UI bei der ich auch die auswahl der
+    /// persönlichen Quest gemacht habe"), and containment under the shared root is exactly what "the
+    /// same window" means for it, because the picker's own root is NOT a direct child.</para>
+    /// </summary>
+    private static string HostIdentity(UIWindow? host, ConvertedPanel? panel)
+    {
+        if (host == null)
+            return "IDENTITY: no Character-UI window resolved, so there is nothing to prove.";
+        Transform? target = panel?.Target;
+        bool targetIsHost = target != null && ReferenceEquals(target, host.transform);
+        string picker;
+        try
+        {
+            NewPartyDisplayUI? display = NewPartyDisplayUI.PartyDisplay;
+            Component? goals = display != null ? display.BattleGoalWindow : null;
+            picker = goals == null
+                ? "the game exposes no battle-goal picker right now"
+                : target == null
+                    ? "there is no conversion target to compare it against"
+                    : $"the battle-goal picker '{goals.name}' is under that same target="
+                      + $"{IsUnder(goals.transform, target)}";
+        }
+        catch (System.Exception)
+        {
+            picker = "the battle-goal picker could not be read";
+        }
+        return $"IDENTITY, BY REFERENCE AND NOT BY NAME: window ID {host.ID} (the map room's "
+               + $"Character-UI is {UIWindowID.PartyPanel}); the control's parent IS this panel's own "
+               + $"conversion target '{(target != null ? target.name : "<none>")}'={targetIsHost}; "
+               + $"{picker}. ModBuild 238 resolved a DESCENDANT of the target here — the GameObject the "
+               + "NewPartyDisplayUI component sits on, one level down — and every term of this line "
+               + "then read wrong from that one substitution.";
+    }
+
+    /// <summary>Is <paramref name="t"/> <paramref name="root"/> or below it? A plain parent walk, so
+    /// it answers containment and nothing else — it is never used to answer IS-A.</summary>
+    private static bool IsUnder(Transform t, Transform root)
+    {
+        Transform? p = t;
+        for (int guard = 0; p != null && guard < 64; guard++, p = p.parent)
+        {
+            if (ReferenceEquals(p, root))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Is this window one the mod is floating right now? Asked through the only float-set
@@ -1428,7 +1536,7 @@ internal static class LoadoutConfirmPark
             + "control drawn by the wrong camera or by two). THE HOST: "
             + $"'{(host != null ? host.name : "<none>")}' floated={hostFloated}, live panel="
             + $"{panel != null}, rect {frame.xMin:F0}..{frame.xMax:F0} x {frame.yMin:F0}..{frame.yMax:F0} "
-            + $"({frame.width:F0}x{frame.height:F0} px). THE GRAB BAR: top edge "
+            + $"({frame.width:F0}x{frame.height:F0} px). {HostIdentity(host, panel)} THE GRAB BAR: top edge "
             + (float.IsNaN(barTop) ? "NOT MEASURABLE — no grab frame is built for this window yet"
                                    : $"y={barTop:F0} px")
             + ", CLEARANCE between the control's painted bottom and that edge = "

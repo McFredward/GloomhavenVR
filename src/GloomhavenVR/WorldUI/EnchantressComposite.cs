@@ -329,6 +329,18 @@ internal static class EnchantressComposite
     /// </summary>
     internal static void Tick()
     {
+        // ModBuild 239 — THE CHARACTER UI'S OPERABILITY, and it sits ABOVE this class's own four
+        // preconditions on purpose. It undoes the third term of the same EnableEnhancementMode call
+        // this class exists because of: the icon row's CanvasGroup, closed by
+        // EnableSelectionMode(disableButtons: true). That mode OUTLIVES the window that set it — it
+        // is undone only by the game's own ExitShop — so a re-arm gated on "the enchantress window
+        // is open right now" would be a gated remedy that never ran on the tick that mattered
+        // ([[gated-remedy-never-ran]]). It is ticked from here rather than from ModalFallback
+        // because this is the enchantress' own per-tick seam and CharacterUiOperability's subject is
+        // the window this file already owns; see that class's closing paragraph for where the three
+        // re-armed terms should eventually be merged.
+        CharacterUiOperability.Tick();
+
         UIWindow? shop = ShopWindow();
 
         // ---- the four preconditions, in the order in which they can first be false -------------
@@ -453,6 +465,7 @@ internal static class EnchantressComposite
     internal static void Reset()
     {
         Release("the world UI layer was reset");
+        CharacterUiOperability.Reset();
         _waitReported = string.Empty;
         _oneWindowVerdict = string.Empty;
         _oneWindowReports = 0;

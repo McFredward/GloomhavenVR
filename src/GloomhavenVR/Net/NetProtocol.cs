@@ -416,7 +416,113 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 238;
+    public const ushort ModBuild = 239;
+    // Build 239: A UNION THAT COUNTED INVISIBLE INK, A HOST THREE LEVELS TOO DEEP, AND THE MOD
+    // LEARNS TO SHIP ITSELF.
+    // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched
+    // (70,218,494 bytes, unchanged since 172). Seven lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 -> 78/130 (ONE new
+    // Harmony patch, the enhancement commit hook).
+    //
+    //   1. THE CHARACTER UI IS OPERABLE AGAIN, AND IT IS FOUR SPERREN, NOT ONE. UINewEnhancement
+    //   Window.EnterShop calls EnableEnhancementMode -> EnableSelectionMode(disableButtons: true),
+    //   and the term that matches the report is NewPartyCharacterUI.DisableButtons: it writes
+    //   buttonsCanvasGroup.interactable = false AND blocksRaycasts = false on the icon row, then
+    //   greys the five materials. The PORTRAIT sits behind a different gate this path never touches,
+    //   which is exactly why the player could still switch characters and nothing else.
+    //   MY BRIEF ASSUMED A SHARED PATTERN AND IT IS NOT ONE: the merchant and the temple pass
+    //   disableButtons FALSE, and the trainer and town records never mention the party display at
+    //   all. EnableEnhancementMode is the ONLY caller in the decompile that passes true. The softer
+    //   two terms were already re-armed in ModBuild 195; this is the third and last destination.
+    //   Undone through the game's OWN inverse setter, with an EXACT discriminator: the same
+    //   CanvasGroup is also written by the solo-quest lock and by HideAssignedCharacter, and both of
+    //   those pair it with a disabled portrait — so the re-arm refuses any slot that is not Assigned,
+    //   is hidden, or has a dead portrait, and both real game locks survive.
+    //   THREE THINGS DELIBERATELY LEFT SHUT: the toggle-off guard (clearing it lets a second click
+    //   deselect, and the enchantress' own callback then dereferences a null character), the
+    //   empty-slot recruit lock, and EnableAssignPlayer — a REQUEST-COUNTED refcount the merchant and
+    //   the temple hold too, and writing into a refcount another window owns is a known way to break
+    //   this game.
+    //
+    //   2. THE GRAB BAR HUNG 390 px LOW BECAUSE THE UNION COUNTED INK NOBODY CAN SEE. My hypothesis
+    //   was the monotone envelope and the log refutes it in one line: the FIRST sample of a fresh
+    //   generation — nothing accumulated, zero frames held — already reads y=-913. Two instruments in
+    //   the same session disagreed by 4x about the same window: PanelInkBounds unioned 792 graphics
+    //   and found the bottom at -913; the fit's own visible-host-rect test counted 182 and said the
+    //   content fits inside the frame at -540. The whole difference is ONE TERM: Draws() tested
+    //   g.color.a and NOT the INHERITED alpha, so a closed rewards popup held at CanvasGroup alpha 0
+    //   passed enabled, activeInHierarchy, color.a and cull and was counted as ink. INHERITED ALPHA
+    //   IS NOT THE GROUP — the ModBuild 213 lesson, in a new place. 390 px = 410 mm against an
+    //   intended 18 mm, 23x, and the photograph agrees to within 1.4 % of frame height.
+    //   IT ALSO MASKED ITS OWN SECOND HALF: ModBuild 236's horizontal fix never worked. The bar was
+    //   to be centred on the ink at x=-542, under the character column; it sat at x=+4, over empty
+    //   forest — and the falsifier read CONFIRMED throughout, because both of its terms were true OF
+    //   A WRONG UNION.
+    //   Fixing the measurement is what OPENS the release side (a popup fading 0 to 1 to 0 changes no
+    //   bit of the sub-view signature), so the envelope now grows on sight and shrinks only through a
+    //   32 px dead band, a run of 3 agreeing verify samples carried forward at the run's OUTER union,
+    //   and a re-armed settle burst on commit. An alternating signal never assembles three agreeing
+    //   samples, so it latches on the side that cannot cut content.
+    //
+    //   3. THE CONTINUE BUTTON'S HOST WAS THREE LEVELS TOO DEEP — the same slip, the third subsystem.
+    //   LOADOUT CONFIRM PARKED appears ZERO times in the 238 log. CharacterWindow() resolved
+    //   NewPartyDisplayUI.PartyDisplay.GetComponent<UIWindow>(), and there are TWO UIWindow instances:
+    //   the floated window is 'New Party display' (ID PartyPanel); the component sits on
+    //   'Party Display UI ', a DESCENDANT one level down. So the park target had no float, no panel
+    //   and no grab frame, and the park never ran. The mod's own gate line had already said it —
+    //   "THE TWO IDENTITY TESTS DISAGREE ABOUT THIS WINDOW ... the fix is to drop the loser" — and
+    //   nobody had acted on it. Now resolved by UIWindowID.PartyPanel over the floated set.
+    //   AND THE BACKDROP WAS NEVER AT FAULT: LOADOUT BACKGROUND WITHDRAWN correctly refused, because
+    //   "the continue control is reachable somewhere that is NOT this window" was false — the safe
+    //   failure doing its job. One term explains both symptoms; there was no second bug.
+    //
+    //   4. THE HAND FAN COULD NOT REFRESH AFTER AN ENHANCEMENT, STRUCTURALLY. The card in the fan is
+    //   an Object.Instantiate SNAPSHOT of a pooled widget, registered with nothing; the game's own
+    //   post-commit redraw walks ObjectPool.GetAllCachedAbilityCards, which the clone is not in.
+    //   Three latches then guarantee it is never re-printed: the fan signature hashes card IDs and
+    //   nothing about content, the loadout diff carries the existing art over, and printing skips any
+    //   slot that already has a face. AND THE COMMIT RAISES NO EVENT AT ALL — no event, no Action, no
+    //   UnityEvent, and the game's own bus has sixteen members, none enhancement-related. Hooked
+    //   POSTFIX on MapPartyEnhancementShopService.AddEnhancement, the single choke point for buy,
+    //   sell and both network proxies; postfix is load-bearing because the commit's last visual act is
+    //   the re-sticker whose result must be read back. Written IN PLACE with the game's own two
+    //   sticker writers rather than re-printed: a re-print is a pool borrow, a widget clone, an async
+    //   header reload and a visible blink to move one icon. Cost per frame: zero.
+    //
+    //   5. THE MOD NOW SAYS WHICH BUILD IT IS, AND CAN SHIP ITSELF.
+    //   THE LABEL clones the game's own version text object rather than authoring a new one, because
+    //   its bottom-left position exists ONLY in the scene and no code carries it. Alignment is
+    //   measured from GLYPHS — our left edge to their right edge, shared baseline — so it survives a
+    //   language change that resizes their string. The game's label is read, never written, and the
+    //   clone is born invisible until a placement has landed, so it can never cover what it must sit
+    //   beside. 2.462 arc-minutes per authored px on the 2.2 m menu quad, with a 22-arc-minute cap
+    //   floor and a hard 2x ceiling — a label that dwarfs its neighbour reads as an overlay.
+    //   A SLEEPING BUG IN THE FALLBACK THAT EXISTS FOR CI: the build-info generator fell back to "?"
+    //   when git was missing, and "?" is an MSBuild WILDCARD — the item matched no file, evaporated,
+    //   and the build failed with a missing field ON EXACTLY THE MACHINE THE FALLBACK IS FOR.
+    //   THE UPDATER never overwrites a loaded DLL: it stages, writes a batch applier that waits for
+    //   THIS pid to disappear, backs both mod folders up, copies with NO /MIR so it can never delete
+    //   a file the zip does not carry (which is what protects the bundle and the user's tuned .cfg
+    //   files), rolls back on a mid-copy failure, and relaunches through Steam when it can. The floor
+    //   under all of it: the mod is not in the game's own load path, so even a destroyed plugin folder
+    //   only means Gloomhaven starts flat and vanilla. It verifies size, zip integrity, entry safety
+    //   (one zip-slip entry rejects the WHOLE archive), the required entries and the asset host — and
+    //   it verifies NO AUTHORSHIP: TLS to github.com is the only trust anchor, which is why the
+    //   check uses UnityWebRequest and the platform certificate store rather than the usual Mono
+    //   accept-everything workaround. Offline, rate-limited, malformed and disabled are all Info and
+    //   all show the user nothing; offline is the resting state of a single-player machine, not a
+    //   fault.
+    //
+    //   6. CI: A HOSTED RUNNER CAN BUILD THE COMPLETE ZIP, verified end to end with the game install
+    //   hidden — 73,894,279 bytes with the bundle inside and the layout assertions passing. My brief
+    //   said the 70 MB bundle was not in the repo; it is, as a tracked blob, so the bundle gate runs
+    //   in full and a release is ~74 MB rather than ~300 KB. libs/RefAsm is 16 metadata-only stubs,
+    //   5.6 MB, and the proof is not a size comparison — check-refasm.py walks each PE to the
+    //   MethodDef table and asserts every IL RVA is zero: 76,568 methods, none with a body.
+    //   THE ONE GATE CI CANNOT SERVE ITSELF: the wire vectors LOAD UnityEngine.CoreModule for its
+    //   banker's rounding, and a reference assembly cannot be loaded for execution. CI compiles them
+    //   and says so in an annotation rather than pretending.
+    //
     // Build 238: THE GAME HAD ALREADY CLOSED THE QUEST LIST, AND THE ANTI-FLICKER MARGIN WAS 0.1 mm.
     // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved, record 21 byte-identical.
     // Bundle untouched (70,218,494 bytes, unchanged since 172). Three lanes, disjoint files.

@@ -1104,6 +1104,16 @@ internal static partial class Loc
                 + "= Griff. Zur Laufzeit mit F8 umschalten. Wird ignoriert, solange echtes VR läuft.",
             ["Dev/InputDeviceDumpInterval"] =
                 "Protokolliert alle UnityEngine.XR.InputDevices alle N Sekunden (0 = aus).",
+            // 587 characters collapsed — ConfigCatalog clips a row description at 620.
+            ["Dev/UpdateCheckOnDevBuilds"] =
+                "NUR FÜR DEV-BUILDS, und standardmäßig aus. Ein Release-Build fragt beim Erscheinen des "
+                + "Hauptmenüs einmal bei GitHub nach, ob es eine neuere Version gibt, und zeigt dann ein "
+                + "Fenster mit \"Ignorieren\" und \"Updaten\". Ein Dev-Build tut das nie, weil seine "
+                + "Versionsnummer keine veröffentlichte ist und jeder Start anbieten würde, sie zu "
+                + "\"aktualisieren\". Diese Option schaltet die Prüfung auf einem Dev-Build zum Testen "
+                + "frei; sie wirkt sofort, ohne Neustart, während man im Hauptmenü steht. Auf einem "
+                + "Release-Build ändert sie nichts. Ist GitHub nicht erreichbar, erscheint einfach kein "
+                + "Fenster.",
             // ---- [Hands] ----
             ["Hands/*Scale"] =
                 "Gleichmäßige visuelle Größe dieses Handstils (1 = Größe wie modelliert). Die Meshes der "

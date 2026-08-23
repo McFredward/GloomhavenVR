@@ -974,6 +974,11 @@ public class Plugin : BaseUnityPlugin
         _modules.Add(new Net.NetModule());
         _modules.Add(new Compat.CompatModule());
         _modules.Add(new Core.DevModule());
+        // LAST on purpose. It asks GitHub once, when the main menu is up and VR is running, whether
+        // a newer release exists — nothing else in the mod depends on it, nothing it does is on a
+        // frame path, and initialising it after everything else means a throw in its Init (which is
+        // caught there anyway) cannot come between two modules that DO depend on each other.
+        _modules.Add(new Core.SelfUpdateModule());
     }
 
     private void InitModules()

@@ -106,6 +106,7 @@ internal static partial class Loc
             ["Dev/Overlay"] = Pair("Dev overlay at start", "Dev-Overlay beim Start"),
             ["Dev/SimulateHands"] = Pair("Simulate hands (desktop)", "Hände simulieren (PC)"),
             ["Dev/InputDeviceDumpInterval"] = Pair("XR device log (s, 0=off)", "XR-Geräte-Log (s, 0=aus)"),
+            ["Dev/UpdateCheckOnDevBuilds"] = Pair("Update check on dev builds", "Update-Prüfung bei Dev-Builds"),
 
             // ---- [Rig] / [Compat] — picture & world -----------------------------------------
             ["Rig/SpawnInCircle"] = Pair("Free seat at the board", "Freier Platz am Brett"),

@@ -155,10 +155,63 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     //     the window itself — cannot pin the bar away from the window for the rest of the generation.
     // The bar is never raised above the frame's own bottom edge, whatever the ink says — moving it UP
     // would change every already-accepted window in the mod for no reported reason.
+    //
+    // ---- THE RELEASE SIDE (ModBuild 239) --------------------------------------------------------
+    //
+    // WHAT WAS MISSING. Everything above describes how the envelope GROWS and when it is thrown away
+    // wholesale (a generation event). There was no third state: an envelope could not shrink under
+    // its own steam, so any content that ever reached low held the bar low until the SIGNATURE moved.
+    // The signature is the set of active sub-view ROOTS, and a popup that opens and closes by
+    // animating its CanvasGroup from 0 to 1 and back changes not one bit of it. That is a real hole
+    // and it is the one the coordinator predicted; it was NOT the cause of grosser_abstand.jpg (the
+    // ModBuild 238 log reads y=-913 on `sample 1 of generation 1, held 0 frame(s)`, so the envelope
+    // had contributed nothing — the MEASUREMENT was wrong, see PanelInkBounds' class comment). But
+    // repairing that measurement is exactly what opens this hole for real: from ModBuild 239 a popup
+    // fading in genuinely pushes the ink down, and something has to bring it back.
+    //
+    // THE POLICY: GROW FAST, SHRINK SLOW, IN ONE STEP, AND NEVER FROM THE SAMPLE THAT IS ARGUING.
+    //   * Only OUTSIDE the settle burst, and only on a sample where the monotone envelope did not
+    //     grow. A sample that grows any edge cancels a pending release outright: growth is the safe
+    //     direction and it always wins.
+    //   * The candidate is the RAW measurement, which is contained in the held envelope by
+    //     construction on such a sample. It must sit more than InkReleaseDeadBandPx inside the held
+    //     rect on at least one edge — a 1 px layout settle is not a recession.
+    //   * It must then REPEAT for InkReleaseConsecutive verify samples, i.e. hold for ~3 s of wall
+    //     clock, agreeing to within InkReleaseStabilityPx each time; the candidate carried forward is
+    //     the OUTERMOST rect of the run, so a run that wobbles commits the most conservative member
+    //     of itself and never something tighter than was actually measured.
+    //   * WHY IT CANNOT FLAP. A flap needs two readings alternating. Growth commits on sight, a
+    //     release needs three consecutive agreeing readings a second apart — an alternating signal
+    //     never assembles three, so it latches on the OUTER extent, which is the side that cannot
+    //     cut content. The cost of the asymmetry is that a genuine recession is honoured ~3 s late,
+    //     and 3 s of the bar being too far away is the failure mode the user did not report.
+    //   * WHY IT CANNOT CUT CONTENT. The held placement is never given up until the smaller rect has
+    //     been measured three times; while a release is pending the bar stays exactly where it is.
+    //     After a release commits, the settle burst is RE-ARMED (the two lines at the commit site):
+    //     without that, re-appearing content would have to pass the repeat gate at the 1 s verify
+    //     stride and could be cut for two whole seconds, which is quest_überlap.jpg with a delay on
+    //     it. Re-armed, the next sample is 4 frames away and growth from it is immediate.
+    // The repeat gate is deliberately BYPASSED for a release — it exists to make a growth prove
+    // itself twice, and a release has already proven itself three times against a stricter test.
     private const int InkSettleFrames = 24;
     private const int InkSettleStrideFrames = 4;
     private const int InkVerifyStrideFrames = 60;
     private const float InkReportThrottleSeconds = 1f;
+
+    /// <summary>Verify samples a recession must survive, unbroken, before the envelope gives up the
+    /// ground. Three at <see cref="InkVerifyStrideFrames"/> is ~3 s at 60 Hz.</summary>
+    private const int InkReleaseConsecutive = 3;
+
+    /// <summary>How far inside the held envelope the raw measurement must sit before it counts as a
+    /// recession at all, in the window's authored px. One 32 px quantum — the same dead band the
+    /// capture frame's own shrink hysteresis uses, so the two agree about what "smaller" means.</summary>
+    private const float InkReleaseDeadBandPx = 32f;
+
+    /// <summary>Per-edge tolerance for "the same recession again" across the run. Looser than
+    /// <see cref="SameRect"/>'s half pixel on purpose: the run must survive a breathing layout, and
+    /// the rect carried forward is the run's OUTER union, so slack here can only ever commit a
+    /// LARGER rect than was measured.</summary>
+    private const float InkReleaseStabilityPx = 16f;
 
     private bool _inkValid;                     // a committed rectangle exists (survives a generation reset)
     private bool _inkGenSeeded;                 // this generation has contributed a sample to it yet
@@ -188,11 +241,30 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Rect _inkPending;
     private bool _inkPendingValid;
     private int _inkGrowthsDeferred;
+    private int _inkFaint;
+    private Rect _inkReleaseCandidate;          // the OUTER union of the current recession run
+    private bool _inkReleaseValid;
+    private int _inkReleaseRun;                 // agreeing verify samples so far
+    private int _inkReleases;                   // committed releases over this window's life
 
     /// <summary>Two host-local rectangles equal to within half a uGUI pixel.</summary>
     private static bool SameRect(Rect a, Rect b) =>
         Mathf.Abs(a.xMin - b.xMin) <= 0.5f && Mathf.Abs(a.xMax - b.xMax) <= 0.5f
         && Mathf.Abs(a.yMin - b.yMin) <= 0.5f && Mathf.Abs(a.yMax - b.yMax) <= 0.5f;
+
+    /// <summary>Two host-local rectangles equal to within <paramref name="tol"/> px on every edge.</summary>
+    private static bool NearRect(Rect a, Rect b, float tol) =>
+        Mathf.Abs(a.xMin - b.xMin) <= tol && Mathf.Abs(a.xMax - b.xMax) <= tol
+        && Mathf.Abs(a.yMin - b.yMin) <= tol && Mathf.Abs(a.yMax - b.yMax) <= tol;
+
+    /// <summary>Does <paramref name="now"/> sit more than <see cref="InkReleaseDeadBandPx"/> inside
+    /// <paramref name="held"/> on at least one edge? Containment itself is not tested because the only
+    /// caller reaches this on a sample where the monotone union did not move, which IS containment.</summary>
+    private static bool Receded(Rect held, Rect now) =>
+        now.yMin > held.yMin + InkReleaseDeadBandPx
+        || now.xMin > held.xMin + InkReleaseDeadBandPx
+        || now.xMax < held.xMax - InkReleaseDeadBandPx
+        || now.yMax < held.yMax - InkReleaseDeadBandPx;
 
     /// <summary>
     /// EVERY GrabbableModal THAT HAS ACTUALLY BUILT ITS HOLDER (ModBuild 230).
@@ -1204,7 +1276,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
 
         if (_inkReportDue || _inkFallbackDue)
-            ReportBarPlacement(hostRect, unit);
+        {
+            // The falsifier is handed the two derived numbers rather than the terms to re-derive them
+            // from, so a report can never disagree with the placement it is describing. The intended
+            // gap is to the bar's TOP EDGE: BarGapMeters is documented as the gap to the bar's CENTRE,
+            // and half the thickness of the bar lies above that centre.
+            ReportBarPlacement(hostRect, unit,
+                intendedTopGapPx: (gap - thickness * 0.5f) / Mathf.Max(unit, 1e-9f),
+                mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f);
+        }
     }
 
     // ---- the ink capture ------------------------------------------------------------------------
@@ -1254,6 +1334,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkSamples = 0;
             _inkGenSeeded = false;
             _inkPendingValid = false;
+            _inkReleaseValid = false;
+            _inkReleaseRun = 0;
             _inkFallbackReported = false;
             _inkNextSampleFrame = now + InkSettleStrideFrames;
             _inkSettleUntilFrame = now + InkSettleFrames;
@@ -1296,6 +1378,45 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                                     Mathf.Max(_inkRect.yMax, ink.Rect.yMax));
         }
 
+        // ---- THE RELEASE SIDE. Whole policy on the InkSettleFrames block; this is its mechanism.
+        bool released = false;
+        if (settling || !_inkValid || !_inkGenSeeded || !SameRect(grown, _inkRect))
+        {
+            // Inside the burst, before the first commit, or on a sample that GREW the envelope: a
+            // recession is not even a question, and any run in progress is abandoned. Growth wins.
+            _inkReleaseValid = false;
+            _inkReleaseRun = 0;
+        }
+        else if (!Receded(_inkRect, ink.Rect))
+        {
+            // The raw sample agrees with the held envelope to within the dead band — nothing to give
+            // back, and a run that was building is broken by this disagreement with itself.
+            _inkReleaseValid = false;
+            _inkReleaseRun = 0;
+        }
+        else if (_inkReleaseValid && NearRect(_inkReleaseCandidate, ink.Rect, InkReleaseStabilityPx))
+        {
+            // THE SAME RECESSION AGAIN. Carry the OUTERMOST rect of the run forward, so a wobbling
+            // run can only ever commit the most conservative member of itself.
+            _inkReleaseCandidate = Rect.MinMaxRect(
+                Mathf.Min(_inkReleaseCandidate.xMin, ink.Rect.xMin),
+                Mathf.Min(_inkReleaseCandidate.yMin, ink.Rect.yMin),
+                Mathf.Max(_inkReleaseCandidate.xMax, ink.Rect.xMax),
+                Mathf.Max(_inkReleaseCandidate.yMax, ink.Rect.yMax));
+            _inkReleaseRun++;
+            if (_inkReleaseRun >= InkReleaseConsecutive)
+            {
+                grown = _inkReleaseCandidate;
+                released = true;
+            }
+        }
+        else
+        {
+            _inkReleaseCandidate = ink.Rect;
+            _inkReleaseValid = true;
+            _inkReleaseRun = 1;
+        }
+
         bool moved = !_inkValid || !SameRect(grown, _inkRect);
         // The census fields always describe the LATEST sample; only the rectangle is the envelope.
         _inkGraphics = ink.Graphics;
@@ -1303,9 +1424,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkEmptyText = ink.EmptyText;
         _inkModChrome = ink.ModChrome;
         _inkTruncated = ink.Truncated;
+        _inkFaint = ink.Faint;
         // Name the graphic that sets the COMMITTED envelope's bottom, which is only this sample's
-        // bottom-setter when this sample is the one that owns that edge.
-        if (_inkBottomName.Length == 0 || Mathf.Abs(grown.yMin - ink.Rect.yMin) <= 0.5f)
+        // bottom-setter when this sample is the one that owns that edge. A release always renames:
+        // its rect IS this run's measurements, within InkReleaseStabilityPx of this one.
+        if (_inkBottomName.Length == 0 || released || Mathf.Abs(grown.yMin - ink.Rect.yMin) <= 0.5f)
             _inkBottomName = ink.BottomName;
         if (!moved)
         {
@@ -1322,7 +1445,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // and the burst is the one interval in which every reading is expected to differ.
         // The FIRST commit of a window's life is exempt: there is no held placement to protect, and
         // the only alternative is the frame-based geometry this round exists to replace.
-        if (!settling && _inkValid)
+        // A RELEASE IS EXEMPT: this gate exists to make a GROWTH prove itself twice, and a release has
+        // already proven itself InkReleaseConsecutive times against a stricter test.
+        if (!settling && _inkValid && !released)
         {
             if (!_inkPendingValid || !SameRect(_inkPending, grown))
             {
@@ -1333,6 +1458,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             }
         }
         _inkPendingValid = false;
+
+        if (released)
+        {
+            // RE-ARM THE SETTLE BURST. The bar has just moved UP; content that comes back must be able
+            // to push it down again immediately rather than through the 1 s repeat gate, or the window
+            // between a release and a re-growth is exactly the quest_überlap.jpg overlap with a delay.
+            _inkReleases++;
+            _inkReleaseValid = false;
+            _inkReleaseRun = 0;
+            _inkCause = "the ink receded and held for " + InkReleaseConsecutive + " verify sample(s)";
+            _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkNextSampleFrame = now + InkSettleStrideFrames;
+        }
 
         _inkRect = grown;
         _inkValid = true;
@@ -1347,8 +1485,29 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <summary>
     /// THE FALSIFIER, read back off the transform that was just written — not off the intent that
     /// produced it. One greppable line per window per (re-)capture, rate-limited.
+    ///
+    /// <para><b>ModBuild 239 ADDED THE GAP ITSELF, and made a gap far above intent a NAMED FAILURE.</b>
+    /// Through ModBuild 238 this line could read CONFIRMED on the very window the user was
+    /// photographing (<c>grosser_abstand.jpg</c>): it asserted only that the bar CLEARS the ink and is
+    /// CENTRED on it, and both were true of an ink union that was itself wrong by 373 px. Two terms
+    /// now carry the distance, in the window's authored px and in millimetres at the live rig scale,
+    /// against the intended <see cref="BarGapMeters"/>:</para>
+    /// <list type="bullet">
+    /// <item><b>TO THE INK</b> — lowest drawn graphic to the bar's top edge. Legitimately larger than
+    /// intent whenever the ink stops ABOVE the frame's bottom, because the bar is never raised into
+    /// the frame; that is why it is reported and not judged.</item>
+    /// <item><b>BELOW THE FRAME</b> — the host rect's own bottom edge to the bar's top edge. This is
+    /// the user's complaint expressed as one number, and it is the term that is judged. It is
+    /// independent of whether the ink measurement is right, which is precisely the property the
+    /// ModBuild 238 verdict lacked ([[a-claim-must-not-measure-itself]]).</item>
+    /// </list>
+    /// <para>It fires whenever the handle hangs more than one dead band below its own window — which
+    /// includes the case where it is CORRECT to (the battle-goal picker really does draw 373 px below
+    /// the frame while it is open, and cutting across it is quest_überlap.jpg). That is deliberate: the
+    /// line names the graphic holding the bar down and the count of drawn-but-invisible graphics that
+    /// were excluded, so one reading adjudicates it. Silence on this cost another build.</para>
     /// </summary>
-    private void ReportBarPlacement(Rect hostRect, float unit)
+    private void ReportBarPlacement(Rect hostRect, float unit, float intendedTopGapPx, float mmPerPx)
     {
         _inkReportDue = false;
         bool fallback = _inkFallbackDue;
@@ -1392,33 +1551,57 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float inkCentre = _inkRect.center.x;
         bool clearsVertically = barTopPx <= inkBottom + 0.5f;
         bool centredOnInk = Mathf.Abs(barCentrePx - inkCentre) <= 1f;
+
+        // THE GAP, both ways. See this method's own comment for which of the two is judged and why.
+        float gapToInkPx = inkBottom - barTopPx;
+        float dropBelowFramePx = hostRect.yMin - barTopPx;
+        bool gapWithinIntent = dropBelowFramePx <= intendedTopGapPx + InkReleaseDeadBandPx;
+        string gaps =
+            $"THE GAP: to the ink {gapToInkPx:F0} px = {gapToInkPx * mmPerPx:F0} mm, "
+            + $"below the window's own frame {dropBelowFramePx:F0} px = {dropBelowFramePx * mmPerPx:F0} mm, "
+            + $"against an INTENDED {intendedTopGapPx:F0} px = {intendedTopGapPx * mmPerPx:F0} mm "
+            + $"(BarGapMeters {BarGapMeters:F3} m to the bar's centre, less half its thickness, x the "
+            + $"short-panel proportion, at {mmPerPx:F3} mm per authored px on the live rig)";
+
         string census = $"{_inkGraphics} graphic(s) unioned, {_inkPlates} full-frame plate(s), "
-                        + $"{_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) excluded"
+                        + $"{_inkFaint} drawn-but-invisible graphic(s) (effective alpha under the fit's "
+                        + $"floor), {_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) "
+                        + "excluded"
                         + (_inkTruncated ? ", WALK TRUNCATED at the node budget" : string.Empty);
         string measurement =
             $"bar top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px, "
             + $"all in the window's own authored px; the LOWEST drawn graphic '{_inkBottomName}' ends at "
             + $"y={inkBottom:F0} px; the ink union spans x {_inkRect.xMin:F0}..{_inkRect.xMax:F0} "
             + $"(width {_inkRect.width:F0} px, centre {inkCentre:F0}) and y {inkBottom:F0}..{_inkRect.yMax:F0}; "
-            + $"{frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} of that "
-            + $"generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} growth(s) "
-            + $"deferred by the repeat gate over this window's life, cause: {_inkCause}";
+            + $"{gaps}; {frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} "
+            + $"of that generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} "
+            + $"growth(s) deferred by the repeat gate and {_inkReleases} release(s) committed over this "
+            + $"window's life, cause: {_inkCause}";
 
-        if (clearsVertically && centredOnInk)
+        if (clearsVertically && centredOnInk && gapWithinIntent)
         {
             VRLog.Info("WorldUI",
                 $"GRAB BAR CLEARS THE INK: CONFIRMED for '{_logName}' — {measurement}.{suppressed} HOW TO "
                 + "READ IT. The claim is that the brass handle is placed against what the window DRAWS "
-                + "rather than what it FRAMES, and the two numbers that would falsify it are on this "
+                + "rather than what it FRAMES, and the THREE numbers that would falsify it are on this "
                 + "line: the bar's top edge must be at or below the lowest drawn graphic's bottom edge, "
-                + "and the bar's centre must be the ink's centre. A window whose ink fills its frame "
+                + "the bar's centre must be the ink's centre, and — new in ModBuild 239 — the handle "
+                + "must not hang more than one dead band below the window's OWN bottom edge. That third "
+                + "term is the user's 'zu grosser Abstand' report, and it is JUDGED rather than merely "
+                + "printed because the first two were both true of the window he photographed the "
+                + "handle 390 px under. A window whose ink fills its frame "
                 + "reads centre 0 and a bar top one gap under the host rect — unchanged from ModBuild "
                 + "235 by construction, which is what makes an unchanged reading on those windows "
-                + "evidence rather than an absence of evidence. The ink union is MONOTONE OUTWARD "
-                + "within a generation and is only reset by an event, so a bar that never moves while "
-                + "the generation number climbs means the events fire and the content genuinely did "
-                + "not move; a generation number stuck at 1 across a session in which the user opened "
-                + "and closed sub-views means the signature is blind and is the first thing to fix.");
+                + "evidence rather than an absence of evidence. The ink union GROWS on sight and "
+                + "SHRINKS only after a recession has held for several verify samples, so a bar that "
+                + "never moves while the generation number climbs means the events fire and the content "
+                + "genuinely did not move; a generation number stuck at 1 across a session in which the "
+                + "user opened and closed sub-views means the signature is blind, and a release count "
+                + "stuck at 0 on a window whose popups come and go means the release side is not "
+                + "reaching its run length. THE DRAWN-BUT-INVISIBLE COUNT IS THE OTHER LEAD: it is the "
+                + "graphics that pass enabled/active/colour/cull and still paint nothing because a "
+                + "CanvasGroup above them is at alpha 0, and before ModBuild 239 every one of them was "
+                + "counted as ink.");
             return;
         }
 
@@ -1426,8 +1609,22 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             ? $"VERTICAL — the bar's top edge y={barTopPx:F0} px is ABOVE the lowest drawn graphic's "
               + $"bottom edge y={inkBottom:F0} px by {inkBottom - barTopPx:F0} px, so it is drawn over "
               + "content"
-            : $"HORIZONTAL CENTRE — the bar's centre x={barCentrePx:F0} px is off the ink's centre "
-              + $"x={inkCentre:F0} px by {Mathf.Abs(barCentrePx - inkCentre):F0} px";
+            : !centredOnInk
+                ? $"HORIZONTAL CENTRE — the bar's centre x={barCentrePx:F0} px is off the ink's centre "
+                  + $"x={inkCentre:F0} px by {Mathf.Abs(barCentrePx - inkCentre):F0} px"
+                : $"THE GAP IS LARGER THAN INTENDED — the handle's top edge hangs "
+                  + $"{dropBelowFramePx:F0} px = {dropBelowFramePx * mmPerPx:F0} mm below the window's "
+                  + $"own bottom edge y={hostRect.yMin:F0} px, which is {dropBelowFramePx / Mathf.Max(intendedTopGapPx, 1e-3f):F1}x "
+                  + $"the intended {intendedTopGapPx:F0} px = {intendedTopGapPx * mmPerPx:F0} mm. THIS IS "
+                  + "THE USER'S 'zu grosser Abstand' COMPLAINT AS ONE NUMBER, and it is held down by the "
+                  + $"graphic named as the lowest above, '{_inkBottomName}' at y={inkBottom:F0} px. TWO "
+                  + "READINGS SETTLE WHETHER IT IS A FAULT. If that graphic really is painted there "
+                  + "(the battle-goal picker draws 373 px below this frame while it is open) the bar is "
+                  + "CORRECT and cutting across it is quest_überlap.jpg. If it is not on the screen, "
+                  + "the ink union is measuring a ghost — compare this line's graphic count against the "
+                  + "HIT RECT line's 'visible graphic(s)' for the SAME window, which applies the content "
+                  + $"fit's stricter verdict, and against this line's own {_inkFaint} "
+                  + "drawn-but-invisible exclusion(s)";
         VRLog.Warn("WorldUI",
             $"GRAB BAR CLEARS THE INK: NOT ACHIEVED for '{_logName}' — failing term: {term}. {measurement}."
             + suppressed);
@@ -1454,6 +1651,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkValid = false;
         _inkGenSeeded = false;
         _inkPendingValid = false;
+        _inkReleaseValid = false;
+        _inkReleaseRun = 0;
         _inkSignatureValid = false;
         _inkHostRectValid = false;
         _inkNextSampleFrame = -1;

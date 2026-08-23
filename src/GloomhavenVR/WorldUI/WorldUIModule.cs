@@ -33,6 +33,14 @@ internal sealed class WorldUIModule : IVRModule
     {
         WorldUIConfig.Bind();
 
+        // User request 2026-08-22: "VR mod Version soll im Hauptmenu unten links neben der
+        // Versionnummer vom Spiel sichtbar sein." Deliberately ABOVE the VR-not-running early-out
+        // — the main menu is reachable on the flat screen too, and there the label just keeps the
+        // game's own font size. No patch, no scene query: it watches MainMenuUIManager.Instance.
+        // Needs WorldUIConfig.Bind() to have run (ScreenWidth/ScreenDistance are the reading
+        // geometry it reports its legibility against).
+        ModVersionLabel.Attach();
+
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
         {
             VRLog.Debug(Name, "VR not running and dev mode off — WorldUI driver not installed.");
