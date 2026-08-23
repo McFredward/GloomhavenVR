@@ -102,8 +102,22 @@ jobs:
       - name: Wire coverage
         run: python3 scripts/check-wire-coverage.py
 
+      # ---------------------------------------------------------------------------
+      # This gate compares the shipped defaults against a TESTER'S cfg drop, and that
+      # drop lives in .planning/debug/, which is gitignored. On a runner the directory
+      # does not exist, and the script exits 1 with "no cfg directory" — which is what
+      # actually broke the first CI runs. Absence is not drift: there is simply nothing
+      # to compare against here. It is skipped WITH A NOTICE rather than silently, and
+      # the script is left strict on purpose, because locally the missing directory
+      # really does mean "you forgot to drop the cfgs".
+      # ---------------------------------------------------------------------------
       - name: Config defaults rebase
-        run: python3 scripts/rebase-defaults.py check
+        run: |
+          if [ -d .planning/debug/default ]; then
+            python3 scripts/rebase-defaults.py check
+          else
+            echo "::notice title=Config defaults not checked::scripts/rebase-defaults.py compares the shipped defaults against a tester's cfg drop in .planning/debug/default, which is gitignored and absent on a runner. Run it locally before a release."
+          fi
 
       # ---------------------------------------------------------------------------
       # The asset bundle IS committed (prebuilt/gloomhavenvr.bundle, 70,218,494

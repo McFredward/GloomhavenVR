@@ -204,8 +204,15 @@ jobs:
       - name: Wire coverage
         run: python3 scripts/check-wire-coverage.py
 
+      # Skipped with a notice on a runner: the tester's cfg drop it compares against
+      # lives in gitignored .planning/debug/. See the same step in ci.yml.
       - name: Config defaults rebase
-        run: python3 scripts/rebase-defaults.py check
+        run: |
+          if [ -d .planning/debug/default ]; then
+            python3 scripts/rebase-defaults.py check
+          else
+            echo "::notice title=Config defaults not checked::The tester cfg drop is gitignored and absent on a runner. Run scripts/rebase-defaults.py check locally before a release."
+          fi
 
       - name: Asset bundle format
         run: bash scripts/check-bundle-format.sh
