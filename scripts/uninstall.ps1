@@ -128,10 +128,17 @@ if (Test-Path $bootBackup) {
 # --- 4. remove the mod's BepInEx deployment --------------------------------
 # Exactly what install.ps1 deploys; BepInEx itself stays.
 Step "Removing mod deployment"
+# GloomhavenVR-update/ is NOT deployed by install.ps1 — the self-updater creates it at runtime
+# (Core/SelfUpdatePaths.StagingFolderName) to stage a downloaded zip and to keep the pre-update
+# backup until the new version has booted once. It therefore holds a full copy of the mod, on the
+# order of 140 MB, and leaving it behind means an "uninstall" that frees almost nothing. It is
+# safe to take here for the same reason the deployment is: the thing it exists to roll back to is
+# what this script is removing.
 $deployed = @(
     (Join-Path $GamePath "BepInEx\plugins\GloomhavenVR"),
     (Join-Path $GamePath "BepInEx\patchers\GloomhavenVR"),
-    (Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll")  # legacy Phase-0
+    (Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll"),  # legacy Phase-0
+    (Join-Path $GamePath "BepInEx\GloomhavenVR-update")
 )
 foreach ($item in $deployed) {
     if (Test-Path $item) {
