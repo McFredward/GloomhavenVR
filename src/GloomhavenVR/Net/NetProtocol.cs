@@ -416,7 +416,49 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 239;
+    public const ushort ModBuild = 240;
+    // Build 240: THE OTHER HALF OF THE ENHANCEMENT — A PEER'S HAND FAN WENT STALE TOO.
+    // NO WIRE CHANGE. Version byte 3, no record moves, record 21 and every other record
+    // byte-identical. Bundle untouched. Wire tests 146,839 (UNCHANGED — nothing went on the wire).
+    // Patch inventory 78/130 (UNCHANGED — no new Harmony patch).
+    //
+    //   ModBuild 239 fixed the LOCAL fan and its lane reported an adjacent gap it was not allowed
+    //   to touch. Confirmed, and for a STRONGER reason than the local one: RemoteHandFan.PrintMapFace
+    //   prints through the same Object.Instantiate snapshot, so SaveDataShared.ApplyEnhancementIcons
+    //   — which only walks ObjectPool.GetAllCachedAbilityCards — cannot reach it either; AND the peer
+    //   path carries a print latch keyed on CAbilityCard.ID, which an enhancement does not move. It
+    //   is cleared only when the resolved hand changes, so the stale face survives the whole map
+    //   visit. The converse was checked too, so the claim is not vacuous: a face printed AFTER the
+    //   commit is correct, because ObjectPool hands back an instance the game has already stickered.
+    //
+    //   THE LOCAL CLIENT ALREADY KNOWS, THROUGH THE GAME, AND NO CHANNEL WAS ADDED. A client's
+    //   ConfirmBuy sends GameActionType.BuyEnhancement and returns WITHOUT committing; the host
+    //   validates, commits and forwards; every receiver runs GameAction.Execute, whose table routes
+    //   BuyEnhancement to UIGuildmasterHUD.ProxyBuyEnhancement to UINewEnhancementWindow
+    //   .ProxyBuyEnhancement to shopService.AddEnhancement — the SAME method ModBuild 239 already
+    //   hooks. And shopService is built in that window's Awake, so it is live whether or not this
+    //   client ever opened the Enchantress. Sell mirrors it. So the 239 postfix was ALREADY firing
+    //   locally for a peer's card; the only missing term was that its sweep was confined to the
+    //   local fan.
+    //   CARD IDENTITY STILL NEVER GOES ON THE WIRE, and no second channel was opened for a fact the
+    //   game already syncs — that was the constraint that made this a five-line problem instead of
+    //   a record.
+    //
+    //   The peer sweep writes IN PLACE with the game's own two sticker writers, exactly as 239 does,
+    //   and deliberately does NOT clear the print latch: the slab still draws the same card, so a
+    //   re-print would buy a pool borrow, a widget clone, an async header reload and a blink on
+    //   somebody else's hand. Peers are found through a static registry kept by RemoteHandFan's own
+    //   constructor and Destroy, never a scene sweep. Zero per-frame cost; nothing ticks it.
+    //   The local fan cannot be hit by it: a RemoteHandFan only exists under a RemoteAvatar, and the
+    //   driver drops this client's own echo before an avatar is ever created.
+    //
+    //   TESTING IT NEEDS TWO PEOPLE AND THE LINE APPEARS IN THE WATCHER'S LOG, NOT THE BUYER'S:
+    //   B buys at the Enchantress while A is looking at B's raised fan with that card visible;
+    //   A's log must carry PEER HAND FAN CARD REFRESHED AFTER ENHANCEMENT: CONFIRMED and B's must
+    //   carry 239's HAND FAN CARD REFRESHED AFTER ENHANCEMENT. Both in the same round proves both
+    //   halves. On A's line, "in that peer's visible fan: no" means the test was mis-set-up, not
+    //   that the fix worked.
+    //
     // Build 239: A UNION THAT COUNTED INVISIBLE INK, A HOST THREE LEVELS TOO DEEP, AND THE MOD
     // LEARNS TO SHIP ITSELF.
     // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched

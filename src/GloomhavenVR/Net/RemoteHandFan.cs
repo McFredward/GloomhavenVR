@@ -777,9 +777,50 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private int _loggedCount = -1;      // one geometry line per card-count change
     private float _geometryLogTime;     // throttle clock for the steady-state geometry line
 
+    // ---- THE LIVE PEER FANS (the Enchantress edge, ModBuild 240) -----------------------------
+    //
+    // ModBuild 239 fixed the LOCAL half of the staleness this list exists for: a card enhanced at
+    // the Enchantress kept its old face in the buyer's own VR hand fan, because that face is an
+    // Object.Instantiate SNAPSHOT of a pooled widget and the game's own post-commit redraw
+    // (SaveDataShared.ApplyEnhancementIcons → ObjectPool.GetAllCachedAbilityCards) cannot reach a
+    // mod-owned clone. A PEER's fan is the same snapshot behind a stricter latch — PrintMapFace
+    // refuses to re-print a slab whose _mapPrinted entry already equals the card's ID, and an
+    // enhancement moves no card ID — so it went stale for the whole map visit too.
+    //
+    // WHY A REGISTRY AND NOT A SCENE SWEEP. The remedy (Net.RemoteFanEnhancementRefresh) runs on
+    // ONE edge: the game's own enhancement commit. It needs the peers' fans, and this project has
+    // already lost a whole frame budget to a FindObjectOfType sweep — so the fans put themselves in
+    // a list instead. Membership is exactly the RemoteAvatar lifetime: RemoteAvatar.Destroy is the
+    // only caller of Destroy() below, and it runs when the peer's avatar is gone for good.
+    //
+    // THE LOCAL FAN IS NOT IN HERE and cannot be: a RemoteHandFan only ever exists under a
+    // RemoteAvatar, and NetAvatarDriver drops this client's own echo before an avatar is ever
+    // created for it (NetAvatarDriver.cs:2760). The local fan is CardsDriver.OffScenarioFanCards
+    // and stays ModBuild 239's business.
+    private static readonly List<RemoteHandFan> s_live = new(4);
+
+    /// <summary>Every peer hand fan that currently exists, newest last. Read-only to callers; the
+    /// list is mutated only by the constructor and <see cref="Destroy"/>.</summary>
+    internal static IReadOnlyList<RemoteHandFan> Live => s_live;
+
+    /// <summary>The peer this fan belongs to — for diagnostics only, never a decision.</summary>
+    internal int OwnerPlayerId => _owner.PlayerId;
+
+    /// <summary>The fan's card slabs, index-aligned with <see cref="PrintedMapCardIds"/>. Exposed so
+    /// the enhancement refresh can reach the printed FACE (a child of the slab) without this class
+    /// having to know anything about enhancement stickers.</summary>
+    internal IReadOnlyList<GameObject> Slabs => _cards;
+
+    /// <summary>The per-slab map-print latch (<c>-1</c> = nothing printed), i.e. WHICH card id each
+    /// slab is currently drawing on the map path. This is the state the refresh reports as "the
+    /// print latch before and after": an in-place sticker rewrite deliberately leaves it alone,
+    /// because the slab is still drawing the same CARD — only its face was corrected.</summary>
+    internal IReadOnlyList<int> PrintedMapCardIds => _mapPrinted;
+
     public RemoteHandFan(RemoteAvatar owner)
     {
         _owner = owner;
+        s_live.Add(this);
     }
 
     // ------------------------------------------------------------------ per frame --
@@ -2045,6 +2086,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
     public void Destroy()
     {
+        // Leave the live-fan registry FIRST, so nothing can be handed a fan whose slabs are about to
+        // be destroyed. Remove is O(n) over at most a handful of peers and runs once per departure.
+        s_live.Remove(this);
+
         // THE PEER LEFT (or the scenario tore down). A borrowed copy of their card dies with them
         // — report 7's second lifetime rule, and the only one a hardware session can hit by
         // accident (a disconnect mid-look).

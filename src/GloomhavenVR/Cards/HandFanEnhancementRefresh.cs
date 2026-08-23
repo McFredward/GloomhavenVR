@@ -90,6 +90,18 @@ internal static class HandFanEnhancementRefresh
     /// <param name="abilityName">The ability (top/bottom half) the shop wrote, for the log only.</param>
     internal static void CardEnhanced(int abilityCardId, string? abilityName)
     {
+        // THE PEER HALF, FIRST AND SEPARATELY (ModBuild 240). The MULTIPLAYER note below is right
+        // that a peer's purchase re-enters this method on the local client — the game routes
+        // ProxyBuyEnhancement through this very AddEnhancement, verified — and right that a peer's
+        // fan is a different object graph that this sweep can never reach. That second half was a
+        // GAP, not a design: the peer's fan face is the same Object.Instantiate snapshot behind an
+        // extra latch (RemoteHandFan._mapPrinted, keyed on CAbilityCard.ID, which an enhancement
+        // does not move), so it went stale for the whole map visit. Net.RemoteFanEnhancementRefresh
+        // is that set; it needs no new patch, no new wire field and no second channel, because this
+        // one already fires for both cases. Called BEFORE t0 so the two halves' measured costs stay
+        // separable, and it swallows its own failures so it can never sink the local refresh.
+        Net.RemoteFanEnhancementRefresh.CardEnhanced(abilityCardId, abilityName);
+
         long t0 = Stopwatch.GetTimestamp();
 
         System.Collections.Generic.IReadOnlyList<VRCard>? fan = CardsDriver.OffScenarioFanCards;
