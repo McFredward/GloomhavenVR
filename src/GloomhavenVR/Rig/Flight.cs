@@ -250,9 +250,11 @@ internal sealed class Flight : MonoBehaviour
         // reads `stick.y` on [Comfort] FlightHand, the reel reads `Thumbstick.y` on the hand
         // holding the window, and WITH THE SHIPPED DEFAULTS THOSE ARE THE SAME CONTROLLER —
         // Defaults.FlightHand is Right and the laser carry only ever runs on the dominant hand
-        // (RayGrabDriver.cs:56), which is Right out of the box. Left unarbitrated, pulling a window
-        // toward you would fly you at it at the same time: two motions, one thumb, and the window
-        // would never appear to get closer.
+        // (RayGrabDriver.cs:56), which is Right out of the box. Left unarbitrated, reeling a window
+        // would fly the player at the same time: two motions, one thumb. (ModBuild 231 reversed the
+        // reel's sign on the user's report — stick BACK now draws the window in — so the specific
+        // pairing has changed, and drawing a window toward you would now fly you BACKWARDS away from
+        // it. The arbitration is unaffected: whatever the signs, one thumb cannot mean two things.)
         //
         // THE REEL WINS, and by the rule this class already applies twice (ScrollAllowed, and
         // LiftAllowed's menu-scrolling clause): AN AIMED, DELIBERATE ACT ON A SURFACE THE PLAYER IS

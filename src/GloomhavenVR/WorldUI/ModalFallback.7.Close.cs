@@ -1200,10 +1200,32 @@ internal static partial class ModalFallback
     /// <summary>
     /// The declared sibling groups. ONE row today, because one is what the hardware log proves; a
     /// row with no log line behind it would be a guess sitting in a table that reads like a fact.
-    /// The two other splits in the same report — the story box and its subtitle, and the encounter —
-    /// are HIERARCHY groups and are answered by the first arm of
+    ///
+    /// <para><b>ModBuild 231 — THE SENTENCE THAT STOOD HERE WAS WRONG AND IS RECORDED SO IT IS NOT
+    /// RE-ASSERTED.</b> It read: <i>"The two other splits in the same report — the story box and its
+    /// subtitle, and the encounter — are HIERARCHY groups and are answered by the first arm of
     /// <see cref="RendersInsideFloatedAncestor"/>, which stopped being map-room-scoped in the same
-    /// build. Do not add rows for them: a declared row would shadow the game's own hierarchy.
+    /// build. Do not add rows for them: a declared row would shadow the game's own hierarchy."</i>
+    /// The quest-intro split (<c>.planning/debug/getrennt2.jpg</c>) is neither a hierarchy group nor
+    /// answerable by a declared row:</para>
+    /// <list type="number">
+    /// <item>NOT A HIERARCHY. The picture lives in <c>Campaign Canvas/UI Loadout Window</c>
+    /// (<c>UILoadoutManager</c>) and the dialog in <c>Story Canvas/Map Story Window</c>
+    /// (<c>MapStoryController</c>); the ModBuild 231 log's identity line for BOTH ends with
+    /// <c>nearest ancestor UIWindow &lt;none&gt;</c>. There is no parent to walk to.</item>
+    /// <item>NOT ANSWERABLE BY A ROW EITHER, because of the ORDER. Both arms of this predicate are
+    /// only ever consulted from <c>CatchAllEligible</c>, and the catch-all re-adds a window it is
+    /// ALREADY floating before every eligibility test (<c>oursAlready</c>, ModBuild 186's
+    /// oscillation fix). The picture's window floats FIRST and the dialog's arrives 0.4 s later
+    /// (<c>UILoadoutQuestWindow.delayToShowText</c>), so by the time a leader exists the member is
+    /// past the only gate that could refuse it. Adding a row would have shipped a table entry that
+    /// reads like a fact and does nothing.</item>
+    /// </list>
+    /// <para>That split is therefore handled by <see cref="StoryComposite"/>, which is an ACTIVE step
+    /// (it moves the picture and releases the float that was holding it) rather than a predicate.
+    /// The ENCOUNTER, the third item of that old sentence, turned out not to be a split at all: it is
+    /// <c>UIEventPanel</c>, ONE window with its own image and text, and what it needed was the shared
+    /// bar and a pose (<see cref="SharedWindowKind.Encounter"/>).</para>
     /// </summary>
     private static readonly WindowGroupRule[] WindowGroups =
     {
@@ -1462,6 +1484,83 @@ internal static partial class ModalFallback
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// HOW MANY FLOATED WINDOWS ARE NOT <paramref name="keep"/> — the cheap question
+    /// <see cref="StoryComposite"/> asks before it considers sweeping, so a gate that is already
+    /// clean costs one walk over a list that is never longer than a handful and writes nothing.
+    /// </summary>
+    internal static int CountFloatsOtherThan(UIWindow? keep)
+    {
+        int n = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            if (keep != null && ReferenceEquals(wp.Window, keep))
+                continue;
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// RELEASE EVERY FLOATED WINDOW EXCEPT ONE — presentation only, no game state, nothing on the
+    /// wire. Returns how many were released and fills <paramref name="names"/> with their names for
+    /// the caller's log line.
+    ///
+    /// <para><b>USER RULING (2026-08-23, the point-of-no-return report), verbatim:</b> <i>"Alle
+    /// anderen Fenster sollen dabei dann geschlossen werden."</i></para>
+    ///
+    /// <para><b>IT IS THE EXISTING TEARDOWN, NOT A NEW ONE, AND NOT A HIDE.</b> The three statements
+    /// below are the same three the per-tick release loop runs
+    /// (<c>ModalFallback.4.Tick.cs</c>: leave <see cref="Converted"/>, destroy the grab holder,
+    /// <c>CanvasConversion.Release</c>), and between them they take the panel, the grab bar and its
+    /// collider, the X plate (a child of the host rect, destroyed with it) and the map room's arc
+    /// slot — the slot because <c>ReleaseFinishedArcSlots</c> uses membership in
+    /// <see cref="Converted"/> as its liveness test and runs later in the SAME tick. Hiding the
+    /// panel instead would leave every one of those standing, which is the
+    /// <c>leeres_fenster2.jpg</c> defect.</para>
+    ///
+    /// <para><b>WHY NOT <see cref="CloseFloatedWindow"/>, WHICH IS THE OTHER OBVIOUS CHOICE.</b> That
+    /// path writes GAME state — <c>UIWindow.Escape()</c> with a forced <c>Hide()</c> — and one of the
+    /// windows standing at the point of no return is the LOADOUT SCREEN, whose <c>Hide()</c> would
+    /// abandon the scenario the party has just committed to. A presentation release cannot do that to
+    /// any window, known or unknown, which is the property that makes it safe to point at a list.</para>
+    ///
+    /// <para><b>AND WHAT IT MEANS FOR A SHARED WINDOW AND FOR A PEER.</b> Releasing the quest-confirm
+    /// float (kind 2) removes this client's floated copy, so <c>Net.RemoteMapStory.Sample</c> stops
+    /// emitting that entry and every peer <c>Forget</c>s it — which is precisely the state record 21
+    /// documents as defined ("no record from a peer ⇒ that peer has no shared map window ⇒ nothing is
+    /// driven and the local placement stands"). No game state moves, no page is advanced, no pose is
+    /// published or withdrawn on anybody else's table. A peer still in the map room keeps its own
+    /// windows exactly where they were.</para>
+    ///
+    /// <para>The kept window is compared by REFERENCE and may be null, in which case everything
+    /// goes.</para>
+    /// </summary>
+    internal static int ReleaseFloatsExcept(UIWindow? keep, out string names)
+    {
+        int closed = 0;
+        var sb = new System.Text.StringBuilder(64);
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Window != null && keep != null && ReferenceEquals(wp.Window, keep))
+                continue;
+            string name = wp.Window != null ? wp.Window.name : "<destroyed>";
+            Converted.RemoveAt(i);
+            wp.Grab?.Destroy();
+            CanvasConversion.Release(wp.Panel);
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(name).Append('\'');
+            closed++;
+        }
+        names = sb.Length > 0 ? sb.ToString() : "none";
+        return closed;
     }
 
     private static bool ContainsWindow(List<UIWindow> list, UIWindow window)

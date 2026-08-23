@@ -28,15 +28,15 @@ internal static partial class Defaults
     internal const float HeldForward = 0.005f;                                                        // => [Cards] HeldForward
     internal const float HeldOffPalm = 0.0148f;                                                       // => [Cards] HeldOffPalm
     internal static readonly Vector3 HeldPinchOffset = new Vector3(-0.055f, 0.035f, 0f);              // => [Cards] HeldPinchOffset
-    internal const float TrayForward = 0.64416f;                                                      // => [Cards] TrayForward
-    internal const float TrayDown = 0.145188f;                                                        // => [Cards] TrayDown
-    internal const float TrayRight = 0.425035f;                                                       // => [Cards] TrayRight
+    internal const float TrayForward = 0.50568f;                                                      // => [Cards] TrayForward
+    internal const float TrayDown = 0.079034f;                                                        // => [Cards] TrayDown
+    internal const float TrayRight = -0.55541f;                                                       // => [Cards] TrayRight
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
-    internal const float TrayYaw = 27.5606f;                                                          // => [Cards] TrayYaw
-    internal const float TrayScale = 2f;                                                              // => [Cards] TrayScale
+    internal const float TrayYaw = -49.793f;                                                          // => [Cards] TrayYaw
+    internal const float TrayScale = 0.78314f;                                                        // => [Cards] TrayScale
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
-    internal const float TrayPitch = 45.131f;                                                         // => [Cards] TrayPitch
+    internal const float TrayPitch = 18.9664f;                                                        // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
@@ -270,7 +270,7 @@ internal static partial class Defaults
     internal const float BoardYaw_Steel = 0f;                                                         // => [Cards] BoardYaw_Steel
     internal const float BoardYaw_Bronze = 0f;                                                        // => [Cards] BoardYaw_Bronze
     internal const float BoardScale_Oak = 0.54265f;                                                   // => [Cards] BoardScale_Oak
-    internal const float BoardScale_Steel = 0.54266f;                                                 // => [Cards] BoardScale_Steel
+    internal const float BoardScale_Steel = 1.12674f;                                                 // => [Cards] BoardScale_Steel
     internal const float BoardScale_Bronze = 0.54265f;                                                // => [Cards] BoardScale_Bronze
     internal static readonly Vector3 AssetRotation_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetRotation_Oak  (legacy: read once as the seed for its successor)
     internal static readonly Vector3 AssetRotation_Steel = new Vector3(0f, 0f, 0f);                   // => [Cards] AssetRotation_Steel  (legacy: read once as the seed for its successor)

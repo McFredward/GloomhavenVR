@@ -346,6 +346,117 @@ internal static class MapSyncVectors
         t.Equal(-0.25f, p8.SharedWindowEntries[1].Pose.Position.x, "with its own position");
         t.Equal(0.75f, p8.SharedWindowEntries[1].Pose.Position.z, "…on both axes that moved");
 
+        t.Case("m8b. shared-window record: THREE entries, all with poses — the ModBuild 231 worst "
+               + "case, and the ENCOUNTER's pose-only discipline pinned on the wire");
+        var three = new SharedWindowEntry[NetProtocol.SharedWindowMaxEntries];
+        three[0] = both[0];
+        three[1] = both[1];
+        three[2].Kind = NetProtocol.SharedWindowKindEncounter;
+        three[2].Flags = (byte)(NetProtocol.SharedOpenBit | NetProtocol.SharedPoseBit);
+        // NO page and NO finished bit, EVER, for this kind: the encounter's page advance is the
+        // game's own GameActionType.ContinueRoadEvent (decompiled UIEventPanel.cs:606/610/724 ->
+        // ClientContinueRoadEvent :869) and a second channel for it is forbidden. This vector is
+        // where that discipline is pinned, because a doc paragraph saying so is what failed before.
+        three[2].Page = NetProtocol.StoryPageNone;
+        three[2].PageCount = 0;
+        three[2].ContentKey = 0x0BADF00Du;
+        three[2].PoseStamp = 5;
+        three[2].SizeCode = 200;
+        three[2].Frame = NetProtocol.SharedFrameParchment;
+        three[2].Pose = new RigPose
+        {
+            Position = new Vector3(1f, -0.5f, 0.25f),
+            Rotation = Quaternion.identity,
+        };
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSharedWindow = true,
+            SharedWindowCount = 3,
+            SharedWindowEntries = three,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            01               // tail: 1 record
+            15 5E            // id 21, len 0x5E = 94 = 1 + 3 x 31, the raised worst case
+            03               // n = 3 entries
+            01               // entry 1 kind 1 = MapStory
+            03               // flags: open | pose
+            00               // page 0
+            03               // pageCount 3
+            03 02 01 00      // contentKey 0x00010203 LE
+            07               // poseStamp 7
+            96               // sizeCode 150
+            01               // frame 1 = PARCHMENT-LOCAL
+            00 00 00 3F      // pos.x  0.5
+            00 00 80 3E      // pos.y  0.25
+            00 00 C0 BF      // pos.z -1.5
+            00 00 00 00      // rot.x/rot.y
+            00 00 FF 7F      // rot.z / rot.w 32767 (identity)
+            02               // entry 2 kind 2 = QuestConfirm
+            03               // flags: open | pose
+            FF               // page 0xFF -- no pages
+            00               // pageCount 0
+            CC F6 0B C4      // contentKey 0xC40BF6CC LE
+            01               // poseStamp 1
+            64               // sizeCode 100
+            00               // frame 0 = seat anchor
+            00 00 80 BE      // pos.x -0.25
+            00 00 00 00      // pos.y  0
+            00 00 40 3F      // pos.z  0.75
+            00 00 00 00      // rot.x/rot.y
+            00 00 FF 7F      // rot.z / rot.w
+            03               // entry 3 kind 3 = ENCOUNTER ('Begegnung', UIEventPanel)
+            03               // flags: open | pose -- and NEVER SharedFinishedBit
+            FF               // page 0xFF -- the encounter carries NO page, by rule
+            00               // pageCount 0
+            0D F0 AD 0B      // contentKey 0x0BADF00D LE = FNV-1a of CRoadEvent.ID
+            05               // poseStamp 5
+            C8               // sizeCode 200 = the 2.00x ceiling PanelGrabHandle clamps to
+            01               // frame 1 = PARCHMENT-LOCAL
+            00 00 80 3F      // pos.x  1.0
+            00 00 00 BF      // pos.y -0.5
+            00 00 80 3E      // pos.z  0.25
+            00 00 00 00      // rot.x/rot.y
+            00 00 FF 7F      // rot.z / rot.w
+            "), ext, m, "the encounter is addressed by its OWN kind byte and not by kind 1: kind 1 "
+                        + "resolves Singleton<MapStoryController>, and a pose published under it "
+                        + "would be applied to the map story box, which is a different window on a "
+                        + "different canvas. 94 payload bytes is the raised worst case");
+        t.Equal(107, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 94) = 107 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p8b), "and it parses");
+        t.Equal(3, p8b.SharedWindowCount, "all three entries land — the cap raise is end to end");
+        t.Equal(NetProtocol.SharedWindowKindEncounter, p8b.SharedWindowEntries![2].Kind,
+                "the third is the encounter");
+        t.Equal(NetProtocol.StoryPageNone, p8b.SharedWindowEntries[2].Page,
+                "which carries NO page — its content is the game's own ContinueRoadEvent action and "
+                + "a mod record for it would be the forbidden second source of truth");
+        t.True((p8b.SharedWindowEntries[2].Flags & NetProtocol.SharedFinishedBit) == 0,
+               "…and no FINISHED bit either, for the same reason: nothing in the mod may advance or "
+               + "terminate a road event");
+        t.True((p8b.SharedWindowEntries[2].Flags & NetProtocol.SharedPoseBit) != 0,
+               "what it DOES carry is the pose — the half the mod owns and the game has no opinion "
+               + "about, which is the whole of 'blau' for this window");
+        t.Equal((byte)5, p8b.SharedWindowEntries[2].PoseStamp, "with its own last-mover stamp");
+        t.Equal((byte)200, p8b.SharedWindowEntries[2].SizeCode, "…and its own 2.00x size code");
+        t.Equal(NetProtocol.SharedFrameParchment, p8b.SharedWindowEntries[2].Frame,
+                "…in the parchment frame");
+        t.Equal(1f, p8b.SharedWindowEntries[2].Pose.Position.x, "and an exactly representable x");
+        t.Equal(-0.5f, p8b.SharedWindowEntries[2].Pose.Position.y, "…y");
+        t.Equal(0.25f, p8b.SharedWindowEntries[2].Pose.Position.z, "…and z");
+        t.Equal(0x0BADF00Du, p8b.SharedWindowEntries[2].ContentKey,
+                "…and the event id hash a receiver compares its OWN event against before it moves "
+                + "anything");
+        t.Equal(NetProtocol.SharedWindowKindMapStory, p8b.SharedWindowEntries[0].Kind,
+                "while the two older entries are untouched by the third — each entry's length is "
+                + "computed from its own flags byte, which is what lets the walk step over a kind it "
+                + "has never seen");
+        t.Equal(NetProtocol.SharedWindowKindQuestConfirm, p8b.SharedWindowEntries[1].Kind,
+                "…including the quest confirm in the middle");
+
         t.Case("m9. shared-window record: the FINISHED entry — the one that clears the map halt");
         var finished = new SharedWindowEntry[NetProtocol.SharedWindowMaxEntries];
         finished[0].Kind = NetProtocol.SharedWindowKindMapStory;
@@ -487,7 +598,7 @@ internal static class MapSyncVectors
             80 00            // byte A / byte B
             01               // tail: 1 record
             15 0B            // id 21, len 11 -- one whole entry plus two stray bytes
-            FF               // n = 255 -- a lie; the cap is SharedWindowMaxEntries = 2
+            FF               // n = 255 -- a lie; the cap is SharedWindowMaxEntries = 3
             01               // kind 1
             01               // flags: open
             00               // page 0
@@ -710,10 +821,17 @@ internal static class MapSyncVectors
                 "a shared-window entry head is kind + flags + page + pageCount + a 4-byte key");
         t.Equal(31, NetProtocol.SharedWindowEntryBytesWithPose,
                 "…plus poseStamp + sizeCode + frame + the 20-byte shared pose");
-        t.Equal(2, NetProtocol.SharedWindowMaxEntries,
-                "and at most two shared windows can stand at once in the map room");
-        t.Equal(63, NetProtocol.SharedWindowMaxRecordBytes,
-                "so the worst-case payload is 1 + 2 x 31 = 63");
+        t.Equal(3, NetProtocol.SharedWindowMaxEntries,
+                "and at most THREE shared windows can stand at once in the map room — raised 2 -> 3 "
+                + "in ModBuild 231 when the ENCOUNTER (kind 3) joined, which is exactly what the "
+                + "record's own doc said would happen ('a third kind raises the cap in its own "
+                + "commit'). The cap is a worst case, not a prediction: the send loop fills entries "
+                + "in kind order and a cap below the number of kinds silently DROPS the last one");
+        t.Equal(94, NetProtocol.SharedWindowMaxRecordBytes,
+                "so the worst-case payload is 1 + 3 x 31 = 94");
+        t.Equal(NetProtocol.SharedWindowKindEncounter, NetProtocol.SharedWindowKindMax,
+                "and the encounter is the largest kind this build can name, so a kind 4 from a newer "
+                + "sender is stepped over by its own computed length");
         t.Equal(1800, PresenceSerializer.MaxSize,
                 "MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
@@ -722,8 +840,11 @@ internal static class MapSyncVectors
                 + "every new record keeps a margin of at least one record's worth. The selection "
                 + "edge then took record 20 from 8 to 13 and the worst case to 1435, which needs "
                 + "no raise: the margin is still 365");
-        t.True(PresenceSerializer.MaxSize - 1435 >= 257,
-               "the margin (365) is larger than the largest single record, which is the stated "
-               + "rule and the reason the earlier raises happened");
+        t.True(PresenceSerializer.MaxSize - 1466 >= 257,
+               "the margin is larger than the largest single record, which is the stated rule and "
+               + "the reason the earlier raises happened. ModBuild 231 moved the worst case 1435 -> "
+               + "1466 (record 21's payload 63 -> 94 for the encounter's entry) and the margin 365 "
+               + "-> 334, still comfortably over the 257-byte board-tuning record, so MaxSize stays "
+               + "at 1800 and no peer's parser sees a different ceiling");
     }
 }

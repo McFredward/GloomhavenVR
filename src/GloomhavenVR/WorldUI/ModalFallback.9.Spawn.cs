@@ -1741,6 +1741,11 @@ internal static partial class ModalFallback
 
     private static void ReleaseAllWindows(string reason)
     {
+        // ModBuild 231: hand the parked quest picture back and unlock the guildmaster destinations
+        // BEFORE any host is destroyed, for the reason spelled out at the StoryComposite.Tick call
+        // site — a subtree parked under a destroyed host has nowhere to go home to, and a merchant
+        // left grey across a scene change is a presentation bug that outlives its own gate.
+        StoryComposite.Reset();
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];
@@ -2314,6 +2319,24 @@ internal static partial class ModalFallback
     /// </summary>
     private static void TickWindowLiveness()
     {
+        // ModBuild 231 — THE QUEST-INTRO COMPOSITE AND THE POINT-OF-NO-RETURN GATE RUN HERE, AND THE
+        // POSITION IS LOAD-BEARING RATHER THAN CONVENIENT.
+        //
+        // StoryComposite parks the loadout screen's quest PICTURE under the map story window so the
+        // two halves of the intro are ONE panel (user: "Dialog und Bild soll ein einziges 'blaues'
+        // Fenster sein, mit dem Dialog unter dem Bild"). The hand-back — Unpark — MUST run before
+        // the release loop that follows this call in ModalFallback.Tick: that loop calls
+        // CanvasConversion.Release, which DESTROYS the host GameObject the story window was
+        // re-parented under, and a subtree still parked under a destroyed host cannot be given back
+        // to the loadout screen. This liveness step is the earliest per-tick point of the modal
+        // pipeline that runs before that loop.
+        //
+        // It is also the right side of the CONVERT loop: the park happens on the tick the story
+        // window OPENS, i.e. one tick before its conversion measures it, so the panel's first
+        // content fit already unions picture + dialog and the composite never has to grow into
+        // place with a visible jump.
+        StoryComposite.Tick();
+
         long begin = System.Diagnostics.Stopwatch.GetTimestamp();
         float now = Time.unscaledTime;
         int frame = Time.frameCount;

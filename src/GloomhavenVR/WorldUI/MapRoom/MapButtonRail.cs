@@ -919,7 +919,9 @@ internal sealed class MapButtonRail
                 {
                     if (ReferenceEquals(_laserHover, c))
                         _laserHover = null;
-                    DropHover(c, "the game turned this button off");
+                    DropHover(c, GuildmasterDestinations.IsMapSurfaceMode(c.Button.GuildmasterMode)
+                        ? "this map surface is the one the room is standing on — its cap is inert"
+                        : "the game turned this button off");
                 }
             }
 
@@ -1047,10 +1049,79 @@ internal sealed class MapButtonRail
     /// </summary>
     private static bool Pressable(Cap c)
     {
+        // ModBuild 231, belt and braces past the point of no return (user ruling: "zu diesem
+        // Zeitpunkt ist der 'Point of Return' schon überschritten, d.h. zB Händler und co. darf man
+        // zu diesem Zeitpunkt nicht mehr öffnen können"). The primary enforcement is the GAME'S own
+        // state — StoryComposite drives UIGuildmasterButton.ToggleGreyOut, and the clause below
+        // already reads c.Toggle.IsInteractable(), so the cap goes dead and dark by itself and its
+        // pulse stops. This line exists because that is a restore-bearing mutation of someone
+        // else's component: if a teardown ever left one button interactable, the cap must still
+        // refuse rather than dispatch into a flow that has passed its commit point.
+        if (StoryComposite.PointOfNoReturn)
+            return false;
         if (c.Button == null || c.Toggle == null)
             return false;
         if (!c.Button.IsActive && !CanRevealBar())
             return false;
+
+        // ModBuild 231 — A MAP-SURFACE CAP ANSWERS TO THE SURFACE, NOT TO THE CURRENT MODE.
+        //
+        // User, verbatim: "Wird der Händler gedrückt, reagiert der Button der World-Map, er wird
+        // ausgegraut und wieder nicht. Da sollte es gar keine Wechselwirkung mehr geben."
+        //
+        // THE REAL CHAIN, and it is NOT the one the report was filed against. The obvious suspect is
+        // the close's own dispatch — GuildmasterDestinations.ReturnHome presses the bar's map Toggle
+        // through PressMode, which lands in Press() below, and Press() moved the cap. That IS a real
+        // coupling and it is fixed there (the travel is now gated on a PHYSICAL press). But it is a
+        // cap going DOWN and coming back up, not a cap greying, and "ausgegraut" is the word he used.
+        //
+        // The greying is this method, and it needs no dispatch at all. The game keeps its bar as a
+        // uGUI ToggleGroup and every button greys ITSELF when it becomes the selected one:
+        // UIGuildmasterButton.RefreshSelected (decompiled UIGuildmasterButton.cs:206-219) runs
+        // `toggle.interactable = !toggle.isOn` and `icon.material = disabledGrayscaleMaterial`.
+        // So the moment the merchant becomes the current mode, the World-Map button is DEselected,
+        // its RefreshSelected runs with isOn=false, and its toggle turns interactable — clause 2
+        // below then said "pressable" and the cap lit up. Close the merchant, the map is selected
+        // again, interactable goes false, clause 3 asks IsClosableMode(WorldMap) which is FALSE by
+        // design (a map is not a window; "closing" it would mean switching the player to the other
+        // map), and the cap greys. Grey, lit, grey — once per merchant press, with nothing ever
+        // touching that cap. The destination caps do not show it because clause 3 answers TRUE for
+        // them, which is the ModBuild 200 fix.
+        //
+        // THE FIX IS TO ASK THE RIGHT QUESTION. WorldMap and City are not toggles; they are a
+        // mutually-exclusive PAIR — which surface is this room standing on. That fact is
+        // GuildmasterDestinations.HomeSurface, it is sticky across destination modes by construction
+        // (TrackHomeMode only writes it for the two surfaces), and it changes only when the player
+        // actually switches maps. So: the cap for the surface you are ON is inert and dimmed; the cap
+        // for the OTHER surface is live and takes you there. Opening or closing the merchant moves
+        // neither of them, which is what he asked for.
+        //
+        // LOOK AND BEHAVIOUR STILL COME FROM ONE PREDICATE, which is the invariant this method
+        // exists to keep (ModBuild 200's defect was an appearance and a behaviour computed from two
+        // different things). Every press a PLAYER can make goes through the collider this returns:
+        //   * cap live  ⇔ this surface is not home ⇒ it is not the current mode either ⇒
+        //     GuildmasterDestinations.Decide answers Open and the press dispatches. Honest.
+        //   * cap dim   ⇔ this surface IS home ⇒ collider off ⇒ no physical press exists to be
+        //     refused. Honest.
+        // Decide() is therefore UNCHANGED: the only caller that can still reach it for a map surface
+        // is PressMode, which is the close's own game-side dispatch and bypasses the collider on
+        // purpose. That dispatch MUST keep going out — it is the only thing that runs the mode's
+        // Exit, and without Exit the party display stays in selection mode with every character slot
+        // non-interactable (UIGuildmasterHUD.UpdateCurrentMode:435-460; ModBuild 184/195).
+        //
+        // WHAT THIS COSTS, STATED. While a destination is open, the home cap is now inert, so the
+        // player can no longer press "World Map" to leave the merchant — he closes the merchant with
+        // the merchant's own cap (the toggle contract since ModBuild 230) or with the window's X.
+        // That route was used exactly ONCE in the whole ModBuild 230 session (Player.log:10396) and
+        // it is the route that produces an ORPHANED float: it exits the mode game-side while the map
+        // room's sticky parallel float survives the release loop, which is the ModBuild 229 defect
+        // this family has already been fixed for twice. Removing it removes a way back into it.
+        // `IsInteractable()` is still required, so a surface the GAME greys (an un-unlocked city,
+        // UIGuildmasterHUD.IsAvailable) stays dim and inert exactly as it does today.
+        if (GuildmasterDestinations.IsMapSurfaceMode(c.Button.GuildmasterMode))
+            return c.Button.GuildmasterMode != GuildmasterDestinations.HomeSurface
+                   && c.Toggle.IsInteractable();
+
         if (c.Toggle.IsInteractable())
             return true;
         return c.Toggle.isOn && IsClosableMode(c.Button.GuildmasterMode);
@@ -1628,17 +1699,36 @@ internal sealed class MapButtonRail
     /// <see cref="NativeUiPress"/> for the reading of why the four added events cannot commit
     /// anything and why nothing new goes on the wire.
     /// </summary>
-    internal void Press(UIGuildmasterButton button, string source)
+    /// <param name="physical">TRUE when a hand or a laser actually pushed this cap. FALSE for a
+    /// PROGRAMMATIC dispatch — <see cref="PressMode"/>, i.e. the game-side half of closing some
+    /// OTHER destination, and the multiplayer surface-mirror in <c>RemoteMapRoom</c>.
+    ///
+    /// <para>ModBuild 231 — IT GATES THE TRAVEL ANIMATION AND NOTHING ELSE, and it is the second
+    /// half of "Da sollte es gar keine Wechselwirkung mehr geben". Closing the merchant runs
+    /// <c>GuildmasterDestinations.ReturnHome</c>, which presses the bar's map Toggle through
+    /// <see cref="PressMode"/> — and this method then depressed the WORLD-MAP CAP, 0.007 m, for
+    /// 0.07 s, with nobody near it. The ModBuild 230 log shows that dispatch on its own line every
+    /// time (Player.log:7872, 9515, 9641, 9759, 10461 …: "MAP TABLE BUTTON 'WorldMap' pressed (X
+    /// button on 'UI Shop Item Window')"). A cap is a physical affordance: it must move when it is
+    /// pushed and stay still when it is not. The dispatch itself is untouched — the game cannot tell
+    /// the difference and MUST NOT, because that press is the only thing that runs the closing mode's
+    /// Exit (see <c>GuildmasterDestinations.LeaveMode</c>).</para>
+    ///
+    /// <para><c>Presses</c> keeps counting both kinds, because it is the double-dispatch detector
+    /// and a programmatic dispatch IS a dispatch; the log line names which kind this was.</para></param>
+    internal void Press(UIGuildmasterButton button, string source, bool physical = true)
     {
         if (button == null)
             return;
         // THE CAP GOES DOWN WHETHER OR NOT THE GAME ACCEPTS THE PRESS. A button that does not move
         // when you push it reads as broken input, not as a refusal — and the refusal is already
-        // communicated by the cap being dimmed and inert in the first place.
+        // communicated by the cap being dimmed and inert in the first place. It does NOT go down for
+        // a press nobody made: see the `physical` parameter.
         Cap? cap = CapOf(button);
         if (cap != null)
         {
-            cap.PressedUntil = Time.unscaledTime + PressHoldSeconds;
+            if (physical)
+                cap.PressedUntil = Time.unscaledTime + PressHoldSeconds;
             cap.Presses++;
         }
         Toggle? toggle = ToggleOf(button);
@@ -1760,6 +1850,16 @@ internal sealed class MapButtonRail
                           + "events are highlight state, a scale tween and the game's own PlaySound calls, "
                           + "so this is still ONE press and still one thing on the wire. A DOUBLE PRESS "
                           + "would show as two of these lines, or as capPresses jumping by 2. "
+                          + (physical
+                              ? "THIS WAS A PHYSICAL PRESS (a hand or the laser pushed the cap), so "
+                                + "the cap travelled. "
+                              : "THIS WAS A PROGRAMMATIC DISPATCH — nobody touched this cap. It is "
+                                + "the game-side half of closing some other destination (ReturnHome "
+                                + "-> PressMode) or the multiplayer surface mirror, and since "
+                                + "ModBuild 231 the CAP DOES NOT MOVE for it: a cap that depresses "
+                                + "with no hand on it is the 'Wechselwirkung' report. The dispatch "
+                                + "itself is unchanged and must be — it is what runs the closing "
+                                + "mode's Exit. ")
                           + $"capPresses={(cap != null ? cap.Presses : -1)}, dispatch totals: "
                           + NativeUiPress.Counters + ". THE SOUND: it is played by the game's own handler "
                           + "off the game's own serialized item — see the one-shot 'PHYSICAL BUTTON SOUND "
@@ -1777,6 +1877,10 @@ internal sealed class MapButtonRail
     /// the game's mode machine has no "close", only "switch to another mode", so returning to the
     /// map IS the close, and it is what runs the destination's own Exit.
     /// </summary>
+    /// <para>ModBuild 231: <c>physical: false</c>. Every caller of this method is the mod dispatching
+    /// on the player's behalf — the game-side half of a close, or the multiplayer surface mirror —
+    /// and none of them is a hand on this cap. The dispatch is identical; only the cap's own travel
+    /// animation is suppressed. See <see cref="Press"/>'s <c>physical</c> parameter.</para>
     internal bool PressMode(EGuildmasterMode mode, string source)
     {
         for (int i = 0; i < _caps.Count; i++)
@@ -1784,7 +1888,7 @@ internal sealed class MapButtonRail
             UIGuildmasterButton button = _caps[i].Button;
             if (button == null || button.GuildmasterMode != mode)
                 continue;
-            Press(button, source);
+            Press(button, source, physical: false);
             return true;
         }
         return false;

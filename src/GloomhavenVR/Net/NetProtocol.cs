@@ -416,7 +416,117 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 230;
+    public const ushort ModBuild = 231;
+    // Build 231: A FUSE THAT MISTOOK THE PLAYER FOR A LOOP, AND A JOURNEY THAT WAS 87 % TELEPORT.
+    // WIRE CHANGE, ADDITIVE: record 21 gains SharedWindowKindEncounter = 3 (kind max 2 -> 3, max
+    // entries 2 -> 3). Worst-case payload 63 -> 94 B, MaxSize margin 365 -> 334, still above the
+    // 257-byte largest single record, so MaxSize is unchanged and the version byte stays 3 — the
+    // record's own doc prescribed exactly this ("a third kind raises the cap in its own commit").
+    // Bundle untouched (70,218,494 bytes, unchanged since 172). Four lanes on disjoint files.
+    // GATE NUMBERS MOVED DELIBERATELY THIS BUILD: wire tests 146,821 -> 146,839 (+18, one new
+    // golden vector m8b) and the patch inventory 74/121 -> 75/126 (the travel drive's patch class).
+    //
+    //   1. THE REEL WAS BACKWARDS, AND IT WAS NOT A BLIND SIGN FLIP. I briefed the lane that either
+    //   the user or the code had to be wrong about the axis; BOTH WERE RIGHT. VRHand.Thumbstick is
+    //   primary2DAxis assigned raw (Hands/VRHand.cs:660), and three hardware-survived consumers read
+    //   +y as "pushed forward, away from the player" (Flight.TickVerticalLift's own text says "push
+    //   the TURN stick forward to rise"; the map zoom comments "Stick UP (y>0) -> zoom IN"). 230
+    //   shipped `_carryDistance -= meters` — forward = pull in — so his sentence cannot be a
+    //   description of what shipped; it is the mapping he is ASKING for, and "dreh das um" is one
+    //   sign. Now: stick BACK draws in, forward sends away. Written down at PanelGrab.cs so nobody
+    //   re-derives it.
+    //   AND THE NEAR BOUND IS NOW A REACH NUMBER, NOT A READABILITY NUMBER: max(ProximityGrabber
+    //   .ReachMeters - the live pointer-to-palm gap, 0.02) perceived m. By the triangle inequality
+    //   that guarantees the strike point is inside palm reach, and the grab zone strictly contains
+    //   the bar it is measured on, so a grip press takes the window there by construction. 0.6 m
+    //   (typical) and 1.3 m (large) become ~0.08-0.11 m, SIZE-INDEPENDENT.
+    //   THE LANE CORRECTED MY MODEL: charging the panel's half-height as a RADIUS is wrong by up to
+    //   a metre, because a window's extent runs ACROSS the view and not toward it — a tall window
+    //   0.5 m ahead has every point ~0.5 m from the eye. That mis-model is why 230 stopped at 0.6 m.
+    //   The face guard is therefore a per-frame STEP gate, not a bound: a bound lives on the ray
+    //   axis and cannot see where the eye is relative to it, so a bound safe for every aim IS the
+    //   0.6 m he rejected. It refuses a step only if the step ends inside the eye clearance AND
+    //   makes it worse, so the escape direction always exists.
+    //
+    //   2. THE WORLD-MAP CAP: TWO EVENTS, AND ONLY ONE WAS A DISPATCH. The travel WAS the
+    //   programmatic ReturnHome press (the cap sank with nobody near it) — now suppressed while the
+    //   dispatch itself goes out byte-identical, because it is the only thing that runs the closing
+    //   mode's Exit and the party display's selection mode is undone by nothing else.
+    //   THE GREYING NEEDED NO DISPATCH AT ALL: UIGuildmasterButton.RefreshSelected runs
+    //   `toggle.interactable = !toggle.isOn` (decompiled UIGuildmasterButton.cs:206-219), so opening
+    //   the merchant DESELECTS the map button, flips it interactable and lights the cap; closing it
+    //   greys it again. Grey/lit/grey, once per merchant press. The destination caps never showed it
+    //   because a ModBuild 200 clause already answered for them; the map-surface cap now reads
+    //   HomeSurface instead of the flickering flag. Seven couplings audited, five deliberately left
+    //   with reasons — notably the game's grayscale MATERIAL, which the rail never copies, so
+    //   "fixing" that one would have ADDED a coupling.
+    //
+    //   3. THE WINDOWS STOPPED APPEARING BECAUSE A FUSE MISTOOK HIM FOR A LOOP. MY ARC-SLOT LEAK
+    //   PREMISE WAS FALSE and the lane killed it: 42 vs 21 counted a second log line that the SAME
+    //   reservation prints once its fit is known — the real books are 21/21, and at the first wedged
+    //   press the registry held 2 of 8. The cause is in his log verbatim:
+    //     10230  CATCH-ALL FUSE: window 'UI Shop Item Window' re-floated 4x in 60s ... suppressed
+    //            for this session ... Exclude it explicitly.
+    //     11217  CATCH-ALL FUSE: window 'UI Town Records Window' ...
+    //   Four open/close cycles of one destination inside 60 s and it is dead until restart — exactly
+    //   the two he named. The fuse is right about a window that re-floats ITSELF and cannot tell that
+    //   from a hand pressing a button four times. FIXED WITHOUT REMOVING THE FUSE: the count keeps
+    //   running and only the VERDICT is lifted for destinations, and the lift has its own burst fuse
+    //   (>3 lifts in 10 s = a machine, and the suppression stands). Removing a rate limiter that was
+    //   hiding a real loop is a mistake this project has already made once.
+    //   THE id-shadowing was an INSTRUMENT defect, not a behaviour one: all five closes succeeded,
+    //   and FloatedWindowWithId(None) was returning the permanently floated 'Quest Log Manager' for
+    //   every ID-less destination. Decide reads an object-keyed float now.
+    //
+    //   4. THE PARTY TOKEN WALKS 12 OF 96 UNITS — 87 % OF THE JOURNEY IS TELEPORT, AND IT ALWAYS WAS.
+    //   Not a scale factor, and the draw path makes one impossible: MapIconLayer.DrawToken issues
+    //   DrawRenderer with NO matrix, so the token's path across the parchment IS the game's own world
+    //   path. The game teleports twice inside its own timed flow (MapTimedMovementFlow.cs:11/27/54/68
+    //   -> PartyInstantMove), and on a flat screen both jumps sit behind a FULL-SCREEN uGUI fade
+    //   Image (TransitionManager.cs:144) that a world-space parchment simply does not have. His log
+    //   prints the game's own evidence: `Skip to: 1`, then one waypoint walked, then `Skip to: 13`
+    //   — (5.76,4.92) to (69.53,50.19) in one frame.
+    //   FIXED: both teleports are swallowed (their bookkeeping kept, so the next leg always starts
+    //   AHEAD of the token), and PartyMoveTo becomes an ARC-LENGTH drive — the clock owns the time,
+    //   the distance owns the speed, which is the user's rule verbatim. The encounter leg lands
+    //   exactly on arc fraction 0.500 with the final frame snapping to the computed point. THE
+    //   ENCOUNTER'S TIMING DOES NOT MOVE: the duration is the game's own distance-independent
+    //   DelayToEncounter / DelayToFadeInBlack, and MoveSpeed is written to what the drive implies so
+    //   the game's own distance/MoveSpeed arrival arithmetic still lands (concede the flag, own the
+    //   number). MP: the start is game-synced, the choreography has always run locally per client on
+    //   its own clock, and the route is per-client jittered by UnityEngine.Random — nothing new on
+    //   the wire, and peers may now see arrival a few seconds apart, which is the variance they
+    //   already have between frame rates.
+    //
+    //   5+6. THE STORY WINDOW IS ONE BLUE WINDOW, AND THE ENCOUNTER IS SHARED TOO. The "Begegnung" is
+    //   UIEventPanel / UIWindowID.EventsPanel, established from UICityEncounterButton.OpenCityEvent
+    //   -> UIGuildmasterHUD.OpenCityEncounter, NOT from the German word — and it does NOT ride
+    //   MapStoryController (fourteen callers of its Show, none of them this), so it genuinely needed
+    //   kind 3. POSE ONLY: no page, never the finished bit, no mod code on its buttons, because its
+    //   advance already IS SendGameAction(ContinueRoadEvent). Two places in the tree said sharing it
+    //   was forbidden; both were true about its CONTENT and false about its POSE, and both are
+    //   corrected in place.
+    //   THE ILLUSTRATION WAS NEVER IN THE STORY WINDOW: UILoadoutQuestWindow splits the intro on
+    //   purpose (decompiled UILoadoutQuestWindow.cs:47-93) — imagePaper draws the picture in
+    //   'UI Loadout Window', and 0.4 s later MapStoryController.Show puts the text in
+    //   'Map Story Window'. Two roots on two canvases, both reading `nearest ancestor UIWindow
+    //   <none>`. ModBuild 226's WindowGroups doc asserted these were hierarchy groups needing no row;
+    //   that sentence was wrong twice over, and it could not have fired anyway — the catch-all
+    //   re-adds an already-floated window BEFORE every eligibility test (ModBuild 186's oscillation
+    //   fix), and the picture floats first. Recorded as wrong in place.
+    //   The story window LEADS (it is the shared one and the one that must be click-through) and the
+    //   picture is parked above the MEASURED top of the dialog box, pivot (0.5,0) — dialog under
+    //   image, one panel, one bar. A guard refuses to park anything covering >90 % of its own window
+    //   so the full-window Blur sibling can never be dragged in.
+    //   NO X: the existing no-X chain excluded only the SCENARIO story box (Singleton<StoryController>)
+    //   and the map box fell through to the blacklist default. Same flag now, one mechanism.
+    //   POINT OF NO RETURN: every other float is released through the existing three-statement
+    //   teardown — deliberately NOT CloseFloatedWindow, whose Escape()/Hide() would abandon the
+    //   loadout screen and with it the scenario just committed to. The caps go dead through the
+    //   GAME'S own ToggleGreyOut, so the cap is dark and its pulse stops with the game's animation;
+    //   the grayscale MATERIAL does not cross (uGUI Image.material vs the cap's SpriteRenderer) and
+    //   the cap takes the rail's own disabled tint, which is stated rather than papered over.
+    //
     // Build 230: THE BLACK BOX WAS NOTHING AT ALL, AND FOUR OTHER THINGS. NO WIRE CHANGE. Bundle
     // untouched (70,218,494 bytes, unchanged since 172). Five lanes on disjoint files.
     //
@@ -12594,10 +12704,10 @@ internal static class NetProtocol
     ///
     /// <para>WIRE LAYOUT — <c>[n]</c>, then per entry:
     /// <list type="bullet">
-    /// <item>kind — <see cref="SharedWindowKindMapStory"/> (1) or
-    /// <see cref="SharedWindowKindQuestConfirm"/> (2). 0 and 3..255 are unknown to this build and
-    /// the ENTRY is skipped by its own computed length, which is known from its flags byte — the
-    /// rest of the record still applies.</item>
+    /// <item>kind — <see cref="SharedWindowKindMapStory"/> (1),
+    /// <see cref="SharedWindowKindQuestConfirm"/> (2) or <see cref="SharedWindowKindEncounter"/>
+    /// (3). 0 and 4..255 are unknown to this build and the ENTRY is skipped by its own computed
+    /// length, which is known from its flags byte — the rest of the record still applies.</item>
     /// <item>flags — <see cref="SharedOpenBit"/> / <see cref="SharedPoseBit"/> /
     /// <see cref="SharedFinishedBit"/>, masked with <see cref="SharedDefinedMask"/> on write AND
     /// read.</item>
@@ -12635,11 +12745,13 @@ internal static class NetProtocol
     /// on this wire uses.</item>
     /// </list></para>
     ///
-    /// <para>WHY <c>n ≤ 2</c>. Exactly two members of the shared set can stand at once in the map
+    /// <para>WHY <c>n ≤ 3</c> (was 2 until ModBuild 231). Two members could stand at once in the map
     /// room — the map story window and the quest window — because
     /// <c>MapStoryController.ShowImmediately</c> calls <c>ShowOtherGUI(!message.HideOtherGUI)</c>
-    /// and several map messages are raised with <c>hideOtherUI: false</c>. Two is the honest worst
-    /// case; a third kind raises the cap in its own commit.</para>
+    /// and several map messages are raised with <c>hideOtherUI: false</c>. The ENCOUNTER (kind 3)
+    /// is the third kind the old sentence promised would raise the cap, and this is that commit.
+    /// The cap is a worst case, not a prediction: the send loop fills entries in kind order and a
+    /// cap below the number of kinds silently drops the last one.</para>
     ///
     /// <para>RATE: the PAGE and the FINISHED bit PRE-EMPT the extras rate gate outright, because
     /// "Klickt einer weiter ist es für alle … weitergeklickt worden" is judged on latency. Note
@@ -12665,9 +12777,39 @@ internal static class NetProtocol
     /// the game's own host-authoritative path — no mod code may drive it.</summary>
     public const byte SharedWindowKindQuestConfirm = 2;
 
+    /// <summary>
+    /// Entry kind 3 of <see cref="ExtIdSharedWindow"/> (ModBuild 231): the road/city ENCOUNTER —
+    /// <c>UIEventPanel</c>, the window the German build calls "Begegnung". POSE ONLY, like kind 2,
+    /// and for a stronger reason than kind 2 has.
+    ///
+    /// <para>USER REQUEST (2026-08-23, verbatim): <i>"Die 'Begegnung' ist ein Storyfenster und soll
+    /// wie das Storyfenster auch 'blau' sein also voll synchronisiert sein."</i></para>
+    ///
+    /// <para><b>ITS CONTENT IS ALREADY ON THE WIRE — THE GAME'S, NOT OURS.</b> The page advance is a
+    /// real game action: <c>Synchronizer.SendGameAction(GameActionType.ContinueRoadEvent,
+    /// ActionPhaseType.MapEvent, …)</c> (decompiled/GH.Runtime/UIEventPanel.cs:606/610/724),
+    /// received by <c>ClientContinueRoadEvent</c> (:869). This entry therefore carries
+    /// <see cref="StoryPageNone"/> and no <see cref="SharedFinishedBit"/>, EVER: a page or a
+    /// finished bit here would be the forbidden second source of truth for a fact the game owns,
+    /// and it is the single most likely mistake in this area. What was missing — and all that is
+    /// added — is the half the mod owns: WHERE the panel stands in the room.</para>
+    ///
+    /// <para><b>WHY NOT KIND 1.</b> The kind byte is this record's whole addressing. Kind 1 resolves
+    /// <c>Singleton&lt;MapStoryController&gt;</c>; a pose published under it would be applied to the
+    /// map story box, which is a different window on a different canvas
+    /// (<c>Story Canvas/Map Story Window</c> vs the event window's own root). <c>UIEventPanel</c> is
+    /// not among the fourteen callers of <c>MapStoryController.Show</c> in the decompiled tree, so
+    /// there is no sense in which the encounter "rides" the map story controller.</para>
+    ///
+    /// <para><b>CONTENT KEY:</b> <see cref="HashMapKey"/> of the event's own id
+    /// (<c>CRoadEvent.ID</c>), never a translated string — two players in different languages must
+    /// compute the same value, and a receiver holding a different event ignores the entry.</para>
+    /// </summary>
+    public const byte SharedWindowKindEncounter = 3;
+
     /// <summary>Largest entry kind this build can name. A higher kind is a newer sender; the entry
     /// is stepped over by its own computed length and the rest of the record still applies.</summary>
-    public const byte SharedWindowKindMax = SharedWindowKindQuestConfirm;
+    public const byte SharedWindowKindMax = SharedWindowKindEncounter;
 
     /// <summary>Shared-window entry flags bit 0: the window stands on the sender right now.</summary>
     public const byte SharedOpenBit = 1 << 0;
@@ -12709,8 +12851,20 @@ internal static class NetProtocol
     public const byte SharedFrameMax = SharedFrameParchment;
 
     /// <summary>Entries <see cref="ExtIdSharedWindow"/> can carry. Clamped on read; a count above
-    /// it is clamped rather than believed.</summary>
-    public const int SharedWindowMaxEntries = 2;
+    /// it is clamped rather than believed.
+    ///
+    /// <para><b>RAISED 2 → 3 IN ModBuild 231, WHICH IS WHAT THE RECORD'S OWN DOC SAID TO DO</b>
+    /// ("Two is the honest worst case; a third kind raises the cap in its own commit"). The third
+    /// kind is <see cref="SharedWindowKindEncounter"/>. The cap is a WORST CASE and not a claim that
+    /// three stand at once: the encounter and the quest-confirm are not expected to overlap, but a
+    /// cap of 2 would silently DROP whichever entry the send loop reached third, and a dropped entry
+    /// is a window that stops following the room with no line to say so.</para>
+    ///
+    /// <para>COST OF THE RAISE: <see cref="SharedWindowMaxRecordBytes"/> goes from 63 to 94 bytes
+    /// worst case, and only for a client that genuinely has three shared windows standing. The
+    /// record is absent entirely for every client with no shared window and for every scenario
+    /// session, which is unchanged.</para></summary>
+    public const int SharedWindowMaxEntries = 3;
 
     /// <summary>Bytes of one <see cref="ExtIdSharedWindow"/> entry WITHOUT its pose block:
     /// kind + flags + page + pageCount + the 4-byte content key.</summary>

@@ -9,7 +9,7 @@ namespace GloomhavenVR.Net;
 
 /// <summary>
 /// THE MAP ROOM'S SHARED WINDOWS — record <see cref="NetProtocol.ExtIdSharedWindow"/> (21): which
-/// page of the campaign map's story every player in the 3D room has read to, and where the two
+/// page of the campaign map's story every player in the 3D room has read to, and where the three
 /// shared map windows stand.
 ///
 /// <para>USER REQUEST (2026-08-22, verbatim): "d) Wenn eine Quest angeklickt wird das erscheinende
@@ -49,11 +49,17 @@ namespace GloomhavenVR.Net;
 /// channel for that is forbidden, and the confirm click stays on the game's host-authoritative path
 /// — no mod code may drive it.</para>
 ///
-/// <para><b>WHAT IS DELIBERATELY NOT IN THIS RECORD:</b> the road/city event panel
-/// (<c>UIEventPanel</c>). It looks exactly like a story window and it is not one — its page advance
-/// is a real <c>GameActionType.ContinueRoadEvent</c> the game already sends and receives. Syncing
-/// it would be the forbidden second source of truth, and it is the single most likely mistake in
-/// this area.</para>
+/// <para><b>THE ENCOUNTER IS KIND 3 AND IT IS POSE ONLY (ModBuild 231).</b> User, verbatim: <i>"Die
+/// 'Begegnung' ist ein Storyfenster und soll wie das Storyfenster auch 'blau' sein also voll
+/// synchronisiert sein."</i> The paragraph that stood here said the road/city event panel was
+/// <b>deliberately not in this record</b> because <i>"its page advance is a real
+/// <c>GameActionType.ContinueRoadEvent</c> the game already sends and receives. Syncing it would be
+/// the forbidden second source of truth, and it is the single most likely mistake in this
+/// area."</i> Every word of that is still true about its CONTENT and none of it was ever about its
+/// POSE. Kind 3 carries <see cref="NetProtocol.StoryPageNone"/>, never the finished bit, and never
+/// touches a button — a pose block and nothing else, exactly like kind 2, whose content the game
+/// also already owns. The forbidden mistake is still forbidden, and it is now written into the send
+/// path itself rather than into a paragraph (see the entry-3 block in <see cref="Sample"/>).</para>
 ///
 /// <para>BOTH GATES ARE <c>MapRoomDriver.Active</c>. A client with the 3D map off writes no record
 /// and applies none — it keeps the flat game's per-player pacing exactly as the request says, and
@@ -128,6 +134,9 @@ internal static class RemoteMapStory
     /// <inheritdoc cref="StoryPeers"/>
     private static readonly Dictionary<int, PeerEntry> QuestPeers = new();
 
+    /// <inheritdoc cref="StoryPeers"/>
+    private static readonly Dictionary<int, PeerEntry> EncounterPeers = new();
+
     /// <summary>Per-peer, per-kind last-mover clock: the stamp we last saw and when it CHANGED. A
     /// peer re-sending the same stamp five times a second is not moving anything and must not keep
     /// winning the election.</summary>
@@ -135,6 +144,8 @@ internal static class RemoteMapStory
     private static readonly Dictionary<int, float> StoryStampAt = new();
     private static readonly Dictionary<int, byte> QuestStamp = new();
     private static readonly Dictionary<int, float> QuestStampAt = new();
+    private static readonly Dictionary<int, byte> EncounterStamp = new();
+    private static readonly Dictionary<int, float> EncounterStampAt = new();
 
     private static readonly List<int> Scratch = new(4);
 
@@ -188,6 +199,7 @@ internal static class RemoteMapStory
 
     private static readonly Local StoryLocal = new();
     private static readonly Local QuestLocal = new();
+    private static readonly Local EncounterLocal = new();
 
     /// <summary>The persistent send buffer. Allocated once so the 5 Hz write path stays free of
     /// garbage, exactly as the board-tuning sampler's buffer is.</summary>
@@ -200,6 +212,7 @@ internal static class RemoteMapStory
     private static int _sentStoryPage = int.MinValue;
     private static bool _sentStoryFinished;
     private static bool _sentQuestOpen;
+    private static bool _sentEncounterOpen;
 
     private static string _lastNote = string.Empty;
     private static float _nextNoteAt;
@@ -210,16 +223,21 @@ internal static class RemoteMapStory
     {
         StoryPeers.Clear();
         QuestPeers.Clear();
+        EncounterPeers.Clear();
         StoryStamp.Clear();
         StoryStampAt.Clear();
         QuestStamp.Clear();
         QuestStampAt.Clear();
+        EncounterStamp.Clear();
+        EncounterStampAt.Clear();
         StoryLocal.Reset();
         QuestLocal.Reset();
+        EncounterLocal.Reset();
         _sentValid = false;
         _sentStoryPage = int.MinValue;
         _sentStoryFinished = false;
         _sentQuestOpen = false;
+        _sentEncounterOpen = false;
         _lastNote = string.Empty;
         _nextNoteAt = 0f;
     }
@@ -250,10 +268,15 @@ internal static class RemoteMapStory
             bool finished = box == null && StoryLocal.Key != 0u
                             && Time.unscaledTime < StoryLocal.FinishedUntil;
             bool questOpen = QuestPopup() != null;
+            // The encounter's OPEN EDGE pre-empts for the same reason the quest window's does: the
+            // record is what makes a peer's blue bar and pose apply to it at all, and a window that
+            // appears is worth one packet. Its CONTENT never pre-empts anything here because this
+            // record never carries it.
+            bool encounterOpen = EventPanel() != null;
             if (!_sentValid)
-                return page != int.MinValue || finished || questOpen;
+                return page != int.MinValue || finished || questOpen || encounterOpen;
             return page != _sentStoryPage || finished != _sentStoryFinished
-                   || questOpen != _sentQuestOpen;
+                   || questOpen != _sentQuestOpen || encounterOpen != _sentEncounterOpen;
         }
     }
 
@@ -301,6 +324,48 @@ internal static class RemoteMapStory
         {
             Assets.Script.GUI.Quest.IQuest? q = popup.quest;
             return q != null ? NetProtocol.HashMapKey(q.LocalisedNameKey) : 0u;
+        }
+        catch (System.Exception)
+        {
+            return 0u;
+        }
+    }
+
+    /// <summary>The FLOATED encounter panel ("Begegnung"), or null. Resolved through
+    /// <see cref="SharedWindows.WindowOf"/> — i.e. through <c>Singleton&lt;UIEventPanel&gt;</c> and
+    /// its <c>[RequireComponent(typeof(UIWindow))]</c> pairing, never by name or id — and then asked
+    /// of the FLOAT SET for the same reason <see cref="QuestPopup"/> is: this record only ever
+    /// describes a window that exists in world space, and a window that is open but not converted
+    /// has no pose to publish and nowhere to apply one.</summary>
+    private static UIEventPanel? EventPanel()
+    {
+        UIWindow? w = SharedWindows.WindowOf(SharedWindowKind.Encounter);
+        if (w == null || !w.IsOpen)
+            return null;
+        if (!ModalFallback.TryGetGrabFor(w, out GrabbableModal? grab) || grab == null)
+            return null;
+        return w.GetComponent<UIEventPanel>();
+    }
+
+    /// <summary>
+    /// The encounter's content key: <c>FNV-1a</c> of the road event's own <c>ID</c>.
+    ///
+    /// <para>THE ID AND NEVER A TRANSLATED STRING — two players in different languages must compute
+    /// the same value, and <c>CRoadEvent.ID</c> is the yml key the event is loaded under
+    /// (decompiled/MapRuleLibrary/MapRuleLibrary.YML.Events/CRoadEvent.cs:9), identical on every
+    /// client that loaded the same content. A receiver holding a DIFFERENT event ignores the entry,
+    /// which is record 19's discipline verbatim: better to leave a window where it is than to move
+    /// it to where a different window stands on somebody else's table.</para>
+    /// </summary>
+    private static uint EncounterKey(UIEventPanel? panel)
+    {
+        if (panel == null)
+            return 0u;
+        try
+        {
+            MapRuleLibrary.YML.Events.CRoadEvent? ev = panel.eventData;
+            string? id = ev != null ? ev.ID : null;
+            return string.IsNullOrEmpty(id) ? 0u : NetProtocol.HashMapKey(id!);
         }
         catch (System.Exception)
         {
@@ -404,10 +469,45 @@ internal static class RemoteMapStory
             n++;
         }
 
+        // ---- entry 3: the ENCOUNTER, "Begegnung" (POSE ONLY) ---------------------------------
+        //
+        // WHAT THIS BLOCK MAY NOT DO, written here rather than in a doc paragraph because a
+        // paragraph is what failed last time: it may not carry a PAGE, it may not carry the
+        // FINISHED bit, and no code anywhere may click this window's buttons. The encounter's own
+        // advance is a GAME ACTION the game already sends and receives
+        // (Synchronizer.SendGameAction(GameActionType.ContinueRoadEvent, ActionPhaseType.MapEvent,
+        // …) at decompiled/GH.Runtime/UIEventPanel.cs:606/610/724 → ClientContinueRoadEvent :869).
+        // A second channel for it is forbidden. What travels here is the POSE — the half the mod
+        // owns and the half the game has no opinion about.
+        UIEventPanel? evPanel = EventPanel();
+        if (evPanel == null)
+        {
+            TrackFrame(SharedWindowKind.Encounter, EncounterLocal, reset: true);
+            EncounterLocal.Key = 0u;
+        }
+        else if (n < NetProtocol.SharedWindowMaxEntries)
+        {
+            uint key = EncounterKey(evPanel);
+            if (key != EncounterLocal.Key)
+                EncounterLocal.ForgetPose();
+            EncounterLocal.Key = key;
+
+            SendBuffer[n] = default;
+            SendBuffer[n].Kind = NetProtocol.SharedWindowKindEncounter;
+            SendBuffer[n].Flags = NetProtocol.SharedOpenBit;
+            SendBuffer[n].Page = NetProtocol.StoryPageNone;
+            SendBuffer[n].PageCount = 0;
+            SendBuffer[n].ContentKey = key;
+            TrackFrame(SharedWindowKind.Encounter, EncounterLocal, reset: false);
+            WritePose(SharedWindowKind.Encounter, EncounterLocal, ref SendBuffer[n]);
+            n++;
+        }
+
         _sentValid = true;
         _sentStoryPage = box != null ? box.currentDialogIndex : int.MinValue;
         _sentStoryFinished = box == null && StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil;
         _sentQuestOpen = popup != null;
+        _sentEncounterOpen = evPanel != null;
 
         if (n == 0)
             return;   // nothing to say: the record is absent and the packet is unchanged
@@ -605,6 +705,7 @@ internal static class RemoteMapStory
             return;
         bool sawStory = false;
         bool sawQuest = false;
+        bool sawEncounter = false;
         if (p.HasSharedWindow && p.SharedWindowEntries != null)
         {
             float now = Time.unscaledTime;
@@ -626,6 +727,11 @@ internal static class RemoteMapStory
                         QuestPeers[senderId] = new PeerEntry(in e, now);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
+                    case NetProtocol.SharedWindowKindEncounter:
+                        sawEncounter = true;
+                        EncounterPeers[senderId] = new PeerEntry(in e, now);
+                        NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
+                        break;
                     default:
                         // A kind this build does not know. The parser has already stepped over its
                         // bytes; there is nothing to do here but leave it alone.
@@ -639,6 +745,8 @@ internal static class RemoteMapStory
             Forget(senderId, StoryPeers, StoryStamp, StoryStampAt);
         if (!sawQuest)
             Forget(senderId, QuestPeers, QuestStamp, QuestStampAt);
+        if (!sawEncounter)
+            Forget(senderId, EncounterPeers, EncounterStamp, EncounterStampAt);
     }
 
     private static void NoteStamp(int senderId, in SharedWindowEntry e,
@@ -686,6 +794,8 @@ internal static class RemoteMapStory
             StoryLocal.FollowedStampValid = false;
             QuestLocal.FollowingPeer = 0;
             QuestLocal.FollowedStampValid = false;
+            EncounterLocal.FollowingPeer = 0;
+            EncounterLocal.FollowedStampValid = false;
             return;
         }
 
@@ -710,16 +820,31 @@ internal static class RemoteMapStory
         {
             QuestLocal.FollowingPeer = 0;
             QuestLocal.FollowedStampValid = false;
+        }
+        else
+        {
+            ResolvePose(SharedWindowKind.QuestConfirm, QuestLocal, QuestKey(popup), QuestPeers,
+                        QuestStampAt);
+        }
+
+        // The encounter: POSE ONLY. There is deliberately no page arm here at all — not a disabled
+        // one, not a guarded one. Nothing in this class may advance a road event.
+        UIEventPanel? evPanel = EventPanel();
+        if (evPanel == null)
+        {
+            EncounterLocal.FollowingPeer = 0;
+            EncounterLocal.FollowedStampValid = false;
             return;
         }
-        ResolvePose(SharedWindowKind.QuestConfirm, QuestLocal, QuestKey(popup), QuestPeers,
-                    QuestStampAt);
+        ResolvePose(SharedWindowKind.Encounter, EncounterLocal, EncounterKey(evPanel),
+                    EncounterPeers, EncounterStampAt);
     }
 
     private static void PruneStale()
     {
         PruneStale(StoryPeers, StoryStamp, StoryStampAt);
         PruneStale(QuestPeers, QuestStamp, QuestStampAt);
+        PruneStale(EncounterPeers, EncounterStamp, EncounterStampAt);
     }
 
     private static void PruneStale(Dictionary<int, PeerEntry> peers, Dictionary<int, byte> stamps,

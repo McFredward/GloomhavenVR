@@ -225,6 +225,33 @@ internal static partial class ModalFallback
                 }
             }
 
+            // ModBuild 231 — THE MAP STORY BOX IS A CLICK-THROUGH STORY BOX TOO, AND IT HAD AN X.
+            //
+            // USER RULING (2026-08-23), verbatim: "Weiterhin darf dieses Story-Fenster kein 'x'
+            // haben, da man durchklicken muss." The chain below has excluded "the click-through
+            // story box" since test #10 — but its test resolves Singleton<StoryController> and
+            // NOTHING ELSE, i.e. the SCENARIO box. The campaign map's box is a different singleton
+            // on a different canvas (MapStoryController, 'Story Canvas/Map Story Window'), so it
+            // fell through to the blacklist's default and got one. The ModBuild 231 hardware log
+            // says so in one line: "MODAL CLOSE (X button): attached to 'Map Story Window'".
+            //
+            // IT IS THE SAME KIND OF WINDOW BY THE SAME EVIDENCE. Both controllers drive the SAME
+            // component — UICharacterStoryBox — and the way past a page is a click on its own
+            // skipButton (UICharacterStoryBox.cs:44/95, and the log's "uGUI click: 'UI Story Box'").
+            // An X on it offers to dismiss what the player is required to click through, and at the
+            // quest-intro moment that dismissal is over the point of no return (see StoryComposite):
+            // the party has committed, the loadout screen is up, and there is nothing to go back to.
+            //
+            // NO SECOND MECHANISM: this sets the SAME isStoryBox flag the scenario box sets, so it
+            // joins the one no-X chain (ModBuild 230's rule for the transient announcement, applied
+            // to the family it was written for) instead of getting a branch of its own.
+            if (!isStoryBox && Singleton<MapStoryController>.IsInitialized)
+            {
+                MapStoryController mc = Singleton<MapStoryController>.Instance;
+                if (mc != null && ReferenceEquals(mc.window, window))
+                    isStoryBox = true;
+            }
+
             // FLICKER FIX (P6): a FULL-SCREEN menu (ESC / options) is meant to float as a
             // whole screen in front of the player — its 1920x1080 stretch root IS the
             // content. Enrolling it in the central content-FIT is actively wrong: as its

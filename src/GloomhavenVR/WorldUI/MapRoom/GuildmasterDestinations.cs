@@ -235,6 +235,12 @@ internal static class GuildmasterDestinations
 
             EnterSub(SubBanner);
             ReconcileBanner(floated);
+
+            // ModBuild 231 — did the window the last press asked for actually arrive? Two reference
+            // compares while nothing is armed, which is every tick except the ~120 frames after an
+            // open. See the block above TickOpenWatch for why this exists at all.
+            EnterSub(SubOpenWatch);
+            TickOpenWatch();
         }
         finally
         {
@@ -549,6 +555,74 @@ internal static class GuildmasterDestinations
     //  its own doc for why that was already the right call in ModBuild 226).
     // =========================================================================================
 
+    // =========================================================================================
+    //  9 — TWO REPORTS, TWO CAUSES, AND NEITHER WAS THE ONE THE ROUND WAS OPENED ON (ModBuild 231)
+    //
+    //  REPORT A, verbatim: "Wird der Händler gedrückt, reagiert der Button der World-Map, er wird
+    //  ausgegraut und wieder nicht. Da sollte es gar keine Wechselwirkung mehr geben. Prüfe auch
+    //  andere Wechselwirkungen."
+    //
+    //  It is TWO separate visible events on that cap, with two separate causes, and only one of
+    //  them involves a dispatch:
+    //    (1) THE CAP TRAVELS. Closing a destination runs CloseFloatedWindow -> LeaveMode ->
+    //        ReturnHome -> MapRoomDriver.PressGuildmasterMode -> MapButtonRail.PressMode ->
+    //        Press(), which set PressedUntil and pushed the World-Map cap 0.007 m into the table
+    //        with nobody near it. The ModBuild 230 log has that dispatch on its own line every
+    //        time (Player.log:7872, 9515, 9641, 9759, 10461 …: "MAP TABLE BUTTON 'WorldMap'
+    //        pressed (X button on 'UI Shop Item Window')"). FIXED in MapButtonRail.Press: the
+    //        travel is gated on a PHYSICAL press; the dispatch is untouched, because it is the only
+    //        thing that runs the closing mode's Exit and without Exit the party display stays in
+    //        selection mode (ModBuild 184/195).
+    //    (2) THE CAP GREYS, and this one needs no dispatch at all — which is why reading the
+    //        dispatch as the cause would have fixed half the report. The game's bar is a uGUI
+    //        ToggleGroup and each button greys ITSELF when it becomes the selected one
+    //        (UIGuildmasterButton.RefreshSelected, decompiled :206-219: `toggle.interactable =
+    //        !toggle.isOn`, plus `icon.material = disabledGrayscaleMaterial`). Opening the merchant
+    //        DEselects the map button, its interactable flips true, and MapButtonRail.Pressable's
+    //        clause 2 lit the cap; closing it selects the map again and clause 3 refuses, because
+    //        IsClosableMode(WorldMap) is false by design. Grey, lit, grey, once per merchant press.
+    //        FIXED in MapButtonRail.Pressable: a map-SURFACE cap answers to HomeSurface — which
+    //        surface this room is standing on — and that is sticky across every destination mode.
+    //
+    //  REPORT B, verbatim: "Wenn ich die buttons wiederholt hintereinander drücke tauchen die
+    //  Fenster irgendwann gar nicht mehr auf. Das habe ich nun mit dem Händler und der Liste der in
+    //  Ruhestand gegangenen Charactere hinbekommen. Das darf niemals passieren."
+    //
+    //  THE LOG NAMES IT TWICE AND NAMES HIS TWO WINDOWS:
+    //    Player.log:10230  CATCH-ALL FUSE: window 'UI Shop Item Window'   re-floated 4× in 60s …
+    //                      suppressed for this session
+    //    Player.log:11217  CATCH-ALL FUSE: window 'UI Town Records Window' re-floated 4× in 60s …
+    //  Every destination reaches VR through the catch-all, so every open is one tick of that
+    //  count, and four open/close cycles inside a minute blow it FOREVER. After 10230 every
+    //  merchant press reads "IsOpen=True float=none": the game's window opens and nothing is shown.
+    //  FIXED in ModalFallback.LiftChurnFuseForDestinations (see its header for why the count is not
+    //  simply disabled, and for the lift's own fuse against a genuine re-float loop).
+    //
+    //  THE RECONSTRUCTED SEQUENCE, from the 84 press lines, is one shape repeated:
+    //    open  Merchant (7894) → …61 s… → open (9449) → close (9518) → open (9579) → close (9644)
+    //    → open (9679) → close (9762) → open (10220) ⇒ the 4th append inside the 60 s window ⇒
+    //    FUSE (10230). Every later merchant press: IsOpen=True, float=none, no slot claim.
+    //    The records window repeats it exactly: opens at 11017 / 11082 / 11143 / 11207 ⇒ FUSE
+    //    (11217), and from 11228 on it never appears again either.
+    //
+    //  TWO PREMISES THIS ROUND WAS OPENED ON WERE FALSE, and saying so is cheaper than a build:
+    //    * "the arc-slot registry leaks 2:1 — 42 claims, 21 releases". It does not. Of the 41
+    //      "claimed reservation" lines, 20 are the SECOND, "replayed against the final fit" line the
+    //      same claim prints once its content fit is known; the 42nd match of that grep is the
+    //      once-per-session MAP ROOM WINDOW SLOTS geometry header. 21 first-claims, 21 releases,
+    //      exactly balanced — and at the moment the merchant first failed to appear the registry
+    //      held TWO of eight reservations. TryClaimArcSlot never returned −1 in that session.
+    //    * "the WorldMap cap animates because the close's dispatch arrives at it as a press". Half
+    //      right — see (1) and (2) above.
+    //
+    //  MULTIPLAYER: nothing here goes on the wire and nothing new is read from one. The fuse lift
+    //  is local presentation state in this client's own ModalFallback; HomeSurface is read from
+    //  this client's own UIGuildmasterHUD; the travel gate is a local animation. A second player
+    //  pressing his own cap runs the identical code against his own singletons, and the remote
+    //  surface mirror (RemoteMapRoom's record-20 edge) reaches PressMode, so his switch dispatches
+    //  here exactly as before and now also stops moving a cap this player is not touching.
+    // =========================================================================================
+
     /// <summary>
     /// Is this mode one of the SIX that are windows, as opposed to a map surface? THE ONE TABLE —
     /// <c>MapButtonRail.IsClosableMode</c> delegates here so the rail's press path and this class's
@@ -634,14 +708,25 @@ internal static class GuildmasterDestinations
     /// THE OBSERVABLE STATE OF ONE DESTINATION, sampled from the three places that can disagree —
     /// and the whole ModBuild 230 defect was that they DID disagree and only one of them was asked.
     ///
-    /// <para><paramref name="floatWithId"/> is the strong answer: <c>FloatedWindowWithId</c> walks
-    /// the converted set newest-first and skips panels that are dead, host-less or already flagged
-    /// <c>UserClosing</c> (ModalFallback.4.Tick.cs:361-372), so a hit that is <c>ReferenceEquals</c>
-    /// to this window means a live world-space panel the player can look at and point at RIGHT NOW.
-    /// It is ID-keyed, and <c>UITownRecordsWindow</c> carries <c>UIWindowID.None</c> (his log:
-    /// "'UI Town Records Window' (ID None)"), which is an id other windows also carry — so the whole
-    /// returned reference is kept rather than a bool, because WHICH window came back is exactly what
-    /// separates "id-shadowed by a neighbour" from "there is no live float with this id at all".</para>
+    /// <para><paramref name="floatLive"/> IS THE STRONG ANSWER (ModBuild 231).
+    /// <c>ModalFallback.FloatIsLive</c> walks the converted set newest-first with exactly
+    /// <c>FloatedWindowWithId</c>'s exclusions — dead panel, host-less, already flagged
+    /// <c>UserClosing</c> (ModalFallback.4.Tick.cs:361-372) — but keyed on the window OBJECT, so a
+    /// true here means a live world-space panel the player can look at and point at RIGHT NOW and no
+    /// id can shadow it.</para>
+    ///
+    /// <para><paramref name="floatWithId"/> WAS that answer until ModBuild 231 and could never have
+    /// been it for this family. It is ID-keyed, and <c>UITownRecordsWindow</c> and
+    /// <c>UITempleWindow</c> both carry <c>UIWindowID.None</c> (his log: "'UI Town Records Window'
+    /// (ID None)") — as does the map room's PERMANENT 'Quest Log Manager', which was floated from
+    /// Player.log:3599 to :17019, i.e. for the entire ModBuild 230 session. So
+    /// <c>FloatedWindowWithId(None)</c> returned the quest log every single time those two asked and
+    /// this value was NEVER this window. Five perfectly good closes printed "float=STANDS …
+    /// id-shadowed" — the string <see cref="Describe"/>'s own text calls the FAILURE reading
+    /// (Player.log:7213, 7588, 11074, 11135, 11199, each followed four lines later by its own
+    /// MAP ROOM WINDOW SLOT RELEASED, i.e. each a success). It is still sampled and still printed
+    /// when it disagrees, because naming the shadowing window is what separates "id-shadowed" from
+    /// "gone" — but it decides nothing.</para>
     ///
     /// <para><paramref name="floatByGrab"/> closes that gap from the other side:
     /// <c>TryGetGrabFor</c> is keyed on the window OBJECT (ModalFallback.3.WindowPanel.cs:221-235),
@@ -662,7 +747,7 @@ internal static class GuildmasterDestinations
     /// time.</para>
     /// </summary>
     private static void Sample(EGuildmasterMode mode, out UIWindow? window, out bool gameOpen,
-                               out UIWindow? floatWithId, out bool floatByGrab,
+                               out UIWindow? floatWithId, out bool floatByGrab, out bool floatLive,
                                out EGuildmasterMode current)
     {
         current = CurrentMode();
@@ -670,43 +755,55 @@ internal static class GuildmasterDestinations
         gameOpen = window != null && window.IsOpen;
         floatWithId = window != null ? ModalFallback.FloatedWindowWithId(window.ID) : null;
         floatByGrab = window != null && ModalFallback.TryGetGrabFor(window, out _);
+        floatLive = ModalFallback.FloatIsLive(window);
     }
 
     /// <summary>
     /// THE SAMPLE IN WORDS, and the words are chosen so the AFTER line of a close is unambiguous —
     /// which is the whole reason the ModBuild 229 log could not settle this report by itself.
     ///
-    /// <para>The four states, and how each is decided rather than guessed:</para>
+    /// <para>THE THREE STATES ARE BOTH DECIDED OBJECT-KEYED SINCE ModBuild 231, and the id is a
+    /// footnote it prints rather than a fact it reasons from:</para>
     /// <list type="bullet">
-    ///   <item><b>STANDS</b> — the id-keyed live-float lookup returned THIS window. A world-space
-    ///   panel is up, not flagged for release, with a living host. He can see it.</item>
-    ///   <item><b>RELEASING</b> — this window is in the converted set (object-keyed grab) but NO live
-    ///   float carries its id at all. <c>FloatedWindowWithId</c> excludes exactly one thing a
-    ///   converted panel can be: flagged <c>UserClosing</c> / dead / host-less. So this is the one
-    ///   tick between a close and the release pass, and on the AFTER half of a close line it is the
-    ///   SUCCESS reading, not a failure.</item>
-    ///   <item><b>STANDS (id-shadowed …)</b> — converted, and some OTHER window is the live float for
-    ///   this id. Only reachable for <c>UIWindowID.None</c>. Named with the shadowing window so it
-    ///   can never be mistaken for the RELEASING case above.</item>
+    ///   <item><b>STANDS</b> — <c>floatLive</c>: THIS window is a live float. A world-space panel is
+    ///   up, not flagged for release, with a living host. He can see it.</item>
+    ///   <item><b>RELEASING</b> — <c>floatByGrab</c> without <c>floatLive</c>: this window is in the
+    ///   converted set (object-keyed grab, ModalFallback.3.WindowPanel.cs:286) but is not a live
+    ///   float — it is flagged <c>UserClosing</c>, or its panel/host is already gone. So this is the
+    ///   one tick between a close and the release pass, and on the AFTER half of a close line it is
+    ///   the SUCCESS reading, not a failure.</item>
     ///   <item><b>none</b> — not converted at all. Combined with <c>IsOpen=False</c> this is the
-    ///   closed state, full stop.</item>
+    ///   closed state, full stop. Combined with <c>IsOpen=True</c> it is the ModBuild 231 report:
+    ///   the game has the window open and the mod is showing nothing (see
+    ///   <see cref="JudgeOpenWatch"/>, which now says so out loud and names the gate).</item>
     /// </list>
+    ///
+    /// <para>WHAT WAS REMOVED, AND WHY IT HAD TO BE. A fourth state, "STANDS (id-shadowed …)", stood
+    /// here and was declared the FAILURE reading. It fired five times in the ModBuild 230 session and
+    /// was wrong every time: every one of those closes had already succeeded (its
+    /// MAP ROOM WINDOW SLOT RELEASED is four lines further down). It could not have fired any other
+    /// way — the RELEASING branch it competed with required the id-keyed lookup to return NULL, and
+    /// for a <c>UIWindowID.None</c> window it returned the permanently-floated quest log instead. An
+    /// instrument that reports a success as its own named failure mode costs a build; see
+    /// <see cref="Sample"/> for the line numbers.</para>
     /// </summary>
     private static string Describe(EGuildmasterMode mode, UIWindow? window, bool gameOpen,
-                                   UIWindow? floatWithId, bool floatByGrab, EGuildmasterMode current)
+                                   UIWindow? floatWithId, bool floatByGrab, bool floatLive,
+                                   EGuildmasterMode current)
     {
         string floatState;
-        if (window != null && ReferenceEquals(floatWithId, window))
-            floatState = "STANDS (live world-space panel, id-keyed)";
-        else if (floatByGrab && floatWithId == null)
-            floatState = "RELEASING (converted, but no LIVE float carries this id — it is flagged "
-                         + "UserClosing and its host drops on the next ModalFallback tick)";
+        if (floatLive)
+            floatState = "STANDS (live world-space panel, object-keyed)";
         else if (floatByGrab)
-            floatState = $"STANDS (converted, but the live float for this id is "
-                         + $"'{(floatWithId != null ? floatWithId.name : "?")}' — id-shadowed, which "
-                         + "only UIWindowID.None can do)";
+            floatState = "RELEASING (converted, but it is not a LIVE float — it is flagged "
+                         + "UserClosing, or its panel/host is already gone, and the record drops on "
+                         + "the next ModalFallback tick)";
         else
             floatState = "none (not in the converted set)";
+        if (window != null && floatWithId != null && !ReferenceEquals(floatWithId, window))
+            floatState += $" [id {window.ID} is ALSO carried by the floated '{floatWithId.name}' — "
+                          + "only UIWindowID.None can do that, and it decides NOTHING here since "
+                          + "ModBuild 231]";
         return $"mode={mode} window={(window != null ? $"'{window.name}' (ID {window.ID})" : "<unresolved>")} "
                + $"IsOpen={gameOpen} float={floatState} currentMode={current} home={HomeMode()} "
                + $"roomActive={MapRoomDriver.Active}";
@@ -720,8 +817,8 @@ internal static class GuildmasterDestinations
     internal static string Observe(EGuildmasterMode mode)
     {
         Sample(mode, out UIWindow? window, out bool gameOpen, out UIWindow? floatWithId,
-               out bool floatByGrab, out EGuildmasterMode current);
-        return Describe(mode, window, gameOpen, floatWithId, floatByGrab, current);
+               out bool floatByGrab, out bool floatLive, out EGuildmasterMode current);
+        return Describe(mode, window, gameOpen, floatWithId, floatByGrab, floatLive, current);
     }
 
     /// <summary>
@@ -749,9 +846,8 @@ internal static class GuildmasterDestinations
     internal static CapPress Decide(EGuildmasterMode mode, out UIWindow? window, out string observed)
     {
         Sample(mode, out window, out bool gameOpen, out UIWindow? floatWithId, out bool floatByGrab,
-               out EGuildmasterMode current);
-        observed = Describe(mode, window, gameOpen, floatWithId, floatByGrab, current);
-        bool floatById = window != null && ReferenceEquals(floatWithId, window);
+               out bool floatLive, out EGuildmasterMode current);
+        observed = Describe(mode, window, gameOpen, floatWithId, floatByGrab, floatLive, current);
 
         bool modeIsCurrent = current == mode && current != EGuildmasterMode.None;
 
@@ -763,7 +859,11 @@ internal static class GuildmasterDestinations
         if (!MapRoomDriver.Active || window == null)
             return CapPress.Open;
 
-        bool standing = floatById || floatByGrab || gameOpen;
+        // ModBuild 231: the first term was `ReferenceEquals(floatWithId, window)` and it was
+        // structurally FALSE for every ID-less destination (see Sample) — the close only ever worked
+        // because floatByGrab and gameOpen carried it. The object-keyed term is the honest one and
+        // it can only ever ADD a standing signal, never remove one, so no press changes its answer.
+        bool standing = floatLive || floatByGrab || gameOpen;
 
         // TownRecords / MercenaryLog: two modes, ONE UIWindow (UIGuildmasterHUD.cs:248-254). While
         // the other mode owns it and it is standing, this press switches the tab — it is not a
@@ -789,8 +889,19 @@ internal static class GuildmasterDestinations
     internal static bool HandleCapPress(EGuildmasterMode mode, string source, bool toggleIsOn)
     {
         CapPress decision = Decide(mode, out UIWindow? window, out string before);
+        // ModBuild 231 — THE TWO FACTS THE LAST LOG COULD NOT ANSWER, ON THE PRESS LINE ITSELF.
+        //   * the ARC REGISTRY's occupancy, because the ModBuild 230 log's 42 "MAP ROOM WINDOW SLOT"
+        //     lines against 21 "… RELEASED" read as a 2:1 leak and were not one: 21 of those 42 are
+        //     the SECOND, "replayed against the final fit" line the same claim prints, so the true
+        //     count is 21 claims / 21 releases and the registry held TWO of eight reservations at
+        //     the moment the merchant first failed to appear. Printing held/free/by-whom on the
+        //     press line means that question is answered in the line that raises it;
+        //   * the CHURN FUSE's state for this window, which is what actually wedged him — see
+        //     ModalFallback.LiftChurnFuseForDestinations.
+        string arc = ModalFallback.ArcOccupancyLine();
+        string fuse = ModalFallback.ChurnStateFor(window);
         string head = $"GUILDMASTER WINDOW PRESS: {mode} ({source}) -> {decision}. "
-                      + $"OBSERVED BEFORE: {before} toggle.isOn={toggleIsOn}.";
+                      + $"OBSERVED BEFORE: {before} toggle.isOn={toggleIsOn} {arc} {fuse}.";
 
         switch (decision)
         {
@@ -811,7 +922,13 @@ internal static class GuildmasterDestinations
                                   + "host drops on the next ModalFallback tick — look for 'MODAL WINDOW: "
                                   + "… released' within a few lines to see it land. float=STANDS on this "
                                   + "line is the FAILURE reading: the release did not take, and the next "
-                                  + "press would be the second one all over again. That is exactly what "
+                                  + "press would be the second one all over again. ModBuild 231: that "
+                                  + "verdict is OBJECT-KEYED now, so the five 'STANDS … id-shadowed' "
+                                  + "readings the ModBuild 230 session produced for the temple and "
+                                  + "the records window cannot recur — they were successful releases "
+                                  + "reported as this exact failure, because both windows carry "
+                                  + "UIWindowID.None and the id-keyed lookup kept answering with the "
+                                  + "permanently-floated quest log. That is exactly what "
                                   + "ModBuild 229 did on every mode-is-current press, because returning to "
                                   + "the map exits the mode while the sticky float survives the release "
                                   + "loop and is re-shown by ModalFallback's own ReassertStickyVisible in "
@@ -847,13 +964,120 @@ internal static class GuildmasterDestinations
                 return false;
 
             default:
+                // ModBuild 231: an open is now WATCHED. The whole of report 3 is a press that
+                // decided Open, dispatched correctly, opened the game's window — and produced no
+                // panel, silently, for the rest of the session. See TickOpenWatch.
+                ArmOpenWatch(mode, window, source);
                 VRLog.Info(Scope, head + " Nothing of this destination is standing, so this is the OPEN "
                                   + "half of the toggle and the game's own press goes out unchanged. The "
                                   + "next press on this cap will read the panel this one creates and close "
                                   + "it — the state that decides that is on this line's LEFT BEHIND "
-                                  + "counterpart after the close.");
+                                  + "counterpart after the close. THE OPEN IS NOW WATCHED: if no live "
+                                  + $"float for this window exists within {OpenWatchFrames} frames, a "
+                                  + "'GUILDMASTER WINDOW DID NOT APPEAR' line names whichever gate "
+                                  + "refused it. Silence after this line means the window arrived.");
                 return false;
         }
+    }
+
+    // ---- ModBuild 231: DID THE WINDOW HE ASKED FOR ACTUALLY APPEAR? --------------------------
+    //
+    // User, verbatim: "Wenn ich die buttons wiederholt hintereinander drücke tauchen die Fenster
+    // irgendwann gar nicht mehr auf. … Das darf niemals passieren."
+    //
+    // The ModBuild 230 log answered that question only by inference, and only to a reader who
+    // already knew what to look for: the late merchant presses read "IsOpen=True float=none", i.e.
+    // the game had the window open and the mod had no panel — but nothing said so out loud and
+    // nothing named the cause. It took a grep for CATCH-ALL FUSE across 26 MB to find the two lines
+    // that did (Player.log:10230 and :11217). A wedge that is invisible until the player notices it
+    // is the thing being removed, so an OPEN now carries a deadline: one press, one watch, and at
+    // most one extra line — the failure line — per press that fails.
+    //
+    // WHY A FRAME BUDGET AND NOT A TICK COUNT. The path from the dispatch to a live float is
+    // several ModalFallback ticks (CatchAllGraceTicks alone is 2, then the append, then the convert
+    // loop, then the pre-reveal re-place), and ModalFallback.Tick does not run every frame. 120
+    // frames is ~2 s at 60 Hz — long enough that a slow conversion never trips it, short enough
+    // that the line lands in the same screenful of log as the press it belongs to.
+    //
+    // THE WATCH IS SINGLE-SLOT ON PURPOSE. Two destinations cannot be opening at once: the game's
+    // mode machine has exactly one current mode, and a second press supersedes the first. A new arm
+    // therefore judges and closes the standing watch immediately rather than dropping it — an open
+    // that was overtaken before it could appear is still an open that did not appear.
+
+    private const int OpenWatchFrames = 120;
+
+    private static UIWindow? _openWatchWindow;
+    private static EGuildmasterMode _openWatchMode;
+    private static string _openWatchSource = string.Empty;
+    private static int _openWatchDeadline;
+    private static int _openWatchArmedFrame;
+
+    /// <summary>Arm the watch for one OPEN press. Judges any watch already standing first.</summary>
+    private static void ArmOpenWatch(EGuildmasterMode mode, UIWindow? window, string source)
+    {
+        if (_openWatchWindow != null)
+            JudgeOpenWatch("a later press superseded it before it could appear");
+        if (window == null || !MapRoomDriver.Active || !IsWindowMode(mode))
+            return;
+        _openWatchWindow = window;
+        _openWatchMode = mode;
+        _openWatchSource = source;
+        _openWatchArmedFrame = Time.frameCount;
+        _openWatchDeadline = Time.frameCount + OpenWatchFrames;
+    }
+
+    /// <summary>
+    /// Per-tick step of the open watch (from <see cref="Reconcile"/>). Two reference compares and an
+    /// int compare while nothing is armed, which is every tick but the ~120 frames after an open.
+    /// </summary>
+    private static void TickOpenWatch()
+    {
+        UIWindow? window = _openWatchWindow;
+        if (window == null)
+            return;
+        if (ModalFallback.FloatIsLive(window))
+        {
+            // It arrived. Silence is the success reading — the press line already said so.
+            DisarmOpenWatch();
+            return;
+        }
+        if (Time.frameCount < _openWatchDeadline)
+            return;
+        JudgeOpenWatch($"no live float appeared within {OpenWatchFrames} frames of the press");
+    }
+
+    /// <summary>Print the verdict for a watch that ended without a float, and disarm.</summary>
+    private static void JudgeOpenWatch(string why)
+    {
+        UIWindow? window = _openWatchWindow;
+        EGuildmasterMode mode = _openWatchMode;
+        string source = _openWatchSource;
+        int frames = Time.frameCount - _openWatchArmedFrame;
+        DisarmOpenWatch();
+        if (window == null)
+            return;
+        if (ModalFallback.FloatIsLive(window))
+            return; // raced with the arrival — no failure to report
+        VRLog.Warn(Scope, $"GUILDMASTER WINDOW DID NOT APPEAR: {mode} ('{window.name}', ID "
+                          + $"{window.ID}) was pressed ({source}) {frames} frame(s) ago, the press "
+                          + $"decided OPEN and dispatched — and {why}. "
+                          + $"NOW: IsOpen={window.IsOpen} {Observe(mode)} "
+                          + $"{ModalFallback.ArcOccupancyLine()} {ModalFallback.ChurnStateFor(window)}. "
+                          + "WHAT REFUSED IT: " + ModalFallback.ExplainNotFloated(window)
+                          + ". READ IT AS: this is the report 'tauchen die Fenster irgendwann gar "
+                          + "nicht mehr auf' happening, caught at the moment it happens instead of "
+                          + "being reconstructed from a 26 MB log afterwards. The clause above names "
+                          + "the gate that said no, and it is the FIRST gate that said no — the ones "
+                          + "after it were never reached and are not evidence.");
+    }
+
+    private static void DisarmOpenWatch()
+    {
+        _openWatchWindow = null;
+        _openWatchMode = EGuildmasterMode.None;
+        _openWatchSource = string.Empty;
+        _openWatchDeadline = 0;
+        _openWatchArmedFrame = 0;
     }
 
     /// <summary>
@@ -1018,6 +1242,28 @@ internal static class GuildmasterDestinations
 
     private static EGuildmasterMode HomeMode() =>
         _homeMode == EGuildmasterMode.City ? EGuildmasterMode.City : EGuildmasterMode.WorldMap;
+
+    /// <summary>
+    /// WHICH MAP SURFACE THE ROOM IS STANDING ON — <c>WorldMap</c> or <c>City</c>, and never
+    /// anything else. This is <see cref="HomeMode"/> under the name that says what it MEANS to a
+    /// reader outside this class, exposed for <c>MapButtonRail.Pressable</c> (ModBuild 231).
+    ///
+    /// <para>IT IS STICKY AND THAT IS THE POINT. <see cref="TrackHomeMode"/> writes it only when the
+    /// game's current mode IS one of the two surfaces, so opening the merchant does not change it
+    /// and closing the merchant does not change it back. That is exactly the property the map-surface
+    /// caps needed and did not have: they were reading the game's per-button
+    /// <c>toggle.interactable</c>, which the game flips on EVERY mode change (<c>RefreshSelected</c>,
+    /// decompiled UIGuildmasterButton.cs:206-219, <c>toggle.interactable = !toggle.isOn</c>), so the
+    /// World-Map cap greyed and un-greyed every time a destination opened or closed — his report.</para>
+    /// </summary>
+    internal static EGuildmasterMode HomeSurface => HomeMode();
+
+    /// <summary>Is this mode one of the two MAP SURFACES the room can be built on? Deliberately not
+    /// <c>!IsWindowMode</c>: the enum also carries <c>None</c>, <c>QuestAccept</c>,
+    /// <c>CityEncounter</c> and <c>MultiplayerQuest</c>, none of which is a surface and none of which
+    /// has a cap on the table.</summary>
+    internal static bool IsMapSurfaceMode(EGuildmasterMode mode) =>
+        mode is EGuildmasterMode.WorldMap or EGuildmasterMode.City;
 
     /// <summary>
     /// CONVERT THE PANEL THE FLAT GAME DRAWS AS ONE, NOT THE WINDOW COMPONENT (ModBuild 186).
@@ -1755,7 +2001,8 @@ internal static class GuildmasterDestinations
     private const int SubOutcome = 2;
     private const int SubBanner = 3;
     private const int SubIsDestination = 4;
-    private const int SubCount = 5;
+    private const int SubOpenWatch = 5;
+    private const int SubCount = 6;
 
     /// <summary>What each sub-step covers, so a number can be acted on without reading the method.
     /// <c>HomeMode</c> the HUD lookup plus the current-mode read that feeds an X's return target;
@@ -1763,7 +2010,10 @@ internal static class GuildmasterDestinations
     /// <c>SheetOutcome</c> the CHARACTER SHEET OUTCOME watcher; <c>Banner</c> the banner
     /// acquire/release reconcile — including, on transitions only, the PARTY SLOTS line;
     /// <c>IsDestination</c> the five-component identity test the PARENT runs per floated window, the
-    /// only entry here that is not called from <see cref="Reconcile"/>.</summary>
+    /// only entry here that is not called from <see cref="Reconcile"/>; <c>OpenWatch</c> the ModBuild
+    /// 231 deadline on a press that decided OPEN — two reference compares unless one is armed, and
+    /// one gate walk (<c>ModalFallback.ExplainNotFloated</c>) on the tick a watch actually fails.
+    /// </summary>
     private static readonly string[] SubNames =
     {
         "ModalFallback.Destinations.HomeMode",
@@ -1771,6 +2021,7 @@ internal static class GuildmasterDestinations
         "ModalFallback.Destinations.SheetOutcome",
         "ModalFallback.Destinations.Banner",
         "ModalFallback.Destinations.IsDestination",
+        "ModalFallback.Destinations.OpenWatch",
     };
 
     private static readonly long[] SubTicks = new long[SubCount];
@@ -2065,6 +2316,9 @@ internal static class GuildmasterDestinations
         _hudFallback = null;
         _bannerFallback = null;
         _hudSweepDue = 0;
+        // ModBuild 231: an armed open watch belongs to the session that pressed the cap. Dropped
+        // SILENTLY rather than judged — the module going away is not a window failing to appear.
+        DisarmOpenWatch();
         _sub = -1;
         _nextSubBreakdown = 0f;
         _baselineDone = false;

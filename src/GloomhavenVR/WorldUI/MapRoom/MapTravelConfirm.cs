@@ -826,6 +826,11 @@ internal static class MapTravelConfirm
             return;
         _installed = true;
         VRSession.Harmony?.PatchAll(typeof(TravelShortcutGate));
+        // The journey the confirm button starts. Installed from HERE for the same reason this class
+        // is installed from the map room's engage path rather than from WorldUIModule — that file is
+        // owned by other lanes — and because its prefixes must be live before the first Reisen press
+        // can reach MapChoreographer.StartMove. Idempotent, exactly like this method.
+        MapPartyTravel.Install();
         VRLog.Info(Scope, "MAP TRAVEL CONFIRM installed — the single-player 'click the same location "
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
@@ -2346,6 +2351,695 @@ internal static class MapTravelConfirm
                                   + "commits through the Reisen button in the quest window.");
             }
             return false;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE PARTY TOKEN'S JOURNEY — WHAT ACTUALLY MOVES IT, WHY IT STOPPED SHORT, AND
+// WHAT REPLACES THE GAME'S CHOREOGRAPHY IN THE 3D MAP ROOM.
+//
+// User, against ModBuild 230: "Wenn man zu einer Quest fährt bewegt sich das Gruppensymbol auf der
+// Map. In der 3D Mapumgebung bewegt es sich aber nicht über die ganze Strecke, skaliert also
+// scheinbar nicht mit. Das Gruppensymbol sollte immer in der Mitte der Strecke eine Begegnung
+// haben, das Symbol muss in der Animation also auf der Strecke bis zur Mitte fahren (immer die
+// gleiche Zeit in Anspruch nehmen der Animation, also abhängig der Distanz dann unterschiedlich
+// schnell)."
+//
+// ═══ 1. IT IS NOT A SCALE FACTOR, AND THE DRAW PATH PROVES IT CANNOT BE ══════
+//
+// The map room does not re-project anything. `MapIconLayer.DrawToken` issues a plain
+// `CommandBuffer.DrawRenderer(tokenRenderer, …)` — a call that has NO matrix parameter and records
+// the renderer's OWN localToWorld. The parchment is likewise the game's own renderer, left where
+// the game put it (`MapParchment` only swaps its MATERIALS). The player is seated against those
+// world bounds by `MapRoomSeat` and the RIG is scaled — the map is not. So the token's path across
+// the parchment is, point for point, the path the game's `PartyToken.transform` takes in world
+// space: there is no factor anywhere between the two that could shrink the journey and no
+// re-projection that could lose part of it. "Skaliert scheinbar nicht mit" is the user's inference
+// from what he sees; the mechanism is elsewhere and the numbers below name it.
+//
+// ═══ 2. WHAT IT ACTUALLY IS: TWO TELEPORTS THE FLAT SCREEN HIDES UNDER A FADE ═
+//
+// Read from source (decompiled/GH.Runtime/MapTimedMovementFlow.cs), a travel runs:
+//
+//   PrepareTravelTo               (:11)  → TeleportPartyToWayPoint(CalculatePositionToStartMovement)
+//                                          — PartyInstantMove at :27, the FIRST teleport, which
+//                                            skips whole waypoints until the token is
+//                                            PartyMinStartTravelDistance from the origin.
+//   MovePartyToFadeIn(D)          (:54)  → PartyToken.PartyMoveTo(waypoints, D, …), which walks at
+//                                            the CONSTANT MoveSpeed and then, at
+//                                            decompiled/GH.Runtime/PartyToken.cs:120-124,
+//                                            `if (timeSpent > duration) { CompleteMoving(); yield
+//                                            break; }` — it ABANDONS the route wherever it is.
+//   MovePartyToFadeOutDestination (:68)  → TeleportPartyToWayPoint(CalculatePositionToSkipNear-
+//                                            Destination) — the SECOND teleport, which jumps the
+//                                            token to within DelayToArriveDestination × MoveSpeed
+//                                            of the destination, i.e. across nearly the whole map.
+//
+// On a flat screen none of that is visible, because MovePartyToFadeIn's onProgress delegate (:63)
+// drives `TransitionManager.SetFade` to full black as the leg ends and the jump happens behind
+// PartyTravelFadedBlackDuration seconds of black screen. `TransitionManager.SetFade`
+// (decompiled/GH.Runtime/TransitionManager.cs:144-148) sets the alpha of ONE full-screen uGUI
+// Image; the 3D map room shows the map as world geometry and never puts that Image between the
+// player's eyes and the table, so in the room the two jumps are simply SEEN.
+//
+// THIS IS MEASURED, NOT ARGUED. TeleportPartyToWayPoint prints its own before/after arrays
+// (MapTimedMovementFlow.cs:19/24) and ModBuild 230's Player.log carries both of them for one
+// journey to Quest_Campaign_025_Scenario0 (.planning/debug/Player.log:13365 and :14567):
+//
+//   route      17 waypoints, (-4.05, 0, -2.05) → (74.43, 0, 53.68) ≈ 96.3 world units
+//   teleport 1 "Skip to: 1"   → token jumped to (0.86, 0, 1.43)
+//   walked     ONE waypoint (the next printed array starts at (5.76, 0, 4.92)) ≈ 6.0 units
+//   teleport 2 "Skip to: 13"  → token jumped to (69.53, 0, 50.19) — ≈ 78 units in one frame
+//   walked     the last two waypoints ≈ 6.0 units
+//
+// ⇒ ABOUT 12 OF 96 WORLD UNITS WERE WALKED. The other ~87 % were two instant moves. That is the
+// report as a number, and it is a property of the game's choreography, not of any scale.
+//
+// ═══ 3. WHAT THIS CLASS DOES INSTEAD ════════════════════════════════════════
+//
+// While `MapRoomDriver.Active` — and ONLY then; every prefix returns true otherwise, so flat play
+// and the flat map render keep the choreography they were authored for:
+//
+//   • TeleportPartyToWayPoint keeps its bookkeeping and loses its jump. The prefix forces
+//     `point = 0` (nothing is skipped, so the route survives to be walked) and swallows the single
+//     PartyInstantMove that call is about to make. m_WaypointsToEnd is then advanced ONLY by
+//     `visitedPositions`, which is what MovePartyToFadeIn's own callback (:57-59) already does.
+//   • PartyMoveTo (both overloads) is replaced by <see cref="MapPartyTravel.Drive"/>: an ARC-LENGTH
+//     drive along the same polyline that reaches a stated fraction of it in a stated number of
+//     seconds and never bails out early.
+//   • MovePartyToEncounter raises a one-shot flag, and the leg it opens targets arc-length fraction
+//     0.5 — "immer in der Mitte der Strecke". Every other leg targets 1.0.
+//
+// CONSTANT DURATION, VARIABLE SPEED, AND WHY THAT COSTS NO MULTIPLAYER TIMING ON THE EVENT LEG.
+// The timed overload is driven for exactly the `duration` the game passed — DelayToEncounter or
+// DelayToFadeInBlack, both plain constants on the flow's ScriptableObject
+// (decompiled/GH.Runtime/MapTimedFlowConfig.cs:5-9) and therefore already independent of distance.
+// So that leg's callbacks fire at exactly the moment they fired before this change; the only thing
+// that differs is where the token is while the clock runs. The UNTIMED overload had no duration at
+// all — the game walked it at MoveSpeed for distance/MoveSpeed seconds — and it is the one leg
+// whose length this class chooses (<see cref="MapPartyTravel.LegSeconds"/>, taken from the game's
+// own DelayToFadeInBlack so both halves of a journey take the same time).
+//
+// THE FADE IS NOT PROPAGATED IN THE ROOM, deliberately. The ONLY thing any onProgress delegate in
+// either flow ever does is call TransitionManager.SetFade (MapTimedMovementFlow.cs:63 and :85;
+// MapPointsMovementFlow passes null at every call site). Driving the token across the whole route
+// and then painting a full-screen black rectangle over it would be a contradiction, so while the
+// room stands the drive does not invoke onProgress and clears the fade once per leg. Nothing else
+// in the game reads that delegate.
+//
+// MULTIPLAYER. The travel is NOT a networked transform and this class opens no channel. Every peer
+// receives the same CStartMoving_MapClientMessage (decompiled/GH.Runtime/MapChoreographer.cs:786-790)
+// and then runs StartMove (:1641) and the whole choreography LOCALLY on its own frame clock; the
+// route itself is generated per client with UnityEngine.Random.Range
+// (decompiled/GH.Runtime/MapLocation.cs:788-802), so two peers do not even walk the same jittered
+// polyline today. What this does NOT hide is that the arrival callbacks (CompleteMoveCallback
+// :2159, OnEventTrigger :1906) post into the LOCAL rule-library queue, so a peer in the 3D room and
+// a peer on a flat screen reach those posts at slightly different moments — already true between
+// any two peers at different frame rates, and bounded here by the difference between the game's own
+// untimed leg length and ours.
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// The party token's travel, driven along the real route by arc length. See the block comment above
+/// for what the game does instead and for the ModBuild 230 log lines that measure it.
+/// </summary>
+internal static class MapPartyTravel
+{
+    private const string Scope = "MapRoom";
+
+    /// <summary>Arc-length fraction of the route at which a road-event leg stops — the user's rule
+    /// ("immer in der Mitte der Strecke eine Begegnung"). Applied to the polyline the flow hands to
+    /// <c>PartyMoveTo</c> measured from the token's CURRENT position, so it is the middle of what is
+    /// still to be travelled and not of some remembered original.</summary>
+    private const float EncounterFraction = 0.5f;
+
+    /// <summary>Seconds for a leg the game handed no duration for, used when the active flow's own
+    /// <c>DelayToFadeInBlack</c> cannot be read. Two seconds is that field's authored default
+    /// (decompiled/GH.Runtime/MapTimedFlowConfig.cs:7).</summary>
+    private const float LegSecondsFallback = 2f;
+
+    /// <summary>Floor and ceiling on any leg duration, so a zeroed or absurd config value can never
+    /// produce a division by zero or a token that crawls for a minute. A setting may configure
+    /// pacing; it may never make the map unusable.</summary>
+    private const float MinLegSeconds = 0.25f;
+
+    /// <inheritdoc cref="MinLegSeconds"/>
+    private const float MaxLegSeconds = 30f;
+
+    /// <summary>Below this squared world distance a polyline is treated as having no length at all —
+    /// the degenerate case the game itself hits when a flow hands over an empty array, and which
+    /// must complete immediately rather than divide by zero.</summary>
+    private const float DegenerateSqr = 1e-6f;
+
+    /// <summary>Squared world distance within which the start of a new leg counts as the end of the
+    /// previous one, i.e. the same journey. Only the report line's leg numbering and accumulators
+    /// depend on it; nothing about the drive does.</summary>
+    private const float SameJourneySqr = 1f;
+
+    private static bool _installed;
+
+    /// <summary>Raised by the prefix on <c>MovePartyToEncounter</c> and consumed by the very next
+    /// <c>PartyMoveTo</c>, which that method reaches synchronously (MapTimedMovementFlow.cs:180-181
+    /// → :54-56). One-shot: nothing runs between the two calls, so it cannot leak into a later
+    /// leg.</summary>
+    private static bool _encounterLegPending;
+
+    /// <summary>Raised by the prefix on <c>TeleportPartyToWayPoint</c> for the ONE
+    /// <c>PartyInstantMove</c> that method is about to make (MapTimedMovementFlow.cs:27), and
+    /// cleared by the first <c>PartyInstantMove</c> that sees it. Every OTHER instant move in the
+    /// game — the one that seats the party at a job's starting village
+    /// (decompiled/GH.Runtime/MapChoreographer.cs:1704), the map-open placements (:1360, :1383,
+    /// :1404) and <c>TeleportToDestination</c> (decompiled/GH.Runtime/MapMovementFlow.cs:41) — is a
+    /// legitimate placement and still happens.</summary>
+    private static bool _swallowNextInstantMove;
+
+    /// <summary>Where the previous leg ended, used only to decide whether the next leg belongs to
+    /// the same journey. NaN until the first leg has run.</summary>
+    private static Vector3 _lastLegEnd = new(float.NaN, float.NaN, float.NaN);
+
+    private static int _legIndex;
+    private static float _travelWalkedWorld;
+    private static int _travelTeleportsSuppressed;
+    private static float _travelTeleportWorld;
+    private static string _lastSuppressedTeleport = "none";
+
+    /// <summary>
+    /// Register the five prefixes exactly once. Called from <see cref="MapTravelConfirm.Install"/>,
+    /// which the map room's engage path already runs — for the same reason that class states for not
+    /// registering from <c>WorldUIModule</c>: other lanes own that file.
+    /// </summary>
+    internal static void Install()
+    {
+        if (_installed)
+            return;
+        _installed = true;
+        VRSession.Harmony?.PatchAll(typeof(TravelDrivePatches));
+        VRLog.Info(Scope, "MAP ROOM PARTY TRAVEL installed — while the 3D map room stands, the party "
+                          + "token drives the WHOLE route by arc length instead of walking a couple of "
+                          + "waypoints and being instant-moved across the rest of the map. READ FROM "
+                          + "SOURCE: the game's own timed flow teleports twice per journey "
+                          + "(MapTimedMovementFlow.cs:27, once from PrepareTravelTo and once from "
+                          + "MovePartyToFadeOutDestination) and hides both behind a full-screen fade to "
+                          + "black that a world-space parchment never shows — ModBuild 230's log measures "
+                          + "one journey at about 12 of 96 world units actually walked. Both jumps are now "
+                          + "suppressed, the road-event leg stops at arc-length 0.500 of the route (the "
+                          + "middle), and every leg takes a FIXED number of seconds, so a longer route is "
+                          + "travelled FASTER rather than only further. Nothing is replicated: the journey "
+                          + "is local presentation on every peer already (MapChoreographer.cs:786 delivers "
+                          + "only the START event). Each leg prints one MAP ROOM PARTY TRAVEL line with "
+                          + "the endpoints in world units, in parchment-local units and in perceived "
+                          + "metres, the route midpoint, where the token ended up and the duration asked "
+                          + "for against the duration measured.");
+    }
+
+    // ── the drive ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Walk <paramref name="token"/> from where it stands, along the polyline
+    /// [current position] + <paramref name="positions"/>, to <paramref name="fraction"/> of that
+    /// polyline's ARC LENGTH, in <paramref name="seconds"/> seconds.
+    ///
+    /// <para>ARC LENGTH IS THE WHOLE POINT. The game's coroutine
+    /// (decompiled/GH.Runtime/PartyToken.cs:82-127) advances by <c>Vector3.MoveTowards</c> at a
+    /// constant <c>MoveSpeed</c> and gives up when a stopwatch runs out, so how far it gets is a
+    /// function of the distance — which is exactly the complaint. Parameterising by arc length
+    /// inverts that: the distance decides the SPEED and the clock decides nothing but the clock.</para>
+    ///
+    /// <para><paramref name="visited"/> receives every entry of <paramref name="positions"/> the
+    /// drive fully passed, in order, because MovePartyToFadeIn's completion callback
+    /// (MapTimedMovementFlow.cs:57-59) uses <c>visitedPositions.Count</c> to advance the flow's own
+    /// <c>m_WaypointsToEnd</c>. Under-reporting it would make the next leg start BEHIND the token;
+    /// over-reporting it would make the next leg start AHEAD of it. It is counted, not guessed.</para>
+    ///
+    /// <para>The token's own <c>BeginMoving</c>/<c>CompleteMoving</c> are called rather than
+    /// re-implemented, so the UINavigation lock and the arrive-callback contract stay byte-identical
+    /// to vanilla — <c>MapChoreographer.cs:1856</c> and <c>:1892</c> both REPLACE that callback
+    /// mid-flight and must keep being able to. The coroutine handle goes into the token's own
+    /// <c>stopCoroutine</c> field for the same reason: <c>IsMoving</c> and <c>StopMoving</c> must
+    /// keep meaning what they mean.</para>
+    ///
+    /// <para>Yields <c>null</c> rather than the original's <c>WaitForEndOfFrame</c>: end-of-frame
+    /// resumes AFTER the frame has been rendered, so every drawn frame would show the previous
+    /// frame's position. In VR that is a frame of avoidable lag on the one object the player is
+    /// watching, and nothing in either flow depends on the write landing after rendering.</para>
+    /// </summary>
+    private static System.Collections.IEnumerator Drive(global::PartyToken token, Vector3[] positions,
+                                                        float seconds, float fraction,
+                                                        List<Vector3>? visited, string legName,
+                                                        float askedDuration)
+    {
+        // The polyline, with the token's own position as its first point: a leg starts where the
+        // token IS, not where the flow's array happens to begin.
+        var pts = new Vector3[positions.Length + 1];
+        pts[0] = token.transform.position;
+        for (int i = 0; i < positions.Length; i++)
+            pts[i + 1] = positions[i];
+
+        var cum = new float[pts.Length];
+        cum[0] = 0f;
+        for (int i = 1; i < pts.Length; i++)
+            cum[i] = cum[i - 1] + Vector3.Distance(pts[i - 1], pts[i]);
+        float total = cum[cum.Length - 1];
+
+        float legSeconds = Mathf.Clamp(seconds, MinLegSeconds, MaxLegSeconds);
+        float targetArc = Mathf.Clamp01(fraction) * total;
+        Vector3 startWorld = pts[0];
+        Vector3 endWorld = pts[pts.Length - 1];
+        Vector3 targetWorld = PointAtArc(pts, cum, targetArc, out _);
+
+        float t0 = Time.realtimeSinceStartup;
+        int frames = 0;
+
+        token.BeginMoving();
+
+        // The travel fade is a full-screen uGUI Image and the room shows the map as world geometry;
+        // see the block comment. Cleared once per leg rather than tracked, because the drive never
+        // raises it and no other writer runs during a travel.
+        if (global::TransitionManager.s_Instance != null)
+            global::TransitionManager.s_Instance.SetFade(0f);
+
+        if (positions.Length == 0 || total * total <= DegenerateSqr)
+        {
+            // A zero-length or empty leg. Vanilla completes immediately here as well (the foreach at
+            // PartyToken.cs:96 simply has nothing to iterate), and a plain travel whose first leg
+            // already reached the destination produces exactly this for its second leg.
+            if (positions.Length > 0)
+                token.transform.position = endWorld;
+            if (visited != null)
+                for (int i = 0; i < positions.Length; i++)
+                    visited.Add(positions[i]);
+            Report(legName, pts, cum, total, fraction, targetArc, startWorld, endWorld, targetWorld,
+                   token.transform.position, askedDuration, Time.realtimeSinceStartup - t0, frames,
+                   visited != null ? visited.Count : -1, positions.Length, degenerate: true);
+            _lastLegEnd = token.transform.position;
+            token.CompleteMoving();
+            yield break;
+        }
+
+        float elapsed = 0f;
+        int reported = 0;                     // entries of `positions` already handed to `visited`
+
+        // Keep the game's own arithmetic in agreement with ours: MovePartyToFadeOutDestination
+        // (MapTimedMovementFlow.cs:73) times its arrival SFX as distance / MoveSpeed, and
+        // MapPointsMovementFlow does the same at :23 and :41. Writing the speed this drive actually
+        // implies is "concede the flag, own the number" — nothing reads MoveSpeed to MOVE anything
+        // any more while the room stands, so the only thing left for it to be is the number those
+        // formulas want.
+        token.MoveSpeed = targetArc / legSeconds;
+
+        while (elapsed < legSeconds)
+        {
+            yield return null;
+            frames++;
+            elapsed += ClockDelta();
+            float u = Mathf.Clamp01(elapsed / legSeconds);
+            Vector3 previous = token.transform.position;
+            Vector3 p = PointAtArc(pts, cum, u * targetArc, out int passed);
+            token.transform.position = p;
+
+            // Face the way we are going, as the original does at PartyToken.cs:103. Guarded: a
+            // zero-length direction makes Transform.LookAt log an error, every frame.
+            Vector3 ahead = p - previous;
+            if (ahead.sqrMagnitude > DegenerateSqr)
+                token.transform.LookAt(p + ahead);
+
+            // The flat camera still follows the token, exactly as PartyToken.cs:102 does. The room
+            // does not use that camera, but a player who leaves the room mid-journey must not find
+            // it parked on the origin.
+            if (global::CameraController.s_CameraController != null)
+                global::CameraController.s_CameraController.m_TargetFocalPoint = p;
+
+            if (visited != null)
+                while (reported < passed && reported < positions.Length)
+                    visited.Add(positions[reported++]);
+        }
+
+        // Land EXACTLY on the target rather than wherever the last frame's delta put us — the
+        // difference between the two is what makes "the middle" a measurement and not an
+        // approximation.
+        token.transform.position = targetWorld;
+        PointAtArc(pts, cum, targetArc, out int passedFinal);
+        if (visited != null)
+            while (reported < passedFinal && reported < positions.Length)
+                visited.Add(positions[reported++]);
+
+        _travelWalkedWorld += targetArc;
+        Report(legName, pts, cum, total, fraction, targetArc, startWorld, endWorld, targetWorld,
+               token.transform.position, askedDuration, Time.realtimeSinceStartup - t0, frames,
+               visited != null ? visited.Count : -1, positions.Length, degenerate: false);
+        _lastLegEnd = token.transform.position;
+        token.CompleteMoving();
+    }
+
+    /// <summary>
+    /// The point <paramref name="arc"/> world units along the polyline, and the index of the last
+    /// polyline point at or behind it. <paramref name="passed"/> counts POLYLINE points, and since
+    /// point 0 is the token's own start, it is also the number of entries of the caller's
+    /// <c>positions</c> array that have been fully passed.
+    /// </summary>
+    private static Vector3 PointAtArc(Vector3[] pts, float[] cum, float arc, out int passed)
+    {
+        passed = 0;
+        if (pts.Length == 0)
+            return Vector3.zero;
+        if (pts.Length == 1)
+            return pts[0];
+        float total = cum[cum.Length - 1];
+        if (arc <= 0f)
+            return pts[0];
+        if (arc >= total)
+        {
+            passed = pts.Length - 1;
+            return pts[pts.Length - 1];
+        }
+        int i = 1;
+        while (i < cum.Length - 1 && cum[i] < arc)
+            i++;
+        passed = i - 1;
+        float seg = cum[i] - cum[i - 1];
+        float f = seg > 1e-5f ? (arc - cum[i - 1]) / seg : 0f;
+        return Vector3.Lerp(pts[i - 1], pts[i], f);
+    }
+
+    /// <summary>
+    /// The seconds the CHRONOS global clock advanced this frame — the clock
+    /// <c>PartyToken.PartyMoveCoroutine</c> integrates (decompiled/GH.Runtime/PartyToken.cs:99), so a
+    /// paused or slowed world pauses or slows the token here too. Falls back to
+    /// <c>Time.deltaTime</c> when no Timekeeper exists, which is the state of the Intro scene and
+    /// which no travel can happen in anyway.
+    /// </summary>
+    private static float ClockDelta()
+    {
+        try
+        {
+            Chronos.Timekeeper keeper = Chronos.Timekeeper.instance;
+            if (keeper != null && keeper.m_GlobalClock != null)
+                return keeper.m_GlobalClock.deltaTime;
+        }
+        catch (System.Exception)
+        {
+            // A missing Timekeeper is a real state, not an error; the fallback is correct.
+        }
+        return Time.deltaTime;
+    }
+
+    /// <summary>
+    /// Seconds for a leg the game handed no duration for. Read from the ACTIVE flow's own
+    /// <c>DelayToFadeInBlack</c> so both halves of a journey take the same time and so a future
+    /// change to the game's ScriptableObject moves both together; the constant is only the value
+    /// that field is authored with.
+    /// </summary>
+    private static float LegSeconds()
+    {
+        global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+        if (choreo != null
+            && choreo.movementFlow is global::MapTimedMovementFlow timed
+            && timed.mapConfig != null)
+        {
+            return Mathf.Clamp(timed.mapConfig.DelayToFadeInBlack, MinLegSeconds, MaxLegSeconds);
+        }
+        return LegSecondsFallback;
+    }
+
+    /// <summary>Name of the flow the game has serialised into the scene. Which one it is decides how
+    /// a road-event leg is split, and it is a SCENE reference — it cannot be read from source, so it
+    /// is printed rather than assumed. ModBuild 230's log settles it for that build: "Skip to:"
+    /// (MapTimedMovementFlow.cs:22) appears twice, and only <c>MapTimedMovementFlow</c> prints
+    /// it.</summary>
+    private static string FlowName()
+    {
+        global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+        global::MapMovementFlow? flow = choreo != null ? choreo.movementFlow : null;
+        return flow != null ? flow.GetType().Name : "no movementFlow on the MapChoreographer";
+    }
+
+    // ── the instrument ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ONE LINE PER LEG, carrying every number the next round needs in order to say whether this
+    /// worked without anybody having to watch it happen: both endpoints in world units, in
+    /// parchment-local units and in perceived metres, the route's length, the arc-length target and
+    /// the route's midpoint, where the token actually stopped and how far that is from the target,
+    /// the duration asked for against the duration measured, how many waypoints were reported as
+    /// visited, and how much of this journey has been WALKED against how much the game wanted to
+    /// teleport.
+    ///
+    /// <para>It states no mechanism. Every figure on it is either a value this method was handed or a
+    /// distance between two points it also prints.</para>
+    /// </summary>
+    private static void Report(string legName, Vector3[] pts, float[] cum, float total,
+                               float fraction, float targetArc, Vector3 startWorld, Vector3 endWorld,
+                               Vector3 targetWorld, Vector3 actualWorld, float askedDuration,
+                               float measured, int frames, int visitedCount, int waypointCount,
+                               bool degenerate)
+    {
+        bool haveFrame = MapRoomDriver.TryGetParchmentFrame(out Vector3 centre, out float unitsPerMetre);
+        if (!haveFrame || unitsPerMetre <= 0f)
+            unitsPerMetre = 1f;
+        MeshRenderer? parchment = MapRoomDriver.ParchmentRenderer;
+
+        Vector3 midWorld = PointAtArc(pts, cum, total * 0.5f, out _);
+        float missed = Vector3.Distance(actualWorld, targetWorld);
+
+        var sb = new System.Text.StringBuilder(1600);
+        sb.Append("MAP ROOM PARTY TRAVEL leg ").Append(_legIndex).Append(" '").Append(legName)
+          .Append("' (flow ").Append(FlowName()).Append(", ").Append(waypointCount)
+          .Append(" waypoint(s) handed over). ");
+        sb.Append("ROUTE start ").Append(Describe(startWorld, centre, unitsPerMetre, parchment, haveFrame))
+          .Append(" → end ").Append(Describe(endWorld, centre, unitsPerMetre, parchment, haveFrame))
+          .Append(". LENGTH ").Append(total.ToString("F2")).Append(" world units = ")
+          .Append((total / unitsPerMetre).ToString("F3")).Append(" m perceived at ")
+          .Append(unitsPerMetre.ToString("F1")).Append(" u/m")
+          .Append(haveFrame ? "" : " (NO PARCHMENT FRAME THIS TICK — the metre column is world units)")
+          .Append(". ");
+        sb.Append("MIDPOINT of the route ")
+          .Append(Describe(midWorld, centre, unitsPerMetre, parchment, haveFrame)).Append(". ");
+        sb.Append("TARGET fraction ").Append(fraction.ToString("F3")).Append(" ⇒ arc ")
+          .Append(targetArc.ToString("F2")).Append(" u (")
+          .Append((targetArc / unitsPerMetre).ToString("F3")).Append(" m) at ")
+          .Append(Describe(targetWorld, centre, unitsPerMetre, parchment, haveFrame)).Append(". ");
+        sb.Append("ENDED at ").Append(Describe(actualWorld, centre, unitsPerMetre, parchment, haveFrame))
+          .Append(", ").Append(missed.ToString("F4")).Append(" u (")
+          .Append((missed / unitsPerMetre * 1000f).ToString("F2")).Append(" mm) from the target. ");
+        sb.Append("DURATION asked ").Append(askedDuration.ToString("F3")).Append(" s, measured ")
+          .Append(measured.ToString("F3")).Append(" s over ").Append(frames).Append(" frame(s)")
+          .Append(degenerate ? " (DEGENERATE LEG — nothing to walk, completed on the spot)" : "")
+          .Append(". ");
+        sb.Append("WAYPOINTS reported visited ")
+          .Append(visitedCount < 0 ? "n/a (the untimed overload keeps no list)"
+                                   : visitedCount.ToString())
+          .Append(" of ").Append(waypointCount)
+          .Append(" — this is what the flow uses to advance m_WaypointsToEnd "
+                  + "(MapTimedMovementFlow.cs:57), so an under- or over-count is what would make the "
+                  + "NEXT leg start behind or ahead of the token. ");
+        sb.Append("THIS JOURNEY SO FAR: ").Append(_travelWalkedWorld.ToString("F2"))
+          .Append(" world units (").Append((_travelWalkedWorld / unitsPerMetre).ToString("F3"))
+          .Append(" m) walked; ").Append(_travelTeleportsSuppressed)
+          .Append(" teleport(s) suppressed worth ").Append(_travelTeleportWorld.ToString("F2"))
+          .Append(" world units (").Append((_travelTeleportWorld / unitsPerMetre).ToString("F3"))
+          .Append(" m) that ModBuild 230 would have jumped instead of drawing. LAST SUPPRESSED: ")
+          .Append(_lastSuppressedTeleport).Append(". ");
+        sb.Append("HOW TO READ IT: 'ENDED' equal to 'TARGET' to a millimetre is the drive doing what "
+                  + "it was asked; 'TARGET' equal to 'MIDPOINT' is the road-event rule; 'measured' "
+                  + "equal to 'asked' across two journeys of DIFFERENT length is the constant-duration "
+                  + "rule, and the speed that follows from it is the length divided by the duration. A "
+                  + "suppressed-teleport count of 0 across a whole journey would mean the game stopped "
+                  + "teleporting on its own and that this class is no longer the thing under test.");
+
+        VRLog.Info(Scope, sb.ToString());
+    }
+
+    /// <summary>One point in the three spaces the report is read in: raw world units, parchment-local
+    /// units (the parchment renderer's own frame, so the figure is comparable across sessions and
+    /// seats) and metres from the parchment centre as the player perceives them at the LIVE rig
+    /// scale — world units are not metres in this room and the two must never be confused.</summary>
+    private static string Describe(Vector3 world, Vector3 centre, float unitsPerMetre,
+                                   MeshRenderer? parchment, bool haveFrame)
+    {
+        string local = parchment != null
+            ? Fmt(parchment.transform.InverseTransformPoint(world))
+            : "no parchment renderer";
+        string metres = haveFrame ? Fmt((world - centre) / unitsPerMetre) : "no parchment frame";
+        return $"{Fmt(world)} world / {local} parchment-local / {metres} m from the parchment centre";
+    }
+
+    private static string Fmt(Vector3 v) => $"({v.x:F2}, {v.y:F2}, {v.z:F2})";
+
+    /// <summary>A leg whose start is not the previous leg's end is a new journey: reset the
+    /// accumulators the report line carries. Cheap, and it keeps "this journey so far" honest across
+    /// a session without needing a second hook on the choreographer.</summary>
+    private static void NoteLegStart(Vector3 start)
+    {
+        bool sameJourney = !float.IsNaN(_lastLegEnd.x)
+                           && (start - _lastLegEnd).sqrMagnitude <= SameJourneySqr;
+        if (!sameJourney)
+        {
+            _legIndex = 0;
+            _travelWalkedWorld = 0f;
+            _travelTeleportsSuppressed = 0;
+            _travelTeleportWorld = 0f;
+            _lastSuppressedTeleport = "none";
+        }
+        _legIndex++;
+    }
+
+    // ── the patches ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The five prefixes. Every one of them runs the game unchanged whenever the 3D map room is not
+    /// standing, so the flat screen keeps the fade-and-teleport choreography it was authored for and
+    /// this class exists only inside the room.
+    /// </summary>
+    [HarmonyPatch]
+    internal static class TravelDrivePatches
+    {
+        /// <summary>
+        /// The TIMED leg (<c>MovePartyToFadeIn</c>, MapTimedMovementFlow.cs:54). Driven for exactly
+        /// the duration the game asked for — that value is a constant on the flow's config, so the
+        /// "always the same time" rule is satisfied by HONOURING it rather than by overriding it,
+        /// and every callback downstream fires at the moment it fired before this change.
+        /// </summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::PartyToken), nameof(PartyToken.PartyMoveTo),
+                      new[] { typeof(Vector3[]), typeof(float),
+                              typeof(System.Action<List<Vector3>>), typeof(System.Action<float>) })]
+        private static bool TimedMovePrefix(global::PartyToken __instance, Vector3[] positions,
+                                            float duration,
+                                            System.Action<List<Vector3>> callback)
+        {
+            bool encounter = _encounterLegPending;
+            _encounterLegPending = false;
+            if (!MapRoomDriver.Active || __instance == null || positions == null)
+                return true;
+
+            var visited = new List<Vector3>();
+            __instance.SetOnArriveCallback(delegate { callback?.Invoke(visited); });
+            NoteLegStart(__instance.transform.position);
+            __instance.stopCoroutine = __instance.StartCoroutine(
+                Drive(__instance, positions, duration, encounter ? EncounterFraction : 1f, visited,
+                      encounter ? "road-event leg, stops at the middle of the route"
+                                : "timed leg, drives the whole route",
+                      duration));
+            return false;
+        }
+
+        /// <summary>
+        /// The UNTIMED leg (the final approach, MapTimedMovementFlow.cs:81; every leg of
+        /// <c>MapPointsMovementFlow</c>). This is the one the game timed as
+        /// <c>distance / MoveSpeed</c> — the only leg whose length this class chooses, and the
+        /// reason it chooses one at all is that a duration proportional to distance is exactly what
+        /// the user asked to be rid of.
+        /// </summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::PartyToken), nameof(PartyToken.PartyMoveTo),
+                      new[] { typeof(Vector3[]), typeof(System.Action), typeof(System.Action<float>) })]
+        private static bool UntimedMovePrefix(global::PartyToken __instance, Vector3[] positions,
+                                              System.Action callback)
+        {
+            _encounterLegPending = false;
+            if (!MapRoomDriver.Active || __instance == null || positions == null)
+                return true;
+
+            float seconds = LegSeconds();
+            __instance.SetOnArriveCallback(callback);
+            NoteLegStart(__instance.transform.position);
+            __instance.stopCoroutine = __instance.StartCoroutine(
+                Drive(__instance, positions, seconds, 1f, null,
+                      "untimed leg, drives the whole remaining route", seconds));
+            return false;
+        }
+
+        /// <summary>
+        /// Keep the bookkeeping, lose the jump. <c>point</c> is forced to 0 so no waypoint is
+        /// consumed by the teleport (the route survives for the drive to walk), and the single
+        /// <c>PartyInstantMove</c> the method is about to make is flagged for suppression. The
+        /// method's other effects — its two log lines and, on the second call, the camera reset —
+        /// still run.
+        ///
+        /// <para>WHAT THE GAME ASKED FOR IS MEASURED BEFORE IT IS REFUSED. The arc length between the
+        /// token and the waypoint it wanted to jump to is exactly "how much of the journey was not
+        /// drawn", and it goes on the next report line. That is the number that makes "es bewegt sich
+        /// nicht über die ganze Strecke" falsifiable in both directions.</para>
+        /// </summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::MapTimedMovementFlow), "TeleportPartyToWayPoint")]
+        private static void TeleportPrefix(global::MapTimedMovementFlow __instance,
+                                           global::PartyToken partyoken, ref int point)
+        {
+            if (!MapRoomDriver.Active || __instance == null || partyoken == null)
+                return;
+            Vector3[] route = __instance.m_WaypointsToEnd;
+            if (route == null || route.Length == 0)
+                return;
+
+            int wanted = Mathf.Clamp(point, 0, route.Length - 1);
+            float jumped = 0f;
+            Vector3 from = partyoken.transform.position;
+            for (int i = 0; i <= wanted; i++)
+            {
+                jumped += Vector3.Distance(from, route[i]);
+                from = route[i];
+            }
+            if (wanted > 0)
+            {
+                _travelTeleportsSuppressed++;
+                _travelTeleportWorld += jumped;
+                _lastSuppressedTeleport =
+                    $"the game asked to skip to waypoint {wanted} of {route.Length - 1}, which would "
+                    + $"have moved the token {jumped:F2} world units in one frame without drawing a step";
+            }
+
+            // Nothing skipped. m_WaypointsToEnd is then advanced ONLY by visitedPositions, which is
+            // what MovePartyToFadeIn's own callback already does with it.
+            point = 0;
+            _swallowNextInstantMove = true;
+
+            // The flow's own SFX arithmetic (MapTimedMovementFlow.cs:73) divides the remaining route
+            // by MoveSpeed to time the arrival sound. Give it the speed the next leg will actually
+            // run at, so the sound lands where it always landed relative to the arrival.
+            float remaining = 0f;
+            for (int i = 1; i < route.Length; i++)
+                remaining += Vector3.Distance(route[i - 1], route[i]);
+            float legSeconds = LegSeconds();
+            if (remaining > 0f && legSeconds > 0f)
+                partyoken.MoveSpeed = remaining / legSeconds;
+        }
+
+        /// <summary>
+        /// Swallow the ONE instant move a suppressed teleport is about to make, and nothing else. The
+        /// flag is raised immediately before the call it belongs to (MapTimedMovementFlow.cs:27) and
+        /// is cleared here whether or not the room is up, so it can never survive to affect a later,
+        /// legitimate placement.
+        /// </summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::PartyToken), nameof(PartyToken.PartyInstantMove))]
+        private static bool InstantMovePrefix(global::PartyToken __instance)
+        {
+            bool swallow = _swallowNextInstantMove;
+            _swallowNextInstantMove = false;
+            return !swallow || !MapRoomDriver.Active || __instance == null;
+        }
+
+        /// <summary>
+        /// Flag the leg <c>MovePartyToEncounter</c> is about to open. It calls
+        /// <c>MovePartyToFadeIn</c> synchronously (MapTimedMovementFlow.cs:180-181), which calls
+        /// <c>PartyMoveTo</c> synchronously (:54-56), so the flag is consumed on the same stack and
+        /// can never be read by any other leg.
+        ///
+        /// <para>ONLY the TIMED flow raises it. <c>MapPointsMovementFlow.MovePartyToEncounter</c>
+        /// (decompiled/GH.Runtime/MapPointsMovementFlow.cs:33-38) already hands over a PREFIX of the
+        /// route — <c>PercentMovedToEncounter</c>, authored at 0.571 — so halving what THAT passes
+        /// would stop the token at 29 % of the journey. If that flow ever turns out to be the one in
+        /// the scene, the drive walks the prefix it was given in constant time and the report line
+        /// names the flow, so the difference is readable rather than silent.</para>
+        /// </summary>
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(global::MapTimedMovementFlow),
+                      nameof(MapTimedMovementFlow.MovePartyToEncounter))]
+        private static void EncounterPrefix()
+        {
+            _encounterLegPending = MapRoomDriver.Active;
         }
     }
 }

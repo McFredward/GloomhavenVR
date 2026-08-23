@@ -292,8 +292,15 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     // (GrabbableModal.OnGrabFinished) is gated as it was and is not touched here.
     private float _reelMinMeters;      // perceived-metre floor for _carryDistance/scale
     private float _reelMaxMeters;      // perceived-metre ceiling
+    private float _reelFloorMeters;    // the DERIVED near bound, before the engage-distance widening
+    private float _reelCeilingMeters;  // the DERIVED far bound, before the engage-distance widening
     private float _reelStartMeters;    // engage distance, for the release travel readout
     private float _reelReachMeters;    // measured panel geometry around the root (see ArmReel)
+    private float _reelPalmGapMeters;  // pointer-origin -> palm on the carrying hand (see ArmReel)
+    private float _reelHeadClearMeters;// how close the panel may come to the EYE (see the head guard)
+    private float _reelHalfWidthMeters;  // panel half-width  about the root, in the root's own plane
+    private float _reelHalfHeightMeters; // panel half-height about the root, in the root's own plane
+    private int _reelHeadBlocks;       // frames the head guard refused a step this carry
     private long _reelSelfTicks;       // Stopwatch ticks spent inside TickCarryReel this carry
     private int _reelSelfFrames;       // frames TickCarryReel ran this carry (self-cost readout)
 
@@ -309,10 +316,28 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private const float ReelDeadzone = 0.3f;
 
     /// <summary>
-    /// How much clear air the panel's NEAREST point keeps in front of it, counted in head
-    /// near-plane depths. See <see cref="ArmReel"/> for the whole derivation.
+    /// How much clear air the panel keeps in front of the EYE, counted in head near-plane depths.
+    ///
+    /// <para><b>THIS IS NO LONGER THE NEAR BOUND</b> (ModBuild 231). Until 230 the same number was
+    /// added to the panel's own half-diagonal and used as the reel's floor, which is what stopped a
+    /// typical window around 0.6 perceived metres and provoked the user's second request
+    /// ("Weiterhin soll das Fenster bis kurz vor der Hand zu einem ziehbar sein das man es dann
+    /// direkt greifen kann"). The floor is now a REACH number
+    /// (<c>ProximityGrabber.ReachMeters</c>, see <see cref="ArmReel"/>); this constant survives as
+    /// the radius of a HEAD guard that only ever bites when the panel is actually being driven at
+    /// the player's face, which a floor measured along the hand's ray cannot see.</para>
     /// </summary>
-    private const float ReelNearClipStandoffs = 6f;
+    private const float ReelHeadClearStandoffs = 6f;
+
+    /// <summary>
+    /// Degeneracy floor for the along-ray distance, perceived metres. NOT a comfort number and not
+    /// a tuning site: it only keeps the carried panel in FRONT of the pointer when the derived grab
+    /// floor (<see cref="ArmReel"/>) comes out at or below zero, which happens if a hand rig ever
+    /// seats its pointer origin a full palm reach away from its palm. Two centimetres is small
+    /// enough to be invisible next to the 13 cm it guards and large enough that
+    /// <c>rayOrigin + rayDir * d</c> never degenerates onto the origin itself.
+    /// </summary>
+    private const float ReelPointerFloorMeters = 0.02f;
 
     /// <summary>
     /// The mod's DESIGN near plane in PERCEIVED metres — a documented read of
@@ -326,8 +351,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// is 0.5 world units — <b>2.5 perceived millimetres</b>. That clamp is a DEPTH-PRECISION
     /// compromise (a near plane that far out would wreck the z-buffer ratio against the far plane),
     /// not a statement that a window may sit 2.5 mm from the player's eye. Taking the live reading
-    /// at face value would collapse the reel's near bound to nothing at exactly the scale the
-    /// player spends the game in.</para>
+    /// at face value would collapse the reel's HEAD CLEARANCE
+    /// (<see cref="ReelHeadClearStandoffs"/>) to nothing at exactly the scale the player spends the
+    /// game in.</para>
     ///
     /// <para>Deliberately NOT added to <c>scripts/check-mirrors.sh</c>: this is not a second TUNING
     /// site for the near plane, it is a lower bound on a comfort clamp. If VRRigDriver's base ever
@@ -434,10 +460,21 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
                                 + (Rig.ComfortSettings.IsBound
                                     ? Rig.ComfortSettings.LaserCarryReel.Value
                                         ? $"ON at {Rig.ComfortSettings.LaserCarryReelSpeed.Value:F2} perceived m/s "
-                                          + "(stick forward pulls in, back pushes out), window "
-                                          + $"{_reelMinMeters:F2}..{_reelMaxMeters:F2} m "
-                                          + $"(panel reach {_reelReachMeters:F2} m around the root); this hand's "
-                                          + "stick Y is the reel's for the whole hold and vertical flight stands down"
+                                          + "(ModBuild 231 convention: stick BACK pulls in, FORWARD pushes out), "
+                                          + $"window {_reelMinMeters:F2}..{_reelMaxMeters:F2} m. "
+                                          + $"NEAR {_reelFloorMeters:F2} m = ProximityGrabber palm reach "
+                                          + $"{ProximityGrabber.ReachMeters:F2} m minus this hand's "
+                                          + $"{_reelPalmGapMeters:F2} m pointer-to-palm gap, i.e. the distance at "
+                                          + "which a grip press already takes the window. FAR "
+                                          + $"{_reelCeilingMeters:F2} m = RayGrabDriver reach "
+                                          + $"{Hands.Interact.RayGrabDriver.MaxDistanceMeters:F2} m minus the "
+                                          + $"panel's own {_reelReachMeters:F2} m around the root"
+                                          + (_reelMinMeters < _reelFloorMeters || _reelMaxMeters > _reelCeilingMeters
+                                              ? "; WIDENED to include the engage distance (a grab never moves what it grabs)"
+                                              : "")
+                                          + $". The face guard keeps the panel's nearest point {_reelHeadClearMeters:F2} m "
+                                          + "off the eye and only ever refuses a step that would make that worse. This "
+                                          + "hand's stick Y is the reel's for the whole hold and vertical flight stands down"
                                         : "OFF ([Comfort] LaserCarryReel) — the stick keeps whatever it does today"
                                     : "unavailable (ComfortSettings not bound)")
                                 + ".");
@@ -447,29 +484,47 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// Derive this carry's reel window and reset its accounting. Runs ONCE per engage — the whole
     /// per-frame cost of the feature is <see cref="TickCarryReel"/>, which reads these numbers.
     ///
-    /// <para><b>THE NEAR BOUND IS MEASURED, NOT GUESSED.</b> It is the sum of two real quantities:
+    /// <para><b>THE NEAR BOUND IS A REACH NUMBER, NOT A READABILITY NUMBER</b> (user request
+    /// 2026-08-23, verbatim: <i>"Weiterhin soll das Fenster bis kurz vor der Hand zu einem ziehbar
+    /// sein das man es dann direkt greifen kann."</i>). It is THE DISTANCE AT WHICH THE MOD'S OWN
+    /// PROXIMITY GRAB WOULD ALREADY TAKE THE WINDOW, derived rather than tuned so that "close
+    /// enough to then grab it directly" is true by construction:
     /// <list type="number">
-    /// <item><b>The panel's own size around the root</b>, taken from the geometry this very grab
-    /// already produced: <c>|_carryOffset|</c> is the distance from the beam's strike point to the
-    /// window root, and the struck collider's own half-diagonal
-    /// (<see cref="Collider.bounds"/><c>.extents.magnitude</c>) is how far that strike point's
-    /// surface reaches around itself. For a modal grabbed by its top drag bar that sum is roughly
-    /// half the window's height plus half its width — i.e. a LOWER BOUND on how far the drawn
-    /// window sticks out toward the player from the point the distance is measured to. It is a
-    /// lower bound rather than the true extent because the handle deliberately knows nothing about
-    /// the panel's content (the frame carries a converted uGUI canvas, and
-    /// <c>CanvasRenderer</c> is not a <c>Renderer</c>, so there is no bounds to read there); it is
-    /// nonetheless the panel's real geometry rather than a constant, and it is what makes a big
-    /// window stop further out than a small one.</item>
-    /// <item><b>The head's near plane</b>, <see cref="ReelNearClipStandoffs"/> deep — see
-    /// <see cref="ReelDesignNearMeters"/> for why the live reading needs a floor under it. Six
-    /// near-plane depths is 0.30 perceived metres of clear air in front of the panel's nearest
-    /// point: the near end of a distance a person can actually read a window at, and far enough
-    /// that no part of it is being cut by the clip plane.</item>
+    /// <item><see cref="ProximityGrabber"/> takes a grip when
+    /// <c>Distance(palm, collider.ClosestPoint(palm)) &lt;= ReachMeters * WorldScale</c>
+    /// (ProximityGrabber.cs:265, reach = 0.13 perceived m at :38 — the value
+    /// <c>scripts/check-mirrors.sh</c> keeps equal across the grabber, the figure grab and the fan
+    /// sweep). It measures from the PALM to the collider's nearest SURFACE point.</item>
+    /// <item>The reel's number is an along-ray distance from the hand's POINTER ORIGIN
+    /// (<c>VRHand.GetAimRay</c>, VRHand.cs:316) to the beam's strike point. Those are two different
+    /// origins, so the conversion is the measured gap between them on THIS hand,
+    /// <c>|rayOrigin - PalmCenter|</c> — a few perceived centimetres, read live rather than
+    /// assumed, because the hand rig is user-seatable.</item>
+    /// <item>By the triangle inequality <c>|palm - strike| &lt;= gap + d</c>, so
+    /// <c>d &lt;= ReachMeters - gap</c> GUARANTEES the strike point is inside palm reach. And the
+    /// grabber measures to the ZONE, which strictly CONTAINS that point — zone and bar share a
+    /// centre and the zone is the larger box in every axis (0.62 vs 0.55 of the window width, 0.05
+    /// vs 0.024 thick, GrabbableModal.cs:43-44/1085-1089) — so
+    /// <c>ClosestPoint</c> can only be nearer still. The guarantee is conservative in the safe
+    /// direction: at the floor, a grip press takes the window.</item>
     /// </list>
-    /// A typical floated modal therefore stops at roughly 0.3 + 0.3 = 0.6 perceived metres —
-    /// about arm's length, which is what the request asks for — and a window the player has
-    /// pinched down to a postcard is allowed closer, because it can be read closer.</para>
+    /// <b>THE PANEL'S OWN SIZE IS DELIBERATELY NOT IN THIS BOUND ANY MORE.</b> Until 230 the floor
+    /// was <c>|_carryOffset| + struck.bounds.extents.magnitude</c> plus 0.30 m of near-plane
+    /// standoff, i.e. the panel modelled as a BALL around the strike point, which stopped a typical
+    /// modal at ~0.6 m and a large one further out — the exact complaint. A window is a flat rect:
+    /// its extent lies IN its own plane, not toward the player, so charging that extent against a
+    /// distance measured along the aim ray over-pays by up to a metre. The panel's extent still
+    /// matters, and it is still charged — but against the HEAD, where it is the right term, and by
+    /// the live guard in <see cref="TickCarryReel"/> rather than by a bound taken once at engage.
+    /// <see cref="_reelReachMeters"/> is still measured here because the FAR bound needs it.</para>
+    ///
+    /// <para><b>AND THE FACE IS PROTECTED SEPARATELY, BECAUSE THIS BOUND CANNOT SEE IT.</b> The
+    /// floor is measured along the HAND's ray; where the player's EYE is relative to that ray is not
+    /// knowable at engage and changes every frame afterwards. So "do not drive the window into the
+    /// player's face" is a per-frame guard on the STEP (<see cref="HeadGuardRefuses"/>), which
+    /// measures the panel AS A RECT against the head, and the two bounds never have to be traded
+    /// against each other: pointing forward the guard is silent and the window comes to the hand;
+    /// pointing at your own face it stops the approach and nothing else.</para>
     ///
     /// <para><b>THE FAR BOUND IS THE LASER'S OWN REACH</b>,
     /// <see cref="Hands.Interact.RayGrabDriver.MaxDistanceMeters"/> minus the same panel reach, so
@@ -492,8 +547,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         _reelStartMeters = _carryDistance / scale;
         _reelSelfTicks = 0L;
         _reelSelfFrames = 0;
+        _reelHeadBlocks = 0;
 
-        // The struck collider — the same one RayGrabDriver ray-tested (RayGrabDriver.cs:84): the
+        // The struck collider — the same one RayGrabDriver ray-tested (RayGrabDriver.cs:94): the
         // narrow bar strip when the owner published one, else the registered grab zone.
         Collider? struck = BarCollider != null ? BarCollider : GetComponent<Collider>();
         float reachWorld = _carryOffset.magnitude;
@@ -501,17 +557,49 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             reachWorld += struck.bounds.extents.magnitude;
         _reelReachMeters = reachWorld / scale;
 
+        // THE PANEL AS A RECT IN THE ROOT'S OWN PLANE, for the face guard. Both numbers come out of
+        // the geometry this grab already produced, and NEITHER may be read off the registered grab
+        // zone: for a floated modal that zone is a thin slab AT THE BAR
+        // (GrabbableModal.SyncBar sets size = (width*ZoneWidthFraction, 0.05, 0.05) centred on the
+        // bar, GrabbableModal.cs:1088), so its bounds say nothing about the drawn window at all.
+        //   * HALF-HEIGHT — the drag bar hangs a gap below the panel's bottom edge
+        //     (`y = -(halfHeight + gap)`, GrabbableModal.cs:1085), so the root-up component of
+        //     `_carryOffset` (root minus strike point) IS the panel's half-height plus that gap:
+        //     measured, and over-measured by the gap, which is the safe direction.
+        //   * HALF-WIDTH — the struck collider's own half-diagonal. The bar spans
+        //     BarWidthFraction of the window, so this UNDER-measures a very wide window; the guard
+        //     is a comfort floor, not an invariant, and under-measuring the width only makes it
+        //     quieter in the axis that points sideways past the player's head.
+        // Owners with no separate bar collider (tray, combat log) measure their zone the same way.
+        Transform? geomRoot = _owner?.GrabRoot;
+        float halfHeightWorld = geomRoot != null
+            ? Mathf.Abs(Vector3.Dot(_carryOffset, geomRoot.up))
+            : _carryOffset.magnitude;
+        _reelHalfHeightMeters = halfHeightWorld / scale;
+        _reelHalfWidthMeters = struck != null ? struck.bounds.extents.magnitude / scale : 0f;
+
+        // NEAR = "a grip press would already take it here". See the class-level derivation above.
+        hand.GetAimRay(out Vector3 rayOrigin, out _);
+        Transform? palm = hand.Rig != null ? hand.Rig.PalmCenter : null;
+        _reelPalmGapMeters = palm != null ? Vector3.Distance(rayOrigin, palm.position) / scale : 0f;
+        float floor = Mathf.Max(ProximityGrabber.ReachMeters - _reelPalmGapMeters, ReelPointerFloorMeters);
+
+        // The radius of the per-frame HEAD guard — not a bound on this axis, recorded here so the
+        // engage line can name it and so the guard does not re-read the camera's clip plane every
+        // frame. The live near plane needs ReelDesignNearMeters under it; see that constant.
         Camera? head = Rig.VRRigDriver.HeadCamera;
         float nearMeters = head != null && head.nearClipPlane > 0f
             ? Mathf.Max(head.nearClipPlane / scale, ReelDesignNearMeters)
             : ReelDesignNearMeters;
+        _reelHeadClearMeters = nearMeters * ReelHeadClearStandoffs;
 
-        float floor = _reelReachMeters + nearMeters * ReelNearClipStandoffs;
         float ceiling = Hands.Interact.RayGrabDriver.MaxDistanceMeters - _reelReachMeters;
         // Degenerate geometry (a panel whose own reach exceeds the laser's) must not invert the
         // window; a one-centimetre band is still a usable, monotone clamp.
         ceiling = Mathf.Max(ceiling, floor + 0.01f);
 
+        _reelFloorMeters = floor;
+        _reelCeilingMeters = ceiling;
         _reelMinMeters = Mathf.Min(floor, _reelStartMeters);
         _reelMaxMeters = Mathf.Max(ceiling, _reelStartMeters);
     }
@@ -670,8 +758,11 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         // otherwise fight a second rotation writer).
         if (_laserCarry && _handB == null)
         {
-            TickCarryReel(); // 2026-08-23: the grabbing hand's stick Y winds _carryDistance
+            // The ray is read FIRST because the reel now needs its direction too: the face guard
+            // (HeadGuardRefuses) has to know which way a step would move the panel. One
+            // GetAimRay per carry frame, exactly as before.
             _handA.GetAimRay(out Vector3 rayOrigin, out Vector3 rayDir);
+            TickCarryReel(rayDir); // 2026-08-23: the grabbing hand's stick Y winds _carryDistance
             Vector3 laserTarget = rayOrigin + rayDir * _carryDistance + _carryOffset;
             root.position = Vector3.Lerp(root.position, laserTarget, k);
             return;
@@ -794,8 +885,35 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// the one-hand laser branch of <see cref="Update"/>, so every precondition the reel has
     /// (a live laser carry, exactly one hand, that hand tracked) is already proven by the caller.
     ///
-    /// <para><b>DIRECTION</b> is the request's: forward/up pulls the window TOWARD the player,
-    /// back/down pushes it away. So a positive stick Y SUBTRACTS from the along-ray distance.</para>
+    /// <para><b>DIRECTION — AND WHICH CONVENTION EACH SIDE OF THE ARGUMENT MEANT.</b> User,
+    /// 2026-08-23, verbatim: <i>"Das ranziehen der Fenster mit dem Laser ist invertiert, wird der
+    /// stick weg von mir gezogen geht es weg und umgekehrt. Dreh das um."</i></para>
+    ///
+    /// <para>WHAT <c>Thumbstick.y</c> IS ON THIS RIG, established from source and cross-checked
+    /// against consumers that have survived hardware rather than assumed: <see cref="VRHand"/>
+    /// assigns it raw from <c>CommonUsages.primary2DAxis</c> with no sign applied (VRHand.cs:660),
+    /// and three independent readers all treat <b>+y as the stick pushed FORWARD, away from the
+    /// player</b> — <c>Flight.TickVerticalLift</c> steps the rig along
+    /// <c>Vector3.up * Mathf.Sign(stick.y)</c> and its own setting text says "Push the TURN stick
+    /// forward to rise" (Flight.cs:515, ComfortSettings.cs:384); <c>Flight.Update</c> composes
+    /// <c>dir * unit.y</c> where <c>dir</c> is the flight forward (Flight.cs:332); and the campaign
+    /// map's zoom comments its own line "Stick UP (y&gt;0) → zoom IN"
+    /// (FlatScreenStereo.3.Map.cs:369). There is no inversion anywhere between the device and this
+    /// method.</para>
+    ///
+    /// <para>SO 230 WAS NOT WRONG ABOUT ITS OWN AXIS, IT PICKED THE OTHER CONVENTION. It shipped
+    /// <c>_carryDistance -= meters</c>, i.e. <b>stick forward = pull in</b>, and said so in its log
+    /// line. That is genuinely what the code did — which is why the user's sentence cannot be a
+    /// description of the shipped behaviour, and reading it as one is what makes it look
+    /// self-contradictory. It is the mapping he is ASKING FOR, stated right after the verdict:
+    /// stick away ⇒ window away, stick back ⇒ window back to me. "Dreh das um" is then exactly one
+    /// sign, and after it the control is the fishing-reel one: <b>you pull the stick toward you to
+    /// pull the window toward you.</b></para>
+    ///
+    /// <para><b>THE CONVENTION FROM ModBuild 231 ON: +y (forward) PUSHES OUT, −y (back) PULLS IN.</b>
+    /// A positive stick Y therefore ADDS to the along-ray distance. Written down here so the next
+    /// person does not have to re-derive it from three files, and named in the engage log so a
+    /// build can be judged from one line.</para>
     ///
     /// <para><b>THE RESPONSE CURVE MIRRORS <c>RayUguiDriver.TickStickScroll</c></b>
     /// (RayUguiDriver.cs:318-325) rather than inventing a second feel: deadzone test on |y|,
@@ -818,7 +936,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     /// themselves inside the measurement, so the number is an over-report of the work, and the whole
     /// method only ever runs while a window is being laser-carried.</para>
     /// </summary>
-    private void TickCarryReel()
+    private void TickCarryReel(Vector3 rayDir)
     {
         long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         _reelSelfFrames++;
@@ -837,12 +955,80 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
                 float response = (Mathf.Abs(y) - ReelDeadzone) / (1f - ReelDeadzone);
                 float meters = Mathf.Sign(y) * response
                                * Rig.ComfortSettings.LaserCarryReelSpeed.Value * Time.unscaledDeltaTime;
-                _carryDistance -= meters * scale; // + stick = closer
+                float step = meters * scale; // + stick (FORWARD) = further away; see DIRECTION above
+                if (!HeadGuardRefuses(step, rayDir, scale))
+                    _carryDistance += step;
             }
             _carryDistance = Mathf.Clamp(_carryDistance, _reelMinMeters * scale, _reelMaxMeters * scale);
         }
 
         _reelSelfTicks += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+    }
+
+    /// <summary>
+    /// THE FACE GUARD: would this reel step drive the panel further INTO the player's head, while
+    /// it is already inside <see cref="_reelHeadClearMeters"/> of the eye? Then refuse the step.
+    ///
+    /// <para><b>WHY A STEP GATE AND NOT A BOUND.</b> A near bound lives on the along-ray axis, and
+    /// where the head sits relative to that ray is not knowable at engage — it changes with every
+    /// wrist movement. A bound big enough to be safe for every aim is the 0.6 m floor the user just
+    /// rejected. A gate on the STEP costs the same two distances, is silent for the aim the player
+    /// actually uses (pointing away from themselves), and bites only in the case it exists for.</para>
+    ///
+    /// <para><b>IT NEVER MOVES THE WINDOW BY ITSELF, AND IT NEVER TRAPS IT.</b> The test is
+    /// "does this step make it WORSE", so the escape direction is always available even from inside
+    /// the clearance (a window already at the face can still be pushed out), and a frame with no
+    /// stick input writes nothing. A positional clamp would have had to choose an exit point on a
+    /// sphere around the head — which, for a ray aimed at the player's own face, is BEHIND them.</para>
+    ///
+    /// <para><b>THIS IS WHERE THE PANEL'S HALF-HEIGHT AND HALF-WIDTH ARE CHARGED</b>, and it is the
+    /// right place for them — but as a RECT, never as a ball. The measure is the distance from the
+    /// eye to the nearest point of the panel's own rectangle (<see cref="PanelDistanceToHead"/>,
+    /// half-extents measured in <see cref="ArmReel"/>). Charging the extent as a RADIUS, which is
+    /// what a <c>reach</c>-style term does, is wrong by up to a metre for exactly the windows this
+    /// request is about: a tall window standing 0.5 m in front of the player has every point of it
+    /// about 0.5 m from the eye, because its extent runs across the view and not toward it, while a
+    /// ball model reports 0.5 − 1.0 and declares the face hit. That single mis-model is the whole
+    /// reason 230 stopped a window at 0.6 m.</para>
+    ///
+    /// <para>The panel actually moves by a LERP toward the new target (see the carry branch in
+    /// <see cref="Update"/>), i.e. by less than <paramref name="stepWorld"/> in the frame the step is
+    /// taken — so this reads early rather than late.</para>
+    /// </summary>
+    private bool HeadGuardRefuses(float stepWorld, Vector3 rayDir, float scale)
+    {
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        Transform? root = _owner?.GrabRoot;
+        if (head == null || root == null)
+            return false; // no head or no root to measure: the guard has nothing to say
+        Vector3 headPos = head.transform.position;
+        float after = PanelDistanceToHead(root, root.position + rayDir * stepWorld, headPos, scale);
+        if (after >= _reelHeadClearMeters * scale)
+            return false; // still outside the clearance after the step — nothing to guard
+        if (after >= PanelDistanceToHead(root, root.position, headPos, scale))
+            return false; // inside it, but the step is not making it worse (the way out)
+        _reelHeadBlocks++;
+        return true;
+    }
+
+    /// <summary>
+    /// Distance from <paramref name="headPos"/> to the nearest point of the panel, modelled as the
+    /// rectangle centred on <paramref name="center"/> spanning
+    /// ±<see cref="_reelHalfWidthMeters"/> along the root's right axis and
+    /// ±<see cref="_reelHalfHeightMeters"/> along its up axis (both perceived metres, taken to world
+    /// units through the LIVE <paramref name="scale"/> like every other length the reel handles).
+    /// Two dot products, two clamps — the exact closest-point formula for a rect, which is what a
+    /// window is.
+    /// </summary>
+    private float PanelDistanceToHead(Transform root, Vector3 center, Vector3 headPos, float scale)
+    {
+        Vector3 right = root.right;
+        Vector3 up = root.up;
+        Vector3 d = headPos - center;
+        Vector3 closest = center
+                        + right * Mathf.Clamp(Vector3.Dot(d, right), -_reelHalfWidthMeters * scale, _reelHalfWidthMeters * scale)
+                        + up * Mathf.Clamp(Vector3.Dot(d, up), -_reelHalfHeightMeters * scale, _reelHalfHeightMeters * scale);
+        return Vector3.Distance(headPos, closest);
     }
 
     /// <summary>
@@ -863,11 +1049,19 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         VRLog.Info(_logChannel, $"{_logName} grab: LASER-CARRY reel closed ({hand?.Side.ToString() ?? "?"}, {why}) — "
                                 + $"{_reelStartMeters:F2} m -> {endMeters:F2} m "
                                 + $"({(travel <= 0f ? "pulled in" : "pushed out")} {Mathf.Abs(travel):F2} m, "
-                                + $"window {_reelMinMeters:F2}..{_reelMaxMeters:F2} m). "
-                                + $"Reel self-cost {microsPerFrame:F2} us/frame over {_reelSelfFrames} frames "
+                                + $"window {_reelMinMeters:F2}..{_reelMaxMeters:F2} m; NEAR {_reelFloorMeters:F2} m "
+                                + $"from ProximityGrabber palm reach {ProximityGrabber.ReachMeters:F2} m less the "
+                                + $"{_reelPalmGapMeters:F2} m pointer-to-palm gap, FAR {_reelCeilingMeters:F2} m from "
+                                + $"RayGrabDriver reach {Hands.Interact.RayGrabDriver.MaxDistanceMeters:F2} m less the "
+                                + $"panel's {_reelReachMeters:F2} m reach). The face guard "
+                                + (_reelHeadBlocks > 0
+                                    ? $"refused {_reelHeadBlocks} step(s) at its {_reelHeadClearMeters:F2} m eye clearance"
+                                    : $"never bit ({_reelHeadClearMeters:F2} m eye clearance)")
+                                + $". Reel self-cost {microsPerFrame:F2} us/frame over {_reelSelfFrames} frames "
                                 + "(measured, includes the two timestamp reads that measure it).");
         _reelSelfTicks = 0L;
         _reelSelfFrames = 0;
+        _reelHeadBlocks = 0;
     }
 
     /// <summary>
@@ -1008,8 +1202,9 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
 /// the ONE reader in the mod with no holding gate. It is inert in the 3D map room
 /// (<c>MapRoomOwnsParchment</c> forces <c>_mapBaseCapture</c> false, FlatScreenStereo.3.Map.cs:38),
 /// so the overlap can only arise on the FLAT campaign map with a floated window laser-held over it.
-/// Left unchanged by this lane — that file is not ours — and reported to the integrator with the
-/// one-line guard that would settle it the way every other contest here is settled.</item>
+/// SETTLED, and this sentence used to say it was only reported: the guard is in the file
+/// (<c>if (LaserCarryReel.OwnsStick(rh)) return;</c>, FlatScreenStereo.3.Map.cs:362), decided the
+/// way every other contest here is — the hand that is carrying something owns its own stick.</item>
 /// </list>
 ///
 /// <para><b>COST TO THE CALLER.</b> <see cref="OwnsStick"/> in the common case (nothing is being

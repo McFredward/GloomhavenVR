@@ -26,9 +26,9 @@ internal static partial class Defaults
     internal const float SmoothTurnSpeed = 90f;                     // => [Comfort] SmoothTurnSpeed
     internal const TurnHandChoice TurnHand = TurnHandChoice.Right;  // => [Comfort] TurnHand
     internal const bool FlightEnabled = true;                       // => [Comfort] FlightEnabled
-    internal const FlightDirectionSource FlightDirection = FlightDirectionSource.Hand;  // => [Comfort] FlightDirection
-    internal const float FlightMaxSpeed = 1.43362f;                 // => [Comfort] FlightMaxSpeed
-    internal const TurnHandChoice FlightHand = TurnHandChoice.Right;  // => [Comfort] FlightHand
+    internal const FlightDirectionSource FlightDirection = FlightDirectionSource.Head;  // => [Comfort] FlightDirection
+    internal const float FlightMaxSpeed = 1.27367f;                 // => [Comfort] FlightMaxSpeed
+    internal const TurnHandChoice FlightHand = TurnHandChoice.Left;   // => [Comfort] FlightHand
     internal const bool TurnStickVertical = false;                  // => [Comfort] TurnStickVertical  (pinned: the user asked for it as an OPTION, and its off state is the pre-feature behaviour)
     // ---- the laser-carry reel (user request 2026-08-23) — it OVERRULES the two rows above ----
     //
@@ -51,13 +51,13 @@ internal static partial class Defaults
     // No line here on purpose — a tuned cfg that still carries the key is reported as UNMAPPED
     // by scripts/rebase-defaults.py, which is exactly right for a retired key.
     internal const float RecenterHoldSeconds = 1.0f;                // => [Comfort] RecenterHoldSeconds
-    internal const float SavedScaleMultiplier = 1.6499f;            // => [Comfort] SavedScaleMultiplier
+    internal const float SavedScaleMultiplier = 2.7331f;            // => [Comfort] SavedScaleMultiplier
     internal const bool DebugGizmos = false;                        // => [Comfort] DebugGizmos
     internal const bool KeepPlaceOnReorigin = true;                 // => [Comfort] KeepPlaceOnReorigin
     internal const bool TableScaleDefault25Applied = false;         // => [Comfort] TableScaleDefault25Applied  (pinned: one-shot migration marker — a fresh install must start false)
 
     // ---- Rig/RenderQuality.cs ------------------------------------------------------
-    internal const int MsaaLevel = 8;                    // => [RenderQuality] MsaaLevel
+    internal const int MsaaLevel = 4;                    // => [RenderQuality] MsaaLevel
     internal const bool ForceAnisotropic = true;         // => [RenderQuality] ForceAnisotropic
     internal const bool ForceFullTextureResolution = true; // => [RenderQuality] ForceFullTextureResolution
     // ON, and it is the answer to "the HIGHER game preset looks worse" (user, 2026-08-23: "Die
@@ -97,11 +97,20 @@ internal static partial class Defaults
     // default — so an unmarked line would make scripts/rebase-defaults.py rebase the ruling straight
     // back out of the source at the next drop. The marker says "the cfg is the older statement here".
     internal const int PixelLightCount = 0;              // => [RenderQuality] PixelLightCount  (pinned: user ruling 2026-08-23 — 0 in every preset and as the shipped default; the cfg snapshot predates it)
-    // 0 = the "Qualität" preset, which is exactly what the three rows above spell at their own
-    // defaults (MSAA 8x, eye 1.00x, per-pixel light cap 0) — so a fresh install reads back as a named
-    // preset rather than as "Eigene". This value is a MIRROR of those three, never a master; see
-    // RenderQuality.QualityPreset. Any other starting number would be a lie the first tick corrects.
-    internal const int QualityPreset = 0;                // => [RenderQuality] QualityPreset
+    // 4 = "Eigene", and that is not a regression — it is the honest reading of the three rows above
+    // after the 2026-08-23 cfg rebase took the user's own tuned values ("Übernehme bitte die in
+    // debug/default liegenden Default werte von mir"). They now spell MSAA 4x, eye 1.00x and a
+    // per-pixel light cap of 0, which matches NO entry in RenderQuality.Presets — "Ausgewogen" is
+    // 4x but at eye 0.90x — so the derived index is the custom one.
+    //
+    // NOTHING HERE IS LOAD-BEARING. This value is a MIRROR of those three, never a master; see
+    // RenderQuality.QualityPreset, and MirrorPresetToConfig, which copies the derived index over
+    // whatever stands here within one tick. It is rebased with the rest of the cfg rather than
+    // pinned precisely BECAUSE it is derived: pinning it would freeze a number the first tick
+    // overwrites anyway, and shipping 0 while the rows spell "Eigene" would put a wrong preset name
+    // in front of the player for exactly one frame. The line the file wants is the one the rows
+    // already prove.
+    internal const int QualityPreset = 4;                // => [RenderQuality] QualityPreset
 
     // ---- Rig/LightStabiliser.cs ----------------------------------------------------
     // ON by default, and SINCE 2026-08-23 IT IS ALSO ACTIVE BY DEFAULT: the whole class is gated on
@@ -116,7 +125,7 @@ internal static partial class Defaults
     // looking for the price of one extra forward pass over the renderers that one light touches —
     // a rounding error against the 40-odd passes the cap just removed. 0 is the honest "pin
     // nothing" if even that is too much; the row goes to 4.
-    internal const int PinnedPixelLights = 1;            // => [Lights] PinnedPixelLights
+    internal const int PinnedPixelLights = 0;            // => [Lights] PinnedPixelLights
     // 0.0 — PERFECTLY STEADY, and the reason is a census plus a user report. ModBuild 228 shipped
     // 0.25 as "a quarter of the wobble survives"; the user's verdict was "hat schon richtig viel
     // gebracht, das meiste Flackern ist nun weg. An manchen Stellen ist es immer noch." What is left

@@ -34,8 +34,20 @@ internal sealed class ProximityGrabber
     /// price of that decision is that the copies must be tuned TOGETHER, which is what
     /// scripts/check-mirrors.sh enforces — it names the other site when they disagree. Hands
     /// deliberately does not name Board here; the lint carries the coupling, not the layering.
+    ///
+    /// <para>INTERNAL since 2026-08-23 (ModBuild 231) because it is now also the LASER REEL'S NEAR
+    /// BOUND: <see cref="WorldUI.PanelGrabHandle"/>'s stick-driven carry distance stops exactly
+    /// where a grip press would already take the window, so "you can pull it close enough to then
+    /// grab it with your hand" is true by construction instead of by a tuned constant. The
+    /// alternative — a fourth copy of 0.13 in WorldUI — is a value that drifts the first time this
+    /// one is tuned, and the mirror lint below would then be policing three of four sites.
+    ///
+    /// NOTHING WAS COPIED AND THE LINT GROUP IS UNCHANGED (still ProximityGrabber /
+    /// FigureGrabDriver / FanSweep): the reel READS this constant. The same widening, for the same
+    /// reason, was done to <c>RayGrabDriver.MaxDistanceMeters</c> one build earlier, which is the
+    /// reel's far bound. Behaviour here is untouched — visibility only.</para>
     /// </summary>
-    private const float ReachMeters = 0.13f;
+    internal const float ReachMeters = 0.13f;
 
     /// <summary>
     /// Candidate stickiness (P6, hardware test #8; widened P7, test #10): a rival must

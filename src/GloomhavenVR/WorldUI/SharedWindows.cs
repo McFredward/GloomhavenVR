@@ -45,12 +45,21 @@ namespace GloomhavenVR.WorldUI;
 /// <para><b>WHAT IS DELIBERATELY NOT IN THE SET</b>, each for a stated reason — this list is the
 /// most useful part of the file, because every entry is a mistake somebody would otherwise make:
 /// <list type="bullet">
-/// <item><b>The road/city event panel</b> (<c>UIEventPanel</c>) — <b>already synced by the game
-/// itself</b>: <c>Synchronizer.SendGameAction(GameActionType.ContinueRoadEvent,
-/// ActionPhaseType.MapEvent, …)</c> (decompiled UIEventPanel.cs:606/610/724), received by
-/// <c>ClientContinueRoadEvent</c> (:869). It LOOKS like a story window and is not one: its page
-/// advance is a GAME ACTION. Adding a mod record for it would be a second source of truth for a
-/// fact the game already owns, which this project forbids.</item>
+/// <item><b>The road/city event panel</b> (<c>UIEventPanel</c>) — <b>THIS ENTRY WAS WRONG AND HAS
+/// MOVED INTO THE SET (ModBuild 231, <see cref="SharedWindowKind.Encounter"/>).</b> What it said
+/// was: <i>"already synced by the game itself … adding a mod record for it would be a second
+/// source of truth for a fact the game already owns"</i>. The FACT half is still true and is
+/// re-stated on the enum member — the page advance really is
+/// <c>Synchronizer.SendGameAction(GameActionType.ContinueRoadEvent, ActionPhaseType.MapEvent, …)</c>
+/// (decompiled/GH.Runtime/UIEventPanel.cs:606/610/724, received by <c>ClientContinueRoadEvent</c>
+/// :869) and no mod record may ever carry its CONTENT. The CONCLUSION was wrong twice over.
+/// (1) It answered a question about CONTENT with a verdict about the whole window, and the shared
+/// set is about the POSE and the bar. (2) By this file's own definition — "some record makes
+/// another player's click change what this client sees in that window" — the event panel is the
+/// most sharply shared window in the game: it is the GAME's record that does it. Wearing the brass
+/// bar there was the false statement, not the blue one. USER REQUEST (2026-08-23, verbatim): <i>"Die
+/// 'Begegnung' ist ein Storyfenster und soll wie das Storyfenster auch 'blau' sein also voll
+/// synchronisiert sein."</i></item>
 /// <item><b>The guildmaster destination windows</b> (merchant, temple, trainer, town records) — the
 /// user's own ruling for the map room: "Da jeder seine eigene UI sieht, sollen diese UI Element
 /// nicht synchronisiert werden".</item>
@@ -81,6 +90,38 @@ internal enum SharedWindowKind : byte
 
     /// <summary>The quest-confirmation popup, <c>UIWindowID.QuestPopup</c>.</summary>
     QuestConfirm = 3,
+
+    /// <summary>
+    /// The road/city ENCOUNTER — "Begegnung" — <c>UIEventPanel</c>, the game window
+    /// <c>'UI Event Window'</c> (<c>UIWindowID.EventsPanel</c> in the ModBuild 231 hardware log).
+    ///
+    /// <para><b>WHAT IT IS, ESTABLISHED FROM THE GAME AND NOT FROM THE GERMAN WORD.</b> "Begegnung"
+    /// is the localisation of ENCOUNTER, and the game has exactly one encounter window:
+    /// <c>UICityEncounterButton.OpenCityEvent</c> → <c>UIGuildmasterHUD.OpenCityEncounter</c> →
+    /// <c>MapChoreographer.OpenCityEvent</c> (decompiled/GH.Runtime/UICityEncounterButton.cs:52,
+    /// UIGuildmasterHUD.cs:687), which raises <c>Singleton&lt;UIEventPanel&gt;</c> — a window whose
+    /// own serialized fields are <c>eventImage</c>, <c>eventTitle</c>, <c>eventDescription</c> and
+    /// two headers literally named <c>[Header("City Encounter")]</c> / <c>[Header("Road
+    /// Encounter")]</c>, with <c>showAudioItem = "PlaySound_UIMapEncounter"</c>
+    /// (decompiled/GH.Runtime/UIEventPanel.cs:34-72). It is NOT a
+    /// <see cref="MapStoryController"/> window: a tree-wide grep of the decompiled sources finds
+    /// fourteen callers of <c>Singleton&lt;MapStoryController&gt;.Instance.Show</c> and
+    /// <c>UIEventPanel</c> is not one of them.</para>
+    ///
+    /// <para><b>POSE ONLY, LIKE <see cref="QuestConfirm"/>, AND FOR A STRONGER REASON.</b> Its
+    /// content is not merely "probably" synced — the page advance IS a game action:
+    /// <c>Synchronizer.SendGameAction(GameActionType.ContinueRoadEvent, ActionPhaseType.MapEvent,
+    /// …)</c> (UIEventPanel.cs:606/610/724) received by <c>ClientContinueRoadEvent</c> (:869). So the
+    /// blue bar is already a TRUE statement about this window's content before the mod does
+    /// anything, and the only thing missing was the half the mod owns: WHERE the panel stands. No
+    /// mod code may drive its buttons and its record carries
+    /// <c>NetProtocol.StoryPageNone</c>.</para>
+    ///
+    /// <para><b>WHY IT NEEDED A WIRE KIND OF ITS OWN</b> rather than riding kind 1: kind 1 resolves
+    /// <c>Singleton&lt;MapStoryController&gt;</c>, and the record's whole addressing is the kind
+    /// byte. A pose published under kind 1 would be applied to the map story box.</para>
+    /// </summary>
+    Encounter = 4,
 }
 
 /// <summary>See <see cref="SharedWindowKind"/> for the whole design; this is the accessor both the
@@ -124,6 +165,22 @@ internal static class SharedWindows
                 return SharedWindowKind.MapStory;
         }
 
+        // THE ENCOUNTER IS AN INSTANCE COMPARE against its own singleton, exactly like the two
+        // story boxes above and for the same two reasons. (1) IDENTITY: UIEventPanel is a
+        // Singleton<UIEventPanel> carrying [RequireComponent(typeof(UIWindow))] (decompiled
+        // UIEventPanel.cs:26-27), so "the UIWindow on the singleton's GameObject" IS the encounter
+        // window by construction — no name (the game localises its UI and Unity appends "(Clone)")
+        // and no id (this one IS serialized as EventsPanel in the ModBuild 231 log, but a
+        // scene-serialized id has burned this project before). (2) COST: this predicate is asked per
+        // floated window per frame by the bar tint, and a reference compare against a singleton is
+        // cheaper than a GetComponent on every window that is not the encounter.
+        if (Singleton<UIEventPanel>.IsInitialized)
+        {
+            UIEventPanel ep = Singleton<UIEventPanel>.Instance;
+            if (ep != null && ReferenceEquals(ep.gameObject, window.gameObject))
+                return SharedWindowKind.Encounter;
+        }
+
         return window.ID == UIWindowID.QuestPopup ? SharedWindowKind.QuestConfirm : SharedWindowKind.None;
     }
 
@@ -137,7 +194,15 @@ internal static class SharedWindows
     internal static bool ParticipatesHere(SharedWindowKind kind) => kind switch
     {
         SharedWindowKind.ScenarioStory => true,
-        SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm => MapRoomDriver.Active,
+        // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from the
+        // game rather than assumed: a road/city event is raised from MapChoreographer on the
+        // campaign map and its record travels in the map room's parchment frame like the other two.
+        // A player with the 3D map switched off gets no pose from anybody and publishes none — the
+        // same scoping the user set for kinds 1 and 2 ("das soll hier nur für die Spieler gelten
+        // die die 3D-Worldmap ausgeschaltet haben"). Note that this gate is about the POSE only:
+        // that player's encounter CONTENT is still synced, by the game, exactly as it always was.
+        SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter
+            => MapRoomDriver.Active,
         _ => false,
     };
 
@@ -200,7 +265,8 @@ internal static class SharedWindows
     internal static bool AnyGrabbedHere() =>
         GrabbedHere(SharedWindowKind.ScenarioStory)
         || GrabbedHere(SharedWindowKind.MapStory)
-        || GrabbedHere(SharedWindowKind.QuestConfirm);
+        || GrabbedHere(SharedWindowKind.QuestConfirm)
+        || GrabbedHere(SharedWindowKind.Encounter);
 
     /// <summary>One kind's answer for <see cref="AnyGrabbedHere"/> — participation first, so a
     /// non-participating client never even looks for the window.</summary>
@@ -226,6 +292,17 @@ internal static class SharedWindows
                     return null;
                 MapStoryController mc = Singleton<MapStoryController>.Instance;
                 return mc != null ? mc.window : null;
+
+            case SharedWindowKind.Encounter:
+                // THE ENCOUNTER HAS A SINGLETON TOO, so it is resolved the same way the two story
+                // boxes are and never by id: UIEventPanel is a Singleton<UIEventPanel> carrying
+                // [RequireComponent(typeof(UIWindow))] (decompiled UIEventPanel.cs:26-27), so the
+                // UIWindow on its own GameObject IS its window by construction. Its own private
+                // `myWindow` field is that same GetComponent, cached in Awake (:133).
+                if (!Singleton<UIEventPanel>.IsInitialized)
+                    return null;
+                UIEventPanel ep = Singleton<UIEventPanel>.Instance;
+                return ep != null ? ep.GetComponent<UIWindow>() : null;
 
             default:
                 return null;   // QuestConfirm is found by id on the float list, not by a singleton

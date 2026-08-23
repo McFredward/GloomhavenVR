@@ -612,9 +612,10 @@ internal static partial class Loc
                 + "ein diagonaler Stoß bei 45 Grad ist also reines Drehen. Braucht einen Stick an "
                 + "der Dreh-Hand; aus = dieser Stick dreht nur, wie bisher.",
             ["Comfort/LaserCarryReel"] =
-                "Während du ein Fenster mit dem Laser auf Distanz festhältst, zieht ein Druck des "
-                + "Thumbsticks dieser Hand nach vorn das Fenster zu dir heran, nach hinten schiebt es "
-                + "weg. Das Drehen ist davon nie betroffen: Drehen liest die Seitwärts-Achse, dies nur "
+                "Während du ein Fenster mit dem Laser auf Distanz festhältst, zieht ein Zug des "
+                + "Thumbsticks dieser Hand nach HINTEN das Fenster zu dir heran, nach vorn schiebt es "
+                + "weg — wie bei einer Angelrolle. Es kommt bis kurz vor deine Hand, nah genug, um es "
+                + "dann einfach zu greifen. Das Drehen ist davon nie betroffen: Drehen liest die Seitwärts-Achse, dies nur "
                 + "hoch/runter. Solange das Heranziehen den Stick hat, ruhen an dieser Hand das "
                 + "Hoch/Runter-Fliegen (TurnStickVertical) und das Vor/Zurück-Fliegen — und kommen in "
                 + "dem Moment zurück, in dem du loslässt; das Log nennt beide beim Namen. Aus = der "
@@ -624,10 +625,11 @@ internal static partial class Loc
                 "Wie schnell das Fenster bei VOLLEM Stick-Ausschlag wandert, in scheinbaren Metern pro "
                 + "Sekunde — Meter so, wie die Szene für dich aussieht, nicht in Welteinheiten; es "
                 + "fühlt sich deshalb am herangezoomten Szenariotisch genauso an wie im Kartenraum. "
-                + "Teilausschlag steigt linear ab der Totzone, wie beim Menü-Scrollen. Näher als etwa "
-                + "eine Armlänge lässt sich das Fenster nicht ziehen (es wäre angeschnitten und "
-                + "unlesbar), und nicht weiter weg, als der Laser reicht, der es hält (du kämst nicht "
-                + "mehr heran).",
+                + "Teilausschlag steigt linear ab der Totzone, wie beim Menü-Scrollen. Es kommt bis "
+                + "kurz vor deine Hand — nah genug, um es dann direkt zu greifen; diese Grenze ist "
+                + "aus der Reichweite des Nahgriffs abgeleitet und nicht geraten. Näher heran geht "
+                + "es nur dann nicht, wenn es dir ins Gesicht fahren würde. Weiter weg als der "
+                + "Laser reicht, der es hält, geht es nicht (du kämst nicht mehr heran).",
             // Comfort/TableHeightOffset ist ENTFALLEN (Nutzer-Entscheid 2026-08: durch das freie
             // Bewegen — Stick-Flug und Welt-Greifen — wird die Tischhöhe nicht mehr gebraucht).
             // Kein Eintrag mehr nötig: der Schlüssel wird nirgends mehr gebunden.

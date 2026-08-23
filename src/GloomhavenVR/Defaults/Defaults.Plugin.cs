@@ -60,8 +60,8 @@ internal static partial class Defaults
     //                         at MapChoreographer.cs:3839)
     //   CityIconScale       — the GLOOMHAVEN CITY map's icons (the stores in m_CityLocations
     //                         :107 plus the City-type quests, MapChoreographer.cs:3873)
-    internal const float MapIconScale = 1f;                                  // => [MapRoom] IconScale
-    internal const float MapGloomhavenIconScale = 1f;                        // => [MapRoom] GloomhavenIconScale
+    internal const float MapIconScale = 2.29637f;                            // => [MapRoom] IconScale
+    internal const float MapGloomhavenIconScale = 1.00027f;                  // => [MapRoom] GloomhavenIconScale
     internal const float MapCityIconScale = 1f;                              // => [MapRoom] CityIconScale
     // THE TWO NON-ICON THINGS ON THE MAP (ModBuild 194, user: "Ich will auch die Größe des Markers wo
     // man sich befindet sowie des eingezeichneten Weges von einem zum anderen Punkt einstellen
@@ -81,8 +81,8 @@ internal static partial class Defaults
     //                      Applied through widthMultiplier, which multiplies the game's own width
     //                      CURVE and which the game itself never writes on a map line; original
     //                      recorded, write level-triggered, restored on stand-down.
-    internal const float MapPartyMarkerScale = 1f;                           // => [MapRoom] PartyMarkerScale
-    internal const float MapPathWidthScale = 1f;                             // => [MapRoom] PathWidthScale
+    internal const float MapPartyMarkerScale = 2.76815f;                     // => [MapRoom] PartyMarkerScale
+    internal const float MapPathWidthScale = 2.72753f;                       // => [MapRoom] PathWidthScale
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
     internal const float MaskedReaimHeadRate = 30f;                          // => [Rig] MaskedReaimHeadRate
     internal const float MaskedReaimGain = 0.15f;                            // => [Rig] MaskedReaimGain
@@ -94,7 +94,7 @@ internal static partial class Defaults
     // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13): its OFF restored the vanilla
     // camera-step DEADLOCK the bridge exists to break (Compat/Tutorial/TutorialVR.cs).
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand
-    internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Plate;  // => [Hands] HandStyle
+    internal const Hands.HandStyle Hands_HandStyle = Hands.HandStyle.Arcane;  // => [Hands] HandStyle
     internal const bool LaserFingerOrigin = false;                           // => [Hands] LaserFingerOrigin
     internal const bool ScrollWithStickOnly = true;                          // => [Hands] ScrollWithStickOnly
     internal const float LaserFingerOffsetMeters = 0.02f;                    // => [Hands] LaserFingerOffsetMeters

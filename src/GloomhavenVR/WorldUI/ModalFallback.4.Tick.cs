@@ -236,6 +236,11 @@ internal static partial class ModalFallback
         ResetChainPose("module shutdown"); // chain continuity: teardown = rule 1 next time
         _forcedTabs.Clear();
         CatchAllReset(); // part 10: unknown-window tracker + reward poll + error-box float
+        // ModBuild 231: the fuse-lift latch, its burst counter and its give-up set are one session's,
+        // like every other catch-all latch CatchAllReset drops one line above.
+        ChurnLiftLogged.Clear();
+        ChurnLifts.Clear();
+        ChurnLiftGivenUp.Clear();
         MapRoom.GuildmasterDestinations.Reset(); // hand the borrowed banner back before we vanish
         MapRoom.HoverCardPose.Reset();          // per-card follow/seat state dies with the module
         // Every window has just been released, so every reserved angle is free by definition.
@@ -1673,6 +1678,322 @@ internal static partial class ModalFallback
     // into MapRoom.HoverCardPose, which measures what is actually drawn and stands that component
     // down; the fallback there is this exact rule, kept for the case where nothing can be measured.)
 
+    // =========================================================================================
+    //  ModBuild 231 — WHY A WINDOW THE PLAYER ASKED FOR IS NOT ON THE TABLE.
+    //
+    //  THE REPORT: "Wenn ich die buttons wiederholt hintereinander drücke tauchen die Fenster
+    //  irgendwann gar nicht mehr auf. Das habe ich nun mit dem Händler und der Liste der in
+    //  Ruhestand gegangenen Charactere hinbekommen. Das darf niemals passieren."
+    //
+    //  THE CAUSE, NAMED BY THE LOG IN ITS OWN WORDS. Two lines in the ModBuild 230 session, and
+    //  they are the two windows he named:
+    //
+    //    Player.log:10230  CATCH-ALL FUSE: window 'UI Shop Item Window' re-floated 4× in 60s
+    //                      — a cycling HUD banner, not a waiting decision; suppressed for this
+    //                      session (manual A/X screen chord still reaches it).
+    //    Player.log:11217  CATCH-ALL FUSE: window 'UI Town Records Window' re-floated 4× in 60s …
+    //
+    //  Every guildmaster destination reaches VR through the CATCH-ALL (their IDs are Shop /
+    //  None, none of them is in FallbackIds), so every open of the merchant is one tick of
+    //  ChurnMaxFloats. The fuse's own premise is written at its declaration: "a window name
+    //  floating more than this often within ChurnWindowSeconds is NOT a stuck decision —
+    //  decisions open once and wait. It is a self-cycling HUD banner." A destination the PLAYER
+    //  opens and closes four times in a minute is neither a stuck decision nor a self-cycling
+    //  banner, and the fuse cannot tell the difference because it counts FLOATS, not causes.
+    //  ModBuild 184 already met this exact shape once — the map's quest-preview hover card
+    //  floats once per hover, which IS its life cycle — and answered it by exempting hover cards
+    //  from the count. This is the same class of mistake one family further on, and the same
+    //  answer: A FUSE MUST NOT COUNT A CLASS WHOSE NORMAL LIFE LOOKS LIKE THE ABUSE.
+    //
+    //  WHY THE SUPPRESSION IS LIFTED RATHER THAN THE COUNT EXEMPTED. The fuse is real insurance
+    //  and it is not being removed: the loop it was capping (ModBuild 185/186 — float, release,
+    //  float, release at one full conversion each) is a genuine hazard, and if it ever returns
+    //  the fuse must still blow inside ONE open. So the count keeps running for destinations
+    //  too; what changes is that the SESSION-LONG verdict is lifted again the moment a
+    //  destination the player can still reach is standing open and un-floated. A loop would
+    //  re-blow it within the same second and the log would say so four times over — which is
+    //  strictly MORE information than one line and then silence forever. What can no longer
+    //  happen is the permanent, unrecoverable wedge he reported: "das darf niemals passieren".
+    //
+    //  WHY IT LIVES HERE AND NOT AT THE FUSE. ModalFallback.10.CatchAll.cs is another lane's
+    //  file this build. This is the same partial class, so the state is directly reachable; the
+    //  sweep is placed in Tick immediately BEFORE TickCatchAll so a suppression lifted this tick
+    //  is already gone when the catch-all reads it, i.e. the window floats on the SAME tick and
+    //  the player never sees a missing frame. The equivalent one-line change at the fuse itself
+    //  is written out in this lane's report so the owner can take it instead.
+    // =========================================================================================
+
+    /// <summary>Per-window-name latch for the lift line — one per window type, like every other
+    /// catch-all latch (the sweep is level-triggered and would otherwise print per tick).</summary>
+    private static readonly HashSet<string> ChurnLiftLogged = new();
+
+    /// <summary>
+    /// THE LIFT'S OWN FUSE. A lift that can happen without limit would turn a genuine re-float LOOP
+    /// into blow → lift → blow → lift forever, at one un-latched <c>CATCH-ALL FUSE</c> Warn per
+    /// blow — i.e. it would remove the cap and hide the loop underneath it, which is the exact
+    /// mistake ModBuild 184 made when it exempted hover cards from the count outright (the ModBuild
+    /// 185 log then had 1417 float/release lines).
+    ///
+    /// <para>The two rates are far apart and that is what makes the test decide something. One lift
+    /// costs the player more than <see cref="ChurnMaxFloats"/> deliberate open/close cycles of the
+    /// same destination; three of them inside <see cref="ChurnLiftBurstSeconds"/> would be twelve
+    /// cycles in ten seconds, which no hand does. A float/release loop reaches it in well under a
+    /// second. So: lift freely at human speed, stand down at machine speed and say so once.</para>
+    /// </summary>
+    private const int ChurnLiftMaxPerBurst = 3;
+    private const float ChurnLiftBurstSeconds = 10f;
+
+    /// <summary>Lifts per window NAME within the rolling burst window.</summary>
+    private static readonly Dictionary<string, (int Count, float WindowStart)> ChurnLifts = new();
+
+    /// <summary>Window names whose lift budget blew — the fuse stands for the rest of the session.</summary>
+    private static readonly HashSet<string> ChurnLiftGivenUp = new();
+
+    /// <summary>
+    /// Lift the churn fuse's session verdict off any GUILDMASTER DESTINATION window that is open
+    /// right now. Runs from <see cref="Tick"/> immediately before <c>TickCatchAll</c>.
+    ///
+    /// <para>COST: one <c>Count</c> compare in the overwhelmingly normal case. The set is empty
+    /// unless a fuse has blown at all, and only then does it walk <see cref="UnknownShown"/> — the
+    /// windows the catch-all is currently tracking, which in the map room is a handful.</para>
+    ///
+    /// <para>SCOPE IS THE DESTINATION FAMILY AND NOTHING ELSE.
+    /// <c>GuildmasterDestinations.IsDestination</c> is a component test on the window's OWN
+    /// GameObject (IS-A, not related-to — this repo has shipped the containment version of that
+    /// test twice and had to correct it both times), so a genuinely cycling HUD banner that trips
+    /// the fuse stays suppressed exactly as it does today.</para>
+    /// </summary>
+    private static void LiftChurnFuseForDestinations()
+    {
+        if (ChurnSuppressed.Count == 0)
+            return;
+        UnknownScratch.Clear();
+        foreach (KeyValuePair<UIWindow, int> kv in UnknownShown)
+        {
+            UIWindow window = kv.Key;
+            if (window == null || !window.IsOpen)
+                continue;
+            if (!ChurnSuppressed.Contains(window.name) || ChurnLiftGivenUp.Contains(window.name))
+                continue;
+            if (!MapRoom.GuildmasterDestinations.IsDestination(window))
+                continue;
+            UnknownScratch.Add(window);
+        }
+        for (int i = 0; i < UnknownScratch.Count; i++)
+        {
+            UIWindow window = UnknownScratch[i];
+
+            // THE LIFT'S OWN FUSE — see ChurnLiftMaxPerBurst. Counted BEFORE the lift, so the
+            // budget bounds the number of lifts and not the number of attempts.
+            float nowT = Time.unscaledTime;
+            if (!ChurnLifts.TryGetValue(window.name, out (int Count, float WindowStart) lifts)
+                || nowT - lifts.WindowStart > ChurnLiftBurstSeconds)
+                lifts = (0, nowT);
+            lifts.Count++;
+            ChurnLifts[window.name] = lifts;
+            if (lifts.Count > ChurnLiftMaxPerBurst)
+            {
+                ChurnLiftGivenUp.Add(window.name);
+                VRLog.Warn("WorldUI", $"CATCH-ALL FUSE STANDS for '{window.name}' (ID {window.ID}): "
+                                      + $"its suppression has been lifted {lifts.Count - 1}× inside "
+                                      + $"{ChurnLiftBurstSeconds:0}s and it blew again every time. "
+                                      + "That is NOT a player toggling a table cap — one lift already "
+                                      + $"costs more than {ChurnMaxFloats} deliberate open/close "
+                                      + "cycles — it is a genuine re-float LOOP (the ModBuild 185/186 "
+                                      + "class: the window is floated, becomes ineligible BECAUSE it "
+                                      + "is floated, is not re-added, and the release loop drops it, "
+                                      + "at one full conversion each). The fuse is left standing for "
+                                      + "the rest of the session, which is the behaviour it had "
+                                      + "before ModBuild 231, and the lines above this one are the "
+                                      + "evidence for the loop. Fix the loop; do not raise this "
+                                      + "budget.");
+                continue;
+            }
+
+            ChurnSuppressed.Remove(window.name);
+            FloatChurn.Remove(window.name);
+            if (!ChurnLiftLogged.Add(window.name))
+                continue;
+            VRLog.Warn("WorldUI", $"CATCH-ALL FUSE LIFTED for '{window.name}' (ID {window.ID}) — it "
+                                  + "is a GUILDMASTER DESTINATION, i.e. a window the player opens and "
+                                  + "closes on purpose from a table cap, and the fuse counts FLOATS "
+                                  + "rather than causes. Four open/close cycles inside "
+                                  + $"{ChurnWindowSeconds:0}s look exactly like the self-cycling HUD "
+                                  + "banner the fuse exists for, and the ModBuild 230 log has the "
+                                  + "result twice: 'UI Shop Item Window' and 'UI Town Records Window' "
+                                  + "were suppressed FOR THE WHOLE SESSION, after which every press "
+                                  + "opened the game window and floated nothing ('IsOpen=True "
+                                  + "float=none') — the user's report, verbatim: 'tauchen die Fenster "
+                                  + "irgendwann gar nicht mehr auf … das darf niemals passieren'. The "
+                                  + "count itself is NOT disabled: if the ModBuild 185/186 "
+                                  + "float/release loop ever returns it still blows inside one open, "
+                                  + "and it will simply be lifted and re-blown, which is more "
+                                  + "information than one line and then silence. This line appears "
+                                  + "ONCE per window type. AND THE LIFT HAS ITS OWN FUSE: more than "
+                                  + $"{ChurnLiftMaxPerBurst} lifts inside {ChurnLiftBurstSeconds:0}s "
+                                  + "means a re-float LOOP rather than a player, and the suppression "
+                                  + "is then left standing — look for 'CATCH-ALL FUSE STANDS'.");
+        }
+        UnknownScratch.Clear();
+    }
+
+    /// <summary>
+    /// THE CHURN FUSE'S STATE FOR ONE WINDOW, in the words a press line can carry. Pure read.
+    /// </summary>
+    internal static string ChurnStateFor(UIWindow? window)
+    {
+        if (window == null)
+            return "fuse=<no window>";
+        if (ChurnSuppressed.Contains(window.name))
+            return "fuse=BLOWN (session-suppressed — this window cannot float)";
+        return FloatChurn.TryGetValue(window.name, out (int Count, float WindowStart) churn)
+            ? $"fuse=ok ({churn.Count}/{ChurnMaxFloats} floats in the last "
+              + $"{Time.unscaledTime - churn.WindowStart:F0}s of a {ChurnWindowSeconds:0}s window)"
+            : $"fuse=ok (0/{ChurnMaxFloats} floats counted)";
+    }
+
+    /// <summary>
+    /// IS THIS EXACT WINDOW A LIVE FLOAT RIGHT NOW? Object-keyed, so no ID can shadow it.
+    ///
+    /// <para><see cref="FloatedWindowWithId"/> answers a different question and CANNOT answer this
+    /// one for the destination family. It walks the converted set newest-first and returns the first
+    /// panel whose window carries the asked-for ID — and <c>UITownRecordsWindow</c>,
+    /// <c>UITempleWindow</c> and the map room's permanent 'Quest Log Manager' all carry
+    /// <c>UIWindowID.None</c>. In the ModBuild 230 session the quest log was floated from 3599 to
+    /// 17019, i.e. for the whole run, so <c>FloatedWindowWithId(None)</c> returned the QUEST LOG
+    /// every single time the temple or the records window asked — five presses closed correctly and
+    /// were nevertheless reported as "float=STANDS … id-shadowed", which that instrument's own text
+    /// names as the FAILURE reading (Player.log:7213, 7588, 11074, 11135, 11199; each is followed
+    /// four lines later by its MAP ROOM WINDOW SLOT RELEASED).</para>
+    ///
+    /// <para>The exclusions are <see cref="FloatedWindowWithId"/>'s, verbatim: a window the user is
+    /// closing, a dead panel or a panel with no host is not something he can look at.</para>
+    /// </summary>
+    internal static bool FloatIsLive(UIWindow? window)
+    {
+        if (window == null)
+            return false;
+        for (int i = Converted.Count - 1; i >= 0; i--)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.UserClosing || wp.Window == null || !wp.Panel.IsAlive || wp.Panel.HostGo == null)
+                continue;
+            if (ReferenceEquals(wp.Window, window))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// THE ARC REGISTRY IN ONE LINE — how many reservations are held, how many are free, and by
+    /// which windows. Offered so the map room's press instrument can print the occupancy at the
+    /// moment of a press without a second capture (the RELEASED line already carries it).
+    /// </summary>
+    internal static string ArcOccupancyLine()
+    {
+        CountArcClaims(out int clean, out int overlapping);
+        int held = clean + overlapping;
+        return $"arcSlots={held}/{MaxWindowClaims} held ({clean} clear, {overlapping} overlapping), "
+               + $"{MaxWindowClaims - held} free: [{ArcOccupancyText()}]";
+    }
+
+    /// <summary>
+    /// WHY IS THIS WINDOW NOT A FLOATED PANEL, AND WHICH GATE SAID SO — the first refusal, named.
+    ///
+    /// <para>A wedge that is invisible until the player notices it is the thing being removed here.
+    /// Every gate below is one of the tests <c>TickCatchAll</c> / <c>CatchAllEligible</c> actually
+    /// runs, in the order they run, so the answer is the real reason and not a plausible one. The
+    /// walk is deliberately READ-ONLY — <c>CatchAllEligible</c> itself mutates (it clears an expired
+    /// empty-window refusal), so it is re-stated here rather than called; a diagnostic must not
+    /// change the state it reports on.</para>
+    ///
+    /// <para>COST: called ONCE, from the map room's open watch, when a press decided to open a
+    /// window and no float appeared within the watch's frame budget. Never per frame, never per
+    /// press that worked.</para>
+    /// </summary>
+    internal static string ExplainNotFloated(UIWindow? window)
+    {
+        if (window == null)
+            return "the window reference is gone (destroyed or never resolved) — nothing could float";
+        if (FloatIsLive(window))
+            return "it IS a live float right now (the watch fired late; nothing refused it)";
+        if (!window.IsOpen)
+            return "the GAME's own UIWindow.IsOpen is FALSE — the window never opened, so no float "
+                   + "was ever refused. Look UP the log at the dispatch: the press either did not "
+                   + "reach the bar's Toggle, or the game's own mode machine declined it";
+        if (!WorldUIConfig.ConversionActive)
+            return "[WorldUI] conversion is switched OFF in the config — nothing floats at all";
+        if (IsFloatedByUs(window))
+            return "the mod HAS a panel for it, but that panel is flagged UserClosing or its host is "
+                   + "already gone — a close and an open crossed inside one tick";
+        if (ChurnSuppressed.Contains(window.name))
+            return $"THE CATCH-ALL CHURN FUSE ('{window.name}' is in ChurnSuppressed). It blew after "
+                   + $"more than {ChurnMaxFloats} floats inside {ChurnWindowSeconds:0}s and the "
+                   + "verdict is session-long: the window opens on the hidden 2D stack and is shown "
+                   + "NOWHERE. This is the ModBuild 231 report. "
+                   + (ChurnLiftGivenUp.Contains(window.name)
+                       ? "THE LIFT DELIBERATELY STOOD DOWN for this window — see 'CATCH-ALL FUSE "
+                         + "STANDS' above: the suppression was lifted and re-blown faster than a "
+                         + "human can press, which means a real re-float loop. The loop is the bug, "
+                         + "not the fuse"
+                       : "LiftChurnFuseForDestinations should have lifted it one tick before the "
+                         + "catch-all read it, so if this string appears the sweep did not run, or it "
+                         + "did not recognise this window as a destination (IsDestination is a "
+                         + "component test on the window's OWN GameObject), or the window was not in "
+                         + "UnknownShown at the time");
+        if (EmptyRefusedNow(window))
+            return "the EMPTY-WINDOW refusal (ModBuild 226) holds it: it floated once, reached its "
+                   + "reveal edge with nothing drawn under it, and may not float again until the "
+                   + "game has closed and re-opened it";
+        if (EmptyHeldNow(window))
+            return "the LIVENESS hold (ModBuild 230) holds it: it floated, drew nothing for the whole "
+                   + "dwell and was released for it";
+        if (IsKnownHudWindow(window))
+            return "it matches a KNOWN FLAT-HUD OWNER (CardsHandManager / CombatLogHandler / "
+                   + "UINotificationManager / PhaseBannerHandler / UIGuildmasterHUD on its own "
+                   + "GameObject) — the mod owns that subsystem elsewhere and must not float it";
+        if (IsPollWindow(window))
+            return "one of the three EXPLICIT POLLS owns this instance (story box, level-message "
+                   + "group, dialogPopup) — it joins through its poll, not through the catch-all";
+        if (DecisionDock.ClaimsWindow(window))
+            return "the DECISION DOCK claims it — its option row docks below the cards instead";
+        if (IsCardsOwnedItemPickerWindow(window))
+            return "the CARDS item flow owns the picker window while a surrender/refresh/lose pick "
+                   + "is live — the item fan is the VR affordance for it";
+        if (IsAdoptedByConversion(window))
+            return "its subtree is ADOPTED by another live conversion — some surface already "
+                   + "physicalizes it this instant";
+        if (!NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID)
+            && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
+            return "THE PARENT WINS (ModBuild 181/184/188): an ancestor UIWindow will be floated and "
+                   + "renders this subtree inside its own host. Look for the 'MAP ROOM: window … is "
+                   + "NOT floated on its own' line for the ancestor's name";
+        if (RendersInsideFloatedAncestor(window))
+            return "it RENDERS INSIDE A LIVE FLOATED ANCESTOR (or a declared sibling group) — "
+                   + "floating it again would be a duplicate, not a window";
+        var rect = window.transform as RectTransform;
+        if (rect == null)
+            return "its transform is not a RectTransform — the generic float is a screen-space→world "
+                   + "conversion and has nothing to convert";
+        Canvas? canvas = window.GetComponentInParent<Canvas>();
+        if (canvas == null)
+            return "there is no Canvas above it at all";
+        if (canvas.rootCanvas.renderMode == RenderMode.WorldSpace)
+            return "its root canvas is ALREADY WorldSpace — it is world-space UI and is visible in VR "
+                   + "without a conversion";
+        if (IsFallbackWindow(window.ID))
+            return $"its ID ({window.ID}) is on the ENROLLED path (FallbackIds), so the catch-all "
+                   + "never tracks it — if it is not floated, the enrolled poll/convert loop is what "
+                   + "declined it, not any gate above";
+        if (!UnknownShown.ContainsKey(window))
+            return "the catch-all is NOT TRACKING it: no Show transition for this instance reached "
+                   + "CatchAllObserve. Either the window was shown before the module attached, or "
+                   + "UIWindow_Transition_Patch never saw it";
+        return "EVERY GATE PASSES — the catch-all should append it and the convert loop should float "
+               + "it within a tick or two. Nothing known refused it, so this is a NEW failure and the "
+               + "MODAL/CONVERSION lines around this one are the evidence, not this class";
+    }
+
     private static bool IsFallbackWindow(UIWindowID id)
     {
         // ConfirmationBox is normally physicalized by DialogSurface — it needs the
@@ -2122,6 +2443,12 @@ internal static partial class ModalFallback
             AddPollWindow(manager.dialogPopup.Window);
 
         EnterPhase(PhaseCatchAll);
+        // ModBuild 231 — BEFORE the catch-all reads its own fuse, lift the session verdict off any
+        // guildmaster destination that is standing open. Ordering is the whole point: a suppression
+        // lifted here is already gone when TickCatchAll asks, so the window floats on THIS tick and
+        // the player never sees a frame without it. See LiftChurnFuseForDestinations for the two log
+        // lines that made this the ModBuild 231 report.
+        LiftChurnFuseForDestinations();
         // Part 10: the reward-showcase poll (enrollment #2 — the chest showcase window's ID
         // is scene-serialized and unprovable, see the part-10 verification comment) and the
         // CATCH-ALL — unknown scenario windows join OpenWindows after a short grace so an
@@ -2364,6 +2691,20 @@ internal static partial class ModalFallback
             // ModBuild 226 EmptyRefused set is consulted by the catch-all alone, which is why an
             // enrolled ID could never have been held by it.
             if (EmptyHeldNow(window))
+                continue;
+            // ModBuild 231: past the point of no return only the composed story window (and, once
+            // that has closed, the loadout screen itself) may float — user ruling: "Alle anderen
+            // Fenster sollen dabei dann geschlossen werden". A `continue` and NOT a TryConvertWindow
+            // refusal: a refusal enrols the window in Failed and raises the flat screen for it, and
+            // "closed" here means closed, not moved to a screen.
+            //
+            // The feature does not depend on this line — StoryComposite sweeps on the rising edge
+            // and again at compose time — but without it a window the game still reports open is
+            // re-converted on the next tick, and the sweep would then run a release/refloat loop
+            // against it. StoryComposite fuses after three such sweeps and prints a Warn naming
+            // exactly this hold, so a future refactor that drops the line says so in the log
+            // instead of quietly oscillating.
+            if (StoryComposite.HoldsBack(window))
                 continue;
             if (!TryConvertWindow(window))
                 Failed.Add(window);

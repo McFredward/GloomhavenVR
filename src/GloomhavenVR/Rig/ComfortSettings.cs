@@ -393,8 +393,11 @@ internal static class ComfortSettings
         // strictly safer motion than the vertical lift — the player is not moved, one window is,
         // and only while they hold its bar with the trigger.
         LaserCarryReel = Bind("LaserCarryReel", Defaults.LaserCarryReel,
-            "While you hold a window at a distance with the laser, push that hand's thumbstick " +
-            "forward to pull the window toward you and back to push it away. Turning is never " +
+            "While you hold a window at a distance with the laser, pull that hand's thumbstick " +
+            "BACK to draw the window toward you and push it forward to send it away - the " +
+            "fishing-reel mapping, corrected in ModBuild 231 after the first hardware round " +
+            "reported the opposite. It comes all the way to just in front of your hand, close " +
+            "enough to then simply grab it. Turning is never " +
             "affected: turning reads the sideways axis and this reads only up/down. While the " +
             "reel has the stick, that hand's up/down flying (TurnStickVertical) and its " +
             "forward/backward flying stand down for as long as the window is held, and come back " +
@@ -404,9 +407,11 @@ internal static class ComfortSettings
             "How fast the window travels at FULL stick deflection, in apparent meters per second - " +
             "meters as the scene looks to you, not world units, so it feels identical on a " +
             "zoomed-in scenario table and in the map room. Partial deflection ramps linearly from " +
-            "the deadzone, like menu scrolling does. The window cannot be pulled closer than about " +
-            "an arm's length (it would be cut off and unreadable) nor pushed past the reach of the " +
-            "laser that is holding it (you could not get it back).",
+            "the deadzone, like menu scrolling does. The window comes as close as the distance at " +
+            "which your hand could simply grab it - derived from the proximity grabber's own palm " +
+            "reach, not a tuned number - and stops approaching only if it would be driven into " +
+            "your face. It cannot be pushed past the reach of the laser that is holding it (you " +
+            "could not get it back).",
             new AcceptableValueRange<float>(0.25f, 6f));
         // "TableHeightOffset" was bound here. REMOVED (user ruling 2026-08). BepInEx keeps the
         // orphaned line in an existing comfort.cfg until the file is rewritten; it binds to

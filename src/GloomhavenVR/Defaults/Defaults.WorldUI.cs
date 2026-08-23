@@ -78,7 +78,7 @@ internal static partial class Defaults
     // (standing user practice), and `scripts/rebase-defaults.py` maps a tuned key back to its
     // shipped default THROUGH THIS FILE. A default declared anywhere else is reported UNMAPPED and
     // the tuned value is silently not applied.
-    internal const float WindowLegibility = 1.25f;          // => [WorldUI] WindowLegibility
+    internal const float WindowLegibility = 1.5f;           // => [WorldUI] WindowLegibility
 
     // ---- WorldUI/FlatScreenStereo.2.Compositor.cs ----------------------------------
     internal const bool StereoScreen = true;               // => [WorldUI] StereoScreen
@@ -117,7 +117,7 @@ internal static partial class Defaults
     // it lands on a symptom that has survived nine hardware rounds, so the user has to be able to
     // A/B it against today's behaviour inside ONE session. OFF is byte-for-byte today's rendering
     // — no camera, no render target, no layer is touched while the switch is false.
-    internal const bool PanelSupersample = false;            // => [WorldUI] PanelSupersample
+    internal const bool PanelSupersample = true;             // => [WorldUI] PanelSupersample
     // ModBuild 199 RAISED THIS FROM 1.0, AND 1.0 WAS NEVER A SETTING — IT WAS A NO-OP.
     // At factor 1.0 the capture target is allocated at exactly the window's authored resolution, i.e.
     // one target texel per authored pixel, and nothing is band-limited. ModBuild 198 shipped a floor
@@ -127,7 +127,7 @@ internal static partial class Defaults
     // user set`: his cfg carries a hand-written 1.0 that is not bit-equal, so THE FLOOR NEVER RAN AND
     // THE EXPERIMENT NEVER EXECUTED. The verbatim rule is right for a TUNED value; it must not
     // preserve an inherited default that provably does nothing.
-    internal const float PanelSupersampleFactor = 2.0f;      // => [WorldUI] PanelSupersampleFactor
+    internal const float PanelSupersampleFactor = 1.01278f;  // => [WorldUI] PanelSupersampleFactor
     // ModBuild 203 — THE LAST LEVER ON "die Auflösung kommt mir immer noch etwas gering vor bei den
     // Sub-Menus", and the mod's own instrument named it: the ModBuild 202 log reads the party window
     // MINIFIED 1.58x (peak 1.86x, 16 of 19 measurements minified at all) at `mipMapBias 0.00`, with
@@ -229,8 +229,14 @@ internal static partial class Defaults
     // The applied offset is (X, Y) x the quest window's height, so 0 and 0 write Vector2.zero — the
     // exact anchoredPosition ModBuild 190 wrote, after the exact same anchors and pivot. Three solved
     // placements (191, 192, 193) were rejected in a row; do not "improve" either number.
-    internal const float TravelButtonOffsetXWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetXWindowHeights
-    internal const float TravelButtonOffsetYWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetYWindowHeights
+    // BOTH PINNED AT 0, and this survives a cfg rebase on purpose. The user's ruling is that these
+    // two rows' VALUES, RANGES AND DEFAULTS are untouchable — only their menu location was ever on
+    // the table. A tuned cfg drop will always show them slightly off zero (his 2026-08-23 drop reads
+    // 0.00384065 and -3.01525e-07) because they move whenever the travel button is dragged, so a
+    // rebase would silently promote one session's drag into the shipped default. That is exactly the
+    // failure this marker exists for: the offset is measured FROM zero, and zero is the contract.
+    internal const float TravelButtonOffsetXWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetXWindowHeights  (pinned: user ruling — value, range and default are untouchable; a cfg drop only ever shows drag drift)
+    internal const float TravelButtonOffsetYWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetYWindowHeights  (pinned: user ruling — value, range and default are untouchable; a cfg drop only ever shows drag drift)
 
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
     internal const bool DevForceConvert = false;             // => [WorldUI] DevForceConvert
