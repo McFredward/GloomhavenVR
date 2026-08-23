@@ -71,6 +71,51 @@ namespace GloomhavenVR.WorldUI;
 /// uGUI ink at all — the same rule, for the same reason, as the capture frame's walk.</item>
 /// </list></para>
 ///
+/// <para><b>THE ONE THAT COST ModBuild 241 — MOUSEOVERS.</b> User report, verbatim (2026-08-24):
+/// <i>"Mouseovers sollen den greifbar nicht vergrößeren, sonst kommt es ständig dazu, dass der Balken
+/// sich hektisch verändert wenn man mit dem Laser durch Elemente mit mouseovers zB der Kartenliste
+/// geht. Mouseovers haben die Erlaubnis aus der Größe des Fensters herauszuragen ohne die eigentliche
+/// Größe zu verändern (Ausnahmeregelung für Mouseovers). WICHTIG: Das soll nicht für andere Elemente
+/// gelten wie zB die Auswahl der persönlichen Quest wo das resizing das von dir eingebaut wurde das
+/// Problem der Verdeckung behoben hat."</i></para>
+///
+/// <para>THE ROOT CAUSE IS THAT THIS WALK NEVER ASKED. <c>CanvasConversion.3.Fit.cs</c> has refused to
+/// MEASURE a hover widget since ModBuild 201 — <see cref="TransientFamilies"/> is that rule's table —
+/// and this class, written 35 builds later for the same window, simply did not consult it. The
+/// ModBuild 239 hardware log has both instruments in the same session disagreeing about the same
+/// window, exactly as they did over the inherited-alpha term one round earlier:
+/// <list type="bullet">
+/// <item>The fit's own <c>MOUSEOVER LEDGER</c> on <c>New Party display</c>:
+/// <c>0 transient graphic(s) refused this pass, 320 over this window's life, from
+/// UIPartyItemInventoryTooltip (the item-card hint), UILocalTooltip and its subclasses</c>.</item>
+/// <item><c>GRAB BAR CLEARS THE INK</c> for the SAME window, over 24 measured samples: the union's
+/// bottom edge took 2 distinct values, but its CENTRE took THIRTEEN — -818, -817, -560, -547, -544,
+/// -535, -530, -409, -389, -248, -234, 0, +6 px — and its width thirteen more, 328 up to 1976 px.
+/// The equipment view's own right edge is x=-111 px (the fit line names its rect as -654..-111), and
+/// three of those unions end at -104, -88 and -78 instead: 7, 23 and 33 px of item hint. The bar is
+/// centred on the union and sized from it, so each of those is a visible twitch of the handle.</item>
+/// </list>
+/// <b>AND THE SECOND HALF, WHICH IS THE LOUDER ONE.</b> <c>TooltipOnWindow.RaiseToWindowTop</c> ends
+/// with <c>rect.SetParent(owner.Target, worldPositionStays: false)</c> — the widget becomes a DIRECT
+/// CHILD of the conversion target for the length of the hover, and is put back after it.
+/// <see cref="ActiveSetSignature"/> hashes exactly the active direct children of that target, so every
+/// hover and every un-hover was a GENERATION EVENT: the monotone envelope was thrown away and
+/// re-seeded from the next sample, which is why that window reached generation 51 in one session and
+/// why the bar could jump on a mouse-out as well as a mouse-in. Both halves are fixed here, from the
+/// one table.</para>
+///
+/// <para><b>WHY THE EXEMPTION CANNOT REACH THE PERSONAL-QUEST ROWS</b>, which is the constraint he
+/// marked WICHTIG. The test is an IDENTITY — six of the game's own component types on the node or an
+/// ancestor of it, and nothing else. It does not test size, position, lifetime, transparency, novelty,
+/// or "does it stick out of the frame", and every one of those would ALSO describe the quest picker's
+/// reward rows: <c>Rewards</c> at host-local y=-628 px in this very log, 88 px below a frame that ends
+/// at -540, is the content ModBuild 236 moved the bar for and the fix he says solved his occlusion
+/// problem. Those rows live under the picker's own sub-view root and carry none of the six types, so
+/// they are measured exactly as they were before this round — the two NOT ACHIEVED lines they produce
+/// (the handle correctly hanging 105 px below the frame) are unchanged by construction. A future round
+/// that wants to widen this must add a NAMED family to <see cref="TransientFamilies"/>, never a
+/// property test.</para>
+///
 /// <para><b>THIS CLASS NEVER WRITES GAME STATE.</b> It reads transforms and components and returns a
 /// rectangle. No Show/Hide/SetActive/CanvasGroup, no layout rebuild, no allocation per call beyond the
 /// two static scratch buffers below.</para>
@@ -110,6 +155,17 @@ internal static class PanelInkBounds
         /// below <see cref="FaintAlphaFloor"/>. A non-zero count on a window whose union used to reach
         /// far outside its frame is this term doing the work it was added for.</summary>
         internal int Faint;
+        /// <summary>MOUSEOVER GRAPHICS REFUSED — drawn, visible, and belonging to one of
+        /// <see cref="TransientFamilies"/>. Directly comparable with the number the fit's
+        /// <c>MOUSEOVER LEDGER</c> prints for the same window, which is the point of counting it:
+        /// two instruments that disagree about how many hover graphics a window has are two
+        /// instruments one of which is wrong, and that is how ModBuild 239's inherited-alpha defect
+        /// was finally read.</summary>
+        internal int Transient;
+        /// <summary>Bit per family index of <see cref="TransientFamilies.Names"/> refused on this
+        /// walk. Spelled out with <see cref="TransientFamilies.Describe"/> for the log, so "the
+        /// exclusion did nothing" and "the exclusion never had anything to do" cannot look alike.</summary>
+        internal int TransientMask;
         internal bool Truncated;
         /// <summary>The graphic that set the union's BOTTOM edge — the one the bar has to clear, and
         /// the only name worth carrying into the report.</summary>
@@ -121,10 +177,19 @@ internal static class PanelInkBounds
         internal readonly Transform Transform;
         internal readonly Rect Clip;
 
-        internal ClipFrame(Transform transform, Rect clip)
+        /// <summary>The transient family this node INHERITS from its ancestors, carried down the
+        /// stack exactly like <see cref="Clip"/>. Doing it this way rather than calling
+        /// <see cref="TransientFamilies.Of"/> per graphic is what keeps this walk memo-free: the walk
+        /// is already top-down, so every node's ancestor chain has been visited before it and one
+        /// <see cref="TransientFamilies.Self"/> probe per node answers the whole question. See
+        /// <see cref="MeasureCore"/>'s comment for why NOT sharing the fit's memo is deliberate.</summary>
+        internal readonly int Family;
+
+        internal ClipFrame(Transform transform, Rect clip, int family)
         {
             Transform = transform;
             Clip = clip;
+            Family = family;
         }
     }
 
@@ -169,8 +234,19 @@ internal static class PanelInkBounds
         float minX = 0f, minY = 0f, maxX = 0f, maxY = 0f;
         int nodes = 0;
 
+        // NO MEMO, AND NOT THE FIT'S. CanvasConversion.3.Fit.cs memoises its bottom-up family walk in
+        // a static dictionary that it clears at the top of every split measure; this walk runs on a
+        // completely different cadence (an event-driven capture, see GrabbableModal's ink block), so
+        // sharing that dictionary would mean each instrument silently invalidating the other's cache,
+        // and — worse — a dictionary keyed on Transforms that grows without bound on any window the
+        // fit never touches, holding Unity fake-null keys for destroyed objects. This walk is TOP-DOWN
+        // and single-pass, so it needs no cache at all: the family is inherited down the stack below,
+        // one Self() probe per node, and the interval over which an ancestor chain must stay still is
+        // exactly one walk. (The only behavioural difference is that inheritance answers with the
+        // OUTERMOST marker where the fit answers with the innermost; they are non-zero for the same
+        // set of nodes, which is all an exclusion reads.)
         Stack.Clear();
-        Stack.Add(new ClipFrame(target, Unbounded));
+        Stack.Add(new ClipFrame(target, Unbounded, 0));
         while (Stack.Count > 0)
         {
             int last = Stack.Count - 1;
@@ -199,6 +275,19 @@ internal static class PanelInkBounds
 
             Rect clip = node.Clip;
             var rt = t as RectTransform;
+            // THE MOUSEOVER EXEMPTION (ModBuild 241) — inherited first, probed only if it has to be.
+            // Three things bound the cost of the six-way probe, which is the one new per-node expense
+            // this round adds to a walk of up to MaxNodes transforms:
+            //   * an INHERITED family short-circuits it, so a hover subtree is probed at its root and
+            //     nowhere below;
+            //   * the ROOT is never probed — it is the window, and a window that answered "I am a
+            //     tooltip" would exclude itself entirely;
+            //   * a non-RectTransform is never probed. Every one of the six is a uGUI widget;
+            //     TooltipOnWindow.Settle itself refuses a widget whose transform is not a
+            //     RectTransform, so a plain Transform cannot be one of them.
+            int family = node.Family;
+            if (family == 0 && !isRoot && rt != null)
+                family = TransientFamilies.Self(t);
             if (rt != null)
             {
                 if (TryHostLocalBounds(host, rt, out Rect bounds))
@@ -216,6 +305,17 @@ internal static class PanelInkBounds
                         if (IsFaint(graphic))
                         {
                             ink.Faint++;
+                        }
+                        // MOUSEOVER SECOND, for the same reason FAINT is first: a hover widget that
+                        // is still fading in at effective alpha 0 contributes nothing to the union
+                        // whatever we call it, and counting it here would inflate the "the exemption
+                        // did work" number with graphics the exemption did not have to touch. What
+                        // this count means is therefore exactly: graphics that WOULD have moved the
+                        // bar and no longer do.
+                        else if (family != 0)
+                        {
+                            ink.Transient++;
+                            ink.TransientMask |= 1 << family;
                         }
                         else if (plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
@@ -251,10 +351,19 @@ internal static class PanelInkBounds
             }
 
             for (int i = t.childCount - 1; i >= 0; i--)
-                Stack.Add(new ClipFrame(t.GetChild(i), clip));
+                Stack.Add(new ClipFrame(t.GetChild(i), clip, family));
         }
         Stack.Clear();
 
+        // THE SAFETY NET IS THE FALLBACK ITSELF, and it is a different (stronger) one than the fit's.
+        // CanvasConversion.3.Fit.cs builds both a clean and a raw union and falls back to the raw one
+        // when the exclusion empties a bucket, because it MUST write a size for the window either way.
+        // Nothing here must write anything: an unmeasurable ink means the bar keeps the placement it
+        // already had, which is the one outcome that cannot be wrong on the user's screen. So a window
+        // whose every drawn graphic turned out to be a mouseover simply reports NOT ACHIEVED with the
+        // refused count on the line (ink.Transient survives this return), and the next reader can see
+        // in one line whether this round emptied a bucket. It should be unreachable: the six families
+        // are hover widgets the game instantiates on top of a window, never the window.
         if (ink.Graphics == 0 || maxX - minX <= 0f || maxY - minY <= 0f)
             return false;
 
@@ -370,24 +479,55 @@ internal static class PanelInkBounds
     /// what catches the battle-goal picker, whose root is NOT a direct child of the target and which
     /// part one alone would therefore miss entirely.</para>
     ///
-    /// <para>Cost: one <c>childCount</c> loop of order ten plus seven property reads on a singleton.
-    /// Never throws; a partial mix is still STABLE (it fails in the same place every frame), so it
-    /// stays a usable signature rather than a source of phantom re-captures.</para>
+    /// <para><b>A RAISED MOUSEOVER IS NOT A NEW GENERATION (ModBuild 241).</b> This was the second
+    /// half of "der Balken verändert sich hektisch", and it is the more violent half.
+    /// <c>TooltipOnWindow.RaiseToWindowTop</c> finishes with
+    /// <c>rect.SetParent(owner.Target, worldPositionStays: false)</c> — for the length of a hover the
+    /// widget IS a direct child of the very transform this method hashes, and it goes away again on
+    /// mouse-out. Every hover therefore fired a generation event, which throws the monotone envelope
+    /// away, re-seeds it from the next sample and cancels any release run in progress; the ModBuild
+    /// 239 log shows <c>New Party display</c> at <b>generation 51</b> in a single session against 320
+    /// transient sightings. Skipping children that carry a family — the same
+    /// <see cref="TransientFamilies"/> identity the ink walk uses, so the two can never disagree —
+    /// makes a hover invisible to the signature, and the count is returned so the falsifier can say
+    /// how many it skipped rather than leaving "no hovers happened" and "hovers were hidden"
+    /// looking alike. The hashed CHILD COUNT had to move after the loop and count only what was
+    /// hashed: leaving it at <c>target.childCount</c> would have let the hover back into the
+    /// signature through the back door and undone the exemption while looking like it worked.</para>
+    ///
+    /// <para>Cost: one <c>childCount</c> loop of order ten, one six-way component probe per ACTIVE
+    /// child, plus seven property reads on a singleton. Never throws; a partial mix is still STABLE
+    /// (it fails in the same place every frame), so it stays a usable signature rather than a source
+    /// of phantom re-captures.</para>
     /// </summary>
-    internal static int ActiveSetSignature(ConvertedPanel panel)
+    /// <param name="transientChildren">How many active direct children were skipped because they are
+    /// a raised mouseover. Reported, never acted on.</param>
+    internal static int ActiveSetSignature(ConvertedPanel panel, out int transientChildren)
     {
+        transientChildren = 0;
         int sig = 17;
         Transform? target = panel.Target;
         if (target != null)
         {
             int n = target.childCount;
-            sig = sig * 31 + n;
+            int counted = 0;
             for (int i = 0; i < n; i++)
             {
                 Transform c = target.GetChild(i);
-                if (c != null && c.gameObject.activeSelf)
-                    sig = sig * 31 + c.GetInstanceID();
+                if (c == null || !c.gameObject.activeSelf)
+                    continue;
+                if (TransientFamilies.Self(c) != 0)
+                {
+                    transientChildren++;
+                    continue;
+                }
+                counted++;
+                sig = sig * 31 + c.GetInstanceID();
             }
+            // The COUNT has to be the count of what was hashed, not target.childCount: hashing the
+            // raw child count would put the hover straight back into the signature through the back
+            // door and undo the whole exemption above.
+            sig = sig * 31 + counted;
         }
 
         NewPartyDisplayUI? display;

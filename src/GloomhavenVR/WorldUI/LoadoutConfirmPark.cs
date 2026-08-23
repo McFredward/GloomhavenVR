@@ -1088,7 +1088,12 @@ internal static class LoadoutConfirmPark
         ConvertedPanel? signaturePanel = ModalFallback.PanelFor(host);
         if (signaturePanel != null)
         {
-            int signature = PanelInkBounds.ActiveSetSignature(signaturePanel);
+            // The out-count of raised mouseovers is discarded on purpose. ModBuild 241's other half
+            // took hover subtrees OUT of this signature, and that exemption is exactly what this
+            // call site wants: a tooltip appearing beside the roster must not re-seat the continue
+            // button, only real content may. The number is a falsifier term for the grab bar's own
+            // line, not something for this file to act on.
+            int signature = PanelInkBounds.ActiveSetSignature(signaturePanel, out _);
             if (signature != _anchorSignature)
             {
                 _anchorSignature = signature;

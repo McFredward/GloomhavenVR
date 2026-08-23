@@ -193,6 +193,33 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     //     it. Re-armed, the next sample is 4 frames away and growth from it is immediate.
     // The repeat gate is deliberately BYPASSED for a release — it exists to make a growth prove
     // itself twice, and a release has already proven itself three times against a stricter test.
+    //
+    // ---- ModBuild 241: THE INPUT WAS WRONG, AND THE DAMPING STAYS AS IT IS ----------------------
+    //
+    // User report, verbatim: "Mouseovers sollen den greifbar nicht vergrößeren, sonst kommt es
+    // ständig dazu, dass der Balken sich hektisch verändert wenn man mit dem Laser durch Elemente mit
+    // mouseovers zB der Kartenliste geht." The whole mechanism is in PanelInkBounds (its class comment
+    // carries the report, the root cause and the log numbers); what belongs HERE is what it means for
+    // the policy above, because everything above was written to damp churn and the user is reporting
+    // churn anyway.
+    //
+    // IT WAS NEVER A DAMPING FAILURE. Two of the three gates above were being bypassed at the source:
+    //   * A raised mouseover changed PanelInkBounds.ActiveSetSignature, which is a GENERATION EVENT.
+    //     A generation reset is the one path that legitimately discards the envelope wholesale, so the
+    //     repeat gate, the monotone union and the release run were all reset by every hover and every
+    //     un-hover. The ModBuild 239 log has 'New Party display' at generation 51 in one session.
+    //   * On the sample after such a reset the envelope is re-SEEDED rather than grown, and the
+    //     repeat gate is exempt for the first commit of a generation, so a hover widget went straight
+    //     into the union with nothing standing in its way.
+    // WITH THE INPUT CLEAN, EVERY CONSTANT ABOVE KEEPS ITS VALUE, deliberately. They were derived
+    // against a different failure — content that genuinely appears and disappears inside a window
+    // (a rewards popup fading its CanvasGroup, a sub-view sliding in) — and that failure has not
+    // changed. Lowering InkReleaseDeadBandPx or InkReleaseConsecutive now would trade away the
+    // protection quest_überlap.jpg bought for a symptom that no longer has a cause; raising them
+    // would slow a genuine recession that the user has never complained about. The honest test of
+    // whether they are still right is the falsifier: a session whose GRAB BAR lines show a stable
+    // generation number and a MOUSEOVER LEDGER with a non-zero refused count is the policy doing
+    // nothing because there is nothing to do, which is the intended steady state.
     private const int InkSettleFrames = 24;
     private const int InkSettleStrideFrames = 4;
     private const int InkVerifyStrideFrames = 60;
@@ -242,6 +269,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private bool _inkPendingValid;
     private int _inkGrowthsDeferred;
     private int _inkFaint;
+
+    // ---- THE MOUSEOVER EXEMPTION'S LEDGER (ModBuild 241) ----------------------------------------
+    // Counted and named for the same reason Ink.Faint and Ink.Plates are: the next round will ask
+    // "did the mouseover exclusion do anything", and a falsifier that cannot answer that costs a
+    // build. _inkTransientLife and _inkSigTransientLife are the two halves of the defect — graphics
+    // refused from the UNION, and hover subtrees refused from the GENERATION SIGNATURE — so a session
+    // in which the bar still twitches can be read against which of the two, if either, ever fired.
+    private int _inkTransient;                  // refused on the LATEST sample
+    private int _inkTransientLife;              // refused over this window's life
+    private int _inkTransientMask;              // families seen over this window's life
+    private int _inkSigTransientChildren;       // raised mouseovers hidden from the LATEST signature
+    private int _inkSigTransientLife;
     private Rect _inkReleaseCandidate;          // the OUTER union of the current recession run
     private bool _inkReleaseValid;
     private int _inkReleaseRun;                 // agreeing verify samples so far
@@ -468,10 +507,50 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // (CarryMode Level), so dragging a window to the side leaves it turned to wherever the wrist
     // happened to point — readable only edge-on. The moment the LAST hand lets go (this is the
     // release edge: PanelGrabHandle.OnRelease calls it once _handA and _handB are both gone),
-    // snap the rotation back to facing the player. POSITION IS UNTOUCHED — the window stays
-    // exactly where it was put; only the orientation is re-derived, through the same
-    // PanelPlacement.Facing the spawn placement uses, so a moved window reads identically to a
-    // freshly floated one.
+    // snap the rotation back to facing the player. THE DRAWN WINDOW STAYS EXACTLY WHERE IT WAS PUT —
+    // only the orientation is re-derived, through the same PanelPlacement.Facing the spawn placement
+    // uses, so a moved window reads identically to a freshly floated one.
+    //
+    // ── 2026-08-24: "THE DRAWN WINDOW", AND WHY THAT WORD HAD TO CHANGE ──────────────────────────
+    //
+    // User report, verbatim: "Das automatische drehen des Fensters dreht das Fenster anscheinend noch
+    // mit einem anderen Rotationspunkt des vollen Fensters - es soll es immer so drehen wie es
+    // aktuell dargstellt ist in der Größe."
+    //
+    // THE ROOT CAUSE IS THE PIVOT, AND IT IS THE SAME PREMISE ModBuild 239 FIXED FOR THE BAR. Through
+    // ModBuild 239 this block wrote `_frame.rotation = facing`, which turns the frame about the FRAME
+    // TRANSFORM'S OWN ORIGIN, and derived `facing` from `_frame.position`. PanelInkBounds exists
+    // because that origin is usually nowhere near what the window draws: for 'New Party display' the
+    // ModBuild 239 hardware log measures the ink union at x -982..-654 px, centre x = -818 px, inside
+    // a host rect that spans -994..994 px. At the 1.050 mm per authored px that same log reports for
+    // that window, the drawn centre sits 859 mm to the LEFT of the point the window was being turned
+    // about. So:
+    //   * THE TARGET ANGLE WAS COMPUTED FOR A POINT THE USER CANNOT SEE. Facing() yaws the panel along
+    //     the panel-to-head vector, and taking that vector from the frame origin instead of the drawn
+    //     centre mis-aims the result by the angle the offset subtends at the head — atan(0.859/1.2) =
+    //     36° at a typical 1.2 m reading distance. The window ends up NOT facing the player.
+    //   * AND THE VISIBLE WINDOW SWUNG SIDEWAYS THROUGH AN ARC while the invisible frame turned neatly
+    //     on the spot. The same log's largest release re-face on that window is `turned 43.7°`; a point
+    //     859 mm off the pivot moves 2 x 0.859 x sin(43.7/2) = 639 mm on such a turn. Two thirds of a
+    //     metre, for a change the comment above promised was orientation-only.
+    // Both terms now use the DRAWN centre: the ink union's centre, in host-local uGUI px, mapped
+    // through the host RectTransform (`_panel.HostRect`, NOT the grab frame — the ink rect is measured
+    // in the host's local space by PanelInkBounds.TryHostLocalBounds, and the frame is a separate,
+    // mod-owned transform the host merely follows). The rotation is applied ABOUT that world point, so
+    // the drawn centre is a fixed point of the whole operation. For a window whose ink fills its frame
+    // the centre is 0,0 and the position write is a no-op — every already-accepted window is
+    // numerically unchanged, which is what makes an unchanged reading on them evidence.
+    //
+    // WHAT WAS REJECTED. (a) Rotating about the HOST RECT's centre rather than the ink's: that is the
+    // frame again, and it is exactly the 88°-of-arc-to-draw-14° error ModBuild 234 wrote down. (b)
+    // Rotating about the head-facing point and then re-running ModalFallback.ComputeHmdPose to
+    // re-place the window: a placement is a POSE WRITE the pose lock classifies separately, and the
+    // user's standing ruling is that a window stays where he put it. (c) Leaving the position alone
+    // and only correcting the facing DIRECTION: that fixes the aim and leaves the 639 mm swing, which
+    // is the half he actually photographed. (d) Measuring the ink fresh here instead of using the
+    // committed envelope: the committed rect is the one the brass bar is placed from, so using it
+    // makes the pivot and the handle agree by construction; a fresh measurement could differ from what
+    // the user is looking at by a whole settle burst.
     //
     // ── 2026-08-22: THAT PARAGRAPH IS NOW THE "Always" MODE, NOT THE RULE ────────────────────────
     //
@@ -506,18 +585,73 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (head == null)
             return;
 
-        Quaternion facing = PanelPlacement.Facing(_frame.position, head.transform.position);
+        // SYNC THE HOST TO THE FRAME BEFORE ANYTHING IS MEASURED OFF IT. PanelGrabHandle moves the
+        // frame from its own Update in undefined order against this module's, and LateSyncHost only
+        // re-pins the host in LateUpdate — so at this instant the host can still be carrying LAST
+        // frame's pose, and a pivot read through a stale transform is a pivot that is wrong by one
+        // frame of hand motion. One extra Tick makes it exact by construction. It cannot double-
+        // advance a remote glide: only a SHARED window ever eases, and WantsReFaceOnRelease has
+        // already returned false for every shared window before this line is reached.
+        Tick();
+
+        Vector3 pivot = _frame.position;
+        string pivotNote = "the FRAME ORIGIN (fallback — see the warning above)";
+        RectTransform? host = _panel != null && _panel.IsAlive ? _panel.HostRect : null;
+        bool inkPivot = _inkValid && host != null;
+        if (inkPivot && host != null)   // the second test is for the nullable analyser, not for logic
+        {
+            Vector2 c = _inkRect.center;
+            pivot = host.TransformPoint(new Vector3(c.x, c.y, 0f));
+            pivotNote = $"the DRAWN centre (ink union centre {c.x:F0},{c.y:F0} px in the host's own "
+                        + "authored pixels)";
+        }
+
+        Quaternion facing = PanelPlacement.Facing(pivot, head.transform.position);
         // Nothing to say (and nothing to write) when the drag already left it facing the player.
+        // The fallback warning is deliberately BELOW this line: a release that turns nothing has not
+        // used the wrong pivot for anything, and a warning on every such release would be the noise
+        // that gets the real one skipped.
         if (Quaternion.Angle(_frame.rotation, facing) < ReFaceEpsilonDeg)
             return;
 
+        if (!inkPivot)
+        {
+            // NEVER SILENTLY. A fallback here reproduces the exact defect this change fixes, and it
+            // would look identical to the fix not working at all.
+            VRLog.Warn("WorldUI",
+                $"MODAL WINDOW: '{_logName}' released after a move — RE-FACING ABOUT THE FRAME ORIGIN, "
+                + "which is the pre-ModBuild-240 behaviour and the thing the user reported: "
+                + (host == null
+                    ? "the window has no host RectTransform to map the ink through"
+                    : "PanelInkBounds has no committed ink union for this window yet")
+                + ". CONSEQUENCE: if what this window draws is not centred in its frame, the visible "
+                + "window swings sideways through an arc as it turns, and the facing angle itself is "
+                + "computed for a point that is not on the screen. The GRAB BAR CLEARS THE INK line "
+                + "for this same window says why there is no union — look for its 'THE INK UNION "
+                + "COULD NOT BE MEASURED' variant, which names the sample count and the cause.");
+        }
+
         float turned = Quaternion.Angle(_frame.rotation, facing);
+        // ROTATE THE RIGID BODY ABOUT THE PIVOT: turn, then translate so the pivot maps to itself.
+        // Scale is untouched, so the drawn centre — a fixed point of the frame's local space — is a
+        // fixed point of the whole operation, exactly. When the ink fills the frame the pivot IS the
+        // frame origin and the position write below is the identity, which is how every window that
+        // was already correct stays bit-for-bit where it was.
+        Quaternion delta = facing * Quaternion.Inverse(_frame.rotation);
+        Vector3 was = _frame.position;
         _frame.rotation = facing;
-        // Push the new frame rotation onto the game-owned host in the same frame, so the panel
+        _frame.position = pivot + delta * (was - pivot);
+        float frameMovedMm = Vector3.Distance(was, _frame.position) * 1000f;
+        // Push the new frame pose onto the game-owned host in the same frame, so the panel
         // does not visibly hang at the drag rotation until the next Tick.
         Tick();
         VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move — re-faced the player " +
-                              $"(turned {turned:F1}°, yaw now {_frame.eulerAngles.y:F1}°; position kept).");
+                              $"(turned {turned:F1}°, yaw now {_frame.eulerAngles.y:F1}°) about " +
+                              $"{pivotNote}. THE DRAWN WINDOW DID NOT MOVE: the pivot is a fixed point " +
+                              $"of the turn by construction, and the mod-owned frame origin was carried " +
+                              $"{frameMovedMm:F0} mm around it to keep it there. A frame travel of 0 mm " +
+                              "means this window's ink is centred in its frame, which is the case the " +
+                              "old frame-origin behaviour also got right.");
     }
 
     /// <summary>Below this the released panel already faces the player — no snap, no log.</summary>
@@ -1302,14 +1436,23 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             return;
 
         int sig;
+        int sigTransient;
         try
         {
-            sig = PanelInkBounds.ActiveSetSignature(_panel);
+            sig = PanelInkBounds.ActiveSetSignature(_panel, out sigTransient);
         }
         catch (System.Exception)
         {
             return;
         }
+        // COUNT EPISODES, NOT FRAMES. This runs every tick, so summing the per-tick count would
+        // report a held hover once per frame and the number would say nothing about how often the
+        // generation WOULD have been reset. A rising edge is one hover EPISODE, and each episode is
+        // two avoided resets — the mouse-in that raised the widget and the mouse-out that took it
+        // away were both a change in the set of direct children before this round.
+        if (sigTransient > 0 && _inkSigTransientChildren == 0)
+            _inkSigTransientLife++;
+        _inkSigTransientChildren = sigTransient;
 
         bool sigChanged = !_inkSignatureValid || sig != _inkSignature;
         bool frameChanged = !_inkHostRectValid
@@ -1354,7 +1497,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         bool settling = now <= _inkSettleUntilFrame;
         _inkNextSampleFrame = now + (settling ? InkSettleStrideFrames : InkVerifyStrideFrames);
 
-        if (!PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) || !ink.Valid)
+        bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) && ink.Valid;
+        // THE MOUSEOVER LEDGER IS TAKEN ON EVERY SAMPLE, including one that could not be measured —
+        // "every drawn graphic in this window turned out to be a hover widget" is precisely the
+        // failure the exclusion could cause, and it must be readable on the line that reports it.
+        _inkTransient = ink.Transient;
+        _inkTransientLife += ink.Transient;
+        _inkTransientMask |= ink.TransientMask;
+        if (!measured)
         {
             // DEGENERATE: zero drawn graphics, or zero size. Keep whatever placement is already
             // committed (frame-based when nothing was ever captured) and SAY SO — a silent fall back
@@ -1507,6 +1657,36 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// line names the graphic holding the bar down and the count of drawn-but-invisible graphics that
     /// were excluded, so one reading adjudicates it. Silence on this cost another build.</para>
     /// </summary>
+    /// <summary>
+    /// THE MOUSEOVER LEDGER (ModBuild 241) — deliberately worded like the one
+    /// <c>CanvasConversion.3.Fit.cs</c> prints, because the two now answer the same question from the
+    /// same table (<see cref="TransientFamilies"/>) and a future round must be able to lay the two
+    /// lines side by side. That comparison is exactly what settled ModBuild 239: the fit's ledger read
+    /// "320 over this window's life" for <c>New Party display</c> while this instrument had never
+    /// heard of the concept and was moving the handle by up to 33 px on an item hint.
+    ///
+    /// <para>Both halves of the defect are on the line. REFUSED graphics are the ones that would have
+    /// been unioned and no longer are; HOVER EPISODES are the ones that would have reset the
+    /// generation (and with it the monotone envelope and any release run) because
+    /// <c>TooltipOnWindow</c> re-parents the widget onto the window root for the duration of a hover.
+    /// A session in which the handle still twitches and BOTH numbers are zero means the widget is not
+    /// one of the named families — the fix then is to add it to that table by TYPE, never to widen the
+    /// test into a property test, which would also catch the personal-quest rows the user explicitly
+    /// ruled must keep moving the bar.</para>
+    /// </summary>
+    private string MouseoverLedger() =>
+        $"MOUSEOVER LEDGER: {_inkTransient} transient graphic(s) refused from the union this sample, "
+        + $"{_inkTransientLife} over this window's life, from "
+        + (_inkTransientMask != 0
+            ? TransientFamilies.Describe(_inkTransientMask)
+            : "no hover/tooltip family (none has been seen inside this window yet)")
+        + $"; {_inkSigTransientChildren} raised mouseover(s) hidden from the generation signature right "
+        + $"now and {_inkSigTransientLife} hover episode(s) hidden over this window's life (each of "
+        + "which would otherwise have reset the ink envelope twice, once on the mouse-in that raises "
+        + "the widget onto the window root and once on the mouse-out that takes it away). Transient "
+        + "content is still DRAWN, and the hit rect and the capture frame still grow to cover it — it "
+        + "is only barred from deciding where the brass handle goes";
+
     private void ReportBarPlacement(Rect hostRect, float unit, float intendedTopGapPx, float mmPerPx)
     {
         _inkReportDue = false;
@@ -1543,7 +1723,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 + "size), so the bar keeps the frame-based placement this round exists to replace: bar "
                 + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px; "
                 + $"{frame}; generation {_inkGeneration}, {_inkSamples} sample(s) taken, re-capture cause "
-                + $"was {_inkCause}.{suppressed}");
+                + $"was {_inkCause}; {MouseoverLedger()} — IF THAT REFUSED COUNT IS NON-ZERO AND THE "
+                + "UNIONED COUNT ON the last successful line was small, the ModBuild 241 mouseover "
+                + "exemption has emptied this window's bucket and is the first thing to look at."
+                + $"{suppressed}");
             return;
         }
 
@@ -1567,7 +1750,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                         + $"{_inkFaint} drawn-but-invisible graphic(s) (effective alpha under the fit's "
                         + $"floor), {_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) "
                         + "excluded"
-                        + (_inkTruncated ? ", WALK TRUNCATED at the node budget" : string.Empty);
+                        + (_inkTruncated ? ", WALK TRUNCATED at the node budget" : string.Empty)
+                        + "; " + MouseoverLedger();
         string measurement =
             $"bar top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px, "
             + $"all in the window's own authored px; the LOWEST drawn graphic '{_inkBottomName}' ends at "
@@ -1660,5 +1844,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkReportDue = false;
         _inkFallbackDue = false;
         _inkFallbackReported = false;
+        _inkTransient = 0;
+        _inkTransientLife = 0;
+        _inkTransientMask = 0;
+        _inkSigTransientChildren = 0;
+        _inkSigTransientLife = 0;
     }
 }

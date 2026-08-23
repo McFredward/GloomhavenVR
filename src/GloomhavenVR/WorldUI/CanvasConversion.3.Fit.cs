@@ -3143,17 +3143,13 @@ internal static partial class CanvasConversion
     // =============================================================================================
 
     /// <summary>Human name per family index of <see cref="TransientFamilyOf"/>; index 0 is
-    /// "not transient" and is never printed.</summary>
-    private static readonly string[] TransientFamilyNames =
-    {
-        string.Empty,
-        "FullAbilityCard (the ability-card hover preview)",
-        "UIPartyItemInventoryTooltip (the item-card hint)",
-        "UILocalTooltip and its subclasses (UIItemLocalTooltip, UIQuestEnemyStatsPopup)",
-        "UIItemModifiersTooltip (the modifier flyout on an item card)",
-        "UITempleSlotTooltip (the blessing hint)",
-        "TooltipUI (the ExtendedButton hint)",
-    };
+    /// "not transient" and is never printed.
+    ///
+    /// <para>ModBuild 241: the table itself now lives in <see cref="TransientFamilies"/> and this is
+    /// the SAME array object, not a copy. <see cref="PanelInkBounds"/> needs the identical answer for
+    /// the grab bar, and a second hand-maintained copy of a six-entry type list is the drift this
+    /// file's own borrowings are already flagged for. Every call site below is unchanged.</para></summary>
+    private static readonly string[] TransientFamilyNames = TransientFamilies.Names;
 
     /// <summary>
     /// WHICH TRANSIENT FAMILY THIS GRAPHIC BELONGS TO, or 0 for real window content — the whole of
@@ -3186,39 +3182,15 @@ internal static partial class CanvasConversion
     /// their whole ancestor chain, exactly like <see cref="AuthoredOffset"/>, so a ~250-transform
     /// window costs one six-way <c>TryGetComponent</c> probe per transform at the ~2.5 Hz fit
     /// cadence and nothing at all on the 99 % of frames that are not fit passes.</para>
+    ///
+    /// <para>ModBuild 241: the six probes and the table moved to <see cref="TransientFamilies"/> so
+    /// <see cref="PanelInkBounds"/> could ask the SAME question about the grab bar without a second
+    /// copy of the list. Only the memo stayed here, because its lifetime is this file's (it is cleared
+    /// with the clipper and authored-offset memos at the top of every split measure) and the ink walk
+    /// has a different cadence entirely. Everything above still describes the answer exactly.</para>
     /// </summary>
-    private static int TransientFamilyOf(Transform? node, Transform root)
-    {
-        if (node == null || ReferenceEquals(node, root))
-            return 0;
-        if (TransientMemo.TryGetValue(node, out int memo))
-            return memo;
-        int family = SelfTransientFamily(node);
-        if (family == 0)
-            family = TransientFamilyOf(node.parent, root);
-        TransientMemo[node] = family;
-        return family;
-    }
-
-    /// <summary>The six type probes, in the order the 200 hardware log's own LOCAL TOOLTIP lines make
-    /// likely, so the common case exits first. <c>TryGetComponent</c> matches subclasses, which is
-    /// why <c>UILocalTooltip</c> covers three families in one probe and does not allocate.</summary>
-    private static int SelfTransientFamily(Transform t)
-    {
-        if (t.TryGetComponent<FullAbilityCard>(out _))
-            return 1;
-        if (t.TryGetComponent<UIPartyItemInventoryTooltip>(out _))
-            return 2;
-        if (t.TryGetComponent<UILocalTooltip>(out _))
-            return 3;
-        if (t.TryGetComponent<UIItemModifiersTooltip>(out _))
-            return 4;
-        if (t.TryGetComponent<UITempleSlotTooltip>(out _))
-            return 5;
-        if (t.TryGetComponent<TooltipUI>(out _))
-            return 6;
-        return 0;
-    }
+    private static int TransientFamilyOf(Transform? node, Transform root) =>
+        TransientFamilies.Of(node, root, TransientMemo);
 
     /// <summary>Per-pass memo of <see cref="TransientFamilyOf"/>, cleared with the clipper and
     /// authored-offset memos at the start of every split measure (subtrees are re-parented between
@@ -3227,19 +3199,7 @@ internal static partial class CanvasConversion
 
     /// <summary>The families seen so far, spelled out for the log — a bitmask in a hardware log is a
     /// number somebody has to decode against a source file that may have moved on by then.</summary>
-    private static string DescribeTransientFamilies(int mask)
-    {
-        var sb = new System.Text.StringBuilder(96);
-        for (int i = 1; i < TransientFamilyNames.Length; i++)
-        {
-            if ((mask & (1 << i)) == 0)
-                continue;
-            if (sb.Length > 0)
-                sb.Append(", ");
-            sb.Append(TransientFamilyNames[i]);
-        }
-        return sb.Length > 0 ? sb.ToString() : "no family";
-    }
+    private static string DescribeTransientFamilies(int mask) => TransientFamilies.Describe(mask);
 
     /// <summary>
     /// SOLVE THE GROUP TRANSFORM for whatever sub-views are open: one uniform scale and one
