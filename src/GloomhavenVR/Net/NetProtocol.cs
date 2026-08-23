@@ -416,7 +416,65 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 236;
+    public const ushort ModBuild = 237;
+    // Build 237: THE SHARED WINDOW FOLLOWS THE STORY INTO ITS NEW HOST.
+    // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved, record 21 byte-identical.
+    // Bundle untouched (70,218,494 bytes, unchanged since 172). One lane, four files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED); patch inventory 77/129 (UNCHANGED).
+    //
+    //   USER, VERBATIM: "Ich will aber das man die Story gemeinsam erlebt. Ich weiß dass das flat
+    //   spiel das anders macht und dort jeder lokal bei sich weiterklicken kann. Ich möchte aber das
+    //   die gesamte Story, das Fenster und damit auch der Status des Fensters vollständig
+    //   synchronisiert wird."
+    //
+    //   WHAT WAS ALREADY TRUE AND STAYED TRUE: record 21 syncs the story CONTENT — absolute page,
+    //   page count, dialog hash, the finished bit and the arbitration that drives this client's own
+    //   box forward through the game's own ShowLine chain. It resolves the box through
+    //   Singleton<MapStoryController> and mc.dialogBox, a serialized field on the controller — four
+    //   reads, none of which touches a transform, a parent, the float set or SharedWindows. Parking
+    //   changes a PARENT, so 236 never endangered it. No second channel was added and none was
+    //   needed.
+    //
+    //   WHAT 236 MADE INERT: the WINDOW. KindOf and WindowOf resolve MapStory by instance compare
+    //   against MapStoryController.window, and since the inversion that window is refused and is not
+    //   a floated panel — so TryGetGrab finds nothing, no pose is published or applied, and the bar
+    //   paints brass. The shared identity now FOLLOWS the composed host for the life of the
+    //   composite's CLAIM (not the park alone: the park can stand for one tick inside a window
+    //   nobody is floating, and a blue bar on that would be a lie). Exactly one window carries the
+    //   kind at a time — the story box answers None while the host holds it.
+    //
+    //   THE GUARD I HAD WRITTEN DOWN IN 236 WAS NOT SUFFICIENT, AND THE HOLE IS THE INTERESTING
+    //   PART. It said: on an identity change drop HaveBaseline and Moving, take a fresh baseline,
+    //   publish nothing this tick. That leaves PoseOwned STANDING, and WritePose gates on
+    //   PoseOwned OR Moving. A client that had already moved the OLD window would go on publishing —
+    //   now describing the NEW window — under the UNCHANGED stamp that already elected it, and peers
+    //   do not re-elect on an unchanged stamp. The pose everyone follows silently becomes a different
+    //   window's. A NEW WINDOW IS A NEW SUBJECT: the swap now forgets pose ownership entirely, the
+    //   same thing this record already does when the message content changes.
+    //   Three more terms were required. (a) THE SUBJECT IS THE GRAB, NOT THE WINDOW — a re-float of
+    //   the SAME window yields a fresh grab at a freshly placed pose, a phantom drag by identical
+    //   arithmetic. (b) THE RECEIVE PATH NEEDED IT TOO: TrackFrame runs at 5 Hz from Sample while
+    //   Resolve runs every frame, so between a swap and the next sample a peer pose would have been
+    //   measured against the old window's baseline and written to the new one. (c) A SYMMETRIC
+    //   "APPLY NOTHING" for two frames, whose sentinel is int.MinValue and is tested EXPLICITLY,
+    //   never by subtraction — now - int.MinValue overflows and would pass the test forever.
+    //
+    //   THE TWO EDGES NOBODY MAY FEEL. The identity refuses to swap while a hand is on either bar,
+    //   with NO timeout: a window the player is holding is his until he lets go, so IsShared is still
+    //   true at the release and nothing yaws to face him. And a peer pose landing in the same frame
+    //   the identity leaves would have been classified as unattributed and snapped back visibly; the
+    //   apply path now defers the swap two frames, capped at 2 s so a peer dragging for a minute
+    //   cannot pin the identity. Every other reader of the two flags that change was traced: the
+    //   shared flag is read only at a release edge and in a pose write, and peerOwned is consulted
+    //   only after a moved test, so on a standing window the flip is a no-op.
+    //
+    //   FrameSize IS NOT A SIZE — it is localScale.x, the user's resize factor seeded to 1, so the
+    //   term is unit-free and means the same on both windows. Nothing is carried across the swap
+    //   anyway. CONTENT STAYS PRIVATE: all three content fields come from the STORY box, never from
+    //   the host, and the identity hands back when the claim lapses, i.e. BEFORE the battle-goal
+    //   phase, where each player picks on their own copy. A player with the 3D map off never swaps
+    //   at all — the composite cannot even stand for them — and their packets stay byte-identical.
+    //
     // Build 236: THE WINDOW THAT RESPAWNED FOUR TIMES, THE REFERENCE NOBODY ASSIGNED, AND A BAR
     // MEASURED AGAINST A FRAME THAT IS MOSTLY EMPTY.
     // NO WIRE CHANGE. Version byte 3, no record moves, MaxSize unmoved. Bundle untouched

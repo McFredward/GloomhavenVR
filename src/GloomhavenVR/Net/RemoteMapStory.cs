@@ -65,6 +65,26 @@ namespace GloomhavenVR.Net;
 /// and applies none — it keeps the flat game's per-player pacing exactly as the request says, and
 /// its packets stay byte-identical to ModBuild 221's. Opting into the room IS the consent for the
 /// page to be driven.</para>
+///
+/// <para><b>ModBuild 237 — THE WINDOW KIND 2 DESCRIBES CAN CHANGE WHILE THE RECORD IS LIVE, AND THE
+/// WIRE DID NOT MOVE AN INCH FOR IT.</b> USER REQUEST (2026-08-23, verbatim): <i>"Ich möchte aber
+/// das die gesamte Story, das Fenster und damit auch der Status des Fensters vollständig
+/// synchronisiert wird."</i> <c>StoryComposite</c> tells the quest intro inside the LOADOUT screen —
+/// the story window's own content is parked into it — so for the length of that intro the window the
+/// player reads the story in is not <c>MapStoryController.window</c>.
+/// <c>WorldUI/SharedWindowIdentity</c> therefore points <c>SharedWindowKind.MapStory</c> at the
+/// composed host while the composite stands, and this class follows it without knowing anything about
+/// composites: it asks <see cref="SharedWindows.TryGetGrab"/> for the kind, exactly as it always
+/// did.</para>
+///
+/// <para><b>WHAT HAD TO CHANGE HERE IS ONE THING, AND IT IS AN IDENTITY.</b> The move baseline used
+/// to be kept PER KIND, so the instant the kind resolved to a different transform the handover read
+/// as a DRAG — see <see cref="Local.Grab"/> and <see cref="SyncIdentity"/> for the whole argument,
+/// including why dropping the baseline alone is not enough. THE RECORD ITSELF IS UNTOUCHED: no new
+/// field, no new kind, no new flag, and not one byte of the loadout screen's own content — the page,
+/// the page count and the dialog hash are still read off <c>MapStoryController.dialogBox</c> and
+/// nothing is ever read off the host. What travels is WHERE the window stands, which is the half the
+/// game has no opinion about.</para>
 /// </summary>
 internal static class RemoteMapStory
 {
@@ -164,6 +184,35 @@ internal static class RemoteMapStory
         internal float FrameSize = 1f;
         internal bool HaveBaseline;
 
+        /// <summary>
+        /// THE GRAB FRAME THE BASELINE ABOVE WAS TAKEN FROM. The ModBuild 237 fix, and the reason the
+        /// shared identity is allowed to move at all.
+        ///
+        /// <para>Up to ModBuild 236 the baseline was kept PER KIND. <see cref="TrackFrame"/> caches
+        /// the pose of whatever grab frame <see cref="SharedWindows.TryGetGrab"/> hands it and calls
+        /// ANY change a move — so the instant a kind started resolving to a different window, the
+        /// swap itself read as a drag: <see cref="Moving"/> was set, a pose was published and, on
+        /// settle, this client could be elected the room's LAST MOVER, pushing the composed host's
+        /// pose onto every peer's story box. Holding the frame beside the numbers taken from it turns
+        /// that into an identity test that cannot be got wrong: a different frame is a different
+        /// subject, and a different subject means there is no baseline, not a move.</para>
+        ///
+        /// <para>IT IS THE GRAB FRAME AND NOT THE WINDOW, deliberately, because it also catches the
+        /// case the identity swap does not: the SAME window re-floated after a withdrawal gets a
+        /// fresh <c>GrabbableModal</c> at a freshly placed pose, and that was a phantom drag by the
+        /// same arithmetic.</para>
+        /// </summary>
+        internal GrabbableModal? Grab;
+
+        /// <summary>The window this kind resolved to when the last identity line was printed — the
+        /// subject of the swap log, kept separately from <see cref="Grab"/> so an ordinary
+        /// close/re-float is silent and a genuine window-to-window handover is not.</summary>
+        internal UIWindow? LastWindow;
+
+        /// <summary><c>Time.frameCount</c> of the last identity change. Nothing is published or
+        /// applied for this kind while it is fresh; see <see cref="IdentitySettleFrames"/>.</summary>
+        internal int SwapFrame = int.MinValue;
+
         internal bool PoseOwned;
         internal bool Moving;
         internal float MoveSettleAt;
@@ -193,6 +242,9 @@ internal static class RemoteMapStory
             PoseStamp = 0;
             FollowedStamp = 0;
             MoveSettleAt = 0f;
+            Grab = null;
+            LastWindow = null;
+            SwapFrame = int.MinValue;
             ForgetPose();
         }
     }
@@ -217,6 +269,34 @@ internal static class RemoteMapStory
     private static string _lastNote = string.Empty;
     private static float _nextNoteAt;
 
+    // ---- what the standing falsifier reports, all of it recorded where it happens ---------------
+
+    private static int _storyPublishedFrame = int.MinValue;
+    private static byte _storyPublishedStamp;
+    private static bool _storyPublishedMoving;
+    private static int _storyAppliedFrame = int.MinValue;
+    private static int _storyAppliedPeer;
+    private static byte _storyAppliedStamp;
+
+    private static string _sharedVerdictKey = string.Empty;
+    private static float _sharedNextHeartbeatAt;
+    private static int _sharedHeartbeats;
+
+    /// <summary>How often the standing falsifier repeats itself when nothing about the verdict has
+    /// changed, and how many of those repeats a session may carry. A verdict CHANGE is always
+    /// reported and is not capped — the cap is on the heartbeat, so a long quiet session cannot bury
+    /// the log and a late regression can still never be silent.</summary>
+    private const float SharedHeartbeatSeconds = 30f;
+
+    /// <inheritdoc cref="SharedHeartbeatSeconds"/>
+    private const int MaxSharedHeartbeats = 20;
+
+    /// <summary>How recent a publish/apply has to be to count as "this tick" in the falsifier. The
+    /// send path runs on the extras cadence (5 Hz idle, 15 Hz while a shared bar is held) and this
+    /// line runs every frame, so a strict same-frame test would report NO on four frames out of five
+    /// while the record was in fact carrying a pose block continuously.</summary>
+    private const int SharedRecentFrames = 20;
+
     /// <summary>Drop everything on session end / shutdown. Nothing here owns a GameObject, so this
     /// IS the teardown.</summary>
     internal static void Reset()
@@ -240,6 +320,15 @@ internal static class RemoteMapStory
         _sentEncounterOpen = false;
         _lastNote = string.Empty;
         _nextNoteAt = 0f;
+        _storyPublishedFrame = int.MinValue;
+        _storyPublishedStamp = 0;
+        _storyPublishedMoving = false;
+        _storyAppliedFrame = int.MinValue;
+        _storyAppliedPeer = 0;
+        _storyAppliedStamp = 0;
+        _sharedVerdictKey = string.Empty;
+        _sharedNextHeartbeatAt = 0f;
+        _sharedHeartbeats = 0;
     }
 
     /// <summary>
@@ -547,6 +636,12 @@ internal static class RemoteMapStory
             return;
         if (!ToShared(pos, rot, out Vector3 local3, out Quaternion localRot, out byte frame))
             return;
+        if (kind == SharedWindowKind.MapStory)
+        {
+            _storyPublishedFrame = Time.frameCount;
+            _storyPublishedStamp = local.PoseStamp;
+            _storyPublishedMoving = local.Moving;
+        }
         entry.Flags |= NetProtocol.SharedPoseBit;
         entry.PoseStamp = local.PoseStamp;
         entry.SizeCode = NetProtocol.EncodeStorySize(size);
@@ -570,8 +665,17 @@ internal static class RemoteMapStory
         {
             local.HaveBaseline = false;
             local.Moving = false;
+            // The subject is gone, so the baseline's owner is too. LastWindow is deliberately NOT
+            // cleared: the next window to carry this kind must still be reported as a handover even
+            // when the two never overlapped, which is exactly what happens at the composite's rising
+            // edge (the story window leaves the float set on the tick the host takes over).
+            local.Grab = null;
             return;
         }
+
+        // THE IDENTITY TEST COMES BEFORE THE MOVE TEST, and it is the whole of the ModBuild 237 fix.
+        if (SyncIdentity(kind, local, grab, pos, rot, size))
+            return;   // nothing is published on the tick the subject changed
 
         if (!local.HaveBaseline)
         {
@@ -615,6 +719,95 @@ internal static class RemoteMapStory
                           + "physical place on every table. Record 19's seat-anchor frame is NOT "
                           + "used here: its origin is the orbit camera's focal point, which every "
                           + "player pans for themselves.");
+    }
+
+    /// <summary>How many frames after an identity change this kind stays silent in BOTH directions —
+    /// nothing published, nothing applied. One would do; two costs 400 ms of nothing at the 5 Hz idle
+    /// cadence in the worst case and removes the whole class of one-frame ordering question between
+    /// <c>NetAvatarDriver</c>'s update and <c>ModalFallback</c>'s.</summary>
+    private const int IdentitySettleFrames = 2;
+
+    /// <summary>
+    /// HAS THE WINDOW BEHIND THIS KIND CHANGED SINCE THE BASELINE WAS TAKEN? If so, drop everything
+    /// that described the old one, take a fresh baseline from the new one, and say so.
+    ///
+    /// <para><b>WHY THIS EXISTS.</b> ModBuild 237 lets <c>SharedWindowKind.MapStory</c> follow the
+    /// quest intro's composed host (see <c>WorldUI/SharedWindowIdentity</c>), so the transform this
+    /// record describes can change while the record is live. <see cref="TrackFrame"/> calls any change
+    /// of that transform a MOVE, which is right for a hand and catastrophic for a handover: it would
+    /// set <see cref="Local.Moving"/>, publish a pose, and on settle bump the stamp and elect this
+    /// client the room's LAST MOVER — pushing the loadout screen's pose onto every peer's story box.
+    /// The ModBuild 236 note that predicted this proposed dropping <c>HaveBaseline</c> and
+    /// <c>Moving</c>; that is NOT sufficient and the missing half is <see cref="Local.PoseOwned"/>.
+    /// A client that had already moved the OLD window keeps <c>PoseOwned</c> true across the swap,
+    /// and <see cref="WritePose"/> gates on <c>PoseOwned || Moving</c> — so it would keep publishing,
+    /// now describing the NEW window, under the UNCHANGED stamp that already elected it. Peers do not
+    /// re-elect on an unchanged stamp; they simply keep following, and the pose they follow is
+    /// suddenly a different window's. So the whole pose block is forgotten
+    /// (<see cref="Local.ForgetPose"/>), which is the same thing this record already does when the
+    /// message content changes — pose ownership is per subject, and a new window is a new
+    /// subject.</para>
+    ///
+    /// <para><b>IT IS SAFE IN BOTH DIRECTIONS BECAUSE IT IS NOT DIRECTIONAL.</b> The test is "is this
+    /// the frame my numbers came from", asked of a reference. Rising edge, falling edge, a re-float of
+    /// the same window, a window that vanishes and a different one that appears in the same tick — all
+    /// of them are the same answer, and the state it produces is the state a freshly opened window
+    /// starts in.</para>
+    ///
+    /// <para>Returns true when the identity changed, which is the caller's cue to publish nothing on
+    /// this tick.</para>
+    /// </summary>
+    private static bool SyncIdentity(SharedWindowKind kind, Local local, GrabbableModal grab,
+                                     Vector3 pos, Quaternion rot, float size)
+    {
+        if (ReferenceEquals(local.Grab, grab))
+            return false;
+
+        bool hadBaseline = local.HaveBaseline;
+        bool wasMoving = local.Moving;
+        bool wasOwner = local.PoseOwned;
+        Vector3 hadPos = local.FramePos;
+        UIWindow? from = local.LastWindow;
+        UIWindow? to = SharedWindows.WindowOf(kind);
+
+        local.ForgetPose();          // baseline, Moving, PoseOwned, and whoever we were following
+        local.Grab = grab;
+        local.FramePos = pos;
+        local.FrameRot = rot;
+        local.FrameSize = size;
+        local.HaveBaseline = true;
+        local.SwapFrame = Time.frameCount;
+
+        // A HANDOVER IS ONLY REPORTED WHEN THE WINDOW CHANGED. A window that merely re-floated gets a
+        // fresh GrabbableModal and lands here too — that is the point, its fresh pose must not read as
+        // a drag either — but it is not an identity swap and saying so would bury the edges that are.
+        bool handover = to != null && from != null && !ReferenceEquals(from, to);
+        if (to != null)
+            local.LastWindow = to;
+        if (!handover)
+            return true;
+
+        VRLog.Info(Scope, $"STORY WINDOW SHARED IDENTITY SWAPPED — move-tracker half: "
+                          + $"SharedWindowKind.{kind} now resolves to '{to!.name}' and no longer to "
+                          + $"'{from!.name}'. BASELINE DROPPED: "
+                          + (hadBaseline
+                              ? $"pos ({hadPos.x:0.00},{hadPos.y:0.00},{hadPos.z:0.00}), moving={wasMoving}, "
+                                + $"this client was the last mover={wasOwner} at stamp {local.PoseStamp}"
+                              : "there was none")
+                          + ". FRESH BASELINE TAKEN from the new grab frame: "
+                          + $"({pos.x:0.00},{pos.y:0.00},{pos.z:0.00}), size {size:0.00}x. POSE "
+                          + "PUBLISHED THIS TICK = NO, and that is structural rather than a promise: "
+                          + "WritePose publishes only while PoseOwned or Moving, and the line above "
+                          + "cleared both — so the swap cannot be mistaken for a drag, cannot bump the "
+                          + "stamp and cannot elect this client the room's last mover. POSE APPLIED "
+                          + $"THIS TICK = NO: nothing is applied for {IdentitySettleFrames} frame(s) "
+                          + "either, so PanelPoseWatch cannot meet a peer write on a window the kind "
+                          + "has just left. WHETHER A HAND WAS ON THE BAR is the window half's to "
+                          + "answer — grep the same string for it; the swap is refused outright while "
+                          + "one is. A move-tracker half with no window half beside it means a window "
+                          + "was re-floated rather than the identity moving, which is the other thing "
+                          + "this method exists to make harmless.");
+        return true;
     }
 
     private static bool TryReadFrame(GrabbableModal grab, out Vector3 pos, out Quaternion rot,
@@ -815,6 +1008,11 @@ internal static class RemoteMapStory
             }
         }
 
+        // ModBuild 237's standing falsifier. Placed AFTER the map-story arm so it reports the state
+        // this tick actually produced, and it is a pure read — it resolves windows and compares
+        // numbers, and writes nothing but its own rate-limit fields.
+        ReportSharedStory(box);
+
         UIQuestPopup? popup = QuestPopup();
         if (popup == null)
         {
@@ -838,6 +1036,133 @@ internal static class RemoteMapStory
         }
         ResolvePose(SharedWindowKind.Encounter, EncounterLocal, EncounterKey(evPanel),
                     EncounterPeers, EncounterStampAt);
+    }
+
+    // ---- ModBuild 237: the standing falsifier --------------------------------------------------
+
+    /// <summary>
+    /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE USER'S REQUEST IS SATISFIED.
+    ///
+    /// <para><b>USER REQUEST (2026-08-23, verbatim):</b> <i>"Ich möchte aber das die gesamte Story,
+    /// das Fenster und damit auch der Status des Fensters vollständig synchronisiert wird."</i> The
+    /// PAGE half has shipped since ModBuild 222 and has its own line
+    /// (<c>MAP ROOM story APPLIED</c>). This one is about the WINDOW half, which went inert in
+    /// ModBuild 236 without a single line saying so — the kind resolved to a window that was no longer
+    /// floated, so <see cref="SharedWindows.TryGetGrab"/> simply found nothing and every code path
+    /// returned quietly. That silence is the defect this line exists to make impossible.</para>
+    ///
+    /// <para><b>EVERY CLAUSE IS MEASURED THIS TICK AND NONE OF THEM IS A MECHANISM.</b> Which window
+    /// answers the kind, whether the mod has a live floated panel and grab frame for it, whether the
+    /// shared predicate that paints the bar says blue, whether a pose block went out and whether one
+    /// came in with whose stamp, and which grab frame the move tracker's baseline is standing on.
+    /// [[an-instrument-can-assert-a-cause]] — the one thing it deliberately does NOT claim is the
+    /// PAINTED colour of the bar: that is written by <c>GrabbableModal.SyncSharedBarTint</c> from this
+    /// same predicate one tick later and reported by its own line, <c>SHARED WINDOW BAR</c>, so the
+    /// two together are the proof and neither pretends to be it alone.</para>
+    ///
+    /// <para>GREP: <c>STORY WINDOW SHARED: CONFIRMED</c> — the request is met.
+    /// <c>STORY WINDOW SHARED: NOT ACHIEVED</c> — it is not, with the failing clause named.</para>
+    /// </summary>
+    private static void ReportSharedStory(UICharacterStoryBox? box)
+    {
+        UIWindow? window = SharedWindows.WindowOf(SharedWindowKind.MapStory);
+        UIWindow? host = WorldUI.SharedWindowIdentity.MapStoryHost;
+        if (window == null && box == null)
+        {
+            // No map story anywhere on this client. Re-arm so the next one gets a fresh verdict line
+            // rather than being suppressed by the last quest's.
+            _sharedVerdictKey = string.Empty;
+            _sharedHeartbeats = 0;
+            return;
+        }
+
+        bool haveGrab = SharedWindows.TryGetGrab(SharedWindowKind.MapStory,
+                                                 out GrabbableModal? grab) && grab != null;
+        ConvertedPanel? panel = ModalFallback.PanelFor(window);
+        bool floated = panel != null && panel.IsAlive && !panel.RevealPending && !panel.RenderHidden;
+        bool blue = SharedWindows.IsShared(window);
+        bool grabbed = haveGrab && grab!.IsGrabbed;
+
+        int now = Time.frameCount;
+        bool publishing = _storyPublishedFrame != int.MinValue
+                          && now - _storyPublishedFrame <= SharedRecentFrames;
+        bool applying = _storyAppliedFrame != int.MinValue
+                        && now - _storyAppliedFrame <= SharedRecentFrames;
+
+        bool ok = window != null && haveGrab && floated && blue;
+        string verdict = ok ? "CONFIRMED" : "NOT ACHIEVED";
+        string key = verdict + "|" + (window != null ? window.name : "<none>") + "|" + haveGrab
+                     + floated + blue + publishing + applying;
+
+        float nowSec = Time.unscaledTime;
+        bool changed = key != _sharedVerdictKey;
+        if (!changed)
+        {
+            if (nowSec < _sharedNextHeartbeatAt || _sharedHeartbeats >= MaxSharedHeartbeats)
+                return;
+            _sharedHeartbeats++;
+        }
+        _sharedVerdictKey = key;
+        _sharedNextHeartbeatAt = nowSec + SharedHeartbeatSeconds;
+
+        string measured =
+            $"SharedWindowKind.MapStory resolves to '{(window != null ? window.name : "<no window>")}' "
+            + $"this tick, and the reason is: {WorldUI.SharedWindowIdentity.MapStoryWhy} "
+            + $"(identity generation {WorldUI.SharedWindowIdentity.MapStoryGeneration}, composed host "
+            + $"{(host != null ? "'" + host.name + "'" : "none — the story box carries its own kind")}). "
+            + $"LIVE FLOATED PANEL: {floated}, mod-owned grab frame resolved: {haveGrab}, a hand on its "
+            + $"bar right now: {grabbed}. SHARED PREDICATE (what paints the bar): {blue} — "
+            + $"{(blue ? "SHARED BLUE" : "private brass")}; the paint itself is one tick behind this "
+            + "and is reported by its own line, SHARED WINDOW BAR. PUBLISHING A POSE BLOCK: "
+            + (publishing
+                ? $"YES, stamp {_storyPublishedStamp}, mid-drag={_storyPublishedMoving}, last written "
+                  + $"{now - _storyPublishedFrame} frame(s) ago"
+                : "no — nobody here has moved this window since it opened, which is the ordinary "
+                  + "resting state and NOT a fault")
+            + ". APPLYING ONE: "
+            + (applying
+                ? $"YES, following player {_storyAppliedPeer} at pose stamp {_storyAppliedStamp}, last "
+                  + $"applied {now - _storyAppliedFrame} frame(s) ago"
+                : "no — no peer in this room is publishing a pose for this window, which again is the "
+                  + "resting state: record 21 carries a pose block only once somebody has MOVED the "
+                  + "window")
+            + ". THE MOVE TRACKER'S BASELINE stands on "
+            + (StoryLocal.Grab != null
+                ? $"the grab frame of '{(StoryLocal.LastWindow != null ? StoryLocal.LastWindow.name : "?")}'"
+                  + $", HaveBaseline={StoryLocal.HaveBaseline}, moving={StoryLocal.Moving}, this client "
+                  + $"is the last mover={StoryLocal.PoseOwned}"
+                : "nothing at all — there is no grab frame to measure, so no local move can be "
+                  + "detected and none is published")
+            + $"; the story box itself is {(box != null ? "on screen" : "not on screen")} and its PAGE "
+            + "sync is independent of every clause above";
+
+        if (ok)
+        {
+            VRLog.Info(Scope, "STORY WINDOW SHARED: CONFIRMED — the window the story is being told in "
+                              + "is the one that carries the shared kind, so its bar is blue, its pose "
+                              + "travels on record 21 in both directions and it does not re-face when "
+                              + "released. MEASURED THIS TICK: " + measured + ". WHAT THIS DOES NOT "
+                              + "CLAIM: that a pose is in flight. Publishing and applying both read no "
+                              + "until somebody drags the window, and that is correct — a freshly "
+                              + "opened shared window has no agreed pose and each client places its own "
+                              + "copy in its own view. Only a NO on the first three clauses is a "
+                              + "defect.");
+            return;
+        }
+        VRLog.Warn(Scope, "STORY WINDOW SHARED: NOT ACHIEVED — the window the player is reading the "
+                          + "story in is not the one carrying the shared kind, so its pose is neither "
+                          + "published nor applied and its bar is brass. MEASURED THIS TICK: " + measured
+                          + ". READ IT LIKE THIS: no window at all means MapStoryController is down and "
+                          + "there is nothing to share. A window named but grab frame resolved=False "
+                          + "means it is not converted or is still behind the reveal gate — that client "
+                          + "keeps its own placement and remains a full participant in the PAGE sync, "
+                          + "which is why an unplaceable window can never hold anybody's story up. "
+                          + "SHARED PREDICATE=False with a window and a grab means ParticipatesHere "
+                          + "said no, i.e. this player has the 3D world map switched off and is keeping "
+                          + "the flat game's own per-player pacing by the user's own scoping. And a "
+                          + "composed host of none while the quest intro is on screen is the ModBuild "
+                          + "236 defect returning — grep STORY WINDOW SHARED IDENTITY DEFERRED and "
+                          + "STORY COMPOSITE CLAIM for why the identity did not move.");
     }
 
     private static void PruneStale()
@@ -962,6 +1287,27 @@ internal static class RemoteMapStory
     private static void ResolvePose(SharedWindowKind kind, Local local, uint key,
                                     Dictionary<int, PeerEntry> peers, Dictionary<int, float> at)
     {
+        // THE IDENTITY IS CHECKED ON THE RECEIVE PATH TOO, and not only in TrackFrame, because
+        // Sample runs on the extras cadence (5 Hz when idle) while this runs EVERY FRAME. Between a
+        // swap and the next Sample the receive half would otherwise be measuring a peer's pose against
+        // the OLD window's baseline and writing it to the NEW window. The cost is one scan of the
+        // converted list per kind per frame — ModalFallback.TryGetGrabFor is a ReferenceEquals loop —
+        // and it collapses to a single ReferenceEquals here as soon as the subject stops changing.
+        if (SharedWindows.TryGetGrab(kind, out GrabbableModal? subject) && subject != null
+            && !ReferenceEquals(local.Grab, subject)
+            && TryReadFrame(subject, out Vector3 sPos, out Quaternion sRot, out float sSize))
+            SyncIdentity(kind, local, subject, sPos, sRot, sSize);
+
+        // NOTHING IS APPLIED ON THE TICK THE SUBJECT CHANGED — the mirror of "nothing is published".
+        // PanelPoseWatch reads SharedWindows.IsShared once per tick as its peerOwned flag, and a pose
+        // write it cannot attribute is REFUSED and snapped back; a write landing on a window the kind
+        // is leaving is exactly that. THE SENTINEL IS TESTED EXPLICITLY rather than by arithmetic:
+        // `Time.frameCount - int.MinValue` overflows to a negative number that would pass a `<=` test
+        // FOREVER, which is [[sentinel-overflow-and-silent-scans]] verbatim.
+        if (local.SwapFrame != int.MinValue
+            && Time.frameCount - local.SwapFrame <= IdentitySettleFrames)
+            return;
+
         if (local.Moving)
             return; // a hand owns it right now; never fight a hand.
 
@@ -1049,6 +1395,13 @@ internal static class RemoteMapStory
         // frame in both Update and LateUpdate, so a write to the host is a write that is about to
         // be overwritten.
         grab.PlaceFrameAt(worldPos, worldRot);
+        // TELL THE IDENTITY LATCH, so it does not move the kind off this window in the same frame the
+        // write landed. PanelPoseWatch classifies a pose write it cannot attribute as Unattributed and
+        // SNAPS IT BACK, and its peerOwned flag is SharedWindows.IsShared read once per tick — so an
+        // identity that left here now would have this very write undone in front of the player. The
+        // watch re-baselines on every sanctioned write, so a couple of clear frames is all it needs.
+        // This is Net → WorldUI, the direction the module boundary already runs in.
+        WorldUI.SharedWindowIdentity.NotePoseApplied(kind);
 
         // Record what WE just wrote as the movement baseline, or the very next tick reads our own
         // write back as a local user move and starts a stamp war.
@@ -1060,6 +1413,12 @@ internal static class RemoteMapStory
         local.FollowingPeer = bestPeer;
         local.FollowedStamp = owner.PoseStamp;
         local.FollowedStampValid = true;
+        if (kind == SharedWindowKind.MapStory)
+        {
+            _storyAppliedFrame = Time.frameCount;
+            _storyAppliedPeer = bestPeer;
+            _storyAppliedStamp = owner.PoseStamp;
+        }
 
         if (!newFollow)
             return;

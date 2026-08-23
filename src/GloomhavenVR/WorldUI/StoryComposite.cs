@@ -585,19 +585,37 @@ namespace GloomhavenVR.WorldUI;
 /// and <see cref="ReportNoHost"/> says so once per story box, by name, so that branch is visible in a
 /// hardware log instead of being an absence.</para>
 ///
-/// <para><b>THE BLUE BAR IS NOT MOVED THIS BUILD, AND THE REASON IS A BASELINE.</b>
-/// <c>SharedWindows.KindOf</c> still keys <c>MapStory</c> off <c>MapStoryController.window</c>, so
-/// while the dialog is parked the composed host wears the ordinary brass bar and its POSE is not
-/// published. The half of the user's multiplayer request that matters is untouched:
-/// <c>Net/RemoteMapStory</c> resolves the story PAGE through <c>MapStoryController.dialogBox</c>
-/// directly (RemoteMapStory.cs:286-294/423/869) and never through <c>SharedWindows</c>, so page,
-/// text and the finished bit keep syncing while the dialog is inside the loadout window. Re-pointing
-/// the KIND would also have to re-point <c>SharedWindows.WindowOf</c>, and
-/// <c>RemoteMapStory.TrackFrame</c> keeps its move baseline PER KIND rather than per window
-/// instance: swapping the underlying transform under a live baseline reads as a drag, sets
-/// <c>Moving</c>, and can elect this client the room's last mover — which would push the loadout
-/// screen's pose onto every peer's story box. That needs a baseline reset inside a file this lane
-/// does not own, so it is named as a residual rather than half-done.</para>
+/// <para>=====================================================================================
+/// SECTION 7 — ModBuild 237: THE BLUE BAR FOLLOWS THE COMPOSED HOST
+/// =====================================================================================</para>
+///
+/// <para><b>USER REQUEST (2026-08-23, verbatim):</b> <i>"Ich will aber das man die Story gemeinsam
+/// erlebt. Ich weiß dass das flat spiel das anders macht und dort jeder lokal bei sich weiterklicken
+/// kann. Ich möchte aber das die gesamte Story, das Fenster und damit auch der Status des Fensters
+/// vollständig synchronisiert wird."</i></para>
+///
+/// <para><b>ModBuild 236 SAID THE BLUE BAR WAS NOT MOVED "THIS BUILD" AND NAMED A BASELINE AS THE
+/// REASON. THAT RESIDUAL IS NOW PAID.</b> <see cref="SharedWindowIdentity"/> holds which window
+/// carries <c>SharedWindowKind.MapStory</c>: the composed HOST while this class's claim is standing,
+/// <c>MapStoryController.window</c> otherwise. <c>SharedWindows.KindOf</c> and
+/// <c>SharedWindows.WindowOf</c> both read it, so the bar tint, the pose sync, the release re-face
+/// gate and <c>PanelPoseWatch</c>'s <c>peerOwned</c> flag all move together and none of them can
+/// disagree with the others about which window that is. The baseline objection was real and was fixed
+/// where it lives: <c>RemoteMapStory</c>'s move tracker now keeps its baseline PER GRAB FRAME and
+/// treats a change of grab frame as a reset — dropping the baseline, the <c>Moving</c> flag AND the
+/// pose OWNERSHIP, which the one-line version of that fix would have left standing and which is the
+/// half that would have kept this client elected as the room's last mover under a stale stamp.</para>
+///
+/// <para><b>THE CONTENT HALF WAS NEVER AFFECTED AND IS UNCHANGED.</b> <c>Net/RemoteMapStory</c>
+/// resolves the story PAGE through <c>MapStoryController.dialogBox</c> directly
+/// (<c>MapBox()</c> at RemoteMapStory.cs:379-389, read on the send path at :512/:525 and driven
+/// by <c>ResolveStoryPage</c> at :1194 through the game's own <c>ShowLine</c> at :1264) and never
+/// through <c>SharedWindows</c>, so page, text and the
+/// finished bit kept syncing through ModBuild 236 while the dialog was parked — a park changes a
+/// transform's PARENT, and the controller is reached through its Singleton. Equally, nothing of the
+/// HOST's content ever goes on the wire: what follows the host is the POSE, and the identity is handed
+/// back the moment the story stops being told in it, i.e. before the battle-goal phase, whose content
+/// is private per player by the user's own ruling.</para>
 /// </summary>
 internal static class StoryComposite
 {
@@ -1163,6 +1181,15 @@ internal static class StoryComposite
         // to be the loadout screen); the falsifier then states, from a fresh read of the float set,
         // whether the result is actually ONE window.
         TickStoryClaim(story, loadout, terminator);
+        // ModBuild 237 — WHO CARRIES SharedWindowKind.MapStory THIS TICK, decided from the claim that
+        // was just settled and from nothing else. While the claim stands, the story is being told
+        // inside the composed host, so the host is the window that wears the blue bar, has its pose
+        // published and applied, and is exempt from the release re-face; when it lapses the identity
+        // hands back. It is fed the CLAIM rather than the park alone because the claim is the level
+        // that already means "the mod is drawing the story inside a floated host" — the park can stand
+        // for a tick inside a window nobody is floating, and a blue bar on that would be a lie.
+        // The swap itself is deferred while a hand is on either bar; see SharedWindowIdentity.
+        SharedWindowIdentity.TickMapStory(_claimStanding ? _parkHost : null, story);
         ReportOneWindow(story, loadout);
         // ModBuild 234's two falsifiers, both re-measured from the live objects on this tick and
         // neither of them reading any state this class set: "is the composed host the ONLY floated
@@ -3687,10 +3714,18 @@ internal static class StoryComposite
                           + $"LAYER: the whole moved subtree was written onto the host root's own layer "
                           + $"{_layerWritten} over {LayerTx.Count} transform(s), {_layerSkipped} foreign "
                           + "render subtree(s) skipped whole, because per-window capture cameras cull BY "
-                          + $"LAYER. SHARED: {shared} (kind {kind}) — ModBuild 236 does NOT move the "
-                          + "MapStory kind onto the host, so this panel wears the ordinary brass bar and "
-                          + "its POSE is not published while the composite stands; the story PAGE, TEXT "
-                          + "and finished bit are unaffected because Net/RemoteMapStory resolves the box "
+                          + $"LAYER. SHARED: {shared} (kind {kind}) — ModBuild 237 MOVES the MapStory "
+                          + "kind onto this host for the life of the composite, so this panel wears the "
+                          + "SHARED BLUE bar, its pose travels on record 21 and it does not re-face on "
+                          + "release; the identity hands back the instant the claim lapses, i.e. BEFORE "
+                          + "the battle-goal phase, because that screen's CONTENT is private per player. "
+                          + "False here is the defect and not a design: it means SharedWindowIdentity "
+                          + "could not resolve a grab frame for this window, or the swap is still "
+                          + "deferred behind a hand — grep STORY WINDOW SHARED for which. Note this "
+                          + "clause is read at the PARK, one tick before the identity tick that follows "
+                          + "it, so a False on the very first BUILT line is expected and the standing "
+                          + "falsifier is the one to believe. The story PAGE, TEXT and finished bit were "
+                          + "never part of any of this, because Net/RemoteMapStory resolves the box "
                           + "through MapStoryController.dialogBox and never through SharedWindows. THE "
                           + "STORY WINDOW NOW STANDS DOWN: see STORY COMPOSITE CLAIM RAISED for the "
                           + "refusal, STORY COMPOSITE ONE WINDOW for whether that produced one window, "
@@ -3705,6 +3740,11 @@ internal static class StoryComposite
     internal static void Reset()
     {
         Unpark("module teardown");
+        // ModBuild 237 — AND THE SHARED IDENTITY GOES WITH IT, for the same reason the claim does: an
+        // identity that outlived this class would leave SharedWindowKind.MapStory pointing at a
+        // loadout window nobody is composing into, i.e. a blue bar and a published pose on a private
+        // window. It is a plain field drop; nothing is moved and nothing is written to the game.
+        SharedWindowIdentity.Reset();
         // ModBuild 235 — and the confirm parker goes with it, for the reason its own Reset states: a
         // park claim that outlived this class would keep the game's own confirm off screen with
         // nothing left to draw it.

@@ -87,35 +87,47 @@ internal enum SharedWindowKind : byte
     /// controller from the scenario's, which is why record 19 is inert on the map: it resolves only
     /// <c>Singleton&lt;StoryController&gt;</c>.
     ///
-    /// <para><b>ModBuild 236 — THIS KIND DELIBERATELY DID NOT FOLLOW THE COMPOSITE, AND THE REASON IS
-    /// A BASELINE. DO NOT MOVE IT WITHOUT READING THIS.</b> <c>StoryComposite</c> now parks the story
-    /// window's whole content INTO the pre-scenario loadout screen, so for the length of the quest
-    /// intro the window the player sees the story in is <c>UILoadoutManager</c>'s, not this one. The
-    /// obvious change — make <see cref="SharedWindows.KindOf"/> return <c>MapStory</c> for the
-    /// composed host, and <see cref="SharedWindows.WindowOf"/> resolve to it — was considered and
-    /// REFUSED, for three reasons of which the first is decisive:</para>
+    /// <para><b>ModBuild 237 — THIS KIND FOLLOWS THE COMPOSED HOST WHILE THE COMPOSITE STANDS.</b>
+    /// <see cref="SharedWindowIdentity"/> holds the answer and this file reads it; that class carries
+    /// the whole design and the user request it comes from. In one sentence: while
+    /// <c>StoryComposite</c>'s claim is standing, the story window's own content is inside a mod-owned
+    /// dock inside a floated <c>UILoadoutManager</c> window, so THAT is the window the story is being
+    /// told in, and it is the one that wears the blue bar, has its pose published and applied, and is
+    /// exempt from the release re-face. When the claim lapses the identity hands back and the host is
+    /// an ordinary private window again.</para>
+    ///
+    /// <para><b>ModBuild 236 REFUSED THAT, AND THE THREE REASONS IT GAVE ARE KEPT HERE BECAUSE TWO OF
+    /// THEM ARE STILL LIVE CONSTRAINTS RATHER THAN OBJECTIONS.</b></para>
     /// <list type="number">
-    /// <item><b><c>Net/RemoteMapStory</c> keeps its move baseline PER KIND, not per window
+    /// <item><b><c>Net/RemoteMapStory</c> kept its move baseline PER KIND, not per window
     /// instance.</b> <c>TrackFrame</c> caches <c>FramePos</c>/<c>FrameRot</c>/<c>FrameSize</c> of the
-    /// grab frame <see cref="SharedWindows.TryGetGrab"/> hands it and calls any change a MOVE. Swap
-    /// the underlying transform under a live baseline and the swap itself reads as a drag: it sets
-    /// <c>Moving</c>, publishes a pose and can elect this client the room's LAST MOVER — pushing the
-    /// loadout screen's pose onto every peer's story box. The fix is a baseline reset on an identity
-    /// change, and it belongs in that file.</item>
-    /// <item><b>The composed host is the loadout screen, whose content is private by an existing user
+    /// grab frame <see cref="SharedWindows.TryGetGrab"/> hands it and calls any change a MOVE, so
+    /// swapping the underlying transform under a live baseline read as a drag: it set <c>Moving</c>,
+    /// published a pose and could elect this client the room's LAST MOVER — pushing the loadout
+    /// screen's pose onto every peer's story box. FIXED IN THAT FILE: the baseline now records the
+    /// GRAB FRAME it was taken from and a change of grab frame is treated exactly as a reset — and
+    /// it also forgets the pose OWNERSHIP, which the original one-line fix did not and which is the
+    /// half that would have kept this client elected as last mover under a stale stamp.</item>
+    /// <item><b>The composed host is the loadout screen, whose CONTENT is private by an existing user
     /// ruling</b> ("Da jeder seine eigene UI sieht, sollen diese UI Element nicht synchronisiert
-    /// werden"): each player picks his own loadout and his own battle goals on it and presses his own
-    /// Enter Dungeon. A remote drag moving that window is a bigger claim than the bar colour.</item>
-    /// <item><b>The kind would flip under a live grab</b> when the composite stands down, changing
-    /// the release re-face gate and <c>PanelPoseWatch</c>'s <c>peerOwned</c> flag mid-carry.</item>
+    /// werden"): each player picks his own loadout and his own battle goals on it. STILL TRUE, AND
+    /// STILL ENFORCED — nothing of the host's content goes on the wire. Record 21 reads the page, the
+    /// page count and the dialog hash off <c>MapStoryController.dialogBox</c> and nothing else off
+    /// anything, and the identity is handed back the moment the story stops being told, i.e. BEFORE
+    /// the battle-goal phase. Only the POSE follows the host.</item>
+    /// <item><b>The kind would flip under a live grab</b> when the composite stands down, changing the
+    /// release re-face gate and <c>PanelPoseWatch</c>'s <c>peerOwned</c> flag mid-carry. STILL TRUE,
+    /// AND IT IS WHY THE SWAP IS DEFERRED: <see cref="SharedWindowIdentity"/> refuses to move the kind
+    /// while a hand is on either bar, with no timeout.</item>
     /// </list>
-    /// <para><b>WHAT IS NOT LOST, AND IT IS THE HALF THE USER ASKED FOR.</b>
+    /// <para><b>THE CONTENT HALF WAS NEVER AFFECTED BY ANY OF THIS.</b>
     /// <c>Net/RemoteMapStory</c> resolves the story PAGE through <c>MapStoryController.dialogBox</c>
-    /// directly (RemoteMapStory.cs:286-294, 423, 869) and never through this class, so page, text and
-    /// the finished bit keep syncing normally while the dialog is parked. What goes inert for the
-    /// length of the intro is the POSE sync and the blue bar — the composed host wears the ordinary
-    /// brass bar, which is a TRUE statement about it under the rule this file already states: a blue
-    /// bar on a window whose pose nobody syncs is the false statement, not the brass one.</para></summary>
+    /// directly — MapBox() at RemoteMapStory.cs:379-389, read on the send path at :512/:525 and
+    /// driven by ResolveStoryPage at :1194 through the game's own ShowLine at :1264 — and never
+    /// through this class, so page, text and
+    /// the finished bit kept syncing normally through ModBuild 236 while the dialog was parked —
+    /// parking changes a transform's PARENT, not the singleton the controller is reached
+    /// through.</para></summary>
     MapStory = 2,
 
     /// <summary>The quest-confirmation popup, <c>UIWindowID.QuestPopup</c>.</summary>
@@ -170,11 +182,24 @@ internal static class SharedWindows
     /// What kind of shared window this is, INDEPENDENT of whether this client currently
     /// participates in its sync.
     ///
-    /// <para>A pure lookup against two singletons and one <c>UIWindowID</c>: it never converts,
-    /// places or releases anything, so the predicate cannot change which windows float or when.
-    /// Both story windows are identified by INSTANCE COMPARE against their singleton and not by id,
-    /// because the id is scene-serialized and the enum has no Story member at all — the singleton
-    /// IS the identity (decompiled StoryController.cs:65-66, MapStoryController.cs:42).</para>
+    /// <para>A pure lookup against two singletons, one static field and one <c>UIWindowID</c>: it
+    /// never converts, places or releases anything, so the predicate cannot change which windows
+    /// float or when. Both story windows are identified by INSTANCE COMPARE against their singleton
+    /// and not by id, because the id is scene-serialized and the enum has no Story member at all —
+    /// the singleton IS the identity (decompiled StoryController.cs:65-66,
+    /// MapStoryController.cs:42).</para>
+    ///
+    /// <para><b>ModBuild 237 — <see cref="SharedWindowKind.MapStory"/> MAY RESOLVE TO A DIFFERENT
+    /// WINDOW, AND EXACTLY ONE WINDOW CARRIES IT AT A TIME.</b> While
+    /// <see cref="SharedWindowIdentity.MapStoryHost"/> names a composed host, that host answers
+    /// <c>MapStory</c> and the story box answers <c>None</c> — two windows wearing the blue bar for
+    /// one kind would make the pose sync's own addressing ambiguous, and the bar would be a false
+    /// statement on whichever of them nobody is syncing. The host test is FIRST because it is one
+    /// field read plus one <c>ReferenceEquals</c>, and because it is the common case for the whole
+    /// length of a quest intro; when no composite stands it costs one reference-null test on the way
+    /// to the unchanged singleton compare. It is never a hierarchy walk and never a
+    /// <c>GetComponentInParent</c> — this predicate is asked per floated window per frame by the bar
+    /// tint, and [[containment-is-not-identity]] besides.</para>
     /// </summary>
     internal static SharedWindowKind KindOf(UIWindow? window)
     {
@@ -188,7 +213,17 @@ internal static class SharedWindows
                 return SharedWindowKind.ScenarioStory;
         }
 
-        if (Singleton<MapStoryController>.IsInitialized)
+        UIWindow? composed = SharedWindowIdentity.MapStoryHost;
+        if (composed != null)
+        {
+            // The composite is standing: the host owns the kind and the story box does not. Falling
+            // through for the story box is deliberate — it is refused from the float set while the
+            // claim stands, so it has no bar to tint and no pose to publish, and answering MapStory
+            // for it would point RemoteMapStory's grab lookup at a window that is not on screen.
+            if (ReferenceEquals(composed, window))
+                return SharedWindowKind.MapStory;
+        }
+        else if (Singleton<MapStoryController>.IsInitialized)
         {
             MapStoryController mc = Singleton<MapStoryController>.Instance;
             if (mc != null && ReferenceEquals(mc.window, window))
@@ -318,6 +353,13 @@ internal static class SharedWindows
                 return sc != null ? sc.window : null;
 
             case SharedWindowKind.MapStory:
+                // ModBuild 237 — THE COMPOSED HOST FIRST, and it must be the same answer
+                // KindOf gives or the bar and the pose would address different windows. The Unity
+                // null test is what drops a host destroyed between two ticks of
+                // SharedWindowIdentity.TickMapStory; the fall-through is then the ordinary answer.
+                UIWindow? composed = SharedWindowIdentity.MapStoryHost;
+                if (composed != null)
+                    return composed;
                 if (!Singleton<MapStoryController>.IsInitialized)
                     return null;
                 MapStoryController mc = Singleton<MapStoryController>.Instance;
