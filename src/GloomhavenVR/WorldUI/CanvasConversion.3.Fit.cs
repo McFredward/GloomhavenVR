@@ -5193,7 +5193,41 @@ internal static partial class CanvasConversion
         /// limit would mean the one line the next hardware log is read for could be the one
         /// swallowed. Sub-second churn WITHIN a state still throttles normally.</summary>
         internal bool LoggedGrown;
+
+        /// <summary>ModBuild 242 — the SHRINK RUN. How many consecutive measurements have agreed
+        /// that the drawn content is materially smaller than the frame. Shrinking the interactive
+        /// area is the one direction that can KILL INPUT, so it is granted on the same terms
+        /// <c>GrabbableModal</c> grants an ink release: a dead band, then a run of agreeing
+        /// samples, and any sample that disagrees resets it to zero. Growth still commits on
+        /// sight.</summary>
+        internal int ShrinkRun;
+
+        /// <summary>The narrowed rect the current run is arguing for — carried forward as the
+        /// OUTERMOST member of the run, so a wobbling run commits its most generous reading.</summary>
+        internal Rect ShrinkCandidate;
+
+        internal bool ShrinkValid;
+
+        /// <summary>Narrowings committed over this window's life — the falsifier's "did this ever
+        /// fire" counter.</summary>
+        internal int Shrinks;
     }
+
+    /// <summary>ModBuild 242 — margin left around the drawn content when the interactive area is
+    /// allowed to shrink below the frame, in the window's authored px. It has to absorb a widget
+    /// that appears BETWEEN two 30-frame walks: the rect is the laser's whole verdict, so a margin
+    /// that is too tight is dead input on a button that was drawn 200 ms ago.</summary>
+    private const float HitRectContentPadPx = 64f;
+
+    /// <summary>How far inside the frame the padded content must sit before shrinking is even
+    /// considered. BY VALUE from <c>GrabbableModal.InkReleaseDeadBandPx</c> (32) — one 32 px
+    /// quantum, the same dead band the capture frame's shrink hysteresis uses, so all three
+    /// instruments agree about what "smaller" means.</summary>
+    private const float HitRectShrinkDeadBandPx = 32f;
+
+    /// <summary>Agreeing measurements a narrowing must survive before it commits. Three at
+    /// <see cref="FitCheckIntervalFrames"/> is ~1 s.</summary>
+    private const int HitRectShrinkRuns = 3;
 
     /// <summary>
     /// Minimum seconds between HIT RECT log lines for one window. THE RECT ITSELF IS NEVER
@@ -5381,6 +5415,88 @@ internal static partial class CanvasConversion
             // is the host rect, which is exactly the shipped behaviour. Never a stale grown rect —
             // that would be a laser hitting empty space.
             Rect union = measured ? Union(host, content) : host;
+
+            // ---- ModBuild 242: THE FRAME IS NO LONGER A FLOOR --------------------------------------
+            //
+            // User report, verbatim (2026-08-24): "Aktuell haben wir die Situation, dass das 'x' weit
+            // rechts, der Balken klein und zwischen dem linken Teil und dem X unsichtbare Collider für
+            // den Laser ist. Wenn kleineres Fenster, dann voll mit verschobenem X und ohne unsichtbaren
+            // Collider."
+            //
+            // THIS IS THE SURFACE HE IS DESCRIBING, and it is not a collider. RayUguiDriver.TryIntersect
+            // wins its pick on the four world corners of THIS rectangle alone, before any graphic is
+            // raycast — so a beam crossing empty transparent frame ends on the window, draws its reticle
+            // there and shadows everything behind it. The ModBuild 241 log measures the cost on the
+            // options window with the VR tab open: DRAWN CONTENT 1301x1827 px at (-132,374) inside a
+            // 1552x1080 frame, i.e. a live rectangle reaching x=776 for a picture that stops at x=518.
+            //
+            // THE CONTRACT THIS CHANGES, deliberately and in one place. TryGetHitRect's own comment
+            // says the rect "by construction is never NARROWER than the frame … the correct contract
+            // for a ray test, which must never shrink below the window the player can see". The second
+            // half of that sentence is the real rule and it is preserved exactly: `content` IS the
+            // window the player can see, measured with this file's own visibility verdict. What is
+            // given up is the FIRST half — the frame, which for these windows is transparent margin.
+            //
+            // AND IT IS GRANTED THE WAY AN INK RELEASE IS GRANTED, because shrinking an interactive
+            // area is the one direction that can kill input on a button that is really there:
+            //   * only when the padded content is more than HitRectShrinkDeadBandPx inside the frame;
+            //   * only after HitRectShrinkRuns consecutive measurements agree, carrying the OUTERMOST
+            //     rect of the run forward, so a wobbling run commits its most generous member;
+            //   * never on a sample that could not measure — an unmeasurable window goes straight back
+            //     to the host rect and the run resets, which is the pre-242 behaviour;
+            //   * growth still commits on sight, and any growth cancels a run in progress.
+            Rect live = union;
+            if (measured)
+            {
+                Rect padded = Rect.MinMaxRect(content.xMin - HitRectContentPadPx,
+                                              content.yMin - HitRectContentPadPx,
+                                              content.xMax + HitRectContentPadPx,
+                                              content.yMax + HitRectContentPadPx);
+                Rect narrowed = Rect.MinMaxRect(Mathf.Max(union.xMin, padded.xMin),
+                                                Mathf.Max(union.yMin, padded.yMin),
+                                                Mathf.Min(union.xMax, padded.xMax),
+                                                Mathf.Min(union.yMax, padded.yMax));
+                bool worthIt = narrowed.width > 1f && narrowed.height > 1f
+                               && (narrowed.xMin > union.xMin + HitRectShrinkDeadBandPx
+                                   || narrowed.xMax < union.xMax - HitRectShrinkDeadBandPx
+                                   || narrowed.yMin > union.yMin + HitRectShrinkDeadBandPx
+                                   || narrowed.yMax < union.yMax - HitRectShrinkDeadBandPx);
+                if (!worthIt)
+                {
+                    entry.ShrinkValid = false;
+                    entry.ShrinkRun = 0;
+                }
+                else if (entry.ShrinkValid
+                         && Mathf.Abs(entry.ShrinkCandidate.xMin - narrowed.xMin) <= HitRectShrinkDeadBandPx
+                         && Mathf.Abs(entry.ShrinkCandidate.xMax - narrowed.xMax) <= HitRectShrinkDeadBandPx
+                         && Mathf.Abs(entry.ShrinkCandidate.yMin - narrowed.yMin) <= HitRectShrinkDeadBandPx
+                         && Mathf.Abs(entry.ShrinkCandidate.yMax - narrowed.yMax) <= HitRectShrinkDeadBandPx)
+                {
+                    entry.ShrinkCandidate = Rect.MinMaxRect(
+                        Mathf.Min(entry.ShrinkCandidate.xMin, narrowed.xMin),
+                        Mathf.Min(entry.ShrinkCandidate.yMin, narrowed.yMin),
+                        Mathf.Max(entry.ShrinkCandidate.xMax, narrowed.xMax),
+                        Mathf.Max(entry.ShrinkCandidate.yMax, narrowed.yMax));
+                    entry.ShrinkRun++;
+                    if (entry.ShrinkRun >= HitRectShrinkRuns)
+                    {
+                        live = entry.ShrinkCandidate;
+                        entry.Shrinks++;
+                    }
+                }
+                else
+                {
+                    entry.ShrinkCandidate = narrowed;
+                    entry.ShrinkValid = true;
+                    entry.ShrinkRun = 1;
+                }
+            }
+            else
+            {
+                entry.ShrinkValid = false;
+                entry.ShrinkRun = 0;
+            }
+            union = live;
 
             // THE SAFETY BOUND (see MaxHitExpansion). Host-centred, edge by edge, so a clamp gives
             // away as much of the overspill as the bound allows instead of dropping all of it.
@@ -5601,14 +5717,36 @@ internal static partial class CanvasConversion
                        + "millimetre figure derived from a guessed scale would be worse than none";
         }
 
+        // ModBuild 242 — a THIRD state exists now and it must not read as the second. Before this
+        // round the rect could only ever equal the host or exceed it, so "content fits inside the
+        // frame" and "the hit rect IS the host rect" were the same sentence. They no longer are: the
+        // shrink run can pull the rect INSIDE the frame, and if that case kept printing the old text
+        // the next log could not tell "the narrowing never fired" from "the narrowing is off".
+        // entry.Shrinks is the did-this-ever-fire counter and it is printed even when this particular
+        // commit did not narrow, because a counter nobody prints is a counter nobody can falsify.
+        float shrinkL = hit.xMin - host.xMin;
+        float shrinkR = host.xMax - hit.xMax;
+        float shrinkD = hit.yMin - host.yMin;
+        float shrinkU = host.yMax - hit.yMax;
+        bool narrowed = shrinkL > 0.5f || shrinkR > 0.5f || shrinkD > 0.5f || shrinkU > 0.5f;
+
         string verdict = !measured
             ? "NOTHING MEASURABLE (window still hidden or fading in) — the hit rect IS the host "
               + "rect, exactly as in every build before this one"
             : grown
                 ? $"GROWN: the window draws {growX:F0}x{growY:F0} px outside its own frame and the "
                   + "laser/poke plane now reaches that far"
-                : "content fits inside the frame — the hit rect IS the host rect, so the ray/poke "
-                  + "geometry is bit-identical to the shipped builds";
+                : narrowed
+                    ? $"NARROWED: the laser/poke plane has been pulled INSIDE the frame by "
+                      + $"L {shrinkL:F0} / R {shrinkR:F0} / D {shrinkD:F0} / U {shrinkU:F0} px, "
+                      + $"after {HitRectShrinkRuns} agreeing measurements and a {HitRectContentPadPx:F0} px "
+                      + "pad around the drawn content. THAT STRIP OF EMPTY FRAME NO LONGER CATCHES THE "
+                      + "BEAM — which is the whole of the user's \"unsichtbare Collider\" report, and it "
+                      + "is also the one direction that can KILL INPUT on a button that is really "
+                      + "there, so if something in this window stopped reacting, this line is the first "
+                      + "suspect and the pad is the dial"
+                    : "content fits inside the frame and the narrowing did not fire — the hit rect IS "
+                      + "the host rect, so the ray/poke geometry is bit-identical to the shipped builds";
 
         VRLog.Info("WorldUI",
             $"HIT RECT '{panel.HostGo.name}' (commit #{entry.Commits}, root '{root.name}'"
@@ -5624,6 +5762,11 @@ internal static partial class CanvasConversion
             + $"graphic(s); LARGER = {(grown ? "the content" : "the host rect")} → HIT RECT "
             + $"{hit.width:F0}x{hit.height:F0} px at ({hit.center.x:F0},{hit.center.y:F0}) "
             + $"[x {hit.xMin:F0}..{hit.xMax:F0}, y {hit.yMin:F0}..{hit.yMax:F0}] — {verdict}. "
+            + $"NARROWINGS COMMITTED over this window's life: {entry.Shrinks}"
+            + (entry.Shrinks == 0
+                ? " — zero means this window has never had a strip of empty frame worth taking back, "
+                  + "NOT that the rule is switched off. "
+                : ". ")
             + (entry.OutsideBy > 0.5f
                 ? $"FURTHEST OUTSIDE the frame: '{entry.OutsideOwner}' by {entry.OutsideBy:F0} px. "
                 : "Nothing reaches outside the frame. ")

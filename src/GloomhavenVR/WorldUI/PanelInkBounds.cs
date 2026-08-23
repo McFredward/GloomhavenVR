@@ -22,11 +22,40 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para><b>WHAT IT MEASURES, AND WHAT IT DELIBERATELY DOES NOT.</b> The walk starts at
 /// <see cref="ConvertedPanel.Target"/> — the GAME's window root — and NOT at the host. That is the
-/// single most important line in this file: the mod's own chrome (<c>GloomhavenVR.ModalCloseX</c>,
-/// which <c>ModalCloseButton.Build</c> parents to the HOST rect at anchor (1,1), and the supersample
-/// quad, parented to the host as well) rides the FRAME's corners on purpose. Unioning the mod's own
-/// frame-anchored furniture would re-derive the frame and this class would answer its own question
-/// with the number it was written to replace.</para>
+/// single most important line in this file: the mod's own frame-anchored chrome rides the FRAME's
+/// corners on purpose, and unioning it would re-derive the frame, so this class would answer its own
+/// question with the number it was written to replace. Since the walk starts at the target, that
+/// exclusion is achieved BY THE STARTING POINT and not by any test — see
+/// <see cref="ChromeNames"/> for the proof, window by window, and for what the name test that used
+/// to stand here actually excluded.</para>
+///
+/// <para><b>THE ONE THAT COST ModBuild 242 — THE MOD'S OWN OPTIONS PANE WAS NOT COUNTED AS INK.</b>
+/// User report, verbatim (2026-08-24): <i>"Im Optionsmenu-Fenster ist die ganze Zeit ein langer
+/// Greifbalken BIS ich in die VR Optionen gehe. Dort ist das nur noch ein kleiner Balken unter dem
+/// linken Teil des Menüs, siehe Optionsbalken.jpg. Hier sollte die Länge genauso sein wie wenn ich
+/// andere native Optionen im Optionsfenster öffne, ich verstehe nicht warum unser mod-eigenes Menü da
+/// nicht berücksichtigt wird."</i></para>
+///
+/// <para>THE ROOT CAUSE WAS A NAME TEST STANDING IN FOR AN ANCESTRY RULE. Through ModBuild 241 this
+/// walk skipped — SUBTREE AND ALL — every node whose name began with <c>GloomhavenVR.</c>, and
+/// <c>VROptionsTab.1.Inject.cs</c> names its injected objects <c>GloomhavenVR.OptionsTab</c> (:279),
+/// <c>GloomhavenVR.OptionsTabWindow</c> (:332), <c>GloomhavenVR.Content</c> (:373) and
+/// <c>GloomhavenVR.SubTabs</c> (:432). The pane is a CHILD of the game's own options window, so the
+/// walk reached it, matched the prefix and dropped the entire VR settings UI. The ModBuild 241
+/// hardware log measures both halves of the defect on the same window within 40 lines of each other:
+/// <list type="bullet">
+/// <item>A NATIVE tab open (line 3715): <c>the ink union spans x -796..712 (width 1508 px, centre
+/// -42)</c>, <c>56 graphic(s) unioned … 1 mod chrome object(s) excluded</c>, bar half-width 415 px.</item>
+/// <item>THE VR TAB open (line 3755): <c>the ink union spans x -783..-384 (width 399 px, centre
+/// -583)</c>, <c>42 graphic(s) unioned … 2 mod chrome object(s) excluded</c>, bar half-width 110 px —
+/// the stub in his photograph. The host rect is 1552x1080 px in both.</item>
+/// </list>
+/// The second mod-chrome object is the pane; the first is the <c>VR Optionen</c> row in the game's
+/// own category column, which the prefix test had been eating (with its label) on EVERY sample since
+/// ModBuild 236. The content fit next door disagreed the whole time and nobody laid the two lines
+/// side by side: <c>HIT RECT</c> for the same window in the same state reads <c>DRAWN CONTENT
+/// 1301x1827 px at (-132,374) from 154 visible graphic(s)</c> — because that walk applies its
+/// mod-name test PER GRAPHIC and therefore still measured the pane's game-named children.</para>
 ///
 /// <para><b>THE ONE THAT COST ModBuild 239 (<c>.planning/debug/grosser_abstand.jpg</c>).</b> Until
 /// that round <see cref="Draws"/> asked only for the graphic's OWN <c>color.a</c>, and that is the
@@ -140,6 +169,119 @@ internal static class PanelInkBounds
     /// rather than letting a silently short union move the bar.</summary>
     private const int MaxNodes = 6000;
 
+    /// <summary>
+    /// <b>MOD-OWNED OBJECTS THAT ARE NOT WINDOW CONTENT — BY NAME, ONE AT A TIME.</b> Index 0 is
+    /// "not chrome" and is never printed; every other entry is matched with <c>StartsWith</c> so the
+    /// instanced forms (<c>GloomhavenVR.PanelSS_UI Options Window_unified</c>,
+    /// <c>GloomhavenVR.AvatarTurnRing[Bruno:3]</c>) are one entry each.
+    ///
+    /// <para><b>WHY A LIST AND NOT THE PREFIX IT REPLACES.</b> The prefix answered "was this object
+    /// made by the mod", and that is not the question. The question is "is this object part of the
+    /// picture the window paints", and a mod-authored object can be either — the VR options pane is
+    /// content, a breathing focus ring is not. The prefix could not tell them apart, so it deleted the
+    /// pane; see the class comment for the two log lines that measure it.</para>
+    ///
+    /// <para><b>THE FIRST TWO ENTRIES ARE A BELT, AND THE PROOF IS WORTH WRITING DOWN.</b> They are
+    /// the two objects the old test named as its reason, and NEITHER IS REACHABLE from this walk:
+    /// <list type="bullet">
+    /// <item><c>GloomhavenVR.ModalCloseX</c> is parented to the HOST rect
+    /// (<c>ModalCloseButton.Build</c>), and <c>CanvasConversion.1.Core.cs:241</c> parents the
+    /// conversion TARGET to that same host rect — so the X is a SIBLING of this walk's root, never a
+    /// descendant of it.</item>
+    /// <item>The supersample display quad is a SCENE ROOT, not a child of the host at all
+    /// (<c>PanelSupersample.2.Capture.cs</c> <c>BuildDisplay</c>, and <c>SyncGeometry</c> says so in
+    /// as many words: "The display quad is a scene root, so its full pose is copied"). The ModBuild
+    /// 241 class comment's claim that it is "parented to the host as well" was simply wrong.</item>
+    /// </list>
+    /// The whole ModBuild 241 hardware session confirms it: <c>mod chrome object(s) excluded</c> reads
+    /// 0 on every floated window in the log — <c>New Party display</c> (13 lines), <c>Quest Log
+    /// Manager</c>, <c>UI Quest Popup</c>, <c>UI Loadout Window</c>, <c>UI Event Window</c>, <c>Map
+    /// Story Window</c>, <c>UI Map Esc Menu</c> — and 1 or 2 on exactly one, the options window, where
+    /// both were the VR options tab. The exclusion never once did its stated job. The two entries stay
+    /// anyway because they cost one <c>StartsWith</c> against a name that is not in this tree, and
+    /// because a future round that re-parents either of them under the target would otherwise
+    /// re-create ModBuild 234's "88° of arc to draw 14°" silently.</para>
+    ///
+    /// <para><b>THE REST IS THE RULE THE PREFIX WAS ACCIDENTALLY ALSO CARRYING</b>, and it is a real
+    /// one: mod-drawn PRESENTATION OVERLAY on the game's content. <c>CanvasConversion.3.Fit.cs:700-709</c>
+    /// records what it costs to measure it — <c>GloomhavenVR.FocusRing</c> / <c>GloomhavenVR.SelectionRing</c>
+    /// BREATHE (<c>Board.FocusCue</c> pulses their scale), and the 2026-08-08 log has 26 applied
+    /// re-fits of <c>Panel_InitiativeTrack</c> caught at different points of their swell, host height
+    /// oscillating 182/186/188/190 px, which the user felt as the portraits stepping up and down. The
+    /// grab bar is centred on and sized from this union, so measuring a breathing ring here would be
+    /// that defect with a handle attached. Named by TYPE of furniture, never by "the mod made it".</para>
+    ///
+    /// <para>A future round that finds a mod object wrongly counted as ink adds its NAME here, and
+    /// the log line names what it removed (<see cref="DescribeChrome"/>) so "the exclusion did
+    /// nothing" and "the exclusion ate the window" can never look alike again.</para>
+    /// </summary>
+    private static readonly string[] ChromeNames =
+    {
+        string.Empty,
+        "GloomhavenVR.ModalCloseX (the mod's close button, parented to the HOST — unreachable from here)",
+        "GloomhavenVR.PanelSS_ (the supersample display quad, a scene root — unreachable from here)",
+        "GloomhavenVR.FocusRing (breathing focus cue drawn over a portrait)",
+        "GloomhavenVR.SelectionRing (breathing selection cue drawn over a portrait)",
+        "GloomhavenVR.FocusTurnRing (breathing turn cue drawn over a portrait)",
+        "GloomhavenVR.RemoteFocusRing (a peer's focus cue drawn over a portrait)",
+        "GloomhavenVR.RemoteSelectionGlow (a peer's selection cue drawn over a portrait)",
+        "GloomhavenVR.AvatarTurnRing (a peer's turn cue drawn over a portrait)",
+        "GloomhavenVR.FocusBoardFrame (the focus frame drawn around a converted panel)",
+        "GloomhavenVR.RemoteFocusFrame (a peer's focus frame drawn around a converted panel)",
+        "GloomhavenVR.MrBacking (the mixed-reality opacity plate behind a panel)",
+    };
+
+    /// <summary>The <see cref="ChromeNames"/> prefixes, without the parenthesised explanation that
+    /// only the log wants. Built once; the entries are compile-time constants in practice.</summary>
+    private static readonly string[] ChromePrefixes = BuildChromePrefixes();
+
+    private static string[] BuildChromePrefixes()
+    {
+        var prefixes = new string[ChromeNames.Length];
+        prefixes[0] = string.Empty;
+        for (int i = 1; i < ChromeNames.Length; i++)
+        {
+            string full = ChromeNames[i];
+            int space = full.IndexOf(' ');
+            prefixes[i] = space > 0 ? full.Substring(0, space) : full;
+        }
+        return prefixes;
+    }
+
+    /// <summary>Which <see cref="ChromeNames"/> entry <paramref name="name"/> is, or 0 for window
+    /// content. One <c>StartsWith</c> per entry, and only for names that begin with the mod's own
+    /// prefix — so a game object (every node in the common case) costs exactly one comparison.</summary>
+    private static int ChromeIndexOf(string name)
+    {
+        if (!name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+            return 0;
+        for (int i = 1; i < ChromePrefixes.Length; i++)
+        {
+            if (name.StartsWith(ChromePrefixes[i], System.StringComparison.Ordinal))
+                return i;
+        }
+        return 0;
+    }
+
+    /// <summary>The chrome entries in <paramref name="mask"/>, spelled out for the log — the same
+    /// contract, for the same reason, as <c>TransientFamilies.Describe</c>.</summary>
+    internal static string DescribeChrome(int mask)
+    {
+        var sb = new System.Text.StringBuilder(96);
+        for (int i = 1; i < ChromeNames.Length; i++)
+        {
+            if ((mask & (1 << i)) == 0)
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(ChromeNames[i]);
+        }
+        return sb.Length > 0
+            ? sb.ToString()
+            : "nothing (no mod-owned overlay is inside this window — mod-AUTHORED CONTENT such as the "
+              + "VR options pane is measured as ink, which is the ModBuild 242 fix)";
+    }
+
     /// <summary>The measured ink of one window, in the host RectTransform's own local uGUI pixels —
     /// the SAME space <c>ConvertedPanel.HostRect.rect</c> is expressed in, so the two are directly
     /// comparable and the log can print both.</summary>
@@ -151,6 +293,11 @@ internal static class PanelInkBounds
         internal int Plates;
         internal int EmptyText;
         internal int ModChrome;
+        /// <summary>Bit per index of <see cref="ChromeNames"/> refused on this walk. The count alone
+        /// cannot tell "the exclusion did nothing" from "the exclusion ate the window" — which is
+        /// exactly how a <c>1 mod chrome object(s) excluded</c> on the options window read as
+        /// harmless for six builds while it was deleting the VR settings pane.</summary>
+        internal int ModChromeMask;
         /// <summary>Drawn-but-invisible: effective alpha (own colour x inherited CanvasGroup alpha)
         /// below <see cref="FaintAlphaFloor"/>. A non-zero count on a window whose union used to reach
         /// far outside its frame is this term doing the work it was added for.</summary>
@@ -262,11 +409,16 @@ internal static class PanelInkBounds
             }
 
             bool isRoot = ReferenceEquals(t, target);
-            // The mod's own furniture, wherever it was parented. Named by the convention every
-            // mod-created GameObject in this assembly follows. Counted, not silently dropped.
-            if (!isRoot && t.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+            // MOD-OWNED FURNITURE, BY NAME, ONE NAME AT A TIME (ModBuild 242). The subtree skip is
+            // kept — every entry in the table is a self-contained overlay or a frame-anchored plate,
+            // and skipping a breathing ring's children is the point — but the SET is now explicit,
+            // so a mod object that genuinely draws inside the window (the VR options pane) is ink.
+            // Counted AND NAMED, never silently dropped: see ChromeNames.
+            int chrome = isRoot ? 0 : ChromeIndexOf(t.name);
+            if (chrome != 0)
             {
                 ink.ModChrome++;
+                ink.ModChromeMask |= 1 << chrome;
                 continue;
             }
             // Foreign render subtree: not uGUI ink, drawn by another camera at its own world pose.

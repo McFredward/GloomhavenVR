@@ -269,6 +269,36 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private bool _inkPendingValid;
     private int _inkGrowthsDeferred;
     private int _inkFaint;
+    private int _inkModChromeMask;
+
+    // ---- THE CLOSE X ON THE INK (ModBuild 242) ---------------------------------------------------
+    //
+    // User report, verbatim (2026-08-24): "Wenn der Balken klein ist weil die Länge des Fensters klein
+    // ist muss auch das 'x' zum Schließen an neuen Rand oben links. Aktuell haben wir die Situation,
+    // dass das 'x' weit rechts, der Balken klein und zwischen dem linken Teil und dem X unsichtbare
+    // Collider für den Laser ist. Wenn kleineres Fenster, dann voll mit verschobenem X und ohne
+    // unsichtbaren Collider."
+    //
+    // WHY THE X IS DRIVEN FROM HERE AND NOT FROM ModalCloseButton. The plate is built once, at
+    // conversion time, by a caller that has no ink; the ink is an EVENT-DRIVEN CAPTURE owned by this
+    // class and it changes when a tab is pressed. This is the only object in the mod that holds both
+    // the committed union and a per-tick hook on the window, so it is the only place the two can be
+    // brought together without a second instrument. The geometry itself stays in ModalCloseButton
+    // (ModalCloseButton.PlaceAgainstInk), which owns the plate's size and inset — this class passes
+    // the rectangle and stores the answer for the falsifier, exactly as it does for the brass bar.
+    //
+    // THE PLATE IS RE-FOUND, NOT REMEMBERED ACROSS A REBUILD. It is a child of the game-owned host,
+    // which ModalFallback may release and re-convert under a live GrabbableModal; a cached reference
+    // would be Unity-null after that and the X would silently stop following. The probe is a
+    // direct-child Find on a host with a handful of children, gated to once every
+    // CloseXProbeStrideFrames while the plate is missing — a window that legitimately has no X (the
+    // scenario-end windows are excluded by design) therefore costs one Find every half second and
+    // never a scene sweep ([[findobjectsoftype-is-the-default-suspect]]).
+    private const int CloseXProbeStrideFrames = 30;
+    private RectTransform? _closeX;
+    private int _closeXNextProbeFrame = -1;
+    private ModalCloseButton.XPlacement _closeXPlacement;
+    private bool _closeXPlaced;
 
     // ---- THE MOUSEOVER EXEMPTION'S LEDGER (ModBuild 241) ----------------------------------------
     // Counted and named for the same reason Ink.Faint and Ink.Plates are: the next round will ask
@@ -1409,6 +1439,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _grabZone.center = new Vector3(x, y, 0f);
         _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
 
+        // THE CLOSE X RIDES THE SAME UNION AS THE BAR, on the same tick, from the same committed
+        // rectangle — so the two pieces of chrome can never disagree about where the window is.
+        SyncCloseX(hostRect);
+
         if (_inkReportDue || _inkFallbackDue)
         {
             // The falsifier is handed the two derived numbers rather than the terms to re-derive them
@@ -1419,6 +1453,32 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 intendedTopGapPx: (gap - thickness * 0.5f) / Mathf.Max(unit, 1e-9f),
                 mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f);
         }
+    }
+
+    /// <summary>
+    /// Keep the mod's close X seated against the committed ink (see the CLOSE X block). Never
+    /// throws and never writes game state: the plate is mod-owned chrome on the mod's own host, and
+    /// the only writes are its anchors and its anchored position.
+    /// </summary>
+    private void SyncCloseX(Rect hostRect)
+    {
+        if (_panel == null || !_panel.IsAlive || _panel.HostRect == null)
+            return;
+        if (_closeX == null)
+        {
+            int now = Time.frameCount;
+            if (now < _closeXNextProbeFrame)
+                return;
+            _closeXNextProbeFrame = now + CloseXProbeStrideFrames;
+            _closeX = ModalCloseButton.FindPlate(_panel);
+            if (_closeX == null)
+            {
+                _closeXPlaced = false;
+                return;
+            }
+        }
+        _closeXPlacement = ModalCloseButton.PlaceAgainstInk(_closeX, hostRect, _inkValid, _inkRect);
+        _closeXPlaced = true;
     }
 
     // ---- the ink capture ------------------------------------------------------------------------
@@ -1573,6 +1633,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkPlates = ink.Plates;
         _inkEmptyText = ink.EmptyText;
         _inkModChrome = ink.ModChrome;
+        _inkModChromeMask = ink.ModChromeMask;
         _inkTruncated = ink.Truncated;
         _inkFaint = ink.Faint;
         // Name the graphic that sets the COMMITTED envelope's bottom, which is only this sample's
@@ -1687,6 +1748,103 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         + "content is still DRAWN, and the hit rect and the capture frame still grow to cover it — it "
         + "is only barred from deciding where the brass handle goes";
 
+    /// <summary>
+    /// <b>THE ITEM-3 FALSIFIER: the frame, the ink, where the X landed, and how much of the laser's
+    /// own target rectangle is over nothing.</b> One greppable line per window per accepted report,
+    /// for EVERY window and not only the one that was photographed — item 3 is a general rule, and
+    /// item 2 is about to make the options window stop being its example. A round that only knew the
+    /// options window would read "fixed" off a window that no longer has the defect.
+    ///
+    /// <para><b>THE INTERACTIVE EXTENT IS NOT A COLLIDER, AND THIS LINE HAS TO SAY SO</b>, because
+    /// the report says "unsichtbare Collider für den Laser" and looking for a collider finds two
+    /// innocent ones. The laser's verdict on a converted window is a pure PLANE TEST:
+    /// <c>RayUguiDriver.TryIntersect</c> takes the HOST CANVAS RectTransform's four world corners of
+    /// <c>CanvasConversion.TryGetHitRect</c> (falling back to <c>rect.rect</c>) and wins the pick on
+    /// that rectangle alone, BEFORE any graphic is raycast — so a beam crossing empty transparent
+    /// frame ends there, draws its reticle there, and shadows everything behind it. Neither
+    /// <see cref="_grabZone"/> (the palm zone, which already rides the bar and therefore the ink) nor
+    /// the close plate's <c>HitPlane</c> (34x34 px, and it now rides the ink too) is that surface.
+    /// The number below is the part of that rectangle that lies outside what the window draws.</para>
+    ///
+    /// <para>Narrowing the hit rect itself is NOT in this class and not in this lane: it is
+    /// <c>CanvasConversion.3.Fit.cs</c>'s <c>HitRects</c> commit, whose stated contract is
+    /// <c>Content ∪ Host</c> — "never NARROWER than the frame … the correct contract for a ray test".
+    /// Changing a contract needs the lane that owns it; the proposed patch is written out in
+    /// <c>.planning/debug/laneI-out-of-lane.diff</c>. What this line does is make the cost of the
+    /// current contract a number rather than an impression.</para>
+    /// </summary>
+    private void ReportClosePlacement(Rect hostRect, float mmPerPx)
+    {
+        Rect hit = hostRect;
+        string hitSource = "the HOST RECT (this window has no committed hit rect, so the laser tests "
+                           + "the frame itself)";
+        if (_panel != null && _panel.IsAlive && _panel.HostCanvas != null
+            && CanvasConversion.TryGetHitRect(_panel.HostCanvas, out Rect committed)
+            && committed.width > 0f && committed.height > 0f)
+        {
+            hit = committed;
+            hitSource = "CanvasConversion.TryGetHitRect (Content ∪ Host, the fit's own commit)";
+        }
+
+        string x = !_closeXPlaced
+            ? "THE X: this window has none (the scenario-end windows are excluded by design, and a "
+              + "window whose plate has not been built yet reports the same thing)"
+            : $"THE X: its top-right corner is at ({_closeXPlacement.Corner.x:F0},"
+              + $"{_closeXPlacement.Corner.y:F0}) px, seated against "
+              + (_closeXPlacement.OnInk
+                  ? "THE INK"
+                  : _inkValid
+                      ? "THE FRAME because the ink reaches the frame's own corner (both axes clamped) "
+                        + "— which is the case that is numerically unchanged from ModBuild 241"
+                      : "THE FRAME as a FALLBACK, because there is no committed ink union for this "
+                        + "window; see the GRAB BAR line's 'THE INK UNION COULD NOT BE MEASURED' "
+                        + "variant on this same tick for why")
+              + (_closeXPlacement.ClampedRight ? ", x clamped to the frame" : string.Empty)
+              + (_closeXPlacement.ClampedTop ? ", y clamped to the frame" : string.Empty);
+
+        string dead;
+        if (!_inkValid)
+        {
+            dead = "DEAD INTERACTIVE AREA: not computable without an ink union — every pixel of the "
+                   + "hit rect is treated as live, which is the pre-ModBuild-242 behaviour";
+        }
+        else
+        {
+            float left = Mathf.Max(0f, _inkRect.xMin - hit.xMin);
+            float right = Mathf.Max(0f, hit.xMax - _inkRect.xMax);
+            float below = Mathf.Max(0f, _inkRect.yMin - hit.yMin);
+            float above = Mathf.Max(0f, hit.yMax - _inkRect.yMax);
+            float hitArea = Mathf.Max(hit.width * hit.height, 1f);
+            float liveW = Mathf.Max(0f, Mathf.Min(hit.xMax, _inkRect.xMax) - Mathf.Max(hit.xMin, _inkRect.xMin));
+            float liveH = Mathf.Max(0f, Mathf.Min(hit.yMax, _inkRect.yMax) - Mathf.Max(hit.yMin, _inkRect.yMin));
+            float deadPct = 100f * (1f - liveW * liveH / hitArea);
+            dead = $"DEAD INTERACTIVE AREA: {deadPct:F0}% of the hit rect lies outside the ink "
+                   + $"— margins L {left:F0} px = {left * mmPerPx:F0} mm, R {right:F0} px = "
+                   + $"{right * mmPerPx:F0} mm, D {below:F0} px = {below * mmPerPx:F0} mm, U "
+                   + $"{above:F0} px = {above * mmPerPx:F0} mm. A laser crossing any of those strips "
+                   + "lands on this window, ends there and shadows whatever is behind it";
+        }
+
+        VRLog.Info("WorldUI",
+            $"MODAL CLOSE X ON THE INK for '{_logName}': the FRAME spans x {hostRect.xMin:F0}.."
+            + $"{hostRect.xMax:F0} and y {hostRect.yMin:F0}..{hostRect.yMax:F0} "
+            + $"({hostRect.width:F0}x{hostRect.height:F0} px); the INK "
+            + (_inkValid
+                ? $"spans x {_inkRect.xMin:F0}..{_inkRect.xMax:F0} and y {_inkRect.yMin:F0}.."
+                  + $"{_inkRect.yMax:F0} ({_inkRect.width:F0}x{_inkRect.height:F0} px)"
+                : "IS NOT MEASURED")
+            + $"; the LASER TARGET is x {hit.xMin:F0}..{hit.xMax:F0} and y {hit.yMin:F0}..{hit.yMax:F0} "
+            + $"({hit.width:F0}x{hit.height:F0} px) from {hitSource}. {x}. {dead}. HOW TO READ IT. "
+            + "Three rectangles that agree means a window whose picture fills its frame, and every "
+            + "term of this round is a no-op on it BY CONSTRUCTION — an unchanged reading there is "
+            + "evidence, not an absence of it. A LASER TARGET much wider than the INK is the user's "
+            + "'unsichtbare Collider' as one number, and it is NOT a collider: it is the host canvas "
+            + "plane RayUguiDriver.TryIntersect tests, whose rectangle is CanvasConversion's "
+            + "Content ∪ Host commit and is contractually never narrower than the frame. An X seated "
+            + "against THE FRAME while the ink is much smaller than the frame is this round's own "
+            + "failure and nothing else's.");
+    }
+
     private void ReportBarPlacement(Rect hostRect, float unit, float intendedTopGapPx, float mmPerPx)
     {
         _inkReportDue = false;
@@ -1700,6 +1858,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             return;
         }
         _inkNextReportAllowed = Time.realtimeSinceStartup + InkReportThrottleSeconds;
+
+        // ONE LINE PER WINDOW PER ACCEPTED REPORT, on the SAME throttle as the bar's, whether or not
+        // the ink measured. It is emitted BEFORE the bar's own line and before any of that method's
+        // three exits, so a window that cannot measure its ink still reports where its X went.
+        ReportClosePlacement(hostRect, mmPerPx);
 
         // Back out of frame-local metres into the window's own authored px — the unit the complaint
         // is in, and the unit the capture log quotes 'Rewards' at (-255,-913)-(284,-851) in.
@@ -1749,7 +1912,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         string census = $"{_inkGraphics} graphic(s) unioned, {_inkPlates} full-frame plate(s), "
                         + $"{_inkFaint} drawn-but-invisible graphic(s) (effective alpha under the fit's "
                         + $"floor), {_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) "
-                        + "excluded"
+                        + $"excluded — the chrome was {PanelInkBounds.DescribeChrome(_inkModChromeMask)}"
                         + (_inkTruncated ? ", WALK TRUNCATED at the node budget" : string.Empty)
                         + "; " + MouseoverLedger();
         string measurement =
@@ -1849,5 +2012,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkTransientMask = 0;
         _inkSigTransientChildren = 0;
         _inkSigTransientLife = 0;
+        _inkModChromeMask = 0;
+        // The plate belongs to the game-owned host, which the caller releases separately; dropping
+        // the reference is all this class may do with it. A re-converted window re-finds its own.
+        _closeX = null;
+        _closeXPlaced = false;
+        _closeXNextProbeFrame = -1;
+        _closeXPlacement = default;
     }
 }

@@ -7,8 +7,9 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// Item 3c: a small mod-drawn X (close) button pinned to the TOP-RIGHT corner of a floated
-/// menu window's world-space host, so the user can dismiss the window directly (in addition to
+/// Item 3c: a small mod-drawn X (close) button pinned to the TOP-RIGHT corner of what a floated
+/// menu window DRAWS (its frame's top-right corner until ModBuild 242 — see the ModBuild 242
+/// paragraph below), so the user can dismiss the window directly (in addition to
 /// the modal escape chord, <see cref="ModalFallback.TickEscapeChord"/>). It closes the window
 /// through the game's OWN escape/hide path (<see cref="ModalFallback.CloseFloatedWindow"/> →
 /// <c>UIWindow.Escape()</c>/<c>Hide()</c>), so game state observes the close normally.
@@ -18,8 +19,9 @@ namespace GloomhavenVR.WorldUI;
 /// already registered with <see cref="UguiPokeSurfaces"/> and hit by the dominant-hand laser
 /// (RayUguiDriver), so the fingertip poke AND the laser drive this button's onClick through the
 /// same <c>ExecuteEvents</c> path as every other converted widget — nothing extra to register.
-/// Anchored to the host's top-right (anchor 1,1), so it tracks the host rect as the content fit
-/// resizes it. Moved onto the dedicated mod layer with the rest of the host (so only the HMD head
+/// Anchored to the host rect's CENTRE at a computed offset (<see cref="PlaceAgainstInk"/>), so it
+/// tracks the window as the content fit resizes it AND as what the window draws changes under a tab
+/// press. Moved onto the dedicated mod layer with the rest of the host (so only the HMD head
 /// camera draws it — no UI-Camera double-draw). Because it lives on the host — not the game tree —
 /// it is destroyed with the host on <see cref="CanvasConversion.Release"/> and needs no teardown
 /// wiring; the exact 2D restore is untouched.
@@ -36,11 +38,59 @@ namespace GloomhavenVR.WorldUI;
 /// the mod's own (since retired) free-floating settings panel, which the user liked. The glyph
 /// is mathematically centred on the plate (both bars anchored + pivoted at the plate centre,
 /// zero offset).
+///
+/// <para><b>ModBuild 242 — THE X FOLLOWS WHAT THE WINDOW DRAWS, NOT WHAT IT FRAMES.</b> User report,
+/// verbatim (2026-08-24): <i>"Wenn der Balken klein ist weil die Länge des Fensters klein ist muss
+/// auch das 'x' zum Schließen an neuen Rand oben links. Aktuell haben wir die Situation, dass das 'x'
+/// weit rechts, der Balken klein und zwischen dem linken Teil und dem X unsichtbare Collider für den
+/// Laser ist. Wenn kleineres Fenster, dann voll mit verschobenem X und ohne unsichtbaren
+/// Collider."</i></para>
+///
+/// <para>THE ROOT CAUSE IS THE SAME PREMISE ModBuild 234 WROTE DOWN FOR THE GRAB BAR AND 239 FOR THE
+/// RE-FACE PIVOT, arriving at the third piece of window chrome: the button was anchored at (1,1) of
+/// the HOST rect with a fixed inset, and a converted window's host rect is frequently mostly empty
+/// transparent frame. In the ModBuild 241 hardware log the options window is a 1552x1080 px frame
+/// whose ink, with the VR tab open, is <c>x -783..-384</c> — so the X sat at host-local (769,533)
+/// while the drawn picture ended at x=-384: 1153 px = 891 mm of nothing between the window and its
+/// own close button, which is what he photographed in <c>.planning/debug/Optionsbalken.jpg</c>.</para>
+///
+/// <para><b>WHICH CORNER, AND THE AMBIGUITY THAT HAD TO BE FLAGGED RATHER THAN GUESSED AWAY.</b> He
+/// wrote "an neuen Rand oben links", and this button has always been at the TOP-RIGHT. Reading the
+/// photograph reconciles the two: the ink IS the left column, so the ink's own top-RIGHT corner is in
+/// the upper-LEFT region of the frame. <see cref="PlaceAgainstInk"/> therefore implements <b>the
+/// ink's own top-right corner</b> — the same corner the button has always used, measured against the
+/// ink instead of the frame. If he meant the ink's top-LEFT literally, that is the one line marked
+/// THE CORNER in that method and nothing else changes.</para>
+///
+/// <para><b>OUTSIDE THE INK, NOT INSET INTO IT.</b> Against the FRAME an inset is free, because the
+/// frame is a transparent margin. Against the INK it is not: the ink is a tight box around what is
+/// painted, so any inset lands the plate on a drawn row. The button is therefore placed with its
+/// whole width clear of the ink's right edge (<see cref="InkGapPx"/>) and its top edge level with the
+/// ink's top — the same convention the brass bar already uses one gap BELOW the ink's bottom. It is
+/// then clamped back inside the host rect, which is what makes the change provably free for every
+/// window whose ink fills its frame: the clamp bites on both axes and the result is
+/// <c>(xMax - InsetPx, yMax - InsetPx)</c>, bit-for-bit the shipped placement.</para>
+///
+/// <para><b>AND IT TAKES THE INVISIBLE HIT PLANE WITH IT.</b> The <c>HitPlane</c> below is a 34x34 px
+/// raycast target on its own elevated canvas, registered as a nested poke surface; anchored to the
+/// plate, it followed the frame corner into empty forest and is one of the two invisible interactive
+/// surfaces in his report. The OTHER one is not in this file and not a collider at all — see
+/// <c>GrabbableModal.ReportClosePlacement</c>, which measures it.</para>
 /// </summary>
 internal static class ModalCloseButton
 {
+    /// <summary>The plate's GameObject name — the handle <c>GrabbableModal</c> re-finds it by, and
+    /// the first entry of <c>PanelInkBounds.ChromeNames</c>. One literal, two readers.</summary>
+    internal const string ObjectName = "GloomhavenVR.ModalCloseX";
+
     // Small + tasteful (was 46 px). Sits inset from the host's top-right corner.
     private const float ButtonSizePx = 34f;
+
+    /// <summary>Clear space between the ink's right edge and the plate's LEFT edge, in the window's
+    /// own authored px (~9 mm at the 0.773 mm/px the ModBuild 241 log reports for the options
+    /// window). Small enough to read as belonging to the window, large enough that the plate never
+    /// touches a drawn row.</summary>
+    private const float InkGapPx = 12f;
 
     /// <summary>How far (host px ~ mm) the X floats toward the viewer, so it never z-fights the
     /// window's coplanar content. Imperceptible in the headset. NOTE (MP round 2, "immer noch kein
@@ -130,7 +180,11 @@ internal static class ModalCloseButton
             // not be told apart from "no X attached" in the hardware log. One line per attach.
             VRLog.Info("WorldUI", $"MODAL CLOSE (X button): attached to '{window.name}' (ID {window.ID}) " +
                                   "- top-right plate riding the panel's draw order +2 (over the window's " +
-                                  "own backing, still under any panel that is genuinely nearer).");
+                                  "own backing, still under any panel that is genuinely nearer). It is " +
+                                  "built at the FRAME's top-right corner and re-seated against the ink's " +
+                                  "from GrabbableModal's follow tick as soon as a union exists — the " +
+                                  "MODAL CLOSE X ON THE INK line for this window says which of the two " +
+                                  "is deciding it right now.");
         }
         catch (Exception ex)
         {
@@ -139,16 +193,104 @@ internal static class ModalCloseButton
         }
     }
 
+    /// <summary>
+    /// WHERE THE PLATE ENDED UP, so the falsifier can state it without re-deriving it from the same
+    /// terms that produced it (<c>[[a-claim-must-not-measure-itself]]</c>).
+    /// </summary>
+    internal struct XPlacement
+    {
+        /// <summary>Host-local uGUI px of the plate's TOP-RIGHT corner — its pivot.</summary>
+        internal Vector2 Corner;
+        /// <summary>The ink moved the plate off the frame's own corner on at least one axis.</summary>
+        internal bool OnInk;
+        /// <summary>The ink reached (or passed) the frame's right edge, so the frame decided x.</summary>
+        internal bool ClampedRight;
+        /// <summary>The ink reached (or passed) the frame's top edge, so the frame decided y.</summary>
+        internal bool ClampedTop;
+    }
+
+    /// <summary>
+    /// Seat <paramref name="rect"/>'s top-right corner against the window's INK when there is one,
+    /// and against its FRAME when there is not. Idempotent and allocation-free: the caller may run it
+    /// every tick, and it only writes when the corner actually moved.
+    ///
+    /// <para>THE FRAME PATH IS THE SHIPPED PLACEMENT, EXACTLY. <c>(xMax - InsetPx, yMax - InsetPx)</c>
+    /// is what anchor (1,1) + <c>anchoredPosition (-InsetPx,-InsetPx)</c> resolved to, so a window
+    /// with no measured ink — and every window whose ink fills its frame, through the clamp — is
+    /// numerically unchanged. That is what makes an unchanged reading on those windows evidence.</para>
+    ///
+    /// <para>THE UPWARD CLAMP IS NOT COSMETIC. An ink union may reach far ABOVE the frame: the same
+    /// log's options window measures <c>y -540..1287</c> against a frame that ends at y=540, because
+    /// a <c>Container/Pointer</c> is drawn 747 px above it. Seating the X at <c>ink.yMax</c> would
+    /// hang it 747 px over the window's own top, off in the room. The rule is the mirror of the brass
+    /// bar's ("never raised above the frame's own bottom edge, whatever the ink says",
+    /// <c>GrabbableModal</c>): the X is never pushed above the frame's own top edge. The lower clamp
+    /// is a survival floor for a degenerate ink — the plate must stay inside the frame, because it is
+    /// only reachable through a laser hit on the host plane (its canvas is a NESTED poke surface).</para>
+    /// </summary>
+    internal static XPlacement PlaceAgainstInk(RectTransform rect, Rect hostRect, bool inkValid,
+        Rect ink)
+    {
+        var placement = default(XPlacement);
+        float frameX = hostRect.xMax - InsetPx;
+        float frameY = hostRect.yMax - InsetPx;
+        float cornerX = frameX;
+        float cornerY = frameY;
+        if (inkValid && ink.width > 0f && ink.height > 0f)
+        {
+            // THE CORNER. `ink.xMax + gap + width` puts the plate's LEFT edge one gap clear of the
+            // ink's RIGHT edge; `ink.yMax` levels its top with the ink's top. Flipping this to the
+            // ink's top-LEFT is `ink.xMin - InkGapPx` here and nothing else (see the class comment's
+            // ambiguity note).
+            float wantX = ink.xMax + InkGapPx + ButtonSizePx;
+            float wantY = ink.yMax;
+            placement.ClampedRight = wantX >= frameX;
+            placement.ClampedTop = wantY >= frameY;
+            cornerX = Mathf.Clamp(wantX, hostRect.xMin + ButtonSizePx, frameX);
+            cornerY = Mathf.Clamp(wantY, hostRect.yMin + ButtonSizePx, frameY);
+            placement.OnInk = !placement.ClampedRight || !placement.ClampedTop;
+        }
+        placement.Corner = new Vector2(cornerX, cornerY);
+
+        // Anchored to the host rect's CENTRE rather than its top-right corner, because the corner is
+        // now a computed point and not a corner. anchoredPosition is a Vector2 write: it leaves
+        // anchoredPosition3D.z alone, so the viewer nudge Build applies below survives every re-seat.
+        var anchor = new Vector2(0.5f, 0.5f);
+        Vector2 wanted = placement.Corner - hostRect.center;
+        if (rect.anchorMin != anchor || rect.anchorMax != anchor)
+        {
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
+        }
+        if ((rect.anchoredPosition - wanted).sqrMagnitude > 0.0001f)
+            rect.anchoredPosition = wanted;
+        return placement;
+    }
+
+    /// <summary>The plate on <paramref name="panel"/>'s host, or null when this window has none (the
+    /// scenario-end windows are deliberately excluded, and a window converted before
+    /// <see cref="Attach"/> ran has not built one yet). A direct-child lookup on a host with a
+    /// handful of children — never a scene sweep.</summary>
+    internal static RectTransform? FindPlate(ConvertedPanel? panel)
+    {
+        if (panel == null || panel.HostRect == null)
+            return null;
+        Transform? t = panel.HostRect.Find(ObjectName);
+        return t as RectTransform;
+    }
+
     private static void Build(ConvertedPanel panel, RectTransform host, Canvas hostCanvas, int layer,
         Action onClose)
     {
-        var go = new GameObject("GloomhavenVR.ModalCloseX") { layer = layer };
+        var go = new GameObject(ObjectName) { layer = layer };
         var rect = go.AddComponent<RectTransform>();
         rect.SetParent(host, worldPositionStays: false);
-        rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f); // top-right corner of the host rect
         rect.pivot = new Vector2(1f, 1f);
         rect.sizeDelta = new Vector2(ButtonSizePx, ButtonSizePx);
-        rect.anchoredPosition = new Vector2(-InsetPx, -InsetPx);
+        // The FRAME placement, byte-for-byte what anchor (1,1) + anchoredPosition (-7,-7) resolved
+        // to. GrabbableModal re-seats it against the ink from its follow tick once a union exists;
+        // going through the same method here means the two can never drift apart.
+        PlaceAgainstInk(rect, host.rect, inkValid: false, ink: default);
         rect.localScale = Vector3.one;
         rect.localRotation = Quaternion.identity;
         rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
