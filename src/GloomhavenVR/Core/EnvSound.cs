@@ -3010,13 +3010,23 @@ internal static class EnvSound
     private const float NightCallSkip = 0.22f;
 
     // =============================================================================================
-    //  THE NIGHT CALLS' DECK — ModBuild 241. SEVEN ANIMALS ON THE RATE TWO USED TO HAVE.
+    //  THE NIGHT CALLS' DECK — ModBuild 241, GROWN AT 242. TEN ANIMALS ON THE RATE TWO USED TO HAVE.
     // =============================================================================================
     //
-    //  USER REQUEST, 2026-08-24, verbatim, and the bracket is the acceptance criterion:
+    //  USER REQUESTS, 2026-08-24, verbatim, and both brackets are acceptance criteria:
     //
     //      "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in der Nacht passen für
     //       mehr Varianz (nicht mehr Häufigkeit)."
+    //
+    //      "Mach bei den Waldsound gerne auch noch ein paar gruseligere Tiersounds dazu wie man es
+    //       aus der Pop-Kultur kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten
+    //       Sounds."
+    //
+    //  ModBuild 242 ANSWERS THE SECOND WITH THE MACHINERY THE FIRST BUILT, and that is the whole of
+    //  its change to this file: three more rows in NightCalls, three more cards in NightCallDeck,
+    //  and a re-deal of the shares so that ten voices are not two voices in a bigger deck. THE
+    //  SCHEDULE IS STILL NOT TOUCHED. 241's report closes with "A ROUND THAT WANTS MORE VARIETY MUST
+    //  ADD CARDS, NEVER SLOTS"; this is that round, and that is what it did.
     //
     //  THE THREE NUMBERS THAT SET THE RATE ARE NOT TOUCHED BY THIS ROUND, AND THIS PARAGRAPH IS
     //  HERE SO THE NEXT ONE DOES NOT "IMPROVE" THE VARIETY BY TURNING THEM UP. NightCallSlot (41 s),
@@ -3024,41 +3034,72 @@ internal static class EnvSound
     //  — a realised mean gap of about 53 s, at most one call per slot, exactly as before. What
     //  changed is one expression in TickNightCall: `Haunt.Hash(slot, ...) < NightCallOwlShare`,
     //  which chose between two clips, is now `EnvSoundSchedule.DeckDraw(slot, NightCallDeck, ...)`,
-    //  which chooses between SEVEN. Same slots, same skips, same waiting time, same one-shot voice,
+    //  which chooses between TEN. Same slots, same skips, same waiting time, same one-shot voice,
     //  same number of events per minute — a bigger vocabulary spoken at the same rate.
     //
-    //  THE FIVE NEW ANIMALS AND WHY EACH IS TELLABLE FROM THE OTHER SIX are argued in
-    //  EnvSound.Bank.cs under THE WOOD'S VOCABULARY, with the measured centroid/spread/attack table
-    //  and the rejected candidates (a nightjar, a vixen's scream, a wood pigeon, crickets again).
-    //  This file owns the other half: how often, from where, and at what level.
+    //  THE ANIMALS AND WHY EACH IS TELLABLE FROM THE OTHERS are argued in EnvSound.Bank.cs, under
+    //  THE WOOD'S VOCABULARY (the 241 five) and THE EERIE REGISTER (the 242 three), with the
+    //  measured centroid/spread/attack/flatness table and the rejected candidates — a nightjar, a
+    //  vixen's and a hare's scream, a wood pigeon, a bittern, a woodpecker, a wing pass, and a
+    //  continuous cricket bed. This file owns the other half: how often, from where, and at what
+    //  level.
     //
     //  WHY A DECK RATHER THAN A WEIGHTED DRAW — the full argument, with the measurements, is in
-    //  EnvSoundSchedule.DeckDraw. In one line: a weighted draw over these seven shares repeats
-    //  itself back-to-back 17.19% of the time, the deck does it 0.0723% of the time, and a repeat
-    //  is the single thing that makes a synthesized wood sound synthesized.
+    //  EnvSoundSchedule.DeckDraw. In one line: a weighted draw over these ten shares repeats itself
+    //  back-to-back 12.50% of the time, the deck does it 0.0320% of the time, and a repeat is the
+    //  single thing that makes a synthesized wood sound synthesized.
     //
-    //  IT IS ALSO WHAT MAKES A RARE ANIMAL RARE RATHER THAN ABSENT. The fox and the roe deer are one
-    //  card each in sixteen: about one per 14 minutes of level time, and — because a deck is dealt
-    //  rather than rolled — never more than 31 calls apart. A weighted draw with the same share
-    //  would have had an unbounded drought, which in a two-hour session is the difference between a
-    //  rare sound and a sound the user never hears and reports as missing.
+    //  IT IS ALSO WHAT MAKES A RARE ANIMAL RARE RATHER THAN ABSENT, and at ModBuild 242 that stopped
+    //  being a nicety and became the design. The fox, the roe deer, the WOLF and the BARN OWL are
+    //  one card each in twenty: about one per 17.7 minutes of level time and — because a deck is
+    //  dealt rather than rolled — never more than 39 calls apart, which the construction bounds at
+    //  2m-1 whatever the draws do. "Ein paar gruseligere Tiersounds ... aber auch nicht
+    //  aufdringlich" is a request for a rare register, and a weighted draw cannot deliver one: its
+    //  drought is unbounded, so a two-hour session either never hears the wolf (and it is reported
+    //  as missing) or hears two in three minutes (and it is aufdringlich).
 
-    /// <summary>THE DECK. Sixteen cards, as indices into <see cref="NightCalls"/>, and the
-    /// multiplicities ARE the shares: the deal is exact, not statistical.
+    /// <summary>THE DECK. <b>TWENTY cards at ModBuild 242, up from sixteen</b>, as indices into
+    /// <see cref="NightCalls"/>, and the multiplicities ARE the shares: the deal is exact, not
+    /// statistical. The three new cards are APPENDED and nothing is renumbered — a row inserted in
+    /// the middle would deal a fox and play an owl.
     ///
-    /// <para><b>WHY THESE SIXTEEN.</b> The tawny owl keeps most of the wood — the hoot (4) and the
-    /// female's ke-wick (3) together are 43.75% against the 55% the hoot alone had, so the bird the
-    /// user asked for by name ("Im Wald mal ne Eule oder ähnliches die ruft") is still what the wood
-    /// mostly is, now with two voices instead of one. The far bird keeps its 3. The owlet's beg and
-    /// the corvid are 2 each: real but not common. The fox and the roe deer are ONE each, because
-    /// both are startling — a bark is the opposite of "nie aufdringlich" if it happens every third
-    /// minute — and because a sound you hear twice an evening is an event, while a sound you hear
-    /// every minute is a bed.</para>
+    /// <para><b>WHY THESE TWENTY, AND WHY THE TWO ORIGINALS COME DOWN.</b> Twenty is chosen so the
+    /// shares are exact twentieths, which is also what makes this table readable:</para>
+    /// <code>
+    ///   Owl         4   20 %      the tawny owl's hoot        one per  4.4 min
+    ///   KeWick      3   15 %      the same bird's ke-wick     one per  5.9 min
+    ///   NightBird   3   15 %      the small bird further off  one per  5.9 min
+    ///   OwletBeg    2   10 %      the owlet's beg             one per  8.8 min
+    ///   Raven       2   10 %      the corvid on its roost     one per  8.8 min
+    ///   Stridulate  2   10 %      one insect, twice           one per  8.8 min
+    ///   Fox         1    5 %      the fox                     one per 17.7 min
+    ///   RoeDeer     1    5 %      the roe deer                one per 17.7 min
+    ///   Howl        1    5 %      the wolf                    one per 17.7 min
+    ///   BarnOwl     1    5 %      the barn owl                one per 17.7 min
+    /// </code>
+    /// <para>The hoot goes 25% -&gt; 20% and the far bird 18.75% -&gt; 15%, which is the point of a
+    /// re-deal: with ten voices, two of them holding 44% of the wood would be the old two-clip
+    /// problem wearing a bigger deck. The tawny owl is still the wood's signature bird at 35% across
+    /// its two voices (down from 43.75%), because the user named it by name ("Im Wald mal ne Eule
+    /// oder ähnliches die ruft") and a wood whose owl has become rare has answered a different
+    /// request.</para>
     ///
-    /// <para>SIXTEEN AND NOT SEVEN: a deck of exactly one of each would make the sequence a
-    /// permutation, i.e. every animal exactly once per seven calls, which is both wrong for the
-    /// weights and audible as a rota. Sixteen is the smallest length that carries these seven shares
-    /// in whole cards.</para></summary>
+    /// <para><b>THE TWO EERIE CARDS ARE ONE EACH, AND THE DROUGHT IS THE POINT.</b> "Ein paar
+    /// gruseligere Tiersounds ... aber auch nicht aufdringlich" is a request for a register, not for
+    /// a frequency: a wolf heard six times in a two-hour session is a wood with a wolf in it, and one
+    /// heard every third minute is a soundtrack. Because this is a DECK and not a weighted draw the
+    /// rarity is bounded at both ends — 5% exactly, and never more than 39 calls apart (measured over
+    /// 200,000 draws; the construction's hard bound is 2m-1 = 39). A weighted draw with the same
+    /// share has an unbounded drought, which in one session is the difference between a rare sound
+    /// and a sound the user reports as missing.</para>
+    ///
+    /// <para><b>AND THE INSECT IS TWO.</b> It is the commonest real sound in a summer wood and the
+    /// quietest card here, so 10% is the share that makes it present without making it a floor —
+    /// 0.72 s of insect about every nine minutes. The argument for it being a CARD at all rather
+    /// than a second, faster channel of its own is in <c>EnvSound.Bank.cs</c> under THE INSECT, AS A
+    /// CARD, and it is short: a second channel is more events per minute by construction, which is
+    /// what he ruled out in brackets one round ago, and at any rate worth having it becomes the bed
+    /// this room has now deleted three times.</para></summary>
     private static readonly byte[] NightCallDeck =
     {
         0, 0, 0, 0,   // the tawny owl's hoot
@@ -3068,6 +3109,9 @@ internal static class EnvSound
         4, 4,         // the corvid on its roost
         5,            // the fox
         6,            // the roe deer
+        7,            // the wolf, far off          — ModBuild 242
+        8,            // the barn owl's screech     — ModBuild 242
+        9, 9,         // one insect stridulating    — ModBuild 242
     };
 
     /// <summary>Separates this deck's shuffle stream from any other deck's. Arbitrary but FIXED: a
@@ -3125,19 +3169,30 @@ internal static class EnvSound
     /// the two shipped rows exactly):</para>
     /// <code>
     ///                   gain    min m    ring authored   distance      effective       mean
-    ///   Owl   (223)    0.050     8.0        7 .. 12      4.0..12.6    0.050..0.032     0.044
-    ///   Bird  (223)    0.032    10.0       10 .. 18      6.6..17.8    0.032..0.018     0.025
-    ///   KeWick         0.042     8.0        7 .. 13      4.0..13.5    0.042..0.025     0.035
-    ///   Raven          0.038    11.0       12 .. 20      8.3..19.5    0.038..0.021     0.028
-    ///   Fox            0.034     8.0        8 .. 16      4.9..16.1    0.034..0.017     0.024
-    ///   RoeDeer        0.034     9.0       11 .. 20      7.6..19.5    0.034..0.016     0.021
-    ///   OwletBeg       0.030    10.0        9 .. 16      5.8..16.1    0.030..0.019     0.025
+    ///   Owl   (223)    0.050     8.0        7 .. 12      3.0..15.0    0.050..0.027     0.041
+    ///   Bird  (223)    0.032    10.0       10 .. 18      6.3..20.8    0.032..0.015     0.023
+    ///   KeWick         0.042     8.0        7 .. 13      3.0..15.9    0.042..0.021     0.033
+    ///   Raven          0.038    11.0       12 .. 20      8.1..22.6    0.038..0.019     0.026
+    ///   Fox            0.034     8.0        8 .. 16      3.4..17.8    0.034..0.015     0.024
+    ///   RoeDeer        0.034     9.0       11 .. 20      5.8..21.3    0.034..0.014     0.021
+    ///   OwletBeg       0.030    10.0        9 .. 16      5.2..18.8    0.030..0.016     0.024
     /// </code>
-    /// <para>Every new peak is below the owl's 0.050 and every new mean is below its 0.044. The two
+    /// <para>Every new peak is below the owl's 0.050 and every new mean is below its 0.041. The two
     /// with a FAST ATTACK are the two quietest of the five on purpose: the fox (9 ms) and the roe
     /// deer (5 ms) are the only cues in this room the ear can be startled by, and the bank's one
     /// design law is that the frightening sound is never the loud one. They are also seated on the
     /// FAR half of their rings for the same reason.</para>
+    ///
+    /// <para><b>THE NUMBERS IN THE THREE RIGHT-HAND COLUMNS WERE RE-MEASURED AT ModBuild 242 AND
+    /// THEY MOVED, so the older table is not silently left standing beside a new one taken a
+    /// different way.</b> The 241 round produced them from a script that did not survive it; the
+    /// model is now <c>perch_levels()</c> in <c>.planning/envsound-replica/room.py</c>, which states
+    /// its assumptions (player uniform in a 4.6 m disc, ears at 1.60 m, distance in three dimensions
+    /// through <c>AuthoredToPerceived</c>) and prints every row from one instrument. It reproduces
+    /// the ModBuild 223 owl's mean of 0.041 exactly and the bird's to 0.003. What changed is the
+    /// FLOOR column — a 3-D distance with the player free to stand off-centre reaches further than
+    /// the older model allowed — and the ORDER of the rows is untouched, which is the only thing
+    /// this table is used to decide.</para>
     /// </summary>
     private const float KeWickGain = 0.042f;
     private const float KeWickMinMeters = 8f;
@@ -3154,6 +3209,44 @@ internal static class EnvSound
     private const float OwletGain = 0.030f;
     private const float OwletMinMeters = 10f;
     private const float OwletMaxMeters = 34f;
+
+    /// <summary>
+    /// THE THREE EERIE CALLS' LEVELS — ModBuild 242 — AND THEY ARE THE THREE QUIETEST CARDS IN THE
+    /// DECK. <b>Not one of them reaches the level of the quietest call that was already there.</b>
+    ///
+    /// <para>THAT IS THE WHOLE ANSWER TO "gruseliger, aber auch nicht aufdringlich", together with
+    /// the attack times in <c>EnvSound.Bank.cs</c>: the register goes up and the level goes DOWN.
+    /// Measured by the same instrument as the table above, over 200,000 realisations of the ring
+    /// draw plus the player's own position:</para>
+    /// <code>
+    ///                   gain    min m    ring authored   distance      effective       mean
+    ///   Owl   (223)    0.050     8.0        7 .. 12      3.0..15.0    0.050..0.027     0.041
+    ///   OwletBeg (241) 0.030    10.0        9 .. 16      5.2..18.8    0.030..0.016     0.024
+    ///   BarnOwl        0.028    12.0       12 .. 20      7.3..22.0    0.028..0.015     0.022
+    ///   Howl           0.026    12.0       16 .. 24     10.2..24.7    0.026..0.013     0.017
+    ///   Stridulate     0.022     9.0        7 .. 11      2.5..13.5    0.022..0.015     0.021
+    /// </code>
+    /// <para>The howl is the quietest thing the wood can do at its mean (0.017 against the owl's
+    /// 0.041 — 7.6 dB down) and it is the FARTHEST AWAY, which is also what a howl has to be: a wolf
+    /// you can place in a particular tree is a wolf that is close, and a wolf that is close is not
+    /// eerie, it is an emergency. The stridulation has the lowest gain of all because it is the one
+    /// card that can be near — an insect at 2.5 perceived m is normal, an owl at 2.5 m is not — and
+    /// its rolloff minimum of 9 m means even that closest realisation is only its own gain.</para>
+    ///
+    /// <para>THE ROLLOFF MINIMA FOLLOW THE 223 ARGUMENT UNCHANGED: a real distant call is LOUD, and
+    /// it is direction and not level that tells you where it is. 12 m for the two birds-of-prey
+    /// registers puts their rings largely inside the flat part of Unity's curve, so which tree it is
+    /// comes from the spatialiser's pan.</para>
+    /// </summary>
+    private const float HowlGain = 0.026f;
+    private const float HowlMinMeters = 12f;
+    private const float HowlMaxMeters = 48f;
+    private const float BarnOwlGain = 0.028f;
+    private const float BarnOwlMinMeters = 12f;
+    private const float BarnOwlMaxMeters = 44f;
+    private const float StridGain = 0.022f;
+    private const float StridMinMeters = 9f;
+    private const float StridMaxMeters = 30f;
 
     /// <summary>Hash channels for the SIX independent decisions one call needs: whether the slot is
     /// silent, WHEN inside it, its pitch, and — since ModBuild 223 — WHERE, as an azimuth, a radius
@@ -3262,7 +3355,7 @@ internal static class EnvSound
 
     // ---- AND WHERE THE FIVE NEW ANIMALS ARE — ModBuild 241 -----------------------------------
     //
-    //  "hier sollte die Position auch random wechseln" applies to all seven, and so does the rule
+    //  "hier sollte die Position auch random wechseln" applies to every card, and so does the rule
     //  that a call comes from a PLAUSIBLE SOURCE. Every ring below is drawn from the same three hash
     //  channels off the same slot index and is therefore identical on every client; what differs per
     //  animal is WHICH ring and how high.
@@ -3321,6 +3414,52 @@ internal static class EnvSound
     private const float RoeDeerGroundHeightLo = 0.75f;
     private const float RoeDeerGroundHeightHi = 1.00f;
 
+    // ---- AND WHERE THE THREE EERIE ANIMALS ARE — ModBuild 242 --------------------------------
+    //
+    //  The same three hash channels off the same slot index, so all ten are placed identically on
+    //  every client; what differs is which ring and how high. The two bounds THE 223 BLOCK PROVES
+    //  were re-checked for these three rather than assumed:
+    //
+    //    * NEVER INSIDE THE PLAYER. The smallest inner radius here is the insect's 7 m, which is the
+    //      same bound the owl and the ke-wick sit on — 1.6 authored m outside ForestClearRadiusMeters.
+    //      The wolf's 16 m and the barn owl's 12 m are far outside it again.
+    //    * NEVER OUTSIDE THE WOOD, AND THE WOLF IS THE ONE ROW THAT NEEDED THE ARGUMENT RE-MADE.
+    //      Its outer radius is 24 m, past the 20 m that was the table's largest until this round. The
+    //      223 block's ceiling is TWO facts, not one: trunks run out to 27 m (AddForest, :15995) and
+    //      the canopy has closed over by 19 m (CanopyMask, :14847). The canopy figure bounds a
+    //      PERCHED animal, because a call from above the canopy is a call from the sky; the wolf is
+    //      on the GROUND at 0.85-1.05 m, so the only fact that binds it is the trunk field, and 24 m
+    //      is three metres inside it. A wolf at 24 m is still a wolf between the trees.
+
+    /// <summary>THE WOLF, ON THE GROUND AND FARTHEST OUT. The heights are AUTHORED METRES: a wolf
+    /// howls with its head up and its muzzle is then 0.85-1.05 m off the ground. The ring is 16-24 m
+    /// — the farthest in the table on purpose, because distance is half of what makes a howl eerie
+    /// and because it is the only card whose rolloff minimum (12 m) is far enough out to keep it
+    /// audible there.</summary>
+    private const float HowlPerchNearMeters = 16f;
+    private const float HowlPerchFarMeters = 24f;
+    private const float HowlGroundHeightLo = 0.85f;
+    private const float HowlGroundHeightHi = 1.05f;
+
+    /// <summary>THE BARN OWL'S RING. Out in the trees and LOWER in them than the other birds
+    /// (0.45-0.75 of the canopy against the corvid's 0.75-0.95): a barn owl hunts the edge from a
+    /// low stub or a stump, not from a roost in the crown, and a screech that comes from below the
+    /// canopy is one that has something under it.</summary>
+    private const float BarnOwlPerchNearMeters = 12f;
+    private const float BarnOwlPerchFarMeters = 20f;
+    private const float BarnOwlPerchHeightLo = 0.45f;
+    private const float BarnOwlPerchHeightHi = 0.75f;
+
+    /// <summary>THE INSECT, IN THE LITTER — the NEAREST and LOWEST source the wood has. 0.05-0.35
+    /// AUTHORED metres is a stridulating insect on the ground or on a low stem, and the inner radius
+    /// is the table's minimum of 7 m for the geometric bound's sake. It is the one card where the
+    /// near ring is right rather than merely safe: an insect you hear from thirty metres away is a
+    /// chorus, and a chorus is what this room deleted.</summary>
+    private const float StridPerchNearMeters = 7f;
+    private const float StridPerchFarMeters = 11f;
+    private const float StridGroundHeightLo = 0.05f;
+    private const float StridGroundHeightHi = 0.35f;
+
     /// <summary>
     /// ONE ANIMAL: which clip, how loud, how far it carries, which ring it sits on and how high.
     /// A struct rather than seven parallel arrays because these nine numbers are only ever read
@@ -3360,11 +3499,12 @@ internal static class EnvSound
         }
     }
 
-    /// <summary>THE SEVEN ANIMALS, indexed by the card <see cref="NightCallDeck"/> deals. The order
+    /// <summary>THE TEN ANIMALS, indexed by the card <see cref="NightCallDeck"/> deals. The order
     /// is the deck's and must stay in step with it — a row inserted here without the matching card
     /// values re-numbered would deal a fox and play an owl, which is exactly the kind of silent
-    /// mismatch this project's mirror checks exist for. Every constant in every row is documented
-    /// above its own block.</summary>
+    /// mismatch this project's mirror checks exist for. That is why ModBuild 242's three rows are
+    /// APPENDED rather than filed among the birds. Every constant in every row is documented above
+    /// its own block.</summary>
     private static readonly NightCallVoice[] NightCalls =
     {
         new NightCallVoice(EnvSoundClip.Owl, OwlGain, OwlMinMeters, OwlMaxMeters,
@@ -3388,6 +3528,15 @@ internal static class EnvSound
         new NightCallVoice(EnvSoundClip.RoeDeer, RoeDeerGain, RoeDeerMinMeters, RoeDeerMaxMeters,
                            RoeDeerPerchNearMeters, RoeDeerPerchFarMeters,
                            true, RoeDeerGroundHeightLo, RoeDeerGroundHeightHi),
+        new NightCallVoice(EnvSoundClip.Howl, HowlGain, HowlMinMeters, HowlMaxMeters,
+                           HowlPerchNearMeters, HowlPerchFarMeters,
+                           true, HowlGroundHeightLo, HowlGroundHeightHi),
+        new NightCallVoice(EnvSoundClip.BarnOwl, BarnOwlGain, BarnOwlMinMeters, BarnOwlMaxMeters,
+                           BarnOwlPerchNearMeters, BarnOwlPerchFarMeters,
+                           false, BarnOwlPerchHeightLo, BarnOwlPerchHeightHi),
+        new NightCallVoice(EnvSoundClip.Stridulate, StridGain, StridMinMeters, StridMaxMeters,
+                           StridPerchNearMeters, StridPerchFarMeters,
+                           true, StridGroundHeightLo, StridGroundHeightHi),
     };
 
     /// <summary>MIRRORED from <c>BuildEnvironmentRooms.cs</c>: <c>ClearR</c> (:14503, "open ground
@@ -3449,9 +3598,9 @@ internal static class EnvSound
     private static long _lastNightCallSlot = long.MinValue;
 
     /// <summary>
-    /// THE NIGHT CALLS — seven animals in and under the canopy, "hier und da". See the block above
-    /// for the rate, the clock and why this is a slot index rather than the fire crackle's walk, and
-    /// THE NIGHT CALLS' DECK for why seven animals do not mean seven times the events.
+    /// THE NIGHT CALLS — ten animals in, under and between the trees, "hier und da". See the block
+    /// above for the rate, the clock and why this is a slot index rather than the fire crackle's
+    /// walk, and THE NIGHT CALLS' DECK for why ten animals do not mean ten times the events.
     /// </summary>
     private static void TickNightCall(float clock)
     {
@@ -3485,7 +3634,8 @@ internal static class EnvSound
         // TO THE SCHEDULE. It replaces `Haunt.Hash(slot, NightCallWhichChannel) < NightCallOwlShare`,
         // which chose between two clips; nothing above it moved, so the wood still sounds at most one
         // call per 41 s slot and still skips 22% of them. "mehr Varianz (nicht mehr Häufigkeit)" is
-        // exactly this substitution and nothing else. See THE NIGHT CALLS' DECK.
+        // exactly this substitution and nothing else. ModBuild 242 did not touch this line either —
+        // it added three CARDS, which is the same statement made twice. See THE NIGHT CALLS' DECK.
         // The card is a byte, so it cannot be negative; the ONE bound worth testing is the upper one,
         // because an edited deck that names a row this table does not have must be silence and never
         // an index. (Silence, not a clamp: a clamp would quietly play the wrong animal forever.)
@@ -4744,7 +4894,7 @@ internal static class EnvSound
               .Append("0.134 and its delivered level from 0.00203 to 0.00076 (-8.5 dB). A BED NAMED ")
               .Append("'Night' ON A GATE LINE BELOW MEANS A MERGE WENT WRONG — there is no such bed ")
               .Append("any more, and EnvSoundClip.Chirr no longer exists. The wood at rest is the ")
-              .Append("canopy draught and nothing else; everything else here is an EVENT (the two ")
+              .Append("canopy draught and nothing else; everything else here is an EVENT (the night ")
               .Append("calls, the apparitions) or an element response (the fires, the rumble).");
         }
 
@@ -4769,16 +4919,27 @@ internal static class EnvSound
               .Append("/").Append(FoxGain.ToString("F3")).Append("/")
               .Append(RoeDeerGain.ToString("F3")).Append("/").Append(OwletGain.ToString("F3"))
               .Append(" — every one BELOW the owl's ").Append(OwlGain.ToString("F3"))
-              .Append(", so nothing in this room got louder. THE RATE DID NOT MOVE AND THAT IS THE ")
+              .Append(", so nothing in this room got louder. AND THREE EERIE ONES SINCE ModBuild 242 ")
+              .Append("(user: \"ein paar gruseligere Tiersounds ... wie man es aus der Pop-Kultur ")
+              .Append("kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten Sounds\"): ")
+              .Append("a Howl (wolf, far), a BarnOwl (screech) and a Stridulate (one insect), at ")
+              .Append("gains ").Append(HowlGain.ToString("F3")).Append("/")
+              .Append(BarnOwlGain.ToString("F3")).Append("/").Append(StridGain.ToString("F3"))
+              .Append(" — the three QUIETEST cards in the deck, all below the owlet's ")
+              .Append(OwletGain.ToString("F3"))
+              .Append(", and with three of the four slowest onsets in the deck (232/99/79 ms ")
+              .Append("against the roe deer's 5.3): eerie by timbre and rarity, never by level or ")
+              .Append("by a transient. THE RATE DID NOT MOVE AND THAT IS THE ")
               .Append("POINT: still one call per slot, still ")
               .Append((100f * NightCallSkip).ToString("F0")).Append("% of slots silent. The animal ")
               .Append("is DEALT from a ").Append(NightCallDeck.Length.ToString())
               .Append("-card deck (EnvSoundSchedule.DeckDraw, salt 0x")
               .Append(NightCallDeckSalt.ToString("X8"))
-              .Append("), which repeats itself back-to-back 0.07% of the time against the 17.2% a ")
+              .Append("), which repeats itself back-to-back 0.03% of the time against the 12.5% a ")
               .Append("weighted draw of the same shares would, and whose long-run shares are EXACT ")
-              .Append("(4/3/3/2/2/1/1 of 16 — the fox and the roe deer are one card each, about one ")
-              .Append("per 14 minutes, and never more than 31 calls apart). It is integer-only and a ")
+              .Append("(4/3/3/2/2/2/1/1/1/1 of 20 — the fox, the roe deer, the wolf and the barn owl ")
+              .Append("are one card each, about one per 18 minutes, and never more than 39 calls ")
+              .Append("apart). It is integer-only and a ")
               .Append("pure function of the slot, so every client in this room deals the same card. ")
               .Append("A ROUND THAT WANTS MORE VARIETY MUST ADD CARDS, NEVER SLOTS. FRAME: ")
               .Append(_perchFrame != null ? "'" + _perchFrame.name + "'" : "NO NODE")
@@ -4789,8 +4950,9 @@ internal static class EnvSound
                       "file never has to know the room's placement, art scale or yaw. ")
               .Append("EVERY CALL IS RE-PLACED: azimuth, radius (area-uniform in the annulus, as ")
               .Append("the bake seats the trees themselves) and height (a fraction of the canopy at ")
-              .Append("that radius for the five that PERCH; authored metres off the ground plane ")
-              .Append("for the fox and the roe deer, which cannot climb) are three hash channels ")
+              .Append("that radius for the six that PERCH; authored metres off the ground plane ")
+              .Append("for the fox, the roe deer, the wolf and the insect, which cannot climb) are ")
+              .Append("three hash channels ")
               .Append("off the SLOT INDEX and nothing else, so ")
               .Append("both players hear the same animal from the same tree on the same frame with ")
               .Append("ZERO wire bytes. BOUNDED BY CONSTRUCTION: the inner radius is outside the ")
@@ -4798,9 +4960,10 @@ internal static class EnvSound
               .Append(" m of open ground the board and the player stand on, so a call can never come ")
               .Append("from inside the player — and the rolloff is flat inside ")
               .Append(OwlMinMeters.ToString("F0"))
-              .Append(" m anyway, so the nearest possible perch is no louder than the farthest; the ")
-              .Append("outer radii sit inside a trunk field that runs to 27 m and a canopy that has ")
-              .Append("closed by 19 m, so a call can never come from outside the wood. RATE: one ")
+              .Append(" m anyway, so the nearest possible perch is no louder than the farthest; every ")
+              .Append("PERCHED outer radius sits inside a canopy that has closed by 19 m and every ")
+              .Append("outer radius at all (the wolf's 24 m is the largest) inside a trunk field that ")
+              .Append("runs to 27 m, so a call can never come from outside the wood. RATE: one ")
               .Append("slot every ").Append(NightCallSlot.ToString("F0")).Append(" s, ")
               .Append((100f * NightCallSkip).ToString("F0"))
               .Append("% of them silent, the instant inside a slot an EXPONENTIAL waiting time ")

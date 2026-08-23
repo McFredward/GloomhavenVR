@@ -136,6 +136,45 @@ IS A DELETED ONE KEPT AS A BEFORE COLUMN (`make_stone`, `make_night_air`,
 everything `mb221_`, everything `MB222_`). The first kind must move when the
 source moves, or the tables in EnvSound's comments stop being measurements and
 become claims. The second kind must never move again — it is a record.
+
+===========================================================================
+ModBuild 241/242 — TEN ANIMALS ON THE RATE TWO USED TO HAVE.
+===========================================================================
+
+    241: "Füge noch mehr verschiedene Tiersounds hinzu die zu einem Wald in
+         der Nacht passen für mehr Varianz (nicht mehr Häufigkeit)."
+    242: "Mach bei den Waldsound gerne auch noch ein paar gruseligere
+         Tiersounds dazu wie man es aus der Pop-Kultur kennt. Aber auch nicht
+         aufdringlich. Gerne eventuell auch Insekten Sounds."
+
+Both brackets are acceptance criteria and both are answered the same way: the
+41 s slot schedule is NOT TOUCHED and only the DECK grows (two clips -> seven
+-> ten). `deck_draw` is EnvSoundSchedule.DeckDraw character for character and
+`night_call_report` prints what that buys — exact shares, and a back-to-back
+repeat rate two orders below a weighted draw's.
+
+THREE REPORTS ANSWER 242, and they run at the top of __main__:
+  * `vocabulary_report()` — the centroid/spread/attack/flatness table in
+    EnvSound.Bank.cs. `flatness` is in it because the barn owl is a 0.8 s band
+    of noise and the one thing it must not be is the hiss this room has had
+    deleted three times; white noise and the rain control are printed under it.
+  * `perch_levels()`   — the delivered-level table in EnvSound.cs. "Nothing
+    gets louder" is a claim about gain x rolloff at a distance the perch ring
+    decides, and that distance is a distribution.
+  * `night_call_report()` — the deck.
+
+TWO THINGS THIS ROUND FOUND WRONG IN ITS OWN FILE, both recorded because they
+are the class of fault that survives rounds:
+  1. `vocabulary_report` and `night_call_report` were added at 241 and WIRED
+     INTO NOTHING. The numbers in EnvSoundSchedule.DeckDraw's comment had no
+     reachable instrument for a whole round.
+  2. 241's comment claimed its replica "agrees with the tuning prototype to
+     9e-14". Python agreeing with Python says nothing about the C# that ships.
+     Compiling the SHIPPED EnvSound.Bank.cs against a UnityEngine shim (the
+     harness is throwaway, under .planning/debug/) puts the real numbers in
+     reach: every figure in the vocabulary table reproduces exactly, and the
+     sample-by-sample agreement is 1.1e-2 peak-relative at worst because this
+     file is float64 and the bank is float32.
 """
 import math
 import numpy as np
@@ -686,6 +725,189 @@ def make_owletbeg(rate=RATE):
     return d
 
 
+# ---- the THREE EERIE calls — ModBuild 242 -----------------------------------
+#
+# "Mach bei den Waldsound gerne auch noch ein paar gruseligere Tiersounds dazu
+#  wie man es aus der Pop-Kultur kennt. Aber auch nicht aufdringlich. Gerne
+#  eventuell auch Insekten Sounds."
+#
+# Three more animals on the SAME schedule again — the deck goes from 16 cards to
+# 20 and NightCallSlot / NightCallMean / NightCallSkip are still untouched. See
+# EnvSound.Bank.cs, THE EERIE REGISTER, for what each one is, why it is eerie
+# without being aufdringlich, and the six candidates that were turned down; and
+# THE INSECT, AS A CARD for why the ModBuild 226 bed deletion is not re-opened
+# by the stridulation being here.
+#
+# Every constant MIRRORS one in EnvSoundBank and must move when it moves.
+
+HowlSeconds = 2.90
+HowlPeak = 0.70
+HowlSeed = 0x8A70C000
+HowlDriftSeed = 0x8A70D000
+HowlStart = 0.060
+HowlLength = 2.550
+HowlF0 = 640.0
+HowlLow = 0.64
+HowlRise = 0.18
+HowlDrop = 0.24
+HowlFallFrom = 0.66
+HowlH = (1.00, 0.60, 0.32, 0.17, 0.09, 0.045)
+HowlVibHz = 4.9
+HowlVibDepth = 0.022
+HowlVibFrom = 0.35
+HowlDrift = 0.018
+HowlDriftHz = 3.2
+HowlBreath = 0.09
+HowlBreathLoHz = 600.0
+HowlBreathHiHz = 3000.0
+HowlAttack = 0.14
+HowlRelease = 0.30
+
+
+def make_howl(rate=RATE):
+    """EnvSoundBank.MakeHowl."""
+    n = int(rate * HowlSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, HowlSeed, HowlBreathLoHz, HowlBreathHiHz)
+    dr = white(n, HowlDriftSeed)
+    low_pass(dr, rate, HowlDriftHz)
+    normalise(dr, 1.0)
+
+    a = int(HowlStart * rate)
+    m = int(HowlLength * rate)
+    ph = 0.0
+    for i in range(m):
+        if a + i >= n:
+            break
+        u = i / m
+        ramp = min(1.0, u / HowlRise)
+        ramp = ramp * ramp * (3.0 - 2.0 * ramp)
+        fall = max(0.0, (u - HowlFallFrom) / (1.0 - HowlFallFrom))
+        fall = fall * fall * (3.0 - 2.0 * fall)
+        vib = min(1.0, u / HowlVibFrom)
+        f = (HowlF0 * (HowlLow + (1.0 - HowlLow) * ramp) * (1.0 - HowlDrop * fall)
+             * (1.0 + HowlVibDepth * vib * math.sin(2 * PI * HowlVibHz * (i / rate)))
+             * (1.0 + HowlDrift * dr[a + i]))
+        ph += 2 * PI * f / rate
+        # MakeHowl wraps its accumulator (only sines are taken of it, so a turn
+        # subtracted is exact) — mirrored here or the two drift apart.
+        if ph > 2 * PI:
+            ph -= 2 * PI
+        env = shoulders(u, HowlAttack, HowlRelease)
+        s = Stack(ph)
+        tone = HowlH[0] * s.current
+        for k in range(1, len(HowlH)):
+            tone += HowlH[k] * s.next()
+        d[a + i] += env * (tone + HowlBreath * nb[a + i])
+    normalise(d, HowlPeak)
+    return d
+
+
+BarnOwlSeconds = 1.20
+BarnOwlPeak = 0.66
+BarnOwlSeedHi = 0x0BA20000
+BarnOwlSeedLo = 0x0BA21000
+BarnOwlStart = 0.030
+BarnOwlLength = 0.800
+BarnOwlHiLoHz = 3800.0
+BarnOwlHiHiHz = 6400.0
+BarnOwlLoLoHz = 2400.0
+BarnOwlLoHiHz = 4200.0
+BarnOwlF0 = 620.0
+BarnOwlFall = 0.84
+BarnOwlHarm = 10
+BarnOwlTilt = 0.90
+BarnOwlTone = 0.90
+BarnOwlRoughHz = 118.0
+BarnOwlRoughFall = 0.81
+BarnOwlRoughDepth = 0.62
+BarnOwlAttack = 0.13
+BarnOwlRelease = 0.55
+BarnOwlMouthLoHz = 2600.0
+BarnOwlMouthHiHz = 7600.0
+
+
+def make_barnowl(rate=RATE):
+    """EnvSoundBank.MakeBarnOwl."""
+    n = int(rate * BarnOwlSeconds)
+    d = np.zeros(n)
+    nhi = noise_band(n, rate, BarnOwlSeedHi, BarnOwlHiLoHz, BarnOwlHiHiHz)
+    nlo = noise_band(n, rate, BarnOwlSeedLo, BarnOwlLoLoHz, BarnOwlLoHiHz)
+    tilt = [1.0 / (k ** BarnOwlTilt) for k in range(1, BarnOwlHarm + 1)]
+    tsum = sum(tilt)
+    tilt = [w / tsum for w in tilt]
+
+    a = int(BarnOwlStart * rate)
+    m = int(BarnOwlLength * rate)
+    ph = 0.0
+    rph = 0.0
+    for i in range(m):
+        if a + i >= n:
+            break
+        u = i / m
+        f = BarnOwlF0 * (1.0 + (BarnOwlFall - 1.0) * u)
+        ph += 2 * PI * f / rate
+        rph += 2 * PI * (BarnOwlRoughHz * (1.0 + (BarnOwlRoughFall - 1.0) * u)) / rate
+        if ph > 2 * PI:
+            ph -= 2 * PI
+        if rph > 2 * PI:
+            rph -= 2 * PI
+        env = shoulders(u, BarnOwlAttack, BarnOwlRelease)
+        env *= 1.0 - BarnOwlRoughDepth * 0.5 * (1.0 - math.cos(rph))
+        s = Stack(ph)
+        tone = tilt[0] * s.current
+        for k in range(1, BarnOwlHarm):
+            tone += tilt[k] * s.next()
+        hiss = (math.cos(u * PI * 0.5) * nhi[a + i]
+                + math.sin(u * PI * 0.5) * nlo[a + i])
+        d[a + i] += env * (hiss + BarnOwlTone * tone)
+    high_pass(d, rate, BarnOwlMouthLoHz)
+    low_pass(d, rate, BarnOwlMouthHiHz)
+    normalise(d, BarnOwlPeak)
+    return d
+
+
+StridSeconds = 0.72
+StridPeak = 0.62
+StridSeed = 0x57D1D000
+StridBursts = ((0.020, 0.300, 1.00),
+               (0.450, 0.210, 0.86))
+StridBandLoHz = 4200.0
+StridBandHiHz = 9500.0
+StridRateHz = 92.0
+StridStrikeDecay = 5.5
+StridToneHz = 6300.0
+StridTone = 0.35
+StridAttack = 0.12
+StridRelease = 0.30
+StridMouthLoHz = 3800.0
+StridMouthHiHz = 10500.0
+
+
+def make_stridulate(rate=RATE):
+    """EnvSoundBank.MakeStridulate."""
+    n = int(rate * StridSeconds)
+    d = np.zeros(n)
+    nb = noise_band(n, rate, StridSeed, StridBandLoHz, StridBandHiHz)
+    for (st, ln, lv) in StridBursts:
+        a = int(st * rate)
+        m = int(ln * rate)
+        for i in range(m):
+            if a + i >= n:
+                break
+            u = i / m
+            t = i / rate
+            cycle = t * StridRateHz
+            strike = math.exp(-StridStrikeDecay * (cycle - math.floor(cycle)))
+            env = shoulders(u, StridAttack, StridRelease)
+            tone = math.sin(2 * PI * StridToneHz * t)
+            d[a + i] += lv * env * strike * (nb[a + i] + StridTone * tone)
+    high_pass(d, rate, StridMouthLoHz)
+    low_pass(d, rate, StridMouthHiHz)
+    normalise(d, StridPeak)
+    return d
+
+
 # ---- THE DECK — EnvSoundSchedule.DeckDraw, character for character ----------
 #
 # The mechanism that answers "mehr Varianz (nicht mehr Häufigkeit)": the SLOT
@@ -694,9 +916,13 @@ def make_owletbeg(rate=RATE):
 _M64 = (1 << 64) - 1
 _M32 = (1 << 32) - 1
 
-NightCallDeck = (0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 6)
+# ModBuild 242: 16 cards -> 20. The seven existing card VALUES keep their
+# animals (a renumbering would deal a fox and play an owl); the three new ones
+# are appended. Shares are exact tenths and twentieths at this length.
+NightCallDeck = (0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 6, 7, 8, 9, 9)
 NightCallDeckSalt = 0x4E43444B
-NightCallNames = ("Owl", "KeWick", "NightBird", "OwletBeg", "Raven", "Fox", "RoeDeer")
+NightCallNames = ("Owl", "KeWick", "NightBird", "OwletBeg", "Raven", "Fox", "RoeDeer",
+                  "Howl", "BarnOwl", "Stridulate")
 
 
 def _split_mix(state):
@@ -778,22 +1004,130 @@ def night_call_report(draws=400000):
               f"longest drought {worst} calls")
 
 
+def attack_ms(d, rate=RATE, win_ms=5.0):
+    """THE 10-90% RISE of a 5 ms RMS envelope, from the buffer's start to its
+    peak — the column that decides whether a cue can startle anyone. It is the
+    number ModBuild 242's whole "gruselig aber nicht aufdringlich" argument
+    rests on, so it lives here rather than in a throwaway script."""
+    w = max(1, int(rate * win_ms / 1000.0))
+    e = np.sqrt(np.convolve(d * d, np.ones(w) / w, mode="same"))
+    pk = int(np.argmax(e))
+    top = e[pk]
+    seg = e[:pk + 1]
+    if top <= 0 or len(seg) < 2:
+        return 0.0
+    lo = np.nonzero(seg >= 0.1 * top)[0]
+    hi = np.nonzero(seg >= 0.9 * top)[0]
+    if len(lo) == 0 or len(hi) == 0:
+        return 0.0
+    return 1000.0 * (hi[0] - lo[0]) / rate
+
+
 def vocabulary_report():
-    """The table in EnvSoundBank's THE WOOD'S VOCABULARY, regenerated."""
-    made = (("Owl", make_owl()), ("RoeDeer", make_roedeer()), ("Raven", make_raven()),
-            ("Fox", make_fox()), ("KeWick", make_kewick()), ("NightBird", make_bird()),
-            ("OwletBeg", make_owletbeg()))
+    """The table in EnvSoundBank's THE WOOD'S VOCABULARY and THE EERIE REGISTER,
+    regenerated. `flatness` is in the table because ModBuild 242's barn owl is a
+    0.8 s band of noise and the one thing it must not be is the hiss this room
+    has now had deleted three times: the two controls are printed under it."""
+    made = (("Owl", make_owl()), ("RoeDeer", make_roedeer()), ("Howl", make_howl()),
+            ("Raven", make_raven()), ("Fox", make_fox()), ("KeWick", make_kewick()),
+            ("NightBird", make_bird()), ("OwletBeg", make_owletbeg()),
+            ("BarnOwl", make_barnowl()), ("Stridulate", make_stridulate()))
     total = 0
     for name, d in made:
         c, spread = audible(d)
         b = bands(d)
-        print(f"  {name:<10s} {len(d) / RATE:5.2f} s  centroid {c:7.0f} Hz  "
-              f"spread {spread:4.2f} oct  bands "
+        print(f"  {name:<11s} {len(d) / RATE:5.2f} s  centroid {c:7.0f} Hz  "
+              f"spread {spread:4.2f} oct  attack {attack_ms(d):6.1f} ms  "
+              f"flat {flatness(d):5.3f}  bands "
               + "/".join(f"{x:4.1f}" for x in b))
-        if name not in ("Owl", "NightBird"):
+        if name in ("Howl", "BarnOwl", "Stridulate"):
             total += len(d)
-    print(f"  ADDED {total} samples = {total / RATE:.2f} s = "
-          f"{total * 4 / 1024 / 1024:.3f} MB of float32")
+    ctrl = white(RATE, 0xC0FFEE)
+    high_pass(ctrl, RATE, 200.0)
+    low_pass(ctrl, RATE, 12000.0)
+    normalise(ctrl, 0.8)
+    print(f"  {'white*':<11s} {'':>19s}{'':>15s}{'':>28s}"
+          f"flat {flatness(ctrl):5.3f}   (a television)")
+    print(f"  {'rain*':<11s} {'':>19s}{'':>15s}{'':>28s}"
+          f"flat {flatness(rain_control()):5.3f}   (rain on leaves)")
+    print(f"  ADDED at ModBuild 242: {total} samples = {total / RATE:.2f} s = "
+          f"{total * 4} bytes = {total * 4 / 1024 / 1024:.3f} MB of float32")
+
+
+# ---- WHAT A CALL IS DELIVERED AT, from where it is seated -------------------
+#
+# The table in EnvSound.cs's THE FIVE NEW CALLS' LEVELS / THE THREE EERIE CALLS'
+# LEVELS. It exists because "nothing gets louder" is a claim about the product
+# of a gain and a ROLLOFF at a distance the perch ring decides, and that
+# distance is a distribution rather than a number.
+#
+# THE MODEL, stated so it can be disagreed with:
+#   * the call is drawn exactly as EnvSound.NightCallPerch draws it — azimuth
+#     uniform, radius AREA-uniform on [near, far] (r = lerp(n, f, sqrt(u))),
+#     height either a fraction of ForestCanopyY(r) or authored metres off the
+#     ground;
+#   * the player stands uniformly in a disc of 4.6 authored m about the
+#     clearing's centre (ForestClearRadiusMeters is 5.4; the board takes the
+#     middle) with ears at 1.60 authored m;
+#   * distance is the 3-D separation in AUTHORED metres times
+#     AuthoredToPerceived, because Unity's rolloff is in perceived units;
+#   * effective level is gain x min(1, minMeters / distance), which is Unity's
+#     linear rolloff inside its own maximum.
+#
+# It is a MODEL and not a measurement of the game, and the one number in it that
+# is not read from the source is the player disc. What it is for is comparing
+# ROWS — every row is wrong by the same amount if the disc is wrong.
+ForestClearRadiusMeters = 5.4
+PlayerDiscMeters = 4.6
+EarHeightMeters = 1.60
+
+
+def forest_canopy_y(r):
+    """EnvSound.ForestCanopyY."""
+    return 6.8 + 0.30 * (r - ForestClearRadiusMeters)
+
+
+# (name, gain, minMeters, ringNear, ringFar, ground?, heightLo, heightHi)
+NightCallVoices = (
+    ("Owl",        0.050,  8.0,  7.0, 12.0, False, 0.50, 0.80),
+    ("KeWick",     0.042,  8.0,  7.0, 13.0, False, 0.50, 0.80),
+    ("NightBird",  0.032, 10.0, 10.0, 18.0, False, 0.70, 0.95),
+    ("OwletBeg",   0.030, 10.0,  9.0, 16.0, False, 0.60, 0.88),
+    ("Raven",      0.038, 11.0, 12.0, 20.0, False, 0.75, 0.95),
+    ("Fox",        0.034,  8.0,  8.0, 16.0, True,  0.30, 0.45),
+    ("RoeDeer",    0.034,  9.0, 11.0, 20.0, True,  0.75, 1.00),
+    ("Howl",       0.026, 12.0, 16.0, 24.0, True,  0.85, 1.05),
+    ("BarnOwl",    0.028, 12.0, 12.0, 20.0, False, 0.45, 0.75),
+    ("Stridulate", 0.022,  9.0,  7.0, 11.0, True,  0.05, 0.35),
+)
+
+
+def perch_levels(trials=200000, seed=20260824):
+    """THE LEVEL TABLE. Peak, floor and mean delivered level per animal."""
+    rng = np.random.default_rng(seed)
+    print(f"  {'':<11s}{'gain':>7}{'min m':>7}{'ring':>12}"
+          f"{'distance (perceived m)':>26}{'effective':>20}{'mean':>9}")
+    for (name, gain, minm, near, far, ground, hlo, hhi) in NightCallVoices:
+        u = rng.random(trials)
+        r = near + (far - near) * np.sqrt(u)
+        az = 2 * PI * rng.random(trials)
+        h = hlo + (hhi - hlo) * rng.random(trials)
+        y = h if ground else forest_canopy_y(r) * h
+
+        pu = rng.random(trials)
+        pr = PlayerDiscMeters * np.sqrt(pu)
+        paz = 2 * PI * rng.random(trials)
+        dx = r * np.cos(az) - pr * np.cos(paz)
+        dz = r * np.sin(az) - pr * np.sin(paz)
+        dy = y - EarHeightMeters
+        dist = np.sqrt(dx * dx + dz * dz + dy * dy) * AuthoredToPerceived
+
+        eff = gain * np.minimum(1.0, minm / dist)
+        print(f"  {name:<11s}{gain:>7.3f}{minm:>7.1f}"
+              f"{near:>7.0f}..{far:<4.0f}"
+              f"{float(dist.min()):>16.1f}..{float(dist.max()):<8.1f}"
+              f"{float(eff.max()):>12.3f}..{float(eff.min()):<7.3f}"
+              f"{float(eff.mean()):>9.3f}")
 
 # ---- the insect floor ------------------------------------------------------
 #
@@ -1574,6 +1908,22 @@ def build_cache():
 if __name__ == "__main__":
     CACHE = build_cache()
 
+    # THESE TWO RAN NOWHERE UNTIL ModBuild 242. They were added at 241, with the
+    # deck they measure, and never wired into this block — so the numbers in
+    # EnvSoundSchedule.DeckDraw's own comment had no reachable instrument for a
+    # whole round. `grep` for a report's own name before believing it ran.
+    print("=== ModBuild 242: THE WOOD'S VOCABULARY — ten animals, one schedule ===")
+    vocabulary_report()
+
+    print()
+    print("=== ModBuild 242: WHERE EACH ONE IS SEATED AND WHAT IT IS DELIVERED AT ===")
+    perch_levels()
+
+    print()
+    print("=== ModBuild 241/242: THE DECK — variety without frequency ===")
+    night_call_report()
+
+    print()
     print("=== ModBuild 226: \"dieser 'Regen' Sound der ab und zu kommt und "
           "für eine Zeit bleibt\" ===")
     print("--- the schedule, first: does anything in the wood have that shape? ---")

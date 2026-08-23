@@ -450,11 +450,12 @@ internal static class EnvSoundSchedule
     //  to re-tune. The ONLY thing that changed is which clip a slot that was already going to sound
     //  reaches for, and that decision is this function.
     //
-    //  WHY A DECK AND NOT A WEIGHTED DRAW. A weighted draw over seven clips repeats itself
-    //  back-to-back once in 5.8 calls (sum of the squared shares = 17.19%), and a repeat is the one
-    //  thing that makes a synthesized wood sound synthesized — two identical owls a minute apart is
-    //  a sample player, not a wood. It also has no memory, so a session can go forty minutes without
-    //  a fox and then produce two in a row. A DECK fixes both by construction:
+    //  WHY A DECK AND NOT A WEIGHTED DRAW. A weighted draw over the seven clips ModBuild 241 shipped
+    //  repeats itself back-to-back once in 5.8 calls (sum of the squared shares = 17.19%; over the
+    //  ten of ModBuild 242, once in 8.0 calls), and a repeat is the one thing that makes a
+    //  synthesized wood sound synthesized — two identical owls a minute apart is a sample player,
+    //  not a wood. It also has no memory, so a session can go forty minutes without a fox and then
+    //  produce two in a row. A DECK fixes both by construction:
     //
     //    * the deck is a fixed MULTISET (four hoots, three ke-wicks, ... one fox), shuffled once per
     //      cycle and dealt in order, so the long-run share of each clip is EXACTLY its multiplicity
@@ -462,13 +463,28 @@ internal static class EnvSoundSchedule
     //    * a bounded repair pass then walks the dealt cards and pushes apart any card that matches
     //      the one before it (hard rule) or the one before that (soft rule).
     //
-    //  MEASURED over 400,000 consecutive draws of the shipped 16-card deck, against the 17.19% a
-    //  weighted draw of the same shares would give at BOTH distances:
+    //  MEASURED over 400,000 consecutive draws of the shipped deck. The 16-card figures are ModBuild
+    //  241's and are kept as the before column; the 20-card ones are what ships as of ModBuild 242,
+    //  which added a wolf, a barn owl and an insect to the same schedule:
     //
-    //      immediate repeats   0.0723%     (1 call in 1,383, i.e. about one per 20 hours of play)
-    //      one-apart repeats   4.1503%
-    //      realised shares     exact, to the last draw
-    //      longest drought     13 (hoot) .. 31 (fox, roe deer) calls, i.e. bounded
+    //                          16 cards (241)      20 cards (242)     a weighted draw
+    //      immediate repeats      0.0723%             0.0318%           17.19% / 12.50%
+    //      one-apart repeats      4.1503%             2.0360%           17.19% / 12.50%
+    //      realised shares        exact               exact             statistical
+    //      longest drought        13 .. 31 calls      17 .. 39 calls    unbounded
+    //
+    //  BOTH REPEAT RATES IMPROVED WHEN THE DECK GREW, and the reason is worth having written down
+    //  because it is the argument for adding cards rather than re-weighting: the repair pass swaps a
+    //  colliding card for a legal partner further down the deck, so its failure rate is set by how
+    //  often NO legal partner exists — which falls as the vocabulary widens and the largest
+    //  multiplicity's SHARE falls (4/16 = 25% to 4/20 = 20%). A deck that grows gets quieter about
+    //  itself. The droughts lengthen in proportion to the deck, which is the intended trade: a card
+    //  worth one twentieth is a sound heard about every 17 minutes, bounded at 2m-1 = 39 calls.
+    //
+    //  (The "weighted draw" column is the sum of the squared shares, i.e. what a memoryless draw of
+    //  the same weights would do at BOTH distances. It is the thing being beaten, and it gets
+    //  BETTER as the deck widens too — from 17.19% to 12.50% — which is why the comparison is
+    //  restated per deck rather than quoted once.)
     //
     //  MULTIPLAYER: PURE FUNCTION OF THE INDEX, AND INTEGER-ONLY. Two clients that agree on the slot
     //  agree on the card, because everything below is 64-bit integer arithmetic — no float, no

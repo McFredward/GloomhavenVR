@@ -126,6 +126,32 @@ internal enum EnvSoundClip
     /// <see cref="NightBird"/> is a whistle. See <c>MakeOwletBeg</c>.</summary>
     OwletBeg,
 
+    // ---- THE THREE EERIE CARDS — ModBuild 242 ------------------------------------------------
+    //
+    // "Mach bei den Waldsound gerne auch noch ein paar gruseligere Tiersounds dazu wie man es aus
+    // der Pop-Kultur kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten Sounds."
+    // Three more animals and, again, NOT ONE MORE EVENT PER MINUTE: the deck grows from sixteen
+    // cards to twenty and the schedule is not touched. See THE EERIE REGISTER in this file for what
+    // each one is, why it is frightening without being loud, and the six candidates that were
+    // turned down.
+
+    /// <summary>A WOLF HOWLING, far off — the sound pop culture puts over every night wood. One
+    /// long rising-then-sagging note with a slow waver in it. One-shot, 2.90 s, centroid 828 Hz,
+    /// and the SLOWEST ONSET of any night call at 232 ms: it has no edge to be startled by, which
+    /// is the whole of how it is eerie without being aufdringlich. See <c>MakeHowl</c>.</summary>
+    Howl,
+
+    /// <summary>A BARN OWL'S RASPING SCREECH — the churchyard sound of every horror film, built
+    /// deliberately WITHOUT the shriek's transient: one drawn-out rasp with a 79 ms onset and a long
+    /// fall. One-shot, 1.20 s, centroid 4439 Hz. See <c>MakeBarnOwl</c>.</summary>
+    BarnOwl,
+
+    /// <summary>ONE INSECT STRIDULATING — a bush-cricket's wing file, two bursts that start and
+    /// stop. One-shot, 0.72 s, centroid 6567 Hz, and the quietest card in the deck. IT IS AN EVENT
+    /// AND NOT A BED: see THE INSECT, AS A CARD for why the ModBuild 226 deletion is not being
+    /// re-litigated by its existence. See <c>MakeStridulate</c>.</summary>
+    Stridulate,
+
     Creak,
     Breath,
     Drag,
@@ -198,7 +224,16 @@ internal enum EnvSoundClip
 /// (2.1 MB) and the wood's air (2.5 MB) for 24 clips and ~12.9 MB; ModBuild 222 lengthens the
 /// wood's air from 13 s to 17 s (+0.8 MB) and adds the two NIGHT CALLS (2.3 s and 0.78 s, ~0.6 MB
 /// together) for 26 clips and ~14.3 MB; and <b>ModBuild 223 GIVES 5.4 MB OF THAT BACK</b> by
-/// deleting both room tones outright, for 24 clips and ~<b>8.9 MB</b>. They had been the biggest
+/// deleting both room tones outright, for 24 clips and ~<b>8.9 MB</b>. ModBuild 241 then adds five
+/// night calls (4.86 s, 0.89 MB) and ModBuild 242 three more (4.82 s, 0.88 MB) — the two rounds
+/// that grew the wood's vocabulary together cost less than a THIRD of what one deleted room tone
+/// did, which is the whole argument for events over beds stated in bytes. <b>THE FIRST FIGURE HERE
+/// THAT IS MEASURED RATHER THAN ACCUMULATED: 31 clips / 9.3 MB at 48 kHz</b>, from running this
+/// file's own <see cref="Build"/> outside Unity at ModBuild 242 (the shipped source compiled against
+/// a UnityEngine shim — the harness is throwaway, under .planning/debug/). Every estimate above it
+/// was a running total nobody had checked. The BUILD TIME from that run, 132 ms, is NOT comparable:
+/// it is desktop .NET on a workstation, where the device is Mono in a game. They had been the
+/// biggest
 /// single addition this bank ever made — a room tone plays for the WHOLE scenario, so it is the one
 /// clip class where a short buffer is actually findable, and the two were the longest buffers here
 /// for that reason. The user rejected the design rather than the length (see the block in
@@ -317,6 +352,18 @@ internal static class EnvSoundBank
     /// <summary>A young long-eared owl begging. One-shot, 1.86 s. See
     /// <see cref="MakeOwletBeg"/>.</summary>
     internal static AudioClip? OwletBeg { get; private set; }
+
+    /// <summary>A wolf howling, far off. One-shot, 2.90 s. See <see cref="MakeHowl"/> and THE EERIE
+    /// REGISTER below.</summary>
+    internal static AudioClip? Howl { get; private set; }
+
+    /// <summary>A barn owl's rasping screech. One-shot, 1.20 s. See
+    /// <see cref="MakeBarnOwl"/>.</summary>
+    internal static AudioClip? BarnOwl { get; private set; }
+
+    /// <summary>One insect stridulating, twice. One-shot, 0.72 s. See
+    /// <see cref="MakeStridulate"/>.</summary>
+    internal static AudioClip? Stridulate { get; private set; }
 
     // ---- the haunt cues ---------------------------------------------------------------------
     //
@@ -437,6 +484,9 @@ internal static class EnvSoundBank
         EnvSoundClip.Raven => Raven,
         EnvSoundClip.RoeDeer => RoeDeer,
         EnvSoundClip.OwletBeg => OwletBeg,
+        EnvSoundClip.Howl => Howl,
+        EnvSoundClip.BarnOwl => BarnOwl,
+        EnvSoundClip.Stridulate => Stridulate,
         EnvSoundClip.Drip => Drip,
         EnvSoundClip.Squeak => Squeak,
         EnvSoundClip.Skitter => Skitter,
@@ -489,6 +539,9 @@ internal static class EnvSoundBank
             Raven = MakeRaven(rate);
             RoeDeer = MakeRoeDeer(rate);
             OwletBeg = MakeOwletBeg(rate);
+            Howl = MakeHowl(rate);
+            BarnOwl = MakeBarnOwl(rate);
+            Stridulate = MakeStridulate(rate);
 
             Creak = MakeCreak(rate);
             Breath = MakeBreath(rate);
@@ -538,6 +591,7 @@ internal static class EnvSoundBank
         Drip = null; Squeak = null; Skitter = null;
         Rumble = null; Owl = null; NightBird = null;
         KeWick = null; Fox = null; Raven = null; RoeDeer = null; OwletBeg = null;
+        Howl = null; BarnOwl = null; Stridulate = null;
         Creak = null; Breath = null; Drag = null; Fly = null; Fall = null; Settle = null;
         Roar = null; Crackle = null; Ember = null;
 
@@ -591,8 +645,9 @@ internal static class EnvSoundBank
         peakSeconds = 0f;
         if (clip == null)
             return;
-        // A linear scan over at most fifteen entries, on a path that runs at most once per haunt
-        // event. A dictionary here would be a lookup table to keep in step for no measurable gain.
+        // A linear scan over the whole bank — 31 entries as of ModBuild 242 — on a path that runs at
+        // most once per haunt event. A dictionary here would be a lookup table to keep in step for
+        // no measurable gain.
         for (int i = 0; i < _made.Count && i < _shape.Count; i++)
         {
             if (!ReferenceEquals(_made[i], clip))
@@ -2237,16 +2292,25 @@ internal static class EnvSoundBank
     //  THE SEVEN, AND WHY EACH IS DISTINGUISHABLE FROM THE OTHER SIX. Every number below is measured
     //  off the finished buffer, by .planning/envsound-replica's own instruments — `audible()` for
     //  the centroid and spread over 200 Hz-12 kHz (the band a Quest 3 returns) and `bands()` for the
-    //  split; the attack is the 10-90% rise of a 5 ms RMS envelope. The generators driven were a
-    //  line-for-line transcription of the five below, INCLUDING the HarmonicStack recurrence, and it
-    //  agrees with the tuning prototype to 9e-14 — so these are this file's numbers and not a
-    //  neighbouring implementation's.
+    //  split; the attack is the 10-90% rise of a 5 ms RMS envelope. Every figure below was
+    //  RE-MEASURED at ModBuild 242 off the buffers the SHIPPED C# produces, and every one of them
+    //  reproduced.
     //
-    //  THE REPLICA DOES NOT YET CARRY THESE FIVE GENERATORS, and it should: room.py holds make_owl
-    //  and make_bird for exactly this reason, and a table whose instrument has been thrown away is a
-    //  claim rather than a measurement. That file is outside this round's lane; the patch adding
-    //  make_kewick / make_fox / make_raven / make_deer / make_owlet beside them went to the
-    //  integrator with this change.
+    //  THE REPLICA CARRIES ALL FIVE — corrected at ModBuild 242, which is the round that could run
+    //  it. room.py has make_kewick / make_fox / make_raven / make_roedeer / make_owletbeg beside
+    //  make_owl and make_bird, and `vocabulary_report()` regenerates this table.
+    //
+    //  AND ONE CLAIM THIS BLOCK MADE IS CORRECTED RATHER THAN LEFT STANDING. The sentence below used
+    //  to end "...it agrees with the tuning prototype to 9e-14 — so these are this file's numbers
+    //  and not a neighbouring implementation's". The second half does not follow from the first: a
+    //  Python prototype agreeing with a Python replica says nothing about the C# that ships.
+    //  ModBuild 242 built the missing instrument — the shipped EnvSound.Bank.cs compiled against a
+    //  UnityEngine shim, so the REAL buffers can be dumped — and the honest figure is that the
+    //  replica reproduces every number in the table below EXACTLY while the sample-by-sample
+    //  agreement is 1.1e-2 peak-relative at worst, because the replica is float64 and the bank is
+    //  float32 and 2.3 s of phase accumulation in float32 drifts. Two clips also differ by ONE
+    //  SAMPLE in length, from `(int)(rate * 2.30f)` rounding the other way than Python's float64.
+    //  Neither is a defect; both were being covered by a comparison against the wrong thing.
     //
     //                  dur     centroid  spread   attack   the rhythm, which is the other half of it
     //    Owl          2.30 s    394 Hz   0.22 oct  37 ms   3 fluty phrases, tremolo on the last
@@ -2285,6 +2349,15 @@ internal static class EnvSoundBank
     //    * CRICKETS, in any form. Refused at ModBuild 226 with a user sentence attached; see
     //      MakeChirr, DELETED above. Not re-opened, not re-argued, not partially re-introduced as
     //      "an event".
+    //      >> CORRECTED AT ModBuild 242, AND THE CORRECTION IS THE INTERESTING PART. The user
+    //      >> ruling at 226 is about a BED ("dieser 'Regen' Sound der ab und zu kommt und für eine
+    //      >> Zeit bleibt"), and the round that made it wrote down what WOULD be allowed instead —
+    //      >> "a cricket is a NARROWBAND TONAL CHIRP ... it should arrive as EVENTS on the shared
+    //      >> clock". The blanket "in any form" above was this lane's own caution, not the user's,
+    //      >> and it read as a ruling for one round. He has since asked for insects by name
+    //      >> ("Gerne eventuell auch Insekten Sounds"), and the 226 form is what ships: see THE
+    //      >> INSECT, AS A CARD under THE EERIE REGISTER. The BED is still deleted and still not
+    //      >> re-openable.
     //    * A VIXEN'S SCREAM rather than a fox's bark. It is the more famous sound and it is a
     //      genuine one, but it is a SCREAM — the whole point of it is that it is startling — against
     //      a feature whose standing rule is "nie aufdringlich" and a bank whose one design law is
@@ -2781,8 +2854,10 @@ internal static class EnvSoundBank
     private const float OwletRaspHz = 42f;
     private const float OwletRaspDepth = 0.30f;
 
-    /// <summary>THE NOISE IS THE SOUND. At 1.15 of the tone, this is the only call in the bank whose
-    /// breath outweighs its voice, and that is what separates it from <see cref="NightBird"/> at the
+    /// <summary>THE NOISE IS THE SOUND. At 1.15 of the tone, this was the only call in the bank
+    /// whose breath outweighed its voice until <see cref="MakeBarnOwl"/> joined it at ModBuild 242
+    /// — which is why that one had to be separated from this one on THREE further columns; see THE
+    /// EERIE REGISTER. It is what separates it from <see cref="NightBird"/> at the
     /// other end of a 0.21 octave gap: 0.48 octaves of spectral spread against the bird's 0.14. Two
     /// clips can sit at 3.0 and 3.5 kHz and still be unmistakable if one is a whistle and the other
     /// is a rasp.</summary>
@@ -2827,6 +2902,541 @@ internal static class EnvSoundBank
 
         Normalise(d, OwletPeak);
         return Finish("OwletBeg", d, rate);
+    }
+
+    // =============================================================================================
+    //  THE EERIE REGISTER — ModBuild 242. THREE MORE CARDS, THE SAME NUMBER OF EVENTS, AND THE
+    //  FRIGHT COMES OUT OF TIMBRE AND RARITY RATHER THAN OUT OF LEVEL.
+    // =============================================================================================
+    //
+    //  USER REQUEST, 2026-08-24, verbatim, after hearing the five calls ModBuild 241 shipped:
+    //
+    //      "Mach bei den Waldsound gerne auch noch ein paar gruseligere Tiersounds dazu wie man es
+    //       aus der Pop-Kultur kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten
+    //       Sounds."
+    //
+    //  THREE SENTENCES, THREE DIFFERENT THINGS, AND THE SECOND ONE IS A CONSTRAINT ON THE FIRST.
+    //  "Gruselig wie man es aus der Pop-Kultur kennt" is a request for the sounds a FILM reaches for
+    //  to say "night wood, something is out there" — not for an animal that merely happens to be
+    //  nocturnal. "Aber auch nicht aufdringlich" is the same limit that has governed this feature
+    //  since ModBuild 223 and that killed a vixen's scream one round ago; it is not softened by the
+    //  first sentence, it QUALIFIES it. And the third asks for insects, which the wood has had a
+    //  ruling about since 226.
+    //
+    //  THE RATE IS HELD, AGAIN, AND BY THE SAME MECHANISM. ModBuild 241's report ends with the
+    //  sentence "A ROUND THAT WANTS MORE VARIETY MUST ADD CARDS, NEVER SLOTS", and that sentence was
+    //  written for this round. `EnvSound.NightCallSlot` (41 s), `NightCallMean` (15.5 s) and
+    //  `NightCallSkip` (0.22) are STILL byte-for-byte what ModBuild 223 shipped — a call about every
+    //  53 s, at most one per slot. The deck grows from sixteen cards to twenty and nothing else
+    //  moves. Ten animals on the rate two used to have.
+    //
+    //  HOW A SOUND IS MADE FRIGHTENING WITHOUT BEING MADE LOUD — the three levers this round used,
+    //  written down because they are the whole answer to "gruselig aber nicht aufdringlich":
+    //
+    //    1. TIMBRE. A wolf's howl and a barn owl's rasp are frightening because of WHAT THEY ARE,
+    //       not because of how they arrive. Both are built here with a throat (harmonics, breath,
+    //       jitter, a real attack) and both are the QUIETEST cards in the deck — see the level table
+    //       in EnvSound.cs, where every one of the three peaks below the owlet's 0.030, which was
+    //       already the quietest of the seven.
+    //    2. NO TRANSIENT. The scare in a jump-scare is the ONSET, and this bank's one design law is
+    //       that the frightening sound is never the loud one. The three cards this round adds are
+    //       three of the four slowest onsets in the deck — 232 ms (howl), 99 ms (insect), 79 ms
+    //       (barn owl) — against the roe deer's 5.3 ms and the fox's 8.8. Nothing here can make
+    //       anyone jump, by construction: there is no edge to jump at.
+    //       (The fourth is the ke-wick's 152 ms, and it is an ARTEFACT rather than a slow onset:
+    //       the clip's peak lies in its SECOND syllable, so the 10-90% rise measured from the
+    //       buffer's start spans the gap between the two. ModBuild 241's table prints it as "—" for
+    //       that reason and this one keeps that convention in prose. Said out loud because a summary
+    //       statistic that answers a different question than the one being asked is how this project
+    //       has previously talked itself into a wrong claim.)
+    //    3. RARITY. One card in twenty each, i.e. about one per 17 minutes of level time. A sound
+    //       heard twice an evening is an event; a sound heard every minute is a bed, and a
+    //       frightening bed is exactly "aufdringlich".
+    //
+    //  THE THREE, MEASURED off the finished buffer by the same instruments as the seven above —
+    //  `audible()` for centroid and spread over 200 Hz-12 kHz, `bands()` for the split, the 10-90%
+    //  rise of a 5 ms RMS envelope for the attack, and (new this round, and it is the instrument
+    //  that decided the barn owl's bands) `flatness()`, the 1/3-octave spectral flatness this file
+    //  already owns because "Rauschen wie beim Fernseher" had to be a number:
+    //
+    //                  dur     centroid  spread   attack   flat   the gesture
+    //    Howl        2.90 s     828 Hz   0.61 oct  232 ms  0.010  ONE long note: rises, holds,
+    //                                                             wavers, sags. No repeat at all.
+    //    BarnOwl     1.20 s    4439 Hz   0.99 oct   79 ms  0.247  ONE rasp, darkening as it falls
+    //    Stridulate  0.72 s    6567 Hz   0.43 oct   99 ms  0.068  2 bursts, 0.30 s and 0.21 s
+    //
+    //  ...against the controls this file keeps for the hiss question: band-limited white noise
+    //  (a television) scores 0.984 and the rain control 0.493. The barn owl is the flattest thing
+    //  in the deck at 0.247 and it is STILL below the fox's 0.269, which shipped and was liked. That
+    //  test is not decoration: a 0.8 s noise burst at 4.4 kHz is the one shape in this round that
+    //  could have re-created the emitter the user has now rejected three times, and the tonal core
+    //  under the hiss (BarnOwlTone) is what keeps it a bird.
+    //
+    //  THE LADDER IS NOW 394 / 518 / 828 / 1150 / 1390 / 1926 / 3055 / 3532 / 4439 / 6567 Hz. The
+    //  howl fills the largest hole the seven-card table had — 518 to 1150 was a clear octave with
+    //  nothing in it — and the other two extend the top. THE ONE PAIR WORTH ARGUING is OwletBeg
+    //  (3532) against BarnOwl (4439), 0.33 octaves apart, which is wider than the 0.21 oct
+    //  NightBird-OwletBeg pair ModBuild 241 accepted; they are separated on THREE further columns:
+    //  burst count (2 rasps against 1), duration (1.86 s against 1.20) and spread (0.48 oct against
+    //  0.99). The howl's nearest neighbour is the raven at 0.47 oct, and it is separated on
+    //  DURATION and ATTACK above all — 2.90 s against 1.14, and 232 ms of onset against 18.
+    //
+    //  ---- THE INSECT, AS A CARD, AND WHY THAT IS NOT RE-LITIGATING ModBuild 226 -----------------
+    //
+    //  "Gerne eventuell auch Insekten Sounds." The wood HAS a ruling about insects and it is a user
+    //  ruling: MakeChirr was deleted at ModBuild 226 because he reported it as a "Regen" sound that
+    //  "ab und zu kommt und für eine Zeit bleibt". THAT RULING IS ABOUT A BED, and the round that
+    //  made it wrote down what would be allowed instead, in its own words:
+    //
+    //      "IF A FUTURE ROUND WANTS CRICKETS IN THE WOOD, IT MUST NOT REBUILD THIS. What the user
+    //       calls rain is broadband noise; a cricket is a NARROWBAND TONAL CHIRP with a pulse rate.
+    //       That is a different generator, and it should arrive as EVENTS on the shared clock the
+    //       way the owl and the night bird do."
+    //
+    //  ModBuild 241's rejected list then hardened that into "CRICKETS, in any form ... not partially
+    //  re-introduced as 'an event'", which contradicts it. THAT LINE WAS A LANE'S OWN CAUTION AND
+    //  NOT A USER RULING — the user ruling is the sentence about the Regen — and the user has now
+    //  asked for insects by name. The 226 form is what ships: a narrowband tonal stridulation, as an
+    //  EVENT. The 241 line is corrected in its own block below rather than quietly ignored.
+    //
+    //  AND IT IS A CARD, NOT A CHANNEL, WHICH IS THE DECISION THIS BLOCK EXISTS TO RECORD. The
+    //  tempting design is a second, much quieter, much more frequent schedule of its own — an insect
+    //  every ten or fifteen seconds, far below the calls. It is refused, for one reason with two
+    //  faces:
+    //
+    //    * A SECOND SCHEDULE IS MORE EVENTS PER MINUTE, WHICH IS THE THING THE USER RULED OUT IN
+    //      BRACKETS ONE ROUND AGO ("nicht mehr Häufigkeit") and which 241's closing sentence names.
+    //      There is no rate at which a second emitter adds no events; that is what a second emitter
+    //      IS.
+    //    * AND AT ANY RATE FAST ENOUGH TO BE WORTH HAVING, IT BECOMES A BED BY THE BACK DOOR. An
+    //      insect every 12 s is five per minute; the ear stops hearing five arrivals a minute as
+    //      events and starts hearing them as a floor, which is the exact object the user has now
+    //      rejected three times (the marsh wash, the stone tone, the chirr). "It is quiet" is not a
+    //      defence — the chirr was quiet too, and what he complained about was that it was THERE.
+    //
+    //  So the insect spends a card, and two of twenty: about one per 8.8 minutes of level time. That
+    //  is "eventuell auch Insekten Sounds", and it cannot become a floor because the total number of
+    //  sounds the wood makes did not change at all.
+    //
+    //  ---- REJECTED, so the next round does not re-propose them ----------------------------------
+    //
+    //    * A VIXEN'S SCREAM. Refused at ModBuild 241 ("it is a SCREAM — the whole point of it is
+    //      that it is startling"), and this round is where that precedent would be argued down if it
+    //      were going to be. IT STANDS. "Gruseliger" and "nicht aufdringlich" arrive in the same
+    //      request, and a scream answers the first by breaking the second: its character IS a fast
+    //      loud transient, so there is nothing left of it once the transient is taken out. The barn
+    //      owl below is the honest way to have the same register — a rasp is frightening in its
+    //      TIMBRE, so it survives having its onset slowed to 79 ms, and a scream does not.
+    //    * A HARE'S SCREAM, for exactly the same reason and more so. It is famous for sounding like
+    //      a child, which is the most startling sound on the list and the least "dezent" thing this
+    //      bank could make.
+    //    * A NIGHTJAR'S CHURR. Third time it has been proposed and third time refused, and the
+    //      refusal is now two user reports deep rather than one: a churr is a low-mid carrier pulsed
+    //      at about 30 Hz, which is the shape THE NIGHT CALLS rejected a frog for and the shape
+    //      whose 3.45 Hz cousin got a whole cue deleted ("im Hintergrund ein Traktor", "super
+    //      nervig"). No amount of eeriness buys a periodic low-mid envelope back into this room.
+    //    * A BITTERN'S BOOM, and this one is rejected on HARDWARE rather than on taste, which is why
+    //      it is worth writing down. A boom's fundamental is 150-190 Hz. The measurement band every
+    //      table in this file uses starts at 200 Hz because that is what the headset returns, and
+    //      the bank has already lost one sound's weight to exactly this (see SoftClip: "a Quest 3
+    //      speaker reproduces essentially nothing below about 150-250 Hz"). A cue whose character
+    //      lives under the chain is a cue nobody hears — it would arrive as the vague thud of its
+    //      own harmonics, i.e. as a room-tone rumble, which is the class of sound this room has
+    //      deleted twice.
+    //    * A WOODPECKER'S DRUMMING ON A DEAD TRUNK. Two independent reasons. It is a 20 Hz pulse
+    //      train, i.e. the churr's fault in percussion form; and a woodpecker drums to hold a
+    //      TERRITORY IN SPRING DAYLIGHT — it is not a night sound at all, so it would be the one
+    //      card in the deck that does not answer "was man so im Wald in der Nacht hört".
+    //    * AN OWL'S WING-CLAP, OR A WING PASS OVERHEAD. Genuinely eerie, genuinely quiet, and
+    //      rejected on MECHANISM: the whole cue is something large MOVING past the head in the dark,
+    //      and `EnvSound.PlayShot` seats a one-shot at a FIXED point. A pass that does not move is a
+    //      rustle. The user's standing requirement is that sounds are "verortbar von seinen
+    //      entsprechenden Quellen", and a static wing-pass would be a lie about its own source. It
+    //      needs a moving emitter, which is a new mechanism and a different round.
+    //    * A CONTINUOUS CRICKET BED, in any form. See THE INSECT, AS A CARD above: the deletion at
+    //      ModBuild 226 is a USER ruling about a bed and it is not touched. What ships is the EVENT
+    //      the same round specified.
+    //    * RECORDINGS, for THE NIGHT CALLS' reason, unchanged: a recorded animal brings a recorded
+    //      WOOD with it — its own reverb, its own distance, its own weather — which is then heard
+    //      inside ours.
+    //
+    //  ---- THE COST ------------------------------------------------------------------------------
+    //
+    //  231,360 samples at 48 kHz = 4.82 s of new mono PCM = 925,440 bytes = 0.88 MB of float32,
+    //  on top of a bank the same instrument measures at 31 clips and 9.3 MB with them in it. That is
+    //  within a quarter of a per cent of what ModBuild 241 itself added (0.89 MB), and it is resident
+    //  for the session. The build work is one pass per clip on the frame the room is first placed:
+    //  428 k noise draws, thirteen one-pole filter passes over them, and about 1.1 M harmonic steps
+    //  through the Chebyshev recurrence rather than 1.1 M Mathf.Sin calls. That is an OPERATION COUNT
+    //  with one measurement beside it — the whole bank builds in 132 ms on desktop .NET through the
+    //  offline harness — and NEITHER is the device's number, because the device is Mono inside a
+    //  game. Build()'s own log line on the next hardware run is the place to check it.
+
+    // ---- 6. THE WOLF'S HOWL -----------------------------------------------------------------
+
+    /// <summary>WHERE THE NOTE SITS INSIDE THE CLIP, and the clip is longer than the note on
+    /// purpose: 60 ms of silence in front so a howl never starts on sample zero, and 290 ms behind
+    /// it so the release has somewhere to finish. This is the only card in the deck that is a
+    /// SUSTAINED note — the roe deer and the barn owl are also single events, but one is a 0.26 s
+    /// cough and the other a rasp, and neither is HELD. That is most of what makes this one tell
+    /// apart from the raven 0.47 octaves below it.</summary>
+    private const float HowlSeconds = 2.90f;
+    private const float HowlStart = 0.060f;
+    private const float HowlLength = 2.550f;
+
+    /// <summary>THE HOWL'S PITCH CONTOUR, and it is deliberately NOT a glide. A wolf slides UP onto
+    /// its note over about the first fifth, HOLDS it, and lets it SAG at the end; a note that only
+    /// falls is a moan and a note that only rises is a whine. So:
+    ///
+    /// <code>
+    ///   f(u) = HowlF0 x (HowlLow + (1 - HowlLow) x smoothstep(u / HowlRise))
+    ///                 x (1 - HowlDrop x smoothstep((u - HowlFallFrom) / (1 - HowlFallFrom)))
+    /// </code>
+    ///
+    /// <para>640 Hz is a high howl and that is the choice rather than an accident: a wolf's
+    /// fundamental runs 300-900 Hz, the low end of that range is the roe deer's cell in the centroid
+    /// table (518 Hz), and a HIGHER note also carries further — which is what a call seated on the
+    /// farthest ring in the room has to do. The measured centroid is 828 Hz, in the octave-wide hole
+    /// the seven-card ladder had between 518 and 1150.</para></summary>
+    private const float HowlF0 = 640f;
+    private const float HowlLow = 0.64f;
+    private const float HowlRise = 0.18f;
+    private const float HowlDrop = 0.24f;
+    private const float HowlFallFrom = 0.66f;
+
+    /// <summary>The harmonic stack. Six, falling steeply — a howl is one of the purest sounds any
+    /// mammal makes, and a stack that is not steep turns it into a horn. The tilt is authored
+    /// per-harmonic rather than as <c>1/k^t</c> (the fox's form) because the ear reads the SECOND
+    /// harmonic of a howl as part of the note and everything above it as air, so H2 is held high at
+    /// 0.60 while H3 onward drop fast.</summary>
+    private static readonly float[] HowlHarmonics = { 1.00f, 0.60f, 0.32f, 0.17f, 0.09f, 0.045f };
+
+    /// <summary>THE WAVER, AND IT IS THE THROAT OF THIS CALL. Two independent instabilities, both in
+    /// FREQUENCY rather than in amplitude, because a wolf's howl wavers in PITCH:
+    ///
+    /// <list type="bullet">
+    ///   <item>a 4.9 Hz vibrato at 2.2%, which does not start at the beginning — <see cref="HowlVibFrom"/>
+    ///   ramps it in over the first third, so the note is steady when it arrives and only begins to
+    ///   shake as it is held. That ramp is also what stops the vibrato being a stationary rate the
+    ///   ear can latch onto: there is no lag at which the envelope repeats. MEASURED: the peak
+    ///   envelope autocorrelation anywhere in 0.15-1.4 s of lag is at the shortest lag examined and
+    ///   is the same artefact the SHIPPED owl shows (a long smooth note is correlated with itself);
+    ///   there is no peak at the vibrato's own 0.204 s period at all.</item>
+    ///   <item>a 1.8% random drift from noise low-passed at 3.2 Hz, so no two seconds of the note
+    ///   are the same pitch. Without it the vibrato alone is a synthesizer's LFO, which is
+    ///   <see cref="MakeDrips"/>'s scar in its other form.</item>
+    /// </list>
+    ///
+    /// <para>4.9 Hz IS NOT A BEAT AND THIS IS THE FILE THAT HAS TO SAY SO. The cue this bank deleted
+    /// beat at 3.45 Hz in AMPLITUDE, on a continuous bed that ran for 22 s at a time; this is a
+    /// 2.2% frequency wobble inside a single 2.55 s note that ramps in. The shipped owl already
+    /// carries a 13.7 Hz amplitude tremolo on the same argument.</para></summary>
+    private const float HowlVibHz = 4.9f;
+    private const float HowlVibDepth = 0.022f;
+    private const float HowlVibFrom = 0.35f;
+    private const float HowlDrift = 0.018f;
+    private const float HowlDriftHz = 3.2f;
+
+    /// <summary>The breath, 600-3000 Hz at 0.09 of the tone — over the fundamental rather than under
+    /// it, because what you hear of a distant howl's air is the top of it.</summary>
+    private const float HowlBreath = 0.09f;
+    private const float HowlBreathLoHz = 600f;
+    private const float HowlBreathHiHz = 3000f;
+
+    /// <summary>THE SLOWEST ONSET OF ANY NIGHT CALL, and it is the single most important number in
+    /// this round. 14% of a 2.55 s note is a 357 ms shoulder, which measures as a 232 ms 10-90% rise
+    /// against the roe deer's 5.3 ms. (Not the slowest in the BANK — an earlier draft of this line
+    /// said so and it is wrong: <see cref="MakeFly"/> is 1025 ms, <see cref="MakeFlutter"/> 669 and
+    /// <see cref="MakeCreak"/> 511. Those are a loop and two haunt cues, none of which is a call and
+    /// none of which is in this deck, so the comparison that matters is the one against the other
+    /// nine cards. Corrected here rather than left standing because it was a claim that had an
+    /// instrument and had not been put to it.) A howl that FADES UP has no onset to be startled by, so the
+    /// whole of its eeriness has to come from what it is — which is the brief. The 30% release is
+    /// the note dying away rather than stopping.</summary>
+    private const float HowlAttack = 0.14f;
+    private const float HowlRelease = 0.30f;
+
+    private const float HowlPeak = 0.70f;
+    private const uint HowlSeed = 0x8A70C000u;
+    private const uint HowlDriftSeed = 0x8A70D000u;
+
+    /// <summary>A WOLF HOWLING, far off across the wood. One long note that rises onto its pitch,
+    /// holds, wavers and sags.</summary>
+    private static AudioClip MakeHowl(int rate)
+    {
+        int n = (int)(rate * HowlSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, HowlSeed, HowlBreathLoHz, HowlBreathHiHz);
+
+        // The slow pitch drift, once for the whole note. A one-pole at 3.2 Hz leaves almost nothing,
+        // which is why it is normalised back to unity afterwards — what is wanted is the SHAPE of a
+        // wander, at a depth the constant decides.
+        var dr = new float[n];
+        var rr = new Rng(HowlDriftSeed);
+        for (int i = 0; i < n; i++)
+            dr[i] = rr.Next();
+        LowPass(dr, rate, HowlDriftHz);
+        Normalise(dr, 1f);
+
+        int at = (int)(HowlStart * rate);
+        int len = (int)(HowlLength * rate);
+        float phase = 0f;
+        for (int i = 0; i < len && at + i < n; i++)
+        {
+            float u = i / (float)len;
+
+            float ramp = Mathf.Min(1f, u / HowlRise);
+            ramp = ramp * ramp * (3f - 2f * ramp);
+            float fall = Mathf.Max(0f, (u - HowlFallFrom) / (1f - HowlFallFrom));
+            fall = fall * fall * (3f - 2f * fall);
+            float vib = Mathf.Min(1f, u / HowlVibFrom);
+
+            // THE CONTOUR, INTEGRATED INTO A PHASE — MakeOwl's standing trap, and it bites hardest
+            // here because this is the longest glide in the bank: sin(2*pi*f(t)*t) would sweep at
+            // twice the intended rate over 2.55 s and land most of an octave wrong.
+            float f = HowlF0
+                      * (HowlLow + (1f - HowlLow) * ramp)
+                      * (1f - HowlDrop * fall)
+                      * (1f + HowlVibDepth * vib * Mathf.Sin(2f * Mathf.PI * HowlVibHz * (i / (float)rate)))
+                      * (1f + HowlDrift * dr[at + i]);
+            phase += 2f * Mathf.PI * f / rate;
+            // AND THE PHASE IS WRAPPED — only this generator and MakeBarnOwl do it, and they are the
+            // two that were added by a round that could MEASURE what not doing it costs.
+            // Only sin(k x phase) is ever taken of it, so subtracting a turn is EXACT in real
+            // arithmetic — but in float32 it is the difference between an accumulator that stays
+            // near 6.28 (spacing 5e-7 rad) and one that reaches 9,450 after 2.55 s (spacing
+            // 5.7e-4 rad, i.e. every single add rounding away 0.7% of itself). MEASURED against the
+            // float64 replica: 0.92 peak-relative divergence without this line, 9.1e-3 with it. It
+            // is not a determinism question — two clients both run this float32 and agree bit for
+            // bit either way — it is whether the offline instrument measures the shipped buffer.
+            if (phase > 2f * Mathf.PI)
+                phase -= 2f * Mathf.PI;
+
+            float env = Shoulders(u, HowlAttack, HowlRelease);
+            var stack = new HarmonicStack(phase);
+            float tone = HowlHarmonics[0] * stack.Current;
+            for (int k = 1; k < HowlHarmonics.Length; k++)
+                tone += HowlHarmonics[k] * stack.Next();
+
+            d[at + i] += env * (tone + HowlBreath * nb[at + i]);
+        }
+
+        Normalise(d, HowlPeak);
+        return Finish("Howl", d, rate);
+    }
+
+    // ---- 7. THE BARN OWL --------------------------------------------------------------------
+
+    /// <summary>ONE RASP, and the one is the argument. A barn owl gives a single drawn-out shriek
+    /// and then nothing for a long while; two of them inside a clip would make a phrase, and a
+    /// phrase is what <see cref="MakeOwletBeg"/> already is at the other end of a 0.33 octave gap.
+    /// 30 ms of silence in front, 370 ms behind for the fall.</summary>
+    private const float BarnOwlSeconds = 1.20f;
+    private const float BarnOwlStart = 0.030f;
+    private const float BarnOwlLength = 0.800f;
+
+    /// <summary>THE TWO NOISE BANDS, AND THE CROSSFADE BETWEEN THEM IS THE GESTURE. A barn owl's
+    /// screech DARKENS as it runs out of air: it starts bright and ends in the middle of the band.
+    /// One fixed noise band cannot do that (a filter here is a whole-buffer pass), so there are two
+    /// — a bright one and a dark one — crossfaded across the rasp.
+    ///
+    /// <para>EQUAL POWER, not linear, and <see cref="LoopFade"/>'s doc is the reason in full: two
+    /// INDEPENDENT noise signals summed with linear weights lose 3 dB in the middle of the fade, so
+    /// a linear crossfade would put a dip exactly where the rasp is loudest.</para></summary>
+    private const float BarnOwlHiLoHz = 3800f;
+    private const float BarnOwlHiHiHz = 6400f;
+    private const float BarnOwlLoLoHz = 2400f;
+    private const float BarnOwlLoHiHz = 4200f;
+
+    /// <summary>THE VOICE UNDER THE HISS, AND IT IS WHAT KEEPS THIS OUT OF THE ROOM'S OWN HISTORY.
+    /// A barn owl's screech is not white noise: it is a harsh VOICED rasp, and a 0.8 s burst of
+    /// band-limited noise with no tonal core would be the nearest thing this bank has ever made to
+    /// the emitter the user has rejected three times. Ten harmonics on a 1/k^0.90 tilt at 0.90 of
+    /// the noise is the core; the measured 1/3-octave spectral flatness with it is 0.247, against
+    /// the rain control's 0.493 and band-limited white noise's 0.984, and against the shipped fox's
+    /// 0.269 — i.e. this is not the flattest thing in the deck even after it is added.</summary>
+    private const float BarnOwlF0 = 620f;
+    private const float BarnOwlFall = 0.84f;
+    private const int BarnOwlHarmonics = 10;
+    private const float BarnOwlTilt = 0.90f;
+    private const float BarnOwlTone = 0.90f;
+
+    /// <summary>THE RASP ITSELF — an amplitude roughness at 118 Hz falling to 96 (0.81) across the
+    /// call, 62% deep. 118 Hz is a PITCH and not a rhythm, which is <see cref="RavenSub"/>'s
+    /// argument restated: it is nowhere near the 30-45 Hz pulsing THE NIGHT CALLS rejected a frog
+    /// for. It is SWEPT rather than fixed for the reason MakeChirr's post-mortem gives — any
+    /// stationary modulator can be found by an ear that is given long enough, and a rate that is
+    /// moving cannot be a lattice. The rate is integrated into its own phase, exactly as the
+    /// carrier's is, because a swept modulator written as cos(2*pi*r(t)*t) sweeps twice as fast.</summary>
+    private const float BarnOwlRoughHz = 118f;
+    private const float BarnOwlRoughFall = 0.81f;
+    private const float BarnOwlRoughDepth = 0.62f;
+
+    /// <summary>13% of an 800 ms rasp is a 104 ms shoulder, measuring as a 79 ms 10-90% rise. THAT
+    /// IS THE WHOLE DIFFERENCE BETWEEN THIS AND THE SCREAM THE PREVIOUS ROUND REFUSED: the sound a
+    /// film uses here is a shriek, and a shriek's character is its onset. Take the onset out and a
+    /// scream has nothing left; take it out of a RASP and the rasp is untouched, because its
+    /// character is timbre. The 55% release is the long fall a real screech has.</summary>
+    private const float BarnOwlAttack = 0.13f;
+    private const float BarnOwlRelease = 0.55f;
+
+    /// <summary>The mouth, applied to the summed buffer — the same trick <see cref="MakeFox"/> uses,
+    /// and for the same reason: a throat shapes its own output as well as its source.</summary>
+    private const float BarnOwlMouthLoHz = 2600f;
+    private const float BarnOwlMouthHiHz = 7600f;
+
+    private const float BarnOwlPeak = 0.66f;
+    private const uint BarnOwlSeedHi = 0x0BA20000u;
+    private const uint BarnOwlSeedLo = 0x0BA21000u;
+
+    /// <summary>A BARN OWL'S SCREECH. One long rasp that darkens as it falls away.</summary>
+    private static AudioClip MakeBarnOwl(int rate)
+    {
+        int n = (int)(rate * BarnOwlSeconds);
+        var d = new float[n];
+        float[] nhi = NoiseBand(n, rate, BarnOwlSeedHi, BarnOwlHiLoHz, BarnOwlHiHiHz);
+        float[] nlo = NoiseBand(n, rate, BarnOwlSeedLo, BarnOwlLoLoHz, BarnOwlLoHiHz);
+
+        // The tilt is fixed, so its weights are computed once and normalised by their own sum —
+        // MakeFox's argument: a level that depends on how many harmonics happen to be summed is a
+        // level nobody can reason about.
+        var tilt = new float[BarnOwlHarmonics];
+        float tsum = 0f;
+        for (int k = 1; k <= BarnOwlHarmonics; k++)
+        {
+            tilt[k - 1] = 1f / Mathf.Pow(k, BarnOwlTilt);
+            tsum += tilt[k - 1];
+        }
+        for (int k = 0; k < BarnOwlHarmonics; k++)
+            tilt[k] /= tsum;
+
+        int at = (int)(BarnOwlStart * rate);
+        int len = (int)(BarnOwlLength * rate);
+        float phase = 0f;
+        float rough = 0f;
+        for (int i = 0; i < len && at + i < n; i++)
+        {
+            float u = i / (float)len;
+
+            float f = BarnOwlF0 * (1f + (BarnOwlFall - 1f) * u);
+            phase += 2f * Mathf.PI * f / rate;
+            rough += 2f * Mathf.PI * (BarnOwlRoughHz * (1f + (BarnOwlRoughFall - 1f) * u)) / rate;
+            // Both accumulators wrapped, for MakeHowl's reason — only sines and cosines are taken
+            // of them, so a turn subtracted is exact, and the float32 accumulator stays precise.
+            if (phase > 2f * Mathf.PI)
+                phase -= 2f * Mathf.PI;
+            if (rough > 2f * Mathf.PI)
+                rough -= 2f * Mathf.PI;
+
+            float env = Shoulders(u, BarnOwlAttack, BarnOwlRelease);
+            env *= 1f - BarnOwlRoughDepth * 0.5f * (1f - Mathf.Cos(rough));
+
+            var stack = new HarmonicStack(phase);
+            float tone = tilt[0] * stack.Current;
+            for (int k = 1; k < BarnOwlHarmonics; k++)
+                tone += tilt[k] * stack.Next();
+
+            float hiss = Mathf.Cos(u * Mathf.PI * 0.5f) * nhi[at + i]
+                         + Mathf.Sin(u * Mathf.PI * 0.5f) * nlo[at + i];
+
+            d[at + i] += env * (hiss + BarnOwlTone * tone);
+        }
+
+        HighPass(d, rate, BarnOwlMouthLoHz);
+        LowPass(d, rate, BarnOwlMouthHiHz);
+        Normalise(d, BarnOwlPeak);
+        return Finish("BarnOwl", d, rate);
+    }
+
+    // ---- 8. THE STRIDULATION ----------------------------------------------------------------
+
+    /// <summary>TWO BURSTS, OF UNEQUAL LENGTH, WITH ONE GAP — "one beetle's stridulation that starts
+    /// and stops". Two and not three: <see cref="FoxBarks"/>'s doc records that three evenly spaced
+    /// bursts inside a second is a 2.4 Hz beat, and it takes three events to establish a rhythm at
+    /// all. 0.300 s and 0.210 s with a 0.130 s gap cannot be one.</summary>
+    private static readonly float[][] StridBursts =
+    {
+        new[] { 0.020f, 0.300f, 1.00f },
+        new[] { 0.450f, 0.210f, 0.86f },
+    };
+
+    private const float StridSeconds = 0.72f;
+
+    /// <summary>THE FILE, AND IT IS A PHYSICAL MODEL RATHER THAN A MODULATOR. A bush-cricket rubs a
+    /// scraper along a row of teeth; each tooth is a STRIKE that excites the wing's resonance and
+    /// then rings down. So the envelope inside a burst is <c>exp(-decay x frac(t x rate))</c> — a
+    /// hard edge every 1/92 s with an exponential tail, which is what a file sounds like and what a
+    /// sine modulator does not.
+    ///
+    /// <para>92 Hz IS A PITCH, NOT A RHYTHM, and that sentence is the whole reason an insect is
+    /// allowed in this room at all: <see cref="RavenSub"/> makes the same argument for 142 Hz and
+    /// <see cref="OwletRaspHz"/> for 42 Hz on a 3.35 kHz carrier. The shape this bank has deleted a
+    /// cue for and rejected two candidates for is a 30-45 Hz pulse on a LOW-MID carrier; this is a
+    /// 92 Hz strike train on a 6.5 kHz one, and there is nothing low enough here to beat.</para></summary>
+    private const float StridRateHz = 92f;
+    private const float StridStrikeDecay = 5.5f;
+
+    /// <summary>THE RESONANCE. The noise band is the wing mirror's; the sine at 6300 Hz is what
+    /// makes this "a NARROWBAND TONAL CHIRP" rather than a hiss — which is the form ModBuild 226's
+    /// own note specified when it deleted the insect BED, word for word. It is also what puts the
+    /// measured spectral flatness at 0.068, the second most tonal thing in the deck.</summary>
+    private const float StridBandLoHz = 4200f;
+    private const float StridBandHiHz = 9500f;
+    private const float StridToneHz = 6300f;
+    private const float StridTone = 0.35f;
+
+    /// <summary>Shoulders on each burst. 12% of 300 ms is a 36 ms shoulder — an insect does not
+    /// start with a bang, and it is the reason the measured 10-90% rise is 99 ms rather than one
+    /// strike period.</summary>
+    private const float StridAttack = 0.12f;
+    private const float StridRelease = 0.30f;
+
+    /// <summary>The band applied to the summed buffer. The strike train broadens whatever it
+    /// multiplies (a hard edge every 11 ms has harmonics all the way up), so the band has to be put
+    /// back afterwards or the clip acquires a click.</summary>
+    private const float StridMouthLoHz = 3800f;
+    private const float StridMouthHiHz = 10500f;
+
+    private const float StridPeak = 0.62f;
+    private const uint StridSeed = 0x57D1D000u;
+
+    /// <summary>ONE INSECT, IN THE LEAF LITTER. Two bursts of a wing file, then it stops.</summary>
+    private static AudioClip MakeStridulate(int rate)
+    {
+        int n = (int)(rate * StridSeconds);
+        var d = new float[n];
+        float[] nb = NoiseBand(n, rate, StridSeed, StridBandLoHz, StridBandHiHz);
+
+        for (int p = 0; p < StridBursts.Length; p++)
+        {
+            int at = (int)(StridBursts[p][0] * rate);
+            int len = (int)(StridBursts[p][1] * rate);
+            float level = StridBursts[p][2];
+            if (len <= 0)
+                continue;
+
+            for (int i = 0; i < len && at + i < n; i++)
+            {
+                float u = i / (float)len;
+                float t = i / (float)rate;
+
+                // WHERE IN THE CURRENT TOOTH STRIKE THIS SAMPLE IS, 0..1. The strike rate is
+                // constant, so this is a fraction rather than an integrated phase — the trap
+                // MakeOwl names applies to a rate that MOVES, and this one does not.
+                float cycle = t * StridRateHz;
+                float frac = cycle - (float)System.Math.Floor(cycle);
+                float strike = Mathf.Exp(-StridStrikeDecay * frac);
+
+                float env = Shoulders(u, StridAttack, StridRelease);
+                float tone = Mathf.Sin(2f * Mathf.PI * StridToneHz * t);
+                d[at + i] += level * env * strike * (nb[at + i] + StridTone * tone);
+            }
+        }
+
+        HighPass(d, rate, StridMouthLoHz);
+        LowPass(d, rate, StridMouthHiHz);
+        Normalise(d, StridPeak);
+        return Finish("Stridulate", d, rate);
     }
 
     // ---- the haunt cues ---------------------------------------------------------------------------
