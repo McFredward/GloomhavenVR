@@ -1226,6 +1226,27 @@ internal static partial class ModalFallback
     /// The ENCOUNTER, the third item of that old sentence, turned out not to be a split at all: it is
     /// <c>UIEventPanel</c>, ONE window with its own image and text, and what it needed was the shared
     /// bar and a pose (<see cref="SharedWindowKind.Encounter"/>).</para>
+    ///
+    /// <para><b>ModBuild 232 — AND THE ONE ROW THAT IS HERE HAS NEVER ONCE FIRED FOR THE WINDOW IT
+    /// WAS WRITTEN FOR, FOR THE ORDERING REASON THE LIST ABOVE ALREADY NAMES.</b> The row was added
+    /// in ModBuild 226 to stop 'Multiplayer Ready Toggle' floating beside the quest card, and the
+    /// ModBuild 231 hardware log shows it floating anyway: <c>CATCH-ALL: unknown scenario window
+    /// 'Multiplayer Ready Toggle' (ID None) floated</c> (Player.log:18129), then <c>MODAL CLOSE (X
+    /// button): attached to 'Multiplayer Ready Toggle'</c> — the user's
+    /// <c>frei_schwebender_button_multiplayer.jpg</c>. The mechanism is item 2 of the list above,
+    /// applied to this row instead of to the quest-intro split: this predicate is only ever consulted
+    /// from <c>CatchAllEligible</c>, and the catch-all re-adds a window it is ALREADY floating BEFORE
+    /// every eligibility test (<c>oursAlready</c>, ModBuild 186's oscillation fix). The toggle's Show
+    /// fires BEFORE the quest popup's — both the 225 and the 231 logs have them in that order — so it
+    /// floats on a tick when no leader exists yet, and from the next tick on it is never re-examined.
+    /// A rule that can only refuse a window it is not already holding cannot answer this window at
+    /// all. The refusal that DOES answer it is <see cref="FloatRefusalTable"/>, which the catch-all
+    /// asks ahead of the <c>oursAlready</c> branch and which can withdraw a float that already
+    /// exists. THIS ROW IS LEFT STANDING AND IS NOT REDUNDANT: it is the one that holds while the
+    /// quest card is a live floated host, which is a fact about the game's own layout, whereas the
+    /// table row holds while <c>MapRoom.ReadyToggleParkClaim</c> says somebody is actually drawing
+    /// the button — two different questions that happen to have the same answer most of the
+    /// time.</para>
     /// </summary>
     private static readonly WindowGroupRule[] WindowGroups =
     {
@@ -1540,6 +1561,17 @@ internal static partial class ModalFallback
     ///
     /// <para>The kept window is compared by REFERENCE and may be null, in which case everything
     /// goes.</para>
+    ///
+    /// <para><b>ModBuild 232 — NO CALLERS, AND THAT IS DELIBERATE. DO NOT REACH FOR THIS.</b> Its
+    /// only caller was <c>StoryComposite</c>'s point-of-no-return gate, and it was half of the
+    /// deadlock that cost a session: an exclusion rule ("everything except one") cannot promise what
+    /// it is pointing at, so the pre-scenario loadout sequence's own windows — the story box, the
+    /// quest popup, the battle-goal picker, the party display — were all inside its scope the moment
+    /// they opened. The replacement asks the opposite question: a NAMED set enumerated from the
+    /// game's own singletons, closed through <see cref="CloseFloatedWindow"/>, so anything not named
+    /// is out of scope by construction rather than by luck. If a future round needs "close these
+    /// specific floats", add a predicate-shaped entry point beside this one — never resurrect the
+    /// exclusion.</para>
     /// </summary>
     internal static int ReleaseFloatsExcept(UIWindow? keep, out string names)
     {

@@ -1941,6 +1941,12 @@ internal static partial class ModalFallback
                          + "did not recognise this window as a destination (IsDestination is a "
                          + "component test on the window's OWN GameObject), or the window was not in "
                          + "UnknownShown at the time");
+        // ModBuild 232: the refusal table is asked FIRST here for the same reason the catch-all asks
+        // it first — without this arm a table refusal falls through to the "EVERY GATE PASSES … this
+        // is a NEW failure" verdict at the bottom, which would send a later round hunting a defect
+        // that is a deliberate rule.
+        if (FloatRefusalTable.Refuses(window))
+            return FloatRefusalTable.Describe(window)!;
         if (EmptyRefusedNow(window))
             return "the EMPTY-WINDOW refusal (ModBuild 226) holds it: it floated once, reached its "
                    + "reveal edge with nothing drawn under it, and may not float again until the "
@@ -2424,6 +2430,11 @@ internal static partial class ModalFallback
             // RendersInsideFloatedAncestor for the hierarchy evidence and the map-room scope.
             if (RendersInsideFloatedAncestor(window))
                 continue;
+            // ModBuild 232: the refusal table governs the ENROLLED path too, so a row cannot mean one
+            // thing for a catch-all window and another for an enrolled one. Inert as it stands —
+            // neither of today's two rows has an enrolled id.
+            if (FloatRefusalTable.Refuses(window))
+                continue;
             OpenWindows.Add(window);
         }
         if (story)
@@ -2692,18 +2703,25 @@ internal static partial class ModalFallback
             // enrolled ID could never have been held by it.
             if (EmptyHeldNow(window))
                 continue;
-            // ModBuild 231: past the point of no return only the composed story window (and, once
-            // that has closed, the loadout screen itself) may float — user ruling: "Alle anderen
-            // Fenster sollen dabei dann geschlossen werden". A `continue` and NOT a TryConvertWindow
-            // refusal: a refusal enrols the window in Failed and raises the flat screen for it, and
-            // "closed" here means closed, not moved to a screen.
+            // ModBuild 232 — A TWO-TICK BRIDGE, NOT A SUPPRESSION. StoryComposite's point-of-no-
+            // return gate is a ONE-SHOT at the rising edge: it closes a NAMED set of windows through
+            // the game's own close (CloseFloatedWindow) and then closes nothing ever again. This
+            // call covers only the frame or two in which a window whose Escape() ran a TRANSITION
+            // still reads IsOpen and would be taken straight back. It is bounded by membership (only
+            // instances that edge closed), by time (2 ticks per gate, never re-armed) and by
+            // StoryComposite's own deadlock floor.
             //
-            // The feature does not depend on this line — StoryComposite sweeps on the rising edge
-            // and again at compose time — but without it a window the game still reports open is
-            // re-converted on the next tick, and the sweep would then run a release/refloat loop
-            // against it. StoryComposite fuses after three such sweeps and prints a Warn naming
-            // exactly this hold, so a future refactor that drops the line says so in the log
-            // instead of quietly oscillating.
+            // THE 2 IS DERIVED FROM THE FUSE IN ModalFallback.10.CatchAll.cs AND MUST NOT BE RAISED.
+            // The churn fuse counts every tick on which the catch-all enrols a window the mod is not
+            // already floating, and ChurnMaxFloats is 3 — so a window held out of the float set for
+            // four ticks is session-suppressed BY NAME. ModBuild 231 held the loadout screen
+            // indefinitely here and the log reads "CATCH-ALL FUSE: window 'UI Loadout Window'
+            // re-floated 4x in 60s — suppressed for this session", after which the player had zero
+            // floated windows and quit. A hold that outlives its edge is a deadlock generator.
+            //
+            // A `continue` and NOT a TryConvertWindow refusal: a refusal enrols the window in Failed
+            // and raises the flat screen for it, and "closed" here means closed, not moved to a
+            // screen.
             if (StoryComposite.HoldsBack(window))
                 continue;
             if (!TryConvertWindow(window))

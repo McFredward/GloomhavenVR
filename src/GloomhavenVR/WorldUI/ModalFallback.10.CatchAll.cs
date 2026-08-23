@@ -126,6 +126,12 @@ internal static partial class ModalFallback
         if (!shown)
         {
             UnknownShown.Remove(window);
+            // A refusal is scoped to ONE open of ONE window. Both rows of the table sit on game
+            // SINGLETONS (UIMultiplayerLockOverlay, UIReadyToggle), so the same instance comes back
+            // on the next open — without this the next refusal would find its edge already set and
+            // print nothing, and a re-open with no claim in force would fake a lapse warning about a
+            // parker that never had a chance to run. See FloatRefusalTable.Forget.
+            FloatRefusalTable.Forget(window);
             return;
         }
         if (IsFallbackWindow(window.ID))
@@ -165,6 +171,12 @@ internal static partial class ModalFallback
         {
             UnknownShown.Remove(UnknownScratch[i]);
             HudVerdict.Remove(UnknownScratch[i]); // verdict cache lives exactly as long as tracking
+            // ModBuild 232: and so does the refusal table's edge state. This is the branch that
+            // catches a window DESTROYED with its scene or force-hidden without a clean transition —
+            // the hide path in CatchAllObserve covers the ordinary close. Dropping the edge here is
+            // also what makes a re-opened singleton (both table rows are singletons) print its
+            // refusal line again instead of silently inheriting the last life's verdict.
+            FloatRefusalTable.Forget(UnknownScratch[i]);
         }
         UnknownScratch.Clear();
 
@@ -196,6 +208,34 @@ internal static partial class ModalFallback
             // is exempt from both the count and the verdict. Nothing else about the fuse changes:
             // a genuinely cycling HUD banner is still capped after ChurnMaxFloats.
             bool hoverCard = IsMapRoomHoverCard(window);
+
+            // ModBuild 232 — THE REFUSAL TABLE, AND IT IS ASKED BEFORE THE `oursAlready` RE-ADD.
+            //
+            // USER REPORT, items 2 and 3 of the 231 hardware round: an empty frame with nothing but a
+            // close cross (leeres_fenster_multiplayer.jpg — 'MP Lock Overlay'), and a "Quest wählen"
+            // button hanging in the forest inside its own frame (frei_schwebender_button_multiplayer
+            // .jpg — 'Multiplayer Ready Toggle'). "Das darf nicht sein." Both floated through the two
+            // CATCH-ALL lines at Player.log:12170 and :18129. WHY THEY ARE REFUSED AND WHAT HAPPENS
+            // TO THEM INSTEAD lives in FloatRefusalTable, one row each, with the source citation.
+            //
+            // THE POSITION IN THIS LOOP IS LOAD-BEARING, AND IT IS THE HALF OF THE BUG THAT ALREADY
+            // HAD A TABLE ROW AND STILL SHIPPED. The declared sibling group (ModalFallback.7.Close's
+            // WindowGroups: leader UIQuestPopup, member UIReadyToggle) was added in ModBuild 226 for
+            // exactly this button — and it is consulted from CatchAllEligible, which the loop only
+            // reaches AFTER `oursAlready`. The toggle's Show fires BEFORE the quest popup's (the 225
+            // log has them in that order), so it floats on a tick when no leader exists yet, and from
+            // the next tick onwards it is re-added as "already ours" and never re-examined. That is
+            // why a correct rule produced no effect for two builds. A refusal that can only be
+            // evaluated before the object is taken is not a refusal, so this one is asked FIRST and
+            // is able to withdraw a float that already exists.
+            //
+            // WITHDRAWING IS A PRESENTATION ACT AND WRITES NOTHING TO THE GAME — see
+            // WithdrawRefusedFloat for why the lever is `Sticky` and NOT `UserClosing`.
+            if (FloatRefusalTable.Refuse(window))
+            {
+                WithdrawRefusedFloat(window);
+                continue;
+            }
 
             // ModBuild 186 — A WINDOW WE ARE ALREADY FLOATING IS RE-ADDED UNCONDITIONALLY, AND
             // THIS IS THE WHOLE OF THE OSCILLATION BUG.
@@ -285,6 +325,12 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool CatchAllEligible(UIWindow window)
     {
+        // ModBuild 232 — the refusal table, in its PURE form (no logging, no edge state): this
+        // predicate is re-entered several times per tick, once per level of the AncestorWillBeFloated
+        // recursion, and every consumer of it must get the same answer the loop above acts on. The
+        // one-line-per-edge logging belongs to the single call in TickCatchAll. See FloatRefusalTable.
+        if (FloatRefusalTable.Refuses(window))
+            return false;
         // Known-handled IDs (passives with post-mortems + surface-owned windows).
         if (CatchAllKnownHandled.Contains(window.ID))
             return false;
@@ -594,10 +640,58 @@ internal static partial class ModalFallback
     /// </summary>
     private static bool AncestorWillBeFloated(UIWindow above)
     {
+        if (IsConverted(above))
+            return true;
+        // ModBuild 232 — "IN OpenWindows" IS NOT "WILL BE FLOATED", AND THE DIFFERENCE EMPTIED THE
+        // ROOM. ModBuild 184 already corrected this rule once, from "is an ancestor OPEN" to "is an
+        // ancestor FLOATED", because an ancestor that is open and permanently un-floatable suppresses
+        // its child and shows it NOWHERE. The same failure came back through a narrower door: a
+        // window can sit in OpenWindows and still be skipped by the convert loop, and then it is
+        // exactly as un-floatable as the HUD window 184 was about.
+        //
+        // THE HARDWARE TRACE (ModBuild 231, Player.log:93648 → :94496):
+        //     EMPTY WINDOW RELEASED: 'New Party display' (ID PartyPanel) — DARK …
+        //     MAP ROOM: window 'UI Battle Goal Picker Window' (ID None) is NOT floated on its own —
+        //         its ancestor 'New Party display' (ID PartyPanel) is floated …
+        //     MODAL LIVENESS CENSUS: 0 floated window(s) … 1 window(s) held out of the float set for
+        //         having been released dark.
+        // The party display was in the liveness hold, so the convert loop skipped it every tick; the
+        // battle-goal picker — the one thing the player had to click to get out of the loadout —
+        // deferred to a host that did not exist. That is [[parent-wins-needs-a-real-parent]]:
+        // suppressing X because Y handles it requires Y to ACTUALLY handle it.
+        //
+        // So the holds the convert loop applies are asked HERE too, and both sides read the same
+        // state. EmptyHold is read by CONTAINMENT rather than through EmptyHeldNow, deliberately:
+        // that method carries the 6 Hz release probe, and a diagnostic caller must never spend the
+        // probe slot the loop's own call is about to need. StoryComposite.HoldsBack is deliberately
+        // NOT consulted for the mirror-image reason — it counts its own calls for the census line —
+        // and it does not need to be: it is a two-tick bridge whose members are windows the gate has
+        // just closed, which cannot be a live ancestor of anything for longer than that.
+        if (ContainsWindow(Failed, above) || EmptyHold.Contains(above) || FloatRefusalTable.Refuses(above))
+        {
+            if (AncestorHeldOutWarned.Add(above.name))
+                VRLog.Warn("WorldUI", $"PARENT WINS STOOD DOWN: '{above.name}' (ID {above.ID}) is open "
+                                      + "and would have suppressed the windows nested inside it, but the "
+                                      + "float loop is holding it out — "
+                                      + (ContainsWindow(Failed, above)
+                                          ? "its conversion FAILED"
+                                          : EmptyHold.Contains(above)
+                                              ? "it was released for drawing nothing (the liveness hold)"
+                                              : "the float refusal table refuses it")
+                                      + ". A child may not defer to a host that will not exist, so the "
+                                      + "children float on their own instead. THIS LINE IS A FALSIFIER: "
+                                      + "if it never appears, no child was ever suppressed by an absent "
+                                      + "parent; if it appears, the room stayed reachable BECAUSE of it.");
+            return false;
+        }
         if (ContainsWindow(OpenWindows, above))
             return true;
         return CatchAllEligible(above);
     }
+
+    /// <summary>Per-ancestor-name latch for the stand-down warning above — one line per host type.
+    /// Cleared with the rest of the catch-all state when the room stands down.</summary>
+    private static readonly HashSet<string> AncestorHeldOutWarned = new();
 
     private static bool IsAdoptedByConversion(UIWindow window)
     {
@@ -709,12 +803,72 @@ internal static partial class ModalFallback
         return false;
     }
 
+    /// <summary>
+    /// WITHDRAW A FLOAT THE REFUSAL TABLE HAS JUST DECIDED MUST NOT EXIST — and leave the game
+    /// window in a defensible state while doing it (ModBuild 232).
+    ///
+    /// <para>THE LEVER IS <see cref="WindowPanel.Sticky"/> AND DELIBERATELY NOT
+    /// <see cref="WindowPanel.UserClosing"/>. Both would end the float, but they are not the same
+    /// act. <c>UserClosing</c> means "the player closed this", and the part-4 release loop honours
+    /// that by calling <c>window.Hide()</c> on a window that still reports open — GAME STATE, on a
+    /// window nobody asked to close. Refusing to draw a control in a frame of its own must never
+    /// take the control away from the game. Dropping <c>Sticky</c> and not re-adding the window to
+    /// <see cref="OpenWindows"/> (the <c>continue</c> at the call site) makes the same release loop
+    /// take the ORDINARY exit one tick later — <c>Converted.RemoveAt</c>, the grab holder destroyed,
+    /// <c>CanvasConversion.Release</c> restoring the exact 2D home, and the arc slot handed back —
+    /// with no <c>Hide</c>, no <c>Escape</c>, no <c>CanvasGroup</c> or <c>Canvas</c> write, and
+    /// nothing on the wire. It is the same concession ModBuild 226 makes in
+    /// <c>ReassertStickyVisible</c> ("only our own stickiness flag was dropped") for the same
+    /// reason.</para>
+    ///
+    /// <para>AND THE PRE-CONVERT BLACKOUT IS HANDED BACK HERE, EXPLICITLY. That path
+    /// (ModalFallback.11) switches a just-opened window's own canvases off for the one frame between
+    /// the game's <c>Show()</c> and the conversion, and it ends either when the conversion takes over
+    /// or when its 8-frame budget expires — the second exit being the
+    /// <c>MODAL PRE-CONVERT BLACKOUT: '…' was still un-floated after 9 frames</c> warning. A refused
+    /// window is never converted, so it would always take the second exit. Today it cannot even get
+    /// there (the blackout only runs for ENROLLED ids — <c>OnWindow</c> returns before
+    /// <c>PreConvertHide</c> unless <c>IsFallbackWindow</c>, and both table rows are
+    /// <c>UIWindowID.None</c>, which is why the ModBuild 231 log's 51 blackout lines name neither of
+    /// them), but a future row with an enrolled id would, so the release is done rather than
+    /// assumed. Calling it when no blackout is in force is a no-op.</para>
+    /// </summary>
+    private static void WithdrawRefusedFloat(UIWindow window)
+    {
+        // Insurance against the one path that could leave a refused window invisible. No-op when
+        // this window was never blacked out, which is every case there is today.
+        ReleasePreConvertHide(window, "the refusal table refuses to float it — its 2D rendering is "
+                                      + "handed back at once rather than sitting on the blackout budget");
+
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!ReferenceEquals(wp.Window, window) || wp.UserClosing || !wp.Panel.IsAlive)
+                continue;
+            if (!wp.Sticky)
+                return; // already on its way out through the ordinary release loop
+            wp.Sticky = false;
+            VRLog.Info("WorldUI", $"FLOAT WITHDRAWN: '{window.name}' (ID {window.ID}) was already "
+                                  + "floated when the refusal table refused it, so the float is given "
+                                  + "up: its map-room stickiness is dropped and it is not re-added to "
+                                  + "the open set, which means the ordinary release loop takes it down "
+                                  + "on the next tick — panel, grab bar, close cross and arc slot "
+                                  + "together — and CanvasConversion.Release restores its exact 2D "
+                                  + "home. NOTHING WAS WRITTEN TO THE GAME: this is not the X-button "
+                                  + "path (that one hides the window, which would take a control away "
+                                  + "from a game that still needs it), only the mod's own flag.");
+            return;
+        }
+    }
+
     /// <summary>Catch-all state teardown (module detach — mirrors the part-4 Detach resets).</summary>
     private static void CatchAllReset()
     {
         UnknownShown.Clear();
         CatchAllWarned.Clear();
+        FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
         AncestorRefusalWarned.Clear();
+        AncestorHeldOutWarned.Clear();
         NestedSubViewLogged.Clear(); // the enrolled path's twin of the line above (ModBuild 196)
         EmptyFloatWarned.Clear();    // ModBuild 226 — the empty-window refusal's per-window latch
         EmptyRefused.Clear();        // ModBuild 226 — and its suppression set

@@ -424,7 +424,11 @@ internal sealed class RemoteItemFan
             {
                 _gateHiddenLogged = true;
                 VRLog.Info("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: board-anchored fan " +
-                                  $"HIDDEN by [Net] RemoteBoards = {RemoteBoardGate.Mode} " +
+                                  (RemoteBoardScenarioGate.Open
+                                      ? $"HIDDEN by [Net] RemoteBoards = {RemoteBoardGate.Mode} "
+                                      : "HIDDEN because this client is not in a scenario, so no "
+                                        + "peer's board exists at all (grep 'Remote board scenario "
+                                        + "gate') — the dial is not what shut this ") +
                                   "(it belongs to that peer's board, which this client is not drawing).");
             }
             Hide();

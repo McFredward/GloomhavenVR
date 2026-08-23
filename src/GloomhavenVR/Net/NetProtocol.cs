@@ -416,7 +416,129 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 231;
+    public const ushort ModBuild = 232;
+    // Build 232: THE ROOM EMPTIED ITSELF TWICE, AND THE OTHER PLAYER NEVER GOT THE BUTTON.
+    // NO WIRE CHANGE. Version byte stays 3, no record gains or loses a field, MaxSize unmoved.
+    // Bundle untouched (70,218,494 bytes, unchanged since 172). Four lanes on disjoint files.
+    // GATE NUMBERS: wire tests 146,839 (UNCHANGED — nothing here touches a wire format); patch
+    // inventory 75/126 -> 76/128, deliberate: one new class (MapQuestReadyUp.ClientQuestPromptSeam)
+    // with two postfixes, manifest regenerated.
+    //
+    //   1. A PEER'S CONTROL BOARD WAS BEING BUILT IN THE 3D MAP ROOM. User: "In der 3D-Map-Umgebung
+    //   ist kein board sichtbar von keinem Mitspieler und darf für niemanden sichtbar sein."
+    //   The peer's log built it 1,466 lines BEFORE the map room even installed its party drive
+    //   (remote Player.log:2966 vs :4432), because [Net] RemoteBoards has no notion of "am I in a
+    //   scenario" — Always meant always, everywhere. RemoteBoardScenarioGate now sits OUTSIDE the
+    //   dial and outside EnsureBuilt, so the prefab is never instantiated. Its predicate is
+    //   VRModeStateMachine.ScenarioBoardExists, chosen because it is BYTE-IDENTICAL to
+    //   CardsGameApi.InScenario, which is how the LOCAL board decides it exists: a peer's board now
+    //   exists on my client under exactly the condition my board exists on theirs, so there is no
+    //   seat at the table from which the answer differs. The dial keeps its full meaning INSIDE a
+    //   scenario. A board built during a scenario is now DESTROYED on the closing edge rather than
+    //   merely deactivated, so 122 renderers do not ride through the map room invisible.
+    //   THE HOST/PEER ASYMMETRY IS EXPLAINED, NOT PAPERED OVER: a remote board is built only while
+    //   the owner's own board exists AND its pose is on the wire. The host's was PINNED and sent;
+    //   the peer's client never logged a board pose at all. Either side could have been the one.
+    //
+    //   2/3. TWO WINDOWS THAT MAY NEVER FLOAT, AND THE ModBuild 226 RULE THAT NEVER ONCE FIRED.
+    //   The "leeres Fenster" is MP Lock Overlay (UIMultiplayerLockOverlay): a 1920x1080 SCREEN-SPACE
+    //   INPUT VEIL whose text does not even live on it (ShowLock routes it to HelpBox), so as a
+    //   window it is a frame with a close cross and nothing in it. Floating it was not merely ugly:
+    //   UIWindow.Show sets blocksRaycasts, so the float put a 1.20 x 0.68 m laser-catching sheet
+    //   between the player and the table and the slot packer covered 66 deg of an 80 deg no-X window
+    //   with it. The "frei schwebender Button" is the singleton UIReadyToggle — 307x65 px, a BARE
+    //   CONTROL that carries a UIWindow by [RequireComponent], nothing more.
+    //   FloatRefusalTable is a NAMED table (ScreenSpaceVeil / BareControl) with a source citation
+    //   and a stated consequence per row, asked FIRST — which is the whole point: ModBuild 226's
+    //   WindowGroups row (leader UIQuestPopup, member UIReadyToggle) is read only from
+    //   CatchAllEligible, which the loop reaches AFTER its oursAlready re-add, and the toggle's Show
+    //   precedes the quest popup's in both the 225 and 231 logs. It floated on a tick with no leader
+    //   and was never re-examined. THE RULE HAD BEEN IN THE CODE FOR SIX BUILDS AND HAD NEVER RUN.
+    //   The veil is refused unconditionally; the toggle is refused only while ReadyToggleParkClaim
+    //   says somebody is drawing it somewhere better, and the claim LAPSES after one second without
+    //   re-assertion. Unreachable beats ugly is false here and the code says so: ugly beats
+    //   unreachable, because this very round contains two deadlocks. Withdrawal drops Sticky rather
+    //   than calling UserClosing, which would Hide() a control the game still needs.
+    //
+    //   4a. THE JOINT QUEST START: THE CLIENT NEVER SAW A CONFIRM. The action crossed the wire
+    //   (SelectQuest @ MapHQ received 3x) but "MP Ready Toggle set to VISIBLE" appears ZERO times in
+    //   the peer's log against three times in the host's. Read from source: on a client the quest
+    //   ready-up is reachable ONLY through UIMapMultiplayerController.PreviewQuest (:667-685, the
+    //   sole client-side caller of ToggleReadyUpUI(true, Quests) at :682), and PreviewQuest is a
+    //   CALLBACK handed to GuildmasterConfirmAction.ShowQuestSelectedAction (:773-776) — a prompt on
+    //   the flat guildmaster HUD, which the 3D map room replaces with the button rail and refuses to
+    //   float. A prompt nobody can see is a prompt nobody can answer.
+    //   MapQuestReadyUp postfixes ShowQuestSelectedAction on BOTH concrete presenters and captures
+    //   the delegate the game just registered, then invokes it one tick later from Update. One tick,
+    //   not inline: ProxySelectedLocation wraps its whole body in a catch that kicks the player to
+    //   the MAIN MENU (MapChoreographer.cs:3390-3396), so nothing of ours may throw on that stack.
+    //   The linked-quest branch is excluded STRUCTURALLY — it never calls the patched method.
+    //   No decision is skipped: both presenters register a confirm callback and nothing else; the
+    //   real decline survives one step later as PreviewQuest(isCancellable:true)'s cancel button.
+    //
+    //   4b. THE POINT OF NO RETURN OUTLIVED ITS OWN EDGE, AND THAT IS MY DEFECT FROM 231. Single
+    //   player: "Nach der Begegnung sind alle Fenster verschwunden und es nichts mehr weiter
+    //   passiert." The gate opened correctly and closed the two windows it should. Then the game
+    //   opened the quest intro, the mod floated it correctly, the player clicked through it — and
+    //   the LEVEL-TRIGGERED re-sweep closed it ("re-closed 1 window(s) … ['Map Story Window']"),
+    //   the quest popup could not float, and the BATTLE-GOAL PICKER never appeared. Final census:
+    //   0 floated windows, and he quit.
+    //   THE MECHANISM UNDERNEATH IS THE CHURN FUSE, AGAIN FROM THE OTHER SIDE. A convert-loop hold
+    //   makes IsFloatedByUs false forever while the game keeps the window open, and ChurnMaxFloats
+    //   is 3, so a four-tick hold is indistinguishable from a window cycling four times: "CATCH-ALL
+    //   FUSE: window 'UI Loadout Window' re-floated 4x in 60s — suppressed for this session". The
+    //   mod's own hold burned the loadout screen out of the float set permanently.
+    //   NOW: a pure rising-edge one-shot over a NAMED set enumerated from the game's own serialized
+    //   references (UIGuildmasterHUD's five destination windows, UIQuestPopupManager's three
+    //   popups), closed through the game's own close. The exclusion shape is gone — an exclusion
+    //   rule ("everything except one") cannot promise what it is pointing at, and the loadout
+    //   sequence's own windows were inside its scope the moment they opened. HoldsBack survives only
+    //   as a TWO-TICK bridge, and the 2 is DERIVED from that fuse's 3, not chosen.
+    //   AND A SECOND, INDEPENDENT PATH TO THE SAME EMPTY ROOM, FOUND IN THE SAME LOG: the map-room
+    //   parent-wins rule deferred the battle-goal picker to 'New Party display', which was sitting
+    //   in the liveness hold and would never float. ModBuild 184 already corrected this rule once,
+    //   from "is an ancestor OPEN" to "is an ancestor FLOATED"; being IN OpenWindows is not the same
+    //   as being floated either. AncestorWillBeFloated now asks the holds the convert loop asks, and
+    //   prints PARENT WINS STOOD DOWN when it does. EmptyHold is read by CONTAINMENT there, never
+    //   through EmptyHeldNow, because that method carries the 6 Hz release probe and a diagnostic
+    //   caller must not spend the slot the loop's own call needs.
+    //   ALSO FIXED, UNREPORTED: the cap lock was never RELEASED — one try/catch around the whole
+    //   loop meant the first button's throw (ToggleGreyOut dereferences EventSystem.current while
+    //   the HQ is being torn down) skipped the other six and left the set populated. Now guarded per
+    //   button, cleared in a finally, failures counted out loud so "UNLOCKED 0" can never again mean
+    //   "the loop died on entry".
+    //
+    //   5. THE CONFIRM IS THE SAME OBJECT, IN THE SAME PLACE, FOR EVERYONE. User: "Der Host sieht ja
+    //   den button 'Quest starten' … Ich will, dass die anderen Mitspieler genau an der selben
+    //   Stelle auch den selben oder ähnlichen button sehen und genau an der selben Stelle
+    //   bestätigen." SETTLED FROM THE LOG BEFORE ANYTHING WAS BUILT (Player.log:82708): what the
+    //   host sees online is the singleton UIReadyToggle parked by MapTravelConfirm since ModBuild
+    //   226 — the offline 'Adventure button' reads active=False, exactly as EnableTravelOptions
+    //   requires online. So the host side is the REFERENCE and is not touched. The client gets the
+    //   same singleton on his own machine, parked by the SAME class through the SAME code path into
+    //   his own quest card, at the ModBuild 197 zero with the same two [WorldUI] TravelButtonOffset
+    //   dials. There is no client-specific placement code, which is why "the same place" is a
+    //   property of the design and not a number somebody kept in step.
+    //   WHO DECIDES "EVERYONE CONFIRMED": UIReadyToggle on the HOST and nothing else
+    //   (ReadyUpPlayer :643, host branch :667-676 -> WaitForStateSyncBeforeProceeding -> Proceed).
+    //   For Quests onAllPlayersReady is AdventureMapUIManager.ConfirmTravel(). NOBODY MAY BUILD A
+    //   SECOND ONE.
+    //   GAME BUG RECORDED: UIReadyToggle.Initialize(show:false) does not clear _requestVisible, so a
+    //   stale true from an earlier ready-up pops the toggle visible the moment SetInteractable(true)
+    //   runs. That is why the confirm appeared during multiplayer slot assignment in ModBuild 231.
+    //
+    //   NOT IN THIS BUILD, STATED SO NOBODY LOOKS FOR IT: the waiting-players hint
+    //   (HelpBox "GUI_WAIT_PLAYERS_CONFIRM_TIP") is drawn on the flat HUD and a VR player does not
+    //   see it — he sees the parked button's own label flip and grey out. The lock overlay's
+    //   "someone else is deciding" text is likewise unread in VR; its correct future surface is the
+    //   HelpBox entry with id "LOCK_OVERLAY", read as an ambient line, never floated as a window.
+    //   The ModBuild 231 promise of ONE composed story window did not land on hardware either — the
+    //   >90 % guard correctly refused the loadout's full-window Blur group; the illustration's real
+    //   rect (StoryImageViewer.imageHolder, 1280x720 of 1920x1080) is now tried first, and the
+    //   forty identical refusal warnings are down to at most three.
+    //   TRAP FOR THE NEXT ROUND: scripts/patch-inventory.py's declaration scanner does not skip
+    //   string literals, so a lone '[' inside one fails the gate with "unbalanced [ at offset N".
+    //   That cost a debugging cycle here; see RemoteBoardScenarioGate.BoardRootPrefix.
     // Build 231: A FUSE THAT MISTOOK THE PLAYER FOR A LOOP, AND A JOURNEY THAT WAS 87 % TELEPORT.
     // WIRE CHANGE, ADDITIVE: record 21 gains SharedWindowKindEncounter = 3 (kind max 2 -> 3, max
     // entries 2 -> 3). Worst-case payload 63 -> 94 B, MaxSize margin 365 -> 334, still above the

@@ -52,6 +52,13 @@ internal enum RemoteBoardVisibility
 ///     own documentation says "never render remote players' control BOARDS". This is the same line
 ///     <see cref="RemoteCardFx"/> already drew in prose ("every anchor except the hand fan is board
 ///     furniture") — it is now drawn in code, once, here.
+///
+/// THE OUTER GATE (2026-08-22, user item 1 — a peer's board hovering over the 3D campaign map).
+/// Everything above is the INSIDE-A-SCENARIO question. Whether the question may be asked at all is
+/// <see cref="RemoteBoardScenarioGate"/>, and it is folded into <see cref="SurfaceVisible"/> so
+/// there is exactly one expression to satisfy. Outside a scenario NO peer's board is built and none
+/// is drawn, for anybody, at any dial setting; inside one the dial means precisely what it says
+/// above, unchanged. Read that class for the authority it picked and why.
 /// </summary>
 internal static class RemoteBoardGate
 {
@@ -68,15 +75,27 @@ internal static class RemoteBoardGate
     /// answer for the owning actor. Kept as its own overload so <see cref="RemoteControlBoard"/> —
     /// which needs the actor and the reveal answer anyway — shares the EXACT expression the fans
     /// use, instead of a second copy that can drift.
+    ///
+    /// <para>THE OUTER TERM COMES FIRST and is not part of the mode switch:
+    /// <see cref="RemoteBoardScenarioGate.Open"/> asks whether this client is inside a scenario at
+    /// all. Outside one — the 3D map room, the vanilla 2D campaign map, the loadout screen, the main
+    /// menu — the answer is false for every peer, every dial setting and every seat at the table
+    /// (user ruling, 2026-08-22: "In der 3D-Map-Umgebung ist kein board sichtbar von keinem
+    /// Mitspieler und darf für niemanden sichtbar sein"). It is FIRST because
+    /// <c>RemoteControlBoard.Tick</c> early-returns on a false answer BEFORE <c>EnsureBuilt</c>, so
+    /// this one term is also what refuses the prefab instantiation rather than hiding it after the
+    /// fact. Inside a scenario it folds out and the switch below is the whole rule, exactly as
+    /// before.</para>
     /// </summary>
-    internal static bool SurfaceVisible(RemoteBoardVisibility mode, bool showFronts) => mode switch
-    {
-        RemoteBoardVisibility.Always => true,
-        // ActionPhaseOnly: only once the owner's cards may be shown — i.e. the whole board stays
-        // hidden through the game's secret SelectAbilityCardsOrLongRest phase.
-        RemoteBoardVisibility.ActionPhaseOnly => showFronts,
-        _ => false,
-    };
+    internal static bool SurfaceVisible(RemoteBoardVisibility mode, bool showFronts) =>
+        RemoteBoardScenarioGate.Open && mode switch
+        {
+            RemoteBoardVisibility.Always => true,
+            // ActionPhaseOnly: only once the owner's cards may be shown — i.e. the whole board stays
+            // hidden through the game's secret SelectAbilityCardsOrLongRest phase.
+            RemoteBoardVisibility.ActionPhaseOnly => showFronts,
+            _ => false,
+        };
 
     /// <summary>
     /// May ANYTHING anchored to <paramref name="owner"/>'s control board be drawn this frame?
@@ -93,7 +112,12 @@ internal static class RemoteBoardGate
     internal static bool ShowBoardSurface(RemoteAvatar? owner)
     {
         RemoteBoardVisibility mode = Mode;
-        if (owner == null || !owner.HasBoard || mode == RemoteBoardVisibility.Off)
+        // The outer scenario gate is tested up here as well as inside SurfaceVisible, purely so a
+        // shut gate costs nothing: DisplayedActor below walks the focus record and the game model
+        // for an answer that cannot matter. The verdict is identical either way — SurfaceVisible
+        // owns the rule, this is a short circuit in front of it.
+        if (owner == null || !owner.HasBoard || mode == RemoteBoardVisibility.Off
+            || !RemoteBoardScenarioGate.Open)
             return false;
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
         return SurfaceVisible(mode, actor == null || RevealGate.ShowRoundCardFronts(actor));
@@ -107,6 +131,14 @@ internal static class RemoteBoardGate
     /// </summary>
     internal static void LogModeIfChanged(RemoteBoardVisibility mode)
     {
+        // THE ONE SEAM RemoteControlBoard.Tick REACHES UNCONDITIONALLY — before it can early-return
+        // on HasBoard or on an "Aus" dial. The outer scenario gate borrows it to count the peer
+        // boards it is answering for (the number its edge line reports) and to make sure the
+        // predicate is evaluated, and therefore its edge stated, in every frame a board ticks. This
+        // does NOT change the dial line below: that one is still one line per real dial flip, and
+        // the scenario gate has an entirely separate line of its own.
+        RemoteBoardScenarioGate.NoteBoardTick();
+
         if (mode == _loggedMode)
             return;
         _loggedMode = mode;
@@ -122,6 +154,13 @@ internal static class RemoteBoardGate
             _ =>
                 "a peer's board is always drawn; during the secret selection phase its round cards show " +
                 "BACKS (RevealGate) and flip to the real faces at reveal.",
-        });
+        }
+        // Every sentence above describes the dial INSIDE a scenario, which is the only place it
+        // decides anything. Saying so here is not decoration: this line is change-gated on the dial,
+        // so it survives verbatim into the 3D map room, where an unqualified "always drawn" would be
+        // an instrument asserting something it cannot see. The gate states its own transitions.
+        + " ALL OF THAT APPLIES ONLY INSIDE A SCENARIO: outside one (3D map room, vanilla 2D map, "
+        + "loadout, main menu) RemoteBoardScenarioGate suppresses every peer board at every setting "
+        + "— grep 'Remote board scenario gate' for the edge that decided.");
     }
 }

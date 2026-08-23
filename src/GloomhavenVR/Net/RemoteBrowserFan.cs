@@ -236,8 +236,13 @@ internal sealed class RemoteBrowserFan
             {
                 _gateHiddenLogged = true;
                 VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: board-anchored " +
-                                  $"{KindName(wantKind)} fan HIDDEN by [Net] RemoteBoards = " +
-                                  $"{RemoteBoardGate.Mode} (it blooms out of that peer's board, which " +
+                                  $"{KindName(wantKind)} fan " +
+                                  (RemoteBoardScenarioGate.Open
+                                      ? $"HIDDEN by [Net] RemoteBoards = {RemoteBoardGate.Mode} "
+                                      : "HIDDEN because this client is not in a scenario, so no "
+                                        + "peer's board exists at all (grep 'Remote board scenario "
+                                        + "gate') — the dial is not what shut this ") +
+                                  "(it blooms out of that peer's board, which " +
                                   "this client is not drawing).");
             }
             if (_open || _collapseElapsed >= 0f || (_root != null && _root.activeSelf))

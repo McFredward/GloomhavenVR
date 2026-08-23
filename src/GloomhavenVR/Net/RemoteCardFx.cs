@@ -95,7 +95,11 @@ internal sealed class RemoteCardFx
             // Event-driven (a handful per turn at most), so this is greppable evidence the setting
             // reached the FX path without being a per-frame line. Grep: "Remote card FX".
             VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} SKIPPED — " +
-                              $"[Net] RemoteBoards = {RemoteBoardGate.Mode} hides that peer's board " +
+                              (RemoteBoardScenarioGate.Open
+                                  ? $"[Net] RemoteBoards = {RemoteBoardGate.Mode} hides that peer's board "
+                                  : "this client is not in a scenario, so no peer's board exists at "
+                                    + "all (grep 'Remote board scenario gate' — the dial is not what "
+                                    + "shut this) ") +
                               "right now, and this flight starts or ends on their board furniture.");
             return;
         }

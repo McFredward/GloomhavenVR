@@ -457,7 +457,21 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // (RemoteBoardVisibility.ActionPhaseOnly hides the whole board *because* the gate shut).
             // Self-early-returning and allocation-free once blank, so it is free to run every frame.
             BlankCardFaces();
-            SetActive(false);
+
+            // OUTSIDE A SCENARIO the board may not merely be hidden: it may not exist
+            // (RemoteBoardScenarioGate — user ruling, ModBuild 232: "In der 3D-Map-Umgebung ist kein
+            // board sichtbar von keinem Mitspieler und darf für niemanden sichtbar sein"). Tear it
+            // down so its renderer set, its mirrored clones and its MrBacking registrations do not
+            // ride through the 3D map room deactivated. INSIDE a scenario keep the deactivate: the
+            // reveal gate flips several times a round and a rebuild there would cost a frame at the
+            // worst possible moment. Destroy() resets _poseInit and every built-at latch, so the
+            // re-entry rebuild snaps to the peer's current pose and layout rather than easing in
+            // from the origin.
+            if (!RemoteBoardScenarioGate.Open)
+                Destroy();
+            else
+                SetActive(false);
+
             return;
         }
 

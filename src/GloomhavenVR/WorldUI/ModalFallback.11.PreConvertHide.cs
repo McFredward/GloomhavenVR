@@ -137,6 +137,14 @@ internal static partial class ModalFallback
         // window out for a frame, which is the exact artifact this guard exists to prevent.
         if (IsConverted(window))
             return;
+        // ModBuild 232: a window the refusal table refuses is NEVER converted, so a blackout started
+        // for it could only ever end on the PreConvertHideMaxFrames budget with the "was still
+        // un-floated after N frames — handing its 2D rendering back regardless" warning. The
+        // catch-all releases it explicitly (WithdrawRefusedFloat), but not starting it is cheaper and
+        // cannot be forgotten. Inert for the two rows that exist today, whose ids are None: OnWindow
+        // returns before this method unless IsFallbackWindow(e.Id).
+        if (FloatRefusalTable.Refuses(window))
+            return;
         // A SUB-VIEW OF AN ALREADY-FLOATED SCREEN IS NEVER CONVERTED, SO IT MUST NEVER BE BLACKED
         // OUT (ModBuild 196 — the equipment tab). This blackout buys exactly one thing: the frame
         // between the game's Show() and the mod's conversion, during which a screen-space window

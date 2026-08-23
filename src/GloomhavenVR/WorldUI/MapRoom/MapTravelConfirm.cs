@@ -831,6 +831,10 @@ internal static class MapTravelConfirm
         // owned by other lanes — and because its prefixes must be live before the first Reisen press
         // can reach MapChoreographer.StartMove. Idempotent, exactly like this method.
         MapPartyTravel.Install();
+        // ModBuild 232 — THE MULTIPLAYER HALF OF THE SAME CONFIRM. Same reasoning again: its postfixes
+        // must be live before the host's first SelectQuest can reach a client, and WorldUIModule is
+        // owned by other lanes. Idempotent. See MapQuestReadyUp for the seam and the log lines.
+        MapQuestReadyUp.Install();
         VRLog.Info(Scope, "MAP TRAVEL CONFIRM installed — the single-player 'click the same location "
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
@@ -858,6 +862,37 @@ internal static class MapTravelConfirm
     /// to be part of, so the container goes home.
     /// </param>
     internal static void Reconcile(UIWindow? questWindow)
+    {
+        // ModBuild 232 — THE TWO THINGS THAT HAVE TO HAPPEN ON EVERY TICK, WHATEVER THIS CLASS DOES
+        // WITH THE CONTAINER. They are bracketed around the reconciliation rather than woven into it
+        // for one reason: the body below has six early returns, and a claim that has to be released
+        // on each of them would be six chances to forget one. Here there is exactly one call site for
+        // each, and the state they read (`_parked`, `_host`, `_parkStandDown`) is whatever the body
+        // left behind.
+        //
+        // FIRST, before anything else: answer any quest-selected prompt the game raised on this
+        // client. It runs here — from MapRoomDriver.TickActive, i.e. from Update — and not in the
+        // Harmony postfix that captured it, because MapChoreographer.ProxySelectedLocation wraps its
+        // whole body in a catch that unloads the scene and returns to the main menu. See
+        // MapQuestReadyUp's block comment.
+        MapQuestReadyUp.TickPendingClientPrompt();
+        ReconcileCore(questWindow);
+        // AND LAST: re-assert the park claim with the live answer. A LEVEL, not a latch — see
+        // ReadyToggleParkClaim. The toggle handed over as the INTENT is resolved without the
+        // visibility test on purpose, so the claim is in force before the game shows the toggle and
+        // the float gate has an answer the first time it asks.
+        UIReadyToggle? confirm = QuestConfirmToggle();
+        MapQuestReadyUp.TickClaim(confirm != null ? confirm.gameObject : null,
+                                  confirm != null && confirm.IsVisible,
+                                  _parkedIsReadyToggle ? _parked : null,
+                                  _parkedIsReadyToggle ? _host : null,
+                                  questWindow != null,
+                                  _standDown || _parkStandDown);
+    }
+
+    /// <summary>The reconciliation proper — see <see cref="Reconcile"/>, which brackets it with the
+    /// two per-tick duties that must run whichever early return this takes.</summary>
+    private static void ReconcileCore(UIWindow? questWindow)
     {
         if (_standDown)
             return;
@@ -967,8 +1002,45 @@ internal static class MapTravelConfirm
         }
     }
 
-    /// <summary>Teardown — hand the container back before the room disappears under it.</summary>
-    internal static void Reset() => Unpark("map room teardown");
+    /// <summary>Teardown — hand the container back before the room disappears under it, and let go of
+    /// the park claim in the same breath: a refusal that outlived the room would keep the game's own
+    /// confirm off screen with nothing left to park it into.</summary>
+    internal static void Reset()
+    {
+        Unpark("map room teardown");
+        MapQuestReadyUp.Reset();
+    }
+
+    /// <summary>
+    /// The singleton ready toggle WHILE IT IS SERVING THE QUEST READY-UP, whether or not it is on
+    /// screen; null otherwise. Two callers with two different follow-up tests, which is why the
+    /// visibility test is NOT in here:
+    ///
+    /// <list type="bullet">
+    /// <item><see cref="ResolveContainer"/> adds <c>IsVisible</c>, because parking a toggle the game
+    /// is not drawing would leave the offline container unparked for nothing.</item>
+    /// <item>The park CLAIM does not, because a claim only ever says "if this object floats, refuse
+    /// it — it is mine", and an invisible window never floats. Asking it earlier is what lets the
+    /// claim be in force before the game's own <c>Show</c>, which is the whole race (see
+    /// <see cref="MapQuestReadyUp"/>).</item>
+    /// </list>
+    ///
+    /// <para><c>readyUpToggleState</c> is private and OPTIONAL: without it this returns null, the
+    /// online branch is never taken and the class behaves exactly as it did in ModBuild 225 — the
+    /// stand-down is announced by <see cref="EnsureReflection"/> and nothing throws.</para>
+    /// </summary>
+    private static UIReadyToggle? QuestConfirmToggle()
+    {
+        if (_readyToggleState == null || !Singleton<UIReadyToggle>.IsInitialized)
+            return null;
+        UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
+        if (toggle == null)
+            return null;
+        return _readyToggleState.GetValue(toggle) is EReadyUpToggleStates state
+               && state == EReadyUpToggleStates.Quests
+            ? toggle
+            : null;
+    }
 
     /// <summary>
     /// WHICH OBJECT IS THE TRAVEL CONFIRM RIGHT NOW (ModBuild 226). The declared preference is the
@@ -992,19 +1064,17 @@ internal static class MapTravelConfirm
     /// </summary>
     private static GameObject? ResolveContainer(AdventureMapUIManager? mgr, out bool readyToggle)
     {
-        readyToggle = false;
-        if (_readyToggleState != null && Singleton<UIReadyToggle>.IsInitialized)
+        // ModBuild 232 — conditions (1) and (2) moved into QuestConfirmToggle so the park CLAIM can
+        // ask the same question one test earlier. Condition (3), visibility, stays HERE and only
+        // here: it is what makes the offline container the answer while the game is not drawing the
+        // toggle, and it must not leak into the claim.
+        UIReadyToggle? toggle = QuestConfirmToggle();
+        if (toggle != null && toggle.IsVisible)
         {
-            UIReadyToggle toggle = Singleton<UIReadyToggle>.Instance;
-            if (toggle != null
-                && _readyToggleState.GetValue(toggle) is EReadyUpToggleStates state
-                && state == EReadyUpToggleStates.Quests
-                && toggle.IsVisible)
-            {
-                readyToggle = true;
-                return toggle.gameObject;
-            }
+            readyToggle = true;
+            return toggle.gameObject;
         }
+        readyToggle = false;
         return mgr != null ? _travelOptions?.GetValue(mgr) as GameObject : null;
     }
 
