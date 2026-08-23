@@ -307,6 +307,11 @@ internal static class PerfSceneProfile
         int modLayer = VRLayers.ModLayer;
 
         Reset();
+        // The texture census rides THIS walk rather than paying for one of its own — the renderers
+        // and material slots it needs are already in hand below, and a second FindObjectsOfType over
+        // 8,600 renderers would double the most expensive thing in this file. Armed here, fed inside
+        // the loop, printed by AppendGfxLine. See PerfTextureCensus for what it answers and why.
+        PerfTextureCensus.Begin(head);
 
         int enabled = 0, visible = 0, inMask = 0, submitted = 0;
         int materialsTotal = 0, materialsSubmitted = 0, instanced = 0;
@@ -364,6 +369,11 @@ internal static class PerfSceneProfile
                 default: castOn++; break;
             }
 
+            // How big this renderer is in the eye, in the eye's own pixels — 0 for anything that is
+            // not submitted or is too small to be part of the "matschige Texturen" complaint. Taken
+            // ONCE here so the Renderer.bounds read is not repeated per material slot below.
+            float texSpanPx = subm ? PerfTextureCensus.PixelSpan(r) : 0f;
+
             // GetSharedMaterials fills OUR list; the sharedMaterials PROPERTY would allocate a
             // fresh array per renderer, which at ~1700 renderers is the difference between a
             // sampling hitch and a garbage-collection one.
@@ -382,6 +392,8 @@ internal static class PerfSceneProfile
                     if (subm)
                         SubmittedMaterials.Add(mat.GetInstanceID());
                     TallyShader(mat, subm);
+                    if (texSpanPx > 0f)
+                        PerfTextureCensus.Offer(r, mat, texSpanPx);
                 }
             }
             catch (Exception)
@@ -1308,6 +1320,21 @@ internal static class PerfSceneProfile
     /// </summary>
     internal static void AppendGfxLine(StringBuilder sb)
     {
+        // THE TEXTURE CENSUS IS EMITTED HERE, BEFORE THIS LINE, AND ON A LINE OF ITS OWN.
+        //
+        // Its data was collected during the SCENE walk above (PerfTextureCensus.Begin/PixelSpan/
+        // Offer), and the caller — PerfMonitor.LogSceneProfile — logs SCENE, then calls this, then
+        // logs GFX. Emitting from here therefore puts [Perf] TEX between them, which is the order
+        // it wants to be read in: SCENE says what is submitted, TEX says what those surfaces are
+        // TEXTURED with, GFX says what state multiplies all of it.
+        //
+        // Why not a fourth clause on the GFX line: GFX is already the longest line in the log and
+        // the texture question ("warum sind die Texturen matschig") is a different question from
+        // the submission-volume question this line exists for. Why not a fourth call site in
+        // PerfMonitor: that file is not this lane's to edit, and one call from the class that owns
+        // the walk is a smaller seam than a new entry point in the monitor.
+        PerfTextureCensus.Log();
+
         sb.Append("GFX — the render state that multiplies submission volume");
 
         try
@@ -1338,6 +1365,21 @@ internal static class PerfSceneProfile
           .Append(" skinWeights=").Append(QualitySettings.skinWeights)
           .Append(" antiAliasing=").Append(QualitySettings.antiAliasing)
           .Append(" vSync=").Append(QualitySettings.vSyncCount);
+
+        // The two TEXTURE-side quality dials, added 2026-08-23 with the [Perf] TEX line. They are
+        // duplicated onto this line deliberately: TEX can be rationed away with the SCENE walk it
+        // rides, and these two fields are three field reads that must be in EVERY window's record.
+        // masterTextureLimit especially — the game writes it from a persisted profile whose
+        // deserialisation fallback is EIGHTHEN (one-eighth resolution) and re-loads it from the
+        // level asset on every QualitySettings.SetQualityLevel, which is the same mechanism this
+        // mod already re-asserts MSAA and the pixel-light cap against. Until now nothing in the mod
+        // read it at all, so no log in this project's history can say what it was.
+        sb.Append(" | masterTextureLimit=").Append(QualitySettings.masterTextureLimit)
+          .Append(" anisotropicFiltering=").Append(QualitySettings.anisotropicFiltering)
+          .Append(" streamingMipmaps=").Append(QualitySettings.streamingMipmapsActive)
+          .Append(" (masterTextureLimit N ⇒ every MIPPED texture renders at 1/2^N per side; the "
+                  + "[Perf] TEX line above is what these two mean for the surfaces actually in "
+                  + "view)");
 
         AppendLodGroups(sb);
         AppendLights(sb);

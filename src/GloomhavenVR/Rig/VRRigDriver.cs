@@ -477,6 +477,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     {
         _sceneRecheck = true;
         _sceneRecheckName = e.Scene.name;
+        // Every Light and LightFlicker the stabiliser recorded belonged to the scene that is going
+        // away, so the records are stale Unity-nulls from here on. Drop them on the edge rather than
+        // letting the next scan discover them one by one — and the released line names the scene, so
+        // the log shows the hand-back happening at the boundary.
+        LightStabiliser.Release($"scene changed to '{e.Scene.name}'");
         // The cached MapChoreographer belongs to the scene that is going away — drop it so the
         // predicate re-resolves instead of holding a Unity-null, and re-arm the per-scene facts the
         // lookup hangs off (its one-shot cross-check and its bounded resurrection window). This is
@@ -859,6 +864,12 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // OnDestroy path below may call it again.
         if (wasMap)
             WorldUI.MapRoom.MapRoomDriver.StandDown($"rig teardown: {reason}");
+        // HAND THE LIGHTS BACK BEFORE THE SCENE THEY BELONG TO GOES AWAY. The stabiliser holds two
+        // recorded originals per light it touched (LightFlicker.amount and Light.renderMode) and its
+        // per-frame tick is gated on VRSession.IsRunning, so a session that ends without passing
+        // through "cap != 0" would otherwise leave both written and the records dropped. Idempotent,
+        // and silent when it holds nothing — see LightStabiliser.Release.
+        LightStabiliser.Release($"rig teardown: {reason}");
         // What the NEXT build is coming from (spawn-ring arming — see BuildRig). Only a real rig
         // updates it: a teardown with nothing to tear down says nothing about where we were.
         if (hadRig)

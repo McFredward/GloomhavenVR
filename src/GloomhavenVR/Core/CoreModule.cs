@@ -57,6 +57,12 @@ internal sealed class CoreModule : IVRModule
         // Frame-pacing instrumentation (2026-07 perf pass). Cheap and self-disabling: with
         // [Perf] Enabled = false its host costs one bool test per frame and nothing else.
         PerfMonitor.Install(_hostGo);
+
+        // ModBuild 228. Installed on the SAME unconditional host and for the same reason: the
+        // flat-screen session is the reference reading the VR one has to be judged against, and its
+        // two behaviour dials gate themselves on VRSession.IsRunning rather than on this call site,
+        // so a session that never reached VR stays the vanilla game.
+        AutoLod.Install(_hostGo);
         // The grep list is exhaustive on purpose. Every hardware round of this project starts with
         // somebody being told which string to search a 9 MB Player.log for, and a line nobody knows
         // the name of is a line nobody reads — [Perf] SCENE spent five ModBuilds switched off while
@@ -70,11 +76,30 @@ internal sealed class CoreModule : IVRModule
                          + "Update/LateUpdate lists, the heaviest ticking behaviour TYPES by "
                          + "instance count, and the Animator/ParticleSystem census by cullingMode), "
                          + "'[Perf] SCENE' (what the RENDER LOOP is asked to submit, by root, "
-                         + "layer, renderer kind, shader and material) and '[Perf] GFX' (the render "
+                         + "layer, renderer kind, shader and material), '[Perf] TEX' (why a surface "
+                         + "looks soft up close: masterTextureLimit, anisotropic filtering, texture "
+                         + "streaming, and the source texels behind every renderer that fills the "
+                         + "view, as texels per rendered pixel) and '[Perf] GFX' (the render "
                          + "state that multiplies it, plus the command buffers attached to the head "
-                         + "camera). The last three are ON by default from ModBuild 227 and each "
+                         + "camera). The last four are ON by default from ModBuild 227 and each "
                          + "prints its own measured cost. Configure in dev.gloomhavenvr.perf.cfg or "
                          + "under Einstellungen › Grafik.");
+        VRLog.Info(Name, "LOD instrument installed — grep the log for '[Perf] LOD'. One line per "
+                         + "scene answering WHAT DECIDES THE LEVEL OF DETAIL: how many AutomaticLOD "
+                         + "behaviours exist (2560 of the 2986 entries on Unity's Update list in the "
+                         + "ModBuild 227 reading), how many of them take Update's first-line "
+                         + "early-out and therefore never read a camera at all, which camera each "
+                         + "one WOULD resolve against, how many LODGroups exist and — the part worth "
+                         + "the most — the distribution of levels the scene is actually running at "
+                         + "for the VR head camera, with the head camera's FOV printed twice (the "
+                         + "property and the value derived from the projection matrix, which for an "
+                         + "XR camera routinely disagree) beside the flat camera's, and the lodBias "
+                         + "that would cancel the difference. It also prints "
+                         + "QualitySettings.masterTextureLimit, the COMPETING mechanism for blurry "
+                         + "surfaces, which no line in this log has ever carried. Two dials sit "
+                         + "beside it in dev.gloomhavenvr.perf.cfg: [Optimize] AutomaticLodIdleSkip "
+                         + "(ON — takes the provably-inert behaviours off the Update list) and "
+                         + "[Optimize] LodBias (0 = change nothing).");
 
         if (VRSession.IsRunning)
         {
@@ -92,6 +117,7 @@ internal sealed class CoreModule : IVRModule
         Loc.Dispose(); // detach the engine localization event (hot-reload teardown)
         ExceptionTraces.Shutdown(); // puts the game's own StackTraceLogType.None straight back
         PerfMonitor.Shutdown(); // drop the sampling host + every step record before the GO dies
+        AutoLod.Shutdown();     // re-enable every AutomaticLOD it disabled, restore lodBias
 
         if (_hostGo != null)
         {

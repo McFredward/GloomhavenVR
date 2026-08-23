@@ -953,7 +953,7 @@ internal static partial class Loc
         // of sentence-case names (2026-08 naming pass, audit 05 §3).
         ["head_mask"] = Pair("Head mask", "Kopfmaske"),
         ["mask"] = Pair("Mask", "Maske"),
-        // MASK NAMES, ONE PER SHIPPED ID — AND THERE ARE DELIBERATELY NONE.
+        // MASK NAMES, ONE PER SHIPPED ID.
         //
         // The key is "mask_name_" + the [Net] MaskId value, so HeadMaskLibrary.MaskNames can build
         // the whole [Net] MaskId dropdown from MaskCount without a hand-typed list going stale. A
@@ -962,33 +962,40 @@ internal static partial class Loc
         // showing the raw key. That fallback is the design, not a hole in it: an id the player can
         // still select beats a tidy list that silently drops a shipped asset.
         //
-        // WHY THE TABLE IS EMPTY HERE. ModBuild 100 (2026-08-09, the build that turned the mask
-        // picker from a slider into a dropdown) named the three shipped masks after the colour
-        // glowing through their seams ("Bernstein"/"Violett"/"Türkis", read off
-        // unity/GloomhavenVR.Assets/Assets/Bundle/Head/Mask_<n>_albedo.png). The user's report,
+        // NAME THE SILHOUETTE, NOT THE GLOW. ModBuild 100 (2026-08-09, the build that turned the
+        // mask picker from a slider into a dropdown) named the three after the colour glowing
+        // through their seams ("Bernstein"/"Violett"/"Türkis"). The user rejected that set,
         // 2026-08-22, verbatim: "Die neuen Kopfmasken-Namen im Optionsmenü sind verwirrend, ändere
-        // die wieder." All three assets are dark-shelled carved masks that read as the same object
-        // at avatar distance, so a colour word names a detail the player cannot use to tell the
-        // dropdown entries apart from each other — and the entry number IS what he sets, what rides
-        // the wire (AvatarState.MaskId) and what a peer would quote back to him. "ändere die WIEDER"
-        // is the deciding word: it asks for a former state, and the former state of these three
-        // entries is the plain numbering the library still implements as its fallback. So they are
-        // REMOVED rather than reworded.
+        // die wieder." ModBuild 226 removed the entries and let the numbering fallback take over,
+        // and on 2026-08-23 he asked for real names again: "Gib den Masken einen coolen, passenden
+        // Namen zu der Maske statt nur 'Maske i'." So the fault was never the IDEA of naming them —
+        // it was the feature the words named. A seam colour is a handful of glowing pixels at avatar
+        // distance, and the 226 note went on to justify itself with a claim nobody had checked
+        // against a picture: that all three "read as the same object". THEY DO NOT. Rendered from
+        // the shipped Mask_<n>.fbx + Mask_<n>_albedo.png (the preview path in
+        // unity/mask-prep/prepare_masks.py), the three are three unmistakable silhouettes:
+        //   0 — a riveted steel great helm: closed face, brow-and-nasal cross bar, breath slits,
+        //       nothing of the wearer visible but a lit band where the eyes are.
+        //   1 — a smooth porcelain visage: calm, half-lidded eyes, a thin filigree circlet, lit
+        //       rune lines and hairline cracks running down the cheeks.
+        //   2 — a carved wooden war mask: two heavy horns lashed on with cord, warpaint in bone and
+        //       rust across the grain.
+        // Each name below names THAT shape — helm / veil / horn — so the word and the thing agree
+        // across the table, and a player can say the entry out loud to a peer who is looking at it.
+        // Register is the game's own compound-noun class naming (Nightshroud, Doomstalker,
+        // Sunkeeper), not a colour swatch and not a joke.
         //
-        // THE OTHER READING, CHECKED AND SET ASIDE. ModBuild 225 gave four Kopfmaske-adjacent config
-        // rows German names at once (Loc.ConfigNames.cs: Net/MaskId "Kopfmaske", Net/MaskSize
-        // "Maskengröße", Optimize/HeadCullingMaskDrop "Kamera: Ebenen aus",
-        // Optimize/HeadMaskFromScenarioCamera "Kameramaske vom Spiel"), and "Kameramaske" next to
-        // "Kopfmaske" is genuinely two unrelated things sharing a word. But the two Optimize rows are
-        // NOT in the curated VR options tab (VROptionsTab.4.Curated's list carries Net/MaskId and
-        // not them), so they are not in the menu his report is about; and the curated Net/MaskId row
-        // takes its caption from ["head_mask"] above, not from Loc.ConfigNames. The only "Kopfmasken-
-        // Namen" on that screen are the three dropdown entries.
+        // LENGTH IS FINE. These sit in the curated tab's dropdown (BuildPresetRow, harvested from
+        // the game's own dropdown control). The longest here is "Runenschleier" at 13 characters —
+        // shorter than "Schwache Hardware" (17), which the SAME row kit already ships in the
+        // graphics-preset dropdown, and than "Aus (schwarz)" (13) in the sky dropdown.
         //
-        // ADDING A FOURTH MASK NEEDS NOTHING HERE. It appears as "Maske 4" on its own. Only add a
-        // "mask_name_<n>" entry if a mask ever becomes visually distinctive enough that a word beats
-        // its number — and if you do, add ALL of them, because a list that mixes names and numbers
-        // is worse than either.
+        // ADDING A FOURTH MASK NEEDS ONE ENTRY HERE AND NOTHING ELSE — no code, no list, no row.
+        // Do add it: the numbering fallback still works, but a list that mixes names and numbers
+        // is worse than either, so name all of them or none.
+        ["mask_name_0"] = Pair("Ironwatch", "Eisenwacht"),
+        ["mask_name_1"] = Pair("Runeveil", "Runenschleier"),
+        ["mask_name_2"] = Pair("Grimhorn", "Grimmhorn"),
         ["mask_size"] = Pair("Mask size", "Maskengröße"),
         ["mirror"] = Pair("Mirror", "Spiegel"),
         // "Bretter", not "Boards" (2026-08 naming pass, audit 05 §3): everywhere else in the

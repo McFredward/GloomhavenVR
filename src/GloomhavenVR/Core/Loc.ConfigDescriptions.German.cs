@@ -679,11 +679,56 @@ internal static partial class Loc
                 "Höchstzahl der PRO-PIXEL-Lichter (-1 = den Wert des Spiels unangetastet lassen, so "
                 + "wird ausgeliefert). Im eingebauten Forward-Renderer kostet jedes Pro-Pixel-Licht "
                 + "ab dem zweiten einen ZUSÄTZLICHEN VOLLEN DRAW CALL für jeden Renderer, den es "
-                + "berührt — gemessen wurden 4 Pro-Pixel-Lichter gegen ~1500 sichtbare Renderer. "
+                + "berührt — bei bis zu 5.660 sichtbaren Renderern von 8.570. ZWEITENS ist nur ein "
+                + "pro-pixel gerendertes Licht überhaupt in der Lage, einen Schatten zu werfen: von "
+                + "0 auf 1 kommt also nicht \"ein Licht\" dazu, sondern die gesamte "
+                + "Schattenberechnung wird wieder eingeschaltet, über 150 Welteinheiten "
+                + "Schattenweite, wobei jedes Punktlicht alle Schattenwerfer SECHSMAL neu zeichnet "
+                + "(Würfelseiten). Deshalb kosten schon 1 oder 2 erheblich mehr als der Unterschied "
+                + "zwischen 3 und 4 — die zweite Multiplikation ist eine Stufe, keine Steigung. "
                 + "Lichter jenseits dieser Zahl leuchten weiter, aber PRO VERTEX, was keinen "
                 + "zusätzlichen Durchgang kostet. DER HANDEL IST ECHT UND SICHTBAR: Der Lichtabfall "
-                + "von Punktlichtern auf Wänden und Böden wird flacher, und dieser Dungeon wird von "
-                + "16 Punktlichtern beleuchtet. Das Spiel bietet dafür keinen Regler, der Mod schon.",
+                + "von Punktlichtern auf Wänden und Böden wird flacher, und bei 0 können Lichter an "
+                + "manchen Objekten sichtbar springen — dafür gibt es \"Lichtflackern bei 0 "
+                + "Pixellichtern verhindern\". Das Spiel bietet dafür keinen Regler, der Mod schon.",
+            ["RenderQuality/ForceFullTextureResolution"] =
+                "Setzt Unitys globales Textur-Limit auf 0 zurück, d.h. das Spiel wirft die obersten "
+                + "Mip-Stufen jeder Textur nicht mehr weg. Die Zeile Optionen > Grafik > "
+                + "Texturqualität des Spiels schreibt diesen Wert als ANZAHL WEGGEWORFENER "
+                + "MIP-STUFEN (VOLL/HALB/VIERTEL/ACHTEL); er steht im Spielstand und wird bei jedem "
+                + "Wechsel der Qualitätsstufe neu geladen — deshalb wird er hier pro Bild neu "
+                + "gesetzt wie die Kantenglättung und die Pixellichter. Sein Notfallwert beim "
+                + "Einlesen eines unbekannten gespeicherten Wertes ist ACHTEL, was das ganze Spiel "
+                + "mit einem Achtel der Auflösung zeichnen würde, ohne dass es irgendwo gemeldet "
+                + "wird. Kostet NUR Grafikspeicher und keine Bildrate: eine größere Mip-Stufe wird "
+                + "nicht öfter abgetastet, sondern nur von einer anderen Stufe. Ausschalten nur, um "
+                + "gegen die Einstellung des Spiels zu vergleichen.",
+            ["Lights/StabiliseAtZeroCap"] =
+                "Verhindert, dass Lichter sichtbar zwischen Qualitätsstufen springen, während die "
+                + "Pixellichter auf 0 stehen. Bei 0 konkurrieren alle 44 Lichter des Verlieses um "
+                + "dieselben VIER Vertex-Plätze pro Objekt, und diese Rangfolge wird in JEDEM BILD "
+                + "neu berechnet — während das Spiel gleichzeitig 46 Lichtintensitäten pro Bild "
+                + "animiert. Zwei fast gleich starke Fackeln tauschen dann den Rang, und eine ganze "
+                + "Fläche eines Torbogens ändert in einem einzigen Bild ihre Helligkeit. Genau das "
+                + "ist das \"komische Flackern\", das die Einstellung 0 mitbringt. Rein optisch und "
+                + "vollständig umkehrbar; bei jedem anderen Wert der Pixellichter passiert hier gar "
+                + "nichts.",
+            ["Lights/PinnedPixelLights"] =
+                "Wie viele Lichter bei Pixellichtern 0 trotzdem den weichen Pixel-Abfall behalten "
+                + "(0 = keines). Unity rendert ein so markiertes Licht immer pixelgenau, unabhängig "
+                + "von der Obergrenze — so lässt sich ein kleiner Teil des Gesparten genau dort "
+                + "ausgeben, wo man hinsieht: das stärkste Licht in Kopfnähe behält seinen runden "
+                + "Lichtkegel und nimmt an der Rangfolge nicht mehr teil, die übrigen rund 40 "
+                + "bleiben günstig. Die Auswahl wird alle 10 Sekunden getroffen, nie pro Bild. "
+                + "Kosten: jedes so gesetzte Licht ist ein zusätzlicher Renderdurchgang für alle "
+                + "Objekte, die es beleuchtet.",
+            ["Lights/FlickerDamping"] =
+                "Wie viel vom ursprünglichen Fackelflackern des Spiels erhalten bleibt, solange die "
+                + "Stabilisierung aktiv ist (1 = unverändert, 0 = völlig ruhiges Licht). Das "
+                + "Flackern ist es, was zwei fast gleich starke Lichter von Bild zu Bild neu "
+                + "sortiert — es zu dämpfen beendet das Springen. Das Feuer atmet weiterhin, es "
+                + "überholt seinen Nachbarn nur nicht mehr. Höher stellen, wenn die Fackeln leblos "
+                + "wirken; niedriger, wenn noch etwas springt.",
             ["RenderQuality/ForceAnisotropic"] =
                 "Erzwingt anisotrope Texturfilterung für ALLE Texturen (plus eine globale Aniso-Untergrenze). "
                 + "Verringert das Flimmern in der Ferne auf flach zum Blick liegenden Texturen — "

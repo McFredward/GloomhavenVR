@@ -511,6 +511,17 @@ internal static partial class Loc
             ["RenderQuality/ForceAnisotropic"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
             ["RenderQuality/EyeResolutionScale"] = Pair("Resolution per eye", "Auflösung pro Auge"),
             ["RenderQuality/PixelLightCount"] = Pair("Pixel lights (max)", "Pixellichter (max)"),
+            ["RenderQuality/ForceFullTextureResolution"] =
+                Pair("Force full texture resolution", "Volle Texturauflösung erzwingen"),
+            // ModBuild 228: the three light-stabiliser rows. They exist because "Pixellichter = 0"
+            // is the mod's strongest performance lever and the user reported that it brings a
+            // visible flicker with it ("Allerdings bringt '0' an manchen Elementen ein komisches
+            // Flackern mit sich"). All three are inert at any other cap.
+            ["Lights/StabiliseAtZeroCap"] =
+                Pair("Prevent light flicker at 0 pixel lights",
+                     "Lichtflackern bei 0 Pixellichtern verhindern"),
+            ["Lights/PinnedPixelLights"] = Pair("Pinned pixel lights", "Fest zugewiesene Pixellichter"),
+            ["Lights/FlickerDamping"] = Pair("Damp torch flicker", "Fackelflackern dämpfen"),
             ["Sky/Style"] = Pair("Environment", "Umgebung"),
             ["Elements/EnvironmentResponse"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
             ["Elements/ResponseStrength"] = Pair("Element effect strength", "Stärke der Elementwirkung"),

@@ -92,6 +92,9 @@ internal static class PerfConfig
     /// <summary>One-shot marker: has the ModBuild 227 profile-default flip already been applied?</summary>
     internal static ConfigEntry<bool> ProfileDefaultsMigrated227 = null!;
 
+    /// <summary>The one-shot [Perf] LOD census (AutomaticLOD + LODGroup + what decides the level).</summary>
+    internal static ConfigEntry<bool> LodCensus = null!;
+
     // ---- [Optimize] behaviour ---------------------------------------------------------------
 
     /// <summary>Cache the per-frame TickGuard delegates instead of re-allocating them every frame.</summary>
@@ -132,6 +135,15 @@ internal static class PerfConfig
 
     /// <summary>Seed the scenario head mask from the game's ScenarioCamera instead of the blanket anchor mask.</summary>
     internal static ConfigEntry<bool> HeadMaskFromScenarioCamera = null!;
+
+    /// <summary>Take the AutomaticLOD behaviours whose Update provably returns on line one off Unity's Update list.</summary>
+    internal static ConfigEntry<bool> AutomaticLodIdleSkip = null!;
+
+    /// <summary>Seconds between AutomaticLOD sweeps (catches instances born with a newly revealed room).</summary>
+    internal static ConfigEntry<float> AutomaticLodSweepSeconds = null!;
+
+    /// <summary>Override <see cref="QualitySettings.lodBias"/> in VR (0 = leave the quality level's own value).</summary>
+    internal static ConfigEntry<float> LodBias = null!;
 
     // ---- safe accessors ---------------------------------------------------------------------
     // Optimization sites live in per-frame code that can run BEFORE (or entirely without) a
@@ -185,6 +197,23 @@ internal static class PerfConfig
     /// <summary>[Optimize] HeadMaskFromScenarioCamera, defaulting to off (today's behaviour) while unbound.</summary>
     internal static bool HeadMaskFromScenarioCam =>
         HeadMaskFromScenarioCamera != null && HeadMaskFromScenarioCamera.Value;
+
+    /// <summary>[Perf] LodCensus, defaulting to on while unbound.</summary>
+    internal static bool LodCensusOn => LodCensus == null || LodCensus.Value;
+
+    /// <summary>[Optimize] AutomaticLodIdleSkip, defaulting to on while unbound.</summary>
+    internal static bool AutomaticLodIdleSkipOn =>
+        AutomaticLodIdleSkip == null || AutomaticLodIdleSkip.Value;
+
+    /// <summary>[Optimize] AutomaticLodSweepSeconds, clamped to a cadence that cannot become the cost.</summary>
+    internal static float LodSweepSeconds =>
+        AutomaticLodSweepSeconds == null
+            ? Defaults.AutomaticLodSweepSeconds
+            : Mathf.Clamp(AutomaticLodSweepSeconds.Value, 2f, 300f);
+
+    /// <summary>[Optimize] LodBias, 0 = leave QualitySettings.lodBias alone (today's behaviour).</summary>
+    internal static float LodBiasOverride =>
+        LodBias == null ? 0f : Mathf.Clamp(LodBias.Value, 0f, 8f);
 
     // ---- [Optimize] HeadCullingMaskDrop: parsed once per distinct string, not per frame --------
     // The entry is human-written text ("Water, 14, TransparentFX") and it is read from the rig's
@@ -415,6 +444,33 @@ internal static class PerfConfig
             + "(so the depth prepass and the pass count are). Guessing which one a 9 ms figure is "
             + "has been wrong here before.");
 
+        // ON by default from ModBuild 228. It is the first line in this project's history that can
+        // say what picks the level of detail the game renders at, and it exists because the 227 SIM
+        // reading put 2560 of the 2986 entries on Unity's Update list — 86 % — in ONE third-party
+        // type, and because the investigation that named it also wrote down two things that the
+        // instruments in the same log contradict: that the game "has no LODGroup at all" (the GFX
+        // line in that very log reads "LOD groups: 1277 active") and that AutomaticLOD is
+        // "unreferenced", which is true of GH.Runtime's C# and irrelevant to a component attached to
+        // an asset. One walk settles both, and it prints even when it finds nothing.
+        LodCensus = _file.Bind("Perf", "LodCensus", Defaults.LodCensus,
+            "ON by default. Emit a one-shot [Perf] LOD line per scene (and again if the population "
+            + "grows by a quarter, e.g. when rooms are revealed) naming: how many AutomaticLOD "
+            + "instances exist and how many are enabled; their EFFECTIVE LODSwitchMode, read through "
+            + "the component's own property so a dependent child resolves through its root exactly "
+            + "as Update does; how many of them therefore take Update's first-line early-out and can "
+            + "never read a camera at all; which camera each one WOULD resolve against if it got "
+            + "that far (the UserDefinedLODCamera static, the per-instance m_renderCamera written "
+            + "from OnWillRenderObject, then Camera.main); how many LODGroups exist and how many "
+            + "levels each has; and THE DISTRIBUTION OF LEVELS THE SCENE IS ACTUALLY RUNNING AT for "
+            + "the VR head camera, computed from Unity's own relative-screen-height formula with "
+            + "every input printed beside it. It also prints the head camera's FOV twice — the "
+            + "fieldOfView property AND the value derived from the projection matrix, which for an "
+            + "XR camera routinely disagree — the flat reference camera's FOV, the resulting LOD "
+            + "penalty and the lodBias that would cancel it, and QualitySettings.masterTextureLimit, "
+            + "which is the COMPETING mechanism for blurry surfaces and which no line in this log "
+            + "has ever carried. Costs one typed FindObjectsOfType per sweep, which it TIMES and "
+            + "prints; the line itself is built once per scene, not per window.");
+
         // ---- the ModBuild 227 one-shot: a default flip does NOT reach an existing install ------
         //
         // THIS IS THE WHOLE REASON THE FLIP ABOVE IS WORTH ANYTHING. BepInEx writes every bound
@@ -572,5 +628,60 @@ internal static class PerfConfig
             + "count, at the moment it drops it. Read the [Perf] SCENE line's per-layer breakdown "
             + "first: a layer with no renderers on it costs nothing to keep and gains nothing to "
             + "drop. Applies live; switching it back off restores the blanket mask immediately.");
+
+        // DEFAULT ON, and the reason it is allowed to be is that it is not a judgement call. The
+        // 2026-08-22 log puts 2560 of the 2986 entries on Unity's Update list in AutomaticLOD, and
+        // AutomaticLOD.Update's FIRST statement is `if (!m_bUseAutomaticCameraLODSwitch ||
+        // LODSwitchMode == SwitchMode.UnityLODGroup) return;`. The sweep READS that same property on
+        // each instance and only disables the ones that answer UnityLODGroup — so it is not "we
+        // believe this component is idle", it is the component's own test run on the component's own
+        // value, per instance, every sweep. Nothing else about the object changes: the LODGroup that
+        // actually picks the level is a separate component and is untouched, no mesh is swapped, and
+        // OnWillRenderObject's only product (m_renderCamera) is read nowhere but the Update that
+        // returns before it.
+        AutomaticLodIdleSkip = _file.Bind("Optimize", "AutomaticLodIdleSkip", Defaults.AutomaticLodIdleSkip,
+            "ON by default, VR only. Take the game's AutomaticLOD behaviours off Unity's per-frame "
+            + "Update list when — and only when — the sweep has just read their own LODSwitchMode as "
+            + "UnityLODGroup, which is the exact condition under which AutomaticLOD.Update returns on "
+            + "its first statement. On the 2026-08-22 hardware log that is 2560 of the 2986 entries "
+            + "on that list, i.e. 86% of everything Unity calls every frame, each paying a Mono "
+            + "dispatch plus two UnityEngine.Object alive-checks in order to decide to do nothing. "
+            + "Level of detail is unaffected: it is chosen by the 1277 LODGroup components, which "
+            + "this does not touch. Every instance it disables is recorded and switched back on at "
+            + "teardown, on hot-reload, and the moment this entry is set to false. The measurement is "
+            + "the [Perf] SIM line's Update count in the next window — if it does not fall by the "
+            + "number the [Perf] LOD line says was disabled, this did not do what it claims and "
+            + "should be switched off. OFF restores today's behaviour exactly.");
+        AutomaticLodSweepSeconds = _file.Bind("Optimize", "AutomaticLodSweepSeconds", Defaults.AutomaticLodSweepSeconds, new ConfigDescription(
+            "Seconds between AutomaticLOD sweeps. A sweep is one typed FindObjectsOfType, which the "
+            + "[Perf] LOD line TIMES and prints; it exists because revealing a room instantiates new "
+            + "instances that were not there when the last sweep ran, and this is the interval within "
+            + "which those get taken off the Update list too. Lower = newly revealed rooms are caught "
+            + "sooner at the price of more scans; the scan is a single-digit-millisecond one-frame "
+            + "cost, so at the shipped cadence its amortised share is far under a tenth of a percent "
+            + "of a frame. A Harmony postfix on AutomaticLOD.Awake would make this free and is the "
+            + "upgrade if the printed scan cost ever reads as a visible hitch.",
+            new AcceptableValueRange<float>(2f, 300f)));
+
+        // DEFAULT 0 = CHANGE NOTHING, deliberately, and that is not timidity: the correction factor
+        // is arithmetic on two field-of-view numbers that nothing in this project has ever measured,
+        // and the [Perf] LOD line above exists to print them. Set this from what that line says.
+        LodBias = _file.Bind("Optimize", "LodBias", Defaults.LodBias, new ConfigDescription(
+            "Override QualitySettings.lodBias while VR runs. 0 = leave the quality level's own value "
+            + "(2.00 at 'Fantastic'), which is today's behaviour and changes no pixel. WHAT IT IS "
+            + "FOR: Unity picks a LODGroup's level from the relative SCREEN HEIGHT "
+            + "h = worldSize / (2 x distance x tan(fov/2)) x lodBias. A VR eye's vertical field of "
+            + "view is roughly 90-100 degrees against a flat game camera's 40-60, so at the same "
+            + "distance the same object covers a fraction of the screen height the asset author "
+            + "tuned the transitions against, and every group switches to a coarser mesh that much "
+            + "earlier — which looks exactly like 'surfaces are mushy up close'. Raising this moves "
+            + "every transition proportionally further out and is therefore a QUALITY lever that "
+            + "COSTS submission volume (finer meshes, for longer), which the [Perf] SPLIT line "
+            + "prices. The [Perf] LOD line prints the ratio and the exact value that would restore "
+            + "the flat game's choice. Re-asserted on the sweep cadence, because the game resets "
+            + "lodBias whenever the player changes a graphics preset; restored on teardown and the "
+            + "moment this goes back to 0. NOT the fix if that line reports masterTextureLimit above "
+            + "0 — a discarded mip level is a different mechanism and LOD cannot blur a texture.",
+            new AcceptableValueRange<float>(0f, 8f)));
     }
 }

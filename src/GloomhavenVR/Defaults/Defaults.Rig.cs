@@ -42,6 +42,7 @@ internal static partial class Defaults
     // ---- Rig/RenderQuality.cs ------------------------------------------------------
     internal const int MsaaLevel = 8;                    // => [RenderQuality] MsaaLevel
     internal const bool ForceAnisotropic = true;         // => [RenderQuality] ForceAnisotropic
+    internal const bool ForceFullTextureResolution = true; // => [RenderQuality] ForceFullTextureResolution
     internal const float EyeResolutionScale = 1.0f;      // => [RenderQuality] EyeResolutionScale
     // [RenderQuality] ViewportScaleFallback and RebuildRigOnMsaaChange had their lines here. Both
     // were UNBOUND by the 2026-08-22 settings audit — the fallback is now the constant
@@ -61,4 +62,21 @@ internal static partial class Defaults
     // preset rather than as "Eigene". This value is a MIRROR of those three, never a master; see
     // RenderQuality.QualityPreset. Any other starting number would be a lie the first tick corrects.
     internal const int QualityPreset = 0;                // => [RenderQuality] QualityPreset
+
+    // ---- Rig/LightStabiliser.cs ----------------------------------------------------
+    // ON by default, and it costs nothing while the cap is at its own -1 default: the whole class
+    // is gated on the effective per-pixel cap being exactly 0, which only the "Leistung"/"Schwache
+    // Hardware" presets and a hand-set row ever produce. It exists so that 0 is a usable choice —
+    // the user's report is that 0 is the setting he WANTS and the flicker is what stops him.
+    internal const bool StabiliseAtZeroCap = true;       // => [Lights] StabiliseAtZeroCap
+    // 1, not 0: pinning ONE light keeps a smooth per-pixel falloff exactly where the player is
+    // looking for the price of one extra forward pass over the renderers that one light touches —
+    // a rounding error against the 40-odd passes the cap just removed. 0 is the honest "pin
+    // nothing" if even that is too much; the row goes to 4.
+    internal const int PinnedPixelLights = 1;            // => [Lights] PinnedPixelLights
+    // 0.25 keeps a quarter of the game's authored torch wobble: enough that the fire still breathes,
+    // small enough that two nearly-tied lights stop crossing each other's rank from frame to frame.
+    // NOT VERIFIED ON HARDWARE — it is the first value to move if the next round says the torches
+    // look dead (raise) or the stepping survives (lower).
+    internal const float FlickerDamping = 0.25f;         // => [Lights] FlickerDamping
 }

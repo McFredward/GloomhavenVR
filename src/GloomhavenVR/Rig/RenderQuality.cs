@@ -231,6 +231,9 @@ internal static class RenderQuality
     private static ConfigFile? _file;
     internal static ConfigEntry<int>? MsaaLevel;
     internal static ConfigEntry<bool>? ForceAnisotropic;
+
+    /// <inheritdoc cref="ApplyTextureLimit"/>
+    internal static ConfigEntry<bool>? ForceFullTextureResolution;
     internal static ConfigEntry<float>? EyeResolutionScale;
     internal static ConfigEntry<int>? PixelLightCount;
 
@@ -268,6 +271,40 @@ internal static class RenderQuality
     private static int _lastLoggedPixelLights = int.MinValue;
     /// <summary>The game's own pixelLightCount before we first capped it (-1 = we have not).</summary>
     private static int _pixelLightsOriginal = -1;
+
+    /// <summary>
+    /// How many times the cap had to be re-asserted WITHOUT the player having moved the row — i.e.
+    /// how many times the game overwrote our value behind our back.
+    ///
+    /// <para>WHY THIS COUNTER EXISTS. Until now every such correction was SILENT: the log line in
+    /// <see cref="ApplyPixelLights"/> is gated on <c>wanted != _lastLoggedPixelLights</c>, so a
+    /// correction back to the SAME wanted value printed nothing at all. The ModBuild 227 hardware
+    /// log therefore could not answer "is his chosen 0 ever secretly 4?" — and the six
+    /// <c>4 → 0</c> lines that made the question look urgent turn out to be the mod's OWN -1
+    /// round-trips (each one is preceded by a "cap released — restored the game's own value 4"
+    /// line, at 9788, 10501, 12101, 14122 and 14913; the sixth is the boot assertion). That is a
+    /// clean answer to the wrong question: it says nothing about the silent path, because the
+    /// silent path leaves no trace. It does now.</para>
+    ///
+    /// <para>THE GAME'S WRITERS, from the decompiled sources, are
+    /// <c>GraphicProfile.Setup()</c> (writes <c>QualitySettings.pixelLightCount = PixelLight</c>),
+    /// <c>GraphicSettings.SetPixelLight()</c> (the options dropdown) and
+    /// <c>GraphicSettings.SetQualityLevel()</c> → <c>QualitySettings.SetQualityLevel(index)</c>,
+    /// which resets the value to the level's authored one. All three run from ordinary
+    /// <c>Update</c>-order UI callbacks or from scene init, and this tick runs in the rig's
+    /// <c>Update</c> tail, i.e. BEFORE any camera renders that frame — so a correction lands in the
+    /// same frame it is needed and no frame is drawn at the wrong cap. The counter is what proves
+    /// that rather than asserting it: a figure of 0 means the game never touched it, a small figure
+    /// means it was corrected the same frame, and a figure that climbs every window would mean a
+    /// writer we have not found is fighting us per frame and the cadence is NOT adequate.</para>
+    /// </summary>
+    private static int _silentCorrections;
+    private static int _silentCorrectionsReported;
+    private static float _nextSilentReportTime;
+    private static int _lastSilentFoundValue = int.MinValue;
+
+    /// <summary>Seconds between silent-correction summaries (only printed when the count moved).</summary>
+    private const float SilentReportSeconds = 30f;
     private static int _diagCountdown;
     private static string _diagReason = "";
     private static bool _anisoForced;
@@ -342,6 +379,17 @@ internal static class RenderQuality
             "Force anisotropic texture filtering for ALL textures (plus a global min-aniso floor). "
             + "Cuts distant shimmer on flat-on-view textures — card faces, initiative portraits, "
             + "board art. Purely a sampling-quality raise; disable to restore the game's setting.");
+        ForceFullTextureResolution = _file.Bind("RenderQuality", "ForceFullTextureResolution",
+            Defaults.ForceFullTextureResolution,
+            "Force Unity's global texture limit back to 0 — i.e. stop the game discarding the top "
+            + "mip levels of every texture. The game's own Options > Graphics > Texture Quality row "
+            + "writes this as a MIP-DROP COUNT (FULL/HALF/QUARTER/EIGHTH), it is persisted in the "
+            + "save file, and QualitySettings.SetQualityLevel re-loads it on every quality swap — "
+            + "so it is re-asserted per frame like the MSAA and per-pixel-light dials. Its "
+            + "deserialisation fallback for an unrecognised saved value is EIGHTH, which would "
+            + "render the whole game at 1/8 resolution with nothing reporting it. Costs VRAM only "
+            + "and no frame time: a larger mip is not sampled more often, it is sampled from a "
+            + "different level. Turn off only to A/B against the game's own setting.");
         EyeResolutionScale = _file.Bind("RenderQuality", "EyeResolutionScale", Defaults.EyeResolutionScale, new ConfigDescription(
             "Render resolution per eye, relative to what the OpenXR runtime asks for (1 = as asked). "
             + "THE primary GPU lever: essentially all per-pixel work — shading, rasterization, the "
@@ -369,15 +417,27 @@ internal static class RenderQuality
 
         PixelLightCount = _file.Bind("RenderQuality", "PixelLightCount", Defaults.PixelLightCount, new ConfigDescription(
             "Maximum number of PER-PIXEL lights (-1 = leave the game's own value alone, which is "
-            + "what ships). In the built-in forward renderer every per-pixel light beyond the first "
-            + "costs an ADDITIONAL FULL DRAW CALL for every renderer it touches — a scenario "
-            + "measured 4 per-pixel lights against ~1500 visible renderers, so this multiplies the "
-            + "submission volume that the [Perf] SPLIT line shows as the frame's wall. Lights beyond "
-            + "this count still light the scene, but per VERTEX, which costs no extra pass. THE "
-            + "TRADE IS REAL AND VISIBLE: point-light falloff on walls and floors gets flatter, and "
-            + "this dungeon is lit by 16 point lights. The game exposes no control for this, which "
-            + "is why the mod does. Re-asserted per frame like MsaaLevel, because the game rewrites "
-            + "QualitySettings on every quality-level swap.",
+            + "what ships; the game itself runs 4). THIS IS THE STRONGEST SINGLE PERFORMANCE LEVER "
+            + "THE MOD HAS IN A DUNGEON, and it is expensive for TWO reasons stacked on one number. "
+            + "First, in the built-in forward renderer a renderer touched by k per-pixel lights is "
+            + "DRAWN min(k, cap) TIMES — one extra full pass, draw call, vertex transform and "
+            + "fragment shading per extra light — and this scene submits up to 5,660 visible "
+            + "renderers of 8,570. Second, a per-pixel light is the only kind that casts a SHADOW, "
+            + "so going from 0 to 1 does not add one light: it switches the whole shadow pipeline "
+            + "back on, at a 150-world-unit shadow distance that reaches the entire dungeon, with "
+            + "each promoted point light re-rendering every caster in range six times (one per "
+            + "cubemap face). That step is why even a cap of 1 or 2 costs a lot more than the "
+            + "difference between 3 and 4. Measured, ModBuild 227 hardware log, bucketed by the cap "
+            + "in force: main-thread render loop ~1.6 ms per 1000 visible renderers at cap 4 against "
+            + "~1.2 ms at cap 0 (~8.5 ms vs ~5.7 ms at 5,200 visible) — a correlation across "
+            + "different views, not a controlled A/B, and the GPU side cannot be read at all on this "
+            + "runtime ('gpu n/a' on every [Perf] FRAME line). Lights beyond the cap still light the "
+            + "scene, but per VERTEX. THE TRADE IS REAL AND VISIBLE: point-light falloff on walls "
+            + "and floors gets flatter, and at 0 lights can visibly STEP between quality tiers on "
+            + "some props — that is what [Lights] StabiliseAtZeroCap is for. The game exposes no "
+            + "control for this, which is why the mod does. Re-asserted per frame like MsaaLevel, "
+            + "because the game rewrites QualitySettings on every quality-level swap; how often it "
+            + "actually does is now counted and reported in the log.",
             new AcceptableValueRange<int>(-1, 8)));
 
         // THE PRESET ROW (2026-08-23). Three rows above this one are three numbers a player is
@@ -427,6 +487,13 @@ internal static class RenderQuality
         // it (user correction 2026-08-14 — the apparitions are no longer silent, and they are on
         // THIS toggle rather than getting a second one). Runtime stays in Core/EnvSound.cs.
         EnvSound.BindConfig(_file);
+
+        // LIGHT STABILISER ([Lights] StabiliseAtZeroCap / PinnedPixelLights / FlickerDamping) rides
+        // this file for the fifth time, and for the most direct reason of the five: it is a property
+        // OF the per-pixel light cap bound above. It exists only to make that row's 0 usable, it is
+        // inert at every other value, and a player reading the cap's description is exactly the
+        // player who needs to find it. Runtime stays in Rig/LightStabiliser.cs.
+        LightStabiliser.BindConfig(_file);
     }
 
     /// <summary>Per-frame enforcement (VRRigDriver guarded tail step "Rig.RenderQuality").</summary>
@@ -438,7 +505,13 @@ internal static class RenderQuality
         ApplyMsaa();
         ApplyEyeScale();
         ApplyAniso();
+        ApplyTextureLimit();
         ApplyPixelLights();
+        // IMMEDIATELY after the cap is asserted, and nested here rather than added as a seventh
+        // VRRigDriver tail step on purpose: the stabiliser is a FUNCTION of the value the line above
+        // just wrote, and that tail array is locked by name in .planning/refactor/FRAME-ORDER.lock.
+        // Nesting expresses the real dependency and leaves the locked order alone.
+        LightStabiliser.Tick(PixelLightCount!.Value);
         MirrorPresetToConfig();
         if (_diagCountdown > 0 && --_diagCountdown == 0)
             LogEyeTargetDiagnostics(_diagReason);
@@ -471,14 +544,35 @@ internal static class RenderQuality
     ///
     /// <para>THAT WALL IS GONE (2026-07-28, <c>.planning/perf/FINDINGS.md</c>): the submission was
     /// serialised on one thread, and threaded submission (<c>[Core] EnableGraphicsJobs</c>) took the
-    /// main-thread render loop from 14.9 ms to 1.8 ms. This entry measured ~1 % even back when the
-    /// main thread WAS the bottleneck, so it is now a pure quality trade with no performance case
-    /// behind it. Kept because the game exposes no control for it and someone on weak hardware may
-    /// still want it — but it is not a lever anyone should be pointed at.</para>
+    /// main-thread render loop from 14.9 ms to 1.8 ms.</para>
+    ///
+    /// <para>AND THE CONCLUSION DRAWN FROM THAT IS RETRACTED (2026-08-23). This block used to close
+    /// with "it measured ~1 % even back when the main thread WAS the bottleneck, so it is now a pure
+    /// quality trade with no performance case behind it … not a lever anyone should be pointed at."
+    /// Two things kill that. FIRST, THE USER'S OWN REPORT, verbatim: <i>"Die Performance scheint
+    /// erheblich von den Pixellichtern abzuhängen. Bereits wenige verschlechtern die Performance
+    /// enorm."</i> — the strongest single-lever effect he has reported on this project. SECOND, THE
+    /// ~1 % ITSELF IS NOT EVIDENCE: it was measured in the rate-locked 45 Hz era, and FINDINGS.md
+    /// §3 records in its own words that "changed nothing" was the EXPECTED reading there for any
+    /// improvement that did not cross the budget line. Every entry in that table shares the defect;
+    /// this one happens to be the entry a player has since disproved from the headset.</para>
+    ///
+    /// <para>WHY IT IS EXPENSIVE — two multiplications on one dial, which is the answer to "warum
+    /// so hungrig". (1) In the built-in forward path a renderer touched by k per-pixel lights is
+    /// drawn <c>min(k, cap)</c> times, each pass a separate draw call with its own vertex transform
+    /// and fragment shading; this scene submits up to 5,660 visible renderers of 8,570, so the cap
+    /// multiplies a five-digit number. (2) A per-pixel light is the ONLY kind that renders a shadow
+    /// map, so the step from 0 to 1 does not add "one light" — it turns the whole shadow pipeline
+    /// back on, at a 150-world-unit shadow distance that reaches the entire dungeon, with a point
+    /// light costing six cube faces. That step function is why "bereits wenige" is already enough.
+    /// <see cref="LogLightCensus"/> prints both, with the scene's own counts, at every change.</para>
     ///
     /// <para>-1 (the default) does NOTHING, deliberately: this is a visible trade, not a cleanup.
     /// Lights above the cap still light the scene per VERTEX, so nothing goes dark — but the
-    /// falloff on walls and floors flattens, and this dungeon is lit by 16 point lights.</para>
+    /// falloff on walls and floors flattens, and the ModBuild 227 census counts 44 enabled lights in
+    /// this dungeon (32 point, 12 spot; the "16 point lights" this doc used to quote was one room).
+    /// The cost of 0 is the flicker the user then reported at that setting, which is what
+    /// <see cref="LightStabiliser"/> exists for.</para>
     /// </summary>
     private static void ApplyPixelLights()
     {
@@ -504,7 +598,10 @@ internal static class RenderQuality
 
         int current = QualitySettings.pixelLightCount;
         if (current == wanted)
+        {
+            ReportSilentCorrections();
             return;
+        }
 
         // Remember what the game had BEFORE we ever touched it, so -1 can give it back.
         if (_pixelLightsOriginal < 0)
@@ -521,6 +618,43 @@ internal static class RenderQuality
                               + "line's HeadCamera submit figure — that is the number this moves.");
             LogLightCensus(wanted);
         }
+        else
+        {
+            // SAME wanted value, DIFFERENT live value = somebody else wrote it. This branch used to
+            // be silent, which is why "does the game reset his 0 to 4?" was unanswerable from a
+            // 12 MB hardware log. See _silentCorrections for the writers and for what the number
+            // means.
+            _silentCorrections++;
+            _lastSilentFoundValue = current;
+        }
+        ReportSilentCorrections();
+    }
+
+    /// <summary>
+    /// Print the silent-correction tally at most every <see cref="SilentReportSeconds"/> s, and only
+    /// when it moved. Zero output while the game leaves the value alone — which is itself the
+    /// answer, and is why the first report also states what silence means.
+    /// </summary>
+    private static void ReportSilentCorrections()
+    {
+        if (Time.unscaledTime < _nextSilentReportTime)
+            return;
+        _nextSilentReportTime = Time.unscaledTime + SilentReportSeconds;
+        if (_silentCorrections == _silentCorrectionsReported)
+            return;
+
+        int delta = _silentCorrections - _silentCorrectionsReported;
+        _silentCorrectionsReported = _silentCorrections;
+        VRLog.Info("Rig", $"Per-pixel light cap: the game overwrote it {delta} time(s) in the last "
+                          + $"{SilentReportSeconds:F0}s ({_silentCorrections} this session; last "
+                          + $"value found was {_lastSilentFoundValue}, wanted {PixelLightCount!.Value}). "
+                          + "EACH ONE WAS CORRECTED IN THE SAME FRAME IT HAPPENED: this step runs in "
+                          + "the rig's Update tail, before any camera renders, and the game's three "
+                          + "writers (GraphicProfile.Setup, GraphicSettings.SetPixelLight and "
+                          + "SetQualityLevel → QualitySettings.SetQualityLevel) all run in Update "
+                          + "order or at scene init. So no frame was DRAWN at the wrong cap and the "
+                          + "cadence is adequate — but a count that climbs in EVERY window would mean "
+                          + "a per-frame writer we have not found, and then it would not be.");
     }
 
     /// <summary>
@@ -572,15 +706,29 @@ internal static class RenderQuality
         // pixel path itself) is a candidate. Naming the split stops a reader concluding "16 lights,
         // cap 2, so 14 passes saved" from a number that includes both. Note bakingOutput, not
         // Light.lightmapBakeType — the latter is editor-only in 2021.3 and does not compile here.
-        int candidates = 0, forcedVertex = 0, baked = 0;
+        int candidates = 0, forcedVertex = 0, baked = 0, forcedPixel = 0;
+        int shadowCasters = 0, forcedPixelShadowCasters = 0;
         for (int i = 0; i < lights.Length; i++)
         {
-            if (lights[i].bakingOutput.lightmapBakeType == LightmapBakeType.Baked)
+            Light l = lights[i];
+            bool isBaked = l.bakingOutput.lightmapBakeType == LightmapBakeType.Baked;
+            if (isBaked)
                 baked++;
-            else if (lights[i].renderMode == LightRenderMode.ForceVertex)
+            else if (l.renderMode == LightRenderMode.ForceVertex)
                 forcedVertex++;
             else
+            {
                 candidates++;
+                if (l.renderMode == LightRenderMode.ForcePixel)
+                    forcedPixel++;
+            }
+
+            if (!isBaked && l.shadows != LightShadows.None)
+            {
+                shadowCasters++;
+                if (l.renderMode == LightRenderMode.ForcePixel)
+                    forcedPixelShadowCasters++;
+            }
         }
 
         int overCap = Mathf.Max(0, candidates - Mathf.Max(cap, 0));
@@ -594,6 +742,48 @@ internal static class RenderQuality
                           + "from a given wall was never that wall's per-pixel light to begin with. "
                           + "IF THIS NUMBER IS 0 the cap is inert in this scene and any frame-rate "
                           + "change you see came from something else.");
+
+        // WHY THE DIAL IS SO EXPENSIVE — the user's actual question ("Warum sind die so
+        // Performancehungrig?"), answered with the two multiplications this cap sits on top of
+        // rather than with the single one the line above describes. It is a SEPARATE line because it
+        // is an explanation, not a census, and because the first one was already the longest line in
+        // the log.
+        VRLog.Info("Rig", $"Per-pixel light cap — WHY IT IS EXPENSIVE, at cap {cap}. TWO "
+                          + "multiplications sit on this one dial, which is why 'bereits wenige' "
+                          + "already hurt. (1) DRAW MULTIPLICATION: in the built-in FORWARD path a "
+                          + "renderer touched by k per-pixel lights is drawn min(k, cap) times — a "
+                          + "ForwardBase pass plus one full ForwardAdd pass per extra light, each "
+                          + "with its own draw call, vertex transform and fragment shading. This "
+                          + "scene submits up to 5,660 visible renderers of 8,570, so the cap is a "
+                          + "multiplier on a five-digit number, not an additive cost. (2) SHADOW "
+                          + $"MULTIPLICATION, and this is the step that makes 1 already expensive: a "
+                          + $"per-pixel light is the ONLY kind that renders a shadow map, and this "
+                          + $"scene has {shadowCasters} shadow-casting light(s) at a shadow distance "
+                          + $"of {QualitySettings.shadowDistance:F0} world units, which reaches the "
+                          + "whole dungeon. Going 0 → 1 therefore does not add 'one light', it turns "
+                          + "the entire shadow pipeline back on: every promoted caster re-submits "
+                          + "every caster in range (a point light does it SIX times, once per "
+                          + "cubemap face). AT CAP 0 both multiplications are exactly 1 and no "
+                          + "shadow map is rendered at all"
+                          + (forcedPixel > 0
+                              ? $" — EXCEPT for {forcedPixel} light(s) authored ForcePixel, which "
+                                + "Unity promotes per-pixel BEFORE it consults the cap, "
+                                + $"{forcedPixelShadowCasters} of them still casting shadows. Cap 0 "
+                                + "is not the zero it looks like in this scene."
+                              : "; no light here is authored ForcePixel, so cap 0 really is zero.")
+                          + " MEASURED, from the ModBuild 227 hardware log, and honestly: bucketing "
+                          + "every [Perf] SPLIT ZOOM sample by the cap in force gives a main-thread "
+                          + "render loop of ~1.6 ms per 1000 visible renderers at cap 4 against "
+                          + "~1.2 ms at cap 0 — about 8.5 ms vs 5.7 ms at the ~5,200 visible "
+                          + "renderers of a zoomed-out view. THAT COMPARISON IS NOT A CONTROLLED "
+                          + "EXPERIMENT: the cap-4 windows are not the same views as the cap-0 ones, "
+                          + "and the GPU-side cost (which is where most of a forward light's bill "
+                          + "lands) cannot be read at all on this runtime — every [Perf] FRAME line "
+                          + "says 'gpu n/a'. The 2026-07 note that 'removing all of it moved the head "
+                          + "camera by nothing' is NOT evidence against any of this: that whole round "
+                          + "was measured while the app was rate-locked at 45 Hz, where "
+                          + ".planning/perf/FINDINGS.md records that 'changed nothing' was the "
+                          + "expected reading for ANY improvement that did not cross the budget line.");
     }
 
     private static void ApplyMsaa()
@@ -959,6 +1149,80 @@ internal static class RenderQuality
             VRLog.Info("Rig", $"Anisotropic filtering force released — restored {_anisoOriginal}.");
         }
     }
+
+    /// <summary>
+    /// FORCE UNITY'S GLOBAL TEXTURE LIMIT BACK TO 0 — the mip levels the game throws away.
+    ///
+    /// <para><b>USER REPORT (2026-08-23, verbatim):</b> "Wenn man in VR nah ran geht sind die
+    /// Texturen doch manchmal matschig … wäre es eine Option mit super resolution die texturen im
+    /// Spiel zu erhöhen?" TWO INDEPENDENT INVESTIGATIONS IN THE SAME ROUND ARRIVED HERE from
+    /// different directions — the texture census and the LOD lane — which is why it ships before
+    /// the measurement that will confirm it.</para>
+    ///
+    /// <para><c>QualitySettings.masterTextureLimit</c> is a MIP-DROP COUNT, not a quality score: at
+    /// 1 every mipped texture in the game renders at half its authored resolution per side, at 2 a
+    /// quarter, at 3 an eighth. <b>Nothing in this mod has ever read it</b> — a grep over
+    /// <c>src/</c> returned zero hits before this build — and the game writes it from three
+    /// directions: <c>GraphicProfile.Setup</c> (:120) assigns it from a value persisted in the SAVE
+    /// FILE, <c>GraphicSettings.SetupQualityLevel</c> re-applies that profile at every boot, and
+    /// <c>QualitySettings.SetQualityLevel</c> re-loads it from the level asset on every quality
+    /// swap — which this session performs (boot 'Fastest', in-scenario 'Fantastic').</para>
+    ///
+    /// <para><b>AND ITS DESERIALISATION FALLBACK IS THE WORST VALUE.</b>
+    /// <c>GraphicProfile.cs:71</c> falls back to <c>EIGHTHEN</c> — one eighth — for any persisted
+    /// value it does not recognise. A profile written by an older build, or by a different
+    /// platform's enum ordering, silently renders the entire game at 1/8 texture resolution with no
+    /// UI anywhere reporting it.</para>
+    ///
+    /// <para>WHY THIS SHIPS AHEAD OF ITS OWN MEASUREMENT, against this project's usual discipline:
+    /// the remedy is <b>unconditionally non-worsening</b>. Forcing 0 when the value is already 0 is
+    /// a no-op; forcing it when the value is higher restores resolution the assets already carry.
+    /// There is no setting of this field at which 0 looks worse. The only cost is VRAM — mip 0 of
+    /// every texture, which the shipped assets contain either way — and this runs on a 24 GB card.
+    /// That is a different situation from a fix whose correctness depends on a diagnosis, which is
+    /// what the "falsify before you fix" rule is about. <see cref="Core.PerfTextureCensus"/> prints
+    /// the value it replaced, so the next log still says whether it mattered.</para>
+    ///
+    /// <para>PER-FRAME LIKE ITS NEIGHBOURS, for their reason: the game rewrites
+    /// <c>QualitySettings</c> on every quality-level swap, so a one-shot write at rig build would be
+    /// silently undone. Two field reads in the steady state.</para>
+    /// </summary>
+    private static void ApplyTextureLimit()
+    {
+        if (ForceFullTextureResolution!.Value)
+        {
+            if (QualitySettings.masterTextureLimit == 0)
+                return;
+            if (!_textureLimitForced)
+                _textureLimitOriginal = QualitySettings.masterTextureLimit; // restore point
+            int was = QualitySettings.masterTextureLimit;
+            QualitySettings.masterTextureLimit = 0;
+            _textureLimitForced = true;
+            VRLog.Info("Rig", $"TEXTURE LIMIT forced to 0 (was {was} — that is a MIP-DROP COUNT, so "
+                              + $"every mipped texture was rendering at 1/{1 << was} of its authored "
+                              + "resolution PER SIDE). The game sets this from the graphics profile "
+                              + "in the save file and re-loads it on every quality-level swap, which "
+                              + "is why this is re-asserted per frame rather than once. Costs VRAM "
+                              + "only — mip 0 ships inside the texture either way — and no frame "
+                              + "time: a larger mip is not sampled more, it is sampled from a "
+                              + "different level. If this line reads 'was 0' the game was already "
+                              + "at full resolution and the softness is elsewhere; see [Perf] TEX.");
+        }
+        else if (_textureLimitForced)
+        {
+            QualitySettings.masterTextureLimit = _textureLimitOriginal;
+            _textureLimitForced = false;
+            VRLog.Info("Rig", $"TEXTURE LIMIT force released — restored the game's own value "
+                              + $"{_textureLimitOriginal}.");
+        }
+    }
+
+    /// <summary>Whether <see cref="ApplyTextureLimit"/> currently holds the limit down, and the
+    /// value it took over from. Restored on release so the flat game is left as it was found.</summary>
+    private static bool _textureLimitForced;
+
+    /// <inheritdoc cref="_textureLimitForced"/>
+    private static int _textureLimitOriginal;
 
     // ---- panel accessors: "MSAA" cycle row — NO CALLER TODAY --------------------------------
     // Label/cycle pairs for three in-VR options rows (MSAA here, supersampling and graphics

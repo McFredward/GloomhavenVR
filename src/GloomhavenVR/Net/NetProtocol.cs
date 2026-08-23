@@ -416,7 +416,122 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 227;
+    public const ushort ModBuild = 228;
+    // Build 228: THE PIXEL-LIGHT ROUND — why the dial is so expensive, the flicker it brings at 0,
+    // what really owns the game's per-frame list, and where "matschige Texturen" come from.
+    // NO WIRE CHANGE. Bundle untouched. Four lanes on disjoint files.
+    //
+    //   WHY PER-PIXEL LIGHTS ARE SO EXPENSIVE: TWO MULTIPLICATIONS ON ONE DIAL, AND THE SECOND IS
+    //   A STEP. (1) Built-in forward draws a renderer once per per-pixel light touching it — a full
+    //   ForwardAdd pass each, against up to 5,660 visible renderers of 8,570. (2) ONLY a per-pixel
+    //   light renders a shadow map, so 0 → 1 does not add "one light": it switches the entire
+    //   shadow pipeline back on at shadowDistance 150 wu, each promoted POINT light re-rendering
+    //   every caster SIX times (cubemap faces). That is why 1 or 2 already costs far more than the
+    //   gap between 3 and 4. Measured across 54 SPLIT buckets: the render loop's slope is
+    //   0.44 + 1.51 ms per 1000 visible at cap 4 against 0.96 + 1.01 at cap 0 — a correlation
+    //   across different views, NOT a controlled A/B, and there is no GPU-side number at all on
+    //   this runtime (`gpu n/a` on every FRAME line), which is where most of a forward light's bill
+    //   actually lands. Said plainly in the row's own German text rather than claimed as certainty.
+    //
+    //   THREE OF THE INTEGRATOR'S OWN PREMISES WERE WRONG AND ARE CORRECTED HERE. The scene has
+    //   44 enabled lights (32 point, 12 spot, 0 directional, 0 baked, 0 ForceVertex), not 12 and
+    //   not "16 point lights". The `[Perf] GFX` shadow-caster count reads 12 at EVERY cap INCLUDING
+    //   0 — it reads the authored `shadows` flag and knows nothing about `pixelLightCount`; the "0"
+    //   reading was the MENU scene, which has no lights at all. And the game does NOT reset the cap
+    //   behind the mod's back: all six `4 → 0` lines are the mod's own `-1` round-trips, each
+    //   preceded by a `cap released` line — the user was stepping the row through -1.
+    //   THE RE-ASSERT CADENCE IS ADEQUATE (RenderQuality.Tick runs before any camera renders) but
+    //   was UNPROVABLE, because the correction branch was silent. A counter now reports it.
+    //
+    //   THE FLICKER AT CAP 0 — A REMEDY PLUS THE INSTRUMENT THAT NAMES THE MECHANISM, because the
+    //   mechanism could not be closed from here and pretending otherwise would have been the worse
+    //   ship. User: "Allerdings bringt '0' an manchen Elementen ein komisches Flackern mit sich …
+    //   Achte im Video auf den vordersten Torbogen, dort sieht man wie Lichter aufflackern."
+    //   MEASURED, so nobody re-does it: over both still stretches of the capture the scene-wide
+    //   mean luminance is flat to 0.07 % and a per-pixel temporal-variance map finds nothing above
+    //   sub-pixel edge noise — it is LOCAL, and at 30 fps h264 a one-frame step on a torch-lit
+    //   archway does not survive the capture, so the video cannot name the cause.
+    //   FALSIFIED FROM THE GAME'S SOURCE: ActivateWallFadeInGame only writes a global shader int;
+    //   TileAnimation only scrolls texture offsets; neither touches a Light.
+    //   LightShadowsModifierController DOES flip Light.shadows scene-wide, but at cap 0 no shadow
+    //   map is rendered at all, so it can produce no visible change there — a candidate for cap ≥1,
+    //   the opposite of the report. Light.renderMode is written NOWHERE in the decompile, so it is
+    //   ours to own with no write war.
+    //   WHAT SURVIVES: at cap 0 all 44 lights compete for FOUR vertex slots per object plus SH,
+    //   re-ranked EVERY FRAME, while 46 LightFlicker instances write intensity every frame and
+    //   DynamicAmbience.SetLightLevel cross-fades intensity AND SetActive over 0.5 s as the view
+    //   crosses map tiles — a doorway being exactly where two rooms' levels cross. It could not be
+    //   CLOSED because LightFlicker's per-instance `amount` is prefab data invisible to any static
+    //   read, and the shipped default (0.01) is too small to read as a step.
+    //   SHIPPED: Rig/LightStabiliser.cs, inert at any cap but 0. It pins the strongest light near
+    //   the head to ForcePixel (Unity promotes ForcePixel BEFORE consulting the cap, so one light
+    //   keeps its smooth falloff and leaves the ranking), damps LightFlicker.amount ONCE against a
+    //   recorded original, and watches the recorded lights without changing them — counting
+    //   activation flips, enable flips, shadow changes, intensity moves and position drift, and
+    //   printing a line for the first QUIET window too, because "nothing happened" falsifies every
+    //   light-state mechanism at once. A floor of 1 remains the fallback, but is not yet the honest
+    //   answer: nothing measured says 0 cannot be made stable.
+    //
+    //   AutomaticLOD IS 2,560 OF THE GAME'S 2,986 UPDATE TICKS — 85.7 % of every entry Unity walks
+    //   per frame — AND THE OBVIOUS FIX IS A PROVABLE NO-OP. The lane checked before shipping it:
+    //   `Update`'s FIRST statement returns when `LODSwitchMode == UnityLODGroup`, and
+    //   `SetupLODGroup` only ever runs in that same mode — so every one of the scene's 1,277
+    //   LODGroups was created by an AutomaticLOD whose Update returns on line one. The camera
+    //   expression and every read of `UserDefinedLODCamera` sit AFTER that return. Pinning the
+    //   static — the "one line for quality and speed" I proposed — would have done nothing at all.
+    //   The level is picked by Unity's own LODGroup system, i.e. by lodBias (2.00 here, holding
+    //   LOD0 twice as long as authored) and THE CULLING CAMERA'S FOV — which is where the VR risk
+    //   really lives, since a VR eye's ~90-100° against a flat camera's 40-60° transitions every
+    //   group to a coarser mesh tan(fovVR/2)/tan(fovFlat/2) times earlier. Nothing in this project
+    //   has ever printed either FOV; `[Perf] LOD` now prints both, twice each (property vs
+    //   projection-derived, which for XR routinely disagree), plus the corrective lodBias.
+    //   SHIPPED: `[Optimize] AutomaticLodIdleSkip` disables an instance only after reading its own
+    //   `LODSwitchMode` as UnityLODGroup — the component's own test, per instance, not an
+    //   assumption — restoring on teardown and re-sweeping for instances born with a revealed room.
+    //   Expected: the Update list falls ~2986 → ~426, worth an estimated 0.4-1.0 ms of a 5.74 ms
+    //   logic span, DELIBERATELY not claimed as measured: a MarkChange window brackets the disable
+    //   so the first hardware log carries its own before/after pair.
+    //
+    //   "MATSCHIGE TEXTUREN": TWO LANES CONVERGED INDEPENDENTLY ON ONE FIELD THE MOD HAD NEVER
+    //   READ. `QualitySettings.masterTextureLimit` is a MIP-DROP COUNT — at 1 every mipped texture
+    //   renders at half its authored resolution per side, at 3 an eighth — and a grep over src/
+    //   returned ZERO hits before this build. The game writes it from three directions
+    //   (GraphicProfile.Setup from a value persisted in the SAVE FILE, SetupQualityLevel at every
+    //   boot, and SetQualityLevel on every quality swap, which this session performs), and its
+    //   DESERIALISATION FALLBACK FOR AN UNRECOGNISED SAVED VALUE IS EIGHTHEN — the worst one.
+    //   `[RenderQuality] ForceFullTextureResolution` (default on, per-frame like its neighbours)
+    //   holds it at 0 and logs the value it replaced. IT SHIPS AHEAD OF ITS OWN MEASUREMENT, and
+    //   that is a deliberate exception to the falsify-first rule with a stated reason: the remedy is
+    //   unconditionally non-worsening — forcing 0 when it is already 0 is a no-op, and there is no
+    //   value of this field at which 0 looks worse. The only cost is VRAM for mips the assets ship
+    //   anyway.
+    //   RULED OUT WITH EVIDENCE: anisotropic filtering. The game ships it OFF (`was Disable`), the
+    //   mod forces ForceEnable + limits 8/16 every frame, and that transition line appears EXACTLY
+    //   ONCE in a 21,405-line log that includes the quality swap — so it has held since boot. A
+    //   corollary for future readers: per-texture `anisoLevel=1` is NOT a fault while the global is
+    //   ForceEnable, and that reading has misled people here before.
+    //   AND THE PHOTOGRAPH ITSELF SAYS "MAGNIFICATION": the sharpest object in frame is the
+    //   SMALLEST (the rune plaque); the rock face filling a third of the frame is the softest. A
+    //   filtering or mip-selection fault would have hit the plaque too. New `[Perf] TEX` reports
+    //   the three global dials, the authored sizes behind every renderer that fills the view, and
+    //   TEXELS PER RENDERED PIXEL — below 1.0 means no filter, no AA and no supersampling can help,
+    //   only more source material. It adds no scene walk; it rides the SCENE line's existing one.
+    //
+    //   THE MASKS GET REAL NAMES: Ironwatch/Eisenwacht, Runeveil/Runenschleier, Grimhorn/Grimmhorn.
+    //   THE PREMISE OF ModBuild 226'S REMOVAL WAS FALSE and is corrected in Loc.cs: the three are
+    //   NOT "dark-shelled carved masks that read as the same object at avatar distance". Rendered
+    //   from the shipped FBXs with their albedos, 0 is a riveted steel great helm, 1 a porcelain
+    //   face with a circlet and rune-lit cheeks, 2 a horned wooden war mask — instantly
+    //   distinguishable from any angle. Which is exactly why naming by SHAPE works where naming by
+    //   seam colour did not. Single compound nouns in the game's own class register.
+    //
+    //   ONE INCIDENTAL FINDING WORTH THE NEXT ROUND'S TIME: WallFade.Late costs 2.597/1.162/0.707 ms
+    //   in windows whose frames are 45.13/18.78/12.03 ms — a CONSTANT 5.8-6.2 % of the frame across
+    //   a 3.75x frame-rate range. A step whose duration tracks the frame PERIOD is not doing work,
+    //   it is absorbing GPU back-pressure. Part of the "logic" share is GPU wait wearing a CPU
+    //   label, which anyone optimising logic needs to know first.
+    // ***** THE BUNDLE IS UNCHANGED (70,218,494 bytes, last touched at 172). Plugin DLL only. *****
+    //
     // Build 227: THE PERFORMANCE ROUND — "alle Räume offen, von oben angeschaut, sehr starke Laggs".
     // NO WIRE CHANGE. Bundle untouched. Four lanes on disjoint files.
     //
