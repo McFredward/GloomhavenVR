@@ -92,6 +92,27 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private readonly HashSet<VRCard> _flyingToPile = new();
     private const float FlyToPileSeconds = 0.4f;
 
+    // EVENT-DISCARD EXIT (user report 2026-08-24, kartenabwurf2.jpg: "gehen die zwei ersten Karten
+    // der ersten Seite komisch zur Seite und clippen dann im board — stattdessen will ich das ganz
+    // normal die 'verbrennen' Animation abgespielt wird und die Karten in den jeweiligen Pile
+    // gehen"). The two sets below are the ONLY new bookkeeping this fix adds; both are per-pick and
+    // die with the pick.
+    //
+    // _lastFieldCards is the pick field's counterpart to _lastHalfCards: the cards that were lying
+    // in the board's pick recesses in the PREVIOUS rebuild. Without it the park sweep cannot tell a
+    // just-committed pick card ("it left the field because the game finally moved it") from any
+    // other parked card, and the FINAL card of an event discard popped out of existence
+    // (CardsDriver.4.Rebuild.TryStartFlyToPile's pre-filter is a membership test, and there was no
+    // set to be a member of).
+    private readonly HashSet<VRCard> _lastFieldCards = new();
+
+    // _pickExitFlown: pick-field cards whose exit flight has ALREADY been launched, so
+    // RelayoutField stops re-homing them onto the beside-Slot2 overflow seats (that re-home IS the
+    // reported bug) and no second flight can ever be launched for the same card. Membership is not
+    // "the card is in the pile" — it is "this driver has already handed this card to FlyToPile";
+    // the flight's own completion callback parks it. Cleared with _pickLockedCount everywhere.
+    private readonly HashSet<VRCard> _pickExitFlown = new();
+
     // FLIGHT TRIGGER IS THE MODEL, NOT THE DOCK (user report 2026-08-08: "Wenn ich in der
     // Aktionsphase von dem aktiven Character zu einem anderen Character wechsel ... wird die
     // Animation abgespielt dass beide Karten des aktiven Characters in den 'abgeworfen' pile gehen

@@ -399,10 +399,14 @@ internal sealed partial class CardsDriver
         _fanOriginCards.Clear();
         ClearFanInsertion();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
+        _pickExitFlown.Clear(); // …and with them every claim on a pick-exit flight
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
         _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
         _lastVisibleCards.Clear();
+        _lastFieldCards.Clear(); // event-discard exit: the same rule for the pick-recess snapshot —
+                                 // a dead VRCard is still a live reference in a HashSet, and the
+                                 // pick-field pre-filter is a membership test on exactly this set
         _lastCardWorldPos.Clear(); // issue 1: last-known poses die with the hand's cards
         _lastCardWorldRot.Clear();
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
@@ -443,7 +447,10 @@ internal sealed partial class CardsDriver
             _active.Remove(card); // feature 6: drop from the active grid if the widget recycled
             ClearActiveHighlight(card);
             if (_fieldCards.Remove(card))
+            {
+                _pickExitFlown.Remove(card);
                 RelayoutField();
+            }
             if (ReferenceEquals(card, _shortRestCard)) // sacrifice widget recycled under us
             {
                 _shortRestCard = null;

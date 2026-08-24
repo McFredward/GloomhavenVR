@@ -1927,6 +1927,7 @@ internal sealed partial class CardsDriver
         _pickStatusKey = null;
         _fieldCards.Clear();
         _pickLockedCount = 0;
+        _pickExitFlown.Clear();
         RemoveShortRestCard(); // sacrifice display never survives losing the active hand (item 1d)
 
         // OFF-SCENARIO HAND SOURCE (the 3D map room's loadout fan). THE ONE SEAM that lets a

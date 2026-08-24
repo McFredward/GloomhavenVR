@@ -403,10 +403,21 @@ internal static class InitiativeTrack_ShowMonsterClasses_ArmSkip
 /// decision cannot outlive the widget it is about, and so it works identically in flat play (where
 /// none of the mod's world-space surfaces exist). Private method — patched by string name, which is
 /// how Harmony addresses a Unity message.
+///
+/// <para>IT CARRIES TWO RIDERS, AND THAT IS DELIBERATE. This is the mod's ONE per-frame seam that
+/// already holds a live <c>InitiativeTrack</c> instance, so a second track-side feature
+/// (<see cref="PickPhaseInitiativeTrack"/> — the blank row band during a forced card pick, user
+/// report 2026-08-24) rides it instead of adding a SECOND Harmony patch on the same method. Two
+/// patches on one Unity message would have exactly the same cost and exactly the same ordering,
+/// plus a second thing that can fail to register. Each rider is independently try/caught, so
+/// neither can take the other — or the game's own <c>Update</c> — down with it.</para>
 /// </summary>
 [HarmonyPatch(typeof(InitiativeTrack), "Update")]
 internal static class InitiativeTrack_Update_TickSkip
 {
-    private static void Postfix(InitiativeTrack __instance) =>
+    private static void Postfix(InitiativeTrack __instance)
+    {
         EnemyInfoPhaseSkip.TickGuarded(__instance);
+        PickPhaseInitiativeTrack.TickGuarded(__instance);
+    }
 }

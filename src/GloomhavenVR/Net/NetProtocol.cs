@@ -416,7 +416,51 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 246;
+    public const ushort ModBuild = 247;
+    // Build 247: THE FORCED DISCARD — THE CARDS FLY TO THE PILE INSTEAD OF INTO THE WOODWORK, AND
+    // THE INITIATIVE BAND COMES BACK (WHICH THE FLAT GAME NEVER HAD).
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — the new
+    // tick rides the mod's EXISTING InitiativeTrack.Update postfix rather than adding a patch).
+    // BUNDLE UNCHANGED at 70,009,303 bytes — DLL-only install.
+    //
+    //   1. THE TWO CARDS THAT SLID INTO THE BOARD, and the photograph is the proof. A >2-card
+    //   event discard is paged: page 1 takes two, then the tray CONFIRM calls TryLockPickBatch,
+    //   which re-homes every locked card through PickSeatOfIndex -> PlacePickCard's index>=2 branch:
+    //       off = SlotHomeOffsetFor(1) + ((index - 1) * w * 1.15) on X
+    //   i.e. one and two card widths to the RIGHT of Slot2 — board frame, then thin air. That is
+    //   exactly kartenabwurf2.jpg: one card in the woodwork, one half-buried at the right edge.
+    //   Locked picks now FLY to the discard stack on the page turn, on the same arc every other
+    //   card flight uses, and the overflow seats are never reached.
+    //   AND THE THIRD CARD had a second, independent defect: after the game's own confirm it left
+    //   the field in no zone, was refused by all three exit paths (fly-to-pile pre-filtered on
+    //   _lastHalfCards, burn-fly wants a Burnt verdict, vanish wants hand/tray) and fell through to
+    //   an instant Park — a pop, no animation. The fly-to-pile pre-filter now admits a pick-field
+    //   card FOR A Discarded VERDICT ONLY.
+    //
+    //   2. THE INITIATIVE BAND IS VANILLA BEHAVIOUR, AND THE MOD IS NOT THE CAUSE. Rows are
+    //   activated in exactly one place — the loop in InitiativeTrack.UpdateInitiativeTrack
+    //   (:607-628) — and the NormalizeActorsPool it calls first unconditionally deactivates every
+    //   pooled entry (:580-584). The forced discard is presented by Choreographer.SelectLoseCards
+    //   (:7854-7910), which touches the track only to write its helpBox at :7894 and NEVER refreshes
+    //   the rows; the generic per-message refresh (:12534) does not whitelist it and additionally
+    //   needs InitiativeSortedActors.Count > 0, which is 0 before anyone has chosen cards. So an
+    //   Update that never ran leaves a fully-built, fully-BLANK widget. THE FLAT GAME DOES THE SAME
+    //   — it only matters in VR, where that band is the character switcher.
+    //   The mod refills it with THE GAME'S OWN UpdateInitiativeTrack when a forced pick is open and
+    //   the band has zero visible children. selectActor is FALSE and that is the whole safety
+    //   argument: the GameObject overload hard-codes true (:713) and Select reaches
+    //   InitiativeTrackPlayerAvatar.Select -> CardsHandManager.SwitchHand, which during a forced
+    //   pick would switch the hand out from under the open discard.
+    //   TWO THINGS THE REPORT ASSUMED THAT THE SOURCE DENIES, stated rather than quietly worked
+    //   around: the rows carry NO initiative number (nobody has chosen cards yet), and the discards
+    //   are SEQUENTIAL, not simultaneous — Show is called with m_ActorLosingCards and the hardware
+    //   Player.log carries two separate SelectLoseCards messages.
+    //
+    //   COSTS, STATED: a locked card has flown, so it can no longer be grabbed back off an overflow
+    //   seat (the game's own confirm-cancel still restores everything); and the discard label reads
+    //   the model's 0 while the first two cards are visibly already in the stack, converging at the
+    //   commit. LoseCard (burn) with >=3 cards keeps today's behaviour and says so in the log.
+    //
     // Build 246: FOUR VOICES WITHDRAWN FROM THE WOOD BY NAME, AND THE RAVEN BECOMES THE CROW A FILM
     // MEANS.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).

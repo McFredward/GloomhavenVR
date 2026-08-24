@@ -208,6 +208,7 @@ internal sealed class BoardModule : IVRModule
             SelectionOwnershipFallback.Reset();
             Patches.PingNameTag.Reset();
             Patches.EnemyInfoPhaseSkip.Reset();
+            Patches.PickPhaseInitiativeTrack.Reset();
             Patches.HoverPickPatch.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).

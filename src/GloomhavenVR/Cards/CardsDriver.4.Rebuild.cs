@@ -511,6 +511,13 @@ internal sealed partial class CardsDriver
         _lastVisibleCards.Clear();
         _lastVisibleCards.UnionWith(_fanBuffer);
         _lastVisibleCards.UnionWith(_halfBuffer);
+        // EVENT-DISCARD EXIT (user 2026-08-24): the pick field's counterpart to _lastHalfCards.
+        // The FINAL card of an event discard leaves the field only when the game's own confirm
+        // dialog commits — by which time the model DOES answer Discarded, so the existing
+        // model-driven TryStartFlyToPile can carry it. It just needed a set to be a member of; the
+        // pre-batch pages are carried earlier and by a different trigger (FlyLockedPicksToPile).
+        _lastFieldCards.Clear();
+        _lastFieldCards.UnionWith(_fieldCards);
         for (int s = 0; s < 2; s++)
         {
             VRCard? occ = _tray.Occupant(s);
@@ -653,6 +660,8 @@ internal sealed partial class CardsDriver
                         // locked prefix (the step display recomputes from it).
                         if (i < _pickLockedCount)
                             _pickLockedCount--;
+                        if (occupant != null)
+                            _pickExitFlown.Remove(occupant);
                         _fieldCards.RemoveAt(i);
                     }
                 }
@@ -780,6 +789,7 @@ internal sealed partial class CardsDriver
         {
             _fieldCards.Clear();
             _pickLockedCount = 0;     // event-discard batching never survives the mode
+            _pickExitFlown.Clear();   // …nor do the exit-flight claims it made
             _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
         }
 
@@ -837,6 +847,15 @@ internal sealed partial class CardsDriver
             bool inTray = _tray.SlotOf(card) >= 0;
             bool inBrowse = _browser.Contains(card);
             bool inField = _fieldCards.Contains(card);
+            // EVENT-DISCARD EXIT: a card whose page-turn flight has already run STAYS in
+            // _fieldCards — the page maths (PickSeatOfIndex / PickTargetSlot / the prune) is
+            // indexed on that list and must not shift under it — but it is bookkeeping-only from
+            // here on: it is parked on the (inactive) pool root, and a stale Grabbable there would
+            // put an invisible card at the pool origin into the laser/poke sweep, which scores
+            // purely on CanGrab (VRCard.cs:393, FanSweep.Score's SweepEligible) and has NO active
+            // check of its own. So the ZONE keeps it out of the park sweep and the AFFORDANCE does
+            // not follow.
+            bool fieldAffordance = inField && !_pickExitFlown.Contains(card);
             bool inActive = _active.Contains(card); // feature 6: shown in the active-cards column
             // Short-rest sacrifice card: its own zone. Never in any of the above, so
             // its Grabbable/PokeSelect resolve to false here (display-only) — we only
@@ -859,7 +878,7 @@ internal sealed partial class CardsDriver
             // occupants and pick/field cards in the recesses — and FALSE everywhere
             // else. Central re-assert every Rebuild (idempotent) so no dock/undock
             // path can leave a stale apron on a fan/browse/parked card.
-            card.SetDockGrabPad(inTray || inField);
+            card.SetDockGrabPad(inTray || fieldAffordance);
 
             // Item 10: poke-select is never armed on hand cards — touching a card
             // must not auto-select it; a card is committed only by placing it into a
@@ -904,7 +923,7 @@ internal sealed partial class CardsDriver
             // closes), so this widens the GRAB and nothing else — the same split the hand fan got.
             bool commitGrab = !readOnly
                               && ((inFan && grabbable) || (inTray && grabbable)
-                                  || inField || inBrowse || inActive);
+                                  || fieldAffordance || inBrowse || inActive);
             bool inspectGrab = (inFan || inBrowse || inActive) && !commitGrab && handInspectable;
             card.Grabbable = commitGrab || inspectGrab;
             card.InspectOnly = inspectGrab;
@@ -1664,12 +1683,29 @@ internal sealed partial class CardsDriver
     {
         if (card.GameCard == null || card.IsFlying)
             return false;
-        if (!_lastHalfCards.Contains(card))
-            return false; // only the round cards docked last rebuild — never a fan/browse/etc. card
+        // TWO pre-filters, not one. The round-card dock is the original (issue 5). The pick FIELD
+        // is the second (user 2026-08-24, the event-discard report): the last card of an event
+        // discard leaves the recess only when the game's own confirm dialog commits, and it used to
+        // fall through every branch below and POP out of existence via _factory.Park. A field card
+        // is admitted for a DISCARD only — a burn keeps its user-ruled "artwork on the lying card
+        // FIRST, then the pile flight" order, which lives in TryStartBurnFly/TryTakeBurnFlightSlot
+        // and would be clipped if this branch won the race for it.
+        bool wasDocked = _lastHalfCards.Contains(card);
+        bool wasPickField = !wasDocked && _lastFieldCards.Contains(card);
+        if (!wasDocked && !wasPickField)
+            return false; // never a fan/browse/active/etc. card
         if (!card.gameObject.activeInHierarchy)
             return false; // already parked/pooled — nothing to animate from
 
         RoundCardExit exit = RoundCardExitOf(hand, card, out CPlayerActor? owner);
+        if (wasPickField && exit != RoundCardExit.Discarded)
+        {
+            // burn → TryStartBurnFly (artwork first); anything else → no pile at all. Logged on the
+            // SAME per-widget-per-verdict dedupe as the docked refusal, so "the card popped and no
+            // flight line appeared" is answerable from the log instead of merely observed.
+            LogFlightRefused(card, exit, owner, fromPickField: true);
+            return false;
+        }
         PileKind fate;
         switch (exit)
         {
@@ -1716,10 +1752,14 @@ internal sealed partial class CardsDriver
         }, minArc);
         // A played card whose fate is BURNT (a lost action) is a burn like any other — tag it with
         // the same BURN ANIM token the dedicated burn paths use so ONE grep proves every burn case.
-        string tag = fate == PileKind.Burnt ? "BURN ANIM [turn-clear]" : "Fly-to-pile [turn-clear]";
+        string origin = wasPickField ? "pick field" : "turn-clear";
+        string leftWhat = wasPickField
+            ? "the board's PICK RECESS (an event discard the game just committed)"
+            : "CCharacterClass.RoundAbilityCards/ExtraTurnCards";
+        string tag = fate == PileKind.Burnt ? $"BURN ANIM [{origin}]" : $"Fly-to-pile [{origin}]";
         VRLog.Info("Cards", $"{tag}: CARD FLIGHT '{CardsGameApi.CardName(card.GameCard!)}' " +
                             $"(owner '{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') — WHY: it LEFT " +
-                            $"CCharacterClass.RoundAbilityCards/ExtraTurnCards and ENTERED " +
+                            $"{leftWhat} and ENTERED " +
                             $"CCharacterClass.{ModelListName(exit)}, so it flies to " +
                             $"the {fate} stack ({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the board, " +
                             "orientation locked). Trigger and destination are both the authoritative model — a " +
@@ -1748,7 +1788,8 @@ internal sealed partial class CardsDriver
     /// (<see cref="_loggedFlightRefusal"/>), i.e. one per focus switch, never per frame: this whole
     /// path only runs from Rebuild, and only for the ≤2 cards the dock held last rebuild.
     /// </summary>
-    private void LogFlightRefused(VRCard card, RoundCardExit exit, CPlayerActor? owner)
+    private void LogFlightRefused(VRCard card, RoundCardExit exit, CPlayerActor? owner,
+                                  bool fromPickField = false)
     {
         AbilityCardUI? widget = card.GameCard;
         if (widget == null)
@@ -1776,6 +1817,23 @@ internal sealed partial class CardsDriver
                 "the model could not be read for this card (no CAbilityCard or no owning actor) — refusing " +
                 "rather than guessing a pile.",
         };
+        // The PICK FIELD refusal is a different sentence: the card left a board RECESS, not the
+        // round-card dock, and a Lost/PermanentlyLost verdict there is not a defect at all — it is
+        // this method deliberately conceding the card to the burn path so the game's own artwork
+        // plays on it before it flies (TryStartBurnFly → TryTakeBurnFlightSlot).
+        if (fromPickField)
+        {
+            string handover = exit is RoundCardExit.Lost or RoundCardExit.PermanentlyLost
+                ? "That is a HANDOVER, not a failure: TryStartBurnFly owns a burn, and it holds the " +
+                  "card lying in place until the game's burn artwork finishes before flying it to " +
+                  "the Burnt stack."
+                : why;
+            VRLog.Info("Cards", $"Fly-to-pile REFUSED [pick field]: '{CardsGameApi.CardName(widget)}' (owner " +
+                                $"'{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') left the board's " +
+                                "PICK RECESS but the model does NOT say Discarded — it says " +
+                                $"{ModelListName(exit)}. {handover}");
+            return;
+        }
         VRLog.Info("Cards", $"Fly-to-pile REFUSED: '{CardsGameApi.CardName(widget)}' (owner " +
                             $"'{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') left the round-card dock " +
                             $"but NOT for a pile — model says {ModelListName(exit)}. {why} The card is parked/faded " +

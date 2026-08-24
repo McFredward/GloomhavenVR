@@ -450,7 +450,10 @@ internal sealed partial class CardsDriver
             if (_tray.ContainsCard(card))
                 _tray.RemoveCard(card);
             if (_fieldCards.Remove(card))
+            {
+                _pickExitFlown.Remove(card);
                 RelayoutField();
+            }
             _fan.Add(card);
             _dirty = true;
             VRLog.Warn("Cards", $"Drop REFUSED ({hand.Side}): '{card.name}' is not a card of the hand the game " +
@@ -894,6 +897,9 @@ internal sealed partial class CardsDriver
             if (displaced != null && !ReferenceEquals(displaced, incoming))
             {
                 _fieldCards.RemoveAt(_fieldCards.Count - 1);
+                _pickExitFlown.Remove(displaced); // never a flown card here (the flown ones are the
+                                                  // locked PREFIX and this is the tail) — kept so the
+                                                  // set can never outlive its list
                 RelayoutField();
                 _fan.Add(displaced);
             }
@@ -1027,6 +1033,7 @@ internal sealed partial class CardsDriver
             if (takeBackIndex >= 0 && takeBackIndex < _pickLockedCount)
                 _pickLockedCount--;
             _fieldCards.Remove(card);
+            _pickExitFlown.Remove(card); // a taken-back card may be laid (and flown) again
             RelayoutField();
             _fan.Add(card);
             AbilityCardUI widget = card.GameCard!;
@@ -1087,6 +1094,7 @@ internal sealed partial class CardsDriver
                                     $"via {seam} → CardsHandUI.SelectCard {(selected ? "accepted" : "rejected")}.");
                 if (!selected && _fieldCards.Remove(card))
                 {
+                    _pickExitFlown.Remove(card);
                     RelayoutField();
                     _fan.Add(card);
                 }
@@ -1137,6 +1145,14 @@ internal sealed partial class CardsDriver
             VRCard card = _fieldCards[i];
             if (card == null || card.IsHeld)
                 continue;
+            // EVENT-DISCARD EXIT: a card whose exit flight has been launched owns its own
+            // transform until it lands (and is PARKED afterwards). Re-homing it onto an overflow
+            // seat here is exactly the reported defect — kartenabwurf2.jpg shows the two locked
+            // cards of step 1/2 sitting in the board's woodwork right of Slot2, which is where
+            // PlayTray.PlacePickCard's index>=2 fallback puts them (PlayTray.4.Slots.cs:1064-1069:
+            // SlotHomeOffsetFor(1) + (index-1)*CardWidth*1.15 along the slot's local +X).
+            if (_pickExitFlown.Contains(card))
+                continue;
             int seat = PickSeatOfIndex(i);
             if (_tray.PlacePickCard(card, seat) < 0 && seat >= 2
                 && i >= _pickLockedCount && seat != _loggedFieldOverflow)
@@ -1186,7 +1202,12 @@ internal sealed partial class CardsDriver
         int placed = _fieldCards.Count - locked;
         if (placed < 2)
             return false; // batch not full yet — nothing to lock
+        int firstNewlyLocked = locked;
         _pickLockedCount = _fieldCards.Count;
+        // EVENT-DISCARD EXIT (user 2026-08-24): the page's cards LEAVE the board here instead of
+        // stacking beside Slot2. Launched BEFORE RelayoutField so the flight is already claimed
+        // when the relayout runs and the relayout skips them (see _pickExitFlown).
+        FlyLockedPicksToPile(hand, firstNewlyLocked, _pickLockedCount);
         RelayoutField();
         _tray.NoteSlotActivity(); // the locked cards just moved next to CONFIRM — arm the accident guard
         int totalSteps = (total + 1) / 2;
@@ -1196,6 +1217,119 @@ internal sealed partial class CardsDriver
                             "confirm dialog opens when the full count is selected).");
         _dirty = true;
         return true;
+    }
+
+    /// <summary>
+    /// EVENT-DISCARD EXIT — the page's chosen cards fly into the discard stack the moment the page
+    /// closes, instead of being stacked beside Slot2 where they clip into the board's woodwork.
+    ///
+    /// <para>USER REPORT 2026-08-24 (verbatim): "Wie man in kartenabwurf2.jpg sehen kann, gehen die
+    /// zwei ersten Karten der ersten Seite komisch zur Seite und clippen dann im board — stattdessen
+    /// will ich das ganz normal die 'verbrennen' Animation abgespielt wird und die Karten in den
+    /// jeweiligen Pile gehen wie es bei allen anderen Verbrennungen auch der Fall ist. Das soll auf
+    /// der ersten Seite mit den ersten beiden Karten und dann auf der nächsten Seite mit der 3
+    /// Karte passieren." The photograph is the proof of the mechanism, not a symptom of it: the two
+    /// cards in it sit exactly where <c>PlayTray.PlacePickCard</c>'s <c>index &gt;= 2</c> fallback
+    /// puts them (PlayTray.4.Slots.cs:1064-1069 — Slot2's home offset plus
+    /// <c>(index-1) * CardWidth * 1.15</c> along the slot's local +X, i.e. one and two card widths
+    /// PAST the right recess, which is board frame and then thin air).</para>
+    ///
+    /// <para>THE FLIGHT IS THE EXISTING ONE, NOT A SECOND IMPLEMENTATION. Same
+    /// <see cref="VRCard.FlyToPile"/>, same <see cref="FlyToPileSeconds"/>, same
+    /// <see cref="BoardUp"/> arc and same <see cref="BoardArcMin"/> floor as the turn-clear flight
+    /// (<c>TryStartFlyToPile</c>), the burn flight (<c>TryStartBurnFly</c>) and the short-rest
+    /// redraw (<see cref="FlyShortRestCardToDiscard"/>), and the same
+    /// <c>_flyingToPile</c> + <c>_factory.Park</c> ownership contract, so the park sweep and
+    /// <c>PileArrivalsPending</c> already understand these cards without a single new case.</para>
+    ///
+    /// <para>IT RUNS AHEAD OF THE MODEL, DELIBERATELY, AND THAT IS THE ONE COST. A locked batch is
+    /// pure VR bookkeeping — the game has NOT moved these cards into
+    /// <c>CCharacterClass.DiscardedAbilityCards</c> yet (it commits the whole event at once through
+    /// its own confirm dialog, see <see cref="TryLockPickBatch"/>), so <c>RoundCardExitOf</c> would
+    /// still answer <c>Hand</c> here and cannot be the trigger. The trigger is therefore the mod's
+    /// own page turn, and the consequence is stated out loud: for the seconds between the page turn
+    /// and the final confirm the discard STACK LABEL still reads the model's number (0), while the
+    /// cards are already visually in it. The label converges on its own the moment the game commits
+    /// — <c>PileArrivalsPending</c> keeps no ledger (CardsDriver.4.Rebuild.cs:2000-2019).</para>
+    ///
+    /// <para>ONLY <c>DiscardCard</c>. A ≥3-card forced BURN would reach the same batching, but a
+    /// burn's user-ruled order is "artwork on the lying card first, THEN the pile flight"
+    /// (<c>TryTakeBurnFlightSlot</c>) and at page-turn time the game has not started that artwork,
+    /// so flying here would clip an animation the user explicitly asked to watch. Those cards keep
+    /// today's overflow seats and the refusal is LOGGED, so the case shows up in a hardware log
+    /// instead of silently taking a new path.</para>
+    ///
+    /// <para>MULTIPLAYER: announced through the same <c>ReportCardFx</c> semantic anchor pair every
+    /// other flight uses (2 bytes, board-relative, no card identity). Nothing new goes on the wire
+    /// and no game state is written — the game's own selection, made by
+    /// <see cref="TryCommitPick"/> through <c>CardsHandUI.SelectCard</c>, is untouched.</para>
+    /// </summary>
+    private void FlyLockedPicksToPile(CardsHandUI hand, int firstIndex, int endIndex)
+    {
+        CardHandMode mode = CardsGameApi.Mode(hand);
+        if (mode != CardHandMode.DiscardCard)
+        {
+            VRLog.Info("Cards", $"Pick batch EXIT REFUSED (mode={mode}): the {endIndex - firstIndex} card(s) of " +
+                                "this page keep the beside-Slot2 overflow seats. The page-turn exit flight is " +
+                                "armed for DiscardCard ONLY — a burn's artwork plays on the LYING card and the " +
+                                "game has not started it at page-turn time, so flying here would clip it.");
+            return;
+        }
+        if (!_piles.TryGetPileWorld(PileKind.Discard, out Vector3 pilePos, out float slabWidth))
+        {
+            VRLog.Info("Cards", $"Pick batch EXIT REFUSED (mode={mode}): the discard stack is not built / not " +
+                                "visible, so there is no destination to fly to. The card(s) keep the " +
+                                "beside-Slot2 overflow seats — never a wrong-spot teleport.");
+            return;
+        }
+
+        Vector3 arcUp = BoardUp();
+        float minArc = BoardArcMin();
+        int flown = 0, skipped = 0;
+        for (int i = firstIndex; i < endIndex && i < _fieldCards.Count; i++)
+        {
+            VRCard card = _fieldCards[i];
+            // Held / already flying / already flown / already parked: every one of these means
+            // something else owns the card's transform right now. Leave it alone rather than
+            // fighting the other owner (the "don't win a write war" rule).
+            if (card == null || card.IsHeld || card.IsFlying || card.IsVanishing
+                || _pickExitFlown.Contains(card) || !card.gameObject.activeInHierarchy)
+            {
+                skipped++;
+                continue;
+            }
+            _pickExitFlown.Add(card);
+            _flyingToPile.Add(card);
+            VRCard flying = card;
+            Vector3 from = card.transform.position;
+            float arcHeight = Mathf.Max(minArc, Vector3.Distance(from, pilePos) * VRCard.FlyArcHeightFraction);
+            // MP parity: the RECESS the card is physically leaving → the discard stack, the same
+            // anchor pair the turn-clear flight reports. The recess is the seat the card held in
+            // the LIVE batch, i.e. its offset within the page (i - firstIndex ∈ {0,1}) — NOT
+            // PickSeatOfIndex(i), which by the time this runs already answers with the
+            // beside-Slot2 overflow seat the card is being spared from ever taking.
+            int recess = i - firstIndex;
+            ReportCardFx(SlotAnchor(recess), PileAnchor(PileKind.Discard));
+            card.FlyToPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, () =>
+            {
+                _flyingToPile.Remove(flying);
+                _factory.Park(flying);
+            }, minArc);
+            flown++;
+            VRLog.Info("Cards", $"Pick batch EXIT: CARD FLIGHT '{(card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name)}' " +
+                                $"— WHY: the VR page it was chosen on just closed (field index {i}, recess " +
+                                $"{recess + 1} of the page), so it flies from {from} into the Discard stack " +
+                                $"({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the board, orientation " +
+                                $"locked) instead of being re-homed onto overflow seat {PickSeatOfIndex(i)} " +
+                                "beside Slot2 — which is where kartenabwurf2.jpg shows it clipping into the " +
+                                "board. The card STAYS game-selected; " +
+                                "the game commits the whole event through its own confirm dialog. VR " +
+                                "presentation only — no game state is written here.");
+        }
+        if (skipped > 0)
+            VRLog.Info("Cards", $"Pick batch EXIT: {flown} flew, {skipped} skipped (held, already animating, " +
+                                "already flown, or not live) — a skipped card keeps its overflow seat and is " +
+                                "re-offered by the next page turn / the final commit's park sweep.");
     }
 
     // -------------------------------------------------------------- short rest --
