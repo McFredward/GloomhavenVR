@@ -68,7 +68,11 @@ def pairs(rows, out, width=1280, cell_h=340):
     d = ImageDraw.Draw(canvas)
     for k, (base, elem, caption, box) in enumerate(rows):
         y = k * (cell_h + bar)
-        for col, (name, label) in enumerate(((base, 'element off'), (elem, caption.split('·')[-1].strip()))):
+        # The two corner tags are a PAIR and read as one sentence — "element off" / "element on".
+        # The right one used to name the element instead, which made the row's own caption bar
+        # below ("Cellar · Fire") the only place the pairing was stated, and left the eye with two
+        # unrelated labels to reconcile. Which element it is belongs in exactly one place.
+        for col, (name, label) in enumerate(((base, 'element off'), (elem, 'element on'))):
             im = Image.open(T + name).convert('RGB')
             if box:
                 im = im.crop(box)
