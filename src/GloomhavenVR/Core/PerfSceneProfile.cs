@@ -425,6 +425,10 @@ internal static class PerfSceneProfile
             {
                 mats = 0; // a renderer with no material array still counts as an object
             }
+            // Close the glow census's per-renderer accumulation: it scores and pools the renderer HERE,
+            // with its render queue and its shader's lighting passes already known, because the band
+            // test depends on both and neither is available while the geometry pass is running.
+            GlowCardCensus.EndRenderer(r);
             materialsTotal += mats;
             if (subm)
                 materialsSubmitted += mats;

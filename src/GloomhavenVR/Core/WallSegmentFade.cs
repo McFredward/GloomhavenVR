@@ -1160,6 +1160,7 @@ internal static partial class WallSegmentFade
             // raised bar in 241-250, a hard stand-down in 251) and both were rejected; the
             // per-wall metric below is the whole decision.
             BeginPerWallCensus();
+            _lastHeadPos = headPos;
             foreach (Segment seg in _segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -1310,6 +1311,7 @@ internal static partial class WallSegmentFade
                 _nextPerWallLogTime = now + DiagIntervalSeconds;
                 LogPerWallIndependence();
                 LogAnimationPaths();
+                LogStepEdges();
             }
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
@@ -1614,15 +1616,26 @@ internal static partial class WallSegmentFade
             if (total <= 0)
                 return 0f;
 
-            // WALL IN THE FACE — treat as full coverage of its room. The test is the head
-            // inside an actual wall MESH, never inside seg.Bounds: see HeadInsideWallMesh for
-            // the photograph and the 75 log samples that killed the union-box version.
-            if (seg.Bounds.Contains(headPos) && HeadInsideWallMesh(seg, headPos, out _))
-            {
-                seg.LastBlocked = total;
-                seg.LastRoomVisible = total;
-                return 1f;
-            }
+            // THE "WALL IN THE FACE" SHORT-CIRCUIT IS GONE (ModBuild 255), and it turns out it
+            // was never needed. It returned a hard 1f — "this wall hides the ENTIRE room" —
+            // whenever the head sat inside one wall renderer's AABB, and it reported the room's
+            // TOTAL as visible while doing so, which is what put `blk 16/16 v16` in the diag
+            // next to a frustum reading of `vis 12/16`. That is the signature the user was
+            // looking at: "Wie du siehst bei den anderen Wänden sind sie wieder dauerhaft
+            // ausgeblendet obwohl sie es nicht müssten" — 'Wall 2' sat at raw 1.00 in 44 of its
+            // diag samples this session, and every one of them came from here rather than from
+            // any measurement of what the wall covers.
+            //
+            // THE ORDINARY RAY MATH ALREADY HANDLES A HEAD INSIDE GEOMETRY. Bounds.IntersectRay
+            // returns true for a ray whose origin is inside the box, at distance 0, so every
+            // sample genuinely behind that piece is counted blocked by the normal path — and
+            // only those. A head buried in a tree trunk's AABB corner now costs that wall the
+            // samples the trunk actually covers instead of all of them. Nothing is lost by
+            // deleting the shortcut; the escape hatch it was protecting is the ray test itself.
+            //
+            // HeadInsideWallMesh is retained: WallSegmentFade.Inside.cs still reports it, and it
+            // remains the honest "sealed in masonry" predicate. It simply no longer overrides a
+            // measurement with an assertion.
 
             // STRICT OWN-ROOM accounting (round 4 — user ruling "normale Raum-Logik"; the
             // round-3 cross-room MAX is retired). The room is the LOGICAL room now: all
@@ -1823,10 +1836,39 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// THE STANDING TEST — the discriminator between geometry you cannot see past and
-        /// dressing you look OVER. A piece is admitted to the occlusion numerator only when its
-        /// vertical extent is at least <see cref="StandingPieceRatio"/> of its NARROWER
-        /// horizontal extent.
+        /// THE STANDING TEST — RETIRED FROM THE NUMERATOR IN ModBuild 255, kept as the shape
+        /// statistic the admission census reports. It never excluded a single piece on the two
+        /// walls that were wrongly faded, and the only thing it DID exclude was real wall
+        /// geometry.
+        ///
+        /// <para>WHY IT WAS REDUNDANT. <see cref="StripGroundRenderers"/> already removes every
+        /// renderer and every foliage attachment whose AABB top reaches no higher than
+        /// <c>GroundExclusionHeightWU</c> = 1.0 wu above its room's floor plane, on the far
+        /// better criterion of absolute height rather than aspect ratio. By the time a piece can
+        /// be asked about, it is more than a wall-height-fifth tall, and the flat ground plates
+        /// that look like the culprits — <c>FR_Floor_Grass_Half_01</c>,
+        /// <c>FR_Floor_Grass_BAY s(1.779, 0.357, 1.997)</c> — are 0.36 wu tall and were stripped
+        /// long before. They are parented under <c>Walls/Wall 1/Generated Content/…</c> in the
+        /// scene hierarchy, which is what makes them look like wall geometry in a hierarchy
+        /// census, but they are not in the segment at all.</para>
+        ///
+        /// <para>WHY IT WAS HARMFUL. The ModBuild 254 log's own admission line reads
+        /// <c>'Wall 1' 178 admitted / 0 excluded | 'Wall 2' 146 admitted / 0 excluded |
+        /// 'Wall 3' 10 admitted / 4 excluded, widest excluded 'WallTop' 2.4 wu</c>. Zero
+        /// exclusions where the defect was, and on the one wall where it did fire it excluded
+        /// <c>WallTop</c> — a capstone course, which is real masonry standing at the top of a
+        /// wall and genuinely does hide what is behind it. A test that removes wall caps from
+        /// the numerator and no ground dressing at all is a net loss, so it is gone.</para>
+        ///
+        /// <para>The original reasoning below is kept because the MECHANISM it identified was
+        /// real and is still live: <c>rb.Contains(sample)</c> lets a piece spanning the floor
+        /// plane claim samples from any angle. The ground strip is what actually protects
+        /// against it, and this method now only reports the shape distribution so the next log
+        /// can show whether anything flat is surviving that strip.</para>
+        ///
+        /// <para>ORIGINAL NOTE — the discriminator between geometry you cannot see past and
+        /// dressing you look OVER. A piece would be admitted only when its vertical extent is at
+        /// least <see cref="StandingPieceRatio"/> of its NARROWER horizontal extent.
         ///
         /// <para>WHY THIS EXISTS (user report 2026-08-24, Wandproblem.jpg): <i>"Ich schaue nur
         /// von einer Seite, d.h. es gibt keinen Grund für die Wand gegenüber ausgeblendet zu
@@ -1862,6 +1904,25 @@ internal static partial class WallSegmentFade
         /// The narrower horizontal extent is deliberately the denominator: a long wall RUN is
         /// wide in one axis and thin in the other, and using the wider one would exclude it.</para>
         /// </summary>
+        /// <summary>
+        /// Stable per-piece point in the ramp at which a channel-less foliage attachment
+        /// switches off. Spread over 0.10..0.92 rather than 0..1 so that nothing vanishes on the
+        /// very first frame of the fade (which would read as a pop of its own) and everything is
+        /// gone before the held state begins.
+        ///
+        /// <para>Derived from the renderer's instance id, which is stable for the lifetime of
+        /// the object — so a piece leaves and returns at the same point of every transition and
+        /// never flickers by re-randomising per frame. Apparance regenerating the mesh gives it
+        /// a new id and therefore a new slot, which is harmless: the slot only has to be stable
+        /// WITHIN a transition.</para>
+        /// </summary>
+        private static float StaggerThreshold(Renderer r)
+        {
+            // Knuth multiplicative hash on the instance id, folded to [0,1).
+            uint h = (uint)r.GetInstanceID() * 2654435761u;
+            return 0.10f + (h >> 8) / (float)(1 << 24) * 0.82f;
+        }
+
         private static bool IsStandingPiece(in Bounds rb)
         {
             Vector3 s = rb.size;
@@ -1872,15 +1933,14 @@ internal static partial class WallSegmentFade
         /// <summary>One piece of a wall against the head→sample ray, with the same "clearly
         /// before the point" rule the broad phase uses. Counts the piece so the caller can tell
         /// "nothing blocked" from "nothing to ask", and skips anything that fails the standing
-        /// test — see <see cref="IsStandingPiece"/>.</summary>
+        /// test — since ModBuild 255 there is no such test in this path; see
+        /// <see cref="IsStandingPiece"/> for why it was retired.</summary>
         private static bool HitsPiece(Renderer? r, Ray ray, float dist, float eps, Vector3 sample,
             ref int meshes)
         {
             if (r == null)
                 return false;
             Bounds rb = r.bounds;
-            if (!IsStandingPiece(rb))
-                return false; // ground dressing: it fades with the wall, it does not hide it
             meshes++;
             return rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample));
         }
@@ -2118,7 +2178,9 @@ internal static partial class WallSegmentFade
 
         /// <summary>Restore ALL of a segment's foliage — called whenever the segment leaves the
         /// table or goes solid, so no bush can stay hidden without an owner.</summary>
-        private static void RestoreSegmentFoliage(Segment seg)
+        // Non-static since ModBuild 255: the swap-removal in-edge is counted here, and the STEP
+        // census is what proves the fade-out / fade-in asymmetry.
+        private void RestoreSegmentFoliage(Segment seg)
         {
             if (seg.FoliageState == 0 && seg.FoliageProps.Count == 0)
                 return;
@@ -2138,6 +2200,8 @@ internal static partial class WallSegmentFade
                 Renderer r = p.Renderer;
                 bool wroteBlock = p.NativeFade || p.ColorId >= 0 || p.CutoffId >= 0
                     || p.DissolveControlId >= 0;
+                if (p.SwapCopies != null)
+                    NoteSwapEdge(seg, p, installed: false); // in-edge: already solid
                 RestorePropSwap(p, r);
                 if (r == null)
                     continue;
@@ -2237,7 +2301,10 @@ internal static partial class WallSegmentFade
                     p = ClassifyProp(s);
                     seg.SiblingProps[s] = p;
                 }
+                bool hadSwap = p.SwapCopies != null;
                 EnsureDissolveChannel(p);
+                if (!hadSwap && p.SwapCopies != null)
+                    NoteSwapEdge(seg, p, installed: true);
                 DriveProp(p, seg.Fade);
                 if (want == 2)
                 {
@@ -2278,29 +2345,57 @@ internal static partial class WallSegmentFade
             {
                 if (f == null)
                     continue;
-                // ModBuild 254: the SAME per-material channel every other attachment class
-                // uses, instead of one shared _Cutoff MPB written blind to all of them.
-                // ClassifyProp reads what the material can actually express and
-                // EnsureDissolveChannel gives a channel-less one a swapped copy of the game's
-                // masonry fade shader, so a foliage material that never had a live _Cutoff now
-                // dissolves instead of surviving the whole ramp and switching off at the end.
+                // ModBuild 254: classify per material rather than writing one shared _Cutoff MPB
+                // blind to all of them — ClassifyProp reads what this material can actually
+                // express, and DriveProp ramps it from the material's OWN authored base value.
+                // ModBuild 255 kept that and dropped the swap fallback it originally came with
+                // (see the note further down).
                 if (!seg.FoliageProps.TryGetValue(f, out MountedProp? p))
                 {
                     p = ClassifyProp(f);
                     seg.FoliageProps[f] = p;
                 }
-                EnsureDissolveChannel(p);
-                DriveProp(p, seg.Fade);
+                // FOLIAGE IS NEVER MATERIAL-SWAPPED (ModBuild 255). EnsureDissolveChannel is
+                // deliberately NOT called here: for a leaf card, replacing an alpha-cutout
+                // shader with the masonry fade shader is the single most visible thing that can
+                // happen to it, and it happens in one frame at the START of the fade-out. That
+                // is the asymmetry in the report — out pops, in animates — because the same
+                // change on the way back lands after the piece is already solid.
+                //
+                // A piece with a channel of its own ramps on it. A piece WITHOUT one is
+                // dissolved by STAGGERING its disable across the ramp instead: each piece gets a
+                // stable threshold from its own identity hash, so a wall's foliage switches off
+                // progressively over the transition rather than all at once at the end. With 123
+                // attachments on 'Wall 2' and 345 in the scenario, that is fine-grained enough
+                // to read as the mass dissolving, and it needs NO shader property, NO material
+                // change and NO knowledge of the tileset — which is the point, because whether
+                // Amp_Basic_Foliage even exposes a usable cutoff is not something this codebase
+                // has ever been able to confirm.
+                bool ownChannel = p.System != null || p.ColorId >= 0 || p.CutoffId >= 0
+                    || p.DissolveControlId >= 0;
                 NoteFoliageChannel(seg, p);
-                if (want == 2)
+                if (ownChannel)
                 {
-                    if (f.enabled)
-                        f.enabled = false;
+                    DriveProp(p, seg.Fade);
+                    if (want == 2)
+                    {
+                        if (f.enabled)
+                            f.enabled = false;
+                    }
+                    else if (!f.enabled)
+                    {
+                        f.enabled = true;
+                    }
+                    continue;
                 }
-                else if (!f.enabled)
-                {
-                    f.enabled = true;
-                }
+                // Staggered: hidden once the ramp passes this piece's own threshold. The hash is
+                // the renderer's instance id, so the order is arbitrary but STABLE — a piece
+                // does not flicker by re-randomising between frames, and the same piece leaves
+                // and returns at the same point of the ramp.
+                float threshold = StaggerThreshold(f);
+                bool hide = seg.Fade >= threshold;
+                if (f.enabled == hide)
+                    f.enabled = !hide;
             }
             seg.FoliageState = want;
         }
@@ -2328,6 +2423,7 @@ internal static partial class WallSegmentFade
                 if (seg.HasBlock)
                 {
                     seg.HasBlock = false;
+                    NoteBlockEdge(seg, installed: false); // in-edge: already solid, invisible
                     foreach (MeshRenderer r in seg.Renderers)
                     {
                         if (r != null)
@@ -2354,37 +2450,33 @@ internal static partial class WallSegmentFade
             // the material becomes the shader-swap candidate — the toggle diag line plus the
             // next hardware round adjudicate.
             _mpb.SetFloat(WallFadeOnMatId, 1f);
-            // R1 (user ruling 2026-08-24: "Wände sollen niemals einfach so auftauchen und wieder
-            // verschwinden … IMMER mit der Animation, niemals ohne"). THE PROVEN POP: the two
-            // branches below do not meet at the Fade == 1 boundary. Just under 1 the dissolve
-            // sets _Cutoff = Lerp(-0.05, 1, Fade) ≈ 1 against the NOISE map, whose m = 1-r tops
-            // out at 0.94, so EVERY fragment is clipped — the wall is completely gone. At Fade
-            // == 1 exactly, the map becomes the constant occluded texture and _Cutoff drops to
-            // the authored 0.50, which is precisely the state in which the HIGH shader's world-Y
-            // gradient keeps the FOUNDATION BAND solid. So the base course of every wall winks
-            // out one frame before the fade completes and snaps back on the next — un-animated,
-            // in both directions, on every fade and every un-fade.
+            // THE NOISE MAP IS THE DISSOLVE. THE OCCLUDED MAP IS A SWITCH. (ModBuild 255 —
+            // reverting my own ModBuild 252 change, which was wrong and is the primary cause of
+            // the report "das aufploppen und verschwinden der Wände ist jetzt plötzlich keine
+            // smoothe animation mehr" — note "jetzt plötzlich", i.e. since that build.)
             //
-            // THE FIX, for the HIGH variant: run the whole ramp on the occluded map so the
-            // world-Y gradient is live throughout, and sweep _Cutoff from -0.05 (clip = S-c > 0
-            // everywhere, wall fully solid) up to the authored HeldCutoff. Because S is a
-            // GRADIENT in world Y, a rising c dissolves the wall top-down and lands exactly on
-            // the held look with no texture swap and no step. The noise speckle is lost; that is
-            // cosmetic and the ruling on animation is absolute.
+            // 252 replaced the noise ramp with a sweep of _Cutoff against the OCCLUDED map, on
+            // the reasoning that the HIGH shader's world-Y term S is a gradient, so a rising c
+            // would dissolve the wall top-down. That reasoning ignored the clause written three
+            // lines further down in this very file: with M = 0 the shader multiplies the
+            // NOISE BY ZERO. Removing the noise removes the only per-pixel variation the cutoff
+            // had to sweep across, which leaves clip = -c for the whole upper wall: solid while
+            // c < 0, discarded the instant c > 0. With c = Lerp(-0.05, 0.50, Fade) that crossing
+            // happens at Fade ≈ 0.09 — one frame into a 0.35 s ramp. It was never a gradient
+            // sweep; it was a one-frame switch wearing a ramp's clothes.
             //
-            // LOW keeps the noise path: its shader gates on a HARD objY-0.4 threshold rather
-            // than a gradient, so an occluded-map sweep would discard its whole upper wall the
-            // instant c crossed 0 — a worse pop than the one being fixed. This scenario logs
-            // "shader variants: 0 LOW / 6 HIGH"; the residual LOW discontinuity is called out in
-            // the ANIMATION line and needs a shader change, not a tuning.
-            bool gradientDissolve = seg.VariantHigh && !seg.VariantLow;
-            if (gradientDissolve)
-            {
-                _mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
-                _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, seg.HeldCutoff, seg.Fade));
-                NoteAnimationPath(seg, smooth: true);
-            }
-            else if (seg.Fade >= 1f)
+            // HARDWARE CONFIRMS IT, in both directions. Frame-by-frame on the user's 30 fps
+            // capture (wände_probleme.mp4): pop-OUT at #148→#149 (t 4.900→4.933) and pop-IN at
+            // #349→#350 (t 11.600→11.633, camera shift measured at exactly (0,0)), each a single
+            // 33 ms step with flat patch means on both sides and ZERO intermediate samples. A
+            // 0.35 s ramp would have produced about ten.
+            //
+            // So the noise path is restored for every variant. Its cost is the known step at the
+            // Fade == 1 boundary — the foundation band winks as the map swaps — which is real,
+            // is what 252 set out to fix, and is a band at the wall's base rather than the whole
+            // wall. It is the pre-252 behaviour that drew no complaint for many builds. The
+            // ANIMATION line reports it as the residual rather than claiming it away.
+            if (seg.Fade >= 1f)
             {
                 // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
                 // term m = 1-r = 0 view-independently (a=0 fails the depth compare for
@@ -2403,12 +2495,16 @@ internal static partial class WallSegmentFade
             else
             {
                 // Dissolve: sweep the clip threshold across the noise texture's value range
-                // (screen-space pattern — cosmetic, confined to the ~0.35s transition).
+                // (screen-space pattern — cosmetic, confined to the ~0.35s transition). This is
+                // the ONLY path in this method that produces intermediate pixels: m = 1-r varies
+                // per texel across the noise, so a rising c retires the wall progressively.
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, seg.Fade));
-                NoteAnimationPath(seg, smooth: false);
+                NoteAnimationPath(seg, smooth: true);
             }
 
+            if (!seg.HasBlock)
+                NoteBlockEdge(seg, installed: true); // out-edge: solid geometry, fully visible
             seg.HasBlock = true;
             bool lostRenderer = false;
             foreach (MeshRenderer r in seg.Renderers)

@@ -132,7 +132,24 @@ internal static partial class WallSegmentFade
 
             // Channels that already animate: leave them alone (and mark them decided, so the
             // census can tell "animates by its own means" from "could not be given a channel").
-            if (p.System != null || p.ColorId >= 0 || p.DissolveControlId >= 0)
+            //
+            // CutoffId IS SUCH A CHANNEL, and leaving it out of this list was the ModBuild 254
+            // regression. Routing foliage through here (correct in itself — it retired a
+            // hardcoded 0.35 cutoff guess) then handed 345 alpha-CUTOUT leaf materials a swapped
+            // copy of the game's MASONRY fade shader, because "has a live cutoff" was not
+            // recognised as already animating. DriveProp has ramped p.CutoffId from the
+            // material's own authored p.BaseCutoff all along; the swap was never needed for it.
+            //
+            // WHY IT READS AS A POP, AND WHY ONLY IN ONE DIRECTION (user, 2026-08-24, with
+            // video: "das ausblenden der Wände ist eher einem 'Ploppen' nahe, das einblenden
+            // hingegen ist eine Animation sichtbar"). The swap is installed on the FIRST frame
+            // the fade leaves 0 and removed on the frame it reaches 0. Going out, a leaf card
+            // stops being an alpha-cutout leaf and becomes an opaque masonry-shaded quad in one
+            // frame, before any ramp is visible. Coming back, the same change happens at the very
+            // end, when the piece is already fully solid and nobody can see it. A symmetric ramp
+            // cannot produce an asymmetric artifact; an edge bolted onto one end of it can, and
+            // this is that edge.
+            if (p.System != null || p.ColorId >= 0 || p.DissolveControlId >= 0 || p.CutoffId >= 0)
             {
                 p.SwapChecked = true;
                 p.DissolveWhy = null;

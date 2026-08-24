@@ -68,6 +68,7 @@ internal static partial class GlowCardCensus
             List<Candidate> ranked = Rank();
             AppendCards(sb, ranked);
             AppendTail(sb, ranked);
+            AppendRecurrence(sb, ranked);
             AppendVerdict(sb, ranked);
             LatchBestSample(sb, ranked);
             AppendBestSample(sb);
@@ -150,12 +151,15 @@ internal static partial class GlowCardCensus
 
         if (_headKnown && _headPath != _scenarioPath)
         {
-            sb.Append(" ⇒ THE TWO CAMERAS RENDER THIS SCENE THROUGH DIFFERENT PATHS. Any shader whose "
-                      + "subshader/pass set differs between them — a Deferred-only pass, a Fallback "
-                      + "that kicks in on Forward, an emissive surface that is composited by the "
-                      + "lighting pass in one and drawn flat in the other — renders DIFFERENTLY in VR "
-                      + "than on the flat screen, and that is a per-shader fact printed in the "
-                      + "'passes' field of each full dump below");
+            sb.Append(" ⇒ the two cameras render this scene through DIFFERENT PATHS. CLOSED BY "
+                      + "MEASUREMENT AS AN EXPLANATION FOR THE GATE RECTANGLES — do not re-litigate. "
+                      + "ModBuild 254 proposed that a shader with a Deferred pass and no forward pass "
+                      + "would fall through to its Fallback on the head camera and draw flat; this "
+                      + "line's own count came back ZERO of 160 eligible cards, and every game shader "
+                      + "sampled carries sub0{FORWARDBASE,FORWARDADD,DEFERRED}. The path difference is "
+                      + "real and it is not the cause. The per-card 'passes' field below still prints "
+                      + "it, because it is now used for the opposite question — whether a card has any "
+                      + "lighting pass AT ALL, which is what the band filter turns on");
         }
         else if (_headKnown)
         {
@@ -305,6 +309,17 @@ internal static partial class GlowCardCensus
           .Append(_dropped).Append(" dropped");
         if (_dropped > 0)
             sb.Append(" — the largest dropped one spanned ").Append(_droppedMaxSpan.ToString("F0")).Append("px");
+        sb.Append(" | THE SELF-LIT FILTER, AND WHAT IT REMOVED: ").Append(_bandShaped)
+          .Append(" candidate(s) had the right SHAPE AND SIZE for the band (submitted, ")
+          .Append(SubjectMinPx.ToString("F0")).Append('-').Append(SubjectMaxPx.ToString("F0"))
+          .Append("px, plate-shaped or transparent-queued); of those ").Append(_bandSeen)
+          .Append(" also did not owe their brightness to the room's lights and entered the band, so "
+                  + "the requirement REMOVED ").Append(Mathf.Max(0, _bandShaped - _bandSeen))
+          .Append(" — that number IS the fix for ModBuild 254, where the same shape test admitted all "
+                  + "160. ").Append(_distinctUnlitShaders).Append(" of ").Append(ShaderFactsCache.Count)
+          .Append(" distinct shaders in this scene declare no lighting pass at all; the pass-tag walk "
+                  + "that decides it is cached per SHADER, so it ran that many times this window and "
+                  + "never once per renderer");
         sb.Append("; ").Append(_modLayerSkipped)
           .Append(" renderer(s) were REFUSED for being on the mod's own layer ")
           .Append(VRLayers.ModLayer)
@@ -328,17 +343,29 @@ internal static partial class GlowCardCensus
                   + "know what the subject is called. RANKING has a SUBJECT BAND: submitted plate-"
                   + "shaped candidates between ").Append(SubjectMinPx.ToString("F0")).Append(" and ")
           .Append(SubjectMaxPx.ToString("F0"))
-          .Append("px outrank everything else by construction and are ordered among themselves by how "
-                  + "close their span is to ").Append(SubjectTargetPx.ToString("F0"))
+          .Append("px THAT DO NOT OWE THEIR BRIGHTNESS TO THE ROOM'S LIGHTS — the shader declares no "
+                  + "lighting pass at all, or the material carries emission above ")
+          .Append(EmissionFloor.ToString("0.##"))
+          .Append(", or it draws at queue >= 2450 — outrank everything else by construction and are "
+                  + "ordered among themselves by how close their span is to ")
+          .Append(SubjectTargetPx.ToString("F0"))
           .Append("px ON A LOG SCALE (so 45px and 180px rank equally, and an estimate that is out by "
                   + "a factor of two still keeps the subject near the top); everything outside the "
-                  + "band is ordered by span x8 if VrOnly x3 if Plate x0.05 if not submitted. The "
-                  + "band exists because ModBuild 253 ranked by raw span "
-                  + "and filled every detailed record with the biggest things on screen — a 71,202px "
-                  + "ground plane, a 17,983px star dome — while the photographed rectangles are of "
-                  + "order SEVENTY pixels across. Bigger is not more likely to be the subject; being "
-                  + "the shape and size in the photograph is. The score is printed so this can be "
-                  + "checked rather than trusted");
+                  + "band is ordered by span x8 if VrOnly x3 if Plate x0.05 if not submitted, and the "
+                  + "two classes have SEPARATE QUOTAS (").Append(BandQuota).Append(" band, ")
+          .Append(GeneralQuota)
+          .Append(" general) so neither can delete the other. THE SELF-LIT REQUIREMENT IS THE "
+                  + "CORRECTION THIS ROUND: 253 ranked by raw size and led with a 71,202px ground "
+                  + "plane; 254 replaced that with shape-and-size and came back 160 of 160 IN-BAND, "
+                  + "every one of them ordinary lit floor — FR_Floor_Grass_Half_01, FR_Floor_Grass_BAY, "
+                  + "FR_Floor_Scatter_Grass_Small_01, all Amp_Basic_* carrying "
+                  + "sub0{FORWARDBASE,FORWARDADD,DEFERRED} at queue 1900 — because a floor hex IS a "
+                  + "flat quad of about the right size. Ranking by shape was the same failure as "
+                  + "ranking by size, one level down. The subject is a PALE BRIGHT rectangle in a night "
+                  + "scene whose masonry is nearly black and whose candle two metres away renders warm "
+                  + "and soft; the room's lights are not what make it bright, and a lit opaque _GROUND "
+                  + "material at queue 1900 cannot be it. The score is printed so this can be checked "
+                  + "rather than trusted");
         sb.Append(" | READ 'submitted' WITH CARE: it is enabled AND Renderer.isVisible AND in the head "
                   + "culling mask, and Unity's isVisible is true when ANY camera can see the renderer "
                   + "— the ScenarioCamera, a preview station, an RT capture. The screen rect on each "
@@ -437,7 +464,13 @@ internal static partial class GlowCardCensus
           .Append(c.Submitted ? "" : ")")
           .Append(" layer ").Append(layer).Append('=')
           .Append(string.IsNullOrEmpty(layerName) ? "<unnamed>" : layerName)
-          .Append(" marks[").Append(c.Marks).Append("] span ").Append(c.Span.ToString("F0"))
+          .Append(" marks[").Append(c.Marks).Append(']')
+          .Append(c.InBand
+                      ? " IN-BAND via " + (c.Unlit ? "UNLIT(no lighting pass)"
+                                                   : c.Emissive ? "EMISSIVE"
+                                                                : "queue" + c.Queue)
+                      : " out-of-band")
+          .Append(" span ").Append(c.Span.ToString("F0"))
           .Append("px score ").Append(c.Score.ToString("F0"))
           .Append(" AABB c(").Append(c.B.center.x.ToString("F2")).Append(',')
           .Append(c.B.center.y.ToString("F2")).Append(',').Append(c.B.center.z.ToString("F2"))
@@ -991,6 +1024,75 @@ internal static partial class GlowCardCensus
     }
 
     // ==========================================================================================
+    //  recurrence — a stable identity beats a coordinate
+    // ==========================================================================================
+
+    /// <summary>How many sampled windows each band identity has appeared in, this scene.</summary>
+    private static readonly Dictionary<string, int> BandRecurrence = new(96);
+    private static int _windowsWithBand;
+
+    /// <summary>
+    /// WHY THIS EXISTS. The two screen coordinates this line has been matching against came from a
+    /// PHOTOGRAPH, and every log since has been a different session from a different viewpoint — so
+    /// coordinate matching could not have worked, and did not. A coordinate identifies a record only in
+    /// the one frame it was measured in. What survives a change of session, of viewpoint and of room
+    /// state is an IDENTITY: shader, material and object name together.
+    ///
+    /// <para>So this counts, per scene, how many sampled windows each band identity has appeared in.
+    /// The gate is a fixed piece of architecture that the player walks past repeatedly; the rectangles
+    /// are on it permanently, by the user's own account ("das ist dauerhaft so"). An identity that is
+    /// in the band in most windows is a persistent fixture. One that appears once is a passing effect.
+    /// That ranking is stable across sessions in a way a pixel position never is, and it is what the
+    /// next reader should match on.</para>
+    /// </summary>
+    private static void AppendRecurrence(StringBuilder sb, List<Candidate> ranked)
+    {
+        bool anyBand = false;
+        for (int i = 0; i < ranked.Count; i++)
+        {
+            Candidate c = ranked[i];
+            if (!c.InBand || c.R == null)
+                continue;
+            anyBand = true;
+            string id = IdentityOf(c);
+            if (BandRecurrence.TryGetValue(id, out int n))
+                BandRecurrence[id] = n + 1;
+            else if (BandRecurrence.Count < 256)
+                BandRecurrence[id] = 1;
+        }
+        if (anyBand)
+            _windowsWithBand++;
+        if (BandRecurrence.Count == 0)
+            return;
+
+        // Top identities by window count. The dictionary is capped at 256, so this sort is bounded.
+        var ids = new List<KeyValuePair<string, int>>(BandRecurrence);
+        ids.Sort(static (a, b) => b.Value.CompareTo(a.Value));
+        int show = Mathf.Min(14, ids.Count);
+        sb.Append(" | BAND IDENTITIES BY RECURRENCE over ").Append(_windowsWithBand)
+          .Append(" sampled window(s) in this scene — a stable identity survives a change of session "
+                  + "and viewpoint, which the screen coordinates from the photographs do not, so THIS "
+                  + "is the field to match on across logs. A fixture the player walks past repeatedly "
+                  + "recurs; a passing effect does not:");
+        for (int i = 0; i < show; i++)
+        {
+            sb.Append(" [").Append(ids[i].Value).Append('/').Append(_windowsWithBand).Append("] ")
+              .Append(ids[i].Key);
+        }
+        if (ids.Count > show)
+            sb.Append(" (+").Append(ids.Count - show).Append(" more identities)");
+    }
+
+    /// <summary>Shader + material + object name: the triple that names the same asset in any session.</summary>
+    private static string IdentityOf(Candidate c)
+    {
+        string sh = c.Sh != null ? SafeName(c.Sh) : "?";
+        string mat = c.Mat != null ? SafeName(c.Mat) : "?";
+        string obj = c.R != null ? c.R.name : "?";
+        return sh + "|" + mat + "|" + obj;
+    }
+
+    // ==========================================================================================
     //  the verdict — derived ONLY from cards that could actually be the subject
     // ==========================================================================================
 
@@ -1058,8 +1160,9 @@ internal static partial class GlowCardCensus
           .Append("px; ").Append(inBand).Append(" are IN THE SUBJECT BAND (submitted flat quads of ")
           .Append(SubjectMinPx.ToString("F0")).Append('-').Append(SubjectMaxPx.ToString("F0"))
           .Append("px — the class the photograph shows), ").Append(deferredOnly)
-          .Append(" of the eligible cards have a DEFERRED PASS AND NO FORWARD-DRAWABLE PASS (those "
-                  + "cannot be drawn as authored by this forward head camera and ARE the mechanism), ")
+          .Append(" of the eligible cards have a DEFERRED PASS AND NO FORWARD-DRAWABLE PASS — a "
+                  + "mechanism ModBuild 254 measured at ZERO and which is therefore CLOSED, kept here "
+                  + "only so a future scene that does contain one is not missed, ")
           .Append(plates).Append(" of them are flat QUADS (the shape in the photo), ")
           .Append(vrOnly).Append(" are on a layer the flat game never draws, ").Append(additive)
           .Append(" declare _DstBlend=One (ADDITIVE — an alpha write can never dim those, whatever is "
@@ -1080,12 +1183,25 @@ internal static partial class GlowCardCensus
                       + "else, which matches 'ich kann mich nicht erinnern, dass es flat sowas gab' "
                       + "exactly, and the remedy for that class is a culling mask, not a shader");
         }
+        else if (inBand > 0)
+        {
+            sb.Append("No card is VR-only, so masking is NOT the explanation, and no card is "
+                      + "deferred-only, so the rendering path is not either. THE BAND ABOVE IS THE "
+                      + "SHORTLIST: submitted flat cards of the photographed size that do not take "
+                      + "their brightness from the room's lights. Match on the BAND IDENTITIES BY "
+                      + "RECURRENCE list rather than on a screen coordinate — the coordinates in the "
+                      + "photographs are from other sessions and other viewpoints and cannot match a "
+                      + "log taken from somewhere else. The identity that recurs in most windows AND "
+                      + "sits on the gate is the subject; its props, keywords, tags and textures are "
+                      + "already printed above");
+        }
         else if (plates > 0)
         {
-            sb.Append("No card is VR-only, so masking is NOT the explanation. Compare the screen rects "
-                      + "of the flat quads above against the rectangles in schwebende_lichter.jpg — "
-                      + "the one whose rect lands on a rectangle IS the subject, and its props, "
-                      + "keywords, tags and pass list are the next thing to read");
+            sb.Append("Flat quads of the right size are present but NONE of them is self-lit or "
+                      + "transparent, so the band is empty. If the rectangles were on screen in this "
+                      + "window, the subject is a LIT, OPAQUE material after all and the self-lit "
+                      + "requirement is too tight — that is the thing to loosen next, and this "
+                      + "sentence is what says so");
         }
         else
         {

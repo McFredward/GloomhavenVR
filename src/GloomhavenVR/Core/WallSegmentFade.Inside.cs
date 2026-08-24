@@ -40,9 +40,12 @@ namespace GloomhavenVR.Core;
 /// what the user asked for in his own words — <i>"Es sollte anhand der verdeckten Boden-tiles des
 /// jeweiligen Raumes berechnet werden, oder?"</i> — and what the subsystem was always designed to
 /// do. The narrow case the stand-down existed to protect (his head genuinely inside masonry) is
-/// already handled PER WALL by <see cref="FadeDriver.HeadInsideWallMesh"/> feeding
-/// <c>BlockedFraction</c>'s hard <c>1f</c>: it dissolves the one wall he is standing in and
-/// touches no other. A global rule was never needed for it.</para>
+/// already handled PER WALL by the ordinary ray test: a ray whose origin is inside a piece's
+/// bounds intersects it at distance 0, so a wall the head is buried in blocks exactly the
+/// samples it really covers and dissolves on its own coverage. ModBuild 255 deleted the hard
+/// <c>1f</c> shortcut that used to assert this instead of measuring it —
+/// <see cref="FadeDriver.HeadInsideWallMesh"/> survives only as the observation printed on the
+/// PER-WALL line. A global rule was never needed for any of it.</para>
 ///
 /// <para>THE STANDING RULE FOR ANYONE READING THIS LATER: this subsystem may not acquire a
 /// scene-wide fade switch. If a future symptom seems to want one, it is a per-wall measurement
@@ -144,9 +147,10 @@ internal static partial class WallSegmentFade
         private float _nextPerWallLogTime;
 
         // --- R1 ANIMATION-PATH CENSUS ------------------------------------------------------
-        /// <summary>Fades in flight this pass that ran the CONTINUOUS occluded-map gradient
-        /// sweep, and the count that had to fall back on the two-texture path whose branches do
-        /// not meet at Fade == 1 (LOW / mixed shader variants).</summary>
+        /// <summary>Wall renderers mid-DISSOLVE on the noise map — the only path that produces
+        /// intermediate pixels — versus those sitting in the HELD state on the occluded map,
+        /// where the noise term is multiplied by zero and the result is binary. The residual
+        /// discontinuity in the subsystem is the boundary between the two at Fade == 1.</summary>
         private int _animSmooth;
         private int _animStepped;
         private readonly List<string> _animSteppedNames = new();
@@ -162,12 +166,37 @@ internal static partial class WallSegmentFade
         private int _folNative, _folSwapped, _folOwnChannel, _folNoChannel;
         private readonly List<string> _folNoChannelNames = new();
 
+        // --- R1 STEP CENSUS: discontinuities BOLTED ONTO the ramp ---------------------------
+        /// <summary>
+        /// WHY A SECOND ANIMATION INSTRUMENT. The ANIMATION line measures the SLOPE — it proves
+        /// every fade in flight is moving through intermediate values. It cannot see a step
+        /// applied on the ramp's first or last frame, and in ModBuild 254 it read
+        /// "every foliage piece in flight is animated, not switched" while the user was watching
+        /// walls pop. A symmetric ramp cannot produce an asymmetric artifact, so the pop had to
+        /// be an EDGE, and no instrument could see edges. These count them, by which end of the
+        /// transition they land on.
+        ///
+        /// <para>OUT-EDGE events happen as the fade leaves 0 — while the wall still looks solid,
+        /// so anything applied here is maximally visible. IN-EDGE events happen as it reaches 0,
+        /// when the wall is already solid and nobody can see them. A build where OUT is non-zero
+        /// and IN is non-zero for the same cause is the asymmetry the user reported.</para>
+        /// </summary>
+        private int _stepOutBlockInstalled, _stepInBlockCleared;
+        private int _stepOutSwapInstalled, _stepInSwapRemoved;
+        private readonly List<string> _stepOutNames = new();
+
         // --- R2 NUMERATOR ADMISSION CENSUS -------------------------------------------------
         /// <summary>Per wall: how many of its pieces the standing test admitted to the occlusion
         /// numerator and how many it excluded as ground dressing, with the widest excluded piece
         /// named. This is what settles "which renderer inflated Wall 2" without another round.
         /// </summary>
         private readonly List<string> _admitNames = new();
+        /// <summary>Which wall's masonry currently contains the head, if any — an observation
+        /// since ModBuild 255, when the hard-1f shortcut it used to feed was deleted.</summary>
+        private string _headInMasonryWall = "-";
+        /// <summary>Head position of the pass being censused, so the observation above is taken
+        /// against the same pose the verdicts were.</summary>
+        private Vector3 _lastHeadPos;
 
         /// <summary>
         /// COMMIT PHASE 24 — see <c>RescanCore</c>. Rebuild the cached board volume. Deliberately
@@ -394,6 +423,76 @@ internal static partial class WallSegmentFade
             _folNoChannel = 0;
             _folNoChannelNames.Clear();
             _admitNames.Clear();
+            // NB: the STEP counters are deliberately NOT reset here. An edge is a rare event —
+            // seven fade-ON events in the whole ModBuild 254 session — and this census resets
+            // every frame while the falsifier prints every two seconds, so per-frame counters
+            // would miss essentially every step that ever happened. They are SESSION totals;
+            // only the freshest names are rotated, so the line always carries the history.
+            _headInMasonryWall = "-";
+        }
+
+        /// <summary>Record a discontinuity applied to a wall's own renderers at one END of the
+        /// ramp: our property block going on (fade leaving 0) or coming off (fade reaching 0).
+        /// The block asserts ToggleWallFade / _ToggleWallfade / _WallFade_On in one frame, so if
+        /// opening that branch changes how the material shades, this is where it shows.</summary>
+        private void NoteBlockEdge(Segment seg, bool installed)
+        {
+            if (installed)
+            {
+                _stepOutBlockInstalled++;
+                if (_stepOutNames.Count >= PerWallNameCap)
+                    _stepOutNames.RemoveAt(0); // keep the freshest, never grow unbounded
+                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                _stepOutNames.Add($"'{wall}' block installed at fade {seg.Fade:F3}");
+            }
+            else
+            {
+                _stepInBlockCleared++;
+            }
+        }
+
+        /// <summary>Record a MATERIAL SWAP taking effect or being undone. A swap replaces the
+        /// piece's shader outright, so it is the largest possible single-frame change and the
+        /// prime suspect whenever a transition reads as a pop in one direction only.</summary>
+        private void NoteSwapEdge(Segment seg, MountedProp p, bool installed)
+        {
+            if (installed)
+            {
+                _stepOutSwapInstalled++;
+                if (_stepOutNames.Count >= PerWallNameCap)
+                    _stepOutNames.RemoveAt(0);
+                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                string piece = p.Renderer != null ? p.Renderer.name : "<dead>";
+                _stepOutNames.Add($"'{piece}' on '{wall}' SWAPPED to the masonry fade shader "
+                    + $"at fade {seg.Fade:F3}");
+            }
+            else
+            {
+                _stepInSwapRemoved++;
+            }
+        }
+
+        /// <summary>
+        /// R1 FALSIFIER, THE HALF THAT SEES EDGES. Silent when no step happened, so the line's
+        /// presence is itself the finding.
+        /// </summary>
+        private void LogStepEdges()
+        {
+            int outs = _stepOutBlockInstalled + _stepOutSwapInstalled;
+            int ins = _stepInBlockCleared + _stepInSwapRemoved;
+            if (outs == 0 && ins == 0)
+                return;
+            VRLog.Info(Name,
+                $"STEP (session totals): {outs} discontinuit(y/ies) applied at the START of a fade-OUT "
+                + $"({_stepOutBlockInstalled} property block installed, {_stepOutSwapInstalled} "
+                + $"material swap) and {ins} at the END of a fade-IN ({_stepInBlockCleared} block "
+                + $"cleared, {_stepInSwapRemoved} swap removed). A step at the START of a "
+                + "fade-out is visible on solid geometry and is what reads as a POP; the same "
+                + "step at the end of a fade-in lands on already-solid geometry and is invisible "
+                + "— that asymmetry, not the ramp, is what the 2026-08-24 video shows."
+                + (_stepOutNames.Count > 0
+                    ? " Most recent out-edges: " + string.Join(", ", _stepOutNames) + "."
+                    : " No out-edge has been recorded yet this session."));
         }
 
         /// <summary>
@@ -450,8 +549,8 @@ internal static partial class WallSegmentFade
             if (admitted == 0 && excluded == 0)
                 return;
             string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
-            _admitNames.Add($"'{wall}' {admitted} admitted / {excluded} excluded"
-                + (excluded > 0 ? $", widest excluded '{widestName}' {widestExcluded:F1} wu" : ""));
+            _admitNames.Add($"'{wall}' {admitted + excluded} piece(s), {excluded} FLAT"
+                + (excluded > 0 ? $", widest flat '{widestName}' {widestExcluded:F1} wu" : ""));
         }
 
         private static void CountAdmission(List<MeshRenderer> list, ref int admitted,
@@ -510,6 +609,16 @@ internal static partial class WallSegmentFade
                     + (seg.State ? "FADED" : "solid"));
             }
             NoteAdmission(seg);
+            // Kept as an OBSERVATION after ModBuild 255 deleted the hard-1f shortcut it used to
+            // feed. "Is his head actually in the masonry" is still the right question to be able
+            // to answer when a wall dissolves unexpectedly — it just may not override a
+            // measurement any more.
+            if (_headInMasonryWall == "-" && seg.Bounds.Contains(_lastHeadPos)
+                && HeadInsideWallMesh(seg, _lastHeadPos, out string hitMesh))
+            {
+                string w = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                _headInMasonryWall = $"'{w}' (mesh '{hitMesh}')";
+            }
         }
 
         /// <summary>Record where a wall's fade came from when it was not its own decision.</summary>
@@ -582,12 +691,19 @@ internal static partial class WallSegmentFade
                 + "unanimous — a session that never goes mixed is the defect reported on "
                 + "2026-08-24. Coverage spread this pass: widest "
                 + $"'{_pwMaxWall}' {_pwMaxSmooth:F2}, narrowest '{_pwMinWall}' {minSmooth:F2}, "
-                + $"bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}. Not its own decision: "
+                + $"bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}. Head inside masonry: "
+                + $"{_headInMasonryWall} — an OBSERVATION; since ModBuild 255 this no longer "
+                + "forces any wall's coverage to 1.00, the ray test measures what such a wall "
+                + "actually covers. Not its own decision: "
                 + $"{_pwPeerDriven} peer-driven, {_pwGateDriven} gate-lifted. Per wall: "
                 + string.Join(" | ", _pwNames)
                 + (_pwTotal > _pwNames.Count ? $" | +{_pwTotal - _pwNames.Count} more" : "")
-                + ". Numerator admission (standing pieces that can hide floor vs ground dressing "
-                + "that only rides the fade): " + string.Join(" | ", _admitNames) + ".");
+                + ". Shape census — EVERY piece below is in the numerator (the standing-ratio "
+                + "gate was retired in ModBuild 255: StripGroundRenderers already removes "
+                + "anything topping out within 1.0 wu of the floor, and the ratio only ever "
+                + "excluded real capstones). 'flat' here is a WARNING, not an exclusion: it "
+                + "means something under 0.5 height-per-width survived the ground strip and can "
+                + "claim samples through Contains(): " + string.Join(" | ", _admitNames) + ".");
         }
 
         /// <summary>
@@ -614,15 +730,19 @@ internal static partial class WallSegmentFade
                 return;
             VRLog.Info(Name,
                 $"ANIMATION: {_animSmooth + _animStepped} wall renderer fade(s) in flight this "
-                + $"frame — {_animSmooth} on the CONTINUOUS occluded-map gradient sweep (solid → "
-                + "held look in one unbroken cutoff ramp, no texture swap, no step at either end)"
-                + (_animStepped == 0
-                    ? " and 0 on the stepped two-texture path"
-                    : $", {_animStepped} still on the STEPPED two-texture path — these pop their "
-                      + "foundation band at the Fade==1 boundary and need a shader change: "
-                      + string.Join(", ", _animSteppedNames)
-                      + (_animStepped > _animSteppedNames.Count
-                          ? $", +{_animStepped - _animSteppedNames.Count} more" : ""))
+                + $"frame — {_animSmooth} mid-DISSOLVE on the noise map (the only path that "
+                + "yields intermediate pixels: m = 1-r varies per texel, so a rising cutoff "
+                + $"retires the wall progressively), {_animStepped} sitting in the HELD state on "
+                + "the occluded map, where the noise is multiplied by ZERO and the picture is "
+                + "binary in the shader's world-Y term. The residual discontinuity is the "
+                + "boundary between those two, at Fade==1: the foundation band winks as the map "
+                + "swaps. ModBuild 252 tried to remove it by running the whole ramp on the "
+                + "occluded map and made the ENTIRE wall binary instead — reverted in 255, "
+                + "falsified by frame-by-frame video (single 33 ms step, zero intermediate "
+                + "frames, in BOTH directions)"
+                + (_animStepped > 0 && _animSteppedNames.Count > 0
+                    ? ": " + string.Join(", ", _animSteppedNames)
+                    : "")
                 // THE HALF THE ModBuild 253 LINE DID NOT COUNT. It reported only the numbers
                 // above, said "every transition in flight is animated end to end", and was
                 // believed — while the largest population in the scene was measured by nobody.
@@ -630,10 +750,12 @@ internal static partial class WallSegmentFade
                 + $"own native ramp, {_folSwapped} on swapped masonry-fade copies, "
                 + $"{_folOwnChannel} on their own alpha/cutoff/particle channel, "
                 + (_folNoChannel == 0
-                    ? "and 0 with NO dissolve channel at all: every foliage piece in flight is "
-                      + "animated, not switched."
-                    : $"and {_folNoChannel} with NO CHANNEL AT ALL — these cannot dissolve, they "
-                      + "can only switch off, and they are the pop: "
+                    ? "and 0 on the STAGGERED path."
+                    : $"and {_folNoChannel} on the STAGGERED path — no material channel of their "
+                      + "own, so each switches off at its own stable point of the ramp instead "
+                      + "of being material-swapped (ModBuild 255: the swap was the pop). A high "
+                      + "count here is EXPECTED and not a fault; what would be a fault is a "
+                      + "non-zero swap count on the STEP line. Sample: "
                       + string.Join(", ", _folNoChannelNames)
                       + (_folNoChannel > _folNoChannelNames.Count
                           ? $", +{_folNoChannel - _folNoChannelNames.Count} more" : "")));

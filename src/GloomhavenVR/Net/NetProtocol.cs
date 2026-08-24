@@ -416,7 +416,128 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 254;
+    public const ushort ModBuild = 255;
+    // Build 255: THE FADE WAS NEVER A FADE, AND ModBuild 252 IS WHY.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // USER, with wände_probleme.mp4: "Das ausblenden der Wände [kommt] eher einem 'Ploppen' nahe,
+    // das einblenden hingegen ist eine Animation sichtbar. Bei den Wänden scheint immerhin gut zu
+    // funktionieren wann es ein und ausblendet. Wie du siehst bei den anderen Wänden sind sie
+    // wieder dauerhaft ausgeblendet obwohl sie es nicht müssten."
+    //
+    // (1) THERE IS NO FADE IN EITHER DIRECTION, AND THE ASYMMETRY HE REPORTED IS NOT REAL.
+    //   916 frames of that video were walked at 30 fps with per-frame phase-correlation camera
+    //   shift, so panning could be separated from events. Both transitions are SINGLE-FRAME
+    //   33 ms steps: pop-OUT #148→#149 (t 4.900→4.933), patch means 34.61/30.01/28.41 →
+    //   24.25/25.13/19.48, flat on both sides; pop-IN #349→#350 (t 11.600→11.633) with the
+    //   camera shift measured at exactly (0,0), 26.29/22.60/21.99 → 42.62/36.40/31.73. A 0.35 s
+    //   ramp would leave about ten intermediate frames. There are ZERO.
+    //   THE STRETCH THAT LOOKS LIKE AN ANIMATION IS MOTION BLUR. t 23.30-23.63 reads as a clean
+    //   eight-frame dissolve and is a fast head turn: shift 5-8 px/frame, characters visibly
+    //   smeared, the pilaster sharp throughout, with a god-ray sweeping across. The lane found
+    //   that trap and falsified its own first reading of it. Any diagnosis resting on that
+    //   stretch rests on motion blur — including, in good faith, his.
+    //   THE CAUSE IS MY OWN ModBuild 252 CHANGE. I replaced the noise-map dissolve with a
+    //   _Cutoff sweep against the OCCLUDED map, arguing the HIGH shader's world-Y term is a
+    //   gradient. That ignored a clause three lines below it in the same file: with M = 0 the
+    //   shader multiplies THE NOISE BY ZERO. Remove the noise and the cutoff has no per-pixel
+    //   variation left to sweep against — clip = -c across the whole upper wall, solid while
+    //   c < 0 and gone the instant c > 0, which under Lerp(-0.05, 0.50, Fade) happens at
+    //   Fade ≈ 0.09, one frame in. IT WAS NEVER A GRADIENT SWEEP; IT WAS A ONE-FRAME SWITCH
+    //   WEARING A RAMP'S CLOTHES, and the ANIMATION line I shipped to prove the ramp was smooth
+    //   dutifully reported it as smooth. Reverted: the noise path is restored for every variant.
+    //   The residual is the Fade == 1 map swap — a band at the wall's base, pre-252 behaviour
+    //   that drew no complaint for many builds — and the ANIMATION line now reports it AS a
+    //   residual instead of claiming it away.
+    //
+    // (2) THE PERMANENTLY FADED WALLS: A HARD 1f THAT OVERRODE THE MEASUREMENT.
+    //   BlockedFraction returned a flat 1f — "this wall hides the ENTIRE room" — whenever the
+    //   head sat inside ONE wall renderer's AABB, and reported the room's TOTAL as visible while
+    //   doing it. That is the `blk 16/16 v16` printed next to a frustum reading of `vis 12/16`,
+    //   and 'Wall 2' sat at raw 1.00 in 44 of its diag samples this session with every one of
+    //   them coming from there rather than from any measurement of what the wall covers. Its
+    //   fade ledger tells the rest: fade ON 1, fade OFF 0, ema pinned at 1.00 against a 0.10
+    //   exit bar — it faded once and could never mathematically return. 'Wall 4' the same.
+    //   DELETED, and nothing is lost: Bounds.IntersectRay returns true for a ray whose origin is
+    //   INSIDE the box, at distance 0, so a head buried in a tree trunk's AABB now costs that
+    //   wall the samples the trunk actually covers instead of all of them. The escape hatch it
+    //   was protecting is the ray test itself. HeadInsideWallMesh survives as the honest
+    //   "sealed in masonry" predicate; it simply no longer overrides a measurement with an
+    //   assertion.
+    //
+    // (3) MY LEAD FOR THIS ROUND WAS WRONG, AND ITS REFUTATION IS WORTH MORE THAN IT WAS.
+    //   I handed the lane floor-hex renderers out of the GLOW CARDS census — 'Walls/Wall 1/
+    //   Generated Content/PCG_FR_Floor_Grass_Hex_Half_PR/…', s(1.779,0.357,1.997), standing
+    //   ratio 0.20 — as the geometry inflating the numerator, and asked why the standing test
+    //   was not excluding them. It was not excluding them because they are not there: ZERO
+    //   FR_Floor_* pieces are attributed to any wall segment anywhere in the log. Flat floor
+    //   plates are stripped at the 1.0 wu airborne bar long before any occlusion test. They
+    //   appear in the census only because it walks the HIERARCHY, and a wall run's Generated
+    //   Content is where the tileset parents them. `0 excluded` was a correct reading of a
+    //   working filter, and I read a hierarchy path as a membership claim. The standing gate's
+    //   only real effect was excluding capstones, so it is retired with the finding recorded.
+    //
+    // (4) THE 252 MATERIAL SWAP IS STILL REMOVED, BUT NOT FOR THE REASON I GAVE. My "the swap
+    //   is the pop, and that is why it is asymmetric" story has no support: the asymmetry does
+    //   not exist. Handing 345 alpha-cutout leaf materials a masonry shader is wrong on its own
+    //   terms and it is gone, but it was not the observed defect and should not have led.
+    //   VEGETATION NEVER POPS ANYWHERE IN THE 30 s — only masonry changes — and the walls that
+    //   transitioned on camera carry `+0 foliage`, so the video could not observe wall-foliage
+    //   behaviour at all. The foliage changes from 254 and this round are PRINCIPLED BUT
+    //   UNCONFIRMED, and the FOLIAGE/STEP census is what settles them, not another argument.
+    //
+    // FALSIFIERS. `STEP (session totals)` counts discontinuities by WHICH END of the ramp they
+    // land on, session-cumulative — the lane caught its own bug there, per-frame counters
+    // against a 2 s log cadence would have missed all twelve transitions in the session.
+    // `ANIMATION` names the dissolve/held split honestly instead of asserting smoothness.
+    // `PER-WALL` carries the shape census and the head-in-masonry observation.
+    // PREDICTIONS FOR THE NEXT LOG, so this can be wrong out loud: 'Wall 2' un-fades and its ema
+    // tracks real coverage; `STEP` shows zero swap out-edges; `ANIMATION` shows walls mid-dissolve
+    // ON THE NOISE MAP.
+    //
+    // THE GATE RECTANGLES, ROUND FOUR — SECOND HYPOTHESIS DEAD, INSTRUMENT SHARPENED AGAIN.
+    // `0 of the eligible cards have a DEFERRED PASS AND NO FORWARD-DRAWABLE PASS` — zero of 160.
+    // The forward-vs-deferred fallback is closed as an explanation and the line now says so in
+    // its own text ("CLOSED BY MEASUREMENT … do not re-litigate"). The dead hypothesis became the
+    // new instrument: the same pass-tag walk now answers the OPPOSITE question — does this card
+    // have ANY lighting pass — which is the filter that clears the census of floor. ModBuild
+    // 254's band came back 160 of 160 and every one of them was ground: a floor hex is a flat
+    // quad of about the right size, so shape and size alone cannot separate it from the subject.
+    // The band now also requires that a card NOT OWE ITS BRIGHTNESS TO THE ROOM'S LIGHTS — no
+    // lighting pass at all, or a live emission above 0.05, or queue >= 2450 — and prints the
+    // count the requirement removed beside the count it kept. Two quotas (96 band / 64 general)
+    // make "the band ate the whole census" impossible by construction, which also protects the
+    // wall lane, which is reading this line for geometry. Registration moved to EndRenderer so a
+    // candidate is scored ONCE with its queue and lighting passes already known — the old shape
+    // could evict a card under a score computed before the facts that decide its class were read.
+    // MY OWN GUIDANCE WAS WRONG ON THE MECHANISM AND FOLLOWING IT LITERALLY WOULD HAVE RE-BROKEN
+    // THE CENSUS: I wrote that a card bright at night is "not opaque geometry at queue 1900", but
+    // UNLIT + OPAQUE = full albedo = pale in a dark room AT ANY QUEUE, and that is the leading
+    // remaining mechanism. Requiring a transparent queue would have dropped exactly the subject.
+    // The discriminator that works is "takes no scene lighting", which is queue-independent. My
+    // other phrasing — "unlit or VFX shader family" — would have been a guessed name list, the
+    // ModBuild 251 mistake again; what made this safe is that lit/unlit is READABLE FROM THE PASS
+    // TAGS, which the 254 log had already printed.
+    // THE VIDEO GAVE A SECOND, INDEPENDENT SIZE ESTIMATE: at t 13.5 s the gate is front-on and
+    // there are THREE rectangles, one per pier, evenly spaced at the same world height, with a
+    // candle two metres away rendering warm and soft and correct in the same frame. At 8x the
+    // left one is ~10x20 px of 1280x720, i.e. ~30x60 of a 3840x2160 frame. That lands inside the
+    // 24-250 band, so THE BAND'S BOUNDS WERE RIGHT AND ITS MEMBERSHIP TEST WAS WRONG — this round
+    // changes one thing, not two. Identification now ranks by RECURRENCE ACROSS WINDOWS
+    // (shader|material|object), because the gate is fixed architecture he walks past repeatedly
+    // and "das ist dauerhaft so", while a passing effect appears once; the three coordinates I
+    // have come from three DIFFERENT sessions and no log has ever been from any of them, so
+    // coordinate matching could never have worked. And the escape hatch is explicit: if the band
+    // comes back EMPTY with the gate on screen, the subject is a lit opaque material after all
+    // and the self-lit requirement is what to loosen — the verdict says that sentence itself
+    // rather than letting silence pass for a result.
+    // Also now named, after two rounds of "the second buffer is unknown": the ScenarioCamera's
+    // command buffers are 'Tile Occlusion Map Generation' at BeforeGBuffer and 'Outline' at
+    // BeforeImageEffects. The head camera carries ZERO, so the Outline pass genuinely does not
+    // run in VR. It draws character outlines, not pale rectangles, so it is not the subject —
+    // but it is a real flat-vs-VR difference that somebody would otherwise rediscover.
+    //
     // Build 254: HE ASKED WHETHER THE GROUND AREAS PLAY A ROLE. THEY DO, AND IT WAS MY RULE.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

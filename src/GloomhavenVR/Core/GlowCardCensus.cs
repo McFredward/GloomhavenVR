@@ -158,6 +158,54 @@ internal static partial class GlowCardCensus
         /// <summary>Layer is rendered by the head camera and NOT by the game's ScenarioCamera —
         /// i.e. this renderer exists on the flat screen but is never drawn there.</summary>
         VrOnly = 16,
+        /// <summary>The shader declares no lighting pass at all: this surface does not take scene
+        /// lighting. See <see cref="IsUnlitShader"/>.</summary>
+        Unlit = 32,
+        /// <summary>The material carries a non-black emission colour. See <see cref="IsEmissive"/>.</summary>
+        Emissive = 64,
+    }
+
+    /// <summary>LightMode tag values that mean "the engine's lighting loop draws this pass". A shader
+    /// with none of them takes no scene lighting. Read off the game's own shaders in the ModBuild 254
+    /// hardware log, where every floor and masonry material printed
+    /// <c>sub0{FORWARDBASE,FORWARDADD,DEFERRED}</c>.</summary>
+    private static readonly string[] LitModes =
+    {
+        "ForwardBase", "ForwardAdd", "Deferred", "PrepassBase", "PrepassFinal",
+        "Vertex", "VertexLM", "VertexLMRGBM"
+    };
+
+    private static readonly UnityEngine.Rendering.ShaderTagId LitModeTag = new("LightMode");
+
+    /// <summary>Emission-ish colour properties, probed by name. Unity exposes no generic "is this
+    /// emissive" query, and the game's Amplify kit does not use Unity's <c>_EmissionColor</c>
+    /// exclusively.</summary>
+    private static readonly int[] EmissionProps = BuildIds(new[]
+    {
+        "_EmissionColor", "_Emission", "_EmissiveColor", "_EmissiveColour",
+        "_GlowColor", "_Glow", "_SelfIllum", "_SelfIllumColor"
+    });
+
+    /// <summary>Brightest channel an emission colour must exceed to count. Low enough to catch a dim
+    /// authored glow, high enough that a lit shader's zeroed emission slot does not vote.</summary>
+    private const float EmissionFloor = 0.05f;
+
+    /// <summary>Pool slots reserved for the subject band, and for everything else. See <see cref="Insert"/>.</summary>
+    private const int BandQuota = 96;
+
+    private const int GeneralQuota = MaxCandidates - BandQuota;
+
+    /// <summary>Per-shader facts, computed once per distinct Shader object and cached by instance id.</summary>
+    private readonly struct ShaderFacts
+    {
+        public ShaderFacts(bool glow, bool unlit)
+        {
+            Glow = glow;
+            Unlit = unlit;
+        }
+
+        public readonly bool Glow;
+        public readonly bool Unlit;
     }
 
     /// <summary>Shader-name fragments that mark a light/glow/decal card, matched case-insensitively.
@@ -238,18 +286,50 @@ internal static partial class GlowCardCensus
                              * ((Marks & Mark.Plate) != 0 ? 3f : 1f)
                              * (Submitted ? 1f : 0.05f));
 
-        /// <summary>In the subject band: the shape, the size and the visibility of the rectangles in
-        /// schwebende_lichter.jpg / Wandproblem.jpg.</summary>
+        public int Queue = -1;
+
+        /// <summary>The shader takes no scene lighting (<see cref="IsUnlitShader"/>).</summary>
+        public bool Unlit;
+
+        /// <summary>The material carries a live emission colour (<see cref="IsEmissive"/>).</summary>
+        public bool Emissive;
+
+        /// <summary>Does not depend on the room's lights for its brightness — either because nothing
+        /// lights it or because it lights itself.</summary>
+        public bool SelfLit => Unlit || Emissive;
+
+        /// <summary>Alpha-test or later. Deliberately 2450 and not 2900 here: the question this term
+        /// answers is "could this be drawn as a card rather than as ground", and cutout counts.</summary>
+        public bool Transparent => Queue >= 2450;
+
+        /// <summary>
+        /// In the subject band. THIS IS THE TEST ModBuild 254 GOT WRONG and the correction is the whole
+        /// point of this round: 254 required only SHAPE AND SIZE, and 160 of 160 eligible cards came
+        /// back as ordinary lit floor geometry — <c>FR_Floor_Grass_Half_01</c>, <c>FR_Floor_Grass_BAY</c>,
+        /// <c>FR_Floor_Scatter_Grass_Small_01</c> — because a floor hex IS a flat quad of about the
+        /// right size. Ranking by shape repeated ModBuild 253's ranking-by-size failure one level down.
+        ///
+        /// <para>So membership now also requires the property the subject must have and a floor cannot:
+        /// it must not owe its brightness to the room's lights. The photographs are the argument — the
+        /// rectangles are pale and bright in a night scene where the masonry they sit on is nearly
+        /// black and a candle two metres away renders warm and soft. A lit, opaque, queue-1900
+        /// <c>_GROUND</c> material cannot do that. Either the shader has no lighting pass, or the
+        /// material carries emission, or it draws in a transparent queue.</para>
+        ///
+        /// <para>And the shape term stays, but transparency can substitute for it: a particle card's
+        /// bounds are the EMITTER volume, not the quad, so a genuine VFX card can fail the plate test
+        /// through no fault of its own.</para>
+        /// </summary>
         public bool InBand => Submitted
-                              && (Marks & Mark.Plate) != 0
                               && Span >= SubjectMinPx
-                              && Span <= SubjectMaxPx;
+                              && Span <= SubjectMaxPx
+                              && (SelfLit || Transparent)
+                              && ((Marks & Mark.Plate) != 0 || Transparent);
     }
 
     private static readonly List<Candidate> Pool = new(MaxCandidates);
     private static readonly Stack<Candidate> Spare = new(MaxCandidates);
-    private static readonly Dictionary<int, bool> ShaderInterest = new(64);
-    private static readonly HashSet<int> SeenRenderers = new(MaxCandidates * 2);
+    private static readonly Dictionary<int, ShaderFacts> ShaderFactsCache = new(64);
     private static readonly List<string> Scratch = new(8);
     private static MaterialPropertyBlock? _blockScratch;
 
@@ -262,6 +342,11 @@ internal static partial class GlowCardCensus
     // ---- per-renderer latch, set by OfferRenderer and consumed by Offer -----------------------
     private static int _curRendererId;
     private static bool _curIsModLayer;
+    private static Material? _curMat;
+    private static Shader? _curSh;
+    private static int _curQueue = -1;
+    private static bool _curSlotUnlit;
+    private static int _curSlotRank = -1;
     private static Mark _curMarks;
     private static float _curSpan;
     private static Bounds _curBounds;
@@ -289,7 +374,17 @@ internal static partial class GlowCardCensus
     private static int _matched;
     private static int _dropped;
     private static float _droppedMaxSpan;
-    private static float _poolMinScore;
+    private static float _bandMin;
+    private static float _genMin;
+    private static int _bandCount;
+    private static int _genCount;
+
+    /// <summary>Candidates that were the right SHAPE AND SIZE for the band. The difference between
+    /// this and the number actually in the band is what the self-lit requirement removed, and it is
+    /// printed: a filter nobody can see the effect of is a filter nobody can check.</summary>
+    private static int _bandShaped;
+    private static int _bandSeen;
+    private static int _distinctUnlitShaders;
     private static int _distinctGlowShaders;
     private static double _costMs;
 
@@ -355,6 +450,8 @@ internal static partial class GlowCardCensus
                 _bestSampleScore = 0f;
                 _bestSampleAt = -1f;
                 _bestSampleScene = string.Empty;
+                BandRecurrence.Clear();
+                _windowsWithBand = 0;
             }
         }
         catch (Exception)
@@ -451,20 +548,23 @@ internal static partial class GlowCardCensus
         // ScenarioCamera does not render, which lights up four marks at once and scores x8 for being
         // "VR-only". They are VR-only by construction and they are not what the user photographed.
         // The subject is GAME geometry, so the pool holds game geometry.
-        _curIsModLayer = layer == VRLayers.ModLayer;
-        if (_curIsModLayer)
-        {
-            _curRendererId = r.GetInstanceID();
-            _curMarks = Mark.None;
-            _curSpan = 0f;
-            _modLayerSkipped++;
-            return;
-        }
         _curRendererId = r.GetInstanceID();
         _curMarks = Mark.None;
         _curSpan = 0f;
         _curSubmitted = submitted;
         _curBounds = default;
+        _curMat = null;
+        _curSh = null;
+        _curQueue = -1;
+        _curSlotUnlit = false;
+        _curSlotRank = -1;
+
+        _curIsModLayer = layer == VRLayers.ModLayer;
+        if (_curIsModLayer)
+        {
+            _modLayerSkipped++;
+            return;
+        }
 
         for (int i = 0; i < MarkedLayers.Length; i++)
         {
@@ -506,9 +606,6 @@ internal static partial class GlowCardCensus
         {
             // A renderer without usable bounds still gets its layer marks.
         }
-
-        if (_curMarks != Mark.None)
-            Register(r, null, null, _curMarks);
     }
 
     /// <summary>
@@ -528,118 +625,168 @@ internal static partial class GlowCardCensus
         _slotsOffered++;
 
         int shaderId = sh.GetInstanceID();
-        if (!ShaderInterest.TryGetValue(shaderId, out bool interesting))
+        if (!ShaderFactsCache.TryGetValue(shaderId, out ShaderFacts facts))
         {
-            interesting = IsGlowShader(sh);
-            ShaderInterest[shaderId] = interesting;
-            if (interesting)
+            facts = new ShaderFacts(IsGlowShader(sh), IsUnlitShader(sh));
+            ShaderFactsCache[shaderId] = facts;
+            if (facts.Glow)
                 _distinctGlowShaders++;
+            if (facts.Unlit)
+                _distinctUnlitShaders++;
         }
 
-        Mark marks = _curRendererId == r.GetInstanceID() ? _curMarks : Mark.None;
-        if (interesting)
-            marks |= Mark.Shader;
         int queue;
         try { queue = mat.renderQueue; }
         catch (Exception) { queue = -1; }
+        if (facts.Glow || queue >= 2900 || facts.Unlit)
+            _matched++;
+        if (facts.Glow)
+            _curMarks |= Mark.Shader;
         if (queue >= 2900)
-            marks |= Mark.Queue;
+            _curMarks |= Mark.Queue;
+        if (facts.Unlit)
+            _curMarks |= Mark.Unlit;
 
-        if (marks == Mark.None)
-            return;
-        _matched++;
-        Register(r, mat, sh, marks);
+        // Keep ONE representative slot per renderer, and make it the most diagnostic one rather than
+        // slot 0: a two-slot prop whose second material is the glowing card must not be described by
+        // its first, boring material.
+        int rank = (facts.Unlit ? 4 : 0) + (queue >= 2450 ? 2 : 0) + (facts.Glow ? 1 : 0);
+        if (_curMat == null || rank > _curSlotRank)
+        {
+            _curMat = mat;
+            _curSh = sh;
+            _curQueue = queue;
+            _curSlotUnlit = facts.Unlit;
+            _curSlotRank = rank;
+        }
     }
 
-    /// <summary>Pool one renderer, ONCE, keeping the pool at <see cref="MaxCandidates"/> by evicting
-    /// the LOWEST-scoring entry. A renderer already pooled by <see cref="OfferRenderer"/> has its
-    /// material and marks filled in here rather than being pooled twice.</summary>
-    private static void Register(Renderer r, Material? mat, Shader? sh, Mark marks)
+    /// <summary>
+    /// Close one renderer and pool it if anything marked it. Registration moved here in ModBuild 255
+    /// so that a candidate is only ever scored ONCE, with its material already known: the band test
+    /// below depends on the render queue and on whether the shader is lit, and neither is available
+    /// while the geometry pass is running. The previous shape registered on geometry and patched the
+    /// entry afterwards, which meant a card could be evicted under a score computed before the facts
+    /// that decide its class had been read.
+    /// </summary>
+    internal static void EndRenderer(Renderer r)
     {
-        int id = r.GetInstanceID();
-        if (!SeenRenderers.Add(id))
-        {
-            // Already pooled from the geometry pass: upgrade it with the material and merged marks.
-            for (int i = 0; i < Pool.Count; i++)
-            {
-                Candidate p = Pool[i];
-                if (p.R == null || p.R.GetInstanceID() != id)
-                    continue;
-                p.Marks |= marks;
-                if (p.Mat == null && mat != null)
-                {
-                    p.Mat = mat;
-                    p.Sh = sh;
-                }
-                // The upgrade changed this entry's Score, so the cached pool minimum the fast-reject
-                // below leans on is no longer valid. Recomputing 96 floats on the rare upgrade is
-                // cheaper than letting a stale minimum silently reject a candidate that outranks one
-                // already in the pool — which is the class of quiet sampling artefact this whole
-                // rewrite exists to remove.
-                if (Pool.Count >= MaxCandidates)
-                    RecomputePoolMin();
-                return;
-            }
+        if (!_armed || r == null || _curIsModLayer)
             return;
-        }
+        if (_curRendererId != r.GetInstanceID() || _curMarks == Mark.None)
+            return;
 
         Candidate c = Spare.Count > 0 ? Spare.Pop() : new Candidate();
         c.R = r;
-        c.Mat = mat;
-        c.Sh = sh;
-        c.Submitted = _curRendererId == id ? _curSubmitted : true;
-        c.Span = _curRendererId == id ? _curSpan : 0f;
-        c.Marks = marks;
-        c.B = _curRendererId == id ? _curBounds : default;
+        c.Mat = _curMat;
+        c.Sh = _curSh;
+        c.Queue = _curQueue;
+        c.Unlit = _curSlotUnlit;
+        c.Submitted = _curSubmitted;
+        c.Span = _curSpan;
+        c.Marks = _curMarks;
+        c.B = _curBounds;
+        c.Emissive = false;
 
-        if (Pool.Count < MaxCandidates)
+        // The emission probe is the only per-candidate material read here, and it is gated on the
+        // candidate already being the right shape and size — so it runs for a handful of renderers a
+        // window, never for the population.
+        bool rightShape = c.Submitted && c.Span >= SubjectMinPx && c.Span <= SubjectMaxPx
+                          && ((c.Marks & Mark.Plate) != 0 || c.Queue >= 2450);
+        if (rightShape)
+        {
+            _bandShaped++;
+            if (!c.Unlit)
+                c.Emissive = IsEmissive(c.Mat);
+        }
+        if (c.Emissive)
+            c.Marks |= Mark.Emissive;
+
+        Insert(c);
+    }
+
+    /// <summary>
+    /// Pool one candidate under a TWO-QUOTA policy: the subject band and everything else compete
+    /// separately and can only evict their own kind.
+    ///
+    /// <para>WHY TWO QUOTAS. ModBuild 254's single pool came back <b>160 of 160 in-band</b> — the band
+    /// had eaten the entire census and there was no context left in it at all. That is bad twice over:
+    /// it hides the wall and prop geometry another lane is reading this line for, and it means one
+    /// over-broad band test can silently delete every other kind of record. A quota makes that
+    /// impossible by construction: the band cannot exceed <see cref="BandQuota"/> entries and the rest
+    /// of the scene always keeps <see cref="GeneralQuota"/>.</para>
+    /// </summary>
+    private static void Insert(Candidate c)
+    {
+        bool band = c.InBand;
+        if (band)
+            _bandSeen++;
+        int count = band ? _bandCount : _genCount;
+        int quota = band ? BandQuota : GeneralQuota;
+
+        if (count < quota)
         {
             Pool.Add(c);
-            if (Pool.Count == MaxCandidates)
-                RecomputePoolMin();
+            if (band) _bandCount++; else _genCount++;
+            if (count + 1 == quota)
+                RecomputeMin(band);
             return;
         }
-        if (c.Score <= _poolMinScore)
+
+        float min = band ? _bandMin : _genMin;
+        if (c.Score <= min)
         {
-            _dropped++;
-            if (c.Span > _droppedMaxSpan)
-                _droppedMaxSpan = c.Span;
-            SeenRenderers.Remove(id);
-            Recycle(c);
+            DropIt(c);
             return;
         }
-        // Evict the current minimum.
-        int worst = 0;
+
+        int worst = -1;
         float worstScore = float.MaxValue;
         for (int i = 0; i < Pool.Count; i++)
         {
-            float s = Pool[i].Score;
+            Candidate p = Pool[i];
+            if (p.InBand != band)
+                continue;
+            float s = p.Score;
             if (s >= worstScore)
                 continue;
             worstScore = s;
             worst = i;
         }
-        Candidate evicted = Pool[worst];
-        _dropped++;
-        if (evicted.Span > _droppedMaxSpan)
-            _droppedMaxSpan = evicted.Span;
-        if (evicted.R != null)
-            SeenRenderers.Remove(evicted.R.GetInstanceID());
-        Recycle(evicted);
+        if (worst < 0)
+        {
+            DropIt(c);
+            return;
+        }
+        DropIt(Pool[worst]);
         Pool[worst] = c;
-        RecomputePoolMin();
+        RecomputeMin(band);
     }
 
-    private static void RecomputePoolMin()
+    private static void DropIt(Candidate c)
+    {
+        _dropped++;
+        if (c.Span > _droppedMaxSpan)
+            _droppedMaxSpan = c.Span;
+        Recycle(c);
+    }
+
+    private static void RecomputeMin(bool band)
     {
         float min = float.MaxValue;
         for (int i = 0; i < Pool.Count; i++)
         {
-            float s = Pool[i].Score;
+            Candidate p = Pool[i];
+            if (p.InBand != band)
+                continue;
+            float s = p.Score;
             if (s < min)
                 min = s;
         }
-        _poolMinScore = min;
+        if (band)
+            _bandMin = min;
+        else
+            _genMin = min;
     }
 
     private static void Recycle(Candidate c)
@@ -649,7 +796,90 @@ internal static partial class GlowCardCensus
         c.Sh = null;
         c.Marks = Mark.None;
         c.Span = 0f;
+        c.Queue = -1;
+        c.Unlit = false;
+        c.Emissive = false;
+        c.Submitted = false;
         Spare.Push(c);
+    }
+
+    /// <summary>
+    /// TRUE when this shader declares NO lighting pass at all — no ForwardBase, no ForwardAdd, no
+    /// Deferred, no PrepassBase, no Vertex/VertexLM. Such a material does not take scene lighting: it
+    /// draws its own colours whatever the room is doing.
+    ///
+    /// <para>THIS IS THE TEST ModBuild 254 WAS MISSING, and it is what the report has been pointing at
+    /// since the first photograph. The subject is a PALE, BRIGHT rectangle in a night scene in which
+    /// every masonry surface around it is nearly black and a candle two metres away renders warm and
+    /// soft. Whatever it is, it is not being lit — and the floor hexes that swamped 254's band all
+    /// carry <c>sub0{FORWARDBASE,FORWARDADD,DEFERRED}</c>, which is the signature of a fully lit
+    /// surface shader. Shape and size could not tell those two apart; this can.</para>
+    ///
+    /// <para>Cached per SHADER instance id, so it is evaluated about forty times a window (the number
+    /// of distinct shaders in the room) and never once per renderer — the pass-tag walk marshals a
+    /// managed string per pass and would be genuinely expensive at population scale. Conservative on
+    /// failure: an unreadable tag set returns FALSE, because claiming "unlit" for something we could
+    /// not read is exactly the ModBuild 251 mistake.</para>
+    /// </summary>
+    private static bool IsUnlitShader(Shader sh)
+    {
+        try
+        {
+            int subs = sh.subshaderCount;
+            if (subs <= 0)
+                return false;
+            bool sawAnyPass = false;
+            for (int s = 0; s < subs && s < 6; s++)
+            {
+                int pc = sh.GetPassCountInSubshader(s);
+                for (int p = 0; p < pc && p < 12; p++)
+                {
+                    sawAnyPass = true;
+                    string name = sh.FindPassTagValue(s, p, LitModeTag).name;
+                    if (string.IsNullOrEmpty(name))
+                        continue;
+                    for (int i = 0; i < LitModes.Length; i++)
+                    {
+                        if (name.Equals(LitModes[i], StringComparison.OrdinalIgnoreCase))
+                            return false;
+                    }
+                }
+            }
+            return sawAnyPass;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// TRUE when the material carries an emission-ish colour bright enough to show. The second half of
+    /// "does not take scene lighting": a LIT shader can still glow if its emission channel is driven,
+    /// and excluding those would be the same over-tightening in the other direction. Probed by name
+    /// against a short list because emission is not a property Unity exposes generically, and only for
+    /// candidates already the right shape and size.
+    /// </summary>
+    private static bool IsEmissive(Material? mat)
+    {
+        if (mat == null)
+            return false;
+        for (int i = 0; i < EmissionProps.Length; i++)
+        {
+            try
+            {
+                if (!mat.HasProperty(EmissionProps[i]))
+                    continue;
+                Color c = mat.GetColor(EmissionProps[i]);
+                if (Mathf.Max(c.r, Mathf.Max(c.g, c.b)) > EmissionFloor)
+                    return true;
+            }
+            catch (Exception)
+            {
+                // a property that is not a colour, or is unreadable, simply does not vote
+            }
+        }
+        return false;
     }
 
     private static bool IsGlowShader(Shader sh)
@@ -762,6 +992,7 @@ internal static partial class GlowCardCensus
             {
                 // a renderer with no readable material array still counts through its geometry marks
             }
+            EndRenderer(r);
         }
         _layerPopKnown = true;
 
@@ -813,8 +1044,7 @@ internal static partial class GlowCardCensus
         for (int i = 0; i < Pool.Count; i++)
             Recycle(Pool[i]);
         Pool.Clear();
-        ShaderInterest.Clear();
-        SeenRenderers.Clear();
+        ShaderFactsCache.Clear();
         Scratch.Clear();
         _armed = false;
         _sampled = false;
@@ -826,8 +1056,19 @@ internal static partial class GlowCardCensus
         _matched = 0;
         _dropped = 0;
         _droppedMaxSpan = 0f;
-        _poolMinScore = 0f;
+        _bandMin = 0f;
+        _genMin = 0f;
+        _bandCount = 0;
+        _genCount = 0;
+        _bandShaped = 0;
+        _bandSeen = 0;
+        _distinctUnlitShaders = 0;
         _distinctGlowShaders = 0;
+        _curMat = null;
+        _curSh = null;
+        _curQueue = -1;
+        _curSlotUnlit = false;
+        _curSlotRank = -1;
         _layerPopKnown = false;
         _curRendererId = 0;
         _curMarks = Mark.None;
