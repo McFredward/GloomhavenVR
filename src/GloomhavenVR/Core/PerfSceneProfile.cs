@@ -274,6 +274,12 @@ internal static class PerfSceneProfile
               .Append(_skipWindows).Append(" more window(s) will be skipped before the next sample. "
                       + "This is the instrument refusing to become the thing it measures, not a "
                       + "fault. Set [Perf] SceneProfile = false to stop it entirely.");
+            // The GLOW CARDS census does NOT have to be rationed with this walk, and must not be:
+            // ModBuild 251's whole A/B session produced exactly one armed window because the census
+            // could only sample when this walk chose to, and that window landed on a five-renderer
+            // frame. It runs a renderer-only sweep of its own here — self-timed, self-rationed to
+            // 2ms/window, and printed — on windows this walk has already declined to pay for.
+            GlowCardCensus.RunStandalone(Rig.VRRigDriver.HeadCamera);
             return;
         }
 
@@ -380,6 +386,12 @@ internal static class PerfSceneProfile
             // ONCE here so the Renderer.bounds read is not repeated per material slot below.
             float texSpanPx = subm ? PerfTextureCensus.PixelSpan(r) : 0f;
 
+            // ONE Renderer.bounds read per SUBMITTED renderer, for the glow census's PLATE test and
+            // its own unfloored pixel span. It cannot reuse PerfTextureCensus.PixelSpan: that one
+            // applies a 120px floor and returns 0 below it, which is exactly why ModBuild 251 printed
+            // "~0px" for every candle and every torch and then ranked its cap-of-16 by nothing at all.
+            GlowCardCensus.OfferRenderer(r, subm, layer);
+
             // GetSharedMaterials fills OUR list; the sharedMaterials PROPERTY would allocate a
             // fresh array per renderer, which at ~1700 renderers is the difference between a
             // sampling hitch and a garbage-collection one.
@@ -420,6 +432,12 @@ internal static class PerfSceneProfile
             TallyKind(r, on, vis, subm);
             TallyRoot(r, on, vis, subm, mats);
         }
+
+        // Hand the per-layer population to the glow census rather than making it count again: its
+        // path-contrast block needs to say how many renderers sit on the layers only the head camera
+        // draws, and a second pass over 3,000 renderers to re-count what this loop already counted is
+        // the exact shape of defect this file's own doc calls the default suspect.
+        GlowCardCensus.NoteLayerPopulation(LayerCounts, LayerVisible);
 
         int passes = XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass ? 2 : 1;
 

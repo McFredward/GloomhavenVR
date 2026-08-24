@@ -1,120 +1,173 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// THE PALE FLOATING RECTANGLES ON THE GATE — the <c>[Perf] GLOW CARDS</c> line.
+/// THE PALE FLOATING RECTANGLES ON THE GATE — collection half of the <c>[Perf] GLOW CARDS</c> line.
+/// The reporting half is in <c>GlowCardCensus.Report.cs</c>.
 ///
 /// <para>THE REPORT THIS WAS BUILT FOR (user, 2026-08-24, verbatim): <i>"Diese schwebenden
 /// viereckigen Lichter an dem Tor erscheinen mir komisch, wird das richtig gerendert? Fehlt hier
 /// irgendwas? Das ist dauerhaft so egal was ein oder ausgeblendet wird - ich kann mich nicht
-/// erinnern, dass es flat sowas gab."</i> (schwebende_lichter.jpg). Three pale, hard-edged,
-/// near-opaque rectangles sit on the gate's door frames and on the masonry beside them. A candle in
-/// an alcove two metres to the right renders correctly and warmly, so the room's lighting is fine.
-/// A second photograph from the same build (walls_gone.jpg) shows the SAME three rectangles at the
-/// SAME brightness while the masonry around them has dissolved almost to nothing — measured off the
-/// two JPEGs, the quads read (240,239,205) / (221,218,170) / (222,219,173) against a solid wall and
-/// (219,222,202) / (206,208,179) / (229,221,182) against a dissolved one. Their output does not
-/// depend on what is behind them and does not depend on their wall's fade.</para>
+/// erinnern, dass es flat sowas gab."</i> Three pale hard-edged rectangles beside and between the
+/// leaves of a gate (<c>schwebende_lichter.jpg</c>), unchanged in size, position and brightness when
+/// the masonry around them dissolves (<c>walls_gone.jpg</c>). At 7x magnification the middle one is a
+/// PARALLELOGRAM in a plane aligned with neither the wall nor the door, with a soft bright hotspot
+/// left of centre falling off to a flat pale surround and a hard straight edge all round — the
+/// signature of a soft glow texture whose ALPHA is not reaching the blender, not of a light.</para>
 ///
-/// <para>WHAT THIS FILE IS FOR. The mod already knows one of those three renderers by NAME — the
-/// wall-fade census prints <c>'Glow'[mesh→alpha] anchor 2.2 gap 0.00 → 'Wall 3'</c> and
-/// <c>'Glow'[→alpha] base 2.2 top 2.8 gap 0.22 → 'ThickDoor : (1a010af9-…)'</c> — but nothing in
-/// this codebase has ever printed that renderer's SHADER, its MATERIAL, its blend state or its
-/// keywords, and the game's own C# never references a child called "Glow" at all (it is authored in
-/// the tileset prefab, so it cannot be read out of <c>decompiled/</c>). Every hypothesis about why
-/// the quads draw the way they do is a hypothesis about those fields. This line prints them.</para>
+/// <para>WHAT ModBuild 251 GOT WRONG, so it is not repeated. 251 shipped the hypothesis "these are
+/// depth-fade cards and <c>depthTextureMode=None</c> makes them draw at full opacity" and its verdict
+/// sentence asserted it. The user ran the A/B: <i>"Auch mit HeadDepthPrepass=true sind die
+/// schwebenden Lichter an der Tür noch da"</i>, and <c>second_logs/Player.log</c> confirms the
+/// experiment really ran (<c>depthTextureMode=Depth</c>). THE HYPOTHESIS IS DEAD. Worse, the census's
+/// OWN numbers had already refuted it: the three cards carrying a depth-fade property were all
+/// <c>SimpleParticleAlphaDFade</c> shield clouds on stone golems, <c>enabled+offscreen+not-submitted</c>
+/// with AABB size 0, nowhere near the gate, while every card that WAS near the gate printed
+/// <c>depth-fade props: NONE</c>. An instrument asserted a cause its own population could not carry.
+/// <see cref="AppendVerdict"/> now derives every sentence from the SUBJECT-ELIGIBLE set alone and says
+/// so when that set is empty.</para>
 ///
-/// <para>THE HYPOTHESIS IT IS BUILT TO KILL OR CONFIRM, stated so a reader can check it against the
-/// line rather than against my confidence. The mod's own head camera runs the built-in FORWARD path
-/// with <c>depthTextureMode=None</c> in every window of both hardware sessions. The game's VFX
-/// shaders soft-fade against <c>_CameraDepthTexture</c>; <see cref="Rig.VRRigDriver"/>'s
-/// <c>CreateHeadCamera</c> already documents this exact failure in the past tense — <i>"the fade
-/// sampled nothing and FAILED OPEN → glow rendered fully through walls"</i> — and
-/// <c>[Optimize] HeadDepthPrepass</c> exists to A/B it. Under D3D11 Unity uses a reversed depth
-/// buffer, so an unwritten depth texture reads as the FAR plane: a fade term of the shape
-/// <c>saturate((sceneZ - fragZ) * _InvFade)</c> then saturates to 1 for every fragment, i.e. FULL
-/// opacity with no softening anywhere, which is what a hard-edged rectangle at constant brightness
-/// over two different backgrounds looks like. If that is the mechanism, the cards below will carry a
-/// depth-fade property and the head camera will report no Depth bit, and both halves of that are
-/// printed here side by side.</para>
+/// <para>WHAT THIS VERSION CHANGES, and why each change exists.
+/// <list type="bullet">
+/// <item>SELECTION IS NO LONGER A SHADER-NAME LIST. 251's cap of 16 was filled by 0-pixel offscreen
+/// monster effects while a 583-pixel light shaft sat at index 4. Candidates are now marked by four
+/// independent, per-renderer-free tests (shader name, transparent render queue, special/VR-only
+/// LAYER, and PLATE-SHAPED bounds), pooled, and RANKED BY ON-SCREEN PIXEL SPAN. The plate test is the
+/// one that does not care what the material is called: a card is a quad, and a quad's thinnest AABB
+/// axis is a small fraction of its longest. Whatever those rectangles are, they are flat.</item>
+/// <item>EVERY property and EVERY keyword the material actually has is dumped, walked off
+/// <c>Shader.GetPropertyCount</c>/<c>GetPropertyName</c>/<c>GetPropertyType</c> rather than a
+/// hard-coded list of nine names — because "depth-fade props: NONE" may only have meant that
+/// <c>LightShaftShd</c> spells its fade something else.</item>
+/// <item>A SCREEN RECT per card, projected through the head camera and printed both in normalised
+/// top-left coordinates and in the pixels of a 3840x2160 screenshot. This is the identification key:
+/// the user's photographs put the three rectangles at known screen positions, and a record whose rect
+/// lands on one of them IS the subject. Nothing in 251 could be matched to a photo at all.</item>
+/// <item>THE RENDER-PATH CONTRAST, printed once per line. The game draws this scene through
+/// <c>ScenarioCamera</c>; the mod draws it through its own head camera with a different rendering
+/// path and a different culling mask. "I don't remember this on the flat screen" is a claim about the
+/// DIFFERENCE between those two cameras, and until now no line in this codebase printed both.</item>
+/// <item>IT CAN SAMPLE WHEN IT MATTERS. 251 rode <see cref="PerfSceneProfile"/>'s self-rationing walk
+/// and the A/B session got exactly one sample, on a 5-renderer frame. It now also runs a self-timed,
+/// self-rationed walk of its own on windows the SCENE walk skipped, and it LATCHES the richest sample
+/// it has seen so a window that caught the gate keeps answering after the player has looked away.</item>
+/// </list></para>
 ///
-/// <para>THE COMPETING EXPLANATION IT ALSO SETTLES. The rectangles could instead simply never be
-/// claimed by the wall-fade path, in which case they would stay solid when their wall goes for a
-/// reason that has nothing to do with rendering. That is why every record prints the LIVE
-/// MaterialPropertyBlock alpha next to the material's authored alpha: the wall fade drives these
-/// props by writing <c>_TintColor</c>/<c>_Color</c>/<c>_BaseColor</c> with the alpha scaled by
-/// <c>1 - fade</c> through a per-renderer block. A card with no block is not being driven (a
-/// claiming question); a card with a block whose alpha is near zero while the card is still bright
-/// in the headset is being driven and ignoring it (a rendering question, and the blend state on the
-/// same record says why — an additive pass with <c>_DstBlend=One</c> cannot be dimmed by an alpha
-/// write at all). Those two are the leads the photographs cannot separate, and this line separates
-/// them without another hardware round.</para>
+/// <para>COST. On a window where the SCENE walk runs, this adds: one dictionary lookup per material
+/// slot (keyed by the SHADER instance id the walk has already resolved, so <c>Shader.name</c> is
+/// still marshalled once per distinct shader and never once per renderer), and one
+/// <c>Renderer.bounds</c> read per SUBMITTED renderer. Everything else — names, ancestor walks,
+/// property enumeration, pass tags, block read-back, projection — happens only for pooled candidates
+/// and is capped. On a window the SCENE walk skipped, the standalone walk pays one
+/// <c>FindObjectsOfType&lt;Renderer&gt;</c>; it TIMES ITSELF and rations itself to
+/// <see cref="OwnWalkTargetMs"/> per window, and both numbers are printed. A per-frame scene sweep is
+/// this repo's default suspect and has shipped as a defect three times; nothing here runs per frame.</para>
 ///
-/// <para>COST. This class adds NO scene walk. It rides
-/// <see cref="PerfSceneProfile.AppendSceneLine"/>'s existing <c>FindObjectsOfType&lt;Renderer&gt;</c>
-/// — the standing rule in this repo is that a per-frame scene sweep is the default suspect and has
-/// shipped as a defect three times. Per material slot it costs ONE dictionary lookup keyed by the
-/// SHADER's instance id, so <c>Shader.name</c> (a managed-string marshal) is paid once per distinct
-/// shader in the scene (43 of them in the reported room) and never once per renderer. Everything
-/// expensive — the GameObject name, the ancestor walk, the keyword array, the property probes, the
-/// block read-back — happens only for renderers that already matched, and is capped at
-/// <see cref="MaxCards"/>. <see cref="Log"/> times itself and prints the number.</para>
+/// <para>MULTIPLAYER / REVERSIBILITY. Reads state, writes one log line. It never touches a
+/// GameObject, a material, game state or wire traffic. Renderer/Material/Shader references are held
+/// only between <see cref="Begin"/> and <see cref="Log"/> inside a single call of
+/// <c>PerfMonitor.LogSceneProfile</c>, and both ends clear them.</para>
 /// </summary>
-internal static class GlowCardCensus
+internal static partial class GlowCardCensus
 {
     private const string Scope = "Perf";
 
-    /// <summary>Hard cap on detailed records. The reported defect is three quads; sixteen is room
-    /// for the whole family plus the torches, and it bounds both the cost and the line length.</summary>
-    private const int MaxCards = 16;
+    /// <summary>Detailed records printed. The reported defect is three quads; fourteen is room for
+    /// the whole family plus whatever else is big on the gate wall.</summary>
+    private const int MaxCards = 14;
 
-    /// <summary>Hard cap on materials probed in detail, so a scene full of glow shaders cannot turn
-    /// this into the thing it measures.</summary>
-    private const int MaxProbes = 64;
+    /// <summary>How many of those get the FULL property/keyword/pass dump. The dump is the expensive
+    /// and verbose part, and the ranking puts the subject at the top by construction.</summary>
+    private const int FullDumpCards = 5;
+
+    /// <summary>Ranked pool size. Candidates beyond this are dropped by SMALLEST span first and the
+    /// count and largest dropped span are printed, so the cap never hides the subject silently.</summary>
+    private const int MaxCandidates = 96;
+
+    /// <summary>Compact one-line entries printed for pooled candidates that did not make MaxCards.</summary>
+    private const int MaxTail = 22;
+
+    /// <summary>Shader properties dumped per material before the dump says "+N more".</summary>
+    private const int MaxProps = 44;
+
+    /// <summary>
+    /// Pixel span below which a card CANNOT be the photographed rectangle. The quads measure roughly
+    /// 90x110 px of a 3840-px-wide screenshot, i.e. of order 100 px of a 3072x3264 eye; 24 px is a
+    /// deliberately generous floor that still excludes the thousands of distant slots. Only cards at
+    /// or above it, submitted, are allowed into the VERDICT.
+    /// </summary>
+    private const float SubjectMinPx = 24f;
+
+    /// <summary>Thinnest AABB axis / longest AABB axis at or below which a renderer is PLATE-SHAPED —
+    /// a card, a decal, a pane, a billboard. Shader-independent and material-independent, which is
+    /// the whole point: it is the one test that survives not knowing what the subject is called.</summary>
+    private const float PlateRatio = 0.22f;
+
+    /// <summary>Amortised budget for the standalone walk (see <see cref="RunStandalone"/>).</summary>
+    private const double OwnWalkTargetMs = 2d;
+
+    /// <summary>Ceiling on the standalone walk's self-rationing, so one expensive sample cannot
+    /// silence it for the rest of the session.</summary>
+    private const int MaxOwnSkips = 8;
 
     // ==========================================================================================
-    //  what counts as a glow card
+    //  what marks a candidate
     // ==========================================================================================
 
-    /// <summary>Shader-name fragments that mark a light/glow/decal card. Matched case-insensitively
-    /// against the SHADER name, not the object name: the object name is authored per tileset and
-    /// varies ('Glow', 'CandleFlame', 'p_fire_torch'), while the shader is the thing whose fade term
-    /// is in question. Names taken from this game's own always-loaded shader list
-    /// (SimpleParticleAlphaDFade, glow_bowl_Shd, LightShaftShd, OmniDecalSimple_Shd,
-    /// ParticleMasterUnlitAdd_Shd/Blend_Shd) and from the shader ranking the SCENE line already
-    /// prints for the reported room (VFX/BendyGlowPlane_Shd, 21 submitted slots).</summary>
+    [Flags]
+    private enum Mark
+    {
+        None = 0,
+        /// <summary>Shader name contains one of <see cref="ShaderMarks"/>.</summary>
+        Shader = 1,
+        /// <summary>Material render queue is Transparent or later (>= 2900).</summary>
+        Queue = 2,
+        /// <summary>GameObject layer is one of the effect/render-target layers.</summary>
+        Layer = 4,
+        /// <summary>AABB is plate-shaped: thinnest axis &lt;= <see cref="PlateRatio"/> of longest.</summary>
+        Plate = 8,
+        /// <summary>Layer is rendered by the head camera and NOT by the game's ScenarioCamera —
+        /// i.e. this renderer exists on the flat screen but is never drawn there.</summary>
+        VrOnly = 16,
+    }
+
+    /// <summary>Shader-name fragments that mark a light/glow/decal card, matched case-insensitively.
+    /// Kept from ModBuild 251 and widened; it is no longer the only selector, so a miss here is no
+    /// longer fatal to the census.</summary>
     private static readonly string[] ShaderMarks =
     {
         "glow", "dfade", "depthfade", "softparticle", "lightshaft", "shaft",
-        "flare", "halo", "beam", "decal", "particlemaster", "lightplane"
+        "flare", "halo", "beam", "decal", "particlemaster", "lightplane",
+        "unlit", "additive", "emiss", "vfx/", "fx_", "billboard", "sprite"
     };
 
-    /// <summary>Property names whose PRESENCE means the material's opacity depends on the camera
-    /// depth texture. <c>_InvFade</c> is Unity's own soft-particle term; the rest are the names this
-    /// game's VFX shader family uses. Probed with <see cref="Material.HasProperty(int)"/>, which
-    /// does not need the shader source.</summary>
-    private static readonly string[] DepthFadePropNames =
-    {
-        "_InvFade", "_SoftParticleFactor", "_DepthFade", "_DFade", "_SoftFade",
-        "_FadeDistance", "_IntersectionFade", "_CameraFadeDistance", "_Softness"
-    };
-
-    private static readonly int[] DepthFadeProps = BuildIds(DepthFadePropNames);
+    /// <summary>Layers whose whole population is worth marking however small: effect layers and the
+    /// three render-target layers this game declares (28 WaypointRenderTexture, 29 RenderTarget,
+    /// 30 Outline). A renderer on a render-target layer that is nevertheless visible in the world is
+    /// exactly the shape of "something is drawn that was never meant to be seen directly".</summary>
+    private static readonly int[] MarkedLayers = { 1, 18, 28, 29, 30, 31 };
 
     /// <summary>The three colour properties the wall-fade path drives, in the SAME priority order it
-    /// uses (WallSegmentFade.Mounted.cs) — so "which one is it driving" is answerable from here.</summary>
+    /// uses (WallSegmentFade.Mounted.cs) — so "which one is it driving" stays answerable.</summary>
     private static readonly string[] TintPropNames = { "_TintColor", "_Color", "_BaseColor" };
 
     private static readonly int[] TintProps = BuildIds(TintPropNames);
 
-    private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
-    private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
-    private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+    /// <summary>Fixed-function state a material may expose as properties. When a material exposes
+    /// NONE of them the blend is hardcoded in the shader pass and Unity offers no runtime query —
+    /// that is a fact about the shader, and <see cref="AppendBlend"/> says it in words instead of
+    /// printing "n/a" three times, which is what ModBuild 251 did for every single card.</summary>
+    private static readonly string[] StatePropNames = { "_SrcBlend", "_DstBlend", "_ZWrite", "_ZTest", "_Cull", "_BlendOp" };
+
+    private static readonly int[] StateProps = BuildIds(StatePropNames);
+
+    /// <summary>Material tags worth printing: they are the only readable proxies for a blend state
+    /// the engine will not hand back.</summary>
+    private static readonly string[] TagNames = { "RenderType", "Queue", "IgnoreProjector", "ForceNoShadowCasting", "PreviewType", "LightMode" };
 
     private static int[] BuildIds(string[] names)
     {
@@ -125,103 +178,284 @@ internal static class GlowCardCensus
     }
 
     // ==========================================================================================
-    //  collected state
+    //  pooled candidates
     // ==========================================================================================
 
-    private sealed class Card
+    private sealed class Candidate
     {
-        public string Path = string.Empty;
-        public string Shader = string.Empty;
-        public string Material = string.Empty;
-        public string Keywords = string.Empty;
-        public string DepthProps = string.Empty;   // "" = none found
-        public string TintProp = string.Empty;     // "" = none of the three present
-        public bool Enabled;
-        public bool Visible;
+        public Renderer? R;
+        public Material? Mat;
+        public Shader? Sh;
         public bool Submitted;
-        public int Layer;
-        public int Queue;
-        public int Src = -1, Dst = -1, ZWrite = -1;
-        public bool SoftKeyword;
-        public Color Tint = Color.clear;
-        public bool HasBlock;
-        public bool BlockHasTint;
-        public float BlockAlpha = -1f;
-        public Vector3 Size;
-        public Vector3 Centre;
-        public float PixelSpan;
+        public float Span;
+        public Mark Marks;
+        public Bounds B;
+
+        /// <summary>Ranking key. Span is the base — the instrument's whole failure in 251 was ranking
+        /// by nothing at all — multiplied up for the two properties that make a candidate more likely
+        /// to be the photographed subject, and multiplied DOWN for a card nobody can currently see.
+        /// Printed next to every record so the order is checkable rather than trusted.</summary>
+        public float Score => Span
+                              * ((Marks & Mark.VrOnly) != 0 ? 8f : 1f)
+                              * ((Marks & Mark.Plate) != 0 ? 3f : 1f)
+                              * (Submitted ? 1f : 0.05f);
     }
 
-    private static readonly List<Card> Cards = new(MaxCards);
+    private static readonly List<Candidate> Pool = new(MaxCandidates);
+    private static readonly Stack<Candidate> Spare = new(MaxCandidates);
     private static readonly Dictionary<int, bool> ShaderInterest = new(64);
-    private static readonly HashSet<int> SeenRenderers = new(MaxCards * 2);
+    private static readonly HashSet<int> SeenRenderers = new(MaxCandidates * 2);
     private static readonly List<string> Scratch = new(8);
     private static MaterialPropertyBlock? _blockScratch;
 
+    /// <summary>Per-layer renderer population, handed over by the walk that produced it so the
+    /// path-contrast block can say how many renderers sit on the layers only VR draws.</summary>
+    private static readonly int[] LayerPop = new int[32];
+    private static readonly int[] LayerVis = new int[32];
+    private static bool _layerPopKnown;
+
+    // ---- per-renderer latch, set by OfferRenderer and consumed by Offer -----------------------
+    private static int _curRendererId;
+    private static Mark _curMarks;
+    private static float _curSpan;
+    private static Bounds _curBounds;
+    private static bool _curSubmitted;
+
+    // ---- window state -------------------------------------------------------------------------
     private static bool _armed;
+
     /// <summary>Did <see cref="Begin"/> run for the window <see cref="Log"/> is about to print?
     /// PerfMonitor calls AppendGfxLine — and therefore this line — even on a window where
     /// AppendSceneLine rationed itself and never walked, so "found nothing" and "never looked" are
     /// two different sentences and this flag is what tells them apart.</summary>
     private static bool _sampled;
-    private static int _probes;
+    private static int _slotsOffered;
+    private static int _renderersOffered;
+
+    /// <summary>Renderer.bounds reads this window — the ONLY per-renderer cost this census adds to
+    /// the SCENE walk it rides. Printed so the price is a number in the log and not a claim in a
+    /// comment; this repo has shipped "the scan is type-indexed, near-free" as a defect twice.</summary>
+    private static int _boundsReads;
     private static int _matched;
-    private static int _depthFadeMaterials;
+    private static int _dropped;
+    private static float _droppedMaxSpan;
+    private static float _poolMinScore;
     private static int _distinctGlowShaders;
-    private static DepthTextureMode _headDepth = DepthTextureMode.None;
-    private static bool _headKnown;
-    private static bool _softParticles;
-    private static bool _depthDialOn;
     private static double _costMs;
 
+    // ---- global facts, latched at Begin so cards and camera state are read TOGETHER -------------
+    private static Camera? _head;
+    private static DepthTextureMode _headDepth = DepthTextureMode.None;
+    private static bool _headKnown;
+    private static string _headName = "n/a";
+    private static RenderingPath _headPath = RenderingPath.UsePlayerSettings;
+    private static int _headMask;
+    private static bool _softParticles;
+    private static bool _depthDialOn;
+
+    private static Camera? _scenarioCam;
+    private static bool _scenarioKnown;
+    private static RenderingPath _scenarioPath = RenderingPath.UsePlayerSettings;
+    private static int _scenarioMask;
+    private static int _scenarioBuffers;
+
+    private static float _pixelsPerUnit;
+    private static Vector3 _headPos;
+    private static float _eyePxW, _eyePxH;
+    private static bool _projectionKnown;
+
+    // ---- standalone walk ------------------------------------------------------------------------
+    private static int _ownSkip;
+    private static double _lastOwnWalkMs;
+    private static int _ownWalkRenderers;
+    private static bool _ranOwnWalk;
+    private static string _ownWalkNote = string.Empty;
+
+    // ---- best-sample latch ------------------------------------------------------------------------
+    private static string _bestSample = string.Empty;
+    private static float _bestSampleScore;
+    private static float _bestSampleAt = -1f;
+    private static string _bestSampleScene = string.Empty;
+
     // ==========================================================================================
-    //  collection — driven from PerfSceneProfile's SCENE walk
+    //  collection — driven from PerfSceneProfile's SCENE walk, or from RunStandalone
     // ==========================================================================================
 
-    /// <summary>Arm the census for one window and latch the two GLOBAL facts the verdict needs, at
-    /// the same instant the population is sampled. Latching them here rather than reading them in
-    /// <see cref="Log"/> matters: the head camera's depth bit is owned by a per-frame tick and the
-    /// whole point of the line is that the cards and the depth state are read TOGETHER.</summary>
+    /// <summary>Arm the census for one window and latch every GLOBAL fact the verdict needs, at the
+    /// same instant the population is sampled.</summary>
     internal static void Begin(Camera? head)
     {
         Reset();
         _armed = true;
         _sampled = true;
-        _headKnown = false;
+        _head = head;
         _depthDialOn = PerfConfig.DepthPrepassOn;
+        try { _softParticles = QualitySettings.softParticles; }
+        catch (Exception) { _softParticles = false; }
+
+        // Drop the best-sample latch when the scene changed: a 900px quad latched in the map room
+        // would otherwise outrank every scenario sample for the rest of the session and the line
+        // would keep printing a room the player left. Stale is acceptable only WITHIN one scene.
         try
         {
-            _softParticles = QualitySettings.softParticles;
+            string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+            if (_bestSampleScene.Length > 0 && scene != _bestSampleScene)
+            {
+                _bestSample = string.Empty;
+                _bestSampleScore = 0f;
+                _bestSampleAt = -1f;
+                _bestSampleScene = string.Empty;
+            }
         }
         catch (Exception)
         {
-            _softParticles = false;
+            // an unreadable scene name simply leaves the latch alone
         }
-        if (head == null)
-            return;
+
+        if (head != null)
+        {
+            try
+            {
+                _headDepth = head.depthTextureMode;
+                _headName = head.name;
+                _headPath = head.actualRenderingPath;
+                _headMask = head.cullingMask;
+                _headKnown = true;
+            }
+            catch (Exception) { _headKnown = false; }
+            LatchProjection(head);
+        }
+
+        Camera? scenario = ResolveScenarioCamera();
+        if (scenario != null)
+        {
+            try
+            {
+                _scenarioPath = scenario.actualRenderingPath;
+                _scenarioMask = scenario.cullingMask;
+                _scenarioBuffers = scenario.commandBufferCount;
+                _scenarioKnown = true;
+            }
+            catch (Exception) { _scenarioKnown = false; }
+        }
+    }
+
+    /// <summary>The projection term, identical arithmetic to <c>PerfTextureCensus.Begin</c> (which is
+    /// not editable from this lane). For world size <c>s</c> at distance <c>d</c> the pixel span is
+    /// <c>s / d * (0.5 * eyeHeight * m11)</c>, and the bracket is constant for the window. Duplicated
+    /// rather than shared because the other census applies a 120 px FLOOR and returns 0 below it —
+    /// which is precisely why ModBuild 251 printed <c>~0px</c> for every candle and every torch and
+    /// then ranked by nothing.</summary>
+    private static void LatchProjection(Camera head)
+    {
+        _projectionKnown = false;
         try
         {
-            _headDepth = head.depthTextureMode;
-            _headKnown = true;
+            float viewport = Mathf.Clamp(UnityEngine.XR.XRSettings.renderViewportScale, 0.01f, 1f);
+            int w = UnityEngine.XR.XRSettings.eyeTextureWidth;
+            int h = UnityEngine.XR.XRSettings.eyeTextureHeight;
+            if (w < 2 || h < 2)
+            {
+                w = Screen.width;
+                h = Screen.height;
+                viewport = 1f;
+            }
+            _eyePxW = w * viewport;
+            _eyePxH = h * viewport;
+            if (!(_eyePxW >= 2f && _eyePxH >= 2f))
+                return;
+
+            float m11 = head.projectionMatrix.m11;
+            if (!(m11 > 0.01f) || float.IsNaN(m11) || float.IsInfinity(m11))
+                m11 = 1f / Mathf.Tan(Mathf.Clamp(head.fieldOfView, 1f, 179f) * 0.5f * Mathf.Deg2Rad);
+
+            _pixelsPerUnit = 0.5f * _eyePxH * m11;
+            _headPos = head.transform.position;
+            _projectionKnown = _pixelsPerUnit > 1f;
         }
         catch (Exception)
         {
-            _headKnown = false;
+            _projectionKnown = false;
         }
     }
 
     /// <summary>
-    /// Offer one material slot of one renderer. Called for EVERY slot of every renderer in the SCENE
-    /// walk, so the fast path — a shader that is not a glow shader — must stay at one dictionary
-    /// lookup, and it does: <paramref name="sh"/> is the reference
-    /// <see cref="PerfSceneProfile"/>'s own shader tally has already resolved (so there is no second
-    /// <c>Material.shader</c> marshal), and <c>Shader.name</c> is fetched once per distinct Shader
-    /// object and never once per renderer.
+    /// Offer ONE RENDERER, before its material slots. Reads <c>Renderer.bounds</c> once and derives
+    /// the two marks that need no material at all: the LAYER mark and the PLATE mark. The plate mark
+    /// is the reason this entry point exists — a card is a quad whatever its shader is called, and
+    /// ModBuild 251 had no test that could find the subject without already knowing its name.
+    ///
+    /// <para>Called for every renderer the walk sees. The bounds read is skipped for anything not
+    /// submitted, so the added cost on a non-submitted renderer is one array index and a compare.</para>
     /// </summary>
-    internal static void Offer(Renderer r, Material mat, Shader sh, bool submitted, float pixelSpan)
+    internal static void OfferRenderer(Renderer r, bool submitted, int layer)
+    {
+        if (!_armed || r == null)
+            return;
+        _renderersOffered++;
+        _curRendererId = r.GetInstanceID();
+        _curMarks = Mark.None;
+        _curSpan = 0f;
+        _curSubmitted = submitted;
+        _curBounds = default;
+
+        for (int i = 0; i < MarkedLayers.Length; i++)
+        {
+            if (MarkedLayers[i] == layer)
+            {
+                _curMarks |= Mark.Layer;
+                break;
+            }
+        }
+        // Rendered by us and NOT by the game's own scenario camera ⇒ this object is on screen in VR
+        // and was never on screen on the flat screen. That is a whole class of report in one bit.
+        if (_scenarioKnown && (_headMask & (1 << layer)) != 0 && (_scenarioMask & (1 << layer)) == 0)
+            _curMarks |= Mark.VrOnly | Mark.Layer;
+
+        if (!submitted || !_projectionKnown)
+            return;
+
+        try
+        {
+            Bounds b = r.bounds;
+            _boundsReads++;
+            _curBounds = b;
+            Vector3 s = b.size;
+            float longest = Mathf.Max(s.x, Mathf.Max(s.y, s.z));
+            float thinnest = Mathf.Min(s.x, Mathf.Min(s.y, s.z));
+            if (!(longest > 0f) || float.IsNaN(longest))
+                return;
+            float d = (b.center - _headPos).magnitude;
+            if (!(d > 0.0001f) || float.IsNaN(d))
+                return;
+            float px = longest * _pixelsPerUnit / d;
+            if (float.IsNaN(px) || float.IsInfinity(px))
+                return;
+            _curSpan = px;
+            if (px >= SubjectMinPx && thinnest <= longest * PlateRatio)
+                _curMarks |= Mark.Plate;
+        }
+        catch (Exception)
+        {
+            // A renderer without usable bounds still gets its layer marks.
+        }
+
+        if (_curMarks != Mark.None)
+            Register(r, null, null, _curMarks);
+    }
+
+    /// <summary>
+    /// Offer one material slot of the renderer most recently passed to <see cref="OfferRenderer"/>.
+    /// The fast path — an ordinary shader on an ordinary queue — is one dictionary lookup and one
+    /// integer compare: <paramref name="sh"/> is the reference <see cref="PerfSceneProfile"/>'s own
+    /// shader tally has already resolved, so there is no second <c>Material.shader</c> marshal, and
+    /// <c>Shader.name</c> is fetched once per distinct Shader object.
+    /// </summary>
+    internal static void Offer(Renderer r, Material mat, Shader sh, bool submitted, float texSpanPx)
     {
         if (!_armed || r == null || mat == null || sh == null)
             return;
+        _slotsOffered++;
 
         int shaderId = sh.GetInstanceID();
         if (!ShaderInterest.TryGetValue(shaderId, out bool interesting))
@@ -231,38 +465,128 @@ internal static class GlowCardCensus
             if (interesting)
                 _distinctGlowShaders++;
         }
-        if (!interesting)
-            return;
 
+        Mark marks = _curRendererId == r.GetInstanceID() ? _curMarks : Mark.None;
+        if (interesting)
+            marks |= Mark.Shader;
+        int queue;
+        try { queue = mat.renderQueue; }
+        catch (Exception) { queue = -1; }
+        if (queue >= 2900)
+            marks |= Mark.Queue;
+
+        if (marks == Mark.None)
+            return;
         _matched++;
-        if (Cards.Count >= MaxCards || _probes >= MaxProbes)
-            return;
-        // One record per RENDERER, not per slot: a two-slot glow card is one rectangle in the eye.
-        if (!SeenRenderers.Add(r.GetInstanceID()))
-            return;
-        _probes++;
+        Register(r, mat, sh, marks);
+    }
 
-        try
+    /// <summary>Pool one renderer, ONCE, keeping the pool at <see cref="MaxCandidates"/> by evicting
+    /// the LOWEST-scoring entry. A renderer already pooled by <see cref="OfferRenderer"/> has its
+    /// material and marks filled in here rather than being pooled twice.</summary>
+    private static void Register(Renderer r, Material? mat, Shader? sh, Mark marks)
+    {
+        int id = r.GetInstanceID();
+        if (!SeenRenderers.Add(id))
         {
-            Cards.Add(Describe(r, mat, sh, submitted, pixelSpan));
+            // Already pooled from the geometry pass: upgrade it with the material and merged marks.
+            for (int i = 0; i < Pool.Count; i++)
+            {
+                Candidate p = Pool[i];
+                if (p.R == null || p.R.GetInstanceID() != id)
+                    continue;
+                p.Marks |= marks;
+                if (p.Mat == null && mat != null)
+                {
+                    p.Mat = mat;
+                    p.Sh = sh;
+                }
+                // The upgrade changed this entry's Score, so the cached pool minimum the fast-reject
+                // below leans on is no longer valid. Recomputing 96 floats on the rare upgrade is
+                // cheaper than letting a stale minimum silently reject a candidate that outranks one
+                // already in the pool — which is the class of quiet sampling artefact this whole
+                // rewrite exists to remove.
+                if (Pool.Count >= MaxCandidates)
+                    RecomputePoolMin();
+                return;
+            }
+            return;
         }
-        catch (Exception)
+
+        Candidate c = Spare.Count > 0 ? Spare.Pop() : new Candidate();
+        c.R = r;
+        c.Mat = mat;
+        c.Sh = sh;
+        c.Submitted = _curRendererId == id ? _curSubmitted : true;
+        c.Span = _curRendererId == id ? _curSpan : 0f;
+        c.Marks = marks;
+        c.B = _curRendererId == id ? _curBounds : default;
+
+        if (Pool.Count < MaxCandidates)
         {
-            SeenRenderers.Remove(r.GetInstanceID());
+            Pool.Add(c);
+            if (Pool.Count == MaxCandidates)
+                RecomputePoolMin();
+            return;
         }
+        if (c.Score <= _poolMinScore)
+        {
+            _dropped++;
+            if (c.Span > _droppedMaxSpan)
+                _droppedMaxSpan = c.Span;
+            SeenRenderers.Remove(id);
+            Recycle(c);
+            return;
+        }
+        // Evict the current minimum.
+        int worst = 0;
+        float worstScore = float.MaxValue;
+        for (int i = 0; i < Pool.Count; i++)
+        {
+            float s = Pool[i].Score;
+            if (s >= worstScore)
+                continue;
+            worstScore = s;
+            worst = i;
+        }
+        Candidate evicted = Pool[worst];
+        _dropped++;
+        if (evicted.Span > _droppedMaxSpan)
+            _droppedMaxSpan = evicted.Span;
+        if (evicted.R != null)
+            SeenRenderers.Remove(evicted.R.GetInstanceID());
+        Recycle(evicted);
+        Pool[worst] = c;
+        RecomputePoolMin();
+    }
+
+    private static void RecomputePoolMin()
+    {
+        float min = float.MaxValue;
+        for (int i = 0; i < Pool.Count; i++)
+        {
+            float s = Pool[i].Score;
+            if (s < min)
+                min = s;
+        }
+        _poolMinScore = min;
+    }
+
+    private static void Recycle(Candidate c)
+    {
+        c.R = null;
+        c.Mat = null;
+        c.Sh = null;
+        c.Marks = Mark.None;
+        c.Span = 0f;
+        Spare.Push(c);
     }
 
     private static bool IsGlowShader(Shader sh)
     {
         string name;
-        try
-        {
-            name = sh.name;
-        }
-        catch (Exception)
-        {
-            return false;
-        }
+        try { name = sh.name; }
+        catch (Exception) { return false; }
         if (string.IsNullOrEmpty(name))
             return false;
         for (int i = 0; i < ShaderMarks.Length; i++)
@@ -273,394 +597,183 @@ internal static class GlowCardCensus
         return false;
     }
 
-    private static Card Describe(Renderer r, Material mat, Shader sh, bool submitted, float pixelSpan)
+    /// <summary>Hand over the per-layer population the walk already tallied, so the path-contrast
+    /// block can say how many renderers sit on the layers only the head camera draws. Never
+    /// recomputed here: a second pass over 3,000 renderers to count what the caller already counted
+    /// is exactly the kind of duplicated sweep this repo keeps shipping as a defect.</summary>
+    internal static void NoteLayerPopulation(int[] counts, int[] visible)
     {
-        Card c = new()
-        {
-            Path = PathOf(r.transform),
-            Shader = sh.name,
-            Material = mat.name,
-            Enabled = r.enabled,
-            Visible = r.isVisible,
-            Submitted = submitted,
-            Layer = r.gameObject.layer,
-            Queue = mat.renderQueue,
-            PixelSpan = pixelSpan
-        };
-
-        try
-        {
-            Bounds b = r.bounds;
-            c.Size = b.size;
-            c.Centre = b.center;
-        }
-        catch (Exception)
-        {
-            // leave zero — a renderer without usable bounds is still worth naming
-        }
-
-        // ---- the depth contract -------------------------------------------------------------
-        Scratch.Clear();
-        for (int i = 0; i < DepthFadeProps.Length; i++)
-        {
-            if (!mat.HasProperty(DepthFadeProps[i]))
-                continue;
-            float v;
-            try
-            {
-                v = mat.GetFloat(DepthFadeProps[i]);
-            }
-            catch (Exception)
-            {
-                v = float.NaN;
-            }
-            Scratch.Add(DepthFadePropNames[i] + "=" + v.ToString("F3"));
-        }
-        if (Scratch.Count > 0)
-        {
-            c.DepthProps = string.Join(" ", Scratch.ToArray());
-            _depthFadeMaterials++;
-        }
-
-        try
-        {
-            c.SoftKeyword = mat.IsKeywordEnabled("SOFTPARTICLES_ON");
-        }
-        catch (Exception)
-        {
-            c.SoftKeyword = false;
-        }
-
-        // ---- blend state: can an alpha write dim this at all? ---------------------------------
-        c.Src = ReadInt(mat, SrcBlendId);
-        c.Dst = ReadInt(mat, DstBlendId);
-        c.ZWrite = ReadInt(mat, ZWriteId);
-
-        // ---- the colour the wall fade would drive, and whether it IS being driven --------------
-        int tintIndex = -1;
-        for (int i = 0; i < TintProps.Length; i++)
-        {
-            if (!mat.HasProperty(TintProps[i]))
-                continue;
-            tintIndex = i;
-            break;
-        }
-        if (tintIndex >= 0)
-        {
-            c.TintProp = TintPropNames[tintIndex];
-            try
-            {
-                c.Tint = mat.GetColor(TintProps[tintIndex]);
-            }
-            catch (Exception)
-            {
-                c.Tint = Color.clear;
-            }
-        }
-
-        try
-        {
-            c.HasBlock = r.HasPropertyBlock();
-            if (c.HasBlock && tintIndex >= 0)
-            {
-                _blockScratch ??= new MaterialPropertyBlock();
-                _blockScratch.Clear();
-                r.GetPropertyBlock(_blockScratch);
-                if (_blockScratch.HasColor(TintProps[tintIndex]))
-                {
-                    c.BlockHasTint = true;
-                    c.BlockAlpha = _blockScratch.GetColor(TintProps[tintIndex]).a;
-                }
-            }
-        }
-        catch (Exception)
-        {
-            c.HasBlock = false;
-        }
-
-        try
-        {
-            string[] kw = mat.shaderKeywords;
-            c.Keywords = kw.Length == 0 ? "(none)" : string.Join(",", kw);
-        }
-        catch (Exception)
-        {
-            c.Keywords = "(unreadable)";
-        }
-
-        return c;
-    }
-
-    private static int ReadInt(Material mat, int id)
-    {
-        try
-        {
-            return mat.HasProperty(id) ? Mathf.RoundToInt(mat.GetFloat(id)) : -1;
-        }
-        catch (Exception)
-        {
-            return -1;
-        }
-    }
-
-    /// <summary>Hierarchy path, deepest-last, capped at five levels — enough to tell 'Wall 3' from
-    /// 'ThickDoor : (guid)' without printing an Apparance path that fills the log line.</summary>
-    private static string PathOf(Transform t)
-    {
-        Scratch.Clear();
-        Transform? cur = t;
-        for (int i = 0; i < 5 && cur != null; i++)
-        {
-            Scratch.Add(cur.name);
-            cur = cur.parent;
-        }
-        Scratch.Reverse();
-        return string.Join("/", Scratch.ToArray());
+        if (!_armed || counts == null || visible == null || counts.Length < 32 || visible.Length < 32)
+            return;
+        Array.Copy(counts, LayerPop, 32);
+        Array.Copy(visible, LayerVis, 32);
+        _layerPopKnown = true;
     }
 
     // ==========================================================================================
-    //  [Perf] GLOW CARDS — the line
+    //  the standalone walk — for windows the SCENE walk rationed away
     // ==========================================================================================
 
     /// <summary>
-    /// Emit the census and drop every reference. It ALWAYS prints, including when it found nothing,
-    /// and when it found nothing it says which shader-name fragments it looked for — a silent
-    /// instrument and an instrument that never ran must never look the same, which is this repo's
-    /// standing rule and was learned the expensive way.
+    /// Sample the census WITHOUT the SCENE walk. This exists because the ModBuild 251 A/B session
+    /// produced exactly one GLOW CARDS sample with a population in it, and that sample landed on a
+    /// five-renderer frame — the census was armed only when <see cref="PerfSceneProfile"/> chose to
+    /// walk, and that walk rations itself down to 4 ms/window and skips up to eight windows in a row.
+    /// An instrument that can only answer on windows somebody else chose is an instrument that
+    /// answers the wrong question, which is what happened.
+    ///
+    /// <para>It is a <c>FindObjectsOfType&lt;Renderer&gt;</c> — the same sweep, and the same default
+    /// suspect — so it is TIMED and RATIONED against <see cref="OwnWalkTargetMs"/> exactly the way
+    /// the SCENE walk is, it only ever runs on a window that walk already declined, and its measured
+    /// cost is printed on the line. It does no SIM half, no root tally, no shader tally and no
+    /// texture census: it reads layer, enabled, isVisible, bounds and the shared material list, and
+    /// nothing else.</para>
     /// </summary>
-    internal static void Log()
+    internal static void RunStandalone(Camera? head)
     {
-        Stopwatch clock = Stopwatch.StartNew();
-        if (!_sampled)
+        if (_ownSkip > 0)
         {
-            VRLog.Info(Scope, "GLOW CARDS — NOT SAMPLED this window. The SCENE walk rationed itself "
-                              + "(see the SCENE line above), so this census was never armed and the "
-                              + "absence of records below carries NO information about the scene. "
-                              + "This sentence exists because an instrument that found nothing and "
-                              + "an instrument that never ran must never look the same.");
+            _ownSkip--;
+            _ranOwnWalk = false;
+            _ownWalkNote = "the standalone walk is rationed off this window (last one measured "
+                           + _lastOwnWalkMs.ToString("F1") + "ms against a " + OwnWalkTargetMs.ToString("F0")
+                           + "ms/window budget; " + _ownSkip + " more window(s) to skip)";
             return;
         }
 
-        StringBuilder sb = new(4096);
+        Stopwatch clock = Stopwatch.StartNew();
+        Begin(head);
+        _ranOwnWalk = true;
+
+        Renderer[] all;
         try
         {
-            sb.Append("GLOW CARDS — the light/glow/decal quads and whether their opacity can work "
-                      + "on this camera. Built for the report 'Diese schwebenden viereckigen Lichter "
-                      + "an dem Tor erscheinen mir komisch' (schwebende_lichter.jpg, 2026-08-24): "
-                      + "three pale hard-edged rectangles on a gate, at the SAME measured brightness "
-                      + "whether the wall behind them is solid or dissolved");
-            AppendGlobals(sb);
-            AppendCards(sb);
-            AppendVerdict(sb);
+            all = UnityEngine.Object.FindObjectsOfType<Renderer>();
         }
         catch (Exception e)
         {
-            sb.Append(" | census threw ").Append(e.GetType().Name).Append(": ").Append(e.Message);
-        }
-        finally
-        {
             clock.Stop();
-            _costMs = clock.Elapsed.TotalMilliseconds;
-            sb.Append(" | INSTRUMENT COST, measured not asserted: ")
-              .Append(_costMs.ToString("F2"))
-              .Append("ms for this line; the collection half is one dictionary lookup per material "
-                      + "slot on the SCENE walk this rides — on the Shader reference that walk had "
-                      + "already resolved — and it adds no scene walk and no extra shader marshal "
-                      + "of its own");
-            Reset();
-        }
-        VRLog.Info(Scope, sb.ToString());
-    }
-
-    /// <summary>The two globals that can make every per-card number moot. Printed FIRST and always,
-    /// because between them they ARE the hypothesis.</summary>
-    private static void AppendGlobals(StringBuilder sb)
-    {
-        bool depthOn = _headKnown && (_headDepth & DepthTextureMode.Depth) != 0;
-        sb.Append(" | DEPTH CONTRACT: head camera depthTextureMode=");
-        sb.Append(_headKnown ? _headDepth.ToString() : "UNKNOWN (no head camera this window)");
-        sb.Append(", [Optimize] HeadDepthPrepass=").Append(_depthDialOn ? "true" : "false");
-        sb.Append(", QualitySettings.softParticles=").Append(_softParticles ? "true" : "false");
-        if (_headKnown && !depthOn)
-        {
-            sb.Append(" ⇒ _CameraDepthTexture IS NOT WRITTEN THIS FRAME. Under D3D11 Unity uses a "
-                      + "REVERSED depth buffer, so an unwritten depth texture reads as the FAR "
-                      + "plane: any fade of the shape saturate((sceneZ - fragZ) * _InvFade) "
-                      + "evaluates to 1 for every fragment, i.e. the card draws at FULL authored "
-                      + "opacity with a hard edge everywhere instead of melting into the surface "
-                      + "behind it. Rig/VRRigDriver.HeadCamera.cs records this failure in the past "
-                      + "tense ('the fade sampled nothing and FAILED OPEN → glow rendered fully "
-                      + "through walls') and the dial above is the A/B for it");
-        }
-        else if (depthOn)
-        {
-            sb.Append(" ⇒ depth IS written, so a depth-fade term can work and this line cannot be "
-                      + "the explanation for a hard-edged card");
-        }
-    }
-
-    private static void AppendCards(StringBuilder sb)
-    {
-        sb.Append(" | POPULATION: ").Append(_matched)
-          .Append(" material slot(s) on ").Append(_distinctGlowShaders)
-          .Append(" distinct glow/light/decal shader(s); ").Append(Cards.Count)
-          .Append(" renderer(s) described below (cap ").Append(MaxCards).Append("), ")
-          .Append(_depthFadeMaterials)
-          .Append(" of them carry a DEPTH-FADE property");
-
-        if (Cards.Count == 0)
-        {
-            sb.Append(" | NOTHING MATCHED. The selector is a case-insensitive SHADER-name contains "
-                      + "over: ").Append(string.Join(", ", ShaderMarks))
-              .Append(". An empty population here means the quads' shader is named nothing like any "
-                      + "of those, NOT that there are no glow quads — widen ShaderMarks against the "
-                      + "'by SHADER' ranking on the [Perf] SCENE line before concluding anything");
+            _ownWalkNote = "the standalone walk threw " + e.GetType().Name + " and collected nothing";
             return;
         }
 
-        for (int i = 0; i < Cards.Count; i++)
+        _ownWalkRenderers = all.Length;
+        int headMask = _headKnown ? _headMask : ~0;
+        var mats = new List<Material>(8);
+        Array.Clear(LayerPop, 0, 32);
+        Array.Clear(LayerVis, 0, 32);
+
+        for (int i = 0; i < all.Length; i++)
         {
-            Card c = Cards[i];
-            sb.Append(" | [").Append(i).Append("] '").Append(c.Path).Append("' shader '")
-              .Append(c.Shader).Append("' material '").Append(c.Material).Append("' q")
-              .Append(c.Queue)
-              .Append(c.Enabled ? " enabled" : " DISABLED")
-              .Append(c.Visible ? "+visible" : "+offscreen")
-              .Append(c.Submitted ? "+submitted" : "+not-submitted")
-              .Append(" layer ").Append(c.Layer)
-              .Append(" AABB c(").Append(c.Centre.x.ToString("F1")).Append(',')
-              .Append(c.Centre.y.ToString("F1")).Append(',').Append(c.Centre.z.ToString("F1"))
-              .Append(") s(").Append(c.Size.x.ToString("F2")).Append(',')
-              .Append(c.Size.y.ToString("F2")).Append(',').Append(c.Size.z.ToString("F2"))
-              .Append(") ~").Append(c.PixelSpan.ToString("F0")).Append("px");
-
-            sb.Append(" | blend src=").Append(BlendName(c.Src)).Append(" dst=").Append(BlendName(c.Dst))
-              .Append(" zwrite=").Append(c.ZWrite < 0 ? "n/a" : c.ZWrite.ToString());
-            if (c.Dst == 1)
+            Renderer r = all[i];
+            if (r == null)
+                continue;
+            int layer = r.gameObject.layer;
+            bool vis = r.isVisible;
+            LayerPop[layer]++;
+            if (vis)
+                LayerVis[layer]++;
+            bool subm = r.enabled && vis && (headMask & (1 << layer)) != 0;
+            OfferRenderer(r, subm, layer);
+            try
             {
-                sb.Append(" ⇒ ADDITIVE: the destination factor is One, so this material's contribution "
-                          + "is ADDED to whatever is behind it and a colour-ALPHA write cannot dim it "
-                          + "at all — the wall fade's alpha ramp is INERT on this renderer by "
-                          + "construction, whatever the block below says");
-            }
-
-            sb.Append(" | depth-fade props: ")
-              .Append(string.IsNullOrEmpty(c.DepthProps) ? "NONE" : c.DepthProps)
-              .Append(", SOFTPARTICLES_ON=").Append(c.SoftKeyword ? "yes" : "no");
-
-            sb.Append(" | tint: ");
-            if (string.IsNullOrEmpty(c.TintProp))
-            {
-                sb.Append("no _TintColor/_Color/_BaseColor on this material ⇒ the wall fade cannot "
-                          + "classify it as an alpha prop at all");
-            }
-            else
-            {
-                sb.Append(c.TintProp).Append(" authored a=").Append(c.Tint.a.ToString("F3"));
-                if (!c.HasBlock)
+                r.GetSharedMaterials(mats);
+                for (int m = 0; m < mats.Count; m++)
                 {
-                    sb.Append(", NO property block on the renderer ⇒ nothing is driving this card "
-                              + "right now (a CLAIMING answer, not a rendering one)");
-                }
-                else if (!c.BlockHasTint)
-                {
-                    sb.Append(", a property block IS attached but it carries no ").Append(c.TintProp)
-                      .Append(" ⇒ something else owns this renderer's block");
-                }
-                else
-                {
-                    sb.Append(", LIVE block a=").Append(c.BlockAlpha.ToString("F3"));
-                    if (c.BlockAlpha < 0.05f)
-                    {
-                        sb.Append(" ⇒ the fade IS writing this card to invisible. If it is still "
-                                  + "bright in the headset the write is being ignored, and the blend "
-                                  + "state above says whether it ever could have worked");
-                    }
+                    Material? mat = mats[m];
+                    if (mat == null)
+                        continue;
+                    Shader? sh = mat.shader;
+                    if (sh != null)
+                        Offer(r, mat, sh, subm, 0f);
                 }
             }
-
-            sb.Append(" | keywords: ").Append(c.Keywords);
+            catch (Exception)
+            {
+                // a renderer with no readable material array still counts through its geometry marks
+            }
         }
+        _layerPopKnown = true;
+
+        clock.Stop();
+        _lastOwnWalkMs = clock.Elapsed.TotalMilliseconds;
+        _ownSkip = _lastOwnWalkMs <= OwnWalkTargetMs
+            ? 0
+            : Mathf.Min(MaxOwnSkips, Mathf.CeilToInt((float)(_lastOwnWalkMs / OwnWalkTargetMs)) - 1);
+        _ownWalkNote = "STANDALONE WALK: the SCENE walk skipped this window, so this census walked "
+                       + _ownWalkRenderers + " renderer(s) itself in "
+                       + _lastOwnWalkMs.ToString("F1") + "ms (renderer sweep only — no SIM half, no "
+                       + "root/shader tally, no texture census). It is rationed to "
+                       + OwnWalkTargetMs.ToString("F0") + "ms/window, so the next "
+                       + _ownSkip + " window(s) will skip it";
     }
 
-    private static void AppendVerdict(StringBuilder sb)
+    // ==========================================================================================
+    //  ScenarioCamera — the game's own renderer of this scene
+    // ==========================================================================================
+
+    /// <summary>The game's own scenario camera, cached. <c>Camera.allCameras</c> ALLOCATES an array
+    /// on every read, so it is probed at most once per window and only while unresolved — the same
+    /// discipline VRRigDriver.HeadCamera.cs applies to the same lookup.</summary>
+    private static Camera? ResolveScenarioCamera()
     {
-        if (Cards.Count == 0)
-            return;
-
-        bool depthOn = _headKnown && (_headDepth & DepthTextureMode.Depth) != 0;
-        int additive = 0, driven = 0, unclaimed = 0;
-        for (int i = 0; i < Cards.Count; i++)
+        if (_scenarioCam != null)
+            return _scenarioCam;
+        try
         {
-            if (Cards[i].Dst == 1)
-                additive++;
-            if (Cards[i].BlockHasTint)
-                driven++;
-            else if (!string.IsNullOrEmpty(Cards[i].TintProp) && !Cards[i].HasBlock)
-                unclaimed++;
+            Camera[] all = Camera.allCameras;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] != null && all[i].name == "ScenarioCamera")
+                {
+                    _scenarioCam = all[i];
+                    break;
+                }
+            }
         }
-
-        sb.Append(" | VERDICT: ");
-        if (_depthFadeMaterials > 0 && !depthOn)
+        catch (Exception)
         {
-            sb.Append(_depthFadeMaterials)
-              .Append(" of the cards above depend on a depth texture this camera does not write. "
-                      + "THAT IS SUFFICIENT ON ITS OWN to make them draw hard-edged at full "
-                      + "opacity, and it is independent of the wall fade — which is exactly the "
-                      + "'dauerhaft so egal was ein oder ausgeblendet wird' in the report. THE "
-                      + "TEST: set [Optimize] HeadDepthPrepass = true and look at the same gate. "
-                      + "It is not free — on the built-in forward path Unity builds the depth "
-                      + "texture by re-submitting every opaque renderer through its shadow-caster "
-                      + "pass, once PER EYE PASS, so read the [Perf] FRAME line on both sides of "
-                      + "the flip before keeping it");
+            _scenarioCam = null;
         }
-        else if (_depthFadeMaterials == 0)
-        {
-            sb.Append("no card carries a depth-fade property, so the missing depth texture is NOT "
-                      + "why these draw hard-edged, and the depth prepass would not fix them");
-        }
-        else
-        {
-            sb.Append("depth is written and the cards can fade, so look at the blend state and the "
-                      + "block alphas above, not at the camera");
-        }
-
-        sb.Append(". CLAIMING: ").Append(driven)
-          .Append(" card(s) carry a live fade write, ").Append(unclaimed)
-          .Append(" carry none at all, ").Append(additive)
-          .Append(" are additive and cannot be dimmed by an alpha write however they are claimed");
+        return _scenarioCam;
     }
-
-    private static string BlendName(int v) => v switch
-    {
-        -1 => "n/a",
-        0 => "Zero",
-        1 => "One",
-        2 => "DstColor",
-        3 => "SrcColor",
-        4 => "OneMinusDstColor",
-        5 => "SrcAlpha",
-        6 => "OneMinusSrcColor",
-        7 => "DstAlpha",
-        8 => "OneMinusDstAlpha",
-        9 => "SrcAlphaSaturate",
-        10 => "OneMinusSrcAlpha",
-        _ => v.ToString()
-    };
 
     private static void Reset()
     {
-        Cards.Clear();
+        for (int i = 0; i < Pool.Count; i++)
+            Recycle(Pool[i]);
+        Pool.Clear();
         ShaderInterest.Clear();
         SeenRenderers.Clear();
         Scratch.Clear();
         _armed = false;
         _sampled = false;
-        _probes = 0;
+        _slotsOffered = 0;
+        _renderersOffered = 0;
+        _boundsReads = 0;
         _matched = 0;
-        _depthFadeMaterials = 0;
+        _dropped = 0;
+        _droppedMaxSpan = 0f;
+        _poolMinScore = 0f;
         _distinctGlowShaders = 0;
+        _layerPopKnown = false;
+        _curRendererId = 0;
+        _curMarks = Mark.None;
+        _curSpan = 0f;
+        _curSubmitted = false;
+        _head = null;
         _headDepth = DepthTextureMode.None;
         _headKnown = false;
+        _headName = "n/a";
+        _headPath = RenderingPath.UsePlayerSettings;
+        _headMask = 0;
+        _scenarioKnown = false;
+        _scenarioPath = RenderingPath.UsePlayerSettings;
+        _scenarioMask = 0;
+        _scenarioBuffers = 0;
+        _projectionKnown = false;
+        _pixelsPerUnit = 0f;
+        _ranOwnWalk = false;
+        _ownWalkRenderers = 0;
     }
 }

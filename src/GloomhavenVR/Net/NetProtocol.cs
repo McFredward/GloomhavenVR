@@ -416,7 +416,109 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 252;
+    public const ushort ModBuild = 253;
+    // Build 253: THE GATE RECTANGLES — AN INSTRUMENT, NOT A GUESS. NO BEHAVIOUR CHANGE AT ALL.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. 253 SUPERSEDES 252: it carries
+    // every 252 fix and adds only measurement, so there is no reason to test 252.
+    //
+    // WHY THERE IS NO FIX IN HERE. Two hypotheses died this round and neither was replaced by a
+    // third that the evidence supports, so nothing speculative was shipped.
+    //   * DEPTH TEXTURE — dead by his own A/B. second_logs/Player.log shows depthTextureMode=Depth
+    //     with [Optimize] HeadDepthPrepass=true and the rectangles unchanged. ModBuild 251's own
+    //     census had already refuted its verdict and nobody read it: the 3 cards it counted as
+    //     depth-fade dependent are offscreen, not-submitted shield clouds on stone golems, while
+    //     every gate-area card printed "depth-fade props: NONE". TELL HIM TO PUT THE DIAL BACK TO
+    //     false — it costs a full extra scene submission per eye pass on the forward path in a
+    //     room already at 11.65-12.00 ms against 11.11 ms, and it buys nothing here.
+    //   * THE MOD'S OWN MATERIAL SWAP — dead by grep. WallSegmentFade.Dissolve.cs BuildSwapMaterial
+    //     replaces a prop's material with a copy on the OPAQUE per-pixel-clip masonry shader, which
+    //     would turn an alpha card into exactly this rectangle. `DISSOLVE-SWAP:` returns ZERO hits
+    //     in both hardware logs: it never fired. Nothing else in the mod writes blend state, a
+    //     shader or a render queue onto a game prop.
+    //   * THE LIGHT SHAFT — dead by photograph, and it was MY lead. walls_gone.jpg shows
+    //     LightShaft_Prefab rendering correctly as the large soft cone descending onto the gate.
+    //     It is a 7.5 wu volume at c(-8.3,4.1,1.1); the rectangles are ~0.3 wu panes on the door
+    //     faces in a different plane. Its _TOGGLE_CAMFADE_ON and "no colour property the fade can
+    //     write" are true facts about the shaft and irrelevant to this report.
+    //   * THE CULLING MASK — dead by arithmetic. head 0xFFFFFFFF vs ScenarioCamera 0x700FFF17
+    //     differ on layers 3,5,6,7,20-27,31, and the per-layer census shows renderers on exactly
+    //     ONE of them: layer 27, the mod's own. Every other VR-only layer is empty. So
+    //     [Optimize] HeadMaskFromScenarioCamera would change nothing visible in this room — worth
+    //     recording, because it looks like an obvious lever and is not one.
+    //
+    // THE SURVIVING HYPOTHESIS, AND WHY THE FULL QUOTE MATTERS. His report ends
+    // "— ich kann mich nicht erinnern, dass es flat sowas gab", and that clause is load-bearing:
+    // it makes this a question about the difference between the camera the GAME draws with and the
+    // camera the MOD draws with. There are three such differences and two are now dead. The third:
+    // the head camera is Forward/Forward (Plugin.ForwardRendering is a hard const true;
+    // VRRigDriver.HeadCamera.cs:357 forces it), while the game's ScenarioCamera runs DEFERRED —
+    // inferred, not asserted, from TilesOcclusionGenerator attaching its buffer at
+    // CameraEvent.BeforeGBuffer, an event that exists only on the deferred path. If a game shader
+    // offers a Deferred pass and no ForwardBase, Unity draws it on OUR camera through the shader's
+    // FALLBACK — a different program with different blending. An emissive card composited by the
+    // deferred lighting pass, drawn flat by a fallback on forward, is a pale opaque quad at full
+    // albedo: permanent, indifferent to every fade, and absent on the flat screen. That is every
+    // symptom he described, and it is UNPROVEN until the next log names the renderer.
+    //
+    // WHAT THE PHOTOGRAPH ESTABLISHES ON ITS OWN (7x crop of the middle quad): a flat quad in a
+    // plane aligned with neither the wall nor the door; a soft bright hotspot left of centre
+    // falling off to a flat pale surround and then a HARD STRAIGHT EDGE all round; faint mottling.
+    // That is a soft glow texture whose ALPHA is not reaching the blender — a glow texture's RGB is
+    // pale nearly everywhere and only its alpha carries the shape. Not a light, not a lantern pane.
+    //
+    // THE CENSUS, REBUILT. ModBuild 251's version failed for a reason worth keeping: its cap of 16
+    // was filled by 0-px offscreen monster effects while a 583-px card sat at index 4, because it
+    // ranked by nothing and its pixel-span helper floors to 0 below 120 px. Now:
+    //   * FOUR INDEPENDENT SELECTION MARKS, each recorded per record: Shader (name list), Queue
+    //     (>= 2900; 2450 alpha-test foliage excluded or it drowns the ranking), Layer (VR-only
+    //     layers), and PLATE — submitted, >= 24 px, thinnest AABB axis <= 22% of the longest. The
+    //     Plate mark is the only one that does not need to know what the subject is called. A card
+    //     is a quad.
+    //   * Pooled at 96 and RANKED BY ON-SCREEN PIXEL SPAN, with the drop count and the largest
+    //     dropped span printed. Its own unfloored span, not the texture census's.
+    //   * The full property table off Shader.GetPropertyCount/GetPropertyName/GetPropertyType —
+    //     not nine hard-coded names — plus every keyword, every material tag, and texture
+    //     name/size/format with explicit NO-ALPHA-CHANNEL and <NULL — Unity substitutes white>
+    //     call-outs, each of which independently produces a flat opaque rectangle.
+    //   * BLEND STATE NOW SAYS SOMETHING. 251 printed src=n/a dst=n/a zwrite=n/a for every single
+    //     card because it read three properties and shrugged when they were absent. Absence IS the
+    //     answer: Unity has no runtime query for a pass's fixed-function blend, so a shader that
+    //     hardcodes `Blend One One` has nothing to read. The line says that in words and falls back
+    //     to the tags, which are readable.
+    //   * SCREEN RECT PER CARD, projected through the head camera in 3840x2160 screenshot pixels
+    //     with a centre point — the identification key against the photographs. The three
+    //     rectangles in schwebende_lichter.jpg sit near (1640,1180), (1960,1220), (2470,1290).
+    //   * PATH CONTRAST: both cameras' rendering path, culling mask and command-buffer count, and
+    //     which POPULATED layers only VR draws.
+    //   * The verdict is derived ONLY from cards that are submitted and >= 24 px, and it WITHHOLDS
+    //     ITSELF when that set is empty ("NO CARD IN THIS SAMPLE COULD BE THE SUBJECT") — the
+    //     sentence 251 needed and did not have.
+    //   * A standalone renderer-only sweep, self-timed and rationed to 2 ms/window, runs ONLY on
+    //     windows the SCENE walk already declined to pay for, so sampling is no longer hostage to
+    //     that walk's rationing. Plus a best-sample latch, explicitly labelled stale.
+    // Added per-renderer cost on a SCENE window: one Renderer.bounds read per SUBMITTED renderer
+    // (~1,400 in that room) on top of the dictionary lookup 251 already paid. Nothing runs per
+    // frame. The line PRINTS ITS OWN PRICE rather than claiming one — no hardware was available.
+    //
+    // FIVE THINGS IN MY OWN BRIEF THAT WERE WRONG, recorded because four of the five are the same
+    // failure: an inference written down as a reading.
+    //   (1) "Chase LightShaft_Prefab first" — falsified by the photograph, see above.
+    //   (2) "the MeshRenderer called 'Glow' did NOT appear in the population, which is itself
+    //       informative" — it DID appear, as entry [6], and it is the CANDLE's glow
+    //       (CR_GE_Candle_V1/CandlePivot/CandleFlame/Glow, VFX/ParticleMasterUnlitAdd_Shd). It
+    //       flaps between ThickDoor and Wall 3 because it physically sits between them, and the
+    //       candle renders correctly in the photograph. An informative absence that was not absent.
+    //   (3) I truncated his quote and dropped "ich kann mich nicht erinnern, dass es flat sowas
+    //       gab" — the one clause that turns this into a flat-vs-VR question.
+    //   (4) "that log is otherwise useless / its single SCENE walk" — .planning/debug/Player.log has
+    //       FOUR non-empty GLOW CARDS samples (7105, 9189, 12226, 15514) and its GFX/SCENE lines
+    //       carry both camera masks and the per-layer census, which is where every finding above
+    //       came from. The single-5-renderer sample is in second_logs/, a different file.
+    //   (5) "the p_fire_torch family — LIVE block a=0.000 yet reported bright" — the census records
+    //       those four as DISABLED+offscreen+not-submitted with AABB size (0,0,0). Nothing reported
+    //       them bright. That was my inference wearing a reading's clothes.
+    //
     // Build 252: THE WALL FADE, ROUND TWO — AND THE ROUND-ONE FIX WAS PART OF THE PROBLEM.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
