@@ -153,14 +153,75 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// <c>OnDisable</c> raises <c>ActiveChanged(false)</c>, un-highlights and can clear the
 /// EventSystem selection + invoke <c>onDeselected</c> (ExtendedButton.cs:300-320), and an
 /// OPEN element picker mid-choice must survive untouched. It also leaves the requirement-C
-/// items split alone by construction: <see cref="ItemsPopulated"/> and
-/// <see cref="EnforceItemsSplit"/> both key on slot <c>activeSelf</c>, which the hide never
-/// writes — so a hidden bar neither releases its dock nor re-exposes a plain symbol, and
-/// coming back needs no second placement. The fit is FROZEN while hidden
+/// items split alone by construction: <see cref="ItemsPopulated"/> keys on slot
+/// <c>activeSelf</c>, which the hide never writes, and <see cref="EnforceItemsSplit"/> keys on
+/// hierarchy containment plus each slot's own Graphics — so a hidden bar neither releases its
+/// dock nor re-exposes a plain symbol, and coming back needs no second placement. The fit is FROZEN while hidden
 /// (<c>ConvertedPanel.FitEnabled</c> off, the existing stability hold) so the panel returns
 /// at exactly the geometry it left with. Input is impossible meanwhile: both interactors
 /// skip a canvas that is not <c>isActiveAndEnabled</c> (RayUguiDriver:132/312,
 /// PokeInteractor:298).
+///
+/// ─── THE FOUR DOCKS SHARE ONE ROOT, AND THAT IS HOW THE BRILLE CAME BACK ────────────────────
+/// User report 2026-08-24 (ModBuild 242), verbatim: „Der Gegenstand der Brille wurde wieder in
+/// der Entscheidungsarea angezeigt. Alle Gegenstände sollen nur über die gebaute
+/// Item-Interaktion nutzbar sein. Die jeweiligen Symbole sollen daher nicht erscheinen. Dort
+/// sollen NUR die Entscheidungen erscheinen, die neben dem eigentlichen Auslösen des
+/// Gegenstands an Entscheidungen getroffen werden müssen. Die Brille fällt da nicht rein —
+/// während einer Angriffsaktion kann die Brille als Karte in den Bereich gelegt und ausgelöst
+/// werden."
+///
+/// <para>THE LINE, AS A TESTABLE RULE: a widget belongs in the decision area iff answering it is
+/// a DECISION — a target, a number, an either/or, an element pick. A widget whose entire effect
+/// is "trigger this item" does not, because the item interaction (card into the board's recess,
+/// poke USE) is the only way an item may be triggered. Per dock that resolves to:
+/// <c>UseBarItems</c> carries triggers (plain slots) AND decisions (sub-choice slots) and is
+/// therefore SPLIT; <c>UseBarActiveBonus</c> likewise (item-backed, option-less, optional rows
+/// are triggers — <see cref="EnforceActiveBonusSplit"/>); <c>UseBarAbilities</c> and
+/// <c>UseBarAugments</c> carry NOTHING BUT decisions (end-of-ability infusion / choose-ability;
+/// ability-card element consumes — <c>ConsumeButton.abilityConsume</c>, never an item) and are
+/// not filtered at all. That is why the rule is per-dock and never a blanket suppression.</para>
+///
+/// <para>ROOT CAUSE, and it is not a regression of a rule that stopped firing — it is a rule that
+/// was NEVER reached. All four bar singletons hang off ONE game object (every conversion in the
+/// hardware log reports <c>root 'UseItemsBar'</c>, for the bonus dock as well as the augment
+/// dock), so a dock converts a subtree that contains the OTHER bars' slot containers too, and
+/// <see cref="ConvertedPanel"/>'s content fit measures <c>root.GetComponentsInChildren</c> —
+/// the whole subtree. The reporting log proves it: the fit of
+/// <c>Panel_UseBarAugments</c> measured <c>'UIUseItem(Clone)/Slot' 60x60px at (-64,-30)</c> beside
+/// the augment's own <c>'UIUseConsumeAbilityElement/Slot'</c> at (4,-30) — two tiles, 128x60 px,
+/// exactly the picture in brille.jpg — and the player then laser-hovered <c>UIUseItem(Clone)</c>
+/// and the Eagle-Eye_Goggles art mip-baked. Meanwhile <see cref="EnforceItemsSplit"/>, the pass
+/// whose whole job is "a plain item symbol never shows", was gated on the ITEMS dock being
+/// converted — and the items dock only converts for a SUB-CHOICE slot, which the Brille has none
+/// of. Its own log line (<c>items-bar SPLIT</c>) reads ZERO in both hardware logs of that
+/// session: the rule never ran, in any build, for any plain-only bar. The gate is now the
+/// MEASURED question instead of a proxy for it — is the items bar's slot container inside the
+/// subtree some dock actually converted (<see cref="ItemsHostDock"/>) — which is a predicate that
+/// can be observed to FAIL and says so in the log.</para>
+///
+/// <para>AND THE SUPPRESSION IS RENDER-LEVEL, NOT <c>SetActive(false)</c> — that change is what
+/// makes widening the gate safe. Three mod flows resolve an item's slot through
+/// <c>CardsGameApi.LiveItemsBarSlot</c>, which requires an ACTIVE object: the take-damage shield
+/// placement (<c>ItemsPile.TickTakeDamagePick</c>/<c>HandleTakeDamageDrop</c> — without it the
+/// recess never appears and a shield card is UNPLACEABLE, a deadlock, which is worse than the
+/// bug), the untoggle-on-grab-back path, and the ordinary place-to-use confirm, whose fallback
+/// (<c>UseItemService</c> direct) silently loses the FIXED-element consume auto-resolve that the
+/// slot click performs. Disabling the slot's <see cref="Graphic"/> components removes every pixel
+/// and every raycast target while leaving <c>gameObject.activeSelf</c> — and the game's own
+/// pooling, and <c>ExtendedButton.OnDisable</c>'s deselect side effects — untouched. The row stays
+/// fully clickable BY CODE and is only invisible, which is the same shape
+/// <see cref="EnforceActiveBonusSplit"/> already relies on.</para>
+///
+/// <para>REJECTED, so a later round does not re-try them: (a) hiding the whole augment/ability
+/// dock — those are the decisions the user explicitly asked to KEEP ("die Entscheidungen, die
+/// neben dem eigentlichen Auslösen des Gegenstands getroffen werden müssen"); (b) making the
+/// items split unconditional with <c>SetActive(false)</c> — that is the shield deadlock above;
+/// (c) standing the split down during take-damage (what <c>ItemsPile.EnforceChoiceSlotSplit</c>
+/// must do for its half) — unnecessary here, because the render hide does not break the
+/// active-slot seam, so the OnAttacked item symbols are suppressed too and the user's rule holds
+/// during a damage decision as well; (d) fixing it on the wire — the peer never saw this leak at
+/// all (see below), it is purely what the OWNER's board draws.</para>
 ///
 /// MP — THE BARS THEMSELVES NOW RIDE THE WIRE (record 25; the paragraph below used to read
 /// "zero wire changes"). Every interaction still is a real widget click on local-player UI and
@@ -173,6 +234,15 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// identity, which for these widgets is CARD ART and has no textual form at all (see
 /// <c>Net.NetProtocol.ExtIdUseBars</c>). The focus HIDE above travels with it: a render-hidden
 /// bar is dropped from the published mask, so a peer's copy empties in the same frames.
+/// <para>THE BRILLE LEAK NEVER RODE THIS WIRE, and that is why the fix is sender-side presentation
+/// with NO wire change at all: <see cref="BarDock.SampleWireSlots"/> walks the bar's OWN
+/// <c>container</c>, so the augment dock published <c>augments: 1 slot(s)</c> while its owner was
+/// looking at TWO tiles. The peer's mirror was already the picture the user asked for and the
+/// owner's was not; after this pass the two agree — one tile each — which is a strict improvement
+/// in the mirror's fidelity and costs no bit. The plain-item render hide is additionally taught to
+/// the sampler (<see cref="IsPlainRenderHidden"/>) so that when the ITEMS dock itself is up for a
+/// sub-choice slot, a suppressed-but-active plain slot can never become a phantom tile on the peer's
+/// board — the failure mode the empty-bar drop below was written for, one level down.</para>
 /// Reversibility: pure CanvasConversion (Release restores the exact 2D home); nothing
 /// destroyed, nothing re-layered permanently; every pass TickGuard-isolated by the module.
 /// </summary>
@@ -419,8 +489,10 @@ internal sealed class UseBarsSurface
     /// (<see cref="EnforceActiveBonusSplit"/>) which removes only the item-backed rows that
     /// need no further option — the initiative ± / forgo / choose-ability / element-consume
     /// rows it still keeps, for exactly the reason stated here.
-    /// A slot this surface itself suppressed (see <see cref="EnforceItemsSplit"/>) is
-    /// inactive and naturally does not count.
+    /// A slot this surface itself suppressed (see <see cref="EnforceItemsSplit"/>) is a PLAIN slot
+    /// and is excluded by the sub-choice test here anyway — note that since ModBuild 243 that
+    /// suppression is a render hide, so such a slot is still <c>activeSelf</c> and the exclusion is
+    /// carried by the predicate, not by the active flag.
     /// </summary>
     private static bool ItemsPopulated()
     {
@@ -666,9 +738,9 @@ internal sealed class UseBarsSurface
             // Button will ich hier also nicht sehen"). The mask above is set from "this bar is
             // DOCKED and not focus-hidden", but the rows a peer draws come from the SLOT WALK, and
             // the two can legitimately disagree: every slot in a docked bar may be suppressed by
-            // the place-to-use split (<see cref="EnforceItemsSplit"/>'s plain-item half and
-            // <c>ItemsPile.EnforceChoiceSlotSplit</c>'s choice half both SetActive(false), which is
-            // exactly what <see cref="BarDock.SampleWireSlots"/> skips), while the DOCK itself only
+            // the place-to-use split (<c>ItemsPile.EnforceChoiceSlotSplit</c>'s choice half
+            // SetActive(false)s them; <see cref="EnforceItemsSplit"/>'s plain-item half disables their
+            // Graphics — <see cref="BarDock.SampleWireSlots"/> skips both), while the DOCK itself only
             // releases on the next level-triggered tick — and during take-damage/surrender the two
             // halves stand down and re-arm on different ticks again. So "docked, zero visible
             // slots" is a reachable steady state, not a one-frame race.
@@ -892,9 +964,9 @@ internal sealed class UseBarsSurface
     /// whole point; (c) doing this on the wire only — the machine that raised the bogus bar would
     /// still show it to its own player, which is half of what he reported.</para>
     ///
-    /// <para>Interaction with the requirement-C items split, verified: the split keys on
-    /// <c>_itemsDock.Docked != null</c> and on slot <c>activeSelf</c>, and this hide writes
-    /// neither — so a hidden items bar keeps its dock, keeps its plain slots suppressed, and
+    /// <para>Interaction with the requirement-C items split, verified: the split keys on hierarchy
+    /// containment (<see cref="ItemsHostDock"/>) and on each plain slot's own Graphics, and this hide
+    /// writes neither — so a hidden items bar keeps its dock, keeps its plain slots suppressed, and
     /// keeps its choice slots active. <see cref="ItemsPopulated"/> reads the same
     /// <c>activeSelf</c> flags, so <c>WantConverted</c> does not flip either: no release, no
     /// re-convert, and returning to the owner needs no second card placement.</para>
@@ -1057,6 +1129,16 @@ internal sealed class UseBarsSurface
     private readonly List<KeyValuePair<CItem, UIUseItemScenario>> _plainHidden = new(4);
     private int _lastPlainHiddenCount = -1;
 
+    /// <summary>The Graphics this surface disabled to render-hide those slots, held by reference so
+    /// the restore lands even after the game pooled the slot away — the same discipline
+    /// <c>BarDock._focusHiddenCanvases</c> follows. Only components that were ENABLED at hide time
+    /// are recorded, so a restore can never switch on something the game itself had off.</summary>
+    private readonly List<Graphic> _plainHiddenGraphics = new(16);
+
+    /// <summary>Reused walk buffer for <see cref="HidePlainSlotGraphics"/> — the split re-asserts
+    /// every tick while a dock is up and must not allocate doing it.</summary>
+    private static readonly List<Graphic> PlainGraphicScratch = new(16);
+
     /// <summary>
     /// Requirement C, mixed-bar case: while the items bar IS docked (because at least one
     /// visible slot carries a sub-choice), the PLAIN slots ride along in the converted subtree
@@ -1070,24 +1152,25 @@ internal sealed class UseBarsSurface
     /// </summary>
     private void EnforceItemsSplit()
     {
-        bool docked = _itemsDock.Docked != null;
         UIUseItemsBar? bar = Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance : null;
+        BarDock? host = ItemsHostDock(bar);
+        ReportItemsHost(host, bar);
 
-        if (!docked || bar == null)
+        if (host == null || bar == null)
         {
             RestorePlainHidden(bar);
             return;
         }
 
+        int before = _plainHidden.Count;
         foreach (KeyValuePair<CItem, UIUseItemScenario> kv in bar.ItemSlots)
         {
             UIUseItemScenario slot = kv.Value;
             if (slot == null || !slot.gameObject.activeSelf)
                 continue;
             if (CardsGameApi.SlotNeedsSubChoice(slot))
-                continue; // choice slot — the reason the bar is docked; keep it
-            slot.gameObject.SetActive(false);
+                continue; // choice slot — a DECISION; ItemsPile.EnforceChoiceSlotSplit owns that half
             bool known = false;
             for (int i = 0; i < _plainHidden.Count; i++)
                 if (ReferenceEquals(_plainHidden[i].Value, slot))
@@ -1095,43 +1178,229 @@ internal sealed class UseBarsSurface
                     known = true;
                     break;
                 }
+            // Level-triggered, on the LIVE graphics rather than on the ledger: the game re-Shows
+            // pooled slots and flips masks/highlights inside them at will (UIUseSlot.Refresh), so a
+            // once-only pass would let a re-enabled Image back onto the board.
+            int hid = HidePlainSlotGraphics(slot);
             if (!known)
+            {
                 _plainHidden.Add(kv);
+                ReportPlainHidden(kv.Key, slot, host, hid);
+            }
         }
 
         if (_plainHidden.Count != _lastPlainHiddenCount)
         {
+            bool grew = _plainHidden.Count > before;
             _lastPlainHiddenCount = _plainHidden.Count;
             if (_plainHidden.Count > 0)
-                VRLog.Info("WorldUI", $"USE BARS: items-bar SPLIT — {_plainHidden.Count} plain-use slot(s) hidden " +
-                                      "from the docked bar (plain items activate by placing the card into the " +
-                                      "board's item slot); choice slots (element sub-picks) remain docked.");
+                VRLog.Info("WorldUI", $"USE BARS: items-bar SPLIT — {_plainHidden.Count} plain-use slot(s) " +
+                                      $"RENDER-hidden inside the docked '{host.Name}' subtree (plain items are " +
+                                      "activated by placing the card into the board's item slot; the slot object " +
+                                      "stays ACTIVE so LiveItemsBarSlot — and with it the take-damage shield " +
+                                      "placement and the fixed-element consume auto-resolve — keeps working). " +
+                                      "Choice slots (element sub-picks) are untouched here.");
+            if (grew)
+                ReArmDockedFits();
         }
     }
 
-    /// <summary>Restore every slot this surface hid, but only where the bar still maps the same
-    /// item to the same slot AND the bar is still shown — otherwise the game has already taken
-    /// the slot back (hidden/pooled) and re-activating would corrupt its pooling.</summary>
+    /// <summary>
+    /// THE FALSIFIER, and the gate. Which converted dock — if any — actually DRAWS the items bar's
+    /// slot container? A <see cref="ConvertedPanel"/> hosts everything under the root it converted
+    /// and the content fit measures that whole subtree, so this is the literal question "are the
+    /// item symbols on the board right now", asked of the hierarchy instead of inferred from which
+    /// dock the surface believes is up. It can answer NO while the user is looking at an item
+    /// symbol — in which case the model behind this pass is wrong and
+    /// <see cref="ReportItemsHost"/>'s line says so in as many words, rather than the pass silently
+    /// doing nothing (the ModBuild 242 shape: <c>items-bar SPLIT</c> read zero and nobody could tell
+    /// "the predicate said no" from "the gate was never true").
+    /// </summary>
+    private BarDock? ItemsHostDock(UIUseItemsBar? bar)
+    {
+        RectTransform? container = bar != null ? ItemsContainer() : null;
+        if (container == null)
+            return null;
+        for (int i = 0; i < _docks.Length; i++)
+        {
+            RectTransform? target = _docks[i].Docked?.Target;
+            if (target != null && container.IsChildOf(target))
+                return _docks[i];
+        }
+        return null;
+    }
+
+    /// <summary>Name of the dock last reported as hosting the item symbols (null = none), so the
+    /// containment verdict costs one line per change and nothing per tick.</summary>
+    private string? _loggedItemsHost;
+    private bool _loggedItemsHostNone;
+
+    /// <summary>Say — once per change — WHERE the item symbols are being drawn, or that nothing
+    /// draws them. Both directions are logged: "no dock hosts them" is the falsifying answer and is
+    /// worth exactly as much as the positive one.</summary>
+    private void ReportItemsHost(BarDock? host, UIUseItemsBar? bar)
+    {
+        if (host == null)
+        {
+            if (bar == null)
+            {
+                // No bar singleton yet — there is nothing to be contained anywhere, and saying so
+                // before the game has built the HUD would be noise, not evidence. The verdict is
+                // deliberately NOT latched here, so the first line after the bar exists still prints.
+                _loggedItemsHost = null;
+                return;
+            }
+            if (_loggedItemsHostNone)
+                return;
+            _loggedItemsHost = null;
+            _loggedItemsHostNone = true;
+            VRLog.Info("WorldUI", "USE BARS: item-symbol containment — NO converted dock holds the items " +
+                                  "bar's slot container, so no plain item symbol can be on the board and the " +
+                                  "split stands down. If an item symbol IS visible while this line is the last " +
+                                  "one, the containment model is wrong (the four bars were believed to share " +
+                                  "one root object) and THAT is the bug, not the predicate.");
+            return;
+        }
+        _loggedItemsHostNone = false;
+        if (_loggedItemsHost == host.Name)
+            return;
+        _loggedItemsHost = host.Name;
+        VRLog.Info("WorldUI", $"USE BARS: item-symbol containment — the items bar's slot container is INSIDE " +
+                              $"the converted '{host.Name}' subtree, i.e. every active item slot is being drawn " +
+                              "in the decision area whether or not the items dock itself is up. All four bar " +
+                              "singletons hang off one game object, so this is the normal case, not an anomaly " +
+                              "— it is how the Brille's symbol reached brille.jpg. The plain-use symbols are " +
+                              "suppressed below; sub-choice slots are decisions and stay.");
+    }
+
+    /// <summary>
+    /// Name what was suppressed and — the half a hide must never leave unsaid — whether the thing
+    /// suppressed is still reachable through the VR item interaction. Reachability is read from the
+    /// item fan itself (<c>ItemsPile.Current.Chips</c>: a chip exists for this CItem), because that
+    /// chip IS the alternative route; no chip means this pass just removed the only affordance for
+    /// an item the game is offering, which is a deadlock and is logged as a WARNING, loudly, rather
+    /// than passing for a successful hide.
+    /// </summary>
+    private static void ReportPlainHidden(CItem item, UIUseItemScenario slot, BarDock host, int graphics)
+    {
+        string name = item != null && !string.IsNullOrEmpty(item.Name) ? item.Name : "<unnamed item>";
+        bool reachable = false;
+        try
+        {
+            IReadOnlyList<ItemsPile.ItemChip>? chips = ItemsPile.Current?.Chips;
+            for (int i = 0; chips != null && i < chips.Count && !reachable; i++)
+            {
+                ItemsPile.ItemChip chip = chips[i];
+                reachable = chip != null && chip.Item != null && ReferenceEquals(chip.Item, item);
+            }
+        }
+        catch (System.Exception)
+        {
+            reachable = false; // an unreadable fan is not evidence of reachability
+        }
+
+        if (reachable)
+        {
+            VRLog.Info("WorldUI", $"USE BARS: items-bar split hid the plain-use symbol of '{name}' " +
+                                  $"({graphics} graphic(s) disabled) from the '{host.Name}' dock — that item has " +
+                                  "a card in the local item fan, so the VR item interaction (lay the card in the " +
+                                  "board's recess, poke USE) reaches it; the slot object stays active and the " +
+                                  "confirm drives this very slot's own click.");
+            return;
+        }
+        VRLog.Warn("WorldUI", $"USE BARS: items-bar split hid the plain-use symbol of '{name}' from the " +
+                              $"'{host.Name}' dock, but NO card for it is in the local item fan " +
+                              $"(ItemsPile.Current {(ItemsPile.Current == null ? "does not exist yet" : "holds no chip for this item")}). " +
+                              "If the fan is merely not built yet this is harmless and self-corrects; if it " +
+                              "persists, this hide removed the ONLY way to answer a live offer — which is worse " +
+                              "than the symbol was, and the split must be narrowed rather than the report closed.");
+    }
+
+    /// <summary>
+    /// Disable every enabled <see cref="Graphic"/> under <paramref name="slot"/> and record it, so
+    /// the row draws nothing and catches no ray while its GameObject stays ACTIVE (see the class
+    /// doc for why the active flag is load-bearing here). Returns how many were newly disabled —
+    /// zero on the steady state, which is what makes the per-tick re-assertion cheap.
+    /// </summary>
+    private int HidePlainSlotGraphics(UIUseItemScenario slot)
+    {
+        PlainGraphicScratch.Clear();
+        slot.GetComponentsInChildren(includeInactive: false, PlainGraphicScratch);
+        int hid = 0;
+        for (int i = 0; i < PlainGraphicScratch.Count; i++)
+        {
+            Graphic g = PlainGraphicScratch[i];
+            if (g == null || !g.enabled)
+                continue;
+            g.enabled = false;
+            _plainHiddenGraphics.Add(g);
+            hid++;
+        }
+        PlainGraphicScratch.Clear();
+        return hid;
+    }
+
+    /// <summary>Is <paramref name="child"/> a slot this surface render-hid? The wire sampler asks,
+    /// because a render-hidden slot is still <c>activeSelf</c> and would otherwise be published to
+    /// peers as a tile the owner is not drawing.</summary>
+    internal bool IsPlainRenderHidden(Transform child)
+    {
+        for (int i = 0; i < _plainHidden.Count; i++)
+        {
+            UIUseItemScenario slot = _plainHidden[i].Value;
+            if (slot != null && ReferenceEquals(slot.transform, child))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Re-arm the content fit of every converted dock. The fit is frozen unless the OWNING bar's
+    /// slot set changed (<c>TickFitStability</c>), and this suppression changes what a FOREIGN bar
+    /// contributes to the host's visible-graphics union — so without this the augment dock would keep
+    /// the 152 px width it measured while the item tile was still drawing and leave half a panel
+    /// blank. Called only on a change, never per tick.
+    /// </summary>
+    private void ReArmDockedFits()
+    {
+        for (int i = 0; i < _docks.Length; i++)
+            _docks[i].ReArmFit();
+    }
+
+    /// <summary>
+    /// Restore every slot this surface render-hid. The restore re-enables EXACTLY the Graphics it
+    /// disabled, held by reference — it is not conditioned on the bar still mapping the item to the
+    /// slot, and deliberately so: a component the mod switched off belongs switched back on wherever
+    /// the game has since put that widget (a pooled slot is re-Shown for a different item and would
+    /// otherwise come back permanently blank). Only components that were enabled at hide time are in
+    /// the list, so this can never switch on something the game had off. The GameObject's active
+    /// state was never written, so there is nothing there to undo.
+    /// </summary>
     private void RestorePlainHidden(UIUseItemsBar? bar)
     {
-        if (_plainHidden.Count == 0)
+        if (_plainHidden.Count == 0 && _plainHiddenGraphics.Count == 0)
         {
             _lastPlainHiddenCount = -1;
             return;
         }
-        for (int i = 0; i < _plainHidden.Count; i++)
+        int restored = 0;
+        for (int i = 0; i < _plainHiddenGraphics.Count; i++)
         {
-            UIUseItemScenario slot = _plainHidden[i].Value;
-            CItem item = _plainHidden[i].Key;
-            if (slot == null || bar == null || !bar.IsShown)
+            Graphic g = _plainHiddenGraphics[i];
+            if (g == null || g.enabled)
                 continue;
-            if (bar.ItemSlots.TryGetValue(item, out UIUseItemScenario live)
-                && ReferenceEquals(live, slot) && !slot.gameObject.activeSelf)
-                slot.gameObject.SetActive(true);
+            g.enabled = true;
+            restored++;
         }
+        _plainHiddenGraphics.Clear();
         _plainHidden.Clear();
         _lastPlainHiddenCount = -1;
-        VRLog.Info("WorldUI", "USE BARS: items-bar split released — hidden plain-use slots restored to the bar's own state.");
+        ReArmDockedFits();
+        VRLog.Info("WorldUI", $"USE BARS: items-bar split released — {restored} graphic(s) re-enabled on the " +
+                              "plain-use slots (the bar is " +
+                              (bar == null ? "gone" : bar.IsShown ? "still shown" : "hidden") +
+                              "); no GameObject active state was ever written, so the bar is exactly as the game " +
+                              "left it.");
     }
 
     // ---- the ITEM-BACKED ACTIVE BONUS rows leave the decision area (user ruling 2026-08-09) ----
@@ -1714,8 +1983,10 @@ internal sealed class UseBarsSurface
         /// between the slot and the bar root, which for these widgets is
         /// <c>UIUseSlot.SetInteractable</c> writing its serialized <c>disabledAlpha</c>), and CHOSEN
         /// (<c>UIUseSlot.IsSelected()</c> through this bar's concrete slot type). A slot the mod
-        /// itself suppressed (the requirement-C plain-item split) is inactive and is therefore
-        /// absent here too — the peer sees the same slots the owner does.</para>
+        /// itself suppressed is absent here too — the choice half by being inactive, the
+        /// requirement-C plain-item half by <see cref="UseBarsSurface.IsPlainRenderHidden"/>, which
+        /// the active flag no longer answers since that half became a render hide. The peer sees the
+        /// same slots the owner does.</para>
         /// </summary>
         internal int SampleWireSlots(byte[] into, int at, out byte flags)
         {
@@ -1738,6 +2009,11 @@ internal sealed class UseBarsSurface
             {
                 Transform child = container.GetChild(i);
                 if (!child.gameObject.activeSelf)
+                    continue;
+                // …and a slot the plain-item split RENDER-hid is active but draws nothing. Before
+                // that split became a render hide the active flag alone answered this; it no longer
+                // does, and a tile the owner is not drawing must never appear on a peer's board.
+                if (_owner.IsPlainRenderHidden(child))
                     continue;
                 bool? chosen = _chosen(child);
                 if (chosen == null)
@@ -2111,6 +2387,18 @@ internal sealed class UseBarsSurface
             if (_owner.ConflictsWithDocked(this, target))
                 return null; // nested inside another docked bar — rides along there
             return target;
+        }
+
+        /// <summary>Give the frozen content fit a live window again (see
+        /// <see cref="UseBarsSurface.ReArmDockedFits"/>): the layout-truth hold only watches THIS
+        /// bar's own slot container, and a foreign bar's slots inside the same converted subtree can
+        /// change the visible-graphics union without ever touching it.</summary>
+        internal void ReArmFit()
+        {
+            if (Panel == null)
+                return;
+            _fitLiveUntil = Mathf.Max(_fitLiveUntil, Time.unscaledTime + SlotsSettleSeconds);
+            Panel.FitNextCheckFrame = 0;
         }
 
         internal void WarnConflictOnce(string otherName)
