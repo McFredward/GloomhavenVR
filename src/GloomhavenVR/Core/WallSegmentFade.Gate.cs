@@ -475,8 +475,13 @@ internal static partial class WallSegmentFade
         private void WatchLatch(Segment seg, float now, float exitDwell, bool remoteFade,
             bool gateLift)
         {
+            // ModBuild 259: a SPLIT-RUN member's own coverage is not the coverage that decides
+            // it — the run's union is (WallSegmentFade.Inside.cs). Judging it against its own
+            // number would fire this warning on every trunk of a legitimately faded wall, every
+            // 10 s, with the source line "Schmitt state machine" — a watchdog barking at the
+            // remedy. The run's smoothed coverage is the live number for these.
             bool coverageOff = !seg.HasBounds || !seg.SmoothInit
-                || seg.Smooth < WallFadeTuning.Off;
+                || (seg.RunDriven ? RunSmoothOf(seg) : seg.Smooth) < WallFadeTuning.Off;
             if (seg.Fade <= 0f || !coverageOff)
             {
                 seg.DisagreeSince = 0f;
@@ -496,6 +501,10 @@ internal static partial class WallSegmentFade
                   + "freeze class; the boundless fail-safe should have forced it off)"
                 : remoteFade ? "peer fade (MP wire record 17 — a teammate still hides it)"
                 : gateLift ? "gate-lift linger (its gate column is still ON)"
+                : seg.RunDriven ? "its SPLIT RUN's Schmitt state machine — this piece's own "
+                    + $"coverage is {seg.Smooth:0.00}, the RUN's is {RunSmoothOf(seg):0.00}, and "
+                    + "the run is what decides it (ModBuild 259). A latch here is a latch of the "
+                    + "whole wall, so read the SPLIT RUN line, not this piece"
                 : seg.State ? (seg.IsGateColumn
                     ? "gate memory / Schmitt state machine on the gate column"
                     : "Schmitt state machine")

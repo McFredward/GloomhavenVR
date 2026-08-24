@@ -145,6 +145,11 @@ internal static partial class WallSegmentFade
         /// <summary>Walls whose fade came from somewhere other than their own decision.</summary>
         private int _pwPeerDriven, _pwGateDriven;
         private float _nextPerWallLogTime;
+        /// <summary>Split-run members named on the PER-WALL line under the run that decides them
+        /// (ModBuild 259). Their own coverage is still measured and still printed; what they no
+        /// longer do is count as independent walls in "faded X of Y".</summary>
+        private readonly List<string> _pwRunPieceNames = new();
+        private const int PerWallRunPieceCap = 4;
 
         // --- R1 ANIMATION-PATH CENSUS ------------------------------------------------------
         /// <summary>Wall renderers mid-DISSOLVE on the noise map — the only path that produces
@@ -201,6 +206,427 @@ internal static partial class WallSegmentFade
         /// <summary>Head position of the pass being censused, so the observation above is taken
         /// against the same pose the verdicts were.</summary>
         private Vector3 _lastHeadPos;
+
+        // --- SPLIT RUNS: one wall, one verdict (ModBuild 259) --------------------------------
+        /// <summary>
+        /// THE DECISION UNIT OF A SPLIT WALL. <see cref="NeutralizeEngulfingSegments"/> carves a
+        /// room-engulfing wall run into one segment per renderer so that its union AABB — the box
+        /// that CONTAINS the room's own floor samples — can never be the occluder box. That fixed
+        /// the ground defect and created this one: ~40 pieces of ONE wall each ran their own
+        /// Schmitt trigger, so the wall stopped being a thing that appears or disappears.
+        ///
+        /// <para>THE USER'S RULING (2026-08-24): <i>"Entweder verschwindet die ganze Wand mit
+        /// ALLEM was dazu gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da. So ein
+        /// Zwischending soll es nicht geben."</i> Both of his rulings hold at once: walls decide
+        /// INDEPENDENTLY of each other (2026-08-24, ModBuild 252) and a wall takes everything
+        /// belonging to it with it. A run is one wall; its pieces are not other walls.</para>
+        ///
+        /// <para>WHAT THE HARDWARE SAID. ModBuild 258 log, last diag: <c>'Wall 2' blk16/16 ON</c>
+        /// beside <c>'FR_Pillar_Tree_Trunk_01' blk2/16 off</c> and <c>'FR_Tree_01 (1)' blk2/16
+        /// off</c>. Session fade-ON counts: the four unsplit walls switch 7 times BETWEEN THEM
+        /// ('Wall 4' 3, 'Wall 3' 3, 'Wall 2' 1) while individual trunks, stumps and verges switch
+        /// 69. The heartbeat names the mechanism outright — <c>171 from the wall cache + 4 ADOPTED
+        /// by shader … 1 room-engulfing wall(s) split per renderer</c>: only FOUR renderers in the
+        /// whole session were adopted, so this population is the SPLIT, not the adoption sweep.
+        /// </para>
+        ///
+        /// <para>WHAT THIS CHANGES AND WHAT IT DOES NOT. Every piece still measures its own
+        /// coverage against its own renderer — <c>BlockedFraction</c> is called exactly as before,
+        /// no renderer moves between lists, no numerator is re-based. What changes is the number
+        /// the Schmitt trigger reads: the RUN's coverage is the UNION of its members' blocked
+        /// cells over the room grid, which is precisely what the unsplit wall's mesh-accurate
+        /// narrow phase (<see cref="RayHitsWallMesh"/>, per-renderer AABBs) would have produced —
+        /// minus the <c>Contains()</c> claims the engulfing union box used to make. Strictly the
+        /// same metric, strictly the same bars, one decider instead of forty.</para>
+        ///
+        /// <para>THE MAX OVER ROOMS is not a new rule: it is the seam-wall precedent already in
+        /// <see cref="BlockedFraction"/> — a run bordering two rooms fades from either side.</para>
+        ///
+        /// <para>ONE-WAY BY CONSTRUCTION. A run reads its members' cells; a member reads its run's
+        /// state. An unsplit <c>ProceduralWall</c> has no <see cref="Segment.RunOwner"/>, is never
+        /// visited by <see cref="EvaluateSplitRuns"/>, and cannot be reached by any piece of any
+        /// run. 'Wall 4' — which the user confirmed correct this round — is in that class.</para>
+        /// </summary>
+        private sealed class WallRun
+        {
+            public Component? Anchor;
+            public float Smooth;
+            public bool SmoothInit;
+            public bool PendingRaw;
+            public float PendingSince;
+            public bool State;
+            /// <summary>Pieces that contributed a measurement this pass (fail-safe-held members
+            /// are excluded — they are not deciders and are named by the leftover audit).</summary>
+            public int Deciders;
+            /// <summary>Pieces carrying this run's key at all, deciders or not.</summary>
+            public int Members;
+            /// <summary>Union size, room total and room index of the winning room.</summary>
+            public int Blocked;
+            public int Total;
+            public int Room = -1;
+            /// <summary>Widest single-member reading this pass — the number that proves the union
+            /// is doing work: a run whose union equals its best member gained nothing.</summary>
+            public int BestMember;
+            public string BestMemberName = "-";
+            /// <summary>Evaluation generation this run was last seen in (pruning).</summary>
+            public int Seen = -1;
+            /// <summary>Highest fade any member has reached — the audit's "is this run actually
+            /// gone from the picture yet", so a sweep landing mid-ramp reports nothing.</summary>
+            public float MaxFade;
+            /// <summary>Blocked cells, packed as (room &lt;&lt; 20 | cell) so one set spans every
+            /// room a seam run borders without a second dictionary.</summary>
+            public readonly HashSet<long> Cells = new();
+            /// <summary>Distinct blocked cells per room — the per-room numerators.</summary>
+            public readonly Dictionary<int, int> RoomHits = new();
+        }
+
+        private readonly Dictionary<Component, WallRun> _runs = new();
+        private readonly List<Component> _runDeadKeys = new();
+        private int _runGeneration;
+        /// <summary>Split pieces whose run anchor is gone (Apparance destroyed the wall between
+        /// rescans). They fall back to their OWN decision — never to a latch — and are counted
+        /// here so an unexpectedly large orphan population is visible instead of silent.</summary>
+        private int _runOrphans;
+        private int _runsTotal, _runsFaded, _runMembersTotal, _runMembersHeld;
+        private float _nextRunLogTime;
+        /// <summary>Session tally of run-level fade edges — the counterpart of the per-piece
+        /// `fade ON` census that showed 69 switches across 12 pieces of ONE wall.</summary>
+        private int _runFadeEdges;
+
+        /// <summary>The state a run-driven member must take. Falls back to the member's own last
+        /// state if its run vanished between the pre-pass and the loop (impossible in one frame,
+        /// but this may not be the thing that latches a wall).</summary>
+        private bool RunStateOf(Segment seg)
+        {
+            if (seg.RunOwner != null && _runs.TryGetValue(seg.RunOwner, out WallRun? run))
+                return run.State;
+            return seg.State;
+        }
+
+        /// <summary>The run's smoothed coverage — the live number that decides a run-driven
+        /// member, and therefore the one the latch watchdog must judge it against.</summary>
+        private float RunSmoothOf(Segment seg) =>
+            seg.RunOwner != null && _runs.TryGetValue(seg.RunOwner, out WallRun? run)
+                ? run.Smooth
+                : seg.Smooth;
+
+        /// <summary>Dial turned off mid-session: hand every piece back its own decision and drop
+        /// the run table, so nothing keeps driving a member from a stale verdict.</summary>
+        private void ClearSplitRunDrive()
+        {
+            if (_runs.Count > 0)
+                _runs.Clear();
+            _runsTotal = 0;
+            _runsFaded = 0;
+            _runMembersTotal = 0;
+            _runMembersHeld = 0;
+            _runOrphans = 0;
+            _runLeftover = 0;
+            _runLeftoverNames.Clear();
+            foreach (Segment seg in _segments.Values)
+                seg.RunDriven = false;
+        }
+
+        /// <summary>
+        /// Measure every split-run member, union their blocked cells per run, and drive ONE
+        /// Schmitt trigger + dwell per run. Called from the tick before the decision loop, on
+        /// evaluation frames only. Allocation-free after warm-up: the sets and the per-run
+        /// dictionaries keep their capacity.
+        /// </summary>
+        private void EvaluateSplitRuns(Vector3 headPos, float now, float fracStep,
+            float onFraction, float offFraction, float exitDwell)
+        {
+            _runGeneration++;
+            _runOrphans = 0;
+            _runMembersTotal = 0;
+            _runMembersHeld = 0;
+
+            // ---- pass 1: measure each piece, union its cells into its run ------------------
+            foreach (Segment seg in _segments.Values)
+            {
+                seg.RunDriven = false;
+                if (!seg.FromSplitRun)
+                    continue;
+                // The run must still BE a split run right now — `_splitAnchors` is the live
+                // register and it is cleared on a scene load. A stale RunOwner from a group that
+                // has since been re-merged must not keep driving anything.
+                if (seg.RunOwner == null || !_splitAnchors.Contains(seg.RunOwner))
+                {
+                    // ORPHAN: the run this piece was carved from is destroyed. Keep its own
+                    // decision (the pre-259 behaviour) rather than holding it solid — a piece
+                    // frozen solid in front of the board is the very complaint, and a piece
+                    // frozen faded would delete geometry with no owner to bring it back.
+                    _runOrphans++;
+                    continue;
+                }
+                _runMembersTotal++;
+                if (!_runs.TryGetValue(seg.RunOwner, out WallRun? run))
+                {
+                    run = new WallRun { Anchor = seg.RunOwner };
+                    _runs.Add(seg.RunOwner, run);
+                }
+                if (run.Seen != _runGeneration)
+                {
+                    run.Seen = _runGeneration;
+                    run.Cells.Clear();
+                    run.RoomHits.Clear();
+                    run.Deciders = 0;
+                    run.Members = 0;
+                    run.BestMember = 0;
+                    run.BestMemberName = "-";
+                }
+                run.Members++;
+                // The fail-safe branches of the decision loop own these pieces (boundless,
+                // unsplittable-engulfing, doorway, room without a valid floor grid). They are
+                // held SOLID by rules older than this one and must not vote — but a solid piece
+                // beside a faded run IS a leftover, so the audit below names every one of them.
+                if (!seg.HasBounds || seg.Engulfing || seg.DoorRoot != null
+                    || !RoomDecisionValid(seg.RoomIndex))
+                {
+                    _runMembersHeld++;
+                    continue;
+                }
+                float fraction = BlockedFraction(seg, headPos);
+                seg.LastRaw = fraction;
+                // The piece's OWN EMA keeps running so the diag and the PER-WALL line still
+                // report what each piece measures — the numbers that made this change are
+                // exactly these, and they must stay readable after it.
+                if (!seg.SmoothInit)
+                {
+                    seg.SmoothInit = true;
+                    seg.Smooth = fraction;
+                }
+                else
+                {
+                    seg.Smooth += (fraction - seg.Smooth) * fracStep;
+                }
+                run.Deciders++;
+                seg.RunDriven = true;
+                // THE CELLS BELONG TO seg.RoomIndex, NOT TO seg.LastDecidingRoom. BlockedFraction
+                // attributes cells during the OWN-room pass only (`_attributeCells = false` around
+                // every alt-room pass), so for a seam piece whose ALT room won the max,
+                // LastDecidingRoom names the alt room while LastBlockedCells still holds the own
+                // room's indices. Unioning them under the alt room's key would mix two point sets.
+                //
+                // WHAT THIS COSTS, STATED: a run member's alt-room coverage does not reach the
+                // union. It is not lost to the run as a whole — members standing on the other side
+                // of a seam carry that room in their OWN RoomIndex and the per-room MAX below picks
+                // it up — but a single piece that fades "from the other side" contributes nothing.
+                // Fixing that properly means per-alt-room cell attribution in BlockedFraction,
+                // which is a change to the shared metric and not this round's.
+                int room = seg.RoomIndex;
+                if (room < 0)
+                    continue;
+                for (int i = 0; i < seg.LastBlockedCells.Count; i++)
+                {
+                    long key = ((long)room << 20) | (uint)seg.LastBlockedCells[i];
+                    if (!run.Cells.Add(key))
+                        continue;
+                    run.RoomHits.TryGetValue(room, out int hits);
+                    run.RoomHits[room] = hits + 1;
+                }
+                // Comparable to the union by construction: both count OWN-room attributed cells.
+                // seg.LastBlocked would not be — for a seam piece it is the alt room's count.
+                if (seg.LastBlockedCells.Count > run.BestMember)
+                {
+                    run.BestMember = seg.LastBlockedCells.Count;
+                    run.BestMemberName = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                }
+            }
+
+            // ---- pass 2: one verdict per run ----------------------------------------------
+            _runsTotal = 0;
+            _runsFaded = 0;
+            _runDeadKeys.Clear();
+            foreach (KeyValuePair<Component, WallRun> kv in _runs)
+            {
+                WallRun run = kv.Value;
+                if (run.Seen != _runGeneration)
+                {
+                    _runDeadKeys.Add(kv.Key); // no live member carries this key any more
+                    continue;
+                }
+                // MAX over the rooms this run borders — the seam-wall precedent from
+                // BlockedFraction, not a new rule: whichever room the run is currently hiding
+                // is the room the player wants opened.
+                float fraction = 0f;
+                run.Blocked = 0;
+                run.Total = 0;
+                run.Room = -1;
+                foreach (KeyValuePair<int, int> hit in run.RoomHits)
+                {
+                    if (hit.Key < 0 || hit.Key >= _roomSampleCount.Count)
+                        continue;
+                    int total = _roomSampleCount[hit.Key];
+                    if (total <= 0)
+                        continue;
+                    float f = hit.Value / (float)total;
+                    if (run.Room >= 0 && f <= fraction)
+                        continue;
+                    fraction = f;
+                    run.Blocked = hit.Value;
+                    run.Total = total;
+                    run.Room = hit.Key;
+                }
+                if (!run.SmoothInit)
+                {
+                    run.SmoothInit = true;
+                    run.Smooth = fraction;
+                }
+                else
+                {
+                    run.Smooth += (fraction - run.Smooth) * fracStep;
+                }
+                bool raw = run.Smooth >= (run.State ? offFraction : onFraction);
+                if (raw != run.PendingRaw)
+                {
+                    run.PendingRaw = raw;
+                    run.PendingSince = now;
+                }
+                if (run.PendingRaw != run.State)
+                {
+                    float dwell = run.PendingRaw ? EnterDwellSeconds : exitDwell;
+                    if (now - run.PendingSince >= dwell)
+                    {
+                        run.State = run.PendingRaw;
+                        _runFadeEdges++;
+                        LogRunFadeEdge(run);
+                    }
+                }
+                _runsTotal++;
+                if (run.State)
+                    _runsFaded++;
+            }
+            for (int i = 0; i < _runDeadKeys.Count; i++)
+                _runs.Remove(_runDeadKeys[i]);
+            _runDeadKeys.Clear();
+        }
+
+        /// <summary>
+        /// ONE line per RUN edge, replacing the ~40 per-piece `fade ON` lines the same event used
+        /// to emit. Deliberately shaped so the next log answers the ModBuild 258 question — "how
+        /// many things switched, and were they one wall or forty" — in a single grep.
+        /// </summary>
+        private void LogRunFadeEdge(WallRun run)
+        {
+            string wall = run.Anchor != null ? run.Anchor.name : "<dead>";
+            VRLog.Info(Name,
+                $"RUN FADE {(run.State ? "ON" : "OFF")} '{wall}' — {run.Members} piece(s) of ONE "
+                + $"split wall run move together ({run.Deciders} of them measured, "
+                + $"{run.Members - run.Deciders} held solid by an older fail-safe). Run coverage "
+                + $"{run.Blocked}/{run.Total} cell(s) of room {run.Room} = "
+                + (run.Total > 0 ? (run.Blocked / (float)run.Total).ToString("F2") : "n/a")
+                + $" (ema {run.Smooth:F2}) against bars {WallFadeTuning.On:F2}/"
+                + $"{WallFadeTuning.Off:F2}; the widest SINGLE piece read {run.BestMember}/"
+                + $"{run.Total} ('{run.BestMemberName}') — the gap between those two numbers is "
+                + "exactly what the union bought, and a run where they are equal gained nothing. "
+                + $"Session run edges: {_runFadeEdges}. Before ModBuild 259 this event was "
+                + "up to one edge PER PIECE, which is the 69-switch tree census of the 258 log.");
+        }
+
+        /// <summary>
+        /// THE FALSIFIER, READ OFF THE RENDERERS (requirement of this round; the ModBuild 252
+        /// mistake was an instrument that watched the driver). For every run at full fade, ask
+        /// each of its members' renderers — through <see cref="IsActuallyDrawing"/>, the same
+        /// predicate the LEFTOVER audit already uses — whether it is still putting pixels on the
+        /// screen while the run is gone. A non-empty list IS the photograph
+        /// (neues_wandproblem.jpg), and each entry carries the REASON, because every remaining
+        /// way to be left standing is a named older rule rather than this one.
+        ///
+        /// <para>Run at the mounted-dressing cadence (once per rescan) and reported on the SAME
+        /// <c>LEFTOVER OVER A FADED WALL</c> line, so one grep still finds every leftover class.
+        /// </para>
+        /// </summary>
+        private void SweepRunLeftovers()
+        {
+            _runLeftover = 0;
+            _runLeftoverNames.Clear();
+            if (_runs.Count == 0)
+                return;
+            // PASS 1: how far has each run actually got? The audit may only fire for a run some
+            // member of which has COMPLETED its ramp — otherwise a sweep landing mid-dissolve
+            // would report every piece of a perfectly healthy fade as a leftover, and the
+            // headline claim of this round would be noise. Same >=0.99 predicate the mounted
+            // leftover audit already uses for "this wall is gone".
+            foreach (WallRun r in _runs.Values)
+                r.MaxFade = 0f;
+            foreach (Segment s in _segments.Values)
+            {
+                if (s.FromSplitRun && s.RunOwner != null
+                    && _runs.TryGetValue(s.RunOwner, out WallRun? owner) && s.Fade > owner.MaxFade)
+                    owner.MaxFade = s.Fade;
+            }
+            foreach (Segment seg in _segments.Values)
+            {
+                if (!seg.FromSplitRun || seg.RunOwner == null)
+                    continue;
+                if (!_runs.TryGetValue(seg.RunOwner, out WallRun? run) || !run.State)
+                    continue;
+                if (run.MaxFade < FoliageHideFade)
+                    continue; // the whole run is still mid-ramp — nothing has been left behind yet
+                if (seg.Fade >= FoliageHideFade)
+                    continue; // this piece went with its run — nothing to report
+                bool drawing = false;
+                for (int i = 0; i < seg.Renderers.Count && !drawing; i++)
+                    drawing = IsActuallyDrawing(seg.Renderers[i]);
+                for (int i = 0; i < seg.Foliage.Count && !drawing; i++)
+                    drawing = IsActuallyDrawing(seg.Foliage[i]);
+                if (!drawing)
+                    continue;
+                _runLeftover++;
+                if (_runLeftoverNames.Count >= PerWallNameCap)
+                    continue;
+                string why =
+                    !seg.HasBounds ? "no decision AABB — boundless fail-safe (round 14)"
+                    : seg.Engulfing ? "single mesh that ENGULFS its own room — held solid, "
+                                      + "undecidable as one unit (NeutralizeEngulfingSegments)"
+                    : seg.DoorRoot != null ? "doorway — never fades (user ruling 2026-08-02)"
+                    : !RoomDecisionValid(seg.RoomIndex)
+                        ? $"room {seg.RoomIndex} has no valid floor grid — FAIL-SAFE solid"
+                    : !seg.RunDriven ? "NOT run-driven though it carries the run key — the "
+                                       + "distribution missed it, and THAT is this round's bug"
+                    : $"run-driven and still at fade {seg.Fade:F2} — mid-ramp, or it has no "
+                      + "dissolve channel (see the DISSOLVE CENSUS for this piece)";
+                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                string owner = run.Anchor != null ? run.Anchor.name : "<dead>";
+                _runLeftoverNames.Add(
+                    $"'{wall}' is DRAWING at fade {seg.Fade:F2} while its run '{owner}' is at "
+                    + $"{run.MaxFade:F2} — {why}");
+            }
+        }
+
+        private int _runLeftover;
+        private readonly List<string> _runLeftoverNames = new();
+
+        /// <summary>
+        /// The SPLIT RUN census, printed on the PER-WALL cadence. Its whole job is to make the
+        /// difference between "one wall decided" and "forty pieces decided" a number rather than
+        /// an intention — and to expose the orphan population, which is the one class this
+        /// mechanism cannot own.
+        /// </summary>
+        private void LogSplitRuns(float now)
+        {
+            if (_runsTotal == 0 && _runOrphans == 0)
+                return;
+            if (now < _nextRunLogTime)
+                return;
+            _nextRunLogTime = now + InsideLogIntervalSeconds;
+            VRLog.Info(Name,
+                $"SPLIT RUN: {_runsFaded} of {_runsTotal} split wall run(s) faded, driving "
+                + $"{_runMembersTotal} piece(s) as whole walls ({_runMembersHeld} of those are "
+                + "held solid by an OLDER fail-safe — boundless, room-engulfing single mesh, "
+                + "doorway, or a room with no valid floor grid — and are the only members that "
+                + "can legitimately stay while their run goes; the LEFTOVER line names them). "
+                + $"{_runOrphans} orphan(s): pieces whose run anchor is destroyed, which keep "
+                + "their OWN decision (the pre-259 behaviour, fail-open — never a latch). A run "
+                + "is a ProceduralWall/tile-observer group carved up by "
+                + "NeutralizeEngulfingSegments; every member is a child of that one object, so "
+                + "no unsplit wall can be reached from here. Unsplit walls ('Wall 2', 'Wall 3', "
+                + "'Wall 4' in the ModBuild 258 log) are absent from this line BY CONSTRUCTION "
+                + "and their code path is byte-for-byte the ModBuild 258 one. Live dial "
+                + $"[WallFade] SplitRunUnified = {WallFadeTuning.SplitRunUnifiedOn} — a false "
+                + "here means this whole mechanism did not run and any verdict about it is void.");
+        }
 
         /// <summary>
         /// COMMIT PHASE 24 — see <c>RescanCore</c>. Rebuild the cached board volume. Deliberately
@@ -427,6 +853,7 @@ internal static partial class WallSegmentFade
             _folNoChannel = 0;
             _folNoChannelNames.Clear();
             _admitNames.Clear();
+            _pwRunPieceNames.Clear();
             // NB: the STEP counters are deliberately NOT reset here. An edge is a rare event —
             // seven fade-ON events in the whole ModBuild 254 session — and this census resets
             // every frame while the falsifier prints every two seconds, so per-frame counters
@@ -597,6 +1024,22 @@ internal static partial class WallSegmentFade
             if (!seg.HasBounds || seg.Engulfing || seg.DoorRoot != null
                 || !RoomDecisionValid(seg.RoomIndex))
                 return;
+            // ModBuild 259: a split-run member is NOT an independent decider and counting it as
+            // one is how "faded 1 of 46" came to describe four walls and forty-two fragments of a
+            // fifth. Its own measurement is still printed — that is the number this round turned
+            // on — but under the run that owns it, and the SPLIT RUN line carries the verdict.
+            if (seg.RunDriven)
+            {
+                if (_pwRunPieceNames.Count < PerWallRunPieceCap)
+                {
+                    string piece = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    string owner = seg.RunOwner != null ? seg.RunOwner.name : "<orphan>";
+                    _pwRunPieceNames.Add($"'{piece}' of run '{owner}' r{seg.RoomIndex} ema "
+                        + $"{seg.Smooth:F2} blk {seg.LastBlocked}/{seg.LastRoomTotal} "
+                        + (seg.State ? "FADED" : "solid") + " (verdict from the run)");
+                }
+                return;
+            }
             _pwTotal++;
             if (seg.LastRoomTotal > 0)
                 _pwCells = seg.LastRoomTotal;
@@ -721,8 +1164,21 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogPerWallIndependence()
         {
-            if (_pwTotal == 0)
+            if (_pwTotal == 0 && _runsTotal == 0)
                 return;
+            if (_pwTotal == 0)
+            {
+                // Every decision-eligible segment this pass belongs to a split run. The
+                // independence claim is then entirely the SPLIT RUN line's to make, and asserting
+                // a spread over an empty population would be the ModBuild 252 mistake again.
+                VRLog.Info(Name,
+                    $"PER-WALL: 0 independently-deciding wall(s) this pass — all "
+                    + $"{_runMembersTotal} decision-eligible piece(s) belong to "
+                    + $"{_runsTotal} split run(s), of which {_runsFaded} faded. See the SPLIT RUN "
+                    + "line; per-wall independence is a statement about RUNS, not about the "
+                    + "fragments one run was carved into.");
+                return;
+            }
             bool mixed = _pwFaded > 0 && _pwFaded < _pwTotal;
             if (mixed)
                 _pwMixedPasses++;
@@ -730,7 +1186,11 @@ internal static partial class WallSegmentFade
                 _pwUniformPasses++;
             float minSmooth = _pwMinSmooth == float.MaxValue ? 0f : _pwMinSmooth;
             VRLog.Info(Name,
-                $"PER-WALL: faded {_pwFaded} of {_pwTotal} decision-eligible wall(s) this pass — "
+                $"PER-WALL: faded {_pwFaded} of {_pwTotal} independently-deciding wall(s) this "
+                + $"pass (plus {_runsFaded} of {_runsTotal} SPLIT RUN(s) driving "
+                + $"{_runMembersTotal} piece(s) — ModBuild 259; the pieces are named at the end "
+                + "of this line and no longer inflate the count, which is why Y dropped from 46) "
+                + "— "
                 + (mixed
                     ? "MIXED, so the walls are disagreeing and each one is deciding for itself"
                     : _pwFaded == 0
@@ -765,7 +1225,12 @@ internal static partial class WallSegmentFade
                 + "anything topping out within 1.0 wu of the floor, and the ratio only ever "
                 + "excluded real capstones). 'flat' here is a WARNING, not an exclusion: it "
                 + "means something under 0.5 height-per-width survived the ground strip and can "
-                + "claim samples through Contains(): " + string.Join(" | ", _admitNames) + ".");
+                + "claim samples through Contains(): " + string.Join(" | ", _admitNames)
+                + (_pwRunPieceNames.Count > 0
+                    ? ". Split-run pieces (measured individually, DECIDED by their run — "
+                      + "ModBuild 259): " + string.Join(" | ", _pwRunPieceNames)
+                    : ". No split-run piece was decision-eligible this pass.")
+                + ".");
         }
 
         /// <summary>

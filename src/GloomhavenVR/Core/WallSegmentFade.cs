@@ -34,6 +34,9 @@ internal static class WallFadeTuning
     /// <summary>MP: also fade the walls a TEAMMATE's wall fade currently hides (wire record 17;
     /// receiver-side gate — own fades are always broadcast, see WallSegmentFade.Net.cs).</summary>
     internal static ConfigEntry<bool>? SyncPeerFades;
+    /// <summary>ModBuild 259: a wall run carved into per-renderer pieces decides ONCE, on the
+    /// union of its pieces' coverage (see WallSegmentFade.Inside.cs, WallRun).</summary>
+    internal static ConfigEntry<bool>? SplitRunUnified;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -68,6 +71,13 @@ internal static class WallFadeTuning
             "they do for them) — same animation as your own wall fades. Receiver-side setting: " +
             "your own fades are always broadcast (bytes are cheap), each player's toggle decides " +
             "only what THEY see, so toggling mid-session needs no renegotiation. Live.");
+        SplitRunUnified = config.Bind("WallFade", "SplitRunUnified", Defaults.SplitRunUnified,
+            "A wall run whose geometry rings its own room is tracked one renderer at a time (so " +
+            "its union box can never be the occluder box). ON = those pieces still MEASURE " +
+            "separately but DECIDE together, on the union of what they hide: the wall disappears " +
+            "with all its trees, scrub and part-walls, or it is fully there. OFF = each piece " +
+            "decides alone, which is the ModBuild 258 behaviour where single trunks vanished and " +
+            "part-walls stayed. Unsplit walls are unaffected either way. Live (next evaluation).");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -238,6 +248,9 @@ internal static class WallFadeTuning
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
     internal static bool StackedShells => StackedShellFade == null || StackedShellFade.Value;
     internal static bool SyncPeer => SyncPeerFades == null || SyncPeerFades.Value;
+    /// <summary>ModBuild 259 kill switch — printed live on the SPLIT RUN line, because a remedy
+    /// that silently did not run has cost this project a whole build before.</summary>
+    internal static bool SplitRunUnifiedOn => SplitRunUnified == null || SplitRunUnified.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -595,6 +608,41 @@ internal static partial class WallSegmentFade
         /// cannot be split further (single renderer): the coverage metric is meaningless for it,
         /// so it is held permanently SOLID (vanilla look). Re-derived every rescan.</summary>
         public bool Engulfing;
+
+        /// <summary>
+        /// SPLIT-RUN MEMBERSHIP (ModBuild 259, user ruling 2026-08-24: <i>"Entweder verschwindet
+        /// die ganze Wand mit ALLEM was dazu gehört (Bäume, Gestrüp, etc.) oder sie ist
+        /// vollständig da. So ein Zwischending soll es nicht geben."</i>). Non-null when this
+        /// segment is ONE RENDERER carved out of a bigger group by
+        /// <see cref="FadeDriver.NeutralizeEngulfingSegments"/>; it holds the ANCHOR of the group
+        /// it was carved from — the <see cref="ProceduralWall"/> for a cache run, the tile
+        /// observer / parent transform for an adopted one.
+        ///
+        /// <para>WHY IT IS A STRUCTURAL FACT AND NOT A THRESHOLD. The split site holds the owning
+        /// group in its hand: <see cref="FadeDriver.RefreshSplitWall"/> is called
+        /// <c>RefreshSplitWall(wall)</c> and enumerates exactly <c>wall</c>'s own subtree, so
+        /// "which run does this trunk belong to" is answered by the game's own generation
+        /// hierarchy. No distance test, no tolerance, nothing to tune.</para>
+        ///
+        /// <para>WHAT IT CHANGES. The split exists so that a room-ENGULFING union AABB can never
+        /// be the occluder box (the jungle-ground defect — see NeutralizeEngulfingSegments), and
+        /// that stays: every piece keeps measuring its own coverage against its own renderer. What
+        /// stops is each piece DECIDING on that number alone. The run's coverage is the UNION of
+        /// its members' blocked cells, and one Schmitt trigger drives every member. See
+        /// <see cref="FadeDriver.EvaluateSplitRuns"/>.</para>
+        /// </summary>
+        public Component? RunOwner;
+        /// <summary>True once this segment has been carved out of a group, whether or not
+        /// <see cref="RunOwner"/> is still alive. The pair distinguishes "never split" from
+        /// "split, and the run it belonged to has been destroyed" — the ORPHAN case, which falls
+        /// back to its own decision and is counted on the SPLIT RUN line.</summary>
+        public bool FromSplitRun;
+        /// <summary>Set by <see cref="FadeDriver.EvaluateSplitRuns"/> on every evaluation: this
+        /// piece's verdict came from its run this pass, so the decision loop must not re-derive
+        /// one. Sticky across skipped evaluations by design — the run's state is what it would
+        /// have re-derived anyway.</summary>
+        public bool RunDriven;
+
         /// <summary>EMA-smoothed view-coverage fraction the Schmitt trigger reads.</summary>
         public float Smooth;
         public bool SmoothInit;
@@ -1180,6 +1228,7 @@ internal static partial class WallSegmentFade
             _shaderWaterVerdict.Clear(); // …and so did the water shaders (PERF S2)
             AbandonRescanCycle();   // a census of the OLD scene may never commit into the new one
             _splitAnchors.Clear();
+            _runs.Clear();          // …and so do the split-run verdicts keyed off those anchors
             _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
             _lastRoomCensusAnchored = -1;
             // A cached board volume belongs to the scene it was measured in: judging a new
@@ -1366,6 +1415,19 @@ internal static partial class WallSegmentFade
             // per-wall metric below is the whole decision.
             BeginPerWallCensus();
             _lastHeadPos = headPos;
+            // ModBuild 259 (user ruling 2026-08-24: "Entweder verschwindet die ganze Wand mit
+            // ALLEM was dazu gehört … oder sie ist vollständig da"). A wall run that
+            // NeutralizeEngulfingSegments carved into per-renderer pieces decides ONCE, on the
+            // UNION of its pieces' blocked cells, and every piece takes that verdict. Runs BEFORE
+            // the loop so each member's State is already the run's when its ramp and Apply run —
+            // no one-frame skew between the trunk and the masonry beside it. Segments with no
+            // RunOwner (every unsplit ProceduralWall: 'Wall 2', 'Wall 3', 'Wall 4' in the
+            // ModBuild 258 log) never enter this method and keep the branch below verbatim.
+            if (evaluate && WallFadeTuning.SplitRunUnifiedOn)
+                EvaluateSplitRuns(headPos, now, fracStep, onFraction, offFraction,
+                    reevalArmed ? exitDwellMoved : exitDwellStationary);
+            else if (evaluate)
+                ClearSplitRunDrive(); // dial off: every piece decides for itself, as in 258
             foreach (Segment seg in _segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -1406,6 +1468,19 @@ internal static partial class WallSegmentFade
                 {
                     seg.State = false;
                     seg.PendingRaw = false;
+                }
+                // SPLIT-RUN MEMBER (ModBuild 259): its coverage was already measured in
+                // EvaluateSplitRuns and its verdict belongs to the RUN, not to it. The flow is
+                // strictly one-way — a run reads its members' cells, a member reads its run's
+                // state — so no piece can ever be its own cause. RunDriven is deliberately sticky
+                // across a skipped evaluation: re-asserting the run's last state is exactly what
+                // the branch below would have done with a stale reading anyway.
+                else if (seg.RunDriven)
+                {
+                    bool want = RunStateOf(seg);
+                    seg.PendingRaw = want;
+                    if (seg.State != want)
+                        seg.State = want; // the RUN FADE line logs the edge once for the whole run
                 }
                 // Room-coverage metric (EMA-smoothed) with the stepper-driven Schmitt
                 // trigger + dwell hysteresis. The un-fade dwell is long, and much longer
@@ -1515,6 +1590,7 @@ internal static partial class WallSegmentFade
             {
                 _nextPerWallLogTime = now + DiagIntervalSeconds;
                 LogPerWallIndependence();
+                LogSplitRuns(now); // ModBuild 259: one wall, one verdict — and the orphan count
                 LogAnimationPaths();
                 LogStepEdges();
             }
@@ -4108,6 +4184,10 @@ internal static partial class WallSegmentFade
                         sub = new Segment { Anchor = r, FromWallCache = group.FromWallCache };
                         _segments.Add(r, sub);
                     }
+                    // ModBuild 259: the piece remembers the GROUP it was carved out of, so the
+                    // run can decide once for all of them (Segment.RunOwner).
+                    sub.RunOwner = engulfing.Key;
+                    sub.FromSplitRun = true;
                     BeginRefresh(sub);
                     if (CollectWallFadeInfo(r, sub))
                     {
@@ -4197,6 +4277,7 @@ internal static partial class WallSegmentFade
                 Component? anchor = r.GetComponentInParent<ProceduralTileObserver>();
                 if (anchor == null)
                     anchor = r.transform.parent != null ? r.transform.parent : r.transform;
+                Component? splitRunOwner = null;
                 // DOORWAY override (user ruling 2026-08-02: doorways NEVER fade): a fade
                 // renderer hugging a door prop is that DOORWAY's frame/pillar — anchor it on
                 // the door root so every renderer of one archway lands in ONE per-door segment
@@ -4234,12 +4315,22 @@ internal static partial class WallSegmentFade
                 // (see _splitAnchors) — route straight to the per-renderer segment so its
                 // smoothing state survives every rescan.
                 else if (_splitAnchors.Contains(anchor))
+                {
+                    splitRunOwner = anchor;
                     anchor = r;
+                }
                 if (!_segments.TryGetValue(anchor, out Segment? seg))
                 {
                     seg = new Segment { Anchor = anchor, FromWallCache = false };
                     _segments.Add(anchor, seg);
                     BeginRefresh(seg);
+                }
+                if (splitRunOwner != null)
+                {
+                    // ModBuild 259: a renderer routed to a per-renderer segment because its
+                    // GROUP was split still belongs to that group's run (Segment.RunOwner).
+                    seg.RunOwner = splitRunOwner;
+                    seg.FromSplitRun = true;
                 }
                 seg.DoorRoot = doorRoot; // re-stamped every rescan (null for non-doorways)
                 if (CollectWallFadeInfo(r, seg))
@@ -4315,6 +4406,10 @@ internal static partial class WallSegmentFade
                     sub = new Segment { Anchor = r, FromWallCache = true };
                     _segments.Add(r, sub);
                 }
+                // ModBuild 259: re-stamped every rescan from the wall this method was CALLED
+                // with — the run membership is the game's own parenting, not a proximity guess.
+                sub.RunOwner = wall;
+                sub.FromSplitRun = true;
                 BeginRefresh(sub);
                 if (CollectWallFadeInfo(r, sub))
                 {
@@ -6154,6 +6249,7 @@ internal static partial class WallSegmentFade
             try { RestoreAllMountedProps(); }
             catch { /* renderers already dying with the scene */ }
             _segments.Clear();
+            _runs.Clear(); // run verdicts belong to the scenario they were measured in
             _roomBounds.Clear();
             _roomFloorY.Clear();
             _roomFloorAnchored.Clear();

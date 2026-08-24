@@ -416,7 +416,98 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 259;
+    public const ushort ModBuild = 260;
+    // Build 260: ONE WALL HAD BEEN SHATTERED INTO FORTY-ONE WALLS, AND EACH ONE VOTED.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. TEST THIS ONE, not 259.
+    //
+    // USER RULING, absolute: "Entweder verschwindet die ganze Wand mit ALLEM was dazu gehört
+    // (Bäume, Gestrüp, etc.) oder sie ist vollständig da. So ein Zwischending soll es nicht
+    // geben." Held together with his ModBuild 252 ruling — WALLS still decide independently of
+    // each other — because both are true at once: a wall decides for itself, and when it decides,
+    // everything belonging to it goes with it. A tree in a wall's run is not another wall.
+    //
+    // MY DIAGNOSIS IN ModBuild 259's NOTE NAMED THE WRONG MECHANISM AND THE LOG SAYS SO ON ONE
+    // LINE. I wrote that the trees were pseudo-walls from AdoptShaderMatchedWalls. The heartbeat:
+    //   tracking 175 wall segments (171 from the wall cache + 4 ADOPTED by shader;
+    //   fade-capable renderers 864 = 860 claimed + 4 adopted;
+    //   1 room-engulfing wall(s) split per renderer, 0 unsplittable held solid)
+    // FOUR renderers were adopted in the entire session. The ~41 self-deciding pieces come from
+    // NeutralizeEngulfingSegments → RefreshSplitWall: ONE ProceduralWall whose AABB XZ-contained
+    // ≥40 % of its room was shattered into one segment PER RENDERER, each keyed by that renderer,
+    // each running its own Schmitt trigger. Two of the flapping names are
+    // 'CR_FR_Wall_Log_Structure_03' and 'CR_FR_Wall_Grassy_Verge_01' — literal wall geometry, and
+    // adoption skips anything under a ProceduralWall by construction. Those are his "Teilwände".
+    // Both mechanisms I proposed in the brief were aimed at the wrong site, and FindWallsNear
+    // would have been a proximity THRESHOLD answering a question the hierarchy already answers.
+    //
+    // THE SPLIT STAYS A MEASUREMENT DECOMPOSITION; THE RUN IS RESTORED AS THE DECISION UNIT.
+    // Each piece still measures BlockedFraction against its OWN renderer — that is what keeps the
+    // engulfing union AABB out of the numerator and is the entire reason the split exists. What
+    // stops is each piece running its own trigger: the run's coverage is the UNION of its members'
+    // blocked cell sets, through the same EMA, the same 0.35/0.20 bars, the same dwells, ONE
+    // trigger, and every member takes that verdict. The relation is structural, not numeric:
+    // RefreshSplitWall is called WITH the owning wall and enumerates exactly its subtree, so
+    // Segment.RunOwner is stamped from the game's own generation hierarchy.
+    // WHY THE UNION IS NOT A NEW HEURISTIC: RayHitsWallMesh is already per-renderer, so the union
+    // of per-piece blocked cells is EXACTLY what the unsplit run's narrow phase would produce,
+    // minus the Contains() claims the engulfing union box used to make. Same metric, strictly
+    // better than the pre-split one.
+    //
+    // DECIDERS GO FROM 46 TO ~5 PLUS ONE RUN, and per-wall independence survives because 41 of
+    // the 46 were fragments of a single wall. The real walls' disagreements are untouched —
+    // pass 13 'Wall 2' 4/16 FADED | 'Wall 3' 1/16 solid | 'Wall 4' 16/16 FADED; last pass
+    // 16/16 FADED | 1/16 solid | 1/16 solid. Session was 54 mixed vs 3 unanimous and stays mixed.
+    // WALL 4 CANNOT MOVE, proved structurally rather than by a bar: a split wall's own segment is
+    // REMOVED from _segments, so a wall that appears by name on a PER-WALL line is by construction
+    // not split. 'Wall 4' appears on all 57 of them with its own 120-piece admission census, and
+    // the heartbeat says exactly ONE wall is split. Same for 'Wall 2' and 'Wall 3'.
+    //
+    // THE NUMERATOR DOES NOT MOVE. No renderer changes lists, no piece enters another segment's
+    // occlusion numerator, and every per-piece blk n/16 in the next log is directly comparable to
+    // 258/259. ModBuild 258 re-based every coverage figure once already and a second re-basing in
+    // consecutive rounds would make the next log unreadable. What is NEW is a number that did not
+    // exist: the run's union. From the 3 named members the 8-name cap left room for, it already
+    // reads 10/16 where the best single piece read 7/16, and 8/16 vs 7/16 — but it read ZERO in
+    // 33 of 57 passes, so the un-fade path is intact. Over all 41 members the gap is UNMEASURED
+    // and the RUN FADE line prints union-vs-best-single side by side so the next log settles it.
+    //
+    // ORPHANS FAIL OPEN, AND THE CHOICE IS DELIBERATE: a split piece whose run anchor is gone
+    // keeps its own decision (pre-260 behaviour). Not "permanently solid" — a piece frozen solid
+    // in front of the board IS the complaint, and a piece frozen faded would delete geometry with
+    // no owner left to bring it back. Counted and printed. The 4 genuinely adopted renderers are
+    // left deciding for themselves and this is a STATED NON-FIX: they are excluded from every
+    // ProceduralWall by construction, so grouping them needs exactly the proximity threshold this
+    // subsystem has been burned by three times.
+    //
+    // A LATENT BUG FOUND ON THE WAY, AND IT WOULD HAVE LOOKED LIKE THE REGRESSION ITSELF:
+    // WatchLatch (WallSegmentFade.Gate.cs) judges a fade against seg.Smooth. Every run-driven
+    // trunk of a legitimately faded wall would have tripped LATCH WARN every 10 s naming the
+    // "Schmitt state machine" — the watchdog barking at the remedy, in the exact shape of the
+    // defect class it exists to catch. It now reads the run's smoothed coverage for run-driven
+    // members and prints both numbers.
+    //
+    // THE FALSIFIER READS THE PICTURE (the ModBuild 252 lesson): SweepRunLeftovers reuses
+    // IsActuallyDrawing and reports on the existing LEFTOVER OVER A FADED WALL warn, so one grep
+    // still finds every leftover class. For a run at full fade it asks each member's RENDERERS
+    // whether they are still putting pixels up and names the reason — boundless fail-safe /
+    // room-engulfing single mesh / doorway / room with no floor grid / "NOT run-driven though it
+    // carries the run key". It only fires once some member has completed its ramp (MaxFade ≥ 0.99)
+    // so a sweep landing mid-dissolve cannot manufacture a false leftover.
+    // Grep: SPLIT RUN, RUN FADE ON/OFF, LEFTOVER OVER A FADED WALL → SPLIT-RUN PIECES.
+    //
+    // THE `fade ON` CENSUS SHAPE CHANGES ON PURPOSE. A run edge emits ONE RUN FADE line with its
+    // member count instead of ~40 `fade ON` lines. The 69-vs-7 ratio I quoted for 259 (individual
+    // trees and stumps switching 69 times against the four real walls' 7) will read differently
+    // next round — that ratio WAS the defect.
+    //
+    // New default: SplitRunUnified = true // => [WallFade] SplitRunUnified. A NEW key, so BepInEx's
+    // keep-existing rule is not in the way and no migration marker is needed; its live value is
+    // printed on the SPLIT RUN line so "the remedy never ran" is answerable from the log.
+    // STATED LIMITATION: LastBlockedCells is attributed to RoomIndex, not LastDecidingRoom, so a
+    // seam piece's alt-room coverage does not reach the union. Members on the far side of a seam
+    // carry that room in their own RoomIndex and the per-room MAX still picks it up.
+    //
     // Build 259: A TILE THE PLAYER CANNOT STAND ON, AND A UNIT THAT COULD NOT HEAR THE ORDER.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

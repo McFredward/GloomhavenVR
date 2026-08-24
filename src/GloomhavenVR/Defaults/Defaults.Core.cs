@@ -182,4 +182,10 @@ internal static partial class Defaults
     // Shipped ON so the next MP hardware test shows the peer-synced fades without cfg fiddling
     // (receiver-side gate; own fades are always broadcast — WallSegmentFade.Net.cs).
     internal const bool SyncPeerFades = true;                // => [WallFade] SyncPeerFades
+    // ModBuild 259 (user ruling 2026-08-24): "Entweder verschwindet die ganze Wand mit ALLEM was
+    // dazu gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da." A NEW key, so BepInEx's
+    // keep-existing-values rule is not in the way — every install gets this default. Shipped ON:
+    // OFF is the ModBuild 258 behaviour the ruling rejects, and the dial exists only so the
+    // mechanism can be turned off without a build if the next hardware log falsifies it.
+    internal const bool SplitRunUnified = true;              // => [WallFade] SplitRunUnified
 }

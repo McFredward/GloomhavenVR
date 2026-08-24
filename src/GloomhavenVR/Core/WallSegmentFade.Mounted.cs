@@ -1568,6 +1568,10 @@ internal static partial class WallSegmentFade
                 || _censusMountedRejected != _lastLoggedMountedRejected
                 || _censusMountedLeftover != _lastLoggedMountedLeftover)
                 LogMountedCensus();
+            // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
+            // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
+            // the one line below and one grep still finds every leftover.
+            SweepRunLeftovers();
             // The two alarms stand alone: a leftover is the reported defect, and a mobile prop
             // is the round-7 ruling being enforced against a class the ancestry test cannot see.
             LogMountedLeftovers();
@@ -1789,8 +1793,27 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogMountedLeftovers()
         {
-            if (_censusMountedLeftover == 0)
+            if (_censusMountedLeftover == 0 && _runLeftover == 0)
                 return;
+            if (_censusMountedLeftover == 0)
+            {
+                // Only the ModBuild 259 class fired. Printed on its own rather than folded into
+                // a line whose every clause is about airborne dressing.
+                VRLog.Warn(Name,
+                    $"LEFTOVER OVER A FADED WALL: {_runLeftover} SPLIT-RUN PIECE(S) are actually "
+                    + "drawing (renderer enabled + active in hierarchy — read off the renderer, "
+                    + "never off our ledger) while the wall run they belong to is faded. This is "
+                    + "the 2026-08-24 photograph (neues_wandproblem.jpg): "
+                    + "\"nur manche Bäume einzeln und Teilwände bleiben stehen\". A ZERO here is "
+                    + "the whole claim of ModBuild 259 and it is read off the picture, not off "
+                    + "the driver. Names (up to " + PerWallNameCap + "): "
+                    + string.Join("; ", _runLeftoverNames)
+                    + (_runLeftover > _runLeftoverNames.Count
+                        ? $"; … ({_runLeftover - _runLeftoverNames.Count} more)"
+                        : string.Empty)
+                    + ".");
+                return;
+            }
             VRLog.Warn(Name,
                 $"LEFTOVER OVER A FADED WALL: {_censusMountedLeftover} renderer(s) are actually "
                 + "drawing (renderer enabled + active in hierarchy; particle systems with live "
@@ -1813,7 +1836,20 @@ internal static partial class WallSegmentFade
                     ? $"; … ({_censusMountedLeftover - _mountedLeftovers.Count} more)"
                     : string.Empty)
                 + ". This is the shape of the 2026-08-24 report (wandproblem3.jpg): the wall is "
-                + "gone and the thing that hung on it is not.");
+                + "gone and the thing that hung on it is not."
+                // ModBuild 259's own class, on the same line so one grep covers both: a whole
+                // PIECE of a split wall run still drawing while its run is faded. Zero here is
+                // the claim of this round, and it is read off the renderers.
+                + (_runLeftover == 0
+                    ? " SPLIT-RUN PIECES: 0 drawing beside a faded run — every piece of every "
+                      + "faded run went with it (ModBuild 259)."
+                    : $" SPLIT-RUN PIECES: {_runLeftover} still DRAWING beside a faded run "
+                      + "(neues_wandproblem.jpg — \"nur manche Bäume einzeln und Teilwände "
+                      + "bleiben stehen\"): " + string.Join("; ", _runLeftoverNames)
+                      + (_runLeftover > _runLeftoverNames.Count
+                          ? $"; … ({_runLeftover - _runLeftoverNames.Count} more)"
+                          : string.Empty)
+                      + "."));
         }
 
         /// <summary>The mobility guard's own falsifier — every renderer it refused, with the
