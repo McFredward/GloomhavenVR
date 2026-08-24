@@ -416,7 +416,46 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 265;
+    public const ushort ModBuild = 266;
+    // Build 266: *** THIS ONE CHANGES BEHAVIOUR *** TWO ANSWERS, AND BOTH WERE A CLASSIFIER
+    // ANSWERING A QUESTION IT WAS NEVER ASKED.
+    //  (a) FLAGS AND BANNERS FADE WITH THE WALL THAT CARRIES THEM. The wall was already driving
+    //      the unit — the 265 log reads `TORN 'PCG_Test_Feature_Small_2' 19/21 written … LEFT
+    //      SOLID: EN_CR_Hanging_01_Cloth_Post, EN_CR_Hanging_01_Mesh`. Three refusals held those
+    //      two out: "renderer type SkinnedMeshRenderer is not scenery", "FIGURE (never touched)"
+    //      and the standing rule. The middle one is the lesson: IsFigureOrActorRenderer asks
+    //      GetComponentInParent<Animator>(), which answers "is there an Animator above me", not
+    //      "am I a creature" — a waving banner satisfies it as readily as a monster does.
+    //      IsWallGeneratedDressing is a SEPARATE, strictly narrower predicate (wall subtree AND
+    //      no ActorBehaviour/CInteractableActor anywhere above); the round-7 figure gate itself
+    //      is untouched, and the standing-rule site is exempted on the FIGURE arm ALONE, so the
+    //      skelet.jpg FLOOR arm still protects the scenery skeleton. Checked against the game's
+    //      own code, not asserted: Choreographer parents every spawned figure to the board root
+    //      (:904, :1087, :1191). ACCEPTANCE: _censusMountedWallBuilt > 0 on the WALL-MOUNTED
+    //      DRESSING line while [FLOATING]/[WALL MEMBER] stop naming a hanging.
+    //  (b) THE PALE FLOATING RECTANGLES ON EVERY GATE ARE THE GAME'S OWN DOOR-LIGHT PLATES —
+    //      Door_Light_{Front,Back}_Mesh under every UnityGameEditorDoorProp. Identified by
+    //      geometry from two independent photographs: the gate dump measured them as a paper-thin
+    //      VERTICAL plane 2.069 x 0.257 x 0.008 wu at y = 1.67, and walls_gone.jpg (different
+    //      session, different viewpoint) independently returns 0.257 wu tall by 2.36 wu across.
+    //      ModBuild 259 acquitted this same suspect with "an 8:1 strip 0.257 wu tall cannot be
+    //      regions taller than wide" — both halves true, conclusion false: 8:1 is the UNION of a
+    //      row of coplanar quads and the quads inside it are taller than wide. The material is
+    //      ordinary OPAQUE LIT at queue 2000 centimetres from the door's point light, with no
+    //      WallFade variant — which is exactly why no fade could ever reach them. The census
+    //      missed them for fifteen rounds because its own subject band excludes anything that
+    //      owes its brightness to the room's lights; they were printed in every gate dump marked
+    //      out-of-band. Renderer.enabled = false only: no Light, no material, no property block,
+    //      so the lamp and its pool of light are bit-identical. GlowCardCensus{,.Report,
+    //      .GateDump}.cs and MaterialLoaderHeal's write ledger are DELETED (topic closed at the
+    //      user's request, 2026-08-25); the ledger's acquittal is recorded in DoorLightPlates.cs.
+    // STILL OPEN, deliberately not in this build: the shelf/bracket family (bücherregale*.jpg,
+    // regal_brett.jpg). The candidate fix separated MUST-FADE from MUST-STAY on geometry, and the
+    // log shows that cannot work — the crystal formation the user rules must STAY (foot 0.52 /
+    // top 2.11) lies strictly between the curtain that must FADE (0.33 / 2.97) and the shelf that
+    // must FADE (0.90 / 1.31), and all four carry the identical airborne-bar refusal.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 265: *** THIS ONE CHANGES BEHAVIOUR *** TWO RULES, BOTH ABOUT A PIECE BEING SWITCHED
     // ON AT A MOMENT IT MUST NOT BE.
     //  (a) OWNERSHIP IS STICKY WHILE THE WALL IS FADED. ResolvePropUnit's PASS 1 skipped any unit
@@ -1334,6 +1373,8 @@ internal static class NetProtocol
     // the wall or NOT three copies of one object. "Evenly spaced at the same world height" was an
     // inference from a near-overhead frame the close photo does not support, and it was the premise
     // of the shape-and-size filter that has now missed the subject for four instrumented builds.
+    // [RETIRED IN 266 — GlowCardCensus is DELETED; the subject was the door-light plates and the
+    // reasoning below is kept only as the record of how the instrument was blind to them.]
     // AND THE CENSUS COULD NEVER HAVE FOUND THEM: GlowCardCensus.EndRenderer pools a renderer only
     // when it already carries a mark, so an emissive-but-LIT 30 px quad on a stone pier is dropped
     // BEFORE scoring — and _dropped lives in Insert, which it never reaches. No counter in the
@@ -2011,6 +2052,7 @@ internal static class NetProtocol
     //     DynamicFogBase / Beautify). CompatModule.cs:127 and the note at NetProtocol.cs:7724
     //     are half right: the 2026-07 pass added the SWITCH, defaulted true; the VALUE flipped a
     //     month later in the defaults extraction.
+    //     [RETIRED IN 266 — this file no longer exists; see the 266 note and DoorLightPlates.cs.]
     //     NEW INSTRUMENT Core/GlowCardCensus.cs — [Perf] GLOW CARDS, one line per [Perf] window,
     //     no new scene sweep (it rides PerfSceneProfile's existing walk and its TallyShader
     //     result, so it adds no second Material.shader marshal). Per card: path, shader,
