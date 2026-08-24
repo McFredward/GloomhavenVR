@@ -321,6 +321,128 @@ internal sealed class ButtonCluster
         // animation rather than popping it. And because the stand-down runs BEFORE BoardSkipShown
         // is published two lines down, a peer's mirrored board hides its copy in the same tick:
         // the 1:1 rule holds by construction rather than by a second gate.
+        // ---- WHY THE SKIP IS STILL ITS OWN GROUP (investigated 2026-08-24, ModBuild 242) --------
+        //
+        // User, verbatim: "Aktuell sind die Überspringen-Buttons eine eigene Button-Gruppe an einem
+        // anderen Ort als die anderen generischen Buttons. Für die generischen Buttons gibt es immer
+        // zwei Button-Plätze. Untersuche die Hypothese: Ich denke es ist möglich, dass der
+        // 'Überspringen'-Button zu den generischen Buttons hinzugefügt werden [kann], da trotzdem nie
+        // mehr als 2 Buttons gleichzeitig angezeigt werden (z.B. Angriff überspringen und Auswahl
+        // rückgängig). Gibt es jemals den Fall dass mehr als 2 Buttons gleichzeitig angezeigt werden
+        // müssten, wenn die Überspringen-Buttons Teil der generischen Buttons werden?"
+        //
+        // ANSWER: JA — es gibt ihn. THE MAXIMUM IS THREE, and it is not a corner case: it is ordinary
+        // movement, ordinary AoE targeting and every summon/object placement. THE HYPOTHESIS IS
+        // FALSIFIED and the merge was NOT built. The three mod caps in question are one-to-one with
+        // three DIFFERENT global game widgets, so the question reduces exactly to "can
+        // Choreographer.readyButton, m_UndoButton and m_SkipButton be live at the same time":
+        //   CONFIRM cap  ⟵ Choreographer.readyButton   (CardsGameApi.CanConfirm: active + ButtonComponent
+        //                                               .enabled + no warningMask + IsInteractable)
+        //   UNDO cap     ⟵ Choreographer.m_UndoButton  (CardsGameApi.CanUndo: active + m_UndoButton.interactable)
+        //   SKIP cap     ⟵ Choreographer.m_SkipButton  (MirrorSkip: active + canvasGroup.alpha > 0.5)
+        // and all three are HIDDEN, not merely dimmed, when their game widget is dead — PlayTray.5.
+        // Status.cs items 7 ("wenn es nicht drückbar ist dann soll es dort auch nicht erscheinen") and
+        // MirrorSkip above. So "visible" and "pressable" are the same question for all three, and a
+        // third live widget IS a third cap that must be seated somewhere. The FLAT game agrees, which
+        // is worth knowing before anyone argues the mod is stricter than the 2D UI: all three derive
+        // from ButtonOnBlockingPanel and every one of them ends its per-frame recheck with
+        // ChangeCanvasAlpha(interactable) — ReadyButton.cs:502, SkipButton.cs:163, UndoButton.cs:295 —
+        // so a non-interactable widget is at ALPHA 0 there too. Nobody ever sees a greyed-out one.
+        //
+        // THE ENUMERATION IS FROM THE GAME'S SOURCE, NOT FROM A SESSION. A log shows what happened; it
+        // cannot show what cannot happen. Every m_SkipButton / readyButton / m_UndoButton toggle site in
+        // decompiled/GH.Runtime/Choreographer.cs (364 of them) was clustered by proximity and read.
+        // The one gate that decides most of them: ReadyButton.Toggle (ReadyButton.cs:462) is
+        //     SetInteractable(active && interactable && state != EREADYBUTTONCONFIRMDISABLED)
+        // — so every site that raises CONFIRM in EREADYBUTTONCONFIRMDISABLED (enum ordinal 11; the
+        // recheck at ReadyButton.cs:171 skips that state too) leaves the mod's Confirm cap HIDDEN and
+        // cannot reach three. Those sites are the majority, and they are where "nie mehr als 2" comes
+        // from — the impression is well-founded, it is just not the whole set.
+        //
+        // THE SHORTEST PROOF, if a future round wants one line instead of a table: there are FIVE
+        // sites where the game recomputes all three interactabilities in ONE block from three
+        // INDEPENDENT predicates — Choreographer.cs:10428-10430, :11332-11336, :11528-11530,
+        // :12337+12345-12346 and :12375-12378, each of the shape
+        //     readyButton.SetInteractable(<enough targets / waypoint placed>);
+        //     m_UndoButton.SetInteractable(ability.CanUndo && FirstAbility);
+        //     m_SkipButton.SetInteractable(ability.CanSkip);
+        // Three unrelated predicates evaluated together only makes sense if all three can be true
+        // together, and CanSkip/CanUndo are per-ability flags that no confirm condition constrains.
+        //
+        // THE STATES THAT REACH THREE (all three caps visible AND interactable at once):
+        //
+        // | # | game state / message               | Choreo   | SKIP cap            | CONFIRM cap                | UNDO cap                 | n |
+        // |---|------------------------------------|----------|---------------------|----------------------------|--------------------------|---|
+        // | 1 | CActorIsSelectingMoveTile, after    | :4353-60 | GUI_SKIP_MOVEMENT   | EREADYBUTTONCONFIRMMOVEMENT| GUI_UNDO,                | 3 |
+        // |   | the FIRST waypoint (Waypoints > 0), |          | (CanSkip)           | (state is CONFIRMMOVEMENT  | interactable = CanUndo   |   |
+        // |   | first ability of the card           |          |                     | exactly when Waypoints > 0)| && FirstAbility          |   |
+        // | 2 | CActorIsSelectingAttackFocus, AoE   | :4903-10 | GUI_SKIP_ATTACK     | EREADYBUTTONCONFIRMTARGETS | EUNDOBUTTONCLEARTARGETS, |   |
+        // |   | attack with the AoE locked, enough  |          | (CanSkip)           | interactable =             | GUI_CLEARTARGETS,        | 3 |
+        // |   | targets picked                      |          |                     | EnoughTargetsSelected()    | Toggle(true) ⇒ live      |   |
+        // | 3 | CActorIsSelectingObjectPosition     | :8222-37 | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM        | GUI_UNDO,                | 3 |
+        // |   | (summon / object placement) with    |          | (CanSkip)           | (TilesSelected.Count > 0;  | interactable = CanUndo   |   |
+        // |   | at least one tile selected          |          |                     | else CONFIRMDISABLED ⇒ 2)  | && FirstAbility          |   |
+        // | 4 | ActorWantsAnActionConfirmation with | :5951-56 | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM iff    | Toggle(true) + CanUndo   | 3 |
+        // |   | AllowContinueForNullAbility == true |          | (CanSkip)           | AllowContinueForNullAbility| && FirstAbility          |   |
+        // | 5 | ActorIsSelectingTargetingFocus, AoE | :6141-57 | term: SKIP_ABILITY  | EREADYBUTTONCONFIRM,       | left standing — only     | 3 |
+        // |   | branch, ability CanUndo             |          | /SKIP_PUSH/SKIP_PULL| interactable unless Disarm | toggled OFF if !CanUndo  |   |
+        // | 6 | ActorIsSelectingDamageFocus with    | :6197-   | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM once   | CLEARTARGETS, FirstAbility| 3 |
+        // |   | at least one target                 |    6206  | (CanSkip)           | ActorsToTarget.Count > 0   | && CanUndo               |   |
+        //
+        // Six is a floor, not a ceiling of the search: the question was "gibt es JEMALS den Fall",
+        // and one state answers it. The five SetInteractable-trio sites above are the general reason.
+        //
+        // …and the near misses, so a future round does not re-litigate them:
+        //
+        // | game state                          | Choreo   | why it is only TWO                                          |
+        // |-------------------------------------|----------|-------------------------------------------------------------|
+        // | ReturnToSummoner (a summon acting)  | :6305-09 | all three RAISED, but :6306 m_UndoButton.SetInteractable     |
+        // |                                     |          | (false) immediately after ⇒ Undo hidden. Skip + Confirm.     |
+        // | Push / Pull tile selection          | :9918-21 | readyButton state is EREADYBUTTONCONFIRMDISABLED ⇒ Confirm   |
+        // |                                     | :10054-7 | hidden. Skip + Undo — the pair the user has actually seen.   |
+        // | CFinishedProcessingTileSelected     | :11285-9 | CONFIRMDISABLED again, and :11294/:11296/:11299 stand Undo   |
+        // |                                     |          | down. One or two, never three.                              |
+        // | StartActorAbility                   | :4211-14 | Undo + Skip + the SELECT button — but the mod does not draw  |
+        // |                                     |          | m_selectButton at all, so it is two caps here today.         |
+        // | Card selection / END SELECTION      | :10984-  | ready and undo are both explicitly SetInteractable(false) at |
+        // |                                     |  11008   | :10996/:10998 while the skip is raised.                     |
+        //
+        // SKIP WORDINGS, all of them (SkipButton.buttonText, the string that already rides
+        // ExtIdCapLabels bit 1 and that a peer renders verbatim): GUI_SKIP_MOVEMENT (the Start()
+        // default), GUI_SKIP_ATTACK, GUI_SKIP_ABILITY, GUI_SKIP_PULL (:9918), GUI_SKIP_PUSH (:10054),
+        // plus a computed `term` for targeting focus (:6156/:6164) and two sites that pass null and
+        // keep the previous wording (:4917, :11008). Six distinct wordings, one cap.
+        //
+        // IS FOUR POSSIBLE? Not for the mod, and this corrects the note at PlayTray.6.Build.cs:268-274
+        // ("The game can show up to FOUR turn-flow buttons at once … and occasionally m_selectButton").
+        // m_selectButton is a fourth GAME control, but it is mutually exclusive with the ready button
+        // at every site that raises it beside one — SetActiveSelectButton(!readyButton.gameObject
+        // .activeInHierarchy && …) — and the mod mirrors no cap for it at all. Three is the ceiling
+        // for the caps this board actually draws.
+        //
+        // WHAT WAS NOT BUILT, AND WHY IT IS NOT A ONE-LINE FOLLOW-UP EITHER. Beyond the count:
+        //   - THE GENERIC CLUSTER HAS EXACTLY TWO SEATS BY CONSTRUCTION, not by coincidence:
+        //     PlayTray.3.Pose.cs GenericButtonCount = 2 (const), and SetConfirmUndoOffset only ever
+        //     evaluates GenericPrimarySlot (0) and count-1 (1). Confirm and the item USE cap SHARE
+        //     seat 0 precisely because they are mutually exclusive; Skip is not exclusive with either.
+        //     A third seat is a PlayTray change, and PlayTray is not this file.
+        //   - HIS TUNED GEOMETRY IS TWO DIFFERENT SHAPES. The skip cap is [RoundButtons] 89 × 35 mm at
+        //     offset (-0.045, +0.260, +0.005); the generic caps are [BoardButtons] 63 × 65 mm at the
+        //     per-board ConfirmUndoOffset with GenericButtonSpacing 10 mm. Both sets are HIS values,
+        //     baked into Defaults by scripts/rebase-defaults.py. Merging retires the whole
+        //     [RoundButtons] family — the debug page "Tasten ▸ Überspringen- & Fixier-Taste" — and his
+        //     +260 mm up-board seat (the position in brille.jpg) becomes inert. That is the anchor
+        //     lesson: a replacement must not silently re-interpret the values a hand-tuned config is
+        //     measured from.
+        //   - THE PEER MIRROR PLACES THE SKIP BY GEOMETRY, NOT BY SLOT. RemoteBoardFurniture.cs:985-988
+        //     solves skipSeat = ClusterMount + tuning.ClusterOffset + (RoundOffsetX, RoundOffsetY, …)
+        //     from extension record 28 (ids 81..88 + shape 228) — i.e. it reproduces THIS column's
+        //     solve term for term. Move the cap locally and a peer keeps drawing it at the old seat:
+        //     the 1:1 rule breaks, and repairing it means changing what those wire fields MEAN. That
+        //     is a wire change, and it is in RemoteBoardFurniture.cs, which this round does not own.
+        // So: reported, not built. If he still wants one place for all of them, the shape of it is a
+        // THREE-seat generic cluster (Skip taking seat 2, order Confirm/Use · Undo · Skip so seat 0
+        // never moves), which is a PlayTray + RemoteBoardFurniture + wire-meaning round, not this one.
         bool itemPlaced = Cards.PlayTray.Current?.ItemUseCapShown == true;
         _skip!.MirrorSkip(itemPlaced || SkipCapForeignView() ? null : choreographer!.m_SkipButton, locked);
 
