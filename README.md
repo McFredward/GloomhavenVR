@@ -32,7 +32,7 @@ the round counter and its own physical keycaps.
 <table>
 <tr>
 <td width="50%"><video src="https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/cf0e7aeb-d577-4daa-ae9a-dea1acc7fae2" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/c3611c21-964e-4983-ad4d-ef13518285ab" controls muted loop></video></td>
 </tr>
 </table>
 
