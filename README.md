@@ -73,8 +73,10 @@ across the floor. Air shakes the leaves, Earth brings up green, Light lifts the 
 Dark takes it away and walks the moon into a blood-red eclipse.
 
 <p align="center">
-  <img src="docs/img/env-elements.jpg" width="860" alt="The same two rooms under Fire, Ice, Light and Earth">
+  <img src="docs/img/env-elements.jpg" width="820" alt="The same camera with the element off and on: Cellar under Fire and Ice, Forest under Light and Dark">
 </p>
+
+<p align="center"><i>Same camera, element off on the left and on on the right.</i></p>
 
 **Or play in your own living room.** Mixed-reality passthrough floats the board, the table and your
 control board in your real space. It is an either/or: with see-through on, the built rooms stand

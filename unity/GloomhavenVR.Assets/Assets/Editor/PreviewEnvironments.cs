@@ -668,6 +668,23 @@ namespace GloomhavenVR
             // NOTHING ABOVE MOVED; these are additions.
             ("ReadmeC", new Vector3(0f, HeadCellar, 0f), new Vector3(6, 48, 0), false, 70f),
             ("ReadmeS", new Vector3(0f, HeadForest, 0f), new Vector3(-14, MoonAz, 0), false, 74f),
+            // ...and a THIRD, narrow, straight at the moon. The README's element grid is a
+            // before/after comparison, and the strongest single "after" in either room is the
+            // BLOOD MOON: Dark holds the Earth's umbra over the disc and it goes copper. At the
+            // 74-degree ReadmeS framing the moon is a bright speck between two crowns and the
+            // whole effect lands on about forty pixels — the user's report that the element
+            // examples were not legible was exactly right about this one. 26 degrees puts the
+            // disc and the canopy around it in the frame together, which is the picture that
+            // makes the change decidable.
+            // THE CROWNS COVER PART OF THE DISC AND THAT IS NOT FIXABLE FROM INSIDE THE CLEARING —
+            // the file already says so further up ("from inside the clearing the crowns cover most
+            // of the moon"), and it was re-tested rather than assumed: a 2.2 m lateral offset was
+            // tried on the parallax argument (the moon is at infinity, the crown in front of it is
+            // metres away) and made the occlusion WORSE, because every direction out of the centre
+            // walks under another tree. The centred station is the best line there is, and a
+            // partly-veiled moon is what the player actually gets.
+            ("ReadmeMoon", new Vector3(0f, HeadForest, 0f), new Vector3(-MoonAlt + 4f, MoonAz, 0),
+                           false, 26f),
         };
 
         // ================================================================ HAUNT
@@ -910,7 +927,7 @@ namespace GloomhavenVR
           // (THE HEAD SET). This is the room whose 1.4 m station is BELOW the
           // board, so it is the one where the difference is structural.
           "HeadS", "HeadBoardS",
-          "ReadmeS" };
+          "ReadmeS", "ReadmeMoon" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock

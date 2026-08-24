@@ -18,15 +18,19 @@ reads as lit metal, and against white it reads as a hole. The report was accurat
 was contrast inversion, not corruption. The reason it appeared "only on GitHub" is that GitHub's
 light theme was the only place the wordmark was ever put on a white page.
 
-So it is not put on one any more. `logo.png` is the artwork centred on **its own dark rounded
-plate**, used on both themes — no `<picture>`, no `prefers-color-scheme`, nothing that can pick the
-wrong copy. `logo-light.png` / `logo-dark.png` are superseded.
+ModBuild 248 answered that with a dark plate behind the wordmark. **The user rejected the plate**
+("ich will es transparent, das nur das logo ohne hintergrund sichtbar ist"), so what ships is the
+artwork itself with an alpha channel and nothing behind it: `logo.png`, one file, both themes.
+`logo-light.png` / `logo-dark.png` are gone.
 
-**Regenerating it:** composite `src/GloomhavenVR/Assets/GloomhavenVR_logo.png` (still the file the
-mod itself shows in the main menu — one source of truth for the artwork) onto `#141110` at 1280 px
-wide with 7.5 % side padding and 28 % vertical padding. **Do not brighten the letter fill to "fix"
-it on light backgrounds** — that would repaint the artist's wordmark to survive a canvas it is
-never shown on again.
+**The consequence is accepted, not forgotten.** On GitHub's light theme the pale letter fill will
+read as gaps again, because that is what this artwork does on white. If that ever has to be
+solved, the answer is a BACKING on that theme only — **never a repaint of the letter fill**, which
+would mean redrawing the artist's wordmark to survive a canvas it is barely shown on.
+
+**Regenerating it:** `logo()` in `unity/asset-preview/build_readme_images.py` — the source is
+`src/GloomhavenVR/Assets/GloomhavenVR_logo.png`, still the same file the mod puts in the main menu,
+so there is one source of truth for the artwork.
 
 ## The demo clips are MP4, not GIF, and that was measured
 
@@ -230,11 +234,39 @@ handful of small sources and that IS the product; a curve pulled over them for t
 advertise a picture the player never gets. `build_env_images.py` only crops, resizes and draws the
 caption bar on the element grid.
 
-The element grid uses `_efireS` / `_eiceS` / `_elightS` / `_eearthS` — the same four moods the
-element review set renders, at the same fixed non-zero clock (3.7 s) — through the SAME camera as
-the hero above it, so each cell can be read as a change to a room the reader has already seen.
-Adding a station to the Views table is an addition and nothing above it moved; do not move an
-existing station to get a nicer frame, because fifty review frames hang off each one.
+### The element grid is a BEFORE/AFTER, and the first version of it was not
+
+The first `env-elements.jpg` was four single frames of four different element states. The user's
+verdict: *"nicht wirklich ersichtlich was da der unterschied ist"* — and he was right, because
+there was nothing in the picture to compare each cell against. The hero images sat far above it at
+a different aspect ratio, so every cell was just a dark room.
+
+Every row now shows **the same camera with the element off and on**, side by side, and the four
+rows are chosen for the SIZE of the difference rather than for covering the set:
+
+| Row | What changes |
+|---|---|
+| Cellar · Fire | the whole room lifts to the ceiling — the biggest single change either room makes |
+| Cellar · Ice | frost grows out across the flagstones, cold blue against the candle |
+| Forest · Light | canopy, ferns and shafts all lift out of the dark |
+| Forest · Dark | the moon goes into total eclipse and turns copper; the wood goes black |
+
+**Air and Earth are deliberately not in it.** They are real and they are MOTION — leaves shaking,
+growth coming up — and a still cannot show either honestly.
+
+**The Dark row is a CROP** (360×202 of the 1280×720 `ReadmeMoon` frame) because the eclipse is the
+most visible thing on either element board and at README width the disc would otherwise be a few
+dozen pixels. Cropping a real frame is not staging it; re-lighting one would be.
+
+**The moon is partly behind foliage and that stays.** A 2.2 m lateral offset was tried on the
+parallax argument — the moon is at infinity, the crown in front of it is metres away — and it made
+the occlusion *worse*, because every direction out of the centre walks under another tree. The
+file's own note says the same thing ("from inside the clearing the crowns cover most of the moon").
+A partly-veiled moon is what the player gets.
+
+All four use the fixed non-zero clock (3.7 s) the element review set uses, and the `ReadmeMoon`
+station was ADDED to the Views table — nothing above it moved. Do not move an existing station to
+get a nicer frame; fifty review frames hang off each one.
 
 ## Still missing
 

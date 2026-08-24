@@ -11,7 +11,6 @@ from PIL import Image, ImageDraw
 T = os.environ.get('ASSET_RENDER_DIR', 'render/')
 OUT = os.environ.get('README_IMG_DIR', 'docs/img/')
 BACKDROP = (26, 22, 19)          # warm near-black; reads as deliberate on both GitHub themes
-PLATE = (20, 17, 14)             # the wordmark's own backing — warm near-black, both themes
 
 
 def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
@@ -42,28 +41,32 @@ def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
 
 
 def logo():
-    """The wordmark on its own DARK PLATE, one file for both GitHub themes.
+    """The wordmark, TRANSPARENT, with a little breathing room. User ruling, after ModBuild 248.
 
-    The "weisse Luecken" report was accurate and was never a file defect: the letter interiors of
-    GLOOMHAVEN are a light parchment tone, which reads as lit metal on black and as a hole on
-    white. The earlier two-copy build (flattened onto #ffffff and #0d1117, picked by <picture>)
-    was verified byte-exact against the artist's artwork on both canvases — max difference 0 —
-    so there was nothing in the file to fix. What was wrong was putting it on a white page.
+    HISTORY, so nobody re-derives this a fourth time. The "weisse Luecken" report was accurate and
+    was NEVER a file defect: the shipped copies were byte-exact against the artist's artwork on
+    both canvases, max difference 0 on every channel of every pixel. The letter interiors of
+    GLOOMHAVEN are a light PARCHMENT tone — against black they read as lit metal, against white as
+    holes. It looked like a GitHub bug only because GitHub's light theme was the one place the
+    wordmark was ever put on a white page.
 
-    Do NOT brighten the letter fill to make it survive a light canvas; it is never shown on one.
+    ModBuild 248 answered that with a dark plate. The user rejected the plate ("ich will es
+    transparent, das nur das logo ohne hintergrund sichtbar ist"), so this is the artwork itself
+    with an alpha channel and nothing behind it. THE CONSEQUENCE IS ACCEPTED, NOT FORGOTTEN: on
+    GitHub's light theme the pale fill will read as gaps again, because that is what this artwork
+    does on white. If that ever has to be solved, the answer is a BACKING behind it on that theme
+    only — never a repaint of the letter fill.
     """
     src = Image.open('src/GloomhavenVR/Assets/GloomhavenVR_logo.png').convert('RGBA')
-    W, pad_x, pad_y = 1280, 0.075, 0.28
+    W, pad_x, pad_y = 1280, 0.03, 0.10
     inner = int(W * (1 - 2 * pad_x))
     f = inner / src.width
     mark = src.resize((inner, max(1, round(src.height * f))), Image.LANCZOS)
     H = round(mark.height * (1 + 2 * pad_y))
-    plate = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(plate).rounded_rectangle((0, 0, W - 1, H - 1), radius=round(H * 0.10),
-                                            fill=PLATE + (255,))
-    plate.alpha_composite(mark, ((W - mark.width) // 2, (H - mark.height) // 2))
-    plate.convert('RGB').save(OUT + 'logo.png', optimize=True)
-    print('wrote logo.png', plate.size)
+    out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    out.alpha_composite(mark, ((W - mark.width) // 2, (H - mark.height) // 2))
+    out.save(OUT + 'logo.png', optimize=True)
+    print('wrote logo.png', out.size, 'transparent')
 
 
 def poster(mp4, out, at='0:04'):
