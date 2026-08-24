@@ -105,7 +105,34 @@ namespace GloomhavenVR.Core;
 /// <c>ActorBehaviour</c>/<c>CInteractableActor</c> veto for exactly that reason. Nothing here
 /// touches it.</para>
 ///
-/// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
+/// <para>MODBUILD 268 — THE ModBuild-267 TERM NEVER FIRED, AND THE OTHER HALF OF THE SUBJECT IS
+/// NOT IN THIS FILE. User, 2026-08-25, on the 267 build: <i>"Weiterhin faded weder das große
+/// Regal, dass wie eine Wand benutzt wird, noch das kleine Wandhalterungsregal an der Wand. Auch
+/// mit dem Fix nicht."</i> Two findings, and they belong to different owners:</para>
+/// <list type="number">
+/// <item>THE SMALL WALL SHELF is this file's. The <c>wallCut</c> input was read off the unit
+///   walk's BREAK REASON, and that walk breaks on container scale at <c>Generated Content</c> one
+///   node below <c>Wall N</c>, so the flag could never be set — <c>under a wall</c> appears zero
+///   times in a 391-row session. Corrected by <c>WallInUnitWindow</c> (same nodes, same bound, no
+///   early exit). See the tombstone in <see cref="WallStandingProp"/>.</item>
+/// <item>THE BRACKET HAS A SECOND GATE BEHIND THIS ONE, in a file this lane does not own:
+///   <c>'CR_ST_Shelves_Stone_Wood'[mesh] anchor 0.9 gap 0.00: anchor 0.90 under the airborne bar
+///   1.00 — reads as floor-supported</c>, which is the MOUNTED sweep
+///   (<c>WallSegmentFade.Mounted.cs</c>). Even a correct fix here can therefore read as "no
+///   change" in a headset until that bar is dealt with, and BOTH halves must ship before the
+///   subject can be judged. Do not conclude from a negative hardware result that this term is
+///   wrong without checking the census counter first.</item>
+/// </list>
+/// <para>THE LARGE "REGAL" IS A THIRD SUBJECT AND IS NEITHER OF THE ABOVE. The 267 log's split-run
+/// census reads <c>'CR_ST_Shelves_Stone_Wood' of run 'Wall 1' r3 ema 0.00 blk 0/16 solid (verdict
+/// from the run)</c> — a shelf that the tileset registers as a wall piece IN ITS OWN RIGHT, held
+/// solid by its RUN's coverage verdict (it blocks 0 of 16 playable-tile samples). No rule in this
+/// file is consulted for it and no change here can move it; it is the fade DECISION's business.
+/// The same census shows <c>'CR_FR_Wall_Log_Structure_03' … blk 0/16 solid</c> beside it, and the
+/// roll-call already reads <c>'CR_FR_Wall_Log_Structure_03' FLOOR arm … fades with its wall</c> —
+/// i.e. the standing rule is releasing it correctly and the run is still holding it.</para>
+///
+/// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE./// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
 /// piece's base to sit at or above the wall's ORIGINAL course top minus 1.2 wu — floor-band
 /// geometry cannot satisfy that, so adding a second guard there would be a line of code that can
 /// never change an outcome, and the next reader would have to prove that again.</para>
@@ -232,6 +259,24 @@ internal static partial class WallSegmentFade
         /// <see cref="StandingNearMissCap"/>).</summary>
         private readonly HashSet<Transform> _standingWallCutRoots = new(32);
 
+        /// <summary>MODBUILD 268 — the NAMES behind that count, with the measurement, on their own
+        /// unconditional budget.
+        ///
+        /// <para>ModBuild 267 printed the count and nothing else, and its refusals were then
+        /// swallowed by the near-miss list's cap and print budget: the census said "2 unit(s)
+        /// refused by this term" while the term's own refusal tag appeared ZERO times in the whole
+        /// log, so the one question that mattered — <i>which units?</i> — could not be answered
+        /// from the log at all, and a reader with only the truncated column concluded the term was
+        /// inert. A count whose subjects cannot be named is not a measurement, it is a rumour.
+        /// This list is small, deduplicated by sentence, and printed before anything that can be
+        /// truncated.</para></summary>
+        private readonly Dictionary<string, int> _standingWallCutNames = new(16);
+
+        /// <summary>How many distinct wall-fragment refusal sentences are named. Small on purpose
+        /// — the population it describes is small, and if it ever is not, the count beside it says
+        /// so.</summary>
+        private const int StandingWallCutNameCap = 12;
+
         /// <summary>MODBUILD 266 — the per-subject ROLL-CALL. One line per distinct renderer NAME
         /// this rescan, carrying the two facts that adjudicate the five named acceptance subjects
         /// (shelf + board must fade; curtain must fade; ice crystal, skeleton limbs and light
@@ -244,8 +289,29 @@ internal static partial class WallSegmentFade
         /// cap is what stops a roll-call becoming a census.</para></summary>
         private readonly Dictionary<string, string> _standingSubjectRoll = new(64);
 
+        /// <summary>MODBUILD 268 — the BASELINE half of the roll-call: rows the FLOOR arm already
+        /// releases ("fades with its wall"), which is 45 of the 70 distinct names in the
+        /// ModBuild-267 log. Kept separate and given a small quota of its own so it can never
+        /// crowd out the PROTECTED rows, which are the ones this rule is actively holding.
+        ///
+        /// <para>THE ModBuild-267 FAILURE THIS FIXES, and it is an instrument failure rather than
+        /// a rule failure. That build's roll-call was one dictionary with a first-come cap of 48.
+        /// The session opens with 848 refused floor-grass claims, so the 48 slots were spent on
+        /// 'FR_Floor_Grass_Half_02' and its siblings before the subject of the round was ever
+        /// reached, and the one line written to adjudicate the fix could not show the fix's own
+        /// subject. A census that cannot show the subject cannot adjudicate anything — the
+        /// in-repo lesson is "a summary stat is not the field", and this is the same failure with
+        /// a cap instead of a statistic.</para></summary>
+        private readonly Dictionary<string, string> _standingSubjectBaseline = new(16);
+
         /// <summary>How many distinct names the roll-call carries before it stops collecting.</summary>
-        private const int StandingSubjectRollCap = 48;
+        private const int StandingSubjectRollCap = 64;
+
+        /// <summary>How many BASELINE names the roll-call keeps — deliberately small. Their whole
+        /// job is to show that the boring majority is still boring; sixteen of them says that as
+        /// well as six hundred would, and every slot beyond that is a slot the subject cannot
+        /// have.</summary>
+        private const int StandingSubjectBaselineCap = 16;
 
         /// <summary>Scratch for the fade-channel probe. Deliberately NOT <c>_matScratch</c>:
         /// <see cref="FadeDriver.CollectWallFadeInfo"/> and
@@ -289,7 +355,9 @@ internal static partial class WallSegmentFade
             _standingPropDesc.Clear();
             _standingNearMiss.Clear();
             _standingWallCutRoots.Clear();
+            _standingWallCutNames.Clear();
             _standingSubjectRoll.Clear();
+            _standingSubjectBaseline.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
             // PERF S3: the per-node subtree facts PropUnitRootOf reads are dropped HERE and only
@@ -327,36 +395,37 @@ internal static partial class WallSegmentFade
         /// by unit (<c>WallSegmentFade.FadeCensus.cs</c>, <c>WallSegmentFade.Mounted.cs</c>).
         /// They ask no verdict, so they need no <c>wallCut</c>, and giving them one would put a
         /// second reader on a fact only <see cref="IsStandingProp"/> may act on.</summary>
-        private Transform? StandingFloorUnitRootOf(Renderer r) => StandingFloorUnitRootOf(r, out _);
-
-        /// <inheritdoc cref="StandingFloorUnitRootOf(Renderer)"/>
-        /// <param name="wallCut">MODBUILD 266 — the walk passed a WALL ENTITY inside its own
-        /// bounded window. Memoised beside the root, never recomputed by a second climb.</param>
-        private Transform? StandingFloorUnitRootOf(Renderer r, out bool wallCut)
+        private Transform? StandingFloorUnitRootOf(Renderer r)
         {
-            wallCut = false;
             Transform? parent = r.transform.parent;
             if (parent == null)
                 return null;
             if (_standingRootMemo.TryGetValue(parent, out Transform? cached))
-            {
-                // The cut is a property of the WALK, so it is memoised beside the root it
-                // produced and never recomputed with a second, differently-bounded climb — the
-                // whole safety argument of this term is that it sees exactly the window the unit
-                // walk saw, and a separate probe would quietly stop being that.
-                wallCut = _standingRootCutMemo.Contains(parent);
                 return cached;
-            }
-            Transform? root = PropUnitRootOf(parent, out wallCut);
+            Transform? root = PropUnitRootOf(parent);
             _standingRootMemo[parent] = root;
-            if (wallCut)
-                _standingRootCutMemo.Add(parent);
             return root;
         }
 
-        /// <summary>MODBUILD 266 — the <c>wallInWindow</c> half of <see cref="_standingRootMemo"/>,
-        /// keyed by the same renderer PARENT. Per-rescan, cleared with everything else.</summary>
-        private readonly HashSet<Transform> _standingRootCutMemo = new(128);
+        /// <summary>MODBUILD 268 — "is there a wall in this renderer's unit window", memoised by
+        /// renderer PARENT (siblings share the answer, exactly as the root memo does). Separate
+        /// from <see cref="StandingFloorUnitRootOf"/> because the FIGURE arm needs the same fact
+        /// and does not use that walk at all — see the note at the call site for what a
+        /// half-measured column did to the ModBuild-267 log.</summary>
+        private bool WallInUnitWindowMemoized(Transform parent)
+        {
+            if (_standingRootCutMemo.TryGetValue(parent, out bool cached))
+                return cached;
+            bool verdict = WallInUnitWindow(parent);
+            _standingRootCutMemo[parent] = verdict;
+            return verdict;
+        }
+
+        /// <summary>MODBUILD 268 — the <c>wallInWindow</c> answer, memoised by renderer PARENT
+        /// (siblings share it), the same discipline <see cref="_standingRootMemo"/> keeps.
+        /// Per-rescan only: Apparance rebirths these props constantly and the segment table the
+        /// answer is measured against is rebuilt every rescan too.</summary>
+        private readonly Dictionary<Transform, bool> _standingRootCutMemo = new(128);
 
         /// <summary>
         /// Is this renderer part of a prop that STANDS ON THE FLOOR — and therefore never wall
@@ -394,15 +463,33 @@ internal static partial class WallSegmentFade
             // 167 widening the skeleton photograph needed — a scenery skeleton on a deck has no
             // figure ancestry at all. There is no third arm (ModBuild 258 retired it).
             bool figure = IsFigureOrActorRenderer(r);
-            bool wallCut = false;
+            // MODBUILD 268 — THE WINDOW IS ASKED ON BOTH ARMS. ModBuild 267 initialised wallCut
+            // to false and only assigned it on the FLOOR branch, so every FIGURE row in the
+            // census printed "no wall above" out of a FIELD INITIALISER rather than a
+            // measurement — which is how the 267 log came to state
+            // 'CR_BT_BanditBanner_Wall' FIGURE arm, no wall above for a banner hanging on a wall.
+            // (The in-repo name for this is "a default value names an unbuilt thing"; it has cost
+            // a build before.) The VERDICT is unchanged either way — StandsOnFloor consults
+            // wallCut only when !figureAncestry, so the figure arm stays bit-for-bit ModBuild 157
+            // — but a column that is a constant on half its rows cannot adjudicate anything, and
+            // adjudicating is the only reason this column exists.
+            bool windowWall = r.transform.parent != null
+                              && WallInUnitWindowMemoized(r.transform.parent);
             Transform? root = figure
                 ? FigurePropRootOf(r.transform)
-                : StandingFloorUnitRootOf(r, out wallCut);
+                : StandingFloorUnitRootOf(r);
             if (root == null)
                 return false;
-            if (!MeasureStandingUnit(root, wallCut, out WallStandingProp.Unit unit,
+            // MODBUILD 268 — AND THE VALUE THE VERDICT READS COMES BACK OUT OF THE UNIT MEMO.
+            // ModBuild 267 passed wallCut IN by value, cleared it for the water and arch rects
+            // inside, stored the cleared value in the memo — and then let the caller hand its own
+            // UNcleared local to StandsOnFloor. So the two standing rulings were dead code on this
+            // path (harmlessly, because the term never fired), and the flag the verdict read was a
+            // per-RENDERER fact on a rule whose every other term is per-UNIT. Both are fixed by
+            // making it an out-parameter: one value, measured once per unit, rects applied.
+            if (!MeasureStandingUnit(root, windowWall, out WallStandingProp.Unit unit,
                                      out float floorY, out bool vegetation,
-                                     out bool fadeChannel))
+                                     out bool fadeChannel, out bool wallCut))
             {
                 return false;
             }
@@ -416,6 +503,11 @@ internal static partial class WallSegmentFade
                                            System.StringComparison.Ordinal))
             {
                 _standingWallCutRoots.Add(root);
+                string named = $"'{root.name}' {why}";
+                if (_standingWallCutNames.TryGetValue(named, out int seen))
+                    _standingWallCutNames[named] = seen + 1;
+                else if (_standingWallCutNames.Count < StandingWallCutNameCap)
+                    _standingWallCutNames[named] = 1;
             }
             NoteStandingSubject(r, figure, wallCut, fadeChannel, verdict);
             // THE FOLIAGE PATHS TAKE THE FIGURE ARM AND NEVER THE PLAIN FLOOR ARM, and that split
@@ -449,10 +541,10 @@ internal static partial class WallSegmentFade
         /// room floor nearest its foot. False when the unit has no measurable geometry or the scene
         /// has no anchored floor at all — and with zero anchors every wall is fail-safe solid
         /// anyway, so refusing to protect costs nothing.</summary>
-        private bool MeasureStandingUnit(Transform root, bool wallCut,
+        private bool MeasureStandingUnit(Transform root, bool windowWall,
                                          out WallStandingProp.Unit unit,
                                          out float floorY, out bool vegetation,
-                                         out bool fadeChannel)
+                                         out bool fadeChannel, out bool wallCut)
         {
             if (_standingUnitMemo.TryGetValue(root, out StandingMeasure memo))
             {
@@ -460,12 +552,14 @@ internal static partial class WallSegmentFade
                 floorY = memo.FloorY;
                 vegetation = memo.Vegetation;
                 fadeChannel = memo.FadeChannel;
+                wallCut = memo.WallCut;   // ModBuild 268: the verdict reads the UNIT's value
                 return memo.Ok;
             }
             unit = default;
             floorY = 0f;
             vegetation = false;
             fadeChannel = false;
+            wallCut = false;
             _standingUnitScratch.Clear();
             root.GetComponentsInChildren(includeInactive: true, _standingUnitScratch);
             Bounds union = default;
@@ -506,8 +600,14 @@ internal static partial class WallSegmentFade
                 // is the one place holding the whole prop's union box, which is the geometry
                 // every other consumer of those rects is asked with. Same two rects, same order,
                 // as IsWallGeneratedMember and the mounted sweep.
-                if (wallCut && (IsWaterProtected(union) || IsArchProtected(union, root.name)))
-                    wallCut = false;
+                // THE TWO STANDING RULINGS, and from ModBuild 268 they are actually READ. A unit
+                // inside the water rect (2026-08-09, brunnen.png) or the doorway-arch rect
+                // (2026-08-02) has an owner of its own and this term must never claim it for a
+                // wall. Asked here because this is the one place holding the whole prop's union
+                // box, which is the geometry every other consumer of those rects is asked with.
+                wallCut = windowWall
+                          && !IsWaterProtected(union)
+                          && !IsArchProtected(union, root.name);
             }
             _standingUnitMemo[root] =
                 new StandingMeasure(ok, unit, floorY, vegetation, wallCut, fadeChannel);
@@ -562,16 +662,52 @@ internal static partial class WallSegmentFade
         private void NoteStandingSubject(Renderer r, bool figure, bool wallCut, bool fadeChannel,
                                          bool verdict)
         {
-            if (_standingSubjectRoll.Count >= StandingSubjectRollCap
-                || _standingSubjectRoll.ContainsKey(r.name))
+            if (_standingSubjectRoll.ContainsKey(r.name)
+                || _standingSubjectBaseline.ContainsKey(r.name))
             {
                 return;
             }
-            _standingSubjectRoll[r.name] =
-                $"'{r.name}' {(figure ? "FIGURE arm" : "FLOOR arm")}, "
-                + (wallCut ? "under a wall" : "no wall above") + ", "
-                + (fadeChannel ? "HAS a fade channel" : "NO fade channel — this rule cannot move it")
-                + ", " + (verdict ? "PROTECTED" : "fades with its wall");
+            // WHICH TIER, and the split is measured off the ModBuild-267 log rather than
+            // guessed. That log carries 70 distinct roll names: 45 read "fades with its wall" and
+            // only 25 read PROTECTED. PROTECTED is the anomaly — it means THIS RULE is actively
+            // holding the renderer back — and every one of the five acceptance subjects is in it
+            // (the shelf pair, the curtain, the ice crystal, the skeleton limbs, the light
+            // shaft). "Fades with its wall" is the boring majority and belongs in the baseline.
+            //
+            // My first attempt at this tiering keyed on the fade CHANNEL instead, and the same
+            // log falsifies that in one line: 66 of the 70 names HAVE a channel, so it would have
+            // sorted almost nothing and the subject could have been crowded out again. Sorting by
+            // relevance rather than by arrival is the fix; the caps then bound the STRING only,
+            // never the question the line can answer.
+            bool priority = verdict;
+            if (priority)
+            {
+                if (_standingSubjectRoll.Count >= StandingSubjectRollCap)
+                    return;
+                _standingSubjectRoll[r.name] = Row(withPath: true);
+                return;
+            }
+            if (_standingSubjectBaseline.Count >= StandingSubjectBaselineCap)
+                return;
+            _standingSubjectBaseline[r.name] = Row(withPath: false);
+
+            string Row(bool withPath)
+            {
+                string row = $"'{r.name}' {(figure ? "FIGURE arm" : "FLOOR arm")}, "
+                    + (wallCut ? "under a wall" : "no wall above") + ", "
+                    + (fadeChannel
+                        ? "HAS a fade channel"
+                        : "NO fade channel — this rule cannot move it")
+                    + ", " + (verdict ? "PROTECTED" : "fades with its wall");
+                // THE PATH, for priority rows only. ModBuild 267 was diagnosed blind because the
+                // shelf instance that FAILS is refused before any census sees it, so its parenting
+                // has never appeared in a log — while the instance that WORKS prints its path in
+                // the PROP UNIT census every rescan. Two instances of one prefab behaving
+                // differently is the whole question, and it cannot be answered from one of them.
+                if (withPath && r.transform.parent != null)
+                    row += " @ " + UnitWindowPath(r.transform.parent);
+                return row;
+            }
         }
 
         /// <summary>The anchored room floor plane nearest to a prop's foot. Rooms can be
@@ -594,6 +730,22 @@ internal static partial class WallSegmentFade
                 }
             }
             return !float.IsInfinity(best);
+        }
+
+        /// <summary>The wall-fragment refusals as one deduplicated, counted string. Built before
+        /// any budgeted list so it can never be the part that gets cut.</summary>
+        private string WallCutNames()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (KeyValuePair<string, int> kv in _standingWallCutNames)
+            {
+                if (sb.Length > 0)
+                    sb.Append("; ");
+                sb.Append(kv.Key);
+                if (kv.Value > 1)
+                    sb.Append(" ×").Append(kv.Value);
+            }
+            return sb.ToString();
         }
 
         /// <summary>Record a refused claim for the census (capped list, full count). Called from
@@ -626,7 +778,8 @@ internal static partial class WallSegmentFade
             // lesson).
             int sig = protectedUnits * 977 + _standingBlockedCount * 13
                       + _standingBlocked.Count * 7 + _standingNearMiss.Count
-                      + wallCutRefused * 31 + _standingSubjectRoll.Count * 3;
+                      + wallCutRefused * 31 + _standingSubjectRoll.Count * 3
+                      + _standingSubjectBaseline.Count * 2;
             if (sig == _standingCensusSig)
                 return;
             _standingCensusSig = sig;
@@ -654,7 +807,7 @@ internal static partial class WallSegmentFade
             var roll = new System.Text.StringBuilder();
             foreach (KeyValuePair<string, string> kv in _standingSubjectRoll)
             {
-                if (roll.Length > 2200)
+                if (roll.Length > 3000)
                 {
                     roll.Append("; …");
                     break;
@@ -663,8 +816,49 @@ internal static partial class WallSegmentFade
                     roll.Append("; ");
                 roll.Append(kv.Value);
             }
-            var misses = new System.Text.StringBuilder();
+            // The baseline tier LAST and on its own budget, so a flood of it can never again
+            // crowd out the subject the round is about (ModBuild 267: 48 first-come slots, spent
+            // before the shelf was ever asked, and the one line written to adjudicate the fix
+            // could not show the fix's own subject).
+            if (_standingSubjectBaseline.Count > 0)
+            {
+                roll.Append(" || BASELINE (units the FLOOR arm already releases — sampled, not "
+                            + "enumerated): ");
+                bool first = true;
+                foreach (KeyValuePair<string, string> kv in _standingSubjectBaseline)
+                {
+                    if (!first)
+                        roll.Append("; ");
+                    first = false;
+                    roll.Append(kv.Value);
+                }
+            }
+            // MODBUILD 268 — DEDUPLICATE THE NEAR-MISS TEXT BEFORE SPENDING THE BUDGET, and this
+            // is what reconciled the two counters that appeared to contradict each other. The map
+            // is keyed by unit ROOT, and a tileset places dozens of instances of one prefab, so
+            // the ModBuild-267 log spent its entire 3000-character budget printing
+            // 'PCG_CR_Wall_Underground1 height 7.2 wu …' and two siblings over and over: THREE
+            // distinct sentences out of up to forty collected units, then an ellipsis. Every
+            // wall-fragment refusal the term actually made was inside the part that got cut —
+            // which is why that tag appears ZERO times in a session whose own counter says it
+            // fired 2-6 times per rescan. The two numbers never disagreed; one of them was a
+            // truncated sample of the other's population. Identical sentences carry no extra
+            // information, so they are collapsed with an instance count and the budget buys
+            // distinct facts instead of repeats.
+            var missSeen = new Dictionary<string, int>(_standingNearMiss.Count);
+            var missOrder = new List<string>(_standingNearMiss.Count);
             foreach (KeyValuePair<Transform, string> kv in _standingNearMiss)
+            {
+                if (missSeen.TryGetValue(kv.Value, out int had))
+                {
+                    missSeen[kv.Value] = had + 1;
+                    continue;
+                }
+                missSeen[kv.Value] = 1;
+                missOrder.Add(kv.Value);
+            }
+            var misses = new System.Text.StringBuilder();
+            foreach (string sentence in missOrder)
             {
                 if (misses.Length > 3000)
                 {
@@ -673,7 +867,10 @@ internal static partial class WallSegmentFade
                 }
                 if (misses.Length > 0)
                     misses.Append("; ");
-                misses.Append(kv.Value);
+                misses.Append(sentence);
+                int n = missSeen[sentence];
+                if (n > 1)
+                    misses.Append(" ×").Append(n);
             }
             VRLog.Info(Name,
                 $"STANDING PROP: {protectedUnits} prop(s) STAND ON THE FLOOR and are never wall "
@@ -708,13 +905,19 @@ internal static partial class WallSegmentFade
                 + $"in this same log answers YES for a skeleton's thighs, a light shaft and 348 "
                 + $"ice-crystal renderers the user allows to stay. "
                 + $"{wallCutRefused} unit(s) refused by this term this rescan"
+                + (_standingWallCutNames.Count > 0
+                    ? ", NAMELY: " + WallCutNames() + "."
+                    : string.Empty)
                 + (wallCutRefused == 0
                     ? " — ZERO with the shelves still solid means the window does not see their "
                       + "wall and this term is the wrong lever."
                     : ".")
                 + (roll.Length > 0
                     ? $" SUBJECT ROLL-CALL (one line per renderer NAME, up to "
-                      + $"{StandingSubjectRollCap}; this is what adjudicates the named cases — "
+                      + $"{StandingSubjectRollCap}, PROTECTED rows first and with their parent "
+                      + $"path, because a PROTECTED row is this rule actively holding something "
+                      + $"and that is where a still-missing prop shows up; this is what "
+                      + $"adjudicates the named cases — "
                       + $"shelf + board and curtain must read 'fades with its wall', the ice "
                       + $"crystal, the skeleton limbs and the light shaft must read 'no wall "
                       + $"above' or 'NO fade channel'): {roll}."

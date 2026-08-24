@@ -664,9 +664,36 @@ internal sealed partial class PlayTray
         // So: keep TrayScale's documented 0.5–2 grab semantics, and absorb whatever does not fit
         // into the per-board multiplier (a free float, hand-edit/debug-menu territory) so the
         // PRODUCT is bit-exact what the player is looking at.
+        //
+        // A CARRY IS NOT A RESIZE, and since 2026-08-25 that distinction is load-bearing rather
+        // than merely tidy. The apparent-size PUSH (PlayTray.ClampApparentSize) can legitimately
+        // leave the live localScale different from the configured one — that is the whole feature —
+        // and this method runs on EVERY grab release, including a one-hand carry that touched no
+        // size at all. Persisting the pushed size from a carry would write a value the player never
+        // authored into his config and, being outside TrayScale's band, would ratchet it straight
+        // into the hand-tuned BoardScale_{board}. So the size is written only when the grab actually
+        // changed it. _scaleAtGrabStart is captured on the rising edge of the grip in
+        // TickLostWatchdog and consumed here; when it is unset (a release whose grab began while the
+        // watchdog was standing down) the old unconditional behaviour is the fallback, because
+        // dropping a real resize is the worse of the two failures.
         float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
         float live = Mathf.Max(1e-4f, _root.localScale.x);
-        float trayScale = Mathf.Clamp(live / boardScale, 0.5f, 2f);
+        float grabStart = _scaleAtGrabStart;
+        _scaleAtGrabStart = -1f;
+        bool resized = !(grabStart > 0f) || Mathf.Abs(live - grabStart) > grabStart * ScaleNoiseEpsilon;
+        if (!resized)
+        {
+            VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
+                                $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
+                                $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +
+                                $"({CardsConfig.BoardMoveMode.Value}); SIZE NOT WRITTEN — the grab was a " +
+                                $"carry, localScale {grabStart:F3} → {live:F3} is within float noise, so " +
+                                $"TrayScale stays {CardsConfig.TrayScale.Value:F2}× and " +
+                                $"BoardScale_{board} stays {boardScale:F5}.");
+            return;
+        }
+
+        float trayScale = Mathf.Clamp(live / boardScale, CardsConfig.TrayScaleMin, CardsConfig.TrayScaleMax);
         CardsConfig.TrayScale.Value = trayScale;
         float reproduced = trayScale * boardScale;
         if (Mathf.Abs(reproduced - live) > 1e-4f * Mathf.Max(1f, live))
@@ -678,20 +705,27 @@ internal sealed partial class PlayTray
             // verschoben"). BoardScale_{board} is what the settings window measures its OWN range
             // against (0.5–2 × BoardScale), so every absorption MOVES the range the player can dial
             // — his ModBuild 158 log fired it twice in one session, Steel 0.54 → 1.00 → 1.13.
-            // ModBuild 162 does not widen the band, because the releases that could reach outside it
-            // were only reachable while the gesture window itself drifted with the zoom, and that
-            // divisor is now the pin holder rather than the live rig (TryGetApparentWidthPerScaleUnit).
-            // If this line appears in a 162 log the ratchet has an independent trigger and the band
-            // is what to widen next; if it does not appear, the drifting window was the whole of it.
+            //
+            // ModBuild 268 makes this line REACHABLE ONLY BY A BUG. The two-hand gesture window is
+            // now intersected with exactly the band this code can express
+            // (IPanelGrabOwner.GrabScaleLimits), so a released size outside it means the gesture and
+            // the persistence disagree about the same arithmetic — which is the one thing this
+            // absorption cannot silently fix. If it appears in a 268+ log, do NOT widen the band:
+            // compare the window GrabScaleLimits returned against TrayScaleMin/Max × BoardScale at
+            // that timestamp and fix whichever of the two is wrong.
             VRLog.Warn("Cards", $"Board size {live:F2}× is outside what TrayScale alone can express " +
-                                $"(0.5–2 × BoardScale {boardScale:F2} = {0.5f * boardScale:F2}–" +
-                                $"{2f * boardScale:F2}): BoardScale_{board} re-seated to {adjusted:F2} " +
-                                "so the size the player set survives every future re-place. THIS MOVES " +
-                                "THE SETTINGS WINDOW'S OWN MIN/MAX — report this line.");
+                                $"({CardsConfig.TrayScaleMin}–{CardsConfig.TrayScaleMax} × BoardScale " +
+                                $"{boardScale:F2} = {CardsConfig.TrayScaleMin * boardScale:F2}–" +
+                                $"{CardsConfig.TrayScaleMax * boardScale:F2}): BoardScale_{board} " +
+                                $"re-seated to {adjusted:F2} so the size the player set survives every " +
+                                "future re-place. THIS MOVES THE SETTINGS WINDOW'S OWN MIN/MAX and " +
+                                "since ModBuild 268 the gesture window is supposed to make it " +
+                                "unreachable — report this line.");
         }
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +
-                            $"({CardsConfig.BoardMoveMode.Value}), scale {CardsConfig.TrayScale.Value:F2}×.");
+                            $"({CardsConfig.BoardMoveMode.Value}), scale {CardsConfig.TrayScale.Value:F2}× " +
+                            $"(RESIZED: localScale {grabStart:F3} → {live:F3}).");
     }
 }

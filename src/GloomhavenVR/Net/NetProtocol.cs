@@ -416,7 +416,55 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 268;
+    public const ushort ModBuild = 269;
+    // Build 269: *** THIS ONE CHANGES BEHAVIOUR *** THE BOARD'S SIZE WINDOW NOW RIDES THE PLAYER,
+    // AND A RULE THAT SHIPPED INERT.
+    //  (a) BOARD SIZE LIMITS FOLLOW THE PLAYER'S SCALE (user, 2026-08-25, reversing his own
+    //      2026-08-18 ruling): "im 'Fixed' Modus ist das NICHT der Fall … nur die Randfälle …
+    //      wenn die Größe des boards an das minimum angrenzt und der Spieler macht sich trotzdem
+    //      noch größer — dann wächst das board mit dem minimum mit … ansonsten bleibt es fix."
+    //      The culprit was the DIVISOR, not the 2026-08-15 ratchet (0 WARNs in the log): while
+    //      FIXIERT, TryGetApparentWidthPerScaleUnit divided by the PIN HOLDER's scale instead of
+    //      the live rig — 1758 BOARD ANCHOR lines all read "limits: 64.00 cm per unit" while the
+    //      rig moved x8.50 -> x28.89. That frozen divisor is what ModBuild 162 installed on the
+    //      ruling now reversed. The bound is APPARENT metres / live rig scale, so it is
+    //      proportional to rig scale and the minimum grows as the player grows — the direction
+    //      comes out of the arithmetic, not out of the paraphrase. The board is PUSHED by a bound
+    //      and never pulled: inside the window nothing moves, and it does not spring back.
+    //      FIXIERT still means world-frozen.
+    //  (b) TrayScaleMin/Max WIDENED 0.5-2 -> 0.25-4 AT INTEGRATION. The gesture window is now
+    //      intersected with the band the config can store bit-exactly (correct — a release
+    //      outside it can only be kept by re-seating the hand-tuned BoardScale_{board}, the
+    //      2026-08-15 ratchet), but at 0.5-2 that intersection BITES: Oak/Bronze would have
+    //      stopped growing at ~69 cm apparent instead of ~128 cm. 0.25-4 makes the storable band
+    //      a superset of the whole 18-140 cm window on all three boards, so the reach survives
+    //      and the ratchet still cannot fire. Revert those two constants to undo it.
+    //  (c) THE SHELF RULE OF ModBuild 267 SHIPPED INERT, and the cause was one argument. It read
+    //      "is there a wall above this unit" off the unit walk's BREAK REASON — and that walk
+    //      breaks on container scale one node BELOW the wall, because this tileset parents props
+    //      as Wall N / Generated Content / …. Two different questions, and the answer to the
+    //      first was handed to the second one's caller. The log refutes it in one row regardless
+    //      of sampling: 'PCG_CR_Wall_Thin_Medium' — a prefab named Wall, inside a wall — printed
+    //      as "no wall above". Now measured over the same four-level window with no early exit;
+    //      PropUnitRootOf is restored to its pre-267 shape, so unit grouping is bit-for-bit
+    //      unchanged. THREE INSTRUMENT DEFECTS FIXED WITH IT: the column was a field initialiser
+    //      on the FIGURE arm (so a banner on a wall printed "no wall above"); the water and arch
+    //      rulings were DEAD CODE at this term (a flag cleared in a by-value copy and read from
+    //      the caller's uncleared local — ModBuild 267's report asserted they worked, which was
+    //      false); and a per-unit rule was reading whichever renderer asked first.
+    //  AND WHY THE TWO COUNTERS SEEMED TO CONTRADICT EACH OTHER: they did not. The STANDING PROP
+    //  line runs to 9092 characters with THREE ellipses — the near-miss list collects 40 and
+    //  printed 3 distinct sentences, the roll-call collects 48 and printed 26 — so every refusal
+    //  the term made was inside the truncated part. A complete set-count and a truncated list
+    //  sample different populations. The term's refusals now print FIRST, named, before anything
+    //  truncatable.
+    // STILL OPEN: the LARGE shelf used as a wall is a third subject and neither a classification
+    // nor a gate problem — the split-run census reads 'CR_ST_Shelves_Stone_Wood' of run 'Wall 1'
+    // r3 blk 0/16 solid (verdict from the run), i.e. a run out-voting its own wall, which is the
+    // 2026-08-24 "kein Zwischending" ruling. And the small bracket still sits behind the mounted
+    // sweep's airborne bar, where every geometric discriminator is measured and interleaved.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 268: *** THIS ONE CHANGES BEHAVIOUR *** THE FIFTH SITE, AND A LABEL THAT WAS NEVER
     // BEHIND ANYTHING.
     //  (a) FLAGS AND BANNERS STAY HIDDEN. ModBuild 266 adopted them and then let them go again:

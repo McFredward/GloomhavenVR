@@ -178,6 +178,41 @@ namespace GloomhavenVR.Core;
 /// prints in full — not a claim about which components are in <c>m_WallCache</c>, which cannot be
 /// measured off a log and is therefore not relied on anywhere in this round.</para>
 ///
+/// <para><b>MODBUILD 268 — THE ModBuild-267 TERM WAS CORRECT AND NEVER FIRED. This is the
+/// tombstone of the miss, kept so it is not made a third time.</b> The term below shipped as
+/// ModBuild 267 and the user tested it: <i>"Weiterhin faded weder das große Regal, dass wie eine
+/// Wand benutzt wird, noch das kleine Wandhalterungsregal an der Wand. Auch mit dem Fix
+/// nicht."</i> The defect was NOT the arithmetic here — it was the <c>wallCut</c> input, which
+/// <c>WallSegmentFade.PropUnit.cs</c> computed from the unit walk's BREAK REASON. That walk breaks
+/// on CONTAINER SCALE one node below the wall, because this tileset always parents a prop as
+/// <c>Wall N / Generated Content / …</c> and <c>Generated Content</c> is container-scale by
+/// construction. The flag could therefore never be set. The ModBuild-267 log states it three
+/// ways:</para>
+/// <list type="number">
+/// <item>the shape column reads <c>no wall above</c> <b>391</b> times and <c>under a wall</c>
+///   <b>zero</b> times, across the whole session;</item>
+/// <item>one of those 391 is <c>'PCG_CR_Wall_Thin_Medium' … [h 3.4 wu / w 1.8 wu = 1.93 h/w, no
+///   wall above, no vegetation]</c> — a prefab named <i>Wall</i>, inside a wall, reported as
+///   having no wall above it;</item>
+/// <item>the refusal tag <c>wall-feature fragment</c> appears <b>0</b> times in the log, while the
+///   census counter read 2–6 units refused: the handful it did fire on were units whose walk
+///   happened to break ON a wall, and none of them was ever printed.</item>
+/// </list>
+/// <para>THE LESSON, and it is one this repo already has a name for: <i>measuring one step too
+/// early</i>. "Where does the unit END" and "what is ABOVE the unit" are two questions, and
+/// ModBuild 267 shipped the first one's answer to the second one's caller. The fix is
+/// <c>WallInUnitWindow</c> — the same node sequence, the same four-level bound, no early exit.
+/// Nothing in THIS file changed for it, which is the point: the arithmetic was never the
+/// defect.</para>
+///
+/// <para>WHAT THAT ALSO MEANS FOR THE NARROWNESS ARGUMENT. Until now it was untested, because the
+/// term never fired. From ModBuild 268 the four-level bound is doing real work and is the ONLY
+/// thing separating a wall's own dressing from the ice formation the user has ruled may stay. The
+/// STANDING PROP census therefore prints, for every PROTECTED row, the renderer's parent path as
+/// the window sees it. If the next log shows <c>CV_Ice_Crystal_Form_02/03</c>, a skeleton limb or
+/// <c>LightShaft_Prefab (1)</c> as <c>under a wall</c>, the bound does not separate them in this
+/// tileset and this term must be WITHDRAWN — not widened, not retuned.</para>
+///
 /// <para>THE SPAN AND RENDERER CAPS ARE UNCHANGED, and they are what stops the FLOOR arm being the
 /// catastrophe the height cap was added against: a whole wall RUN is over 6.0 wu across or over 24
 /// renderers and can never be a unit at all.</para>

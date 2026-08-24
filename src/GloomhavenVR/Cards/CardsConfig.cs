@@ -712,7 +712,7 @@ internal static class CardsConfig
             new ConfigDescription(
                 "Control board size multiplier (0.5–2). Written automatically by the two-handed " +
                 "tray grab (grip the handle bar with both hands and spread/pinch); edit only to reset.",
-                new AcceptableValueRange<float>(0.5f, 2f)));
+                new AcceptableValueRange<float>(TrayScaleMin, TrayScaleMax)));
         TrayFollow = _file.Bind("Cards", "TrayFollow", Defaults.TrayFollow,
             "Tray anchor mode (test #15, toggled by the pin button on the tray frame). " +
             "true = the tray is rig-anchored: it moves with you (world grab, snap turn, " +
@@ -1656,8 +1656,36 @@ internal static class CardsConfig
                 new AcceptableValueRange<float>(1f, 30f)));
     }
 
-    /// <summary>Tray scale multiplier clamp (matches the two-handed grab clamp).</summary>
-    internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, 0.5f, 2f);
+    /// <summary>
+    /// The band <c>[Cards] TrayScale</c> may hold — the declared config range, the read clamp below
+    /// and the round trip in <c>PlayTray.PersistPoseToConfig</c> are all THIS pair, named once
+    /// (2026-08-25). It is not a taste value: it is the exact set of sizes the config can reproduce
+    /// bit-exactly as <c>TrayScale × BoardScale_{board}</c>, so it is also what the two-hand gesture
+    /// window is intersected with — a release outside it would have to be absorbed into the
+    /// hand-tuned <c>BoardScale_{board}</c>, which is the 2026-08-15 "Minimum und Maximum wieder
+    /// verschoben" ratchet. Changing these two numbers moves the settings window's own range; the
+    /// SIZE LIMITS the player actually bumps into are <c>[Cards] BoardMin/BoardMaxWidthMeters</c>,
+    /// which are apparent metres and ride the rig scale (PlayTray.TryGetApparentWidthPerScaleUnit).
+    /// </summary>
+    /// <para>WIDENED TO 0.25-4.0 AT INTEGRATION (ModBuild 269), and the reason is that the
+    /// narrower pair would have COST the player reach he has today. Intersecting the two-hand
+    /// gesture window with this band is correct — a release outside it can only be stored by
+    /// re-seating the hand-tuned <c>BoardScale_{board}</c>, which is the 2026-08-15 ratchet — but
+    /// at 0.5-2 the intersection BITES: on Oak/Bronze (<c>BoardScale 0.54265</c>) the two-hand
+    /// grow would have stopped at <c>localScale 1.085</c> ~ 69 cm apparent instead of ~128 cm.
+    /// The player would have read that as "the board cannot get big any more" — a regression
+    /// traded for a fix he never asked for. 0.25-4.0 makes the storable band a SUPERSET of the
+    /// whole 18-140 cm apparent window on all three boards, so the intersection never bites, the
+    /// full reach survives, and the ratchet still cannot fire. The cost is that the settings
+    /// window's own slider range widens; that is a deliberate, stable change, not the drifting
+    /// range of the 2026-08-15 report. Revert to 0.5f/2f to undo it — nothing else needs to
+    /// change, which is the point of naming the pair once.</para>
+    internal const float TrayScaleMin = 0.25f;
+
+    /// <inheritdoc cref="TrayScaleMin"/>
+    internal const float TrayScaleMax = 4f;
+
+    internal static float ClampedTrayScale => Mathf.Clamp(TrayScale.Value, TrayScaleMin, TrayScaleMax);
 
     /// <summary>
     /// Item 12: the CURRENT board's normalized grab-pitch window (min ≤ max guaranteed, whatever

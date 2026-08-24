@@ -882,34 +882,10 @@ internal static partial class WallSegmentFade
         /// or containing a <c>ProceduralWall</c>, and at the first container-scale subtree — the
         /// three ways a wall could otherwise be swallowed whole into a "prop".
         /// </summary>
-        private Transform? PropUnitRootOf(Transform parent) => PropUnitRootOf(parent, out _);
-
-        /// <inheritdoc cref="PropUnitRootOf(Transform)"/>
-        /// <param name="wallInWindow">
-        /// MODBUILD 266 — did this climb pass a WALL ENTITY inside its own window? True when any
-        /// node the walk LOOKED AT (segment anchor, a node carrying a <c>ProceduralWall</c>, or a
-        /// node whose subtree contains one) is a wall. It is reported rather than acted on here;
-        /// <see cref="FadeDriver.IsStandingProp"/> is the only consumer.
-        ///
-        /// <para><b>WHY IT IS REPORTED FROM INSIDE THE WALK AND NOT ASKED SEPARATELY.</b> The
-        /// walk is bounded to <see cref="PropUnitMaxDepth"/> (4) levels, and that bound is the
-        /// whole safety property: this answer can only ever be about the unit's own four-level
-        /// neighbourhood, never about the scene. <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>
-        /// — which is what <c>IsWallGeneratedMember</c> and the flags lane's
-        /// <c>WallGeneratorAncestry</c> both ask — climbs to the SCENE ROOT, and in the
-        /// ModBuild-265 log that reaches far enough to answer "yes" for a rigged skeleton's
-        /// thighs, a light shaft and 348 ice-crystal renderers whose own logged path is
-        /// <c>'L : (…)/Generated Content/Full/PCG_CV_Ice_Clutter_Floor_07_PR/…'</c>. That path
-        /// has FOUR nodes above the renderer's parent before <c>L :</c>, so whatever wall
-        /// component the unbounded climb is finding up there, THIS window cannot see it. The
-        /// narrowness is a property of the loop bound, which is checkable here, and not a claim
-        /// about which walls are in <c>m_WallCache</c>, which is not.</para>
-        /// </param>
-        private Transform? PropUnitRootOf(Transform parent, out bool wallInWindow)
+        private Transform? PropUnitRootOf(Transform parent)
         {
             Transform? node = parent;
             Transform? best = null;
-            wallInWindow = false;
             for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
             {
                 // PERF S3: the three questions below are the SAME three calls this walk always
@@ -919,10 +895,7 @@ internal static partial class WallSegmentFade
                 // ancestor once per distinct parent, and the priciest walk of the climb is the
                 // one that decides to stop).
                 if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
-                {
-                    wallInWindow = true;
                     break;
-                }
                 int count = NodeRendererCount(node);
                 if (count > PropUnitMaxRenderers)
                     break; // container scale — this node and everything above it are architecture
@@ -932,16 +905,76 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 if (NodeContainsWallEntity(node))
-                {
-                    // The subtree contains a wall entity: not a prop, whatever its size — and the
-                    // fragment left BELOW this node is a piece of that wall's own feature.
-                    wallInWindow = true;
-                    break;
-                }
+                    break; // the subtree contains a wall entity: not a prop, whatever its size
                 best = node;
                 node = node.parent;
             }
             return best;
+        }
+
+        /// <summary>
+        /// MODBUILD 268 - IS THERE A WALL IN THIS UNIT'S OWN WINDOW? The bounded provenance scan
+        /// the standing rule's FLOOR arm consults, and the correction of the ModBuild-267 miss.
+        ///
+        /// <para><b>SAME NODES, SAME BOUND, NO EARLY EXIT.</b> It walks the identical sequence
+        /// <see cref="PropUnitRootOf"/> walks - the renderer's PARENT and up - for the identical
+        /// <see cref="PropUnitMaxDepth"/> levels, and asks the identical three memoised questions.
+        /// The one difference is that it does not stop when the ROOT has been decided: deciding
+        /// where a unit ends and asking what is above it are two questions, and ModBuild 267
+        /// shipped the first one's answer to the second one's caller.</para>
+        ///
+        /// <para><b>THE BOUND IS THE SAFETY PROPERTY AND IT IS NOW THE ONLY ONE.</b> Four levels,
+        /// never more. <c>GetComponentInParent&lt;ProceduralWall&gt;()</c> - what
+        /// <c>IsWallGeneratedMember</c> and <c>WallGeneratorAncestry</c> both ask - climbs to the
+        /// scene root, and in this session that reaches far enough to answer YES for a rigged
+        /// skeleton's thighs, a light shaft and 60 ice-crystal renderers the user has ruled may
+        /// stay. The ice formation's logged path is
+        /// <c>'L : (...)/Generated Content/Full/PCG_CV_Ice_Clutter_Floor_07_PR/CV_Ice_Crystal_Form_02 (2)/...'</c>:
+        /// four non-wall nodes sit above the renderer's parent before <c>L :</c> is reached, and
+        /// <c>Full</c> and <c>Generated Content</c> are SIBLINGS of <c>Walls/</c>, not children of
+        /// it. Widen this bound and that separation is gone. Do not widen it to "fix" a subject
+        /// that does not fire; if a subject needs more than four levels it is not in a wall's own
+        /// dressing, and this is the wrong rule for it.</para>
+        ///
+        /// <para>COST: at most four node visits, each answered from the per-commit memos
+        /// <see cref="NodeIsWallEntity"/> / <see cref="NodeContainsWallEntity"/> already fill for
+        /// this very walk, and the result is memoised per renderer PARENT by the caller. Rescan
+        /// cadence, no scene sweep, nothing held across frames.</para>
+        /// </summary>
+        private bool WallInUnitWindow(Transform parent)
+        {
+            Transform? node = parent;
+            for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
+            {
+                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node)
+                    || NodeContainsWallEntity(node))
+                {
+                    return true;
+                }
+                node = node.parent;
+            }
+            return false;
+        }
+
+        /// <summary>MODBUILD 268 - the renderer's ancestry as the window sees it, at most
+        /// <see cref="PropUnitMaxDepth"/> levels, for the standing rule's subject roll-call. The
+        /// ModBuild-267 round was lost partly because no log row said where the failing shelf was
+        /// PARENTED: the instance that fades prints its path in the PROP UNIT census, and the
+        /// instance that does not is refused before any census sees it, so its path has never once
+        /// been in a log. Cheap (a bounded string join over four names) and built only for the
+        /// handful of rows the roll-call keeps.</summary>
+        private string UnitWindowPath(Transform parent)
+        {
+            var sb = new System.Text.StringBuilder();
+            Transform? node = parent;
+            for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
+            {
+                if (sb.Length > 0)
+                    sb.Insert(0, '/');
+                sb.Insert(0, node.name);
+                node = node.parent;
+            }
+            return sb.ToString();
         }
 
         /// <summary>The unit root of a parent, out of (and into) the per-rescan memo. The ONLY

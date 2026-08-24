@@ -125,10 +125,20 @@ internal sealed partial class PlayTray
         // The old SyncWorldTiltComp counter-rotation visibly dragged the board through the
         // tilt tween ("nachziehen") and was removed outright.
 
+        // GRAB EDGE. The size the board had the frame the hand closed on it, so
+        // PersistPoseToConfig can tell a CARRY from a RESIZE (see the guard there): a one-hand
+        // carry must never re-author the board's size, and since 2026-08-25 the live size can
+        // legitimately differ from the configured one (the push below), which would otherwise
+        // make every carry write the push into the config and re-seat BoardScale_{board}.
+        bool heldNow = _handle != null && _handle.IsGrabbed;
+        if (heldNow && !_wasHeld)
+            _scaleAtGrabStart = _root.localScale.x;
+        _wasHeld = heldNow;
+
         // A gripped board is being deliberately placed — never touch it mid-carry. The pinned
         // freeze sentinel drops its baseline too: a grab is the user's own hand, and the pose it
         // leaves behind is by definition sanctioned (it re-baselines silently on release).
-        if (_handle != null && _handle.IsGrabbed)
+        if (heldNow)
         {
             _pinFreezeValid = false;
             _pinFreezeSource = null;
@@ -145,21 +155,22 @@ internal sealed partial class PlayTray
         // The board's apparent width IS visible here (BoardW × the root's lossy scale), so that is
         // what is clamped — every frame, so no gesture combination can slip past it.
         //
-        // FOLLOW MODE ONLY (user ruling 2026-08-07: "Fixiert heißt: völlig unabhängig vom
-        // Character, bewegt sich in KEINSTER Weise, außer es wird aktiv verschoben oder
-        // skaliert"). The clamp measures in PLAYER units — world width ÷ LIVE rig scale — and
-        // for a PINNED board that measure is the bug, not the safeguard: the board's WORLD size
-        // is frozen, but a world-grab zoom rescales the PLAYER, so the apparent width drifts
-        // across the 18/140 cm limits without anyone touching the board, and the clamp then
-        // "corrected" the frozen world size frame after frame. That is precisely the 2026-08-07
-        // report ("beim Zoomen nach einer Weile wird das fixierte Board kleiner oder größer");
-        // the hardware log convicts it — 18× "Board size CLAMPED" with a CONSTANT parent chain
-        // ×40.10 (the pin-holder snapshot) against rig scales ×5.13–×137.19 (the zoom). A pinned
-        // board's apparent size changing with zoom is what pinning MEANS; the size was legal
-        // when the player set it (the two-hand gesture window GrabScaleLimits bounds every
-        // explicit resize live, in BOTH modes), so while pinned nothing may re-derive it.
-        if (CardsConfig.TrayFollow.Value)
-            ClampApparentSize();
+        // IT RUNS IN BOTH MODES AGAIN (user ruling 2026-08-25). The FOLLOW-ONLY gate that stood
+        // here came from the 2026-08-07 report ("beim Zoomen nach einer Weile wird das fixierte
+        // Board kleiner oder größer") and it was the right fix for the code AS IT THEN WAS: the
+        // window was measured against the live rig while the board's world size was frozen, so the
+        // window drifted across a stationary board and the clamp "corrected" the board every frame,
+        // in both directions, forever — 18× "Board size CLAMPED" in one session with a CONSTANT
+        // parent chain ×40.10 against rig scales ×5.13–×137.19.
+        //
+        // What makes it safe now is not the gate, it is that ClampApparentSize is a PUSH: it moves
+        // the board only on the frames the window has walked PAST it by more than the freeze
+        // sentinel's own noise band, and never moves it back. So a zoom out and back leaves the
+        // board at the size the outward leg pushed it to and touches it on no other frame, which is
+        // the ruling verbatim — "dann wächst das board mit dem minimum mit … aber eben nur bei
+        // diesen Zwei Randfällen — ansonsten bleibt es fix". A gate here would only make the FIXIERT
+        // board the one place where his own configured 18/140 cm limits do not hold.
+        ClampApparentSize();
 
         // PINNED FREEZE SENTINEL: convict any remaining automatic writer instantly (see below).
         TickPinnedFreezeSentinel();
@@ -393,12 +404,80 @@ internal sealed partial class PlayTray
     private static float MinWidthMeters =>
         CardsConfig.BoardMinWidthMeters != null ? CardsConfig.BoardMinWidthMeters.Value : 0.18f;
 
-    /// <summary>Log throttle for the clamp (one line per direction per second at most).</summary>
+    /// <summary>Was the handle gripped last tick? Rising-edge detector for
+    /// <see cref="_scaleAtGrabStart"/>.</summary>
+    private bool _wasHeld;
+
+    /// <summary>The board's own localScale the frame the current grab started, or -1 when no grab
+    /// is in flight. <see cref="PersistPoseToConfig"/> consumes it to tell a CARRY (size unchanged,
+    /// so the config's size must not be rewritten) from a RESIZE (the player authored a new size).
+    /// </summary>
+    private float _scaleAtGrabStart = -1f;
+
+    /// <summary>Log throttle for the push (at most one line a second while it rides a bound).</summary>
     private float _nextSizeClampLog;
+
+    /// <summary>Change gate for the push line: the (rig scale, resulting localScale) pair it last
+    /// reported. A zoom is a continuous stream, so the throttle alone would still print a line a
+    /// second forever once the board is parked against a bound.</summary>
+    private float _loggedPushRig = -1f;
+    private float _loggedPushScale = -1f;
+
+    /// <summary>How many frames the push has fired this session. A push is PERMANENT (it never
+    /// springs back), so this is the honest measure of how much of the board's current size the
+    /// player did not author himself.</summary>
+    private int _sizePushCount;
+
+    /// <summary>
+    /// The dead band the push shares with the PINNED FREEZE SENTINEL, and it is deliberately that
+    /// sentinel's own number rather than a new tuned one: the sentinel calls a world-scale ratio
+    /// within 5e-4 of 1 "float noise, not tolerance" (see <see cref="TickBoardAnchorDiagnostics"/>).
+    /// A violation smaller than that is not a violation, it is the same number twice — and a write
+    /// that small would be invisible AND would be reported as "no change" by the very line that
+    /// exists to watch this. It also answers the touching-condition flicker the user's "an das
+    /// Minimum angrenzt" describes: the board is only moved once the bound has actually walked
+    /// PAST it by more than noise. Because the push clamps the LIVE size (not a re-derived one),
+    /// skipped sub-band violations accumulate into the next frame's comparison instead of being
+    /// lost, so the dead band cannot let the board drift out of the window by more than itself.
+    /// </summary>
+    private const float ScaleNoiseEpsilon = 5e-4f;
 
     /// <summary>
     /// Hold the board's APPARENT width inside [<see cref="MinWidthMeters"/>,
-    /// <see cref="MaxWidthMeters"/>] — apparent meaning AS THE PLAYER SEES IT.
+    /// <see cref="MaxWidthMeters"/>] — apparent meaning AS THE PLAYER SEES IT, i.e. world width
+    /// divided by the LIVE rig scale (see <see cref="TryGetApparentWidthPerScaleUnit"/> for why
+    /// that divisor, and why it is the live rig in FIXIERT too since 2026-08-25).
+    ///
+    /// <para><b>THIS METHOD IS NOW A PUSH, AND ONLY A PUSH.</b> User ruling 2026-08-25, verbatim
+    /// and it is the whole specification: <i>"im 'Fixed' Modus ist das NICHT der Fall. Damit meine
+    /// ich nur die Randfälle, dass ich zB ein super kleines board hab und ich mach mich größer und
+    /// größer — damit wächst jetzt nun auch das erlaubte minimum der Größe vom board. Wenn jetzt
+    /// die Größe des boards an das minimum angrenzt und der Spieler macht sich trotzdem noch größer
+    /// — dann wächst das board mit dem minimum mit im 'fixed' Modus. Genau das Selbe andersrum.
+    /// Aber eben nur bei diesen Zwei Randfällen — ansonsten bleibt es fix."</i></para>
+    ///
+    /// <para>Read literally, that is a clamp of the LIVE size against a window that moves with the
+    /// player — which is exactly the expression below and nothing more:</para>
+    /// <code>
+    /// apparent  = localScale × BoardW × parentChain ÷ rigScale     (player metres)
+    /// localScale ← clamp(apparent, min, max) ÷ (BoardW × parentChain ÷ rigScale)
+    /// </code>
+    /// <para>Three properties of that one line are the ruling, and each is worth naming because a
+    /// different implementation of the same sentence would break one of them:</para>
+    /// <list type="bullet">
+    /// <item>IT IS MONOTONE. The window can only ever walk INTO the board; a clamp of a value that
+    /// is already inside its window is the identity. So the board is never pulled — "ansonsten
+    /// bleibt es fix" holds bit-exactly, at every zoom, without a mode flag.</item>
+    /// <item>IT DOES NOT SPRING BACK. The board carries no memory of the size it had before a push:
+    /// the moment the player reverses, the bound stops biting, the clamp is the identity again and
+    /// the board is simply fixed at the size the bound left it at. An implementation that recomputed
+    /// the target from the CONFIGURED size instead would be reversible — and would therefore drag
+    /// the board back down behind the player, which is a move he did not ask for.</item>
+    /// <item>IT IS NOT "THE BOARD FOLLOWS THE PLAYER". FIXIERT still means world-frozen; between the
+    /// bounds the board's world pose and world scale are untouched. Only the WINDOW rides the rig.
+    /// The five builds listed in NetProtocol's 2026-08-18 block failed by making the BOARD ride it.
+    /// </item>
+    /// </list>
     ///
     /// <para>THE BUG THIS METHOD SHIPPED WITH, and it made the board unusable (user, hardware test
     /// 2026-08-03: "es spawned VIEL ZU KLEIN neben mir ... Ich kann es nicht mehr groesser machen,
@@ -420,22 +499,19 @@ internal sealed partial class PlayTray
     /// scale outside any sanctioned trigger, which is what produced the "UNSANCTIONED recompute"
     /// warnings in the same log.</para>
     ///
-    /// <para>THE MEASURE, CORRECTED: divide the world width by the LIVE RIG SCALE. That expresses
-    /// the board in the player's own units, which is the only frame in which "18 to 140 cm" means
-    /// anything. It is the same distinction stick flight already makes for its speed dial, for the
-    /// same reason: a length is meaningless until you say whose metres it is in. With the board
-    /// hanging under the rig (FOLLOW) or under a pin holder that has the rig scale baked into it
-    /// (FIXIERT), the division cancels the parent chain and the measure reduces to the tray's own
-    /// scale — which is exactly the quantity the two-handed gesture and <c>BoardScale</c> speak in,
-    /// so the limits now bound the thing the player is actually adjusting. The division is done
-    /// explicitly rather than by assuming that cancellation, so an unexpected parent chain still
-    /// yields a player-relative answer instead of a silent wrong one.</para>
-    ///
     /// <para>Only the tray's OWN localScale is written, so the rig/world scale the player chose for
-    /// the DIORAMA is never touched — the board simply stops following it past the limit. When the
-    /// clamp does fire it now ANNOUNCES the write to the board-pose watchdog, because a clamp is a
-    /// sanctioned re-pose: silently changing the scale is precisely what that watchdog exists to
-    /// catch, and it was right to complain.</para>
+    /// the DIORAMA is never touched — the board simply stops following it past the limit. The write
+    /// ANNOUNCES itself to the board-pose watchdog and to the pinned freeze sentinel, because a push
+    /// is a sanctioned re-pose: silently changing the scale is precisely what those exist to catch.
+    /// It is also what keeps MULTIPLAYER correct for free — the wire samples the board's WORLD scale
+    /// (NetAvatarDriver: <c>board.lossyScale.x</c>), which is the quantity this method writes, so a
+    /// peer reproduces the sender's pushed board at the sender's world size with no conversion and
+    /// no new wire field. The bounds are and must stay LOCAL: they are each player's own eyes.</para>
+    ///
+    /// <para>THE PUSH NEVER REACHES THE CONFIG. It writes only the live localScale;
+    /// <see cref="PersistPoseToConfig"/> runs on grab release alone and skips the size entirely
+    /// unless the grab really resized the board (see the guard there). That is what keeps the
+    /// hand-tuned <c>BoardScale_{board}</c> / <c>TrayScale</c> out of this feature's way.</para>
     /// </summary>
     private void ClampApparentSize()
     {
@@ -444,41 +520,59 @@ internal sealed partial class PlayTray
         if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out float rigScale))
             return;
         Vector3 local = _root.localScale;
-        float width = perUnit * local.x;
-        float min = MinWidthMeters, max = MaxWidthMeters;
-        if (width >= min && width <= max)
+        float width = perUnit * local.x;   // PLAYER metres — the unit the two config limits are in
+        if (!(width > 1e-6f) || float.IsInfinity(width))
             return;
-
+        float min = MinWidthMeters, max = MaxWidthMeters;
         float wanted = Mathf.Clamp(width, min, max);
         float factor = wanted / width;
-        _root.localScale = local * factor;
-        // Defensive: the caller gates this to FOLLOW mode (pinned = world-frozen, ruling
-        // 2026-08-07); should any future path run it on a pinned tray, the freeze sentinel
-        // names it instead of warning about an unknown writer.
-        NotePinnedWrite("apparent-size clamp (ClampApparentSize)");
+        // Dead band: inside the window (or within the freeze sentinel's own float-noise band of it)
+        // this is the identity, and the identity must not be written — a write would churn the
+        // sentinel, the watchdog and the wire's "board is moving" test for nothing.
+        if (Mathf.Abs(factor - 1f) <= ScaleNoiseEpsilon)
+            return;
 
-        // Sanctioned: the watchdog must be able to tell a clamp apart from a game event moving the
-        // board behind our back. Without this the clamp's own write reads as an UNSANCTIONED
-        // recompute — which is exactly how the shipped bug announced itself.
-        CardsDriver.NoteExpectedPoseChange("board size clamp (min/max apparent width)");
+        _root.localScale = local * factor;
+        _sizePushCount++;
+        NotePinnedWrite("apparent-size push (ClampApparentSize — a moving bound walked into the board)");
+
+        // Sanctioned: the watchdog must be able to tell a push apart from a game event moving the
+        // board behind our back. Without this the write reads as an UNSANCTIONED recompute — which
+        // is exactly how the shipped 2026-08-03 bug announced itself.
+        CardsDriver.NoteExpectedPoseChange("board size push (min/max apparent width)");
 
         float now = Time.unscaledTime;
-        if (now >= _nextSizeClampLog)
-        {
-            _nextSizeClampLog = now + 1f;
-            VRLog.Info("Cards", $"Board size CLAMPED: apparent width {width * 100f:F1} cm → " +
-                                $"{wanted * 100f:F1} cm (limits {min * 100f:F0}–{max * 100f:F0} cm, " +
-                                $"[Cards] BoardMinWidthMeters/BoardMaxWidthMeters). Own scale " +
-                                $"{local.x:F3} → {_root.localScale.x:F3}. Measured in PLAYER units: " +
-                                $"parent chain ×{parent:F2} ÷ rig scale ×{rigScale:F2} " +
-                                "(the diorama scale itself is never touched).");
-        }
+        // CHANGE-GATED, not merely throttled: parked against a bound at a steady zoom the push can
+        // legitimately fire every frame with the same numbers, and a line a second forever is the
+        // "probe that answered is spent" failure. The gate is the pair that makes the verdict.
+        bool changed = Mathf.Abs(rigScale - _loggedPushRig) > _loggedPushRig * 0.01f + 1e-3f
+                       || Mathf.Abs(_root.localScale.x - _loggedPushScale) > 1e-4f;
+        if (!changed || now < _nextSizeClampLog)
+            return;
+        _nextSizeClampLog = now + 1f;
+        _loggedPushRig = rigScale;
+        _loggedPushScale = _root.localScale.x;
+        bool low = wanted <= min;
+        VRLog.Info("Cards", $"BOARD SIZE PUSHED by the {(low ? "MINIMUM" : "MAXIMUM")} " +
+                            $"({(CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT")}): apparent width " +
+                            $"{width * 100f:F1} cm → {wanted * 100f:F1} cm against the window " +
+                            $"{min * 100f:F0}–{max * 100f:F0} cm APPARENT ([Cards] BoardMinWidthMeters/" +
+                            $"BoardMaxWidthMeters). Same board, same instant, the other unit: world width " +
+                            $"{width * rigScale:F3} → {wanted * rigScale:F3} m-world against the same " +
+                            $"window expressed in WORLD metres, {min * rigScale:F3}–{max * rigScale:F3} m " +
+                            $"— that window is what moves, and it moves because it is divided by the LIVE " +
+                            $"rig ×{rigScale:F2} (parent chain ×{parent:F2}, {perUnit * 100f:F2} cm " +
+                            $"apparent per localScale unit). Own localScale {local.x:F3} → " +
+                            $"{_root.localScale.x:F3}. Push #{_sizePushCount} this session. This is the " +
+                            "2026-08-25 exception: the bound moved into the board and pushed it, the " +
+                            "board does NOT spring back when the player reverses, and between the bounds " +
+                            "nothing here writes at all.");
     }
 
     /// <summary>
     /// THE BOARD ANCHOR LINE, and it reports the invariant the user actually stated rather than the
-    /// one four builds guessed at. User, 2026-08-18, verbatim and final: <i>"Fixiert heißt FIX.
-    /// Keinerlei Abhängigkeit zum Spieler mehr, sondern fix in der Welt."</i>
+    /// one four builds guessed at. User, 2026-08-18, verbatim: <i>"Fixiert heißt FIX. Keinerlei
+    /// Abhängigkeit zum Spieler mehr, sondern fix in der Welt."</i>
     ///
     /// <para>SO THE THING TO PROVE IS A WORLD INVARIANT: while FIXIERT and not being actively
     /// grabbed or resized, the board's WORLD position and WORLD scale must not change by one bit,
@@ -489,9 +583,14 @@ internal sealed partial class PlayTray
     /// with four builds the user rejected. A diagnostic must measure the invariant that was asked
     /// for, not the one the implementation happens to hold.</para>
     ///
-    /// <para>The perceived numbers are still printed, but explicitly labelled as EXPECTED to move:
-    /// a pinned board is now world geometry, so zooming changes how big it looks exactly as it
-    /// changes how big the dungeon looks. That is the point, not a defect.</para>
+    /// <para>2026-08-25 — THE INVARIANT NOW HAS ONE SANCTIONED EXCEPTION AND THIS LINE ADJUDICATES
+    /// IT. The size window moves with the player's scale, and on the frames it walks past the board
+    /// <see cref="ClampApparentSize"/> pushes the board's world scale so the window is not violated.
+    /// So "world scale changed while FIXIERT and not held" is no longer automatically a defect — it
+    /// is a defect only if no push fired. The line therefore prints the push count SINCE THE LAST
+    /// LINE next to the world-scale delta, and both units of the size with the window in each, so
+    /// the next log answers "did the exception fire, and was that the thing that moved it" without
+    /// a second grep and without the eye.</para>
     /// </summary>
     private void TickBoardAnchorDiagnostics()
     {
@@ -509,51 +608,78 @@ internal sealed partial class PlayTray
         float posDelta = haveBaseline ? Vector3.Distance(worldPos, _anchorLogPos) : 0f;
         float scaleRatio = haveBaseline ? worldScale / Mathf.Max(_anchorLogScale, 1e-6f) : 1f;
         // A world-frozen board moves by exactly zero. The thresholds are float noise, not tolerance:
-        // 0.1 mm of world units and 0.05 % of scale. Anything above them while FIXIERT and not held
-        // is a WRITER, and the line says so in those words.
-        bool moved = haveBaseline && (posDelta > 1e-4f || Mathf.Abs(scaleRatio - 1f) > 5e-4f);
+        // 0.1 mm of world units and 0.05 % of scale (the same ScaleNoiseEpsilon the push's dead band
+        // is derived from — one number, one meaning). Anything above them while FIXIERT and not held
+        // is a WRITER, and unless the push accounts for it the line says so in those words.
+        bool moved = haveBaseline && (posDelta > 1e-4f || Mathf.Abs(scaleRatio - 1f) > ScaleNoiseEpsilon);
+        int pushesSince = _sizePushCount - _loggedAnchorPushCount;
         if (!moved && now < _nextAnchorLog)
             return;
         _nextAnchorLog = now + 5f;
 
         Transform? rig = Rig.VRRigDriver.RigRoot;
         float rigScale = rig != null ? rig.lossyScale.x : 1f;
-        // The min/max limits are expressed as "apparent width per unit of the tray's own localScale",
-        // i.e. parent chain ÷ divisor. While FIXIERT the divisor is the PIN HOLDER, so the quotient
-        // is a constant and the window cannot wander with the zoom; while FOLGEN it is the live rig,
-        // which is correct there. Printing the divisor beside the rig scale makes that visible: in
-        // FIXIERT the two are allowed to differ, and the per-unit figure must NOT move between lines.
-        string ratio = TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out _, out float divisor)
-            ? $"limits: {perUnit * 100f:F2} cm per unit (parent ×{parent:F2} ÷ divisor ×{divisor:F2}" +
-              (follow ? ", the LIVE rig — correct in FOLGEN)" : ", the PIN HOLDER — frozen, so the window cannot ride the zoom)")
-            : "limits measure unavailable";
+        // THE WINDOW, PRINTED IN BOTH UNITS AND EACH BESIDE THE VALUE IT BOUNDS. The config limits
+        // are APPARENT metres, so the apparent width is compared against them directly; the same
+        // window multiplied by the LIVE rig scale is the world-metre window, which is the one that
+        // moves when the player scales. Since 2026-08-25 the divisor is the live rig in BOTH modes
+        // (see TryGetApparentWidthPerScaleUnit), so per-unit is EXPECTED to move in FIXIERT — the
+        // opposite of what this line demanded of it before, and printing the divisor keeps the
+        // arithmetic checkable: perUnit × rigScale ÷ parent must always be BoardW = 0.64.
+        string sizes;
+        if (TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out _, out float divisor))
+        {
+            float apparent = perUnit * _root.localScale.x;
+            float world = apparent * rigScale;
+            float min = MinWidthMeters, max = MaxWidthMeters;
+            sizes = $"size {apparent * 100f:F1} cm APPARENT in a {min * 100f:F0}–{max * 100f:F0} cm " +
+                    $"apparent window, = {world:F3} m-world in the SAME window seen in world metres, " +
+                    $"{min * rigScale:F3}–{max * rigScale:F3} m (that one rides the rig — it is the " +
+                    $"'erlaubtes Minimum' that grows when the player grows). Per unit " +
+                    $"{perUnit * 100f:F2} cm (parent ×{parent:F2} ÷ divisor ×{divisor:F2}, the LIVE " +
+                    $"rig in both modes since 2026-08-25)";
+        }
+        else
+        {
+            sizes = "size/limits measure unavailable";
+        }
+        string pushes = pushesSince > 0
+            ? $"PUSH FIRED {pushesSince}× since the last line (total {_sizePushCount})"
+            : "push did not fire since the last line";
         string verdict = follow
             ? "FOLGEN — the board hangs off the player and is SUPPOSED to move with them."
             : held
                 ? "FIXIERT, HELD — the hand is carrying it, so a change here is the player's own."
                 : moved
-                    ? "FIXIERT, NOT HELD, AND IT MOVED — this is a defect. Something wrote the board's "
-                      + "world transform. The user's ruling is 'keinerlei Abhängigkeit zum Spieler, "
-                      + "fix in der Welt'; grep the PINNED tray transform WRITE line at this "
-                      + "timestamp, it names the writer."
+                    ? pushesSince > 0
+                        ? "FIXIERT, NOT HELD, AND THE SIZE MOVED — EXPECTED: this is the 2026-08-25 "
+                          + "exception. A bound walked into the board and pushed it; the world POSITION "
+                          + "must still be zero-delta, and the board must NOT come back down when the "
+                          + "player reverses. Grep BOARD SIZE PUSHED at this timestamp for which bound."
+                        : "FIXIERT, NOT HELD, AND IT MOVED WITH NO PUSH — this is a defect. Something "
+                          + "wrote the board's world transform. The ruling is 'keinerlei Abhängigkeit "
+                          + "zum Spieler, fix in der Welt' outside the two Randfälle; grep the PINNED "
+                          + "tray transform WRITE line at this timestamp, it names the writer."
                     : "FIXIERT, NOT HELD — world pose and world scale are FROZEN, which is the "
                       + "invariant. The rig scale beside them is free to move and normally has.";
 
         _anchorLogPos = worldPos;
         _anchorLogScale = worldScale;
         _anchorLogValid = true;
+        _loggedAnchorPushCount = _sizePushCount;
 
         VRLog.Info("Cards", $"BOARD ANCHOR: world pos {worldPos}, world scale {worldScale:F3} " +
                             $"(own localScale {_root.localScale.x:F3}) against rig ×{rigScale:F2}. " +
                             (haveBaseline
                                 ? $"Since the last line: Δ world pos {posDelta * 1000f:F2} mm-world, " +
-                                  $"world scale ×{scaleRatio:F5}. "
-                                : "first sample. ") +
-                            $"{ratio}. {verdict} " +
-                            "The board's PERCEIVED size and distance are deliberately NOT the " +
-                            "invariant any more: a pinned board is world geometry, so zooming " +
-                            "changes how big it looks exactly as it changes how big the dungeon " +
-                            "looks — that is what 'fix in der Welt' means.");
+                                  $"world scale ×{scaleRatio:F5}, {pushes}. "
+                                : $"first sample, {pushes}. ") +
+                            $"{sizes}. {verdict} " +
+                            "The board's PERCEIVED size is deliberately NOT frozen between the " +
+                            "bounds: a pinned board is world geometry, so zooming changes how big it " +
+                            "looks exactly as it changes how big the dungeon looks. What IS " +
+                            "guaranteed is that it never looks smaller than the min or bigger than " +
+                            "the max — that is the only thing the push exists for.");
     }
 
     private Vector3 _anchorLogPos;
@@ -561,17 +687,32 @@ internal sealed partial class PlayTray
     private bool _anchorLogValid;
     private float _nextAnchorLog;
 
+    /// <summary>Value of <see cref="_sizePushCount"/> the last BOARD ANCHOR line reported, so the
+    /// next one can state how many pushes happened between the two samples.</summary>
+    private int _loggedAnchorPushCount;
+
     /// <summary>
-    /// The tray's apparent width (perceived metres, the frame the min/max limits are written in)
-    /// PER UNIT of the tray's own localScale — the shared measure of the release-time safety
-    /// clamp (<see cref="ClampApparentSize"/>) and the live two-hand gesture window
-    /// (<see cref="WorldUI.IPanelGrabOwner.GrabScaleLimits"/>). One expression on purpose: the
-    /// two enforcement points MUST agree, or a size the gesture allows would be snapped back the
-    /// frame the player lets go (the exact "es wird sofort wieder kleiner" failure the corrected
-    /// measure fixed on 2026-08-03). False when no board exists or a transform is degenerate —
-    /// callers then skip their clamp (safety net) or fall back to the generic factor range
-    /// (gesture window). <paramref name="parent"/>/<paramref name="rigScale"/> are surfaced for
-    /// the clamp's diagnostic line only.
+    /// The tray's apparent width (PLAYER metres — the frame <c>[Cards] BoardMinWidthMeters</c> /
+    /// <c>BoardMaxWidthMeters</c> are written in) PER UNIT of the tray's own localScale. It is the
+    /// shared measure of the frame-by-frame push (<see cref="ClampApparentSize"/>) and of the live
+    /// two-hand gesture window (<see cref="WorldUI.IPanelGrabOwner.GrabScaleLimits"/>). One
+    /// expression on purpose: the two enforcement points MUST agree, or a size the gesture allows
+    /// would be snapped back the frame the player lets go (the exact "es wird sofort wieder kleiner"
+    /// failure the corrected measure fixed on 2026-08-03).
+    ///
+    /// <para>Since 2026-08-25 the divisor is the LIVE RIG SCALE IN BOTH ANCHOR MODES, which is the
+    /// user's reversal of the 2026-08-18 frozen-divisor rule and the whole of "das Maximum und
+    /// Minimum … verschiebt sich dynamisch mit der Größe mit" — see the block inside the method for
+    /// the arithmetic and for why that, and only that, makes the allowed MINIMUM grow when the
+    /// player grows.</para>
+    ///
+    /// <para>False when no board exists or a transform is degenerate — callers then skip their
+    /// clamp (push) or fall back to the generic factor range (gesture window).
+    /// <paramref name="parent"/>/<paramref name="rigScale"/>/<paramref name="divisor"/> are
+    /// surfaced for the diagnostic lines only; <paramref name="divisor"/> is now always equal to
+    /// <paramref name="rigScale"/> and is kept as a separate out-parameter so the BOARD ANCHOR line
+    /// keeps printing the quotient it has printed since ModBuild 162 — a future change that
+    /// re-freezes it would show up in that log instead of silently.</para>
     /// </summary>
     private bool TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out float rigScale) =>
         TryGetApparentWidthPerScaleUnit(out perUnit, out parent, out rigScale, out _);
@@ -595,36 +736,55 @@ internal sealed partial class PlayTray
         // The player's own scale. Everything the player perceives is measured against this: at rig
         // scale 21 they ARE twenty-one times larger, so a world metre is 1/21 of a perceived metre.
         Transform? rig = Rig.VRRigDriver.RigRoot;
-        rigScale = rig != null ? rig.lossyScale.x : 1f;
+        // NO RIG, NO ANSWER — and this is a HARD FAIL rather than the "world units ARE player
+        // units" fallback that stood here (2026-08-25). That fallback was harmless while the only
+        // consumer clamped a FOLLOW-mode board whose parent chain is the rig itself; it is not
+        // harmless now. A pinned board hangs under a holder carrying the diorama scale (×13.10 in
+        // the ModBuild 267 log), so pretending rigScale is 1 for a frame reports its 43 cm board as
+        // a 6.3 m one and the push — which is PERMANENT, it never springs back — would shrink it
+        // 4.5× on the spot and leave it there. Returning false instead makes the push skip the
+        // frame and the gesture window fall back to the handle's generic factor range, both of
+        // which are already the documented "measure unavailable" behaviour.
+        if (rig == null)
+            return false;
+        rigScale = rig.lossyScale.x;
         if (!(rigScale > 1e-6f) || float.IsInfinity(rigScale))
-            rigScale = 1f; // no rig yet (menu boot): world units ARE player units, clamp as-is
+            return false;
 
-        // WHILE PINNED, THE DIVISOR IS THE PIN HOLDER — NOT THE LIVE RIG. User ruling 2026-08-18,
-        // verbatim and final after four builds argued the other way: "Fixiert heißt FIX. Keinerlei
-        // Abhängigkeit zum Spieler mehr, sondern fix in der Welt."
+        // THE DIVISOR IS THE LIVE RIG, IN BOTH MODES. User ruling 2026-08-25, and it REVERSES the
+        // 2026-08-18 "Fixiert heißt FIX" reading of this one line (he opened with "Ich will nun
+        // doch", so the older rule is not an argument against it):
         //
-        // A pinned board IS world geometry. Its world size is frozen and nothing may re-derive it,
-        // so measuring its limits in PLAYER metres — world width ÷ the LIVE rig scale — makes the
-        // one number the settings window and the two-hand gesture are expressed in wander with the
-        // zoom, without anybody touching the board. That is the second half of his 2026-08-15
-        // report ("weiterhin hat sich damit auch das maximum und minimum wieder verschoben") and it
-        // is a dependency on the player, which is exactly what the ruling forbids. The pin holder
-        // carries the rig scale AS IT WAS AT PIN TIME, so dividing by it gives the perceived width
-        // the board had when the player put it there — a constant, and the same constant at every
-        // zoom. `parent` and this divisor are then the same number in pinned mode, which is why the
-        // ratio prints as ×1.0000 and the limits stop moving.
+        //   "Ich will nun doch, dass es sich dynamisch mit der Größe mitverschiebt … Damit meine
+        //    ich nur die Randfälle, dass ich zB ein super kleines board hab und ich mach mich
+        //    größer und größer — damit wächst jetzt nun auch das erlaubte minimum der Größe vom
+        //    board."
         //
-        // FOLLOW mode keeps the live rig scale, and must: there the board genuinely hangs off the
-        // player, its world size really does track the zoom, and a frozen divisor would let the
-        // "extrem winzig" multiplication of shrink-onto-shrink back in (the 2026-08-03 report that
-        // put ClampApparentSize there in the first place).
+        // FIXIERT STILL MEANS THE BOARD IS WORLD-FROZEN; what he changed his mind about is what the
+        // MIN/MAX are measured in. BoardMinWidthMeters/BoardMaxWidthMeters are written in PLAYER
+        // metres ("narrowest the board is allowed to LOOK"), so the divisor that turns a world width
+        // into that unit is the LIVE rig scale and nothing else — at rig scale 21 the player IS
+        // twenty-one times larger, so a world metre is 1/21 of a perceived metre. Dividing by the
+        // pin holder instead (the rig scale AS IT WAS AT PIN TIME) answered a different question —
+        // "how wide did this board look when I pinned it" — which is a constant and therefore
+        // cannot grow when the player grows. His example only comes out right with the live rig:
+        //
+        //     bound expressed in localScale = limitMetres × rigScale / (BoardW × parent)
+        //
+        // — PROPORTIONAL TO THE RIG SCALE, so the player scaling UP raises the allowed minimum,
+        // which is exactly the sentence above. That direction falls out of this line, not out of a
+        // paraphrase of it; it is also why the correction in ClampApparentSize can only ever be a
+        // PUSH (the window walks into the board, never away from it).
+        //
+        // THE BOARD ITSELF DOES NOT RIDE THE DIVISOR — ONLY THE WINDOW DOES. ClampApparentSize
+        // moves the board solely on the frame this window has crossed it; "ansonsten bleibt es fix".
+        //
+        // FOLLOW mode is unaffected in every arithmetic detail: there the tray hangs under the rig
+        // anchor, so `parent` IS the live rig scale and this division cancels it exactly as it did
+        // before (hardware log, ModBuild 267: "parent ×13.10 ÷ divisor ×13.10", perUnit a constant
+        // 64.00 cm). The 2026-08-03 "extrem winzig" shrink-onto-shrink multiplication stays closed
+        // off there for the same reason it always was.
         divisor = rigScale;
-        if (!CardsConfig.TrayFollow.Value && _pinRoot != null)
-        {
-            float holder = _pinRoot.lossyScale.x;
-            if (holder > 1e-6f && !float.IsInfinity(holder))
-                divisor = holder;
-        }
 
         perUnit = BoardHalfWidthLocal * 2f * parent / divisor;
         return perUnit > 1e-6f && !float.IsInfinity(perUnit);
