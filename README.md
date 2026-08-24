@@ -97,16 +97,6 @@ rim. Press one and its window opens; press it again and it closes.
 > *The 3D campaign map room: pressing a table-rim cap to open a window, pointing at a location,
 > the party token walking its route.*
 
-**And you choose the room you play in** — a candle-lit cellar or a moonlit night forest, both built
-by hand for this, with a real star catalogue overhead, firelight, drips, cobwebs and quiet ambience.
-Both of them hide rare apparitions you will hopefully not be looking at when they happen. They have
-their own off switch.
-
-<!-- VIDEO: docs/img/environments.mp4 -->
-> **[ VIDEO PLACEHOLDER — `docs/img/environments.mp4` ]**
-> *The cellar and the night forest: firelight, the night sky, foliage moving, the switch between
-> environments in the settings.*
-
 ---
 
 ## Make it yours — and let the others see it
@@ -146,6 +136,62 @@ All nine are one dropdown each in the settings, changeable mid-session.
 
 ---
 
+## And the room you play in
+
+The flat game has a background. This one has a **place** — two of them, built by hand for this mod
+and picked from a dropdown.
+
+**A candle-lit cellar.** Rough masonry, a flagstone floor, crates and barrels going back into the
+dark, a guttering candle on a table in the corner and a barred window with the moon behind it.
+Water finds its way down and drips into a puddle; every so often a rat runs the length of the room
+and through the moonbeam on its way to a hole.
+
+<div align="center">
+  <img src="docs/img/env-cellar.jpg" width="900" alt="The cellar: candlelight on rough masonry, crates and barrels in the dark">
+</div>
+
+**A moonlit night forest.** Trees that close over you, a real star catalogue overhead, moonlight
+coming down through the canopy in shafts, ferns, fireflies, and a wood that is genuinely dark past
+the clearing.
+
+<div align="center">
+  <img src="docs/img/env-forest.jpg" width="900" alt="The night forest: the moon through the canopy, moonlight in shafts over the clearing">
+</div>
+
+**And the room answers the game.** The six Gloomhaven elements are not just icons on a strip. Infuse
+**Fire** and the cellar warms right to the ceiling while embers rise at the tree line. Infuse **Ice**
+and frost grows out across the flagstones, up the walls and over the trunks. **Air** makes the
+candles gust, the leaves shake and the puddles chop. **Earth** brings green up out of the dark.
+**Light** lifts the whole wood — and **Dark** takes it away, hardens every flame to a small fierce
+point, and walks the moon into a total eclipse until it hangs there copper-red. They layer: Light
+and Dark at once do not cancel to grey, they give you a black room with a few unbearable sources in
+it. Every element fades in and out over a second, breathes while it is waning, and blooms at the
+walls and the tree line — the board itself stays exactly as readable as it was.
+
+<div align="center">
+  <img src="docs/img/env-elements.jpg" width="900" alt="The same two rooms with Fire, Ice, Light and Earth infused">
+</div>
+
+> *The same two cameras as the pictures above, with one element at full strength. It reacts to the
+> real element board, so both players see the same room do the same thing at the same moment.*
+
+**Or no built room at all — yours.** Switch on **mixed reality** and the sky is replaced with a flat
+chroma-key colour your streaming app punches out, so the diorama, the table and your control board
+float in your actual living room. It is an either/or, honestly: with passthrough on, the cellar and
+the forest stand down, because a built room drawn over your real one looks like neither. Floating
+text and panels get solid backings while it is on, so they stay readable against whatever is behind
+them.
+
+Both rooms hide rare apparitions you will hopefully not be looking at when they happen. Rooms,
+ambience, apparitions and the element response all have their own off switches.
+
+<!-- VIDEO: docs/img/environments.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/environments.mp4` ]**
+> *The cellar and the night forest: firelight, the night sky, an element infusion changing the
+> room, and the switch between environments in the settings.*
+
+---
+
 ## What you need
 
 - **Gloomhaven (digital) for PC**, v1.1.x — Steam or GOG.
@@ -175,8 +221,8 @@ It is **pre-1.0** and it moves. The honest short list:
   clicks.
 - A couple of the game's own messages still appear only on the flat monitor — you see the effect
   but not the sentence.
-- Mixed-reality see-through mode turns the built rooms and the sky off; they cannot be drawn over
-  passthrough and still look right.
+- Mixed reality and the built rooms are an either/or: with see-through on, the cellar, the forest
+  and the sky stand down, because they cannot be drawn over passthrough and still look right.
 
 [The full list is in the playing guide](docs/PLAYING.md#known-limitations) — it is longer, and none
 of it is a surprise.

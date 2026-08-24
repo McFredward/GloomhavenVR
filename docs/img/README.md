@@ -170,6 +170,38 @@ Two further things in that script are load-bearing, and both were learned the ha
 
 Regenerate them with the recipe in each strip's caption below, then flatten onto `#1a1613`.
 
+## The environment images
+
+`env-cellar.jpg`, `env-forest.jpg` and `env-elements.jpg` are **preview renders of the shipped
+environment prefabs**, not screenshots — the same `EnvironmentsPreview` harness every environment
+lane is judged on, so a picture on the front page can be reproduced and re-checked instead of being
+a photograph nobody can take again.
+
+```
+ENV_PREVIEW_OUT=<dir> ENV_PREVIEW_VIEWS=Readme ENV_PREVIEW_NOHAUNT=1 ENV_PREVIEW_NOFIRE=1 \
+  xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode \
+  -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+  -executeMethod GloomhavenVR.EnvironmentsPreview.RenderAll -logFile env-readme.log
+ENV_RENDER_DIR=<dir>/ python3 unity/asset-preview/build_env_images.py
+```
+
+**Both stations are shot from the player's own head height** — `ReadmeC` at 2.02 m in the cellar and
+`ReadmeS` at 2.80 m in the wood, the same `HeadCellar`/`HeadForest` constants THE HEAD SET uses. A
+marketing shot taken from a camera the player never occupies is a lie that costs nothing to avoid,
+and the only thing they change against `HeadC`/`HeadS` is the AIM: those two look at the darkest
+half of their room on purpose, because that is what they were added to judge.
+
+**Nothing is re-lit, re-graded or brightened in the compositor.** Both rooms are night scenes with a
+handful of small sources and that IS the product; a curve pulled over them for the page would
+advertise a picture the player never gets. `build_env_images.py` only crops, resizes and draws the
+caption bar on the element grid.
+
+The element grid uses `_efireS` / `_eiceS` / `_elightS` / `_eearthS` — the same four moods the
+element review set renders, at the same fixed non-zero clock (3.7 s) — through the SAME camera as
+the hero above it, so each cell can be read as a change to a room the reader has already seen.
+Adding a station to the Views table is an addition and nothing above it moved; do not move an
+existing station to get a nicer frame, because fifty review frames hang off each one.
+
 ## Still missing
 
 Each has a visible placeholder in the README at the spot it belongs; dropping the file in with the
@@ -181,6 +213,6 @@ exact name below makes its `<!-- VIDEO: … -->` comment the line to replace.
 | `multiplayer.mp4` | **The one that matters most now.** Two players at the same table: masks and hands, a miniature lifted and seen by both, a shared window dragged to a new place in the room. It needs two headsets, which is why it is not here yet. |
 | `windows.mp4` | A window opens in front of the player, is grabbed by its bar, moved and resized, then reeled closer with the thumbstick. |
 | `map-room.mp4` | The 3D campaign map room: pressing a table-rim cap, pointing at a location, the party token walking its route. |
-| `environments.mp4` | The cellar and the night forest — firelight, the night sky, foliage moving, switching environments in the settings. |
+| `environments.mp4` | The cellar and the night forest — firelight, the night sky, foliage moving, an element infusion changing the room, switching environments in the settings. The three stills already ship (see above); what a clip adds that they cannot is the MOTION: the drip, the rat, the shafts, and an element fading in over its second. |
 
 Each new clip needs a poster beside it, same name plus `-poster.jpg`.

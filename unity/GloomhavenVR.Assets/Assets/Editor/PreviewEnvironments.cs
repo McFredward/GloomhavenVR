@@ -644,6 +644,30 @@ namespace GloomhavenVR
             ("HeadSeatS", new Vector3(0f, SeatForest, 0f), new Vector3(2, 250, 0), false, 78f),
             ("HeadBoardS", new Vector3(StandOffForest * Diag, HeadForest, StandOffForest * Diag),
                            new Vector3(28, 225, 0), false, 60f),
+
+            // ---- THE README STATIONS (ModBuild 248) ---------------------------
+            // Two frames whose job is to SELL the rooms on the project's front
+            // page, and they are declared here rather than cropped out of a
+            // review frame so that the picture the README shows is a picture
+            // this harness can reproduce.
+            //
+            // They are shot from the PLAYER'S OWN HEAD (HeadCellar / HeadForest,
+            // the same two constants THE HEAD SET uses) because a marketing shot
+            // taken from a station the player never occupies is a lie that costs
+            // nothing to avoid. What they change against HeadC/HeadS is only the
+            // AIM: both of those look at the darkest half of their room on
+            // purpose — that is what they were added to judge — and a room's
+            // advertisement should point at the thing worth seeing.
+            //   ReadmeC  yaw 48, the candle table in the NE corner, i.e. the
+            //            same bearing as "Corner" but from 2.02 m rather than
+            //            the 1.4 m station.
+            //   ReadmeS  yaw = MoonAz, so it follows the moon if
+            //            EnvironmentsBuilder.MoonDir ever moves, pitched up 14
+            //            degrees to put the moon and the shafts it casts in one
+            //            frame with the clearing floor.
+            // NOTHING ABOVE MOVED; these are additions.
+            ("ReadmeC", new Vector3(0f, HeadCellar, 0f), new Vector3(6, 48, 0), false, 70f),
+            ("ReadmeS", new Vector3(0f, HeadForest, 0f), new Vector3(-14, MoonAz, 0), false, 74f),
         };
 
         // ================================================================ HAUNT
@@ -873,7 +897,11 @@ namespace GloomhavenVR
           // ...and the room under Fire from the head the player actually has
           // (THE HEAD SET): the fires are peripheral by design, and whether that
           // reads is a property of the eye height it is judged from.
-          "HeadC", "HeadBoardC" };
+          "HeadC", "HeadBoardC",
+          // ...and the README station, because "the room reacts to the elements"
+          // is a claim the front page makes and therefore a claim the front page
+          // has to be able to show.
+          "ReadmeC" };
         private static readonly string[] ForestElementViews =
         { "TreeLine", "FloorToMoon", "Fireflies", "SkyBand", "N", "ShaftMoon",
           "FireSnag", "FireSnagWide", "FireLog", "FireBrush", "FireWood",
@@ -881,7 +909,8 @@ namespace GloomhavenVR
           // ...and the wood under Fire from the head the player actually has
           // (THE HEAD SET). This is the room whose 1.4 m station is BELOW the
           // board, so it is the one where the difference is structural.
-          "HeadS", "HeadBoardS" };
+          "HeadS", "HeadBoardS",
+          "ReadmeS" };
 
         // The animated things only exist in motion, so the review set below is
         // ALSO rendered at these offsets of the shared shader clock
