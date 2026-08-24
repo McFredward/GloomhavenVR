@@ -869,6 +869,30 @@ internal sealed class MapLocationInteractor
         if (_selected == null)
             return;
 
+        // ModBuild 243 — THE MAP IS SEALED, SO THIS MOD MUST NOT DRIVE A DESELECT THROUGH IT.
+        //
+        // AdventureMapUIManager.LockOptionsInteraction (:363-386) ends with
+        // lockMapInteractionMask.SetActive(lockInteractionRequests.Count > 0) — a full-screen
+        // raycast blocker. While it is up the flat game cannot reach ANY MapLocation, so
+        // MapLocation.Deselect() and the QuestManager.OnMapLocationQuestSelected(quest, false)
+        // -> ShowLogScreen chain hanging off it are unreachable there. This class dispatches onto
+        // the MapLocation objects directly and never crosses the mask, so without this guard the VR
+        // player drives a transition the flat player cannot — which is exactly the ModBuild 242
+        // report: one table click after the quest confirm re-opened the quest list in the middle of
+        // the point of no return (second_logs/LogOutput.log:5977 -> :5978).
+        //
+        // HOVER IS NOT GATED. The same log has twelve quest-preview cards during that lock and
+        // reading them is the point of the room. Only the DESELECT is refused, and with it trigger
+        // (2) below ("its quest window was closed IS a deselection") for the length of the lock —
+        // which is correct for the same reason: during the lock the flat game cannot close that
+        // window by hand either.
+        if (Singleton<AdventureMapUIManager>.IsInitialized)
+        {
+            AdventureMapUIManager mapUi = Singleton<AdventureMapUIManager>.Instance;
+            if (mapUi != null && mapUi.IsLocked)
+                return;
+        }
+
         // (2) the window that the selection opened has gone. GRACE FIRST: the popup takes a few
         // frames to come up after the click, and testing it immediately would deselect the location
         // the same instant it was selected — the classic "the absence of a thing that has not
