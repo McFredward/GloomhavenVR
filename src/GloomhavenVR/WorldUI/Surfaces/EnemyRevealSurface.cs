@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using System.Text;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -250,6 +252,66 @@ internal sealed class EnemyRevealSurface
     private Vector3 _pinnedHolderLocalPos;
     private bool _holderPinned;
 
+    // ---- "Hagels Info ist leer" — THE EMPTY ALLY CARD (user, hardware, 2026-08-24) -------------
+    // HIS REPORT, VERBATIM: "In einem Szenario gibt es einen verbündeten NPC namens 'Hagel', ihre
+    // Info was sie diese Runde macht ist leer. Siehe empty_info.jpg. Gewährleiste dass dort immer
+    // das zu sehen ist was im flat Spiel auch zu sehen wäre. Auch beim Mouseover in der
+    // Initiativreihenfolge wird es leer angezeigt. Oder kommt das wirklich vom Spiel? Untersuche
+    // das."
+    //
+    // HIS LAST QUESTION IS THE WHOLE ROUND, and the mod cannot answer it from its own side — this
+    // project has a standing lesson that an instrument must not assert a mechanism it cannot
+    // observe. What CAN be observed is the game's own data next to the mod's own picture, in one
+    // line, so the answer falls out either way. <see cref="AuditCard"/> prints, for the actor whose
+    // info is shown:
+    //   * the ACTOR's real type — an ALLY (CActor.EType.Ally) is NOT a monster, and the whole info
+    //     card is nevertheless built by the monster path (MonsterBaseUI), which is why the ally
+    //     even has a "role" caption ("VERBÜNDETER", MonsterBaseUI.SetBaseStats sets roleText to
+    //     GUI_ALLY for EType.Ally);
+    //   * WHAT THE GAME'S OWN DATA HOLDS: the round ability card and, decisively, how many
+    //     renderable rows its CAction carries (Abilities + Augmentations + Infusions). That count
+    //     IS the flat-game answer: CreateLayout's monster-card constructor (CreateLayout.cs:221)
+    //     builds the card body from exactly those three lists and from nothing else, and the flat
+    //     game runs the identical code — so ZERO there means the flat game draws an empty body too;
+    //   * THE PICTURE, not the state: how many Graphics inside the card, and inside the ability
+    //     body (MonsterBaseUI.contentHolder) specifically, are actually DRAWING — effective alpha
+    //     color.a x CanvasRenderer.GetInheritedAlpha() >= 0.05, the house test, because a graphic
+    //     under a CanvasGroup at alpha 0 has enabled/activeInHierarchy true, color.a 1 and cull
+    //     false and paints nothing ([[inherited-alpha-is-not-the-group]]).
+    //
+    // THE AUDIT CAN FAIL, which is the point: "rows in the data, zero graphics drawing" convicts
+    // the mod; "zero rows in the data" acquits it and ends the round with a report.
+    //
+    // TWO SYMPTOMS, ONE WIDGET. He reports the floating reveal AND the initiative-track mouseover.
+    // Both are the SAME MonsterBaseUI instance — InitiativeTrackEnemyBehaviour.monsterBaseUI —
+    // reached by two entry points: the reveal animates it in (AnimateCardHighlight ->
+    // MonsterBaseUI.AnimateAppearance) and the hover toggles it on
+    // (OnAvatarHighlight -> TogglePreview, InitiativeTrackEnemyBehaviour.cs:98-118). Its body is
+    // the same contentHolder, filled once by MonsterBaseUI.MakeMerging. So they share a cause BY
+    // CONSTRUCTION unless the audit says otherwise — which is why the hover is audited too, from
+    // the same method, and the context tag names which entry point produced the reading.
+    // (Not the deliberate hover block: Patches/InitiativeHoverCardBlock no-ops
+    // CardsHandManager.Preview, the PLAYER-entry path only; enemies/allies never go through it.)
+    //
+    // TIMING IS ONE OF THE CANDIDATES, so the reveal is read TWICE: once at the flip (content may
+    // still be arriving — the cards animate in staggered and MakeMerging is a coroutine) and once
+    // when the layout has settled. Two identical empty readings rule the late-content theory out;
+    // an empty-then-full pair proves it.
+    private bool _auditedAtFlip;      // one-shot: the early (flip-time) reading for this reveal
+    private bool _auditedSettled;     // one-shot: the settled reading for this reveal
+    private float _revealShownAt = -1f;
+    private int _hoverAuditedId;      // MonsterBaseUI instance id last audited on the hover path
+    private float _nextHoverScan;     // 4 Hz throttle for the hover watch (no reveal up)
+
+    /// <summary>Effective-alpha floor for "this graphic is actually drawing" — the house test
+    /// (<see cref="PanelInkBounds"/>, CanvasConversion's fit): color.a x inherited alpha.</summary>
+    private const float DrawAlphaFloor = 0.05f;
+
+    /// <summary>Seconds after the show flip at which the settled reading is taken if the content
+    /// fit never pinned (the pin itself hard-times-out at 2.5 s, so this only covers a reveal that
+    /// was dismissed or rebuilt before that).</summary>
+    private const float SettledAuditSeconds = 3f;
+
     public string Name => "EnemyReveal";
 
     public void Tick()
@@ -275,6 +337,16 @@ internal sealed class EnemyRevealSurface
             VRLog.Info("WorldUI", visible
                 ? $"ENEMY REVEAL shown: {DescribeCards(track)} — floating in the player's view focus."
                 : "ENEMY REVEAL hidden — cards restored to their 2D home in the initiative track.");
+            if (visible)
+            {
+                // Re-arm both readings for this reveal (see the empty-card field block).
+                _auditedAtFlip = false;
+                _auditedSettled = false;
+                _revealShownAt = Time.unscaledTime;
+            }
+            // Deliberately NO audit on the hide flip: the Continue button deactivates every card
+            // (InitiativeTrack.cs:519-524) before this edge is seen, so such a line could only ever
+            // read "nothing shown" and would be one guaranteed-empty log per reveal.
         }
 
         if (visible && _panel == null)
@@ -331,7 +403,64 @@ internal sealed class EnemyRevealSurface
             PinWhenSettled();
             Place();
             RescanMips(); // cadence-gated inside; catches the staggered/async monster card art
+
+            // THE EMPTY-CARD AUDIT (see the field block). Read twice: at the flip, and again once
+            // the layout has settled — an empty-then-full pair would prove the content merely
+            // arrives late, two empty readings rule that candidate out.
+            if (!_auditedAtFlip)
+            {
+                _auditedAtFlip = true;
+                AuditRevealedCards(track, "reveal, at flip");
+            }
+            else if (!_auditedSettled
+                     && (_fitPinned || Time.unscaledTime - _revealShownAt >= SettledAuditSeconds))
+            {
+                _auditedSettled = true;
+                AuditRevealedCards(track, _fitPinned ? "reveal, layout settled" : "reveal, +3s");
+            }
         }
+        else
+        {
+            // NO reveal up: watch the OTHER entry point to the same widget — the initiative-track
+            // MOUSEOVER / held-figure peek (OnAvatarHighlight -> MonsterBaseUI.TogglePreview), the
+            // second half of his report. Audited once per popup so the two symptoms can be compared
+            // line to line instead of assumed to share a cause.
+            WatchHoverPreview(track);
+        }
+    }
+
+    /// <summary>
+    /// One-shot audit of the initiative-track HOVER popup (the second symptom). Runs only while no
+    /// reveal is floated; the popup is the same <c>MonsterBaseUI</c> the reveal shows, toggled on by
+    /// <c>InitiativeTrackEnemyBehaviour.OnAvatarHighlight</c> (pointer-enter on the track avatar, or
+    /// the mod's own <see cref="FigureIntentPeek"/> when a mini is held). Throttled to 4 Hz and
+    /// keyed on the popup's instance id, so a steady hover logs exactly once.
+    /// </summary>
+    private void WatchHoverPreview(InitiativeTrack track)
+    {
+        if (track == null || track.enemiesUI == null)
+        {
+            _hoverAuditedId = 0;
+            return;
+        }
+        if (Time.unscaledTime < _nextHoverScan)
+            return;
+        _nextHoverScan = Time.unscaledTime + 0.25f;
+
+        for (int i = 0; i < track.enemiesUI.Count; i++)
+        {
+            InitiativeTrackEnemyBehaviour enemy = track.enemiesUI[i];
+            if (enemy == null || enemy.monsterBaseUI == null
+                || !enemy.monsterBaseUI.gameObject.activeSelf)
+                continue;
+            int id = enemy.monsterBaseUI.GetInstanceID();
+            if (id == _hoverAuditedId)
+                return; // same popup still up — already read
+            _hoverAuditedId = id;
+            AuditCard(enemy, "initiative-track hover/peek");
+            return;
+        }
+        _hoverAuditedId = 0; // nothing previewing — re-arm for the next hover
     }
 
     /// <summary>
@@ -460,6 +589,209 @@ internal sealed class EnemyRevealSurface
         }
         return $"{count} monster card(s) [{NameScratch}]";
     }
+
+    /// <summary>Audit every card the reveal currently shows (see the field block for the why).</summary>
+    private static void AuditRevealedCards(InitiativeTrack track, string context)
+    {
+        if (track == null || track.enemiesUI == null)
+            return;
+        int audited = 0;
+        for (int i = 0; i < track.enemiesUI.Count; i++)
+        {
+            InitiativeTrackEnemyBehaviour enemy = track.enemiesUI[i];
+            if (enemy == null || enemy.monsterBaseUI == null
+                || !enemy.monsterBaseUI.gameObject.activeSelf)
+                continue;
+            AuditCard(enemy, context);
+            audited++;
+        }
+        if (audited == 0)
+            VRLog.Info("WorldUI", $"ENEMY INFO AUDIT [{context}]: no active MonsterBaseUI on the " +
+                                  "initiative track — nothing was being shown at this instant.");
+    }
+
+    /// <summary>
+    /// THE FALSIFIER for "Hagels Info ist leer" (field block above): the game's OWN data for this
+    /// actor's round action next to the mod's OWN reading of what is drawn, in one line, with a
+    /// verdict that can convict the mod as easily as acquit it.
+    ///
+    /// Reads nothing but state the game already owns (no writes, no game calls) and is fully
+    /// defensive — every hop is null-checked, because it runs inside the reveal's per-frame tick.
+    /// </summary>
+    private static void AuditCard(InitiativeTrackEnemyBehaviour enemy, string context)
+    {
+        MonsterBaseUI ui = enemy.monsterBaseUI;
+        CActor? actor = enemy.Actor;
+        var enemyActor = actor as CEnemyActor;
+        CMonsterAbilityCard? card = enemy.monsterAbilityCard;
+
+        var sb = new StringBuilder(768);
+        sb.Append("ENEMY INFO AUDIT [").Append(context).Append("] '")
+          .Append(actor != null ? actor.GetPrefabName() : enemy.name).Append("': ");
+
+        // --- WHAT THIS ACTOR IS. An ALLY is not a monster, yet the whole info card is the monster
+        // widget: MonsterBaseUI.SetBaseStats switches roleText to GUI_ALLY for EType.Ally, which is
+        // the "VERBÜNDETER" caption in his screenshot. Both types are printed because a mind-
+        // controlled or converted actor's live Type differs from the one it was born with.
+        sb.Append("ACTOR type=").Append(actor != null ? actor.Type.ToString() : "<null>")
+          .Append(" (original ").Append(actor != null ? actor.OriginalType.ToString() : "<null>").Append(')');
+        if (enemyActor != null && enemyActor.MonsterClass != null)
+            sb.Append(", monster class '").Append(enemyActor.MonsterClass.ID)
+              .Append("' locKey '").Append(enemyActor.MonsterClass.LocKey)
+              .Append("', ability DECK holds ")
+              .Append(enemyActor.MonsterClass.AbilityCardsPool != null
+                  ? enemyActor.MonsterClass.AbilityCardsPool.Count : -1)
+              .Append(" card(s)");
+        else
+            sb.Append(", NOT a CEnemyActor — it has no monster class and no ability deck at all");
+
+        // --- WHAT THE GAME'S OWN DATA HOLDS. This is the answer to "kommt das wirklich vom Spiel?":
+        // CreateLayout's monster-card constructor builds the card body out of CardAction.Abilities,
+        // .Augmentations and .Infusions and out of NOTHING else, and the flat game runs that same
+        // constructor — so this count is what the flat game would have to draw.
+        int dataRows = -1;
+        if (card == null)
+        {
+            sb.Append(" | GAME DATA: this actor has NO round ability card at all " +
+                      "(MonsterClass.RoundAbilityCard is null) — the game has nothing to draw here.");
+            dataRows = 0;
+        }
+        else
+        {
+            CAction? action = card.Action;
+            int abilities = action != null && action.Abilities != null ? action.Abilities.Count : 0;
+            int augs = action != null && action.Augmentations != null ? action.Augmentations.Count : 0;
+            int infusions = action != null && action.Infusions != null ? action.Infusions.Count : 0;
+            dataRows = abilities + augs + infusions;
+            sb.Append(" | GAME DATA: round card '").Append(card.Name).Append("' (ID ").Append(card.ID)
+              .Append(", initiative ").Append(card.Initiative)
+              .Append(", shuffle ").Append(card.Shuffle)
+              .Append("); its CAction holds ").Append(abilities).Append(" ability/ies, ")
+              .Append(augs).Append(" augmentation(s), ").Append(infusions).Append(" infusion(s) [");
+            if (action != null && action.Abilities != null)
+            {
+                for (int i = 0; i < action.Abilities.Count && i < 12; i++)
+                {
+                    CAbility ability = action.Abilities[i];
+                    if (i > 0)
+                        sb.Append(", ");
+                    if (ability == null)
+                    {
+                        sb.Append("<null>");
+                        continue;
+                    }
+                    sb.Append(ability.AbilityType.ToString());
+                    if (!string.IsNullOrEmpty(ability.Name))
+                        sb.Append('\'').Append(ability.Name).Append('\'');
+                    if (ability.OnDeath)
+                        sb.Append("(onDeath)");
+                }
+            }
+            sb.Append(']');
+        }
+
+        // --- WHAT IS ACTUALLY DRAWN. Never the state alone: this project has burned builds on
+        // defects where every state reading was clean and the image was still wrong. "Leer" becomes
+        // a number here — graphics whose EFFECTIVE alpha clears the floor, whole card and ability
+        // body separately, because the body is the part he says is empty.
+        CountInk(ui != null ? ui.transform : null, out int cardTotal, out int cardDrawn);
+        RectTransform? body = ui != null ? ui.contentHolder : null;
+        CountInk(body, out int bodyTotal, out int bodyDrawn);
+        sb.Append(" | PICTURE: the whole info card carries ").Append(cardTotal)
+          .Append(" Graphic(s), ").Append(cardDrawn)
+          .Append(" of them actually drawing (color.a x inherited alpha >= ")
+          .Append(DrawAlphaFloor.ToString("F2")).Append("); the ABILITY BODY (contentHolder) ");
+        if (body == null)
+        {
+            sb.Append("could not be resolved on the widget");
+        }
+        else
+        {
+            sb.Append("has ").Append(body.childCount).Append(" child object(s), ")
+              .Append(bodyTotal).Append(" Graphic(s), ").Append(bodyDrawn).Append(" drawing")
+              .Append(body.gameObject.activeInHierarchy ? "" : " [the body object is INACTIVE]")
+              .Append(", rect ").Append(body.rect.width.ToString("F0")).Append('x')
+              .Append(body.rect.height.ToString("F0")).Append(" px");
+            AppendBodyText(body, sb);
+        }
+
+        // --- THE VERDICT, and it can go against the mod. ---
+        sb.Append(" | VERDICT: ");
+        if (dataRows <= 0)
+            sb.Append("the GAME's own card data holds ZERO renderable rows, so there is nothing to " +
+                      "show. CreateLayout (CreateLayout.cs:221) builds this body from those lists " +
+                      "alone and the flat game runs the same code on the same data — the flat game " +
+                      "shows the same empty area. NOT a VR defect; nothing for the mod to fix.");
+        else if (bodyDrawn <= 0)
+            sb.Append("THE MOD (or the generation timing) IS AT FAULT: the game holds ")
+              .Append(dataRows).Append(" renderable row(s) for this card and ZERO graphics are " +
+                      "drawing inside the body. Compare the flip vs settled readings — equal means " +
+                      "the rows were never built or are at inherited alpha 0, different means the " +
+                      "content merely arrived after the earlier reading.");
+        else
+            sb.Append("the body is POPULATED — ").Append(dataRows).Append(" row(s) in the data, ")
+              .Append(bodyDrawn).Append(" graphic(s) drawing. If the player still reports it empty, " +
+                      "the fault is legibility (scale/contrast/occlusion), not content.");
+
+        VRLog.Info("WorldUI", sb.ToString());
+    }
+
+    /// <summary>
+    /// Graphics under <paramref name="root"/> (inactive included in the total) and how many of them
+    /// are really painting. The drawing test is the house one — <c>color.a x
+    /// CanvasRenderer.GetInheritedAlpha()</c> against <see cref="DrawAlphaFloor"/>, never
+    /// <c>color.a</c> alone: a graphic under a CanvasGroup at alpha 0 has <c>enabled</c> true,
+    /// <c>activeInHierarchy</c> true, <c>color.a</c> 1 and <c>cull</c> false and draws nothing.
+    /// </summary>
+    private static void CountInk(Transform? root, out int total, out int drawing)
+    {
+        total = 0;
+        drawing = 0;
+        if (root == null)
+            return;
+        InkScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: true, InkScratch);
+        for (int i = 0; i < InkScratch.Count; i++)
+        {
+            Graphic g = InkScratch[i];
+            if (g == null)
+                continue;
+            total++;
+            if (!g.isActiveAndEnabled)
+                continue;
+            CanvasRenderer cr = g.canvasRenderer;
+            if (cr == null || cr.cull)
+                continue;
+            if (g.color.a * cr.GetInheritedAlpha() >= DrawAlphaFloor)
+                drawing++;
+        }
+        InkScratch.Clear();
+    }
+
+    /// <summary>
+    /// The first few non-empty ability-row strings actually in the body — the human-readable half of
+    /// the picture reading ("Bewegen 3, Angriff 2" vs nothing at all). Empty strings are skipped so
+    /// a row-shaped object with no text cannot masquerade as content.
+    /// </summary>
+    private static void AppendBodyText(RectTransform body, StringBuilder sb)
+    {
+        TextScratch.Clear();
+        body.GetComponentsInChildren(includeInactive: true, TextScratch);
+        int shown = 0;
+        for (int i = 0; i < TextScratch.Count && shown < 6; i++)
+        {
+            TMP_Text t = TextScratch[i];
+            if (t == null || string.IsNullOrEmpty(t.text) || t.text.Trim().Length == 0)
+                continue;
+            sb.Append(shown == 0 ? ", text: \"" : "\" | \"").Append(t.text.Replace('\n', ' '));
+            shown++;
+        }
+        sb.Append(shown > 0 ? "\"" : ", NO non-empty text anywhere in the body");
+        TextScratch.Clear();
+    }
+
+    private static readonly List<Graphic> InkScratch = new(64);
+    private static readonly List<TMP_Text> TextScratch = new(32);
 
     /// <summary>
     /// Spawn the reveal in the player's forward view and LAZILY follow the PHYSICAL head
@@ -1137,5 +1469,8 @@ internal sealed class EnemyRevealSurface
         }
         RestoreBoardCoupledScrollbars();
         _lastVisible = false;
+        _auditedAtFlip = false;
+        _auditedSettled = false;
+        _hoverAuditedId = 0;
     }
 }
