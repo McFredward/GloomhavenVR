@@ -535,13 +535,15 @@ internal static class EnvSoundBank
             Owl = MakeOwl(rate);
             NightBird = MakeNightBird(rate);
             KeWick = MakeKeWick(rate);
-            Fox = MakeFox(rate);
             Raven = MakeRaven(rate);
-            RoeDeer = MakeRoeDeer(rate);
             OwletBeg = MakeOwletBeg(rate);
-            Howl = MakeHowl(rate);
-            BarnOwl = MakeBarnOwl(rate);
             Stridulate = MakeStridulate(rate);
+            // ModBuild 246 — Fox, RoeDeer, Howl and BarnOwl are NOT built. The user withdrew those
+            // four voices by name, EnvSound.NightCallDeck no longer carries a card for any of them,
+            // and synthesising a clip nothing can deal is 6.5 s of audio and ~1.2 MB for silence.
+            // The Make* methods and their constants stay in this file, fully documented, so
+            // restoring one is a line here plus a card there — and the properties stay null, which
+            // Bank.Get already answers with silence rather than a throw.
 
             Creak = MakeCreak(rate);
             Breath = MakeBreath(rate);
@@ -2635,51 +2637,81 @@ internal static class EnvSoundBank
 
     // ---- 3. THE RAVEN -----------------------------------------------------------------------
 
-    /// <summary>THE TWO RASPS — (start, length, level). A corvid disturbed on its roost does not
-    /// call once and it does not call ten times; it rasps, waits, and rasps again a little quieter.
-    /// 0.72 s apart, which is far outside the 0.2 s the ear starts hearing as a rhythm.</summary>
+    // ---- ModBuild 246 — THE FILM CAW. "Statt den aktuellen 'Raven' sound will ich so einen
+    //      typischen Raben-Sound wie man ihn aus Filmen kennt."
+    //
+    //      WHAT CHANGED, AND WHY IT IS A DIFFERENT BIRD. The old card was a real common raven
+    //      (Corvus corax) on its roost: 285 Hz, a low croaking "kraa", twice, dry and dark. It was
+    //      correct and it was not the thing he asked for. The sound a film means by "raven" is a
+    //      CARRION CROW — a brighter, harsher, more open CAW, and it comes in a SERIES of three or
+    //      more rather than a pair. Every constant below moves for that one reason, and the old
+    //      values are kept in this comment so the ornithologically-correct bird can be restored in
+    //      one edit if the film version ever wears out:
+    //
+    //          calls  2 rasps 0.72 s apart      -> 3 caws 0.52 s apart, barely tapering
+    //          F0     285 Hz  fall 0.88         -> 440 Hz  fall 0.92  (crow, not raven; held)
+    //          formant 1150 Hz / 620 Hz bw      -> 1750 Hz / 900 Hz bw (open throat, bright)
+    //          sub    0.38                      -> 0.22   (less growl — the brightness carries it)
+    //          noise  0.14, 800-3000 Hz         -> 0.30, 1200-5500 Hz (the airy rasp of a caw)
+    //          length 1.14 s                    -> 1.62 s (three calls need the room)
+    //
+    //      WHAT DID NOT CHANGE, DELIBERATELY: the gain, the perch ring, the rolloff minima and the
+    //      schedule. This is a different VOICE in the same slot, not a louder or more frequent one
+    //      — "nicht aufdringlich" is still the standing ruling on this whole deck.
+
+    /// <summary>THE THREE CAWS — (start, length, level). A crow calling from a tree does it in a
+    /// short series, not once and not in a pair, and the series is what a listener recognises. The
+    /// 0.52 s spacing is deliberately still far outside the ~0.2 s at which the ear starts hearing
+    /// a rhythm instead of three separate events. The taper is slight (1.00 / 0.94 / 0.85): a crow
+    /// does not fade out, it just runs out of breath.</summary>
     private static readonly float[][] RavenCalls =
     {
-        new[] { 0.000f, 0.340f, 1.00f },
-        new[] { 0.720f, 0.310f, 0.72f },
+        new[] { 0.000f, 0.300f, 1.00f },
+        new[] { 0.520f, 0.290f, 0.94f },
+        new[] { 1.040f, 0.280f, 0.85f },
     };
 
-    /// <summary>The raven's fundamental and its fall. 285 Hz is a corvid's voice; the 0.88 fall is
-    /// gentler than the fox's because a "kraa" is HELD, not spat.</summary>
-    private const float RavenF0 = 285f;
-    private const float RavenFall = 0.88f;
+    /// <summary>The crow's fundamental and its fall. 440 Hz is a carrion crow's voice — a full
+    /// fifth above the raven's croak, which is most of what makes one read as "film crow" and the
+    /// other as "wildlife documentary". The 0.92 fall is gentler still than the old 0.88: a caw is
+    /// HELD almost flat and only sags at the very end.</summary>
+    private const float RavenF0 = 440f;
+    private const float RavenFall = 0.92f;
     private const int RavenHarmonics = 18;
 
-    /// <summary>THE FORMANT — a fixed resonance in the bird's throat at 1150 Hz with a 620 Hz
+    /// <summary>THE FORMANT — a fixed resonance in the bird's throat at 1750 Hz with a 900 Hz
     /// half-width, applied to each harmonic by where IT lands rather than by its index. That
     /// distinction is the whole timbre: because the formant is fixed in hertz and the fundamental
-    /// falls, the harmonics SLIDE THROUGH it over the length of the rasp, which is what a throat
-    /// does and what a fixed 1/k tilt cannot imitate. It is also what makes this dry: 64.6% of the
-    /// energy lands in 1-2 kHz and almost none below 500 Hz, so it is a rasp rather than a
-    /// growl.</summary>
-    private const float RavenFormantHz = 1150f;
-    private const float RavenFormantBw = 620f;
+    /// falls, the harmonics SLIDE THROUGH it over the length of the caw, which is what a throat
+    /// does and what a fixed 1/k tilt cannot imitate. Moved up from 1150 Hz and widened because a
+    /// caw is an OPEN throat where a croak is a closed one — the energy has to sit high and broad
+    /// (1.5-3.5 kHz) or it reads as a growl however bright the fundamental is.</summary>
+    private const float RavenFormantHz = 1750f;
+    private const float RavenFormantBw = 900f;
 
-    /// <summary>THE PERIOD DOUBLING, and this is where the rasp comes from. Corvid calls are full of
-    /// nonlinear phenomena; the commonest is a sub-oscillation at HALF the fundamental, which fills
-    /// in half-integer harmonics and reads to the ear as roughness rather than as a lower note.
-    /// Implemented as an amplitude modulation at f0/2 — <c>cos(phase/2)</c>, i.e. locked to the
-    /// carrier's own phase rather than to the clock, so it cannot drift into a beat. 142 Hz is a
-    /// PITCH, not a rhythm: it is nowhere near the 30-45 Hz pulsing THE NIGHT CALLS rejected a frog
-    /// for.</summary>
-    private const float RavenSub = 0.38f;
+    /// <summary>THE PERIOD DOUBLING. Corvid calls are full of nonlinear phenomena; the commonest is
+    /// a sub-oscillation at HALF the fundamental, which fills in half-integer harmonics and reads to
+    /// the ear as roughness rather than as a lower note. Implemented as an amplitude modulation at
+    /// f0/2 — <c>cos(phase/2)</c>, i.e. locked to the carrier's own phase rather than to the clock,
+    /// so it cannot drift into a beat. 220 Hz is a PITCH, not a rhythm: nowhere near the 30-45 Hz
+    /// pulsing THE NIGHT CALLS rejected a frog for. Reduced from 0.38 to 0.22 because at 440 Hz the
+    /// brightness already carries the harshness, and the old depth on the new fundamental turned the
+    /// caw back into a growl.</summary>
+    private const float RavenSub = 0.22f;
 
-    /// <summary>The breath in the rasp. Modest — 0.14 — because the raven's harshness is already in
-    /// the sub-oscillation; noise on top of that would take it from a bird towards a hiss.</summary>
-    private const float RavenNoise = 0.14f;
-    private const float RavenNoiseLoHz = 800f;
-    private const float RavenNoiseHiHz = 3000f;
+    /// <summary>The breath in the caw, and it is more than twice the old raven's. A croak is voiced
+    /// almost throughout; a caw is half air, and the band moves up with the formant so the noise
+    /// sits ON the call rather than under it.</summary>
+    private const float RavenNoise = 0.30f;
+    private const float RavenNoiseLoHz = 1200f;
+    private const float RavenNoiseHiHz = 5500f;
 
-    private const float RavenSeconds = 1.14f;
+    private const float RavenSeconds = 1.62f;
     private const float RavenPeak = 0.74f;
     private const uint RavenSeed = 0x3D96C000u;
 
-    /// <summary>A CORVID ON ITS ROOST. Two dry rasps with a period-doubled buzz in them.</summary>
+    /// <summary>A CROW CALLING FROM A TREE. Three bright caws in a short series — the corvid a film
+    /// means when it says "raven". See THE FILM CAW above for what moved and what did not.</summary>
     private static AudioClip MakeRaven(int rate)
     {
         int n = (int)(rate * RavenSeconds);

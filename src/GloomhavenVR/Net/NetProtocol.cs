@@ -416,7 +416,37 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 245;
+    public const ushort ModBuild = 246;
+    // Build 246: FOUR VOICES WITHDRAWN FROM THE WOOD BY NAME, AND THE RAVEN BECOMES THE CROW A FILM
+    // MEANS.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 70,009,303 bytes — DLL-only install.
+    //
+    //   1. "Bei den Waldsounds entferne: BarnOwl, Fox, Howl, RoeDeer." Done, and done as CARDS
+    //   rather than as rows: the four values leave NightCallDeck so nothing deals them, their rows
+    //   stay in NightCalls and their enum values keep their numbers, because that table is indexed
+    //   POSITIONALLY and this file's own warning is that a renumber "would deal a fox and play an
+    //   owl". The four Make* calls are dropped from the bank build so nothing is synthesised for a
+    //   voice nobody can hear — 6.5 s of audio, ~1.2 MB.
+    //   THE EVENT RATE IS UNCHANGED, WHICH IS THE POINT. The deck went 20 cards to 16 and the
+    //   schedule has never read its length: NightCallSlot 41 s, NightCallMean and NightCallSkip are
+    //   byte-for-byte ModBuild 223's. A shorter deck changes WHICH animal a slot deals and nothing
+    //   else. New shares across the six survivors: owl 25 %, ke-wick 19 %, small bird 19 %, owlet
+    //   12.5 %, crow 12.5 %, insect 12.5 % — the tawny owl still carries 44 % across its two calls.
+    //
+    //   2. "Statt den aktuellen 'Raven' sound will ich so einen typischen Raben-Sound wie man ihn
+    //   aus Filmen kennt." The old card was ornithologically right and dramatically wrong: a real
+    //   common raven croaking on its roost, 285 Hz, twice, dark and dry. What a film means by
+    //   "raven" is a CARRION CROW — brighter, harsher, more open, and in a SERIES. Every constant
+    //   moved for that one reason and the old values are kept in the comment so the correct bird is
+    //   one edit away: 2 rasps 0.72 s apart -> 3 caws 0.52 s apart; F0 285 -> 440 Hz; formant
+    //   1150/620 -> 1750/900 Hz (an open throat, not a closed one); sub-oscillation 0.38 -> 0.22
+    //   (at 440 Hz the brightness carries the harshness and the old depth turned it back into a
+    //   growl); noise 0.14 at 800-3000 Hz -> 0.30 at 1200-5500 Hz.
+    //   THE GAIN, THE PERCH RING, THE ROLLOFF MINIMA AND THE SCHEDULE ARE UNTOUCHED. A different
+    //   voice in the same slot, not a louder or more frequent one — "nicht aufdringlich" still
+    //   governs this whole deck.
+    //
     // Build 245: A WINDOW NOBODY CAN SEE YET BOOKED THE WHOLE FIELD OF VIEW, AND THE CORNER RULE
     // WAS REFUSED BY A BOUND IT SHOULD NEVER HAVE BEEN MEASURED AGAINST.
     // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests

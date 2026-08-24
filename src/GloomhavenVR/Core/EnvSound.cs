@@ -3100,18 +3100,37 @@ internal static class EnvSound
     /// CARD, and it is short: a second channel is more events per minute by construction, which is
     /// what he ruled out in brackets one round ago, and at any rate worth having it becomes the bed
     /// this room has now deleted three times.</para></summary>
+    // ---- ModBuild 246 — FOUR VOICES WITHDRAWN, BY NAME, AT THE USER'S REQUEST.
+    //      "Bei den Waldsounds entferne: BarnOwl, Fox, Howl, RoeDeer."
+    //
+    //      THEY ARE REMOVED AS CARDS, NOT AS ROWS. Cards 5 (fox), 6 (roe deer), 7 (wolf) and 8
+    //      (barn owl) are gone from the deck, so nothing deals them and nothing plays them. Their
+    //      ROWS stay where they are in NightCalls and their enum values keep their numbers, because
+    //      the deck indexes that table POSITIONALLY — this file's own warning is that "a row
+    //      inserted here without the matching card values re-numbered would deal a fox and play an
+    //      owl", and deleting rows is the same hazard read backwards. The four Make* calls are also
+    //      dropped from the bank build (see EnvSound.Bank.Build), so nothing is synthesised for a
+    //      voice nobody can hear.
+    //
+    //      THE EVENT RATE IS UNCHANGED AND THAT IS THE POINT. The deck went 20 cards -> 16, but the
+    //      schedule has never read the deck's length: NightCallSlot (41 s), NightCallMean and
+    //      NightCallSkip are byte-for-byte what ModBuild 223 shipped. A shorter deck changes WHICH
+    //      animal a slot deals and nothing else — the wood is exactly as talkative as it was, and
+    //      "nicht aufdringlich" is untouched.
+    //
+    //      THE NEW SHARES, since six voices now divide what ten used to: owl 4/16 = 25 %, ke-wick
+    //      3/16 = 19 %, small bird 3/16 = 19 %, owlet 2/16 = 12.5 %, crow 2/16 = 12.5 %, insect
+    //      2/16 = 12.5 %. The tawny owl is still the wood's signature bird at 44 % across its two
+    //      calls, which is the balance ModBuild 222 set and every round since has kept.
     private static readonly byte[] NightCallDeck =
     {
         0, 0, 0, 0,   // the tawny owl's hoot
         1, 1, 1,      // the tawny owl's ke-wick
         2, 2, 2,      // the small bird further off
         3, 3,         // the owlet's beg
-        4, 4,         // the corvid on its roost
-        5,            // the fox
-        6,            // the roe deer
-        7,            // the wolf, far off          — ModBuild 242
-        8,            // the barn owl's screech     — ModBuild 242
-        9, 9,         // one insect stridulating    — ModBuild 242
+        4, 4,         // the crow's caw            — voice replaced at ModBuild 246
+        9, 9,         // one insect stridulating   — ModBuild 242
+        // 5 fox / 6 roe deer / 7 wolf / 8 barn owl — WITHDRAWN at ModBuild 246, see above.
     };
 
     /// <summary>Separates this deck's shuffle stream from any other deck's. Arbitrary but FIXED: a
