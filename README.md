@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/img/logo.png" alt="GloomhavenVR" width="700">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/img/logo-onlight.png">
+    <img src="docs/img/logo.png" alt="GloomhavenVR" width="620">
+  </picture>
 </p>
 
 <h3 align="center">Gloomhaven, as a table you stand at.</h3>
@@ -33,18 +36,17 @@ because it hangs in the room, not in front of one person's eyes.
 **Friends without a headset lose nothing.** They play the flat game they already own, in the same
 session, and everything you do in VR reaches them as an ordinary move.
 
-## Your hand of cards lives in your palm
+## Cards in your palm, monsters in your fist
 
-Roll your wrist up and the fan opens. Pull a card out, hold it to your face to read it, drop it
-into a slot on your board.
+Roll your wrist up and the fan opens — pull a card out, read it, drop it into a slot on your board.
+Squeeze a miniature off the board, hold it up, resize it in mid-air, let go.
 
-https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225
-
-## Pick the monsters up
-
-Squeeze one off the board, hold it up, resize it in mid-air, let go — it glides back to its hex.
-
-https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
+</tr>
+</table>
 
 ## Make it yours
 
@@ -52,9 +54,9 @@ Three pairs of hands, three masks, three control boards — one dropdown each, a
 players see your choice**. Every one of them was modelled for this mod.
 
 <p align="center">
-  <img src="docs/img/styles-hands.png" width="860" alt="Leather glove, plate gauntlet, arcane glove"><br>
-  <img src="docs/img/styles-masks.png" width="860" alt="Ironwatch, Runeveil, Grimhorn"><br>
-  <img src="docs/img/styles-boards.png" width="860" alt="Oak, Steel, Bronze">
+  <img src="docs/img/styles-hands.png" width="620" alt="Leather glove, plate gauntlet, arcane glove">
+  <img src="docs/img/styles-masks.png" width="620" alt="Ironwatch, Runeveil, Grimhorn">
+  <img src="docs/img/styles-boards.png" width="620" alt="Oak, Steel, Bronze">
 </p>
 
 ## Choose the room you play in
@@ -64,8 +66,8 @@ catalogue overhead, firelight, drips and quiet ambience. Something moves in both
 are not looking.
 
 <p align="center">
-  <img src="docs/img/env-cellar.jpg" width="430" alt="The cellar">
-  <img src="docs/img/env-forest.jpg" width="430" alt="The night forest">
+  <img src="docs/img/env-cellar.jpg" width="400" alt="The cellar">
+  <img src="docs/img/env-forest.jpg" width="400" alt="The night forest">
 </p>
 
 **And the room answers the game.** Infuse Fire and the cellar warms to the ceiling. Ice grows frost
@@ -73,10 +75,9 @@ across the floor. Air shakes the leaves, Earth brings up green, Light lifts the 
 Dark takes it away and walks the moon into a blood-red eclipse.
 
 <p align="center">
-  <img src="docs/img/env-elements.jpg" width="820" alt="The same camera with the element off and on: Cellar under Fire and Ice, Forest under Light and Dark">
+  <img src="docs/img/env-elements.jpg" width="820" alt="The same camera with the element off and on: Cellar under Fire and Ice, Forest under Light and Dark"><br>
+  <i>Same camera, element off on the left of each pair and on on the right.</i>
 </p>
-
-<p align="center"><i>Same camera, element off on the left and on on the right.</i></p>
 
 **Or play in your own living room.** Mixed-reality passthrough floats the board, the table and your
 control board in your real space. It is an either/or: with see-through on, the built rooms stand

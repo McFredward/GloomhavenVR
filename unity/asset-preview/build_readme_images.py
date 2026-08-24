@@ -1,15 +1,14 @@
 """Compose every README image that ships: the asset strips, the two logo copies, the video posters.
 
-Everything written here is OPAQUE. The logo fault the user reported ("weiße Lücken", GitHub only,
-correct locally and in game) could not be reproduced from the file — its alpha is clean, its
-transparent pixels are black, it composites correctly on white and on #0d1117 — so rather than
-assert a cause I cannot observe, this removes the variable: no alpha reaches GitHub at all.
+The logo's history is in logo() below and it is worth reading before touching it — three rounds
+were spent looking for a file or an encoding fault that was never there.
 """
 import os, subprocess
 from PIL import Image, ImageDraw
 
 T = os.environ.get('ASSET_RENDER_DIR', 'render/')
 OUT = os.environ.get('README_IMG_DIR', 'docs/img/')
+PLATE = (20, 17, 14)             # light-theme backing only — the tone the artwork expects
 BACKDROP = (26, 22, 19)          # warm near-black; reads as deliberate on both GitHub themes
 
 
@@ -41,32 +40,38 @@ def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
 
 
 def logo():
-    """The wordmark, TRANSPARENT, with a little breathing room. User ruling, after ModBuild 248.
+    """TWO copies, and this time the reason is measured rather than guessed.
 
-    HISTORY, so nobody re-derives this a fourth time. The "weisse Luecken" report was accurate and
-    was NEVER a file defect: the shipped copies were byte-exact against the artist's artwork on
-    both canvases, max difference 0 on every channel of every pixel. The letter interiors of
-    GLOOMHAVEN are a light PARCHMENT tone — against black they read as lit metal, against white as
-    holes. It looked like a GitHub bug only because GitHub's light theme was the one place the
-    wordmark was ever put on a white page.
+    THE WORDMARK IS DRAWN FOR A DARK BACKGROUND. Its letter fill and its outer bevel are a light
+    parchment tone: against black they read as lit metal, against white they lose almost all their
+    contrast and the letters look hollow. That is the user's "weisse Luecken", and it is the
+    artwork, not the file — PROVEN, after he asked a third time why he only ever sees it on GitHub:
+    his GitHub screenshot was cropped to its ink box, scaled to ours and differenced against the
+    artist's original composited on white. MEDIAN DIFFERENCE 2/255, mean 6.8, only 2.9 % of pixels
+    off by more than 40 — i.e. screenshot noise. GitHub renders our file correctly. GitHub's LIGHT
+    THEME is simply the only place this wordmark is ever put on white; the game menu and every
+    local viewer put it on dark.
 
-    ModBuild 248 answered that with a dark plate. The user rejected the plate ("ich will es
-    transparent, das nur das logo ohne hintergrund sichtbar ist"), so this is the artwork itself
-    with an alpha channel and nothing behind it. THE CONSEQUENCE IS ACCEPTED, NOT FORGOTTEN: on
-    GitHub's light theme the pale fill will read as gaps again, because that is what this artwork
-    does on white. If that ever has to be solved, the answer is a BACKING behind it on that theme
-    only — never a repaint of the letter fill.
+    So: `logo.png` is TRANSPARENT, which is what the user asked for and what he actually sees,
+    because he reads GitHub in dark mode. `logo-onlight.png` is the same artwork on a dark plate
+    and is served ONLY to `prefers-color-scheme: light`, where the transparent one breaks. Neither
+    repaints a pixel of the artist's wordmark, which is the one thing that must not happen.
     """
     src = Image.open('src/GloomhavenVR/Assets/GloomhavenVR_logo.png').convert('RGBA')
-    W, pad_x, pad_y = 1280, 0.03, 0.10
-    inner = int(W * (1 - 2 * pad_x))
-    f = inner / src.width
-    mark = src.resize((inner, max(1, round(src.height * f))), Image.LANCZOS)
-    H = round(mark.height * (1 + 2 * pad_y))
-    out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    out.alpha_composite(mark, ((W - mark.width) // 2, (H - mark.height) // 2))
-    out.save(OUT + 'logo.png', optimize=True)
-    print('wrote logo.png', out.size, 'transparent')
+    W = 1280
+    for name, plate, pad_x, pad_y in (('logo.png', None, 0.03, 0.10),
+                                      ('logo-onlight.png', PLATE, 0.06, 0.24)):
+        inner = int(W * (1 - 2 * pad_x))
+        f = inner / src.width
+        mark = src.resize((inner, max(1, round(src.height * f))), Image.LANCZOS)
+        H = round(mark.height * (1 + 2 * pad_y))
+        out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        if plate:
+            ImageDraw.Draw(out).rounded_rectangle((0, 0, W - 1, H - 1), radius=round(H * 0.12),
+                                                  fill=plate + (255,))
+        out.alpha_composite(mark, ((W - mark.width) // 2, (H - mark.height) // 2))
+        out.save(OUT + name, optimize=True)
+        print('wrote', name, out.size, 'plated' if plate else 'transparent')
 
 
 def poster(mp4, out, at='0:04'):

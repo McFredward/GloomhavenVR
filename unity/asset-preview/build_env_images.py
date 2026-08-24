@@ -52,24 +52,33 @@ def hero(src, out, width=1100):
     print('wrote', out, im.size)
 
 
-def pairs(rows, out, width=1280, cell_h=340):
+def pairs(rows, out, width=1360, cell_h=270, cols=2):
     """rows: [(base_png, element_png, caption, crop_box_or_None), ...] — one before/after per row.
+
+    LAID OUT IN A 2x2 OF PAIRS, not four stacked rows, because the README has to fit on a screen
+    ("die README soll nicht zu lang sein"). Each pair keeps its own internal before|after split —
+    that is the comparison and it must not be broken up — and the four pairs are simply tiled.
+    Half the page height for the same four comparisons.
 
     The crop box exists for the moon: at the ReadmeMoon station the disc is a small part of a wide
     frame, and the eclipse — the single most visible thing either element board does — would land
     on a few dozen pixels at README width. Cropping a real frame is not staging it; re-lighting one
     would be.
     """
-    cw = width // 2
-    bar = 40
-    cap = _font(21, bold=True)
-    tag = _font(16)
-    canvas = Image.new('RGB', (width, len(rows) * (cell_h + bar)), BAR)
+    pw = width // cols                  # one PAIR's width
+    cw = pw // 2                        # one half of a pair
+    bar = 34
+    gap = 10
+    cap = _font(19, bold=True)
+    tag = _font(13)
+    nrows = (len(rows) + cols - 1) // cols
+    canvas = Image.new('RGB', (width, nrows * (cell_h + bar) + (nrows - 1) * gap), BAR)
     d = ImageDraw.Draw(canvas)
     for k, (base, elem, caption, box) in enumerate(rows):
-        y = k * (cell_h + bar)
+        x0 = (k % cols) * pw
+        y = (k // cols) * (cell_h + bar + gap)
         # The two corner tags are a PAIR and read as one sentence — "element off" / "element on".
-        # The right one used to name the element instead, which made the row's own caption bar
+        # The right one used to name the element instead, which made the pair's own caption bar
         # below ("Cellar · Fire") the only place the pairing was stated, and left the eye with two
         # unrelated labels to reconcile. Which element it is belongs in exactly one place.
         for col, (name, label) in enumerate(((base, 'element off'), (elem, 'element on'))):
@@ -81,12 +90,12 @@ def pairs(rows, out, width=1280, cell_h=340):
             im = im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))), Image.LANCZOS)
             im = im.crop(((im.width - cw) // 2, (im.height - cell_h) // 2,
                           (im.width - cw) // 2 + cw, (im.height - cell_h) // 2 + cell_h))
-            canvas.paste(im, (col * cw, y))
-            d.text((col * cw + 14, y + 10), label.upper(), font=tag,
+            canvas.paste(im, (x0 + col * cw, y))
+            d.text((x0 + col * cw + 10, y + 7), label.upper(), font=tag,
                    fill=DIM if col == 0 else INK)
-        d.line([(cw, y), (cw, y + cell_h)], fill=BAR, width=3)
+        d.line([(x0 + cw, y), (x0 + cw, y + cell_h)], fill=BAR, width=3)
         tw = d.textlength(caption, font=cap)
-        d.text(((width - tw) / 2, y + cell_h + (bar - 21) / 2 - 2), caption, font=cap, fill=INK)
+        d.text((x0 + (pw - tw) / 2, y + cell_h + (bar - 19) / 2 - 2), caption, font=cap, fill=INK)
     canvas.save(OUT + out, quality=90, optimize=True)
     print('wrote', out, canvas.size)
 

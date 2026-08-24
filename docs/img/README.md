@@ -1,36 +1,37 @@
 # README images
 
-## `logo.png` — the wordmark on a dark plate, and the "white gaps" that were never a file defect
+## The logo — MEASURED, three rounds in: the file is fine, the artwork is drawn for black
 
-The user reported white gaps in the wordmark **on GitHub only**. Two rounds looked for a file or an
-encoding fault and found none. It is neither:
+The user reported white gaps in the wordmark **on GitHub only**, and asked a third time why he sees
+it nowhere else. So it was finally measured properly instead of argued about:
 
-- `logo-light.png` was byte-exact against the artist's artwork composited on white — **max
-  difference 0 on every channel of every pixel**, and the same for `logo-dark.png` on `#0d1117`.
-- On the fully-opaque pixels the two shipped copies were **identical to each other**, so nothing
-  about compositing could be producing a difference between the two themes.
-- The PNG itself is unremarkable: 1024×179, 8-bit, colour type 2, non-interlaced, no `gAMA`,
-  `sRGB` or `iCCP` chunk to be mis-read.
+**His GitHub screenshot was cropped to its ink box, scaled to ours, and differenced against the
+artist's original composited on white.** Median difference **2/255**, mean 6.8, and only 2.9 % of
+pixels off by more than 40 — screenshot noise, nothing else. GitHub renders our file correctly, and
+it always did. (Earlier rounds had already shown the shipped copies were byte-exact against the
+artwork on both canvases, max difference 0; what was missing was the comparison against *his* pixels.)
 
-**The pale patches are IN THE ARTWORK.** The letter interiors of GLOOMHAVEN are filled with a light
-parchment tone; against black — the game's main menu, and any viewer with a dark canvas — that
-reads as lit metal, and against white it reads as a hole. The report was accurate and the diagnosis
-was contrast inversion, not corruption. The reason it appeared "only on GitHub" is that GitHub's
-light theme was the only place the wordmark was ever put on a white page.
+**The wordmark is drawn for a dark background.** Its letter fill and its outer bevel are a light
+parchment tone. Against black they read as lit metal; against white they lose nearly all their
+contrast and the letters look hollow. GitHub's **light theme** is simply the only place this
+wordmark is ever shown on white — the game's main menu and every local image viewer put it on dark.
+That is the whole of "warum sehe ich das nur in GitHub".
 
-ModBuild 248 answered that with a dark plate behind the wordmark. **The user rejected the plate**
-("ich will es transparent, das nur das logo ohne hintergrund sichtbar ist"), so what ships is the
-artwork itself with an alpha channel and nothing behind it: `logo.png`, one file, both themes.
-`logo-light.png` / `logo-dark.png` are gone.
+### What ships
 
-**The consequence is accepted, not forgotten.** On GitHub's light theme the pale letter fill will
-read as gaps again, because that is what this artwork does on white. If that ever has to be
-solved, the answer is a BACKING on that theme only — **never a repaint of the letter fill**, which
-would mean redrawing the artist's wordmark to survive a canvas it is barely shown on.
+Two copies, picked by `<picture>` + `prefers-color-scheme`:
 
-**Regenerating it:** `logo()` in `unity/asset-preview/build_readme_images.py` — the source is
-`src/GloomhavenVR/Assets/GloomhavenVR_logo.png`, still the same file the mod puts in the main menu,
-so there is one source of truth for the artwork.
+| File | Served to | Why |
+|---|---|---|
+| `logo.png` | dark theme (the default, and what the user reads) | **transparent**, no backing — what he asked for, and correct there |
+| `logo-onlight.png` | light theme only | the same artwork on a dark plate, because the transparent one breaks on white |
+
+**Neither repaints a pixel of the artist's wordmark**, and nothing may. Brightening the letter fill
+so it survives a white canvas would mean redrawing his artwork to fit one theme of one website.
+
+**Do not "simplify" this back to one file.** One transparent file breaks on light; one plated file
+was rejected by the user ("ich will es transparent"). The two-file split is the only arrangement
+that satisfies both, and it costs one `<picture>` element.
 
 ## The demo clips are MP4, not GIF, and that was measured
 
@@ -114,8 +115,15 @@ Notes that matter here:
   copy: it is the thing a clone carries, and the attachment can be regenerated from it.
 
 **THIS IS NOW DONE.** The user uploaded both clips through a comment box and handed back the two
-`user-attachments` URLs, which sit bare on their own lines in the README — that is the whole
-embed, GitHub turns a bare attachment URL into a player. The poster JPGs and the
+`user-attachments` URLs.
+
+**They are now `<video>` tags in a two-column table**, not bare URLs on their own lines, because
+the page was too long and the user asked for them side by side ("skalier die Videos dass sie etwas
+kleiner sind oder nebeneinander"). THIS IS THE ONE THING ON THE PAGE THAT IS NOT GUARANTEED: a bare
+attachment URL on its own line is turned into a player by GitHub's own Markdown pipeline and always
+works, whereas `<video>` goes through the HTML sanitiser, which allows it but has never promised
+to. If the two clips ever render as nothing, that is the cause and the fix is to put the two URLs
+back on their own lines and accept the height. The poster JPGs and the
 `docs/img/*.mp4` files stay committed: the mp4 is the durable copy a clone carries and the one
 an attachment can be regenerated from, and the posters are the fallback if the attachment CDN
 is ever not an option.
