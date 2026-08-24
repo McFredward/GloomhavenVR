@@ -40,7 +40,7 @@ Three pairs of hands, three masks, three control boards. One dropdown each, chan
 and the other players see the choice. All modelled for this project.
 
 <p align="center">
-  <img src="docs/img/styles.png" width="700" alt="Three hands, three masks, three control boards">
+  <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, three control boards">
 </p>
 
 ## Environments

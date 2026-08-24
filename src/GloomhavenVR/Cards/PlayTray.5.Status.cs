@@ -547,6 +547,27 @@ internal sealed partial class PlayTray
     /// the badge/round lesson, test #13); the label overrides are plain field stores
     /// consumed by the per-tick keycap logic.
     /// </summary>
+    /// <summary>
+    /// Is the pick confirm dialog's COMMIT option live on the board as a PHYSICAL keycap right now
+    /// — the green "KARTEN ABWERFEN" cap in redundanter_knopf.jpg?
+    ///
+    /// <para>USER RULING 2026-08-24 (verbatim): "Wenn man alle 3 Karten abgelegt hat sieht man den
+    /// 'Karten ablegen' Knopf sowie auch einen identischen Knopf unten in der Entscheidungsleiste.
+    /// Der ist redundant und kann raus, da es ja als physischer Knopf existiert." The decision dock
+    /// reads THIS — the keycap's own live state, never a re-derivation of it — before it stands its
+    /// docked row down for the pick confirm, so the row can only ever disappear where the physical
+    /// control has actually taken over. If the keycap is not offered (no tray, foreign-character
+    /// view, no placement offered) this reads false and the dock presents exactly as before: a
+    /// decision must never become unanswerable, which is the standing rule of that surface.</para>
+    ///
+    /// <para>Both terms are the ones <see cref="TickStatus"/> itself obeys: the driver's pick
+    /// override is armed (<c>_pickConfirmLabel</c>, set only while
+    /// <c>CardsGameApi.IsPickConfirmDialogOpen</c> — see <c>CardsDriver.UpdatePickStatus</c>) AND
+    /// the cap ended the tick logically visible.</para>
+    /// </summary>
+    internal bool PickCommitCapOffered =>
+        IsVisible && _pickConfirmLabel != null && _confirm != null && _confirm.LogicalVisible;
+
     internal void SetPickStatus(string? banner, string? confirmLabel, string? undoLabel)
     {
         _pickConfirmLabel = confirmLabel;

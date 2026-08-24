@@ -553,9 +553,71 @@ internal sealed class DecisionDockSurface : WorldSurface
         {
             if (!base.WantConverted || FlatScreen.ManualScreenActive)
                 return false;
+            if (PickConfirmOnBoardKeycaps())
+                return false; // both of this prompt's options are physical keycaps — see the doc
             return _activeWindow != null && ModalFallback.DecisionDock.ClaimsWindow(_activeWindow);
         }
     }
+
+    /// <summary>
+    /// USER RULING 2026-08-24 (verbatim, with redundanter_knopf.jpg): "Wenn man alle 3 Karten
+    /// abgelegt hat sieht man den 'Karten ablegen' Knopf sowie auch einen identischen Knopf unten in
+    /// der Entscheidungsleiste. Der ist redundant und kann raus, da es ja als physischer Knopf
+    /// existiert."
+    ///
+    /// <para>THE PICK CONFIRM DIALOG HAS NO DOCKED ROW LEFT TO DRAW. Its CANCEL option was already
+    /// removed from the dock by the 2026-08-04 ruling (see
+    /// <see cref="ApplyPickCancelSuppression"/>) because grabbing the laid-down card IS that action;
+    /// its COMMIT option is the green board keycap the photograph shows, wearing the popup's OWN
+    /// localized label (<c>CardsDriver.UpdatePickStatus</c> →
+    /// <c>CardsGameApi.PickDialogOptionLabel(cancel: false)</c> → <c>PlayTray.SetPickStatus</c>), and
+    /// pressing it runs the popup's own commit callback (<c>CardsDriver.OnConfirmRequested</c> →
+    /// <c>CardsGameApi.ConfirmPickDialog</c>). With both options already in the world, everything the
+    /// dock could still put under the board is a DUPLICATE — and a docked row with nothing left in it
+    /// is worse than none: it is an empty strip with a backing plate and a reserved gap.</para>
+    ///
+    /// <para>SO THE SURFACE DOES NOT PRESENT AT ALL for this one prompt, rather than presenting an
+    /// empty row. No conversion means no host, no MR backing plate, no reserved area and no wire
+    /// publication — there is nothing to blank. The window itself stays alpha-0/nested-canvas
+    /// suppressed exactly as before (<see cref="ApplySuppression"/> keeps running in the undocked
+    /// branch of <see cref="Tick"/>), so the flat popup does not reappear in the HMD, and the CLAIM
+    /// is kept, so the generic <see cref="ModalFallback"/> does not float the whole window either.</para>
+    ///
+    /// <para>AND IT IS GATED ON THE KEYCAP ACTUALLY BEING THERE (<see cref="PlayTray.PickCommitCapOffered"/>
+    /// — the cap's own live visibility, not a second derivation of it). No tray, a foreign-character
+    /// view, a state where the board offers no placement: the cap is not shown, this reads false, and
+    /// the row docks exactly as it did before. A decision may never become unanswerable — that is the
+    /// standing safety rule of this surface and it is not weakened here.</para>
+    ///
+    /// <para>NOTHING IS HIDDEN ON THE GAME'S SIDE BY THIS PATH, WHICH IS THE POINT. The obvious
+    /// alternative — deactivating the commit option's GameObject the way
+    /// <see cref="ApplyPickCancelSuppression"/> deactivates the cancel one — would have walked
+    /// straight back into the ModBuild 248 trap: <c>CardsGameApi.ConfirmPickDialog</c> skips an
+    /// option whose <c>gameObject.activeSelf</c> is false (CardsGameApi.cs:480) and
+    /// <c>PickDialogOptionLabel</c> skips it too (CardsGameApi.cs:555), so hiding the button would
+    /// have made the board keycap unpressable AND stripped it of its "KARTEN ABWERFEN" label in one
+    /// stroke. Not docking leaves both options ACTIVE, so every seam — the keycap commit, the keycap
+    /// cancel (<c>CancelPickConfirmDialog</c> takes its untouched <c>popup.Cancel()</c> branch) and
+    /// the card-grab reopen — runs the game's own full path.</para>
+    ///
+    /// <para>MULTIPLAYER: this is local presentation on both ends. Nothing docks ⇒ nothing is
+    /// sampled into wire records 12/24/29, which is the 1:1 rule doing its job — a peer's mirrored
+    /// board shows what THIS board shows, and this board shows the two keycaps, whose labels already
+    /// ride the wire as the cap-label records. No card identity, no new channel.</para>
+    /// </summary>
+    private bool PickConfirmOnBoardKeycaps()
+    {
+        if (_active == null || _active.Name != "DialogPopup")
+            return false;
+        // STRUCTURAL identification — the very same one ApplyPickCancelSuppression uses, so this can
+        // never fire on a scenario choice or any other DialogPopup (they keep their full docked row).
+        if (CardsGameApi.PickConfirmCancelButton() == null)
+            return false;
+        return PlayTray.Current?.PickCommitCapOffered == true;
+    }
+
+    /// <summary>One-shot log latch for the stand-down line; re-armed on every prompt change.</summary>
+    private bool _pickKeycapStandDownLogged;
 
     /// <summary>
     /// The active prompt's interactive row, isolated structurally (see the class doc).
@@ -629,6 +691,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             _active = open ? active : null;
             _wantSince = 0f;
             _targetWarned = false;
+            _pickKeycapStandDownLogged = false; // a new prompt re-arms the stand-down line
             _textWaitSince = 0f;   // a new prompt waits for ITS OWN line, from scratch
             _textWaitWarned = false;
         }
@@ -668,6 +731,9 @@ internal sealed class DecisionDockSurface : WorldSurface
                 RegisterDeliberateCanvas(); // user #13b: decision buttons take the deliberate v1 poke press
                 _placementLogged = false;
                 _lastLoggedGapPx = float.NaN;
+                // A row that DID dock re-arms the keycap stand-down line, so a later flip back to
+                // "the board answers this one" states itself again instead of latching silently.
+                _pickKeycapStandDownLogged = false;
             }
             ApplySuppression(_activeWindow!); // non-null: WantConverted required IsOpen
             ApplyPickCancelSuppression();     // user ruling 2026-08-04: no "choose another card" button on the dock
@@ -730,9 +796,44 @@ internal sealed class DecisionDockSurface : WorldSurface
                 VRLog.Info("WorldUI", "DECISION DOCK: widget row released — restored to its 2D home " +
                                       $"(open={open}), suppression lifted, row style/layout restored.");
             }
+            // THE PICK CONFIRM DRAWS NOTHING HERE (user ruling 2026-08-24 — see
+            // PickConfirmOnBoardKeycaps). The row is deliberately not converted, so:
+            //  * the window's own suppression must keep running from THIS branch, or the flat popup
+            //    (backdrop + the vignette's nested canvases) would render in the HMD — the docked
+            //    branch is where ApplySuppression normally lives, and there is no docked branch now;
+            //  * the claim grace below must NOT fire. It exists for a row that FAILED to isolate;
+            //    handing this window to the generic float would put the whole 1920x1080 popup in
+            //    front of the player for a prompt the board already answers.
+            bool keycapStandDown = _activeWindow != null && PickConfirmOnBoardKeycaps();
+            if (keycapStandDown)
+            {
+                ApplySuppression(_activeWindow!);
+                _wantSince = 0f;
+                if (!_pickKeycapStandDownLogged)
+                {
+                    _pickKeycapStandDownLogged = true;
+                    VRLog.Info("WorldUI", "DECISION DOCK: pick confirm STANDS DOWN — the whole docked row " +
+                                          "is suppressed for this prompt, not just its cancel option. Both " +
+                                          "of its options exist as PHYSICAL board keycaps (commit = the " +
+                                          "green cap wearing the popup's own label, cancel = the UNDO cap / " +
+                                          "grabbing the laid-down card), so a docked bar would be a second " +
+                                          "copy of a control the player already has in the world (user " +
+                                          "ruling 2026-08-24, redundanter_knopf.jpg). NOTHING is presented: " +
+                                          "no host, no backing plate, no title, no reserved gap and no wire " +
+                                          "decision — an empty strip would be worse than none. The window " +
+                                          "stays alpha-0 + nested-canvas suppressed and the dock KEEPS its " +
+                                          "claim, so the generic modal fallback does not float it either. " +
+                                          "Both option buttons stay ACTIVE, so the keycap commit " +
+                                          "(ConfirmPickDialog) and DialogPopup.Cancel both run the game's " +
+                                          "own full path — the ModBuild 248 inactive-button trap cannot " +
+                                          "apply to a button nobody hid.");
+                }
+            }
+
             // Claim grace: claimed but unconverted (row not isolatable / Convert
             // failed) → after the grace, hand the window to the generic fallback.
-            if (_activeWindow != null && ModalFallback.DecisionDock.ClaimsWindow(_activeWindow))
+            if (!keycapStandDown && _activeWindow != null
+                && ModalFallback.DecisionDock.ClaimsWindow(_activeWindow))
             {
                 if (_wantSince <= 0f)
                 {
@@ -2325,6 +2426,13 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// HelperTools.NormalizePool re-activates pooled option buttons on every Show.
     /// Re-asserted every docked tick (level-triggered, the house pattern); restored on
     /// undock/prompt change/shutdown.
+    ///
+    /// <para>SINCE 2026-08-24 THIS ONLY RUNS IN THE FALLBACK CASE. When the board offers the pick
+    /// confirm's COMMIT as a physical keycap — the ordinary case — the surface does not dock this
+    /// prompt at all (<see cref="PickConfirmOnBoardKeycaps"/>), so no option is hidden and every
+    /// seam takes the game's own untouched path. This method is reached only when the row docks
+    /// anyway because that keycap is NOT offered, and there the 2026-08-04 ruling and the ModBuild
+    /// 248 inactive-button workaround both still apply exactly as written above.</para>
     /// </summary>
     private void ApplyPickCancelSuppression()
     {

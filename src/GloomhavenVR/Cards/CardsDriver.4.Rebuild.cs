@@ -2215,12 +2215,23 @@ internal sealed partial class CardsDriver
     /// immediately afterwards, exactly as the docked-card APPEAR pass below waits for
     /// <c>_half.SetCards</c>.</para>
     ///
-    /// <para>WHAT IT REFUSES, out loud rather than silently. A card that is HELD, already animating,
-    /// or not live in the hierarchy has another owner (or no visible destination at all — a CLOSED
-    /// hand fan parents its cards under a disabled root, where no Update ticks and therefore no
-    /// flight could run); and with no discard stack built there is no origin to fly from. Each of
-    /// those is logged with its reason and the card simply IS back in the hand, un-animated —
-    /// never teleported to a wrong spot, and never left mid-air.</para>
+    /// <para>WHAT IT REFUSES, out loud rather than silently. A card that is HELD or already
+    /// animating has another owner, and with no discard stack built there is no origin to fly from.
+    /// Each of those is logged with its reason and the card simply IS back in the hand, un-animated
+    /// — never teleported to a wrong spot, and never left mid-air.</para>
+    ///
+    /// <para>A CLOSED HAND FAN IS NO LONGER ONE OF THEM (user report 2026-08-24: "Die Animation …
+    /// spielt nur ab wenn der Fächer aktuell auch auf ist. Das soll nicht sein … als wäre er auf").
+    /// A closed fan parents its cards under a DISABLED root, so <c>VRCard.Update</c> never ticked
+    /// and the flight could not run — this method printed "RETURN REFUSED … not live in the
+    /// hierarchy" for every card (LogOutput.log:4047-4048, 4351-4352). It now asks
+    /// <see cref="CardFan.TrySeatArrival"/> for a live seat instead: the card hangs off a mod-owned,
+    /// always-active transform at the hand for the duration of the flight and is re-homed into the
+    /// fan when it lands — the same ownership shape the OUTBOUND flight has always had (it flies
+    /// while still parented to the live tray recess and only re-homes on arrival). The fan's state
+    /// is not faked and nothing of the game is touched; the card is simply not under the fan root
+    /// while it is in the air. Opening or closing the fan mid-flight is safe in both directions —
+    /// see <c>CardFan.TickArrivals</c>.</para>
     ///
     /// <para>MULTIPLAYER: announced through the same two-byte semantic anchor pair every other
     /// flight uses (<c>Discard → HandFan</c>, the reverse of the exit flight's <c>Slot → Discard</c>).
@@ -2245,14 +2256,27 @@ internal sealed partial class CardsDriver
                                     "recycled under the restart) — nothing to fly.");
                 continue;
             }
+            // DEFECT B (user 2026-08-24: "auch wenn der Fächer aktuell nicht auf ist soll die
+            // Animation abspielen als wäre er auf"). This used to REFUSE a card that was not live in
+            // the hierarchy, and a CLOSED hand fan parents every one of its cards under a disabled
+            // root — so the whole animation was silently skipped whenever the fan happened to be
+            // down (LogOutput.log:4047-4048, 4351-4352). It is no longer a refusal but a SEAT: the
+            // fan hands the card a live, always-active arrival transform at the hand seat an open
+            // fan's root would occupy, and re-homes it into the fan when it lands. Same shape as the
+            // OUTBOUND flight, which flies while the card still hangs off the live tray recess and
+            // only changes owner on arrival (FlyLockedPicksToPile → _factory.Park).
+            bool wasDormant = !card.gameObject.activeInHierarchy;
+            string? seatRefusal = null;
+            // Seated LAST of the three cheap tests and only once every other refusal has passed, so
+            // a card that will not fly is never re-parented away from the fan for nothing.
+            bool seatable = !card.IsHeld && !card.IsFlying && !card.IsVanishing && havePile
+                            && _fan.TrySeatArrival(card, out seatRefusal);
             string? refusal =
                 card.IsHeld ? "the player is holding it — the hand owns the pose"
                 : card.IsFlying || card.IsVanishing ? "another animation already owns it"
-                : !card.gameObject.activeInHierarchy
-                    ? "it is not live in the hierarchy (a CLOSED hand fan parents its cards under a " +
-                      "disabled root, so no flight could tick) — it is simply back in the hand"
                 : !havePile ? "the discard stack is not built / not visible, so there is no origin to " +
                               "fly out of"
+                : !seatable ? seatRefusal
                 : null;
             if (refusal != null)
             {
@@ -2270,8 +2294,19 @@ internal sealed partial class CardsDriver
                                 "discard, so the page that had already flown into the Discard stack comes back " +
                                 $"OUT of it into the hand ({FlyToPileSeconds:F2}s, arc over the board, " +
                                 "orientation locked) — the exact reverse of the Pick batch EXIT flight that " +
-                                "put it there. The selection restarts at page 1. VR presentation only — the " +
-                                "deselection is the game's own cancel callback.");
+                                $"put it there. The selection restarts at page 1. HAND FAN " +
+                                $"{(_fan.IsOpen ? "OPEN" : "CLOSED")}, card was " +
+                                (wasDormant ? "DORMANT (not live in the hierarchy — the exact state that used " +
+                                              "to print 'Pick restart RETURN REFUSED')"
+                                            : "already live") + ": " +
+                                (_fan.IsArriving(card)
+                                    ? "it rides the fan's own live ARRIVAL SEAT at the hand for the flight — " +
+                                      "the same ownership shape as the outbound flight, which flies while still " +
+                                      "parented to the live tray recess — and is re-homed into the fan when it " +
+                                      "lands, open or closed (user ruling 2026-08-24: the animation plays 'als " +
+                                      "wäre er auf')."
+                                    : "it flies to its own arc seat under the open fan root, unchanged.") +
+                                " VR presentation only — the deselection is the game's own cancel callback.");
         }
         _pickReturnFlight.Clear();
         if (flew > 0)

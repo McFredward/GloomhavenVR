@@ -151,22 +151,35 @@ ffmpeg -ss <start> -to <end> -i <capture>.mp4 -an \
 - Keep each clip **under ~3 MB** and around **10-15 seconds**, one idea per clip, cropped to the
   action. Capture ONE eye — a stereo capture is twice the pixels for no benefit on a flat page.
 
-## `styles.png` — the three strips as ONE image
+## `styles.png` — the nine assets as a 3x3 matrix
 
-The README shows a single `styles.png`: three rows (hands, masks, boards) with the family name and
-its three variant names at the left. It is built by `styles_sheet()` from the three
-`styles-*.png` strips, which are still produced and still committed — they are the source of this
-sheet and remain the thing to regenerate when an asset changes.
+One image: three rows (hands, masks, boards), three columns, each cell one asset with its name
+underneath, on **white**. All three properties are user rulings:
 
-The reason is the user's standing note on the page: *"Fass dich noch kürzer in der README. Die
-Leute werden es sonst nicht lesen."* Three images plus three caption lines is a lot of page for
-"there are nine of these".
+- *"Fass dich noch kürzer in der README"* — one image instead of three images plus three caption
+  lines.
+- *"mach die Assets so dass sie untereinander stehen, wie eine Matrix"* — the cells line up in
+  COLUMNS as well as rows. That is why `styles_matrix()` builds from the **nine individual
+  renders**, not from the three `styles-*.png` strips: a strip centres its three items inside its
+  own width, so three strips stacked can never line up with each other.
+- *"mach den Hintergrund weiss statt schwarz (es soll trotzdem lesbar bleiben)"* — white, with
+  DARK labels. Nothing about the renders changed: the arcane glove and Grimhorn are nearly black
+  and read perfectly well on white, which is exactly what a transparent render is for.
 
-One trap is recorded in the code: `_ink_box` uses a threshold ABOVE the `#1a1613` backdrop. With a
-threshold below it, nothing is ever trimmed, every row keeps the full 1280x704 frame, and the fit
-becomes height-limited so the art shrinks into the middle of its row.
+**ONE SCALE PER ROW, never per cell.** Auto-fitting each asset to its own cell would normalise away
+the real size differences inside a family and let the picture claim something untrue.
 
-## The asset strips
+**The order inside each family is the user's** and is not alphabetical, not file order and not
+obvious: hands as delivered, masks **Grimhorn · Ironwatch · Runeveil**, boards **Steel · Bronze ·
+Oak**. The file names do not help — `Mask_0` is Ironwatch, `Mask_1` Runeveil, `Mask_2` Grimhorn
+(`Loc.cs:1018-1020`), and `PlayTray_9capjqp6` is STEEL while `PlayTray_16vm268h` is BRONZE
+(`BoardFrame.cs:68-69`). Those two have been swapped once already; check the source, never the
+look of the render.
+
+The three `styles-*.png` strips are still built and still committed — they are the per-family
+image and remain useful — but the README shows only the matrix.
+
+## The asset strips## The asset strips
 
 `styles-hands.png`, `styles-masks.png`, `styles-boards.png` are rendered from the **shipped bundle
 assets** by `unity/asset-preview/render_asset.py`, which reproduces `GloomhavenVR/BoardLit` node for

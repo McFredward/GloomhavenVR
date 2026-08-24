@@ -219,7 +219,213 @@ internal sealed class CardFan
             Object.DestroyImmediate(_root.gameObject);
             _root = null;
         }
+        _arriving.Clear();
+        if (_arrivalSeat != null)
+        {
+            // Detach first: a card still riding the seat must not be destroyed WITH it. It keeps its
+            // world pose at the scene root and the driver's own park sweep / factory teardown
+            // disposes of it, exactly as it would have done for any other loose card.
+            _arrivalSeat.DetachChildren();
+            Object.DestroyImmediate(_arrivalSeat.gameObject);
+            _arrivalSeat = null;
+        }
         IsOpen = false;
+    }
+
+    // ------------------------------------------------- inbound flight seat (defect B) --
+
+    /// <summary>
+    /// USER REPORT 2026-08-24 (verbatim): "Die Animation, dass die Karten zurück auf die Hand bzw
+    /// in den Fächer gehen spielt nur ab wenn der Fächer aktuell auch auf ist. Das soll nicht sein,
+    /// auch wenn der Fächer aktuell nicht auf ist soll die Animation abspielen als wäre er auf."
+    ///
+    /// <para>THE MECHANISM IT FIXES. A CLOSED fan parents its cards under <see cref="_root"/> with
+    /// the root <c>SetActive(false)</c> (<see cref="Close"/>, and the adopt branch of
+    /// <see cref="SetCards"/>), so a card handed back to a closed hand is not
+    /// <c>activeInHierarchy</c>: <c>VRCard.Update</c> never ticks and NO flight could run. That is
+    /// why <c>CardsDriver.DrainPickReturnFlight</c> printed "RETURN REFUSED … it is not live in the
+    /// hierarchy" for every card whenever the fan happened to be down.</para>
+    ///
+    /// <para>THE FIX IS THE OUTBOUND FLIGHT'S OWN SHAPE, MIRRORED. <c>FlyLockedPicksToPile</c> never
+    /// re-parents anything: the card flies while it still hangs off the LIVE tray recess and only
+    /// changes owner when it lands (<c>_factory.Park</c>). The inbound flight now does the same in
+    /// reverse — for the duration of the flight the card hangs off THIS seat, a mod-owned transform
+    /// that is always active and sits exactly where an OPEN fan's root would sit (the palm seat the
+    /// eased follow in <see cref="Tick"/> drives the root to), and only when it LANDS is it re-homed
+    /// into the fan. No second animation system, no fan state is faked: the fan stays closed, its
+    /// root stays disabled, and the card simply is not under it while it is in the air.</para>
+    ///
+    /// <para>Purely local VR presentation. Nothing here writes game state and nothing rides the
+    /// wire — the flight's peer announcement is the existing 2-byte semantic anchor pair
+    /// (<c>Discard → HandFan</c>) the driver already reports, which carries no card identity.</para>
+    /// </summary>
+    private Transform? _arrivalSeat;
+
+    /// <summary>Cards riding <see cref="_arrivalSeat"/> right now — every layout loop in this class
+    /// skips them for exactly the reason it skips a HELD card: an animation owns the transform, and
+    /// re-homing it under the (possibly disabled) fan root would kill the flight mid-air.</summary>
+    private readonly List<VRCard> _arriving = new(4);
+
+    /// <summary>Is this card currently flying INTO the hand on <see cref="_arrivalSeat"/>?</summary>
+    internal bool IsArriving(VRCard card) =>
+        _arriving.Count > 0 && card != null && _arriving.Contains(card);
+
+    /// <summary>
+    /// Seat <paramref name="card"/> for a flight into the hand and give it the home pose to land
+    /// on, whatever the fan's open state is. An OPEN fan needs no seat — the card is already under
+    /// a live root with a real arc seat — so this is a no-op that answers true for it; a CLOSED fan
+    /// hands the card to <see cref="_arrivalSeat"/> instead. The caller launches
+    /// <c>VRCard.FlyFromPile</c> immediately afterwards, which seeds the start pose at the pile, so
+    /// the re-parent is never visible.
+    /// </summary>
+    /// <returns>False (with <paramref name="refusal"/> set) only when there is no hand seat to fly
+    /// to at all — then the caller must NOT fly the card.</returns>
+    internal bool TrySeatArrival(VRCard card, out string? refusal)
+    {
+        refusal = null;
+        if (card == null)
+        {
+            refusal = "the VR card is gone";
+            return false;
+        }
+        if (card.IsHeld)
+        {
+            refusal = "the player is holding it — the hand owns the pose";
+            return false;
+        }
+        if (card.gameObject.activeInHierarchy)
+            return true; // already live where it is (an OPEN fan IS the seat: its arc pose is home)
+        if (!TryResolveArrivalPose(out Vector3 pos, out Quaternion rot, out Transform? frame)
+            || frame == null)
+        {
+            refusal = "the hand fan has no seat to fly to (it has never been opened on a live hand " +
+                      "rig this session), so there is no destination — never a wrong-spot teleport";
+            return false;
+        }
+        if (_arrivalSeat == null)
+        {
+            _arrivalSeat = new GameObject("GloomhavenVR.CardFanArrival").transform;
+            Core.VRLayers.Apply(_arrivalSeat.gameObject); // cards Apply themselves in VRCard.Build
+        }
+        if (_arrivalSeat.parent != frame)
+            _arrivalSeat.SetParent(frame, worldPositionStays: false);
+        if (!_arrivalSeat.gameObject.activeSelf)
+            _arrivalSeat.gameObject.SetActive(true);
+        _arrivalSeat.SetPositionAndRotation(pos, rot);
+        if (!card.gameObject.activeSelf)
+            card.gameObject.SetActive(true); // the card's own object, never the fan root
+        card.SetHome(_arrivalSeat, Vector3.zero, Quaternion.identity, 1f, instant: true);
+        if (!_arriving.Contains(card))
+            _arriving.Add(card);
+        return true;
+    }
+
+    /// <summary>
+    /// Where an OPEN fan's root would be RIGHT NOW: <c>FanPalmOffset</c> real-metres up the palm
+    /// normal, under the rig root — the exact seat and the exact frame the shipped (eased) follow
+    /// branch of <see cref="Tick"/> drives <see cref="_root"/> to, including the reason it must not
+    /// read <c>palm.lossyScale</c> (the bundle glove's 100× armature). Rotation is the fan's own
+    /// base billboard (facing the head). Falls back to the last known root pose, so a fan that is
+    /// merely mid-collapse still resolves.
+    /// </summary>
+    private bool TryResolveArrivalPose(out Vector3 pos, out Quaternion rot, out Transform? frame)
+    {
+        pos = default;
+        rot = Quaternion.identity;
+        frame = null;
+        Transform? rig = VRRigDriver.RigRoot;
+        Transform? palm = _hand != null ? _hand.Rig.PalmCenter : null;
+        if (palm != null && rig != null && _hand != null)
+        {
+            pos = palm.position + palm.up * (CardsConfig.FanPalmOffset.Value * _hand.WorldScale);
+            frame = rig;
+        }
+        else if (_root != null && _root.parent != null)
+        {
+            pos = _root.position;
+            frame = _root.parent;
+        }
+        else
+        {
+            return false;
+        }
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        Vector3 away = head != null ? pos - head.transform.position : Vector3.zero;
+        rot = away.sqrMagnitude > 1e-6f
+            ? Quaternion.LookRotation(away.normalized, Vector3.up) // the fan's own baseFacing
+            : _root != null ? _root.rotation
+            : palm != null ? palm.rotation
+            : Quaternion.identity;
+        return true;
+    }
+
+    /// <summary>
+    /// Keep the seat on the hand while cards are in the air, and hand each one back to the fan the
+    /// moment its flight ends. Runs from <see cref="Tick"/> BEFORE the closed-fan early return —
+    /// the whole point is that this works with the fan down.
+    ///
+    /// <para>MID-FLIGHT FAN STATE, both directions, stated: the player may OPEN the fan while a card
+    /// is arriving (the layout loops skip it, so it keeps flying and joins the arc on the relayout
+    /// that follows its landing) or CLOSE it (the seat is a separate object from the fan root, so
+    /// disabling the root cannot freeze the flight; the card lands at the hand and is then re-homed
+    /// collapsed under the closed root, i.e. hidden in the hand exactly like every other hand card).
+    /// Neither can strand, duplicate or lose a card.</para>
+    ///
+    /// <para>A GRAB mid-flight also ends the arrival — <c>VRCard.Update</c> drops <c>_flying</c> the
+    /// moment the card is held ("a re-grab mid-flight wins") — and the prune drops it from the list
+    /// WITHOUT re-homing it: the hand owns a held card's pose and this class writes nothing a hold
+    /// depends on (the standing <c>StampMembership</c> rule). The next <see cref="SetCards"/> after
+    /// the release adopts it back into the fan like any other returning card. In practice a flying
+    /// card is not grabbable at all (<c>FlyFromPile</c> clears <c>Grabbable</c>) and a closed fan
+    /// offers no grab, so this is a belt-and-braces path.</para>
+    /// </summary>
+    private void TickArrivals()
+    {
+        bool landedWhileOpen = false;
+        for (int i = _arriving.Count - 1; i >= 0; i--)
+        {
+            VRCard c = _arriving[i];
+            if (c != null && c.IsFlying && !c.IsHeld && c.transform.parent == _arrivalSeat)
+                continue;
+            _arriving.RemoveAt(i);
+            if (c == null || c.IsHeld || _root == null)
+                continue;
+            if (IsOpen)
+            {
+                // The next relayout gives it its arc seat with the ordinary home-lerp (no teleport).
+                landedWhileOpen = true;
+                continue;
+            }
+            if (c.transform.parent == _arrivalSeat && _cards.Contains(c))
+            {
+                // Closed: the card belongs collapsed under the (inactive) root — the same pose the
+                // adopt branch of SetCards gives every other card of a closed hand. A card the hand
+                // no longer names (the game took it back mid-flight) is deliberately LEFT on the
+                // seat instead: it is not ours to re-home, and the driver's park sweep — which
+                // skips a FLYING card and therefore could not have taken it earlier — collects it
+                // on the next rebuild.
+                c.SetHome(_root, Vector3.zero, Quaternion.identity, 1f, instant: true);
+                Core.VRLog.Info("Cards", $"Hand fan ARRIVAL landed with the fan CLOSED: '{c.name}' is now " +
+                                    "parked collapsed under the closed fan root — the return animation " +
+                                    "ran in full and the card is in the hand, invisible until the fan " +
+                                    "is raised, exactly like every other card of a closed hand.");
+            }
+        }
+        // The seat's world pose is DELIBERATELY frozen at launch and not re-aimed at the hand each
+        // frame. VRCard.FlyFromPile captures its target world point once, and its fly-IN completion
+        // snaps the card to localPosition == home: a seat that chased the palm would make that snap
+        // exactly as large as the hand moved during the flight — a visible pop at the very end. Held
+        // still, the card lands precisely where it was aimed, and the re-home into the fan (below /
+        // the next Relayout) carries whatever the hand did in the meantime, smoothly or invisibly.
+        // Only the FRAME is re-asserted, world-pose-preserving, so a rig re-parent cannot drag it.
+        if (_arriving.Count > 0 && _arrivalSeat != null)
+        {
+            Transform? rig = VRRigDriver.RigRoot;
+            if (rig != null && _arrivalSeat.parent != rig)
+                _arrivalSeat.SetParent(rig, worldPositionStays: true);
+        }
+        if (landedWhileOpen && _root != null)
+            Relayout(instant: false);
     }
 
     // ------------------------------------------------------------------ content --
@@ -460,7 +666,10 @@ internal sealed class CardFan
             for (int i = 0; i < _cards.Count; i++)
             {
                 VRCard c = _cards[i];
-                if (c != null && !c.IsHeld && c.transform.parent != _root)
+                // …EXCEPT a card that is flying INTO the hand right now (defect B): adopting it
+                // under the DISABLED root is precisely what killed the return animation, and
+                // TickArrivals re-homes it here itself the moment it lands.
+                if (c != null && !c.IsHeld && !IsArriving(c) && c.transform.parent != _root)
                     c.SetHome(_root, Vector3.zero, Quaternion.identity, 1f, instant: true);
             }
         }
@@ -769,6 +978,12 @@ internal sealed class CardFan
     /// <summary>Follow the palm (rigidly or eased) and face the head every frame while open.</summary>
     internal void Tick()
     {
+        // Defect B: cards flying INTO the hand are ticked FIRST and unconditionally — the whole
+        // point of the inbound-flight seat is that it works while this fan is closed (and therefore
+        // while everything below this line is skipped). Cheap no-op when nothing is arriving.
+        if (_arriving.Count > 0)
+            TickArrivals();
+
         if (_root == null)
             return;
 
@@ -1723,7 +1938,10 @@ internal sealed class CardFan
         for (int i = 0; i < n; i++)
         {
             VRCard card = _cards[i];
-            if (card == null || card.IsHeld)
+            // IsArriving: a card flying INTO the hand owns its own transform for the flight (the
+            // held-card rule, applied to an animation) — see the inbound-flight-seat region. It
+            // joins the arc on the relayout that follows its landing.
+            if (card == null || card.IsHeld || IsArriving(card))
                 continue;
             if (!card.gameObject.activeSelf)
                 card.gameObject.SetActive(true);
@@ -1986,7 +2204,9 @@ internal sealed class CardFan
             for (int i = 0; i < n; i++)
             {
                 VRCard card = _cards[i];
-                if (card == null || card.IsHeld)
+                // …and an ARRIVING card is not part of the collapse either: closing the fan while a
+                // card is flying home must not yank it under the root that is about to be disabled.
+                if (card == null || card.IsHeld || IsArriving(card))
                     continue;
                 float angle = start + step * i;
                 float rad = angle * Mathf.Deg2Rad;
@@ -2225,7 +2445,9 @@ internal sealed class CardFan
             // A HELD card is not exchanged. The player is holding it; it stays in their hand and is
             // not ours to fly away or hand back (the standing rule at StampMembership: while a card
             // IsHeld this class writes nothing a hold depends on).
-            if (c == null || c.IsHeld || _leaving.Contains(c))
+            // An ARRIVING card is not exchanged either, for the same reason: its inbound flight owns
+            // the transform, and joining the outgoing wave would re-home it mid-air.
+            if (c == null || c.IsHeld || IsArriving(c) || _leaving.Contains(c))
                 continue;
             CaptureLocal(c, out Vector3 p, out Quaternion r, out float s);
             _leaving.Add(c);

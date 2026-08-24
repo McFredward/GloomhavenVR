@@ -64,3 +64,15 @@ r "$TB/PlayTray_9capjqp6.fbx"   "$TB/PlayTray_9capjqp6_albedo.png"  "$OUT/board_
   --normal "$TB/PlayTray_9capjqp6_normal.png"  --res 900 --yaw 35 --pitch 50 --scale 0.78
 r "$TB/PlayTray_16vm268h.fbx"   "$TB/PlayTray_16vm268h_albedo.png"  "$OUT/board_bronze.png" \
   --normal "$TB/PlayTray_16vm268h_normal.png"  --res 900 --yaw 35 --pitch 50 --scale 0.78
+
+# ---- head masks ------------------------------------------------------------------------
+# --unlit: the masks do NOT run BoardLit. They run GloomhavenVR/HeadUnlit, whose whole fragment
+# stage is `albedo * tint`, because the head floats in the light-less VR void and in the mirror and
+# the texture already carries its own baked light. Putting BoardLit's Lambert on a pre-lit texture
+# is double-shading — that is what made the first mask strip dark and muddy.
+# No --cull: the mask materials are _Cull: 0, so they are drawn double-sided on purpose.
+# Mask_0 = Ironwatch, Mask_1 = Runeveil, Mask_2 = Grimhorn (Loc.cs:1018-1020).
+HD="$B/Head"
+r "$HD/Mask_0.fbx" "$HD/Mask_0_albedo.png" "$OUT/mask_0.png" --unlit --res 900
+r "$HD/Mask_1.fbx" "$HD/Mask_1_albedo.png" "$OUT/mask_1.png" --unlit --res 900
+r "$HD/Mask_2.fbx" "$HD/Mask_2_albedo.png" "$OUT/mask_2.png" --unlit --res 900

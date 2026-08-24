@@ -416,7 +416,44 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 248;
+    public const ushort ModBuild = 249;
+    // Build 249: THE FORCED DISCARD, ROUND THREE — A BUTTON THAT EXISTED TWICE, AND AN ANIMATION
+    // THAT ONLY PLAYED WITH THE HAND UP.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install on top of 248.
+    //
+    // 1. THE DOCKED "KARTEN ABWERFEN" BAR WAS A SECOND COPY OF A CONTROL ALREADY IN THE WORLD.
+    //    ApplyPickCancelSuppression took the pick confirm's CANCEL option out of the docked row at
+    //    ModBuild 247 — because grabbing the laid-down card IS that action in VR — and left the
+    //    COMMIT option docking, while CardsDriver.UpdatePickStatus had already put BOTH of that
+    //    popup's options on the board as physical keycaps wearing the popup's own labels. The
+    //    surface now declines to present this prompt AT ALL rather than presenting an emptied row:
+    //    no host, no MR backing plate, no title, no reserved gap, nothing to blank.
+    //
+    //    AND IT DOES NOT HIDE THE COMMIT BUTTON, deliberately — that is the 248 trap seen coming.
+    //    CardsGameApi.ConfirmPickDialog skips an option whose gameObject is inactive (:480), and so
+    //    does PickDialogOptionLabel (:555), so hiding it would have made the board keycap
+    //    UNPRESSABLE and stripped its label in one stroke. Not docking leaves both options ACTIVE,
+    //    which means CancelPickConfirmDialog goes back to the game's own untouched popup.Cancel()
+    //    path — the 248 workaround becomes the fallback it should always have been. The falsifier
+    //    is that the CANCEL line now reads "is ACTIVE" where 248 printed "is INACTIVE".
+    //
+    // 2. THE RETURN FLIGHT NOW RUNS WITH THE FAN CLOSED. CardFan.SetCards parents a returning card
+    //    under the fan's _root, and Close() has that root SetActive(false) — so VRCard.Update never
+    //    ticked and 248 could only refuse the flight ("not live in the hierarchy", four times in
+    //    the user's log). Fixed by MIRRORING THE OUTBOUND FLIGHT'S OWNERSHIP rather than inventing
+    //    a second mechanism: FlyLockedPicksToPile never re-parents either, it flies off the live
+    //    tray recess and only changes owner on landing. The inbound flight now rides an
+    //    always-active mod-owned arrival seat placed at the fan's own palm anchor, and is re-homed
+    //    into the fan when it lands — open or closed. Both mid-flight cases are handled and
+    //    stated: opening the fan lets the card slide into its arc seat on landing, closing it
+    //    parks the card collapsed like every other card of a closed hand.
+    //
+    // COST, STATED: while the pick confirm stands down, peers see NO mirrored decision row for
+    // that prompt. That is the 1:1 rule applied correctly — the owner's board shows keycaps and
+    // their labels already ride the wire as cap-label records — but it does change what a remote
+    // board draws, so it is written here rather than discovered later.
+    //
     // Build 248: THE PLATE GAUNTLET'S SECOND DELIVERY, THE SHADER TERM THAT READS IT, AND THE
     // "CHOOSE ANOTHER CARD" BUTTON THAT WAS A SILENT NO-OP.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
