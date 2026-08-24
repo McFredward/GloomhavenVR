@@ -151,6 +151,21 @@ ffmpeg -ss <start> -to <end> -i <capture>.mp4 -an \
 - Keep each clip **under ~3 MB** and around **10-15 seconds**, one idea per clip, cropped to the
   action. Capture ONE eye — a stereo capture is twice the pixels for no benefit on a flat page.
 
+## `styles.png` — the three strips as ONE image
+
+The README shows a single `styles.png`: three rows (hands, masks, boards) with the family name and
+its three variant names at the left. It is built by `styles_sheet()` from the three
+`styles-*.png` strips, which are still produced and still committed — they are the source of this
+sheet and remain the thing to regenerate when an asset changes.
+
+The reason is the user's standing note on the page: *"Fass dich noch kürzer in der README. Die
+Leute werden es sonst nicht lesen."* Three images plus three caption lines is a lot of page for
+"there are nine of these".
+
+One trap is recorded in the code: `_ink_box` uses a threshold ABOVE the `#1a1613` backdrop. With a
+threshold below it, nothing is ever trimmed, every row keeps the full 1280x704 frame, and the fit
+becomes height-limited so the art shrinks into the middle of its row.
+
 ## The asset strips
 
 `styles-hands.png`, `styles-masks.png`, `styles-boards.png` are rendered from the **shipped bundle

@@ -4,7 +4,7 @@ The logo's history is in logo() below and it is worth reading before touching it
 were spent looking for a file or an encoding fault that was never there.
 """
 import os, subprocess
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 T = os.environ.get('ASSET_RENDER_DIR', 'render/')
 OUT = os.environ.get('README_IMG_DIR', 'docs/img/')
@@ -37,6 +37,55 @@ def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
         canvas.alpha_composite(im, (x, y))
     canvas.convert('RGB').save(OUT + out, optimize=True)
     print('wrote', out, canvas.size)
+
+
+def styles_sheet(rows, out, width=1280, row_h=250):
+    """The three asset strips as ONE image.
+
+    Three separate images plus three caption lines is a lot of page for "there are nine of these",
+    and the user's standing note on the README is that it must stay short enough to be read. Each
+    row is its own strip, trimmed to its ink so the strips' own padding does not stack up, scaled
+    to a common row height, with the family name at the left and the three variant names under it.
+    """
+    lab = _sheet_font(21, bold=True)
+    sub = _sheet_font(16)
+    pad, col = 16, 235            # col = the left label column, so the art fills what is left
+    avail = width - col - pad
+    tiles = []
+    for src, _, _ in rows:
+        im = Image.open(OUT + src).convert('RGB')
+        im = im.crop(_ink_box(im))
+        f = min(avail / im.width, row_h / im.height)   # fit BOTH, or the art leaves a dead margin
+        tiles.append(im.resize((max(1, round(im.width * f)), max(1, round(im.height * f))),
+                               Image.LANCZOS))
+    hs = [t.height for t in tiles]
+    canvas = Image.new('RGB', (width, sum(hs) + pad * (len(rows) + 1)), BACKDROP)
+    d = ImageDraw.Draw(canvas)
+    y = pad
+    for im, (_, name, variants) in zip(tiles, rows):
+        canvas.paste(im, (col + (avail - im.width) // 2, y))
+        cy = y + im.height // 2 - 24
+        d.text((16, cy), name.upper(), font=lab, fill=(238, 230, 216))
+        d.text((16, cy + 27), variants, font=sub, fill=(158, 148, 136))
+        y += im.height + pad
+    canvas.save(OUT + out, quality=92, optimize=True)
+    print('wrote', out, canvas.size)
+
+
+def _ink_box(im, thresh=45):   # > BACKDROP (26,22,19), or nothing is ever trimmed
+    import numpy as np
+    a = np.asarray(im).max(axis=2)
+    ys, xs = np.where(a > thresh)
+    return (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1) if len(xs) else (0, 0, im.width, im.height)
+
+
+def _sheet_font(px, bold=False):
+    names = (('DejaVuSans-Bold.ttf',) if bold else ('DejaVuSans.ttf',))
+    for dd in ('/usr/share/fonts/truetype/dejavu/', '/usr/share/fonts/truetype/liberation/'):
+        for n in names:
+            if os.path.exists(dd + n):
+                return ImageFont.truetype(dd + n, px)
+    return ImageFont.load_default()
 
 
 def logo():
@@ -96,6 +145,9 @@ os.makedirs(OUT, exist_ok=True)
 strip(['hand_glove', 'hand_plate', 'hand_arcane'], 'styles-hands.png')
 strip(['mask_0', 'mask_1', 'mask_2'], 'styles-masks.png')
 strip(['board_oak', 'board_steel', 'board_bronze'], 'styles-boards.png', pad=0.045)
+styles_sheet([('styles-hands.png',  'Hands',  'Leather glove  ·  Plate gauntlet  ·  Arcane glove'),
+              ('styles-masks.png',  'Masks',  'Ironwatch  ·  Runeveil  ·  Grimhorn'),
+              ('styles-boards.png', 'Boards', 'Oak  ·  Steel  ·  Bronze')], 'styles.png')
 logo()
 poster('card-fan.mp4', 'card-fan-poster.jpg', '0:05')
 poster('figure-grab.mp4', 'figure-grab-poster.jpg', '0:06')
