@@ -136,19 +136,27 @@ internal static partial class ModalFallback
     ///
     /// <para>WHY 1.40 AND NOT 1.30 OR 1.65 — IT IS THE SMALLEST STEP THAT MAKES HIS OWN IDEAL
     /// LAYOUT REACHABLE. <c>.planning/debug/ideale_position.jpg</c> is a photograph of the map room
-    /// with the character screen and the world-quest list hand-placed either side of the map, and
-    /// ArcSeats.cs's new map channel reproduces it by seating windows clear of the parchment's own
-    /// angular width (±21° from where he stands). For a window to sit BESIDE a ±21° map and still
-    /// keep its outer edge inside the measured ±40° binocular overlap, its own drawn width must fit
-    /// in what is left: 21° + 2 × half-width ≤ 40°, i.e. half-width ≤ 9.5°. The two windows in that
-    /// photograph measure 0.315 m and 0.388 m across (hardware log: a 328 px column and a 390 px
-    /// window, at their logged claim distances), so the binding one needs 0.85 × D ≥ 0.194 /
-    /// tan 9.5° = 1.16 m ⇒ D ≥ 1.37 m. At the old 1.20 m the quest list's outer edge lands at
-    /// 41°, OUTSIDE the field of view, the channel search finds no free interval and the packer
-    /// falls back to seating it over the map — i.e. HIS FIRST ASK IS NOT EXPRESSIBLE AT THE OLD
-    /// READING DISTANCE. 1.40 m clears the requirement by 0.03 m and is the smallest round step
-    /// that does. 1.65 m (what the log's own THE TRADE line computed for one collision) buys more
-    /// room but costs 27 % of apparent size, which is not "nicht viel"; 1.30 m does not reach.</para>
+    /// with the character screen and the world-quest list hand-placed at the two far corners of the
+    /// map table. For a window to sit at a corner and still keep its outer edge inside the measured
+    /// ±40° binocular overlap, its own drawn width must fit in what is left beside that corner's
+    /// angle. The two windows in that photograph measure 0.315 m and 0.388 m across (hardware log: a
+    /// 328 px column and a 390 px window, at their logged claim distances), and the binding one
+    /// needs 0.85 × D ≥ 0.194 / tan 9.5° = 1.16 m ⇒ D ≥ 1.37 m. At the old 1.20 m the quest
+    /// list's outer edge lands at 41°, OUTSIDE the field of view, the search finds no free interval
+    /// and the packer falls back to seating it over the map — i.e. HIS FIRST ASK IS NOT EXPRESSIBLE
+    /// AT THE OLD READING DISTANCE. 1.40 m clears the requirement by 0.03 m and is the smallest
+    /// round step that does. 1.65 m (what the log's own THE TRADE line computed for one collision)
+    /// buys more room but costs 27 % of apparent size, which is not "nicht viel"; 1.30 m does not
+    /// reach.</para>
+    ///
+    /// <para>THE ±21° "MAP CHANNEL" ARITHMETIC THAT USED TO STAND IN THIS PARAGRAPH IS GONE, AND
+    /// DELIBERATELY. It read the same photograph as "the windows clear the parchment's own angular
+    /// silhouette", and the user corrected that reading on 2026-08-24: "Du hast meinen Idealzustand
+    /// falsch interpretiert … auf der linken Ecke des Tisches … auf der oberen rechten Ecke des
+    /// Tisches". The layout is anchored to the TABLE'S CORNERS, not to an angle — see
+    /// <c>ArcSeats.TryTableFarCornersDeg</c>. The DISTANCE conclusion above survives the correction
+    /// unchanged, because it only ever depended on how much arc a window has to fit beside something
+    /// else, and a corner is at least as demanding as a channel edge.</para>
     ///
     /// <para>WHAT IT COSTS, IN THE ARITHMETIC THE ARC LINES ALREADY PRINT. Apparent size scales as
     /// 1/distance, so 1.20 → 1.40 is 1 − 1.20/1.40 = 14 % less apparent size (linear; ~26 % less
@@ -168,6 +176,59 @@ internal static partial class ModalFallback
     /// not own, and correcting it silently would change every scenario placement as well.</para>
     /// </summary>
     private const float WindowDistanceMeters = 1.40f;
+
+    /// <summary>
+    /// ONE RUNG OF THE OUTWARD LADDER, real metres — how much FURTHER from the head a map-room
+    /// window is stood per step when going further is what stops it colliding.
+    ///
+    /// <para>HIS SUGGESTION, VERBATIM (2026-08-24): "Wenn du manche Fenster etwas (ein klein
+    /// bisschen) weiter weg spawnst ist der Halbkreis zu spawnen auch größer." It is arithmetically
+    /// right: angular width is 2·atan(halfWidth / distance), so distance is the one free dimension
+    /// that BUYS arc. The pre-existing ladder ran the other way — <c>OverlapDepthStepMeters</c>
+    /// pulls a colliding window NEARER so it draws in front — and nearer is angularly WIDER, which
+    /// is why the ModBuild 242 log line for his collision photograph reads "Being nearer made it 49°
+    /// wide, so its seat was pulled back to 16°".</para>
+    ///
+    /// <para>WHY THE SAME 0.04 m AS THE INWARD STEP. So the two ladders are read against each other
+    /// on the same scale and neither can quietly out-travel the other, and because 0.04 m at the map
+    /// room's ~198 units per metre is ~8 world units — orders of magnitude above the eye-distance
+    /// measurement <c>CanvasConversion.8.Order</c> sorts panels by. It is NOT shared with that
+    /// constant: that one lives in a file this lane does not own and answers a different question
+    /// (break a draw-order tie), and unifying them would couple two rules that need to move apart.</para>
+    /// </summary>
+    private const float ArcOutwardStepMeters = 0.04f;
+
+    /// <summary>
+    /// CEILING ON THE OUTWARD LADDER, real metres past <see cref="WindowDistanceMeters"/>. 0.32 m
+    /// takes a window to at most 1.72 m, i.e. at most 19 % smaller on screen than the reading
+    /// distance the user himself set in ModBuild 241 ("gerne ein bisschen (nicht viel) weiter weg").
+    ///
+    /// <para>IT IS A BOUND IN METRES AND NOT A STEP COUNT so the worst case is a number he can judge
+    /// rather than a product of two constants. Eight rungs fit inside it; the placement line prints
+    /// how many were spent and what percentage of apparent size that cost, beside the collision it
+    /// bought off — so a round where the trade was wrong is visible instead of inferred.</para>
+    ///
+    /// <para>AND IT IS SPENT ONLY AGAINST A COLLISION. A window that has a free seat at the nominal
+    /// distance never moves; nothing here makes the room generally further away.</para>
+    /// </summary>
+    private const float MaxArcOutwardMeters = 0.32f;
+
+    /// <summary>
+    /// HOW FAR THE OUTWARD SWEEP KEEPS LOOKING AFTER IT HAS STOPPED BEING ALLOWED TO MOVE ANYTHING,
+    /// real metres past <see cref="WindowDistanceMeters"/> — a REPORTING bound and nothing else.
+    ///
+    /// <para>WHY IT EXISTS. "It did not fit" is a dead end; "it would have fitted at 2.48 m, which
+    /// is 44 % smaller" is a decision he can make. The sweep therefore continues past
+    /// <see cref="MaxArcOutwardMeters"/> purely to find and PRINT that number, and returns false the
+    /// moment it finds it. The window is never placed there.</para>
+    ///
+    /// <para>THE NUMBER THIS WAS SIZED AGAINST. Simulated on the exact geometry of
+    /// <c>.planning/debug/fenster_kolissionen.jpg</c> — a 46° encounter window against a ±13° quest
+    /// popup sitting at −2° off the gaze — the first clean seat is at 2.48 m. 1.60 m of ceiling
+    /// covers that and every less extreme case, and the sweep is 40 iterations of pure arithmetic on
+    /// an event-gated path.</para>
+    /// </summary>
+    private const float OutwardReportCeilingMeters = 1.60f;
 
     /// <summary>
     /// Closer float distance for the LEVEL-MESSAGE family (tutorial boxes / help-text action

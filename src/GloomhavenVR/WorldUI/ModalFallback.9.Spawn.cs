@@ -1197,6 +1197,29 @@ internal static partial class ModalFallback
                                   + "again while it floats: opening or closing any other window "
                                   + "moves nothing (user ruling), and only the player's own grab "
                                   + "can move it.");
+            // BOOKED DISTANCE vs DELIVERED DISTANCE, RECONCILED — and the registry corrected to the
+            // one that is true. This is the only point in the whole path where both numbers exist:
+            // TryClaimArcSeat computed every angle at WindowDistanceMeters × scale, and every clamp
+            // above has now had its say, including two that move the window ALONG the gaze (the
+            // steep-gaze pull ×0.85 and the board-top floor's raise, which lengthens or shortens the
+            // hypotenuse). Nothing is moved here; only the booking a LATER window reads is fixed,
+            // and the line prints the live overlap census so "no overlap" is a measurement.
+            //
+            // WHAT THE 2026-08-24 LOGS SAY ABOUT THIS, because the premise it was written against
+            // turned out to be false and a corrected premise is worth recording. The carried-forward
+            // note in Net/NetProtocol.cs says the steep-gaze pull "fires on EVERY map-room window";
+            // it does not. In the second 2026-08-24 hardware log ALL 22 pitch-clamped placements are
+            // 'UI Quest Preview Popup', the map room's HOVER CARD, which TryClaimArcSeat refuses a
+            // seat to outright (IsHoverCardPanel) — so not one arc-claiming window is pitch-clamped
+            // in that session, and every one of them is delivered within 2.6 % of what it booked.
+            // The "90° of window into 80° of field" line that session prints was computed on two
+            // windows whose clamp lines both read "unchanged … NOT raised": the oversubscription is
+            // real at face value and is NOT inflated by this coupling. The line below exists so that
+            // conclusion can be checked per placement instead of reconstructed from a 12 MB log.
+            string deliveredNote = ArcSeatDeliveredNote(arcSlot, headPos, pos, scale,
+                distanceMeters);
+            if (deliveredNote.Length > 0)
+                VRLog.Info("WorldUI", deliveredNote);
             // THE FALSIFIER, on the same event and never per frame: one live measurement of every
             // standing window's real angular interval. See LogArcOverlapAudit — a burst prints one
             // of these per window and the LAST one is the settled state of the room.

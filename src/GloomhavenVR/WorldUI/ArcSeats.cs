@@ -102,45 +102,47 @@ namespace GloomhavenVR.WorldUI;
 /// half-circle logic. It is, with ONE new term, and the term is named honestly here rather than
 /// special-cased: <see cref="TryMapChannelDeg"/>, the MAP CHANNEL.</para>
 ///
-/// <para>WHAT THE PHOTOGRAPH ACTUALLY CONSTRAINS, MEASURED OFF IT RATHER THAN INFERRED.
-/// <c>.planning/debug/ideale_position.jpg</c> is the map room with two windows hand-placed either
-/// side of the table. Its horizontal scale is not guessed: the same two windows appear in the
-/// 2026-08-24 hardware log's ARC AUDIT at world yaw 67° and 119°, i.e. 52° apart, and they are
-/// 942 screen px apart in the photograph ⇒ 0.0552°/px ⇒ 110° across the frame, which is the
-/// headset FOV <c>PanelSamplingProbe</c> independently quotes. On that scale:</para>
-/// <list type="bullet">
-/// <item>THE TWO WINDOWS SIT AT ±26° and their common bisector falls on screen x 908 while the
-/// parchment's own centre falls on 905 — 0.2° apart. HE CENTRED THE PAIR ON THE MAP; the arc
-/// centre and the arc span are both exactly what this file already uses.</item>
-/// <item>THEIR INNER EDGES ARE AT ±21.4°, and the parchment's near edge subtends ±21.3° from where
-/// he is standing. That is the whole rule: the windows clear the MAP'S OWN SILHOUETTE, to within
-/// a tenth of a degree, and nothing else in the photograph is that tight a coincidence.</item>
-/// <item>THEY ARE FURTHER AWAY THAN THEY SPAWN — 10.0° and 8.7° wide against 0.388 m and 0.315 m
-/// of real window ⇒ ~2.2 m, against the 1.20 m the packer then used. And they read LOWER, which is
-/// the SAME fact: the spawn pose is <c>headPos + fwd × distance</c>, so with the gaze 16-21° below
-/// eye level (18 MODAL SPAWN CLAMP lines in that log) a longer distance IS a lower window. The
-/// photograph cannot separate "lower" from "further" without the camera pitch, and this build
-/// therefore changes ONE of them (see <c>WindowDistanceMeters</c>, 1.20 → 1.40 m) and not both.</item>
-/// </list>
+/// <para>ModBuild 243 — THAT READING OF THE PHOTOGRAPH WAS WRONG AND THE USER SAID SO. Verbatim
+/// (2026-08-24): "Du hast meinen Idealzustand falsch interpretiert. Schau nochmal auf das Bild. Mir
+/// ging es darum, dass ein Fenster (die Character-UI) auf der linken Ecke des Tisches und das andere
+/// Fenster (die Weltquests) auf der oberen rechten Ecke des Tisches spawnen. Aktuell spawnen sie
+/// zusammen ineinander." The layout is anchored to the MAP TABLE'S TWO FAR CORNERS, not to an angle
+/// off his gaze. <see cref="TryTableFarCornersDeg"/> carries the re-measurement of the same
+/// photograph, the pixel evidence that separates the two readings, and the reason 241's ±26° looked
+/// right anyway (he was standing square to the table, where the corner separation and that angle are
+/// the same number). NOBODY MAY RESTORE THE 241 READING FROM THE CHANNEL CODE BELOW.</para>
 ///
-/// <para>THE MAP CHANNEL, AND WHY IT IS A NEW TERM RATHER THAN AN EXISTING DIAL. It was worth
-/// looking: a different arc CENTRE is wrong (the photograph is symmetric about the gaze), a
-/// different arc SPAN is wrong (±26° is well inside the measured ±40°), a fixed "first two seats at
-/// ±N" is a rule this packer does not have and could not degrade from, and the height reference is
-/// not what the photograph is about. The choice rule is the thing that cannot express it: "the free
-/// interval NEAREST THE GAZE wins" is CENTRE-SEEKING and his layout is CENTRE-AVOIDING, and no
-/// setting of any existing constant turns one into the other. So one term is added: the parchment's
-/// own angular interval, measured per placement off <c>MapRoomDriver.ParchmentRenderer.bounds</c>
-/// and the live head, is treated as occupied. It is MEASURED, NOT PICKED — walk closer to the table
-/// and the map subtends more and the windows move further out, which is the same sentence as "do
-/// not cover the map" and needs no second constant.</para>
+/// <para>WHAT SURVIVES 241 UNCHANGED. The reading distance (1.20 → 1.40 m) stands: it was justified
+/// by how much arc a window needs beside SOMETHING ELSE, and a corner is at least as demanding as a
+/// channel edge. The MAP CHANNEL itself also stays — demoted, not deleted. It is the parchment's own
+/// angular interval, measured per placement off <c>MapRoomDriver.ParchmentRenderer.bounds</c> and
+/// the live head, and it is now the SECOND demand: tried only when neither table corner is free and
+/// inside the field of view, and reported rather than enforced whenever a corner answered.</para>
 ///
-/// <para>AND IT IS A DEMAND, NOT A RESERVATION — the degradation rule. The channel is honoured only
-/// when a seat exists that satisfies it AND every standing seat AND the field-of-view bound. When
-/// no such seat exists — three, four, six windows open, or one window wider than the room left
-/// beside the map — the search falls through to EXACTLY the code that ran before this build, ties
-/// and all, and the placement line says which of the two answered. A busy room therefore behaves
-/// as it always did, and the map is kept clear only while keeping it clear is free.</para>
+/// <para>WHY THE CHANNEL WAS KEPT AS A FALLBACK AND NOT DELETED — the alternative, considered and
+/// rejected. Deleting it would drop straight to the pre-241 "free interval nearest the gaze", which
+/// is CENTRE-SEEKING, i.e. it would seat a third window over the map. His 241 report ("bei der Map
+/// gerne noch mehr das es so zu beginn spawned wie ideale_position.jpg zeigt") and his 243
+/// correction agree on that much: nothing covers the map in that picture. So the channel keeps a
+/// job — "when you cannot have a corner, at least stay off the parchment" — and loses its claim to
+/// be what the photograph showed. Note that from where he actually stood in the second 2026-08-24
+/// log the channel measures 102°, wider than the whole 80° binocular overlap, so it is already
+/// inert there and its own line says it was given up.</para>
+///
+/// <para>AND BOTH ARE DEMANDS, NOT RESERVATIONS — the degradation rule, unchanged. A corner is
+/// honoured only when a seat on it clears every standing seat AND the field-of-view bound; the
+/// channel likewise. When neither can be met the search falls through to EXACTLY the code that ran
+/// before ModBuild 241, ties and all, and the placement line says which of the three answered.</para>
+///
+/// <para>ModBuild 243 — AND THE DEPTH LADDER LEARNED TO GO OUTWARD, which is his own suggestion for
+/// the collision report: "Wenn du manche Fenster etwas (ein klein bisschen) weiter weg spawnst ist
+/// der Halbkreis zu spawnen auch größer." The shipped ladder only ever pulled a colliding window
+/// NEARER, which makes it angularly WIDER — the 242 log line for his collision photograph says so
+/// itself ("Being nearer made it 49° wide, so its seat was pulled back to 16°"). Since this build,
+/// when no free interval exists the window is first walked OUT in
+/// <see cref="ArcOutwardStepMeters"/> rungs (bounded by <see cref="MaxArcOutwardMeters"/>), and the
+/// first distance at which a seat is clean in ANGLE and in FOOTPRINT wins. Only when that fails does
+/// the old nearer-step behaviour run. See <see cref="TryArcSeatFurtherOut"/>.</para>
 ///
 /// <para>WHAT IS DELIBERATELY UNCHANGED. Height and every spawn clamp (board-top floor, eye cap,
 /// pitch flatten) — a seat is a YAW and a DEPTH and nothing else. Facing is still yaw-only and
@@ -682,11 +684,221 @@ internal static partial class ModalFallback
     /// <paramref name="offsetDeg"/> off the gaze lies WHOLLY outside the map channel — i.e. beside
     /// the map rather than over any part of it. No neighbour gap is added, deliberately:
     /// <see cref="NeighbourGapDegrees"/> exists so two WINDOWS do not read as one wide window with
-    /// a seam, and a window whose edge touches the map's silhouette does not read as the map. The
-    /// photograph says the same thing — his inner edges measure ±21.4° against a ±21.3° map.</summary>
+    /// a seam, and a window whose edge touches the map's silhouette does not read as the map.
+    /// (ModBuild 241 justified this clause with "his inner edges measure ±21.4° against a ±21.3°
+    /// map". THAT READING OF THE PHOTOGRAPH WAS CORRECTED BY THE USER — see
+    /// <see cref="TryTableFarCornersDeg"/>. The clause survives on its own merit as the rule for a
+    /// window that is NOT on a corner; nothing may re-derive the corner rule from it.)</summary>
     private static bool ArcSeatClearsMapChannel(float offsetDeg, float halfAngle, float loDeg,
         float hiDeg) =>
         offsetDeg + halfAngle <= loDeg + 1e-3f || offsetDeg - halfAngle >= hiDeg - 1e-3f;
+
+    /// <summary>
+    /// THE TABLE SLAB'S HALF-WIDTH AS A MULTIPLE OF THE PARCHMENT'S, world X axis. It is a RATIO of
+    /// two surveyed real-metre lengths and is therefore applied to a live world-unit bounds without
+    /// converting anything: 1.55 m of table over 0.96 m of map. Deliberately NOT a "…Meters"
+    /// constant multiplied by a scale — this repo has shipped a bound named that way compared
+    /// against a world-unit product — and the table is co-centred with the map on both horizontal
+    /// axes (survey line in <c>MapRoom/MapTableLegs.cs</c>: <c>'GH_Map_TableTop_Lg' L0 size
+    /// (306.88, 29.29, 454.81) = 1.55 x 0.15 x 2.30 m, centre offset (0.00, -0.08, 0.00) m from the
+    /// map's centre/top</c>), so a ratio about that shared centre IS the whole transform.
+    /// </summary>
+    private const float TableToMapWidthRatio = 1.55f / 0.96f;
+
+    /// <summary>The same ratio on the world Z axis — 2.30 m of table over 1.20 m of map. It is NOT
+    /// the same number as <see cref="TableToMapWidthRatio"/> and the two must never be "unified":
+    /// the slab is far deeper than it is wide, which is exactly why the two corners the player sees
+    /// across the map are its FAR ones and why the near ones are beside him.</summary>
+    private const float TableToMapDepthRatio = 2.30f / 1.20f;
+
+    /// <summary>The surveyed map's own aspect, world x / world z = 0.96 / 1.20. Measured live and
+    /// compared, so a room whose parchment is not the one that was surveyed answers "no corners"
+    /// instead of inventing a table around it.</summary>
+    private const float MapAspectXOverZ = 0.96f / 1.20f;
+
+    /// <summary>How far the live parchment aspect may differ from <see cref="MapAspectXOverZ"/>
+    /// before the corner rule stands down. 0.08 is 10 % of the aspect — well past renderer-bounds
+    /// padding and well short of a different asset.</summary>
+    private const float MapAspectTolerance = 0.08f;
+
+    /// <summary>Two "corners" nearer than this to each other in angle are one corner seen twice (the
+    /// player is far away, or square on to a single corner), and seating two windows on them would
+    /// stack them — which is the fault being fixed. The corner rule then stands down.</summary>
+    private const float MinCornerSeparationDeg = 8f;
+
+    /// <summary>
+    /// THE TABLE'S TWO FAR CORNERS, as angles off <paramref name="gazeYawDeg"/> — the ANCHORS his
+    /// ideal photograph is actually built on.
+    ///
+    /// <para>HIS CORRECTION, VERBATIM (2026-08-24): "Du hast meinen Idealzustand falsch
+    /// interpretiert. Schau nochmal auf das Bild. Mir ging es darum, dass ein Fenster (die
+    /// Character-UI) auf der linken Ecke des Tisches und das andere Fenster (die Weltquests) auf der
+    /// oberen rechten Ecke des Tisches spawnen. Aktuell spawnen sie zusammen ineinander."</para>
+    ///
+    /// <para>ModBuild 241 READ THAT PHOTOGRAPH AS AN ANGLE AND THE USER HAS SAID IT IS WRONG. Its
+    /// reading — recorded in the class header above and corrected there — was "the two windows sit
+    /// at ±26° and their inner edges clear the parchment's own ±21° silhouette", i.e. a MAP CHANNEL
+    /// measured off the head. Re-measured on the photograph itself at full resolution (3840x2160),
+    /// the pixels say something else and say it tightly:</para>
+    /// <list type="bullet">
+    /// <item>The table's far-LEFT corner is at x 832 px and the LEFT window's grab bar — the bar IS
+    /// the window's bottom edge — is centred on x 826 px. SIX PIXELS out of the 1835 px the table's
+    /// far edge spans, i.e. 0.3 %.</item>
+    /// <item>The table's far-RIGHT corner is at x 2667 px and the RIGHT window's bar is centred on
+    /// x 2611 px — 56 px, 3 %.</item>
+    /// <item>ModBuild 241's rule predicts something else and the difference is measurable: an INNER
+    /// EDGE on the map silhouette puts each window's CENTRE a half-width further out, and the left
+    /// window measures 298 px across, so 241 predicts its centre at x 683 px against the 826 px that
+    /// is there. The photograph separates the two readings by 143 px and picks the corner.</item>
+    /// <item>Both bars are horizontal in world (their image slopes converge on one vanishing point)
+    /// and sit at a COMMON height, ~130 px above the table plane — 7 % of the far edge's own span. A
+    /// seat is a yaw and a depth, so this file does not set height; the number is recorded because
+    /// it is the one thing the photograph fixes that nothing here reads, and because the shipped
+    /// board-top clearance (0.30 m) is about 2.5x it. Changing that constant would move every
+    /// SCENARIO window too and is not taken on one photograph.</item>
+    /// <item>WHAT THE PHOTOGRAPH DOES NOT CONSTRAIN: depth. 241 derived "~2.2 m" from an assumed
+    /// 110° frame FOV; solving the frame scale from the two objects whose real sizes are known (the
+    /// 1.55 m table edge and the 0.96 m map edge, 0.55 m apart in depth) is ill-conditioned to the
+    /// point of uselessness — a 1 % pixel error moves the answer by tens of metres. No distance is
+    /// claimed from this image, and none is taken from it.</item>
+    /// </list>
+    ///
+    /// <para>WHY 241's ±26° "AGREED" WITH THE PHOTOGRAPH ANYWAY, WHICH IS THE TRAP. The two bar
+    /// centres are 1785 px apart and the two table corners are 1835 px apart — the SAME separation.
+    /// He was standing square to the table, so the corner separation and the angle 241 fitted are
+    /// the same number from that one spot. They are the same number nowhere else, and that is the
+    /// whole practical difference: an angular rule keeps the windows in front of his gaze wherever
+    /// he stands; a corner rule attaches them to a place in the room. He asked for the second.</para>
+    ///
+    /// <para>SO THEY STAY ON THEIR CORNERS IF HE WALKS ROUND THE TABLE, AND THAT IS DELIBERATE. A
+    /// seat is computed ONCE, at spawn, and a spawn is not a re-orientation: nothing here follows
+    /// the head, and the standing ruling ("ohne explizite Bewegung vom User, sollen sie ihre
+    /// Position nicht verändern") forbids moving a window because the player moved. A corner-seated
+    /// window can therefore end up behind him — exactly as every window in this room already can
+    /// once he turns, which the arc audit already reports as the player's own doing rather than a
+    /// placement fault. What the corner rule may NOT do is put a window out of view AT SPAWN, and it
+    /// cannot: the corner is a CANDIDATE inside the same ±<see cref="ArcPlacementHalfDeg"/> bound
+    /// applied to the window's EDGES that every other candidate lives in, and a corner that fails
+    /// that bound is simply not offered.</para>
+    ///
+    /// <para>WHY THE FAR CORNERS AND NOT THE NEAR ONES. "Obere rechte Ecke" is the far right, and
+    /// the near corners are beside the player: with the slab 2.30 m deep and the player at the near
+    /// short end (<c>MapRoomSeat.EdgeStandoffMeters</c> 0.45 m) the near corners subtend ±60° from
+    /// him and would fail the field-of-view bound anyway. The two FURTHEST corners are picked by
+    /// measurement rather than by an assumed side, so a player standing at the long edge gets the
+    /// two corners that are far from HIM.</para>
+    ///
+    /// <para>IT IS MEASURED FROM THE ROOM'S OWN AUTHORITY AND COSTS NO SWEEP. The table slab belongs
+    /// to the game and <c>MapTableLegs.TryFindTable</c> finds it with a
+    /// <c>FindObjectsOfType&lt;MeshRenderer&gt;()</c>, which is exactly the call this repo has
+    /// removed three times on a perf round. It is not needed: the slab is co-centred with the
+    /// parchment and is a fixed multiple of it on each axis, so the corners come off
+    /// <c>MapRoomDriver.ParchmentRenderer.bounds</c> — the same bounds the map channel, the seat
+    /// solve and the multiplayer shared frame all already use, and therefore the same number on
+    /// every client with no wire field of its own. Only the head's HORIZONTAL position is read,
+    /// which is the part <c>HeadEyeHeight</c>'s spawn-time correction never touches.</para>
+    /// </summary>
+    /// <param name="leftDeg">The left far corner, degrees off the gaze (+ = right).</param>
+    /// <param name="rightDeg">The right far corner, degrees off the gaze.</param>
+    /// <param name="note">Human-readable derivation for the placement line.</param>
+    private static bool TryTableFarCornersDeg(float gazeYawDeg, out float leftDeg, out float rightDeg,
+        out string note)
+    {
+        leftDeg = 0f;
+        rightDeg = 0f;
+        note = "NO TABLE CORNERS this placement — the parchment could not be measured (the room is "
+               + "standing down or the head camera is not up yet), so this window was seated by the "
+               + "angular search and NOT on one of his corners";
+        MeshRenderer? parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (parchment == null || head == null)
+            return false;
+        Bounds b = parchment.bounds;
+        if (b.size.x <= 1e-3f || b.size.z <= 1e-3f)
+            return false;
+
+        // THE FALSIFIER FOR THE SURVEY ITSELF. The ratios below describe ONE slab around ONE map; if
+        // the parchment standing in the room is not the shape that was surveyed, the table they
+        // would build around it is a fiction, and the rule stands down rather than guessing.
+        float aspect = b.size.x / b.size.z;
+        if (Mathf.Abs(aspect - MapAspectXOverZ) > MapAspectTolerance)
+        {
+            note = $"NO TABLE CORNERS this placement — the live parchment measures {b.size.x:F1} x "
+                   + $"{b.size.z:F1} world units, aspect {aspect:F2}, and the surveyed map is "
+                   + $"{MapAspectXOverZ:F2}. The slab ratios ({TableToMapWidthRatio:F2}x wide, "
+                   + $"{TableToMapDepthRatio:F2}x deep) describe a table around THAT map, so a table "
+                   + "built around this one would be invented. The angular search seats this window "
+                   + "instead";
+            return false;
+        }
+
+        float halfX = b.size.x * 0.5f * TableToMapWidthRatio;
+        float halfZ = b.size.z * 0.5f * TableToMapDepthRatio;
+        Vector3 headPos = head.transform.position;
+
+        // The two FURTHEST corners, found by measurement. Corners more than 90° off the gaze are
+        // beside or behind the player and are not offered at all — the same bound TryMapChannelDeg
+        // uses, for the same reason.
+        float d1 = -1f, y1 = 0f;
+        float d2 = -1f, y2 = 0f;
+        for (int i = 0; i < 4; i++)
+        {
+            float cx = b.center.x + ((i & 1) == 0 ? -halfX : halfX);
+            float cz = b.center.z + ((i & 2) == 0 ? -halfZ : halfZ);
+            Vector3 flat = new Vector3(cx - headPos.x, 0f, cz - headPos.z);
+            float d = flat.magnitude;
+            if (d < 1e-3f)
+                continue; // standing exactly on a corner: no honest angle to take
+            float off = Mathf.DeltaAngle(gazeYawDeg, WorldYawDeg(flat));
+            if (Mathf.Abs(off) > 90f)
+                continue;
+            if (d > d1)
+            {
+                d2 = d1;
+                y2 = y1;
+                d1 = d;
+                y1 = off;
+            }
+            else if (d > d2)
+            {
+                d2 = d;
+                y2 = off;
+            }
+        }
+        if (d2 <= 0f)
+            return false; // fewer than two corners are in front of him
+
+        if (y1 <= y2)
+        {
+            leftDeg = y1;
+            rightDeg = y2;
+        }
+        else
+        {
+            leftDeg = y2;
+            rightDeg = y1;
+        }
+        if (rightDeg - leftDeg < MinCornerSeparationDeg)
+        {
+            note = $"NO TABLE CORNERS this placement — the two far corners measure {leftDeg:F0}° and "
+                   + $"{rightDeg:F0}° off the gaze, only {rightDeg - leftDeg:F0}° apart (floor "
+                   + $"{MinCornerSeparationDeg:F0}°). From where he is standing they are one corner "
+                   + "seen twice, and seating two windows on them would stack them — which is the "
+                   + "fault being fixed. The angular search seats this window instead";
+            return false;
+        }
+
+        note = $"HIS TWO TABLE CORNERS ARE AT {leftDeg:F0}° (left) AND {rightDeg:F0}° (right) off "
+               + $"this spawn's gaze, {rightDeg - leftDeg:F0}° apart — the far corners of the "
+               + $"{b.size.x * TableToMapWidthRatio:F0} x {b.size.z * TableToMapDepthRatio:F0} "
+               + "world-unit slab the parchment lies on, projected from the live head. THIS REPLACES "
+               + "ModBuild 241's map-channel reading of the same photograph, which the user rejected "
+               + "in as many words ('Du hast meinen Idealzustand falsch interpretiert … auf der "
+               + "linken Ecke des Tisches … auf der oberen rechten Ecke des Tisches'). A corner is a "
+               + "PLACE IN THE ROOM, not an angle off his gaze: walk round the table and it stays "
+               + "where the table is";
+        return true;
+    }
 
     /// <summary>
     /// THE FREE-INTERVAL SEARCH, shared by the spawn claim and the pre-reveal re-seat so the two
@@ -714,14 +926,37 @@ internal static partial class ModalFallback
     /// that is the honest limit of what a side preference can promise. Pass 1's RIGHT-first tie,
     /// the side every build since 183 has filled first, is untouched.</para>
     /// </summary>
-    /// <param name="clearsChannel">True when the returned seat is one that keeps the map clear
-    /// (pass 0); false when the channel had to be given up (pass 1).</param>
+    /// <param name="source">Which rule answered — see <see cref="ArcSeatSource"/>.</param>
     private static bool ArcSeatFreeInterval(float gazeYawDeg, float centreLimit, float halfAngle,
+        bool haveCorners, float cornerLeftDeg, float cornerRightDeg,
         bool haveChannel, float channelLo, float channelHi,
-        out float best, out bool clearsChannel)
+        out float best, out ArcSeatSource source)
     {
         best = 0f;
-        clearsChannel = false;
+        source = ArcSeatSource.None;
+
+        // ---- PASS −1: HIS TWO TABLE CORNERS, AND THEY ARE TRIED BEFORE ANYTHING ELSE.
+        //      The window's DRAWN CENTRE goes ON the corner — not its inner edge beside the map,
+        //      which is the ModBuild 241 reading the user corrected (see TryTableFarCornersDeg).
+        //      LEFT IS TRIED FIRST, so the first window to claim takes the left corner and the
+        //      second takes the right, which reproduces 'ideale_position.jpg' when the character
+        //      screen claims first. This file holds no per-window knowledge and is not about to
+        //      start, so a burst that opens in a different order swaps the two sides — the same
+        //      honest limit the ModBuild 241 tie rule already carried.
+        if (haveCorners)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                float a = k == 0 ? cornerLeftDeg : cornerRightDeg;
+                if (Mathf.Abs(a) > centreLimit + 1e-3f)
+                    continue; // this corner would push an EDGE out of the field of view
+                if (!ArcSeatIsFree(gazeYawDeg + a, halfAngle))
+                    continue; // the other window is already on it
+                best = a;
+                source = ArcSeatSource.TableCorner;
+                return true;
+            }
+        }
 
         int n = 0;
         _arcCandidates[n++] = 0f;
@@ -765,7 +1000,142 @@ internal static partial class ModalFallback
             if (!have)
                 continue;
             best = pick;
-            clearsChannel = pass == 0;
+            source = pass == 0 ? ArcSeatSource.BesideTheMap : ArcSeatSource.NearestFreeInterval;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Which rule produced a seat. Printed on the placement line, and the reason the
+    /// map-channel re-clear (<see cref="ArcSeatReClearChannel"/>) is applied to a
+    /// <see cref="BesideTheMap"/> seat and NEVER to a <see cref="TableCorner"/> one: a corner is a
+    /// point, so a width change must not slide the window off it.</summary>
+    private enum ArcSeatSource
+    {
+        /// <summary>No free seat anywhere inside the field of view.</summary>
+        None,
+
+        /// <summary>Seated on one of the map table's two far corners — his ideal photograph.</summary>
+        TableCorner,
+
+        /// <summary>Seated beside the parchment's own silhouette (the ModBuild 241 map channel).</summary>
+        BesideTheMap,
+
+        /// <summary>The free interval nearest the gaze, the search every build since 183 has run.</summary>
+        NearestFreeInterval,
+    }
+
+    /// <summary>
+    /// TRUE WHEN THIS WINDOW'S WHOLE FOOTPRINT (drawn ∪ frame = the hit rect) CLEARS EVERY STANDING
+    /// FOOTPRINT. Stricter than <see cref="ArcSeatIsFree"/>, which tests only the DRAWN intervals.
+    ///
+    /// <para>IT EXISTS FOR THE OUTWARD LADDER AND FOR NOTHING ELSE. Going further away is only worth
+    /// taking when it produces a genuinely clean seat: a window that is further and still overlaps a
+    /// neighbour's transparent frame is BEHIND the thing that will catch the laser, which is the
+    /// wrong side of the ladder and strictly worse than today's "step in front". So the outward
+    /// search demands this, and when it cannot be met the placement falls through to the existing
+    /// nearer-step behaviour unchanged.</para>
+    /// </summary>
+    private static bool ArcSeatFootprintIsFree(float hostWorldYaw, float frameHalfDeg,
+        float drawnOffsetDeg, float drawnHalfDeg, int skipSlot)
+    {
+        ArcSeatFootprint(hostWorldYaw, frameHalfDeg, drawnOffsetDeg, drawnHalfDeg,
+            out float footYaw, out float footHalf);
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null || i == skipSlot)
+                continue;
+            ArcSeatFootprint(i, out float otherYaw, out float otherHalf);
+            if (otherHalf + footHalf - Mathf.Abs(Mathf.DeltaAngle(footYaw, otherYaw))
+                > ArcAuditOverlapToleranceDeg)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// THE OUTWARD LADDER — buy arc by standing the window FURTHER AWAY instead of letting it
+    /// collide. His own suggestion, verbatim (2026-08-24): "Wenn du manche Fenster etwas (ein klein
+    /// bisschen) weiter weg spawnst ist der Halbkreis zu spawnen auch größer."
+    ///
+    /// <para>HE IS RIGHT AND THE SHIPPED LADDER RAN THE OTHER WAY. Until this build the ONE ladder
+    /// pulled an overflowing window TOWARD the head, which makes it ANGULARLY WIDER — the log line
+    /// from his own collision photograph says so out loud: "Being nearer made it 49° wide, so its
+    /// seat was pulled back to 16°". Nearer buys draw order and costs arc; further costs apparent
+    /// size and BUYS arc. When the complaint is "sie spawnen zusammen ineinander", arc is the thing
+    /// that is short.</para>
+    ///
+    /// <para>MEASURED AGAINST THE PHOTOGRAPHED CASE. In the ModBuild 242 hardware log the encounter
+    /// window drew 46° at 1.40 m against a standing quest popup of ±13°, "together they ask for 74°
+    /// of the 80° the field of view supplies", and it took a 19°-of-49° overlap. Three outward steps
+    /// (0.12 m, 8.6 % further, 8 % smaller on screen) take it to 42.6°, which fits the free interval
+    /// with the neighbour gap to spare. That is what "ein klein bisschen" buys.</para>
+    ///
+    /// <para>IT IS TRIED ONLY WHEN THE ALTERNATIVE IS A COLLISION, and it must produce a CLEAN seat:
+    /// both the drawn interval and the whole FOOTPRINT have to clear everything standing
+    /// (<see cref="ArcSeatFootprintIsFree"/>). A window that is further away and still overlaps a
+    /// neighbour's transparent frame sits BEHIND the plane that will take the laser, which is worse
+    /// than today's behaviour, so that candidate is refused and the placement falls through to the
+    /// existing nearer-step path with nothing changed.</para>
+    ///
+    /// <para>IT IS BOUNDED IN REAL METRES, NOT IN STEPS, so the cost is readable: at most
+    /// <see cref="MaxArcOutwardMeters"/> past the reading distance. Apparent size scales as
+    /// 1/distance, so the worst case is a stated percentage on the placement line rather than an
+    /// open-ended drift — and the reading distance itself is a value the user moved by hand in
+    /// ModBuild 241, so nothing here may quietly re-tune it for every window.</para>
+    /// </summary>
+    /// <param name="geo">The geometry measured at the nominal distance; re-derived per step, by
+    /// value, so the caller's copy is untouched until it accepts a step.</param>
+    /// <param name="skipSlot">The window's own registry slot (−1 at spawn, when it holds none).</param>
+    /// <param name="steps">How many steps out were spent (0 = the ladder found nothing).</param>
+    /// <param name="distWorld">The reading distance the accepted step sits at, world units.</param>
+    private static bool TryArcSeatFurtherOut(ArcDrawnGeometry geo, float nominalDist, float scale,
+        float gazeYawDeg, float arcHalf, int skipSlot,
+        bool haveCorners, float cornerLeftDeg, float cornerRightDeg,
+        bool haveChannel, float channelLo, float channelHi,
+        out int steps, out float distWorld, out float seatOffset, out ArcSeatSource source,
+        out float wouldFitMeters)
+    {
+        steps = 0;
+        distWorld = nominalDist;
+        seatOffset = 0f;
+        source = ArcSeatSource.None;
+        wouldFitMeters = 0f;
+        if (scale <= 1e-4f || nominalDist <= 1e-4f)
+            return false;
+        float stepWorld = ArcOutwardStepMeters * scale;
+        int maxSteps = Mathf.FloorToInt(MaxArcOutwardMeters / Mathf.Max(ArcOutwardStepMeters, 1e-4f));
+        int sweepSteps = Mathf.FloorToInt(OutwardReportCeilingMeters
+                                          / Mathf.Max(ArcOutwardStepMeters, 1e-4f));
+        for (int k = 1; k <= sweepSteps; k++)
+        {
+            float d = nominalDist + stepWorld * k;
+            ArcDrawnGeometry g = geo;
+            g.ReDeriveAt(d);
+            float halfAngle = g.DrawnHalfDeg;
+            float centreLimit = arcHalf - halfAngle;
+            if (centreLimit < 0f)
+                continue; // still wider than the whole field of view: another step may fix it
+            if (!ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveCorners, cornerLeftDeg,
+                    cornerRightDeg, haveChannel, channelLo, channelHi, out float pick,
+                    out ArcSeatSource src))
+                continue;
+            if (!ArcSeatFootprintIsFree(gazeYawDeg + pick - g.OffsetDeg, g.FrameHalfDeg, g.OffsetDeg,
+                    halfAngle, skipSlot))
+                continue; // clean in ANGLE but its hit rect still lands on someone: not worth it
+            // PAST THE BUDGET THIS IS A REPORT, NOT A PLACEMENT. The sweep keeps running past
+            // MaxArcOutwardMeters for one reason only: so the line can name the distance that WOULD
+            // have worked and what it would have cost, instead of saying "it did not fit" and
+            // leaving the next round to re-derive the number by hand. Nothing is moved by it.
+            if (k > maxSteps)
+            {
+                wouldFitMeters = d / scale;
+                return false;
+            }
+            steps = k;
+            distWorld = d;
+            seatOffset = pick;
+            source = src;
             return true;
         }
         return false;
@@ -1018,14 +1388,27 @@ internal static partial class ModalFallback
     /// window's EDGES, so his first rule holds for every branch below without a special case. Only
     /// when NO free interval remains anywhere in the field of view does the depth ladder engage.</para>
     ///
-    /// <para>THE CHOICE RULE — THE FREE INTERVAL NEAREST THE CURRENT GAZE, EXCEPT THAT THE MAP IS
-    /// ALSO A THING TO BE CLEAR OF. The candidates are the gaze itself, the two edges of the MAP
-    /// CHANNEL, and for every standing seat the two angles that put this window exactly against that
-    /// seat's left and right edge; one of those is always the optimum, so testing 3 + 2N angles
-    /// finds it exactly, with no stepping and no search tolerance. The smallest |offset| that is
-    /// inside the arc and clear of everything wins. See <see cref="ArcSeatFreeInterval"/> for the
-    /// two passes and for why the map-clearing pass breaks its tie LEFT while the fallback pass
-    /// keeps the RIGHT-first tie every build since 183 has used.</para>
+    /// <para>THE CHOICE RULE — HIS TWO TABLE CORNERS FIRST, THEN THE FREE INTERVAL NEAREST THE
+    /// GAZE. Since ModBuild 243 the first candidates offered are the map table's two FAR CORNERS,
+    /// with the window's drawn centre ON the corner — that is what
+    /// <c>.planning/debug/ideale_position.jpg</c> actually shows and what the user said in words
+    /// after ModBuild 241 read the same photograph as an angle ("Du hast meinen Idealzustand falsch
+    /// interpretiert … auf der linken Ecke des Tisches … auf der oberen rechten Ecke des Tisches").
+    /// See <see cref="TryTableFarCornersDeg"/> for the pixels. If neither corner is free and inside
+    /// the field of view, the search falls through to exactly what ran before: the gaze itself, the
+    /// two edges of the MAP CHANNEL, and for every standing seat the two angles that put this window
+    /// against that seat's left and right edge; one of those is always the optimum, so testing
+    /// 3 + 2N angles finds it exactly, with no stepping and no search tolerance. See
+    /// <see cref="ArcSeatFreeInterval"/> for the passes and for why the map-clearing pass breaks its
+    /// tie LEFT while the fallback pass keeps the RIGHT-first tie every build since 183 has used.</para>
+    ///
+    /// <para>AND WHEN NOTHING IS FREE, THE FIRST REMEDY IS TO STAND FURTHER BACK, NOT TO COLLIDE.
+    /// His own suggestion (2026-08-24): "Wenn du manche Fenster etwas (ein klein bisschen) weiter weg
+    /// spawnst ist der Halbkreis zu spawnen auch größer." <see cref="TryArcSeatFurtherOut"/> walks
+    /// the window out in <see cref="ArcOutwardStepMeters"/> rungs, re-deriving its angular width at
+    /// each one, and takes the first distance at which a genuinely clean seat exists — clean in the
+    /// drawn interval AND in the whole footprint. Only when that fails too does the old behaviour
+    /// run: seat it inside the field of view anyway and step it NEARER so it draws in front.</para>
     ///
     /// <para>LATE ARRIVALS TAKE A FREE SEAT AND NOTHING RESHUFFLES. A window that opens ten seconds
     /// after the others runs this same search against whatever is standing at that moment and takes
@@ -1141,34 +1524,82 @@ internal static partial class ModalFallback
         if (widerThanArc)
             centreLimit = 0f;
 
-        // ---- (b) AS FEW COLLISIONS AS POSSIBLE — his second rule: the free interval nearest the
-        //          gaze, if one exists at all inside the bound above. Since ModBuild 241 the MAP
-        //          ITSELF is one of the things a seat has to be clear of, and that demand is tried
-        //          first and given up when it cannot be met (see ArcSeatFreeInterval).
+        // ---- (b) AS FEW COLLISIONS AS POSSIBLE — his second rule. HIS TWO TABLE CORNERS ARE TRIED
+        //          FIRST (ModBuild 243, the correction to 241's reading of his photograph), then the
+        //          free interval nearest the gaze, with the MAP ITSELF as a thing to be clear of.
+        bool haveCorners = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
+            out float cornerRightDeg, out string cornerNote);
         bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
             out string channelNote);
-        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveChannel,
-            channelLo, channelHi, out float bestFree, out bool clearsChannel);
+        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveCorners,
+            cornerLeftDeg, cornerRightDeg, haveChannel, channelLo, channelHi, out float bestFree,
+            out ArcSeatSource source);
+
+        // ---- (b2) NOTHING FREE AT THE READING DISTANCE? THEN STAND FURTHER BACK BEFORE COLLIDING.
+        //           His own suggestion, and the one lever that makes the same arc hold more windows.
+        //           It never moves a window that already had a seat, and it is refused unless the
+        //           result is clean in ANGLE and in FOOTPRINT both — see TryArcSeatFurtherOut.
+        int outwardSteps = 0;
+        float seatDistWorld = nominalDist;
+        float outwardWouldFit = 0f;
+        string outwardNote = "";
+        if (!haveFree
+            && TryArcSeatFurtherOut(geo, nominalDist, scale, gazeYawDeg, arcHalf, -1, haveCorners,
+                cornerLeftDeg, cornerRightDeg, haveChannel, channelLo, channelHi, out outwardSteps,
+                out seatDistWorld, out bestFree, out source, out outwardWouldFit))
+        {
+            float wasHalf = halfAngle;
+            geo.ReDeriveAt(seatDistWorld);
+            halfAngle = geo.DrawnHalfDeg;
+            centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            widerThanArc = arcHalf - halfAngle < 0f;
+            haveFree = true;
+            float outMeters = (seatDistWorld - nominalDist) / Mathf.Max(scale, 1e-4f);
+            float finalMeters = seatDistWorld / Mathf.Max(scale, 1e-4f);
+            outwardNote = $". OUTWARD LADDER — IT SPAWNS A LITTLE FURTHER AWAY INSTEAD OF COLLIDING: "
+                          + $"no free interval existed at {WindowDistanceMeters:F2} m, where this "
+                          + $"window draws {wasHalf * 2f:F0}°. {outwardSteps} step(s) of "
+                          + $"{ArcOutwardStepMeters:F2} m put it at {finalMeters:F2} m, where it "
+                          + $"draws {halfAngle * 2f:F0}° — {wasHalf * 2f - halfAngle * 2f:F0}° "
+                          + "narrower, which is what opened the seat. THE PRICE, MEASURED: "
+                          + $"{outMeters / finalMeters * 100f:F0}% smaller on screen (apparent size "
+                          + "scales as 1/distance). This is his own remedy, verbatim: 'Wenn du "
+                          + "manche Fenster etwas (ein klein bisschen) weiter weg spawnst ist der "
+                          + "Halbkreis zu spawnen auch größer'. The step is spent ONLY against a "
+                          + "collision — a window with a free seat never moves — and it was taken "
+                          + "only because the result is clean in ANGLE and in FOOTPRINT both, so "
+                          + "nothing behind it can catch this window's laser or the other way round";
+        }
 
         // The chosen position of the DRAWN CENTRE, degrees off the spawn gaze. `yawDeg` (the HOST
         // rect's angle, which is what the placement rotates to) is derived from it below.
         float seatOffset;
+        bool clearsChannel = source == ArcSeatSource.BesideTheMap;
 
         float demandAll = ArcSeatDemandDeg(halfAngle * 2f);
         if (haveFree)
         {
             seatOffset = bestFree;
-            why = cleanBefore + overlapBefore == 0 && !clearsChannel
+            why = source == ArcSeatSource.TableCorner
+                ? $"IT TOOK ONE OF HIS TABLE CORNERS — the {(Mathf.Abs(seatOffset - cornerLeftDeg) < Mathf.Abs(seatOffset - cornerRightDeg) ? "LEFT" : "RIGHT")} "
+                  + $"far corner of the map table, at {seatOffset:F0}°±{halfAngle:F0}° off this "
+                  + $"spawn's gaze, inside the measured ±{arcHalf:F1}° field of view. The window's "
+                  + "DRAWN CENTRE sits ON the corner, which is what 'ideale_position.jpg' measures "
+                  + "(the left window's bar is centred 6 px from the corner out of the 1835 px the "
+                  + "far edge spans) and what he said after ModBuild 241 read the same picture as an "
+                  + "angle: 'auf der linken Ecke des Tisches … auf der oberen rechten Ecke des "
+                  + "Tisches'. The corner is a PLACE IN THE ROOM: it was computed once, here, and "
+                  + "this window will not follow his head or his feet afterwards"
+                : cleanBefore + overlapBefore == 0 && !clearsChannel
                 ? $"the room was empty, so it took the gaze itself; the window draws {halfAngle * 2f:F0}° "
                   + $"wide and the measured field of view is ±{arcHalf:F1}°"
                 : cleanBefore + overlapBefore == 0
                 ? $"the room was empty BUT THE MAP IS NOT NOTHING, so it took the nearest angle "
                   + $"BESIDE the map instead of the gaze itself: {seatOffset:F0}°±{halfAngle:F0}° "
                   + $"of {halfAngle * 2f:F0}°-wide DRAWN content, inside the measured "
-                  + $"±{arcHalf:F1}° field of view. THIS IS THE ModBuild 241 CHANGE and it is the "
-                  + "whole of his report ('bei der Map gerne noch mehr das es so zu beginn spawned "
-                  + "wie ideale_position.jpg zeigt') — the space in front of and above the map "
-                  + "stays clear, because the map is what he is looking at in this room"
+                  + $"±{arcHalf:F1}° field of view. NOTE: this is the ModBuild 241 fallback, NOT his "
+                  + "corner rule — no table corner was free and inside the field of view this time, "
+                  + "and the corner line below says why"
                 : $"the FREE INTERVAL NEAREST THE GAZE ({halfAngle * 2f:F0}°-wide DRAWN content, "
                   + $"seated at {seatOffset:F0}°±{halfAngle:F0}° inside the measured "
                   + $"±{arcHalf:F1}° field of view with a {NeighbourGapDegrees:F0}° gap) — ANGLE "
@@ -1176,6 +1607,7 @@ internal static partial class ModalFallback
                   + "always tried first; whether it also needs a depth step for its FRAME is "
                   + "decided below. The windows already standing "
                   + $"[{standing}] were not touched";
+            why += outwardNote;
         }
         else
         {
@@ -1203,14 +1635,31 @@ internal static partial class ModalFallback
                   + "tie-broken by least PERMANENT surface buried, then furthest from every "
                   + "neighbour, then nearest the gaze; (3) the depth ladder below puts it in FRONT "
                   + "of what it collides with"
+                  + ". THE OUTWARD LADDER WAS TRIED FIRST AND COULD NOT PAY: walking this window out "
+                  + $"to {WindowDistanceMeters + MaxArcOutwardMeters:F2} m in "
+                  + $"{ArcOutwardStepMeters:F2} m rungs never produced an interval that was free in "
+                  + "ANGLE and in FOOTPRINT at once, so 'ein klein bisschen weiter weg' does not "
+                  + "reach here and the nearer step below is what is left"
+                  + (outwardWouldFit > 0f
+                      ? $". THE DISTANCE THAT WOULD HAVE WORKED, MEASURED RATHER THAN LEFT OPEN: "
+                        + $"{outwardWouldFit:F2} m, which is "
+                        + $"{(1f - WindowDistanceMeters / outwardWouldFit) * 100f:F0}% smaller on "
+                        + $"screen than {WindowDistanceMeters:F2} m — past the "
+                        + $"{MaxArcOutwardMeters:F2} m this build is allowed to spend, and past what "
+                        + "'nicht viel weiter weg' can mean. It is printed so the trade is HIS to "
+                        + "take or refuse rather than one this file made silently"
+                      : ". AND NO DISTANCE UP TO "
+                        + $"{WindowDistanceMeters + OutwardReportCeilingMeters:F2} m would have "
+                        + "worked either — the sweep ran past its own budget purely to check. That "
+                        + "means the room is oversubscribed in a way DISTANCE cannot fix, and only a "
+                        + "NARROWER window can")
                   + (haveChannel
                       ? ". THE MAP CHANNEL WAS GIVEN UP, WHICH IS ITS STATED DEGRADATION: no angle "
                         + $"inside ±{arcHalf:F1}° both cleared the map's own "
                         + $"[{channelLo:F0}°,{channelHi:F0}°] and cleared every standing window, so "
-                        + "the ModBuild 241 demand yielded and this window was seated by exactly "
-                        + "the search that ran before it. Keeping the map clear is a demand, never "
-                        + "a reservation — it is honoured while it is free and never at the cost of "
-                        + "his first rule"
+                        + "that demand yielded and this window was seated by exactly the search that "
+                        + "ran before it. Keeping the map clear is a demand, never a reservation — "
+                        + "it is honoured while it is free and never at the cost of his first rule"
                       : "");
         }
 
@@ -1230,7 +1679,29 @@ internal static partial class ModalFallback
             out float footYaw, out float footHalf);
         overlapRank = ArcSeatDepthLevel(footYaw, footHalf, -1, out string blockers);
         foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
-        if (overlapRank > 0)
+        if (outwardSteps > 0)
+        {
+            // THE TWO LADDERS ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION. The outward search only
+            // accepts a step whose FOOTPRINT clears everything standing, so the level above is 0 and
+            // the depth term is the outward push instead — a NEGATIVE pull, which ApplyArcDepth has
+            // always been able to express. If the level is not 0 here, ArcSeatFootprintIsFree and
+            // ArcSeatDepthLevel disagree about the same two rectangles and the line says so rather
+            // than silently taking a step in the opposite direction to the one just bought.
+            string contradiction = overlapRank > 0
+                ? $". FALSIFIER TRIPPED: the outward step was accepted as footprint-clean and the "
+                  + $"depth ladder then reported level {overlapRank} against {blockers} on the same "
+                  + "geometry. The outward distance is kept and the nearer step is NOT taken — two "
+                  + "ladders in opposite directions would cancel — but these two tests must agree "
+                  + "and one of them is wrong"
+                : "";
+            overlapRank = 0;
+            foregroundPullWorld = -(seatDistWorld - nominalDist);
+            why += contradiction;
+            why += $". DEPTH: level 0 at a reading distance of "
+                   + $"{seatDistWorld / Mathf.Max(scale, 1e-4f):F2} m — the OUTWARD ladder above set "
+                   + "this distance, and the nearer ladder is not used on top of it";
+        }
+        else if (overlapRank > 0)
         {
             // Nearer is ANGULARLY WIDER, so the booked interval and the arc bound are both
             // re-derived at the distance the window will really hang at, and the seat is re-clamped
@@ -1306,13 +1777,31 @@ internal static partial class ModalFallback
         // Graded on the DRAWN interval: the band answers "can he read it without moving", and what
         // he reads is the content, not the frame.
         why += ". " + ArcSeatBand(seatOffset, halfAngle);
+        // THE CORNER RULE ALWAYS REPORTS, WHETHER OR NOT IT ANSWERED. A rule that only logs on
+        // success is one nobody can tell from a rule that never ran — this repo has shipped that
+        // twice, and ModBuild 241's window-grouping rule sat in the code for six builds firing zero
+        // times because its own line only printed when it fired.
+        why += ". " + cornerNote
+               + (haveCorners
+                   ? source == ArcSeatSource.TableCorner
+                       ? $" — TAKEN: this window's drawn centre sits on the "
+                         + $"{(Mathf.Abs(seatOffset - cornerLeftDeg) < Mathf.Abs(seatOffset - cornerRightDeg) ? "left" : "right")} "
+                         + $"one, interval [{seatOffset - halfAngle:F0}°,{seatOffset + halfAngle:F0}°]"
+                       : $" — NOT TAKEN this time: neither corner was both free of every standing "
+                         + $"window and inside ±{arcHalf:F1}° for a window of this width "
+                         + $"({halfAngle * 2f:F0}°). A corner is a demand, never a reservation"
+                   : "");
         why += ". " + channelNote
                + (haveChannel
                    ? clearsChannel
                        ? $" — HONOURED: this window's drawn interval is "
                          + $"[{seatOffset - halfAngle:F0}°,{seatOffset + halfAngle:F0}°] and lies "
                          + "wholly beside it"
-                       : " — NOT honoured this time (see above)"
+                       : source == ArcSeatSource.TableCorner
+                           ? " — SUPERSEDED BY THE CORNER: the corner rule is the user's own "
+                             + "correction of the reading this channel came from, so where the two "
+                             + "disagree the corner wins and the channel is reported, not enforced"
+                           : " — NOT honoured this time (see above)"
                    : "");
         why += ". GEOMETRY: " + geo.Note;
 
@@ -1466,25 +1955,61 @@ internal static partial class ModalFallback
         float centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
         // THE SAME SEARCH THE SPAWN PATH RUNS, and since ModBuild 241 literally the same method:
         // this is the placement that decides where a map-room window actually ends up (the spawn
-        // claim books the FRAME, because at that instant nothing is measurable yet), so the map
-        // channel has to be honoured HERE above all.
+        // claim books the FRAME, because at that instant nothing is measurable yet), so HIS TABLE
+        // CORNERS have to be honoured HERE above all — this is the call that reproduces his
+        // photograph, and it is why the corner rule is a parameter of the shared search rather than
+        // a special case in the spawn path.
+        bool haveCorners = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
+            out float cornerRightDeg, out string cornerNote);
         bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
             out string channelNote);
-        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveChannel,
-            channelLo, channelHi, out float bestFree, out bool clearsChannel);
+        bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveCorners,
+            cornerLeftDeg, cornerRightDeg, haveChannel, channelLo, channelHi, out float bestFree,
+            out ArcSeatSource source);
+
+        // The outward ladder, on the same terms as the spawn path: further away is angularly
+        // narrower, and a window that has to move anyway is exactly the one that may as well move
+        // out rather than collide. Its own slot is already released above, so it cannot see itself.
+        int outwardSteps = 0;
+        float seatDistWorld = nominalDist;
+        string outwardNote = "";
+        if (!haveFree
+            && TryArcSeatFurtherOut(geo, nominalDist, scale, gazeYawDeg, arcHalf, slot, haveCorners,
+                cornerLeftDeg, cornerRightDeg, haveChannel, channelLo, channelHi, out outwardSteps,
+                out seatDistWorld, out bestFree, out source, out float reseatWouldFit))
+        {
+            _ = reseatWouldFit; // only the spawn line reports it; a re-place would print it twice
+            float wasHalf = halfAngle;
+            geo.ReDeriveAt(seatDistWorld);
+            halfAngle = geo.DrawnHalfDeg;
+            centreLimit = Mathf.Max(0f, arcHalf - halfAngle);
+            haveFree = true;
+            outwardNote = $". OUTWARD LADDER: {outwardSteps} step(s) of {ArcOutwardStepMeters:F2} m "
+                          + $"took it from {WindowDistanceMeters:F2} m to "
+                          + $"{seatDistWorld / Mathf.Max(scale, 1e-4f):F2} m, narrowing it from "
+                          + $"{wasHalf * 2f:F0}° to {halfAngle * 2f:F0}° — which is what opened a "
+                          + "clean seat. His own remedy: 'ein klein bisschen weiter weg'";
+        }
 
         float seatOffset;
         string how;
+        bool clearsChannel = source == ArcSeatSource.BesideTheMap;
         if (haveFree)
         {
             seatOffset = bestFree;
-            how = $"took the FREE INTERVAL NEAREST THE GAZE at {seatOffset:F0}°±{halfAngle:F0}° "
+            how = source == ArcSeatSource.TableCorner
+                ? $"took ONE OF HIS TABLE CORNERS — the "
+                  + $"{(Mathf.Abs(seatOffset - cornerLeftDeg) < Mathf.Abs(seatOffset - cornerRightDeg) ? "LEFT" : "RIGHT")} "
+                  + $"far corner at {seatOffset:F0}°±{halfAngle:F0}°, inside the measured "
+                  + $"±{arcHalf:F1}° field of view (standing set [{standing}]) and clear of "
+                  + "everything. This is the placement that reproduces 'ideale_position.jpg'"
+                : $"took the FREE INTERVAL NEAREST THE GAZE at {seatOffset:F0}°±{halfAngle:F0}° "
                   + $"inside the measured ±{arcHalf:F1}° field of view (standing set [{standing}]) "
                   + "and collides with nothing"
                   + (clearsChannel
-                      ? ", BESIDE THE MAP rather than over it (ModBuild 241 — his "
-                        + "'ideale_position.jpg')"
+                      ? ", BESIDE THE MAP rather than over it — the fallback rule, not his corner one"
                       : "");
+            how += outwardNote;
         }
         else
         {
@@ -1509,7 +2034,22 @@ internal static partial class ModalFallback
         overlapRank = ArcSeatDepthLevel(footYaw, footHalf, slot, out string blockers);
         foregroundPullWorld = OverlapPullWorld(overlapRank, scale);
         string depthNote;
-        if (overlapRank > 0)
+        if (outwardSteps > 0)
+        {
+            // The outward step already owns this window's distance and it was accepted only because
+            // its FOOTPRINT is clean, so the nearer ladder must not run on top of it. Same rule and
+            // same falsifier as the spawn path.
+            depthNote = overlapRank > 0
+                ? $". FALSIFIER TRIPPED: the outward step was accepted as footprint-clean and the "
+                  + $"depth ladder then reported level {overlapRank} against {blockers}. The outward "
+                  + "distance is kept and no nearer step is taken, but the two tests must agree"
+                : $". DEPTH: level 0 at "
+                  + $"{seatDistWorld / Mathf.Max(scale, 1e-4f):F2} m — the outward ladder set this "
+                  + "distance and the nearer ladder is not used on top of it";
+            overlapRank = 0;
+            foregroundPullWorld = -(seatDistWorld - nominalDist);
+        }
+        else if (overlapRank > 0)
         {
             geo.ReDeriveAt(nominalDist - foregroundPullWorld);
             halfAngle = geo.DrawnHalfDeg;
@@ -1558,6 +2098,11 @@ internal static partial class ModalFallback
                      + "what the depth level above is for"
                    : ". MEASURED: it overlaps nothing in angle")
                + ". " + ArcSeatBand(seatOffset, halfAngle)
+               + ". " + cornerNote
+               + (haveCorners && source != ArcSeatSource.TableCorner
+                   ? " — NOT TAKEN this time: neither corner was both free and inside the field of "
+                     + "view for a window of this width"
+                   : "")
                + ". " + channelNote
                + (haveChannel && clearsChannel
                    ? $" — HONOURED: this window's drawn interval is "
@@ -1566,6 +2111,159 @@ internal static partial class ModalFallback
                    : "")
                + ". No other window was read for anything but collision and none was moved";
         return true;
+    }
+
+    /// <summary>A delivered distance within this fraction of the booked one is the same distance —
+    /// float noise plus the sub-degree residue of the yaw restore. 1 % of 1.40 m is 14 mm, and the
+    /// widest window in this room changes by 0.4° over that, well under the half-degree the audit
+    /// itself calls an overlap.</summary>
+    private const float ArcDeliveredDistanceTolerance = 0.01f;
+
+    /// <summary>
+    /// THE BOOKED DISTANCE AND THE DELIVERED ONE, RECONCILED — and the registry corrected to the
+    /// one that is true. Called once per arc-governed placement, AFTER every spawn clamp has run,
+    /// from <c>ComputeHmdPose</c>. It writes NO pose and moves NOTHING.
+    ///
+    /// <para>THE DEFECT IT ANSWERS, carried forward from ModBuild 241 and 242 and recorded in
+    /// <c>Net/NetProtocol.cs</c>. <see cref="TryClaimArcSeat"/> computes every angle at
+    /// <c>WindowDistanceMeters × scale</c>; <c>ClampSpawnPose</c> then runs, and it can move the
+    /// pose in ways that change the head→window distance — the steep-gaze clamp multiplies it by
+    /// <c>SteepGazePullFactor</c> outright, and the board-top floor raises y, which lengthens or
+    /// shortens the hypotenuse. A window that hangs nearer than the packer believes is angularly
+    /// WIDER than the interval it booked, and the next window is packed against a lie.</para>
+    ///
+    /// <para>WHAT THE ModBuild 242 LOG ACTUALLY SHOWS, because the carried-forward note overstates
+    /// it and a wrong premise is worth correcting explicitly. The steep-gaze pull fires on ONE
+    /// window in that whole 15 MB session (the quest log at 19° below eye level, 1.40 → 1.17 m,
+    /// −17 %), not on every map-room window: raising the reading distance from 1.20 m to 1.40 m in
+    /// ModBuild 241 flattened almost every placement below the 15° limit, so the 18 clamp lines of
+    /// the 241 log became 2. The board-top floor fires on one more, and there it costs 1.2 %
+    /// (1.40 → 1.38 m). So the coupling is REAL, LARGE WHEN IT FIRES, and RARE — which is exactly
+    /// the shape of defect that survives a session of eyeballing.</para>
+    ///
+    /// <para>WHY THE REGISTRY IS CORRECTED AND THE WINDOW IS NOT MOVED. Moving it would fight the
+    /// clamp that just ran (the board-top floor exists so a window's bottom clears the table, and
+    /// the steep-gaze pull is a readability rule for a player looking down), and a second corrective
+    /// write on a spawn path is how ModBuild 183's visible jump came back. The booking is the thing
+    /// that was wrong, the booking is what other windows read, and the booking is what is fixed.</para>
+    ///
+    /// <para>IT IS ALSO THE FALSIFIER FOR THE WHOLE PLACEMENT. It prints the booked interval, the
+    /// delivered interval, and the live overlap in degrees against every other standing seat — so
+    /// "no overlap" is a measurement on this line and not the absence of a complaint. A line with a
+    /// non-zero OVERLAPS clause and a depth level of 0 is a failure of this build's stated rule.</para>
+    /// </summary>
+    /// <param name="slot">The registry index the placement claimed, or −1 when it holds none.</param>
+    /// <param name="headPos">The head the placement measured from (already height-corrected).</param>
+    /// <param name="finalPos">The window's pose AFTER every clamp.</param>
+    /// <param name="nominalMeters">The reading distance the packer assumed, real metres.</param>
+    private static string ArcSeatDeliveredNote(int slot, Vector3 headPos, Vector3 finalPos,
+        float scale, float nominalMeters)
+    {
+        if (slot < 0 || slot >= _arcClaims.Length || _arcClaims[slot].Panel == null
+            || scale <= 1e-4f)
+            return "";
+        float booked = _arcClaims[slot].DistanceWorld;
+        float delivered = (finalPos - headPos).magnitude;
+        if (booked <= 1e-4f || delivered <= 1e-4f)
+            return "";
+
+        float bookedHalf = _arcClaims[slot].HalfWidthDeg;
+        float bookedFrame = _arcClaims[slot].FrameHalfWidthDeg;
+        float bookedOffset = _arcClaims[slot].DrawnOffsetDeg;
+        float ratio = delivered / booked;
+        bool corrected = Mathf.Abs(ratio - 1f) > ArcDeliveredDistanceTolerance;
+        string fix = "";
+        if (corrected)
+        {
+            // Recover the world extents the booked angles were derived from — pure arithmetic, no
+            // second subtree walk — and re-derive every one of them at the distance that was
+            // actually delivered. The SEAT (the world yaw) does not move: the hard cone clamp in
+            // ComputeHmdPose has already restored the claimed azimuth, so only the WIDTH and the
+            // content OFFSET can have changed, and those are exactly what a neighbour reads.
+            // Clamped short of the asymptote: every angle here came out of an atan2 of two positive
+            // world lengths and so is already below 90°, but tan() at 90° is an infinity that would
+            // be written straight into the registry, and a guard costs nothing on a path that runs
+            // once per spawn.
+            float Extent(float deg) =>
+                Mathf.Tan(Mathf.Clamp(deg, -89f, 89f) * Mathf.Deg2Rad) * booked;
+            float drawnHalfWorld = Extent(bookedHalf);
+            float frameHalfWorld = Extent(bookedFrame);
+            float offsetWorld = Extent(bookedOffset);
+            float newHalf = HalfAngleDeg(drawnHalfWorld, delivered);
+            float newFrame = HalfAngleDeg(frameHalfWorld, delivered);
+            float newOffset = Mathf.Atan2(offsetWorld, delivered) * Mathf.Rad2Deg;
+            // The registry seats the DRAWN centre, so a changed content offset moves that centre
+            // even though the HOST rect has not turned at all.
+            _arcSeatWorldYaw[slot] += newOffset - bookedOffset;
+            _arcClaims[slot].HalfWidthDeg = newHalf;
+            _arcClaims[slot].FrameHalfWidthDeg = newFrame;
+            _arcClaims[slot].DrawnOffsetDeg = newOffset;
+            _arcClaims[slot].DistanceWorld = delivered;
+            fix = $" REGISTRY CORRECTED: it had booked {bookedHalf * 2f:F1}° and really occupies "
+                  + $"{newHalf * 2f:F1}° ({(newHalf - bookedHalf) * 2f:F1}° more), frame "
+                  + $"{bookedFrame * 2f:F1}° → {newFrame * 2f:F1}°, content offset "
+                  + $"{bookedOffset:F1}° → {newOffset:F1}°. NOTHING MOVED — the window keeps the "
+                  + "pose the clamps gave it; what is fixed is what the NEXT window reads when it "
+                  + "looks for a seat, which is where the error was actually spent.";
+        }
+
+        // THE OVERLAP CENSUS — the part of this line that can FAIL.
+        var sb = new System.Text.StringBuilder();
+        int overlapping = 0;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (i == slot || _arcClaims[i].Panel == null)
+                continue;
+            float ov = _arcClaims[i].HalfWidthDeg + _arcClaims[slot].HalfWidthDeg
+                       - Mathf.Abs(Mathf.DeltaAngle(_arcSeatWorldYaw[slot], _arcSeatWorldYaw[i]));
+            if (ov <= ArcAuditOverlapToleranceDeg)
+                continue;
+            overlapping++;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append('\'').Append(_arcClaims[i].Name ?? "?").Append("' by ")
+              .Append(ov.ToString("F1")).Append("° (that one is at depth level ")
+              .Append(_arcClaims[i].OverlapRank).Append(", this one at ")
+              .Append(_arcClaims[slot].OverlapRank).Append(')');
+        }
+
+        return "MAP ROOM SEAT DELIVERED '" + (_arcClaims[slot].Name ?? "?") + "': booked "
+               + $"{booked / scale:F2} m, DELIVERED {delivered / scale:F2} m "
+               + $"({(ratio - 1f) * 100f:+0.0;-0.0;0.0}% — the spawn clamps run AFTER the angles are "
+               + $"computed and can move the window along the gaze; the nominal is "
+               + $"{nominalMeters:F2} m)."
+               + fix
+               + $" INTERVAL NOW [{_arcSeatWorldYaw[slot] - _arcClaims[slot].HalfWidthDeg:F1}°,"
+               + $"{_arcSeatWorldYaw[slot] + _arcClaims[slot].HalfWidthDeg:F1}°] world, at depth "
+               + $"level {_arcClaims[slot].OverlapRank} and "
+               + (_arcClaims[slot].DepthPullMeters > 0.001f
+                   ? $"{_arcClaims[slot].DepthPullMeters:F2} m NEARER than nominal (the inward "
+                     + "ladder)"
+                   : _arcClaims[slot].DepthPullMeters < -0.001f
+                       ? $"{-_arcClaims[slot].DepthPullMeters:F2} m FURTHER than nominal (the "
+                         + "OUTWARD ladder — his own remedy for collisions)"
+                       : "no ladder step at all")
+               + ". OVERLAPS: "
+               + (overlapping == 0
+                   ? "NONE — measured against all " + CountStandingArcClaims()
+                     + " standing seat(s), not merely unreported. THIS CLAUSE IS THE FALSIFIER: a "
+                     + "run where it names a window while the depth level is 0 is a run where this "
+                     + "build's rule did not hold."
+                   : sb + " — " + overlapping + " seat(s). This is only acceptable with a depth "
+                     + "level above zero on THIS window; at level 0 it is the reported defect.");
+    }
+
+    /// <summary>How many registry seats are held right now — printed by the delivered line so
+    /// "OVERLAPS: NONE" states what it was measured against rather than asserting a negative.</summary>
+    private static int CountStandingArcClaims()
+    {
+        int n = 0;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel != null)
+                n++;
+        }
+        return n;
     }
 
     /// <summary>
