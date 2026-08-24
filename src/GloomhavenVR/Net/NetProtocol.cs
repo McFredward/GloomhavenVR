@@ -416,7 +416,56 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 244;
+    public const ushort ModBuild = 245;
+    // Build 245: A WINDOW NOBODY CAN SEE YET BOOKED THE WHOLE FIELD OF VIEW, AND THE CORNER RULE
+    // WAS REFUSED BY A BOUND IT SHOULD NEVER HAVE BEEN MEASURED AGAINST.
+    // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
+    // 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED). BUNDLE UNCHANGED at 70,009,303 bytes.
+    //
+    //   1. THE TWO MAP WINDOWS SPAWNED INTO EACH OTHER AGAIN (kartenraum,spawn.jpg), AND THE LOG
+    //   NAMES THE CAUSE IN ITS OWN WORDS. MeasureArcDrawnGeometry asks CanvasConversion which
+    //   graphics are VISIBLE, and a window behind the reveal gate has none — so on a COLD first
+    //   open the reservation "falls back to the frame" and the character screen books its whole
+    //   1920 px rect: 72° of an 80° field (:1233). The quest list then has no free interval
+    //   anywhere — "together they ask for 90° of the 80° the field of view supplies" (:1261) — and
+    //   is stacked on top of it. THE CORNER RULE NEVER GOT A CHANCE: "neither corner was both free
+    //   of every standing window and inside ±40.0° for a window of this width (72°)".
+    //   TryReseatArcClaimOnDrawnContent exists for exactly this and could not save it: it bails on
+    //   the SAME !Measured test, so on a cold open the frame-sized claim stands for the window's
+    //   whole life. The proof the machinery is otherwise sound is in the same log — the SECOND time
+    //   that window opens its ink IS visible, the re-seat fires, and the line reads "PHANTOM FRAME:
+    //   59° of it is empty and was handed back to the arc" (:3307). 14° drawn against 72° booked.
+    //   THE FIX IS TO CHANGE THE INSTRUMENT, NOT THE GATE: PanelInkBounds measures the same union
+    //   WITHOUT a visibility test — it is why the grab bar and the close X are already sized right
+    //   on a window nobody can see — so the arc now falls back to IT instead of to the frame. The
+    //   reservation is correct on the FIRST placement rather than the second.
+    //   AND A CORNER IS A PLACE, NOT AN ANGLE. The corner pass tested each corner against
+    //   arcHalf − halfAngle, i.e. it demanded the window's whole WIDTH fit inside the field once
+    //   seated there; for a 36°-half window that limit is 4° and both corners at −33°/+35° were
+    //   refused before they were looked at. The surviving bound is that the corner's own CENTRE is
+    //   in the field. An outer edge past ±40° is read by turning the head, which is what one does
+    //   at a table. This is the third time this project has shipped "reserved what it did not draw"
+    //   [[open-is-not-drawing]], [[reserve-what-is-drawn]].
+    //
+    //   2. THE SHARED WINDOWS WERE PUSHED TO THE ENDS OF THE TABLE BY MY OWN 244 CHANGE.
+    //   "nicht zentral mittig über dem Tisch wie erwartet ... der Abstand ist viel zu groß - nur
+    //   Überlappungen sollen vermieden werden." 244 stepped each window by 2 x its own half-width
+    //   plus a gap — twice what a pair needs, since each side already carries a half-width — and
+    //   then took a MAX with 0.45 x the table's half-depth, a floor with no term for how wide the
+    //   window is. Both gone: each steps by its own half-width plus HALF the gap, so a pair
+    //   separates by exactly halfA + halfB + 0.12 m and by nothing more, straddling the centre.
+    //   AND THEY COME NEARER. The depth was the TABLE's far edge at 1.15 m while the map ends at
+    //   0.60 m, so a shared window hung half a metre past the thing it belongs to, over bare wood.
+    //   It is now seated 0.22 m past the MAP's edge, capped at the table's — clear of the parchment,
+    //   about 0.3 m nearer. SharedAnchorLateralFraction is deleted with a tombstone.
+    //
+    //   3. NOT IN THIS BUILD, AND SAID PLAINLY: the two card-discard reports (the initiative track
+    //   emptying during a multi-character discard, and the first two cards sliding into the board
+    //   instead of playing the burn animation into the pile) are DIAGNOSED BUT NOT FIXED. Both live
+    //   in the card-flow subsystem, both are a phase that had never been played before, and neither
+    //   is a change worth making on a half-read mechanism. See the report for what the log already
+    //   establishes about each.
+    //
     // Build 244: THE WINDOW WAS STANDING IN THE TABLE BECAUSE THE ANCHOR ASSUMED A HEIGHT, AND THE
     // GREY CARDS WERE IN THE ONE FAN LAST BUILD'S FIX COULD NOT REACH.
     // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests

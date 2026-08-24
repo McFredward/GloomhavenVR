@@ -296,9 +296,43 @@ internal static partial class ModalFallback
                  + "still behind the reveal gate, so no graphic passes the visibility test) — the "
                  + "reservation falls back to the frame, exactly as every build before ModBuild 234";
 
+        bool viaInk = false;
         if (!CanvasConversion.TryMeasureDrawnContent(panel, out Rect content, out Rect host,
                 out int contributors))
-            return g;
+        {
+            // ---- ModBuild 245: THE VISIBILITY TEST IS THE WRONG INSTRUMENT BEFORE THE REVEAL, AND
+            //      THAT IS WHY HIS TWO MAP WINDOWS KEPT LANDING ON TOP OF EACH OTHER.
+            //
+            // TryMeasureDrawnContent asks which graphics are VISIBLE, and a window behind the reveal
+            // gate has none — so on a COLD first open this fell through to the frame and the window
+            // booked its whole 1920 px rect. In the ModBuild 244 hardware log that is 72° of an 80°
+            // field for the character screen (LogOutput.log:1233), which leaves the quest list no
+            // free interval anywhere (:1261, "together they ask for 90° of the 80° the field of view
+            // supplies") and stacks the two — 'kartenraum,spawn.jpg', exactly the fault the corner
+            // rule exists to prevent.
+            //
+            // TryReseatArcClaimOnDrawnContent was written for precisely this and could not save it:
+            // it runs at the pre-reveal re-place and bails on the SAME !Measured test, so on a cold
+            // open the frame-sized claim stands for the window's whole life. The proof that the
+            // machinery is otherwise sound is in the same log: the SECOND time that window opens its
+            // ink IS visible, the re-seat fires, and the line reads "PHANTOM FRAME: 59° of it is
+            // empty and was handed back to the arc" (:3307) — 14° drawn against the 72° booked.
+            //
+            // PanelInkBounds measures the same union WITHOUT a visibility test, which is why the
+            // grab bar and the close X are already sized correctly on a window nobody can see yet.
+            // Using it here makes the reservation right on the FIRST placement instead of the
+            // second, so the corners are free when the corner pass runs. [[open-is-not-drawing]],
+            // [[reserve-what-is-drawn]] — this is the third time this class of defect has shipped.
+            if (!PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink) || !ink.Valid)
+                return g;
+            RectTransform? hostRect = panel.HostRect;
+            if (hostRect == null)
+                return g;
+            content = ink.Rect;
+            host = hostRect.rect;
+            contributors = ink.Graphics;
+            viaInk = true;
+        }
         if (host.width < 1f || halfWidthWorld <= 1e-4f)
             return g;
 
@@ -317,8 +351,14 @@ internal static partial class ModalFallback
 
         float widthDelta = (g.DrawnHalfDeg - g.FrameHalfDeg) * 2f;
         g.Note = $"frame {g.FrameHalfDeg * 2f:F0}° ({host.width:F0} px), drawn "
-                 + $"{g.DrawnHalfDeg * 2f:F0}° ({content.width:F0} px from {contributors} visible "
-                 + $"graphic(s)) at offset {g.OffsetDeg:F0}° "
+                 + $"{g.DrawnHalfDeg * 2f:F0}° ({content.width:F0} px from {contributors} "
+                 + (viaInk
+                     ? "graphic(s) — MEASURED THROUGH PanelInkBounds, i.e. the window is still "
+                       + "behind the reveal gate and the VISIBILITY test found nothing; before "
+                       + "ModBuild 245 this booked the whole frame and is what stacked his two map "
+                       + "windows"
+                     : "visible graphic(s)")
+                 + $") at offset {g.OffsetDeg:F0}° "
                  + $"({content.center.x - host.center.x:F0} px from the frame's own centre)"
                  + (Mathf.Abs(widthDelta) < 1f && Mathf.Abs(g.OffsetDeg) < 1f
                      ? " — content fills its frame, so this reservation is what it always was"
@@ -946,11 +986,23 @@ internal static partial class ModalFallback
         //      honest limit the ModBuild 241 tie rule already carried.
         if (haveCorners)
         {
+            //      ModBuild 245 — A CORNER IS BOUNDED BY THE FIELD, NOT BY THE WINDOW'S EDGES.
+            //      Until 244 this tested the corner against `centreLimit` = arcHalf − halfAngle,
+            //      i.e. it demanded that the window's whole WIDTH fit inside the field once seated
+            //      on the corner. For the character screen (36° half) that limit is 4°, so BOTH
+            //      corners at −33°/+35° were refused before they were ever looked at, and the log
+            //      said so in as many words: "neither corner was both free of every standing window
+            //      and inside ±40.0° for a window of this width (72°)". The narrower reservation
+            //      above removes most of that, but the rule was wrong on its own terms: his ruling
+            //      is that these two windows BELONG on the corners of the table, and a corner is a
+            //      place in the room. The bound that survives is that the corner's own CENTRE is in
+            //      the field — a place he cannot see at all is not a place — and an outer edge that
+            //      reaches past ±40° is read by turning the head, which is what one does at a table.
             for (int k = 0; k < 2; k++)
             {
                 float a = k == 0 ? cornerLeftDeg : cornerRightDeg;
-                if (Mathf.Abs(a) > centreLimit + 1e-3f)
-                    continue; // this corner would push an EDGE out of the field of view
+                if (Mathf.Abs(a) > ArcPlacementHalfDeg() + 1e-3f)
+                    continue; // the corner itself is behind him — not a place he can be offered
                 if (!ArcSeatIsFree(gazeYawDeg + a, halfAngle))
                     continue; // the other window is already on it
                 best = a;
@@ -3410,32 +3462,26 @@ internal static partial class ModalFallback
     /// rather than above it, which is the defect this constant exists to prevent, in miniature.</summary>
     private const float SharedAnchorMinHalfHeightMeters = 0.15f;
 
-    /// <summary>The lateral step between two map-room homes along the table's LONG (deep) axis, as
-    /// a fraction of the table slab's half-depth. 0.45 of 1.15 m ≈ 0.52 m on the surveyed table —
-    /// wide enough that two reading-size windows do not merge, short enough that home 1 and home 2
-    /// are still on the table rather than off its ends.
-    ///
-    /// <para><b>ModBuild 244 — IT IS A FLOOR, NOT THE ANSWER.</b> The user's second sentence was
-    /// "Andere Multiplayer Fenster die spawnen sollen die anderen Multiplayer Fenster respektieren
-    /// (Halbkreis Logik)", and a step fixed as a fraction of the TABLE respects the table, not the
-    /// windows: two 1.24 m-wide quest windows 1.035 m apart overlap by 20 cm and the fraction has no
-    /// term that could notice. The step is now
-    /// <c>max(fraction × half-depth, 2 × own half-width + gap)</c>.
-    ///
-    /// WHY THE WINDOW'S OWN WIDTH AND NOT THE NEIGHBOUR'S, which is the obvious objection: reading
-    /// the neighbour would make the home depend on WHICH windows happen to be open and in what
-    /// order, and that is precisely the order-dependence the identity-keyed home table exists to
-    /// remove — two clients with different windows open would compute different places and the 1:1
-    /// guarantee would be gone. Own-width keeps the step a pure function of this window, so it stays
-    /// deterministic and shared. It is EXACT when the two windows are the same size (the common
-    /// case: two reading-size panels), and when they differ the wider one steps further out, so the
-    /// pair separates by at least the wider window's full width plus the gap. Home 0 sits at the
-    /// centre and its neighbours step around it by the same rule.</para></summary>
-    private const float SharedAnchorLateralFraction = 0.45f;
+    // ModBuild 245 TOMBSTONE — SharedAnchorLateralFraction (0.45 of the table's half-depth) is
+    // DELETED, not merely unused. It seated a shared window by a fraction of the FURNITURE, which
+    // has no term for how wide the window is, and taking a max with it is what pushed his two blue
+    // windows out to the ends of the table (kartenraum_remotespawn.jpg, "nicht zentral mittig über
+    // dem Tisch wie erwartet"). The step is now derived from the window itself and nothing else —
+    // see SharedAnchorLateralGapMeters. Do not reintroduce a table-relative floor: "nur
+    // Überlappungen sollen vermieden werden" is the whole rule.
 
     /// <summary>Clear air between two shared windows' facing edges, real metres. Not cosmetic: two
-    /// windows that merely touch read as one wide window with a seam.</summary>
+    /// windows that merely touch read as one wide window with a seam. Each of a pair steps by HALF
+    /// of this, so the pair separates by exactly halfA + halfB + this and by nothing more — "nur
+    /// Überlappungen sollen vermieden werden", taken literally.</summary>
     private const float SharedAnchorLateralGapMeters = 0.12f;
+
+    /// <summary>How far PAST the map's own far edge a shared window hangs, real metres. It is a
+    /// margin on the MAP and not on the table: the table's far edge is 1.15 m out on the surveyed
+    /// slab while the map ends at 0.60 m, and hanging a window on the table edge put it half a metre
+    /// past the thing it belongs to, over bare wood. This keeps it clear of the parchment — nothing
+    /// is drawn over what he is looking at — and roughly 0.3 m nearer than ModBuild 244.</summary>
+    private const float SharedAnchorMapEdgeMarginMeters = 0.22f;
 
     /// <summary>How far above the board's measured TOP (far) edge a shared scenario window's centre
     /// hangs, in board-LOCAL units (which are metres at board scale 1, the same convention
@@ -3696,11 +3742,19 @@ internal static partial class ModalFallback
         float halfWinYm = Mathf.Max(halfSize.y / scale, SharedAnchorMinHalfHeightMeters);
         float halfWinXm = Mathf.Max(halfSize.x / scale, 0f);
 
-        // RESPECT THE OTHER SHARED WINDOWS, not just the table. The step is the greater of the old
-        // table fraction and what this window's own width demands; see SharedAnchorLateralFraction
-        // for why the neighbour's width is deliberately NOT read.
-        float step = Mathf.Max(SharedAnchorLateralFraction * lateralHalf,
-                               2f * halfWinXm + SharedAnchorLateralGapMeters);
+        // ---- ModBuild 245 — THE STEP WAS TWICE WHAT IT NEEDED TO BE, AND THE FLOOR PUSHED THEM TO
+        //      THE ENDS OF THE TABLE. "nicht zentral mittig über dem Tisch wie erwartet ... der
+        //      Abstand ist viel zu groß - nur Überlappungen sollen vermieden werden."
+        //
+        //      244 stepped each window by 2 x its own half-width + a gap, which separates a PAIR by
+        //      TWICE the width it needs (each side already carries a half-width), and then took the
+        //      MAX with 0.45 x the table half-depth, which is a floor that has nothing to do with
+        //      the windows at all and is what shoved them out to the ends in
+        //      kartenraum_remotespawn.jpg. Both are gone. Each window steps by its OWN half-width
+        //      plus HALF the gap, so a pair separates by exactly halfA + halfB + gap: touching plus
+        //      the clear air, and not one millimetre more. Two same-size windows straddle the centre
+        //      of the table, which is what he asked for.
+        float step = halfWinXm + SharedAnchorLateralGapMeters * 0.5f;
         float lateral = home switch
         {
             1 => +step,
@@ -3708,9 +3762,20 @@ internal static partial class ModalFallback
             _ => 0f,
         };
         float centreYm = topYm + SharedAnchorTableClearanceMeters + halfWinYm;
+
+        //      AND THEY COME NEARER. The far half was the TABLE's own far edge, which on the
+        //      surveyed slab is 1.15 m out while the map itself ends at 0.60 m — so a shared window
+        //      hung a full half-metre past the thing it belongs to, over bare wood, which is the
+        //      "der Abstand ist viel zu groß" in the same sentence. It is now seated between the
+        //      map's far edge and the table's, biased toward the map: still clear of the parchment
+        //      (nothing is drawn over the thing he is looking at) and about 0.3 m nearer.
+        float mapFarHalf = shortAxisIsX
+            ? b.size.x * 0.5f / scale
+            : b.size.z * 0.5f / scale;
+        float depthHalf = Mathf.Min(farHalf, mapFarHalf + SharedAnchorMapEdgeMarginMeters);
         Vector3 localPos = shortAxisIsX
-            ? new Vector3(farHalf, centreYm, lateral)
-            : new Vector3(lateral, centreYm, farHalf);
+            ? new Vector3(depthHalf, centreYm, lateral)
+            : new Vector3(lateral, centreYm, depthHalf);
 
         // FACING IS 1:1: the window looks back across the table, from its home toward the map's
         // centre. Canvas front faces −forward, so pointing +Z AWAY from the reader is what faces
@@ -3762,11 +3827,15 @@ internal static partial class ModalFallback
                + $"{centreYm - halfWinYm - topYm:+0.000;-0.000} m above the table surface — a "
                + "NEGATIVE number here is the ModBuild 243 defect (the window standing IN the "
                + "table, multiplayer_fesnter_position.jpg) and nothing else. "
-               + $"LATERAL STEP {step:F3} m = max(table fraction {SharedAnchorLateralFraction:F2} x "
-               + $"half-depth {lateralHalf:F3} = {SharedAnchorLateralFraction * lateralHalf:F3}, "
-               + $"2 x own half-width {halfWinXm:F3} + gap {SharedAnchorLateralGapMeters:F2} = "
-               + $"{2f * halfWinXm + SharedAnchorLateralGapMeters:F3}), so two shared windows are at "
-               + "least the wider one's full width plus the gap apart and CANNOT merge. The short "
+               + $"LATERAL STEP {step:F3} m = own half-width {halfWinXm:F3} + half the gap "
+               + $"{SharedAnchorLateralGapMeters * 0.5f:F3}, so a PAIR separates by exactly "
+               + $"halfA + halfB + {SharedAnchorLateralGapMeters:F2} m and by nothing more "
+               + "(ModBuild 244 stepped by TWICE that and then took a max with a table fraction, "
+               + "which is what pushed them to the ends of the table in "
+               + "kartenraum_remotespawn.jpg). DEPTH: seated at "
+               + $"{depthHalf:F3} m, which is the map's own far edge {mapFarHalf:F3} + "
+               + $"{SharedAnchorMapEdgeMarginMeters:F2} m, capped at the table's {farHalf:F3} — "
+               + "clear of the parchment, and nearer than hanging it on the table edge. The short "
                + $"horizontal axis is {(shortAxisIsX ? "X" : "Z")} and the far end is its POSITIVE "
                + $"one, fixed; this client's own head sits at {seatSide}. "
                + "NO WIRE FIELD WAS NEEDED: both terms are pure functions of the parchment bounds, "
@@ -3806,8 +3875,10 @@ internal static partial class ModalFallback
         float boardScale = Mathf.Max(root.lossyScale.x, 0.01f);
         float halfWinY = Mathf.Max(halfSize.y / boardScale, SharedAnchorMinHalfHeightMeters);
         float halfWinX = Mathf.Max(halfSize.x / boardScale, 0f);
-        float step = Mathf.Max(SharedAnchorLateralFraction * halfLocalX * 2f,
-                               2f * halfWinX + SharedAnchorLateralGapMeters);
+        // ModBuild 245 — the same correction the table got: each window steps by its OWN half-width
+        // plus half the gap, so a pair separates by exactly halfA + halfB + gap. 244's doubled step
+        // and its board-width floor are gone for the reason stated on the table path.
+        float step = halfWinX + SharedAnchorLateralGapMeters * 0.5f;
         float lateral = home switch
         {
             1 => +step,
