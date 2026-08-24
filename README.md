@@ -1,10 +1,14 @@
 <p align="center">
-  <img src="src/GloomhavenVR/Assets/GloomhavenVR_logo.png" alt="GloomhavenVR" width="620">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/img/logo-dark.png">
+    <img src="docs/img/logo-light.png" alt="GloomhavenVR" width="620">
+  </picture>
 </p>
 
 <p align="center">
   <b>Play Gloomhaven (digital) as a room-scale VR board game.</b><br>
-  You stand at the table. You pick your cards up with your hands.
+  You stand at the table. You pick your cards up with your hands.<br>
+  <b>And your friends can stand at it with you.</b>
 </p>
 
 ---
@@ -20,13 +24,37 @@ into the scenario and the miniatures come up off their hexes. Between scenarios 
 is not a screen either; it is a room with a table in it, and your party token walks the route it
 travels.
 
-Everything else is exactly the game you already have. Same rules, same saves, same campaign, and
-the same people to play it with — including the ones who are not in a headset.
+Everything else is exactly the game you already have. Same rules, same saves, same campaign.
 
 <!-- VIDEO: docs/img/overview.mp4 -->
 > **[ VIDEO PLACEHOLDER — `docs/img/overview.mp4` ]**
 > *The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming
 > the board with the two-handed world grab.*
+
+---
+
+## Play it together, in VR
+
+**This is the part that makes it a board game again.** Multiplayer is not a mode that survived the
+port — it is the thing the whole mod is built around, and every feature in it was designed to
+work with other people from the first line of code.
+
+Sit two, three, four of you around the same table. You see each other: a mask where a face would
+be, hands that point and gesture and reach, a control board of your own beside you with your
+cards in it. When someone lifts a miniature off the board, everyone sees it lift. When someone
+drags the story window to a new spot, it moves for everyone, because a shared window hangs in the
+room and not in front of one person's eyes. Point at a hex and the others follow your finger.
+
+**And the people who do not own a headset lose nothing.** They sit in the same game on a flat
+screen, playing the game they already know, and everything you do in VR reaches them as an
+ordinary move. Nobody has to buy anything for you to play in VR.
+
+Everyone playing in VR needs the same version of the mod. That is the only rule.
+
+<!-- VIDEO: docs/img/multiplayer.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/multiplayer.mp4` ]**
+> *Two players at the same table: masks and hands, a miniature lifted and seen by both, a shared
+> window dragged to a new place in the room.*
 
 ---
 
@@ -37,25 +65,21 @@ two cards you want into the slots on your control board — slot order is your i
 like the physical game.
 
 <div align="center">
-  <video src="https://github.com/McFredward/GloomhavenVR/raw/main/docs/img/card-fan.mp4" width="800" controls muted loop playsinline>
-    <a href="./docs/img/card-fan.mp4">card-fan.mp4</a>
-  </video>
+  <a href="docs/img/card-fan.mp4"><img src="docs/img/card-fan-poster.jpg" width="800" alt="Play the card-fan clip"></a>
 </div>
 
 > *Palm rolls up, the card fan opens, a card is grabbed and dropped into a board slot; then the
-> top or bottom half is poked to choose it.*
+> top or bottom half is poked to choose it.* — **[▶ play the clip](docs/img/card-fan.mp4)**
 
 **You pick the miniatures up.** Squeeze one off the board, hold it up to see what it is, resize it
 in mid-air with your other hand, and let go — it glides back down to its hex.
 
 <div align="center">
-  <video src="https://github.com/McFredward/GloomhavenVR/raw/main/docs/img/figure-grab.mp4" width="800" controls muted loop playsinline>
-    <a href="./docs/img/figure-grab.mp4">figure-grab.mp4</a>
-  </video>
+  <a href="docs/img/figure-grab.mp4"><img src="docs/img/figure-grab-poster.jpg" width="800" alt="Play the figure-grab clip"></a>
 </div>
 
 > *A miniature is picked off the board, held up, scaled with the second hand, and glides back
-> to its hex when released.*
+> to its hex when released.* — **[▶ play the clip](docs/img/figure-grab.mp4)**
 
 **The game's windows become panels in the room.** Character sheets, the merchant, the story — grab
 one by its bar, move it, resize it, park it where you want it. Where you put one is where it stays.
@@ -85,6 +109,43 @@ their own off switch.
 
 ---
 
+## Make it yours — and let the others see it
+
+The hands you reach with, the face you wear and the board at your side are all yours to pick, and
+**the other players see your choice, not a default.** Every one of these was modelled for this
+project; none of it is lifted from the game.
+
+**Three pairs of hands.** They are your hands for the whole session — you will look at them more
+than at anything else in the room.
+
+<div align="center">
+  <img src="docs/img/styles-hands.png" width="820" alt="The three hand styles: leather glove, plate gauntlet, arcane glove">
+</div>
+
+> *Leather glove · Plate gauntlet · Arcane glove*
+
+**Three masks.** In multiplayer this is your face — it is what the others look at across the table
+while you think about your cards.
+
+<div align="center">
+  <img src="docs/img/styles-masks.png" width="820" alt="The three head masks: Ironwatch, Runeveil, Grimhorn">
+</div>
+
+> *Ironwatch · Runeveil · Grimhorn*
+
+**Three control boards.** This is the desk beside you that holds your two chosen cards, your round
+counter and your buttons.
+
+<div align="center">
+  <img src="docs/img/styles-boards.png" width="900" alt="The three control boards: Oak, Steel, Bronze">
+</div>
+
+> *Oak · Steel · Bronze*
+
+All nine are one dropdown each in the settings, changeable mid-session.
+
+---
+
 ## What you need
 
 - **Gloomhaven (digital) for PC**, v1.1.x — Steam or GOG.
@@ -102,15 +163,6 @@ Setup is two zip files extracted into the game folder, once.
 
 It installs alongside the normal game, writes nothing you cannot undo, and can be switched off
 again with a single line in a text file to get the original game back.
-
----
-
-## Playing with other people
-
-Multiplayer works, and it is built so it cannot spoil anyone's session. Everyone playing in VR
-needs the same version of the mod. Players who do not have the mod at all can sit in the same game
-with you quite happily — they just see the flat version, and nothing you do in VR reaches them as
-anything but a normal move.
 
 ---
 
@@ -154,7 +206,8 @@ Built on the work of others:
   (BSD-3-Clause) — the base hand models.
 - **Demeo** (Resolution Games) — the interaction model this mod chases. No assets or code from
   it are used.
-- The hands, the gloves and the other built 3D assets were made for this project by its artist.
+- The hands, the masks, the boards and the other built 3D assets were made for this project by its
+  artist.
 
 **Licence: GPL-3.0** — see [LICENSE](LICENSE). The mod ships **only its own code and its own
 licensed artwork**; never game files, game assets or decompiled sources.

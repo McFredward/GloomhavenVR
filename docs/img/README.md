@@ -1,14 +1,28 @@
 # README images
 
-The wordmark the README shows at the top is **not** here — it is the one the mod itself puts in
-the main menu, referenced straight from `src/GloomhavenVR/Assets/GloomhavenVR_logo.png` so the
-page and the game can never show two different logos.
+## The wordmark is committed FLATTENED, twice — and that is a workaround, not a fix
+
+The user reported white gaps in the wordmark **on GitHub only**: correct locally, correct in the
+game, wrong on the page. It could not be reproduced from the file. The alpha is clean (68,956 fully
+transparent pixels, all with RGB 0,0,0), the 15,486 partial pixels are dark brown, there is no
+`gAMA`, `sRGB` or `iCCP` chunk to be mis-read, and compositing it by hand onto `#ffffff` and onto
+`#0d1117` produces the right picture both times.
+
+So rather than assert a cause no instrument here can observe, the variable is removed:
+`logo-light.png` and `logo-dark.png` are that same artwork **flattened onto GitHub's two canvas
+colours, with no alpha channel at all**, selected by `<picture>` + `prefers-color-scheme`. Nothing
+composites anything at view time, so nothing can composite it wrongly.
+
+**The cost, stated:** the page and the game now read the wordmark from two different files, and
+`src/GloomhavenVR/Assets/GloomhavenVR_logo.png` is still the one the mod puts in the main menu. A
+future change to the artwork has to re-flatten these two onto `#ffffff` and `#0d1117` or the page
+will quietly show the old one.
 
 ## The demo clips are MP4, not GIF, and that was measured
 
-The README is the project's pitch and these six clips carry it, so they matter more than any
-paragraph on the page. They were GIFs for exactly one day. The two that exist were captured as
-15-second 1280x720 clips and encoded both ways:
+The README is the project's pitch and these clips carry it, so they matter more than any paragraph
+on the page. They were GIFs for exactly one day. The two that exist were captured as 15-second
+1280x720 clips and encoded both ways:
 
 | | card-fan | figure-grab | together |
 |---|---:|---:|---:|
@@ -19,15 +33,42 @@ paragraph on the page. They were GIFs for exactly one day. The two that exist we
 
 Roughly **29x smaller than the GIFs at twice the frame rate and full colour**, because a GIF has
 256 colours, no interframe prediction and no chroma subsampling, and a dark scene with fine
-particles is the worst case for all three. The optimised GIF is still 32 MB *and* looks worse.
-This is not a close call; do not re-add a GIF.
+particles is the worst case for all three at once. The optimised GIF is still 32 MB *and* looks
+worse. This is not a close call; do not re-add a GIF.
 
-**Git LFS is not the answer either, and the reason is worth writing down**: a plain `git clone`
-of an LFS repo still downloads the CURRENT version of every LFS file — the smudge filter is the
-default. LFS saves HISTORY, not the working copy, so for a clip committed once it saves nothing.
-It would also spend the account's 1 GB/month LFS bandwidth on every clone.
+**Git LFS is not the answer either**, and the reason is worth writing down: a plain `git clone` of
+an LFS repo still downloads the CURRENT version of every LFS file — the smudge filter is the
+default and skipping it is the cloner's choice, not the repository's. LFS saves HISTORY, not the
+working copy, so for a clip committed once it saves nothing, while spending the account's
+1 GB/month LFS bandwidth on every clone.
 
-## Encoding a new one
+## How they are embedded — a POSTER that links to the file, and why `<video>` lost
+
+The first attempt used `<video src="https://github.com/OWNER/REPO/raw/main/…">`. The user saw
+nothing, and there were TWO independent reasons, either of which alone is fatal:
+
+1. **The URL named `main`.** The clips are committed on `dev`; `main` is the release branch and did
+   not have them. The tag pointed at a 404.
+2. **The repository is private**, so a `raw` URL needs authentication and a `<video>` element has no
+   way to ask for it. It renders empty even when the path is right.
+
+And a third that is not GitHub's fault: `<video>` is only conditionally allowed through GitHub's
+HTML sanitiser, so a tag that works today is not a thing to build a pitch on.
+
+What ships instead is a **poster image that links to the mp4**:
+
+```html
+<div align="center">
+  <a href="docs/img/card-fan.mp4"><img src="docs/img/card-fan-poster.jpg" width="800"></a>
+</div>
+```
+
+A relative `<img>` is rewritten by GitHub on **every** branch, public or private, and has never
+needed a sanitiser exemption. The link opens the clip in GitHub's own file view. There is no inline
+playback — that is the price, and it is worth paying for something that is visible at all. Posters
+carry a play glyph drawn on top so the still reads as a video.
+
+## Encoding a new clip
 
 ```
 ffmpeg -ss <start> -to <end> -i <capture>.mp4 -an \
@@ -38,40 +79,44 @@ ffmpeg -ss <start> -to <end> -i <capture>.mp4 -an \
 - **`-an`** — the clips are silent on purpose. A README video is watched muted, and one that could
   suddenly play sound is worse than one that cannot.
 - **`-pix_fmt yuv420p`** — without it Safari and several Android browsers will not decode it.
-- **`-movflags +faststart`** — puts the index at the front so the video starts on a partial load.
+- **`-movflags +faststart`** — puts the index at the front so it starts on a partial load.
 - **Trim the capture.** A Virtual Desktop recording opens and closes on the VD dashboard and shows
   the controller models before the hands take over; both ends have to go. Find the cut by eye:
   `ffmpeg -i <capture>.mp4 -vf "fps=4,scale=400:-1,tile=5x4" sheet.png` and read the sheet.
 - Keep each clip **under ~3 MB** and around **10-15 seconds**, one idea per clip, cropped to the
   action. Capture ONE eye — a stereo capture is twice the pixels for no benefit on a flat page.
 
-## How they are embedded
+## The asset strips
 
-GitHub does not reliably rewrite a relative path inside a `<video>` tag, so the src is the absolute
-raw URL and a plain link sits inside the tag as the fallback if the tag is ever stripped:
+`styles-hands.png`, `styles-masks.png`, `styles-boards.png` are rendered from the **shipped bundle
+assets** by `unity/asset-preview/render_asset.py`, which reproduces `GloomhavenVR/BoardLit` node for
+node — the same emission-of-albedo-times-shade the player sees, with no renderer lighting model
+getting a say. A strip is not concept art; it is the asset.
 
-```html
-<div align="center">
-  <video src="https://github.com/McFredward/GloomhavenVR/raw/main/docs/img/card-fan.mp4"
-         width="800" controls muted loop playsinline>
-    <a href="./docs/img/card-fan.mp4">card-fan.mp4</a>
-  </video>
-</div>
-```
+Two things in that script are load-bearing, and both were learned the hard way:
 
-**While the repository is private that URL needs authentication**, so the player renders empty for
-anyone not signed in — including in a preview shown to someone else. It resolves itself the moment
-the repository is public, which is the state the pitch is written for. If a public-looking preview
-is ever needed sooner, the fallback is a poster PNG that links to the file.
+- **`view_layer.update()` before reading `cam.matrix_world`.** Without it the matrix is still
+  identity, the "camera-space" fit silently becomes a world X/Y fit, and the framing is right only
+  for assets whose widest world axis is the one the camera happens to look at. That is exactly how
+  the first run framed all three boards correctly and cut the fingertips off all three hands.
+- **`--scale` and `--focus-z`.** Auto-fit makes every asset fill its own frame, which normalises
+  away real size differences and lets a strip claim something untrue. The hands are pinned to the
+  sizes the player actually sees: the armoured hands are ~2.3x bulkier in mesh and are worn at
+  `[Hands] PlateScale` 0.62, the number that matches them to the glove's real hand bulk.
+
+Regenerate them with the recipe in each strip's caption below, then flatten onto `#1a1613`.
 
 ## Still missing
 
-Each one has a visible placeholder in the README at the spot it belongs; dropping the file in with
-the exact name below makes its `<!-- VIDEO: ... -->` comment the line to replace.
+Each has a visible placeholder in the README at the spot it belongs; dropping the file in with the
+exact name below makes its `<!-- VIDEO: … -->` comment the line to replace.
 
 | File | What it should show |
 |---|---|
 | `overview.mp4` | The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming the board with the two-handed world grab. This is the one that has to sell it in three seconds. |
+| `multiplayer.mp4` | **The one that matters most now.** Two players at the same table: masks and hands, a miniature lifted and seen by both, a shared window dragged to a new place in the room. It needs two headsets, which is why it is not here yet. |
 | `windows.mp4` | A window opens in front of the player, is grabbed by its bar, moved and resized, then reeled closer with the thumbstick. |
 | `map-room.mp4` | The 3D campaign map room: pressing a table-rim cap, pointing at a location, the party token walking its route. |
 | `environments.mp4` | The cellar and the night forest — firelight, the night sky, foliage moving, switching environments in the settings. |
+
+Each new clip needs a poster beside it, same name plus `-poster.jpg`.
