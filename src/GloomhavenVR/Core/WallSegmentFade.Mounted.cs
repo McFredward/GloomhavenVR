@@ -1897,8 +1897,10 @@ internal static partial class WallSegmentFade
             }
             _mountedLeftoverByClass.TryGetValue("FLOATING", out int mlFloating);
             _mountedLeftoverByClass.TryGetValue("OBSTRUCTING", out int mlObstructing);
+            _mountedLeftoverByClass.TryGetValue("WALL MEMBER", out int mlWallMember);
             _mountedLeftoverByClass.TryGetValue("ALLOWED", out int mlAllowed);
-            int mlOther = _censusMountedLeftover - mlFloating - mlObstructing - mlAllowed;
+            int mlOther = _censusMountedLeftover - mlFloating - mlObstructing - mlWallMember
+                          - mlAllowed;
             VRLog.Warn(Name,
                 $"LEFTOVER OVER A FADED WALL: {_censusMountedLeftover} renderer(s) are actually "
                 // THE VERDICT FIRST (ModBuild 262). The 260 log printed this count 122 times,
@@ -1912,7 +1914,11 @@ internal static partial class WallSegmentFade
                 + $"(foot above the {WallStandingProp.FootBandWU:0.0} wu floor band — the wall "
                 + $"was holding it up and is gone), {mlObstructing} OBSTRUCTING (on the floor and "
                 + "still hiding ≥1 frustum-visible playable-tile sample, measured with the fade "
-                + $"trigger's own ray test), {mlAllowed} ALLOWED (on the floor, hides nothing)"
+                + $"trigger's own ray test), {mlWallMember} WALL MEMBER (the wall generator "
+                + "built it — inside a ProceduralWall subtree, above the ground band, outside "
+                + "every water rect; a defect whatever its height and whatever it hides, and the "
+                + "class that must read ZERO), "
+                + $"{mlAllowed} ALLOWED (belongs to no wall, on the floor, hides nothing)"
                 + (mlOther > 0
                     ? $", {mlOther} UNJUDGED — an input was missing (no anchored floor plane, no playable-tile grid for the room, or no sample of it in view this tick); the class tally below names which, and NONE of them is read as ALLOWED"
                     : string.Empty)
@@ -1934,14 +1940,15 @@ internal static partial class WallSegmentFade
                 + $"can be is ADOPTED BY THE WRONG WALL, which produces no reject at all and is "
                 + $"counted on the WALL-MOUNTED DRESSING line instead "
                 + $"({_censusMountedCarriedParticles} this rescan). DEFECT names only — FLOATING "
-                + $"and OBSTRUCTING, up to {MountedLeftoverCap} of the "
-                + $"{mlFloating + mlObstructing + mlOther} non-ALLOWED (the ALLOWED ones are "
+                + $"and OBSTRUCTING and WALL MEMBER, up to {MountedLeftoverCap} of the "
+                + $"{mlFloating + mlObstructing + mlWallMember + mlOther} non-ALLOWED (the "
+                + "ALLOWED ones are "
                 + "listed above, which is why a plain 'total minus names' subtraction would "
                 + "over-count the omission — the same arithmetic slip ModBuild 261 fixed on the "
                 + "SPLIT-RUN clause): "
                 + string.Join("; ", _mountedLeftovers)
-                + (mlFloating + mlObstructing + mlOther > _mountedLeftovers.Count
-                    ? $"; … ({mlFloating + mlObstructing + mlOther - _mountedLeftovers.Count} "
+                + (mlFloating + mlObstructing + mlWallMember + mlOther > _mountedLeftovers.Count
+                    ? $"; … ({mlFloating + mlObstructing + mlWallMember + mlOther - _mountedLeftovers.Count} "
                       + "more defect(s) not named)"
                     : string.Empty)
                 + ". This is the shape of the 2026-08-24 report (wandproblem3.jpg): the wall is "
@@ -1966,6 +1973,11 @@ internal static partial class WallSegmentFade
         /// ALLOWED ones go to <c>_runLeftoverAllowed</c>), which is why the old
         /// "<c>N − names.Count</c> more" arithmetic over-counted the omission. Both are stated
         /// here instead of inferred.</para>
+        ///
+        /// <para>MODBUILD 264 narrowed ALLOWED again: a piece now also has to belong to NO wall to
+        /// earn it (see <see cref="FadeDriver.IsWallGeneratedMember"/>), and the pieces that fail
+        /// that test are counted and named as WALL MEMBER — the class that must read zero.
+        /// Nothing else on this line moved.</para>
         /// </summary>
         private string SplitRunPiecesClause()
         {
@@ -1978,15 +1990,21 @@ internal static partial class WallSegmentFade
             }
             _runLeftoverByClass.TryGetValue("FLOATING", out int floating);
             _runLeftoverByClass.TryGetValue("OBSTRUCTING", out int obstructing);
+            _runLeftoverByClass.TryGetValue("WALL MEMBER", out int wallMember);
             _runLeftoverByClass.TryGetValue("ALLOWED", out int allowed);
-            int other = _runLeftover - floating - obstructing - allowed;
+            int other = _runLeftover - floating - obstructing - wallMember - allowed;
             return $" SPLIT-RUN PIECES: {_runLeftover} RENDERER(S) across {_runLeftoverSegments} "
                 + "piece(s) still DRAWING beside a faded run — "
-                + $"{floating} FLOATING, {obstructing} OBSTRUCTING, {allowed} ALLOWED"
+                + $"{floating} FLOATING, {wallMember} WALL MEMBER, {obstructing} OBSTRUCTING, "
+                + $"{allowed} ALLOWED"
                 + (other > 0 ? $", {other} UNJUDGED (an input was missing — see the SPLIT-RUN LEFTOVER class tally for which)" : string.Empty)
-                + ". ONLY the FLOATING and OBSTRUCTING counts are the defect (user ruling "
+                + ". FLOATING, WALL MEMBER and OBSTRUCTING are the defect (user rulings "
                 + "2026-08-24); ALLOWED standing on the floor and hiding nothing is what he "
-                + $"expressly permits. The {_runLeftoverNames.Count} name(s) below are those two "
+                + "expressly permits. WALL MEMBER is the ModBuild-264 class and it is the one "
+                + "that must now read ZERO: a piece the wall generator BUILT, still drawing while "
+                + "its run is gone, is a defect whatever its height and whatever it hides — which "
+                + "is what stops this line reporting '99 x ALLOWED' at a photograph of a solid "
+                + $"hedge. The {_runLeftoverNames.Count} name(s) below are those three defect "
                 + "classes only, capped at " + MountedLeftoverCap + " — the ALLOWED pieces are "
                 + "named on the SPLIT-RUN LEFTOVER line, which also carries the complete "
                 + "per-reason distribution: " + string.Join("; ", _runLeftoverNames) + ".";

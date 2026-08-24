@@ -864,6 +864,13 @@ internal static partial class WallSegmentFade
         /// and without this note the next round would chase it. Deliberately not folded into the
         /// class: the classes are the user's three words and nothing else may be smuggled into
         /// them.
+        ///
+        /// <para>MODBUILD 264: the two rects here are also the two exclusion terms of
+        /// <see cref="IsWallGeneratedMember"/>, so an EXEMPT piece can never be classified WALL
+        /// MEMBER. That is not a special case bolted onto the class — an exemption rect IS a
+        /// statement that some other owner holds the piece, which is the same question the
+        /// membership test asks. If a third exemption rect is ever added, add it in BOTH places or
+        /// the new one will be reported as the defect it is exempt from.</para>
         /// </summary>
         private string LeftoverExemptionNote(Renderer r)
         {
@@ -901,9 +908,12 @@ internal static partial class WallSegmentFade
         /// <list type="bullet">
         /// <item>FLOATING — its foot does not reach the floor band. It was carried by the wall and
         ///   the wall is gone. He calls this out most sharply; it must never happen.</item>
+        /// <item>WALL MEMBER — the wall generator BUILT it (ModBuild 264). A defect whatever its
+        ///   height and whatever it hides; see <see cref="IsWallGeneratedMember"/>.</item>
         /// <item>OBSTRUCTING — it stands on the floor and still hides a playable tile.</item>
-        /// <item>ALLOWED — it stands on the floor and hides nothing. A well, a low stone
-        ///   formation. Not part of the wall at all, in his words.</item>
+        /// <item>ALLOWED — it belongs to NO wall, stands on the floor and hides nothing. A well, a
+        ///   low stone formation, a crystal on the ground. Not part of the wall at all, in his
+        ///   words. Since ModBuild 264 that first clause is a test and not a hope.</item>
         /// </list>
         ///
         /// <para>NO NEW CONSTANT IS INTRODUCED, deliberately — four thresholds in this subsystem
@@ -961,12 +971,106 @@ internal static partial class WallSegmentFade
             top = b.max.y - floorY;
             if (foot > WallStandingProp.FootBandWU)
                 return "FLOATING";
+            // MODBUILD 264 — MEMBERSHIP BEFORE GEOMETRY, and deliberately ahead of BOTH remaining
+            // UNJUDGED arms as well as the sample test: provenance needs no sample grid and no
+            // frustum-visible sample to be true, so a wall member is judged even in the two states
+            // ModBuild 262 rightly refuses to judge OBSTRUCTING/ALLOWED in. It cannot be asked
+            // before the anchored-floor arm above, because both of its exclusion terms are
+            // measured against that plane. See IsWallGeneratedMember for the number that forced
+            // this ordering.
+            if (IsWallGeneratedMember(r, floorY))
+                return "WALL MEMBER";
             visibleSamples = PieceBlockedSamples(r, room, out blockedSamples);
             if (visibleSamples < 0)
                 return "UNJUDGED (this room has no playable-tile sample grid)";
             if (visibleSamples == 0)
                 return "UNJUDGED (no playable-tile sample of this room is in view this tick)";
             return blockedSamples > 0 ? "OBSTRUCTING" : "ALLOWED";
+        }
+
+        /// <summary>
+        /// MODBUILD 264 — DOES A WALL GENERATOR OWN THIS RENDERER? The one test that decides
+        /// whether a leftover is ALLOWED or a defect, and it is a MEMBERSHIP question rather than
+        /// a geometric one.
+        ///
+        /// <para><b>THE NUMBER THAT FORCED IT.</b> The ModBuild-261 log classifies its leftovers
+        /// <c>BY THE USER'S THREE CLASSES: 99 × ALLOWED</c> on 21 of 22 passes and
+        /// <c>98 × ALLOWED; 1 × OBSTRUCTING</c> on the twenty-second — a healthy scene by the
+        /// geometric rule — while mauerproblem_erneut2.jpg shows a wall run at fade 1.00 behind a
+        /// solid band of ferns, ivy curtains and vine-covered stumps. The user's reply:
+        /// <i>"Das Gestrüp an der hinteren Wand ist immer noch nicht weg — das soll vollständig
+        /// alles mit-weg-faden"</i>, and <i>"Leite von den Regeln dieses Raumes weitere ab für
+        /// alle Szenarios … sondern überall funktioniert"</i>. So "is it low and does it block a
+        /// sample" is not his question. His is: does this belong to the wall? Scrub, ivy, ferns
+        /// and trunks the wall generator produced belong to it and go with it however low they
+        /// are; a crystal formation standing on the floor does not.</para>
+        ///
+        /// <para>ModBuild 262 and 263 widened WHAT this classifier sees (all eight lists a piece
+        /// owns, a verdict per drawing renderer, and the UNJUDGED arms that stop a missing input
+        /// reading as ALLOWED) and every one of those numbers stands. They do not touch the
+        /// question this test asks, which is the one the geometric classes cannot express.</para>
+        ///
+        /// <para><b>WHY IT IS GENERIC AND NOT A NAME LIST.</b> The discriminator is the tileset's
+        /// OWN CONSTRUCTION, not an asset family: every biome's wall generator parents its
+        /// dressing under <c>Walls/Wall N/Generated Content/…</c>. That is where the same log
+        /// finds the offenders — <c>'CR_FR_Wall_Grassy_Verge_Ivy_01'</c>,
+        /// <c>'CR_FR_Wall_LS_PlantsBushes_03'</c>, <c>'CR_FR_Wall_Log_Structure_Stump_03'</c> and
+        /// 180 more ancestry rows under <c>'Walls/Wall 1/Generated Content/…'</c> — and it is NOT
+        /// where it finds the one piece he says may stay: <c>'CV_Ice_Crystal_Form_02'</c> appears
+        /// in no ancestry row, in no <c>FADE WRITE</c> row and in no prop unit of any wall. The
+        /// test names no tileset, no shader family, no size and no coordinate.</para>
+        ///
+        /// <para><b>THE TRAP, AND THE TWO TERMS THAT DISARM IT — a hierarchy path is not
+        /// membership.</b> Floor hexes are ALSO parented under <c>Wall N/Generated Content/</c>;
+        /// <see cref="WallStandingProp"/> records the exact path
+        /// (<c>Wall N/Generated Content/PCG_CR_Floor_BaseHex_Plain/EN_CR_Floor_BaseHex_Plain</c>)
+        /// and the ModBuild-261 STANDING PROP line catches them being claimed —
+        /// <c>848 claim(s) refused this rescan: 'FR_Floor_Grass_Half_02' → 'Wall 1',
+        /// 'FR_Floor_Scatter_Grass_Medium_05' → 'Wall 1', 'FR_Floor_Grass' → 'Wall 1', …</c>.
+        /// So the test carries the SAME two terms the fade path itself already uses to decide a
+        /// wall does not own a piece, and introduces no third:
+        /// <list type="number">
+        /// <item>the ground band <see cref="FadeDriver.GroundExclusionHeightWU"/> — the rule
+        ///   <see cref="FadeDriver.StripGroundRenderers"/> removes ground-lying renderers from a
+        ///   segment by, verbatim. Every floor piece the 261 log names is comfortably inside it:
+        ///   tops −0.24, −0.20, −0.15, −0.19 wu over the floor, and
+        ///   <c>PCG_FR_Floor_Grass_Hex_Split_PR</c> at foot −0.3 / height 0.5, against 1.0 wu;</item>
+        /// <item>the water rect, <see cref="FadeDriver.IsWaterProtected"/> — the pond, its basin,
+        ///   bank, rim and emitters are the water feature's own unit (user ruling 2026-08-09);
+        ///   </item>
+        /// <item>the doorway-arch rect, <see cref="FadeDriver.IsArchProtected"/> — a doorway never
+        ///   fades (user ruling 2026-08-02) and that rect already pulls its masonry back off the
+        ///   wall, so the wall does not own it either. Without this term a correctly-behaving
+        ///   doorway would be reported as the defect this class exists to find, and the user says
+        ///   the masonry at the door behaves exactly as he wants.</item>
+        /// </list>
+        /// NO NEW CONSTANT, which is the standing discipline in this file: four thresholds here
+        /// have been shipped from a single scenario's numbers and each was falsified by the next
+        /// hardware log.</para>
+        ///
+        /// <para>MULTIPLAYER: this is a diagnostic classification of local scene hierarchy. No
+        /// decision, no wire record, no peer-visible state.</para>
+        ///
+        /// <para>COST: one hierarchy climb per LEFTOVER — never per frame and never a scene sweep.
+        /// It is the same call the sibling adoption sweep already makes per candidate
+        /// (<c>r.GetComponentInParent&lt;ProceduralWall&gt;()</c>), and it runs inside the audit
+        /// ModBuild 262 already sliced against the 1.5 ms budget.</para>
+        ///
+        /// <para>FALSIFIED BY: a WALL MEMBER entry naming a floor hex or a pond rim — then the
+        /// band or the rect is the wrong term, not the membership rule; or the user reporting
+        /// scrub while this class reads zero — then the wall generator did not build that scrub
+        /// and provenance is not what identifies it.</para>
+        /// </summary>
+        private bool IsWallGeneratedMember(Renderer r, float floorY)
+        {
+            Bounds b = r.bounds;
+            if (b.max.y <= floorY + GroundExclusionHeightWU)
+                return false;               // ground band — the wall never owned it
+            if (IsWaterProtected(b))
+                return false;               // the water feature's own unit owns it
+            if (IsArchProtected(b, r.name))
+                return false;               // the doorway owns it, and doorways never fade
+            return r.GetComponentInParent<ProceduralWall>() != null;
         }
 
         /// <summary>
@@ -1068,7 +1172,13 @@ internal static partial class WallSegmentFade
                 + "up and is gone — the one he says must never happen. OBSTRUCTING = on the floor "
                 + "and still hiding at least one FRUSTUM-VISIBLE playable-tile sample, measured "
                 + "with the fade trigger's own ray test, so 'low enough' needs no height constant. "
-                + "ALLOWED = on the floor, hides nothing — the well and the low stone formation, "
+                + "WALL MEMBER = the wall generator built it (inside a ProceduralWall subtree, "
+                + "above the ground band, outside every water rect) — a defect at fade "
+                + $"≥{FoliageHideFade:0.00} whatever its height and whatever it hides, which is "
+                + "the class ModBuild 264 added because 99 x ALLOWED read as a healthy scene "
+                + "while the photograph showed a solid hedge. "
+                + "ALLOWED = belongs to NO wall, on the floor, hides nothing — the well, the low "
+                + "stone formation and the crystal on the ground, "
                 + $"which he does not regard as part of the wall: {_runLeftoverAllowed.Count} "
                 + "named ["
                 + string.Join("; ", _runLeftoverAllowed)

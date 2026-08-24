@@ -416,7 +416,91 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 263;
+    public const ushort ModBuild = 264;
+    // Build 264: THE WATER RECT WAS HOLDING WHOLE WALLS, AND THE COHESION PASS NEVER RAN ON THEM.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    // *** THIS ONE CHANGES BEHAVIOUR. 261, 262 and 263 did not, and he tested all three. ***
+    //
+    // USER, after testing 263: "Ich erkenne keinen Unterschied beim neuesten Build. Die
+    // beschriebenen Probleme sind so immer noch 1:1 genauso da … An der hinteren Wand ist das
+    // Gestrüp immer noch nicht mitgefaded und die rechte Wand faded so gut wie gar nicht mehr."
+    // He is right and the sequencing was the fault: three consecutive builds carried instruments
+    // and nothing else while the two causes sat diagnosed beside them.
+    //
+    // (1) THE RIGHT WALL: THE WATER RECT WAS REFUSING WHOLE WALL UNITS. Confirmed live in his
+    // ModBuild 263 log — `10 unit(s) refused this rescan` on five of six rescans, and NOT ONE
+    // refused member is water. They are CR_FR_Wall_Rocky_Verge_Bushes_02, FR_Floor_LargeBush_04
+    // and _06, FR_Floor_Detail_Grass_05_PR, CR_RU_Vines, FR_Floor_PlantsBushes_01 — bank
+    // vegetation the pond rect legitimately covers (FR_SW_Pond_Medium (2) top 1.1, rect ceiling =
+    // top + 1.0). Roughly 85 renderers of 'Wall 4' held solid every rescan. That is the
+    // photograph in mauerproblem_erneut2.jpg.
+    // The water rect is ITSELF a whole-unit protection — of a DIFFERENT unit (pond, basin, bank,
+    // rim, emitters). A piece inside it already has an owner, which is word for word the argument
+    // the STANDING arm beside it is already a SKIP on. So the water arm becomes a per-renderer
+    // skip. PropUnitRecruit has ALWAYS refused water per renderer; the refusal arm was the only
+    // path where a water piece cost more than itself. The FIGURE arm still refuses whole,
+    // bit-for-bit — it fired zero times in the 261 session, so nothing in this round bears on it,
+    // and the skull ruling is untouched.
+    // AND ModBuild 259's OWN AUTHOR WROTE THE FALSIFIER FOR THIS: "REFUSED WHOLE above zero in
+    // the next hardware log, with a wall visibly standing." It has been above zero in every log
+    // since. Nobody read the line — including me, three rounds running.
+    //
+    // (2) THE BACK WALL: THE COHESION PASS SKIPS EVERY SPLIT SEGMENT BY CONSTRUCTION, and every
+    // torn wall in this scenario IS a split segment (TORN 'PCG_FR_Wall_Grassy_Verge_01_PR' 3/5
+    // written … ← wall renderer[split segment] … LEFT SOLID: CR_FR_Wall_Grassy_Verge_Grass_01,
+    // _Plants_01). The one pass whose whole job is "one unit, one owner, every member gets a
+    // channel" never ran on the walls that need it — documented as an ACCEPTED LIMITATION, and it
+    // was accepted before split runs existed. SplitPieceMayClaim lets a split piece with a LIVE
+    // run anchor claim and own its prop unit. Three guards keep the decision untouched: the
+    // "take it off every segment" loop still skips split segments so nothing is ever REMOVED from
+    // one; a split owner's decision AABB is NOT grown by what it recruits (that is exactly how the
+    // engulfing and jungle-floor fixes would be undone — the existing RunPassenger discipline);
+    // and the fade still comes from the run, so pieces of one run cannot tear against each other.
+    //
+    // (3) WALL MEMBER, the class the user's own words demanded. His criterion is a MEMBERSHIP
+    // question, not a geometric one: "Entweder verschwindet die ganze Wand mit ALLEM was dazu
+    // gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da", and separately that a well or a
+    // low crystal formation may stay. ModBuild 261's three classes answered "is it low and does it
+    // hide a sample" and therefore reported `99 × ALLOWED` at a photograph of a solid hedge.
+    // A piece under a ProceduralWall, above the incumbent ground band, outside every water rect
+    // and not arch-protected is now a DEFECT at fade >= 0.99 whatever its height and whatever it
+    // hides. ALLOWED now means only "belongs to no wall". No new constant — all three exclusion
+    // terms are incumbents.
+    // THE ARCH COUPLING IS DELIBERATE AND WRITTEN DOWN: doorway masonry is under a ProceduralWall
+    // and above the ground band, so without IsArchProtected this rule would report the one wall
+    // the user says is correct ("die Mauer an der Tür verhält sich exakt so wie ich das will") as
+    // the defect. An exemption rect IS a statement that another owner holds the piece, which is
+    // the same question membership asks — a fourth rect must be added in both places or it is
+    // reported as the defect it is exempt from.
+    //
+    // (4) A BRAND-NEW INSTRUMENT WAS ALREADY LYING, AND HE CAUGHT IT IN ONE MESSAGE. ModBuild 263
+    // printed `TILESET Crypt/Catacombs x5 over 5 distinct CMap(s)` and I relayed it to him as the
+    // first non-forest evidence this project had ever had. He replied: "Ich war in der selben map
+    // die ich die ganze Zeit verteste, nicht in einer Gruft." THE SAME LOG PROVES HIM RIGHT —
+    // 800 PCG_FR_ instantiations against 94 PCG_CR_ and 53 PCG_CV_.
+    // CMap.SelectedPossibleRoom is the LEVEL EDITOR's field (its only other reader in the whole
+    // game is LevelEditorController.cs:406-411) and ESubBiome.Catacombs is marked [Obsolete]. A
+    // design-time field describing what a room COULD be is not a measurement of what was built,
+    // and I shipped it as one. Relabelled AUTHORED ROOM TEMPLATE with the contradiction and the
+    // real falsifier named in the line itself; the measured PCG_ prefix histogram is the number to
+    // accumulate next, and until then it is one grep. NOT deleted — the two disagreeing is itself
+    // the finding, and this is the same shape as ModBuild 226's "a default value names an unbuilt
+    // thing": a field that is always readable is not always meaningful.
+    //
+    // (5) AND A SECOND SITE OF THE ModBuild 262 DEFAULTS SLIP, fixed here: another comment block
+    // also called 0.25/0.10 "the shipped defaults". They are the pre-Bind CLAMP FALLBACKS and
+    // reach no install. The shipped defaults are Defaults.OnFraction 0.35 / OffFraction 0.20.
+    //
+    // STILL OPEN, verified and deliberately not in this build: the leaf cutoff. SHOW EDGE already
+    // measures it — 81 of 198 pieces re-shown "with a clip value that discards every texel",
+    // _Cutoff 1.20 against an authored 0.50 — and the fix is one sentence with no new constant
+    // ("a piece is not shown until it can be drawn as authored"). It touches five appliers and was
+    // cut to get these two behaviour fixes to him. Note for that round: the "one-frame skew" I
+    // suspected DOES NOT EXIST — ApplyMounted drives with seg.Fade * MountedFadeLead (1.25), so at
+    // seg.Fade 0.90 the drive fade is 1.00 and Lerp(0.5, 1.2, 1.0) = 1.20. Two different
+    // quantities, both correct. Do not send a lane to fix an ordering bug that is not there.
+    //
     // Build 263: THE INSTRUMENTS THAT WERE MEANT TO PROVE GENERALITY COULD NOT.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes. MEASUREMENT-ONLY, one file. NOT YET THE TEST BUILD.

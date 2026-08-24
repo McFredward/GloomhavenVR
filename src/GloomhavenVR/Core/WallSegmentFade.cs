@@ -6346,7 +6346,7 @@ internal static partial class WallSegmentFade
             }
             if (sb.Length == 0)
                 sb.Append("no CMap identified yet");
-            return $"TILESET {sb} over {_censusMapsSeen.Count} distinct CMap(s); "
+            return $"AUTHORED ROOM TEMPLATE (level-editor field, NOT the built tileset — ModBuild 263 printed Crypt/Catacombs for a confirmed FOREST session; verify against the PCG_ prefixes in this same log) {sb} over {_censusMapsSeen.Count} distinct CMap(s); "
                 + $"{_roomMapKeys.Count} logical room(s) registered, {noMap} of them with no "
                 + "CMap of their own";
         }
@@ -6366,6 +6366,20 @@ internal static partial class WallSegmentFade
                 }
                 else
                 {
+                    // ModBuild 264 — THIS IS THE AUTHORED TEMPLATE, NOT THE BUILT TILESET, and
+                    // it has already been observed contradicting the geometry in the same log.
+                    // ModBuild 263 printed 'Crypt/Catacombs x5' for a session the user confirmed
+                    // was the FOREST map he has been testing all along, and the same log carries
+                    // 800 PCG_FR_ instantiations against 94 PCG_CR_ and 53 PCG_CV_. CMap
+                    // .SelectedPossibleRoom is the LEVEL EDITOR's selection (its only other
+                    // reader in the game is LevelEditorController.cs:406-411) and ESubBiome
+                    // .Catacombs is marked [Obsolete] — so this is a design-time field, and a
+                    // design-time field describing what a room COULD be is not a measurement of
+                    // what was built. Labelled as such rather than deleted, because the two
+                    // disagreeing is itself the finding.
+                    // FALSIFIER, and the number to trust instead: the PCG_ prefix distribution of
+                    // what was actually instantiated. Until that is accumulated here, read it out
+                    // of the log directly — grep -o "PCG_[A-Z][A-Z]_" | sort | uniq -c.
                     var room = map.SelectedPossibleRoom;
                     label = room == null
                         ? "CMap-without-possible-room"
@@ -6397,8 +6411,9 @@ internal static partial class WallSegmentFade
             //   • THE SCHMITT BARS COLLAPSE IN CELL TERMS — ceil(On·n) == ceil(Off·n), so the
             //     enter and exit bars are the SAME number of samples and the trigger has no
             //     hysteresis left in the only unit it can actually move in. With the pair LIVE
-            //     in the 2026-08-24 log (on 0.35 / off 0.20 — a tuned cfg, NOT the shipped
-            //     defaults, which are on 0.25 / off 0.10; see WallFadeTuning.On/Off) that is
+            //     in the 2026-08-24 log (on 0.35 / off 0.20 — which ARE the shipped defaults,
+            //     Defaults.OnFraction/OffFraction; the 0.25/0.10 next to WallFadeTuning.On/Off
+            //     are the pre-Bind CLAMP FALLBACKS and reach no install) that is
             //     every n ≤ 2 (n=2: both bars 1 cell; n=1: both bars 1 cell), and the
             //     separation is already down to ONE cell for every n ≤ 11 against the TWO
             //     cells the 16-cell room has. Which n degenerate therefore moves with the cfg,

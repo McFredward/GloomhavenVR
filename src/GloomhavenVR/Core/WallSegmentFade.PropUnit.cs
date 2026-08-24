@@ -400,6 +400,14 @@ internal static partial class WallSegmentFade
         /// be checked against it rather than guessed at.</summary>
         private int _propUnitFloorSkipped;
 
+        /// <summary>ModBuild 262: members skipped because the WATER rect holds them as part of the
+        /// water feature's OWN unit. A skip, not a refusal — see the comment at the test. THE
+        /// NUMBER THAT MADE IT A SKIP: 10 of 10 unit refusals in the whole ModBuild-261 hardware
+        /// session were this arm, and they pulled 7-10 renderer(s) each back off 'Wall 4' on every
+        /// rescan. It is here so the next log states the cost of the water ruling per RENDERER
+        /// instead of per WALL.</summary>
+        private int _propUnitWaterSkipped;
+
         /// <summary>Renderers this segment's unit dressing had already hidden and that are DRAWING
         /// again on a later frame of the same held state — read off <c>renderer.enabled</c> and
         /// <c>activeInHierarchy</c> by <see cref="IsActuallyDrawing"/>, never off our ledger. This
@@ -492,7 +500,7 @@ internal static partial class WallSegmentFade
             }
             foreach (Segment seg in _segments.Values)
             {
-                if (IsPerRendererSplit(seg))
+                if (!SplitPieceMayClaim(seg))
                     continue;
                 foreach (MeshRenderer r in seg.Renderers)
                 {
@@ -560,6 +568,7 @@ internal static partial class WallSegmentFade
             _propUnitDressed = 0;
             _propUnitRefusedUnits = 0;
             _propUnitFloorSkipped = 0;
+            _propUnitWaterSkipped = 0;
             // Reset per RESCAN, not per frame: the counter then reads "how many pieces came back
             // on screen over a hidden wall since the last commit" (~2 s of frames), which is a
             // number an outcome can be judged by. Zeroing it per frame would make a piece that
@@ -842,6 +851,51 @@ internal static partial class WallSegmentFade
         /// </summary>
         private static bool IsPerRendererSplit(Segment seg) => seg.Anchor is Renderer;
 
+        /// <summary>
+        /// MODBUILD 262 — A SPLIT PIECE THAT IS DRIVEN BY A RUN MAY OWN ITS OWN PROP UNIT.
+        ///
+        /// <para>THE DEFECT, out of the ModBuild-261 log and not out of reasoning. The user's
+        /// report is <i>"Das Gestrüp an der hinteren Wand ist immer noch nicht weg — das soll
+        /// vollständig alles mit-weg-faden"</i> (mauerproblem_erneut2.jpg). That log's FADE WRITE
+        /// census names the shape exactly:
+        /// <c>TORN 'PCG_FR_Wall_Grassy_Verge_01_PR' 3/5 written … ← wall renderer[split segment] of
+        /// 'CR_FR_Wall_Grassy_Verge_01' fade 1.00 … — LEFT SOLID under the same root:
+        /// CR_FR_Wall_Grassy_Verge_Grass_01, CR_FR_Wall_Grassy_Verge_Plants_01</c>, and
+        /// <c>TORN 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' 4/6 written … — LEFT SOLID under
+        /// the same root: FR_Stones_06 (1), FR_Stones_02 (2)</c>. Every owner in those rows is a
+        /// <c>[split segment]</c>, and this pass — the one pass whose whole job is "one unit, one
+        /// owner, every member gets a channel" — skipped ALL of them by construction. That is the
+        /// ACCEPTED LIMITATION written above, and it is what the photograph shows: the wall
+        /// generator's own scrub standing in front of a run at fade 1.00.</para>
+        ///
+        /// <para>WHY IT IS SAFE NOW AND WAS NOT BEFORE. The comment above refuses split pieces
+        /// because <i>"those splits exist BECAUSE the pieces must decide separately"</i> — merging
+        /// two of them under one owner would undo the jungle-floor and engulfing-wall fixes. That
+        /// is still true for DECIDING, and nothing here changes who decides: a run member's fade
+        /// comes from its RUN (<see cref="Segment.RunOwner"/>, ModBuild 261's SplitRunUnified), so
+        /// pieces of one run already carry one fade and a prop shared between two of them cannot
+        /// tear whatever this pass does. Two further guards keep the decision untouched:</para>
+        /// <list type="number">
+        /// <item>only a piece with a LIVE run anchor qualifies (an orphan keeps its own decision,
+        ///   fail-open, and is exactly the case that must stay separate);</item>
+        /// <item>the loop at <c>ReferenceEquals(seg, owner) || IsPerRendererSplit(seg)</c> is
+        ///   UNCHANGED, so no renderer is ever taken OFF a split piece — recruitment can only add
+        ///   members that no segment held;</item>
+        /// <item>and a split owner's decision AABB is not grown by what it recruits (see the
+        ///   bounds loop in <see cref="ResolvePropUnit"/>). Growing it is precisely how the
+        ///   engulfing fix would be undone, and it is also the PASSENGER discipline this subsystem
+        ///   already runs on: recruited scenery takes the run's verdict and never steers one.</item>
+        /// </list>
+        ///
+        /// <para>FALSIFIED BY: a SPLIT RUN / RUN FADE union or best-single number that moves on the
+        /// same scenario (the decision changed, which this must not do), or a new
+        /// <c>!ENGULF</c>/boundless entry naming a split piece.</para>
+        /// </summary>
+        private bool SplitPieceMayClaim(Segment seg)
+            => !IsPerRendererSplit(seg)
+               || (seg.FromSplitRun && seg.RunOwner != null
+                   && _splitAnchors.Contains(seg.RunOwner));
+
         /// <summary>The underscore-delimited stem of a piece name
         /// (<c>CR_OS_Skeleton_Statue_Skull</c> → <c>CR_OS_Skeleton_Statue</c>), or null when the
         /// name carries no stem worth grouping by. Never sufficient on its own — see the file
@@ -897,15 +951,57 @@ internal static partial class WallSegmentFade
                     continue;
                 if (IsSegmentDressedElsewhere(owner, m))
                     continue;                       // this wall already drives it another way
-                // TWO RULINGS OF THE SAME SEVERITY, and a unit holding either cannot fade whole —
-                // so it does not fade at all. Both are about the OBJECT, not about a band it
-                // happens to sit in, which is why neither can be argued down by a unit verdict.
+                // THE WATER RULING IS A SKIP AND NOT A REFUSAL — MODBUILD 262, and it is the
+                // author of ModBuild 259's OWN falsifier firing: "REFUSED WHOLE above zero in the
+                // next hardware log, with a wall visibly standing." The next hardware log
+                // (ModBuild 261) reads "10 unit(s) refused this rescan" on EVERY rescan that has
+                // any, all ten by this arm, and mauerproblem_erneut2.jpg is the right-hand wall
+                // standing. The units and the cost, from that log:
+                //   'PCG_FR_Wall_Space_01_PR'         (13 renderers, owner 'Wall 4')  9 pulled back
+                //   'PCG_FR_Pillar_Tree_Trunk_03b_PR' (20)                           10 pulled back
+                //   'PCG_FR_Pillar_Tree_Trunk_01_PR'  (17) x3                       7-8 each
+                //   'PCG_FR_Pillar_Tree_Trunk_02_PR'  (20)                            7 pulled back
+                //   'PCG_FR_Wall_Space_02_PR'         (12) x2                          9 each
+                // and NOT ONE of the named members is water. They are
+                // 'CR_FR_Wall_Rocky_Verge_Bushes_02 (1)', 'FR_Floor_LargeBush_04 (1)',
+                // 'FR_Floor_LargeBush_06 (1)', 'FR_Floor_Detail_Grass_05_PR (1)',
+                // 'CR_RU_Vines (3)' and 'FR_Floor_PlantsBushes_01 (5)' — bank vegetation the pond
+                // rect legitimately covers (WATER FEATURE: 'FR_SW_Pond_Medium (2)' top 1.1,
+                // '(1)' top 0.4; rect ceiling = water top + 1.0). The user's report against that
+                // build is "Die rechte Wand faded garnicht mehr richtig", and this arm is why.
+                //
+                // WHY A SKIP IS THE RULING AND NOT A WEAKENING OF IT. The water rect is ITSELF a
+                // whole-unit protection — of a DIFFERENT unit: the pond, its basin, bank, rim and
+                // its own emitters, held solid together by geometry (WallSegmentFade.Water.cs). A
+                // piece inside the rect therefore already HAS an owner with a verdict, exactly as
+                // a floor prop does, so the two verdicts are not in conflict — which is word for
+                // word the argument the STANDING rule below is a skip on. The water feature stays
+                // whole and solid: nothing here writes a renderer the rect covers, and
+                // StripGroundRenderers has already taken every such piece off the wall's own
+                // renderer/foliage/body lists with our block cleared. What changes is that a wall
+                // stops staying whole and solid WITH it.
+                //
+                // AND THE REFUSAL WAS THE ONLY PATH ON WHICH A WATER PIECE COST MORE THAN ITSELF:
+                // PropUnitRecruit — the choke point PASS 2 offers every unclaimed member through —
+                // has always refused a water-protected renderer PER RENDERER and named it in LEFT
+                // VISIBLE. This arm is now the same rule at the same granularity.
+                //
+                // FALSIFIED BY: a FADE WRITE row for a renderer IsWaterProtected returns true for,
+                // or a WATER FEATURE census whose pond/basin/rim is not solid. Either means the
+                // skip leaked and this goes back to being a refusal.
                 if (IsWaterProtected(m.bounds))
                 {
-                    refusedBy = $"'{m.name}': water feature (user ruling 2026-08-09, brunnen.png) "
-                                + "— never fades";
-                    break;
+                    _propUnitWaterSkipped++;
+                    NotePropUnitLeftVisible(m, "the WATER rect holds it as part of the water "
+                        + "feature's own unit (user ruling 2026-08-09, brunnen.png) — a wall may "
+                        + "not claim it, and this is a skip rather than a refusal for the reason "
+                        + "the standing rule below gives");
+                    continue;
                 }
+                // A FIGURE STILL REFUSES THE WHOLE UNIT (round-7 ruling, Lights-rule severity):
+                // that arm is about a thing this mod may not touch AT ALL, not about a thing with
+                // another owner. It fired ZERO times in the whole ModBuild-261 session, so none of
+                // this round's evidence bears on it and it is left bit-for-bit alone.
                 if (IsFigureOrActorRenderer(m))
                 {
                     refusedBy = $"'{m.name}': FIGURE (never touched — round-7 ruling, Lights-rule "
@@ -1014,12 +1110,22 @@ internal static partial class WallSegmentFade
             // it. Losers keep theirs (see the file header) — except one left with nothing at all,
             // which goes boundless so the decision and attachment passes skip it until the next
             // rescan rebuilds it.
-            foreach (MeshRenderer m in unit.Members)
+            //
+            // MODBUILD 262 — EXCEPT A PER-RENDERER SPLIT PIECE, whose AABB is not a renderer union
+            // but the DECISION BOX the jungle-floor and engulfing fixes carved it down to. Growing
+            // that box by what the piece recruits is exactly how those fixes get undone, so a run
+            // member takes its passengers WITHOUT them ever entering its own decision — the same
+            // discipline Segment.RunPassenger already states ("no cells into the union"). Its fade
+            // comes from the run either way. See SplitPieceMayClaim.
+            if (!IsPerRendererSplit(owner))
             {
-                if (m == null || !owner.Renderers.Contains(m))
-                    continue;
-                if (!owner.HasBounds) { owner.Bounds = m.bounds; owner.HasBounds = true; }
-                else owner.Bounds.Encapsulate(m.bounds);
+                foreach (MeshRenderer m in unit.Members)
+                {
+                    if (m == null || !owner.Renderers.Contains(m))
+                        continue;
+                    if (!owner.HasBounds) { owner.Bounds = m.bounds; owner.HasBounds = true; }
+                    else owner.Bounds.Encapsulate(m.bounds);
+                }
             }
             foreach (Segment loser in _propUnitLosers)
             {
@@ -1470,7 +1576,8 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogPropUnitCensus()
         {
-            if (_propUnitRegrouped == 0 && _propUnitRefusedUnits == 0)
+            if (_propUnitRegrouped == 0 && _propUnitRefusedUnits == 0
+                && _propUnitWaterSkipped == 0)
             {
                 _propUnitCensusSig = -1;
                 return;
@@ -1479,6 +1586,7 @@ internal static partial class WallSegmentFade
                       + _propUnitUnfadeable * 7 + _propUnitGroundLifted * 3
                       + _propUnitDressed * 101 + _propUnitRefusedUnits * 1009
                       + _unitDressingRedrawn * 61 + _propUnitFloorSkipped * 5
+                      + _propUnitWaterSkipped * 17
                       + _propUnitCensus.Count;
             foreach (string row in _propUnitCensus)
                 sig = unchecked(sig * 31 + row.GetHashCode());
@@ -1502,15 +1610,21 @@ internal static partial class WallSegmentFade
                 + $"ALLEM was dazu gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da'). "
                 + $"The ModBuild-258 line read '106 left visible', every one of them "
                 + $"Foliage-family with nothing to receive the fade — those are the "
-                + $"{_propUnitDressed} above. A member this mod may not write — a FIGURE or a "
-                + $"water feature — refuses its WHOLE unit instead, and a refusal can "
+                + $"{_propUnitDressed} above. A member this mod may not write AT ALL — a "
+                + $"FIGURE, round-7 ruling — refuses its WHOLE unit instead, and a refusal can "
                 + $"never cost more than one unit ({PropUnitMaxRenderers} renderers, span "
                 + $"{PropUnitMaxSpanWU:0.0} wu): {_propUnitRefusedUnits} unit(s) refused this "
                 + $"rescan"
                 + (_propUnitRefused.Count > 0 ? $" — {string.Join("; ", _propUnitRefused)}" : "")
                 + $". {_propUnitFloorSkipped} member(s) skipped as FLOOR PROPS of their own unit "
                 + $"(the standing rule, a skip and not a refusal — ModBuild 167's Gestrüpp-Wand "
-                + $"ruling)"
+                + $"ruling), {_propUnitWaterSkipped} skipped as part of the WATER FEATURE's own "
+                + $"unit (ModBuild 262 — the SAME shape, and it used to refuse the whole wall "
+                + $"unit instead: every one of the 10 refusals in the ModBuild-261 session was "
+                + $"this arm, named a BUSH or a VINE and not water, and pulled 7-10 renderer(s) "
+                + $"back off 'Wall 4' while the user photographed that wall standing. A non-zero "
+                + $"count here is EXPECTED and healthy; the water, its basin, bank and rim are "
+                + $"still solid because nothing writes a renderer the rect covers)"
                 + ". PICTURE-SIDE FALSIFIER (renderer.enabled + activeInHierarchy, never our "
                 + $"ledger): {_unitDressingRedrawn} dressing piece(s) were DRAWING over a wall "
                 + $"this pass had already hidden"
