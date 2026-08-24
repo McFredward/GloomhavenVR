@@ -105,6 +105,7 @@ internal sealed class CardsModule : IVRModule
         CardActionQueue.Clear();
         CardArtGuard.Reset();
         CardArtPrewarm.Reset();
+        CardArtPin.ReleaseAll("the cards module was torn down");
         CardHalfTone.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

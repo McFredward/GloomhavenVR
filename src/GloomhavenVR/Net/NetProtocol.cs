@@ -416,7 +416,68 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 243;
+    public const ushort ModBuild = 244;
+    // Build 244: THE WINDOW WAS STANDING IN THE TABLE BECAUSE THE ANCHOR ASSUMED A HEIGHT, AND THE
+    // GREY CARDS WERE IN THE ONE FAN LAST BUILD'S FIX COULD NOT REACH.
+    // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
+    // 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — no new Harmony patch).
+    // BUNDLE UNCHANGED at 70,009,303 bytes — a DLL-only install is enough this round.
+    //
+    //   1. THE BLUE WINDOW SPAWNED INSIDE THE TABLE, AND THE ARITHMETIC IS THE WHOLE STORY.
+    //   "Mir gefällt die Position der Multiplayer Fenster nicht ... im Tisch drinnen. Es soll ÜBER
+    //   dem Tisch spawnen."
+    //   243's anchor hung the window's CENTRE 0.40 m above the table and deliberately refused to
+    //   read the fitted half-height, arguing that a term which changes between the spawn and the
+    //   re-place would make the anchor assert a different pose. What that argument skipped: 0.40 was
+    //   0.11 m of clearance from his own ideale_position.jpg PLUS AN ASSUMED 0.28 m half-height, and
+    //   the quest-confirm window measures 1052 px = 1.105 m tall. Half-height 0.553, so the bottom
+    //   edge landed 153 mm BELOW the table surface — which is exactly what
+    //   multiplayer_fesnter_position.jpg shows. The failure was not the mechanism, it was a constant
+    //   folded out of two terms one of which was a guess.
+    //   IT IS A BOTTOM-EDGE CLEARANCE NOW: centre = table top + 0.11 + this window's own
+    //   half-height. WHAT THAT COSTS, STATED: frame-local X and Z stay 1:1 by construction; Y is 1:1
+    //   for as long as two players' window-size dials agree, which is the default and which is
+    //   ALREADY true of the window's own SIZE. A window standing in the table is wrong for
+    //   everybody; a Y that differs by the amount their windows already differ is not.
+    //   AND THE HOMES RESPECT EACH OTHER, not just the table. "Andere Multiplayer Fenster die
+    //   spawnen sollen die anderen Multiplayer Fenster respektieren." A step fixed as a fraction of
+    //   the TABLE respects the table: two 1.24 m-wide windows 1.035 m apart overlap by 20 cm and the
+    //   fraction has no term that could notice. The step is now max(table fraction, 2 x own
+    //   half-width + 0.12 m gap). IT READS ITS OWN WIDTH AND NOT THE NEIGHBOUR'S ON PURPOSE —
+    //   reading the neighbour would make the home depend on which windows happen to be open and in
+    //   what order, which is the order-dependence the identity-keyed home table exists to remove,
+    //   and two clients with different windows open would then compute different places.
+    //   THE LOG NOW PRINTS THE ARITHMETIC RATHER THAN THE RESULT: the APPLIED line carries the
+    //   half-height, the clearance, the sum and THE BOTTOM EDGE'S SIGNED HEIGHT ABOVE THE TABLE. A
+    //   negative number there is this defect and nothing else — 243's line stated only the centre,
+    //   which is why it read as correct while the window stood in the wood.
+    //
+    //   2. THE GREY CARDS: 243's FIX IS SOUND AND WAS NEVER REACHED, AND THE LOG SAYS SO IN ONE
+    //   NUMBER. `HAND FAN ART WARM-UP` appears ZERO times in the hardware log. Not a failing
+    //   instrument — an absent one. CardArtPrewarm walks VRCard.GameCard, and a MAP-ROOM card has
+    //   none: MapRoomHand never calls AttachGameCard at all, which is the stated basis of that
+    //   feature's inspection-only guarantee. He is in the map room; the screenshot in the same drop
+    //   is the map room. 243 fixed the SCENARIO fan, which is real and which he has not seen yet.
+    //   AND THE MAP-ROOM FAN CANNOT BE FIXED THAT WAY EITHER, which is why this is a new mechanism
+    //   and not a wider gate. Its face is an Object.Instantiate CLONE with a FRESH
+    //   ImageLoadingContext, and that class's only fast path needs the SAME context to have finished
+    //   (ImageLoadingContext.cs:24-29) — no amount of warming another widget can reach a clone.
+    //   Worse, the clone is not even BUILT until the fan opens, and PrintPendingFaces' own comment
+    //   records why that deferral is a correctness point (OnEnable must run before FitClone).
+    //   SO THE LEVER MOVES UNDERNEATH THE CONTEXT, TO THE ASSET. Every sprite behind the grey slab
+    //   is a CLASS asset: ShowCard loads _skin.TitleSprite (header AND unfocused mask) and each
+    //   half's Show() loads skin.{Top,Bottom}ActionRegularSprite, and _skin resolves through the
+    //   game's own UIInfoTools.GetCardSkin(ClassModel, ClassCharacterConfig). THREE addressable keys
+    //   cover a whole hand, whatever the card and however cold its context. CardArtPin holds a
+    //   handle on each from the moment the hand's class is known — for the map room that is
+    //   BuildCard, many seconds before a palm can roll up.
+    //   THE COST IS BOUNDED AND MEASURED, not estimated: AC_<Class>_Background 1254x1916 plus two
+    //   1085x651 halves, ~4 MB compressed, for ONE class at a time — the map fan shows one character
+    //   and a scenario hand is one class. The HIGHLIGHT/SELECTED/DISABLED state sprites are
+    //   deliberately NOT pinned: four more per half, none of them on screen at the open.
+    //   This is the follow-up CardArtPrewarm's own REJECTED-ALTERNATIVE (5) named and costed, held
+    //   back until hardware justified it. It now has.
+    //
     // Build 243: THE CORNERS OF THE TABLE ARE PLACES, THE BLUE WINDOWS GET ONE EACH, AND THE LAST
     // AI-GENERATED HAND IS GONE.
     // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests

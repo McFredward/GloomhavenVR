@@ -255,6 +255,12 @@ internal sealed class CardFace
         // addressable loads. CardArtPrewarm starts them here instead, spread over frames, while the
         // card is parked and invisible. See that class for the whole measured chain.
         CardArtPrewarm.NoteAdopted(owner.fullAbilityCard);
+        // AND PIN THE CLASS ASSETS UNDERNEATH IT (ModBuild 244). The line above warms this WIDGET's
+        // own loader context, which is the whole fix for a scenario card and worth nothing to a face
+        // that is a fresh clone; the pin below holds the three class sprites resident so any loader
+        // context, warm or cold, resolves them from memory. Belt and braces on this path, and the
+        // ONLY mechanism on the map room's. See Cards/CardArtPin.cs.
+        CardArtPin.PinForCard(owner.AbilityCard);
 
         return true;
     }

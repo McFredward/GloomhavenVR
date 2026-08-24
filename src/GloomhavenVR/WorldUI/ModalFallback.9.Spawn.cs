@@ -728,7 +728,10 @@ internal static partial class ModalFallback
         // SharedWindowKind.None and for a shared kind this client does not participate in, which is
         // every window this method has ever placed before this build, and the code below is
         // character-for-character what it was.
-        if (TrySharedWindowAnchor(self, replay.HasValue, out Vector3 sharedPos,
+        // halfSize goes in from ModBuild 244: the anchor's height is a BOTTOM-EDGE clearance, so it
+        // has to know how tall the window is. 243 assumed a half-height and put a 1.1 m window's
+        // bottom edge 153 mm inside the table (multiplayer_fesnter_position.jpg).
+        if (TrySharedWindowAnchor(self, replay.HasValue, halfSize, out Vector3 sharedPos,
                 out Quaternion sharedRot, out float sharedScale, out string sharedLine))
         {
             pos = sharedPos;

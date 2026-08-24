@@ -806,6 +806,15 @@ internal sealed partial class MapRoomHand
     {
         try
         {
+            // ModBuild 244 — HOLD THIS CLASS'S THREE CARD-ART ASSETS RESIDENT, HERE, because here is
+            // the earliest moment this feature knows which class the hand belongs to and it is many
+            // seconds before a palm can roll up. It is the ONLY lever this fan has: its printed face
+            // is an Object.Instantiate clone with a fresh ImageLoadingContext, so nothing that warms
+            // a widget can reach it, and PrintPendingFaces cannot run any earlier than it does
+            // (see its own note on why the deferral is a correctness point). The user's report
+            // against 243 is exactly this fan. See Cards/CardArtPin.cs for the measured chain.
+            Cards.CardArtPin.PinForCard(model);
+
             var go = new GameObject($"MapRoomCard[{index}] id={model.ID}");
             go.SetActive(false);
             go.transform.SetParent(holder, worldPositionStays: false);

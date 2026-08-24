@@ -3379,25 +3379,63 @@ internal static partial class ModalFallback
     // diff those two lines: frame-local equal ⇒ this is 1:1; frame-local different ⇒ it is not, and
     // the frame is the suspect, not this table.
 
-    /// <summary>How far above the map table's top surface a shared window's CENTRE hangs, real
+    /// <summary>How far above the map table's top surface a shared window's BOTTOM EDGE hangs, real
     /// metres, multiplied by the shared parchment frame scale and by nothing else.
     ///
-    /// <para>DERIVED FROM <c>ideale_position.jpg</c> AND STATED AS THE APPROXIMATION IT IS: both
-    /// grab bars in that photograph sit ~7 % of the far edge's own 1.55 m span above the table
-    /// plane, i.e. ~0.11 m, and a bar IS the window's bottom edge; a window of the usual reading
-    /// size adds ~0.28 m of half-height on top of that. It is a CENTRE height and deliberately does
-    /// NOT read the window's fitted half-height: a term that changes between the spawn and the
-    /// pre-reveal re-place would make the anchor re-assert a DIFFERENT pose, which is exactly what
-    /// this build is forbidden to do. A very tall shared window therefore hangs a little lower over
-    /// the table than a short one, which is a look, not a divergence — it is the same number on
-    /// every client.</para></summary>
-    private const float SharedAnchorTableHeightMeters = 0.40f;
+    /// <para>DERIVED FROM <c>ideale_position.jpg</c>: both grab bars in that photograph sit ~7 % of
+    /// the far edge's own 1.55 m span above the table plane, i.e. ~0.11 m, and a bar IS the window's
+    /// bottom edge.</para>
+    ///
+    /// <para><b>ModBuild 244 — THIS IS A BOTTOM-EDGE CLEARANCE NOW, AND ModBuild 243's CENTRE
+    /// HEIGHT WAS THE BUG.</b> 243 hung the window's CENTRE 0.40 m above the table and deliberately
+    /// refused to read the fitted half-height, on the argument that a term which changes between the
+    /// spawn and the pre-reveal re-place would make the anchor assert a different pose. The
+    /// arithmetic that argument skipped: 0.40 m was 0.11 m of clearance plus an ASSUMED 0.28 m
+    /// half-height, and the quest-confirm window measures 1052 px = 1.105 m tall, so its half-height
+    /// is 0.553 m and its bottom edge landed 153 mm BELOW the table surface. The user's photograph
+    /// <c>multiplayer_fesnter_position.jpg</c> shows exactly that — the window standing in the
+    /// table — and his ruling is one line: "Es soll ÜBER dem Tisch spawnen."
+    ///
+    /// A clearance can only be honoured by a term that knows how tall the window is, so the height
+    /// is now <c>clearance + this client's own half-height</c>. WHAT THAT COSTS, STATED PLAINLY:
+    /// the frame-local X and Z stay 1:1 by construction, and Y is 1:1 for exactly as long as two
+    /// players' window-size dials agree — which is the default, and which is ALREADY true of the
+    /// window's own SIZE (see the note on <c>DeriveWindowScale</c>'s extraScale in this block).
+    /// A window standing in the table is wrong for every player; a Y that differs by the same
+    /// amount their windows already differ in size is not. Clearance wins.</para></summary>
+    private const float SharedAnchorTableClearanceMeters = 0.11f;
+
+    /// <summary>The floor under the computed half-height, real metres. A panel measured before its
+    /// content fit can report a degenerate rect; without this the window would sit ON the table
+    /// rather than above it, which is the defect this constant exists to prevent, in miniature.</summary>
+    private const float SharedAnchorMinHalfHeightMeters = 0.15f;
 
     /// <summary>The lateral step between two map-room homes along the table's LONG (deep) axis, as
     /// a fraction of the table slab's half-depth. 0.45 of 1.15 m ≈ 0.52 m on the surveyed table —
     /// wide enough that two reading-size windows do not merge, short enough that home 1 and home 2
-    /// are still on the table rather than off its ends.</summary>
+    /// are still on the table rather than off its ends.
+    ///
+    /// <para><b>ModBuild 244 — IT IS A FLOOR, NOT THE ANSWER.</b> The user's second sentence was
+    /// "Andere Multiplayer Fenster die spawnen sollen die anderen Multiplayer Fenster respektieren
+    /// (Halbkreis Logik)", and a step fixed as a fraction of the TABLE respects the table, not the
+    /// windows: two 1.24 m-wide quest windows 1.035 m apart overlap by 20 cm and the fraction has no
+    /// term that could notice. The step is now
+    /// <c>max(fraction × half-depth, 2 × own half-width + gap)</c>.
+    ///
+    /// WHY THE WINDOW'S OWN WIDTH AND NOT THE NEIGHBOUR'S, which is the obvious objection: reading
+    /// the neighbour would make the home depend on WHICH windows happen to be open and in what
+    /// order, and that is precisely the order-dependence the identity-keyed home table exists to
+    /// remove — two clients with different windows open would compute different places and the 1:1
+    /// guarantee would be gone. Own-width keeps the step a pure function of this window, so it stays
+    /// deterministic and shared. It is EXACT when the two windows are the same size (the common
+    /// case: two reading-size panels), and when they differ the wider one steps further out, so the
+    /// pair separates by at least the wider window's full width plus the gap. Home 0 sits at the
+    /// centre and its neighbours step around it by the same rule.</para></summary>
     private const float SharedAnchorLateralFraction = 0.45f;
+
+    /// <summary>Clear air between two shared windows' facing edges, real metres. Not cosmetic: two
+    /// windows that merely touch read as one wide window with a seam.</summary>
+    private const float SharedAnchorLateralGapMeters = 0.12f;
 
     /// <summary>How far above the board's measured TOP (far) edge a shared scenario window's centre
     /// hangs, in board-LOCAL units (which are metres at board scale 1, the same convention
@@ -3553,7 +3591,7 @@ internal static partial class ModalFallback
     /// <param name="worldScale">The world scale to build the window at — taken from the SHARED
     /// frame, so the window is the same size relative to the furniture on every client.</param>
     /// <param name="line">The whole falsifier line, ready to print.</param>
-    private static bool TrySharedWindowAnchor(ConvertedPanel? panel, bool replay,
+    private static bool TrySharedWindowAnchor(ConvertedPanel? panel, bool replay, Vector2 halfSize,
         out Vector3 worldPos, out Quaternion worldRot, out float worldScale, out string line)
     {
         worldPos = Vector3.zero;
@@ -3589,9 +3627,9 @@ internal static partial class ModalFallback
             return false;
 
         return MapRoom.MapRoomDriver.Active
-            ? TrySharedAnchorOnTable(window, kind, home, stage, out worldPos, out worldRot,
+            ? TrySharedAnchorOnTable(window, kind, home, stage, halfSize, out worldPos, out worldRot,
                                      out worldScale, out line)
-            : TrySharedAnchorOverBoard(window, kind, home, stage, out worldPos, out worldRot,
+            : TrySharedAnchorOverBoard(window, kind, home, stage, halfSize, out worldPos, out worldRot,
                                        out worldScale, out line);
     }
 
@@ -3599,8 +3637,8 @@ internal static partial class ModalFallback
     /// term is a pure function of the parchment renderer's own world bounds, so two clients compute
     /// the same frame-local numbers with nothing sent.</summary>
     private static bool TrySharedAnchorOnTable(UIWindow window, SharedWindowKind kind, int home,
-        string stage, out Vector3 worldPos, out Quaternion worldRot, out float worldScale,
-        out string line)
+        string stage, Vector2 halfSize, out Vector3 worldPos, out Quaternion worldRot,
+        out float worldScale, out string line)
     {
         worldPos = Vector3.zero;
         worldRot = Quaternion.identity;
@@ -3647,15 +3685,32 @@ internal static partial class ModalFallback
         bool shortAxisIsX = b.size.x <= b.size.z;
         float farHalf = shortAxisIsX ? halfXm : halfZm;
         float lateralHalf = shortAxisIsX ? halfZm : halfXm;
+
+        // THE WINDOW'S OWN SIZE, IN THE SHARED FRAME'S METRES (ModBuild 244). halfSize arrives in
+        // WORLD units from ComputeHmdPose's caller, which measured it at PanelLayout.WorldScale x
+        // extraScale; dividing by the frame scale puts it in the same real metres every other term
+        // here is in. On the SPAWN call this is the pre-fit host rect and on the RE-PLACE it is the
+        // fitted one — that is why the re-place exists, and why the pose it lands on is the one the
+        // player sees. See SharedAnchorTableClearanceMeters for why reading it at all is the fix and
+        // not a hazard.
+        float halfWinYm = Mathf.Max(halfSize.y / scale, SharedAnchorMinHalfHeightMeters);
+        float halfWinXm = Mathf.Max(halfSize.x / scale, 0f);
+
+        // RESPECT THE OTHER SHARED WINDOWS, not just the table. The step is the greater of the old
+        // table fraction and what this window's own width demands; see SharedAnchorLateralFraction
+        // for why the neighbour's width is deliberately NOT read.
+        float step = Mathf.Max(SharedAnchorLateralFraction * lateralHalf,
+                               2f * halfWinXm + SharedAnchorLateralGapMeters);
         float lateral = home switch
         {
-            1 => +SharedAnchorLateralFraction * lateralHalf,
-            2 => -SharedAnchorLateralFraction * lateralHalf,
+            1 => +step,
+            2 => -step,
             _ => 0f,
         };
+        float centreYm = topYm + SharedAnchorTableClearanceMeters + halfWinYm;
         Vector3 localPos = shortAxisIsX
-            ? new Vector3(farHalf, topYm + SharedAnchorTableHeightMeters, lateral)
-            : new Vector3(lateral, topYm + SharedAnchorTableHeightMeters, farHalf);
+            ? new Vector3(farHalf, centreYm, lateral)
+            : new Vector3(lateral, centreYm, farHalf);
 
         // FACING IS 1:1: the window looks back across the table, from its home toward the map's
         // centre. Canvas front faces −forward, so pointing +Z AWAY from the reader is what faces
@@ -3699,7 +3754,19 @@ internal static partial class ModalFallback
                + $"TABLE: half-width {halfXm:F3} m, half-depth {halfZm:F3} m, top surface "
                + $"{topYm:F3} m above the frame centre, derived from the parchment's own "
                + $"{b.size.x:F1}x{b.size.z:F1} wu bounds by the surveyed ratios "
-               + $"({TableToMapWidthRatio:F2}x wide, {TableToMapDepthRatio:F2}x deep). The short "
+               + $"({TableToMapWidthRatio:F2}x wide, {TableToMapDepthRatio:F2}x deep). "
+               + "ABOVE THE TABLE, AND THIS IS THE ARITHMETIC THAT MUST BE CHECKED AGAINST THE "
+               + $"PICTURE: window half-height {halfWinYm:F3} m, half-width {halfWinXm:F3} m; "
+               + $"centre = top {topYm:F3} + clearance {SharedAnchorTableClearanceMeters:F3} + "
+               + $"half-height {halfWinYm:F3} = {centreYm:F3} m, so the BOTTOM EDGE sits "
+               + $"{centreYm - halfWinYm - topYm:+0.000;-0.000} m above the table surface — a "
+               + "NEGATIVE number here is the ModBuild 243 defect (the window standing IN the "
+               + "table, multiplayer_fesnter_position.jpg) and nothing else. "
+               + $"LATERAL STEP {step:F3} m = max(table fraction {SharedAnchorLateralFraction:F2} x "
+               + $"half-depth {lateralHalf:F3} = {SharedAnchorLateralFraction * lateralHalf:F3}, "
+               + $"2 x own half-width {halfWinXm:F3} + gap {SharedAnchorLateralGapMeters:F2} = "
+               + $"{2f * halfWinXm + SharedAnchorLateralGapMeters:F3}), so two shared windows are at "
+               + "least the wider one's full width plus the gap apart and CANNOT merge. The short "
                + $"horizontal axis is {(shortAxisIsX ? "X" : "Z")} and the far end is its POSITIVE "
                + $"one, fixed; this client's own head sits at {seatSide}. "
                + "NO WIRE FIELD WAS NEEDED: both terms are pure functions of the parchment bounds, "
@@ -3713,8 +3780,8 @@ internal static partial class ModalFallback
     /// board-local, which is the only frame in which "the same place" means anything for a piece of
     /// furniture each player has posed for himself.</summary>
     private static bool TrySharedAnchorOverBoard(UIWindow window, SharedWindowKind kind, int home,
-        string stage, out Vector3 worldPos, out Quaternion worldRot, out float worldScale,
-        out string line)
+        string stage, Vector2 halfSize, out Vector3 worldPos, out Quaternion worldRot,
+        out float worldScale, out string line)
     {
         worldPos = Vector3.zero;
         worldRot = Quaternion.identity;
@@ -3731,13 +3798,23 @@ internal static partial class ModalFallback
         // edge — the visible board including its bundled frame and decorations, not the authored
         // plate, which is the distinction WorldTooltips already had to make. home is 0 for the only
         // shared kind a scenario has; a second one would step laterally the same way the table does.
+        // ModBuild 244 — THE SAME CORRECTION THE TABLE GOT, for the same reason. The margin is a
+        // BOTTOM-EDGE clearance, so the centre has to carry the window's own half-height or a tall
+        // window hangs down into the board exactly as the quest window hung into the table. Board
+        // units are metres at board scale 1; halfSize is world, so it is divided by the board's own
+        // world scale to land in the frame this pose is expressed in.
+        float boardScale = Mathf.Max(root.lossyScale.x, 0.01f);
+        float halfWinY = Mathf.Max(halfSize.y / boardScale, SharedAnchorMinHalfHeightMeters);
+        float halfWinX = Mathf.Max(halfSize.x / boardScale, 0f);
+        float step = Mathf.Max(SharedAnchorLateralFraction * halfLocalX * 2f,
+                               2f * halfWinX + SharedAnchorLateralGapMeters);
         float lateral = home switch
         {
-            1 => +SharedAnchorLateralFraction * halfLocalX * 2f,
-            2 => -SharedAnchorLateralFraction * halfLocalX * 2f,
+            1 => +step,
+            2 => -step,
             _ => 0f,
         };
-        var localPos = new Vector3(lateral, topLocalY + SharedAnchorBoardMarginLocal, 0f);
+        var localPos = new Vector3(lateral, topLocalY + SharedAnchorBoardMarginLocal + halfWinY, 0f);
         worldPos = root.TransformPoint(localPos);
         // Board-local identity rotation, yaw-only in world: the board is tilted like a table and a
         // window in its plane would lean back. Upright is applied by the caller's own guard; taking
@@ -3757,7 +3834,11 @@ internal static partial class ModalFallback
                + "IS THE NUMBER THAT MUST BE IDENTICAL ON TWO CLIENTS: pos "
                + $"({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}), yaw 0.00° board-local, board "
                + $"top edge {topLocalY:F4}, half-width {halfLocalX:F4}, margin "
-               + $"{SharedAnchorBoardMarginLocal:F2}. WORLD POSE, WHICH MUST DIFFER BETWEEN CLIENTS "
+               + $"{SharedAnchorBoardMarginLocal:F2}. ABOVE THE BOARD: window half-height "
+               + $"{halfWinY:F3}, half-width {halfWinX:F3}, so the BOTTOM EDGE sits "
+               + $"{SharedAnchorBoardMarginLocal:+0.000;-0.000} board-local above the top edge and a "
+               + "NEGATIVE number there would be the ModBuild 243 in-the-furniture defect; lateral "
+               + $"step {step:F3}. WORLD POSE, WHICH MUST DIFFER BETWEEN CLIENTS "
                + "AND IS NOT A FAULT WHEN IT DOES — every player has posed, tilted and resized his "
                + $"OWN board: ({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu, yaw "
                + $"{worldRot.eulerAngles.y:F2}°, scale {worldScale:F2}. NO WIRE FIELD WAS NEEDED. "
