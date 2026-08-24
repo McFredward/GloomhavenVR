@@ -5209,8 +5209,21 @@ internal static partial class CanvasConversion
         internal bool ShrinkValid;
 
         /// <summary>Narrowings committed over this window's life — the falsifier's "did this ever
-        /// fire" counter.</summary>
+        /// fire" counter. ModBuild 243 made it count the TRANSITION into a narrowed state; before
+        /// that it ticked once per walk while the narrowing merely persisted, which is how the
+        /// ModBuild 242 log came to read 332 narrowings on a rect that had not moved.</summary>
         internal int Shrinks;
+
+        /// <summary>ModBuild 243 — the last <c>PanelInkBounds.ActiveSetSignature</c> of this
+        /// window's target, and how many times it has moved. A change forces the expensive walk on
+        /// the same frame, so the interactive area follows a tab press as fast as the grab bar
+        /// does. The count is on the log line because a signature that never moves and a window
+        /// that never changes look identical.</summary>
+        internal int Signature;
+
+        internal bool SignatureValid;
+
+        internal int SignatureEdges;
     }
 
     /// <summary>ModBuild 242 — margin left around the drawn content when the interactive area is
@@ -5399,6 +5412,21 @@ internal static partial class CanvasConversion
                 };
                 PruneHitRects();
             }
+            // ModBuild 243 — THE CHEAP EDGE, so the laser rect moves on the same frame as the brass
+            // bar and the close X rather than up to FitCheckIntervalFrames later. This walk is the
+            // expensive one (every Graphic under the window); PanelInkBounds.ActiveSetSignature is
+            // the cheap one (the active set to depth two, order sixty nodes), and a change in it is
+            // exactly "a sub-view opened or closed". It cannot make the rect WRONG — it only decides
+            // WHEN the same measurement is taken — and it is the reason the three pieces of chrome
+            // now agree within a frame instead of within a third of a second.
+            int sig = PanelInkBounds.ActiveSetSignature(panel, out _);
+            if (!entry.SignatureValid || sig != entry.Signature)
+            {
+                entry.Signature = sig;
+                entry.SignatureValid = true;
+                entry.SignatureEdges++;
+                entry.NextCheckFrame = Time.frameCount;
+            }
             if (Time.frameCount < entry.NextCheckFrame)
                 return;
             entry.NextCheckFrame = Time.frameCount + FitCheckIntervalFrames;
@@ -5461,6 +5489,26 @@ internal static partial class CanvasConversion
                                    || narrowed.xMax < union.xMax - HitRectShrinkDeadBandPx
                                    || narrowed.yMin > union.yMin + HitRectShrinkDeadBandPx
                                    || narrowed.yMax < union.yMax - HitRectShrinkDeadBandPx);
+                // ModBuild 243 — THE ONE DIRECTION THAT CAN KILL INPUT IS THE STALE NARROW RECT, NOT
+                // THE FRESH ONE, and that is why only GROWTH is made faster here.
+                //
+                // User report (2026-08-24) is about the grab bar and the X, not about this rectangle;
+                // it is touched at all because ModBuild 242 let this rect shrink BELOW the frame, and
+                // that made the 30-frame cadence load-bearing for input. Press a tab in the options
+                // window and the drawn content jumps from 399 px wide to ~1500 px — the ModBuild 242
+                // log measures exactly that (HIT RECT commits #1 -> #3, DRAWN CONTENT 399x2158 ->
+                // 1495x2464) — and until the next walk lands, up to FitCheckIntervalFrames later, the
+                // laser's whole verdict is the OLD narrow rectangle. That is up to 336 ms at 90 Hz of
+                // dead beam over buttons that are already painted, and the 64 px pad cannot cover a
+                // 1000 px jump. Re-checking on the next frame after a walk that GREW the rect closes
+                // that window to ~11 ms.
+                //
+                // THE SHRINK RUN IS DELIBERATELY LEFT AT THE 30-FRAME CADENCE. Its three agreeing
+                // measurements are the only thing standing between a bad measurement and a button
+                // that cannot be clicked, and a rect that stays too WIDE for an extra second costs
+                // nothing but a beam landing on transparent frame. Speeding up the safe direction and
+                // leaving the dangerous one is the whole of this change; a future round that wants
+                // the shrink faster must first say what replaces the run.
                 if (!worthIt)
                 {
                     entry.ShrinkValid = false;
@@ -5481,7 +5529,14 @@ internal static partial class CanvasConversion
                     if (entry.ShrinkRun >= HitRectShrinkRuns)
                     {
                         live = entry.ShrinkCandidate;
-                        entry.Shrinks++;
+                        // ModBuild 243: count the TRANSITION, not every sample taken while the rect
+                        // is already narrowed. The ModBuild 242 log reads 'NARROWINGS COMMITTED over
+                        // this window's life: 332' on an options window whose hit rect never changed
+                        // between two consecutive lines — 328 of those were this counter ticking once
+                        // per walk on a settled narrowing, and a falsifier that cannot tell "it
+                        // narrowed 332 times" from "it has been narrow for 332 walks" is not one.
+                        if (entry.ShrinkRun == HitRectShrinkRuns)
+                            entry.Shrinks++;
                     }
                 }
                 else
@@ -5521,6 +5576,16 @@ internal static partial class CanvasConversion
                 && Mathf.Abs(hit.yMin - entry.Hit.yMin) <= tolY
                 && Mathf.Abs(hit.yMax - entry.Hit.yMax) <= tolY)
                 return; // settled — nothing written, nothing logged
+
+            // ModBuild 243 — A WALK THAT GREW THE RECT ASKS AGAIN ON THE NEXT FRAME. See the comment
+            // on the shrink run above for why growth and only growth. Bounded by construction: the
+            // dirty check five lines up is what got us here, so the fast re-check stops the moment
+            // the rect settles, and a settled rect goes straight back to FitCheckIntervalFrames.
+            bool grewThisWalk = entry.Commits > 0
+                           && (hit.xMin < entry.Hit.xMin - 0.5f || hit.xMax > entry.Hit.xMax + 0.5f
+                               || hit.yMin < entry.Hit.yMin - 0.5f || hit.yMax > entry.Hit.yMax + 0.5f);
+            if (grewThisWalk)
+                entry.NextCheckFrame = Time.frameCount + 1;
 
             entry.Hit = hit;
             entry.Host = host;
@@ -5766,7 +5831,13 @@ internal static partial class CanvasConversion
             + (entry.Shrinks == 0
                 ? " — zero means this window has never had a strip of empty frame worth taking back, "
                   + "NOT that the rule is switched off. "
-                : ". ")
+                : " (transitions INTO a narrowed state, not walks spent in one — ModBuild 243). ")
+            + $"SUB-VIEW EDGES that forced this walk early: {entry.SignatureEdges} over this window's "
+            + "life (ModBuild 243 — a tab press moves the interactive area on the same frame it moves "
+            + "the brass bar and the close X, instead of up to "
+            + $"{FitCheckIntervalFrames} frames later; a count stuck at 1 while the user opens "
+            + "sub-menus means PanelInkBounds.ActiveSetSignature has gone blind for this window and "
+            + "the laser is following the 30-frame poll again). "
             + (entry.OutsideBy > 0.5f
                 ? $"FURTHEST OUTSIDE the frame: '{entry.OutsideOwner}' by {entry.OutsideBy:F0} px. "
                 : "Nothing reaches outside the frame. ")

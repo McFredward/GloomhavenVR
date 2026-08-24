@@ -169,6 +169,20 @@ internal static class PanelInkBounds
     /// rather than letting a silently short union move the bar.</summary>
     private const int MaxNodes = 6000;
 
+    /// <summary>ModBuild 243 — how many levels below <see cref="ConvertedPanel.Target"/>
+    /// <see cref="ActiveSetSignature"/>'s part one hashes. TWO, because the game's options window
+    /// keeps its eleven tab windows at <c>Target/Tabs/&lt;tab&gt;</c> and depth one therefore saw
+    /// four tab presses as no event at all; see that method's ModBuild 243 block for the log lines.
+    /// Every level costs a per-frame walk on every floated window, so this is raised only against a
+    /// measured hierarchy, never on principle.</summary>
+    private const int SignatureDepth = 2;
+
+    /// <summary>Node budget for ONE signature walk — a runaway guard for a window with a very wide
+    /// second level, not a working limit (the options window hashes of order sixty). Reaching it is
+    /// REPORTED, never silent: a signature that has quietly stopped covering part of the tree looks
+    /// exactly like a window that never changes ([[sentinel-overflow-and-silent-scans]]).</summary>
+    private const int SignatureMaxNodes = 256;
+
     /// <summary>
     /// <b>MOD-OWNED OBJECTS THAT ARE NOT WINDOW CONTENT — BY NAME, ONE AT A TIME.</b> Index 0 is
     /// "not chrome" and is never printed; every other entry is matched with <c>StartsWith</c> so the
@@ -625,11 +639,64 @@ internal static class PanelInkBounds
     ///
     /// <para>A LOCAL DERIVATION of the same two-part answer <c>PanelSupersample.ActiveSetSignature</c>
     /// derives for the capture frame, restated here because that method is private to another lane's
-    /// file. Part one is the ACTIVE DIRECT CHILDREN of the conversion target by instance id, which
-    /// works on any converted window. Part two is the game's own <c>NewPartyDisplayUI</c> answer — the
-    /// <c>ActiveDisplay</c> enum plus which of the six sub-view roots are actually open — and it is
-    /// what catches the battle-goal picker, whose root is NOT a direct child of the target and which
-    /// part one alone would therefore miss entirely.</para>
+    /// file. Part one is the ACTIVE SET beneath the conversion target by instance id, to
+    /// <see cref="SignatureDepth"/> levels (see the ModBuild 243 block below for why it is two and not
+    /// one), which works on any converted window. Part two is the game's own <c>NewPartyDisplayUI</c>
+    /// answer — the <c>ActiveDisplay</c> enum plus which of the six sub-view roots are actually open —
+    /// and it is what catches the battle-goal picker, whose root is NOT a direct child of the target
+    /// and which part one alone would therefore miss entirely.</para>
+    ///
+    /// <para><b>ModBuild 243 — PART ONE WAS EXACTLY ONE LEVEL TOO SHALLOW, AND THE OPTIONS WINDOW
+    /// PROVED IT.</b> User report, verbatim (2026-08-24): <i>"Die Reaktionszeit wenn man ein Sub-Menü
+    /// z.B. im Optionsmenü öffnet von dem 'X' Button und dem Greifbalken ist zu gering. Man sieht immer
+    /// wie es erst nach einer kurzen Zeit seinen Zustand verändert."</i></para>
+    ///
+    /// <para>Through ModBuild 242 this method hashed the active DIRECT CHILDREN of the target and
+    /// nothing below them. The game's options window puts its eleven tab windows one level further
+    /// down; the ModBuild 242 log prints the whole path on its own click trace (line 1638):
+    /// <c>GloomhavenVR.Panel_Modal_UI Options Window_unified / UI Options Window_unified / Tabs /
+    /// GloomhavenVR.OptionsTabWindow / Main Area / GloomhavenVR.SubTabs / Cat.2 / Background</c>. The
+    /// conversion target is <c>UI Options Window_unified</c>; <c>Tabs</c> is the direct child and it
+    /// NEVER toggles; the thing that toggles is <c>Tabs/&lt;tab&gt;</c>, at depth two —
+    /// <c>UISubmenuGOWindow.Show()</c> is <c>gameObject.SetActive(true)</c> and
+    /// <c>OnCompleteHidden</c> is <c>SetActive(false)</c>. So the one event the signature exists to
+    /// catch was invisible to it, and the measured consequence is in the same log:</para>
+    /// <list type="bullet">
+    /// <item>FOUR options-tab presses (lines 1581, 2675, 2797 <c>'GloomhavenVR.OptionsTab'</c>, and
+    /// 2288 <c>'Audio'</c> — a NATIVE tab, so this is not a mod-tab quirk) and the grab bar's
+    /// generation stayed at <b>1</b> through every one of them, up to <c>sample 198 of that
+    /// generation</c> at line 2295.</item>
+    /// <item>The ONE generation event the options window ever saw (line 2961, generation 1 → 2) was
+    /// fired by a <c>'Class Toggle'</c> click in a DIFFERENT window (line 2951): part two hashes the
+    /// <c>NewPartyDisplayUI</c> singleton, which is global, so every floated window's generation
+    /// moved on the same tick — <c>New Party display</c> to 3, <c>UI Map Esc Menu</c> to 3, the
+    /// options window to 2 — and the options window's own reading on that line is
+    /// <c>NOW OPEN: none, ActiveDisplay=CHARACTER_SELECTOR, 0 root(s)</c>. The one event it saw was
+    /// not its own, and it changed nothing (the union stayed 399 px wide).</item>
+    /// </list>
+    /// <para>THE FIX IS DEPTH, NOT A NEW SIGNAL. <see cref="SignatureDepth"/> is 2 because 2 is what
+    /// the measured hierarchy needs and every level costs a per-frame walk on every floated window.
+    /// It is bounded twice — <see cref="SignatureMaxNodes"/> and the transient skip below — and the
+    /// budget being reached is REPORTED (<paramref name="truncated"/>) rather than silently changing
+    /// the answer, because a signature that quietly stops covering a subtree looks exactly like a
+    /// window that never changes ([[sentinel-overflow-and-silent-scans]]).</para>
+    ///
+    /// <para>WHY EXTRA GENERATION EVENTS ARE NOW CHEAP, which is the objection this change has to
+    /// answer. Before ModBuild 242 a generation event was violent: it threw the monotone envelope
+    /// away and re-seeded it from the next sample, and since hover widgets were IN the union, the
+    /// re-seed could take a tooltip's extent as the whole window. Both halves of that are gone — the
+    /// hover subtrees are out of the union AND out of this signature — so a spurious event now costs
+    /// one re-measurement that produces the same rectangle, i.e. <c>moved == false</c> and nothing on
+    /// the screen. The generation counter on the <c>GRAB BAR CLEARS THE INK</c> line is the falsifier:
+    /// a window that climbs generations while its union never changes is this depth being too greedy,
+    /// and the fix would be to name the churning child, never to go back to depth one.</para>
+    ///
+    /// <para>WHAT DEPTH TWO STILL DOES NOT CATCH, so that the next round does not assume it does: the
+    /// VR options pane's own sub-category column (<c>GloomhavenVR.SubTabs/Cat.N</c>) rebuilds the rows
+    /// under <c>GloomhavenVR.Content</c>, which sits at depth FIVE. Those presses produce no signature
+    /// edge and are served by the confirm path in <c>GrabbableModal</c> instead (a change is noticed at
+    /// the verify poll and confirmed one confirm-stride later), which is slower but bounded. Making
+    /// them instant needs a notification from the code that rebuilds them, not more depth here.</para>
     ///
     /// <para><b>A RAISED MOUSEOVER IS NOT A NEW GENERATION (ModBuild 241).</b> This was the second
     /// half of "der Balken verändert sich hektisch", and it is the more violent half.
@@ -647,40 +714,113 @@ internal static class PanelInkBounds
     /// hashed: leaving it at <c>target.childCount</c> would have let the hover back into the
     /// signature through the back door and undone the exemption while looking like it worked.</para>
     ///
-    /// <para>Cost: one <c>childCount</c> loop of order ten, one six-way component probe per ACTIVE
-    /// child, plus seven property reads on a singleton. Never throws; a partial mix is still STABLE
-    /// (it fails in the same place every frame), so it stays a usable signature rather than a source
-    /// of phantom re-captures.</para>
+    /// <para>Cost: a <c>childCount</c> loop of order ten at depth one and one of order ten under each
+    /// of those, ONE six-way component probe per active DIRECT child only (a raised mouseover is
+    /// always a direct child of the target — see <see cref="HashActiveSet"/> — so the second level
+    /// needs no probe, which is what keeps a per-frame walk at three property reads per node), plus
+    /// seven property reads on a singleton. Never throws; a
+    /// partial mix is still STABLE (it fails in the same place every frame), so it stays a usable
+    /// signature rather than a source of phantom re-captures.</para>
     /// </summary>
-    /// <param name="transientChildren">How many active direct children were skipped because they are
-    /// a raised mouseover. Reported, never acted on.</param>
-    internal static int ActiveSetSignature(ConvertedPanel panel, out int transientChildren)
+    /// <param name="transientChildren">How many active nodes were skipped because they are a raised
+    /// mouseover. Reported, never acted on.</param>
+    internal static int ActiveSetSignature(ConvertedPanel panel, out int transientChildren) =>
+        ActiveSetSignature(panel, out transientChildren, out _, out _);
+
+    /// <summary>
+    /// <see cref="ActiveSetSignature(ConvertedPanel, out int)"/> with the two falsifier terms the
+    /// grab bar's own log line carries. The two-argument form above stays because
+    /// <c>LoadoutConfirmPark</c> calls it and that file belongs to another lane; both forms are the
+    /// SAME walk, so the two call sites can never see different signatures.
+    /// </summary>
+    /// <param name="nodesHashed">Active nodes that actually went into the hash. Zero on a window
+    /// whose target is gone; a value that never changes while the user is pressing tabs is this
+    /// walk being too shallow again.</param>
+    /// <param name="truncated">The <see cref="SignatureMaxNodes"/> budget stopped the walk, so the
+    /// answer covers only part of the tree. Reported so a blind signature cannot look like a still
+    /// window.</param>
+    internal static int ActiveSetSignature(ConvertedPanel panel, out int transientChildren,
+        out int nodesHashed, out bool truncated)
     {
-        transientChildren = 0;
-        int sig = 17;
         Transform? target = panel.Target;
+        // ---- THE ONE-FRAME MEMO (ModBuild 243) ---------------------------------------------------
+        // TWO callers now ask the same question about the same window in the same frame:
+        // GrabbableModal.ServiceInkCapture from the follow tick, and CanvasConversion's TickHitRect,
+        // which uses the edge to move the laser rect on the same frame as the brass bar. Without
+        // this the walk would run twice per window per frame — a small number that this project has
+        // twice discovered is not small ([[one-line-owned-the-frame]]). Keyed by the TARGET's
+        // instance id (a panel's identity for this purpose) and by Time.frameCount, so a stale entry
+        // can never be served and the two callers can never see different answers.
+        int key = target != null ? target.GetInstanceID() : 0;
+        int frame = Time.frameCount;
         if (target != null)
         {
-            int n = target.childCount;
-            int counted = 0;
-            for (int i = 0; i < n; i++)
+            for (int i = 0; i < SigMemoSlots; i++)
             {
-                Transform c = target.GetChild(i);
-                if (c == null || !c.gameObject.activeSelf)
+                if (SigMemoKey[i] != key || SigMemoFrame[i] != frame)
                     continue;
-                if (TransientFamilies.Self(c) != 0)
-                {
-                    transientChildren++;
-                    continue;
-                }
-                counted++;
-                sig = sig * 31 + c.GetInstanceID();
+                transientChildren = SigMemoTransient[i];
+                nodesHashed = SigMemoNodes[i];
+                truncated = SigMemoTruncated[i];
+                return SigMemoValue[i];
             }
-            // The COUNT has to be the count of what was hashed, not target.childCount: hashing the
-            // raw child count would put the hover straight back into the signature through the back
-            // door and undo the whole exemption above.
-            sig = sig * 31 + counted;
         }
+
+        int value = ComputeActiveSetSignature(target, out transientChildren, out nodesHashed,
+            out truncated);
+        if (target != null)
+        {
+            int slot = s_sigMemoNext;
+            s_sigMemoNext = (slot + 1) % SigMemoSlots;
+            SigMemoKey[slot] = key;
+            SigMemoFrame[slot] = frame;
+            SigMemoValue[slot] = value;
+            SigMemoTransient[slot] = transientChildren;
+            SigMemoNodes[slot] = nodesHashed;
+            SigMemoTruncated[slot] = truncated;
+        }
+        return value;
+    }
+
+    /// <summary>
+    /// Slots in the one-frame memo. EIGHT because that is more floated windows than the map room's
+    /// arc allocator will seat, so every open window keeps its entry for the whole frame — a single
+    /// slot would have been useless here, since the two callers run in DIFFERENT PHASES (the follow
+    /// tick in Update, the hit rect in LateUpdate) and walk the whole panel list in between.
+    ///
+    /// <para>FIXED INT ARRAYS AND NOT A DICTIONARY, deliberately: nothing is allocated after class
+    /// load, nothing keyed on a Unity object can go fake-null and leak, and a full ring simply evicts
+    /// its oldest entry into a re-walk. The memo can never change an answer — the worst a miss costs
+    /// is the walk that would have happened anyway.</para>
+    /// </summary>
+    private const int SigMemoSlots = 8;
+    private static readonly int[] SigMemoKey = new int[SigMemoSlots];
+    private static readonly int[] SigMemoFrame = CreateFrameSlots();
+    private static readonly int[] SigMemoValue = new int[SigMemoSlots];
+    private static readonly int[] SigMemoTransient = new int[SigMemoSlots];
+    private static readonly int[] SigMemoNodes = new int[SigMemoSlots];
+    private static readonly bool[] SigMemoTruncated = new bool[SigMemoSlots];
+    private static int s_sigMemoNext;
+
+    /// <summary>Frame slots start at -1 so slot 0 cannot serve a hit on frame 0 for instance id 0.</summary>
+    private static int[] CreateFrameSlots()
+    {
+        var frames = new int[SigMemoSlots];
+        for (int i = 0; i < frames.Length; i++)
+            frames[i] = -1;
+        return frames;
+    }
+
+    private static int ComputeActiveSetSignature(Transform? target, out int transientChildren,
+        out int nodesHashed, out bool truncated)
+    {
+        transientChildren = 0;
+        nodesHashed = 0;
+        truncated = false;
+        int sig = 17;
+        if (target != null)
+            sig = HashActiveSet(target, sig, SignatureDepth, ref transientChildren, ref nodesHashed,
+                ref truncated);
 
         NewPartyDisplayUI? display;
         try
@@ -707,6 +847,56 @@ internal static class PanelInkBounds
         {
         }
         return sig;
+    }
+
+    /// <summary>
+    /// One level of <see cref="ActiveSetSignature"/>'s part one, recursing while
+    /// <paramref name="depth"/> is left. The order of the hash is the sibling order, which Unity
+    /// keeps stable, so the same tree hashes the same every frame.
+    ///
+    /// <para>THE HASHED COUNT IS PER LEVEL AND IT COUNTS ONLY WHAT WAS HASHED — the ModBuild 241
+    /// rule, one level deeper. Mixing <c>t.childCount</c> instead would put a raised mouseover back
+    /// into the signature through the back door and undo the exemption while looking like it worked.
+    /// The count is mixed AFTER the children so that "two children swapped for one" cannot collide
+    /// with "one child" at the same instance ids.</para>
+    /// </summary>
+    private static int HashActiveSet(Transform t, int sig, int depth, ref int transientChildren,
+        ref int nodesHashed, ref bool truncated)
+    {
+        bool topLevel = depth == SignatureDepth;
+        int n = t.childCount;
+        int counted = 0;
+        for (int i = 0; i < n; i++)
+        {
+            Transform c = t.GetChild(i);
+            if (c == null || !c.gameObject.activeSelf)
+                continue;
+            // THE TRANSIENT PROBE IS DEPTH-ONE ONLY, and that is a fact about the game rather than a
+            // saving. `TooltipOnWindow.RaiseToWindowTop` ends with
+            // `rect.SetParent(owner.Target, worldPositionStays: false)` — a raised mouseover is
+            // ALWAYS a direct child of the conversion target, never deeper — so probing the second
+            // level would find nothing and cost six TryGetComponent calls per node per frame on
+            // every floated window. A hover subtree is still skipped WHOLE (the `continue` below
+            // never descends into it), which is what makes the exemption reach the widget's children
+            // too.
+            if (topLevel && TransientFamilies.Self(c) != 0)
+            {
+                transientChildren++;
+                continue;
+            }
+            if (nodesHashed >= SignatureMaxNodes)
+            {
+                truncated = true;
+                break;
+            }
+            counted++;
+            nodesHashed++;
+            sig = sig * 31 + c.GetInstanceID();
+            if (depth > 1)
+                sig = HashActiveSet(c, sig, depth - 1, ref transientChildren, ref nodesHashed,
+                    ref truncated);
+        }
+        return sig * 31 + counted;
     }
 
     private static int MixSubView(int sig, Component? view, Transform target)

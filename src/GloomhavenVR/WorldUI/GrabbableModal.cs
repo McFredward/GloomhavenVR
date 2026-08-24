@@ -220,10 +220,147 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // whether they are still right is the falsifier: a session whose GRAB BAR lines show a stable
     // generation number and a MOUSEOVER LEDGER with a non-zero refused count is the policy doing
     // nothing because there is nothing to do, which is the intended steady state.
+    //
+    // ---- ModBuild 243: THE LATENCY WAS THE SPACING, NOT THE COUNT ------------------------------
+    //
+    // USER REPORT, verbatim (2026-08-24): "Die Reaktionszeit wenn man ein Sub-Menü z.B. im
+    // Optionsmenü öffnet von dem 'X' Button und dem Greifbalken ist zu gering. Man sieht immer wie es
+    // erst nach einer kurzen Zeit seinen Zustand verändert. Ich möchte dass das sofort passiert mit
+    // der Änderung. Auch dauert es immer kurz bis dass der Balken verschwindet wenn das Fenster leer
+    // ist, ich möchte gerne dass es instant reagiert." ("zu gering" = the responsiveness is too low,
+    // i.e. the latency is too high.)
+    //
+    // WHAT HE MEASURED, IN THE ModBuild 242 LOG, ON THE WINDOW HE NAMED. 'UI Options Window_unified'
+    // opens with a 110 px half-width handle under its category column and jumps to 415 px once a tab
+    // is open — a 3.8x change in the visible handle, which is why the delay is impossible to miss.
+    // Two episodes can be anchored to absolute frames off neighbouring [Perf] SPIKE / MIP BAKE lines:
+    //   * click 'GloomhavenVR.OptionsTab' at line 2675 (frame ~17269) -> committed at line 2685
+    //     (frame ~17333, 'held 724 frame(s)' after a commit at frame ~16609): 64 frames = 717 ms.
+    //   * click 'GloomhavenVR.OptionsTab' at line 2797 (frame ~18383) -> committed at line 2810
+    //     (frame ~18484, 'held 308 frame(s)' after a commit at frame ~18176): 101 frames = 1131 ms.
+    // At the session's own measured 89.3 Hz ([Perf] SPLIT 30.0s n=2679). Both lines read
+    // '1 growth(s) deferred by the repeat gate', which is the whole shape: 1-60 frames of waiting for
+    // the next VERIFY sample, then 60 more for the repeat gate to see the same rectangle twice.
+    //
+    // AND THE SIGNATURE NEVER FIRED ONCE. Every options-window commit in that log reads
+    // 'generation 1', through four tab presses (three mod tabs and the game's own 'Audio' tab) and up
+    // to 'sample 198 of that generation'. The one generation event the window ever saw was fired by a
+    // 'Class Toggle' click in ANOTHER window through part two of the signature, and it changed
+    // nothing. The cause is in PanelInkBounds' own ModBuild 243 block and it is one word: DEPTH. The
+    // tab windows live at Target/Tabs/<tab> and the signature hashed direct children only. It is now
+    // hashed to depth two, so a sub-menu press IS a generation event again — which is the ONE change
+    // that turns "sofort" into 11 ms instead of 717.
+    //
+    // THE THREE SPACINGS, AND WHY EVERY ONE OF THEM COLLAPSES SAFELY.
+    //   * A GENERATION EVENT NOW SAMPLES ON ITS OWN FRAME (it waited InkSettleStrideFrames). The
+    //     sample REPLACES the union, the settle burst is exempt from the repeat gate, so the bar and
+    //     the X commit in the frame the tab was pressed. What is measured then is what is DRAWN then:
+    //     a tab window whose fade has not started is under the alpha floor and simply does not count,
+    //     and the burst below grows the union as it arrives. That is the intended behaviour, not a
+    //     compromise — the handle tracks the picture, and the picture is still fading.
+    //   * THE SETTLE BURST NOW EXTENDS ITSELF while consecutive samples keep moving the union, to a
+    //     HARD CAP of InkSettleMaxFrames. The fixed 24 frames was 0.40 s at 60 Hz and is 0.27 s at
+    //     90 Hz — shorter than the game's own window fade — so the burst was expiring one sample
+    //     before the tab finished arriving and the last growth fell back onto the 60-frame gate. The
+    //     cap is what keeps this a settle and not a gate that never opens
+    //     ([[settle-gate-vs-external-writer]]).
+    //   * THE REPEAT GATE AND THE RELEASE RUN KEEP THEIR COUNTS AND LOSE THEIR SPACING. A growth
+    //     still has to be seen twice and a recession still three times, exactly as before; what
+    //     changes is that the confirming samples are taken InkConfirmStrideFrames apart instead of
+    //     InkVerifyStrideFrames apart the moment a sample disagrees with the committed envelope.
+    //     WHY THAT IS SAFE, term by term, because this is where a future round will be tempted to
+    //     put the 60 frames back:
+    //       - THE HOVER TOOLTIP WAS THE ONLY TERM THAT NEEDED WALL-CLOCK SPACING, and it is gone.
+    //         The gate was written so that a widget the game re-parents onto the window could not pin
+    //         the bar away for a whole generation; a hover lasts seconds, so it had to be outlasted.
+    //         ModBuild 242 took hover subtrees out of the union AND out of the signature, so there is
+    //         nothing left for the spacing to outlast. The log proves the input is clean: all 35 GRAB
+    //         BAR lines read '0 transient graphic(s) refused from the union this sample'.
+    //       - A LAYOUT REBUILD IS SETTLED WITHIN ONE FRAME, so two samples four frames apart both see
+    //         the finished layout. Closer spacing is STRICTLY BETTER here than 60 frames, which can
+    //         put both samples inside one long animation and agree on a wrong rectangle.
+    //       - A WINDOW MID-FADE changes its effective alpha every frame, so two samples four frames
+    //         apart DISAGREE and the gate correctly refuses. At 60 frames they can straddle the fade
+    //         and agree. Again strictly better.
+    //       - A POOLED ROW ACTIVE BUT NOT YET POPULATED is the one case where tight spacing is worse:
+    //         both confirming samples can land inside the same short unpopulated window. It is bounded
+    //         by the same rule that has always bounded it — growth commits on sight, so the union is
+    //         corrected on the very next sample, and the settle burst is re-armed after a release
+    //         precisely so that correction costs four frames and not sixty.
+    //     NOTHING WAS TRADED AWAY: InkReleaseConsecutive is still 3 and InkReleaseDeadBandPx is still
+    //     32 px, so quest_überlap.jpg's protection is intact to the pixel.
+    //
+    // ---- ModBuild 243: "DER BALKEN VERSCHWINDET WENN DAS FENSTER LEER IST" ----------------------
+    //
+    // The second half of the report is the SAME defect and it is worth writing down why, because the
+    // two halves look unrelated. "The window got smaller" and "the window went empty" are both the
+    // SHRINK direction, and shrinking is the only direction this class was ever slow in.
+    //
+    // Through ModBuild 242 an ink walk that found nothing simply returned: the committed rectangle
+    // stayed, so the brass handle kept hanging at the full width of content that is no longer on the
+    // screen, for as long as the float lived. That is not a slow reaction, it is NO reaction — the
+    // handle only went away when ModalFallback's liveness rule released the whole float, which is
+    // deliberately EmptyDwellSeconds = 2 s (ModalFallback.9.Spawn.cs, and that dwell is NOT ours to
+    // shorten: the unlock flow blanks its own popup for a ~1 s camera focus between two announcements
+    // and a shorter dwell would drop the second one).
+    //
+    // SO THE HANDLE IS TAKEN OFF THE SCREEN HERE, ON ITS OWN, AS PRESENTATION. A confirmed empty ink
+    // gives up the committed rectangle, hides the bar and its laser collider, and puts the close X
+    // back on the frame's own corner. It comes back on the first sample that measures ink again,
+    // through the ordinary growth path. THREE THINGS BOUND IT:
+    //   * It needs InkEmptyConfirmSamples agreeing empty walks at the confirm stride, so one bad walk
+    //     (a window caught between a fade-out and a fade-in) cannot blink the handle.
+    //   * It only applies to a window that HAS committed an ink rectangle. A window that has never
+    //     measured one keeps the frame-based handle and the existing NOT ACHIEVED line, byte for
+    //     byte — that is the shipped answer for 'UI Event Window' and it is not this round's business.
+    //   * IT NEVER TOUCHES THE X, and that is a deliberate asymmetry rather than an oversight. The X
+    //     is the rescue for a window the player can no longer see; taking it away as well would turn
+    //     "the window went empty" into a window that cannot be closed if the liveness rule ever
+    //     disagrees with this walk about what "drawing nothing" means. The bar is what he named; the
+    //     bar is what goes.
+    // AND IT NEVER FIRES MID-GRAB. A hand holding the handle when the content vanishes keeps it: the
+    // collider is not pulled out from under a live grab.
     private const int InkSettleFrames = 24;
     private const int InkSettleStrideFrames = 4;
     private const int InkVerifyStrideFrames = 60;
     private const float InkReportThrottleSeconds = 1f;
+
+    /// <summary>ModBuild 243 — frames between the CONFIRMING samples of a repeat gate, a release run
+    /// or an empty run. It is the settle stride's value for the settle stride's reason (a sample every
+    /// four frames is fast enough to be invisible and rare enough to be free), stated separately
+    /// because the two are answering different questions and a future round may want to move one
+    /// without the other. See the ModBuild 243 block for why the 60-frame spacing this replaces was
+    /// buying nothing once the hover subtrees left the union.</summary>
+    private const int InkConfirmStrideFrames = 4;
+
+    /// <summary>ModBuild 243 — the hard ceiling on a SELF-EXTENDING settle burst, in frames from the
+    /// event that started it. The burst extends itself while consecutive samples keep moving the
+    /// union so that a window fade longer than <see cref="InkSettleFrames"/> is followed to its end;
+    /// this is what stops a window whose content is rewritten every frame from holding the burst (and
+    /// its 4-frame sampling cost) open forever. ~1.33 s at 90 Hz, comfortably past every window
+    /// animation the game runs.</summary>
+    private const int InkSettleMaxFrames = 120;
+
+    /// <summary>
+    /// ModBuild 243 — <b>THE FAST CONFIRM IS A BUDGET, NOT A MODE.</b> Consecutive samples that may be
+    /// taken at <see cref="InkConfirmStrideFrames"/> before the cadence falls back to
+    /// <see cref="InkVerifyStrideFrames"/> until something actually commits.
+    ///
+    /// <para>WHY IT HAS TO EXIST. The confirm stride is armed by "this sample disagrees with the
+    /// committed envelope", and a window whose content genuinely never settles disagrees on every
+    /// sample — so without a budget the ink walk (a subtree walk of up to MaxNodes transforms, per
+    /// floated window) would run 15x more often, forever, on exactly the window that can least
+    /// afford it. That is this project's own recurring shape: a limiter removed, and the thing it was
+    /// capping explodes ([[fuse-was-hiding-a-loop]]). Eight is comfortably more than any real
+    /// confirmation needs (a growth needs 1, a release 2, an empty 1) and small enough that a
+    /// churning window costs one extra third of a second of fast sampling and then goes quiet.</para>
+    /// </summary>
+    private const int InkConfirmMaxSamples = 8;
+
+    /// <summary>ModBuild 243 — agreeing empty ink walks before the brass handle is taken off the
+    /// screen. TWO, at <see cref="InkConfirmStrideFrames"/>: one is a single bad sample, and three
+    /// would put a visible handle on an invisible window for longer than the user can already see.</summary>
+    private const int InkEmptyConfirmSamples = 2;
 
     /// <summary>Verify samples a recession must survive, unbroken, before the envelope gives up the
     /// ground. Three at <see cref="InkVerifyStrideFrames"/> is ~3 s at 60 Hz.</summary>
@@ -257,6 +394,26 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private int _inkSamples;
     private int _inkNextSampleFrame = -1;
     private int _inkSettleUntilFrame = -1;
+    /// <summary>ModBuild 243 — the frame past which the SELF-EXTENDING settle burst may not be
+    /// extended again, whatever the samples say (<see cref="InkSettleMaxFrames"/>).</summary>
+    private int _inkSettleHardStopFrame = -1;
+    /// <summary>Burst extensions granted over this window's life. A number that keeps climbing on a
+    /// window nobody is touching is content that never stops moving, and the falsifier for it.</summary>
+    private int _inkBurstExtensions;
+    /// <summary>Agreeing EMPTY walks so far (<see cref="InkEmptyConfirmSamples"/>).</summary>
+    private int _inkEmptyRun;
+    /// <summary>Confirm-stride samples spent since the last commit (<see cref="InkConfirmMaxSamples"/>).</summary>
+    private int _inkConfirmRun;
+    /// <summary>Times the confirm budget ran out and the cadence fell back to the verify stride, over
+    /// this window's life. Non-zero means a window whose content does not settle; it is the falsifier
+    /// for "the fast path made the sampling expensive".</summary>
+    private int _inkConfirmBudgetSpent;
+    /// <summary>Times the handle was taken off the screen for an empty window, over its life.</summary>
+    private int _inkEmpties;
+    /// <summary>The bar is hidden because this window's ink is confirmed empty. Its own flag and not
+    /// <c>!_inkValid</c>, because a window that has NEVER measured ink keeps the frame-based handle —
+    /// that is the shipped answer and this round does not touch it.</summary>
+    private bool _barHiddenForEmpty;
     private int _inkCommitFrame = -1;
     private string _inkCause = "the window was built";
     private bool _inkReportDue;
@@ -311,6 +468,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private int _inkTransientMask;              // families seen over this window's life
     private int _inkSigTransientChildren;       // raised mouseovers hidden from the LATEST signature
     private int _inkSigTransientLife;
+    /// <summary>ModBuild 243 — active nodes the depth-2 signature walk actually hashed on the latest
+    /// tick, and whether its node budget bit. Printed on the falsifier line for one reason: a
+    /// signature that has gone blind (0 nodes, or truncated before it reached the tab container)
+    /// looks EXACTLY like a window nobody is touching, and that mistake cost this round.</summary>
+    private int _inkSigNodes;
+    private bool _inkSigTruncated;
     private Rect _inkReleaseCandidate;          // the OUTER union of the current recession run
     private bool _inkReleaseValid;
     private int _inkReleaseRun;                 // agreeing verify samples so far
@@ -1439,6 +1602,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _grabZone.center = new Vector3(x, y, 0f);
         _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
 
+        SyncBarVisibility();
+
         // THE CLOSE X RIDES THE SAME UNION AS THE BAR, on the same tick, from the same committed
         // rectangle — so the two pieces of chrome can never disagree about where the window is.
         SyncCloseX(hostRect);
@@ -1453,6 +1618,41 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 intendedTopGapPx: (gap - thickness * 0.5f) / Mathf.Max(unit, 1e-9f),
                 mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f);
         }
+    }
+
+    /// <summary>
+    /// ModBuild 243 — <b>THE HANDLE IS ON THE SCREEN EXACTLY WHILE THE WINDOW DRAWS SOMETHING.</b>
+    /// User report, verbatim: <i>"Auch dauert es immer kurz bis dass der Balken verschwindet wenn das
+    /// Fenster leer ist, ich möchte gerne dass es instant reagiert."</i> The whole rule, and why the X
+    /// is deliberately NOT included in it, is on the <see cref="InkSettleFrames"/> block.
+    ///
+    /// <para>THE GAMEOBJECT AND NOT THE RENDERER, and that is not a style choice.
+    /// <c>CanvasConversion.HideTree</c> records only ENABLED renderers under a render root and
+    /// <c>GetComponentsInChildren(false, …)</c> skips inactive GameObjects entirely — so a bar this
+    /// method has switched off is invisible to the reveal gate's restore set and cannot be switched
+    /// back on behind this class's back. Driving <c>MeshRenderer.enabled</c> instead would be two
+    /// owners writing one flag ([[dont-win-a-write-war]]). The bar object carries the laser collider
+    /// (<c>PanelGrabHandle.SetBarCollider</c>), so it goes with it; the palm zone lives on the frame
+    /// object and is disabled here beside it.</para>
+    ///
+    /// <para>NEVER MID-GRAB. Pulling a collider out from under a live grab strands the hand's claim on
+    /// an object it can no longer let go of, so a held handle stays until it is released.</para>
+    /// </summary>
+    private void SyncBarVisibility()
+    {
+        if (_bar == null || _grabZone == null)
+            return;
+        if (_inkValid)
+            _barHiddenForEmpty = false; // the window is drawing again — the handle comes straight back
+
+        // The GRAB SUPPRESSES THE HIDE, it does not CANCEL it: clearing the intent here would leave a
+        // handle standing on an empty window for the rest of its life, because the empty run that set
+        // it only counts while a committed rectangle still exists.
+        bool visible = !_barHiddenForEmpty || (_handle != null && _handle.IsGrabbed);
+        if (_bar.gameObject.activeSelf != visible)
+            _bar.gameObject.SetActive(visible);
+        if (_grabZone.enabled != visible)
+            _grabZone.enabled = visible;
     }
 
     /// <summary>
@@ -1484,6 +1684,25 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // ---- the ink capture ------------------------------------------------------------------------
 
     /// <summary>
+    /// ModBuild 243 — take the next sample at <see cref="InkConfirmStrideFrames"/> while the budget
+    /// lasts, and at <see cref="InkVerifyStrideFrames"/> once it is spent. Every fast re-check in
+    /// <see cref="ServiceInkCapture"/> goes through here so there is exactly one place that can turn
+    /// "confirm a change quickly" into "walk this window's subtree fifteen times a second forever";
+    /// see <see cref="InkConfirmMaxSamples"/>.
+    /// </summary>
+    private void ScheduleConfirmSample(int now)
+    {
+        if (_inkConfirmRun < InkConfirmMaxSamples)
+        {
+            _inkConfirmRun++;
+            _inkNextSampleFrame = now + InkConfirmStrideFrames;
+            return;
+        }
+        _inkConfirmBudgetSpent++;
+        _inkNextSampleFrame = now + InkVerifyStrideFrames;
+    }
+
+    /// <summary>
     /// Keep the held ink union current. The policy — what counts as an event, why the union is
     /// monotone outward inside a generation, and why it is NOT monotone across the window's life — is
     /// written out in full on the <see cref="InkSettleFrames"/> block; this method is only its
@@ -1499,7 +1718,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         int sigTransient;
         try
         {
-            sig = PanelInkBounds.ActiveSetSignature(_panel, out sigTransient);
+            sig = PanelInkBounds.ActiveSetSignature(_panel, out sigTransient,
+                out _inkSigNodes, out _inkSigTruncated);
         }
         catch (System.Exception)
         {
@@ -1540,8 +1760,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkReleaseValid = false;
             _inkReleaseRun = 0;
             _inkFallbackReported = false;
-            _inkNextSampleFrame = now + InkSettleStrideFrames;
+            _inkEmptyRun = 0;
+            _inkConfirmRun = 0;
+            // ModBuild 243: SAMPLE ON THE EVENT'S OWN FRAME. This waited InkSettleStrideFrames, and
+            // those four frames were pure latency on the one path that is already exempt from every
+            // gate below (the first sample of a generation REPLACES the union and the settle burst
+            // skips the repeat gate). The sample that used to be taken at now+4 is still taken — it
+            // is simply the second one of the burst now.
+            _inkNextSampleFrame = now;
             _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkSettleHardStopFrame = now + InkSettleMaxFrames;
             _inkCause = frameChanged && sigChanged
                 ? "the host rect resized AND the set of open sub-views changed"
                 : frameChanged ? "the host rect resized" : "the set of open sub-views changed";
@@ -1550,6 +1778,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         {
             _inkNextSampleFrame = now;
             _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkSettleHardStopFrame = now + InkSettleMaxFrames;
         }
 
         if (now < _inkNextSampleFrame)
@@ -1566,17 +1795,57 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkTransientMask |= ink.TransientMask;
         if (!measured)
         {
-            // DEGENERATE: zero drawn graphics, or zero size. Keep whatever placement is already
-            // committed (frame-based when nothing was ever captured) and SAY SO — a silent fall back
-            // to the very geometry this round replaced is the one outcome nobody could diagnose.
-            if (!_inkValid && !_inkFallbackReported)
+            // DEGENERATE: zero drawn graphics, or zero size — "das Fenster ist leer".
+            //
+            // NOTHING WAS EVER CAPTURED: the frame-based handle is already on the screen and it is
+            // the right answer for a window that has not laid out yet. Say so once and leave it —
+            // a silent fall back to the very geometry this round replaced is the one outcome nobody
+            // could diagnose. Byte-for-byte the ModBuild 242 behaviour.
+            if (!_inkValid)
             {
-                _inkFallbackReported = true;
-                _inkFallbackDue = true;
+                _inkEmptyRun = 0;
+                if (!_inkFallbackReported)
+                {
+                    _inkFallbackReported = true;
+                    _inkFallbackDue = true;
+                }
+                return;
             }
+
+            // A COMMITTED RECTANGLE EXISTS AND THE WINDOW HAS STOPPED DRAWING (ModBuild 243). Through
+            // ModBuild 242 this returned, so the handle kept the full width of content that is no
+            // longer on the screen until ModalFallback's 2 s liveness dwell released the whole float.
+            // Confirm it and take the handle off; the whole policy is on the InkSettleFrames block.
+            _inkEmptyRun++;
+            if (_inkEmptyRun < InkEmptyConfirmSamples)
+            {
+                ScheduleConfirmSample(now);
+                return;
+            }
+            _inkEmptyRun = 0;
+            _inkEmpties++;
+            _barHiddenForEmpty = true; // SyncBarVisibility takes the handle off on this same tick
+            _inkValid = false;
+            _inkGenSeeded = false;
+            _inkPendingValid = false;
+            _inkReleaseValid = false;
+            _inkReleaseRun = 0;
+            _inkBottomName = string.Empty;
+            _inkCause = $"the window stopped drawing anything ({InkEmptyConfirmSamples} agreeing "
+                        + "empty walk(s)), so the handle was taken off the screen";
+            // KEEP SAMPLING FAST. Content that comes back must push the handle out again immediately,
+            // which is the same reason a committed release re-arms the burst.
+            _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkSettleHardStopFrame = now + InkSettleMaxFrames;
+            ScheduleConfirmSample(now);
+            _inkFallbackReported = true;
+            _inkFallbackDue = true;
             return;
         }
 
+        // The window is drawing again: any empty run in progress is broken, and SyncBar puts the
+        // handle back on the next line it runs (the flag is cleared there, from _inkValid).
+        _inkEmptyRun = 0;
         _inkSamples++;
         Rect grown = ink.Rect;
         if (_inkValid && _inkGenSeeded)
@@ -1619,12 +1888,24 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 grown = _inkReleaseCandidate;
                 released = true;
             }
+            else
+            {
+                // ModBuild 243 — TAKE THE NEXT MEMBER OF THE RUN AT THE CONFIRM STRIDE. The COUNT is
+                // untouched (InkReleaseConsecutive is still 3); only the spacing between the members
+                // moves from InkVerifyStrideFrames to InkConfirmStrideFrames. See the ModBuild 243
+                // block for the term-by-term argument that the 60-frame spacing was buying nothing
+                // once hover subtrees left the union — and was actively WORSE against a fade, which
+                // it could straddle.
+                ScheduleConfirmSample(now);
+            }
         }
         else
         {
             _inkReleaseCandidate = ink.Rect;
             _inkReleaseValid = true;
             _inkReleaseRun = 1;
+            // A recession has just been SEEN for the first time. Ask again in four frames, not sixty.
+            ScheduleConfirmSample(now);
         }
 
         bool moved = !_inkValid || !SameRect(grown, _inkRect);
@@ -1643,6 +1924,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkBottomName = ink.BottomName;
         if (!moved)
         {
+            // THE ENVELOPE DID NOT MOVE. The confirm budget is a per-EPISODE allowance, and restoring
+            // it here (and at every commit below) is what makes it a limit on one burst of fast
+            // sampling rather than a lifetime quota a long session would silently exhaust
+            // ([[sentinel-overflow-and-silent-scans]]).
+            //
+            // BUT NOT WHILE A RELEASE RUN IS BUILDING, and that exception is the whole point of the
+            // budget. A release candidate never moves the envelope by construction — it is contained
+            // in it — so every member of a run arrives here, and restoring the budget on each one
+            // would let a recession that keeps disagreeing with itself sample this window's whole
+            // subtree every four frames for as long as it churns. The run keeps spending; abandoning
+            // it (_inkReleaseRun back to 0, three lines up) is what pays the budget back.
+            if (_inkReleaseRun == 0)
+                _inkConfirmRun = 0;
             _inkPendingValid = false;
             return;
         }
@@ -1650,10 +1944,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // THE REPEAT GATE — a growth found OUTSIDE the settle burst must be seen twice before it is
         // committed. The hole it closes is a TRANSIENT: the game re-parents hover tooltips onto the
         // window itself (TooltipOnWindow's `SetParent(target, …)`), and a monotone envelope would take
-        // one such sighting and hold the bar away from the window until the next sub-view change. Two
-        // consecutive verify samples an InkVerifyStrideFrames apart is not a hover. Inside the settle
-        // burst there is no gate at all: a view that is still arriving must be followed immediately,
-        // and the burst is the one interval in which every reading is expected to differ.
+        // one such sighting and hold the bar away from the window until the next sub-view change.
+        // ModBuild 242 took hover subtrees out of the union outright, so the SPACING that clause paid
+        // for is gone and ModBuild 243 spends the confirming sample four frames later instead of
+        // sixty — the COUNT is untouched, a growth is still proven twice. Inside the settle burst
+        // there is no gate at all: a view that is still arriving must be followed immediately, and
+        // the burst is the one interval in which every reading is expected to differ.
         // The FIRST commit of a window's life is exempt: there is no held placement to protect, and
         // the only alternative is the frame-based geometry this round exists to replace.
         // A RELEASE IS EXEMPT: this gate exists to make a GROWTH prove itself twice, and a release has
@@ -1665,6 +1961,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 _inkPending = grown;
                 _inkPendingValid = true;
                 _inkGrowthsDeferred++;
+                ScheduleConfirmSample(now);
                 return;
             }
         }
@@ -1678,14 +1975,44 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkReleases++;
             _inkReleaseValid = false;
             _inkReleaseRun = 0;
-            _inkCause = "the ink receded and held for " + InkReleaseConsecutive + " verify sample(s)";
+            _inkCause = "the ink receded and held for " + InkReleaseConsecutive + " agreeing sample(s)";
             _inkSettleUntilFrame = now + InkSettleFrames;
+            _inkSettleHardStopFrame = now + InkSettleMaxFrames;
             _inkNextSampleFrame = now + InkSettleStrideFrames;
         }
+        else if (settling && now < _inkSettleHardStopFrame)
+        {
+            // THE SELF-EXTENDING BURST (ModBuild 243). This sample MOVED the union inside the burst,
+            // which means the window is still arriving — a game window fade is longer than the fixed
+            // InkSettleFrames at 90 Hz, so the burst used to expire one sample before the tab finished
+            // and hand the last growth to the 60-frame gate. Extended, never past the hard stop, so
+            // content that is rewritten every frame cannot hold the burst open
+            // ([[settle-gate-vs-external-writer]]).
+            int extended = Mathf.Min(now + InkSettleFrames, _inkSettleHardStopFrame);
+            if (extended > _inkSettleUntilFrame)
+            {
+                _inkSettleUntilFrame = extended;
+                _inkBurstExtensions++;
+            }
+        }
+
+        // ModBuild 243 — THE CAUSE FIELD USED TO GO STALE ON A GROWTH, and it read as a lie. It was
+        // only ever written by a generation event or a committed release, so a growth commit printed
+        // whatever had caused the LAST re-capture: ModBuild 242's log line 2295 reads
+        // 'cause: the ink receded and held for 3 verify sample(s)' on a commit where the union GREW
+        // from 1301 to 1495 px, with the release counter unchanged at 1. Any reading of that line
+        // that trusts `cause:` on a growth is wrong, and one did.
+        if (!released && _inkGenSeeded)
+            _inkCause = settling
+                ? "the settle burst followed the window as it finished arriving (a GROWTH inside the "
+                  + "burst, no sub-view change and no host resize)"
+                : "the verify poll found ink outside the held envelope and the growth repeated (a "
+                  + "GROWTH, no sub-view change and no host resize)";
 
         _inkRect = grown;
         _inkValid = true;
         _inkGenSeeded = true;
+        _inkConfirmRun = 0; // the episode committed; the next one starts with a full budget
         _inkFallbackDue = false;
         _inkFallbackReported = false;
         _inkReportDue = true;
@@ -1747,6 +2074,28 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         + "the widget onto the window root and once on the mouse-out that takes it away). Transient "
         + "content is still DRAWN, and the hit rect and the capture frame still grow to cover it — it "
         + "is only barred from deciding where the brass handle goes";
+
+    /// <summary>
+    /// ModBuild 243 — <b>THE SIGNATURE'S OWN LEDGER, because a blind signature reads exactly like a
+    /// window nobody is touching.</b> That is not a hypothetical: through ModBuild 242 the options
+    /// window's generation stayed at 1 across four tab presses and up to sample 198, and the line said
+    /// nothing about it. These are the terms that tell "no sub-menu was opened" apart from "the walk
+    /// could not see the sub-menu": how many active nodes went into the hash, and whether the node
+    /// budget cut the walk short ([[sentinel-overflow-and-silent-scans]]).
+    /// </summary>
+    private string SignatureLedger() =>
+        $"SIGNATURE LEDGER: the depth-2 active-set walk hashed {_inkSigNodes} node(s) this tick"
+        + (_inkSigTruncated
+            ? " and WAS TRUNCATED at its node budget, so part of this window's tree is NOT in the "
+              + "signature and a sub-view opening there would fire no generation event — this is the "
+              + "first thing to check if the bar is late again"
+            : " and was not truncated")
+        + $"; {_inkBurstExtensions} settle-burst extension(s), {_inkEmpties} empty-window handle "
+        + $"hide(s) and {_inkConfirmBudgetSpent} confirm-budget exhaustion(s) over this window's "
+        + "life — a non-zero exhaustion count is a window whose content never settles, which is the "
+        + "one thing the fast confirm path could make expensive. A generation number that stays at 1 while the user "
+        + "opens sub-menus, with a node count that never changes, is this walk being too shallow — "
+        + "which is exactly what ModBuild 242 shipped and what depth 2 repaired";
 
     /// <summary>
     /// <b>THE ITEM-3 FALSIFIER: the frame, the ink, where the X landed, and how much of the laser's
@@ -1880,16 +2229,28 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         if (fallback || !_inkValid)
         {
+            // ModBuild 243 — TWO DIFFERENT STATES SHARE THIS LINE and the next reader must be able to
+            // tell them apart in one grep: a window that has NEVER measured ink (the handle is the
+            // frame-based one, unchanged since ModBuild 235) and a window that HAD ink and stopped
+            // drawing (the handle has been taken off the screen, which is the user's second report).
+            string handle = _barHiddenForEmpty
+                ? "THE HANDLE HAS BEEN TAKEN OFF THE SCREEN (ModBuild 243): this window had a "
+                  + $"committed ink rectangle and then drew nothing for {InkEmptyConfirmSamples} "
+                  + "agreeing walk(s), so the brass bar and its laser collider are switched off and "
+                  + "the close X is back on the frame's own corner. It all comes back on the first "
+                  + "sample that measures ink again. The X was deliberately NOT hidden — it is the "
+                  + "rescue for a window the player can no longer see"
+                : "the bar keeps the frame-based placement this round exists to replace: bar "
+                  + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px";
             VRLog.Warn("WorldUI",
                 $"GRAB BAR CLEARS THE INK: NOT ACHIEVED for '{_logName}' — failing term: THE INK UNION "
                 + "COULD NOT BE MEASURED (zero drawn graphic(s) under the window's own root, or zero "
-                + "size), so the bar keeps the frame-based placement this round exists to replace: bar "
-                + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px; "
+                + $"size), so {handle}; "
                 + $"{frame}; generation {_inkGeneration}, {_inkSamples} sample(s) taken, re-capture cause "
                 + $"was {_inkCause}; {MouseoverLedger()} — IF THAT REFUSED COUNT IS NON-ZERO AND THE "
                 + "UNIONED COUNT ON the last successful line was small, the ModBuild 241 mouseover "
-                + "exemption has emptied this window's bucket and is the first thing to look at."
-                + $"{suppressed}");
+                + $"exemption has emptied this window's bucket and is the first thing to look at; "
+                + $"{SignatureLedger()}.{suppressed}");
             return;
         }
 
@@ -1923,7 +2284,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + $"{gaps}; {frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} "
             + $"of that generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} "
             + $"growth(s) deferred by the repeat gate and {_inkReleases} release(s) committed over this "
-            + $"window's life, cause: {_inkCause}";
+            + $"window's life, cause: {_inkCause}; {SignatureLedger()}";
 
         if (clearsVertically && centredOnInk && gapWithinIntent)
         {
@@ -2013,6 +2374,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkSigTransientChildren = 0;
         _inkSigTransientLife = 0;
         _inkModChromeMask = 0;
+        // ModBuild 243: the empty-window hide is cleared with the holder it hid. A rebuilt bar is a
+        // NEW GameObject and is born visible, so a stale true here would take a working handle off
+        // the screen for a window that has simply not measured yet.
+        _inkSettleHardStopFrame = -1;
+        _inkBurstExtensions = 0;
+        _inkEmptyRun = 0;
+        _inkEmpties = 0;
+        _inkConfirmRun = 0;
+        _inkConfirmBudgetSpent = 0;
+        _barHiddenForEmpty = false;
+        _inkSigNodes = 0;
+        _inkSigTruncated = false;
         // The plate belongs to the game-owned host, which the caller releases separately; dropping
         // the reference is all this class may do with it. A re-converted window re-finds its own.
         _closeX = null;
