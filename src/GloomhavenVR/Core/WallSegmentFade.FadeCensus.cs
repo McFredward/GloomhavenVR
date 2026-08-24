@@ -253,6 +253,11 @@ internal static partial class WallSegmentFade
                     NoteFadeWrite(p.Renderer, "stacked shell", owner, seg.Fade);
                 foreach (MountedProp p in seg.Mounted)
                     NoteFadeWrite(p.Renderer, "mounted dressing", owner, seg.Fade);
+                // ModBuild 259: the whole-unit arm. Without this line every member the prop-unit
+                // pass gave a dissolve channel to would still be counted LEFT SOLID and the TORN
+                // number would not move — the census would report the fix as the defect.
+                foreach (MountedProp p in seg.UnitDressing)
+                    NoteFadeWrite(p.Renderer, "prop-unit dressing", owner, seg.Fade);
             }
             foreach (CornerPiece cp in _cornerPieces)
             {
@@ -503,6 +508,12 @@ internal static partial class WallSegmentFade
                 + $"wieder sichtbar ohne dass sie gefaded ist'). The unit-affinity rule in "
                 + $"WallSegmentFade.Mounted.cs is meant to hold this at ZERO; any non-zero value "
                 + $"here names the units it missed. "
+                + $"A write on the 'prop-unit dressing' path is the ModBuild-259 arm: a member "
+                + $"with no wall-fade channel that the prop-unit pass gave one to rather than "
+                + $"leaving it standing (the ModBuild-258 line's '106 left visible'). TORN is the "
+                + $"number this build moves: 24 of 72, 22 of 42 and 28 of 90 per pass in the "
+                + $"ModBuild-258 log, and a torn unit whose solid half is Foliage-family is the "
+                + $"one shape that must now be gone. "
                 + $"Anchor = AABB min.y over the nearest anchored room floor, the same anchor the "
                 + $"mounted census prints. {rows}");
         }

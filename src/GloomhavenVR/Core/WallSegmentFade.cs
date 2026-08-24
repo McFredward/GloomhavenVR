@@ -396,6 +396,22 @@ internal static class WallFadeTuning
 /// hexes cannot be resolved keeps the bounding-box grid and says so, in those words, on
 /// the SAMPLE GRID line.
 ///
+/// That fixed 'Wall 4' — user, on the ModBuild 258 build: <i>"Schaut man auf die Tür dann
+/// hast du mit deinem letzten Fix nun die rechte Wand vollständig gefixed"</i> — and left
+/// 'Wall 2' pinned at the same four cells, #7,#11,#14,#15, because ModBuild 258's
+/// "playable" only meant "a TileBehaviour keyed to this CMap inside this room's footprint".
+/// The room's own EDGE hexes passed that test, which is the user's next sentence: <i>"Mir
+/// ist aufgefallen dass dieses Wand eigene nicht-spielbare tiles hat … Nur spielbare tiles
+/// sollen berücksichtigt werden"</i>. ModBuild 259 therefore narrows the set with the
+/// PERSISTENT half of the game's own passability test <c>AStar.CNode.NavTo</c> —
+/// <c>Walkable &amp;&amp; !Blocked</c>, where <c>Walkable</c> is literally
+/// "<c>!FlagsSet(EFlags.Blocked | EFlags.Edge)</c>" as <c>ScenarioManager.Load</c> writes it
+/// — and refuses its two transient terms, which are per-A*-query scratch written from actor
+/// positions. See <c>ClassifyHex</c> for every term and its writer. The narrowing applies
+/// only while at least grid² playable hexes survive, so the denominator, the quantum and
+/// both bars cannot move; a room below that keeps ModBuild 258's set and the SAMPLE GRID
+/// line prints PLAYABLE FILTER HELD BACK with the bars the filtered set would have needed.
+///
 /// LOGICAL ROOM GROUPING (keep round 4 — user ruling: "Ich will weiterhin die normale
 /// Raum-Logik", which retired round 3's distance-based cross-room MAX after one ModBuild):
 /// the game's unit of reveal is the <c>CMap</c> (ScenarioRuleLibrary) reached via
@@ -825,10 +841,26 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<object, List<Vector3>> _tilesByMap = new(); // hex centres per CMap
         private readonly List<List<Vector3>> _tileListPool = new(); // reused hex lists (no per-rescan alloc)
         private int _tileListsUsed;
+        // PLAYABILITY VERDICT PER HEX (ModBuild 259) — index-aligned with _tilesByMap's list for
+        // the same CMap, one HexPlayable/Hex* code per hex. See ClassifyHex for the predicate and
+        // the game source behind every term.
+        private readonly Dictionary<object, List<byte>> _tileWhyByMap = new();
+        private readonly List<List<byte>> _tileWhyPool = new(); // rented in lockstep with _tileListPool
         private readonly List<bool> _tileTaken = new();         // greedy snap: hex already claimed
         private readonly List<Vector3> _tileScratch = new();    // this room's in-footprint hexes
+        private readonly List<Vector3> _tilePlayScratch = new();// …of those, the PLAYABLE ones
         private readonly List<int> _roomTileCount = new();      // hexes usable per room (diag)
         private readonly List<int> _roomTileTotal = new();      // hexes on the room's CMap (diag)
+        // ModBuild 259 per-room playability census — one counter per REASON, so the next log says
+        // which term did the work rather than only that something did.
+        private readonly List<int> _roomTileFootprint = new();  // in-footprint hexes, before playability
+        private readonly List<int> _roomTilePlayable = new();   // …of those, the playable ones
+        private readonly List<bool> _roomPlayableUsed = new();  // false = filter held back (see below)
+        private readonly List<int> _roomCutEdge = new();        // EFlags.Edge on the hex
+        private readonly List<int> _roomCutBlockedFlag = new(); // EFlags.Blocked on the hex
+        private readonly List<int> _roomCutNodeBlocked = new(); // CNode.Blocked (obstacle/entrance prop)
+        private readonly List<int> _roomCutNotWalkable = new(); // CNode.Walkable false, flags clean
+        private readonly List<int> _roomTileUnreadable = new(); // no verdict — KEPT (fail-open)
         private readonly List<float> _roomSnapMax = new();      // worst lattice→hex move, wu (diag)
         private readonly List<float> _roomSnapSum = new();      // summed move, wu (diag → mean)
         private readonly List<bool> _roomTileGrid = new();      // false = fell back to the bounding box
@@ -1630,9 +1662,11 @@ internal static partial class WallSegmentFade
                     + $"({_roomsAnchored}/"
                     + $"{_roomBounds.Count} rooms tile-anchored, plane +"
                     + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}; "
-                    + $"ModBuild 258: every sample sits on a PLAYABLE HEX where the game's tile "
-                    + $"registry could name the room's hexes — {_tilesResolved} hex(es) keyed "
-                    + $"this rescan, see the SAMPLE GRID line for the per-room split) — "
+                    + $"ModBuild 259: every sample sits on a hex the GAME calls playable — "
+                    + $"CNode.Walkable and not CNode.Blocked, i.e. neither an EDGE hex nor one "
+                    + $"an obstacle prop stands on — where the game's tile registry could name "
+                    + $"the room's hexes ({_tilesResolved} hex(es) keyed this rescan); see the "
+                    + $"SAMPLE GRID line for the per-room funnel and which term cut what) — "
                     + $"per-wall ROOM-coverage fade (strict own-room accounting; "
                     + $"EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
@@ -3441,16 +3475,22 @@ internal static partial class WallSegmentFade
         /// board. The transform cannot drift from the renderer bounds because it is the same
         /// frame.</para>
         ///
-        /// <para>WHAT IS DELIBERATELY NOT FILTERED. <c>CMapTile.Flags</c> carries
-        /// <c>Blocked</c> and <c>Edge</c>, and neither is applied. A blocked hex is still floor
-        /// the player looks at, and this subsystem has now shipped TWO discriminators that the
-        /// very next hardware log falsified (the ModBuild 257 height cap, and the aspect-ratio
-        /// TREE arm that fired zero times in the log meant to test it). A flag whose correct
-        /// setting cannot be read off a log is not a rule this round gets to invent.</para>
+        /// <para>ModBuild 259 — "PLAYABLE" NOW MEANS PLAYABLE. ModBuild 258 left
+        /// <c>CMapTile.Flags</c> unread and its own report said so: at that point neither
+        /// flag's correct setting could be read off a log, and this subsystem had already
+        /// shipped two discriminators (a 2.5 wu height cap, a 2.0 h/w aspect bar) that the very
+        /// next hardware log falsified. The user has since supplied the missing input in words
+        /// — <i>"Mir ist aufgefallen dass dieses Wand eigene nicht-spielbare tiles hat … Nur
+        /// spielbare tiles sollen berücksichtigt werden"</i>, and earlier, on 2026-08-24,
+        /// <i>"dahinter sind bisher nicht entdeckte tiles, werden sie auch bereits als Raum
+        /// gezählt? … das soll aber nicht der Fall sein"</i>. The predicate is therefore NOT
+        /// invented here: it is the persistent half of the game's own passability test,
+        /// <c>CNode.NavTo</c>. See <see cref="ClassifyHex"/> for every term and its writer.</para>
         /// </summary>
         private void CollectPlayableTiles()
         {
             _tilesByMap.Clear();
+            _tileWhyByMap.Clear();
             _tileListsUsed = 0;
             _tilesResolved = 0;
             _tilesUnkeyed = 0;
@@ -3487,28 +3527,169 @@ internal static partial class WallSegmentFade
                     _tilesUnkeyed++;
                     continue;
                 }
+                List<byte> why;
                 if (!_tilesByMap.TryGetValue(key, out List<Vector3> list))
                 {
-                    list = RentTileList();
+                    list = RentTileList(out why);
                     _tilesByMap[key] = list;
+                    _tileWhyByMap[key] = why;
+                }
+                else
+                {
+                    why = _tileWhyByMap[key];
                 }
                 list.Add(tb.transform.position);
+                why.Add(ClassifyHex(tb)); // index-aligned with `list` by construction
                 _tilesResolved++;
             }
         }
 
-        /// <summary>A cleared hex list from the rescan-scoped pool — the room count is tiny and
-        /// stable, so after the first rescan this never allocates.</summary>
-        private List<Vector3> RentTileList()
+        // ── PLAYABILITY REASON CODES (ModBuild 259) ──────────────────────────────────────────
+        // One code per hex, so the census can name the TERM that removed it. Every code below
+        // is a term of the game's own passability test; nothing here is a threshold.
+        private const byte HexPlayable = 0;     // in the denominator
+        private const byte HexEdgeFlag = 1;     // EFlags.Edge  — the room's own border hexes
+        private const byte HexBlockedFlag = 2;  // EFlags.Blocked — authored as unplayable
+        private const byte HexNodeBlocked = 3;  // CNode.Blocked — an obstacle/entrance prop stands here
+        private const byte HexNotWalkable = 4;  // CNode.Walkable false with clean flags (disagreement)
+        private const byte HexUnreadable = 5;   // no verdict available — KEPT, fail-open
+
+        /// <summary>
+        /// IS THIS HEX FLOOR A FIGURE COULD OCCUPY? The predicate is the game's own, not one
+        /// invented here. <c>AStar.CNode.NavTo</c> (ScenarioRuleLibrary/AStar/CNode.cs) is what
+        /// the game asks before letting a figure step onto a node:
+        /// <c>toNode.Walkable &amp;&amp; !toNode.SuperBlocked &amp;&amp; ((!toNode.Blocked &amp;&amp;
+        /// !toNode.TransientBlocked) || ignoreBlocked)</c>. This takes the two PERSISTENT terms
+        /// and deliberately drops the two transient ones:
+        ///
+        /// <para><b>Walkable — TAKEN.</b> Written in exactly one place at scenario load,
+        /// <c>ScenarioManager.Load</c>: <c>if (cTile != null &amp;&amp;
+        /// !cTile.m_Hex.FlagsSet(EFlags.Blocked | EFlags.Edge)) { Walkable = true; }</c>. So
+        /// <c>Walkable</c> IS the authored flag pair, and <c>FlagsSet</c> is
+        /// <c>(Flags &amp; flags) != 0</c>, i.e. ANY of the two (EFlags: Blocked = 1, Edge = 2).
+        /// The flags are read here FIRST — same data, one indirection less, and it lets the
+        /// census separate Edge from Blocked, which is the distinction the user's report turns
+        /// on. <c>EFlags.Edge</c> is set by <c>UnityGameEditorRuntime.InitialiseScenario</c> for
+        /// every scene object of type <c>ObjectImportType.EdgeTile</c>, and those tiles are
+        /// added to the ROOM'S OWN <c>CMap.MapTiles</c> and DO get a <c>TileBehaviour</c>
+        /// (<c>ClientScenarioManager.Create</c> wires one for every CTile) — which is precisely
+        /// "diese Wand hat eigene nicht-spielbare tiles": they were in ModBuild 258's
+        /// denominator. <c>CObjectDoor.SetDoor</c> also sets <c>Walkable = true</c> on a door's
+        /// hex, so a doorway hex stays in the denominator; doorway segments never fade anyway
+        /// (user ruling 2026-08-02).</para>
+        ///
+        /// <para><b>Blocked — TAKEN.</b> Two writers, both plain local scene construction:
+        /// <c>UnityGameEditorObject.Start</c> sets it for every <c>Coverage</c> marker under a
+        /// scene prop and clears it again in <c>ReleasePathing</c>/<c>OnDestroy</c>, and
+        /// <c>ApparanceLayer.Create</c> sets it on a dungeon entrance/exit door hex. A hex with
+        /// an obstacle standing on it is floor no figure can occupy.</para>
+        ///
+        /// <para><b>SuperBlocked and TransientBlocked — REFUSED, and this is not caution but
+        /// correctness.</b> Both are per-QUERY scratch: <c>CPathFinder.Lock()</c> stamps them
+        /// from <c>QueuedTransient*BlockedLists</c> while a path is being solved and
+        /// <c>CPathFinder.Unlock()</c> clears TransientBlocked over the whole grid again. They
+        /// are written from ACTOR POSITIONS (<c>CActor</c>, <c>CEnemyActor</c>,
+        /// <c>CPlayerActor</c> all queue them), so a 2 s rescan would sample a race, the value
+        /// would differ between clients, and the meaning is wrong anyway: a hex a monster is
+        /// standing on is still floor the player is looking at and still a reason to fade a
+        /// wall in front of it.</para>
+        ///
+        /// <para><b>IsBridge / IsBridgeOpen — REFUSED.</b> Set only by <c>CObjectDoor</c> on a
+        /// DOOR's hex. <c>NavTo</c> does not consult <c>IsBridgeOpen</c> at all — the
+        /// bridge-open test lives in <c>CPathFinder.FindPath</c>'s path assembly, not in
+        /// per-node passability — and a door hex flips its state during play, which would move
+        /// the denominator mid-scenario for no visual reason.</para>
+        ///
+        /// <para><b>CMap.Revealed — REFUSED HERE, and the reason is structural.</b> Reveal is
+        /// per-CMap, i.e. per ROOM, never per hex (<c>CMap.Revealed</c>, set true in
+        /// <c>CMap.OpenRoom</c>). Applied to hexes it can only ever remove ALL of a room's hexes
+        /// or none, which is the denominator collapse constraint 1 forbids. The user's
+        /// "undiscovered tiles must not count" is already answered one level up and by
+        /// construction: a room only enters <see cref="_roomBounds"/> when the game appends its
+        /// occlusion volume renderer, and a hex only enters a room's set when its CMap is THAT
+        /// room's CMap and it lies inside that room's own footprint. The ModBuild 258 log is the
+        /// evidence: 184 hexes were keyed to a room while the registry held exactly ONE room,
+        /// so 140 hexes of not-yet-revealed rooms were already outside every denominator. The
+        /// census prints the room's Revealed flag so the next log can falsify that claim rather
+        /// than inherit it.</para>
+        ///
+        /// <para>MULTIPLAYER. Every term is derived from local scene state that each client
+        /// builds identically from the same scenario state; no networked state is added, read
+        /// or written, and nothing here writes game state.</para>
+        /// </summary>
+        private static byte ClassifyHex(TileBehaviour tb)
         {
-            if (_tileListsUsed < _tileListPool.Count)
+            ScenarioRuleLibrary.CTile? tile;
+            try
             {
-                List<Vector3> reused = _tileListPool[_tileListsUsed++];
+                tile = tb.m_ClientTile?.m_Tile;
+            }
+            catch
+            {
+                return HexUnreadable; // client-tile chain mid-build, as everywhere else here
+            }
+            if (tile == null)
+                return HexUnreadable;
+            try
+            {
+                ScenarioRuleLibrary.CMapTile hex = tile.m_Hex;
+                if (hex != null)
+                {
+                    if (hex.FlagsSet(ScenarioRuleLibrary.EFlags.Edge))
+                        return HexEdgeFlag;
+                    if (hex.FlagsSet(ScenarioRuleLibrary.EFlags.Blocked))
+                        return HexBlockedFlag;
+                }
+            }
+            catch
+            {
+                return HexUnreadable;
+            }
+            try
+            {
+                AStar.CPathFinder pathFinder = ScenarioRuleLibrary.ScenarioManager.PathFinder;
+                if (pathFinder == null)
+                    return HexUnreadable;
+                AStar.CNode[,] nodes = pathFinder.Nodes;
+                if (nodes == null)
+                    return HexUnreadable;
+                AStar.Point at = tile.m_ArrayIndex;
+                if (at.X < 0 || at.Y < 0
+                    || at.X >= nodes.GetLength(0) || at.Y >= nodes.GetLength(1))
+                    return HexUnreadable;
+                AStar.CNode node = nodes[at.X, at.Y];
+                if (node == null)
+                    return HexUnreadable;
+                if (node.Blocked)
+                    return HexNodeBlocked;
+                if (!node.Walkable)
+                    return HexNotWalkable;
+            }
+            catch
+            {
+                return HexUnreadable; // PathFinder torn down between scenarios — fail OPEN
+            }
+            return HexPlayable;
+        }
+
+        /// <summary>A cleared hex list from the rescan-scoped pool — the room count is tiny and
+        /// stable, so after the first rescan this never allocates. The playability-reason list
+        /// is rented in lockstep so the two stay index-aligned by construction.</summary>
+        private List<Vector3> RentTileList(out List<byte> why)
+        {
+            if (_tileListsUsed < _tileListPool.Count && _tileListsUsed < _tileWhyPool.Count)
+            {
+                List<Vector3> reused = _tileListPool[_tileListsUsed];
+                why = _tileWhyPool[_tileListsUsed];
+                _tileListsUsed++;
                 reused.Clear();
+                why.Clear();
                 return reused;
             }
             var fresh = new List<Vector3>();
+            why = new List<byte>();
             _tileListPool.Add(fresh);
+            _tileWhyPool.Add(why);
             _tileListsUsed++;
             return fresh;
         }
@@ -5269,6 +5450,31 @@ internal static partial class WallSegmentFade
         /// ModBuild 257 behaviour exactly and cannot have been fixed or broken by this
         /// change.</para>
         ///
+        /// <para>ModBuild 259 — THE FILTER, AND THE ONE CASE THAT HOLDS IT BACK. The hex set is
+        /// now narrowed to the hexes <see cref="ClassifyHex"/> calls playable, because ModBuild
+        /// 258's "playable" only meant "a TileBehaviour keyed to this CMap inside this room's
+        /// footprint" and the room's own EDGE hexes passed that. The narrowing is applied ONLY
+        /// while at least <c>grid²</c> playable hexes survive. Below that the relocation would
+        /// start dropping lattice positions, <c>min(grid², hexes)</c> would fall, the quantum
+        /// would rise and BOTH Schmitt bars would move in cell terms — a bar re-derivation this
+        /// build is not allowed to make silently. So a room with too few playable hexes keeps
+        /// ModBuild 258's unfiltered in-footprint set, bit for bit, and the census says
+        /// PLAYABLE FILTER HELD BACK with both counts and the bars the filtered set WOULD have
+        /// produced. That is the fallback ladder constraint 1 asks for: playable hexes →
+        /// in-footprint hexes (258) → bounding box (257).</para>
+        ///
+        /// <para>WHY THE FILTER CANNOT MOVE 'Wall 4' THE WRONG WAY, in the log's own numbers.
+        /// 'Wall 4' is the wall the user confirmed fixed. Its ModBuild 258 readings are
+        /// <c>blk 1/16 solid</c> ×20, <c>blk 2/16 solid</c> ×8 and <c>blk 3/16 solid</c> ×6
+        /// (0.19, under the 0.20 exit bar) when it should be solid, and <c>blk 16/16</c> when it
+        /// should be faded. Removing hexes can only push a lattice position to a hex FURTHER
+        /// from the room's edge, i.e. further from the wall that was intercepting it, so a
+        /// wall's pinned-cell count can only fall or stay — its stuck-faded failure mode moves
+        /// away, not toward. And its fade-side margin is ten cells (16/16 against a 6-cell enter
+        /// bar), so no rearrangement of 16 samples inside the same room can cost it the fade.
+        /// The denominator itself is unchanged either way: 16 in the filtered branch by the
+        /// <c>grid²</c> guard above, 16 in the held-back branch by definition.</para>
+        ///
         /// <para>COST. One <c>grid² × hexes</c> distance scan per room per rescan (~2 s):
         /// 16 × ~50 × ~6 rooms ≈ 5k squared-distance tests, all at build time. The per-wall,
         /// per-sample ray loop is untouched — it still walks <c>_roomSampleCount[room]</c>
@@ -5284,6 +5490,14 @@ internal static partial class WallSegmentFade
             _roomSnapMax.Clear();
             _roomSnapSum.Clear();
             _roomTileGrid.Clear();
+            _roomTileFootprint.Clear();
+            _roomTilePlayable.Clear();
+            _roomPlayableUsed.Clear();
+            _roomCutEdge.Clear();
+            _roomCutBlockedFlag.Clear();
+            _roomCutNodeBlocked.Clear();
+            _roomCutNotWalkable.Clear();
+            _roomTileUnreadable.Clear();
             _sampleYMin = float.PositiveInfinity;
             _sampleYMax = float.NegativeInfinity;
             int rooms = _roomBounds.Count;
@@ -5309,6 +5523,14 @@ internal static partial class WallSegmentFade
                 _roomSnapMax.Add(0f);
                 _roomSnapSum.Add(0f);
                 _roomTileGrid.Add(false);
+                _roomTileFootprint.Add(0);
+                _roomTilePlayable.Add(0);
+                _roomPlayableUsed.Add(false);
+                _roomCutEdge.Add(0);
+                _roomCutBlockedFlag.Add(0);
+                _roomCutNodeBlocked.Add(0);
+                _roomCutNotWalkable.Add(0);
+                _roomTileUnreadable.Add(0);
                 if (_allSamples.Count + grid * grid > MaxTotalSamples)
                 {
                     _roomSampleCount.Add(0); // over budget — room gets no grid this rescan
@@ -5336,14 +5558,52 @@ internal static partial class WallSegmentFade
                     // is one the lattice never reached anyway. Not a tuning: no margin, no
                     // radius, just the room's own bounds.
                     _tileScratch.Clear();
+                    _tilePlayScratch.Clear();
+                    // ModBuild 259: same walk, and the playability verdict CollectPlayableTiles
+                    // already computed for each hex is tallied by REASON here — so the census
+                    // says which term removed the hexes, or that none did.
+                    _tileWhyByMap.TryGetValue(mapKey, out List<byte> why);
                     for (int t = 0; t < found.Count; t++)
                     {
                         Vector3 h = found[t];
-                        if (h.x >= b.min.x && h.x <= b.max.x && h.z >= b.min.z && h.z <= b.max.z)
-                            _tileScratch.Add(h);
+                        if (h.x < b.min.x || h.x > b.max.x || h.z < b.min.z || h.z > b.max.z)
+                            continue;
+                        _tileScratch.Add(h);
+                        // No verdict list (registry raced the rescan) → treat every hex as
+                        // playable, which is exactly ModBuild 258's set. Fail OPEN, never toward
+                        // a smaller denominator.
+                        byte code = why != null && t < why.Count ? why[t] : HexUnreadable;
+                        switch (code)
+                        {
+                            case HexEdgeFlag: _roomCutEdge[r]++; break;
+                            case HexBlockedFlag: _roomCutBlockedFlag[r]++; break;
+                            case HexNodeBlocked: _roomCutNodeBlocked[r]++; break;
+                            case HexNotWalkable: _roomCutNotWalkable[r]++; break;
+                            case HexUnreadable:
+                                _roomTileUnreadable[r]++;
+                                _tilePlayScratch.Add(h);
+                                break;
+                            default:
+                                _tilePlayScratch.Add(h);
+                                break;
+                        }
                     }
-                    if (_tileScratch.Count > 0)
+                    _roomTileFootprint[r] = _tileScratch.Count;
+                    _roomTilePlayable[r] = _tilePlayScratch.Count;
+                    // THE GUARD (constraint 1 + 3). Use the filtered set only while it still
+                    // carries at least one hex per lattice position: below grid² the relocation
+                    // drops positions, min(grid², hexes) falls, the quantum rises and both
+                    // Schmitt bars move in cell terms. A held-back room keeps ModBuild 258's
+                    // denominator unchanged and the census prints both counts.
+                    if (_tilePlayScratch.Count >= grid * grid)
+                    {
+                        hexes = _tilePlayScratch;
+                        _roomPlayableUsed[r] = true;
+                    }
+                    else if (_tileScratch.Count > 0)
+                    {
                         hexes = _tileScratch;
+                    }
                 }
                 _roomTileCount[r] = hexes != null ? hexes.Count : 0;
                 if (hexes == null)
@@ -5421,10 +5681,40 @@ internal static partial class WallSegmentFade
         /// tile had lattice cells in dead space, which is the defect. A room reporting FELL
         /// BACK TO THE BOUNDING BOX is running ModBuild 257 unchanged.</para>
         ///
+        /// <para>ModBuild 259 adds the FUNNEL and the per-term cut columns: CMap hexes → hexes
+        /// inside this room's own footprint → PLAYABLE hexes, with one column per term of
+        /// <see cref="ClassifyHex"/>. The whole point of the columns is that they can read all
+        /// zero: if no term cut anything, the playability filter is inert for this room and the
+        /// next round must not spend a build on it. A room printing PLAYABLE FILTER HELD BACK
+        /// kept ModBuild 258's denominator and prints the two bars the filtered set WOULD have
+        /// produced — the numbers to read before anyone shrinks a denominator.</para>
+        ///
         /// <para>Change-gated on its own text: the rescan runs every 2 s and this would
         /// otherwise be the noisiest line in the log. It reprints the moment any number in it
         /// moves — including a room revealing, which is exactly when it is wanted.</para>
         /// </summary>
+        /// <summary>The room's own <c>CMap.Revealed</c>, as text. REPORTED ONLY — see
+        /// <see cref="ClassifyHex"/> for why reveal cannot be a per-hex term. It is here so the
+        /// next hardware log can falsify the claim that an unrevealed room never reaches the
+        /// registry, rather than leaving that claim to inference (user, twice: "dahinter sind
+        /// bisher nicht entdeckte tiles … das soll aber nicht der Fall sein"). A room printing
+        /// <c>Revealed=NO</c> while it holds a sample grid is the finding.</summary>
+        private string RoomRevealedLabel(int r)
+        {
+            if (r >= _roomMapKeys.Count)
+                return "?";
+            try
+            {
+                return _roomMapKeys[r] is ScenarioRuleLibrary.CMap map
+                    ? (map.Revealed ? "yes" : "NO")
+                    : "?";
+            }
+            catch
+            {
+                return "?";
+            }
+        }
+
         private void LogSampleGridCensus()
         {
             var sb = new System.Text.StringBuilder();
@@ -5440,11 +5730,40 @@ internal static partial class WallSegmentFade
                 if (r < _roomTileGrid.Count && _roomTileGrid[r])
                 {
                     tileRooms++;
-                    sb.Append(": ").Append(_roomTileCount[r]).Append(" playable hex(es)")
-                      .Append(_roomTileTotal[r] != _roomTileCount[r]
-                          ? $" of {_roomTileTotal[r]} on this room's CMap (the rest sit outside "
-                            + "this room's own footprint — a terraced CMap is two rooms here)"
-                            : "")
+                    // ModBuild 259 — the funnel, term by term. The point of this row is that a
+                    // reader can see WHICH term removed the hexes: if every cut column is 0 the
+                    // playability filter did nothing and the defect is elsewhere.
+                    int foot = _roomTileFootprint[r], play = _roomTilePlayable[r];
+                    sb.Append(": ").Append(_roomTileTotal[r]).Append(" hex(es) on this room's CMap")
+                      .Append(_roomTileTotal[r] != foot
+                          ? $" → {foot} inside this room's own footprint (the rest sit outside "
+                            + "it — a terraced CMap is two rooms here)"
+                          : $" → all {foot} inside this room's own footprint")
+                      .Append(" → ").Append(play).Append(" PLAYABLE [cut ")
+                      .Append(_roomCutEdge[r]).Append(" EDGE-flag + ")
+                      .Append(_roomCutBlockedFlag[r]).Append(" BLOCKED-flag + ")
+                      .Append(_roomCutNodeBlocked[r])
+                      .Append(" node-Blocked (an obstacle or dungeon-entrance prop stands on the "
+                          + "hex) + ")
+                      .Append(_roomCutNotWalkable[r])
+                      .Append(" node-!Walkable with clean flags (a node/flag disagreement — "
+                          + "expect 0); ")
+                      .Append(_roomTileUnreadable[r])
+                      .Append(" hex(es) gave no verdict and were KEPT, fail-open]")
+                      .Append("; room CMap Revealed=").Append(RoomRevealedLabel(r))
+                      .Append(_roomPlayableUsed[r]
+                          ? $"; DENOMINATOR = the {play} playable hex(es)"
+                          : "; PLAYABLE FILTER HELD BACK — " + play + " playable hex(es) is fewer "
+                            + "than the " + _sampleGridCells + " lattice position(s), so the "
+                            + "denominator stays ModBuild 258's " + foot + " in-footprint hex(es) "
+                            + "and NEITHER the quantum nor the two bars move. Using the " + play
+                            + " would have made the quantum "
+                            + (play > 0 ? (1f / play).ToString("F4") : "n/a") + " → exit bar "
+                            + (play > 0 ? Mathf.CeilToInt(WallFadeTuning.Off * play) : 0)
+                            + " cell(s), enter bar "
+                            + (play > 0 ? Mathf.CeilToInt(WallFadeTuning.On * play) : 0)
+                            + " cell(s) — that is a bar re-derivation, and this build does not "
+                            + "make it")
                       .Append(", ")
                       .Append(cells).Append(" of ").Append(_sampleGridCells)
                       .Append(" lattice position(s) kept ON A TILE (")
@@ -5848,15 +6167,26 @@ internal static partial class WallSegmentFade
             _allSamples.Clear();
             _roomMapKeys.Clear();
             _tilesByMap.Clear();
+            _tileWhyByMap.Clear();
             _tileListPool.Clear();
+            _tileWhyPool.Clear();
             _tileListsUsed = 0;
             _tileTaken.Clear();
             _tileScratch.Clear();
+            _tilePlayScratch.Clear();
             _roomTileCount.Clear();
             _roomTileTotal.Clear();
             _roomSnapMax.Clear();
             _roomSnapSum.Clear();
             _roomTileGrid.Clear();
+            _roomTileFootprint.Clear();
+            _roomTilePlayable.Clear();
+            _roomPlayableUsed.Clear();
+            _roomCutEdge.Clear();
+            _roomCutBlockedFlag.Clear();
+            _roomCutNodeBlocked.Clear();
+            _roomCutNotWalkable.Clear();
+            _roomTileUnreadable.Clear();
             _floorYByRenderer.Clear();
             _cornerPieces.Clear();
             _peerFades.Clear();

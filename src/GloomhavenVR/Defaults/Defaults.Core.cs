@@ -86,11 +86,21 @@ internal static partial class Defaults
     //    dev.gloomhavenvr.perf.cfg carried `false` because it was a dump of a session in which the
     //    value was being A/B'd. A measurement state was promoted to a shipped default by a
     //    refactor that believed it was changing nothing.
-    //  * THE USER'S REPORT IS THE CONSEQUENCE (schwebende_lichter.jpg, walls_gone.jpg): hard-edged
-    //    pale rectangles floating at the gate, "dauerhaft so egal was ein oder ausgeblendet wird".
-    //    Under D3D11's reversed depth an unwritten depth texture reads as the FAR PLANE, so every
-    //    soft-fade term saturates to full authored opacity — independent of the wall fade, which
-    //    is exactly the invariance he reported.
+    //  * THE CLAIM THIS BLOCK USED TO MAKE IS DEAD, AND IT IS CORRECTED HERE RATHER THAN DELETED
+    //    SO NOBODY RE-DERIVES IT. ModBuild 251 wrote that schwebende_lichter.jpg / walls_gone.jpg —
+    //    hard-edged pale rectangles at the gate, "dauerhaft so egal was ein oder ausgeblendet
+    //    wird" — ARE this regression, reasoning that under D3D11's reversed depth an unwritten
+    //    depth texture reads as the FAR PLANE, so a saturate((sceneZ - fragZ) * _InvFade) term
+    //    saturates to full authored opacity independently of the wall fade. The mechanism is real;
+    //    it is not what he is photographing. He ran the A/B for ModBuild 253: second_logs/Player.log
+    //    shows depthTextureMode=Depth with [Optimize] HeadDepthPrepass=true AND THE RECTANGLES
+    //    UNCHANGED. ModBuild 251's own GLOW CARDS census had already refuted it before that — the
+    //    three cards it counted as depth-fade dependent are offscreen, not-submitted shield clouds
+    //    on stone golems, while every gate-area card printed "depth-fade props: NONE".
+    //    So this entry is a REGRESSION WITH NO KNOWN SYMPTOM: still worth correcting one day, no
+    //    longer evidence about the gate. (ModBuild 259 also killed the successor identification —
+    //    the gate's 'Door_Light_*_Mesh' plates are an 8:1 strip 0.257 wu tall and the photographed
+    //    regions are taller than wide; see GlowCardCensus.GateDump.cs.)
     //  * WHY IT IS NOT SIMPLY FLIPPED HERE. (a) Turning it on makes Unity build the depth texture
     //    on the built-in forward path by submitting every opaque renderer a SECOND time through
     //    its shadow-caster pass — four full submissions per frame under MultiPass instead of two,
@@ -99,7 +109,9 @@ internal static partial class Defaults
     //    hardware. (b) Flipping it would change NOTHING on an existing install anyway: BepInEx
     //    keeps the value already in the cfg. The honest sequence is one line in
     //    dev.gloomhavenvr.perf.cfg, [Perf] FRAME read on both sides of it, and THEN this default
-    //    set deliberately — with the answer in hand instead of a guess.
+    //    set deliberately — with the answer in hand instead of a guess. Note that the A/B above
+    //    was run for the RECTANGLES and not for the frame time, so the perf half of that
+    //    measurement still does not exist.
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera

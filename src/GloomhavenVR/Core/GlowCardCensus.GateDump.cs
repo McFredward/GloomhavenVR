@@ -78,6 +78,21 @@ namespace GloomhavenVR.Core;
 /// words that it gave up. A gate dump that fired too early and printed an empty scene would be the
 /// worst possible outcome, because it looks exactly like a decisive negative.</para>
 ///
+/// <para>MODBUILD 259 — WHAT THE FIRST TWO RUNS SETTLED, AND THE ONE THING THAT BROKE. Tier A did
+/// its job: 103 records, every one printed, no cap bound, so "the rectangles are not gate children"
+/// is now a measured negative rather than an absence. Tier B did not, and the reason was arithmetic
+/// rather than budget — its distance key SATURATED. Every one of the 2657 matched renderers reported
+/// <c>d=0.00wu</c>, because a gate anchor is the union AABB of a whole door-prop subtree and a five
+/// metre radius around it swallows the room; "nearest first" therefore degenerated into hierarchy
+/// order, and 40 of the 48 records it spent were <c>not-submitted</c> floor tiles that draw nothing.
+/// Three changes, all in this file: the sort is now submitted-first then largest-first with the
+/// centre distance as the tie-break the surface distance cannot be; the footer describes the WHOLE
+/// matched population instead of the printed slice, and names how many SUBMITTED records were cut,
+/// which is the only count that can still hide the subject; and every record carries a
+/// <c>skinned:</c> clause, because the gate's plates are all <see cref="SkinnedMeshRenderer"/> and
+/// every AABB and screen rect in this dump is a bind-pose number, not a measurement of the drawn
+/// geometry.</para>
+///
 /// <para>MP-SAFE: reads only. Nothing here writes a material, a property block, a transform or a
 /// wire message.</para>
 /// </summary>
@@ -102,12 +117,23 @@ internal static partial class GlowCardCensus
     /// ever binds, the number that did not get a dump is printed.</summary>
     private const int GateMaxFullDumps = 64;
 
-    /// <summary>Tier B records printed at all, nearest first.</summary>
-    private const int GateMaxNearRecords = 48;
+    /// <summary>Tier B records printed at all.
+    ///
+    /// <para>MODBUILD 259 — WHY THIS WENT UP AND NOT DOWN. Tier A answered: 103 records, all
+    /// printed, no cap bound, and nothing in it can be the photographed rectangles. That makes
+    /// tier B the only remaining population, and the ModBuild 258 footer says it printed 48 of
+    /// 2657. The 48 it chose were worthless, and the reason is arithmetic rather than taste:
+    /// EVERY ONE of them printed <c>d=0.00wu</c>. The gate anchor is the union AABB of a whole
+    /// door-prop subtree — floor hexes included — so a five-metre radius around it puts most of
+    /// the room INSIDE the box, <see cref="DistanceToNearestGate"/> returns 0 for all of them,
+    /// and "nearest first" degenerates into hierarchy order. Forty of the forty-eight were
+    /// <c>not-submitted</c>: the dump spent its entire budget on floor tiles that draw nothing.
+    /// The cap was never the binding constraint; the ORDER was.</para></summary>
+    private const int GateMaxNearRecords = 64;
 
-    /// <summary>Tier B records that get the full dump, nearest first. This is an ordering cap, not a
-    /// property filter: no renderer is excluded for what it IS, only for being further from the gate
-    /// than sixteen others.
+    /// <summary>Tier B records that get the full dump, in the tier-B order. This is an ordering cap,
+    /// not a property filter: no renderer is excluded for what it IS, only for being ordered behind
+    /// twenty others.
     ///
     /// <para>WHERE THE COST OF THIS DUMP ACTUALLY IS, since it is not where it looks. The walk is
     /// cheap — the census's own standalone sweep priced 3040 renderers at 7.4 ms on this hardware
@@ -117,7 +143,7 @@ internal static partial class GlowCardCensus
     /// why the full-dump caps are two figures and not three. The dump is a deliberate ONE-FRAME
     /// HITCH, once per scene, in an instrumented build; the footer prints the millisecond number so
     /// it is a measurement and not this comment's opinion.</para></summary>
-    private const int GateMaxNearFullDumps = 16;
+    private const int GateMaxNearFullDumps = 20;
 
     /// <summary>Hard ceiling on renderers visited, so a pathological scene cannot turn a one-shot
     /// diagnostic into a hitch. Printed when it binds.</summary>
@@ -147,18 +173,57 @@ internal static partial class GlowCardCensus
 
     private readonly struct NearRecord
     {
-        public NearRecord(Renderer r, float dist)
+        public NearRecord(Renderer r, float dist, float centreDist, bool submitted, float span)
         {
             R = r;
             Dist = dist;
+            CentreDist = centreDist;
+            Submitted = submitted;
+            Span = span;
         }
 
         public readonly Renderer R;
+
+        /// <summary>Surface distance to the nearest gate anchor box, 0 INSIDE it — which in this
+        /// scene is nearly everything, see <see cref="GateMaxNearRecords"/>.</summary>
         public readonly float Dist;
+
+        /// <summary>Centre-to-centre distance to the same anchor. Never saturates, so it is the
+        /// tie-break the surface distance cannot be.</summary>
+        public readonly float CentreDist;
+
+        /// <summary><c>enabled &amp;&amp; activeInHierarchy &amp;&amp; isVisible</c>.</summary>
+        public readonly bool Submitted;
+
+        /// <summary>Angular size in pixels at the dump-time head pose.</summary>
+        public readonly float Span;
     }
 
-    private static readonly Comparison<NearRecord> ByDistance =
-        (a, b) => a.Dist.CompareTo(b.Dist);
+    /// <summary>
+    /// TIER B ORDER, ModBuild 259. Submitted first, then biggest first, then nearest by centre.
+    ///
+    /// <para>THIS IS NOT THE RANKING THE HEADER OF THIS FILE CONDEMNS, and the difference is the
+    /// whole point. The five builds of <c>[Perf] GLOW CARDS</c> ranked by guesses about what the
+    /// subject IS — its shape, its queue, whether it lights itself. Both keys here are properties
+    /// of the PHOTOGRAPH instead: a thing visible in a screenshot is being submitted, and a thing
+    /// that measures 76 to 121 px tall in a 3840x2160 frame is not small. Nothing is excluded for
+    /// what it is; the whole matched population is still counted in the footer, and the number cut
+    /// is still printed.</para>
+    ///
+    /// <para>WHAT IT REPLACES: a pure surface-distance sort in which all 2657 records tied at 0.00
+    /// and the printed 48 were therefore hierarchy order, 40 of them not-submitted.</para>
+    /// </summary>
+    private static readonly Comparison<NearRecord> ByPhotographability =
+        (a, b) =>
+        {
+            if (a.Submitted != b.Submitted)
+                return a.Submitted ? -1 : 1;
+            int bySpan = b.Span.CompareTo(a.Span);
+            if (bySpan != 0)
+                return bySpan;
+            int byDist = a.Dist.CompareTo(b.Dist);
+            return byDist != 0 ? byDist : a.CentreDist.CompareTo(b.CentreDist);
+        };
 
     // ---- borrowed window state, saved and put back ------------------------------------------
     private static Camera? _gateSavedHead;
@@ -368,6 +433,14 @@ internal static partial class GlowCardCensus
         int unmarkedA = 0;
         int unmarkedB = 0;
 
+        // ModBuild 259: the tier-B breakdown is taken over the WHOLE matched population, not over
+        // the printed slice. The 258 footer characterised 48 records and left 2609 undescribed,
+        // which is the one number a truncated dump most needs to give back.
+        int nearSubmitted = 0;
+        int nearPlate = 0;
+        int nearSubmittedPlate = 0;
+        int nearSelfLit = 0;
+
         // The header goes out BEFORE the records so that a log truncated by a crash still says what
         // was being attempted and how many props it had.
         VRLog.Info(Scope, "GATE DUMP — attempt " + _gateAttempts + " in scene '" + sceneName
@@ -436,6 +509,7 @@ internal static partial class GlowCardCensus
                   .Append(PathOf(r.transform)).Append("' ");
                 AppendIdentity(sb, c, r);
                 AppendScreen(sb, c);
+                AppendSkinned(sb, r);
                 AppendBlend(sb, c);
                 AppendTint(sb, c, r);
                 if (full)
@@ -496,33 +570,56 @@ internal static partial class GlowCardCensus
                 if (GatePrinted.Contains(r.GetInstanceID()))
                     continue;
 
-                float dist = DistanceToNearestGate(r);
+                float dist = DistanceToNearestGate(r, out float centreDist);
                 if (dist > GateNearRadiusWU)
                     continue;
                 if (!GatePrinted.Add(r.GetInstanceID()))
                     continue;
-                GateNear.Add(new NearRecord(r, dist));
+                // Built ONCE here for every matched renderer, not just the printed ones: the
+                // ordering keys and the footer's population breakdown both need it, and the
+                // expensive part of a record is AppendProps, which still only runs on the
+                // printed few.
+                Candidate nc = BuildGateCandidate(r);
+                if (nc.Marks == Mark.None)
+                    unmarkedB++;
+                if (nc.Submitted)
+                    nearSubmitted++;
+                if ((nc.Marks & Mark.Plate) != 0)
+                {
+                    nearPlate++;
+                    if (nc.Submitted)
+                        nearSubmittedPlate++;
+                }
+                if (nc.SelfLit)
+                    nearSelfLit++;
+                GateNear.Add(new NearRecord(r, dist, centreDist, nc.Submitted, nc.Span));
             }
             if (walkCapped)
                 break;
         }
 
-        GateNear.Sort(ByDistance);
+        GateNear.Sort(ByPhotographability);
         int nearPrinted = Mathf.Min(GateMaxNearRecords, GateNear.Count);
+        int submittedCut = 0;
+        for (int i = nearPrinted; i < GateNear.Count; i++)
+        {
+            if (GateNear[i].Submitted)
+                submittedCut++;
+        }
         for (int i = 0; i < nearPrinted; i++)
         {
             Renderer r = GateNear[i].R;
             if (r == null)
                 continue;
             Candidate c = BuildGateCandidate(r);
-            if (c.Marks == Mark.None)
-                unmarkedB++;
             sb.Length = 0;
             sb.Append("GATE DUMP B[").Append(i).Append("] d=")
-              .Append(GateNear[i].Dist.ToString("F2")).Append("wu '")
+              .Append(GateNear[i].Dist.ToString("F2")).Append("wu centre=")
+              .Append(GateNear[i].CentreDist.ToString("F2")).Append("wu '")
               .Append(PathOf(r.transform)).Append("' ");
             AppendIdentity(sb, c, r);
             AppendScreen(sb, c);
+            AppendSkinned(sb, r);
             AppendBlend(sb, c);
             AppendTint(sb, c, r);
             if (i < GateMaxNearFullDumps)
@@ -532,10 +629,11 @@ internal static partial class GlowCardCensus
             }
             else
             {
-                sb.Append(" | (full property/pass dump withheld — the nearest ")
+                sb.Append(" | (full property/pass dump withheld — the first ")
                   .Append(GateMaxNearFullDumps).Append(" tier-B records got one; this is an "
-                                                       + "ORDERING cap by distance, not a filter on "
-                                                       + "what the renderer is)");
+                                                       + "ORDERING cap, submitted and largest "
+                                                       + "first, not a filter on what the renderer "
+                                                       + "is)");
             }
             VRLog.Info(Scope, sb.ToString());
         }
@@ -560,14 +658,29 @@ internal static partial class GlowCardCensus
         if (GateNear.Count > nearPrinted)
         {
             sb.Append(" ⇒ ").Append(GateNear.Count - nearPrinted)
-              .Append(" NEAR RENDERER(S) WERE NOT PRINTED (past the ").Append(GateMaxNearRecords)
-              .Append("-record cap, nearest kept) — THIS DUMP IS TRUNCATED and a subject could be "
-                      + "in the part that was cut");
+              .Append(" NEAR RENDERER(S) WERE NOT PRINTED, past the ").Append(GateMaxNearRecords)
+              .Append("-record cap — THIS DUMP IS TRUNCATED. Of those cut, ").Append(submittedCut)
+              .Append(" were SUBMITTED: that is the only count that can still hide the subject, "
+                      + "because a rectangle in a photograph is being drawn. If it reads 0 the "
+                      + "truncation is harmless and every drawn renderer near the gate is above");
         }
         else
         {
             sb.Append(" ⇒ nothing was cut: every renderer within the radius is above");
         }
+
+        // ---- the whole matched population, described rather than sampled ------------------------
+        sb.Append(" | TIER B POPULATION, ALL ").Append(GateNear.Count)
+          .Append(" MATCHED RECORDS AND NOT JUST THE PRINTED ONES: ").Append(nearSubmitted)
+          .Append(" submitted, ").Append(nearPlate).Append(" plate-shaped, ")
+          .Append(nearSubmittedPlate).Append(" both submitted AND plate-shaped, ")
+          .Append(nearSelfLit).Append(" self-lit. ORDER, changed in ModBuild 259: submitted first, "
+                  + "then largest angular size, then nearest. The previous order was surface "
+                  + "distance alone and it SATURATED — all 2657 records in the 258 log read "
+                  + "d=0.00wu because the gate anchor is the union AABB of a whole door-prop "
+                  + "subtree, so the 48 printed were hierarchy order and 40 of them drew nothing. "
+                  + "Both new keys are properties of the photograph rather than guesses about the "
+                  + "subject, and nothing is excluded: the counts on this line cover the lot");
         if (walkCapped)
         {
             sb.Append(" | WALK CAPPED at ").Append(GateMaxWalk)
@@ -577,7 +690,7 @@ internal static partial class GlowCardCensus
         // ---- why the census never had these, in two numbers -------------------------------------
         sb.Append(" | WHY [Perf] GLOW CARDS NEVER HAD THESE — ").Append(unmarkedA).Append(" of ")
           .Append(tierAPrinted).Append(" tier-A and ").Append(unmarkedB).Append(" of ")
-          .Append(nearPrinted).Append(" printed tier-B record(s) carry marks[None]. A marks[None] "
+          .Append(GateNear.Count).Append(" MATCHED tier-B record(s) carry marks[None]. A marks[None] "
                   + "renderer is REFUSED by GlowCardCensus.EndRenderer before it is ever scored, and "
                   + "no counter in that line records it, so it is invisible there however often the "
                   + "census samples. Anything NOT marks[None] here was merely NEVER SAMPLED — that is "
@@ -612,13 +725,25 @@ internal static partial class GlowCardCensus
                   + "the wall or they are NOT three copies of one thing. The 7x crops agree — the "
                   + "middle one straddles the door planks AND the stone pier at a tilt neither "
                   + "surface has, which is what the user's word 'schwebend' is describing"
-                  + " | HOW TO READ THIS. If a tier-A record's 'screen:' rect lands on one of those "
-                  + "three boxes, the rectangles are GATE CHILDREN and the report closes on identity "
-                  + "— that record's shader, its _MainTex (watch for the <NULL> case, which draws as "
-                  + "a flat opaque white rectangle by itself), its blend and its keywords are all on "
-                  + "the same line. If NO tier-A record can be the subject, that is EQUALLY decisive: "
-                  + "the rectangles are not gate children, and tier B above has already named, in "
-                  + "distance order, everything that stands in front of the gate instead. The one "
+                  + " | WHAT TIER A ALREADY ANSWERED, AND THE IDENTIFICATION IT COST. ModBuild 258 "
+                  + "printed all 103 tier-A records with no cap binding, and read the answer as "
+                  + "'Door_Light_Front_Mesh' / 'Door_Light_Back_Mesh' — flat plates carrying the door "
+                  + "body's opaque PBR material on queue 2000. ModBuild 259 FALSIFIES that from the "
+                  + "same log's own numbers. The plate's bounds are 2.069 x 0.257 x 0.008 wu on an "
+                  + "unrotated door and 1.041 x 0.257 x 1.796 on one turned about 60 degrees, which "
+                  + "is one 8:1 STRIP measured twice; its world height never exceeds 0.258 wu, about "
+                  + "12 px at the distance where its own reported span is 85 px. The photographed "
+                  + "regions are 76 to 121 px TALL and taller than they are wide. A strip eight times "
+                  + "wider than it is high cannot project as a square, so the plates are not the "
+                  + "subject — the matching diagonals that made the case were a coincidence of two "
+                  + "different shapes, and the 'screen:' rects were never comparable to the photo "
+                  + "anyway because this dump latches the head pose when the ROOM OPENS. The one "
+                  + "escape is a skinned pose that leaves the bind pose, which the new 'skinned:' "
+                  + "clause on every record now settles."
+                  + " | HOW TO READ THIS. Tier A is complete and can be read as a decisive negative: "
+                  + "the rectangles are not gate children. That puts the subject in tier B, where 258 "
+                  + "printed 48 of 2657 in a saturated order — so read the TIER B POPULATION line "
+                  + "first, then the records, which are now submitted-and-largest first. The one "
                   + "reading that means NOTHING is a footer with tier-A walked = 0, or a 'GATE DUMP "
                   + "GAVE UP' line: that is an empty gate, not an absent subject.");
         VRLog.Info(Scope, sb.ToString());
@@ -719,22 +844,79 @@ internal static partial class GlowCardCensus
 
     /// <summary>Distance from this renderer to the nearest gate anchor box, 0 inside it. Uses
     /// <c>Bounds.SqrDistance</c> against the anchor rather than centre-to-centre, so a long wall
-    /// course that reaches the gate is near it even though its centre is not.</summary>
-    private static float DistanceToNearestGate(Renderer r)
+    /// course that reaches the gate is near it even though its centre is not.
+    ///
+    /// <para><paramref name="centreDist"/> is the centre-to-centre distance to the SAME anchor, and
+    /// it exists because the surface distance SATURATES: the anchor is the union AABB of a whole
+    /// door-prop subtree, so in the ModBuild 258 log all 2657 matched renderers returned 0.00 and
+    /// the sort had nothing to order by. It is a tie-break, never a filter.</para></summary>
+    private static float DistanceToNearestGate(Renderer r, out float centreDist)
     {
+        centreDist = float.MaxValue;
         Vector3 p;
         try { p = r.bounds.center; }
         catch (Exception) { return float.MaxValue; }
 
         float best = float.MaxValue;
+        float bestCentre = float.MaxValue;
         for (int i = 0; i < GateAnchors.Count; i++)
         {
             float sq = GateAnchors[i].SqrDistance(p);
             if (sq < best)
                 best = sq;
+            float cs = (GateAnchors[i].center - p).sqrMagnitude;
+            if (cs < bestCentre)
+                bestCentre = cs;
         }
+        if (bestCentre < float.MaxValue)
+            centreDist = Mathf.Sqrt(Mathf.Max(bestCentre, 0f));
         return best >= float.MaxValue ? float.MaxValue : Mathf.Sqrt(Mathf.Max(best, 0f));
     }
+
+    /// <summary>
+    /// The skinned clause, ModBuild 259. A <see cref="SkinnedMeshRenderer"/>'s <c>bounds</c> are its
+    /// BIND-POSE <c>localBounds</c> pushed through the root bone; the geometry the GPU actually
+    /// draws is wherever the bones put it. Every AABB and every screen rect in this dump comes from
+    /// <c>bounds</c>, so for a skinned record those two fields are an assumption and not a
+    /// measurement — and the gate's plates are all skinned.
+    ///
+    /// <para>WHY IT IS HERE. ModBuild 258 identified the photographed rectangles as
+    /// <c>Door_Light_*_Mesh</c> and ModBuild 259 falsified that from these same numbers: the plate's
+    /// bounds are 2.069 x 0.257 x 0.008 wu on an unrotated door and 1.041 x 0.257 x 1.796 on a door
+    /// turned about 60 degrees — the same 8:1 strip twice — while the photographed regions are 30x76,
+    /// 92x104 and 53x121 px, TALLER than wide. An 8:1 strip cannot project as a square. The one way
+    /// out of that arithmetic is a skinned pose that departs from the bind pose, which is exactly
+    /// what these three fields settle: if <c>localBounds</c> is the same 8:1 strip and
+    /// <c>updateWhenOffscreen</c> is false, the drawn plate is that strip and the identification
+    /// stays dead.</para>
+    /// </summary>
+    private static void AppendSkinned(StringBuilder sb, Renderer r)
+    {
+        if (r is not SkinnedMeshRenderer smr)
+            return;
+        try
+        {
+            Bounds lb = smr.localBounds;
+            Transform? root = smr.rootBone;
+            Mesh? mesh = smr.sharedMesh;
+            sb.Append(" | skinned: localBounds c=").Append(Fmt3(lb.center))
+              .Append(" s=").Append(Fmt3(lb.size))
+              .Append(", rootBone='").Append(root != null ? root.name : "<none>")
+              .Append("', bones=").Append(smr.bones != null ? smr.bones.Length : -1)
+              .Append(", updateWhenOffscreen=").Append(smr.updateWhenOffscreen)
+              .Append(", meshBounds s=")
+              .Append(mesh != null ? Fmt3(mesh.bounds.size) : "<no mesh>")
+              .Append(" — the AABB and the screen rect above are BIND-POSE numbers pushed through "
+                      + "the root bone, not a measurement of the drawn geometry");
+        }
+        catch (Exception)
+        {
+            sb.Append(" | skinned: fields unreadable");
+        }
+    }
+
+    private static string Fmt3(Vector3 v) =>
+        v.x.ToString("F3") + "," + v.y.ToString("F3") + "," + v.z.ToString("F3");
 
     /// <summary>
     /// Build the record for one renderer, with the SAME fields the census's own records carry so the

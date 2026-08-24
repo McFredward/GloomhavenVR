@@ -318,6 +318,10 @@ internal static partial class WallSegmentFade
         /// teardown), so no keep story can stay hidden without an owner.</summary>
         private void RestoreSegmentStacked(Segment seg)
         {
+            // ModBuild 259: the prop-unit dressing is restored here as well as in
+            // RestoreSegmentBody — the two together cover every segment-death path in the file
+            // family, and RestoreProp is idempotent (it removes the ledger entry first).
+            RestoreSegmentUnitDressing(seg);
             if (seg.StackedState == 0)
                 return;
             seg.StackedState = 0;

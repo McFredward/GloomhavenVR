@@ -89,6 +89,10 @@ internal static partial class WallSegmentFade
         /// segment stops owning them, so no wall course can stay hidden without an owner.</summary>
         private void RestoreSegmentBody(Segment seg)
         {
+            // ModBuild 259: prop-unit dressing rides here and in RestoreSegmentStacked, because
+            // between them those two are called on every path a segment leaves the table on.
+            // BEFORE the early-out — the dressing state is independent of the body state.
+            RestoreSegmentUnitDressing(seg);
             if (seg.BodyState == 0)
                 return;
             seg.BodyState = 0;
@@ -167,6 +171,12 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void ApplyBody(Segment seg)
         {
+            // ModBuild 259 — PROP-UNIT DRESSING rides the same frame. It hangs off ApplyBody
+            // because Apply(seg) reaches this method for EVERY tracked segment on every frame of
+            // the decision loop, and the dressing has to be re-asserted per frame for the same
+            // reason the body does (Apparance re-enables regenerated renderers mid-fade). Before
+            // the early-out: a wall with real fade renderers owns no body and still owns dressing.
+            ApplyUnitDressing(seg);
             if (seg.Body.Count == 0)
                 return;
             int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;

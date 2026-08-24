@@ -109,7 +109,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `Choreographer_SetChoreographerState_Patch`<br/><sub>src/GloomhavenVR/Core/Events/GameEventPatches.cs:48</sub> | `Choreographer.SetChoreographerState()` | postfix | `VREventsModule`:35 |
 | `UIManager_ToggleLockUI_Patch`<br/><sub>src/GloomhavenVR/Core/Events/GameEventPatches.cs:73</sub> | `UIManager.ToggleLockUI()` | postfix | `VREventsModule`:36 |
 | `UIWindow_Transition_Patch`<br/><sub>src/GloomhavenVR/Core/Events/GameEventPatches.cs:101</sub> | `UIWindow.EvaluateAndTransitionToVisualState()` *(private)* | postfix | `VREventsModule`:37 |
-| `MaterialLoader_LoadMaterials_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/MaterialLoaderHeal.cs:837</sub> | `MaterialLoader.LoadMaterials()` | postfix | `CompatModule`:137 |
+| `MaterialLoader_LoadMaterials_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/MaterialLoaderHeal.cs:1054</sub> | `MaterialLoader.LoadMaterials()` | postfix | `CompatModule`:137 |
 | `TilesOcclusionVolume_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:260</sub> | `TilesOcclusionVolume.Start()` *(private)* | postfix | `SceneRegistry`:108 |
 | `UnityGameEditorDoorProp_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:272</sub> | `UnityGameEditorDoorProp.Start()` *(private)* | postfix | `SceneRegistry`:123 |
 | `ProceduralTileObserver_OnEnable_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:288</sub> | `ProceduralTileObserver.OnEnable()` *(private)* | postfix | `SceneRegistry`:138 |

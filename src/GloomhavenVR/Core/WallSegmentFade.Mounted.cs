@@ -1006,6 +1006,17 @@ internal static partial class WallSegmentFade
                     _mountedOwned.Add(p.Renderer);
                     _attachmentOwned[p.Renderer] = new OwnerRef(seg, "wall body mesh");
                 }
+                // PROP-UNIT DRESSING (ModBuild 259) is spoken for too. Without this the sweep
+                // below would adopt the same renderer a SECOND time — one prop with two owners,
+                // which is the exact class the blue flame of wandproblem3.jpg belonged to — and
+                // the orphan guard would release it every rescan for not being in _mountedOwned.
+                foreach (MountedProp p in seg.UnitDressing)
+                {
+                    if (p.Renderer == null || inertDoorway)
+                        continue;
+                    _mountedOwned.Add(p.Renderer);
+                    _attachmentOwned[p.Renderer] = new OwnerRef(seg, "prop-unit dressing");
+                }
             }
             // Shared corner pieces (round 7) are spoken for too — never sconce dressing,
             // and the orphan guard must not release them while their neighbors are faded.

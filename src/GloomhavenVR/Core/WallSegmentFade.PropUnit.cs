@@ -95,8 +95,53 @@ namespace GloomhavenVR.Core;
 /// the owner. A member that no segment claimed at all is offered to the owner through the ONE
 /// choke point, <see cref="FadeDriver.CollectWallFadeInfo"/>, so the standing-prop guard, the
 /// toggle-native accounting and the authored-cutoff pick all see it exactly as a normal
-/// collection would; members it refuses are counted in the census as left visible, because a
-/// renderer with no fade channel is a fact about the tileset and not something to paper over.</para>
+/// collection would.</para>
+///
+/// <para>EVERY MEMBER GETS A CHANNEL, OR THE UNIT IS REFUSED WHOLE — ModBuild 259, and it is the
+/// user's ruling verbatim (2026-08-24, <c>neues_wandproblem.jpg</c>): <i>"Entweder verschwindet
+/// die ganze Wand mit ALLEM was dazu gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da.
+/// So ein Zwischending soll es nicht geben."</i></para>
+///
+/// <para>THE NUMBER THAT MADE THE RULE. ModBuild 258's own instrument earned this round: its
+/// <c>PROP UNIT</c> line reads <c>37 recruited from no owner at all, 106 left visible</c>, and the
+/// per-member term is identical for every one of the 106 —
+/// <c>'FR_Floor_Detail_Grass_06_PR (2)': Foliage-family shader with no wall-fade channel — it can
+/// only ride a fade through seg.Foliage, and nothing offered it there</c>. Half of ModBuild 258
+/// worked (<c>37 member(s) recruited THROUGH the ground band</c>, so the band was never the term
+/// that held them); the other half wrote fade 1.00 to renderers that had nothing to receive it
+/// with. <c>'PCG_FR_Pillar_Tree_Trunk_02_PR'</c> alone is <c>20 renderer(s) … 2 recruited, 17 LEFT
+/// VISIBLE</c>.</para>
+///
+/// <para>THE TWO ARMS. A member with a wall-fade channel joins <see cref="Segment.Renderers"/> as
+/// before. A member WITHOUT one becomes <see cref="Segment.UnitDressing"/>: a
+/// <see cref="MountedProp"/> record driven by <see cref="FadeDriver.ApplyUnitDressing"/> with the
+/// discipline every other attachment class already uses — <see cref="FadeDriver.DriveProp"/> on
+/// whatever channel the material actually has, <see cref="FadeDriver.EnsureDissolveChannel"/> for
+/// a channel-less NON-foliage material, and a guaranteed <c>renderer.enabled = false</c> at the
+/// held threshold. Foliage is never material-swapped (ModBuild 255 ruling: swapping a leaf card
+/// onto the masonry fade shader in one frame IS the fade-out pop) — a channel-less leaf is
+/// STAGGERED off its own identity hash, exactly as <c>ApplyFoliage</c> does it.</para>
+///
+/// <para>AND THE FALLBACK IS EXPLICIT. If any member is one this mod may not write — a FIGURE, a
+/// water feature, or a unit the standing rule holds — the unit CANNOT fade whole, so it does not
+/// fade at all: <see cref="FadeDriver.RefusePropUnit"/> pulls the unit's members back off the
+/// owner's renderer and foliage lists and names the term in the census. A wall that stays is a
+/// nuisance; a wall with holes is the report.</para>
+///
+/// <para>UNIT DRESSING IS DELIBERATELY NOT IN THE COVERAGE NUMERATOR
+/// (<see cref="FadeDriver.RayHitsWallMesh"/> walks Renderers/Foliage/Siblings/Body/Stacked and not
+/// this list). A piece recruited to keep a fade WHOLE must not be able to change the decision that
+/// started the fade — that circularity is the ModBuild-257 tree defect wearing a new hat, and
+/// ModBuild 258 has just re-based every coverage number on the playable-hex denominator. FALSIFIER
+/// if this is wrong: a wall that fades with a hole where its dressing used to block rays.</para>
+///
+/// <para>THE FALSIFIER READS THE RENDERER. <c>ApplyUnitDressing</c> asks
+/// <see cref="FadeDriver.IsActuallyDrawing"/> of every piece on a frame where the segment was
+/// ALREADY held hidden — i.e. of a piece we disabled last frame and that is on screen again. That
+/// count and the "left visible" count must both be ZERO in the next hardware log; if they are and
+/// the picture still shows standing vegetation, the residue is not a prop unit and this rule is
+/// not where to look. (ModBuild 252 shipped an instrument that watched the driver and reported a
+/// single-frame switch as an animation; this one watches <c>renderer.enabled</c>.)</para>
 ///
 /// <para>BOUNDS. The owner's decision AABB grows to enclose what it now controls; the losers' are
 /// deliberately left alone. Their bounds already included these renderers this rescan, so leaving
@@ -118,6 +163,27 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static partial class WallSegmentFade
 {
+    private sealed partial class Segment
+    {
+        /// <summary>
+        /// PROP-UNIT DRESSING (ModBuild 259) — members of a prop unit this segment owns that have
+        /// NO wall-fade channel of their own, delivered as <see cref="MountedProp"/> records so
+        /// they dissolve with the unit instead of standing over it.
+        ///
+        /// <para>Kept per SEGMENT and not in the shared mounted ledger for the reason
+        /// <see cref="SiblingProps"/> gives: these are owned STRUCTURALLY (by the prop unit the
+        /// segment won), not by the geometric mounted sweep, and putting them in that ledger's
+        /// ownership table would make the orphan guard release them every rescan. They ARE
+        /// registered in <c>_mountedOwned</c> during the mounted pass so the sweep does not adopt
+        /// them a second time and the orphan guard does not undo them — see
+        /// <c>CollectWallMountedProps</c>.</para>
+        /// </summary>
+        public readonly List<MountedProp> UnitDressing = new();
+        public readonly List<MountedProp> PrevUnitDressing = new();
+        /// <summary>0 = restored/untouched, 1 = dissolving, 2 = hidden.</summary>
+        public int UnitDressingState;
+    }
+
     private sealed partial class FadeDriver
     {
         /// <summary>Most renderers one prop unit may hold. Deliberately the same 24 as
@@ -313,8 +379,44 @@ internal static partial class WallSegmentFade
         /// <summary>Members the recruit could not drive, each with the TERM that refused it. The
         /// ModBuild-257 line collapsed all of these into one "no fade channel" count, which is
         /// unable to tell a tileset fact from one of our own rules — and that is exactly the
-        /// question this round turns on.</summary>
+        /// question this round turns on. Since ModBuild 259 this list is the RESIDUE only: a
+        /// channel-less member is dressed rather than abandoned, so a non-empty list means a
+        /// member fell through BOTH arms and is the next thing to read.</summary>
         private readonly List<string> _propUnitLeftVisible = new(8);
+
+        /// <summary>Members given a dissolve channel as <see cref="Segment.UnitDressing"/> this
+        /// rescan — the ModBuild-259 arm. The 106 "left visible" of the ModBuild-258 log are this
+        /// population, and this counter is what they became.</summary>
+        private int _propUnitDressed;
+
+        /// <summary>Units refused WHOLE because one member is something this mod may not write.
+        /// The unit then stays entirely solid — see <see cref="RefusePropUnit"/>.</summary>
+        private int _propUnitRefusedUnits;
+        private readonly List<string> _propUnitRefused = new(8);
+
+        /// <summary>Members skipped because the STANDING rule holds them as a floor prop of their
+        /// own unit. Not a refusal (see the comment at the test), and a number that is expected to
+        /// be non-zero in a scene full of floor grass — it is here so a leftover the eye finds can
+        /// be checked against it rather than guessed at.</summary>
+        private int _propUnitFloorSkipped;
+
+        /// <summary>Renderers this segment's unit dressing had already hidden and that are DRAWING
+        /// again on a later frame of the same held state — read off <c>renderer.enabled</c> and
+        /// <c>activeInHierarchy</c> by <see cref="IsActuallyDrawing"/>, never off our ledger. This
+        /// is the picture-side falsifier for the whole rule and it must read 0.</summary>
+        private int _unitDressingRedrawn;
+        private readonly List<string> _unitDressingRedrawnNames = new(8);
+
+        /// <summary>Renderers currently delivered as prop-unit dressing by some segment — seeded
+        /// into <c>_mountedOwned</c> by the mounted pass so one piece can never have two owners
+        /// (the ModBuild-258 blue-flame class).</summary>
+        private readonly HashSet<Renderer> _unitDressingOwned = new(64);
+
+        /// <summary>Staging for the ModBuild-259 two-pass resolve: PASS 1 decides every member's
+        /// channel and writes nothing, PASS 2 commits — because "whole or nothing" cannot be
+        /// decided halfway through writing the unit.</summary>
+        private readonly List<MeshRenderer> _unitStageWall = new(24);
+        private readonly List<MeshRenderer> _unitStageDress = new(24);
 
         /// <summary>How many census rows the line carries. Six is what the standing-prop and
         /// mounted lines settled on: enough to name the offender, short of a wall of text.</summary>
@@ -415,6 +517,9 @@ internal static partial class WallSegmentFade
                 ResolvePropUnit(unit);
             }
 
+            // ModBuild 259: restore any dressing a segment held last rescan and lost this one.
+            FinishPropUnitDressing();
+
             // Carry this rescan's owners into the next one's STICKY input. Assigned wholesale
             // rather than merged: a unit that no longer exists must not keep voting.
             _propUnitOwnerLast.Clear();
@@ -441,13 +546,57 @@ internal static partial class WallSegmentFade
             _propUnitTouched.Clear();
             _propUnitGroundNames.Clear();
             _propUnitLeftVisible.Clear();
+            _propUnitRefused.Clear();
             _propUnitRegrouped = 0;
             _propUnitMoved = 0;
             _propUnitRecruited = 0;
             _propUnitUnfadeable = 0;
             _propUnitGroundLifted = 0;
+            _propUnitDressed = 0;
+            _propUnitRefusedUnits = 0;
+            _propUnitFloorSkipped = 0;
+            // Reset per RESCAN, not per frame: the counter then reads "how many pieces came back
+            // on screen over a hidden wall since the last commit" (~2 s of frames), which is a
+            // number an outcome can be judged by. Zeroing it per frame would make a piece that
+            // redraws every second frame read 0 half the time.
+            _unitDressingRedrawn = 0;
+            _unitDressingRedrawnNames.Clear();
+
+            // ModBuild 259: park every segment's dressing list the way CollectPlainWallBody parks
+            // the body, so a piece that stops being dressing this rescan is RESTORED rather than
+            // left hidden with no owner (the foliage-orphan lesson).
+            _unitDressingOwned.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                seg.PrevUnitDressing.Clear();
+                seg.PrevUnitDressing.AddRange(seg.UnitDressing);
+                seg.UnitDressing.Clear();
+            }
 
             RefreshPropUnitAnchors();
+        }
+
+        /// <summary>Leavers pass for <see cref="Segment.UnitDressing"/>, run once at the end of
+        /// the pass: anything a segment held last rescan and no longer owns is put back exactly
+        /// as authored. Mirrors <c>CollectPlainWallBody</c>'s tail.</summary>
+        private void FinishPropUnitDressing()
+        {
+            foreach (Segment seg in _segments.Values)
+            {
+                if (seg.UnitDressingState != 0)
+                {
+                    foreach (MountedProp prev in seg.PrevUnitDressing)
+                    {
+                        if (prev.Renderer == null || seg.UnitDressing.Contains(prev))
+                            continue;
+                        RestoreProp(prev, seg,
+                            "prop-unit dressing — this unit no longer fades with this wall");
+                    }
+                    if (seg.UnitDressing.Count == 0)
+                        seg.UnitDressingState = 0;
+                }
+                seg.PrevUnitDressing.Clear();
+            }
         }
 
         /// <summary>Re-read the segment anchors the unit walk must stop at. Called from
@@ -658,7 +807,71 @@ internal static partial class WallSegmentFade
             // something is an owner that forgets itself the moment it settles.
             _propUnitOwnerNow[unit.Id] = _propUnitClaimScratch[pick].Key;
 
-            int moved = 0, recruited = 0, unfadeable = 0;
+            // ---- PASS 1 (ModBuild 259) — VERDICT ONLY, NOT ONE WRITE ----------------------
+            // "Whole or nothing" cannot be decided halfway through writing the unit, so every
+            // member's channel is settled before anything moves. Nothing below this point touches
+            // a renderer, a property block or a segment list.
+            _unitStageWall.Clear();
+            _unitStageDress.Clear();
+            string? refusedBy = null;
+            foreach (MeshRenderer m in unit.Members)
+            {
+                if (m == null || IsModObject(m))
+                    continue;                       // ours; never part of the user's picture
+                if (owner.Renderers.Contains(m))
+                    continue;                       // already on the wall's own fade channel
+                // THE PICTURE, NOT THE LEDGER: a renderer that is not drawing cannot leave a hole,
+                // so it must never be the reason a whole unit is refused. Read off the renderer
+                // (enabled + activeInHierarchy), the way the LEFTOVER audit reads it.
+                if (!IsActuallyDrawing(m))
+                    continue;
+                if (IsSegmentDressedElsewhere(owner, m))
+                    continue;                       // this wall already drives it another way
+                // TWO RULINGS OF THE SAME SEVERITY, and a unit holding either cannot fade whole —
+                // so it does not fade at all. Both are about the OBJECT, not about a band it
+                // happens to sit in, which is why neither can be argued down by a unit verdict.
+                if (IsWaterProtected(m.bounds))
+                {
+                    refusedBy = $"'{m.name}': water feature (user ruling 2026-08-09, brunnen.png) "
+                                + "— never fades";
+                    break;
+                }
+                if (IsFigureOrActorRenderer(m))
+                {
+                    refusedBy = $"'{m.name}': FIGURE (never touched — round-7 ruling, Lights-rule "
+                                + "severity)";
+                    break;
+                }
+                // THE STANDING RULE IS A SKIP AND NOT A REFUSAL, deliberately, and the precedent
+                // is CollectWallFadeInfo: the one choke point every wall-renderer collection goes
+                // through treats a standing prop as a renderer it does not take, not as a reason
+                // to stop the wall. The rule is itself a WHOLE-UNIT verdict — about a different
+                // unit, the floor prop's own — so the two verdicts are not in conflict, and
+                // ModBuild 167's Gestrüpp-Wand ruling ("Die anderen 'gestrüpp-wände' versperren
+                // mir nun auch manchmal die Sicht. Das darf niemals passieren.") is what a wall
+                // claiming it would hand back. Counted and named, never silent.
+                if (IsStandingFigureProp(m))
+                {
+                    _propUnitFloorSkipped++;
+                    NotePropUnitLeftVisible(m, "the standing rule holds it as a FLOOR PROP of its "
+                        + "own unit (WallSegmentFade.Standing.cs) — a wall may not claim it, and "
+                        + "this is a skip rather than a refusal for the reason CollectWallFadeInfo "
+                        + "gives");
+                    continue;
+                }
+                if (RendererHasWallFadeChannel(m))
+                    _unitStageWall.Add(m);
+                else
+                    _unitStageDress.Add(m);         // ModBuild 259: dressed, not abandoned
+            }
+            if (refusedBy != null)
+            {
+                RefusePropUnit(unit, owner, refusedBy);
+                return;
+            }
+
+            // ---- PASS 2 — COMMIT ----------------------------------------------------------
+            int moved = 0, recruited = 0, dressed = 0, unfadeable = 0;
             _propUnitLosers.Clear();
             foreach (MeshRenderer m in unit.Members)
             {
@@ -683,18 +896,48 @@ internal static partial class WallSegmentFade
                     if (!_propUnitLosers.Contains(seg))
                         _propUnitLosers.Add(seg);
                 }
-                if (owner.Renderers.Contains(m))
+            }
+            foreach (MeshRenderer m in _unitStageWall)
+            {
+                if (m == null || owner.Renderers.Contains(m))
                     continue;
                 // A member no segment held: offer it through the one choke point, so the
                 // standing-prop guard, the ground/water rules below and the toggle-native
                 // accounting all see it exactly as a normal collection would.
-                if (!PropUnitRecruit(owner, m))
+                if (PropUnitRecruit(owner, m))
                 {
-                    unfadeable++;
+                    recruited++;
+                    _propUnitTouched.Add(m);
                     continue;
                 }
-                recruited++;
-                _propUnitTouched.Add(m);
+                // PASS 1 said this member had a channel and the choke point disagrees — the only
+                // way that happens is an Apparance material stream landing between the two passes.
+                // Dress it rather than abandon it; the unit still fades whole.
+                if (DressUnitMember(owner, m))
+                {
+                    dressed++;
+                    _propUnitTouched.Add(m);
+                }
+                else
+                {
+                    unfadeable++;
+                }
+            }
+            foreach (MeshRenderer m in _unitStageDress)
+            {
+                if (m == null)
+                    continue;
+                if (DressUnitMember(owner, m))
+                {
+                    dressed++;
+                    _propUnitTouched.Add(m);
+                }
+                else
+                {
+                    unfadeable++;
+                    NotePropUnitLeftVisible(m, "no wall-fade channel AND no dressing record could "
+                        + "be built for it — the one shape ModBuild 259 does not cover");
+                }
             }
 
             // The owner now controls geometry it did not before; its decision AABB has to enclose
@@ -725,13 +968,138 @@ internal static partial class WallSegmentFade
             // claimant already owns everything it can own is not a fixed defect, and putting it in
             // the census would bury the one line that matters under every mixed-material asset in
             // the scene — the ModBuild-164 failure mode wearing the opposite hat.
-            if (moved == 0 && recruited == 0)
+            if (moved == 0 && recruited == 0 && dressed == 0)
                 return;
             _propUnitRegrouped++;
             _propUnitMoved += moved;
             _propUnitRecruited += recruited;
+            _propUnitDressed += dressed;
             _propUnitUnfadeable += unfadeable;
-            NotePropUnitCensus(unit, owner, rule, moved, recruited, unfadeable);
+            NotePropUnitCensus(unit, owner, rule, moved, recruited, dressed, unfadeable);
+        }
+
+        /// <summary>
+        /// REFUSE THE WHOLE UNIT (ModBuild 259, the user's ruling: <i>"Entweder verschwindet die
+        /// ganze Wand mit ALLEM … oder sie ist vollständig da. So ein Zwischending soll es nicht
+        /// geben."</i>). One member cannot be written, so none of them is: every member is pulled
+        /// back off the owner's renderer list AND off its foliage list, with our property block
+        /// cleared, so the unit reads exactly as the flat game draws it.
+        ///
+        /// <para>WHY THIS IS THE SAFER FAILURE and not a hedge. A unit left half-written is a
+        /// prop with a hole in it, which is what every hardware round since ModBuild 255 has been
+        /// about; a unit left whole is a piece of scenery that did not disappear. He ranked those
+        /// two himself. The census names the unit AND the term, so a refusal that is actually a
+        /// missing channel gets fixed as a channel rather than lived with.</para>
+        ///
+        /// <para>FALSIFIER: <c>REFUSED WHOLE</c> above zero in the next hardware log, with a wall
+        /// visibly standing. Then the named member is the thing to give a channel to — not this
+        /// rule to weaken.</para>
+        /// </summary>
+        private void RefusePropUnit(PropUnit unit, Segment owner, string why)
+        {
+            int pulled = 0;
+            foreach (MeshRenderer m in unit.Members)
+            {
+                if (m == null)
+                    continue;
+                int at = owner.Renderers.IndexOf(m);
+                if (at >= 0)
+                {
+                    if (owner.HasBlock)
+                        m.SetPropertyBlock(null);
+                    owner.Renderers.RemoveAt(at);
+                    _propUnitClaimed.Remove(m);
+                    pulled++;
+                }
+                // …and off the foliage list, or the leaf half of the unit would still dissolve
+                // while its trunk stayed. Same restitution StripGroundRenderers performs.
+                int fi = owner.Foliage.IndexOf(m);
+                if (fi < 0)
+                    continue;
+                if (owner.FoliageProps.TryGetValue(m, out MountedProp? fp))
+                {
+                    owner.FoliageProps.Remove(m);
+                    RestorePropSwap(fp, m);
+                }
+                if (owner.FoliageState != 0)
+                    RestoreFoliageRenderer(m);
+                owner.Foliage.RemoveAt(fi);
+                pulled++;
+            }
+            _propUnitRefusedUnits++;
+            if (_propUnitRefused.Count >= PropUnitLeftVisibleCap)
+                return;
+            string ownerName = owner.Anchor != null ? owner.Anchor.name : "<dead>";
+            _propUnitRefused.Add(
+                $"'{unit.Label}' ({unit.Members.Count} renderer(s), owner '{ownerName}' @fade "
+                + $"{owner.Fade:0.00}) STAYS WHOLE AND SOLID — {why}; {pulled} renderer(s) pulled "
+                + "back off that wall");
+        }
+
+        /// <summary>
+        /// Give a channel-less unit member a DISSOLVE RECORD on its owner, so it fades with the
+        /// unit instead of standing over it. The record is reused from the shared prop ledger when
+        /// we are already driving this renderer, which is what keeps
+        /// <see cref="EnsureDissolveChannel"/> from rebuilding a swap material every rescan:
+        /// <c>MountedProp.SwapChecked</c> latches on the record, and the record survives for as
+        /// long as the piece is being driven.
+        /// </summary>
+        private bool DressUnitMember(Segment owner, MeshRenderer m)
+        {
+            if (m == null)
+                return false;
+            // ONE OWNER, ALWAYS. A renderer two units both reach (Apparance nests these subtrees)
+            // must not land in two dressing lists: two owners with different fades is the
+            // one-prop-two-owners class the ModBuild-258 blue flame belonged to.
+            if (!_unitDressingOwned.Add(m))
+                return true;
+            if (!_mountedTouched.TryGetValue(m, out MountedProp? p))
+                p = ClassifyProp(m);
+            owner.UnitDressing.Add(p);
+            return true;
+        }
+
+        /// <summary>Does any shared material carry a wall-fade channel — the SAME two tests
+        /// <see cref="CollectWallFadeInfo"/> makes, with none of its side effects. It exists
+        /// because PASS 1 has to know the answer before it is allowed to write anything, and the
+        /// choke point mutates the segment (toggle-native count, authored cutoff, variant flags,
+        /// swap-template donation) as it decides.</summary>
+        private bool RendererHasWallFadeChannel(MeshRenderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            foreach (Material m in _matScratch)
+            {
+                if (m == null || m.shader == null)
+                    continue;
+                if (m.shader.name.Contains("WallFade") || HasLiveWallFadeToggle(m))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>Is this owner already driving the renderer through one of its OTHER lists? A
+        /// piece with two drivers on the same wall is a piece that flickers between them — the
+        /// foliage stagger wants it enabled on the same frame the dressing ramp wants it off.
+        /// Only the OWNER's lists are consulted: a piece held by a different segment is the
+        /// one-prop-two-owners class, which the mounted pass's unit affinity settles.</summary>
+        private static bool IsSegmentDressedElsewhere(Segment owner, MeshRenderer m)
+        {
+            if (owner.Foliage.Contains(m) || owner.Siblings.Contains(m))
+                return true;
+            // Stacked and Body are both final by now — CommitPhase.Stacked runs before
+            // CommitPhase.PropUnits, and a body is collected during the wall-cache refresh.
+            foreach (MountedProp p in owner.Stacked)
+            {
+                if (ReferenceEquals(p.Renderer, m))
+                    return true;
+            }
+            foreach (MountedProp p in owner.Body)
+            {
+                if (ReferenceEquals(p.Renderer, m))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -845,6 +1213,116 @@ internal static partial class WallSegmentFade
                 _propUnitGroundNames.Add(m.name);
         }
 
+        // ---- delivery (ModBuild 259) --------------------------------------------------------
+
+        /// <summary>Restore ALL of a segment's prop-unit dressing — called from
+        /// <see cref="RestoreSegmentBody"/> and <see cref="RestoreSegmentStacked"/>, which between
+        /// them cover every path a segment leaves the table on (unfade, drop, group split,
+        /// toggle-off, teardown), so no recruited piece can stay hidden without an owner.</summary>
+        private void RestoreSegmentUnitDressing(Segment seg)
+        {
+            if (seg.UnitDressingState == 0)
+                return;
+            seg.UnitDressingState = 0;
+            foreach (MountedProp p in seg.UnitDressing)
+                RestoreProp(p, seg, seg.Fade > 0f ? "segment dropped mid-fade" : "wall solid again");
+        }
+
+        /// <summary>
+        /// Drive the segment's prop-unit dressing alongside its fade — the ModBuild-259 arm that
+        /// turns the ModBuild-258 log's <c>106 left visible</c> into pieces that actually go.
+        ///
+        /// <para>TWO DISCIPLINES, and which one applies is decided by the shader family, not by
+        /// taste. A NON-foliage channel-less material gets <see cref="EnsureDissolveChannel"/> —
+        /// the same swap the gate's masonry courses and the wall body already ride. A FOLIAGE
+        /// material never does: ModBuild 255 established that replacing a leaf card's alpha-cutout
+        /// shader with the masonry fade shader in one frame IS the fade-out "Ploppen" the user
+        /// reported, and that fix is accepted. A leaf with a channel of its own ramps on it; a
+        /// leaf without one is STAGGERED off its own identity hash, exactly as
+        /// <c>ApplyFoliage</c> does it, and is disabled outright at the held threshold.</para>
+        ///
+        /// <para>THE FALSIFIER IS ON THE RENDERER. Before this frame writes anything, a piece that
+        /// the segment had ALREADY hidden (state 2) is asked <see cref="IsActuallyDrawing"/> —
+        /// <c>enabled</c> and <c>activeInHierarchy</c>, read off the renderer. A non-zero count
+        /// means something re-enabled a piece over a fully faded wall, which is the defect this
+        /// whole rule exists for, and the PROP UNIT line names it.</para>
+        ///
+        /// <para>COST. One <c>enabled</c> compare per piece per frame in the held steady state,
+        /// which is what every other attachment applier costs. The swap is built ONCE per piece
+        /// (<c>MountedProp.SwapChecked</c> latches on a record that is reused out of
+        /// <c>_mountedTouched</c> across rescans) and only for non-foliage members — in the
+        /// ModBuild-258 scene every one of the 106 is Foliage-family, so the measured swap count
+        /// for this arm in that scene is ZERO. Ceiling: one <see cref="Material"/> per non-foliage
+        /// dressed renderer, bounded by <see cref="PropUnitMaxRenderers"/> (24) per unit and
+        /// destroyed by <see cref="RestorePropSwap"/> on every restore path.</para>
+        /// </summary>
+        private void ApplyUnitDressing(Segment seg)
+        {
+            if (seg.UnitDressing.Count == 0)
+            {
+                if (seg.UnitDressingState != 0)
+                    RestoreSegmentUnitDressing(seg);
+                return;
+            }
+            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            if (want == 0)
+            {
+                RestoreSegmentUnitDressing(seg);
+                return;
+            }
+            bool alreadyHeld = seg.UnitDressingState == 2;
+            bool lost = false;
+            foreach (MountedProp p in seg.UnitDressing)
+            {
+                Renderer r = p.Renderer;
+                if (r == null)
+                {
+                    lost = true;
+                    continue;
+                }
+                // PICTURE-SIDE FALSIFIER — read BEFORE this frame writes the renderer.
+                if (want == 2 && alreadyHeld && IsActuallyDrawing(r))
+                    NoteUnitDressingRedrawn(r);
+                _mountedTouched[r] = p;
+                bool leafy = r is MeshRenderer lm && lm != null && RendererUsesFoliage(lm);
+                bool ownChannel = p.System != null || p.ColorId >= 0 || p.CutoffId >= 0
+                    || p.DissolveControlId >= 0;
+                if (!leafy)
+                    EnsureDissolveChannel(p); // never for foliage — ModBuild 255 ruling
+                if (leafy && !ownChannel)
+                {
+                    bool hide = want == 2 || seg.Fade >= StaggerThreshold(r);
+                    if (r.enabled == hide)
+                        r.enabled = !hide;
+                    continue;
+                }
+                DriveProp(p, want == 2 ? 1f : seg.Fade);
+                if (want == 2)
+                {
+                    if (r.enabled)
+                        r.enabled = false;
+                }
+                else if (!r.enabled)
+                {
+                    r.enabled = true;
+                }
+            }
+            if (lost)
+                _nextRescan = 0f; // Apparance regenerated a member mid-fade — re-collect promptly
+            seg.UnitDressingState = want;
+        }
+
+        /// <summary>Record a dressing piece that is drawing again over a wall this segment has
+        /// already hidden. Capped by name; the count is the full total.</summary>
+        private void NoteUnitDressingRedrawn(Renderer r)
+        {
+            _unitDressingRedrawn++;
+            if (_unitDressingRedrawnNames.Count >= PropUnitLeftVisibleCap
+                || _unitDressingRedrawnNames.Contains(r.name))
+                return;
+            _unitDressingRedrawnNames.Add(r.name);
+        }
+
         /// <summary>The deterministic cross-machine identity of a claiming segment: anchor name
         /// plus quantised XZ, the recipe <see cref="ComputeWireKeys"/> hashes. The last tie-break
         /// compares these ordinally, so it must contain nothing process-local.</summary>
@@ -882,7 +1360,7 @@ internal static partial class WallSegmentFade
         /// holds, which walls claimed parts of it, which one won and by what rule, and the fade
         /// that owner is actually carrying.</summary>
         private void NotePropUnitCensus(PropUnit unit, Segment owner, string rule,
-                                        int moved, int recruited, int unfadeable)
+                                        int moved, int recruited, int dressed, int unfadeable)
         {
             if (_propUnitCensus.Count >= PropUnitCensusCap)
                 return;
@@ -902,7 +1380,8 @@ internal static partial class WallSegmentFade
                 + $"'{ownerName}' ({rule}), fade {owner.Fade:0.00} applied to all"
                 + (moved > 0 ? $", {moved} moved" : "")
                 + (recruited > 0 ? $", {recruited} recruited" : "")
-                + (unfadeable > 0 ? $", {unfadeable} left visible (no fade channel)" : ""));
+                + (dressed > 0 ? $", {dressed} given a dissolve channel as unit dressing" : "")
+                + (unfadeable > 0 ? $", {unfadeable} LEFT VISIBLE (no channel of any kind)" : ""));
         }
 
         /// <summary>
@@ -915,13 +1394,15 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogPropUnitCensus()
         {
-            if (_propUnitRegrouped == 0)
+            if (_propUnitRegrouped == 0 && _propUnitRefusedUnits == 0)
             {
                 _propUnitCensusSig = -1;
                 return;
             }
             int sig = _propUnitRegrouped * 977 + _propUnitMoved * 97 + _propUnitRecruited * 13
                       + _propUnitUnfadeable * 7 + _propUnitGroundLifted * 3
+                      + _propUnitDressed * 101 + _propUnitRefusedUnits * 1009
+                      + _unitDressingRedrawn * 61 + _propUnitFloorSkipped * 5
                       + _propUnitCensus.Count;
             foreach (string row in _propUnitCensus)
                 sig = unchecked(sig * 31 + row.GetHashCode());
@@ -938,7 +1419,30 @@ internal static partial class WallSegmentFade
                 + $"a geometry-checked fallback. Owner: sticky while faded, then majority, then "
                 + $"nearest centroid, then key order. {_propUnitMoved} renderer(s) moved to their "
                 + $"unit's owner, {_propUnitRecruited} recruited from no owner at all, "
-                + $"{_propUnitUnfadeable} left visible. "
+                + $"{_propUnitDressed} given a DISSOLVE CHANNEL as unit dressing, "
+                + $"{_propUnitUnfadeable} LEFT VISIBLE. "
+                + $"EVERY MEMBER GETS A CHANNEL OR THE UNIT IS REFUSED WHOLE (ModBuild 259, user "
+                + $"2026-08-24 neues_wandproblem.jpg: 'Entweder verschwindet die ganze Wand mit "
+                + $"ALLEM was dazu gehört (Bäume, Gestrüp, etc.) oder sie ist vollständig da'). "
+                + $"The ModBuild-258 line read '106 left visible', every one of them "
+                + $"Foliage-family with nothing to receive the fade — those are the "
+                + $"{_propUnitDressed} above. A member this mod may not write — a FIGURE or a "
+                + $"water feature — refuses its WHOLE unit instead, and a refusal can "
+                + $"never cost more than one unit ({PropUnitMaxRenderers} renderers, span "
+                + $"{PropUnitMaxSpanWU:0.0} wu): {_propUnitRefusedUnits} unit(s) refused this "
+                + $"rescan"
+                + (_propUnitRefused.Count > 0 ? $" — {string.Join("; ", _propUnitRefused)}" : "")
+                + $". {_propUnitFloorSkipped} member(s) skipped as FLOOR PROPS of their own unit "
+                + $"(the standing rule, a skip and not a refusal — ModBuild 167's Gestrüpp-Wand "
+                + $"ruling)"
+                + ". PICTURE-SIDE FALSIFIER (renderer.enabled + activeInHierarchy, never our "
+                + $"ledger): {_unitDressingRedrawn} dressing piece(s) were DRAWING over a wall "
+                + $"this pass had already hidden"
+                + (_unitDressingRedrawnNames.Count > 0
+                    ? $": {string.Join(", ", _unitDressingRedrawnNames)} — that is the defect, not "
+                      + "the fix"
+                    : " — zero, which is what a working whole-unit rule reads")
+                + ". "
                 + $"WHOLE-UNIT RULE (ModBuild 258, wandproblem3.jpg 'ein Teil der Wand bleibt nun "
                 + $"stehen und faded garnicht mehr'): a unit the standing rule calls ARCHITECTURE "
                 + $"fades base and all — the per-renderer ground band "

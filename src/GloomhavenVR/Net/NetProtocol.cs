@@ -416,7 +416,133 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 258;
+    public const ushort ModBuild = 259;
+    // Build 259: A TILE THE PLAYER CANNOT STAND ON, AND A UNIT THAT COULD NOT HEAR THE ORDER.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    // NOT YET TESTABLE ON ITS OWN: the third half of his report (trees fading one by one) needs
+    // the segment-grouping round; do not invite a hardware test on 259 alone.
+    //
+    // CONFIRMED BY HIM AND NOT TOUCHED: "Schaut man auf die Tür dann hast du mit deinem letzten
+    // Fix nun die rechte Wand vollständig gefixed. Sie verschwindet nun erfolgreich und kommt auch
+    // direkt wieder sobald sie nichts mehr der spielbaren tiles verdeckt." Also: "Im Test ist die
+    // blaue Flamme nun zuverlässig mit der Wand verschwunden."
+    //
+    // (1) "NUR SPIELBARE TILES SOLLEN BERÜCKSICHTIGT WERDEN" — and he found it himself:
+    // "Mir ist aufgefallen dass dieses Wand eigene nicht-spielbare tiles hat." ModBuild 258's
+    // "playable" meant only "a TileBehaviour keyed to this room's CMap and inside its footprint";
+    // nothing asked whether a figure can stand there. The predicate is now the PERSISTENT half of
+    // the game's own passability test, AStar.CNode.NavTo:
+    //     Walkable && !SuperBlocked && ((!Blocked && !TransientBlocked) || ignoreBlocked)
+    // WALKABLE AND CMapTile.Flags ARE THE SAME DATUM, not two options — ScenarioManager.cs:152-158
+    // writes `Walkable = !cTile.m_Hex.FlagsSet(EFlags.Blocked | EFlags.Edge)`, and FlagsSet is ANY,
+    // not ALL. So the ModBuild-258 note ("Flags carries Blocked and Edge and I applied neither")
+    // was describing the same field from the other side, and the term it never considered is
+    // **EDGE**: edge tiles come from ObjectImportType.EdgeTile scene objects, are added to the
+    // room's OWN CMap.MapTiles (UnityGameEditorRuntime.cs:746) and DO get a TileBehaviour
+    // (ClientScenarioManager.cs:113-120), so 258 counted every one of them. That is literally
+    // "diese Wand hat eigene nicht-spielbare tiles".
+    // REFUSED ON PURPOSE, with the source read: SuperBlocked/TransientBlocked are stamped INSIDE
+    // an A* query from actor positions (CPathFinder.Lock():344/383, cleared by Unlock():433) — a
+    // 2 s rescan would sample a race, two clients would disagree, and a hex a monster stands on is
+    // still floor the player looks at. IsBridge/IsBridgeOpen belong to a door's own hex and
+    // doorways never fade anyway. CMap.Revealed is per-CMAP, never per hex, so as a hex term it
+    // can only remove ALL of a room or none — and it is already answered structurally: 184 hexes
+    // key to exactly ONE registered room, so 140 hexes of unrevealed rooms were never in any
+    // denominator. It is now PRINTED (`room CMap Revealed=yes/NO`) rather than assumed.
+    // GUARD: the filtered set is used only while playable >= grid². Below that the room keeps
+    // 258's in-footprint set bit-for-bit and prints PLAYABLE FILTER HELD BACK with both counts and
+    // the bars the filtered set would have needed. Ladder: playable → in-footprint (258) → box (257).
+    //
+    // A CORRECTION TO MY OWN READING OF Wall 2: I called it purely deadband-latched at 4/16 = 0.25.
+    // True for those samples, but the session also carries EIGHT readings at 6/16 = 0.375, ABOVE
+    // the 0.35 enter bar — it is actively RE-ENTERING the fade, not merely failing to leave it.
+    // The 6-cell set #7,#10,#11,#13,#14,#15 is a whole quadrant, one ring deeper than the corner.
+    // If those inner hexes are genuine playable interior floor, Wall 2's reading is CORRECT and
+    // the remaining complaint is not about the denominator at all. The new per-term cut columns
+    // settle it; all-zero columns are a real possible outcome and would mean the filter is inert.
+    //
+    // (2) THE UNIT HEARD THE ORDER AND HAD NO EAR. ModBuild 258's whole-unit rule works — the unit
+    // is won and fade 1.00 is applied to every member — but the members could not receive it:
+    //   'PCG_FR_Pillar_Tree_Trunk_02_PR' 20 renderer(s) … fade 1.00 applied to all,
+    //      2 recruited, 17 LEFT VISIBLE (no fade channel)
+    // and per member, identically: "Foliage-family shader with no wall-fade channel — it can only
+    // ride a fade through seg.Foliage, and nothing offered it there." So it was NEVER the ground
+    // band; `37 member(s) recruited THROUGH the ground band` shows that half of 258 landed.
+    // ResolvePropUnit is now two passes — PASS 1 decides every member's channel and writes
+    // nothing, PASS 2 commits — because "whole or nothing" cannot be decided halfway through
+    // writing a unit. A channel-less member becomes Segment.UnitDressing driven by
+    // ApplyUnitDressing: non-foliage gets EnsureDissolveChannel, FOLIAGE IS NEVER SWAPPED
+    // (ModBuild 255's accepted pop fix) and takes its own channel or the StaggerThreshold disable.
+    // A FIGURE or water member refuses the WHOLE unit and pulls every member back off Renderers
+    // and Foliage, so it stays whole and solid — bounded at one unit (≤24 renderers, ≤6 wu), so a
+    // refusal can never make a wall stay. A standing-rule member is a SKIP, not a refusal; that is
+    // what CollectWallFadeInfo itself does and refusing on it would hand back the Gestrüpp ruling.
+    // UnitDressing is deliberately NOT in RayHitsWallMesh's numerator: a piece recruited to keep a
+    // fade whole must not change the decision that started it.
+    //
+    // (3) THE REGRESSION IS A THIRD THING, AND MY BRIEF NAMED THE WRONG TWO. It is not
+    // PropUnitRecruit and not the mounted unit affinity. THE TREES ARE THEIR OWN SEGMENTS —
+    // one-renderer pseudo-walls adopted by AdoptShaderMatchedWalls, each running its own coverage
+    // decision. The last diag line of the 258 log:
+    //     'Wall 2'                  blk16/16 raw1.00 ON  1.00
+    //     'FR_Pillar_Tree_Trunk_01' blk 2/16 raw0.13 off 0.00
+    //     'FR_Tree_01 (1)'          blk 2/16 raw0.13 off 0.00
+    // and the session's fade-ON counts: the four real walls switch SEVEN times between them
+    // ('Wall 4' 3, 'Wall 3' 3, 'Wall 2' 1), while individual trees and stumps switch SIXTY-NINE
+    // ('FR_Pillar_Tree_Trunk_01' 16, '…_03' 11, 'FR_Pillar_Stone_01' 8, '…_02' 7,
+    // 'FR_Pillar_Thin_Tree_Trunk_02' 7, 'CR_FR_Wall_Log_Structure_Stump_03' 7, '…_03' 7,
+    // 'CR_FR_Wall_Grassy_Verge_01' 4, 'FR_Tree_04 (1)' 3, 'FR_Tree_01 (1)' 3). That IS "nur manche
+    // Bäume einzeln und Teilwände bleiben stehen", and it is NOT fixed in this build.
+    // WHAT MOVED THEM WAS ModBuild 258 ITSELF: relocating every off-tile lattice position to the
+    // nearest hex centre (16 of 16 kept, moved max 2.81 wu / mean 1.06) took the corner samples
+    // off the trees, and those one-renderer segments fell from 0.25 to 0.13 — below the 0.20 exit
+    // bar and nowhere near the 6-cell enter bar the wall beside them still reaches. The fix is to
+    // stop letting a tree adopted as a pseudo-wall decide for itself; that is the next round.
+    // Falsifier for this diagnosis: a log showing FR_Pillar_Tree_Trunk_01 back at >= 4/16 while
+    // the piece still stands.
+    //
+    // (4) THE GATE RECTANGLES: MY IDENTIFICATION IN ModBuild 258's NOTE IS DEAD, KILLED BY
+    // ARITHMETIC. Door_Light_*_Mesh is a flat 2.069 x 0.257 wu strip — 8:1 — and its world HEIGHT
+    // never exceeds 0.258 wu in any of the twelve records. (The 258 note's "all AABB
+    // s(1.041,0.257,1.796)" was wrong: A[2.3]/A[2.4] read s(2.069,0.257,0.008), the same quad
+    // unrotated — acos(1.041/2.069) = 59.8 degrees.) Its dumped screen rects are 125x18, 122x17,
+    // 124x17, 120x17 px: WIDE AND SHORT. The photographed regions are 76, 104 and 121 px TALL and
+    // taller than wide. At the range where 1.796 wu reports 85 px, 0.257 wu is about 12 px. An 8:1
+    // horizontal strip cannot project as a tall rectangle.
+    // AND MY "TWO INDEPENDENT MEASUREMENTS AGREE" WAS NOT A MEASUREMENT: I compared the DIAGONAL
+    // of a 125x18 rect (126) with the DIAGONAL of a 92x104 region (139) — two different shapes
+    // with similar diagonals. Worse, LatchGateProjection takes the head pose AT DUMP TIME, i.e.
+    // as the room opens, so those rects were never comparable to a photograph taken later.
+    // THE HEALER LEAD IS ALSO DEAD, and structurally: MaterialLoaderHeal.cs:522 reads
+    // `if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null) continue;` — the SAME
+    // ancestry relation that defines GATE DUMP tier A — and no write happens before that line.
+    // Its scan's first filter is `if (!activeInHierarchy || r.enabled) continue;` and all twelve
+    // records read `enabled`. A positive ledger ships anyway (grep MaterialLoaderHeal LEDGER),
+    // because "absent from the log" has meant "the log was truncated" three times in this project.
+    // The slot-less half is not a heal state either: it is per DOOR PROP, not per family —
+    // props 0 and 4 have every renderer materialed and their fog-of-war Preview children
+    // slot-less, props 1/2/3/5 the exact complement. Revealed versus unrevealed rooms.
+    // And the door BODY carries the same PR_CR_Door_Double_04_Mat, so "a light mesh wearing the
+    // door's material" was never a mis-assignment: the door prefab is single-material.
+    // NOTHING WAS SUPPRESSED — hiding four plates would have printed "hid 4" while his next
+    // photograph still showed three rectangles.
+    // TIER A IS A CLEAN NEGATIVE: 103 records, all printed, no cap bound, nothing fits. The
+    // subject is in tier B, where 258 printed 48 of 2657 — and the cap was never the constraint,
+    // THE ORDER WAS. Every printed record read d=0.00wu because a gate anchor is a whole
+    // door-prop subtree's union AABB and a 5 wu radius saturates SqrDistance, so "nearest first"
+    // degenerated to hierarchy order and 40 of the 48 were NOT SUBMITTED. Now ordered
+    // submitted-first then by angular size (both properties of the PHOTOGRAPH: a rectangle in a
+    // screenshot is being drawn, and 76-121 px is not small), cap 48 -> 64, footer counts over all
+    // 2657 instead of the printed slice, and it reports HOW MANY SUBMITTED RECORDS WERE CUT — the
+    // only count that can still hide the subject. Every record gains a `skinned:` clause
+    // (localBounds, rootBone, bone count, updateWhenOffscreen): all these plates are
+    // SkinnedMeshRenderers, so every AABB above is a bind-pose number through the root bone, and
+    // that is the one remaining escape from the arithmetic that killed the identification.
+    // Also corrected in Defaults.Core.cs: its HeadDepthPrepass block still asserted that
+    // schwebende_lichter.jpg IS that regression. His own A/B killed that in ModBuild 253
+    // (depthTextureMode=Depth with the dial true, rectangles unchanged). No default value moved.
+    //
     // Build 258: THE DENOMINATOR WAS A RECTANGLE DRAWN AROUND A HEXAGONAL ROOM.
     // NO WIRE CHANGE. Wire tests 146,854 → 146,857 (+3). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
