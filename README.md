@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/img/logo-onlight.png">
-    <img src="docs/img/logo.png" alt="GloomhavenVR" width="600">
-  </picture>
+  <img src="docs/img/promo.gif" alt="GloomhavenVR" width="720">
 </p>
 
 <p align="center">

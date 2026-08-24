@@ -105,6 +105,13 @@ def _sheet_font(px, bold=False):
 def logo():
     """TWO copies, and this time the reason is measured rather than guessed.
 
+    NO LONGER THE README'S HEADER. The artist delivered `gloomhavenvr_promo.gif` on 2026-08-24 —
+    animated key art that CONTAINS the wordmark — and it is the page header now. Both files below
+    are still written, deliberately: they are the only record of what the "weisse Luecken" actually
+    were, and the promo GIF happens to make that whole class of bug impossible (it is OPAQUE, so
+    the light theme never puts this wordmark on white again). If a static wordmark is ever wanted
+    back, the answer is already here and already measured. Do not re-derive it.
+
     THE WORDMARK IS DRAWN FOR A DARK BACKGROUND. Its letter fill and its outer bevel are a light
     parchment tone: against black they read as lit metal, against white they lose almost all their
     contrast and the letters look hollow. That is the user's "weisse Luecken", and it is the
