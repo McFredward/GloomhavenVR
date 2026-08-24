@@ -152,6 +152,14 @@ internal sealed class CardFan
         // Seed the live-preview baseline so the first Tick doesn't fire a spurious relayout; any
         // config edited WHILE the fan was closed is already reflected by this Open's Relayout.
         _lastFanParamSig = FanParamSignature();
+        // THE FALSIFIER FOR "die Karten sind erst grau" (user 2026-08-24). The SetActive above is
+        // the exact frame every adopted face becomes active in the hierarchy, i.e. the frame the
+        // game's OnEnable → ShowCard would have started the card-art loads if CardArtPrewarm had
+        // not already started them while the cards were parked. Measured HERE, after the reveal is
+        // armed, so the number it reports is what the player is about to see: how many of these
+        // faces have no art on this very frame, and how long the last one then takes. Zero is the
+        // pass condition. See Cards/CardArtPrewarm.cs.
+        CardArtPrewarm.NoteFanOpened(_cards);
     }
 
     internal void Close()

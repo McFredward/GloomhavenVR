@@ -481,6 +481,11 @@ internal sealed partial class CardsDriver
     {
         CardActionQueue.Pump();
         HandSuppression.Tick();
+        // Card-art warm-up + its falsifier. DELIBERATELY ABOVE the hands-down bail-out below: the
+        // whole point is to load a hand's card art while nothing of it is on screen, and "the hands
+        // are down" is exactly such a moment. Costs two Count == 0 tests when there is nothing
+        // queued — it is edge-fed by CardFace.Adopt, it never scans anything. See CardArtPrewarm.
+        CardArtPrewarm.Pump();
         // Character-swap exchange tail: park each outgoing card once its own flight has landed, and
         // give a deferred focus hand its borrowed faces back once the wave has drained. FIRST in the
         // update, ahead of the anchor bail-out, because a borrowed hand must be handed back even on

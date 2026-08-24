@@ -244,6 +244,18 @@ internal sealed class CardFace
         // before the first pump — stops an in-flight load from being restarted (which nulls the
         // action-half sprites) and heals/replays afterwards; see CardArtGuard's class doc.)
 
+        // GREY CARDS ON THE FIRST FAN OPEN ("sieht man wie die erste kurze Zeit die Karten noch grau
+        // sind und dann nachladen", user 2026-08-24). THIS is the moment to warm them, and it is the
+        // only moment that is both early and invisible: the face we have just adopted is INACTIVE —
+        // the game deactivates every hand card's full face in the card-selection phase
+        // (AbilityCardUI.SetMode → ToggleFullCard(false), AbilityCardUI.cs:930) and the pool root we
+        // parented it under is inactive as well (VRCardFactory.cs:52) — so its OnEnable has never
+        // run and NOT ONE BYTE of its card art has been requested. Left alone, all N faces wake in
+        // the single frame CardFan.Open activates the fan root and the player watches 3N cold
+        // addressable loads. CardArtPrewarm starts them here instead, spread over frames, while the
+        // card is parked and invisible. See that class for the whole measured chain.
+        CardArtPrewarm.NoteAdopted(owner.fullAbilityCard);
+
         return true;
     }
 
