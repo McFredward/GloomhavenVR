@@ -1361,6 +1361,13 @@ internal static partial class WallSegmentFade
                     // watching — resume would commit it blind. Drop it and its snapshot; the
                     // next active tick opens a fresh cycle.
                     AbandonRescanCycle();
+                    // ModBuild 262: a wall-path audit half-way through its wall list is measuring
+                    // a scene we have stopped watching, and resuming it after a scenario change
+                    // would mix two scenes into one reading. Drop it; the next active tick opens
+                    // a fresh pass.
+                    _pathAuditRunning = false;
+                    _pathAuditWalls.Clear();
+                    _nextPathAudit = 0f;
                 }
                 _wasActive = false;
                 return;
@@ -1654,6 +1661,12 @@ internal static partial class WallSegmentFade
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             FastReclaimRegeneratedShell(now);
 
+            // WALL-PATH AUDIT, sliced (ModBuild 262). Stepped ONLY while the rescan pipeline is
+            // idle, so this budget and the census budget can never land on the same frame.
+            // Diagnostics only — it reads renderers and writes nothing.
+            if (_rescanStage == RescanStage.Idle)
+                StepWallPathAudit(now);
+
             // Re-log the heartbeat when the tracked set changes materially (walls stream in over
             // several rescans as Apparance generates, and adopted tilesets appear late) — the
             // first heartbeat of a scenario otherwise reports a half-built table forever.
@@ -1686,7 +1699,11 @@ internal static partial class WallSegmentFade
                 _heartbeatFadeRenderers = _censusFadeRenderers;
                 LogFloorColumnCensus();
                 LogMountedCensus();
-                LogWallPathAudit();
+                // ModBuild 262: LogWallPathAudit is NO LONGER driven from here. Hanging off this
+                // block is exactly why the 260 log holds three of them and no steady state — the
+                // block re-arms only on a ±5 segment change or a fade-census change, and it
+                // cannot simply be re-armed on a timer because it measured 25.3 ms avg / 34.3 ms
+                // worst on its 3 frames. It has its own sliced cadence now; see StepWallPathAudit.
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
                 int bodyWalls = 0, bodyMeshes = 0, gates = 0;
@@ -4535,6 +4552,24 @@ internal static partial class WallSegmentFade
                     }
                     _censusAdopted++;
                 }
+                else if (splitRunOwner != null)
+                {
+                    // MODBUILD 262 — THE THIRD SPLIT-RUN CREATION SITE NOW RECORDS ITS REFUSALS.
+                    // The other two (NeutralizeEngulfingSegments, RefreshSplitWall) both stamp
+                    // GeometryRefusedWhy on the else branch; this one had no else branch at all,
+                    // so a piece refused HERE reached SweepRunLeftovers with a null reason AND no
+                    // bounds and was tagged "no decision AABB, and NOT a choke-point refusal …
+                    // a different defect from the 260 population" — which was false for exactly
+                    // this piece and made the line claiming a COMPLETE per-reason distribution
+                    // wrong with it. Only 4 renderers took this path in the whole ModBuild 260
+                    // session, so the blast radius is small; the cost of leaving it was a
+                    // phantom defect class for the next round to chase.
+                    //
+                    // The 2-arg call means figureArmOnly = false, i.e. the FULL choke point
+                    // including the FLOOR arm, which is the plain refusal reason. Falsified by a
+                    // piece printing this reason that CollectWallFadeInfo would have accepted.
+                    seg.GeometryRefusedWhy = SplitPieceRefusalReason;
+                }
             }
             _censusClaimed = _censusFadeRenderers - _censusAdopted;
 
@@ -5467,88 +5502,245 @@ internal static partial class WallSegmentFade
         /// figure-guarded, gated-off (authored always-solid — honored), and UNCLAIMED.
         /// UNCLAIMED &gt; 0 is the alarm: an asset family fell through every path.
         /// </summary>
-        private void LogWallPathAudit()
+        /// <summary>
+        /// ModBuild 262 — the audit is SLICED and repeats, and it has the two buckets it was
+        /// missing.
+        ///
+        /// <para>WHY IT HAD TO CHANGE. In the ModBuild 260 log this line fired THREE times, all
+        /// inside the first quarter of the session, and never again: it hung off the heartbeat
+        /// block, which re-arms only on a ±5 segment change or a fade-renderer census change. So
+        /// its <c>154 → 111 UNCLAIMED</c> was a startup transient with no follow-up measurement,
+        /// and 111 was then quoted for two rounds as if it were steady state. The heartbeat
+        /// itself cannot simply be re-armed: <c>WallFade.Census</c> measured 25.3 ms average
+        /// (worst 34.3 ms) over its 3 frames in that log, because it also runs two whole-scene
+        /// <c>FindObjectsOfType</c> walks. This audit is therefore driven on its own cadence and
+        /// SPENDS AT MOST <see cref="ClassifyBudgetMillis"/> PER FRAME — the number this file
+        /// already committed to for census work — resuming next frame, and only while the rescan
+        /// pipeline is idle so the two budgets can never land on the same frame. Its own
+        /// <c>WallFade.PathAudit</c> scope states the real cost in the next log; if that scope
+        /// reports a per-frame worst above the budget, this slicing is broken and the number
+        /// falsifies it.</para>
+        ///
+        /// <para>THE FALSE POSITIVE IT HAD, in this repo's own words at
+        /// <c>WallSegmentFade.Water.cs:18-23</c>: <c>StripGroundRenderers</c> removes a
+        /// water-protected renderer from BOTH lists, and the water surface stands above the
+        /// ground band by construction (that is exactly why the ground strip missed it), so it
+        /// landed in <c>UNCLAIMED [ALARM]</c> with nothing wrong with it. The 260 log proves it
+        /// live — <c>CR_FR_Wall_Rocky_Verge_Bushes_02 (1)</c> is UNCLAIMED on both audits that
+        /// saw any walls and is named on all 22 water-protection lines — and that piece is the
+        /// Brunnen the user EXPRESSLY allows to stay. Water and the doorway arch now have their
+        /// own buckets, both of them standing user rulings (2026-08-09 and 2026-08-02).</para>
+        ///
+        /// <para>AND THE UNCLAIMED BUCKET NOW CARRIES A VERDICT. UNCLAIMED renderers are the one
+        /// population neither leftover instrument can see — unclaimed means no list owns them, so
+        /// the split-run sweep cannot reach them, and the mounted sweep only sees the ones that
+        /// are airborne AND within <c>MountedNearMissXZ</c> of a faded wall. They get the same
+        /// three classes and the same two threshold-free definitions as everything else.</para>
+        /// </summary>
+        private void StepWallPathAudit(float now)
         {
-            int walls = 0, nameN = 0, toggleN = 0, attach = 0, foliage = 0;
-            int ground = 0, figures = 0, standing = 0, gatedOff = 0, unclaimed = 0;
-            var unNames = new System.Text.StringBuilder();
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            if (PerfConfig.Quiet)
+                return;
+            if (!_pathAuditRunning)
             {
-                Segment seg = kv.Value;
-                if (!seg.FromWallCache || seg.Anchor == null)
-                    continue;
-                walls++;
-                int segToggle = Mathf.Min(seg.ToggleNative, seg.Renderers.Count);
-                toggleN += segToggle;
-                nameN += seg.Renderers.Count - segToggle;
-                float ceiling = RoomDecisionValid(seg.RoomIndex)
-                    ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
-                    : float.NegativeInfinity;
-                MeshRenderer[] all =
-                    seg.Anchor.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
-                foreach (MeshRenderer r in all)
+                if (now < _nextPathAudit)
+                    return;
+                _pathAuditWalls.Clear();
+                foreach (Segment s in _segments.Values)
                 {
-                    if (r == null || seg.Renderers.Contains(r))
-                        continue; // counted above (native/toggle split)
-                    if (seg.Foliage.Contains(r))
+                    if (s.FromWallCache && s.Anchor != null)
+                        _pathAuditWalls.Add(s);
+                }
+                if (_pathAuditWalls.Count == 0)
+                {
+                    _nextPathAudit = now + InsideLogIntervalSeconds;
+                    return;
+                }
+                _pathAuditCursor = 0;
+                _pathAuditRunning = true;
+                _paName = _paToggle = _paAttach = _paFoliage = 0;
+                _paGround = _paFigures = _paStanding = _paGatedOff = 0;
+                _paWater = _paArch = _paUnclaimed = 0;
+                _paUnclaimedByClass.Clear();
+                _paUnclaimedNames.Clear();
+                _paUnclaimedAllowed.Clear();
+            }
+            using (PerfMonitor.Scope("WallFade.PathAudit"))
+            {
+                float frameStart = (float)RescanClock.Elapsed.TotalMilliseconds;
+                while (_pathAuditCursor < _pathAuditWalls.Count)
+                {
+                    AuditOneCacheWall(_pathAuditWalls[_pathAuditCursor]);
+                    _pathAuditCursor++;
+                    if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart
+                        >= ClassifyBudgetMillis)
                     {
-                        foliage++;
-                    }
-                    else if (_attachmentOwned.ContainsKey(r))
-                    {
-                        attach++; // body/stacked/mounted/corner — all fade-delivered
-                    }
-                    else if (IsModObject(r) || !r.enabled)
-                    {
-                        // not scenery / game-disabled — no path applies, not an alarm
-                    }
-                    else if (IsStandingFigureProp(r))
-                    {
-                        // Own bucket on purpose (2026-08-15): "figure-guarded" used to mean
-                        // "an adoption sweep declined it" while the wall path could still be
-                        // fading it. Anything counted HERE is refused by the wall path too, so
-                        // the audit and the delivery can no longer disagree.
-                        standing++;
-                    }
-                    else if (IsFigureOrActorRenderer(r))
-                    {
-                        figures++;
-                    }
-                    else if (r.bounds.max.y <= ceiling)
-                    {
-                        ground++;
-                    }
-                    else if (HasGatedOffWallFadeToggle(r))
-                    {
-                        gatedOff++;
-                    }
-                    else
-                    {
-                        unclaimed++;
-                        if (unNames.Length < 160)
-                        {
-                            if (unNames.Length > 0)
-                                unNames.Append(", ");
-                            unNames.Append('\'').Append(r.name).Append('\'');
-                        }
+                        return; // resume on the next idle tick — the pass is not finished
                     }
                 }
             }
-            if (walls == 0)
-                return;
-            VRLog.Info(Name,
-                $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}': {walls} cache "
-                + $"wall(s) — renderers: {nameN} native-name + {toggleN} toggle-native (MPB "
-                + $"fade), {attach} attachment-claimed (body/stacked/mounted/corner), "
-                + $"{foliage} foliage, {ground} ground-band (solid by design), {standing} "
-                + $"standing-prop (floor-standing figure/actor prop — never wall geometry on "
-                + $"ANY path, WallSegmentFade.Standing.cs), {figures} figure-guarded, "
-                + $"{gatedOff} gated-off (authored always-solid — honored), "
-                + $"{unclaimed} UNCLAIMED"
-                + (unclaimed > 0
-                    ? $" [ALARM — fell through every path: {unNames}]"
-                    : " — every wall renderer is owned by a path."));
+            _pathAuditRunning = false;
+            _pathAuditPasses++;
+            _nextPathAudit = now + InsideLogIntervalSeconds;
+            LogWallPathAudit();
         }
+
+        /// <summary>One cache wall's subtree, classified into the audit's buckets. Split out of
+        /// <see cref="LogWallPathAudit"/> so the pass can be suspended between walls; a wall is
+        /// never split, so no bucket can ever be counted twice.</summary>
+        private void AuditOneCacheWall(Segment seg)
+        {
+            if (seg.Anchor == null)
+                return;
+            int segToggle = Mathf.Min(seg.ToggleNative, seg.Renderers.Count);
+            _paToggle += segToggle;
+            _paName += seg.Renderers.Count - segToggle;
+            float ceiling = RoomDecisionValid(seg.RoomIndex)
+                ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                : float.NegativeInfinity;
+            // The LIST overload, not the array one (ModBuild 262). The old audit ran 3 times in a
+            // whole session so an array per wall was free; at the new cadence it would be 171
+            // array allocations every 2 s for nothing. The scratch list is a field and is reused.
+            seg.Anchor.GetComponentsInChildren(includeInactive: false, _pathAuditScratch);
+            foreach (MeshRenderer r in _pathAuditScratch)
+            {
+                if (r == null || seg.Renderers.Contains(r))
+                    continue; // counted above (native/toggle split)
+                if (seg.Foliage.Contains(r))
+                {
+                    _paFoliage++;
+                }
+                else if (_attachmentOwned.ContainsKey(r))
+                {
+                    _paAttach++; // body/stacked/mounted/corner — all fade-delivered
+                }
+                else if (IsModObject(r) || !r.enabled)
+                {
+                    // not scenery / game-disabled — no path applies, not an alarm
+                }
+                else if (IsStandingFigureProp(r))
+                {
+                    // Own bucket on purpose (2026-08-15): "figure-guarded" used to mean
+                    // "an adoption sweep declined it" while the wall path could still be
+                    // fading it. Anything counted HERE is refused by the wall path too, so
+                    // the audit and the delivery can no longer disagree.
+                    _paStanding++;
+                }
+                else if (IsFigureOrActorRenderer(r))
+                {
+                    _paFigures++;
+                }
+                else if (r.bounds.max.y <= ceiling)
+                {
+                    _paGround++;
+                }
+                // THE TWO STANDING RULINGS, ASKED BEFORE THE ALARM (ModBuild 262 — see the doc on
+                // StepWallPathAudit). Both are enforced as spatial protection rects that PULL the
+                // renderer back off its wall, which is precisely what left it owned by no list.
+                // Asked after the ground band so that band keeps its meaning, and before
+                // gated-off/UNCLAIMED so a ruling can never be reported as a defect.
+                else if (IsWaterProtected(r.bounds))
+                {
+                    _paWater++;
+                }
+                else if (IsArchProtected(r.bounds, r.name))
+                {
+                    _paArch++;
+                }
+                else if (HasGatedOffWallFadeToggle(r))
+                {
+                    _paGatedOff++;
+                }
+                else
+                {
+                    _paUnclaimed++;
+                    // THE VERDICT, not just the name (ModBuild 262). 260's name list was capped
+                    // at 160 CHARACTERS — six names out of 111 — which is a mode and not a
+                    // distribution, the in-repo lesson that has already cost a build. The class
+                    // tally below is complete and untruncated.
+                    string cls = ClassifyLeftover(r, seg.RoomIndex, out int blocked,
+                                                  out float foot, out float top,
+                                                  out int visible);
+                    _paUnclaimedByClass.TryGetValue(cls, out int seen);
+                    _paUnclaimedByClass[cls] = seen + 1;
+                    List<string> into =
+                        cls == "ALLOWED" ? _paUnclaimedAllowed : _paUnclaimedNames;
+                    if (into.Count >= MountedLeftoverCap)
+                        continue;
+                    string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    into.Add(
+                        (cls == "ALLOWED" ? string.Empty : $"[{cls}] ")
+                        + $"'{r.name}' under '{wall}' (room {seg.RoomIndex}, fade "
+                        + $"{seg.Fade:F2}): foot {foot:F2} wu / top {top:F2} wu over the room "
+                        // No [EXEMPT] tag here on purpose: the water and arch rulings are asked
+                        // in the chain ABOVE this branch, so nothing that reaches UNCLAIMED can
+                        // be carrying one.
+                        + $"floor, hides {blocked} of {visible} in-view playable-tile sample(s)");
+                }
+            }
+        }
+
+        private void LogWallPathAudit()
+        {
+            _paUnclaimedByClass.TryGetValue("FLOATING", out int uFloating);
+            _paUnclaimedByClass.TryGetValue("OBSTRUCTING", out int uObstructing);
+            _paUnclaimedByClass.TryGetValue("ALLOWED", out int uAllowed);
+            int uOther = _paUnclaimed - uFloating - uObstructing - uAllowed;
+            VRLog.Info(Name,
+                $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}': "
+                + $"{_pathAuditWalls.Count} cache wall(s) — renderers: {_paName} native-name + "
+                + $"{_paToggle} toggle-native (MPB fade), {_paAttach} attachment-claimed "
+                + $"(body/stacked/mounted/corner), {_paFoliage} foliage, {_paGround} ground-band "
+                + $"(solid by design), {_paStanding} standing-prop (floor-standing figure/actor "
+                + "prop — never wall geometry on ANY path, WallSegmentFade.Standing.cs), "
+                + $"{_paFigures} figure-guarded, {_paWater} WATER FEATURE (user ruling "
+                + "2026-08-09 — pulled off its wall on purpose; before ModBuild 262 every one of "
+                + "these was counted UNCLAIMED [ALARM] BY CONSTRUCTION, which is where the "
+                + "Brunnen he expressly allows had been sitting), "
+                + $"{_paArch} doorway arch (user ruling 2026-08-02 — same story), "
+                + $"{_paGatedOff} gated-off (authored always-solid — honored), "
+                + $"{_paUnclaimed} UNCLAIMED"
+                + (_paUnclaimed > 0
+                    ? " [fell through every path — BY THE USER'S THREE CLASSES: "
+                      + $"{uFloating} FLOATING, {uObstructing} OBSTRUCTING, {uAllowed} ALLOWED"
+                      + (uOther > 0
+                          ? $", {uOther} UNJUDGED (an input was missing — no anchored floor "
+                            + "plane, no playable-tile grid for the room, or no sample of it "
+                            + "in view this tick; never read as ALLOWED)"
+                          : string.Empty)
+                      + ". ONLY FLOATING and OBSTRUCTING are the alarm (ruling 2026-08-24) — an "
+                      + "UNCLAIMED renderer standing on the floor and hiding nothing is a thing "
+                      + "he says may stay, and 154/111 were quoted as defect counts for two "
+                      + $"rounds without this split. Defects (up to {MountedLeftoverCap}): "
+                      + string.Join("; ", _paUnclaimedNames)
+                      + $" | ALLOWED (up to {MountedLeftoverCap}): "
+                      + string.Join("; ", _paUnclaimedAllowed)
+                      + "]"
+                    : " — every wall renderer is owned by a path.")
+                + $" Pass {_pathAuditPasses} of this session, sliced at "
+                + $"{ClassifyBudgetMillis:0.0} ms/frame and repeated every "
+                + $"{InsideLogIntervalSeconds:0.0} s — the ModBuild 260 log got THREE of these, "
+                + "all in the first quarter of the session, so there was no steady-state reading "
+                + "at all. See the WallFade.PathAudit [Perf] scope for what this cost.");
+        }
+
+        // ---- WALL-PATH AUDIT slicing state ---------------------------------------------------
+        /// <summary>Cache walls of the pass in flight — snapshotted at pass start so a segment
+        /// table that churns mid-pass cannot double-count or skip a wall.</summary>
+        private readonly List<Segment> _pathAuditWalls = new();
+        private int _pathAuditCursor;
+        private bool _pathAuditRunning;
+        private float _nextPathAudit;
+        private int _pathAuditPasses;
+        private int _paName, _paToggle, _paAttach, _paFoliage;
+        private int _paGround, _paFigures, _paStanding, _paGatedOff;
+        private int _paWater, _paArch, _paUnclaimed;
+        private readonly Dictionary<string, int> _paUnclaimedByClass = new();
+        private readonly List<string> _paUnclaimedNames = new();
+        private readonly List<string> _paUnclaimedAllowed = new();
+        /// <summary>Reused subtree buffer — see the note at the GetComponentsInChildren call.
+        /// </summary>
+        private readonly List<MeshRenderer> _pathAuditScratch = new();
 
         /// <summary>Toggle-native materials already logged (round 8, cap 6): one line per
         /// material with its authored gate/cutoff values and shader keywords — the datum
@@ -6045,6 +6237,28 @@ internal static partial class WallSegmentFade
         {
             var sb = new System.Text.StringBuilder();
             int tileRooms = 0, boxRooms = 0;
+            // ModBuild 262 — THE GENERICITY ALARM (user, 2026-08-24: "das Level … ist nur eines
+            // von vielen … der Code [muss] generisch auf alle Szenarios und Räume im gesamten
+            // Spiel funktionieren"). Every number this subsystem has been reasoned about came
+            // from ONE forest ProcGen room with 16 sample cells, and 16 is not a property of this
+            // code: the denominator is min(grid², playable hexes) and `grid` itself falls 4→3→2→1
+            // purely on the REVEALED ROOM COUNT (6 / 10 / 24 rooms against the MaxTotalSamples
+            // budget). Two derived quantities can therefore degenerate in a scenario nobody has
+            // tested, and both are counted here rather than guessed at:
+            //   • NO CELLS AT ALL — the room went over the sample budget, so no wall of it can
+            //     ever be measured and they are all held solid. A wall that never fades.
+            //   • THE SCHMITT BARS COLLAPSE IN CELL TERMS — ceil(On·n) == ceil(Off·n), so the
+            //     enter and exit bars are the SAME number of samples and the trigger has no
+            //     hysteresis left in the only unit it can actually move in. With the shipped
+            //     0.35/0.20 that is every n ≤ 2 (n=2: both bars 1 cell; n=1: both bars 1 cell),
+            //     and the separation is already down to ONE cell for every n ≤ 11 against the
+            //     TWO cells the 16-cell room has. NOT a defect on its own — the EMA and the
+            //     second-scale dwell are independent of n and still hold — but it is the term
+            //     that goes first in a small room, and no build may claim a fade behaves the
+            //     same there until this number has been read from one.
+            // Reported only. Changing either bar is a fade-behaviour change and needs its own
+            // round; this line exists so that round starts from a measurement.
+            int roomsNoGrid = 0, roomsBarsCollapsed = 0, roomsBarsOneApart = 0;
             for (int r = 0; r < _roomSampleCount.Count; r++)
             {
                 if (sb.Length > 0)
@@ -6125,11 +6339,29 @@ internal static partial class WallSegmentFade
                 }
                 if (cells > 0)
                 {
+                    int exitCells = Mathf.CeilToInt(WallFadeTuning.Off * cells);
+                    int enterCells = Mathf.CeilToInt(WallFadeTuning.On * cells);
                     sb.Append(", quantum ").Append((1f / cells).ToString("F4"))
-                      .Append(" → exit bar ")
-                      .Append(Mathf.CeilToInt(WallFadeTuning.Off * cells))
-                      .Append(" cell(s), enter bar ")
-                      .Append(Mathf.CeilToInt(WallFadeTuning.On * cells)).Append(" cell(s)");
+                      .Append(" → exit bar ").Append(exitCells)
+                      .Append(" cell(s), enter bar ").Append(enterCells).Append(" cell(s)");
+                    if (enterCells <= exitCells)
+                    {
+                        roomsBarsCollapsed++;
+                        sb.Append(" [BARS COLLAPSED — enter and exit are the SAME cell count, so "
+                                  + "this room's trigger has no hysteresis left in samples; only "
+                                  + "the EMA and the dwell separate on/off here]");
+                    }
+                    else if (enterCells - exitCells < 2)
+                    {
+                        roomsBarsOneApart++;
+                        sb.Append(" [bars ONE cell apart — a single sample crosses the whole "
+                                  + "band; the 16-cell room this subsystem was reasoned about "
+                                  + "has two]");
+                    }
+                }
+                else
+                {
+                    roomsNoGrid++;
                 }
             }
             string line =
@@ -6138,7 +6370,17 @@ internal static partial class WallSegmentFade
                 + $"({_tilesResolved} hex(es) keyed to a room, {_tilesUnkeyed} without a CMap "
                 + $"and ignored) — {sb}. The denominator is per room and the ray loop is "
                 + "unchanged; a wall's coverage is still blocked-samples over THIS room's "
-                + "sample count.";
+                + "sample count. GENERICITY (ModBuild 262): the lattice is "
+                + $"{_sampleGridCells} cell(s) this scenario because it holds "
+                + $"{_roomSampleCount.Count} room(s) — grid is 4 up to 6 rooms, 3 up to 10, 2 up "
+                + $"to 24 and 1 beyond, against the {MaxTotalSamples}-sample budget, so ROOM "
+                + "COUNT alone moves every room's quantum and both Schmitt bars in cell terms. "
+                + $"{roomsNoGrid} room(s) got NO grid at all (their walls are held solid and can "
+                + $"never fade), {roomsBarsCollapsed} have the two bars COLLAPSED onto the same "
+                + $"cell count, {roomsBarsOneApart} have them ONE cell apart. All three read 0 in "
+                + "the ModBuild 260 forest scenario, which is a single 42-hex room at 16 cells "
+                + "with the bars 4 and 6 — a sample of one. A non-zero here is the first "
+                + "measurement of what a small or many-roomed scenario actually does.";
             if (line == _lastSampleCensus)
                 return;
             _lastSampleCensus = line;

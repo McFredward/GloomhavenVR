@@ -655,10 +655,23 @@ internal static partial class WallSegmentFade
         /// piece's geometry is reachable without any list. The sweep now asks the anchor whenever
         /// the lists are empty. A ZERO from this method now means the picture is clean; before it
         /// only meant the ledger was.</para>
+        ///
+        /// <para><b>MODBUILD 262 — TWO LISTS WAS STILL NOT THE SEGMENT.</b> The 261 sweep read
+        /// <c>seg.Renderers</c>, <c>seg.Foliage</c> and (only when both were empty) the anchor,
+        /// and it STOPPED AT THE FIRST DRAWING ENTRY — one verdict per segment, describing one
+        /// renderer. A segment owns five more ledgers: <c>Mounted</c>, <c>Stacked</c>,
+        /// <c>Body</c>, <c>UnitDressing</c> and <c>Siblings</c>, and the ModBuild 260 leftover
+        /// population lives in the MOUNTED one. So the sweep answered honestly about at most one
+        /// renderer of eight possible sources — the ModBuild 252 scar for the third time. It now
+        /// enumerates every list the segment owns plus the anchor, deduplicated, and issues a
+        /// class verdict for EVERY renderer that is drawing. <c>_runLeftover</c> therefore counts
+        /// RENDERERS from this build on; <c>_runLeftoverSegments</c> keeps the old per-piece
+        /// number so the two logs stay comparable.</para>
         /// </summary>
         private void SweepRunLeftovers()
         {
             _runLeftover = 0;
+            _runLeftoverSegments = 0;
             _runLeftoverNames.Clear();
             _runLeftoverByReason.Clear();
             _runLeftoverByClass.Clear();
@@ -688,128 +701,185 @@ internal static partial class WallSegmentFade
                     continue; // the whole run is still mid-ramp — nothing has been left behind yet
                 if (seg.Fade >= FoliageHideFade)
                     continue; // this piece went with its run — nothing to report
-                bool drawing = false;
-                Renderer? shown = null;
-                for (int i = 0; i < seg.Renderers.Count && !drawing; i++)
+                // EVERY LIST THE SEGMENT OWNS (ModBuild 262 — see the method doc), plus the
+                // anchor, which is the whole piece for a choke-point refusal that owns nothing.
+                // Deduplicated because a renderer can legitimately sit in two ledgers across a
+                // rescan boundary, and a double-count here would inflate the very number the
+                // user's verdict is read off.
+                CollectSegmentLeftoverCandidates(seg);
+                bool anyDrawing = false;
+                for (int ci = 0; ci < _leftoverCandidates.Count; ci++)
                 {
-                    if (IsActuallyDrawing(seg.Renderers[i]))
+                    Renderer shown = _leftoverCandidates[ci];
+                    if (!IsActuallyDrawing(shown))
+                        continue;
+                    anyDrawing = true;
+                    _runLeftover++;
+                    // ORDER IS THE DIAGNOSIS. The refusal is asked FIRST because boundless is its
+                    // CONSEQUENCE — a refused renderer is never collected, so there is nothing to
+                    // build an AABB from, and no room association either. ModBuild 260 asked
+                    // HasBounds first and therefore reported the symptom as the cause for every
+                    // one of these pieces. Falsified by: a piece printing the refusal reason that
+                    // the STANDING PROP census does not also name.
+                    //
+                    // TWO STRINGS, ON PURPOSE. `tag` is the tally KEY and must be short and free
+                    // of any per-piece number — a fade value in a key turns one class of 99 into
+                    // 99 classes of one, and the distribution is the whole point of the line.
+                    // `why` is the long form for the (capped) names list.
+                    string tag, why;
+                    if (seg.GeometryRefusedWhy != null)
                     {
-                        drawing = true;
-                        shown = seg.Renderers[i];
+                        tag = ReferenceEquals(seg.GeometryRefusedWhy, SplitPieceFigureRefusalReason)
+                            ? "REFUSED as wall geometry (FIGURE arm, never relaxed)"
+                            : "REFUSED as wall geometry (floor-standing prop)";
+                        why = seg.GeometryRefusedWhy;
                     }
-                }
-                for (int i = 0; i < seg.Foliage.Count && !drawing; i++)
-                {
-                    if (IsActuallyDrawing(seg.Foliage[i]))
+                    else if (!seg.HasBounds)
                     {
-                        drawing = true;
-                        shown = seg.Foliage[i];
+                        // ModBuild 262: 261 asserted here that such a piece "owns renderers or
+                        // foliage", which was a guess the code could not make — the piece may be
+                        // drawing out of any of the six ledgers this sweep now reads, or be the
+                        // bare anchor. State what is known and nothing else.
+                        tag = "no decision AABB, and NOT a choke-point refusal";
+                        why = "no decision AABB — boundless fail-safe (round 14) with NO recorded "
+                              + "choke-point refusal. Since ModBuild 262 the third split-run "
+                              + "creation site (AdoptShaderMatchedWalls) records its refusals too, "
+                              + "so a piece still landing here was refused by nothing and lost its "
+                              + "bounds some other way";
                     }
-                }
-                // THE 260 BLIND SPOT (see the method doc). A piece the choke point refused owns
-                // nothing in either list, so the two loops above never ran and the piece read as
-                // "not drawing" while it stood in the photograph. Its ANCHOR is the renderer it
-                // was split off — that is the whole piece, and it is what the eye sees.
-                if (!drawing && seg.Renderers.Count == 0 && seg.Foliage.Count == 0
-                    && seg.Anchor is Renderer own)
-                {
-                    drawing = IsActuallyDrawing(own);
-                    if (drawing)
-                        shown = own;
-                }
-                if (!drawing)
-                    continue;
-                _runLeftover++;
-                // ORDER IS THE DIAGNOSIS. The refusal is asked FIRST because boundless is its
-                // CONSEQUENCE — a refused renderer is never collected, so there is nothing to
-                // build an AABB from, and no room association either. ModBuild 260 asked
-                // HasBounds first and therefore reported the symptom as the cause for every one
-                // of these pieces. Falsified by: a piece printing the refusal reason that the
-                // STANDING PROP census does not also name.
-                //
-                // TWO STRINGS, ON PURPOSE. `tag` is the tally KEY and must be short and free of
-                // any per-piece number — a fade value in a key turns one class of 99 into 99
-                // classes of one, and the distribution is the whole point of the line. `why` is
-                // the long form for the (capped) names list.
-                string tag, why;
-                if (seg.GeometryRefusedWhy != null)
-                {
-                    tag = ReferenceEquals(seg.GeometryRefusedWhy, SplitPieceFigureRefusalReason)
-                        ? "REFUSED as wall geometry (FIGURE arm, never relaxed) — owns no renderer"
-                        : "REFUSED as wall geometry (floor-standing prop) — owns no renderer";
-                    why = seg.GeometryRefusedWhy;
-                }
-                else if (!seg.HasBounds)
-                {
-                    tag = "no decision AABB, and NOT a choke-point refusal";
-                    why = "no decision AABB — boundless fail-safe (round 14), and NOT a "
-                          + "choke-point refusal: this piece owns renderers or foliage and still "
-                          + "has no bounds, which is a different defect from the 260 population";
-                }
-                else if (seg.Engulfing)
-                {
-                    tag = "ENGULFING single mesh — undecidable as one unit";
-                    why = "single mesh that ENGULFS its own room — held solid, undecidable as "
-                          + "one unit (NeutralizeEngulfingSegments)";
-                }
-                else if (seg.DoorRoot != null)
-                {
-                    tag = "doorway — never fades (user ruling 2026-08-02)";
-                    why = tag;
-                }
-                else if (!RoomDecisionValid(seg.RoomIndex))
-                {
-                    tag = "room has no valid floor grid — FAIL-SAFE solid";
-                    why = $"room {seg.RoomIndex} has no valid floor grid — FAIL-SAFE solid";
-                }
-                else if (!seg.RunDriven)
-                {
-                    tag = "NOT run-driven though it carries the run key";
-                    why = "NOT run-driven though it carries the run key — the distribution "
-                          + "missed it, and THAT would be a distribution bug";
-                }
-                else
-                {
-                    tag = "run-driven, below full fade — mid-ramp or no dissolve channel";
-                    why = tag + " (see the DISSOLVE CENSUS for this piece)";
-                }
-                _runLeftoverByReason.TryGetValue(tag, out int seen);
-                _runLeftoverByReason[tag] = seen + 1;
-                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
-                // THE USER'S CLASSES. A leftover is not automatically a defect since the
-                // 2026-08-24 refinement — measured against the room the RUN decided on, because
-                // that is the floor he is looking at when the wall goes.
-                string cls = "UNKNOWN (nothing drawing to measure)";
-                int blockedSamples = 0;
-                float foot = 0f, top = 0f;
-                if (shown != null)
-                {
+                    else if (seg.Engulfing)
+                    {
+                        tag = "ENGULFING single mesh — undecidable as one unit";
+                        why = "single mesh that ENGULFS its own room — held solid, undecidable as "
+                              + "one unit (NeutralizeEngulfingSegments)";
+                    }
+                    else if (seg.DoorRoot != null)
+                    {
+                        tag = "doorway — never fades (user ruling 2026-08-02)";
+                        why = tag;
+                    }
+                    else if (!RoomDecisionValid(seg.RoomIndex))
+                    {
+                        tag = "room has no valid floor grid — FAIL-SAFE solid";
+                        why = $"room {seg.RoomIndex} has no valid floor grid — FAIL-SAFE solid";
+                    }
+                    else if (!seg.RunDriven)
+                    {
+                        tag = "NOT run-driven though it carries the run key";
+                        why = "NOT run-driven though it carries the run key — the distribution "
+                              + "missed it, and THAT would be a distribution bug";
+                    }
+                    else
+                    {
+                        tag = "run-driven, below full fade — mid-ramp or no dissolve channel";
+                        why = tag + " (see the DISSOLVE CENSUS for this piece)";
+                    }
+                    _runLeftoverByReason.TryGetValue(tag, out int seen);
+                    _runLeftoverByReason[tag] = seen + 1;
+                    string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    // THE USER'S CLASSES. A leftover is not automatically a defect since the
+                    // 2026-08-24 refinement — measured against the room the RUN decided on,
+                    // because that is the floor he is looking at when the wall goes.
                     int room = run.Room >= 0 ? run.Room : seg.RoomIndex;
-                    cls = ClassifyLeftover(shown, room, out blockedSamples, out foot, out top);
+                    string cls = ClassifyLeftover(shown, room, out int blockedSamples,
+                                                  out float foot, out float top,
+                                                  out int visibleSamples);
+                    _runLeftoverByClass.TryGetValue(cls, out int clsSeen);
+                    _runLeftoverByClass[cls] = clsSeen + 1;
+                    // THE RENDERER IS NAMED, NOT JUST ITS SEGMENT (ModBuild 262). 261 printed the
+                    // segment anchor's name for a verdict measured on some renderer inside it,
+                    // which for a mounted prop is a different object entirely.
+                    string geom = $"'{shown.name}' foot {foot:F2} wu / top {top:F2} wu over room "
+                                  + $"{room}'s floor, hides {blockedSamples} of "
+                                  + $"{visibleSamples} in-view playable-tile sample(s)"
+                                  + LeftoverExemptionNote(shown);
+                    // ALLOWED pieces get their own list so a large ALLOWED population can never be
+                    // read as a large defect — which is precisely the mistake the previous two
+                    // rounds made with the 99 and the 111.
+                    if (cls == "ALLOWED")
+                    {
+                        if (_runLeftoverAllowed.Count < MountedLeftoverCap)
+                            _runLeftoverAllowed.Add($"on '{wall}': {geom}");
+                        continue;
+                    }
+                    if (_runLeftoverNames.Count >= MountedLeftoverCap)
+                        continue;
+                    string owner = run.Anchor != null ? run.Anchor.name : "<dead>";
+                    _runLeftoverNames.Add(
+                        $"[{cls}] {geom} — carried by piece '{wall}' at fade {seg.Fade:F2} while "
+                        + $"its run '{owner}' is at {run.MaxFade:F2} — {why}");
                 }
-                _runLeftoverByClass.TryGetValue(cls, out int clsSeen);
-                _runLeftoverByClass[cls] = clsSeen + 1;
-                string geom = $"foot {foot:F2} wu / top {top:F2} wu over its room's floor, hides "
-                              + $"{blockedSamples} visible playable-tile sample(s)";
-                // ALLOWED pieces get their own list so a large ALLOWED population can never be
-                // read as a large defect — which is precisely the mistake the previous two rounds
-                // made with the 99 and the 111.
-                if (cls == "ALLOWED")
-                {
-                    if (_runLeftoverAllowed.Count < PerWallNameCap)
-                        _runLeftoverAllowed.Add($"'{wall}' ({geom})");
-                    continue;
-                }
-                if (_runLeftoverNames.Count >= PerWallNameCap)
-                    continue;
-                string owner = run.Anchor != null ? run.Anchor.name : "<dead>";
-                _runLeftoverNames.Add(
-                    $"[{cls}] '{wall}' is DRAWING at fade {seg.Fade:F2} while its run '{owner}' "
-                    + $"is at {run.MaxFade:F2}, {geom} — {why}");
+                if (anyDrawing)
+                    _runLeftoverSegments++;
             }
         }
 
+        /// <summary>
+        /// EVERY RENDERER ONE SEGMENT OWNS — the eight sources a leftover can be drawing out of,
+        /// deduplicated and in a stable order. ModBuild 261's sweep read two of them and stopped
+        /// at the first hit; the steady ModBuild 260 leftover population lives in
+        /// <see cref="Segment.Mounted"/>, which it never touched.
+        ///
+        /// <para>COST: this walks lists the segment already holds — no scene query, no
+        /// <c>GetComponent</c>, no allocation past the two scratch containers, which are fields.
+        /// It runs once per split-run piece per rescan (the ModBuild 260 scenario: 140 pieces of
+        /// the largest run, at the 2 s rescan cadence), so it is not in the frame.</para>
+        /// </summary>
+        private void CollectSegmentLeftoverCandidates(Segment seg)
+        {
+            _leftoverCandidates.Clear();
+            _leftoverSeen.Clear();
+            AddLeftoverCandidate(seg.Anchor as Renderer);
+            for (int i = 0; i < seg.Renderers.Count; i++)
+                AddLeftoverCandidate(seg.Renderers[i]);
+            for (int i = 0; i < seg.Foliage.Count; i++)
+                AddLeftoverCandidate(seg.Foliage[i]);
+            for (int i = 0; i < seg.Siblings.Count; i++)
+                AddLeftoverCandidate(seg.Siblings[i]);
+            for (int i = 0; i < seg.Mounted.Count; i++)
+                AddLeftoverCandidate(seg.Mounted[i].Renderer);
+            for (int i = 0; i < seg.Stacked.Count; i++)
+                AddLeftoverCandidate(seg.Stacked[i].Renderer);
+            for (int i = 0; i < seg.Body.Count; i++)
+                AddLeftoverCandidate(seg.Body[i].Renderer);
+            for (int i = 0; i < seg.UnitDressing.Count; i++)
+                AddLeftoverCandidate(seg.UnitDressing[i].Renderer);
+        }
+
+        private void AddLeftoverCandidate(Renderer? r)
+        {
+            if (r == null || !_leftoverSeen.Add(r))
+                return;
+            _leftoverCandidates.Add(r);
+        }
+
+        private readonly List<Renderer> _leftoverCandidates = new();
+        private readonly HashSet<Renderer> _leftoverSeen = new();
+
+        /// <summary>
+        /// A standing NOTE, never a class. Two user rulings already say a specific piece may stay
+        /// — the fountain (2026-08-09, brunnen.png) and the doorway arch (2026-08-02) — and both
+        /// are enforced as spatial rects that pull the piece back off its wall. A geometric
+        /// FLOATING verdict on such a piece is CORRECT about the geometry and moot as a defect,
+        /// and without this note the next round would chase it. Deliberately not folded into the
+        /// class: the classes are the user's three words and nothing else may be smuggled into
+        /// them.
+        /// </summary>
+        private string LeftoverExemptionNote(Renderer r)
+        {
+            Bounds b = r.bounds;
+            if (IsWaterProtected(b))
+                return " [EXEMPT: water feature, user ruling 2026-08-09 — allowed to stay]";
+            if (IsArchProtected(b, r.name))
+                return " [EXEMPT: doorway arch, user ruling 2026-08-02 — allowed to stay]";
+            return string.Empty;
+        }
+
         private int _runLeftover;
+        /// <summary>ModBuild 262: how many split-run PIECES had at least one drawing renderer —
+        /// the number ModBuild 261's <c>_runLeftover</c> actually held, kept so the two logs can
+        /// be compared. <see cref="_runLeftover"/> now counts RENDERERS.</summary>
+        private int _runLeftoverSegments;
         private readonly List<string> _runLeftoverNames = new();
         /// <summary>ModBuild 261: leftover count per REASON. The shared LEFTOVER line names at
         /// most <see cref="PerWallNameCap"/> pieces, which for a 99-piece population is a sample
@@ -846,19 +916,56 @@ internal static partial class WallSegmentFade
         /// needs no number. The blocked-sample COUNT is reported rather than a bare bool, so the
         /// next log shows how many pieces sit at the 0/1 boundary — i.e. whether a rule built on
         /// this test would need hysteresis or is comfortably separated.</para>
+        ///
+        /// <para><b>MODBUILD 262 — IT DEGRADES OUT LOUD, BECAUSE THIS IS ONE SCENARIO OF MANY.</b>
+        /// (User, 2026-08-24: <i>"Das Level was ich jetzt gerade die ganze Zeit teste ist nur
+        /// eines von vielen — natürlich erwarte ich dass der Code generisch auf alle Szenarios und
+        /// Räume im gesamten Spiel funktioniert."</i>) The two CLASS DEFINITIONS are generic —
+        /// they are pure geometry against the room's own floor and the room's own playable-tile
+        /// samples, and neither mentions a tileset, a shader family or a room size. The INPUTS are
+        /// not guaranteed, and every one of them fails toward a confident wrong ALLOWED:
+        /// <list type="number">
+        /// <item>a room with no ANCHORED floor plane — <c>_roomFloorY</c> holds a number for every
+        ///   room, anchored or not, so reading it blind produces a foot height measured against a
+        ///   guess. Asked with <see cref="RoomDecisionValid"/>, the same predicate the fade
+        ///   decision itself runs on.</item>
+        /// <item>a room with NO sample grid at all — a scenario with more revealed rooms than the
+        ///   <c>MaxTotalSamples</c> budget covers hands late rooms <c>_roomSampleCount = 0</c> and
+        ///   holds their walls solid. Zero samples means zero blocked, which would have read as
+        ///   ALLOWED for every piece in the room.</item>
+        /// <item>no sample of the room FRUSTUM-VISIBLE this tick — "it hides nothing from him"
+        ///   is then a statement about where his head happens to point, not about the piece.
+        ///   ALLOWED is a permanent-sounding verdict and must not be issued from a momentary
+        ///   one.</item>
+        /// </list>
+        /// Each returns its own UNJUDGED string naming the missing input. A wrong ALLOWED is worse
+        /// than an explicit refusal to judge: ALLOWED is the class that says "leave it alone".
+        /// </para>
         /// </summary>
         private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
             out float foot, out float top)
+            => ClassifyLeftover(r, room, out blockedSamples, out foot, out top, out _);
+
+        private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
+            out float foot, out float top, out int visibleSamples)
         {
             Bounds b = r.bounds;
-            float floorY = room >= 0 && room < _roomFloorY.Count ? _roomFloorY[room] : 0f;
+            blockedSamples = 0;
+            visibleSamples = 0;
+            foot = 0f;
+            top = 0f;
+            if (room < 0 || room >= _roomFloorY.Count || !RoomDecisionValid(room))
+                return "UNJUDGED (no anchored floor plane for this room)";
+            float floorY = _roomFloorY[room];
             foot = b.min.y - floorY;
             top = b.max.y - floorY;
-            blockedSamples = PieceBlockedSamples(r, room);
-            if (room < 0 || room >= _roomFloorY.Count)
-                return "UNKNOWN (no anchored floor to measure against)";
             if (foot > WallStandingProp.FootBandWU)
                 return "FLOATING";
+            visibleSamples = PieceBlockedSamples(r, room, out blockedSamples);
+            if (visibleSamples < 0)
+                return "UNJUDGED (this room has no playable-tile sample grid)";
+            if (visibleSamples == 0)
+                return "UNJUDGED (no playable-tile sample of this room is in view this tick)";
             return blockedSamples > 0 ? "OBSTRUCTING" : "ALLOWED";
         }
 
@@ -867,16 +974,25 @@ internal static partial class WallSegmentFade
         /// the head — the broad phase of <c>RoomBlockedFraction</c> applied to the renderer's own
         /// world AABB instead of a segment's union box, with the same "clearly before the point"
         /// rule and the SAME constants (<c>BlockEpsDistFraction</c>, <c>BlockEpsMin/MaxWorld</c>).
-        /// Nothing new is tuned here. Sixteen samples per room in the ModBuild 260 scenario, run
-        /// once per leftover per rescan, so the cost is not in the frame.
+        /// Nothing new is tuned here. Sixteen samples per room in the ModBuild 260 scenario — but
+        /// the count is <c>min(grid², playable hexes)</c> and <c>grid</c> itself falls to 3, 2 and
+        /// finally 1 as the revealed room count rises, so it is 16 in that scenario and NOT a
+        /// property of this code. Run once per leftover per rescan, so the cost is not in the
+        /// frame at any of those sizes.
+        ///
+        /// <para>RETURNS the number of samples that were VISIBLE and therefore askable, or -1 when
+        /// the room has no grid at all; <paramref name="blocked"/> is how many of those this
+        /// renderer intercepts. Two numbers because 0-of-0 and 0-of-16 are opposite findings and
+        /// the ModBuild 261 signature could not tell them apart.</para>
         /// </summary>
-        private int PieceBlockedSamples(Renderer r, int room)
+        private int PieceBlockedSamples(Renderer r, int room, out int blocked)
         {
+            blocked = 0;
             if (room < 0 || room >= _roomSampleCount.Count)
-                return 0;
+                return -1;
             int total = _roomSampleCount[room];
             if (total <= 0)
-                return 0;
+                return -1;
             Bounds b = r.bounds;
             float thicknessEps = Mathf.Clamp(0.5f * Mathf.Min(b.size.x, b.size.z),
                                              BlockEpsMinWorld, BlockEpsMaxWorld);
@@ -884,7 +1000,7 @@ internal static partial class WallSegmentFade
             int end = Mathf.Min(start + total,
                                 Mathf.Min(_allSamples.Count, _sampleVisible.Length));
             Vector3 headPos = _lastHeadPos;
-            int blocked = 0;
+            int visible = 0;
             for (int i = start; i < end; i++)
             {
                 if (!_sampleVisible[i])
@@ -894,12 +1010,13 @@ internal static partial class WallSegmentFade
                 float dist = to.magnitude;
                 if (dist < 0.001f)
                     continue;
+                visible++;
                 float eps = Mathf.Max(thicknessEps, BlockEpsDistFraction * dist);
                 var ray = new Ray(headPos, to / dist);
                 if (b.IntersectRay(ray, out float d) && (d < dist - eps || b.Contains(sample)))
                     blocked++;
             }
-            return blocked;
+            return visible;
         }
 
         /// <summary>
@@ -934,11 +1051,15 @@ internal static partial class WallSegmentFade
                 _runClassSb.Append(kv.Value).Append(" × ").Append(kv.Key);
             }
             VRLog.Warn(Name,
-                $"SPLIT-RUN LEFTOVER: {_runLeftover} piece(s) of a FADED run are actually drawing "
-                + "— read off each piece's own renderer (its Anchor), never off our ledger, "
-                + "which is the ModBuild 260 blind spot this line exists to close: that log "
-                + "printed 'SPLIT-RUN PIECES: 0' on all 122 sweeps while its own RUN FADE line "
-                + "said 99 of 140 pieces never move. "
+                $"SPLIT-RUN LEFTOVER: {_runLeftover} RENDERER(S) across {_runLeftoverSegments} "
+                + "piece(s) of a FADED run are actually drawing — read off every renderer the "
+                + "piece owns (anchor + Renderers + Foliage + Siblings + Mounted + Stacked + "
+                + "Body + UnitDressing, deduplicated), never off one list, which is the ModBuild "
+                + "261 blind spot this line closes: that build read two of the eight sources and "
+                + "STOPPED AT THE FIRST HIT, so one verdict stood for a whole piece and the "
+                + "MOUNTED ledger — where the steady 260 leftover population lives — was never "
+                + "asked. The renderer count is the new number; the piece count is what ModBuild "
+                + "261 printed here. "
                 // THE CLASSIFICATION IS THE HEADLINE, NOT THE COUNT (user ruling 2026-08-24, and
                 // it retires "0 leftovers" as a target): FLOATING and OBSTRUCTING are the defect,
                 // ALLOWED is not. A big ALLOWED number here is a HEALTHY reading.
@@ -954,8 +1075,11 @@ internal static partial class WallSegmentFade
                 + "]. COMPLETE per-reason distribution over ALL three classes (which RULE holds "
                 + "each piece, as opposed to whether he minds), nothing truncated "
                 + $"({_runLeftoverByReason.Count} distinct reason(s)): {_runReasonSb}. Named "
-                + $"defects (up to {PerWallNameCap}): " + string.Join("; ", _runLeftoverNames)
-                + ".");
+                + $"defects (up to {MountedLeftoverCap}): "
+                + string.Join("; ", _runLeftoverNames)
+                + ". A renderer tagged [EXEMPT] carries a standing user ruling of its own (the "
+                + "fountain 2026-08-09, the doorway arch 2026-08-02) and is allowed to stay "
+                + "whatever its geometry says.");
         }
 
         private readonly System.Text.StringBuilder _runReasonSb = new();

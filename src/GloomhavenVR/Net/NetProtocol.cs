@@ -416,7 +416,128 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 261;
+    public const ushort ModBuild = 262;
+    // Build 262: THE GRID SHRINKS ON ROOM COUNT, AND THE AIRBORNE BAR SITS IN THE MODE.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. THIS IS THE BUILD TO TEST.
+    // MEASUREMENT-ONLY over 261: no threshold moved, no new constant, no write path touched.
+    //
+    // USER CONSTRAINT, and he is right to have raised it: "Das Level was ich jetzt gerade die
+    // ganze Zeit teste ist nur eines von vielen — natürlich erwarte ich dass der Code generisch
+    // auf alle Szenarios und Räume im gesamten Spiel funktioniert." Every wall-fade rule shipped
+    // in 251–261 was derived from ONE forest ProcGen scenario, and several constants were picked
+    // from a single log's numbers. Two audits now say where that shows.
+    //
+    // (1) THE SAMPLE GRID IS NOT 16 CELLS — IT SHRINKS ON REVEALED ROOM COUNT, NOT ROOM SIZE.
+    // I told him the denominator only falls in a small room. False: `grid` steps 4→3→2→1 against
+    // the 96-sample budget at 6 / 10 / 24 rooms, so a seven-room scenario silently gives EVERY
+    // room a different quantum and moves BOTH Schmitt bars in cell terms, with no number changed
+    // anywhere. LogSampleGridCensus now counts three states that were previously invisible:
+    // rooms with NO grid at all (their walls are held solid forever), rooms where the two bars
+    // COLLAPSE onto the same cell count (no hysteresis left in samples — every n ≤ 2 at the
+    // shipped 0.35/0.20), and rooms where they are ONE cell apart (every n ≤ 11, against the two
+    // cells the tested room has). All three read 0 in the forest scenario, which is a sample of
+    // one and proves nothing. NO MINIMUM SEPARATION IS ENFORCED — that is a fade-behaviour change
+    // and belongs to its own round with a non-forest log in hand.
+    // Correction to my own arithmetic while briefing this: ceil(0.20 × 11) = 3, not the 2 I said.
+    //
+    // (2) THE FLOATING CLASS IS REAL, AND THE AIRBORNE BAR CUTS THE DENSEST PART OF THE DATA.
+    // `Mounted.cs` sets `belowBar = anchorY < airborneBar` and the adoption loop reads
+    // `if (belowBar || …) continue;` — so a prop UNDER the bar is never adopted by any segment,
+    // and when its wall dissolves it stays. That is exactly his "es dürfen keine Elemente
+    // herumfliegen weil die Wand die es gehalten hat nicht mehr da ist". The over-fit is WHERE the
+    // bar sits: 8 of 24 distinct anchor values lie within ±15 % of it, `anchor 0.93` alone fires
+    // 416 times, and the lowest ADOPTED anchor is 1.1. The bar sits in the mode of the
+    // distribution it is meant to separate.
+    // MEASURED, NOT MOVED. Moving it is precisely the fourth threshold this subsystem would ship
+    // from a single scenario's numbers, and the previous four were each falsified by the next
+    // hardware log. The leftover classifier now prints foot and top per renderer, so the next log
+    // shows the anchor distribution against the bar and the bar can be placed from evidence.
+    // The terraced-room hazard I suspected is CLOSED: the adoption loop re-tests against
+    // `_roomFloorY[seg.RoomIndex] + MountedClearanceWU`, i.e. this room's plane, not the lowest.
+    //
+    // (3) THE LEFTOVER CLASSIFIER NOW COVERS EVERY LIST A SEGMENT OWNS. 261's version iterated
+    // split-run segments and read `Renderers` and `Foliage` only, and classified ONE renderer per
+    // segment — the first drawing entry broke both loops. It now enumerates all eight sources
+    // (Anchor, Renderers, Foliage, Siblings, Mounted, Stacked, Body, UnitDressing), deduplicated,
+    // and issues a verdict for EVERY drawing renderer. The mounted-reject path classifies the
+    // steady leftover population against the faded segment's OWN room. LogWallPathAudit classifies
+    // its UNCLAIMED bucket, which is the one population neither sweep can reach by definition.
+    // WHAT CAN STILL AVOID A VERDICT, stated rather than papered over: a renderer in no segment
+    // list, in no cache-wall subtree, and either below the mounted floor gate or beyond
+    // MountedNearMissXZ from any bounded segment. Neither can be a leftover beside a faded wall by
+    // construction, but the third term was not verified exhaustively.
+    //
+    // (4) IT DEGRADES OUT LOUD. No anchored floor plane (asked via RoomDecisionValid, not by
+    // indexing _roomFloorY blind), no sample grid for the room, or no sample of it in view this
+    // tick each return a distinct UNJUDGED naming the MISSING INPUT. PieceBlockedSamples now
+    // returns visible samples with blocked as an out-param, because 0-of-0 and 0-of-16 are
+    // opposite findings that 261's signature could not tell apart. A wrong ALLOWED is worse than
+    // an honest refusal, and 261 could produce one.
+    //
+    // (5) THE WALL-PATH AUDIT MEASURES AGAIN, AND TWO USER RULINGS STOP READING AS DEFECTS.
+    // It fired 3 times in the 260 session, all in the first quarter, then never re-armed. It is
+    // now SLICED: at most ClassifyBudgetMillis (1.5 ms — the number this file already committed
+    // to, no new constant) per frame, resumed next frame, stepping only while the rescan is idle
+    // so the two budgets cannot land on one frame; cadence InsideLogIntervalSeconds (2 s,
+    // existing); its own WallFade.PathAudit PerfMonitor scope so the log STATES its cost instead
+    // of me guessing it, and if that scope's worst exceeds 1.5 ms the slicing is falsified. The
+    // array-per-wall GetComponentsInChildren became the List overload — 171 allocations per 2 s
+    // to zero. Removing it from the heartbeat is also a win: WallFade.Census measured 25.3 ms avg
+    // and 34.3 ms worst in the 260 log.
+    // WATER and DOORWAY-ARCH buckets added, asked after the ground band and BEFORE gated-off and
+    // UNCLAIMED, so a standing user ruling can never again be reported as an ALARM. This was a
+    // false positive by construction, documented in WallSegmentFade.Water.cs's own header.
+    //
+    // (6) SIX CORRECTIONS TO MY OWN BRIEFS, all from the lanes:
+    //   * "the leftover line carries no foot measurement" — FALSE. It prints `anchor {y:F1}`, which
+    //     IS the foot over the floor in that scenario, which is why the 71 were re-derivable at
+    //     all. What it lacked was the obstruction measurement and 2-decimal precision.
+    //   * "~16 of the 71 are vines, the strongest floating candidate" — 14 per named line, and
+    //     EIGHT of the 14 sit below the bar and do not float. Half the vine population reaches the
+    //     floor. The genuine floating group is the architecture-scale bucket: 19 per line at foot
+    //     1.0–2.8, of which 16 are unambiguously airborne.
+    //   * "simultaneously UNCLAIMED and water-protected, 22 times" — the water line fires 22 times
+    //     but the audit fired 3; the co-occurrence is 2. The conclusion stands, the count did not.
+    //   * "ClassifyLeftover iterates _segments.Values" — it takes a single renderer; SweepRunLeftovers
+    //     does the iterating. The defect was real, the caller was wrong.
+    //   * The 261 `SPLIT-RUN PIECES: 0` was not one blind spot but TWO: with seg.Mounted unread, a
+    //     segment whose only drawing renderer was a mounted prop reported zero AND had no anchor
+    //     fallback, because the anchor was consulted only when both lists were empty and Mounted
+    //     does not make them non-empty.
+    //   * "no non-forest evidence anywhere" was too strong: the 260 session contains 893 PCG_FR,
+    //     21 PCG_CR and 2 PCG_CV instantiations. Crypt and cavern architecture IS present at 2.3 %
+    //     and 0.2 % — enough to FALSIFY a constant, nowhere near enough to VALIDATE one.
+    //
+    // (7) TWO CONSTANTS THAT CANNOT REPORT THEMSELVES, ROUTED NOT FIXED.
+    //   * MountedLinkMaxXZ / StackLinkMaxXZ = 0.90 wu are INERT: HorizontalGap clamps to 0 on XZ
+    //     overlap and a segment AABB is a whole run's union box, so every gap in both logs is
+    //     0.00 — 3,132 occurrences. The census prints `XZ gap ≤0.90 wu` next to `gap 0.00` and can
+    //     never show the threshold being approached.
+    //   * EngulfSampleFraction is SILENT — zero log hits in either session and it appears in no
+    //     interpolated string. Since NeutralizeEngulfingSegments is what CREATES split runs, a
+    //     tileset whose walls do not ring their rooms makes LogSplitRuns return early and the
+    //     SPLIT RUN line print NOTHING — indistinguishable from "the dial is off". That is this
+    //     project's "gated remedy never ran" shape exactly.
+    //   * WallStandingProp's unit-height cap 2.5 sits 0.1 wu from a real wall family: the measured
+    //     unit heights in the 260 log are 0.5, 2.6, 3.0, 3.4, 3.7, 3.9, 4.1, 4.6, 5.8, 7.2 —
+    //     NOTHING between 0.5 and 2.6 — and PCG_FR_Wall_Log_Structure_03_PR at 2.6 wu is
+    //     instantiated 384 times. A 4 % authoring difference in another tileset flips a whole wall
+    //     family to StandsOnFloor and, through UnitFadesAsOne, protects it on every path — which
+    //     is the ModBuild 257 regression its own tombstone records.
+    //
+    // (8) THE WORLD SCALE IS EXONERATED. UnityGameEditorRuntime.s_TileSize is loaded once from a
+    // single Resources.Load<GameObject>("Hex") BoxCollider — one game-global 1.72 wu — and
+    // WorldGrab scales the RIG, never the board. So absolute-wu constants are not broken by scale
+    // drift; they generalise iff asset proportions against a fixed 1.72 wu hex match, which is
+    // assumed everywhere and established nowhere. Note 1.72 is hardcoded in six doc comments while
+    // s_TileSize is read in ZERO places in this subsystem.
+    // Also fixed: AdoptShaderMatchedWalls, the third split-run creation site, now records a refusal
+    // reason on its else branch, so it no longer produces the phantom "a different defect from the
+    // 260 population" attribution that would have sent the next round chasing a class that is not
+    // there. And a stale pointer in WallStandingProp's header sent readers to the FADE WRITE
+    // census for a unit-height-next-to-verdict pairing that lives in STANDING PROP.
+    //
     // Build 261: THE HALF-DRESSED TREE, AND THE CLASSES HE ACTUALLY ASKED FOR.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
