@@ -228,6 +228,151 @@ internal static partial class PanelSupersample
     /// an angled window would blur to a smear that trilinear alone cannot avoid.</summary>
     private const int AnisoLevel = 8;
 
+    // ---- ModBuild 243: THE EYE GRID LOCK ------------------------------------------------------
+
+    /// <summary>
+    /// <b>THE USER'S REPORT, ModBuild 242, verbatim:</b> <i>"Die 'Fenster scharfzeichnen' Option
+    /// hilft sehr bei dem Aliasing das sonst auf dem Fenster sichtbar ist. Allerdings sieht das
+    /// Fenster dann niedrig aufgelöst aus, von weiter weg ist der Text dann nur noch Matsch."</i>
+    ///
+    /// <para><b>THE TWO HALVES ARE ONE CAUSE, AND IT IS NOT THE FACTOR.</b> This path is a
+    /// RESAMPLING CHAIN with three grids in it, and until this build only two of them were ever
+    /// consulted. Grid 1: the window's AUTHORED uGUI pixels (host rect, e.g. 1920x1080). Grid 2: the
+    /// capture render target, sized <c>frame.size * rate</c> where <c>rate</c> came from
+    /// <see cref="BandLimitFactor"/> and nothing else — 2.00 texels per AUTHORED pixel, a constant.
+    /// Grid 3: the RENDERED EYE PIXELS the display quad actually covers, which is a function of how
+    /// far the window is from the head and is consulted by NOBODY on the sizing path. The eye
+    /// samples grid 2 through grid 3 with a trilinear mip filter, and where that filter lands is
+    /// decided ENTIRELY by the ratio of the two — <c>LOD = log2(RT texels per rendered eye px)</c>.
+    /// The factor sets grid 2 against grid 1. It has never had an opinion about grid 3.</para>
+    ///
+    /// <para><b>WHAT THE ModBuild 242 HARDWARE LOG MEASURES, and it is the whole diagnosis.</b>
+    /// <c>'UI Loadout Window'</c>: host rect 1920x1080, capture frame 1984x1144, RT 3968x2288 at
+    /// factor 2.00, MSAA 1x, mips 12, Trilinear aniso 8, 115.4 MB — <b>drawn into 1255x649 rendered
+    /// px</b> through the left eye of a 3072x3264 per-eye target. That is <b>3.33 RT texels per
+    /// rendered pixel</b>, so trilinear selects <b>LOD 1.74</b>, and a fractional LOD is a BLEND OF
+    /// TWO LEVELS: <b>74 % of every texture sample comes from mip level 2, which carries 0.79 texels
+    /// per rendered pixel</b> — below one — and 26 % from level 1, which carries 1.58 and is
+    /// therefore the undersampled, crawling one the toggle exists to remove. The picture the eye is
+    /// handed is three quarters an under-resolved raster magnified back up 27 %. <b>That is the
+    /// "Matsch", and it is arithmetic, not taste.</b> The same reading on
+    /// <c>'Quest Log Manager'</c> at its peak: 6.70 texels per rendered px, LOD 2.74, 74 % of every
+    /// sample from level 3 at 0.84 texels per rendered pixel.</para>
+    ///
+    /// <para><b>WHY IT GOT WORSE IN 242 RATHER THAN BEING A NEW BUG.</b> Read
+    /// <see cref="BandLimitFactor"/>'s own argument: <i>"Factor 2.0 makes mip level 1 — THE LEVEL THE
+    /// EYE LANDS ON AT ~1 AUTHORED PX PER RENDERED PX — a proper 2x2 box downsample of a 2x
+    /// rasterization."</i> That is exactly right, and it is a statement about grid 3 that the code
+    /// never checked. ModBuild 242 moved <c>WindowDistanceMeters</c> 1.20 -> 1.40; the 242 log's
+    /// windows sit at 1.04 .. 3.35 authored px per rendered px, peak per window 1.04, 1.26, 1.67,
+    /// 1.74, 1.84, 2.08, 2.82, 3.23, 3.35. The design's stated operating point walked out from under
+    /// it and the constant stayed where it was.</para>
+    ///
+    /// <para><b>THE FIX, IN ONE SENTENCE: size the capture so that the number of RT texels per
+    /// RENDERED EYE PIXEL is a POWER OF TWO.</b> Then <c>log2</c> of it is an INTEGER, trilinear
+    /// selects ONE level with no blend, and that level carries EXACTLY 1.00 texels per rendered
+    /// pixel — nothing below the screen grid to be magnified back up, nothing above it to alias. On
+    /// the Loadout window that is <c>rate = 1.3125</c> instead of 2.00 (the exact target is
+    /// <c>2^1.125 / 1.68 = 1.297</c>; see the margin paragraph below), i.e. an RT of <b>2604x1502
+    /// instead of 3968x2288</b> — <b>43 % of the texels, 115.4 MB -> 49.7 MB</b> — and the eye then
+    /// reads 88 % of its samples from ONE level carrying 1.09 texels per rendered pixel instead of
+    /// 74 % from a level carrying 0.79. <b>The good version is the CHEAP version</b>, and the
+    /// capture camera, the resolve blit and the mip chain all shrink by the same 2.3x. Every level
+    /// this removes is a level the hardware was never going to read. That is the answer to "if your
+    /// answer is bigger RTs, what pays": nothing pays, because the answer is SMALLER RTs. The four
+    /// windows the 242 log holds open at once cost 326.9 MB of the 448 MB session cap; the same four
+    /// come to roughly 145 MB, so the fifth and sixth window the map room can open now fit where the
+    /// fifth was already within 6 MB of the ceiling.</para>
+    ///
+    /// <para><b>WHY NOT A MIP LOD BIAS — the dial that already exists.</b>
+    /// <c>[WorldUI] PanelMipLodOffset</c> is a CONSTANT offset, so it moves the sampled level to
+    /// <c>2^-b</c> texels per rendered pixel whatever the minification is; it cannot snap a
+    /// fractional LOD onto an integer, because it does not know where the fraction is. Any negative
+    /// value buys sharpness by putting an UNDERSAMPLED level back into the blend — which is the
+    /// aliasing he says the toggle currently saves him from, and it is why ModBuild 204 took the
+    /// shipped value back to 0.00. The RT's SIZE is the only lever that can put the sampled level
+    /// exactly on the eye's grid. That dial stays at 0.00 and is untouched by this build.</para>
+    ///
+    /// <para><b>WHY NOT A SHARPEN PASS.</b> An unsharp or CAS kernel after the resample would add a
+    /// full-screen-quad pass per window per eye at 3072x3264 (paid twice, MultiPass) to raise the
+    /// contrast of a signal that is genuinely absent from 74 % of the samples — it would amplify the
+    /// 26 % aliased term hardest, which is the crawl he is currently free of. It is worth revisiting
+    /// only once the sampled level is at 1.00 and the residual softness is the box filter's own MTF
+    /// rather than a missing octave. Not this build.</para>
+    ///
+    /// <para><b>WHAT THIS CANNOT DO.</b> It does not add rendered eye pixels. At 1.66 authored px
+    /// per rendered px the window is still showing 60 % of its authored resolution and an
+    /// 8-authored-px stroke still arrives as 4.8 eye px — <see cref="MaxRtDimension"/> and the
+    /// window's angular size own that, and this class owns neither. What it recovers is the CONTRAST
+    /// at the resolution the eye does have. And on a window yawed hard away from the head,
+    /// <see cref="AnisoLevel"/> lowers the selected LOD toward the minor axis per pixel, so no fixed
+    /// RT size can pin it — the lock buys less there, and the report line says so rather than
+    /// implying otherwise.</para>
+    ///
+    /// <para><b>THE ONE CLIFF IN IT, NAMED RATHER THAN DISCOVERED LATER.</b> <c>k</c> is bounded
+    /// below by <see cref="MinStepDownFactor"/>: the capture may never be COARSER than the source
+    /// art, because the game's own uGUI atlases are MIPLESS and minifying them into the capture
+    /// bakes in an aliasing no filter downstream can remove. So as the minification rises past the
+    /// point where <c>2^k / apr</c> would fall under 1.0, <c>k</c> steps and the target jumps back
+    /// up by up to 3.4x in area. The jump is bounded ABOVE by the un-locked ModBuild 242 rate — the
+    /// worst case of this build is exactly the cost of the last one — it is rate-limited by
+    /// <see cref="EyeGridMinReallocFrames"/>, and it is printed.</para>
+    ///
+    /// <para><b>AND IT IS EQUAL TO THE DEAD BAND BY CONSTRUCTION.</b> The value below is used twice:
+    /// as the margin the rate aims above <c>2^k</c>, and as the slack allowed before the lock is
+    /// re-taken. They MUST be the same number — a target sized for exactly <c>2^k</c> would spend
+    /// half of the permitted wander below it, and below <c>2^1</c> is unfiltered mip level 0 on a
+    /// minified window, i.e. the ModBuild 198 defect handed back. Writing it as one constant is what
+    /// stops the two drifting apart in a later build.</para>
+    /// </summary>
+    private const float EyeGridLockTolerance = EyeGridDeadBandOctaves;
+
+    /// <summary>
+    /// The rate is snapped to this grid (i.e. to multiples of <c>1/32</c>) and NOT left as the exact
+    /// real the eye-grid arithmetic produces. <b>This is not tidiness; it is the ModBuild 201
+    /// invariant.</b> <see cref="FrameQuantumPx"/>'s header states it: the capture frame's overspill
+    /// is quantised to a 32-authored-px grid so that a frame edge moving between two content
+    /// measurements moves by a whole number of grid cells — and that is a whole number of TEXELS
+    /// only if <c>rate * FrameQuantumPx</c> is an integer. At a free real rate every frame
+    /// measurement would re-roll the sub-texel phase of every glyph in the window, which is exactly
+    /// the "es ist ziemlich zufällig" defect ModBuild 201 closed. <c>1/32</c> is the coarsest grid
+    /// that keeps the product integral, and it costs at most 1/64 of a mip level of snap error
+    /// (measured: 0.017 levels on the Loadout window, i.e. 1.7 % of the sample weight on the
+    /// neighbouring level instead of 74 %).
+    /// </summary>
+    private const float EyeGridRateQuantum = 1f / FrameQuantumPx;
+
+    /// <summary>
+    /// How far the measured minification must move, in OCTAVES, before the lock is re-taken. An
+    /// eighth of an octave is a 9 % change in the window's angular size — at the shipped 1.40 m
+    /// window distance that is a 12 cm lean, which a seated player crosses and re-crosses all
+    /// session. Below it nothing is re-allocated at all.
+    /// <para>It is expressed in octaves and not in a rate fraction on purpose: the quantity that
+    /// decides the picture is <c>log2</c> of the sampling ratio, so a dead band that is uniform in
+    /// log space is uniform in what the player sees, at 1.0x and at 3.35x alike.</para>
+    /// </summary>
+    private const float EyeGridDeadBandOctaves = 0.125f;
+
+    /// <summary>Consecutive measurements outside <see cref="EyeGridDeadBandOctaves"/> required
+    /// before the lock moves. Four, at <see cref="EyeGridSampleIntervalFrames"/>, is ~0.67 s: a lean
+    /// in and back out costs nothing, a new posture costs one re-allocation. The measured price of
+    /// one re-allocation in the 242 log is 0.85–1.02 ms (create + destroy + synchronous prime), so
+    /// this number is what stands between a correct rate and a per-frame flap.</summary>
+    private const int EyeGridConfirmMeasurements = 4;
+
+    /// <summary>Frames between eye-grid measurements. Fifteen, matching
+    /// <see cref="SweepIntervalFrames"/>: the measurement is four <c>WorldToViewportPoint</c> calls
+    /// and two square roots per window, so the cadence is chosen for the CONFIRM WINDOW above rather
+    /// than for its own cost.</summary>
+    private const int EyeGridSampleIntervalFrames = 15;
+
+    /// <summary>Minimum frames between two eye-grid re-allocations on ONE window — one second at
+    /// 90 Hz. The confirm run already rejects a flap; this is the floor that holds even if the
+    /// player's head oscillates exactly on the confirm period, which is the failure mode a run
+    /// counter alone cannot see. Deferrals are COUNTED and printed: a limiter that silently ate the
+    /// work would read exactly like a lock that never needed to move.</summary>
+    private const int EyeGridMinReallocFrames = 90;
+
     /// <summary>
     /// Frames between captures. ONE, and the reason is CORRECTNESS, not smoothness — this is the
     /// finding of the on-demand evaluation the design asked for.
@@ -2172,6 +2317,10 @@ internal static partial class PanelSupersample
                     // carry its own HOW TO READ IT paragraph, and the state line is already at the
                     // limit of what a reader can hold.
                     ReportCaptureFrame(e);
+                    // ModBuild 243's falsifier. A separate line for the same reason as the two
+                    // above: it carries its own verdict and its own ASKED -> GOT table, and the
+                    // state line is already at the limit of what a reader can hold.
+                    ReportEyeGrid(e);
                 }
             }
         }

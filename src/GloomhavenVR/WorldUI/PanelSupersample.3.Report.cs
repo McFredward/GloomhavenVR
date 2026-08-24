@@ -1286,11 +1286,162 @@ internal static partial class PanelSupersample
                + "at which the eye is given every pixel the window drew). AT THIS RATE THE SMALLEST "
                + $"LEGIBLE AUTHORED TEXT IS ~{smallestLegible:F0} px tall, because an 8-authored-px "
                + "stroke — about the floor for this game's UI font — arrives as "
-               + $"{8f / authoredPerPixel:F1} eye px. THIS IS NOT A FILTERING FAULT AND NO CAPTURE "
-               + "FACTOR CAN REACH IT: the factor buys RT texels per AUTHORED pixel, and a minified "
-               + "window's sampler already selects a mip level at or below authored resolution, so "
-               + "every level above it is one the hardware never reads. The levers are the window's "
-               + "size in the eye and a negative mipMapBias (printed above, currently 0.00);";
+               + $"{8f / authoredPerPixel:F1} eye px. NO CAPTURE FACTOR CAN REACH THAT NUMBER: the "
+               + "factor buys RT texels per AUTHORED pixel, and a minified window's sampler already "
+               + "selects a mip level at or below authored resolution, so every level above it is "
+               + "one the hardware never reads. The lever for the PIXEL COUNT is the window's size "
+               + "in the eye, which this file does not own. ModBuild 243 CORRECTS THE OTHER HALF OF "
+               + "THIS SENTENCE, which was too strong: up to that build this line ended \"THIS IS "
+               + "NOT A FILTERING FAULT\", and part of it is. A fractional LOD is a BLEND of two mip "
+               + "levels, and the one holding most of the weight carries fewer than 1.00 texels per "
+               + "rendered pixel whenever the fraction is above a half — 74 % at 0.79 on this very "
+               + "window in the ModBuild 242 log. That is contrast lost at a resolution the eye DOES "
+               + "have, and sizing the target so the LOD lands on an integer returns it. See the "
+               + "PANEL SUPERSAMPLE EYE GRID line, which measures exactly that and is allowed to "
+               + "fail;";
+    }
+
+    /// <summary>
+    /// <b>THE ModBuild 243 FALSIFIER, and it is built to FAIL.</b> It prints, per window per 10 s:
+    /// the texels per RENDERED eye pixel; the trilinear LOD that follows from it; <b>the two mip
+    /// levels the hardware actually blends, their weights, and what each of them carries in texels
+    /// per rendered pixel</b>; and a verdict that reads BAD whenever the level holding half or more
+    /// of the sample weight carries less than 1.00. That last clause is the user's word "Matsch"
+    /// expressed as a number, and on the ModBuild 242 log it fires on every minified window in the
+    /// session — <c>'UI Loadout Window'</c> at 74 % on a level carrying 0.79.
+    ///
+    /// <para><b>AND IT PRINTS REQUESTED AGAINST GRANTED FOR BOTH TARGETS, READ OFF THE OBJECTS.</b>
+    /// <c>RenderTexture.Create()</c> returns TRUE and silently drops <c>useMipMap</c> on a
+    /// MULTISAMPLED target — this project shipped the supersample fix at half strength on exactly
+    /// that once (ModBuild 192, "mips 1 NONE" on every state line). The split target pair
+    /// (<see cref="CreateRt"/> multisampled and mipless, <see cref="CreateMipRt"/> single-sample and
+    /// mipped) is the standing fix, and this line is what keeps it honest: every one of mips, MSAA,
+    /// filter mode, aniso level and mip bias is quoted as ASKED -&gt; GOT, and a mismatch is named
+    /// rather than left to be inferred from a mip count buried in another sentence.</para>
+    ///
+    /// <para><b>AND IT PRINTS WHAT THE LOCK REFUSED.</b> Five counters, because a lock that never
+    /// moves because the window is always in motion, a lock that never moves because the head camera
+    /// cannot be read, and a lock that never moves because it is already correct are three completely
+    /// different findings that a single "0 re-allocations" would render identical.</para>
+    /// </summary>
+    private static void ReportEyeGrid(Entry e)
+    {
+        TargetLife life = LifeOf(e);
+        RenderTexture? shown = DisplayTexture(e);
+        RenderTexture? capture = e.Rt;
+        float apr = life.LastApr;
+        float texels = apr > 0f ? apr * Mathf.Max(e.AchievedFactor, 0.01f) : 0f;
+        float bias = shown != null ? shown.mipMapBias : 0f;
+        float lod = Mathf.Log(Mathf.Max(texels, 1e-4f), 2f) + bias;
+        int lower = Mathf.FloorToInt(Mathf.Max(lod, 0f));
+        int upper = lower + 1;
+        float upperWeight = lod <= 0f ? 0f : lod - lower;
+        float lowerWeight = 1f - upperWeight;
+        float lowerTexels = texels / Mathf.Pow(2f, lower);
+        float upperTexels = texels / Mathf.Pow(2f, upper);
+        // THE VERDICT. The level carrying the MAJORITY of the sample weight is the one the picture
+        // looks like; below 1.00 texels per rendered pixel that level physically cannot hold a
+        // one-pixel stroke and is then magnified back up to fill the pixel it was too small for.
+        bool dominantIsUpper = upperWeight >= 0.5f;
+        float dominantTexels = dominantIsUpper ? upperTexels : lowerTexels;
+        float dominantWeight = dominantIsUpper ? upperWeight : lowerWeight;
+        int dominantLevel = dominantIsUpper ? upper : lower;
+        // AND IT IS CONDITIONED ON MINIFICATION, exactly like the RESAMPLE VERDICT above it. On a
+        // MAGNIFIED window the eye is given MORE pixels than the window authored, so a level at
+        // (say) 0.85 texels per rendered pixel is still carrying every authored pixel the source
+        // ever had — 0.85 / 0.85 = 1.00 texels per AUTHORED pixel — and there is no detail missing
+        // to complain about. A model that reads the same threshold on both regimes is this
+        // project's "an instrument that measures one term": it would flag the Quest Popup, which
+        // sits at 0.52-1.04 authored px per rendered px all session and is not what the user is
+        // describing. The threshold is per RENDERED pixel where the window is minified and per
+        // AUTHORED pixel where it is not.
+        float dominantPerAuthored = dominantTexels / Mathf.Max(apr, 1e-4f);
+        bool magnified = apr > 0f && apr <= 1f;
+        bool good = magnified ? dominantPerAuthored >= 0.995f : dominantTexels >= 0.995f;
+
+        VRLog.Info(Scope,
+            $"PANEL SUPERSAMPLE EYE GRID '{e.Window}': "
+            + (apr <= 0f
+                ? "NOT MEASURED — the window's size in the eye has never been read on this window "
+                  + $"({life.GridNoMeasure} failed attempt(s): no head camera, no readable per-eye "
+                  + "target, or the window was behind the eye). THE CONSEQUENCE, stated plainly: this "
+                  + "window is sized exactly as ModBuild 242 sized it and NOTHING in this build is in "
+                  + "force on it. Everything below is unavailable, not zero."
+                : $"MINIFICATION {apr:F2}x authored px per rendered eye px (locked at "
+                  + $"{life.LockedApr:F2}, an eighth-octave snap; the lock has moved {life.GridLocks} "
+                  + $"time(s)) -> the target is sized at rate {e.EffectiveFactor:F3} texels per "
+                  + $"authored px, ACHIEVED {e.AchievedFactor:F3}, against the un-locked ModBuild 242 "
+                  + $"rate of {life.GridRateUnlocked:F3}. THAT IS {texels:F2} RT TEXELS PER RENDERED "
+                  + $"EYE PIXEL and therefore trilinear LOD {lod:F3} at mipMapBias {bias:F2}. WHAT "
+                  + $"THE HARDWARE BLENDS: level {lower} at {lowerWeight * 100f:F0} % weight carrying "
+                  + $"{lowerTexels:F2} texels per rendered px, and level {upper} at "
+                  + $"{upperWeight * 100f:F0} % carrying {upperTexels:F2}. VERDICT — "
+                  + (good
+                      ? $"GOOD: the dominant level ({dominantLevel}, {dominantWeight * 100f:F0} % of "
+                        + $"the sample) carries {dominantTexels:F2} texels per rendered pixel and "
+                        + $"{dominantPerAuthored:F2} per AUTHORED pixel, at or above the 1.00 "
+                        + (magnified ? "a magnified window's source can supply" : "the eye's grid "
+                           + "needs")
+                        + ", so no part of the picture is an under-resolved raster magnified back up"
+                      : $"MUSH — THIS IS THE ModBuild 242 REPORT LIVE: the dominant level "
+                        + $"({dominantLevel}) holds {dominantWeight * 100f:F0} % of every texture "
+                        + $"sample and carries only {dominantTexels:F2} texels per rendered pixel. It "
+                        + "cannot hold a one-pixel stroke, and it is then magnified "
+                        + $"{1f / Mathf.Max(dominantTexels, 1e-4f):F2}x to fill the pixels it was too "
+                        + "small for. This is 'von weiter weg ist der Text dann nur noch Matsch', "
+                        + "quantified. A rate that lands the LOD on an INTEGER removes it; a sharpen "
+                        + "or a negative mip bias would only raise the contrast of the OTHER term, "
+                        + "which is the aliased one")
+                  + $". MEMORY: {Mb(life.GridVramLocked)} MB at the locked rate against "
+                  + $"{Mb(life.GridVramUnlocked)} MB un-locked, i.e. "
+                  + (life.GridVramUnlocked > 0
+                      ? $"{100f * life.GridVramLocked / life.GridVramUnlocked:F0} %"
+                      : "n/a")
+                  + $" of ModBuild 242's footprint on this window; session total {Mb(_vramTotal)} of "
+                  + $"{Mb(MaxTotalVramBytes)} MB. THE LOCK'S OWN BOOKKEEPING: {life.GridLocks} "
+                  + $"lock(s) taken, {life.GridInDeadBand} measurement(s) inside the "
+                  + $"{EyeGridDeadBandOctaves:F3}-octave dead band, {life.GridDeferredMoving} "
+                  + $"deferred because the window was MOVING, {life.GridDeferredCooldown} deferred by "
+                  + $"the {EyeGridMinReallocFrames}-frame cooldown, {life.GridNoMeasure} unmeasurable. "
+                  + "READ THOSE FIVE BEFORE ANYTHING ELSE: a session in which the lock never moved "
+                  + "because it was always right and one in which it never moved because it never "
+                  + "measured are the same '0' otherwise")
+            + " TARGETS, ASKED -> GOT, read off the live objects and never from the request (a "
+            + "MULTISAMPLED RenderTexture drops useMipMap and Create() still returns true — this mod "
+            + "shipped that once): CAPTURE "
+            + (capture != null
+                ? $"{capture.width}x{capture.height}, MSAA {PreferredMsaa}x -> {capture.antiAliasing}x"
+                  + $", mips off -> {capture.mipmapCount} level(s), {capture.format}"
+                  + (capture.antiAliasing > 1 && capture.mipmapCount > 1
+                      ? " — A MULTISAMPLED TARGET REPORTING A MIP CHAIN, which contradicts the split "
+                        + "this pair exists to implement"
+                      : string.Empty)
+                : "NONE (the capture target is null — this window is not being captured at all)")
+            + "; DISPLAY "
+            + (shown != null
+                ? $"{shown.width}x{shown.height}, MSAA 1x -> {shown.antiAliasing}x, mips ON -> "
+                  + $"{shown.mipmapCount} level(s) (recorded {e.MipCount}), filter Trilinear -> "
+                  + $"{shown.filterMode}, aniso {AnisoLevel} -> {shown.anisoLevel}, bias "
+                  + $"{AskedMipLodOffset():F2} -> {shown.mipMapBias:F2}"
+                  + (shown.mipmapCount <= 1
+                      ? " — NO MIP CHAIN WAS GRANTED, so every conclusion on this line about which "
+                        + "level is blended is void and the quad is sampling an unfiltered texture"
+                      : shown.anisoLevel < AnisoLevel
+                          ? " — THE ANISO LEVEL WAS CUT, which the driver may do from a quality "
+                            + "setting; a yawed window will read a lower level than this line states"
+                          : string.Empty)
+                : "NONE (the quad is showing the capture target directly)")
+            + ". WHAT THIS BUILD CANNOT DO, so that a next round does not re-derive it: it does not "
+            + "add one rendered eye pixel. At this minification the window is still showing "
+            + (apr > 1f ? $"{100f / apr:F0} %" : "all")
+            + " of its authored resolution and an 8-authored-px stroke still arrives as "
+            + $"{8f / Mathf.Max(apr, 1e-4f):F1} eye px; the levers for THAT are the window's angular "
+            + "size and its distance, which this file does not own. What the lock recovers is the "
+            + "CONTRAST at the resolution the eye already has. And on a window yawed hard away from "
+            + $"the head, aniso {AnisoLevel} lowers the selected LOD toward the minor axis PER PIXEL, "
+            + "so no fixed target size can pin it there — the lock buys less on those, by "
+            + "construction, and this sentence is here so that a log full of good verdicts on the "
+            + "frontal windows is not read as a claim about the angled ones.");
     }
 
     private static bool TryRenderedSize(RectTransform? rect, Camera head, float eyeW, float eyeH,

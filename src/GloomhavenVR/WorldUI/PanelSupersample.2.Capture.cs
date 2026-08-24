@@ -307,6 +307,44 @@ internal static partial class PanelSupersample
         /// a window moved by a settings change or a re-fit is never grabbed and must still be
         /// repaired.</summary>
         public int ReleasesAfterHold, ReleasesNeverHeld;
+
+        // ---- ModBuild 243: the eye grid lock ----------------------------------------------------
+
+        /// <summary>The minification the capture rate is currently SIZED FOR — authored px per
+        /// rendered eye px, snapped to an eighth of an octave. Zero means "never measured", and that
+        /// is not a neutral state: it is the sentinel that makes <see cref="ResolveRate"/> fall back
+        /// to ModBuild 242's constant rate exactly. A window whose size in the eye cannot be read
+        /// gets today's behaviour, never a guess.</summary>
+        public float LockedApr;
+
+        /// <summary>The LAST raw measurement, unsnapped — printed next to <see cref="LockedApr"/> so
+        /// a lock that is stale by a dead band can be told from one that is stale by a bug.</summary>
+        public float LastApr;
+
+        /// <summary>Consecutive measurements outside the dead band, and the frame the lock last
+        /// moved on. See <see cref="EyeGridConfirmMeasurements"/> and
+        /// <see cref="EyeGridMinReallocFrames"/>.</summary>
+        public int PendingRun, LastLockFrame = int.MinValue / 2;
+
+        /// <summary>Next frame an eye-grid measurement may be taken.</summary>
+        public int NextGridSample;
+
+        /// <summary>Why the lock did NOT move, split by reason, plus the times it did. Every one of
+        /// these is a way for this whole feature to do nothing while looking healthy, which is this
+        /// project's most expensive recurring failure — so none of them is allowed to be silent.
+        /// <c>GridNoMeasure</c> is the one that matters most: it means the window's size in the eye
+        /// could not be read at all, and every window carrying it is running ModBuild 242's rate.</summary>
+        public int GridLocks, GridDeferredMoving, GridDeferredCooldown, GridNoMeasure, GridInDeadBand;
+
+        /// <summary>The rate the eye-grid arithmetic asked for and the power-of-two texels-per-
+        /// rendered-pixel target it was derived from, kept for the report line only.</summary>
+        public float GridRateAsked;
+        public int GridK;
+
+        /// <summary>What the un-locked ModBuild 242 rate WOULD have been at this same moment, and
+        /// the VRAM each implies. The saving has to be a measured pair, not a claim.</summary>
+        public float GridRateUnlocked;
+        public long GridVramLocked, GridVramUnlocked;
     }
 
     /// <summary>
@@ -331,13 +369,21 @@ internal static partial class PanelSupersample
 
         /// <summary><see cref="ReleaseRepair"/>'s call, which is unconditional. See there.</summary>
         ReleaseRepair = 3,
+
+        /// <summary>The window's size IN THE EYE moved past <see cref="EyeGridDeadBandOctaves"/> for
+        /// <see cref="EyeGridConfirmMeasurements"/> measurements running, so the rate that puts the
+        /// sampled mip level on the eye's pixel grid has changed. ModBuild 243; see
+        /// <see cref="EyeGridLockTolerance"/> for the whole argument, and
+        /// <see cref="ServiceEyeGrid"/> for what stops it thrashing.</summary>
+        EyeGrid = 4,
     }
 
-    private const int ReallocTriggerCount = 4;
+    private const int ReallocTriggerCount = 5;
 
     private static readonly string[] ReallocTriggerNames =
     {
         "host rect/scale change", "content frame change", "sub-view scale change", "release repair",
+        "eye-grid lock",
     };
 
     /// <summary>Per-window ModBuild 204 bookkeeping. Keyed by window name and NOT held on
@@ -1045,7 +1091,13 @@ internal static partial class PanelSupersample
                             > 0.02f * Mathf.Max(e.ScaleAtAllocation, 0.01f);
         bool frameChanged = Mathf.Abs(frame.width - e.Authored.x) > e.Authored.x * RectChangeFraction
                             || Mathf.Abs(frame.height - e.Authored.y) > e.Authored.y * RectChangeFraction;
-        if (dirty || scaleChanged || frameChanged)
+        // ModBuild 243: THE FOURTH THING THAT CAN INVALIDATE A TARGET, and the one nothing on this
+        // path had ever looked at — the window's size IN THE EYE. Called UNCONDITIONALLY and before
+        // the test, because it carries its own cadence and its own thrash guards and because a
+        // measurement that only runs when something else already changed would be exactly this
+        // project's "a rule read too late never runs". See ServiceEyeGrid.
+        bool gridChanged = ServiceEyeGrid(e);
+        if (dirty || scaleChanged || frameChanged || gridChanged)
         {
             // ModBuild 204: ATTRIBUTE THE RE-ALLOCATION. The three conditions can co-occur and the
             // tag records the one that is most specific about what actually moved — a host rescale
@@ -1055,7 +1107,8 @@ internal static partial class PanelSupersample
             // quantum apart. See ReallocTrigger and AppendReallocations.
             Reallocate(e, frame, dirty ? ReallocTrigger.HostGeometry
                                        : scaleChanged ? ReallocTrigger.SubViewScale
-                                                      : ReallocTrigger.ContentFrame);
+                                       : frameChanged ? ReallocTrigger.ContentFrame
+                                                      : ReallocTrigger.EyeGrid);
         }
 
         // Kept current from the LIVE frame and the LIVE target, not only at allocation time: a frame
@@ -1244,6 +1297,200 @@ internal static partial class PanelSupersample
     }
 
     /// <summary>
+    /// <b>MEASURE THE WINDOW'S SIZE IN THE EYE AND DECIDE WHETHER THE LOCK MUST MOVE (ModBuild 243).</b>
+    /// Returns true exactly when the capture rate must be re-derived, i.e. when the caller must
+    /// re-allocate; see <see cref="EyeGridLockTolerance"/> for why the eye's pixel grid is the third
+    /// grid in this chain and the only one nothing consulted before this build.
+    ///
+    /// <para><b>WHAT STOPS IT THRASHING, in the order the guards run.</b> (1) A cadence of
+    /// <see cref="EyeGridSampleIntervalFrames"/>, so the measurement itself is 6 Hz per window, not
+    /// 90. (2) A window that is MOVING — carried, or within <see cref="SweepAfterMotionFrames"/> of
+    /// having been — is skipped outright: a drag sweeps the distance continuously and the correct
+    /// answer during one is "keep what you have", which is ModBuild 242's rate and therefore safe by
+    /// construction. (3) A dead band of <see cref="EyeGridDeadBandOctaves"/>. (4) A run of
+    /// <see cref="EyeGridConfirmMeasurements"/> consecutive measurements outside it. (5) A hard
+    /// cooldown of <see cref="EyeGridMinReallocFrames"/>, which holds even if the head oscillates on
+    /// exactly the confirm period — the failure a run counter alone is blind to.</para>
+    ///
+    /// <para><b>AND EVERY REFUSAL IS COUNTED.</b> This project has shipped four remedies gated
+    /// behind something that was never true. A lock that never moves because the window is always
+    /// "moving", and a lock that never moves because it is already right, must not read the same in
+    /// the log — so <c>GridDeferredMoving</c>, <c>GridDeferredCooldown</c>, <c>GridInDeadBand</c>,
+    /// <c>GridNoMeasure</c> and <c>GridLocks</c> are five separate counters and all five are
+    /// printed.</para>
+    /// </summary>
+    private static bool ServiceEyeGrid(Entry e)
+    {
+        TargetLife life = LifeOf(e);
+        if (Time.frameCount < life.NextGridSample)
+            return false;
+        life.NextGridSample = Time.frameCount + EyeGridSampleIntervalFrames;
+        if (IsMoving(e))
+        {
+            life.GridDeferredMoving++;
+            return false;
+        }
+        if (!TryEyeGridApr(e, out float apr))
+        {
+            life.GridNoMeasure++;
+            return false;
+        }
+        life.LastApr = apr;
+        float measured = Mathf.Log(apr, 2f);
+        if (life.LockedApr <= 0f)
+        {
+            // FIRST LOCK. Until this runs the window is sized exactly as ModBuild 242 sized it, so
+            // the sentinel is not a neutral zero — it is the fallback, and it is the state every
+            // window is in for its first ~15 frames and for as long as the head camera or the eye
+            // target cannot be read.
+            life.LockedApr = SnapOctave(apr);
+            life.LastLockFrame = Time.frameCount;
+            life.GridLocks++;
+            return true;
+        }
+        if (Mathf.Abs(measured - Mathf.Log(life.LockedApr, 2f)) <= EyeGridDeadBandOctaves)
+        {
+            life.PendingRun = 0;
+            life.GridInDeadBand++;
+            return false;
+        }
+        if (++life.PendingRun < EyeGridConfirmMeasurements)
+            return false;
+        if (Time.frameCount - life.LastLockFrame < EyeGridMinReallocFrames)
+        {
+            life.GridDeferredCooldown++;
+            return false;
+        }
+        float snapped = SnapOctave(apr);
+        if (Mathf.Abs(snapped - life.LockedApr) <= 1e-4f)
+        {
+            // The dead band was crossed but the snap lands on the bucket already held: nothing to
+            // allocate. Counted as a dead-band hit rather than as a lock, because a re-allocation
+            // that changes no pixel count would only be absorbed by Reallocate's own early-out.
+            life.PendingRun = 0;
+            life.GridInDeadBand++;
+            return false;
+        }
+        life.PendingRun = 0;
+        life.LockedApr = snapped;
+        life.LastLockFrame = Time.frameCount;
+        life.GridLocks++;
+        return true;
+    }
+
+    /// <summary>Authored px per RENDERED eye px for this window's HOST RECT — the same quantity, by
+    /// the same arithmetic, that <see cref="SamplingSentence"/> reports, so the sizing decision and
+    /// the instrument that judges it can never disagree about what was measured.</summary>
+    private static bool TryEyeGridApr(Entry e, out float apr)
+    {
+        apr = 0f;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        if (head == null || !TryEyeTarget(out float eyeW, out float eyeH))
+            return false;
+        if (!TryRenderedSize(e.Panel.HostRect, head, eyeW, eyeH, out float pxW, out float pxH))
+            return false;
+        Rect host = e.HostRectAtMeasure;
+        if (host.width < 1f || host.height < 1f)
+            return false;
+        apr = Mathf.Max(host.width / Mathf.Max(pxW, 0.01f), host.height / Mathf.Max(pxH, 0.01f));
+        return apr > 1e-4f && apr < 1e4f;
+    }
+
+    /// <summary>Snap a minification to the nearest eighth of an OCTAVE. Log space, because the
+    /// quantity that decides the picture is <c>log2</c> of the sampling ratio — see
+    /// <see cref="EyeGridDeadBandOctaves"/>.</summary>
+    private static float SnapOctave(float apr)
+        => Mathf.Pow(2f, Mathf.Round(Mathf.Log(Mathf.Max(apr, 1e-4f), 2f) * 8f) / 8f);
+
+    /// <summary>
+    /// <b>THE RATE THAT PUTS THE SAMPLED MIP LEVEL ON THE EYE'S PIXEL GRID (ModBuild 243).</b>
+    /// Returns RT texels per AUTHORED pixel — the same unit the old constant was in, so everything
+    /// downstream (<see cref="MaxRtDimension"/>, the VRAM step-down, <see cref="AchievedFactor"/>,
+    /// every report field) keeps working unchanged.
+    ///
+    /// <para><b>THE ARITHMETIC.</b> Trilinear selects <c>LOD = log2(t)</c> where <c>t</c> is RT
+    /// texels per rendered eye pixel, and blends levels <c>floor(LOD)</c> and <c>ceil(LOD)</c> by
+    /// the fraction. Those two levels carry <c>t / 2^floor</c> and <c>t / 2^ceil</c> texels per
+    /// rendered pixel, and one of them is ALWAYS below 1.00 unless the fraction is zero — that is
+    /// the whole defect. So choose <c>t = 2^k</c>: the fraction is zero, one level is selected, and
+    /// it carries exactly 1.00. With <c>t = rate * apr</c> that is <c>rate = 2^k / apr</c>.</para>
+    ///
+    /// <para><b>CHOOSING k, and why there is no cliff in it.</b> <c>k</c> is the smallest integer
+    /// that keeps the rate at or above <see cref="MinStepDownFactor"/> — the floor below which the
+    /// capture would be COARSER than the source art and would minify the game's own MIPLESS uGUI
+    /// atlases at capture time, baking in an aliasing no mip chain downstream can remove — and at or
+    /// above the band limit the dial promises. <see cref="EyeGridLockTolerance"/> is subtracted
+    /// before the ceiling so that a minification a hair past a power of two does not jump a whole
+    /// octave; the cost of the tolerance is at most 0.08 of a level of blend, against the 0.74 the
+    /// 242 log measures. And the result is CLAMPED ABOVE by the un-locked ModBuild 242 rate, so this
+    /// can only ever make a target SMALLER: a magnified window (apr &lt; 1) asks for more than the
+    /// clamp allows and gets exactly today's rate, which is the correct answer there anyway because
+    /// level 0 is then the level the eye wants.</para>
+    ///
+    /// <para><b>THE MEASURED CASES, worked from the ModBuild 242 log's own numbers.</b>
+    /// <c>'UI Loadout Window'</c>, apr 1.66 (locked at 1.682): <c>k = 1</c>, ideal
+    /// <c>2^1.125 / 1.682 = 1.297</c>, snapped UP to 42/32 = 1.3125, giving <c>t = 2.18</c> and
+    /// LOD 1.12 — <b>88 % of every sample from ONE level carrying 1.09 texels per rendered
+    /// pixel</b>, against 74 % from a level carrying 0.79 today. RT 2604x1502 instead of 3968x2288:
+    /// 43 % of the texels, 49.7 MB instead of 115.4 MB.
+    /// <c>'Quest Log Manager'</c> at its peak apr 3.35 (locked at 3.364): <c>k = 2</c>, rate 1.3125,
+    /// <c>t = 4.40</c>, LOD 2.14, 86 % on a level carrying 1.10 — against LOD 2.74 and 74 % on 0.84
+    /// today, at 43 % of the memory. <c>'UI Quest Popup'</c> at apr 0.52 is MAGNIFIED: the ask comes
+    /// out at 4.375, the clamp cuts it to the un-locked 2.00, and that window is bit-for-bit
+    /// ModBuild 242 — which is correct there, because level 0 is the level the eye wants.</para>
+    ///
+    /// <para><b>MinContentScale STILL RAISES THE FLOOR AND NO LONGER RAISES THE ASK, and that is a
+    /// correction, not a saving.</b> A subtree drawn at content scale <c>s</c> has its own authored
+    /// pixels compressed by <c>s</c> in host space AND lands on <c>s</c> as many rendered eye pixels,
+    /// so <c>rate * apr</c> — texels per RENDERED pixel, which is what
+    /// <see cref="BandLimitedTexelsPerPixel"/> is defined in and what the sampler actually reads —
+    /// is the SAME for it as for its unscaled siblings. The <c>/ scale</c> term ModBuild 201 added
+    /// was protecting the SOURCE ART from being minified into the capture, which is a floor
+    /// (<c>rate &gt;= 1 / s</c>), not a target. It is kept, as a floor.</para>
+    /// </summary>
+    private static float EyeGridRate(Entry e, float scale)
+    {
+        TargetLife life = LifeOf(e);
+        float unlocked = e.Factor / scale;
+        life.GridRateUnlocked = unlocked;
+        float apr = life.LockedApr;
+        if (apr <= 0f)
+        {
+            life.GridRateAsked = unlocked;
+            life.GridK = 0;
+            return unlocked;
+        }
+        float rateMin = MinStepDownFactor / scale;
+        float rateMax = Mathf.Max(unlocked, rateMin);
+        int kFloor = Mathf.Max(1, Mathf.CeilToInt(
+            Mathf.Log(Mathf.Max(e.Factor, BandLimitedTexelsPerPixel), 2f) - EyeGridLockTolerance));
+        int k = Mathf.Max(kFloor, Mathf.CeilToInt(
+            Mathf.Log(Mathf.Max(apr * rateMin, 1e-4f), 2f) - EyeGridLockTolerance));
+        // THE MARGIN, AND WHY IT IS THE DEAD BAND ITSELF. `apr` here is the LOCKED value; the live
+        // minification is allowed to wander a whole EyeGridDeadBandOctaves either side of it before
+        // the lock is re-taken, so a target sized for exactly 2^k texels per rendered pixel would
+        // spend half of that wander BELOW 2^k — and below 2^1 is unfiltered level 0 on a minified
+        // window, which is the ModBuild 198 defect this class exists to keep out. Aiming half a
+        // dead band high, and rounding the rate UP rather than to nearest, makes the LOWER end of
+        // the wander land exactly on 2^k. The cost is that the typical operating point sits at
+        // LOD k + 0.125 instead of k + 0.000, i.e. ~12 % of the sample weight on the next level
+        // down rather than 0 % — against the 74 % the ModBuild 242 log measures. Both numbers are
+        // printed by ReportEyeGrid, so the next round can tighten the band with data.
+        float ideal = Mathf.Pow(2f, k + EyeGridLockTolerance) / apr;
+        // THE 1/32 SNAP IS THE ModBuild 201 INVARIANT, NOT TIDINESS — see EyeGridRateQuantum. The
+        // clamps are moved ONTO the same grid, each in the direction that keeps it a clamp.
+        float lo = Mathf.Ceil(rateMin / EyeGridRateQuantum - 1e-4f) * EyeGridRateQuantum;
+        float hi = Mathf.Floor(rateMax / EyeGridRateQuantum + 1e-4f) * EyeGridRateQuantum;
+        if (hi < lo)
+            hi = lo;
+        float rate = Mathf.Clamp(
+            Mathf.Ceil(ideal / EyeGridRateQuantum - 1e-4f) * EyeGridRateQuantum, lo, hi);
+        life.GridK = k;
+        life.GridRateAsked = rate;
+        return rate;
+    }
+
+    /// <summary>
     /// <b>THE CAPTURE RATE, IN TEXELS PER AUTHORED PIXEL — and from ModBuild 201 it answers to the
     /// CONTENT'S scale, not to the host's.</b>
     ///
@@ -1253,6 +1500,16 @@ internal static partial class PanelSupersample
     /// window received 2.00 — the band-limit floor was in force for four of the character window's
     /// six sub-views and silently absent for the two the user reports as broken. Asking for
     /// <c>BandLimitFactor / MinContentScale</c> puts the floor back where it belongs.</para>
+    ///
+    /// <para><b>ModBuild 243: THE ASK NOW COMES FROM <see cref="EyeGridRate"/>, AND THE PARAGRAPH
+    /// ABOVE IS THE HALF OF IT THAT SURVIVED.</b> <c>MinContentScale</c> still sets the FLOOR the
+    /// rate may not fall below (a subtree at 0.487 must not have the game's mipless art minified
+    /// into the capture), but it no longer sets the target: texels per RENDERED eye pixel — the
+    /// quantity the sampler reads and the one <see cref="BandLimitedTexelsPerPixel"/> is defined in
+    /// — is identical for a scaled subtree and its unscaled siblings, so the old <c>/ scale</c>
+    /// boost was raising a number that was already uniform. The target is now the rate that lands
+    /// the trilinear LOD on an INTEGER. See <see cref="EyeGridRate"/> for the derivation and
+    /// <see cref="EyeGridLockTolerance"/> for the report it answers.</para>
     ///
     /// <para><b>AND IT SAYS WHAT IT DID NOT GET.</b> The ask is cut down, in order, by
     /// <see cref="MaxRtDimension"/>, by the VRAM budget and by <see cref="RateQuantum"/> — on the
@@ -1266,7 +1523,7 @@ internal static partial class PanelSupersample
                                     out float rate, out int rtW, out int rtH, out long vram)
     {
         float scale = Mathf.Clamp(e.MinContentScale, MinContentScaleFloor, 1f);
-        float asked = e.Factor / scale;
+        float asked = EyeGridRate(e, scale);
         e.AskedFactor = asked;
 
         // THE DIMENSION CEILING, applied to the RATE rather than to the pixel counts, so that what
@@ -1294,6 +1551,15 @@ internal static partial class PanelSupersample
             rtH = Mathf.Clamp(Mathf.RoundToInt(frame.height * rate), 16, MaxRtDimension);
             vram = VramBytesFor(rtW, rtH, msaa);
         }
+
+        // ModBuild 243: THE SAVING IS A MEASURED PAIR, NOT A CLAIM. Both sides are computed from the
+        // SAME frame through the SAME estimator, so the report cannot quote a saving the allocator
+        // did not take. The un-locked side is what ModBuild 242 would have allocated at this instant.
+        TargetLife lifeVram = LifeOf(e);
+        lifeVram.GridVramLocked = vram;
+        int uW = Mathf.Clamp(Mathf.RoundToInt(frame.width * lifeVram.GridRateUnlocked), 16, MaxRtDimension);
+        int uH = Mathf.Clamp(Mathf.RoundToInt(frame.height * lifeVram.GridRateUnlocked), 16, MaxRtDimension);
+        lifeVram.GridVramUnlocked = VramBytesFor(uW, uH, msaa);
     }
 
     /// <summary>

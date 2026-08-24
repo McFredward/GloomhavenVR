@@ -2026,25 +2026,35 @@ internal static partial class Loc
                 + "Bild, für die es gebaut wurde — deshalb flimmern dünne Striche und kleine Schrift, "
                 + "sobald du den Kopf bewegst. An = jedes Fenster wird erst in ein eigenes Bild in voller "
                 + "Auflösung gezeichnet, mit Glättung und Mipmaps, und DIESES Bild siehst du. Klicken, "
-                + "Ziehen und Scrollen bleiben unverändert. Kostet rund 20-90 MB Videospeicher pro "
-                + "Fenster; höchstens zwei Fenster gleichzeitig, alle weiteren bleiben wie bisher. "
-                + "Aus = exakt die Darstellung von heute.",
+                + "Ziehen und Scrollen bleiben unverändert. Kostet je nach Fenstergröße und Abstand "
+                + "rund 12-70 MB Videospeicher pro Fenster; bis zu acht Fenster gleichzeitig, danach "
+                + "bleiben weitere wie bisher. Aus = exakt die Darstellung von heute.",
+            // ModBuild 243: DIE EINHEIT HAT SICH GEÄNDERT, UND ZWAR ZU DER, DIE MAN SEHEN KANN.
+            // Bis 242 zählte diese Zahl Bildpunkte des Zwischenbildes pro Bildpunkt, für den das
+            // Fenster GEBAUT wurde — eine Größe, die der Spieler nirgends sieht und die nichts
+            // darüber sagt, was in der Brille ankommt. Jetzt zählt sie Bildpunkte des
+            // Zwischenbildes pro Bildpunkt IN DER BRILLE, und genau diese Zahl entscheidet, welche
+            // Mipmap-Stufe die Hardware liest. Der Regler bekommt keine neue Zeile und keinen
+            // neuen Bereich; nur das, was er verspricht, ist jetzt das, was er tut.
             ["WorldUI/PanelSupersampleFactor"] =
-                "Schärfe gegen Speicher — die Feineinstellung zu \"Fenster: scharf zeichnen\". 1.0 = das "
-                + "Fenster wird genau in der Auflösung gezeichnet, für die es gebaut wurde; das ist es, was "
-                + "das Flimmern beseitigt. Höher kauft zusätzliche Schärfe, wenn du dich dicht heranlehnst "
-                + "— pro Verdopplung aber zum vierfachen Videospeicher. Niedriger spart Speicher und macht "
-                + "die Schrift weicher. Ohne jede Wirkung, solange \"Fenster: scharf zeichnen\" aus ist. "
-                + "Bereich 0.5-2.",
+                "Wie viele Bildpunkte das Zwischenbild pro Bildpunkt in der Brille bekommt — die "
+                + "Feineinstellung zu \"Fenster: scharf zeichnen\". 2 ist der Auslieferungswert, und "
+                + "jeden kleineren Wert hebt der Mod auf 2 an, weil darunter gar nichts geglättet wird. "
+                + "Bei 2 wird das Zwischenbild so groß angelegt, dass die Mipmap-Filterung GENAU eine "
+                + "Stufe trifft statt zwischen zweien zu mischen — die untere davon war bisher zu grob "
+                + "und wurde wieder hochgezogen, und genau das ist der matschige Text aus der Ferne. "
+                + "Wie groß das Zwischenbild dafür sein muss, hängt seit ModBuild 243 vom Abstand des "
+                + "Fensters ab und nicht mehr von einem festen Faktor. Bereich 0.5-2.",
             // ModBuild 203, und dieselbe 620-Zeichen-Regel: der Satz, der die Entscheidung trägt
             // (das Fenster landet KLEINER im Bild als es gebaut wurde) steht vorn, der Preis steht
             // im Text und nicht in einer Fußnote, und der letzte Satz sagt, wann man zurückdreht.
             ["WorldUI/PanelMipLodOffset"] =
                 "Schärft die schwebenden Fenster nach. So ein Fenster landet meist KLEINER im Bild, als "
                 + "es gebaut wurde (das Log misst 1,58-fach), und die Mipmap-Filterung wählt dann absichtlich "
-                + "eine gröbere, weichere Stufe. Dieser Wert verschiebt die Wahl nach unten: 0 = wie bisher, "
-                + "-0.5 (Standard) = eine halbe Stufe schärfer. Es ist der einzige Regler, der ein "
-                + "verkleinertes Fenster noch erreicht. PREIS: je negativer, desto eher flimmern dünne Striche "
+                + "eine gröbere, weichere Stufe. Dieser Wert verschiebt die Wahl nach unten: 0 (Standard) "
+                + "= wie bisher, -0.5 = eine halbe Stufe schärfer. Seit ModBuild 243 macht \"Fenster: "
+                + "scharf zeichnen\" das von selbst und ohne diesen Preis, indem es die Stufe genau "
+                + "trifft; dieser Regler bleibt für den Rest. PREIS: je negativer, desto eher flimmern dünne Striche "
                 + "beim Tragen; ab -1.0 liest die Brille doppelt so viel Detail, wie ein Bildpunkt tragen kann. "
                 + "Dreh Richtung 0 zurück, sobald die Schrift beim Bewegen kribbelt. Bereich -2 bis 0.",
             ["WorldUI/CanvasScaleMm"] =
