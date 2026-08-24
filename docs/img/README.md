@@ -147,8 +147,22 @@ their captures. Both ends had to go and the cut points were read off a contact s
 frame by frame — the Virtual Desktop dashboard is still on screen at 0.60 s in one of them and the
 controller model reappears at 11.60 s in the other, which a 2 fps sheet alone does not show.
 
-**They are not in the README yet**: an attachment URL is needed for each (see above), and only the
-maintainer can mint one.
+**All four are in the README**, arranged in two clusters rather than as a list of four, on the
+user's instruction ("Ordne die Videos logisch in zusammenhängenden Clustern"):
+
+| Cluster | Clips | The one idea it carries |
+|---|---|---|
+| *Your cards and your board* | `card-fan` + `control-board` | the hand you hold and the desk beside you — one continuous action, cards out of the palm and into a slot |
+| *The board in front of you* | `figure-grab` + `physical-interaction` | reaching INTO the diorama — lifting a miniature, pointing at a hex, touching a thing |
+
+The pairing is not decorative. Each cluster is one sentence of prose plus two clips that show the
+same idea from two angles, so a reader who watches one already knows what the other is about. Four
+clips under one heading would have read as four unrelated demos.
+
+**Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
+(`control-board` first, `physical-interaction` second). It cannot be checked from here — an
+attachment URL on a private repo 404s without a session — so if a clip appears under the wrong
+heading, that is the reason and swapping the two `src` attributes is the fix.
 
 ## Encoding a new clip
 

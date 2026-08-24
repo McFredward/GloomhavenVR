@@ -23,16 +23,31 @@
 control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
 Players without a headset join the same game on a flat screen.
 
+## Your cards and your board
+
+Turn your palm up and the hand of ability cards fans out. Take one, hold it up to read it, drop it
+into a slot on the control board at your side — slot order is your initiative. The board carries
+the round counter and its own physical keycaps.
+
 <table>
 <tr>
 <td width="50%"><video src="https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/cf0e7aeb-d577-4daa-ae9a-dea1acc7fae2" controls muted loop></video></td>
 </tr>
 </table>
 
-Turn your palm up and the hand of cards fans out; take one, read it, drop it into a slot on your
-board. Squeeze a miniature off the board, hold it, let go. The game's windows become panels you can
-grab, move and park. Between scenarios the campaign map is a room with a table in it.
+## The board in front of you
+
+Reach into the scenario: squeeze a miniature off its hex, hold it up, resize it in mid-air and let
+go. Point at a hex, touch what you want to look at. The game's windows become panels in the room
+you can grab, move and park; between scenarios the campaign map is a room with a table in it.
+
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/cf113c2e-d995-4ca3-87f5-d0059e909a2c" controls muted loop></video></td>
+</tr>
+</table>
 
 ## Assets
 
