@@ -133,6 +133,23 @@ figure-grab second). It cannot be checked from here — an attachment URL on a p
 without a session — so if the two clips ever appear under the wrong headings, that is the
 reason and swapping the two lines is the fix.
 
+## The clips that exist
+
+| File | Length | Size | Shows |
+|---|---:|---:|---|
+| `card-fan.mp4` | 15 s | 1.2 MB | palm-up fan, a card taken and dropped into a board slot |
+| `figure-grab.mp4` | 15 s | 1.3 MB | a miniature lifted off the board, scaled, released |
+| `control-board.mp4` | 10.6 s | 1.4 MB | the control board in use — cards into slots, the board's own keycaps |
+| `physical-interaction.mp4` | 12.6 s | 1.3 MB | reaching into the scenario: pointing, touching, the arcane hand at work |
+
+`control-board` and `physical-interaction` were trimmed at **0.85–11.40 s** and **0.55–13.10 s** of
+their captures. Both ends had to go and the cut points were read off a contact sheet, then checked
+frame by frame — the Virtual Desktop dashboard is still on screen at 0.60 s in one of them and the
+controller model reappears at 11.60 s in the other, which a 2 fps sheet alone does not show.
+
+**They are not in the README yet**: an attachment URL is needed for each (see above), and only the
+maintainer can mint one.
+
 ## Encoding a new clip
 
 ```
