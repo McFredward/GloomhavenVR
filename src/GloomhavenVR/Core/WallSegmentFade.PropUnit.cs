@@ -415,6 +415,14 @@ internal static partial class WallSegmentFade
         private int _unitDressingRedrawn;
         private readonly List<string> _unitDressingRedrawnNames = new(8);
 
+        /// <summary>Dressing pieces kept HIDDEN with their still-faded wall this rescan rather
+        /// than being restored as leavers (ModBuild 265), and the ones conceded to another
+        /// owner's dressing list on the same rescan. Both are reported: a stickiness rule that
+        /// is never observed is a rule nobody can falsify.</summary>
+        private int _unitDressingHeldFaded;
+        private int _unitDressingHandedOver;
+        private readonly List<string> _unitDressingHeldNames = new(8);
+
         /// <summary>Renderers currently delivered as prop-unit dressing by some segment — seeded
         /// into <c>_mountedOwned</c> by the mounted pass so one piece can never have two owners
         /// (the ModBuild-258 blue-flame class).</summary>
@@ -575,6 +583,9 @@ internal static partial class WallSegmentFade
             // redraws every second frame read 0 half the time.
             _unitDressingRedrawn = 0;
             _unitDressingRedrawnNames.Clear();
+            _unitDressingHeldFaded = 0;
+            _unitDressingHandedOver = 0;
+            _unitDressingHeldNames.Clear();
 
             // ModBuild 259: park every segment's dressing list the way CollectPlainWallBody parks
             // the body, so a piece that stops being dressing this rescan is RESTORED rather than
@@ -590,9 +601,63 @@ internal static partial class WallSegmentFade
             RefreshPropUnitAnchors();
         }
 
-        /// <summary>Leavers pass for <see cref="Segment.UnitDressing"/>, run once at the end of
-        /// the pass: anything a segment held last rescan and no longer owns is put back exactly
-        /// as authored. Mirrors <c>CollectPlainWallBody</c>'s tail.</summary>
+        /// <summary>
+        /// Leavers pass for <see cref="Segment.UnitDressing"/>, run once at the end of the pass —
+        /// and since ModBuild 265 a STICKY pass, because a leaver whose wall is still gone may
+        /// not be put back.
+        ///
+        /// <para>WHAT IT USED TO DO AND WHY THAT WAS THE BUG. It called <c>RestoreProp</c> on
+        /// anything a segment held last rescan and does not hold now, and <c>RestoreProp</c> ends
+        /// with <c>r.enabled = true</c>. In the ModBuild-264 hardware session that fired 66 times
+        /// with the owner's fade at 1.00 — the back wall's scrub, switched back on over masonry
+        /// that is not drawn. The user's ruling is not "restore it as authored", it is
+        /// <i>"das Gestrüp soll gar nicht mehr auftauchen, solange die Wand gefaded ist"</i>.</para>
+        ///
+        /// <para>THREE OUTCOMES, IN ORDER, and each answers what the one before it cannot:</para>
+        /// <list type="number">
+        /// <item>HANDOVER — <c>_unitDressingOwned</c> is this rescan's complete set of renderers
+        ///   some unit owner has taken as dressing, and it is final at this point (every
+        ///   <see cref="ResolvePropUnit"/> call has run). A renderer in it has a live owner whose
+        ///   <see cref="ApplyUnitDressing"/> drives it on the same frame, in both directions.
+        ///   Restoring it here would be a write war with that applier AND would drop the shared
+        ///   <c>MountedProp</c> record out of <c>_mountedTouched</c> — the record the new owner is
+        ///   already holding. Concede it, silently as far as the picture is concerned.</item>
+        /// <item>STICKY WHILE FADED — the wall is still gone and nobody else took the piece, so
+        ///   this segment keeps it. Re-added to <c>seg.UnitDressing</c>, so the segment's own
+        ///   applier stays its driver and <c>RestoreSegmentUnitDressing</c> gives it back on the
+        ///   un-fade edge (<c>want == 0</c>), which is the one place that knows the masonry is
+        ///   solid again. The predicate is <see cref="SegmentStillHiding"/>, shared verbatim with
+        ///   the mounted sweep's sticky loop — the enclosing <c>if</c> already asserts its lane
+        ///   term, so what discriminates here is the wall's own fade.</item>
+        /// <item>RESTORE — the backstop, and TODAY IT IS UNREACHABLE. The enclosing
+        ///   <c>if (seg.UnitDressingState != 0)</c> already satisfies the first term of
+        ///   <see cref="SegmentStillHiding"/>, so outcome 2 always wins. That is not an
+        ///   oversight and it is not a latent hole: a piece carried while the wall is in fact
+        ///   solid is back in <c>seg.UnitDressing</c>, and <see cref="ApplyUnitDressing"/> then
+        ///   takes the <c>want == 0</c> branch on its very next run and restores the whole list
+        ///   through <see cref="RestoreSegmentUnitDressing"/> — one frame later than a direct
+        ///   restore, never later than that. The branch stays because it is the only correct
+        ///   behaviour if that enclosing guard is ever widened; do not read a
+        ///   <c>RestoreProp</c> here in a log, because none can be emitted from this method
+        ///   while the guard stands.</item>
+        /// </list>
+        ///
+        /// <para>NOTHING CAN STAY HIDDEN WITHOUT AN OWNER. A sticky-carried piece is in
+        /// <c>seg.UnitDressing</c>, which <c>CollectWallMountedProps</c> reads into
+        /// <c>_mountedOwned</c> at the top of the very next phase — so the orphan guard leaves it
+        /// alone while the segment lives and restores it the moment the segment does not.</para>
+        ///
+        /// <para>AND IT CLOSES THIS LANE'S OWN BLIND SPOT. <c>ApplyUnitDressing</c>'s picture-side
+        /// falsifier is gated on <c>alreadyHeld = seg.UnitDressingState == 2</c>, and the tail of
+        /// this method zeroes that state whenever the list empties. Under the old code a split
+        /// piece's whole dressing list emptied together on the oscillating rescan, so the probe
+        /// was structurally unable to see the 66 — it printed 0 in every one of the 34 census
+        /// lines of a session that had the defect. With the list no longer emptying mid-fade the
+        /// probe is live again, and it is the falsifier for this method.</para>
+        ///
+        /// <para>MULTIPLAYER: presentation only. Every term is local scene state (a renderer, a
+        /// segment fade, a list this process built); nothing here reads or writes the wire.</para>
+        /// </summary>
         private void FinishPropUnitDressing()
         {
             foreach (Segment seg in _segments.Values)
@@ -603,6 +668,32 @@ internal static partial class WallSegmentFade
                     {
                         if (prev.Renderer == null || seg.UnitDressing.Contains(prev))
                             continue;
+                        if (_unitDressingOwned.Contains(prev.Renderer))
+                        {
+                            _unitDressingHandedOver++;
+                            continue;
+                        }
+                        // ONE DRIVER PER PIECE ON ONE SEGMENT — the rule
+                        // IsSegmentDressedElsewhere states for the dressing side, applied to the
+                        // sticky carry. A leaver that became this segment's own foliage / body /
+                        // stacked piece / wall renderer this rescan already rides THIS wall's
+                        // fade, so carrying it back into the dressing list would give it two
+                        // appliers on the same frame (the foliage stagger wants it enabled while
+                        // the dressing ramp wants it off — the flicker). Skip it: no restore, no
+                        // carry, and it stays hidden with the same wall either way.
+                        if (SegmentAlreadyDrives(seg, prev.Renderer))
+                        {
+                            _unitDressingHandedOver++;
+                            continue;
+                        }
+                        if (SegmentStillHiding(seg, seg.UnitDressingState))
+                        {
+                            seg.UnitDressing.Add(prev);
+                            _unitDressingOwned.Add(prev.Renderer);
+                            _unitDressingHeldFaded++;
+                            NoteUnitDressingHeld(prev.Renderer);
+                            continue;
+                        }
                         RestoreProp(prev, seg,
                             "prop-unit dressing — this unit no longer fades with this wall");
                     }
@@ -611,6 +702,60 @@ internal static partial class WallSegmentFade
                 }
                 seg.PrevUnitDressing.Clear();
             }
+        }
+
+        /// <summary>Does this segment already drive this renderer through one of its OTHER
+        /// lists? The <see cref="IsSegmentDressedElsewhere"/> question, asked of a
+        /// <see cref="Renderer"/> rather than a <see cref="MeshRenderer"/> and widened to the
+        /// wall's own renderer list, because the sticky carry in
+        /// <see cref="FinishPropUnitDressing"/> has to answer it for a piece it did not just
+        /// classify. Every list here is per-segment and short; this runs only for leavers of a
+        /// segment that is still hiding, i.e. never on the steady-state path.</summary>
+        private static bool SegmentAlreadyDrives(Segment seg, Renderer r)
+        {
+            foreach (MeshRenderer m in seg.Renderers)
+            {
+                if (ReferenceEquals(m, r))
+                    return true;
+            }
+            foreach (MeshRenderer f in seg.Foliage)
+            {
+                if (ReferenceEquals(f, r))
+                    return true;
+            }
+            foreach (MeshRenderer sib in seg.Siblings)
+            {
+                if (ReferenceEquals(sib, r))
+                    return true;
+            }
+            foreach (MountedProp p in seg.Body)
+            {
+                if (ReferenceEquals(p.Renderer, r))
+                    return true;
+            }
+            foreach (MountedProp p in seg.Stacked)
+            {
+                if (ReferenceEquals(p.Renderer, r))
+                    return true;
+            }
+            // seg.Mounted is DELIBERATELY not consulted: CommitPhase.Mounted runs AFTER this
+            // pass, so at this point that list still holds the PREVIOUS rescan's adoptions and
+            // reading it would be reading stale ownership. It needs no cover anyway — the
+            // mounted phase's first act is to register every seg.UnitDressing renderer into
+            // _mountedOwned, so a piece carried here is spoken for before the sweep looks at it.
+            return false;
+        }
+
+        /// <summary>Record a dressing piece this rescan kept hidden with its still-faded wall.
+        /// Capped by name; the count is the full total.</summary>
+        private void NoteUnitDressingHeld(Renderer r)
+        {
+            if (_unitDressingHeldNames.Count >= PropUnitLeftVisibleCap
+                || _unitDressingHeldNames.Contains(r.name))
+            {
+                return;
+            }
+            _unitDressingHeldNames.Add(r.name);
         }
 
         /// <summary>Re-read the segment anchors the unit walk must stop at. Called from
@@ -947,7 +1092,32 @@ internal static partial class WallSegmentFade
                 // THE PICTURE, NOT THE LEDGER: a renderer that is not drawing cannot leave a hole,
                 // so it must never be the reason a whole unit is refused. Read off the renderer
                 // (enabled + activeInHierarchy), the way the LEFTOVER audit reads it.
-                if (!IsActuallyDrawing(m))
+                //
+                // …EXCEPT ONE **WE** HOLD HIDDEN — MODBUILD 265, AND A CLAIM MUST NOT MEASURE
+                // ITSELF. `_mountedTouched` is the shared ledger of every prop this subsystem is
+                // currently driving, and `ApplyUnitDressing` ends its `want == 2` branch with
+                // `r.enabled = false`. So one rescan after a dressing piece is hidden, the test
+                // above reads back OUR OWN WRITE, drops the member from both staging lists, and
+                // `FinishPropUnitDressing` then restores it as a leaver — re-enabling it over a
+                // wall at fade 1.00. The rescan after that it is drawing again, gets re-dressed
+                // and is hidden again: the two-rescan oscillation of the user's report,
+                // 2026-08-24, verbatim — "An der hinteren Wand das Gestrüp verschwindet erst,
+                // ploppt dann aber plötzlich wieder auf wenn man ein wenig die Perspektive
+                // ändert und ploppt eventuell wieder weg."
+                //
+                // The exception is written the way the mounted sweep already writes it ("A
+                // renderer the GAME disabled is not ours to manage — except one WE hold hidden"),
+                // and it is the same predicate, not a second one.
+                //
+                // THE NUMBER THAT MADE THIS CHANGE: 66 of the ModBuild-264 session's 76 RELEASED
+                // OVER A FADED WALL warns, every one of them
+                // "prop-unit dressing — this unit no longer fades with this wall" at fade 1.00,
+                // every subject a scrub piece (FR_Floor_PlantsBushes_*, FR_Floor_Detail_*,
+                // FR_Floor_LargeBush_*), 0 in the ModBuild-258 session. THE NUMBER THAT WOULD
+                // FALSIFY IT: a non-zero "dressing piece(s) were DRAWING over a wall this pass
+                // had already hidden" in the PROP UNIT line — that probe is a picture-side read
+                // and cannot be satisfied by this ledger term.
+                if (!IsActuallyDrawing(m) && !_mountedTouched.ContainsKey(m))
                     continue;
                 if (IsSegmentDressedElsewhere(owner, m))
                     continue;                       // this wall already drives it another way
@@ -1577,7 +1747,8 @@ internal static partial class WallSegmentFade
         private void LogPropUnitCensus()
         {
             if (_propUnitRegrouped == 0 && _propUnitRefusedUnits == 0
-                && _propUnitWaterSkipped == 0)
+                && _propUnitWaterSkipped == 0 && _unitDressingHeldFaded == 0
+                && _unitDressingHandedOver == 0)
             {
                 _propUnitCensusSig = -1;
                 return;
@@ -1586,6 +1757,7 @@ internal static partial class WallSegmentFade
                       + _propUnitUnfadeable * 7 + _propUnitGroundLifted * 3
                       + _propUnitDressed * 101 + _propUnitRefusedUnits * 1009
                       + _unitDressingRedrawn * 61 + _propUnitFloorSkipped * 5
+                      + _unitDressingHeldFaded * 149 + _unitDressingHandedOver * 71
                       + _propUnitWaterSkipped * 17
                       + _propUnitCensus.Count;
             foreach (string row in _propUnitCensus)
@@ -1632,7 +1804,19 @@ internal static partial class WallSegmentFade
                     ? $": {string.Join(", ", _unitDressingRedrawnNames)} — that is the defect, not "
                       + "the fix"
                     : " — zero, which is what a working whole-unit rule reads")
-                + ". "
+                + ". OWNERSHIP STICKY WHILE FADED (ModBuild 265, user 2026-08-24: 'das "
+                + "Gestrüp soll gar nicht mehr auftauchen, solange die Wand gefaded "
+                + "ist'): a dressing piece a segment stops owning is NEVER switched back "
+                + "on while that segment is still hiding — it is conceded to whoever took "
+                + "it, or kept hidden here until the masonry is solid again. The "
+                + "ModBuild-264 session restored 66 of them at fade 1.00. This rescan "
+                + $"{_unitDressingHeldFaded} piece(s) were HELD with their faded wall"
+                + (_unitDressingHeldNames.Count > 0
+                    ? $" ({string.Join(", ", _unitDressingHeldNames)})"
+                    : string.Empty)
+                + $" and {_unitDressingHandedOver} CONCEDED to another driver — another unit "
+                + "owner's dressing list, or one of this same wall's own lanes (foliage, body, "
+                + "stacked, wall renderer) — without ever being restored. "
                 + $"WHOLE-UNIT RULE (ModBuild 258, wandproblem3.jpg 'ein Teil der Wand bleibt nun "
                 + $"stehen und faded garnicht mehr'): a unit the standing rule calls ARCHITECTURE "
                 + $"fades base and all — the per-renderer ground band "

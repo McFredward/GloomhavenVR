@@ -417,6 +417,11 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Transform, int> _mountedUnitHomeVotes = new(64);
         private int _censusMountedUnitHome;
 
+        /// <summary>Props that changed OWNER this rescan without ever being restored to visible —
+        /// the leavers loop's ModBuild-265 handover. Reported so a handover that quietly loses
+        /// its target is a number and not a silence.</summary>
+        private int _censusMountedHandover;
+
         /// <summary>
         /// THE LEFTOVER AUDIT (ModBuild 257) — the one list in this file that is NOT the
         /// ledger's opinion of itself.
@@ -448,6 +453,7 @@ internal static partial class WallSegmentFade
         private const int MountedLeftoverCap = 40;
         private int _censusMountedLeftover;
         private int _lastLoggedMountedLeftover = -1;
+        private int _lastLoggedMountedHandover = -1;
 
         /// <summary>How many of the leftovers are ParticleSystemRenderers, and how many particle
         /// candidates were skipped for being already carried.
@@ -953,6 +959,29 @@ internal static partial class WallSegmentFade
             return true;
         }
 
+        /// <summary>
+        /// IS THIS SEGMENT STILL HIDING WHAT IT OWNS — the ONE predicate behind every
+        /// "ownership sticky while faded" rule in this subsystem. <paramref name="laneState"/>
+        /// is the attachment lane's own state field (<see cref="Segment.MountedState"/>,
+        /// <see cref="Segment.UnitDressingState"/>, …): non-zero means that lane's applier is
+        /// currently holding pieces off the picture, and <c>Fade &gt; 0</c> means the masonry
+        /// itself is gone or going. Either way an ownership change made now hands a piece to
+        /// somebody else while the wall behind it is not there, and the release re-enables it.
+        ///
+        /// <para>MODBUILD 265. It was a local <c>bool</c> inside the mounted sweep and the
+        /// prop-unit dressing lane had no equivalent at all, which is why the ModBuild-264
+        /// session reads 66 <c>RELEASED OVER A FADED WALL</c> naming
+        /// <c>prop-unit dressing — this unit no longer fades with this wall</c> and ZERO naming
+        /// the mounted lane. One concept, one predicate; see
+        /// <c>WallPropUnit.ChooseOwner</c> rule 1, which is the same rule for the OWNER of a
+        /// unit rather than for the members of a lane.</para>
+        ///
+        /// <para>FALSIFIED BY: a <c>RELEASED OVER A FADED WALL</c> count above 0 for any reason
+        /// that is not a FIGURE or a MOBILE prop in the next hardware log.</para>
+        /// </summary>
+        private static bool SegmentStillHiding(Segment seg, int laneState)
+            => laneState != 0 || seg.Fade > 0f;
+
         /// <summary>Horizontal (XZ) gap between two AABBs; 0 when their footprints overlap.</summary>
         private static float HorizontalGap(Bounds a, Bounds b)
         {
@@ -998,6 +1027,7 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
+            _censusMountedHandover = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
             _mountedReleased.Clear();
@@ -1093,7 +1123,7 @@ internal static partial class WallSegmentFade
             // hardware round produced.
             foreach (Segment seg in _segments.Values)
             {
-                bool sticky = seg.MountedState != 0 || seg.Fade > 0f;
+                bool sticky = SegmentStillHiding(seg, seg.MountedState);
                 if (sticky)
                 {
                     foreach (MountedProp p in seg.PrevMounted)
@@ -1581,11 +1611,59 @@ internal static partial class WallSegmentFade
                         // into a WARN naming the wall's live fade — the shape the ModBuild 256
                         // log could not distinguish from the 59 perfectly correct un-fade
                         // releases.
-                        RestoreProp(prev, seg, _attachmentOwned.TryGetValue(
-                                prev.Renderer, out OwnerRef newOwner)
-                            ? $"lost the claim to the {newOwner.Kind} of "
-                              + $"'{(newOwner.Seg.Anchor != null ? newOwner.Seg.Anchor.name : "<dead>")}' "
-                              + $"(that owner's fade {newOwner.Seg.Fade:F2})"
+                        // MODBUILD 265 — A HANDOVER IS NOT A RELEASE, and it must carry the
+                        // HIDDEN state across. When _attachmentOwned names an owner for this
+                        // renderer it was rebuilt THIS rescan, a dozen lines above, out of the
+                        // final lists (stacked / body / prop-unit dressing / corner / renderers
+                        // / foliage / siblings) — so that owner's applier drives the piece on
+                        // the same frame, in BOTH directions. RestoreProp would first turn the
+                        // renderer back ON (and destroy the swap copies, and drop the record out
+                        // of _mountedTouched that the new lane is already holding, so the next
+                        // frame rebuilds the whole dissolve channel) before the new owner hid it
+                        // again. That is the ModBuild-258 argument for the sticky loop's own
+                        // handover, made in the leavers loop instead of only in the sticky one.
+                        //
+                        // THE NUMBER THAT MADE THIS CHANGE: 10 of the ModBuild-264 session's 76
+                        // RELEASED OVER A FADED WALL warns read "lost the claim to the prop-unit
+                        // dressing of 'FR_Pillar_Tree_Trunk_0*' (that owner's fade 0.03/0.09)" —
+                        // a named, live, faded new owner, and the restore switched the piece back
+                        // on anyway. THE NUMBER THAT WOULD FALSIFY IT: any renderer in the next
+                        // log's LEFTOVER line ("drawing over a fully faded wall") or in the
+                        // SHOW EDGE line's "not as authored" fraction that this hand-over path
+                        // touched — i.e. a piece left wearing our swap copies with nobody driving
+                        // it. The orphan guard immediately below is the backstop: a handover
+                        // target that is not in _mountedOwned is restored on this very rescan.
+                        //
+                        // THE GUARD IS `_mountedOwned`, NOT `_attachmentOwned` ALONE, and the two
+                        // differ exactly where it matters. The lanes that go into BOTH sets
+                        // (stacked shell, wall body, prop-unit dressing, shared corner) drive the
+                        // piece through this same shared MountedProp ledger — they own its
+                        // `enabled` and its swap copies, so conceding hands over a complete state.
+                        // The lanes that go into `_attachmentOwned` only (wall renderer, foliage,
+                        // asset sibling) drive it through the WALL's own channel and know nothing
+                        // about our swap copies, so those still take the restore — otherwise the
+                        // piece would be drawn wearing our dissolve materials with nobody ramping
+                        // them, which is the SHOW EDGE line's "not as authored" fault.
+                        Segment? newSeg = null;
+                        string newKind = string.Empty;
+                        if (_attachmentOwned.TryGetValue(prev.Renderer, out OwnerRef newOwner))
+                        {
+                            newSeg = newOwner.Seg;
+                            newKind = newOwner.Kind;
+                        }
+                        if (newSeg != null && _mountedOwned.Contains(prev.Renderer))
+                        {
+                            _censusMountedHandover++;
+                            NoteOwnershipChange(prev.Renderer,
+                                $"{newKind}:'{(newSeg.Anchor != null ? newSeg.Anchor.name : "<dead>")}'");
+                            continue;
+                        }
+                        RestoreProp(prev, seg, newSeg != null
+                            ? $"lost the claim to the {newKind} of "
+                              + $"'{(newSeg.Anchor != null ? newSeg.Anchor.name : "<dead>")}' "
+                              + $"(that owner's fade {newSeg.Fade:F2}), and that lane drives the "
+                              + "piece through the wall's own channel rather than through this "
+                              + "prop ledger, so the authored materials have to go back"
                             : "no longer adopted by this wall (geometry test)");
                     }
                     if (seg.Mounted.Count == 0)
@@ -1615,7 +1693,8 @@ internal static partial class WallSegmentFade
             // actually changed. Steady state prints nothing.
             if (_censusMounted != _lastLoggedMountedCount
                 || _censusMountedRejected != _lastLoggedMountedRejected
-                || _censusMountedLeftover != _lastLoggedMountedLeftover)
+                || _censusMountedLeftover != _lastLoggedMountedLeftover
+                || _censusMountedHandover != _lastLoggedMountedHandover)
                 LogMountedCensus();
             // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
@@ -1828,6 +1907,7 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedCount = _censusMounted;
             _lastLoggedMountedRejected = _censusMountedRejected;
             _lastLoggedMountedLeftover = _censusMountedLeftover;
+            _lastLoggedMountedHandover = _censusMountedHandover;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
@@ -1861,6 +1941,9 @@ internal static partial class WallSegmentFade
                 + $"systems, which is where the blue flame of wandproblem3.jpg was hiding: "
                 + $"adopted, by the wrong wall, and therefore in no reject and no leftover line, "
                 + $"{_censusMountedLeftover} drawing over a fully faded wall; "
+                + $"{_censusMountedHandover} HANDED OVER to another lane's owner without ever "
+                + $"being switched back on — ModBuild 265: a change of owner may not make a piece "
+                + $"more visible, so the leavers loop concedes the piece instead of restoring it; "
                 + $"{_censusMountedUnitHome} attached to the wall that owns their PROP UNIT "
                 + $"rather than to the nearest one — ModBuild 258, wandproblem3.jpg: one prop "
                 + $"with two owners is one prop that half-survives every fade){full}.");
