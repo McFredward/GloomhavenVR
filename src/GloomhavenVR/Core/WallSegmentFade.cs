@@ -372,6 +372,30 @@ internal static class WallFadeTuning
 /// the 5%-of-distance term keeps the margin proportionate). Head inside the wall AABB
 /// counts as 1.0 (wall in the face).
 ///
+/// THE DENOMINATOR IS THE PLAYABLE TILES (ModBuild 258 — user report 2026-08-24,
+/// wandproblem3.jpg, his own emphasis: "wenn man aber die wand gegenüber einguckt DIE
+/// NICHTS VERDECKT von den spielbaren tiles sollte sie direkt unfaden"). The floor grid
+/// spreads a grid×grid lattice over the room's axis-aligned BOUNDING BOX, and until
+/// ModBuild 257 nothing tested whether a lattice position landed on a tile at all. A
+/// Gloomhaven room is a HEX CLUSTER, so that rectangle's corners are dead space, and the
+/// ModBuild 257 log shows all four green walls pinned at a DIFFERENT corner of it —
+/// 'Wall 4' at cells #0,#1,#4,#8, 'Wall 2' at #7,#11,#14,#15, 'Wall 1' at #2,#3, 'Wall 3'
+/// at #12 — each at the corner nearest itself, and each taken by a prop standing OFF the
+/// field ('FR_Pillar_Tree_Trunk_01/_02', 'Blocks'). Four of sixteen is 0.25, which sits
+/// between the 0.20 exit bar and the 0.35 enter bar, so 'Wall 2' and 'Wall 4' printed the
+/// SAME reading in both states (13 samples at "ema 0.25 blk 4/16 FADED" against 11 at
+/// "ema 0.25 blk 4/16 solid") and could leave neither; 'Wall 1' pinned at TWO cells
+/// (0.125 &lt; 0.20) and released, and that two-versus-four was the entire difference
+/// between the wall the user says works and the two he reports stuck. Since ModBuild 258
+/// each lattice position is MOVED to the nearest playable hex centre that no other
+/// position has claimed, from the game's own tile registry
+/// (<c>ObjectCacheService.GetTileBehaviors</c>, keyed by the same CMap the room registry
+/// groups by) — so every sample stands on floor the player can stand on, and the count
+/// stays min(grid², hexes) = 16, leaving the quantum and both bars in cells exactly where
+/// they were. See <c>CollectPlayableTiles</c> and <c>RebuildSamples</c>; a room whose
+/// hexes cannot be resolved keeps the bounding-box grid and says so, in those words, on
+/// the SAMPLE GRID line.
+///
 /// LOGICAL ROOM GROUPING (keep round 4 — user ruling: "Ich will weiterhin die normale
 /// Raum-Logik", which retired round 3's distance-based cross-room MAX after one ModBuild):
 /// the game's unit of reveal is the <c>CMap</c> (ScenarioRuleLibrary) reached via
@@ -792,6 +816,26 @@ internal static partial class WallSegmentFade
         private readonly List<int> _roomSampleStart = new();    // first sample index per room
         private readonly List<int> _roomSampleCount = new();    // grid size per room (denominator)
         private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid
+        // PLAYABLE-TILE DENOMINATOR (ModBuild 258 — user report 2026-08-24, wandproblem3.jpg:
+        // "wenn man aber die wand gegenüber einguckt DIE NICHTS VERDECKT von den spielbaren
+        // tiles sollte sie direkt unfaden"). The room's playable hexes, keyed by the game's own
+        // CMap — the SAME object the room registry already groups rooms by. See
+        // CollectPlayableTiles for the source and RebuildSamples for what the grid does with it.
+        private readonly List<object?> _roomMapKeys = new();     // game CMap per LOGICAL room (null = none)
+        private readonly Dictionary<object, List<Vector3>> _tilesByMap = new(); // hex centres per CMap
+        private readonly List<List<Vector3>> _tileListPool = new(); // reused hex lists (no per-rescan alloc)
+        private int _tileListsUsed;
+        private readonly List<bool> _tileTaken = new();         // greedy snap: hex already claimed
+        private readonly List<Vector3> _tileScratch = new();    // this room's in-footprint hexes
+        private readonly List<int> _roomTileCount = new();      // hexes usable per room (diag)
+        private readonly List<int> _roomTileTotal = new();      // hexes on the room's CMap (diag)
+        private readonly List<float> _roomSnapMax = new();      // worst lattice→hex move, wu (diag)
+        private readonly List<float> _roomSnapSum = new();      // summed move, wu (diag → mean)
+        private readonly List<bool> _roomTileGrid = new();      // false = fell back to the bounding box
+        private int _sampleGridCells;                           // grid*grid this rescan (diag)
+        private int _tilesResolved, _tilesUnkeyed;              // hex census this rescan (diag)
+        private bool _tileSourceLive;                           // the game's tile registry answered
+        private string _lastSampleCensus = string.Empty;        // change-gated census line
         private readonly bool[] _sampleVisible = new bool[MaxTotalSamples]; // per-frame frustum flags
         private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
@@ -1585,7 +1629,10 @@ internal static partial class WallSegmentFade
                     + $"room identity — round 4) / {_allSamples.Count} floor samples "
                     + $"({_roomsAnchored}/"
                     + $"{_roomBounds.Count} rooms tile-anchored, plane +"
-                    + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}) — "
+                    + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}; "
+                    + $"ModBuild 258: every sample sits on a PLAYABLE HEX where the game's tile "
+                    + $"registry could name the room's hexes — {_tilesResolved} hex(es) keyed "
+                    + $"this rescan, see the SAMPLE GRID line for the per-room split) — "
                     + $"per-wall ROOM-coverage fade (strict own-room accounting; "
                     + $"EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
                     + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
@@ -3354,6 +3401,116 @@ internal static partial class WallSegmentFade
                     }
                 }
             }
+            // Same phase, same data family: the room's PLAYABLE hexes, for the sample grid.
+            CollectPlayableTiles();
+        }
+
+        /// <summary>
+        /// THE DENOMINATOR'S SOURCE (ModBuild 258). Collect every playable hex in the scenario,
+        /// grouped by the game's own room object (<c>CMap</c>) — the identical key
+        /// <see cref="CommitRoomRegistry"/> already groups logical rooms by, so a room and its
+        /// hexes cannot disagree about which room they belong to.
+        ///
+        /// <para>WHY THIS EXISTS. Up to ModBuild 257 the floor grid was a 4×4 lattice over the
+        /// room's axis-aligned BOUNDING BOX (RebuildSamples, unchanged since round 6), and
+        /// nothing anywhere tested whether a lattice position landed on a tile at all. A
+        /// Gloomhaven room is a HEX CLUSTER; the corners of a rectangle drawn round it contain
+        /// no playable tile. The ModBuild 257 hardware log shows the consequence with no room
+        /// for interpretation — all four green walls pinned at a DIFFERENT corner of that
+        /// rectangle, each at the corner nearest itself: 'Wall 4' at cells #0,#1,#4,#8 (corner
+        /// ix0/iz0), 'Wall 2' at #7,#11,#14,#15 (corner ix3/iz3), 'Wall 1' at #2,#3 (corner
+        /// ix0/iz3), 'Wall 3' at #12 (corner ix3/iz0). The pieces taking those cells are props
+        /// standing OFF the field ('FR_Pillar_Tree_Trunk_01/_02', 'Blocks'). Four cells of
+        /// sixteen is 0.25, which sits between the 0.20 exit bar and the 0.35 enter bar, so
+        /// 'Wall 2' and 'Wall 4' held whatever state they were in — 13 samples at
+        /// <c>ema 0.25 blk 4/16 FADED</c> and 11 at <c>ema 0.25 blk 4/16 solid</c>, the SAME
+        /// reading in both states. 'Wall 1' pinned at TWO cells (0.125 &lt; 0.20) and released;
+        /// that two-versus-four was the whole difference between the wall the user says works
+        /// and the two he reports stuck.
+        ///
+        /// <para>WHY THE GAME'S REGISTRY AND NOT A SWEEP. <c>ObjectCacheService</c> maintains
+        /// this set itself (<c>TileBehaviour.OnEnable/OnDisable</c>), so reading it is a walk
+        /// over a few hundred already-collected components — no <c>FindObjectsOfType</c>, and
+        /// the set is exactly the hexes that are live right now.</para>
+        ///
+        /// <para>WHY THE LIVE TRANSFORM AND NOT <c>CMapTile.Position</c>. Both are the same
+        /// number at scenario init (<c>UnityGameEditorRuntime.InitialiseScenario</c> matches
+        /// them with a 0.1 wu tolerance), but <c>CMapTile.Position</c> is the AUTHORED world
+        /// position and would silently disagree with <see cref="_roomBounds"/> — which comes
+        /// from live <c>renderer.bounds</c> — the moment anything reparents or rescales the
+        /// board. The transform cannot drift from the renderer bounds because it is the same
+        /// frame.</para>
+        ///
+        /// <para>WHAT IS DELIBERATELY NOT FILTERED. <c>CMapTile.Flags</c> carries
+        /// <c>Blocked</c> and <c>Edge</c>, and neither is applied. A blocked hex is still floor
+        /// the player looks at, and this subsystem has now shipped TWO discriminators that the
+        /// very next hardware log falsified (the ModBuild 257 height cap, and the aspect-ratio
+        /// TREE arm that fired zero times in the log meant to test it). A flag whose correct
+        /// setting cannot be read off a log is not a rule this round gets to invent.</para>
+        /// </summary>
+        private void CollectPlayableTiles()
+        {
+            _tilesByMap.Clear();
+            _tileListsUsed = 0;
+            _tilesResolved = 0;
+            _tilesUnkeyed = 0;
+            _tileSourceLive = false;
+            if (!Singleton<Script.Controller.ObjectCacheService>.IsInitialized)
+                return;
+            HashSet<TileBehaviour>? tiles;
+            try
+            {
+                tiles = Singleton<Script.Controller.ObjectCacheService>.Instance.GetTileBehaviors();
+            }
+            catch
+            {
+                return; // service mid-teardown — every room falls back to the box, as before
+            }
+            if (tiles == null)
+                return;
+            _tileSourceLive = true;
+            foreach (TileBehaviour tb in tiles)
+            {
+                if (tb == null)
+                    continue;
+                object? key;
+                try
+                {
+                    key = tb.m_ClientTile?.m_Tile?.m_HexMap;
+                }
+                catch
+                {
+                    key = null; // client-tile chain mid-build, exactly as CommitTileAnchors treats it
+                }
+                if (key == null)
+                {
+                    _tilesUnkeyed++;
+                    continue;
+                }
+                if (!_tilesByMap.TryGetValue(key, out List<Vector3> list))
+                {
+                    list = RentTileList();
+                    _tilesByMap[key] = list;
+                }
+                list.Add(tb.transform.position);
+                _tilesResolved++;
+            }
+        }
+
+        /// <summary>A cleared hex list from the rescan-scoped pool — the room count is tiny and
+        /// stable, so after the first rescan this never allocates.</summary>
+        private List<Vector3> RentTileList()
+        {
+            if (_tileListsUsed < _tileListPool.Count)
+            {
+                List<Vector3> reused = _tileListPool[_tileListsUsed++];
+                reused.Clear();
+                return reused;
+            }
+            var fresh = new List<Vector3>();
+            _tileListPool.Add(fresh);
+            _tileListsUsed++;
+            return fresh;
         }
 
         /// <summary>COMMIT PHASE 3 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
@@ -3372,6 +3529,7 @@ internal static partial class WallSegmentFade
             _roomFloorAnchored.Clear();
             _roomLabels.Clear();
             _roomRendererCounts.Clear();
+            _roomMapKeys.Clear();
             _keyToRoomScratch.Clear();
             foreach (MeshRenderer r in gen.m_RoomRenderers)
             {
@@ -3401,6 +3559,10 @@ internal static partial class WallSegmentFade
                 _roomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
                     ? lbl : r.name);
                 _roomRendererCounts.Add(1);
+                // ModBuild 258: the room's own CMap, kept per LOGICAL room so RebuildSamples can
+                // ask CollectPlayableTiles for THIS room's hexes. Null for a renderer with no
+                // volume/CMap — that room keeps the bounding-box grid, fail-safe and unchanged.
+                _roomMapKeys.Add(key);
             }
             _builtRoomCount = gen.m_RoomRenderers.Count;
 
@@ -5080,27 +5242,73 @@ internal static partial class WallSegmentFade
         /// dense as the room budget allows under <see cref="MaxTotalSamples"/>
         /// (4×4 → 3×3 → 2×2 → center per room). Samples are room-contiguous; each room's
         /// [start,count) range doubles as the coverage-fraction denominator.
+        ///
+        /// <para>ModBuild 258 — THE DENOMINATOR IS THE PLAYABLE TILES. The lattice above is
+        /// still what spreads the samples over the room, but a lattice position is no longer
+        /// a sample: each one is MOVED to the nearest playable hex centre that no other
+        /// lattice position has claimed (<see cref="CollectPlayableTiles"/> for the hex source
+        /// and for the four-corner evidence that made this necessary). Every sample therefore
+        /// stands on floor the player can stand on, which is precisely the user's own wording:
+        /// <i>"wenn man aber die wand gegenüber einguckt DIE NICHTS VERDECKT von den
+        /// spielbaren tiles sollte sie direkt unfaden"</i>.
+        ///
+        /// <para>WHY RELOCATE RATHER THAN DROP. Dropping the off-tile positions would shrink
+        /// the denominator — 16 cells becoming 11 raises the quantum from 0.0625 to 0.0909 and
+        /// moves BOTH Schmitt bars in cell terms, so the same change would need the bars
+        /// re-derived in the same build. It would also need a point-in-hex radius, i.e. a
+        /// threshold, and this subsystem has already shipped two thresholds that the next
+        /// hardware log falsified. Greedy nearest-unclaimed relocation needs no threshold at
+        /// all and keeps the count at exactly <c>min(grid², hexes)</c>: for every room in the
+        /// ModBuild 257 log that is 16, so the quantum, the exit bar (4 cells) and the enter
+        /// bar (6 cells) are bit-for-bit what they were. One variable moved this round.</para>
+        ///
+        /// <para>WHAT WOULD FALSIFY IT. The census line below prints each room's hex count. A
+        /// room reporting FEWER than <c>grid²</c> hexes has a denominator smaller than 16 and
+        /// its bars no longer sit at 4/6 cells — that is the number to check before blaming
+        /// anything else. A room reporting <c>FELL BACK TO THE BOUNDING BOX</c> is running
+        /// ModBuild 257 behaviour exactly and cannot have been fixed or broken by this
+        /// change.</para>
+        ///
+        /// <para>COST. One <c>grid² × hexes</c> distance scan per room per rescan (~2 s):
+        /// 16 × ~50 × ~6 rooms ≈ 5k squared-distance tests, all at build time. The per-wall,
+        /// per-sample ray loop is untouched — it still walks <c>_roomSampleCount[room]</c>
+        /// entries of <see cref="_allSamples"/> and never learns where they came from.</para>
         /// </summary>
         private void RebuildSamples()
         {
             _allSamples.Clear();
             _roomSampleStart.Clear();
             _roomSampleCount.Clear();
+            _roomTileCount.Clear();
+            _roomTileTotal.Clear();
+            _roomSnapMax.Clear();
+            _roomSnapSum.Clear();
+            _roomTileGrid.Clear();
             _sampleYMin = float.PositiveInfinity;
             _sampleYMax = float.NegativeInfinity;
             int rooms = _roomBounds.Count;
             if (rooms == 0)
             {
                 _sampleYMin = _sampleYMax = 0f;
+                _sampleGridCells = 0;
+                LogSampleGridCensus();
                 return;
             }
             int grid = rooms * 16 <= MaxTotalSamples ? 4
                 : rooms * 9 <= MaxTotalSamples ? 3
                 : rooms * 4 <= MaxTotalSamples ? 2
                 : 1;
+            _sampleGridCells = grid * grid;
             for (int r = 0; r < rooms; r++)
             {
                 _roomSampleStart.Add(_allSamples.Count);
+                // Diag rows, added for EVERY room including the ones that bail below, so their
+                // index stays the room index.
+                _roomTileCount.Add(0);
+                _roomTileTotal.Add(0);
+                _roomSnapMax.Add(0f);
+                _roomSnapSum.Add(0f);
+                _roomTileGrid.Add(false);
                 if (_allSamples.Count + grid * grid > MaxTotalSamples)
                 {
                     _roomSampleCount.Add(0); // over budget — room gets no grid this rescan
@@ -5110,19 +5318,186 @@ internal static partial class WallSegmentFade
                 float y = _roomFloorY[r] + FloorSampleEpsilon;
                 if (y < _sampleYMin) _sampleYMin = y;
                 if (y > _sampleYMax) _sampleYMax = y;
+
+                // This room's playable hexes, by the game's own room object. Absent → the
+                // ModBuild 257 bounding-box grid, unchanged, and the census says so in words.
+                object? mapKey = r < _roomMapKeys.Count ? _roomMapKeys[r] : null;
+                List<Vector3>? hexes = null;
+                if (mapKey != null && _tilesByMap.TryGetValue(mapKey, out List<Vector3> found)
+                    && found.Count > 0)
+                {
+                    _roomTileTotal[r] = found.Count;
+                    // KEEP ONLY THE HEXES IN THIS ROOM'S OWN FOOTPRINT. One CMap can be TWO
+                    // logical rooms here — CommitRoomRegistry keys them by (CMap, anchor height)
+                    // precisely because a terraced room must not share one sample plane — and
+                    // both would otherwise be handed the CMap's whole hex list, so the upper
+                    // level could snap its samples onto the lower level's tiles in XZ. The
+                    // footprint is the same box the lattice is drawn over, so a hex outside it
+                    // is one the lattice never reached anyway. Not a tuning: no margin, no
+                    // radius, just the room's own bounds.
+                    _tileScratch.Clear();
+                    for (int t = 0; t < found.Count; t++)
+                    {
+                        Vector3 h = found[t];
+                        if (h.x >= b.min.x && h.x <= b.max.x && h.z >= b.min.z && h.z <= b.max.z)
+                            _tileScratch.Add(h);
+                    }
+                    if (_tileScratch.Count > 0)
+                        hexes = _tileScratch;
+                }
+                _roomTileCount[r] = hexes != null ? hexes.Count : 0;
+                if (hexes == null)
+                {
+                    for (int ix = 0; ix < grid; ix++)
+                    {
+                        float bx = Mathf.Lerp(b.min.x, b.max.x, (ix + 0.5f) / grid);
+                        for (int iz = 0; iz < grid; iz++)
+                        {
+                            float bz = Mathf.Lerp(b.min.z, b.max.z, (iz + 0.5f) / grid);
+                            _allSamples.Add(new Vector3(bx, y, bz));
+                        }
+                    }
+                    _roomSampleCount.Add(grid * grid);
+                    continue;
+                }
+
+                _roomTileGrid[r] = true;
+                _tileTaken.Clear();
+                for (int t = 0; t < hexes.Count; t++)
+                    _tileTaken.Add(false);
+                int placed = 0;
+                float worst = 0f, moved = 0f;
                 for (int ix = 0; ix < grid; ix++)
                 {
                     float x = Mathf.Lerp(b.min.x, b.max.x, (ix + 0.5f) / grid);
                     for (int iz = 0; iz < grid; iz++)
                     {
                         float z = Mathf.Lerp(b.min.z, b.max.z, (iz + 0.5f) / grid);
-                        _allSamples.Add(new Vector3(x, y, z));
+                        int best = -1;
+                        float bestSq = float.PositiveInfinity;
+                        for (int t = 0; t < hexes.Count; t++)
+                        {
+                            if (_tileTaken[t])
+                                continue;
+                            float dx = hexes[t].x - x, dz = hexes[t].z - z;
+                            float sq = dx * dx + dz * dz;
+                            if (sq >= bestSq)
+                                continue;
+                            bestSq = sq;
+                            best = t;
+                        }
+                        if (best < 0)
+                            continue; // fewer hexes than lattice cells — every hex is already a sample
+                        _tileTaken[best] = true;
+                        // The hex gives XZ; Y stays the room's tile-anchored sample plane, so the
+                        // round-6 frame guarantee (and the !ABOVE-WALL tripwire built on it) is
+                        // exactly as it was.
+                        _allSamples.Add(new Vector3(hexes[best].x, y, hexes[best].z));
+                        placed++;
+                        float d = Mathf.Sqrt(bestSq);
+                        moved += d;
+                        if (d > worst) worst = d;
                     }
                 }
-                _roomSampleCount.Add(grid * grid);
+                _roomSnapMax[r] = worst;
+                _roomSnapSum[r] = moved;
+                _roomSampleCount.Add(placed);
             }
             if (float.IsInfinity(_sampleYMin))
                 _sampleYMin = _sampleYMax = 0f;
+            LogSampleGridCensus();
+        }
+
+        /// <summary>
+        /// THE PROOF LINE FOR ModBuild 258. Per room: how many playable hexes the game's own
+        /// registry gave us, how many of the <c>grid²</c> lattice positions became samples,
+        /// how far they had to move to reach a tile, the resulting quantum, and where the two
+        /// live Schmitt bars land IN CELLS — the arithmetic that latched 'Wall 2' and 'Wall 4'
+        /// in ModBuild 257 (4 cells = 0.25, above the 0.20 exit bar and below the 0.35 enter
+        /// bar, so the same reading appeared in BOTH states).
+        ///
+        /// <para>The max-move column is the direct measure of how wrong the bounding box was:
+        /// a room whose worst lattice position sits more than a hex pitch (~1.72 wu) from any
+        /// tile had lattice cells in dead space, which is the defect. A room reporting FELL
+        /// BACK TO THE BOUNDING BOX is running ModBuild 257 unchanged.</para>
+        ///
+        /// <para>Change-gated on its own text: the rescan runs every 2 s and this would
+        /// otherwise be the noisiest line in the log. It reprints the moment any number in it
+        /// moves — including a room revealing, which is exactly when it is wanted.</para>
+        /// </summary>
+        private void LogSampleGridCensus()
+        {
+            var sb = new System.Text.StringBuilder();
+            int tileRooms = 0, boxRooms = 0;
+            for (int r = 0; r < _roomSampleCount.Count; r++)
+            {
+                if (sb.Length > 0)
+                    sb.Append("; ");
+                sb.Append("room ").Append(r);
+                if (r < _roomLabels.Count)
+                    sb.Append(" '").Append(_roomLabels[r]).Append('\'');
+                int cells = _roomSampleCount[r];
+                if (r < _roomTileGrid.Count && _roomTileGrid[r])
+                {
+                    tileRooms++;
+                    sb.Append(": ").Append(_roomTileCount[r]).Append(" playable hex(es)")
+                      .Append(_roomTileTotal[r] != _roomTileCount[r]
+                          ? $" of {_roomTileTotal[r]} on this room's CMap (the rest sit outside "
+                            + "this room's own footprint — a terraced CMap is two rooms here)"
+                            : "")
+                      .Append(", ")
+                      .Append(cells).Append(" of ").Append(_sampleGridCells)
+                      .Append(" lattice position(s) kept ON A TILE (")
+                      .Append(_sampleGridCells - cells)
+                      .Append(" dropped — a lattice position is only dropped when the room has "
+                          + "fewer hexes than positions, never for being off-tile: off-tile "
+                          + "positions are MOVED to the nearest unclaimed hex), moved max ")
+                      .Append(_roomSnapMax[r].ToString("F2")).Append(" wu / mean ")
+                      .Append((cells > 0 ? _roomSnapSum[r] / cells : 0f).ToString("F2"))
+                      .Append(" wu");
+                }
+                else
+                {
+                    boxRooms++;
+                    sb.Append(": FELL BACK TO THE BOUNDING BOX (")
+                      .Append(cells == 0
+                          ? "over the " + MaxTotalSamples + "-sample budget — no grid at all, "
+                            + "walls of this room are held solid"
+                          : r < _roomMapKeys.Count && _roomMapKeys[r] == null
+                              ? "no CMap on this room's volume renderer, so its hexes cannot be "
+                                + "identified"
+                              : !_tileSourceLive
+                                  ? "ObjectCacheService did not answer — no tile registry this "
+                                    + "rescan"
+                                  : r < _roomTileTotal.Count && _roomTileTotal[r] > 0
+                                      ? $"the CMap has {_roomTileTotal[r]} hex(es) but NONE "
+                                        + "inside this room's own bounds — read that as a "
+                                        + "footprint/registry disagreement, not as an empty room"
+                                      : "the tile registry answered but holds no hex for this "
+                                        + "room's CMap")
+                      .Append("), ").Append(cells).Append(" box cell(s) — ModBuild 257 behaviour "
+                          + "exactly, unchanged by this build");
+                }
+                if (cells > 0)
+                {
+                    sb.Append(", quantum ").Append((1f / cells).ToString("F4"))
+                      .Append(" → exit bar ")
+                      .Append(Mathf.CeilToInt(WallFadeTuning.Off * cells))
+                      .Append(" cell(s), enter bar ")
+                      .Append(Mathf.CeilToInt(WallFadeTuning.On * cells)).Append(" cell(s)");
+                }
+            }
+            string line =
+                $"SAMPLE GRID: {tileRooms} room(s) on the PLAYABLE-TILE denominator, {boxRooms} "
+                + $"on the bounding box; tile registry {(_tileSourceLive ? "live" : "ABSENT")} "
+                + $"({_tilesResolved} hex(es) keyed to a room, {_tilesUnkeyed} without a CMap "
+                + $"and ignored) — {sb}. The denominator is per room and the ray loop is "
+                + "unchanged; a wall's coverage is still blocked-samples over THIS room's "
+                + "sample count.";
+            if (line == _lastSampleCensus)
+                return;
+            _lastSampleCensus = line;
+            VRLog.Info(Name, line);
         }
 
         /// <summary>
@@ -5471,6 +5846,17 @@ internal static partial class WallSegmentFade
             _roomSampleStart.Clear();
             _roomSampleCount.Clear();
             _allSamples.Clear();
+            _roomMapKeys.Clear();
+            _tilesByMap.Clear();
+            _tileListPool.Clear();
+            _tileListsUsed = 0;
+            _tileTaken.Clear();
+            _tileScratch.Clear();
+            _roomTileCount.Clear();
+            _roomTileTotal.Clear();
+            _roomSnapMax.Clear();
+            _roomSnapSum.Clear();
+            _roomTileGrid.Clear();
             _floorYByRenderer.Clear();
             _cornerPieces.Clear();
             _peerFades.Clear();

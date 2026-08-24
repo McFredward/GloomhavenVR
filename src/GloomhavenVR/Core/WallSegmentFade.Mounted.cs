@@ -352,12 +352,55 @@ internal static partial class WallSegmentFade
         /// used to bind silently and then mis-attribute the loss (see the constant).</summary>
         private readonly List<string> _mountedSaturated = new();
 
-        /// <summary>Props already restored earlier in THIS collection pass (the sticky loop's
-        /// figure/mobile releases). The leavers loop below would otherwise restore them a
-        /// second time, and a second <c>NoteOwnershipChange</c> with a different reason string
-        /// counts as another transition — i.e. the fix would feed the very churn tripwire it
-        /// exists to quieten.</summary>
+        /// <summary>Props the LEAVERS loop must not touch: either already restored earlier in
+        /// this collection pass (the sticky loop's figure/mobile releases) or handed straight to
+        /// another owner by the ModBuild-258 unit-affinity rule. Without this the leavers loop
+        /// would restore them a second time, and a second <c>NoteOwnershipChange</c> with a
+        /// different reason string counts as another transition — i.e. the fix would feed the very
+        /// churn tripwire it exists to quieten. A HANDOVER is deliberately not a restore: the new
+        /// owner's <see cref="ApplyMounted"/> drives the prop to ITS fade on the same frame (and
+        /// to solid through <see cref="RestoreSegmentMounted"/> when that fade is 0), so the piece
+        /// never blinks on its way between two walls.</summary>
         private readonly HashSet<MountedProp> _mountedReleased = new();
+
+        /// <summary>
+        /// UNIT AFFINITY (ModBuild 258) — WHICH SEGMENT ALREADY OWNS THIS PROP'S OWN PROP UNIT.
+        ///
+        /// <para>THE DEFECT, from the ModBuild-257 log rather than from reasoning. The
+        /// <c>FADE WRITE</c> census reports <c>TORN 'CA_ICY_WallLight' 4/9 written</c> and prints
+        /// both halves of the tear: <c>'CV_Ice_Crystal_Form_01'[mesh] under 'Walls/Wall 4/Generated
+        /// Content/CA_ICY_WallLight' … ← wall renderer of 'Wall 4' fade 1.00</c> against
+        /// <c>'center'[particles] under 'Wall 4/Generated Content/CA_ICY_WallLight/p_fire_torch (8)'
+        /// … ← mounted dressing of 'Wall 1' fade 1.00</c>, with
+        /// <c>LEFT SOLID under the same root: p_fire_torch (8), fx_sparks (1), distort, +2 more</c>
+        /// on one rescan and <c>LEFT SOLID … CV_Ice_Crystal_Form_01, …</c> on another. ONE prop,
+        /// TWO owners, two independent fades — so whichever wall goes first, half the wall light
+        /// survives it. The material of the surviving half is <c>FireTorchSparks_Blue_MAT</c>:
+        /// that is the blue flame in <c>wandproblem3.jpg</c>.</para>
+        ///
+        /// <para>WHY THE PROP-UNIT PASS DOES NOT ALREADY HEAL IT. <c>EnforcePropUnitCohesion</c>
+        /// groups <c>List&lt;MeshRenderer&gt;</c> and reads claims out of <c>seg.Renderers</c>
+        /// only. A <c>ParticleSystemRenderer</c> is not a MeshRenderer and mounted dressing is not
+        /// <c>seg.Renderers</c>, so a unit split across those two lists is invisible to it — by
+        /// construction, in every build it has ever shipped.</para>
+        ///
+        /// <para>THE RULE, and it is structural rather than numeric: a mounted candidate whose
+        /// prop unit is already owned by a segment attaches to THAT segment, whatever the nearest
+        /// -wall search says. Hierarchy beats distance here because it is the stronger statement —
+        /// the candidate is literally a child of the same prop root as that wall's own renderers,
+        /// which is why <c>StandingFloorUnitRootOf</c> (the ModBuild-167 walk, stopping at any
+        /// segment anchor or <c>ProceduralWall</c>) answers <c>CA_ICY_WallLight</c> for the torch
+        /// emitters and for the ice meshes alike. Every other test in the sweep still runs: a
+        /// figure, a mobile prop, an arch-protected piece and a water feature are refused exactly
+        /// as before, and a host that cannot carry dressing is not eligible to be the home.</para>
+        ///
+        /// <para>MULTIPLAYER: local and deterministic. The map is derived from scene hierarchy and
+        /// the local segment table; the majority vote is broken by the segment anchor's name
+        /// compared ordinally, so two peers cannot pick different homes for the same unit.</para>
+        /// </summary>
+        private readonly Dictionary<Transform, Segment> _mountedUnitHome = new(64);
+        private readonly Dictionary<Transform, int> _mountedUnitHomeVotes = new(64);
+        private int _censusMountedUnitHome;
 
         /// <summary>
         /// THE LEFTOVER AUDIT (ModBuild 257) — the one list in this file that is NOT the
@@ -380,9 +423,38 @@ internal static partial class WallSegmentFade
         /// entries that cannot float by construction) can no longer starve it.</para>
         /// </summary>
         private readonly List<string> _mountedLeftovers = new();
-        private const int MountedLeftoverCap = 12;
+
+        /// <summary>How many leftovers one line NAMES. Raised from 12 to 40 in ModBuild 258
+        /// because the ModBuild-257 log printed
+        /// <c>LEFTOVER OVER A FADED WALL: 22 renderer(s) are actually drawing …</c> and then
+        /// named twelve and said "(10 more)" — a list that truncates is a list that cannot be
+        /// used to prove a class is closed. 40 is the same budget the STANDING PROP near-miss
+        /// list settled on for the same reason.</summary>
+        private const int MountedLeftoverCap = 40;
         private int _censusMountedLeftover;
         private int _lastLoggedMountedLeftover = -1;
+
+        /// <summary>How many of the leftovers are ParticleSystemRenderers, and how many particle
+        /// candidates were skipped for being already carried.
+        ///
+        /// <para>WHY THE BREAKDOWN IS ON THE LINE. The ModBuild-257 log's LEFTOVER list contains
+        /// no <c>[particles]</c> entry at all, and there are two completely different reasons that
+        /// could be true: the audit cannot see particle systems, or the scene's particle systems
+        /// were all adopted. It is the second — <c>p_fire_torch (8)</c> and its
+        /// <c>FireTorchSparks_Blue_MAT</c> emitter ARE owned, as <c>mounted dressing of 'Wall 1'</c>,
+        /// while the ice meshes of their own prop root <c>CA_ICY_WallLight</c> ride 'Wall 4' — so
+        /// they leave the sweep silently at the already-owned skip and never reach a reject at
+        /// all. A count of 0 that cannot distinguish "none" from "invisible to me" is worth
+        /// nothing, so the line now states both numbers.</para></summary>
+        private int _censusMountedLeftoverParticles;
+        private int _censusMountedCarriedParticles;
+
+        /// <summary>Candidates that left the sweep at the very first skip — already in
+        /// <c>_mountedOwned</c>, i.e. adopted by some wall this rescan (sticky, a unit handover,
+        /// or an earlier segment). That skip is silent by design and produces no reject, no
+        /// leftover entry and, until ModBuild 258, no number at all — which is why the flame in
+        /// <c>wandproblem3.jpg</c> could be adopted by the wrong wall and appear in nothing.</summary>
+        private int _censusMountedAdopted;
         /// <summary>Candidates skipped because another attachment of a FADING segment already
         /// owns them — counted rather than listed, because they cannot float (see the skip
         /// site). This count is what the near-miss list used to be spending itself on.</summary>
@@ -873,6 +945,10 @@ internal static partial class WallSegmentFade
             _censusMountedLeftover = 0;
             _censusMountedMobile = 0;
             _censusMountedCarried = 0;
+            _censusMountedCarriedParticles = 0;
+            _censusMountedLeftoverParticles = 0;
+            _censusMountedAdopted = 0;
+            _censusMountedUnitHome = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
             _mountedReleased.Clear();
@@ -882,25 +958,36 @@ internal static partial class WallSegmentFade
             // below, or the orphan guard (which restores any ledger entry missing from
             // _mountedOwned — a stacked piece IS in the shared ledger while ramped/hidden).
             //
-            // ONE EXCEPTION, ModBuild 257 — AN OWNER THAT CANNOT FADE IS NOT AN OWNER. In the
-            // ModBuild 256 log, exactly two of the 61 ownership-churn warnings are a genuine
-            // contest rather than the un-fade edge, and both are the same piece:
-            //   'Glow' … (stacked:'ThickDoor : (1a01…)' → mounted:'Wall 3'
-            //             → stacked:'ThickDoor : (1a01…)' → mounted:'Wall 3')
-            // 'Glow' is a mesh→alpha prop hugging 'Wall 3' at anchor 2.2, gap 0.00. A DOORWAY
-            // segment never fades (user ruling 2026-08-02) — its state is pinned solid in the
-            // decision loop — so on every rescan the ThickDoor wins the claim, the mounted
-            // leavers pass restores 'Glow' to visible, and NOTHING ever hides it again. If
-            // 'Wall 3' is faded at that moment the result is a lit glow hanging in mid-air,
-            // and whether it happens depends on which rescan the fade started on: exactly the
-            // "ziemlich random, ich konnte kein Muster erkennen" of the report.
+            // ONE EXCEPTION, ModBuild 257 — AN OWNER THAT CANNOT FADE IS NOT AN OWNER.
+            // Conceding is refused when the doorway is demonstrably doing nothing with the piece
+            // — solid, and holding neither a stacked nor a body state — so no write war is
+            // possible: ApplyStacked/ApplyBody on such a segment take the want == 0 branch, and
+            // RestoreSegment{Stacked,Body} return immediately on state 0. The orphan guard cannot
+            // mis-release it either: a segment that has never hidden anything has no entry in the
+            // shared ledger.
             //
-            // Conceding is only refused when the doorway is demonstrably doing nothing with
-            // the piece — solid, and holding neither a stacked nor a body state — so no write
-            // war is possible: ApplyStacked/ApplyBody on such a segment take the want == 0
-            // branch, and RestoreSegment{Stacked,Body} return immediately on state 0. The
-            // orphan guard cannot mis-release it either, for the same reason: a segment that
-            // has never hidden anything has no entry in the shared ledger.
+            // WHAT ModBuild 258 MEASURED ABOUT THIS PREDICATE, and it is a correction. The skip
+            // was written for 'Glow', which in the ModBuild 256 AND 257 logs still flaps
+            //   mounted:'Wall 3' → released(wall solid again)
+            //     → stacked:'ThickDoor : (1a01…)' → mounted:'Wall 3'
+            // three times in 60s. The false term is `seg.DoorRoot != null`, and it is false BY
+            // CONSTRUCTION for the Stacked loop below: StackEligible (WallSegmentFade.Stacked.cs)
+            // requires `seg.DoorRoot == null`, so a segment can never hold a stacked piece AND
+            // satisfy this skip. The skip is unreachable on `seg.Stacked` and can only ever fire
+            // on `seg.Body`. It is left standing for the Body case and deliberately not widened.
+            //
+            // AND THE SEGMENT IS NOT A DOORWAY. The ModBuild-257 log prints
+            //   GATE COLUMN 'ThickDoor : (1a010af9…)': arch rect x[-2.6..-0.8] z[1.9..4.1] topY 4.7
+            // — 'ThickDoor : (1a01…)' names TWO segments with the same GameObject name: the
+            // permanently-solid arch segment (keyed on the door root Transform, DoorRoot stamped
+            // at WallSegmentFade.cs's adoption sweep) and the GATE COLUMN (keyed on the
+            // UnityGameEditorDoorProp, created in WallSegmentFade.Gate.cs, DoorRoot never stamped
+            // because the adoption sweep's gate-column branch `continue`s before that line). The
+            // one holding 'Glow' is the gate column, and a gate column FADES LIKE ANY WALL ("only
+            // the arch rect stays solid", user ruling 2026-08-07). So the ModBuild-257 diagnosis
+            // — "an owner that never fades" — was wrong about this piece: both owners can fade,
+            // they simply disagree about when. That is a one-prop-two-owners problem, and the
+            // ModBuild-258 unit-affinity rule (see _mountedUnitHome) is what settles it.
             foreach (Segment seg in _segments.Values)
             {
                 bool inertDoorway = seg.DoorRoot != null && seg.Fade <= 0f
@@ -924,14 +1011,28 @@ internal static partial class WallSegmentFade
             // and the orphan guard must not release them while their neighbors are faded.
             RegisterCornerOwnership();
 
-            // Park the previous lists and record who is already spoken for. STICKY OWNERSHIP: a
-            // segment that is mid-fade or held faded keeps every prop it already owns — releasing
-            // one while its wall is gone is exactly the blink the first hardware round produced.
+            // UNIT AFFINITY (ModBuild 258) — built HERE, from the final segment table, because
+            // the prop-unit pass has already run (CommitPhase.PropUnits precedes .Mounted) and
+            // seg.Renderers is therefore the authoritative "who owns this unit's wall half".
+            BuildMountedUnitHomes();
+
+            // PARK THE PREVIOUS LISTS FIRST, IN A LOOP OF THEIR OWN. This used to share the sticky
+            // loop below, and it cannot any more: the ModBuild-258 handover writes into ANOTHER
+            // segment's Mounted list, and a segment that had not been reached yet would clear the
+            // handover back out again on its own iteration. Two loops, so every list is empty
+            // before anything is put in one.
             foreach (Segment seg in _segments.Values)
             {
                 seg.PrevMounted.Clear();
                 seg.PrevMounted.AddRange(seg.Mounted);
                 seg.Mounted.Clear();
+            }
+
+            // STICKY OWNERSHIP: a segment that is mid-fade or held faded keeps every prop it
+            // already owns — releasing one while its wall is gone is exactly the blink the first
+            // hardware round produced.
+            foreach (Segment seg in _segments.Values)
+            {
                 bool sticky = seg.MountedState != 0 || seg.Fade > 0f;
                 if (sticky)
                 {
@@ -965,6 +1066,24 @@ internal static partial class WallSegmentFade
                                 $"MOBILE — {DriftText(drift)} against this wall, so it is not "
                                 + "dressing bolted to it");
                             _mountedReleased.Add(p);
+                            continue;
+                        }
+                        // UNIT AFFINITY (ModBuild 258) — sticky ownership must not outlive being
+                        // WRONG. The blue torch of 'CA_ICY_WallLight' is held sticky by 'Wall 1'
+                        // while the ice meshes of its own prop root ride 'Wall 4'; sticky then
+                        // re-asserts that split on every rescan, so without this the sweep below
+                        // never gets to look at the piece at all (it is already in _mountedOwned).
+                        // A HANDOVER, not a release: the new owner's ApplyMounted drives it on the
+                        // same frame, so nothing blinks. See _mountedUnitHome.
+                        Segment? stickyHome = MountedUnitHomeOf(p.Renderer);
+                        if (stickyHome != null && !ReferenceEquals(stickyHome, seg))
+                        {
+                            stickyHome.Mounted.Add(p);
+                            _mountedReleased.Add(p); // the leavers loop must not undo the handover
+                            _censusMounted++;
+                            _censusMountedUnitHome++;
+                            NoteOwnershipChange(p.Renderer,
+                                $"mounted:'{stickyHome.Anchor!.name}'(prop unit)");
                             continue;
                         }
                         seg.Mounted.Add(p);
@@ -1070,7 +1189,17 @@ internal static partial class WallSegmentFade
                         continue;
                     Renderer c = f.R!;
                     if (_mountedOwned.Contains(c))
-                        continue; // already attached this rescan (sticky or earlier in the sweep)
+                    {
+                        // Already attached this rescan (sticky, a handover, or earlier in the
+                        // sweep). THIS is where the ModBuild-257 log's blue flame left: it was
+                        // adopted, by the wrong wall, and an adopted renderer produces no reject
+                        // and therefore no LEFTOVER entry. Counted since ModBuild 258 so the line
+                        // can say "no particle leftover" and mean it.
+                        if (c is ParticleSystemRenderer)
+                            _censusMountedCarriedParticles++;
+                        _censusMountedAdopted++;
+                        continue;
+                    }
                     // STRUCTURAL SKIPS — the three ways a renderer leaves this sweep before any
                     // geometric test runs. Each is LOGGED when it stands near a wall (round 3: a
                     // banner's wooden bar survived a fade and appeared in no reject list at all,
@@ -1105,6 +1234,8 @@ internal static partial class WallSegmentFade
                         if (ownerCanCarryIt)
                         {
                             _censusMountedCarried++;
+                            if (c is ParticleSystemRenderer)
+                                _censusMountedCarriedParticles++;
                             continue;
                         }
                         if (StructuralSkipArmed)
@@ -1231,6 +1362,33 @@ internal static partial class WallSegmentFade
                         bestGap = gap;
                         best = seg;
                     }
+                    // UNIT AFFINITY (ModBuild 258) — HIERARCHY OVERRULES THE NEAREST-WALL SEARCH.
+                    // The search above is a distance test between AABBs and it put the icy wall
+                    // light's torch emitters on 'Wall 1' while the ice meshes of the SAME prop
+                    // root rode 'Wall 4' (see _mountedUnitHome for the log lines). Being a child
+                    // of the same prop root as a wall's own renderers is a stronger statement than
+                    // being 0.2 wu nearer to a different wall's box, so it wins — including when
+                    // the geometric search found nothing at all, which is the case where a piece
+                    // of a fading prop would otherwise be left standing. The floor gate
+                    // (`belowBar`) is NOT overruled: a candidate that reads as floor-supported
+                    // cannot float and has nothing to be rescued from.
+                    bool byUnitHome = false;
+                    if (!belowBar)
+                    {
+                        Segment? home = MountedUnitHomeOf(c);
+                        if (home != null && !ReferenceEquals(home, best))
+                        {
+                            best = home;
+                            bestGap = particles
+                                ? HorizontalGap(home.Bounds, c.transform.position)
+                                : HorizontalGap(home.Bounds, b);
+                            // Counted at the ADOPTION, not here: this candidate can still be
+                            // refused below as a figure, a mobile prop or architecture, and a
+                            // census that counts intentions is the failure this subsystem has
+                            // paid for twice.
+                            byUnitHome = true;
+                        }
+                    }
                     if (belowBar)
                     {
                         NoteMountedReject(c, anchorY, nearestAny,
@@ -1330,15 +1488,19 @@ internal static partial class WallSegmentFade
                         prop = ClassifyProp(c);
                     best.Mounted.Add(prop);
                     _mountedOwned.Add(c);
+                    if (byUnitHome)
+                        _censusMountedUnitHome++;
                     NoteOwnershipChange(c,
-                        $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
+                        $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
+                        + (byUnitHome ? "(prop unit)" : string.Empty));
                     _censusMounted++;
                     if (_mountedCensus.Count < MountedCensusCap)
                     {
                         string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
                         _mountedCensus.Add(
                             $"'{c.name}'[{RendererKind(c)}→{prop.Tier}] anchor {anchorY:F1} "
-                            + $"gap {bestGap:F2} → '{wall}'");
+                            + $"gap {bestGap:F2} → '{wall}'"
+                            + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty));
                     }
                 }
             }
@@ -1401,6 +1563,90 @@ internal static partial class WallSegmentFade
             LogMountedMobile();
         }
 
+        /// <summary>
+        /// Map every prop-unit root a segment already drives to that segment — see
+        /// <see cref="_mountedUnitHome"/> for the defect this exists for. The input is
+        /// <c>seg.Renderers</c> and <c>seg.Foliage</c>, i.e. the two lists a wall's OWN geometry
+        /// lands in; deliberately NOT the attachment lists, because a mounted/stacked claim is the
+        /// very thing this map is here to arbitrate and letting it vote would make the rule a
+        /// fixed point of whatever it did last rescan.
+        ///
+        /// <para>MAJORITY, then anchor name ordinally. A unit whose renderers ended up on two
+        /// walls has already been through <c>EnforcePropUnitCohesion</c>, so a tie is rare; the
+        /// tie-break is a stable string precisely so two peers cannot disagree.</para>
+        /// </summary>
+        private void BuildMountedUnitHomes()
+        {
+            _mountedUnitHome.Clear();
+            _mountedUnitHomeVotes.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                if (!seg.HasBounds || seg.Anchor == null)
+                    continue;
+                foreach (MeshRenderer r in seg.Renderers)
+                    VoteMountedUnitHome(r, seg);
+                foreach (MeshRenderer f in seg.Foliage)
+                    VoteMountedUnitHome(f, seg);
+            }
+        }
+
+        private void VoteMountedUnitHome(Renderer? r, Segment seg)
+        {
+            if (r == null)
+                return;
+            Transform? root = StandingFloorUnitRootOf(r);
+            if (root == null)
+                return; // no prop unit — nothing for the affinity rule to be affine to
+            if (!_mountedUnitHome.TryGetValue(root, out Segment? held))
+            {
+                _mountedUnitHome[root] = seg;
+                _mountedUnitHomeVotes[root] = 1;
+                return;
+            }
+            if (ReferenceEquals(held, seg))
+            {
+                _mountedUnitHomeVotes[root]++;
+                return;
+            }
+            // A contested unit. Count this segment's share; the incumbent keeps the root until
+            // something outvotes it, and an exact tie is broken on the anchor name so the answer
+            // is identical on every machine.
+            int mine = 0;
+            foreach (MeshRenderer m in seg.Renderers)
+            {
+                if (m != null && ReferenceEquals(StandingFloorUnitRootOf(m), root))
+                    mine++;
+            }
+            int theirs = _mountedUnitHomeVotes[root];
+            bool takeover = mine > theirs
+                || (mine == theirs && held.Anchor != null && seg.Anchor != null
+                    && string.CompareOrdinal(seg.Anchor.name, held.Anchor.name) < 0);
+            if (!takeover)
+                return;
+            _mountedUnitHome[root] = seg;
+            _mountedUnitHomeVotes[root] = mine;
+        }
+
+        /// <summary>The segment that owns this renderer's prop unit, or null when the renderer has
+        /// no unit, its unit is unowned, or the owner could not carry dressing anyway.</summary>
+        private Segment? MountedUnitHomeOf(Renderer r)
+        {
+            if (_mountedUnitHome.Count == 0)
+                return null;
+            Transform? root = StandingFloorUnitRootOf(r);
+            if (root == null || !_mountedUnitHome.TryGetValue(root, out Segment? home))
+                return null;
+            return MountedHostEligible(home) ? home : null;
+        }
+
+        /// <summary>May this segment be handed a prop by the unit-affinity rule? The same three
+        /// facts the sweep's own search requires — a doorway never fades (user ruling 2026-08-02),
+        /// a segment without a trusted room plane makes no decision to ride, and the runaway cap
+        /// is a cap.</summary>
+        private bool MountedHostEligible(Segment s) =>
+            s.HasBounds && s.Anchor != null && s.DoorRoot == null
+            && RoomDecisionValid(s.RoomIndex) && s.Mounted.Count < MountedMaxPerSegment;
+
         /// <summary>Record a segment that has filled its dressing quota (see
         /// <see cref="MountedMaxPerSegment"/>) — once per segment per rescan.</summary>
         private void NoteMountedSaturated(Segment seg)
@@ -1456,6 +1702,13 @@ internal static partial class WallSegmentFade
             if (_leftoverFadedNear == null || !IsActuallyDrawing(c))
                 return;
             _censusMountedLeftover++;
+            // A ParticleSystemRenderer CAN reach this list and always could: it is a
+            // MountedCandidate (see the type test), five of this sweep's rejects are not
+            // particle-gated (the airborne bar, "no wall in reach", FIGURE, standing prop and
+            // MOBILE), and IsActuallyDrawing reads particleCount off the emitter. Counted so a
+            // zero here is evidence rather than an absence.
+            if (c is ParticleSystemRenderer)
+                _censusMountedLeftoverParticles++;
             if (_mountedLeftovers.Count >= MountedLeftoverCap)
                 return;
             Segment faded = _leftoverFadedNear;
@@ -1504,7 +1757,14 @@ internal static partial class WallSegmentFade
                 + $"against it; Lights are NEVER written to): {riding}"
                 + $"{misses}{starved} ({_censusMountedRejected} near-miss total, "
                 + $"{_censusMountedCarried} skipped as already carried by a wall that fades, "
-                + $"{_censusMountedLeftover} drawing over a fully faded wall){full}.");
+                + $"{_censusMountedAdopted} skipped for being ALREADY ADOPTED this rescan — of "
+                + $"those two silent populations {_censusMountedCarriedParticles} are particle "
+                + $"systems, which is where the blue flame of wandproblem3.jpg was hiding: "
+                + $"adopted, by the wrong wall, and therefore in no reject and no leftover line, "
+                + $"{_censusMountedLeftover} drawing over a fully faded wall; "
+                + $"{_censusMountedUnitHome} attached to the wall that owns their PROP UNIT "
+                + $"rather than to the nearest one — ModBuild 258, wandproblem3.jpg: one prop "
+                + $"with two owners is one prop that half-survives every fade){full}.");
         }
 
         /// <summary>
@@ -1525,12 +1785,23 @@ internal static partial class WallSegmentFade
                 + "drawing (renderer enabled + active in hierarchy; particle systems with live "
                 + "particles) within "
                 + $"{MountedNearMissXZ:0.0} wu of a wall whose fade is ≥{FoliageHideFade:0.00} "
-                + $"— read off the renderer and the emitter, not off our ledger: "
+                + $"— read off the renderer and the emitter, not off our ledger. "
+                + $"{_censusMountedLeftoverParticles} of them are ParticleSystemRenderers, and "
+                + $"that number is now stated because a list with no [particles] entry used to be "
+                + $"unreadable: a particle system reaches this list through five of the sweep's "
+                + $"rejects (airborne bar, no wall in reach, FIGURE, standing prop, MOBILE) and "
+                + $"IsActuallyDrawing reads its live particleCount, so 0 here means none were "
+                + $"left over — NOT that none could be. The other place a drawing particle system "
+                + $"can be is ADOPTED BY THE WRONG WALL, which produces no reject at all and is "
+                + $"counted on the WALL-MOUNTED DRESSING line instead "
+                + $"({_censusMountedCarriedParticles} this rescan). Names (up to "
+                + $"{MountedLeftoverCap}, raised from 12 in ModBuild 258 because the previous log "
+                + $"named 12 of 22): "
                 + string.Join("; ", _mountedLeftovers)
                 + (_censusMountedLeftover > _mountedLeftovers.Count
                     ? $"; … ({_censusMountedLeftover - _mountedLeftovers.Count} more)"
                     : string.Empty)
-                + ". This is the shape of the 2026-08-24 report (wand_problem2.jpg): the wall is "
+                + ". This is the shape of the 2026-08-24 report (wandproblem3.jpg): the wall is "
                 + "gone and the thing that hung on it is not.");
         }
 

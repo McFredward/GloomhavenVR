@@ -618,6 +618,17 @@ internal static partial class WallSegmentFade
                 // PER-CELL ATTRIBUTION. "blocks 2 of 16" has been the unanswerable question in
                 // every round since ModBuild 250; naming the cells and the piece that took the
                 // first one settles whether a low reading is real floor or geometry residue.
+                //
+                // WHAT A CELL INDEX MEANS CHANGED IN ModBuild 258. It is still the room-relative
+                // sample index in lattice order (ix outer, iz inner), but the sample now sits on
+                // the nearest PLAYABLE HEX to that lattice position rather than on the lattice
+                // position itself — so a cell can no longer be a corner of the room's bounding
+                // rectangle with no tile under it. That is the whole ModBuild 257 defect: all
+                // four green walls pinned at a different corner of that rectangle (#0,#1,#4,#8 /
+                // #7,#11,#14,#15 / #2,#3 / #12), each taken by a prop standing off the field.
+                // Cross-build comparisons of these indices against a pre-258 log are therefore
+                // comparisons of two different point sets; the SAMPLE GRID line reports how far
+                // each room's positions had to move. See WallSegmentFade.cs, RebuildSamples.
                 string cells = seg.LastBlockedCells.Count == 0
                     ? "none"
                     : "#" + string.Join(",#", seg.LastBlockedCells);

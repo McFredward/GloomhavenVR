@@ -42,6 +42,16 @@ namespace GloomhavenVR.Core;
 /// still there. No previous census printed that comparison, which is why four rounds of logs could
 /// not settle the question.</para>
 ///
+/// <para>SO DO SPLIT-OWNER UNITS, since ModBuild 258 — the SECOND shape a prop tears in, and one
+/// this line could state only by accident before. <c>'CA_ICY_WallLight'</c> put its ice meshes on
+/// <c>wall renderer of 'Wall 4'</c> and its blue torch emitters on <c>mounted dressing of
+/// 'Wall 1'</c>: two owners, two independent fades, so whichever wall went first the other half of
+/// the wall light stayed lit in mid-air (<c>wandproblem3.jpg</c>, <i>"die blaue Flamme ist nun
+/// wieder sichtbar ohne dass sie gefaded ist"</i>). Such a unit can be 9/9 written and therefore
+/// NOT torn, so without its own term the six-unit cap drops it by size. See
+/// <see cref="FadeDriver.FadeUnit.OwnerSplit"/>, and <c>WallSegmentFade.Mounted.cs</c>'s
+/// unit-affinity rule, which is what the count is meant to hold at zero.</para>
+///
 /// <para>HOW A PROP IS GROUPED: ModBuild 167's walk, <see cref="FadeDriver.PropUnitRootOf"/> — the
 /// highest still prop-sized ancestor, stopping dead at a segment anchor, at anything carrying or
 /// containing a <c>ProceduralWall</c>, and at the first container-scale subtree. A renderer with no
@@ -78,8 +88,12 @@ internal static partial class WallSegmentFade
         private const int FadeCensusMembersPerUnit = 4;
 
         /// <summary>How many still-solid siblings a torn unit names — the other half of the
-        /// comparison, and the half that makes "torn" a fact rather than an inference.</summary>
-        private const int FadeCensusSolidNamesPerUnit = 3;
+        /// comparison, and the half that makes "torn" a fact rather than an inference. Raised
+        /// from 3 to 6 in ModBuild 258: the two worst offenders in the ModBuild-257 log are
+        /// <c>'PCG_FR_Pillar_Tree_Trunk_01_PR' 7/17 written … LEFT SOLID … +6 more</c> and
+        /// <c>'CA_ICY_WallLight' 4/9 written … LEFT SOLID: p_fire_torch (8), fx_sparks (1),
+        /// distort, +2 more</c>, i.e. both hid the tail of the very list the round turns on.</summary>
+        private const int FadeCensusSolidNamesPerUnit = 6;
 
         /// <summary>One renderer this mod is currently fading, and by which path.</summary>
         private readonly struct FadeWrite
@@ -122,6 +136,10 @@ internal static partial class WallSegmentFade
             public float MaxY;
             public float FloorY;
             public bool SingleRenderer;
+            /// <summary>Computed ONCE per census (see <see cref="OwnerSplit"/>), because the sort
+            /// below reads it and a comparator that allocates a StringBuilder per comparison is a
+            /// diagnostic that costs more than the thing it diagnoses.</summary>
+            public string Owners = string.Empty;
 
             public void Reset()
             {
@@ -135,9 +153,61 @@ internal static partial class WallSegmentFade
                 MaxY = 0f;
                 FloorY = 0f;
                 SingleRenderer = false;
+                Owners = string.Empty;
             }
 
             public bool Torn => WallStandingProp.IsTorn(Written.Count, TotalRenderers);
+
+            /// <summary>
+            /// THE OTHER WAY A PROP TEARS, and the ModBuild-257 log could not state it: not
+            /// "some of me was written" but "I have TWO OWNERS, on two independent fades". The
+            /// census printed the owner per renderer and then truncated at four members, so the
+            /// split in <c>'CA_ICY_WallLight' 4/9</c> — ice meshes on <c>wall renderer of
+            /// 'Wall 4'</c>, torch emitters on <c>mounted dressing of 'Wall 1'</c> — had to be
+            /// reconstructed by hand across two different lines of the log. A unit with two
+            /// owners half-survives every fade, whichever wall goes first, and after the
+            /// ModBuild-258 unit-affinity rule (<c>WallSegmentFade.Mounted.cs</c>,
+            /// <c>_mountedUnitHome</c>) there should be none. Stated per unit so one grep
+            /// falsifies that.
+            /// </summary>
+            public string OwnerSplit()
+            {
+                var sb = new System.Text.StringBuilder();
+                int distinct = 0;
+                // Index loops on purpose: FadeWrite is a readonly STRUCT, so an identity test
+                // between two copies would box and never be true. "First occurrence" is a
+                // position, not a reference.
+                for (int i = 0; i < Written.Count; i++)
+                {
+                    string owner = Written[i].Owner;
+                    bool seen = false;
+                    for (int j = 0; j < i; j++)
+                    {
+                        if (string.Equals(Written[j].Owner, owner, System.StringComparison.Ordinal))
+                        {
+                            seen = true;
+                            break;
+                        }
+                    }
+                    if (seen)
+                        continue;
+                    int n = 0;
+                    float fade = 0f;
+                    for (int j = 0; j < Written.Count; j++)
+                    {
+                        if (!string.Equals(Written[j].Owner, owner, System.StringComparison.Ordinal))
+                            continue;
+                        n++;
+                        fade = Written[j].Fade;
+                    }
+                    distinct++;
+                    if (sb.Length > 0)
+                        sb.Append(", ");
+                    sb.Append('\'').Append(owner).Append("'×").Append(n)
+                      .Append("@fade ").Append(fade.ToString("0.00"));
+                }
+                return distinct > 1 ? sb.ToString() : string.Empty;
+            }
         }
 
         private readonly List<FadeWrite> _fadeWrites = new(128);
@@ -201,6 +271,10 @@ internal static partial class WallSegmentFade
                 sig = unchecked(sig * 31 + w.R.GetInstanceID());
                 sig = unchecked(sig * 31 + Mathf.RoundToInt(w.Fade * 16f));
                 sig = unchecked(sig * 31 + w.Path.GetHashCode());
+                // ModBuild 258: the OWNER is part of the signature. A prop changing hands between
+                // two walls at the same fade is now the defect this line reports, and without
+                // this term the line stays silent through exactly that transition.
+                sig = unchecked(sig * 31 + w.Owner.GetHashCode());
             }
             if (sig == _fadeCensusSig)
                 return;
@@ -280,9 +354,13 @@ internal static partial class WallSegmentFade
                 }
             }
 
-            // TORN first (that is the shape of the report), then SMALLEST first (a skull is
-            // small). Insertion sort: the list is tens of entries and this runs at most once every
-            // two seconds, on a frame where something actually changed.
+            // The owner split, once per unit — the sort below reads it. See FadeUnit.Owners.
+            foreach (FadeUnit u in _fadeUnits)
+                u.Owners = u.OwnerSplit();
+
+            // TORN OR SPLIT first (those are the two shapes of the report), then SMALLEST first
+            // (a skull is small). Insertion sort: the list is tens of entries and this runs at
+            // most once every two seconds, on a frame where something actually changed.
             for (int i = 1; i < _fadeUnits.Count; i++)
             {
                 FadeUnit key = _fadeUnits[i];
@@ -300,8 +378,13 @@ internal static partial class WallSegmentFade
         /// <paramref name="b"/>.</summary>
         private static int FadeUnitOrder(FadeUnit a, FadeUnit b)
         {
-            if (a.Torn != b.Torn)
-                return a.Torn ? -1 : 1;
+            // A unit with two owners can be 9/9 written and therefore NOT torn, and it is still
+            // the defect (CA_ICY_WallLight — see FadeUnit.OwnerSplit). Without this term the
+            // six-unit cap drops it by size and the line answers a question nobody asked.
+            bool ab = a.Torn || a.Owners.Length > 0;
+            bool bb = b.Torn || b.Owners.Length > 0;
+            if (ab != bb)
+                return ab ? -1 : 1;
             return a.SizeRank < b.SizeRank ? -1 : a.SizeRank > b.SizeRank ? 1 : 0;
         }
 
@@ -348,13 +431,15 @@ internal static partial class WallSegmentFade
         /// <summary>Build and emit the line.</summary>
         private void EmitFadeWriteCensus()
         {
-            int torn = 0, lone = 0;
+            int torn = 0, lone = 0, split = 0;
             foreach (FadeUnit u in _fadeUnits)
             {
                 if (u.Torn)
                     torn++;
                 if (u.SingleRenderer)
                     lone++;
+                if (u.Owners.Length > 0)
+                    split++;
             }
             int shown = Mathf.Min(FadeCensusUnitCap, _fadeUnits.Count);
             var rows = new System.Text.StringBuilder();
@@ -388,6 +473,11 @@ internal static partial class WallSegmentFade
                     if (rest > 0)
                         rows.Append(", +").Append(rest).Append(" more");
                 }
+                if (u.Owners.Length > 0)
+                {
+                    rows.Append(" — TWO OWNERS on independent fades: ").Append(u.Owners)
+                        .Append(" (whichever goes first, the other half of this prop survives it)");
+                }
             }
 
             VRLog.Info(Name,
@@ -405,6 +495,14 @@ internal static partial class WallSegmentFade
                 + $"cannot fire on it, so a missing piece that shows up in THAT bucket means the "
                 + $"tileset parented it flat and the grouping, not the geometry, is what needs "
                 + $"widening next. "
+                + $"{split} unit(s) have TWO OR MORE OWNERS on independent fades — the second way "
+                + $"a prop tears, and the one this census could not state until ModBuild 258: "
+                + $"'CA_ICY_WallLight' put its ice meshes on 'Wall 4' as wall renderers and its "
+                + $"blue torch emitters on 'Wall 1' as mounted dressing, so half of it survived "
+                + $"every fade either wall made (wandproblem3.jpg, 'die blaue Flamme ist nun "
+                + $"wieder sichtbar ohne dass sie gefaded ist'). The unit-affinity rule in "
+                + $"WallSegmentFade.Mounted.cs is meant to hold this at ZERO; any non-zero value "
+                + $"here names the units it missed. "
                 + $"Anchor = AABB min.y over the nearest anchored room floor, the same anchor the "
                 + $"mounted census prints. {rows}");
         }

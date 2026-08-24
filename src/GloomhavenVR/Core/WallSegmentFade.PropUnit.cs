@@ -75,6 +75,20 @@ namespace GloomhavenVR.Core;
 /// inside a headset. See that file's header, and
 /// <c>tests/GloomhavenVR.WireTests/WallPropUnitVectors.cs</c>, which drives the exact case above.</para>
 ///
+/// <para>A UNIT FADES WHOLE OR NOT AT ALL — ModBuild 258, and it is the same sentence read one
+/// step further. Giving a torn prop ONE OWNER is not enough if a per-renderer rule then refuses
+/// half of it: the ModBuild-257 hardware log reports <c>FADE WRITE: … grouped into 85 prop
+/// unit(s), 49 of them TORN</c>, and 105 of those lines are one asset —
+/// <c>TORN 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' 4/6 written … LEFT SOLID under the same
+/// root: FR_Stones_06 (1), FR_Stones_02 (2)</c>. The wall mesh and its three Foliage attachments
+/// dissolve; the two ground-hugging stones of the same prop stay fully drawn. That is
+/// <c>wandproblem3.jpg</c>. The rule that held them is <see cref="FadeDriver.StripGroundRenderers"/>
+/// and its 1.0 wu band, re-applied by <see cref="FadeDriver.PropUnitRecruit"/> — and one line away
+/// in the same log the standing rule has already judged this exact root
+/// <c>height 3.0 wu — architecture, not a floor prop</c>. Two rules, one prop, opposite answers.
+/// The UNIT-level verdict wins: the band is per-renderer and cannot see what a piece belongs to.
+/// See <see cref="FadeDriver.PropUnitRecruit"/> for why this cannot reach a floor tile.</para>
+///
 /// <para>WHAT THE PASS DOES with the answer: every renderer of the unit is removed from the
 /// segments that are NOT the owner (clearing our property block off it, or it would carry a
 /// stale fade forever — the <see cref="FadeDriver.StripGroundRenderers"/> discipline) and added to
@@ -289,9 +303,25 @@ internal static partial class WallSegmentFade
         private int _propUnitUnfadeable;
         private int _propUnitCensusSig = -1;
 
+        /// <summary>How many members the ModBuild-258 whole-unit rule pulled back THROUGH the
+        /// ground band this rescan — the direct falsifier for the scrub wall's two stones (see
+        /// <see cref="PropUnitRecruit"/>). Zero in the reported scene means the band was not what
+        /// held them and the <see cref="_propUnitLeftVisible"/> list says what did.</summary>
+        private int _propUnitGroundLifted;
+        private readonly List<string> _propUnitGroundNames = new(8);
+
+        /// <summary>Members the recruit could not drive, each with the TERM that refused it. The
+        /// ModBuild-257 line collapsed all of these into one "no fade channel" count, which is
+        /// unable to tell a tileset fact from one of our own rules — and that is exactly the
+        /// question this round turns on.</summary>
+        private readonly List<string> _propUnitLeftVisible = new(8);
+
         /// <summary>How many census rows the line carries. Six is what the standing-prop and
         /// mounted lines settled on: enough to name the offender, short of a wall of text.</summary>
         private const int PropUnitCensusCap = 6;
+
+        /// <summary>How many distinct member names the two per-member lists carry.</summary>
+        private const int PropUnitLeftVisibleCap = 8;
 
         /// <summary>One grouped prop: its members, and which segments hold them.</summary>
         private sealed class PropUnit
@@ -409,10 +439,13 @@ internal static partial class WallSegmentFade
             _propUnitOwnerNow.Clear();
             _propUnitCensus.Clear();
             _propUnitTouched.Clear();
+            _propUnitGroundNames.Clear();
+            _propUnitLeftVisible.Clear();
             _propUnitRegrouped = 0;
             _propUnitMoved = 0;
             _propUnitRecruited = 0;
             _propUnitUnfadeable = 0;
+            _propUnitGroundLifted = 0;
 
             RefreshPropUnitAnchors();
         }
@@ -701,28 +734,115 @@ internal static partial class WallSegmentFade
             NotePropUnitCensus(unit, owner, rule, moved, recruited, unfadeable);
         }
 
-        /// <summary>Offer an unclaimed member to the winning segment. False when the renderer has
-        /// no business fading with it — ground band, water feature, or no fade channel at all — and
-        /// each of those is a fact the census reports rather than hides.</summary>
+        /// <summary>
+        /// Offer an unclaimed member to the winning segment. False when the renderer has no fade
+        /// channel at all, or is water-protected — and each of those is a fact the census reports
+        /// rather than hides.
+        ///
+        /// <para>THE GROUND BAND GETS NO VOTE HERE, and that is the ModBuild-258 fix
+        /// (<c>wandproblem3.jpg</c>, verbatim: <i>"ein Teil der Wand bleibt nun stehen und faded
+        /// garnicht mehr"</i>). Until this build the method re-applied
+        /// <c>GroundExclusionHeightWU</c> to every candidate, which is what the ModBuild-257 log
+        /// is 105 lines of:
+        /// <c>TORN 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' 4/6 written … LEFT SOLID under the
+        /// same root: FR_Stones_06 (1), FR_Stones_02 (2)</c> — the wall mesh and its three foliage
+        /// attachments dissolve, the two ground-hugging stones of the SAME prop stay fully drawn.
+        /// Ranked over that whole session the pieces left solid are <c>FR_Stones_06 (1)</c> ×105,
+        /// <c>FR_Stones_02 (2)</c> ×105, <c>FR_Floor_Detail_Grass_05_PR (1)</c> ×28,
+        /// <c>FR_Floor_LargeBush_02 (1)</c> ×22 — all of them the BASE of a prop whose top is
+        /// gone.</para>
+        ///
+        /// <para>WHY THE UNIT WINS AND THE BAND LOSES, from the same log rather than from taste.
+        /// The band is a PER-RENDERER rule that cannot see what a piece belongs to; the standing
+        /// rule is a PER-UNIT rule that has already answered the same question for this exact
+        /// root, and its answer is printed one line away:
+        /// <c>NEAR MISS … 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' height 3.0 wu —
+        /// architecture, not a floor prop (cap 2.5 wu)</c>. The mod has decided this unit is wall.
+        /// A wall's bottom metre is wall. Two rules disagreeing about one prop is exactly what
+        /// TORN measures, and the whole-unit verdict is the one that can be right.</para>
+        ///
+        /// <para>WHY THIS CANNOT EAT THE FLOOR — the defect <see cref="StripGroundRenderers"/> was
+        /// written for, where fading a wall took its room-edge ground hexes with it. This method
+        /// is only ever reached for a MEMBER of a <see cref="PropUnit"/>, i.e. for a renderer
+        /// under a root that <see cref="PropUnitRootOf"/> produced, and that walk stops dead at a
+        /// segment anchor, at any <c>ProceduralWall</c>, and at the first container-scale subtree.
+        /// This tileset parents a floor tile as
+        /// <c>Wall N/Generated Content/PCG_CR_Floor_BaseHex_Plain/EN_CR_Floor_BaseHex_Plain</c> —
+        /// a ONE-renderer wrapper under a container-scale node — so it yields no unit and can
+        /// never be a member. The floor assets that DO group into a unit are protected by the
+        /// standing rule's FLOOR arm as WHOLE units (<c>'PCG_FR_Floor_Grass_Hex_Split_PR' … height
+        /// 0.5 wu, 2 renderer(s) — floor prop</c>, ModBuild 257), which means no member of theirs
+        /// is ever claimed by a wall, which means the unit never gets an owner and this method is
+        /// never called for it. The lift therefore reaches exactly one population: members of a
+        /// unit the FLOOR arm has already called architecture. See
+        /// <see cref="WallStandingProp.UnitFadesAsOne"/>.</para>
+        ///
+        /// <para>THE FALSIFIER. The <c>FADE WRITE</c> census's TORN count for these units must go
+        /// to zero. If <c>'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR'</c> still reads <c>4/6</c>
+        /// in the next hardware log, the ground band was not what held the stones and the PROP
+        /// UNIT line's new <c>left visible</c> breakdown says which term did instead — this method
+        /// now records the refusing term per member rather than one aggregate count.</para>
+        /// </summary>
         private bool PropUnitRecruit(Segment owner, MeshRenderer m)
         {
             if (IsModObject(m) || !m.enabled)
                 return false;
-            // The ground strip and the water rects have already run this rescan; re-adding a
-            // renderer they excluded would undo them for one full rescan interval (the jungle
-            // floor / fountain basin classes).
+            // WATER stays out (user ruling 2026-08-09, brunnen.png): a fountain's basin and its
+            // water plane are a feature that never fades, and unlike the ground band that is a
+            // ruling about the OBJECT, not a band the object happens to sit in.
+            if (IsWaterProtected(m.bounds))
+            {
+                NotePropUnitLeftVisible(m, "water feature (user ruling 2026-08-09) — never fades");
+                return false;
+            }
+            // The one choke point. It re-asks the standing rule (so a member of a PROTECTED unit
+            // is refused here exactly as it would be anywhere else) and then asks whether the
+            // renderer has a fade channel at all. A renderer with no channel is a fact about the
+            // tileset, reported rather than papered over.
+            if (!CollectWallFadeInfo(m, owner))
+            {
+                NotePropUnitLeftVisible(m, RendererUsesFoliage(m)
+                    ? "Foliage-family shader with no wall-fade channel — it can only ride a fade "
+                      + "through seg.Foliage, and nothing offered it there"
+                    : "no wall-fade channel on any of its materials (neither the WallFade shader "
+                      + "family nor a live _WallFade_On toggle)");
+                return false;
+            }
             if (RoomDecisionValid(owner.RoomIndex) && owner.RoomIndex < _roomFloorY.Count
                 && m.bounds.max.y <= _roomFloorY[owner.RoomIndex] + GroundExclusionHeightWU)
             {
-                return false;
+                // Recruited THROUGH the ground band — the ModBuild-258 lift. Counted separately
+                // so the next log states how many pieces the rule actually recovered, and from
+                // which units.
+                _propUnitGroundLifted++;
+                NotePropUnitGroundLift(m);
             }
-            if (IsWaterProtected(m.bounds))
-                return false;
-            if (!CollectWallFadeInfo(m, owner))
-                return false;
             owner.Renderers.Add(m);
             _propUnitClaimed.Add(m);
             return true;
+        }
+
+        /// <summary>Record a member the recruit could not drive, WITH the term that refused it.
+        /// The ModBuild-257 census counted these into one <c>left visible (no fade channel)</c>
+        /// number, which cannot distinguish "the tileset gave it no channel" from "a rule of ours
+        /// held it back" — and that distinction is the whole question this round turns on.</summary>
+        private void NotePropUnitLeftVisible(Renderer m, string why)
+        {
+            if (_propUnitLeftVisible.Count >= PropUnitLeftVisibleCap)
+                return;
+            string entry = $"'{m.name}': {why}";
+            if (!_propUnitLeftVisible.Contains(entry))
+                _propUnitLeftVisible.Add(entry);
+        }
+
+        /// <summary>Record a member the whole-unit rule pulled back through the ground band —
+        /// the direct falsifier for the scrub wall's two stones.</summary>
+        private void NotePropUnitGroundLift(Renderer m)
+        {
+            if (_propUnitGroundNames.Count >= PropUnitLeftVisibleCap)
+                return;
+            if (!_propUnitGroundNames.Contains(m.name))
+                _propUnitGroundNames.Add(m.name);
         }
 
         /// <summary>The deterministic cross-machine identity of a claiming segment: anchor name
@@ -801,7 +921,8 @@ internal static partial class WallSegmentFade
                 return;
             }
             int sig = _propUnitRegrouped * 977 + _propUnitMoved * 97 + _propUnitRecruited * 13
-                      + _propUnitUnfadeable * 7 + _propUnitCensus.Count;
+                      + _propUnitUnfadeable * 7 + _propUnitGroundLifted * 3
+                      + _propUnitCensus.Count;
             foreach (string row in _propUnitCensus)
                 sig = unchecked(sig * 31 + row.GetHashCode());
             if (sig == _propUnitCensusSig)
@@ -817,7 +938,23 @@ internal static partial class WallSegmentFade
                 + $"a geometry-checked fallback. Owner: sticky while faded, then majority, then "
                 + $"nearest centroid, then key order. {_propUnitMoved} renderer(s) moved to their "
                 + $"unit's owner, {_propUnitRecruited} recruited from no owner at all, "
-                + $"{_propUnitUnfadeable} left visible for having no fade channel. "
+                + $"{_propUnitUnfadeable} left visible. "
+                + $"WHOLE-UNIT RULE (ModBuild 258, wandproblem3.jpg 'ein Teil der Wand bleibt nun "
+                + $"stehen und faded garnicht mehr'): a unit the standing rule calls ARCHITECTURE "
+                + $"fades base and all — the per-renderer ground band "
+                + $"({GroundExclusionHeightWU:0.0} wu) gets no vote inside it, because it cannot "
+                + $"see that the piece it is holding is the bottom metre of a dissolving wall. "
+                + $"{_propUnitGroundLifted} member(s) recruited THROUGH the ground band this "
+                + $"rescan"
+                + (_propUnitGroundNames.Count > 0
+                    ? $": {string.Join(", ", _propUnitGroundNames)}"
+                    : " — ZERO, which for the reported scrub wall means the band was never what "
+                      + "held its stones; read the left-visible terms below instead")
+                + ". "
+                + (_propUnitLeftVisible.Count > 0
+                    ? $"LEFT VISIBLE, by the term that refused each one: "
+                      + $"{string.Join("; ", _propUnitLeftVisible)}. "
+                    : string.Empty)
                 + $"{string.Join("; ", _propUnitCensus)}.");
         }
     }

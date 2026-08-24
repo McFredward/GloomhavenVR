@@ -29,17 +29,15 @@ namespace GloomhavenVR.WireTests;
 /// a room-sized container and an over-large renderer group (the two caps against turning a whole
 /// room into one protected prop).</para>
 ///
-/// <para>THE ModBuild-257 BLOCK IS THE FOUR CORNERS OF THE TREE ARM'S CONJUNCTION, and every one
-/// of them is a report the user has already made or a ruling he has already given. Slender AND
-/// vegetation frees the trunk that latched 'Wall 2' and 'Wall 4' (wand_problem2.jpg). Vegetation
-/// WITHOUT slenderness must leave the scrub wall fading, or "Die anderen 'gestrüpp-wände'
-/// versperren mir nun auch manchmal die Sicht" comes straight back. Slenderness WITHOUT vegetation
-/// must leave a masonry pillar alone, because he has confirmed the gate wall now behaves and
-/// 'Wall 3' is first-blocked twice by <c>EN_CR_Pillar_Large_02</c>. And neither term may lift the
-/// span or renderer caps, which are the only thing between this arm and a wall run turning into one
-/// protected prop. The ratio bar itself is 2.0 h/w against a measured 1.00 on the wall side and an
-/// UNMEASURED span on the tree side — see <c>WallStandingProp.TreeSlendernessRatio</c>, which says
-/// so and names the grep that settles it.</para>
+/// <para>THE ModBuild-258 BLOCK IS THE OTHER HALF OF THE SAME SENTENCE: a unit fades WHOLE or not
+/// at all. ModBuild 257's TREE arm is gone (its tombstone, with the h/w distribution that killed
+/// it, is in <c>WallStandingProp</c>) and what replaced it is structural rather than numeric —
+/// <c>UnitFadesAsOne</c>, the exact negation of <c>StandsOnFloor</c>. The vectors below pin BOTH
+/// directions on the two units the hardware log names, because getting either wrong is a shipped
+/// regression: the scrub wall must fade base and all (105 log lines of
+/// <c>TORN 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' 4/6 written … LEFT SOLID: FR_Stones_06 (1),
+/// FR_Stones_02 (2)</c>), and the skeleton and the floor-grass hex must stay protected as whole
+/// units or <c>skelet.jpg</c> and the Gestrüpp-Wand come back.</para>
 /// </summary>
 internal static class WallStandingPropVectors
 {
@@ -131,111 +129,116 @@ internal static class WallStandingPropVectors
                "the same geometry WITHOUT figure ancestry is refused on height — the widening "
                + "adds floor props, it does not add architecture: " + why);
 
-        // ---- ModBuild 257: the TREE arm --------------------------------------------------------
-        // THE REPORT (2026-08-24, hardware, wand_problem2.jpg): "Eine der drei grünen Wände verhält
-        // sich nun wie ich es erwarten würde, aber die zwei sich gegenüberliegende grüne Wände
-        // immer noch nicht. […] Die Wand gegenüber sollte wieder sichtbar sein, sie verdeckt nichts
-        // von der Fläche." The wall he calls correct is decided by masonry in 37 of 37 first-blocker
-        // samples; the three he calls broken are decided by FR_Pillar_Tree_Trunk_0* / FR_Tree_02 /
-        // FR_Tree_05 in 113 of 172. This arm lifts the height cap for a free-standing tree and for
-        // nothing else, on TWO terms — and the four cases below are the four corners of that
-        // conjunction, because either term alone breaks something the user has already signed off.
-        t.Case("standing/tree-arm-frees-a-trunk");
-        // The trunk unit as the ModBuild-256 STANDING PROP census measured it:
-        // 'PCG_FR_Pillar_Tree_Trunk_02_PR' height 4.6 wu, refused by the 2.5 wu height cap alone.
-        // ITS SPAN IS NOT IN THAT LOG — the census only ever printed the term a unit failed on —
-        // so this vector pins the SHAPE the bar assumes, and the census now prints h/w for every
-        // unit so the next hardware log either confirms it or falsifies it in one grep.
+        // ---- ModBuild 258: THE TREE ARM IS RETIRED ---------------------------------------------
+        // ModBuild 257 added a third arm: vegetation AND ≥ 2.0 h/w lifts the height cap for a
+        // "free-standing tree". The ModBuild-257 hardware log falsified it on its own terms.
+        // Every trunk unit in the session measures UNDER the bar ('PCG_FR_Pillar_Tree_Trunk_01_PR'
+        // 1.39 h/w, _02_PR 1.46, _03_PR 1.79) because a trunk's union AABB contains its own vines
+        // and floor bushes; the ONLY unit in the whole session at or over 2.0 is
+        // 'PCG_FR_Wall_Space_04_PR' at 2.11 h/w — a WALL, which the arm then protected on every
+        // path and which appears in no FADE WRITE line at all, i.e. never faded once. That is
+        // wandproblem3.jpg: "ein Teil der Wand bleibt nun stehen und faded garnicht mehr".
+        // These two vectors pin the retirement so it cannot be quietly re-added: VEGETATION IS
+        // REPORTED AND DECIDES NOTHING, and no shape frees a unit from the height cap.
+        t.Case("standing/tree-arm-retired-vegetation-decides-nothing");
+        // The trunk the ModBuild-257 arm was written for, at the shape the arm assumed.
         var trunk = new WallStandingProp.Unit(
             minY: -0.40f, maxY: 4.20f, spanX: 1.10f, spanZ: 0.95f, rendererCount: 3);
-        t.True(WallStandingProp.StandsOnFloor(trunk, FloorY, figureAncestry: false,
-                                              vegetation: true, out why),
-               "a slender vegetation unit standing on the room floor is a free-standing TREE — "
-               + "scenery, never a course of wall: " + why);
-        t.True(why.Contains("free-standing TREE"), "and the census names the arm: " + why);
         t.True(!WallStandingProp.StandsOnFloor(trunk, FloorY, figureAncestry: false,
-                                               vegetation: false, out why),
-               "the SAME geometry with no vegetation under it is refused — this is the term that "
-               + "makes the round unable to touch a masonry pillar: " + why);
+                                               vegetation: true, out why),
+               "a slender vegetation unit is architecture again — the TREE arm is retired: " + why);
+        t.True(!WallStandingProp.StandsOnFloor(trunk, FloorY, figureAncestry: false,
+                                               vegetation: false, out string whyNoVeg),
+               "…and so is the same unit with no vegetation: " + whyNoVeg);
+        t.True(why.Substring(0, why.IndexOf('[')) == whyNoVeg.Substring(0, whyNoVeg.IndexOf('[')),
+               "the vegetation flag changes the VERDICT not at all and the TERM not at all — it "
+               + "survives only inside the reported [shape] column, which is the whole retirement");
+        t.True(why.Contains(", vegetation]") && whyNoVeg.Contains(", no vegetation]"),
+               "…and it does still survive there, because that column is what retired the arm");
 
-        // THE SCRUB WALL MUST STILL FADE. This is the measured number the bar was placed against:
-        // the ModBuild-256 FADE WRITE census reads 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' …
-        // unit y[-0.3..2.7] over floor 0.0, widest 3.0 wu — 3.0 wu tall over 3.0 wu wide, h/w 1.00,
-        // a full factor of two under the 2.0 bar. It is vegetation (its _Bushes/_Ivy_Grass/_Plants
-        // attachments are Foliage-shaded), so vegetation ALONE would protect it and hand back
-        // "Die anderen 'gestrüpp-wände' versperren mir nun auch manchmal die Sicht. Das darf
-        // niemals passieren."
-        t.Case("standing/tree-arm-leaves-the-scrub-wall");
+        // THE ONE UNIT THE ARM ACTUALLY FIRED ON, at its logged measurements. It must fade.
+        t.Case("standing/tree-arm-retired-wall-space-04");
+        var wallSpace04 = new WallStandingProp.Unit(
+            minY: -0.30f, maxY: 4.20f, spanX: 2.10f, spanZ: 2.10f, rendererCount: 4);
+        t.True(wallSpace04.SlendernessHW >= 2.0f,
+               "'PCG_FR_Wall_Space_04_PR' measures h 4.5 / w 2.1 = 2.11 h/w — over the retired "
+               + "2.0 bar, which is exactly why the arm fired on it");
+        t.True(!WallStandingProp.StandsOnFloor(wallSpace04, FloorY, figureAncestry: false,
+                                               vegetation: true, out why),
+               "…and it is a WALL, so it must fade: " + why);
+        t.True(WallStandingProp.UnitFadesAsOne(wallSpace04, FloorY, figureAncestry: false, out why),
+               "…whole, base included: " + why);
+
+        // ---- ModBuild 258: A UNIT FADES WHOLE OR NOT AT ALL ------------------------------------
+        // THE SCRUB WALL, at the measurements the ModBuild-257 FADE WRITE census printed 105 times:
+        // 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' unit y[-0.3..2.7] over floor 0.0, widest
+        // 3.0 wu, 6 renderers, of which 4 were written and FR_Stones_06/FR_Stones_02 were LEFT
+        // SOLID by the 1.0 wu ground band. The standing rule has already called this unit
+        // architecture ('height 3.0 wu — architecture, not a floor prop'), so the whole unit fades
+        // and the band gets no vote inside it. This is the photograph, in one assertion.
+        t.Case("unit/scrub-wall-fades-base-and-all");
         var scrubWall = new WallStandingProp.Unit(
             minY: -0.30f, maxY: 2.70f, spanX: 3.00f, spanZ: 2.40f, rendererCount: 6);
-        t.True(!WallStandingProp.StandsOnFloor(scrubWall, FloorY, figureAncestry: false,
+        t.True(WallStandingProp.UnitFadesAsOne(scrubWall, FloorY, figureAncestry: false, out why),
+               "the tileset's scrub wall is architecture, so its two ground-hugging stones fade "
+               + "with the rest of it — 'ein Teil der Wand bleibt nun stehen und faded garnicht "
+               + "mehr' (wandproblem3.jpg): " + why);
+        t.True(why.Contains("architecture") && why.Contains("base included"),
+               "and the line states the term AND the consequence, so the next reader does not "
+               + "have to infer it: " + why);
+
+        // THE SKULL MUST STILL NOT VANISH. The same predicate, the other way round: the skeleton
+        // is a floor prop, so it does NOT fade as one — it does not fade at all.
+        t.Case("unit/skeleton-does-not-fade-at-all");
+        t.True(!WallStandingProp.UnitFadesAsOne(skeleton, FloorY, figureAncestry: false, out why),
+               "a protected unit is never fed to the whole-unit recruit, so skelet.jpg cannot "
+               + "come back through this door: " + why);
+        t.True(!WallStandingProp.UnitFadesAsOne(statue, FloorY, figureAncestry: true, out why),
+               "…nor can a figure/actor prop, at any height (ModBuild 157, untouched): " + why);
+
+        // THE COUNTER-EXAMPLE THE ROUND HAD TO KEEP. The ModBuild-257 census protects
+        // 'PCG_FR_Floor_Grass_Hex_Split_PR' — foot -0.3 wu over floor 0.0, height 0.5 wu, span
+        // 1.7x2.0 wu, 2 renderers — as a WHOLE unit. Its members are therefore never claimed by a
+        // wall, the unit never gets an owner, and the ground-band lift can never reach it. If this
+        // ever flips, the Gestrüpp-Wand report and the jungle floor come back together.
+        t.Case("unit/floor-grass-hex-stays-protected");
+        var grassHex = new WallStandingProp.Unit(
+            minY: -0.30f, maxY: 0.20f, spanX: 1.70f, spanZ: 2.00f, rendererCount: 2);
+        t.True(WallStandingProp.StandsOnFloor(grassHex, FloorY, figureAncestry: false,
+                                              vegetation: true, out why),
+               "a floor-grass hex is a floor prop and stays protected as a whole unit: " + why);
+        t.True(!WallStandingProp.UnitFadesAsOne(grassHex, FloorY, figureAncestry: false, out why),
+               "…so it never fades as one either — the two answers are one verdict: " + why);
+
+        // THE TREE TRUNK AS THE HARDWARE ACTUALLY MEASURED IT, which is the vector the retired arm
+        // never had. ModBuild 257's FADE WRITE census: 'PCG_FR_Pillar_Tree_Trunk_01_PR' unit
+        // y[-0.3..3.6], 17 renderers; its STANDING PROP near-miss line: [h 3.9 wu / w 2.8 wu =
+        // 1.39 h/w, vegetation]. A trunk is not slender once its own vines and floor bushes are
+        // inside the union — which is why shape could never have been the discriminator, and why
+        // this unit is architecture that fades whole, base bushes included.
+        t.Case("unit/tree-trunk-unit-fades-whole");
+        var trunkUnit = new WallStandingProp.Unit(
+            minY: -0.30f, maxY: 3.60f, spanX: 2.80f, spanZ: 2.10f, rendererCount: 17);
+        t.True(trunkUnit.SlendernessHW > 1.38f && trunkUnit.SlendernessHW < 1.40f,
+               "the logged trunk unit measures 1.39 h/w — under the retired 2.0 bar, so the arm "
+               + "could never have freed the thing it was written for");
+        t.True(!WallStandingProp.StandsOnFloor(trunkUnit, FloorY, figureAncestry: false,
                                                vegetation: true, out why),
-               "the tileset's own scrub wall is vegetation standing on the floor and must keep "
-               + "fading — 3.0 wu tall over 3.0 wu wide is not a tree: " + why);
-        t.True(!WallStandingProp.IsFreeStandingTree(scrubWall, vegetation: true),
-               "h/w 1.00 is a full factor of two under the 2.0 bar, which is the whole margin");
+               "it is architecture by height, exactly as ModBuild 256 already had it: " + why);
+        t.True(WallStandingProp.UnitFadesAsOne(trunkUnit, FloorY, figureAncestry: false, out why),
+               "…so its FR_Floor_LargeBush_0* and FR_Floor_Detail_Grass_05_PR members fade with "
+               + "it instead of standing there (7/17 written, 28 log lines): " + why);
 
-        // THE HARD CONSTRAINT OF THE ROUND: the wall next to the gate behaves correctly and must
-        // not change. 'Wall 3' is first-blocked twice by EN_CR_Pillar_Large_02 — a stone pillar is
-        // tall and narrow in exactly the way a trunk is, so SLENDERNESS ALONE would strip it out of
-        // that wall's numerator. It carries no vegetation (every 'fade ON Wall 3' line in the log
-        // reads +0 foliage), and that is what keeps this round off it.
-        t.Case("standing/tree-arm-leaves-a-masonry-pillar");
-        var pillar = new WallStandingProp.Unit(
-            minY: 0.00f, maxY: 3.50f, spanX: 1.20f, spanZ: 1.10f, rendererCount: 2);
-        t.True(WallStandingProp.IsFreeStandingTree(pillar, vegetation: true),
-               "shape alone cannot tell a stone pillar from a trunk — it is slender by the same "
-               + "measurement, which is why shape alone is not the rule");
-        t.True(!WallStandingProp.StandsOnFloor(pillar, FloorY, figureAncestry: false,
-                                               vegetation: false, out why),
-               "…so the pillar is held by the VEGETATION term, and the gate wall's numerator is "
-               + "untouched: " + why);
-
-        // AND THE ANTI-CATASTROPHE CAPS STILL BIND THIS ARM. A whole wall RUN of vegetation must
-        // never become one protected prop, however slender the union happens to score.
-        t.Case("standing/tree-arm-keeps-the-caps");
-        var hedgerow = new WallStandingProp.Unit(
-            minY: 0.00f, maxY: 14.00f, spanX: 6.50f, spanZ: 1.20f, rendererCount: 8);
-        t.True(WallStandingProp.IsFreeStandingTree(hedgerow, vegetation: true),
-               "a 14 wu union over a 6.5 wu footprint scores slender…");
-        t.True(!WallStandingProp.StandsOnFloor(hedgerow, FloorY, figureAncestry: false,
-                                               vegetation: true, out why),
-               "…and is still refused on the span cap — the TREE arm lifts the HEIGHT term only, "
-               + "never the two caps that stop a wall run becoming a prop: " + why);
-        var thicket = new WallStandingProp.Unit(
-            minY: 0.00f, maxY: 9.00f, spanX: 2.00f, spanZ: 2.00f, rendererCount: 31);
-        t.True(!WallStandingProp.StandsOnFloor(thicket, FloorY, figureAncestry: false,
-                                               vegetation: true, out why),
-               "nor is a 31-renderer subtree, however tall and thin: " + why);
-
-        // A NARROW BUSH IS NOT A SAPLING. This arm LIFTS the height cap, so it must not fire below
-        // it: WallSegmentFade.Standing.cs hands the verdict to the FOLIAGE paths too, and a grass
-        // tuft or a thin bush unit clears 2.0 h/w without trying. Protecting one of those from a
-        // foliage list is the Gestrüpp-Wand report with extra steps.
-        t.Case("standing/tree-arm-is-not-a-bush");
-        var tuft = new WallStandingProp.Unit(
-            minY: 0.00f, maxY: 1.10f, spanX: 0.35f, spanZ: 0.30f, rendererCount: 2);
-        t.True(tuft.SlendernessHW >= 2.0f, "a tuft of grass is slender by shape alone…");
-        t.True(!WallStandingProp.IsFreeStandingTree(tuft, vegetation: true),
-               "…and is still not a tree, because it is under the height cap this arm exists to "
-               + "lift — the FLOOR arm decides there, and the foliage paths do not get it");
-
-        // THE FOUR-ARGUMENT OVERLOAD IS THE ModBuild-167 RULE, BIT FOR BIT. Everything above it in
-        // this file calls it, and it must keep meaning what it meant: no vegetation, no tree arm.
-        t.Case("standing/tree-arm-is-opt-in");
-        t.True(!WallStandingProp.StandsOnFloor(trunk, FloorY, figureAncestry: false, out why),
-               "the shipped four-argument call is vegetation-free and therefore tree-free: " + why);
-
-        // A UNIT WITH NO FOOTPRINT IS NOT INFINITELY SLENDER. Degenerate bounds (a subtree of
-        // renderers with empty meshes) must score 0 and never fall through as "tall and thin".
-        t.Case("standing/tree-arm-degenerate-footprint");
+        // A UNIT WITH NO FOOTPRINT. Degenerate bounds must not produce an infinite ratio in the
+        // REPORTED column — it decides nothing now, but a NaN or an Infinity in a log line is
+        // still a log line nobody can read.
+        t.Case("unit/degenerate-footprint-scores-zero");
         var degenerate = new WallStandingProp.Unit(
             minY: 0.00f, maxY: 5.00f, spanX: 0.00f, spanZ: 0.00f, rendererCount: 2);
         t.True(degenerate.SlendernessHW == 0f,
-               "no width does not mean infinitely slender — that is how a divide-by-zero becomes "
-               + "a protected wall");
-        t.True(!WallStandingProp.IsFreeStandingTree(degenerate, vegetation: true),
-               "…so a degenerate unit is never a tree");
+               "no width does not mean infinitely slender, even for a column that only prints");
+        t.True(WallStandingProp.UnitFadesAsOne(degenerate, FloorY, figureAncestry: false, out why),
+               "and a 5 wu unit is architecture whatever its footprint reads: " + why);
 
         // ---- the census's two derived facts ---------------------------------------------------
         // TORN is the shape of the photograph, and the comparison no previous census printed.

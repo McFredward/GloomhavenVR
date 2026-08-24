@@ -416,7 +416,143 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 257;
+    public const ushort ModBuild = 258;
+    // Build 258: THE DENOMINATOR WAS A RECTANGLE DRAWN AROUND A HEXAGONAL ROOM.
+    // NO WIRE CHANGE. Wire tests 146,854 → 146,857 (+3). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // USER (wandproblem3.jpg): "Leider keine große Verbesserung bei den beiden problematischen
+    // Wänden die sich gegenüberstehen. Es ist sogar schlimmer geworden, ein Teil der Wand bleibt
+    // nun stehen und faded garnicht mehr … wenn man aber die wand gegenüber einguckt DIE NICHTS
+    // VERDECKT von den spielbaren tiles sollte sie direkt unfaden. Die grüne Wand gegenüber der
+    // Mauer macht mittlerweile genau das ohne Probleme."
+    //
+    // HIS EMPHASIS IS THE FIX, AND IT NAMES A THING THE METRIC NEVER HAD: *the playable tiles*.
+    // The coverage denominator was a 4x4 lattice over the room's axis-aligned BOUNDING BOX
+    // (RebuildSamples, `Bounds b = _roomBounds[r]`, Lerp min→max). A Gloomhaven room is a HEX
+    // CLUSTER, and the corners of a rectangle drawn around a hex cluster contain no tile at all.
+    // Seven builds tuned bars, grids, hysteresis and membership against a denominator that
+    // included ground the player can never stand on.
+    //
+    // THE EVIDENCE IS FOUR CORNERS, ONE PER WALL (sample index i = ix*grid + iz, grid 4):
+    //   Wall 4  #0,#1,#4,#8    → corner (0,0)   held by FR_Pillar_Tree_Trunk_02 [Renderers/CONTAINS]
+    //   Wall 2  #7,#11,#14,#15 → corner (3,3)   held by FR_Pillar_Tree_Trunk_02 [Renderers/CONTAINS]
+    //   Wall 1  #2,#3          → corner (0,3)   held by FR_Pillar_Tree_Trunk_01
+    //   Wall 3  #12            → corner (3,0)   held by 'Blocks' (masonry)
+    // Four walls, four different corners of the same rectangle, one each. CONTAINS means the
+    // sample point sits INSIDE a tree's union AABB — a hex centre never does, because the tree
+    // stands off the field. The whole tree question dissolves at the denominator with no
+    // classifier, no name table and no third threshold.
+    //
+    // THE ARITHMETIC OF THE LATCH, STATED PLAINLY: 4 cells = 0.25 sits INSIDE the 0.20/0.35
+    // deadband, so a wall holds whatever state it is in. The log says so literally — 'Wall 2'
+    // reads 13 samples at `0.25 blk 4/16 FADED` and 11 at `0.25 blk 4/16 solid`, the same
+    // measurement in both states. 'Wall 1', the wall the user says now behaves, pins at TWO
+    // cells (42 samples at 0.13) and 0.125 < 0.20, so it releases. The only difference between
+    // the wall that works and the two that do not is two off-tile grid cells.
+    //
+    // SOURCE: ObjectCacheService.GetTileBehaviors() — the game's own live per-hex set, keyed to
+    // its room by the SAME CMap that CommitRoomRegistry already groups logical rooms by, so a
+    // room and its hexes cannot disagree about membership. BOTH sources I proposed were wrong:
+    // FLOOR CENSUS does not resolve a room's floor renderers at all (it is a full-scene
+    // FindObjectsOfType listing ≤10 renderers spanning the room CENTRE — one column, not a
+    // footprint), and MAPTILE gives the tile AABB, i.e. the same rectangle. The authored
+    // CMap.MapTiles[].Position was rejected too: it is the authored frame and would drift from
+    // _roomBounds, which comes from live renderer.bounds.
+    //
+    // RELOCATE, DO NOT DROP. Each lattice position moves to the nearest playable hex centre no
+    // other position has claimed. Dropping the off-tile ones would (a) need a point-in-hex
+    // RADIUS — another threshold, and this subsystem has now shipped two that the next hardware
+    // log falsified — and (b) shrink the denominator: 16 cells → 11 raises the quantum from
+    // 0.0625 to 0.0909 and moves BOTH bars in cell terms, so the same build would have to
+    // re-derive them. Count stays min(grid², hexes) = 16 here, quantum stays 0.0625, exit bar
+    // stays 4 cells, enter bar 6. ONE VARIABLE MOVED THIS ROUND. Fail-safe: a room whose hexes
+    // cannot be resolved keeps ModBuild 257's box lattice bit for bit and says
+    // FELL BACK TO THE BOUNDING BOX with which of four reasons. Falsifier: the new SAMPLE GRID
+    // line prints each room's hex count, how far positions had to move, the quantum and both
+    // bars in cells. A room with FEWER than 16 hexes has different bars — check that first.
+    //
+    // AND THE REGRESSION HE SAW WAS ModBuild 257's TREE ARM PROTECTING A WALL.
+    // I reported to him that the arm "never fired, not once". THAT WAS WRONG, and the truth is
+    // worse: it fired exactly ONCE, on 'PCG_FR_Wall_Space_04_PR' — height 4.5 wu, span 2.1x2.1,
+    // 4 renderers, 2.11 h/w, vegetation-bearing — and that unit then appears in NO FADE WRITE
+    // line in the entire session. It never faded again. A wall, held solid by a rule written to
+    // free trees. That IS "ein Teil der Wand bleibt nun stehen und faded garnicht mehr".
+    // My `grep -c TREE` read 3 because the STANDING PROP census is CHANGE-TRIGGERED and the log
+    // contains only TWO of those lines — one of which carried the admission.
+    // Two more of my numbers were wrong and both are corrected in the code: the maximum h/w in
+    // the scene is 2.11, not 1.85 (and it is that wall), and the trunk unit is 1.39 h/w, not the
+    // 1.00 I quoted — I had read `widest 3.9 wu` off the FADE WRITE line, which is SizeRank, the
+    // largest of ALL THREE AABB extents including Y, not WidestSpanXZ. The conclusion held (every
+    // trunk sits under the bar at 1.39 / 1.46 / 1.79) but I reached it through a wrong statistic.
+    // The arm is retired with a tombstone carrying these numbers so nobody re-derives shape.
+    //
+    // A PROP UNIT NOW FADES WHOLE OR NOT AT ALL. Torn units went 20-of-24 in ModBuild 256 to
+    // 32-of-40 and 49-of-85 in 257: 105 lines of TORN 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR'
+    // 4/6 written LEFT SOLID: FR_Stones_06 (1), FR_Stones_02 (2), and 28 of the tree unit at
+    // 7-9/17 leaving FR_Floor_LargeBush_01/02/06 standing. It is the collision of two rules that
+    // are each individually right: the per-renderer ground band ("anything within 1.0 wu of the
+    // floor is scenery, never fades") was written for skelet.jpg and is correct there, but a
+    // scrub wall's bottom metre IS the wall. New Unity-free predicate UnitFadesAsOne — the exact
+    // NEGATION of StandsOnFloor, so there is ONE verdict and both answers are total — enforced in
+    // PropUnitRecruit, which is where the band was being re-applied. Architecture wins inside a
+    // unit the standing rule has already called architecture; the band is per-renderer and
+    // structurally cannot see what a piece belongs to, so it loses. No new threshold.
+    // The skull still cannot vanish: its unit is PROTECTED by the FLOOR arm, so no member is ever
+    // claimed by a wall, the unit never enters _propUnits, and PropUnitRecruit is never called for
+    // it. Pinned by three new vectors, plus 'PCG_FR_Floor_Grass_Hex_Split_PR' (the floor-grass
+    // counter-example) and a trunk vector carrying the hardware's real measurements.
+    //
+    // UNIT AFFINITY IN THE MOUNTED SWEEP, same rule and a second list. EnforcePropUnitCohesion
+    // groups MeshRenderers and reads claims only from seg.Renderers, so a unit split between WALL
+    // RENDERERS and MOUNTED DRESSING is invisible to it by construction. 'CA_ICY_WallLight' is
+    // exactly that — ice meshes on 'Wall 4', torch emitters on 'Wall 1' — reported TORN 4/9 with
+    // p_fire_torch (8), fx_sparks (1), distort left solid, and on other rescans the mirror image
+    // at 5/9 with the ICE left solid. One prop, two owners, half of it survives every fade.
+    // A mounted candidate whose prop-unit root is already owned now attaches to THAT segment.
+    //
+    // THE BLUE FLAME IS PROBABLY NOT 'Glow', AND ModBuild 257's PREMISE FOR IT WAS WRONG.
+    // 'Glow' is mat 'CR_ST_CandleGlow'. The blue flame is CA_ICY_WallLight → p_fire_torch (8),
+    // whose sparks emitter is literally material 'FireTorchSparks_Blue_MAT' — so it is the
+    // whole-unit defect above, not a release-edge defect. And the term that was false in 257's
+    // skip is `seg.DoorRoot != null`, false BY CONSTRUCTION: StackEligible requires
+    // DoorRoot == null, so the predicate is unreachable on the seg.Stacked loop and can only ever
+    // fire on seg.Body. Worse for my diagnosis, 'ThickDoor : (1a01…)' names TWO segments with the
+    // same GameObject name — the arch segment (DoorRoot stamped) and the GATE COLUMN (the
+    // adoption sweep's gate-column branch continues BEFORE seg.DoorRoot is assigned). The one
+    // holding 'Glow' is the gate column, and a gate column FADES like any wall. So "an owner that
+    // never fades" was wrong for this piece: both owners fade, they disagree about WHEN.
+    //
+    // THE LEFTOVER AUDIT WAS NEVER BLIND TO PARTICLES — it was blind to ADOPTION. A
+    // ParticleSystemRenderer is a MountedCandidate, five of the sweep's rejects are not
+    // particle-gated, and IsActuallyDrawing reads particleCount off the emitter. No [particles]
+    // entry appeared because every particle system in the scene was ADOPTED and leaves at
+    // `_mountedOwned.Contains(c) → continue`, the very first skip — no reject, no leftover, and
+    // until now no counter at all. Cap 12 → 40 (the line said "22 renderer(s)" and named 12), a
+    // ParticleSystemRenderer count on the LEFTOVER line so a zero is EVIDENCE rather than absence,
+    // and an adopted-population count on the DRESSING line naming what was silent.
+    //
+    // CLOSED BY MEASUREMENT: HitsPiece's Contains clause is NOT the latch. The ModBuild 257
+    // column reports the head-independent floor at 1 cell in 53 samples, 2 in 30, 3 in 17 and 4
+    // in only 3 — at or under 3 cells (0.19, below the 0.20 exit bar) in 100 of 103 samples.
+    //
+    // THE GATE RECTANGLES HAVE A NAME AT LAST, from GATE DUMP's first run:
+    //   '…/ThickDoor/Generated Content/CR_ST_Door_02/CR_ST_Door_01/Door_Light_Front_Mesh'
+    //   SkinnedMeshRenderer shader 'Amp_Basic_N_MRAO' material 'PR_CR_Door_Double_04_Mat' q2000
+    //   marks[Plate] span 130px AABB s(1.041,0.257,1.796)
+    // Door_Light_Front_Mesh / Door_Light_Back_Mesh / CR_OS_Door_Light_*_Mesh — flat plates
+    // 1.04 x 0.26 x 1.80 wu, meant to be a door LIGHT and carrying the door's OPAQUE PBR material
+    // on queue 2000; one instance, CR_OS_Door_Light_Back_Mesh, reads
+    // `shader '<no material slot offered>' material 'n/a'` — no material slot at all, the failure
+    // mode this project already documented for Apparance reveal-clones. Two independent
+    // measurements agree: the plates report 130 px and 132 px of screen span against photo regions
+    // whose diagonals are 139 px and 132 px, and front/back plates of differently-oriented doors
+    // is what explains the 2.5 / 1.1 / 2.3 aspect ratios that killed the "three identical coplanar
+    // quads" premise. CORRECTION TO ModBuild 257's note: these records are NOT marks[None] — the
+    // census marked them [Plate], scored them 20 and its RANKING dropped them as out-of-band.
+    // Seen and discarded, not invisible. (37 of 103 tier-A records ARE marks[None]; these are not
+    // among them.) Tier B truncated at 48 of 2,657 within 5 wu and says so.
+    //
     // Build 257: IT WAS NEVER THE WALLS DECIDING — IT WAS THE TREES.
     // NO WIRE CHANGE. Wire tests 146,839 → 146,854 (+15, the new TREE arm's vectors).
     // Patch inventory 78/130 (UNCHANGED). BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
