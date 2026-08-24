@@ -246,7 +246,7 @@ rows are chosen for the SIZE of the difference rather than for covering the set:
 
 | Row | What changes |
 |---|---|
-| Cellar · Fire | the whole room lifts to the ceiling — the biggest single change either room makes |
+| Cellar · Fire | the same corner goes from dark and quiet to a burning crate, a burning plank and a burning barrel |
 | Cellar · Ice | frost grows out across the flagstones, cold blue against the candle |
 | Forest · Light | canopy, ferns and shafts all lift out of the dark |
 | Forest · Dark | the moon goes into total eclipse and turns copper; the wood goes black |
@@ -263,6 +263,14 @@ parallax argument — the moon is at infinity, the crown in front of it is metre
 the occlusion *worse*, because every direction out of the centre walks under another tree. The
 file's own note says the same thing ("from inside the clearing the crowns cover most of the moon").
 A partly-veiled moon is what the player gets.
+
+**The Fire row is shot from `FireRoom`, not from the README station** — the user's second verdict
+on this image was "das Feuer sieht man nicht auf dem Bild", and he was right. `ReadmeC` looks at
+the candle table, so under Fire it showed the room BRIGHTENING with no fire anywhere in frame,
+which reads as a light switch rather than as a fire. The gated fires are props in fixed places (a
+crate, a plank, a barrel) and a frame has to point AT them. `FireRoom` holds three at once and its
+"off" half is the same corner, dark and quiet. **A row does not have to share a camera with the
+other rows** — it has to share one with its own other half, which is the only comparison being made.
 
 All four use the fixed non-zero clock (3.7 s) the element review set uses, and the `ReadmeMoon`
 station was ADDED to the Views table — nothing above it moved. Do not move an existing station to

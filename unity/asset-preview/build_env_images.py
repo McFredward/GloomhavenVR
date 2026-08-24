@@ -5,7 +5,7 @@ unity/GloomhavenVR.Assets/Assets/Editor/PreviewEnvironments.cs — all three sho
 own head height (2.02 m in the cellar, 2.80 m in the wood), so the front page shows the rooms from
 where a player really stands rather than from a convenient camera.
 
-    ENV_PREVIEW_OUT=<dir> ENV_PREVIEW_VIEWS=Readme ENV_PREVIEW_NOHAUNT=1 ENV_PREVIEW_NOFIRE=1 \
+    ENV_PREVIEW_OUT=<dir> ENV_PREVIEW_VIEWS=Readme,FireRoom ENV_PREVIEW_NOHAUNT=1 ENV_PREVIEW_NOFIRE=1 \
       xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode \
       -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
       -executeMethod GloomhavenVR.EnvironmentsPreview.RenderAll -logFile env-readme.log
@@ -96,7 +96,13 @@ hero('env_cellar_ReadmeC.png', 'env-cellar.jpg')
 hero('env_swamp_ReadmeS.png', 'env-forest.jpg')
 # The moon crop: 360x202 of the 1280x720 ReadmeMoon frame, centred on the disc.
 MOON = (470, 180, 830, 382)
-pairs([('env_cellar_ReadmeC_ebase.png',   'env_cellar_ReadmeC_efireS.png',   'Cellar · Fire',  None),
+pairs([# FIRE IS SHOT FROM FireRoom, NOT FROM THE README STATION, and that is the user's second
+       # verdict on this image: "Das Feuer sieht man nicht auf dem Bild." He was right — ReadmeC
+       # looks at the candle table, so under Fire it showed the room BRIGHTENING with no fire
+       # anywhere in frame, which reads as a light switch. The gated fires are props in fixed
+       # places (a crate, a plank, a barrel) and a frame has to point AT them. FireRoom holds
+       # three of them at once and its "off" half is the same corner, dark and quiet.
+       ('env_cellar_FireRoom_ebase.png',  'env_cellar_FireRoom_efireS.png',  'Cellar · Fire',  None),
        ('env_cellar_ReadmeC_ebase.png',   'env_cellar_ReadmeC_eiceS.png',    'Cellar · Ice',   None),
        ('env_swamp_ReadmeS_ebase.png',    'env_swamp_ReadmeS_elightS.png',   'Forest · Light', None),
        ('env_swamp_ReadmeMoon_ebase.png', 'env_swamp_ReadmeMoon_edarkS.png', 'Forest · Dark',  MOON)],
