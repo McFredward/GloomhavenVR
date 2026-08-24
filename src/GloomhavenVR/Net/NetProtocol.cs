@@ -416,7 +416,61 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 262;
+    public const ushort ModBuild = 263;
+    // Build 263: THE INSTRUMENTS THAT WERE MEANT TO PROVE GENERALITY COULD NOT.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes. MEASUREMENT-ONLY, one file. NOT YET THE TEST BUILD.
+    //
+    // (1) NO LOG HAS EVER BEEN ABLE TO NAME THE TILESET. Every scenario in the game loads into one
+    // scene called "ProcGen" (Choreographer.cs:434, :14728), so every line of every session reads
+    // scene='ProcGen'. The new TILESET clause prints the biome/sub-biome distribution over the
+    // UNION of the tile registry's CMap keys and the logical rooms — the union, because a room
+    // whose volume renderer never resolved a CMap is invisible to _roomMapKeys and still has tiles
+    // keyed to it. Source is CMap.SelectedPossibleRoom.Biome/.SubBiome, already held per room.
+    //
+    // (2) THE WALL-PATH AUDIT CERTIFIED A SCENE IT NEVER MEASURED. It guarded on the WALL count,
+    // not the renderer count, and printed "0 UNCLAIMED — every wall renderer is owned by a path"
+    // on the same tick the heartbeat read "fade-capable renderers 0 = 0 claimed + 0 adopted".
+    // Both sessions, both logs, for as long as the line has existed. An all-clear over an empty
+    // set now prints NOTHING MEASURED and says in words that it must not be read as one.
+    // Third defect in the same method: with no valid room decision the ground ceiling was -inf, so
+    // every ground renderer fell through to UNCLAIMED and the alarm blamed the wrong thing. That
+    // population is now its own no-room-decision bucket, asked AFTER water and doorway-arch so a
+    // standing user ruling still can never be reported as a defect.
+    //
+    // (3) 76 % OF THE TILE REGISTRY IS IN NO DENOMINATOR AT ALL — 184 hexes keyed to a room
+    // against 44 in the one sampled room. New REGISTRY COVERAGE clause alarms on it. AND THE
+    // MECHANISM HAS TWO CASES, the second worse than the one I briefed: if a CMap has a
+    // logical-room entry but no grid, its walls fail safe to solid; if it has NO entry at all,
+    // AssociateRooms binds the wall to the NEAREST OTHER ROOM and its coverage is measured against
+    // a floor grid the player is not standing on — a wall that fades and un-fades for the wrong
+    // room, raising no alarm anywhere. Both cases are in the shipped ALARM text.
+    //
+    // (4) THE LINE ONE READS TO DIAGNOSE THE DENOMINATOR NAMED THE WRONG NUMBER: "DENOMINATOR =
+    // the 32 playable hex(es)" printed next to quantum 0.0625, while the denominator in force is
+    // min(grid^2, hexes) = 16. Both are printed and labelled now, with the falsifier stated in the
+    // line itself — the quantum must equal 1/DENOMINATOR IN FORCE to four decimals.
+    // CONSEQUENCE FOR WHAT I HAVE TOLD HIM: the "42 playable hexes" I quoted repeatedly is the
+    // IN-FOOTPRINT term of the funnel, not the playable count. The ModBuild 260 room is 44 on its
+    // CMap, 42 in footprint, 32 playable, sampled at 16 — four different numbers and only the last
+    // is the denominator.
+    //
+    // (5) A ONE-WAY RATCHET NEITHER OTHER GENERICITY COUNTER CATCHES. A wall is held on while
+    // coverage >= Off, so it releases only at blocked < Off*n, i.e. at exitCells - 1: an exit bar
+    // of ONE cell means it can release only with ZERO blocked samples. Counted separately, from
+    // the LIVE bars, with the keyless-room compounder beside it (the registry adds one entry per
+    // (CMap, floor-bin) PLUS one singleton per keyless room renderer, so `rooms` is not the game's
+    // room count and partial CMap resolution silently degrades every room's denominator).
+    //
+    // AND A CORRECTION TO ModBuild 262'S OWN TEXT, made here rather than inherited. A pass read
+    // WallFadeTuning.On/Off's arguments (0.25/0.10) as "the shipped defaults" and reworded a whole
+    // block around them. Those are the CLAMP FALLBACKS used only before Bind(). The shipped
+    // defaults are Defaults.OnFraction 0.35 / OffFraction 0.20 (Defaults.Core.cs:167-168). Same
+    // shape as the ModBuild 252 slip: a value that looks like a default because it sits next to
+    // the constant is not the one that ships. The degenerate range moves with the pair — n <= 5 at
+    // 0.35/0.20 against n <= 10 at the spent 252 pair — which is exactly why every genericity
+    // counter reads the live bars and never a constant.
+    //
     // Build 262: THE GRID SHRINKS ON ROOM COUNT, AND THE AIRBORNE BAR SITS IN THE MODE.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. THIS IS THE BUILD TO TEST.

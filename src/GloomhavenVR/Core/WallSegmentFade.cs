@@ -962,6 +962,13 @@ internal static partial class WallSegmentFade
         private int _tilesResolved, _tilesUnkeyed;              // hex census this rescan (diag)
         private bool _tileSourceLive;                           // the game's tile registry answered
         private string _lastSampleCensus = string.Empty;        // change-gated census line
+        // GENERALITY INSTRUMENTS (ModBuild 262 lane F — measurement only, no fade behaviour
+        // touched). Reused scratch so the census allocates nothing per rescan: one set for
+        // "which CMaps of the registry actually got a sample grid" (F8), one set + histogram
+        // for the biome distribution (F4). Both are read at the existing census cadence.
+        private readonly HashSet<object> _censusMapsSampled = new();
+        private readonly HashSet<object> _censusMapsSeen = new();
+        private readonly Dictionary<string, int> _censusBiomes = new();
         private readonly bool[] _sampleVisible = new bool[MaxTotalSamples]; // per-frame frustum flags
         private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
@@ -5560,7 +5567,7 @@ internal static partial class WallSegmentFade
                 _pathAuditRunning = true;
                 _paName = _paToggle = _paAttach = _paFoliage = 0;
                 _paGround = _paFigures = _paStanding = _paGatedOff = 0;
-                _paWater = _paArch = _paUnclaimed = 0;
+                _paWater = _paArch = _paUnclaimed = _paNoRoom = 0;
                 _paUnclaimedByClass.Clear();
                 _paUnclaimedNames.Clear();
                 _paUnclaimedAllowed.Clear();
@@ -5595,7 +5602,15 @@ internal static partial class WallSegmentFade
             int segToggle = Mathf.Min(seg.ToggleNative, seg.Renderers.Count);
             _paToggle += segToggle;
             _paName += seg.Renderers.Count - segToggle;
-            float ceiling = RoomDecisionValid(seg.RoomIndex)
+            // ModBuild 262 lane F: hold the room verdict, do not encode it as -inf. With no
+            // room decision the ceiling below is float.NegativeInfinity, so EVERY ground
+            // renderer of such a wall failed the ground-band test and fell through to
+            // UNCLAIMED — the alarm then named asset families while the real state was "this
+            // wall's room was never anchored". The 2026-08-24 log shows the scale: 171 cache
+            // walls of which 127 read FAIL-SAFE solid on the same heartbeat, next to 111
+            // UNCLAIMED. The band is UNEVALUABLE for those, not failed, and gets its own bucket.
+            bool roomKnown = RoomDecisionValid(seg.RoomIndex);
+            float ceiling = roomKnown
                 ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
                 : float.NegativeInfinity;
             // The LIST overload, not the array one (ModBuild 262). The old audit ran 3 times in a
@@ -5630,7 +5645,7 @@ internal static partial class WallSegmentFade
                 {
                     _paFigures++;
                 }
-                else if (r.bounds.max.y <= ceiling)
+                else if (roomKnown && r.bounds.max.y <= ceiling)
                 {
                     _paGround++;
                 }
@@ -5650,6 +5665,18 @@ internal static partial class WallSegmentFade
                 else if (HasGatedOffWallFadeToggle(r))
                 {
                     _paGatedOff++;
+                }
+                else if (!roomKnown)
+                {
+                    // Asked LAST, so the two standing rulings and the authored gate keep
+                    // precedence: a water feature on an unanchored room is still WATER.
+                    // Everything reaching here would have gone to UNCLAIMED and then to
+                    // ClassifyLeftover, whose FIRST test is this same predicate and whose
+                    // only possible answer is "UNJUDGED (no anchored floor plane for this
+                    // room)" with foot/top/blocked/visible all zero. Nothing is lost by not
+                    // calling it, and the headline UNCLAIMED count stops carrying a
+                    // population that was never judgeable in the first place.
+                    _paNoRoom++;
                 }
                 else
                 {
@@ -5686,8 +5713,20 @@ internal static partial class WallSegmentFade
             _paUnclaimedByClass.TryGetValue("OBSTRUCTING", out int uObstructing);
             _paUnclaimedByClass.TryGetValue("ALLOWED", out int uAllowed);
             int uOther = _paUnclaimed - uFloating - uObstructing - uAllowed;
+            // ModBuild 262 lane F: the pass guard above returns when there are no cache WALLS,
+            // never when the walls hold no RENDERERS — and a wall cache that registers before
+            // the tileset's meshes exist reached the all-clear text with every bucket at zero.
+            // Both hardware sessions printed exactly that: "32 cache wall(s) … 0 UNCLAIMED —
+            // every wall renderer is owned by a path" beside a heartbeat reading "fade-capable
+            // renderers 0 = 0 claimed + 0 adopted" (LogOutput.log:956/:958 and
+            // second_logs/LogOutput.log:923). A vacuous all-clear is worse than no line at all,
+            // because this is the line a reader greps to decide a new tileset is covered.
+            int classified = _paName + _paToggle + _paAttach + _paFoliage + _paGround
+                + _paStanding + _paFigures + _paWater + _paArch + _paGatedOff + _paNoRoom
+                + _paUnclaimed;
             VRLog.Info(Name,
-                $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}': "
+                $"WALL-PATH AUDIT scene='{SceneManager.GetActiveScene().name}' "
+                + $"{TilesetLabel()}: "
                 + $"{_pathAuditWalls.Count} cache wall(s) — renderers: {_paName} native-name + "
                 + $"{_paToggle} toggle-native (MPB fade), {_paAttach} attachment-claimed "
                 + $"(body/stacked/mounted/corner), {_paFoliage} foliage, {_paGround} ground-band "
@@ -5699,14 +5738,22 @@ internal static partial class WallSegmentFade
                 + "Brunnen he expressly allows had been sitting), "
                 + $"{_paArch} doorway arch (user ruling 2026-08-02 — same story), "
                 + $"{_paGatedOff} gated-off (authored always-solid — honored), "
+                + $"{_paNoRoom} no-room-decision (their wall's room is unanchored or has no "
+                + "sample grid this pass, so the ground band is UNEVALUABLE and the class is "
+                + "unknown — before ModBuild 262 lane F every one of these was counted as "
+                + "UNCLAIMED and then classed UNJUDGED, which is why the alarm named asset "
+                + "families while the real state was an unanchored room; compare the "
+                + "heartbeat's FAIL-SAFE solid count on the same tick), "
                 + $"{_paUnclaimed} UNCLAIMED"
                 + (_paUnclaimed > 0
                     ? " [fell through every path — BY THE USER'S THREE CLASSES: "
                       + $"{uFloating} FLOATING, {uObstructing} OBSTRUCTING, {uAllowed} ALLOWED"
                       + (uOther > 0
-                          ? $", {uOther} UNJUDGED (an input was missing — no anchored floor "
-                            + "plane, no playable-tile grid for the room, or no sample of it "
-                            + "in view this tick; never read as ALLOWED)"
+                          ? $", {uOther} UNJUDGED (an input was missing — no playable-tile "
+                            + "grid for the room, or no sample of it in view this tick; the "
+                            + "third reason, no anchored floor plane, is now its own "
+                            + "no-room-decision bucket above and can no longer appear here; "
+                            + "never read as ALLOWED)"
                           : string.Empty)
                       + ". ONLY FLOATING and OBSTRUCTING are the alarm (ruling 2026-08-24) — an "
                       + "UNCLAIMED renderer standing on the floor and hiding nothing is a thing "
@@ -5716,7 +5763,13 @@ internal static partial class WallSegmentFade
                       + $" | ALLOWED (up to {MountedLeftoverCap}): "
                       + string.Join("; ", _paUnclaimedAllowed)
                       + "]"
-                    : " — every wall renderer is owned by a path.")
+                    : classified == 0
+                        ? " — NOTHING MEASURED. The cache walls hold ZERO child renderers this "
+                          + "pass, so this line has classified nothing: it is NOT an all-clear "
+                          + "and must not be read as one. Wait for a pass whose fade-capable "
+                          + "renderer count is non-zero and read THAT audit."
+                        : $" — all {classified} classified wall renderer(s) are owned by a "
+                          + "path.")
                 + $" Pass {_pathAuditPasses} of this session, sliced at "
                 + $"{ClassifyBudgetMillis:0.0} ms/frame and repeated every "
                 + $"{InsideLogIntervalSeconds:0.0} s — the ModBuild 260 log got THREE of these, "
@@ -5735,6 +5788,10 @@ internal static partial class WallSegmentFade
         private int _paName, _paToggle, _paAttach, _paFoliage;
         private int _paGround, _paFigures, _paStanding, _paGatedOff;
         private int _paWater, _paArch, _paUnclaimed;
+        /// <summary>Renderers whose wall's room has NO valid decision this pass, so the ground
+        /// band cannot be evaluated at all. See the branch in <see cref="AuditOneCacheWall"/>.
+        /// </summary>
+        private int _paNoRoom;
         private readonly Dictionary<string, int> _paUnclaimedByClass = new();
         private readonly List<string> _paUnclaimedNames = new();
         private readonly List<string> _paUnclaimedAllowed = new();
@@ -6233,6 +6290,96 @@ internal static partial class WallSegmentFade
             }
         }
 
+        /// <summary>
+        /// TILESET IDENTITY (ModBuild 262 lane F — measurement only). EVERY scenario in the game
+        /// loads into ONE additively-loaded scene named "ProcGen"
+        /// (<c>Choreographer.c_ProcGenSceneName</c> :434, <c>LoadProcGenScene</c> :14722-14728),
+        /// so <c>scene='ProcGen'</c> — the only identity either census line has ever carried —
+        /// cannot say WHICH tileset ran. That is precisely the user's question: <i>"wende das
+        /// mit ALLEN Mauer-Assets aus ALLEN Levels genauso an"</i>. No hardware log to date can
+        /// be read as evidence about a second tileset, because no log ever named the first one.
+        ///
+        /// <para>The game's own answer is one hop from data this subsystem already holds:
+        /// <c>CMap.SelectedPossibleRoom</c> (CMap.cs:41) carries <c>EBiome</c> and
+        /// <c>ESubBiome</c> (ScenarioPossibleRoom.cs:16-25 and :28-68), and the CMap per LOGICAL
+        /// room is already in <see cref="_roomMapKeys"/>. Read-only, presentation-only, local
+        /// scene state — nothing here writes game state and nothing here is networked, so it is
+        /// multiplayer-compatible by construction.</para>
+        ///
+        /// <para>HOW TO READ IT: the distribution names biome/sub-biome and how many DISTINCT
+        /// CMaps carry each, over the union of the CMaps the tile registry knows and the CMaps
+        /// the logical-room registry knows — the union, because a room whose volume renderer
+        /// never resolved a CMap is invisible to <see cref="_roomMapKeys"/> while its tiles are
+        /// still keyed in <see cref="_tilesByMap"/>. THE ONE-LINE READING THAT MEANS "NOT
+        /// GENERIC" is a distribution that is one single biome in every hardware log there is:
+        /// the subsystem would then still have been measured on exactly one tileset, whatever
+        /// the wall counts say. The trailing "with no CMap of their own" count is the registry
+        /// entries whose volume renderer never resolved one — they cannot be identified here
+        /// and cannot be sampled either, see REGISTRY COVERAGE on the SAMPLE GRID line.</para>
+        ///
+        /// <para>COST: one walk of the tile registry's CMap keys plus the logical-room list —
+        /// both single- to low-double-digit — at the existing census cadence and the existing
+        /// path-audit cadence. Never per frame, never a new scene sweep, no allocation beyond
+        /// the returned string (the histogram and the dedup set are reused fields).</para>
+        /// </summary>
+        private string TilesetLabel()
+        {
+            _censusBiomes.Clear();
+            _censusMapsSeen.Clear();
+            int noMap = 0;
+            foreach (object key in _tilesByMap.Keys)
+                AccumulateBiome(key);
+            for (int r = 0; r < _roomMapKeys.Count; r++)
+            {
+                object? key = _roomMapKeys[r];
+                if (key == null)
+                    noMap++;
+                else
+                    AccumulateBiome(key);
+            }
+            var sb = new System.Text.StringBuilder();
+            foreach (KeyValuePair<string, int> kv in _censusBiomes)
+            {
+                if (sb.Length > 0)
+                    sb.Append(" + ");
+                sb.Append(kv.Key).Append(" x").Append(kv.Value);
+            }
+            if (sb.Length == 0)
+                sb.Append("no CMap identified yet");
+            return $"TILESET {sb} over {_censusMapsSeen.Count} distinct CMap(s); "
+                + $"{_roomMapKeys.Count} logical room(s) registered, {noMap} of them with no "
+                + "CMap of their own";
+        }
+
+        /// <summary>One CMap into the biome histogram, deduplicated by reference. Every read is
+        /// wrapped: the possible-room chain is built by the game and can be mid-build.</summary>
+        private void AccumulateBiome(object key)
+        {
+            if (!_censusMapsSeen.Add(key))
+                return;
+            string label;
+            try
+            {
+                if (key is not ScenarioRuleLibrary.CMap map)
+                {
+                    label = "not-a-CMap";
+                }
+                else
+                {
+                    var room = map.SelectedPossibleRoom;
+                    label = room == null
+                        ? "CMap-without-possible-room"
+                        : room.Biome.ToString() + "/" + room.SubBiome.ToString();
+                }
+            }
+            catch
+            {
+                label = "unreadable";
+            }
+            _censusBiomes.TryGetValue(label, out int n);
+            _censusBiomes[label] = n + 1;
+        }
+
         private void LogSampleGridCensus()
         {
             var sb = new System.Text.StringBuilder();
@@ -6249,16 +6396,21 @@ internal static partial class WallSegmentFade
             //     ever be measured and they are all held solid. A wall that never fades.
             //   • THE SCHMITT BARS COLLAPSE IN CELL TERMS — ceil(On·n) == ceil(Off·n), so the
             //     enter and exit bars are the SAME number of samples and the trigger has no
-            //     hysteresis left in the only unit it can actually move in. With the shipped
-            //     0.35/0.20 that is every n ≤ 2 (n=2: both bars 1 cell; n=1: both bars 1 cell),
-            //     and the separation is already down to ONE cell for every n ≤ 11 against the
-            //     TWO cells the 16-cell room has. NOT a defect on its own — the EMA and the
+            //     hysteresis left in the only unit it can actually move in. With the pair LIVE
+            //     in the 2026-08-24 log (on 0.35 / off 0.20 — a tuned cfg, NOT the shipped
+            //     defaults, which are on 0.25 / off 0.10; see WallFadeTuning.On/Off) that is
+            //     every n ≤ 2 (n=2: both bars 1 cell; n=1: both bars 1 cell), and the
+            //     separation is already down to ONE cell for every n ≤ 11 against the TWO
+            //     cells the 16-cell room has. Which n degenerate therefore moves with the cfg,
+            //     which is why all four counters below read the LIVE bars rather than a
+            //     constant. NOT a defect on its own — the EMA and the
             //     second-scale dwell are independent of n and still hold — but it is the term
             //     that goes first in a small room, and no build may claim a fade behaves the
             //     same there until this number has been read from one.
             // Reported only. Changing either bar is a fade-behaviour change and needs its own
             // round; this line exists so that round starts from a measurement.
             int roomsNoGrid = 0, roomsBarsCollapsed = 0, roomsBarsOneApart = 0;
+            int roomsZeroRelease = 0; // ModBuild 262 lane F — see the block by the bars below
             for (int r = 0; r < _roomSampleCount.Count; r++)
             {
                 if (sb.Length > 0)
@@ -6274,6 +6426,10 @@ internal static partial class WallSegmentFade
                     // reader can see WHICH term removed the hexes: if every cut column is 0 the
                     // playability filter did nothing and the defect is elsewhere.
                     int foot = _roomTileFootprint[r], play = _roomTilePlayable[r];
+                    // ModBuild 262 lane F (F11): the hexes the lattice DRAWS FROM — not the
+                    // denominator. The denominator is min(grid-squared, this set), which is
+                    // exactly `cells`, and it is printed under its own label below.
+                    int hexSet = _roomPlayableUsed[r] ? play : foot;
                     sb.Append(": ").Append(_roomTileTotal[r]).Append(" hex(es) on this room's CMap")
                       .Append(_roomTileTotal[r] != foot
                           ? $" → {foot} inside this room's own footprint (the rest sit outside "
@@ -6292,10 +6448,10 @@ internal static partial class WallSegmentFade
                       .Append(" hex(es) gave no verdict and were KEPT, fail-open]")
                       .Append("; room CMap Revealed=").Append(RoomRevealedLabel(r))
                       .Append(_roomPlayableUsed[r]
-                          ? $"; DENOMINATOR = the {play} playable hex(es)"
+                          ? $"; HEX SET = the {play} playable hex(es)"
                           : "; PLAYABLE FILTER HELD BACK — " + play + " playable hex(es) is fewer "
                             + "than the " + _sampleGridCells + " lattice position(s), so the "
-                            + "denominator stays ModBuild 258's " + foot + " in-footprint hex(es) "
+                            + "hex set stays ModBuild 258's " + foot + " in-footprint hex(es) "
                             + "and NEITHER the quantum nor the two bars move. Using the " + play
                             + " would have made the quantum "
                             + (play > 0 ? (1f / play).ToString("F4") : "n/a") + " → exit bar "
@@ -6304,7 +6460,19 @@ internal static partial class WallSegmentFade
                             + (play > 0 ? Mathf.CeilToInt(WallFadeTuning.On * play) : 0)
                             + " cell(s) — that is a bar re-derivation, and this build does not "
                             + "make it")
-                      .Append(", ")
+                      .Append("; DENOMINATOR IN FORCE = ").Append(cells)
+                      .Append(" sample(s) = min(grid² ").Append(_sampleGridCells)
+                      .Append(", hex set ").Append(hexSet)
+                      .Append("), so the quantum below is 1/").Append(cells)
+                      .Append(" and NOT 1/").Append(hexSet)
+                      .Append(". ModBuild 262 lane F fix: this clause used to print the hex-set "
+                          + "size under the word DENOMINATOR, which is the number that reached "
+                          + "the user as 'the playable hexes'. The 2026-08-24 log printed "
+                          + "'DENOMINATOR = the 32 playable hex(es)' beside 'quantum 0.0625' — "
+                          + "1/32 is 0.031, so the line contradicted itself, and the class "
+                          + "header of this file had the right relation min(grid², hexes) all "
+                          + "along. FALSIFIER for this fix: the quantum printed below must "
+                          + "equal 1/DENOMINATOR IN FORCE to four decimals. ")
                       .Append(cells).Append(" of ").Append(_sampleGridCells)
                       .Append(" lattice position(s) kept ON A TILE (")
                       .Append(_sampleGridCells - cells)
@@ -6358,17 +6526,100 @@ internal static partial class WallSegmentFade
                                   + "band; the 16-cell room this subsystem was reasoned about "
                                   + "has two]");
                     }
+                    // ModBuild 262 lane F — a THIRD degeneracy, independent of the two above
+                    // and asked separately because it is a different test. A wall is held on
+                    // while coverage >= Off, so it can only RELEASE at blocked < Off·n, i.e. at
+                    // exitCells - 1 cells. An exit bar of 1 therefore means it releases only
+                    // with ZERO blocked samples: a one-way ratchet, faded until nothing at all
+                    // is behind it. Computed from the LIVE bars, not a constant, because which
+                    // cell counts degenerate depends on the tuned pair. THE SHIPPED DEFAULTS ARE
+                    // Defaults.OnFraction 0.35 / OffFraction 0.20 (Defaults.Core.cs:167-168) —
+                    // NOT the 0.25/0.10 that WallFadeTuning.On/Off name, which are the CLAMP
+                    // FALLBACK arguments used only before Bind() and are not what any install
+                    // receives. (ModBuild 262's first pass read those fallbacks as the defaults
+                    // and reworded this block around them; corrected here. Same shape as the
+                    // ModBuild 252 defaults slip: a value that LOOKS like a default because it
+                    // sits next to the constant is not the one that ships.) At the shipped
+                    // 0.35/0.20 pair this test holds for every n <= 5; at the spent 252 pair
+                    // 0.25/0.10 it would hold for every n <= 10, which is why the count is
+                    // computed from the LIVE bars and never from a constant — a player whose cfg
+                    // still carries an older pair degenerates at a different room size than a
+                    // fresh install does. FALSIFIER: a room printing exit bar >= 2 is not in
+                    // this count.
+                    if (exitCells <= 1)
+                    {
+                        roomsZeroRelease++;
+                        sb.Append(" [exit bar 1 cell — this room's walls can only release with "
+                                  + "ZERO blocked samples, a one-way ratchet]");
+                    }
                 }
                 else
                 {
                     roomsNoGrid++;
                 }
             }
+            // ── REGISTRY COVERAGE (ModBuild 262 lane F — F8) ────────────────────────────
+            // The per-room rows above itemise ONLY the rooms that got a grid, so a census that
+            // samples one room out of five reads exactly like a census of a one-room scenario.
+            // The 2026-08-24 log: "184 hex(es) keyed to a room" against "room 0 'Room_5': 44
+            // hex(es) on this room's CMap" — 140 hexes, 76 %, sat on CMaps absent from
+            // _roomBounds and were never measured. Both numbers were already on this line;
+            // nobody could subtract them because the second one is buried per room. The ALARM
+            // text states the TWO things that can then happen to a wall bordering such a room —
+            // held FAIL-SAFE SOLID, or bound to the nearest OTHER room's floor grid — which are
+            // the mechanisms behind "walls that should fade never do" and its mirror, "a wall
+            // fades for a room I am not in". Cost: one walk of the logical-room list at the
+            // existing census cadence, reusing _censusMapsSampled — no allocation, no scene
+            // sweep, nothing per frame.
+            _censusMapsSampled.Clear();
+            int hexesSampled = 0, keylessRooms = 0;
+            for (int r = 0; r < _roomSampleCount.Count; r++)
+            {
+                object? key = r < _roomMapKeys.Count ? _roomMapKeys[r] : null;
+                if (key == null)
+                {
+                    keylessRooms++;
+                    continue;
+                }
+                if (r < _roomTileGrid.Count && _roomTileGrid[r]
+                    && _tilesByMap.TryGetValue(key, out List<Vector3> hexList)
+                    && _censusMapsSampled.Add(key))
+                {
+                    hexesSampled += hexList.Count;
+                }
+            }
+            int registryMaps = _tilesByMap.Count;
+            int sampledMaps = _censusMapsSampled.Count;
+            string coverage =
+                $"REGISTRY COVERAGE: {sampledMaps} of {registryMaps} distinct CMap(s) in the "
+                + $"tile registry got a sample grid, covering {hexesSampled} of "
+                + $"{_tilesResolved} keyed hex(es)"
+                + (registryMaps > sampledMaps
+                    ? $" — ALARM: {registryMaps - sampledMaps} CMap(s) / "
+                      + $"{_tilesResolved - hexesSampled} hex(es) are in the registry and in NO "
+                      + "room's denominator. THIS IS THE ONE-LINE READING THAT MEANS NOT "
+                      + "GENERIC: the per-room rows above cannot show it, because they itemise "
+                      + "only the rooms that WERE sampled. What happens to a wall bordering one "
+                      + "of those rooms has two cases and AssociateRooms decides which. If the "
+                      + "CMap does have a logical-room entry but no grid, RoomDecisionValid is "
+                      + "false for it and the wall is held FAIL-SAFE SOLID unless the adjacent "
+                      + "re-anchor finds a decision-valid room within AdjacentReanchorMaxGapWU. "
+                      + "If the CMap has NO logical-room entry at all, AssociateRooms has "
+                      + "nothing to pick and binds the wall to the NEAREST OTHER room, so its "
+                      + "coverage is measured against a floor grid the player is not standing "
+                      + "on — that one fades and unfades on the wrong room and raises no alarm "
+                      + "anywhere else."
+                    : registryMaps == 0
+                        ? " — NOTHING MEASURED: the tile registry holds no CMap this rescan, so "
+                          + "this clause has compared nothing and is not an all-clear."
+                        : " — every CMap the registry knows is in some room's denominator.");
             string line =
-                $"SAMPLE GRID: {tileRooms} room(s) on the PLAYABLE-TILE denominator, {boxRooms} "
+                $"SAMPLE GRID: {TilesetLabel()}; {tileRooms} room(s) on the PLAYABLE-TILE "
+                + $"denominator, {boxRooms} "
                 + $"on the bounding box; tile registry {(_tileSourceLive ? "live" : "ABSENT")} "
                 + $"({_tilesResolved} hex(es) keyed to a room, {_tilesUnkeyed} without a CMap "
-                + $"and ignored) — {sb}. The denominator is per room and the ray loop is "
+                + $"and ignored). {coverage} — {sb}. The denominator is per room and the ray "
+                + "loop is "
                 + "unchanged; a wall's coverage is still blocked-samples over THIS room's "
                 + "sample count. GENERICITY (ModBuild 262): the lattice is "
                 + $"{_sampleGridCells} cell(s) this scenario because it holds "
@@ -6377,10 +6628,22 @@ internal static partial class WallSegmentFade
                 + "COUNT alone moves every room's quantum and both Schmitt bars in cell terms. "
                 + $"{roomsNoGrid} room(s) got NO grid at all (their walls are held solid and can "
                 + $"never fade), {roomsBarsCollapsed} have the two bars COLLAPSED onto the same "
-                + $"cell count, {roomsBarsOneApart} have them ONE cell apart. All three read 0 in "
-                + "the ModBuild 260 forest scenario, which is a single 42-hex room at 16 cells "
-                + "with the bars 4 and 6 — a sample of one. A non-zero here is the first "
-                + "measurement of what a small or many-roomed scenario actually does.";
+                + $"cell count, {roomsBarsOneApart} have them ONE cell apart, and "
+                + $"{roomsZeroRelease} have an exit bar of 1 cell — a faded wall there can only "
+                + "release with ZERO blocked samples, a one-way ratchet, which is a different "
+                + "test from the other two and is asked separately. All four read 0 in the "
+                + "ModBuild 260 forest scenario, which is a SINGLE room whose CMap holds 44 "
+                + "hexes, 42 of them inside its own footprint and 32 PLAYABLE, sampled at 16 "
+                + "cells with the bars 4 and 6 — a sample of one. Those are three different "
+                + "numbers and only the last one is a candidate denominator term; quoting the "
+                + "42 as 'the playable hexes' is the ModBuild 261 error this build's DENOMINATOR "
+                + "IN FORCE clause exists to stop. A non-zero here is the first measurement of "
+                + $"what a small or many-roomed scenario actually does. COMPOUNDER: {keylessRooms} "
+                + $"of the {_roomSampleCount.Count} registry room(s) carry NO CMap — the room "
+                + "registry adds one entry per CMap and floor-height bin PLUS one singleton per "
+                + "room renderer with no CMap key (CommitRoomRegistry), so that room count is "
+                + "NOT the game's room count, and partial CMap resolution silently coarsens the "
+                + "grid ladder for EVERY room by inflating it.";
             if (line == _lastSampleCensus)
                 return;
             _lastSampleCensus = line;
