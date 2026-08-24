@@ -717,6 +717,40 @@ internal sealed class ConvertedPanel
     public float RevealDeadline;
 
     /// <summary>
+    /// THE POSE-CRITICAL GRACE HAS ALREADY BEEN GRANTED TO THIS PANEL (ModBuild 250) — a latch, so
+    /// the extension below is a ONE-SHOT and never a per-frame push that would make
+    /// <see cref="RevealDeadline"/> unreachable.
+    ///
+    /// <para><b>THE BUG IT ANSWERS</b>, from <c>.planning/debug/LogOutput.log</c>: <c>UI Event
+    /// Window</c> was FORCED visible after 601 ms with <c>fit=pending</c>, so its pose had been
+    /// computed from the PRE-fit rect; the one pre-reveal re-place then arrived and was permanently
+    /// REFUSED by the pose lock, because a revealed window is never moved. The window therefore
+    /// stood, for the rest of its life, at a pose derived from a rect it no longer had — on the
+    /// sibling window that same correction was worth 0.260 m.</para>
+    ///
+    /// <para><b>WHY THE DEADLINE MOVES AND THE WINDOW DOES NOT.</b> Two rulings collide here:
+    /// "a window must never stay invisible" (why the forced reveal exists) and "einmal gespawned
+    /// sind sie fix" (why the pose lock refuses). Only the FIRST is a ruling about a bound — it is
+    /// satisfied by any finite one, and 0.6 s is a chosen number, not the ruling. The second is a
+    /// ruling about a POSE THE PLAYER CAN SEE, and it is absolute: a shared window that jumps after
+    /// it is visible jumps in front of every player at once. So the pose-critical case buys time
+    /// while it is still render-hidden, and never a millimetre after. If even the extended bound
+    /// expires the old behaviour stands unchanged, and the reveal line says so.</para>
+    ///
+    /// <para>SCOPE: set only where a SHARED window's spawn pose was taken from the shared table
+    /// anchor while its content fit had not yet measured — the one case in which a stale rect moves
+    /// an identity-owned slot that every client is looking at. Every other window keeps the 0.6 s
+    /// bound exactly as it was.</para>
+    /// </summary>
+    public bool RevealPoseCriticalGraceGiven;
+
+    /// <summary>One-shot latch for the "nothing was ever measurable" warning on the PRE-REVEAL first
+    /// fit — see <c>CanvasConversion.SettlePreRevealFirstFit</c>. Separate from
+    /// <see cref="FitGaveUpLogged"/> so the two families' one-shots can never consume each
+    /// other's.</summary>
+    public bool FitNeverMeasurableLogged;
+
+    /// <summary>
     /// THIS HOST'S POSE IS WRITTEN EVERY FRAME BY SOMEONE ELSE (ModBuild 184) — so the reveal
     /// gate's stillness criterion is meaningless for it and must be skipped.
     ///

@@ -303,6 +303,29 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> EnemyRevealBoardClearance = null!;
 
+    /// <summary>
+    /// THE RADIUS OF THE HALF-RING THE SHARED ("blue") MAP-ROOM WINDOWS SPAWN ON, real metres,
+    /// measured from the MAP TABLE'S OWN CENTRE. User ruling 2026-08-24, verbatim: "Es ist ok das
+    /// es nicht bei jedem nah steht. Ich möchte aber, das die Fenster zentral ÜBER dem Tisch mittig
+    /// spawnen dort in einem halbkreis."
+    ///
+    /// <para>Read ONCE per shared window, at its spawn placement, by
+    /// <c>ModalFallback.TrySharedAnchorOnTable</c> — this is the initial spawn pose and nothing
+    /// else, so turning the dial moves the NEXT window that opens and never one that is standing
+    /// (and never one anybody has grabbed). It is a pure constant of the shared parchment frame, so
+    /// two clients with the same value compute the same frame-local pose to the millimetre; two
+    /// clients with DIFFERENT values do not, which is the one way this entry can break 1:1 and the
+    /// reason the falsifier line prints the number it used.</para>
+    ///
+    /// <para>The default 0.80 m is the parchment's own circumradius (0.768 m on the surveyed
+    /// 0.96 x 1.20 m map) rounded up: at or above it no point of the ring can stand over the map,
+    /// so no shared window can hide the thing the player is clicking. Below it, wide windows are
+    /// pushed off the arc by the map-occlusion floor instead. Live-tunable in the debug menu
+    /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <see cref="ConfigTopic.Panels"/> and the group is
+    /// the key's own leading word).</para>
+    /// </summary>
+    internal static ConfigEntry<float> SharedWindowArcRadiusMeters = null!;
+
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
@@ -710,6 +733,25 @@ internal static class WorldUIConfig
                 "the board. Live-tunable in the debug menu (Panels -> Initiative); applies to the " +
                 "next reveal spawn / lazy-follow step. Range 0-0.5.",
                 new AcceptableValueRange<float>(0f, 0.5f)));
+        SharedWindowArcRadiusMeters = _file.Bind("WorldUI", "SharedWindowArcRadiusMeters",
+            Defaults.SharedWindowArcRadiusMeters,
+            new ConfigDescription(
+                "How far from the MAP TABLE'S CENTRE the shared (blue-barred) map-room windows " +
+                "spawn, in real metres. They are seated on a HALF-RING of this radius over the far " +
+                "half of the table — the ring's opening faces the room, so a shared window is " +
+                "never placed between you and the map — all at one height and all yawed the same " +
+                "way, stepped sideways only far enough that two of them cannot overlap. Larger = " +
+                "the ring stands further across the table (smaller in view, but further from the " +
+                "map); smaller = nearer and bigger, until the ring reaches the parchment, at which " +
+                "point windows are pushed back out so they can never be drawn over the map. The " +
+                "default 0.80 m is the smallest radius at which no part of the ring can stand over " +
+                "the map at all. THIS IS THE INITIAL SPAWN POSITION ONLY: every shared window " +
+                "stays freely movable and fully synchronised, and a window that is already " +
+                "standing does not move when this changes. MULTIPLAYER: this value is part of the " +
+                "shared placement, so all players in a session should leave it at the same number " +
+                "— a different value on one client seats that client's copy somewhere else until " +
+                "somebody drags it. Range 0.3-2.",
+                new AcceptableValueRange<float>(0.3f, 2f)));
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +

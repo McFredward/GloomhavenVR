@@ -4624,7 +4624,32 @@ internal static partial class CanvasConversion
 
         SettleResult state = TickSettleGate(panel, root, out string report);
         if (state == SettleResult.NotMeasurable)
+        {
+            // ModBuild 250 — THIS RETURN IS THE ONE PATH THAT BYPASSES ForceCommitDue, AND IT WAS
+            // SILENT. A window whose content never becomes measurable never commits a fit at all:
+            // it reveals at the raw captured rect on the deadline, with fit=pending, and everything
+            // downstream that waits on FitMeasuredOnce — above all the ONE pre-reveal pose re-place
+            // — is then refused forever (.planning/debug/LogOutput.log, 'UI Event Window' FORCED at
+            // 601 ms). There is nothing to commit here, so the behaviour is unchanged and correct;
+            // what was missing is that a hardware log could not tell this case ("the content never
+            // appeared") apart from "the content appeared and its layout never settled". One line,
+            // once, at the moment it stops mattering. [[sentinel-overflow-and-silent-scans]]
+            if (ForceCommitDue(panel) && !panel.FitNeverMeasurableLogged)
+            {
+                panel.FitNeverMeasurableLogged = true;
+                VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' pre-reveal first fit found "
+                                      + $"NOTHING MEASURABLE by its reveal deadline — {report}. The "
+                                      + "window reveals at the RAW captured rect, fit=pending, and "
+                                      + "every consumer that waits on the first fit is skipped from "
+                                      + "here on: the one pre-reveal pose re-place above all, which "
+                                      + "means a spawn pose derived from this rect is the pose the "
+                                      + "window keeps. If this window is a SHARED one its half-size "
+                                      + "is a term of the shared anchor, so this line is the reason "
+                                      + "its home looks wrong — and the suspect is the CONTENT, not "
+                                      + "the placement.");
+            }
             return; // nothing visible yet (fade-in) — retry next frame, bounded by the reveal deadline
+        }
 
         bool revealDue = ForceCommitDue(panel);
         if (state != SettleResult.Settled && !revealDue)

@@ -3348,13 +3348,43 @@ internal static partial class ModalFallback
     //   SharedWindowKind      room       home  where it lands
     //   ------------------------------------------------------------------------------------------
     //   ScenarioStory  (1)    scenario   0     centred above the board's measured TOP (far) edge
-    //   MapStory       (2)    map room   0     over the table's far short end, centred
-    //   QuestConfirm   (3)    map room   1     the same far end, one lateral step toward +Z
-    //   Encounter      (4)    map room   2     the same far end, one lateral step toward −Z
+    //   MapStory       (2)    map room   0     dead ahead on the arc over the table centre
+    //   QuestConfirm   (3)    map room   1     the same arc, one lateral step toward +Z
+    //   Encounter      (4)    map room   2     the same arc, one lateral step toward −Z
     //
     // The two rooms never coexist (ParticipatesHere gates 2/3/4 behind MapRoomDriver.Active and
     // ScenarioStory is never in the map room), so the two tables are independent and kind 1 taking
     // index 0 costs the map kinds nothing.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // ModBuild 250 — THE THREE MAP-ROOM HOMES ARE A HALF-RING ABOUT THE TABLE CENTRE, NOT A RANK AT
+    // THE FAR EDGE. User ruling, verbatim, after .planning/debug/window_spawn_problem.mp4:
+    //
+    //   "Es ist ok das es nicht bei jedem nah steht. Ich möchte aber, das die Fenster zentral ÜBER
+    //    dem Tisch mittig spawnen dort in einem halbkreis."
+    //
+    // The paragraphs below still describe WHICH END is the reading end and WHY the sign is a
+    // constant — that is unchanged and still the cost of 1:1. What changed is the shape:
+    //
+    //   * THE ARC CENTRE is the parchment frame centre (the table centre), not a far edge.
+    //   * THE RADIUS is [WorldUI] SharedWindowArcRadiusMeters, default 0.80 m — the first tunable
+    //     number in this whole block, so the next hardware round turns a dial instead of asking for
+    //     a build. 0.80 m is the parchment's own CIRCUMRADIUS (sqrt(0.48² + 0.60²) = 0.768 m on the
+    //     surveyed 0.96 x 1.20 m map) rounded up: at or above it, NO point of the ring can stand
+    //     over the map, whatever the lateral step. Below it the map-occlusion floor starts pulling
+    //     wide slots off the arc, and the falsifier says so in millimetres.
+    //   * THE OPENING FACES THE ROOM. The depth is the POSITIVE root of the circle, so the ring
+    //     wraps the FAR half of the table and no shared window is ever seated between the reader
+    //     and the map. A window on the near half would hide the thing he is playing on.
+    //   * THE SEPARATION RULE IS UNTOUCHED — halfA + halfB + 0.12 m, measured along the LATERAL
+    //     axis, because every slot is yawed the same way and two parallel planes clear each other
+    //     laterally. Arc LENGTH would have been the wrong measure: on the shipped pair it leaves
+    //     0.038 m of air where the rule asks for 0.120 m.
+    //   * THE ARC IS NOT ModBuild 234's REJECTED HALBKREIS ("viele Fenster außerhalb des direkten
+    //     Sichtfelds"). That one was the LOCAL seat ring about the PLAYER, with a fixed sweep that
+    //     put windows behind his shoulders. This one is about the TABLE, it has at most three
+    //     slots, and the widest slot the shipped pair produces stands 19.4° off the reading axis as
+    //     seen from the seat — inside the field of view, not beside it.
     //
     // WHY THE FAR SHORT END AND NOT ONE OF HIS TWO TABLE CORNERS. The corners are SPOKEN FOR: his
     // ModBuild 243 ruling put the Character-UI on the left corner and the Weltquests on the upper
@@ -3378,7 +3408,12 @@ internal static partial class ModalFallback
     // that case is one grep, not a mystery.
     //
     // ---------------------------------------------------------------------------------------------
-    // FACING: FULLY 1:1, OPTION (a). CONSEQUENCE, IN ONE SENTENCE HE CAN READ:
+    // FACING: FULLY 1:1, OPTION (a) — AND SINCE ModBuild 250 THE SAME YAW FOR EVERY SLOT, square to
+    // the table's reading axis rather than along each slot's own radius. Radial facing is what a
+    // circle invites and it is what 245 shipped; it faces the middle of the table, where nobody
+    // stands, and on his own log it turned two windows 68.4° apart. Both variants are constants of
+    // the shared frame, so this is a change of geometry and not of the 1:1 property below.
+    // CONSEQUENCE, IN ONE SENTENCE HE CAN READ:
     //
     //   "Ein blaues Fenster hängt für alle an derselben Stelle am Tisch und ist auch für alle gleich
     //    gedreht — wer auf der anderen Seite des Tisches steht, sieht es dadurch schräg oder von
@@ -3476,12 +3511,26 @@ internal static partial class ModalFallback
     /// Überlappungen sollen vermieden werden", taken literally.</summary>
     private const float SharedAnchorLateralGapMeters = 0.12f;
 
-    /// <summary>How far PAST the map's own far edge a shared window hangs, real metres. It is a
-    /// margin on the MAP and not on the table: the table's far edge is 1.15 m out on the surveyed
-    /// slab while the map ends at 0.60 m, and hanging a window on the table edge put it half a metre
-    /// past the thing it belongs to, over bare wood. This keeps it clear of the parchment — nothing
-    /// is drawn over what he is looking at — and roughly 0.3 m nearer than ModBuild 244.</summary>
-    private const float SharedAnchorMapEdgeMarginMeters = 0.22f;
+    // ModBuild 250 TOMBSTONE — SharedAnchorMapEdgeMarginMeters (0.22 m past the map's own far edge)
+    // is DELETED. It set the DEPTH of a single far-edge home, and the depth is no longer a constant:
+    // every shared window now sits on an ARC of radius WorldUIConfig.SharedWindowArcRadiusMeters
+    // about the table centre, so the depth of a slot is derived from that radius and the slot's own
+    // lateral step. What the margin actually guaranteed — "nothing is drawn over the thing he is
+    // looking at" — survives as SharedAnchorArcParchmentClearanceMeters below, which is a HARD floor
+    // on the depth rather than a seat.
+
+    /// <summary>The least clear air, real metres, between the parchment's own far edge and the plane
+    /// a shared window stands in.
+    ///
+    /// <para>THIS IS THE MAP-OCCLUSION GUARD, and it is a floor and not a seat. A window on the arc
+    /// is a PLANE at one depth spanning the lateral axis, so it hides the map exactly when its depth
+    /// falls inside the parchment's own footprint — which the arc can only do for a slot whose
+    /// lateral step is large enough to pull it round the side of the circle. The floor pushes such a
+    /// slot OFF the arc, straight out to the map's far edge plus this, and the falsifier line says
+    /// by how many millimetres it left the arc. A radius above the parchment's own CIRCUMRADIUS
+    /// (0.768 m on the surveyed 0.96 x 1.20 m map) makes the floor unreachable for every lateral
+    /// step, which is why the shipped default is 0.80 m.</para></summary>
+    private const float SharedAnchorArcParchmentClearanceMeters = 0.02f;
 
     /// <summary>How far above the board's measured TOP (far) edge a shared scenario window's centre
     /// hangs, in board-LOCAL units (which are metres at board scale 1, the same convention
@@ -3672,11 +3721,70 @@ internal static partial class ModalFallback
         if (home < 0)
             return false;
 
-        return MapRoom.MapRoomDriver.Active
+        bool seated = MapRoom.MapRoomDriver.Active
             ? TrySharedAnchorOnTable(window, kind, home, stage, halfSize, out worldPos, out worldRot,
                                      out worldScale, out line)
             : TrySharedAnchorOverBoard(window, kind, home, stage, halfSize, out worldPos, out worldRot,
                                        out worldScale, out line);
+        if (seated && !replay)
+            GrantPoseCriticalRevealGrace(panel!, window, kind);
+        return seated;
+    }
+
+    /// <summary>How much longer than <c>CanvasConversion.RevealMaxWaitSeconds</c> a SHARED window
+    /// whose spawn pose came from the table anchor may stay render-hidden while its content fit is
+    /// still pending, seconds. 0.9 s on top of the 0.6 s bound = a 1.5 s hard budget.
+    ///
+    /// <para>The number is a budget and not a guess about the game: the falsifier prints the budget
+    /// it used and what the gate was still waiting on, so ONE hardware log settles whether 1.5 s is
+    /// enough (a MODAL REVEAL "shown after settle" inside it) or whether the content simply never
+    /// becomes measurable for this family (a MODAL REVEAL "FORCED after ~1500 ms ... still waiting
+    /// on first content fit"), which is a different bug in a different place.</para></summary>
+    private const float SharedAnchorRevealGraceSeconds = 0.9f;
+
+    /// <summary>
+    /// THE POSE THIS WINDOW IS ABOUT TO BE REVEALED AT DEPENDS ON A RECT IT HAS NOT MEASURED YET —
+    /// buy the pre-reveal re-place time to run, ONCE, while nothing is visible.
+    ///
+    /// <para>See <see cref="ConvertedPanel.RevealPoseCriticalGraceGiven"/> for the bug this answers,
+    /// for the two rulings that collide over it and for why the deadline moves rather than the
+    /// window. Deliberately narrow: a shared window, at its SPAWN placement, whose fit is enabled
+    /// and has not measured. A local window, a re-place, or a window that is already fitted gets
+    /// nothing and keeps the 0.6 s bound bit for bit.</para>
+    /// </summary>
+    private static void GrantPoseCriticalRevealGrace(ConvertedPanel panel, UIWindow window,
+                                                     SharedWindowKind kind)
+    {
+        if (panel == null || panel.RevealPoseCriticalGraceGiven)
+            return;
+        // Not render-hidden (no reveal gate armed) ⇒ there is no deadline to extend and no invisible
+        // window to protect: the pose is whatever it is and the re-place path is not in play.
+        if (!panel.RevealPending || panel.RevealDeadline <= 0f)
+            return;
+        // Already geometry-final ⇒ the pose about to be written IS the final one and the re-place
+        // will find it identical. Extending the bound would buy nothing and delay a ready window.
+        if (!panel.FitEnabled || panel.FitMeasuredOnce)
+            return;
+
+        panel.RevealPoseCriticalGraceGiven = true;
+        float was = panel.RevealDeadline;
+        panel.RevealDeadline = was + SharedAnchorRevealGraceSeconds;
+        VRLog.Info("WorldUI",
+            $"SHARED WINDOW REVEAL GRACE — '{window.name}' ({kind}) was just seated by the shared "
+            + "table/board anchor, and that pose is computed from the window's own half-size. Its "
+            + "content fit has NOT measured yet, so the pose written now is derived from the PRE-fit "
+            + "rect and only the one pre-reveal re-place can correct it — and that re-place is "
+            + "PERMANENTLY REFUSED the moment the reveal deadline fires (grep POSE LOCK / 'MODAL "
+            + "REVEAL: ... FORCED'). On .planning/debug/LogOutput.log that is exactly what happened "
+            + "to 'UI Event Window' at 601 ms, while its sibling's re-place was worth 0.260 m. So "
+            + $"this panel's hard reveal bound moves ONCE, from {was - panel.RevealRequestedAt:F2} s "
+            + $"to {panel.RevealDeadline - panel.RevealRequestedAt:F2} s after convert, and NOTHING "
+            + "ELSE changes: the window still never moves once it is visible (that ruling is "
+            + "absolute — a shared window that jumps jumps for every player at once), and it still "
+            + "cannot stay invisible, because the bound is still hard. If the next MODAL REVEAL line "
+            + "for this window says 'shown after settle', the grace did its job; if it says 'FORCED "
+            + "... still waiting on first content fit', 1.5 s is not the answer and the fit itself "
+            + "is the suspect.");
     }
 
     /// <summary>THE MAP ROOM HOME — parchment frame, real metres, absolute world rotation. Every
@@ -3763,28 +3871,79 @@ internal static partial class ModalFallback
         };
         float centreYm = topYm + SharedAnchorTableClearanceMeters + halfWinYm;
 
-        //      AND THEY COME NEARER. The far half was the TABLE's own far edge, which on the
-        //      surveyed slab is 1.15 m out while the map itself ends at 0.60 m — so a shared window
-        //      hung a full half-metre past the thing it belongs to, over bare wood, which is the
-        //      "der Abstand ist viel zu groß" in the same sentence. It is now seated between the
-        //      map's far edge and the table's, biased toward the map: still clear of the parchment
-        //      (nothing is drawn over the thing he is looking at) and about 0.3 m nearer.
+        // ---- ModBuild 250 — THE HALF-RING OVER THE TABLE CENTRE. User ruling, verbatim:
+        //
+        //      "Es ist ok das es nicht bei jedem nah steht. Ich möchte aber, das die Fenster
+        //       zentral ÜBER dem Tisch mittig spawnen dort in einem halbkreis."
+        //
+        //      SO THE ARC IS CENTRED ON THE TABLE AND NOT ON A FAR EDGE. Every shared window's
+        //      centre sits at the SAME radius from the parchment frame centre; the ring's OPENING
+        //      faces the room (the depth term is the POSITIVE root, so no window is ever seated on
+        //      the reader's own side of the table, which would put it between him and the map).
+        //      The lateral step above is untouched — it is still the window's OWN half-width plus
+        //      half the gap, so a pair still separates by exactly halfA + halfB + 0.12 m — and the
+        //      ARC now supplies the DEPTH that goes with that step:
+        //
+        //          depth = sqrt(radius² − lateral²)
+        //
+        //      which is the circle, solved for the slot the separation rule already chose. A slot
+        //      further out sideways is therefore automatically further FORWARD, i.e. nearer the
+        //      reader, and the three slots wrap around him instead of standing in a flat rank.
+        //
+        //      WHY THE SEPARATION IS MEASURED ALONG THE LATERAL AXIS AND NOT AS ARC LENGTH. The
+        //      windows are all yawed the SAME way (see the facing block below), so two neighbours
+        //      are two PARALLEL planes and the air between them is their lateral gap, full stop.
+        //      Stepping by arc length instead would have left the shipped pair 0.038 m apart where
+        //      the rule asks for 0.120 — the chord of an arc is shorter than the arc — i.e. it
+        //      would have quietly broken the one invariant ModBuild 245 established. The rule is
+        //      the rule; the arc only decides how far back each slot stands.
         float mapFarHalf = shortAxisIsX
             ? b.size.x * 0.5f / scale
             : b.size.z * 0.5f / scale;
-        float depthHalf = Mathf.Min(farHalf, mapFarHalf + SharedAnchorMapEdgeMarginMeters);
+        float radius = Mathf.Max(WorldUIConfig.SharedWindowArcRadiusMeters.Value, 0.05f);
+        float arcDepth = Mathf.Sqrt(Mathf.Max(radius * radius - lateral * lateral, 0f));
+        // THE MAP-OCCLUSION GUARD. A slot whose lateral step swings it round the side of the circle
+        // comes to stand at a depth INSIDE the parchment's own footprint, and a window plane there
+        // hides the far strip of the map the player is trying to click. The floor pushes it back out
+        // to the map's far edge; the line below reports how far it left the arc.
+        //
+        // THE TEST IS TWO-DIMENSIONAL, because the window is a PLANE and not a point. A slot whose
+        // whole lateral SPAN — centre ± its own half-width — clears the map's lateral half is beside
+        // the parchment, not over it, however shallow its depth, and pushing it back would cost
+        // reading distance for nothing. `innerLateral` is the closest that span comes to the table's
+        // centre line, and it is 0 for a window wide enough to straddle it.
+        float mapLateralHalf = shortAxisIsX
+            ? b.size.z * 0.5f / scale
+            : b.size.x * 0.5f / scale;
+        float innerLateral = Mathf.Max(Mathf.Abs(lateral) - halfWinXm, 0f);
+        bool overMapLaterally = innerLateral < mapLateralHalf;
+        float depthFloor = mapFarHalf + SharedAnchorArcParchmentClearanceMeters;
+        float depthHalf = overMapLaterally ? Mathf.Max(arcDepth, depthFloor) : arcDepth;
+        float offArcMm = (depthHalf - arcDepth) * 1000f;
         Vector3 localPos = shortAxisIsX
             ? new Vector3(depthHalf, centreYm, lateral)
             : new Vector3(lateral, centreYm, depthHalf);
 
-        // FACING IS 1:1: the window looks back across the table, from its home toward the map's
-        // centre. Canvas front faces −forward, so pointing +Z AWAY from the reader is what faces
-        // them — the same convention ComputeHmdPose's head-facing branch and PanelPlacement.Facing
-        // use. Yaw only (ModBuild 189's ruling): a place has a level horizon.
-        Vector3 outward = new Vector3(localPos.x, 0f, localPos.z);
-        if (outward.sqrMagnitude < 1e-6f)
-            outward = Vector3.forward;
-        worldRot = Quaternion.LookRotation(outward.normalized, Vector3.up);
+        // FACING IS 1:1 AND IT IS THE SAME FOR EVERY SLOT (ModBuild 250). The window is yawed square
+        // to the READING AXIS — the short horizontal axis of the table, whose negative end is the
+        // end every client is seated at — and NOT along its own radius. Canvas front faces
+        // −forward, so pointing +forward at the POSITIVE (far) end is what faces the reader at the
+        // negative one; the same convention ComputeHmdPose's head-facing branch and
+        // PanelPlacement.Facing use. Yaw only (ModBuild 189's ruling): a place has a level horizon.
+        //
+        // WHY NOT RADIAL, WHICH IS WHAT A CIRCLE INVITES AND WHAT ModBuild 245 SHIPPED. A window
+        // facing its own radius line faces the ARC CENTRE, and the arc centre is the middle of the
+        // TABLE — a place nobody stands. On his own log that turned two windows 64.87° and 133.28°,
+        // i.e. 68.4° apart, and a pair 68° apart is not a row: it is the "die Fenster müssen immer
+        // erst wieder so angeordnet werden, dass man es lesen kann" in the report. Facing the
+        // reading axis makes every slot square-on to a reader anywhere on the axis, at any
+        // distance, and costs the off-centre slots only the angle their own lateral step subtends
+        // (19.4° for the widest slot the shipped pair produces — a flat panel is fully legible
+        // there). It is still a CONSTANT of the shared frame, so it is bit-identical on every
+        // client and the ModBuild 243 "never re-face a shared window on the player" ruling is
+        // untouched: nothing here reads a head.
+        Vector3 facing = shortAxisIsX ? Vector3.right : Vector3.forward;
+        worldRot = Quaternion.LookRotation(facing, Vector3.up);
         worldPos = centre + localPos * scale;
         // THE SIZE IS TAKEN FROM THE SHARED FRAME TOO, not from PanelLayout.WorldScale, because that
         // one carries this player's own pinch-zoom — the same reason MapRoomDriver derives the frame
@@ -3832,12 +3991,28 @@ internal static partial class ModalFallback
                + $"halfA + halfB + {SharedAnchorLateralGapMeters:F2} m and by nothing more "
                + "(ModBuild 244 stepped by TWICE that and then took a max with a table fraction, "
                + "which is what pushed them to the ends of the table in "
-               + "kartenraum_remotespawn.jpg). DEPTH: seated at "
-               + $"{depthHalf:F3} m, which is the map's own far edge {mapFarHalf:F3} + "
-               + $"{SharedAnchorMapEdgeMarginMeters:F2} m, capped at the table's {farHalf:F3} — "
-               + "clear of the parchment, and nearer than hanging it on the table edge. The short "
-               + $"horizontal axis is {(shortAxisIsX ? "X" : "Z")} and the far end is its POSITIVE "
-               + $"one, fixed; this client's own head sits at {seatSide}. "
+               + "kartenraum_remotespawn.jpg). "
+               + "ARC (ModBuild 250, \"zentral ÜBER dem Tisch mittig ... in einem halbkreis\"): "
+               + $"radius {radius:F3} m ([WorldUI] SharedWindowArcRadiusMeters) about the TABLE "
+               + $"CENTRE, so this slot's depth = sqrt({radius:F3}² − {lateral:F3}²) = "
+               + $"{arcDepth:F3} m and it stands {Mathf.Atan2(lateral, Mathf.Max(depthHalf, 1e-4f)) * Mathf.Rad2Deg:F1}° "
+               + "round the ring from dead ahead; the ring's OPENING faces the room (the depth is "
+               + "the POSITIVE root, so no shared window is ever seated between the reader and the "
+               + "map). SEATED AT DEPTH "
+               + $"{depthHalf:F3} m, {(offArcMm > 0.5f ? $"which is {offArcMm:F0} mm OFF THE ARC — the map-occlusion floor (parchment far edge {mapFarHalf:F3} + {SharedAnchorArcParchmentClearanceMeters:F2} m) pulled it back out, which happens when a window is wide enough for its lateral step to swing it round the side of the circle while its own span still crosses the map; raise SharedWindowArcRadiusMeters to put it back on the ring" : $"on the arc (map-occlusion floor {depthFloor:F3} m, {(overMapLaterally ? "armed and not reached" : "not armed — this slot's whole span clears the map sideways")})")}. "
+               + $"CLEAR OF THE MAP: the parchment is {mapFarHalf:F3} m deep and {mapLateralHalf:F3} m "
+               + $"wide from the centre; this plane stands at depth {depthHalf:F3} m and its lateral "
+               + $"span comes no closer than {innerLateral:F3} m to the centre line, so it is "
+               + $"{(depthHalf > mapFarHalf || !overMapLaterally ? "CLEAR of the parchment" : "OVER THE PARCHMENT — this is the map-occlusion defect and nothing else")}. TABLE "
+               + $"OVERHANG: the table's own far half is {farHalf:F3} m, so this slot hangs "
+               + $"{depthHalf - farHalf:+0.000;-0.000} m past the table edge (positive = over the "
+               + $"room, not over wood), and its outer edge reaches {Mathf.Abs(lateral) + halfWinXm:F3} m "
+               + $"sideways against the table's own {lateralHalf:F3} m half-depth. "
+               + $"The short horizontal axis is {(shortAxisIsX ? "X" : "Z")} "
+               + "and the far end is its POSITIVE one, fixed; EVERY SLOT IS YAWED THE SAME "
+               + $"{worldRot.eulerAngles.y:F2}° square to that axis, which is the ModBuild 250 fix "
+               + "for two windows that pointed 68.4° apart. This client's own head sits at "
+               + $"{seatSide}. "
                + "NO WIRE FIELD WAS NEEDED: both terms are pure functions of the parchment bounds, "
                + "which is the same frame record 21 already sends a DRAGGED pose in. THE DRAG STILL "
                + "WINS — this is the initial spawn pose only, and the first published or applied "

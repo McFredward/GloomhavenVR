@@ -416,7 +416,59 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 249;
+    public const ushort ModBuild = 250;
+    // Build 250: THE MAP-ROOM WINDOWS MOVE ONTO A HALF-RING OVER THE TABLE'S CENTRE.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // USER, with window_spawn_problem.mp4: "so ist kein flüssiger Spielfluss möglich weil die
+    // Fenster immer erst wieder so angeordnet werden müssen, dass man es lesen kann", and then the
+    // ruling that decided the geometry: "die Fenster [sollen] zentral ÜBER dem Tisch mittig
+    // spawnen dort in einem halbkreis". He also settled the multiplayer trade himself — "es ist ok
+    // das es nicht bei jedem nah steht" — so the frame-local pose stays identical on every client
+    // and distance from any one seat is no longer weighed against that.
+    //
+    // 1. THE WINDOWS FANNED OUT BY 68.4 DEGREES OF YAW, AND THE REASON IS NOT WHAT THE REPORT
+    //    ASSUMED. I briefed this as "each is yawed to face the head, from two different homes".
+    //    WRONG, and the correction matters: ArcSeats computed a RADIAL facing — each window looked
+    //    at the TABLE CENTRE, which is a point nobody stands on. It could not have faced the head:
+    //    per-client facing on a shared window is forbidden by a standing ruling in that same file.
+    //    So the fix is not "stop facing the head", it is "stop facing a place where there is no
+    //    reader". Every slot now carries ONE common yaw, square to the reading axis.
+    //
+    // 2. THE 0.061 m HEIGHT DIFFERENCE IS NOT A DEFECT AND WAS LEFT ALONE. The seat is
+    //    top + 0.110 + ownHalfHeight, i.e. the BOTTOM EDGES are aligned and the centres differ by
+    //    half-height. Aligning the centres instead would put the taller window back into the table
+    //    — the ModBuild 243 defect. A second premise of mine, correctly refused.
+    //
+    // 3. THE SLOW-WINDOW RACE HAD A MISSING LINK, and it is the part no previous round had. The
+    //    fit is supposed to force-commit 50 ms before the reveal deadline, but its NotMeasurable
+    //    branch returned WITHOUT consulting ForceCommitDue — the one path that bypasses the
+    //    force-commit, and it was silent. That is why UI Event Window still read fit=pending at
+    //    601 ms, was revealed at a pose computed from the pre-fit rect, and then had its
+    //    correction permanently refused. It now warns once, by name.
+    //
+    //    THE TWO COLLIDING RULINGS WERE DECIDED, NOT SPLIT: "einmal gespawned sind sie fix" wins
+    //    and the window NEVER moves once visible; the DEADLINE moves instead (+0.9 s, once, only
+    //    for a shared window still hidden and still unmeasured). "A window must never stay
+    //    invisible" is a ruling about a BOUND, and 1.5 s is still a bound; a post-reveal jump on a
+    //    SHARED window would jump in front of every player at once. Residual, stated rather than
+    //    hidden: if 1.5 s also expires the old behaviour stands.
+    //
+    // MULTIPLAYER, PLAINLY: placement is still a pure function of the shared parchment frame plus
+    // constants — no head, no seat, no wire field. But the arc RADIUS is a config value now
+    // ([WorldUI] SharedWindowArcRadiusMeters, 0.80 m), so two clients set differently will seat
+    // their copies at different depths until somebody drags one, after which record 21 makes it
+    // 1:1 as before. The spawn log prints the radius it used, so two logs diff in one line. The
+    // dial exists because the number is not yet settled on hardware; freezing it to a const is a
+    // one-line change once it is.
+    //
+    // AND ONE THING THIS DOES NOT FIX, said plainly: "the table and the window cannot be held in
+    // one gaze". No radius can close that. The window's top edge sits 10-12 degrees below the
+    // horizon before and after, and that angle is set by eye height over a window that must stand
+    // ABOVE the table. The only ways to close it are to lower the window into the table (243) or
+    // to put it over the map (occlusion). Both are worse than the complaint.
+    //
     // Build 249: THE FORCED DISCARD, ROUND THREE — A BUTTON THAT EXISTED TWICE, AND AN ANIMATION
     // THAT ONLY PLAYED WITH THE HAND UP.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).

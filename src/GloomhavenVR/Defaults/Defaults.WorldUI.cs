@@ -183,6 +183,7 @@ internal static partial class Defaults
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
+    internal const float SharedWindowArcRadiusMeters = 0.80f; // => [WorldUI] SharedWindowArcRadiusMeters
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth

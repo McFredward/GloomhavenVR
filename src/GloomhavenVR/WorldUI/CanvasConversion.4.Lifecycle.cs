@@ -628,8 +628,19 @@ internal static partial class CanvasConversion
         {
             // Deadline reveal: visibility beats perfection — the window may show one visible
             // correction, but it can never stay an invisible blocker.
+            // ModBuild 250 — PRINT THE BUDGET THIS PANEL ACTUALLY HAD, not the class constant. A
+            // pose-critical shared window gets a ONE-SHOT extension (ArcSeats
+            // .GrantPoseCriticalRevealGrace), and a line that keeps saying "deadline 600 ms" while
+            // the window waited 1500 would read as a broken clock — [[a-default-value-names-an-
+            // unbuilt-thing]] in miniature.
+            float budgetMs = (panel.RevealDeadline - panel.RevealRequestedAt) * 1000f;
+            string budget = panel.RevealPoseCriticalGraceGiven
+                ? $"deadline {budgetMs:F0} ms, EXTENDED from {RevealMaxWaitSeconds * 1000f:F0} ms " +
+                  "because this window's spawn pose came from the shared table anchor and depends " +
+                  "on a rect it had not measured — grep SHARED WINDOW REVEAL GRACE"
+                : $"deadline {budgetMs:F0} ms";
             VRLog.Warn("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' FORCED after {waitedMs:F0} ms " +
-                                  $"(deadline {RevealMaxWaitSeconds * 1000f:F0} ms; still waiting on " +
+                                  $"({budget}; still waiting on " +
                                   $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
                                   $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
                                   $"{poseState}, final scale {finalScale}; unhid {shownCanvases} canvas(es) " +
