@@ -416,7 +416,81 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 255;
+    public const ushort ModBuild = 256;
+    // Build 256: THE GREEN WALLS LATCHED BECAUSE THE BAND SAT ON THE WRONG SIDE OF A GAP.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // CONFIRMED BY HIM AND NOT TOUCHED: "Die richtigen Wände (neben dem Tor) reagieren nun genau
+    // wie erwartet." The 255 hard-1f removal and noise-map revert did their job; 'Wall 3', the
+    // gate wall, sits at 0.00 across 124 samples and behaves.
+    //
+    // USER: "Die grünen Wände inkl. Gestrüp immer noch nicht. Einmal ausgeblendet ist es super
+    // schwer sie wieder einzublenden. egal welche Position ich einnehme. Meist kommen sie wirklich
+    // nur wieder wenn ich ganz in das SPielfeld reingehe. Sobald ich einmal wieder rausgehe faded
+    // korrekt nur eine wand und die anderen nicht - drehe ich mich einmal im kreis ist alles
+    // gefaded von den grünenn wänden - mach ich das nochmal bleibt alles gefaded."
+    //
+    // THE COVERAGE DISTRIBUTION IS BIMODAL AND THE BAND SAT IN THE WRONG MODE. Over the whole
+    // 255 session, not the tail: 'Wall 1' 20 samples pinned at 0.13 (2/16) against 84 genuinely
+    // blocking at 0.44-1.00; 'Wall 2' 22 at 0.25 (4/16) against 88 at 0.75; 'Wall 4' 119 at 0.25.
+    // NOTHING ANYWHERE LIVES BETWEEN 0.25 AND 0.44. The enter bar of 0.25 was EXACTLY a resting
+    // wall's reading, so a green wall latched on sight; the exit bar of 0.10 is unreachable on a
+    // 16-cell grid whose quantum is 0.0625, since "under 0.10" means "at most one cell". A
+    // one-way ratchet built out of two numbers that both sat on the wrong side of an empty gap —
+    // which is his report verbatim, in his own order: latches from any position, releases only
+    // when he walks inside and coverage goes to 0, a full turn latches everything, a second turn
+    // changes nothing. Both bars now sit INSIDE the measured gap: On 0.25 → 0.35, Off 0.10 → 0.20.
+    // A resting wall can no longer enter; a wall that reaches 0.44+ enters and releases when it
+    // falls back under 0.20. Derived from the distribution, not from raising a bar until the
+    // symptom stopped.
+    //
+    // I ASKED FOR A FINER SAMPLE GRID AND THE LANE WAS RIGHT TO REFUSE. A finer grid changes the
+    // PRECISION of the fraction, not the fraction: a wall hiding 12.5 % of the floor reads 2/16 at
+    // 4x4 and 8/64 at 8x8 — the same 0.125, still above a 0.10 exit bar. It would have cost
+    // 2.25-4x on the hottest loop (IntersectRay per sample per admitted piece; 'Wall 1' alone owns
+    // 178 pieces) and fixed nothing. The grid and quantum ARE now printed in the falsifier with
+    // the bars restated in cells — "against a 16-cell floor grid (quantum 0.0625 — the exit bar is
+    // 4 cell(s), the enter bar 6)" — so the next reader checks this arithmetic in one line instead
+    // of deriving it, which is the part of that request that was worth keeping.
+    // Two corrections to my own numbers: the dominant pinned value is 0.25, not the 0.13 I quoted
+    // ('Wall 4' alone sits there for 119 samples), and `blk 2/16 solid` occurs 23 times, so 2/16
+    // is not inherently stuck — the pinning is about where ema sits relative to the exit bar AFTER
+    // entering, which is why a wall resting exactly ON the enter bar was the worst case.
+    //
+    // THE REACH PROBLEM, AGAIN, AND CAUGHT BEFORE IT SHIPPED: the ModBuild 252 one-shot is SPENT
+    // on his install — it wrote 0.25/0.10 and set itself true — so a corrected default would have
+    // reached nobody testing this. New one-shot WallFadeBarsMigrated256, and it fires ONLY on the
+    // exact pair 252 itself wrote (±0.001). The predicate is "the value is provably still what a
+    // previous migration put there", never "the value differs from the new default", so anything
+    // he has tuned since is untouched.
+    //
+    // THE STEP WAS COSMETICALLY LIVE AND IS FIXED. seg.Fade cannot be observed near zero:
+    // fadeStep = 1-exp(-dt/0.12) ≈ 0.088 at 90 Hz, so the first frame after a state flip already
+    // reads ~0.09, and under Lerp(-0.05, 1, Fade) that frame carried cutoff +0.045 — clipping
+    // every fragment whose noise value fell under it, roughly 5 % of the wall's pixels gone in one
+    // frame on geometry that was solid the frame before. That is exactly what the 255 STEP line's
+    // 22 out-edges at fade 0.083-0.093 were counting. The ramp now starts at -0.15, so the first
+    // observable frame carries a NEGATIVE cutoff and clips nothing and the dissolve begins on
+    // frame two, inside the ramp; the sweep covers 1.15 instead of 1.05 over the same 0.35 s.
+    // WHAT REMAINS, IN ONE SENTENCE: the block also asserts ToggleWallFade/_WallFade_On in that
+    // same frame, and if opening the shader's fade branch alters shading independently of the
+    // cutoff, that part cannot be moved into the ramp because it is a binary gate — but with the
+    // cutoff now inert on frame one it is the ONLY remaining candidate, and the STEP line isolates
+    // it.
+    //
+    // AND THE INSTRUMENT THAT SETTLES THE NEXT ARGUMENT BEFORE IT STARTS: no instrument recorded
+    // WHICH floor cells a wall was blocking, so "is 2/16 real coverage or numerator residue?"
+    // could not be answered from any log. PER-WALL now carries the cell indices and the renderer
+    // that accepted the first ray, resolved to a name only at log time so the hot path never
+    // touches a string: `blk 4/16 FADED cells #0,#4,#8,#12 first by '<renderer>'`. A column of the
+    // grid means the near strip of floor behind the wall and the coverage is real; a verge or
+    // bush piece means numerator residue.
+    //
+    // ANIMATION, corrected: not untested after all — the 255 session contains 7 samples with
+    // `1 mid-DISSOLVE`, so the noise path provably executes. What is still unverified is whether
+    // it LOOKS smooth, which a 2 Hz census cannot show.
+    //
     // Build 255: THE FADE WAS NEVER A FADE, AND ModBuild 252 IS WHY.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

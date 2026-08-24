@@ -36,6 +36,8 @@ internal static class WallFadeTuning
     internal static ConfigEntry<bool>? SyncPeerFades;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
+    /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
+    internal static ConfigEntry<bool>? BarsMigrated256;
 
     internal static void Bind()
     {
@@ -127,6 +129,61 @@ internal static class WallFadeTuning
                   + $"OffFraction {hadOff:F2} already form a valid Schmitt band (low bar below "
                   + "high bar), so they were left exactly as they are. The marker is now spent "
                   + "and these bars will never be rewritten again.");
+        }
+
+        // ---- ONE-SHOT: move the band into the gap the hardware actually shows -------------
+        //
+        // WHY A SECOND MARKER. The 252 one-shot is SPENT on every install that has run that
+        // build: it wrote 0.25/0.10 and set itself true. Correcting the two constants again
+        // would therefore reach nobody who is already testing — the same reach problem, one
+        // build later.
+        //
+        // WHY THIS OVERWRITE IS NARROW. It fires ONLY on the exact pair the 252 one-shot itself
+        // wrote. A value tuned since then — by hand or by the settings-panel steppers — does not
+        // match and is left alone. This is not "the value differs from the new default"; it is
+        // "the value is provably still the one a previous migration put there".
+        //
+        // WHY 0.35/0.20. Not taste, and not raising a bar until a symptom stops: the ModBuild
+        // 255 log's coverage distributions are bimodal per wall, with NOTHING between 0.25 and
+        // 0.44. The old pair straddled the wrong side of that gap — enter 0.25 is exactly a
+        // resting wall's reading, so it latched on sight, and exit 0.10 is unreachable on a
+        // 16-cell grid whose quantum is 0.0625. Both new bars sit inside the empty gap.
+        BarsMigrated256 = config.Bind("WallFade", "WallFadeBarsMigrated256",
+            Defaults.WallFadeBarsMigrated256,
+            "One-shot migration marker, not a setting. FALSE on a fresh install; set TRUE the "
+            + "first time this build inspects an existing config. If OnFraction/OffFraction are "
+            + "still exactly the 0.25/0.10 pair the ModBuild 252 migration wrote, they are moved "
+            + "to 0.35/0.20 — the band the hardware distributions put between a wall at rest and "
+            + "a wall genuinely in the way. Anything you have tuned since is left untouched. Set "
+            + "this back to false to re-run.");
+        if (BarsMigrated256 != null && !BarsMigrated256.Value)
+        {
+            BarsMigrated256.Value = true;
+            float hadOn = OnFraction != null ? OnFraction.Value : Defaults.OnFraction;
+            float hadOff = OffFraction != null ? OffFraction.Value : Defaults.OffFraction;
+            bool isLegacy252Pair = Mathf.Abs(hadOn - 0.25f) < 0.001f
+                                   && Mathf.Abs(hadOff - 0.10f) < 0.001f;
+            if (isLegacy252Pair && OnFraction != null && OffFraction != null)
+            {
+                OnFraction.Value = Defaults.OnFraction;
+                OffFraction.Value = Defaults.OffFraction;
+            }
+            VRLog.Info("WallSegmentFade", isLegacy252Pair
+                ? $"One-shot migration: this config still carried the ModBuild 252 pair "
+                  + $"[WallFade] OnFraction {hadOn:F2} / OffFraction {hadOff:F2}. On a 16-cell "
+                  + "floor grid the quantum is 0.0625, so an exit bar of 0.10 means 'at most ONE "
+                  + "blocked cell' — a wall resting at two cells (0.125) could never release, "
+                  + "and an enter bar of 0.25 is exactly what a wall at rest reads, so it "
+                  + "latched on sight. That is the one-way ratchet reported 2026-08-24 ('einmal "
+                  + "ausgeblendet ist es super schwer sie wieder einzublenden, egal welche "
+                  + $"Position ich einnehme'). Moved to {Defaults.OnFraction:F2}/"
+                  + $"{Defaults.OffFraction:F2}, which sits in the empty gap between the two "
+                  + "modes every wall's coverage actually shows (at rest 0.13-0.25, in the way "
+                  + "0.44-0.95). This runs ONCE and anything you tune from here is kept."
+                : $"One-shot migration: nothing to do — [WallFade] OnFraction {hadOn:F2} / "
+                  + $"OffFraction {hadOff:F2} is not the pair the ModBuild 252 migration wrote, "
+                  + "so it is a tuned value and was left exactly as it is. The marker is now "
+                  + "spent and these bars will never be rewritten again.");
         }
     }
 
@@ -508,6 +565,26 @@ internal static partial class WallSegmentFade
         public int LastRoomVisible;
         /// <summary>Total floor-grid points of this wall's room (the fraction denominator).</summary>
         public int LastRoomTotal;
+
+        /// <summary>
+        /// PER-CELL ATTRIBUTION (ModBuild 256). Which floor cells of the deciding room this wall
+        /// blocked on the last evaluation — room-relative indices — and, for the first of them,
+        /// WHICH renderer accepted the ray.
+        ///
+        /// <para>Every argument about this subsystem since ModBuild 250 has come down to one
+        /// unanswerable question: when a wall reads "blocks 2 of 16", is that two real cells of
+        /// hidden floor or a residue of geometry that should not be in the numerator? A count
+        /// cannot answer it and a coverage fraction cannot answer it. The cell indices plus the
+        /// blocking piece's name answer it in one log line, for good.</para>
+        ///
+        /// <para>Cost is a cleared list and at most one integer append per blocked sample, on the
+        /// evaluation path only — no allocation after the first few frames, since the list keeps
+        /// its capacity.</para>
+        /// </summary>
+        public readonly List<int> LastBlockedCells = new();
+        /// <summary>Renderer that accepted the ray for the FIRST blocked cell — resolved to a
+        /// name only when the falsifier prints, so the hot path never touches a string.</summary>
+        public Renderer? LastBlockerPiece;
     }
 
     private sealed partial class FadeDriver : MonoBehaviour
@@ -585,6 +662,10 @@ internal static partial class WallSegmentFade
         /// populations in the logged tileset (ground mats ≈0.08, the scrub wall's own bushes
         /// 0.59-1.43, a wall slab ≥6), so it is not a value that wants tuning.</summary>
         private const float StandingPieceRatio = 0.5f;
+        /// <summary>True while <see cref="RoomBlockedFraction"/> is measuring a segment's OWN
+        /// room, so the per-cell attribution list describes exactly one room's grid — a seam
+        /// wall's alt-room passes run with it false.</summary>
+        private bool _attributeCells = true;
         /// <summary>Above this fade the foliage renderer is DISABLED outright — the cutoff ramp
         /// only removes cutout texels, and any opaque twig material would otherwise survive.</summary>
         private const float FoliageHideFade = 0.99f;
@@ -1607,6 +1688,8 @@ internal static partial class WallSegmentFade
             seg.LastRoomVisible = 0;
             seg.LastRoomTotal = 0;
             seg.LastDecidingRoom = -1;
+            seg.LastBlockedCells.Clear();
+            seg.LastBlockerPiece = null;
             int room = seg.RoomIndex;
             if (room < 0 || room >= _roomSampleCount.Count)
                 return 0f;
@@ -1659,8 +1742,13 @@ internal static partial class WallSegmentFade
                 int alt = seg.BorderRooms[i];
                 if (alt < 0 || alt >= _roomSampleCount.Count || _roomSampleCount[alt] <= 0)
                     continue;
+                // Cell attribution describes the OWN room only (see _attributeCells): a seam
+                // wall's alt-room passes must not append their cells to it, or the list would
+                // be a union of rooms and mean nothing.
+                _attributeCells = false;
                 float altFraction = RoomBlockedFraction(seg, headPos, alt,
                     out int altBlocked, out int altVisible, out int altTotal);
+                _attributeCells = true;
                 if (altFraction <= fraction)
                     continue;
                 fraction = altFraction;
@@ -1708,8 +1796,18 @@ internal static partial class WallSegmentFade
                 // one on its own — see RayHitsWallMesh for why a union AABB is not a wall.
                 if (!b.IntersectRay(ray, out float d) || (d >= dist - eps && !b.Contains(sample)))
                     continue;
-                if (RayHitsWallMesh(seg, ray, dist, eps, sample))
-                    blocked++;
+                if (!RayHitsWallMesh(seg, ray, dist, eps, sample, out Renderer? by))
+                    continue;
+                blocked++;
+                // Per-cell attribution: the room-relative cell index, and the piece that took
+                // the first one. See Segment.LastBlockedCells for why this exists. Suppressed
+                // for a seam wall's alt-room passes so the list always describes ONE room.
+                if (_attributeCells)
+                {
+                    seg.LastBlockedCells.Add(i - start);
+                    if (seg.LastBlockerPiece == null)
+                        seg.LastBlockerPiece = by;
+                }
             }
             blockedOut = blocked;
             visibleOut = roomVisible;
@@ -1796,38 +1894,54 @@ internal static partial class WallSegmentFade
         /// make a wall LESS able to fade than the geometry it currently owns justifies.</para>
         /// </summary>
         private static bool RayHitsWallMesh(Segment seg, Ray ray, float dist, float eps,
-            Vector3 sample)
+            Vector3 sample, out Renderer? by)
         {
             int meshes = 0;
+            by = null;
             // Wall renderers (the fade masonry).
             for (int i = 0; i < seg.Renderers.Count; i++)
             {
                 if (HitsPiece(seg.Renderers[i], ray, dist, eps, sample, ref meshes))
+                {
+                    by = seg.Renderers[i];
                     return true;
+                }
             }
             // FOLIAGE — for a scrub wall this IS the wall (see the header).
             for (int i = 0; i < seg.Foliage.Count; i++)
             {
                 if (HitsPiece(seg.Foliage[i], ray, dist, eps, sample, ref meshes))
+                {
+                    by = seg.Foliage[i];
                     return true;
+                }
             }
             // Asset siblings: door wings, arch trim — opaque, and they vanish with the wall.
             for (int i = 0; i < seg.Siblings.Count; i++)
             {
                 if (HitsPiece(seg.Siblings[i], ray, dist, eps, sample, ref meshes))
+                {
+                    by = seg.Siblings[i];
                     return true;
+                }
             }
             // Plain wall body (masonry with no fade shader of its own).
             for (int i = 0; i < seg.Body.Count; i++)
             {
                 if (HitsPiece(seg.Body[i].Renderer, ray, dist, eps, sample, ref meshes))
+                {
+                    by = seg.Body[i].Renderer;
                     return true;
+                }
             }
             // Stacked shell pieces already extend this wall's occlusion AABB by design.
             for (int i = 0; i < seg.Stacked.Count; i++)
             {
                 if (HitsPiece(seg.Stacked[i].Renderer, ray, dist, eps, sample, ref meshes))
+                {
+                    by = seg.Stacked[i].Renderer;
                     return true;
+                }
             }
             // seg.Mounted is deliberately NOT walked — see the header's exclusion note.
             // No meshes to ask: keep the broad-phase verdict rather than silently un-fading a
@@ -2499,7 +2613,22 @@ internal static partial class WallSegmentFade
                 // the ONLY path in this method that produces intermediate pixels: m = 1-r varies
                 // per texel across the noise, so a rising c retires the wall progressively.
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
-                _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, seg.Fade));
+                // THE RAMP STARTS BELOW ZERO ON PURPOSE (ModBuild 256). seg.Fade cannot be
+                // observed near 0: fadeStep = 1-exp(-dt/0.12) is ~0.088 at 90 Hz, so the very
+                // first frame after a state flip already reads Fade ≈ 0.09. With the old
+                // Lerp(-0.05, 1, Fade) that frame carried c ≈ +0.045, which clips every fragment
+                // whose noise m = 1-r falls under it — roughly 5 % of the wall's pixels gone in
+                // one frame, on geometry that was fully solid the frame before. That is the
+                // out-edge the STEP census counts (22 block installs at fade 0.083-0.093 in the
+                // ModBuild 255 log) and it is a step bolted onto the ramp, not part of it.
+                //
+                // Starting at -0.15 keeps c NEGATIVE for the whole first frame (at Fade 0.09,
+                // c = -0.046), and c < 0 clips nothing at all because m >= 0 everywhere. The
+                // wall's first faded frame is therefore pixel-identical to its solid state and
+                // the dissolve begins on frame two, inside the ramp where it belongs. The cost
+                // is that the sweep now covers 1.15 of range instead of 1.05 over the same
+                // 0.35 s — imperceptibly faster, and it still ends fully clipped at Fade 1.
+                _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.15f, 1f, seg.Fade));
                 NoteAnimationPath(seg, smooth: true);
             }
 

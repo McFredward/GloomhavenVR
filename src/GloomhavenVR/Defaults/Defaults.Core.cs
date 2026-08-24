@@ -136,17 +136,34 @@ internal static partial class Defaults
     // the group churn in the ModBuild 250/251 hardware logs, where every wall flips together:
     // several coverages sitting on one bar with nothing between them. Corrected at source here,
     // which leaves the degenerate-pair fallback in WallFadeTuning.Off as a pure guard.
-    // 0.25/0.10 is the pair those accessors always named as their own fallback.
-    // PINNED against the cfg drop on purpose: that drop carries 0.1/0.2 because it is the
-    // transposed pair written out verbatim on first run (its own "# Default value:" lines say
-    // 0.1 and 0.2), not a value the user ever tuned. Rebasing onto it would restore the defect.
-    internal const float OnFraction = 0.25f;                 // => [WallFade] OnFraction  (pinned: cfg drop holds the transposed pair, never tuned)
-    internal const float OffFraction = 0.1f;                 // => [WallFade] OffFraction  (pinned: cfg drop holds the transposed pair, never tuned)
+    // 0.25/0.10 was the pair those accessors always named as their own fallback, and ModBuild
+    // 256 moved it again — this time from the MEASURED distribution rather than from a
+    // fallback constant. Every green wall's coverage in the ModBuild 255 log is bimodal, and
+    // the two modes are far apart: a wall that is genuinely in the way reads 0.44-0.95
+    // ('Wall 1' 84 samples at 0.44, 'Wall 2' 88 at 0.75, 'Wall 4' at 0.50/0.95), and the same
+    // wall at rest reads 0.13-0.25 ('Wall 1' 20 samples pinned at 0.13, 'Wall 2' 22 and
+    // 'Wall 4' 119 pinned at exactly 0.25). Nothing at all lives between 0.25 and 0.44.
+    // The old band sat BELOW that gap: enter 0.25 is exactly a resting wall's coverage, so it
+    // latched on sight, and exit 0.10 is below anything a wall at rest can reach on a 16-cell
+    // grid (quantum 0.0625 — "under 0.10" means "at most ONE cell"), so it could never release.
+    // 0.35/0.20 puts both bars inside the empty gap: a resting wall cannot enter, and a wall
+    // that stops blocking falls out. See the user report of 2026-08-24, which is this ratchet
+    // described from the outside ("einmal ausgeblendet ist es super schwer sie wieder
+    // einzublenden, egal welche Position ich einnehme").
+    // PINNED against the cfg drop on purpose: the drop only ever carries what a previous build
+    // wrote there, never a value the user tuned — see the one-shot markers below.
+    internal const float OnFraction = 0.35f;                 // => [WallFade] OnFraction  (pinned: cfg drop holds a previous build's value, never tuned)
+    internal const float OffFraction = 0.2f;                 // => [WallFade] OffFraction  (pinned: cfg drop holds a previous build's value, never tuned)
     // BepInEx keeps whatever is already in the cfg, so correcting the two constants above only
     // ever reaches a FRESH install — every existing install would keep the transposed pair and
     // the group churn with it. This marker carries the correction across exactly once; see the
     // migration block in WallFadeTuning.Bind for why it only fires on the degenerate shape.
     internal const bool WallFadeBarsMigrated252 = false;      // => [WallFade] WallFadeBarsMigrated252  (pinned: one-shot migration marker — a fresh install must start false)
+    // The 252 one-shot is SPENT on every install that has run that build — it wrote 0.25/0.10
+    // and set itself true. So the 0.35/0.20 correction above needs its own carrier, or it
+    // reaches nobody who is already testing. Fires only on the exact pair 252 itself wrote, so
+    // anything tuned since is left alone; see the migration block in WallFadeTuning.Bind.
+    internal const bool WallFadeBarsMigrated256 = false;      // => [WallFade] WallFadeBarsMigrated256  (pinned: one-shot migration marker — a fresh install must start false)
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade

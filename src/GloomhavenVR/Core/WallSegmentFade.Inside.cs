@@ -194,6 +194,10 @@ internal static partial class WallSegmentFade
         /// <summary>Which wall's masonry currently contains the head, if any — an observation
         /// since ModBuild 255, when the hard-1f shortcut it used to feed was deleted.</summary>
         private string _headInMasonryWall = "-";
+        /// <summary>Floor-grid cell count of the room the censused walls were judged against —
+        /// the denominator whose reciprocal is the smallest coverage difference the metric can
+        /// express at all.</summary>
+        private int _pwCells;
         /// <summary>Head position of the pass being censused, so the observation above is taken
         /// against the same pose the verdicts were.</summary>
         private Vector3 _lastHeadPos;
@@ -488,8 +492,13 @@ internal static partial class WallSegmentFade
                 + $"material swap) and {ins} at the END of a fade-IN ({_stepInBlockCleared} block "
                 + $"cleared, {_stepInSwapRemoved} swap removed). A step at the START of a "
                 + "fade-out is visible on solid geometry and is what reads as a POP; the same "
-                + "step at the end of a fade-in lands on already-solid geometry and is invisible "
-                + "— that asymmetry, not the ramp, is what the 2026-08-24 video shows."
+                + "step at the end of a fade-in lands on already-solid geometry and is invisible. "
+                + "ModBuild 256 made the block install itself VISUALLY inert: the cutoff ramp "
+                + "now starts at -0.15, so the first observable frame (Fade ≈ 0.09, since "
+                + "fadeStep is ~0.088 at 90 Hz) still carries a NEGATIVE cutoff and clips no "
+                + "fragment at all. A non-zero out-edge count here is therefore expected and no "
+                + "longer means a visible pop — what would still mean one is the material-swap "
+                + "column being non-zero."
                 + (_stepOutNames.Count > 0
                     ? " Most recent out-edges: " + string.Join(", ", _stepOutNames) + "."
                     : " No out-edge has been recorded yet this session."));
@@ -589,6 +598,8 @@ internal static partial class WallSegmentFade
                 || !RoomDecisionValid(seg.RoomIndex))
                 return;
             _pwTotal++;
+            if (seg.LastRoomTotal > 0)
+                _pwCells = seg.LastRoomTotal;
             if (seg.State)
                 _pwFaded++;
             if (seg.Smooth > _pwMaxSmooth)
@@ -604,9 +615,19 @@ internal static partial class WallSegmentFade
             if (_pwNames.Count < PerWallNameCap)
             {
                 string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                // PER-CELL ATTRIBUTION. "blocks 2 of 16" has been the unanswerable question in
+                // every round since ModBuild 250; naming the cells and the piece that took the
+                // first one settles whether a low reading is real floor or geometry residue.
+                string cells = seg.LastBlockedCells.Count == 0
+                    ? "none"
+                    : "#" + string.Join(",#", seg.LastBlockedCells);
+                string blocker = seg.LastBlockerPiece != null
+                    ? $" first by '{seg.LastBlockerPiece.name}'"
+                    : "";
                 _pwNames.Add($"'{wall}' r{seg.RoomIndex} ema {seg.Smooth:F2} "
                     + $"blk {seg.LastBlocked}/{seg.LastRoomTotal} "
-                    + (seg.State ? "FADED" : "solid"));
+                    + (seg.State ? "FADED" : "solid")
+                    + $" cells {cells}{blocker}");
             }
             NoteAdmission(seg);
             // Kept as an OBSERVATION after ModBuild 255 deleted the hard-1f shortcut it used to
@@ -691,7 +712,18 @@ internal static partial class WallSegmentFade
                 + "unanimous — a session that never goes mixed is the defect reported on "
                 + "2026-08-24. Coverage spread this pass: widest "
                 + $"'{_pwMaxWall}' {_pwMaxSmooth:F2}, narrowest '{_pwMinWall}' {minSmooth:F2}, "
-                + $"bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}. Head inside masonry: "
+                + $"bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}"
+                // THE ARITHMETIC, SPELLED OUT. A threshold finer than the grid's own quantum
+                // cannot be expressed: with 16 cells the quantum is 0.0625, so an exit bar of
+                // 0.10 really means "at most ONE blocked cell", which is what made the old band
+                // a one-way ratchet. Printing both numbers means the next reader checks this in
+                // one line instead of deriving it from the source.
+                + $" against a {_pwCells}-cell floor grid (quantum "
+                + (_pwCells > 0 ? (1f / _pwCells).ToString("F4") : "n/a")
+                + $" — the exit bar is {(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.Off * _pwCells) : 0)} "
+                + "cell(s), the enter bar "
+                + $"{(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.On * _pwCells) : 0)}). "
+                + "Head inside masonry: "
                 + $"{_headInMasonryWall} — an OBSERVATION; since ModBuild 255 this no longer "
                 + "forces any wall's coverage to 1.00, the ray test measures what such a wall "
                 + "actually covers. Not its own decision: "
