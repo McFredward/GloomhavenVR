@@ -59,6 +59,19 @@ namespace GloomhavenVR.Core;
 /// mounted rule itself is unchanged and keeps printing: a prop whose UNIT hangs a metre over the
 /// floor is not a unit that reaches the floor, so nothing it protects can meet this.</para>
 ///
+/// <para>A THIRD ARM, ModBuild 257 — THE FREE-STANDING TREE (user report 2026-08-24,
+/// <c>wand_problem2.jpg</c>): <i>"Eine der drei grünen Wände verhält sich nun wie ich es erwarten
+/// würde, aber die zwei sich gegenüberliegende grüne Wände immer noch nicht. […] Die Wand gegenüber
+/// sollte wieder sichtbar sein, sie verdeckt nichts von der Fläche."</i> The ModBuild-256 log's
+/// first-blocker column splits the scene exactly along that sentence: the wall he calls correct is
+/// decided by masonry in 37 of 37 samples, the three he calls broken are decided by
+/// <c>FR_Pillar_Tree_Trunk_0*</c> / <c>FR_Tree_02 (3)</c> / <c>FR_Tree_05 (2)</c> in 113 of 172
+/// attributions. The arithmetic, both sides of the ratio bar and the reason a ratio here is not the
+/// per-renderer ratio ModBuild 255 retired are all in <see cref="WallStandingProp"/>. What matters
+/// on THIS side of the boundary is where the arm is consulted: the wall-renderer choke point, the
+/// mounted sweep AND both foliage paths, because a trunk and its canopy live in different lists and
+/// the ray test walks both.</para>
+///
 /// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
 /// piece's base to sit at or above the wall's ORIGINAL course top minus 1.2 wu — floor-band
 /// geometry cannot satisfy that, so adding a second guard there would be a line of code that can
@@ -131,12 +144,18 @@ internal static partial class WallSegmentFade
             internal readonly bool Ok;
             internal readonly WallStandingProp.Unit Unit;
             internal readonly float FloorY;
+            /// <summary>Any renderer under the unit root on a Foliage-family shader — the TREE
+            /// arm's second term, measured over the WHOLE unit so a bark trunk counts as
+            /// vegetation when its own canopy is part of the same prop.</summary>
+            internal readonly bool Vegetation;
 
-            internal StandingMeasure(bool ok, WallStandingProp.Unit unit, float floorY)
+            internal StandingMeasure(bool ok, WallStandingProp.Unit unit, float floorY,
+                                     bool vegetation)
             {
                 Ok = ok;
                 Unit = unit;
                 FloorY = floorY;
+                Vegetation = vegetation;
             }
         }
 
@@ -155,7 +174,18 @@ internal static partial class WallSegmentFade
 
         /// <summary>NEAR MISSES: units whose foot IS in the floor band but that failed another
         /// term, with the number they failed on. Keyed by root so one unit is named once.</summary>
-        private readonly Dictionary<Transform, string> _standingNearMiss = new(32);
+        private readonly Dictionary<Transform, string> _standingNearMiss = new(64);
+
+        /// <summary>How many near misses are recorded before the census stops collecting. 40, not
+        /// the ModBuild-167 value of 8: the whole point of the ModBuild-257 shape column is that
+        /// the next log carries the DISTRIBUTION of h/w across this tileset's units, and a cap of
+        /// 8 with a 320-character print budget showed four of them.</summary>
+        private const int StandingNearMissCap = 40;
+
+        /// <summary>Unit roots the TREE arm protected this rescan — the ModBuild-257 falsifier.
+        /// A non-empty set that does not contain a tree, or an empty one in the reported scenario,
+        /// both say the ratio bar is in the wrong place; either way the census names them.</summary>
+        private readonly HashSet<Transform> _standingTreeUnits = new(32);
 
         /// <summary>Scratch for a unit's renderer sweep (reused; never held).</summary>
         private readonly List<Renderer> _standingUnitScratch = new(32);
@@ -181,6 +211,7 @@ internal static partial class WallSegmentFade
             _standingRootMemo.Clear();
             _standingPropDesc.Clear();
             _standingNearMiss.Clear();
+            _standingTreeUnits.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
             // PERF S3: the per-node subtree facts PropUnitRootOf reads are dropped HERE and only
@@ -235,10 +266,19 @@ internal static partial class WallSegmentFade
         private bool IsStandingFigureProp(Renderer r) => IsStandingProp(r, floorArm: true);
 
         /// <summary>
-        /// The ModBuild-157 rule VERBATIM — figure/actor ancestry required — for the two FOLIAGE
-        /// paths only.
+        /// The FOLIAGE paths' rule: the ModBuild-157 FIGURE arm plus — since ModBuild 257 — the
+        /// TREE arm, and deliberately never the plain FLOOR arm.
         ///
-        /// <para>WHY THE FOLIAGE PATHS DO NOT GET THE WIDENING, and this is a deliberate
+        /// <para>WHY THE TREE ARM HAD TO COME HERE TOO. A tree's membership is split across two of
+        /// a segment's lists: the trunk is wall-fade-capable (<c>Amp_Basic_N_MRAO</c> with a live
+        /// <c>_WallFade_On</c>) and lands in <see cref="Segment.Renderers"/>, while the canopy is
+        /// Foliage-shaded and lands in <see cref="Segment.Foliage"/> — and
+        /// <see cref="FadeDriver.RayHitsWallMesh"/> walks both. Refusing the trunk alone would have
+        /// been theatre, and worse than theatre: a canopy intercepts far more rays to a floor grid
+        /// than a trunk does. The TREE arm cannot reopen the report below, because its slenderness
+        /// term is ≥ 2.0 h/w and the scrub wall unit measures 1.00.</para>
+        ///
+        /// <para>WHY THE FOLIAGE PATHS DO NOT GET THE FLOOR ARM, and this is a deliberate
         /// inconsistency rather than an oversight. Those paths exist for the "Gestrüpp-Wand"
         /// report (gebüsch.png): grass, vines and bushes DRESSING a wall carry no fade path of
         /// their own, so when the wall dissolves they used to stay behind as a view-blocking
@@ -256,33 +296,58 @@ internal static partial class WallSegmentFade
         {
             if (r == null)
                 return false;
-            // Which arm. The FIGURE arm is ModBuild 157 unchanged; the FLOOR arm is the widening
-            // this round ships, and it is the one the photograph needs — a scenery skeleton on a
-            // deck has no figure ancestry at all.
+            // Which arm. The FIGURE arm is ModBuild 157 unchanged; the FLOOR arm is the ModBuild
+            // 167 widening the skeleton photograph needed — a scenery skeleton on a deck has no
+            // figure ancestry at all; the TREE arm is ModBuild 257 (wand_problem2.jpg).
             bool figure = IsFigureOrActorRenderer(r);
-            if (!figure && !floorArm)
-                return false;
             Transform? root = figure
                 ? FigurePropRootOf(r.transform)
                 : StandingFloorUnitRootOf(r);
             if (root == null)
                 return false;
-            if (!MeasureStandingUnit(root, out WallStandingProp.Unit unit, out float floorY))
+            if (!MeasureStandingUnit(root, out WallStandingProp.Unit unit, out float floorY,
+                                     out bool vegetation))
+            {
                 return false;
+            }
 
-            bool verdict = WallStandingProp.StandsOnFloor(unit, floorY, figure, out string why);
-            if (verdict)
+            bool verdict = WallStandingProp.StandsOnFloor(unit, floorY, figure, vegetation,
+                                                          out string why);
+            bool tree = verdict && !figure && WallStandingProp.IsFreeStandingTree(unit, vegetation);
+            // THE FOLIAGE PATHS TAKE THE FIGURE ARM AND THE TREE ARM, NEVER THE PLAIN FLOOR ARM,
+            // and that split is the whole reason this method has a flag. ModBuild 167's note holds
+            // word for word: a bush is a multi-piece thing standing on the ground under the height
+            // cap, so handing the foliage paths the FLOOR arm would protect the Gestrüpp-Wand and
+            // give back "Die anderen 'gestrüpp-wände' versperren mir nun auch manchmal die Sicht.
+            // Das darf niemals passieren." The TREE arm cannot do that: it needs ≥ 2.0 h/w and the
+            // scrub wall unit measures 1.00 (FADE WRITE census, ModBuild 256).
+            //
+            // AND THE TREE ARM *MUST* REACH THE FOLIAGE PATHS OR IT IS THEATRE. A tree's membership
+            // is split across two lists — the trunk is wall-fade-capable and lands in
+            // seg.Renderers, the canopy is Foliage-shaded and lands in seg.Foliage — and
+            // RayHitsWallMesh walks both. Refusing only the trunk would leave the canopy in the
+            // numerator, and a canopy intercepts far more rays to a floor grid than a trunk does.
+            bool armed = verdict && (floorArm || figure || tree);
+
+            if (armed)
             {
                 _standingPropDesc[root] = $"'{root.name}' {why}";
+                if (tree)
+                    _standingTreeUnits.Add(root);
             }
-            else if (unit.MinY - floorY <= WallStandingProp.FootBandWU
-                     && _standingNearMiss.Count < 8)
+            else if (!verdict && unit.MinY - floorY <= WallStandingProp.FootBandWU
+                     && _standingNearMiss.Count < StandingNearMissCap)
             {
                 // A unit that DID reach the floor and was refused on some other term is the one
                 // shape a still-missing prop can take, so the log has to name it and the number.
+                // The cap is 40 and not 8 since ModBuild 257: at 8 the ModBuild-256 log showed
+                // FOUR near misses and hid the rest behind an ellipsis, and "which units does the
+                // ratio bar actually sort, and on which side" is a question about the whole
+                // distribution — reading the mode instead of the distribution has cost this
+                // project a round before.
                 _standingNearMiss[root] = $"'{root.name}' {why}";
             }
-            return verdict;
+            return armed;
         }
 
         /// <summary>Measure a unit once per rescan: the union AABB of every renderer under its
@@ -291,16 +356,18 @@ internal static partial class WallSegmentFade
         /// has no anchored floor at all — and with zero anchors every wall is fail-safe solid
         /// anyway, so refusing to protect costs nothing.</summary>
         private bool MeasureStandingUnit(Transform root, out WallStandingProp.Unit unit,
-                                         out float floorY)
+                                         out float floorY, out bool vegetation)
         {
             if (_standingUnitMemo.TryGetValue(root, out StandingMeasure memo))
             {
                 unit = memo.Unit;
                 floorY = memo.FloorY;
+                vegetation = memo.Vegetation;
                 return memo.Ok;
             }
             unit = default;
             floorY = 0f;
+            vegetation = false;
             _standingUnitScratch.Clear();
             root.GetComponentsInChildren(includeInactive: true, _standingUnitScratch);
             Bounds union = default;
@@ -311,6 +378,14 @@ internal static partial class WallSegmentFade
                 if (piece == null || IsModObject(piece))
                     continue;
                 kept++;
+                // VEGETATION, over the whole unit and not over the reported renderer — the same
+                // reason the AABB is a union. A tree's trunk is bark on the masonry shader family
+                // and its canopy is the Foliage-shaded part; asking the trunk alone would answer
+                // "no vegetation" for a tree, which is the identical mistake as judging a skull
+                // airborne on its own. Shader verdicts are cached per Shader, so this costs one
+                // dictionary hit per material per unit per rescan.
+                if (!vegetation && piece is MeshRenderer mesh && RendererUsesFoliage(mesh))
+                    vegetation = true;
                 if (!have) { union = piece.bounds; have = true; }
                 else union.Encapsulate(piece.bounds);
             }
@@ -321,7 +396,7 @@ internal static partial class WallSegmentFade
                 unit = new WallStandingProp.Unit(union.min.y, union.max.y,
                                                  union.size.x, union.size.z, kept);
             }
-            _standingUnitMemo[root] = new StandingMeasure(ok, unit, floorY);
+            _standingUnitMemo[root] = new StandingMeasure(ok, unit, floorY, vegetation);
             return ok;
         }
 
@@ -372,13 +447,19 @@ internal static partial class WallSegmentFade
         {
             int protectedUnits = _standingPropDesc.Count;
             int sig = protectedUnits * 977 + _standingBlockedCount * 13
-                      + _standingBlocked.Count * 7 + _standingNearMiss.Count;
+                      + _standingBlocked.Count * 7 + _standingNearMiss.Count
+                      + _standingTreeUnits.Count * 31;
             if (sig == _standingCensusSig)
                 return;
             _standingCensusSig = sig;
             if (protectedUnits == 0 && _standingBlockedCount == 0 && _standingNearMiss.Count == 0)
                 return;
 
+            // PRINT BUDGETS. The protected list stays short — it is dominated by hundreds of
+            // identical floor-grass units and naming six of them says everything six hundred
+            // would. The NEAR MISS list is the opposite: it is the shape distribution the
+            // ModBuild-257 ratio bar has to be checked against, and the ModBuild-256 line showed
+            // FOUR entries because it shared the same 320-character budget. It gets its own.
             var names = new System.Text.StringBuilder();
             foreach (KeyValuePair<Transform, string> kv in _standingPropDesc)
             {
@@ -391,10 +472,22 @@ internal static partial class WallSegmentFade
                     names.Append("; ");
                 names.Append(kv.Value);
             }
+            // TREES FIRST in the protected list, unconditionally: this arm is one build old, the
+            // units it fires on are the falsifier, and a budget that truncates them prints a line
+            // that cannot answer the question it exists for.
+            var trees = new System.Text.StringBuilder();
+            foreach (Transform root in _standingTreeUnits)
+            {
+                if (root == null || !_standingPropDesc.TryGetValue(root, out string? desc))
+                    continue;
+                if (trees.Length > 0)
+                    trees.Append("; ");
+                trees.Append(desc);
+            }
             var misses = new System.Text.StringBuilder();
             foreach (KeyValuePair<Transform, string> kv in _standingNearMiss)
             {
-                if (misses.Length > 320)
+                if (misses.Length > 3000)
                 {
                     misses.Append("; …");
                     break;
@@ -413,14 +506,30 @@ internal static partial class WallSegmentFade
                 + $"= the same geometry WITHOUT the ancestry term, for scenery that stands on the "
                 + $"ground, plus height ≤ {StandingPropMaxHeightWU:0.0} wu so a course of masonry "
                 + $"can never qualify. Wall-MOUNTED dressing never reaches the floor and keeps "
-                + $"fading with its masonry. Protected: {(protectedUnits > 0 ? names.ToString() : "none")}. "
+                + $"fading with its masonry. THIRD ARM since ModBuild 257 (user 2026-08-24, "
+                + $"wand_problem2.jpg: 'Die Wand gegenüber sollte wieder sichtbar sein, sie "
+                + $"verdeckt nichts von der Fläche') — TREE = the floor geometry plus VEGETATION "
+                + $"(any Foliage-shaded renderer under the unit root) AND slenderness ≥ "
+                + $"{WallStandingProp.TreeSlendernessRatio:0.0} h/w, which lifts the height cap "
+                + $"for a free-standing tree and for nothing else. Both terms are needed and "
+                + $"neither is sufficient: the tileset's scrub wall unit is vegetation at 1.00 h/w "
+                + $"(FADE WRITE, ModBuild 256) and a masonry pillar is slender with no vegetation "
+                + $"at all. This arm ALSO applies on the foliage paths, because a tree's trunk and "
+                + $"its canopy land in two different lists and refusing only the trunk is theatre. "
+                + $"TREE arm fired on {_standingTreeUnits.Count} unit(s)"
+                + (trees.Length > 0 ? $": {trees}." : " — none this rescan, which for the reported "
+                    + "forest scenario means the ratio bar is on the wrong side of a trunk; read "
+                    + "the h/w column below before touching the constant.")
+                + $" Protected: {(protectedUnits > 0 ? names.ToString() : "none")}. "
                 + $"{_standingBlockedCount} claim(s) refused this rescan"
                 + (_standingBlocked.Count > 0
                     ? $": {string.Join(", ", _standingBlocked)}."
                     : ".")
                 + (misses.Length > 0
                     ? $" NEAR MISS (reached the floor band, refused on another term — this is "
-                      + $"where a still-missing prop shows up): {misses}."
+                      + $"where a still-missing prop shows up, and since ModBuild 257 it is also "
+                      + $"the h/w DISTRIBUTION the tree bar has to be judged against; up to "
+                      + $"{StandingNearMissCap} units, no longer 8): {misses}."
                     : string.Empty));
         }
     }

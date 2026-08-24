@@ -958,6 +958,12 @@ internal static partial class GlowCardCensus
         }
 
         _ownWalkRenderers = all.Length;
+        // Same number, on a latch Reset() does NOT clear. The GATE DUMP runs AFTER Log() has reset
+        // the window, and it needs this count to contrast a HIERARCHY walk against a
+        // FindObjectsOfType SWEEP — the sweep skips DontSave objects and Apparance's generated
+        // containers are HideAndDontSave, so the difference between the two counts is a measurement
+        // of the population the census structurally cannot reach.
+        _lastSweepRenderers = all.Length;
         int headMask = _headKnown ? _headMask : ~0;
         var mats = new List<Material>(8);
         Array.Clear(LayerPop, 0, 32);

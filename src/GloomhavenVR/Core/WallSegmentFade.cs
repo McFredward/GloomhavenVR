@@ -585,6 +585,54 @@ internal static partial class WallSegmentFade
         /// <summary>Renderer that accepted the ray for the FIRST blocked cell — resolved to a
         /// name only when the falsifier prints, so the hot path never touches a string.</summary>
         public Renderer? LastBlockerPiece;
+
+        /// <summary>
+        /// WHICH OF THIS SEGMENT'S LISTS the first blocker came from (ModBuild 257). A literal, so
+        /// no allocation: <c>"Renderers"</c>, <c>"Foliage"</c>, <c>"Siblings"</c>, <c>"Body"</c> or
+        /// <c>"Stacked"</c>.
+        ///
+        /// <para>WHY IT MUST BE IN THE LOG. <see cref="FadeDriver.RayHitsWallMesh"/> walks five
+        /// lists and a NAME alone cannot say which one answered — and the fix for a wrongly
+        /// included piece is at a completely different site depending on the answer. A piece in
+        /// <c>Renderers</c> was collected by the tileset's own parenting and the membership
+        /// classifier (<see cref="WallStandingProp"/>) is the right place; a piece in
+        /// <c>Stacked</c> or <c>Siblings</c> was ADOPTED, and the fix belongs at that adoption
+        /// site. ModBuild 256 shipped the blocker's name and the next round still had to derive the
+        /// list from a different census's preview line.</para>
+        /// </summary>
+        public string LastBlockerList = "-";
+
+        /// <summary>
+        /// Did the first blocker take its cell by a RAY ENTRY (it stands between the eye and that
+        /// floor point) or by <c>Bounds.Contains</c> (the floor point is INSIDE its box)?
+        ///
+        /// <para>THE DISTINCTION IS THE RATCHET. A ray hit depends on where the head is; a
+        /// Contains hit does not, so a piece that straddles the floor plane claims its cells from
+        /// every viewing angle forever. That is the shape of the ModBuild-256 report: 'Wall 4'
+        /// reports <c>blk 4/16 cells #0,#1,#4,#8</c> in 24 separate samples and 'Wall 2' reports
+        /// <c>blk 4/16 cells #7,#11,#14,#15</c> in 21 — identical sets, opposite corners, whatever
+        /// the head did — and 4/16 = 0.25 sits above the 0.20 exit bar, so neither wall can ever
+        /// fall back out. <see cref="LastContainsCells"/> carries the count for the whole
+        /// pass.</para>
+        /// </summary>
+        public bool LastBlockerByContains;
+
+        /// <summary>
+        /// How many of <see cref="LastBlockedCells"/> were taken by a <c>Contains</c> claim rather
+        /// than a ray entry — head-INDEPENDENT blocking, i.e. the coverage floor this wall can
+        /// never fall below from any position. See <see cref="LastBlockerByContains"/>.
+        ///
+        /// <para>THE LATCH IS AN INTEGER, and the whole subsystem turns on it: on a 16-cell floor
+        /// grid the exit bar of 0.20 releases a wall at 3/16 = 0.1875 and holds it at 4/16 = 0.25,
+        /// so FOUR permanently-blocked cells latch a wall for the session and three do not. That is
+        /// the arithmetic behind <i>"drehe ich mich einmal im Kreis ist alles gefaded — mach ich
+        /// das nochmal bleibt alles gefaded"</i>. It is not a fact about trees: trees are merely
+        /// what supplies the four cells in the reported forest scenario, and a wall's own base
+        /// course straddles the floor plane too. Taking the trees out of the membership is only a
+        /// cure if it drops the count to three or fewer, which is why this counter ships in the
+        /// same build as the cure rather than after it.</para>
+        /// </summary>
+        public int LastContainsCells;
     }
 
     private sealed partial class FadeDriver : MonoBehaviour
@@ -1690,6 +1738,9 @@ internal static partial class WallSegmentFade
             seg.LastDecidingRoom = -1;
             seg.LastBlockedCells.Clear();
             seg.LastBlockerPiece = null;
+            seg.LastBlockerList = "-";
+            seg.LastBlockerByContains = false;
+            seg.LastContainsCells = 0;
             int room = seg.RoomIndex;
             if (room < 0 || room >= _roomSampleCount.Count)
                 return 0f;
@@ -1796,17 +1847,30 @@ internal static partial class WallSegmentFade
                 // one on its own — see RayHitsWallMesh for why a union AABB is not a wall.
                 if (!b.IntersectRay(ray, out float d) || (d >= dist - eps && !b.Contains(sample)))
                     continue;
-                if (!RayHitsWallMesh(seg, ray, dist, eps, sample, out Renderer? by))
+                if (!RayHitsWallMesh(seg, ray, dist, eps, sample, out Renderer? by,
+                                     out string byList, out bool byContains))
+                {
                     continue;
+                }
                 blocked++;
-                // Per-cell attribution: the room-relative cell index, and the piece that took
-                // the first one. See Segment.LastBlockedCells for why this exists. Suppressed
-                // for a seam wall's alt-room passes so the list always describes ONE room.
+                // Per-cell attribution: the room-relative cell index, the piece that took the
+                // first one, WHICH LIST that piece came from and whether it was a ray entry or a
+                // Contains claim. See Segment.LastBlockedCells / LastBlockerList /
+                // LastContainsCells for why each of those exists. Suppressed for a seam wall's
+                // alt-room passes so the list always describes ONE room.
                 if (_attributeCells)
                 {
                     seg.LastBlockedCells.Add(i - start);
-                    if (seg.LastBlockerPiece == null)
+                    if (byContains)
+                        seg.LastContainsCells++;
+                    // Keyed on the LIST and not on the piece: the fail-open case has no piece at
+                    // all, and it is exactly the case that must not be reported as blank.
+                    if (seg.LastBlockerList == "-")
+                    {
                         seg.LastBlockerPiece = by;
+                        seg.LastBlockerList = byList;
+                        seg.LastBlockerByContains = byContains;
+                    }
                 }
             }
             blockedOut = blocked;
@@ -1892,61 +1956,95 @@ internal static partial class WallSegmentFade
         /// <para>FAIL-OPEN: a segment with no wall meshes of its own (renderer list emptied by
         /// Apparance churn between rescans) keeps the broad-phase verdict, so this can never
         /// make a wall LESS able to fade than the geometry it currently owns justifies.</para>
+        ///
+        /// <para>WHAT IT REPORTS (ModBuild 257) and why the name alone was not enough. ModBuild
+        /// 256 added <paramref name="by"/> — the piece that accepted the first blocking ray — and
+        /// it settled the diagnosis in one grep: the wall the user calls correct is decided by
+        /// masonry, the three he calls broken are decided by tree trunks. It could not settle
+        /// WHERE TO FIX IT, because the same name can arrive through five different lists and each
+        /// has a different owner: a piece in <see cref="Segment.Renderers"/> came from the
+        /// tileset's own parenting (fix in the membership classifier), a piece in
+        /// <see cref="Segment.Stacked"/> or <see cref="Segment.Siblings"/> was ADOPTED (fix at the
+        /// adoption site). <paramref name="fromList"/> says which. <paramref name="byContains"/>
+        /// says whether the cell was taken by a ray entry or by <c>Bounds.Contains(sample)</c> —
+        /// head-dependent measurement against head-independent latch; see
+        /// <see cref="Segment.LastContainsCells"/>.</para>
         /// </summary>
+        /// <param name="fromList">Which list answered — a literal, so no allocation.</param>
+        /// <param name="byContains">True when the floor point sits INSIDE the piece's box rather
+        /// than behind it, i.e. when the block does not depend on where the head is.</param>
         private static bool RayHitsWallMesh(Segment seg, Ray ray, float dist, float eps,
-            Vector3 sample, out Renderer? by)
+            Vector3 sample, out Renderer? by, out string fromList, out bool byContains)
         {
             int meshes = 0;
             by = null;
+            fromList = "-";
+            byContains = false;
             // Wall renderers (the fade masonry).
             for (int i = 0; i < seg.Renderers.Count; i++)
             {
-                if (HitsPiece(seg.Renderers[i], ray, dist, eps, sample, ref meshes))
+                if (HitsPiece(seg.Renderers[i], ray, dist, eps, sample, ref meshes,
+                              out byContains))
                 {
                     by = seg.Renderers[i];
+                    fromList = "Renderers";
                     return true;
                 }
             }
             // FOLIAGE — for a scrub wall this IS the wall (see the header).
             for (int i = 0; i < seg.Foliage.Count; i++)
             {
-                if (HitsPiece(seg.Foliage[i], ray, dist, eps, sample, ref meshes))
+                if (HitsPiece(seg.Foliage[i], ray, dist, eps, sample, ref meshes, out byContains))
                 {
                     by = seg.Foliage[i];
+                    fromList = "Foliage";
                     return true;
                 }
             }
             // Asset siblings: door wings, arch trim — opaque, and they vanish with the wall.
             for (int i = 0; i < seg.Siblings.Count; i++)
             {
-                if (HitsPiece(seg.Siblings[i], ray, dist, eps, sample, ref meshes))
+                if (HitsPiece(seg.Siblings[i], ray, dist, eps, sample, ref meshes, out byContains))
                 {
                     by = seg.Siblings[i];
+                    fromList = "Siblings";
                     return true;
                 }
             }
             // Plain wall body (masonry with no fade shader of its own).
             for (int i = 0; i < seg.Body.Count; i++)
             {
-                if (HitsPiece(seg.Body[i].Renderer, ray, dist, eps, sample, ref meshes))
+                if (HitsPiece(seg.Body[i].Renderer, ray, dist, eps, sample, ref meshes,
+                              out byContains))
                 {
                     by = seg.Body[i].Renderer;
+                    fromList = "Body";
                     return true;
                 }
             }
             // Stacked shell pieces already extend this wall's occlusion AABB by design.
             for (int i = 0; i < seg.Stacked.Count; i++)
             {
-                if (HitsPiece(seg.Stacked[i].Renderer, ray, dist, eps, sample, ref meshes))
+                if (HitsPiece(seg.Stacked[i].Renderer, ray, dist, eps, sample, ref meshes,
+                              out byContains))
                 {
                     by = seg.Stacked[i].Renderer;
+                    fromList = "Stacked";
                     return true;
                 }
             }
             // seg.Mounted is deliberately NOT walked — see the header's exclusion note.
             // No meshes to ask: keep the broad-phase verdict rather than silently un-fading a
-            // wall whose renderer list is mid-refresh.
-            return meshes == 0;
+            // wall whose renderer list is mid-refresh. Named in the log as its own case: a wall
+            // reading high coverage attributed to 'fail-open' is not measuring anything at all,
+            // and that is a different defect from one attributed to a piece.
+            byContains = false;
+            if (meshes == 0)
+            {
+                fromList = "fail-open (no meshes to ask)";
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -2050,13 +2148,25 @@ internal static partial class WallSegmentFade
         /// test — since ModBuild 255 there is no such test in this path; see
         /// <see cref="IsStandingPiece"/> for why it was retired.</summary>
         private static bool HitsPiece(Renderer? r, Ray ray, float dist, float eps, Vector3 sample,
-            ref int meshes)
+            ref int meshes, out bool byContains)
         {
+            byContains = false;
             if (r == null)
                 return false;
             Bounds rb = r.bounds;
             meshes++;
-            return rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample));
+            if (!rb.IntersectRay(ray, out float rd))
+                return false;
+            if (rd < dist - eps)
+                return true;
+            // CONTAINS is reported separately (ModBuild 257) and NOT changed. A floor sample
+            // inside a piece's box is blocked from every head position there is, so a piece that
+            // straddles the floor plane sets a coverage FLOOR the wall can never fall below —
+            // which is a latch, not a measurement. The instrument has to be able to say how many
+            // of a wall's cells are of that kind before anyone touches the clause: see
+            // Segment.LastContainsCells.
+            byContains = rb.Contains(sample);
+            return byContains;
         }
 
         /// <summary>
@@ -3878,9 +3988,10 @@ internal static partial class WallSegmentFade
             // whose fade makes it a view-blocking leftover.
             foreach (MeshRenderer r in all)
             {
-                // Same standing-prop exclusion as the unsplit path, and the same FIGURE arm
-                // only: a floor-standing figure prop is never a wall's foliage dressing either,
-                // while a bush standing on the ground still is (WallSegmentFade.Standing.cs).
+                // Same standing-prop exclusion as the unsplit path, and the same two arms
+                // (FIGURE + TREE, never the plain FLOOR arm): a floor-standing figure prop is
+                // never a wall's foliage dressing, nor is a free-standing tree's canopy, while a
+                // bush standing on the ground still is (WallSegmentFade.Standing.cs).
                 if (r == null || !RendererUsesFoliage(r) || IsStandingFigureOnlyProp(r))
                     continue;
                 Segment? best = null;
@@ -5037,10 +5148,14 @@ internal static partial class WallSegmentFade
                     // StripGroundRenderers, exactly like ground geometry. A floor-standing
                     // FIGURE prop is excluded here too: the foliage list hides its renderers
                     // outright, so a mossy statue would vanish whole instead of losing a head.
-                    // Deliberately the FIGURE arm only and not the 2026-08-19 widening — a bush
-                    // is a multi-piece thing standing on the ground under the height cap, so the
-                    // wider rule would hand the Gestrüpp-Wand report straight back. See
-                    // WallSegmentFade.Standing.cs, IsStandingFigureOnlyProp.
+                    // Deliberately NOT the 2026-08-19 FLOOR arm — a bush is a multi-piece thing
+                    // standing on the ground under the height cap, so that rule would hand the
+                    // Gestrüpp-Wand report straight back. Since ModBuild 257 this call also
+                    // carries the TREE arm, which is the half of wand_problem2.jpg that lives in
+                    // THIS list: the trunk is fade-capable and goes above, the canopy is
+                    // Foliage-shaded and comes here, and a canopy intercepts more rays to the
+                    // floor grid than a trunk does. See WallSegmentFade.Standing.cs,
+                    // IsStandingFigureOnlyProp.
                     if (RendererUsesFoliage(r) && !IsStandingFigureOnlyProp(r))
                         seg.Foliage.Add(r);
                     continue;

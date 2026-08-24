@@ -1377,6 +1377,15 @@ internal static class PerfSceneProfile
         // depthTextureMode as one field among thirty, and GLOW CARDS is the line that says what
         // that one field COSTS in this room. Reading them adjacent is the point.
         GlowCardCensus.Log();
+        // …and the ONE-SHOT gate dump after that. Different instrument, same file family: GLOW CARDS
+        // ranks a sampled population and the subject of the report has never been in it, so GATE DUMP
+        // stops describing the object and goes to its address — every renderer under every door prop,
+        // unconditionally, once per scene. It is driven from here rather than from the window loop
+        // because this method runs on EVERY [Perf] window (AppendSceneLine can ration itself away;
+        // this cannot), which is what gives the dump its retries while Apparance is still generating.
+        // It logs on its own lines and never appends to `sb`; it catches its own exceptions so that a
+        // fault here cannot latch the caller's _sceneProfileFaulted and cost the SCENE and GFX lines.
+        GlowCardCensus.GateDump();
 
         sb.Append("GFX — the render state that multiplies submission volume");
 

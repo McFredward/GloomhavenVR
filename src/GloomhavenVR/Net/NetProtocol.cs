@@ -416,7 +416,153 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 256;
+    public const ushort ModBuild = 257;
+    // Build 257: IT WAS NEVER THE WALLS DECIDING — IT WAS THE TREES.
+    // NO WIRE CHANGE. Wire tests 146,839 → 146,854 (+15, the new TREE arm's vectors).
+    // Patch inventory 78/130 (UNCHANGED). BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // USER (wand_problem2.jpg): "Das Problem hat sich verbessert: Eine der drei grünen Wände
+    // verhält sich nun wie ich es erwarten würde, aber die zwei sich gegenüberliegende grüne Wände
+    // immer noch nicht. a) Die Wand gegenüber sollte wieder sichtbar sein, sie verdeckt nichts von
+    // der Fläche. b) Beim Ausblenden kommt es manchmal vor, dass die blaue Flamme nicht mit faded,
+    // daher schwebt sie da in der Luft. Es ist ziemlich random wann das auftritt."
+    //
+    // (a) THE `first by` COLUMN SHIPPED IN 256 SPLIT THE SCENE ALONG HIS REPORT IN ONE SESSION.
+    // Of 172 first-blocker attributions, 113 are TREE TRUNKS. 'Wall 3' — the wall he confirms
+    // behaves — is first-blocked 34x by 'Blocks', 2x by 'EN_CR_Pillar_Large_02', 1x by 'Wall':
+    // masonry, zero trees. 'Wall 1' 37x, 'Wall 2' 37x, 'Wall 4' 33x by FR_Pillar_Tree_Trunk_*.
+    // The walls that work are decided by masonry; the walls that latch are decided by trees.
+    //
+    // WHY A TREE WAS EVER WALL. The STANDING PROP census had been printing the reason for two
+    // builds: 'PCG_FR_Pillar_Tree_Trunk_02_PR' height 4.6 wu — architecture, not a floor prop
+    // (cap 2.5 wu). The trunk unit REACHES THE FLOOR BAND — it stands on the ground — and passes
+    // the span and renderer-count caps. It is refused by WallStandingProp.MaxHeightWU alone, so it
+    // stays wall membership, and RayHitsWallMesh's governing rule ("a renderer counts as this
+    // wall's occluding geometry exactly when it RIDES this wall's fade") then correctly counts it.
+    // The rule is right; the membership was wrong. Fixed at the classifier, so the tree leaves the
+    // numerator BY CONSTRUCTION — no exemption clause anywhere near the ray test.
+    //
+    // HEIGHT CANNOT BE THE DISCRIMINATOR, and this is the trap the round turned on: the same
+    // census lists 'PCG_FR_Wall_Space_03_PR' height 4.1 wu — a genuine wall, HALF A METRE SHORTER
+    // than the tree. The new TREE arm therefore takes TWO terms, and both are load-bearing:
+    // VEGETATION (a Foliage-family shader under the unit root) AND SLENDER (≥ 2.0 height/width).
+    // Vegetation alone would protect the scrub wall, whose _Bushes/_Ivy_Grass/_Plants attachments
+    // are Foliage-shaded too — and hand back "die 'gestrüpp-wände' versperren mir nun auch manchmal
+    // die Sicht. Das darf niemals passieren." Slenderness alone would catch EN_CR_Pillar_Large_02,
+    // a stone pillar tall and narrow exactly like a trunk. It is the CONJUNCTION that selects trees.
+    //
+    // 'Wall 3' IS STRUCTURALLY UNTOUCHABLE BY THIS CHANGE, which is why the vegetation term is in
+    // the rule at all: every `fade ON 'Wall 3'` line in the session reads +0 foliage, so no unit
+    // under that anchor can carry a Foliage-shaded renderer and none can reach the arm.
+    //
+    // THE BAR'S WALL SIDE IS MEASURED; ITS TREE SIDE IS NOT, AND THAT IS STATED IN THE CODE. The
+    // only unit in the whole log stating height AND span together is the FADE WRITE census's
+    // 'PCG_FR_Wall_Grassy_Verge_Thin_Narrow_01_PR' … unit y[-0.3..2.7], widest 3.0 wu → 1.00 h/w,
+    // a full factor of two under the bar. The census never printed the TRUNK unit's span, because
+    // it only ever printed the term a unit FAILED on. At a bar of 2.0 the arm fires for that unit
+    // exactly when its widest XZ is under 2.3 wu. Every unit the census reports — verdict AND
+    // near-miss — now carries h/w, so one grep of the next log settles it. If the trunk reads at
+    // or under 2.0, the discriminator is not shape: change the TERM, do not nudge the constant.
+    // The near-miss cap went 8 → 40 with its own print budget; the 256 line had shown four rows
+    // and was silently truncating the one that mattered.
+    //
+    // NOT THE RATIO ModBuild 255 RETIRED. That was IsStandingPiece, a PER-RENDERER aspect test
+    // INSIDE the numerator, retired because its only real exclusions were capstones. This is a
+    // PER-PROP-UNIT test in the MEMBERSHIP classifier that can only ever ADMIT a unit to
+    // protection, and it is paired with a vegetation term the retired one had no analogue of.
+    //
+    // THE TRUNK WAS ONLY HALF THE PLANT — a fix aimed at seg.Renderers alone would have been inert
+    // to worse. The trunk renderer tops out at 3.7 wu while its unit measures 4.6: the rest is
+    // canopy, canopy is Foliage-shaded, and it lands in seg.Foliage, which RayHitsWallMesh walks
+    // too. The refusal is consulted at the wall-renderer choke point, the mounted sweep AND both
+    // foliage paths.
+    //
+    // THE RATCHET HAS A SECOND MECHANISM AND IT IS NOT TREES — NAMED, INSTRUMENTED, NOT TOUCHED.
+    // HitsPiece's `rb.Contains(sample)` clause blocks a cell from EVERY head position there is, so
+    // a piece straddling the floor plane sets a coverage FLOOR the wall can never fall below. The
+    // arithmetic on a 16-cell grid: the 0.20 exit bar releases at 3/16 = 0.1875 and HOLDS at
+    // 4/16 = 0.25 — four permanently-blocked cells latch a wall for the session, three do not.
+    // 'Wall 2' (#7,#11,#14,#15) and 'Wall 4' (#0,#1,#4,#8) sit at exactly four. The log cannot yet
+    // separate "Contains" from "ray-blocked from every pose sampled", so acting on it would be
+    // guessing; PER-WALL now reports "(N of them by Contains — head-INDEPENDENT, a coverage floor
+    // of 0.25 against exit bar 0.20)". Taking the trees out is a cure ONLY IF that count drops
+    // to ≤3, and the same column says whether it did.
+    //
+    // (b) ALL THREE OF MY HYPOTHESES FOR THE FLOATING FLAME WERE WRONG, AND SO WAS THE PREMISE.
+    // I read 59 `released` transitions as a bypassed sticky guard. They are the legitimate UN-FADE
+    // edge, and the log proves it by counting: 27 contiguous churn warnings at lines 2088-2114
+    // follow `fade OFF 'Wall 3'` at 2078, and that wall carries +27 mounted prop(s); 31 at
+    // 2198-2228 follow `fade OFF 'Wall 1'` at 2188, which carries +31. Exact match, twice. Each is
+    // RestoreSegmentMounted on ApplyMounted's want==0 branch, one call per prop, on the frame the
+    // wall went solid — seg.Fade is 0 there, so the sticky term was never consulted. THE TRIPWIRE
+    // WAS COUNTING THE PLAYER WALKING AROUND: OwnershipChurnMax = 2 over 60 s, and a wall that
+    // fades and unfades twice in a minute gives every prop it owns three transitions.
+    // (The same shape as the ModBuild 246 fuse that counted the player as the abuser.)
+    //
+    // THE TWO GENUINE WARNINGS IN THE WHOLE LOG ARE 'Glow', AND THEY ARE THE DEFECT. Lines 1796
+    // and 2532: stacked:'ThickDoor' → mounted:'Wall 3' → stacked:'ThickDoor' → mounted:'Wall 3'.
+    // 'Glow' is [mesh→alpha] at anchor 2.2, gap 0.00 to 'Wall 3'. A DOORWAY SEGMENT NEVER FADES
+    // (his ruling 2026-08-02), so on every rescan the ThickDoor won the claim, the mounted leavers
+    // pass restored 'Glow' to visible, and nothing could hide it again. Whether that lands on a
+    // faded wall depends on which rescan the fade started in — "ziemlich random, ich konnte kein
+    // Muster erkennen". AN OWNER THAT CANNOT FADE IS NO LONGER CONCEDED TO: registration skips a
+    // doorway segment that is provably inert (DoorRoot != null && Fade <= 0 && StackedState == 0
+    // && BodyState == 0), so 'Glow' rides the wall that actually moves. No write war is possible —
+    // Apply* on such a segment take want==0 and RestoreSegment* return on state 0.
+    //
+    // MountedMaxPerSegment 32 → 64. 'Wall 1' reads +31 mounted prop(s) on all three of its fade-ON
+    // lines and 'Wall 3' reads +27: thirty-one against a cap of thirty-two is a live constraint one
+    // prop wide, and when it bound it did so SILENTLY AND WITH A FALSE REASON — the segment dropped
+    // out of the owner search and the candidate was filed as "no wall within reach". A torch turned
+    // away for a reason that never happened, then left lit when its wall went. The reject reason
+    // now names the cap and the census carries a SATURATED list. (Binding is inferred from 31-vs-32
+    // and a census oscillating 60↔61; no line in the 256 log says the cap fired. There is now.)
+    //
+    // THE FIGURE GUARD IS NOT BROKEN — CONTAINMENT IS NOT IDENTITY, AGAIN. P_Elementalist_Chest,
+    // _Eye_L/R and _Hand_L/R are adopted as dressing on 'Wall 3' AND later on 'Wall 1'. The round-7
+    // guard asks for a SkinnedMeshRenderer or an ActorBehaviour/CInteractableActor/Animator
+    // ANCESTOR; these are world-rooted effect objects scripted to follow their figure, so it
+    // answers "not a figure" perfectly correctly. It is thirteen renderers, not five: Particle
+    // System (3)-(6), center (1)/(2), Fog (6)/(7) share the exact signature — the Amp figure pair
+    // _Toggle_Dissolve/_InvisibilityControl, emitter anchor 1.2-1.4 wu (chest height on a figure
+    // standing on the floor), adopted by two different walls in one session. Genuine dressing has
+    // none of that: Candle_Fire_FX_02, p_fire_torch, p_Moths_Torch_Wall, fx_sparks, distort and
+    // Glow sit at 2.2-2.6 wu, carry no dissolve pair, and never change wall. A MOBILITY GUARD
+    // (MountedAnchorDriftWU = 0.5, drift taken in the owning anchor's own frame and rescaled by its
+    // lossyScale, so a WorldGrab translate/rotate/zoom reads zero) refuses a prop that moves.
+    // Fail-open — the prop stays visible — and every refusal prints its measured drift.
+    //
+    // THE LEFTOVER AUDIT READS THE PICTURE, NOT THE LEDGER (the ModBuild 252 lesson, applied):
+    // LEFTOVER OVER A FADED WALL scans airborne renderers near a segment at Fade >= 0.99 and
+    // confirms each with IsActuallyDrawing — enabled && activeInHierarchy, and for a
+    // ParticleSystemRenderer a live particleCount > 0 read off the emitter. It scans NEAR a faded
+    // segment rather than INSIDE a mounted list, so a prop no list contains cannot hide from it.
+    // That matters: 'Wall 4' faded at line 1615 with +0 mounted prop(s) and never un-faded in the
+    // session while carrying 34 renderers and 85 foliage. Zero dressing on the biggest permanently
+    // faded wall is either correct or a second blind spot, and this settles which.
+    // RELEASED OVER A FADED WALL fires only when owner.Fade > 0 and prints the failing term — the
+    // shape ModBuild 256 could not tell apart from the 59 correct releases.
+    //
+    // THE GATE RECTANGLES: A PHOTO MEASUREMENT KILLED MY OWN PREMISE. I had been calling them
+    // "three rectangles, evenly spaced at the same world height, ~30x60 px". Measured on
+    // schwebende_lichter.jpg (3840x2160), stable across three brightness thresholds and confirmed
+    // independently: 29x75, 90x103 and 53x119 px — height/width 2.59, 1.14, 2.25. Three identical
+    // coplanar quads cannot foreshorten by a factor of 2.3, so they are either NOT coplanar with
+    // the wall or NOT three copies of one object. "Evenly spaced at the same world height" was an
+    // inference from a near-overhead frame the close photo does not support, and it was the premise
+    // of the shape-and-size filter that has now missed the subject for four instrumented builds.
+    // AND THE CENSUS COULD NEVER HAVE FOUND THEM: GlowCardCensus.EndRenderer pools a renderer only
+    // when it already carries a mark, so an emissive-but-LIT 30 px quad on a stone pier is dropped
+    // BEFORE scoring — and _dropped lives in Insert, which it never reaches. No counter in the
+    // GLOW CARDS line records it. A sixth round of ranking was structurally incapable of finding
+    // this. GATE DUMP replaces ranking with enumeration: every renderer under every ThickDoor,
+    // unfiltered, plus everything within 5 wu ordered by distance, driven off SceneRegistry
+    // .DoorProps (the same handle the fade keys its GATE COLUMNs on, so the prop sets are identical
+    // by construction) and walking hierarchies rather than FindObjectsOfType, which cannot see
+    // Apparance's HideAndDontSave containers where this content lives. Footer separates "the census
+    // could have seen it and was rationed away" from "it never could have, however often it
+    // sampled". Grep: GATE DUMP.
+    //
     // Build 256: THE GREEN WALLS LATCHED BECAUSE THE BAND SAT ON THE WRONG SIDE OF A GAP.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

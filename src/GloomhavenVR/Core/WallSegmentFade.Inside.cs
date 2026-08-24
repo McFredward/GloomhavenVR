@@ -621,13 +621,32 @@ internal static partial class WallSegmentFade
                 string cells = seg.LastBlockedCells.Count == 0
                     ? "none"
                     : "#" + string.Join(",#", seg.LastBlockedCells);
+                // WHICH LIST AND WHICH KIND OF HIT (ModBuild 257). ModBuild 256's name settled
+                // WHAT decides each wall and could not settle WHERE the fix goes — 'Renderers'
+                // means the tileset parented the piece under the wall run and the membership
+                // classifier owns it, 'Stacked'/'Siblings' means an adoption sweep claimed it and
+                // that sweep owns it. 'contains' vs 'ray' is the ratchet: a Contains hit does not
+                // depend on the head, so every cell taken that way is a floor this wall can never
+                // fall below. See Segment.LastBlockerList and Segment.LastContainsCells.
                 string blocker = seg.LastBlockerPiece != null
-                    ? $" first by '{seg.LastBlockerPiece.name}'"
+                    ? $" first by '{seg.LastBlockerPiece.name}' [{seg.LastBlockerList}/"
+                      + (seg.LastBlockerByContains ? "contains" : "ray") + "]"
+                    : seg.LastBlockerList != "-" ? $" first by [{seg.LastBlockerList}]" : "";
+                // The head-INDEPENDENT part of this wall's coverage, spelled out next to the bars
+                // it is measured against. A wall whose contains-count alone clears the exit bar
+                // is latched by construction and no amount of walking around can release it.
+                string latch = seg.LastContainsCells > 0
+                    ? $" ({seg.LastContainsCells} of them by Contains — head-INDEPENDENT, "
+                      + $"a coverage floor of "
+                      + (seg.LastRoomTotal > 0
+                          ? (seg.LastContainsCells / (float)seg.LastRoomTotal).ToString("F2")
+                          : "n/a")
+                      + $" against exit bar {WallFadeTuning.Off:F2})"
                     : "";
                 _pwNames.Add($"'{wall}' r{seg.RoomIndex} ema {seg.Smooth:F2} "
                     + $"blk {seg.LastBlocked}/{seg.LastRoomTotal} "
                     + (seg.State ? "FADED" : "solid")
-                    + $" cells {cells}{blocker}");
+                    + $" cells {cells}{blocker}{latch}");
             }
             NoteAdmission(seg);
             // Kept as an OBSERVATION after ModBuild 255 deleted the hard-1f shortcut it used to

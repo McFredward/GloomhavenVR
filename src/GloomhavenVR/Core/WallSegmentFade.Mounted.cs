@@ -75,7 +75,39 @@ namespace GloomhavenVR.Core;
 ///
 /// MULTIPLAYER: local rendering only (property blocks, particle modules and renderer.enabled on
 /// locally-owned scenery), nothing on the wire, peers unaffected — same contract as every other
-/// WallSegmentFade attachment.
+/// WallSegmentFade attachment. ModBuild 257 adds no networked state either: the mobility test,
+/// the leftover audit and the release reasons are all derived from local scene geometry and
+/// local renderer state.
+///
+/// MODBUILD 257 — "die blaue Flamme faded manchmal nicht mit, daher schwebt sie da in der Luft"
+/// (user, 2026-08-24, wand_problem2.jpg; "ziemlich random, ich konnte kein Muster erkennen").
+/// Four things came out of the ModBuild 256 log, and the first one is a correction:
+/// <list type="number">
+/// <item>THE 59 "released" TRANSITIONS ARE NOT A BROKEN STICKY GUARD. They arrive in exactly two
+///   contiguous blocks — log lines 2088–2114 (27 warnings) immediately after
+///   <c>fade OFF 'Wall 3'</c> at 2078, and 2198–2228 (31 warnings) immediately after
+///   <c>fade OFF 'Wall 1'</c> at 2188 — and 'Wall 3' owned exactly 27 mounted props while
+///   'Wall 1' owned exactly 31. Every one of them is <see cref="FadeDriver.RestoreSegmentMounted"/>
+///   on the UN-FADE edge, one call per prop, which is the system working correctly. The
+///   round-11 churn tripwire fires at 3 transitions in 60 s, and a wall that fades and unfades
+///   twice inside a minute gives every prop it owns exactly that: it was counting the player
+///   walking around. Releases now carry their REASON, so an unfade can no longer be mistaken
+///   for an ownership loss.</item>
+/// <item>THE ONE GENUINE OWNERSHIP CONTEST in that log is 'Glow' flapping between
+///   <c>stacked:'ThickDoor : (1a01…)'</c> and <c>mounted:'Wall 3'</c>. A doorway segment NEVER
+///   fades, so every rescan it won the claim left 'Glow' restored to visible with no owner that
+///   could ever hide it again. An owner that cannot fade is no longer conceded to.</item>
+/// <item>FIGURE VFX WERE BEING ADOPTED AS DRESSING — see
+///   <see cref="FadeDriver.MountedAnchorDriftWU"/>.</item>
+/// <item>NO INSTRUMENT IN THIS FILE COULD SEE THE REPORTED DEFECT. The DISSOLVE CENSUS printed
+///   "0 still ENABLED-ONLY … nothing pops" for every fade in the session, and it could not have
+///   printed anything else: it walks <c>seg.Mounted</c>, and a leftover is by construction a
+///   renderer that is NOT in <c>seg.Mounted</c>. Meanwhile the NEAR-MISS list — the one
+///   diagnostic that answers "why does THAT thing still float" — was capped OUT at 24 of 24
+///   entries, about 18 of them "already the foliage of 'Wall 1'", i.e. renderers that are owned
+///   and cannot float. The LEFTOVER AUDIT (see <see cref="FadeDriver._mountedLeftovers"/>) reads
+///   the renderer and the emitter instead of the ledger, and has its own capacity.</item>
+/// </list>
 /// </summary>
 internal static partial class WallSegmentFade
 {
@@ -185,8 +217,63 @@ internal static partial class WallSegmentFade
         /// its bar ≈ 0.5–1 wu³, the smallest fort course ≥ ~2 wu³. Anything above this cap is
         /// architecture — stacked-shell territory or nothing, never sconce dressing.</summary>
         private const float MountedMaxMeshVolumeWU3 = 1.5f;
-        /// <summary>Runaway guard — no wall run carries more dressing than this.</summary>
-        private const int MountedMaxPerSegment = 32;
+        /// <summary>Runaway guard — no wall run carries more dressing than this.
+        /// <para>ModBuild 257 RAISED IT FROM 32, on a measurement: in the ModBuild 256 hardware
+        /// log every one of the three <c>fade ON</c> lines for 'Wall 1' reads "+31 mounted
+        /// prop(s)" and every one for 'Wall 3' reads "+27". Thirty-one against a cap of
+        /// thirty-two is not a runaway guard, it is a live constraint one prop wide — and when
+        /// it binds it does so SILENTLY and in the worst possible way: the segment drops out of
+        /// the owner search below, so the candidate falls through to
+        /// <c>best == null</c> and is filed under "no wall within reach / outside its span",
+        /// a reason that is simply false. A torch turned away for that reason then stays lit
+        /// over a wall that fades, which is the report this round is answering, and it is
+        /// "random" because whether the cap binds depends on how many TRANSIENT props (see
+        /// <see cref="MountedAnchorDriftWU"/>) happen to be standing next to that wall at
+        /// rescan time.</para>
+        /// <para>FALSIFIER: <c>MountedSaturated</c> in the census line. A segment that reports
+        /// SATURATED at 64 is a real runaway and this number is wrong; a session with no such
+        /// line proves the cap is back to being a guard rather than a policy.</para></summary>
+        private const int MountedMaxPerSegment = 64;
+        /// <summary>
+        /// MOBILE PROPS ARE NOT WALL DRESSING (ModBuild 257, from the ModBuild 256 log).
+        ///
+        /// <para>THE MEASUREMENT. The wall-mounted census adopted <c>P_Elementalist_Chest</c>,
+        /// <c>P_Elementalist_Eye_L</c>, <c>P_Elementalist_Eye_R</c>,
+        /// <c>P_Elementalist_Hand_L (1)</c> and <c>P_Elementalist_Hand_R (1)</c> — a player
+        /// character's own spell VFX — as dressing on 'Wall 3' AND, minutes later, on 'Wall 1'.
+        /// They share a signature with eight more adopted emitters ('Particle System (3)'…'(6)',
+        /// 'center (1)', 'center (2)', 'Fog (6)', 'Fog (7)'): tier <c>dissolve+…</c> (the Amp
+        /// figure pair <c>_Toggle_Dissolve</c>/<c>_InvisibilityControl</c>), emitter anchor
+        /// 1.2–1.4 wu — chest height for a figure standing on the floor — and adoption by TWO
+        /// different walls in one session. The genuine dressing in the same log has none of
+        /// that: 'Candle_Fire_FX_02 (3)', 'p_fire_torch (8)', 'p_Moths_Torch_Wall (1)',
+        /// 'fx_sparks (1)', 'distort', 'Glow' sit at 2.2–2.6 wu, carry no dissolve pair, and
+        /// never change wall.</para>
+        ///
+        /// <para>WHY THE ROUND-7 FIGURE GUARD MISSES THEM: <see cref="IsFigureOrActorRenderer"/>
+        /// asks for a SkinnedMeshRenderer or an ActorBehaviour / CInteractableActor / Animator
+        /// ANCESTOR. These emitters have none — they are world-rooted effect objects driven to
+        /// follow their figure by script, so the ancestry test answers "not a figure" perfectly
+        /// correctly and the ruling is still violated. Containment is not identity.</para>
+        ///
+        /// <para>THE TEST IS THE DEFINING PROPERTY OF DRESSING: a sconce is bolted to its wall
+        /// and does not move relative to it; a character's aura does. The drift is measured in
+        /// the OWNING WALL ANCHOR'S OWN FRAME and re-scaled by that anchor's lossy scale, so a
+        /// world grab (translate, rotate, zoom — WorldGrab.cs scales the whole diorama) moves
+        /// prop and wall together and reads ZERO. This bar is well under one hex step
+        /// (1.72 wu, the smallest move a figure can make) and well over any authored idle
+        /// wobble.</para>
+        ///
+        /// <para>FAIL-OPEN, and that direction is deliberate: a prop judged mobile is NOT
+        /// adopted and is restored if we were holding it, i.e. it stays visible — the same
+        /// safe side the Lights and figure rules take. FALSIFIER: the <c>MOBILE PROP</c> warn
+        /// names every renderer this rejects with its measured drift. A real sconce in that
+        /// list (a swinging lantern would be the honest candidate) means the bar is too low.
+        /// </para></summary>
+        private const float MountedAnchorDriftWU = 0.5f;
+        /// <summary>Cap on the mobile-prop warn list (log hygiene) and on the anchor ledger.</summary>
+        private const int MountedMobileWarnCap = 8;
+        private const int MountedAnchorLedgerCap = 512;
         /// <summary>Diagnostic radius (wu): an airborne renderer this close to a wall but NOT
         /// attached is logged with its rejection reason, so a leftover that still floats in a
         /// hardware screenshot is decidable from the log alone.</summary>
@@ -242,6 +329,74 @@ internal static partial class WallSegmentFade
         private int _lastLoggedMountedRejected = -1;
         /// <summary>This pass's airborne bar, so the structural-skip diagnostic can use it.</summary>
         private float _mountedAirborneBar = float.PositiveInfinity;
+
+        // ---- ModBuild 257 instrumentation and guards ------------------------------------------
+
+        /// <summary>Where a prop sat LAST rescan, in its owning wall anchor's own frame — the
+        /// input to the mobility test (see <see cref="MountedAnchorDriftWU"/>).</summary>
+        private readonly struct PropAnchor
+        {
+            public readonly Segment Owner;
+            public readonly Vector3 Local;
+            public PropAnchor(Segment owner, Vector3 local) { Owner = owner; Local = local; }
+        }
+        private readonly Dictionary<Renderer, PropAnchor> _mountedAnchorLedger = new();
+        /// <summary>Renderers proven MOBILE. Latched for the renderer's lifetime: a thing that
+        /// walked once is not scenery, and Apparance gives a genuinely rebuilt prop a new
+        /// Renderer instance (and therefore a clean slate) anyway.</summary>
+        private readonly HashSet<Renderer> _mountedMobile = new();
+        private readonly List<string> _mountedMobileWarns = new();
+        private int _censusMountedMobile;
+
+        /// <summary>Segments that hit <see cref="MountedMaxPerSegment"/> this rescan — the cap
+        /// used to bind silently and then mis-attribute the loss (see the constant).</summary>
+        private readonly List<string> _mountedSaturated = new();
+
+        /// <summary>Props already restored earlier in THIS collection pass (the sticky loop's
+        /// figure/mobile releases). The leavers loop below would otherwise restore them a
+        /// second time, and a second <c>NoteOwnershipChange</c> with a different reason string
+        /// counts as another transition — i.e. the fix would feed the very churn tripwire it
+        /// exists to quieten.</summary>
+        private readonly HashSet<MountedProp> _mountedReleased = new();
+
+        /// <summary>
+        /// THE LEFTOVER AUDIT (ModBuild 257) — the one list in this file that is NOT the
+        /// ledger's opinion of itself.
+        ///
+        /// <para>The lesson this subsystem has paid for twice is that a falsifier reading the
+        /// DRIVER agrees with every broken build: the DISSOLVE CENSUS printed "0 still
+        /// ENABLED-ONLY … nothing pops" for every fade in the ModBuild 256 log while the user
+        /// was photographing a lit flame hanging in the air. It could not have said anything
+        /// else — it walks <c>seg.Mounted</c>, and a leftover is by definition a renderer that
+        /// is NOT in <c>seg.Mounted</c>.</para>
+        ///
+        /// <para>This list is built from the other side: every airborne renderer standing next
+        /// to a segment that is at FULL fade, that we did not adopt, and that
+        /// <see cref="IsActuallyDrawing"/> confirms is putting pixels on the screen RIGHT NOW —
+        /// <c>enabled</c> + <c>activeInHierarchy</c>, and for a particle system a live
+        /// <c>particleCount</c>, read off the renderer and the emitter, not off a record. It
+        /// carries its own capacity so the reject list's flood of already-owned foliage (24 of
+        /// 24 slots in the ModBuild 256 log, ~18 of them "already the foliage of 'Wall 1'"
+        /// entries that cannot float by construction) can no longer starve it.</para>
+        /// </summary>
+        private readonly List<string> _mountedLeftovers = new();
+        private const int MountedLeftoverCap = 12;
+        private int _censusMountedLeftover;
+        private int _lastLoggedMountedLeftover = -1;
+        /// <summary>Candidates skipped because another attachment of a FADING segment already
+        /// owns them — counted rather than listed, because they cannot float (see the skip
+        /// site). This count is what the near-miss list used to be spending itself on.</summary>
+        private int _censusMountedCarried;
+        /// <summary>The nearest FULLY FADED segment to the candidate currently under test, or
+        /// null. Set by the owner search (and by <see cref="NoteStructuralSkip"/>, which does
+        /// its own segment walk) and consumed by <see cref="NoteMountedReject"/>.</summary>
+        private Segment? _leftoverFadedNear;
+        private float _leftoverFadedGap;
+
+        /// <summary>Releases logged this rescan/frame as happening ABOVE a wall that is still
+        /// faded — the exact defect shape, capped for log hygiene.</summary>
+        private int _releaseOverFadedWarns;
+        private const int ReleaseOverFadedWarnCap = 6;
 
         // ---- delivery -----------------------------------------------------------------------
 
@@ -374,8 +529,31 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Put one prop back exactly as authored: property block cleared, particle
-        /// modules restored from the snapshot, renderer visible again.</summary>
-        private void RestoreProp(MountedProp p)
+        /// modules restored from the snapshot, renderer visible again. Callers outside this
+        /// file keep the unattributed form; see the overload for why the reason matters.</summary>
+        private void RestoreProp(MountedProp p) => RestoreProp(p, null, "unattributed");
+
+        /// <summary>
+        /// The same restore, with the OWNER and the REASON it is happening.
+        ///
+        /// <para>WHY THE REASON EXISTS (ModBuild 257). ModBuild 256's log carries 61
+        /// <c>OWNERSHIP CHURN</c> warnings, 59 of which contain the transition "released", and
+        /// that reads as a broken sticky guard until the line numbers are counted: they arrive
+        /// in exactly two contiguous blocks, 2088–2114 (27 lines, immediately after
+        /// <c>fade OFF 'Wall 3'</c> at 2078 — and 'Wall 3' owned exactly 27 mounted props) and
+        /// 2198–2228 (31 lines, immediately after <c>fade OFF 'Wall 1'</c> at 2188 — 31 props).
+        /// Every one of them is <see cref="RestoreSegmentMounted"/> on the UN-FADE edge, one
+        /// call per prop, which is the system working. A wall that fades twice inside the
+        /// churn tripwire's 60 s window makes every prop it owns cross the 2-transition bar;
+        /// the tripwire was counting the player walking around.</para>
+        ///
+        /// <para>So the transition is no longer reported as a bare "released": it names its
+        /// cause, and the tripwire can tell an unfade from an ownership loss. And the one
+        /// release shape that IS the reported defect — letting go of a prop while its wall is
+        /// still gone, which leaves it lit in mid-air — now WARNS with the wall's fade at that
+        /// instant instead of being indistinguishable from the other 59.</para>
+        /// </summary>
+        private void RestoreProp(MountedProp p, Segment? owner, string reason)
         {
             _mountedTouched.Remove(p.Renderer);
             Renderer r = p.Renderer;
@@ -387,7 +565,8 @@ internal static partial class WallSegmentFade
             RestorePropSwap(p, r); // round 15: authored materials back, only OUR copies destroyed
             if (r == null)
                 return;
-            NoteOwnershipChange(r, "released"); // churn tripwire (round 11)
+            NoteOwnershipChange(r, "released(" + reason + ")"); // churn tripwire (round 11)
+            NoteReleaseOverFadedWall(r, owner, reason);
             if (wroteBlock)
                 r.SetPropertyBlock(null);
             if (p.System != null)
@@ -411,8 +590,38 @@ internal static partial class WallSegmentFade
             if (seg.MountedState == 0)
                 return;
             seg.MountedState = 0;
+            // The wall is solid again on every ApplyMounted path that reaches here (want == 0
+            // ⇒ seg.Fade <= 0); the other callers are drops and teardowns, which also end with
+            // the wall visible. Naming it separates this — 59 of ModBuild 256's 61 churn
+            // warnings — from a real ownership loss.
+            string why = seg.Fade > 0f ? "segment dropped mid-fade" : "wall solid again";
             foreach (MountedProp p in seg.Mounted)
-                RestoreProp(p);
+                RestoreProp(p, seg, why);
+        }
+
+        /// <summary>
+        /// A prop let go while its wall is STILL GONE is the reported defect ("die blaue Flamme
+        /// faded nicht mit, daher schwebt sie da in der Luft"), because
+        /// <see cref="RestoreProp"/> ends by re-enabling the renderer. Print the wall's fade at
+        /// that instant and the term that failed, so the next log decides it without another
+        /// hardware round. Silent — as it must be — on the un-fade edge, where the wall is
+        /// already solid and re-enabling the prop is the whole point.
+        /// </summary>
+        private void NoteReleaseOverFadedWall(Renderer r, Segment? owner, string reason)
+        {
+            if (owner == null || owner.Fade <= 0f
+                || _releaseOverFadedWarns >= ReleaseOverFadedWarnCap)
+                return;
+            _releaseOverFadedWarns++;
+            string wall = owner.Anchor != null ? owner.Anchor.name : "<dead>";
+            VRLog.Warn(Name,
+                $"RELEASED OVER A FADED WALL: '{r.name}' [{RendererKind(r)}] let go by '{wall}' "
+                + $"while that wall's fade is {owner.Fade:F2} (mounted state "
+                + $"{owner.MountedState}) — term that failed: {reason}. The restore re-enables "
+                + "the renderer, so unless another owner hides it THIS is a lit prop hanging in "
+                + "mid-air over a wall that is not there (user report 2026-08-24, "
+                + "wand_problem2.jpg). A release above a faded wall is never correct except for "
+                + "a FIGURE or a MOBILE prop, which are named as such in the reason.");
         }
 
         /// <summary>
@@ -476,9 +685,14 @@ internal static partial class WallSegmentFade
             _mountedScratch.Clear();
             _mountedScratch.AddRange(_mountedTouched.Values);
             foreach (MountedProp p in _mountedScratch)
-                RestoreProp(p);
+                RestoreProp(p, null, "teardown / wall fade disabled");
             _mountedScratch.Clear();
             _mountedTouched.Clear();
+            // The mobility ledger is scene state, not fade state: a teardown / scene change
+            // invalidates every baseline in it, and a latched verdict must not survive into a
+            // scenario where the same Renderer id belongs to something else.
+            _mountedAnchorLedger.Clear();
+            _mountedMobile.Clear();
             foreach (Segment seg in _segments.Values)
             {
                 seg.MountedState = 0;
@@ -529,6 +743,8 @@ internal static partial class WallSegmentFade
             if (anchorY < _mountedAirborneBar)
                 return; // rests on something — would not float even if the wall went
             float nearest = float.PositiveInfinity;
+            _leftoverFadedNear = null;
+            _leftoverFadedGap = float.PositiveInfinity;
             foreach (Segment seg in _segments.Values)
             {
                 if (!seg.HasBounds)
@@ -536,8 +752,86 @@ internal static partial class WallSegmentFade
                 float gap = HorizontalGap(seg.Bounds, b);
                 if (gap < nearest)
                     nearest = gap;
+                if (seg.Fade >= FoliageHideFade && gap < _leftoverFadedGap)
+                {
+                    _leftoverFadedGap = gap;
+                    _leftoverFadedNear = seg;
+                }
             }
             NoteMountedReject(c, anchorY, nearest, why);
+            _leftoverFadedNear = null;
+        }
+
+        /// <summary>
+        /// Has this prop MOVED relative to the wall it would ride? See
+        /// <see cref="MountedAnchorDriftWU"/> for the measurement that produced this test and
+        /// for why the drift is taken in the wall anchor's own frame. Records the current
+        /// position either way, so the next rescan has a baseline; a first sighting, a change
+        /// of owner and an anchorless segment all read NOT mobile (fail-open).
+        /// </summary>
+        private bool IsMobileProp(Renderer c, Segment owner, out float drift)
+        {
+            drift = float.NaN; // "already latched" — see DriftText
+            if (_mountedMobile.Contains(c))
+                return true;
+            drift = 0f;
+            if (owner.Anchor == null)
+                return false;
+            Transform frame = owner.Anchor.transform;
+            Vector3 local = frame.InverseTransformPoint(c.transform.position);
+            bool mobile = false;
+            if (_mountedAnchorLedger.TryGetValue(c, out PropAnchor prev)
+                && ReferenceEquals(prev.Owner, owner))
+            {
+                // Local units × the frame's own scale = world units, so the bar stays a real
+                // distance even while the player is zooming the diorama.
+                float scale = Mathf.Abs(frame.lossyScale.x);
+                drift = Vector3.Distance(local, prev.Local) * (scale > 0f ? scale : 1f);
+                mobile = drift > MountedAnchorDriftWU;
+            }
+            if (_mountedAnchorLedger.Count >= MountedAnchorLedgerCap
+                && !_mountedAnchorLedger.ContainsKey(c))
+                _mountedAnchorLedger.Clear(); // bounded scratch — worst case a fresh baseline
+            _mountedAnchorLedger[c] = new PropAnchor(owner, local);
+            if (!mobile)
+                return false;
+            if (_mountedMobile.Count >= MountedAnchorLedgerCap)
+                _mountedMobile.Clear(); // bounded — a still-mobile prop re-earns its verdict
+            _mountedMobile.Add(c);
+            _censusMountedMobile++;
+            if (_mountedMobileWarns.Count < MountedMobileWarnCap)
+            {
+                string wall = owner.Anchor != null ? owner.Anchor.name : "<dead>";
+                _mountedMobileWarns.Add(
+                    $"'{c.name}'[{RendererKind(c)}] {DriftText(drift)} against '{wall}'");
+            }
+            return true;
+        }
+
+        /// <summary>A drift reading for a log line: NaN means the verdict was latched by an
+        /// earlier measurement rather than taken now.</summary>
+        private static string DriftText(float drift) =>
+            float.IsNaN(drift) ? "already latched as mobile" : $"moved {drift:F2} wu";
+
+        /// <summary>
+        /// Is this renderer putting pixels on the screen RIGHT NOW? Read off the renderer and
+        /// (for particles) off the emitter — never off our own ledger, which is the mistake
+        /// ModBuild 252's animation instrument made and which the DISSOLVE CENSUS still makes
+        /// when it reports "nothing pops" for a wall that has a lit flame floating over it.
+        /// <c>isVisible</c> is deliberately NOT consulted: it is per-camera and false for a
+        /// perfectly drawn object the frame a cull test has not run for.
+        /// </summary>
+        private static bool IsActuallyDrawing(Renderer r)
+        {
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                return false;
+            if (r is ParticleSystemRenderer)
+            {
+                ParticleSystem? ps = r.GetComponent<ParticleSystem>();
+                if (ps != null)
+                    return ps.particleCount > 0; // an emitter with no live particles draws nothing
+            }
+            return true;
         }
 
         /// <summary>Horizontal (XZ) gap between two AABBs; 0 when their footprints overlap.</summary>
@@ -571,25 +865,56 @@ internal static partial class WallSegmentFade
             _attachmentOwned.Clear();
             _mountedCensus.Clear();
             _mountedRejects.Clear();
+            _mountedLeftovers.Clear();
+            _mountedMobileWarns.Clear();
+            _mountedSaturated.Clear();
             _censusMounted = 0;
             _censusMountedRejected = 0;
+            _censusMountedLeftover = 0;
+            _censusMountedMobile = 0;
+            _censusMountedCarried = 0;
+            _releaseOverFadedWarns = 0;
+            _leftoverFadedNear = null;
+            _mountedReleased.Clear();
 
             // STACKED SHELL pieces (adopted by the pass right before this one) are spoken for
             // FIRST: they must never be double-claimed by a sticky mounted list, the sweep
             // below, or the orphan guard (which restores any ledger entry missing from
             // _mountedOwned — a stacked piece IS in the shared ledger while ramped/hidden).
+            //
+            // ONE EXCEPTION, ModBuild 257 — AN OWNER THAT CANNOT FADE IS NOT AN OWNER. In the
+            // ModBuild 256 log, exactly two of the 61 ownership-churn warnings are a genuine
+            // contest rather than the un-fade edge, and both are the same piece:
+            //   'Glow' … (stacked:'ThickDoor : (1a01…)' → mounted:'Wall 3'
+            //             → stacked:'ThickDoor : (1a01…)' → mounted:'Wall 3')
+            // 'Glow' is a mesh→alpha prop hugging 'Wall 3' at anchor 2.2, gap 0.00. A DOORWAY
+            // segment never fades (user ruling 2026-08-02) — its state is pinned solid in the
+            // decision loop — so on every rescan the ThickDoor wins the claim, the mounted
+            // leavers pass restores 'Glow' to visible, and NOTHING ever hides it again. If
+            // 'Wall 3' is faded at that moment the result is a lit glow hanging in mid-air,
+            // and whether it happens depends on which rescan the fade started on: exactly the
+            // "ziemlich random, ich konnte kein Muster erkennen" of the report.
+            //
+            // Conceding is only refused when the doorway is demonstrably doing nothing with
+            // the piece — solid, and holding neither a stacked nor a body state — so no write
+            // war is possible: ApplyStacked/ApplyBody on such a segment take the want == 0
+            // branch, and RestoreSegment{Stacked,Body} return immediately on state 0. The
+            // orphan guard cannot mis-release it either, for the same reason: a segment that
+            // has never hidden anything has no entry in the shared ledger.
             foreach (Segment seg in _segments.Values)
             {
+                bool inertDoorway = seg.DoorRoot != null && seg.Fade <= 0f
+                    && seg.StackedState == 0 && seg.BodyState == 0;
                 foreach (MountedProp p in seg.Stacked)
                 {
-                    if (p.Renderer == null)
+                    if (p.Renderer == null || inertDoorway)
                         continue;
                     _mountedOwned.Add(p.Renderer);
                     _attachmentOwned[p.Renderer] = new OwnerRef(seg, "stacked shell piece");
                 }
                 foreach (MountedProp p in seg.Body)
                 {
-                    if (p.Renderer == null)
+                    if (p.Renderer == null || inertDoorway)
                         continue;
                     _mountedOwned.Add(p.Renderer);
                     _attachmentOwned[p.Renderer] = new OwnerRef(seg, "wall body mesh");
@@ -612,11 +937,36 @@ internal static partial class WallSegmentFade
                 {
                     foreach (MountedProp p in seg.PrevMounted)
                     {
+                        // The claim comes FIRST and stays first: a renderer another list has
+                        // already spoken for (a stacked shell piece, a body mesh, a corner, or
+                        // an earlier segment's sticky carry) is that list's to drive, and
+                        // restoring it here would be a write war with its applier. The two
+                        // releases below therefore only ever touch a prop THIS segment owns.
                         if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
                             continue;
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
                         if (IsFigureOrActorRenderer(p.Renderer))
+                        {
+                            RestoreProp(p, seg, "FIGURE — never carried (round-7 ruling)");
+                            _mountedReleased.Add(p);
                             continue;
+                        }
+                        // MODBUILD 257: nor is anything that has MOVED relative to this wall.
+                        // Sticky exists because a particle system's live AABB drifts every
+                        // frame and made the candles blink — it was never meant to hold a
+                        // character's spell VFX hidden after the character walked away, which
+                        // is what it does today for the Elementalist's five emitters (see
+                        // MountedAnchorDriftWU). The release is deliberate and is reported by
+                        // NoteReleaseOverFadedWall with the wall's live fade, so if this ever
+                        // takes a real sconce the next log says so in one line.
+                        if (IsMobileProp(p.Renderer, seg, out float drift))
+                        {
+                            RestoreProp(p, seg,
+                                $"MOBILE — {DriftText(drift)} against this wall, so it is not "
+                                + "dressing bolted to it");
+                            _mountedReleased.Add(p);
+                            continue;
+                        }
                         seg.Mounted.Add(p);
                         _censusMounted++;
                     }
@@ -736,11 +1086,34 @@ internal static partial class WallSegmentFade
                     }
                     if (_attachmentOwned.TryGetValue(c, out OwnerRef owner))
                     {
+                        // MODBUILD 257 — THE NEAR-MISS LIST WAS BLIND BECAUSE THIS LINE FLOODED
+                        // IT. In the ModBuild 256 log the list is full (24 of 24, 28 near-misses
+                        // total) and about eighteen of those entries read "already the foliage
+                        // of 'Wall 1' (that wall's fade 0.00)" — several of them the same NAME
+                        // three times over, i.e. sibling instances of the same grass tuft. Not
+                        // one of them could ever be the thing the list exists to find: a piece
+                        // owned by a segment that FADES is carried by that segment's own
+                        // applier, so when the wall goes the piece goes. Meanwhile the airborne
+                        // candidates that actually could float never got a slot.
+                        //
+                        // So an owner that can carry it costs no slot and is only counted. What
+                        // is still reported in full is the case that CANNOT carry it: a doorway
+                        // (never fades — user ruling 2026-08-02, and this is exactly how 'Glow'
+                        // came to be held by 'ThickDoor : (1a01…)' while 'Wall 3' faded around
+                        // it) or a dead anchor.
+                        bool ownerCanCarryIt = owner.Seg.DoorRoot == null && owner.Seg.Anchor != null;
+                        if (ownerCanCarryIt)
+                        {
+                            _censusMountedCarried++;
+                            continue;
+                        }
                         if (StructuralSkipArmed)
                         {
                             string wall = owner.Seg.Anchor != null ? owner.Seg.Anchor.name : "<dead>";
                             NoteStructuralSkip(c,
-                                $"already the {owner.Kind} of '{wall}' (that wall's fade {owner.Seg.Fade:F2})");
+                                $"already the {owner.Kind} of '{wall}' (that wall's fade "
+                                + $"{owner.Seg.Fade:F2}) — an owner that NEVER FADES, so nothing "
+                                + "will ever hide this piece with the wall it hugs");
                         }
                         continue;
                     }
@@ -813,13 +1186,32 @@ internal static partial class WallSegmentFade
                     Segment? best = null;
                     float bestGap = float.PositiveInfinity;
                     float nearestAny = float.PositiveInfinity;
+                    // ModBuild 257: the runaway cap used to be one more silent `continue` in
+                    // this loop, so a wall that had filled up looked exactly like a wall that
+                    // was out of reach. Remember whether the cap is what turned the candidate
+                    // away, and name the segment it turned it away from.
+                    Segment? cappedBy = null;
+                    // The nearest FULLY FADED segment, for the leftover audit. Deliberately
+                    // NOT the same search as `best`: the question this one answers is "is this
+                    // thing standing next to a hole in the world", which does not care whether
+                    // the segment was eligible to own it.
+                    _leftoverFadedNear = null;
+                    _leftoverFadedGap = float.PositiveInfinity;
                     foreach (Segment seg in _segments.Values)
                     {
-                        if (!seg.HasBounds || seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                        if (!seg.HasBounds)
                             continue;
-                        float gap = particles
+                        float gapAny = particles
                             ? HorizontalGap(seg.Bounds, c.transform.position)
                             : HorizontalGap(seg.Bounds, b);
+                        if (seg.Fade >= FoliageHideFade && gapAny < _leftoverFadedGap)
+                        {
+                            _leftoverFadedGap = gapAny;
+                            _leftoverFadedNear = seg;
+                        }
+                        if (seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                            continue;
+                        float gap = gapAny;
                         if (gap < nearestAny)
                             nearestAny = gap;
                         if (belowBar || gap > linkMax || gap >= bestGap)
@@ -831,7 +1223,11 @@ internal static partial class WallSegmentFade
                         if (topY < seg.Bounds.min.y)
                             continue; // below the wall's span
                         if (seg.Mounted.Count >= MountedMaxPerSegment)
+                        {
+                            cappedBy = seg;
+                            NoteMountedSaturated(seg);
                             continue;
+                        }
                         bestGap = gap;
                         best = seg;
                     }
@@ -844,7 +1240,12 @@ internal static partial class WallSegmentFade
                     }
                     if (best == null)
                     {
-                        NoteMountedReject(c, anchorY, nearestAny, "no wall within reach / outside its span");
+                        NoteMountedReject(c, anchorY, nearestAny, cappedBy != null
+                            ? $"'{(cappedBy.Anchor != null ? cappedBy.Anchor.name : "<dead>")}' "
+                              + $"is SATURATED at {MountedMaxPerSegment} mounted props and no "
+                              + "other wall is in reach — this candidate is lost to the runaway "
+                              + "cap, not to geometry"
+                            : "no wall within reach / outside its span");
                         continue;
                     }
                     // Size cap for MESHES only — a particle system's bounds are a smoke plume, not
@@ -903,6 +1304,25 @@ internal static partial class WallSegmentFade
                     // hidden (dropping it now would re-enable + re-hide it in a one-frame flash).
                     if (!c.enabled && !_mountedTouched.ContainsKey(c))
                         continue;
+                    // MOBILE (ModBuild 257) — the LAST test before adoption, so a prop rejected
+                    // for any cheaper reason never pays for it and never enters the anchor
+                    // ledger. The ancestry test above answers "is this renderer part of a
+                    // figure's rig", and the Elementalist's five world-rooted spell emitters
+                    // answer NO to it perfectly correctly while being a figure's VFX in every
+                    // sense the round-7 ruling cares about — they were adopted onto 'Wall 3'
+                    // and later onto 'Wall 1' in one ModBuild 256 session. This one asks the
+                    // question the geometry can actually settle: did it MOVE relative to the
+                    // wall it wants to ride. See MountedAnchorDriftWU for the measurement, the
+                    // world-grab argument and the falsifier.
+                    if (IsMobileProp(c, best, out float candidateDrift))
+                    {
+                        NoteMountedReject(c, anchorY, bestGap,
+                            $"MOBILE — {DriftText(candidateDrift)} against "
+                            + $"'{(best.Anchor != null ? best.Anchor.name : "<dead>")}' since the "
+                            + "last rescan, so it follows something rather than hanging on that "
+                            + "wall (figure VFX / carried prop) — never wall dressing");
+                        continue;
+                    }
                     // Reuse the existing record when we already know this prop (keeps the authored
                     // snapshot — re-reading a material we are CURRENTLY ramping would snapshot our
                     // own ramp as the "authored" value).
@@ -930,8 +1350,21 @@ internal static partial class WallSegmentFade
                 {
                     foreach (MountedProp prev in seg.PrevMounted)
                     {
-                        if (prev.Renderer != null && !seg.Mounted.Contains(prev))
-                            RestoreProp(prev);
+                        if (prev.Renderer == null || seg.Mounted.Contains(prev)
+                            || _mountedReleased.Contains(prev))
+                            continue;
+                        // The reason matters here more than anywhere: if this fires while the
+                        // segment is still faded, the prop is about to be re-enabled over a
+                        // wall that is not there. NoteReleaseOverFadedWall turns exactly that
+                        // into a WARN naming the wall's live fade — the shape the ModBuild 256
+                        // log could not distinguish from the 59 perfectly correct un-fade
+                        // releases.
+                        RestoreProp(prev, seg, _attachmentOwned.TryGetValue(
+                                prev.Renderer, out OwnerRef newOwner)
+                            ? $"lost the claim to the {newOwner.Kind} of "
+                              + $"'{(newOwner.Seg.Anchor != null ? newOwner.Seg.Anchor.name : "<dead>")}' "
+                              + $"(that owner's fade {newOwner.Seg.Fade:F2})"
+                            : "no longer adopted by this wall (geometry test)");
                     }
                     if (seg.Mounted.Count == 0)
                         seg.MountedState = 0;
@@ -951,7 +1384,7 @@ internal static partial class WallSegmentFade
                         _mountedScratch.Add(p);
                 }
                 foreach (MountedProp p in _mountedScratch)
-                    RestoreProp(p);
+                    RestoreProp(p, null, "orphan guard — no live segment owns it any more");
                 _mountedScratch.Clear();
             }
 
@@ -959,8 +1392,27 @@ internal static partial class WallSegmentFade
             // heartbeat would report a half-built table forever: re-log whenever the attached set
             // actually changed. Steady state prints nothing.
             if (_censusMounted != _lastLoggedMountedCount
-                || _censusMountedRejected != _lastLoggedMountedRejected)
+                || _censusMountedRejected != _lastLoggedMountedRejected
+                || _censusMountedLeftover != _lastLoggedMountedLeftover)
                 LogMountedCensus();
+            // The two alarms stand alone: a leftover is the reported defect, and a mobile prop
+            // is the round-7 ruling being enforced against a class the ancestry test cannot see.
+            LogMountedLeftovers();
+            LogMountedMobile();
+        }
+
+        /// <summary>Record a segment that has filled its dressing quota (see
+        /// <see cref="MountedMaxPerSegment"/>) — once per segment per rescan.</summary>
+        private void NoteMountedSaturated(Segment seg)
+        {
+            string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            foreach (string s in _mountedSaturated)
+            {
+                if (s == wall)
+                    return;
+            }
+            if (_mountedSaturated.Count < 8)
+                _mountedSaturated.Add(wall);
         }
 
         // ---- diagnostics --------------------------------------------------------------------
@@ -997,6 +1449,20 @@ internal static partial class WallSegmentFade
             _censusMountedRejected++;
             if (_mountedRejects.Count < MountedRejectCap)
                 _mountedRejects.Add($"'{c.name}'[{RendererKind(c)}] anchor {anchorY:F1} gap {gap:F2}: {why}");
+            // THE LEFTOVER AUDIT (see the field). This is the only place in the file that asks
+            // the renderer itself what it is doing, and it only asks when the answer matters:
+            // the candidate stands next to a wall that has gone to FULL fade, so if it is
+            // drawing, the user is looking at exactly what he photographed.
+            if (_leftoverFadedNear == null || !IsActuallyDrawing(c))
+                return;
+            _censusMountedLeftover++;
+            if (_mountedLeftovers.Count >= MountedLeftoverCap)
+                return;
+            Segment faded = _leftoverFadedNear;
+            string wall = faded.Anchor != null ? faded.Anchor.name : "<dead>";
+            _mountedLeftovers.Add(
+                $"'{c.name}'[{RendererKind(c)}] anchor {anchorY:F1} is DRAWING {_leftoverFadedGap:F2} wu "
+                + $"from '{wall}' whose fade is {faded.Fade:F2} — not adopted because: {why}");
         }
 
         /// <summary>
@@ -1009,18 +1475,86 @@ internal static partial class WallSegmentFade
         {
             _lastLoggedMountedCount = _censusMounted;
             _lastLoggedMountedRejected = _censusMountedRejected;
+            _lastLoggedMountedLeftover = _censusMountedLeftover;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
             string misses = _mountedRejects.Count > 0
                 ? " | NEAR-MISS (stays visible): " + string.Join("; ", _mountedRejects)
                 : string.Empty;
+            // The reject list is capped and, in the ModBuild 256 log, was capped OUT: 24 of 24
+            // slots, ~18 of them "already the foliage of 'Wall 1'" — entries for renderers that
+            // are owned, cannot float, and had crowded out every candidate that could. Saying
+            // so on the line is the cheap half of the fix; the LEFTOVER line is the other half.
+            string starved = _censusMountedRejected > _mountedRejects.Count
+                ? $" [reject list CAPPED at {MountedRejectCap} — "
+                  + $"{_censusMountedRejected - _mountedRejects.Count} near-miss(es) not shown]"
+                : string.Empty;
+            string full = _mountedSaturated.Count > 0
+                ? $" | SATURATED at {MountedMaxPerSegment} props: "
+                  + string.Join(", ", _mountedSaturated)
+                  + " — these walls turned further candidates away because of the runaway cap, "
+                  + "not because of geometry"
+                : string.Empty;
             VRLog.Info(Name,
                 $"WALL-MOUNTED DRESSING: {_censusMounted} prop(s) dissolve WITH their wall "
                 + $"(airborne ≥{MountedClearanceWU:0.0} wu over the room floor — meshes by AABB, "
                 + $"particles by EMITTER anchor; XZ gap ≤{MountedLinkMaxXZ:0.00} wu; ownership "
-                + $"sticky while faded; Lights are NEVER written to): {riding}"
-                + $"{misses} ({_censusMountedRejected} near-miss total).");
+                + $"sticky while faded unless the prop MOVED ≥{MountedAnchorDriftWU:0.00} wu "
+                + $"against it; Lights are NEVER written to): {riding}"
+                + $"{misses}{starved} ({_censusMountedRejected} near-miss total, "
+                + $"{_censusMountedCarried} skipped as already carried by a wall that fades, "
+                + $"{_censusMountedLeftover} drawing over a fully faded wall){full}.");
+        }
+
+        /// <summary>
+        /// THE PICTURE, not the ledger (see <see cref="_mountedLeftovers"/>). One WARN per
+        /// rescan that found an airborne renderer DRAWING next to a segment at full fade —
+        /// which is the user's photograph, stated in the log, with the reason it was not
+        /// adopted. A session in which this line never appears is the only evidence this file
+        /// can offer that the "schwebende Flamme" class is actually closed; the DISSOLVE
+        /// CENSUS's "nothing pops" cannot say it, because it only ever walks props we already
+        /// own.
+        /// </summary>
+        private void LogMountedLeftovers()
+        {
+            if (_censusMountedLeftover == 0)
+                return;
+            VRLog.Warn(Name,
+                $"LEFTOVER OVER A FADED WALL: {_censusMountedLeftover} renderer(s) are actually "
+                + "drawing (renderer enabled + active in hierarchy; particle systems with live "
+                + "particles) within "
+                + $"{MountedNearMissXZ:0.0} wu of a wall whose fade is ≥{FoliageHideFade:0.00} "
+                + $"— read off the renderer and the emitter, not off our ledger: "
+                + string.Join("; ", _mountedLeftovers)
+                + (_censusMountedLeftover > _mountedLeftovers.Count
+                    ? $"; … ({_censusMountedLeftover - _mountedLeftovers.Count} more)"
+                    : string.Empty)
+                + ". This is the shape of the 2026-08-24 report (wand_problem2.jpg): the wall is "
+                + "gone and the thing that hung on it is not.");
+        }
+
+        /// <summary>The mobility guard's own falsifier — every renderer it refused, with the
+        /// drift that decided it. A genuine sconce in this list means
+        /// <see cref="MountedAnchorDriftWU"/> is too low.</summary>
+        private void LogMountedMobile()
+        {
+            if (_mountedMobileWarns.Count == 0)
+                return;
+            VRLog.Warn(Name,
+                $"MOBILE PROP (not wall dressing): {_censusMountedMobile} renderer(s) moved more "
+                + $"than {MountedAnchorDriftWU:0.00} wu against the wall they were riding, "
+                + "measured in that wall anchor's own frame (so a world grab reads zero) — they "
+                + "are released and never re-adopted: "
+                + string.Join("; ", _mountedMobileWarns)
+                + (_censusMountedMobile > _mountedMobileWarns.Count
+                    ? $"; … ({_censusMountedMobile - _mountedMobileWarns.Count} more)"
+                    : string.Empty)
+                + ". ModBuild 256 adopted a player character's own spell VFX "
+                + "(P_Elementalist_Chest / _Eye_L / _Eye_R / _Hand_L / _Hand_R) as dressing on "
+                + "'Wall 3' and then on 'Wall 1'; the round-7 figure ruling forbids it and the "
+                + "ancestry test cannot see it. Anything in this list that is REAL dressing "
+                + "(a swinging lantern would be the honest candidate) falsifies the bar.");
         }
     }
 }
