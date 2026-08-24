@@ -15,8 +15,9 @@ namespace GloomhavenVR.Hands.Interact;
 /// offset. Fallback (simulated hands / no aim pose): origin at the index knuckle,
 /// direction = hand forward (+Z, along the fingers). Visual: a subtle LineRenderer
 /// laser plus a reticle dot, shown while the effective state (<see cref="Active"/>)
-/// is on — for the DOMINANT hand that is EVERY mode while the hand has a pose and
-/// holds nothing (test #19). Test #14: the visible beam is a
+/// is on — for the DOMINANT hand that is EVERY mode while the hand has a pose, holds
+/// nothing and its GRIP IS OPEN (test #19; the grip term is the 2026-08-24 physical-press
+/// posture, see <see cref="GripSuppressed"/>). Test #14: the visible beam is a
 /// STRAIGHT segment of the aim ray — hits clamp its length, the reticle sits at
 /// ray ∩ surface on that line, and nothing may re-aim it (see UpdateVisuals).
 ///
@@ -449,6 +450,13 @@ internal sealed class RayInteractor : IPickProvider
     ///                                 |                | re-assert (StandDownForCardContact);
     ///                                 |                | nothing has to switch it OFF, so
     ///                                 |                | nothing can forget to.
+    ///   VRHand.GripPressed (THIS hand)| pick + visuals | no — it IS the live analog button
+    ///                                 |                | level, re-read from the device every
+    ///                                 |                | frame in ApplyAnalog, and zeroed by
+    ///                                 |                | ClearInput on tracking loss. There is
+    ///                                 |                | no latch, no deadline and no edge to
+    ///                                 |                | miss: the beam returns on the frame
+    ///                                 |                | the grip crosses ReleaseThreshold.
     ///
     /// <para>The stand-down row is the ONE exception to the 2026-08 "der Laser ist ausnahmslos
     /// da" ruling, and it is not a phase/mode policy: it lasts exactly as long as the player's
@@ -456,10 +464,47 @@ internal sealed class RayInteractor : IPickProvider
     /// because the beam THROUGH that card was grabbing and pressing whatever stood behind
     /// it (user report 2026-08-08).</para>
     /// </summary>
-    public bool Active => _enabled && _hand.HasPose && !IsHolding && !CardContactStandDown;
+    public bool Active => _enabled && _hand.HasPose && !IsHolding && !GripSuppressed && !CardContactStandDown;
 
     /// <summary>Transient suppression: the hand is actually holding a grabbable RIGHT NOW.</summary>
     private bool IsHolding => _hand.Grabber != null && _hand.Grabber.Held != null;
+
+    /// <summary>
+    /// Transient suppression: the player is HOLDING THE GRIP on this hand, which is what arms
+    /// the physical fingertip press (<c>PokeInteractor.PressAllowed</c>). User request
+    /// 2026-08-24: "Wenn ich die Greiftaste gedrückt halte und somit im 'Physischen drücken
+    /// Modus' bin, will ich das der Laser deaktiviert ist. Aber wirklich NUR während die
+    /// greiftaste gedrückt gehalten wird."
+    ///
+    /// <para>PER HAND, and that is the whole point: this reads THIS hand's button, so poking
+    /// with the left hand leaves the right hand's beam exactly where it was. Nothing here is
+    /// a mode, a setting or a latch — it is the analog grip level itself, so there is no state
+    /// to get stuck in and no config dial to add (the user asked for a behaviour, not an
+    /// option, and a dial would only create a second way for the beam to disappear silently —
+    /// the exact failure the truth table above exists to prevent).</para>
+    ///
+    /// <para>NOT GATED ON <see cref="IsHolding"/>, deliberately. The obvious-looking mirror of
+    /// <c>PressAllowed</c> (<c>GripPressed &amp;&amp; Grabber.Held == null</c>) would be wrong here:
+    /// while the hand carries something the ray is ALREADY off through <see cref="IsHolding"/>,
+    /// so the extra term would change nothing except make the beam come back for the frames
+    /// where the grip is held and the carry has just ended. The asymmetry with
+    /// <c>PressAllowed</c> is real and intended — that gate answers "may a fingertip commit?",
+    /// this one answers "is the player in the poke posture?", and holding something does not
+    /// leave that posture.</para>
+    ///
+    /// <para>WHAT THIS DOES NOT TOUCH: a window the laser is CARRYING. A laser carry runs
+    /// through <c>ProximityGrabber.ForceGrab(…, releaseOnTriggerUp: true)</c>, i.e. it is owned
+    /// by the Grabber and released by the TRIGGER; the ray is a bystander (already inactive via
+    /// <see cref="IsHolding"/>) and <c>PanelGrabHandle.Update</c> carries the window. Squeezing
+    /// the grip mid-carry therefore cannot drop it — see ProximityGrabber's hold-button doc.</para>
+    /// </summary>
+    internal bool GripSuppressed => _hand.GripPressed;
+
+    /// <summary>Falsifier readback: is the beam GameObject actually enabled right now?</summary>
+    internal bool BeamDrawn => _laser != null && _laser.gameObject.activeSelf;
+
+    /// <summary>Falsifier readback: the reason <see cref="SyncActiveState"/> last logged.</summary>
+    internal string StateReason => _lastReason;
 
     public bool TryGetPick(out PickPose pick)
     {
@@ -484,7 +529,16 @@ internal sealed class RayInteractor : IPickProvider
             // at the moment the beam goes down; the hover objects themselves are released by
             // their own owners (RayUguiDriver.Cancel / RayGrabDriver.ClearHover / the Cards
             // laser paths' Clear*Hover), all of which already run off this same !Active edge.
-            if (CardContactStandDown)
+            //
+            // THE GRIP SUPPRESSION TAKES THE SAME CLEAR, for the same reason and one stronger
+            // one. The residue is read as "the laser owns this pull" (HasFreshUiHit), and the
+            // grip is pressed precisely to hand the pull to the FINGERTIP instead — leaving a
+            // hover clamp from the frame before standing would make ProximityGrabber defer and
+            // BoardClickDriver skip a trigger for the two frames after the beam went down, on
+            // behalf of a beam that no longer exists. Frame order makes the clear land in time:
+            // Ray ticks before RayUgui/RayGrab/Grabber (VRHand.UpdateBody.interactors), so
+            // everything downstream sees the residue gone on the very GripDown frame.
+            if (CardContactStandDown || GripSuppressed)
             {
                 _uiHitOverride = null;
                 _uiHitOverrideFrame = -1;
@@ -862,6 +916,8 @@ internal sealed class RayInteractor : IPickProvider
             : !_enabled ? $"mode policy — no Ray in the {VRModeStateMachine.CurrentMode} mask"
             : !_hand.HasPose ? "no pose (tracking lost)"
             : IsHolding ? "hand is holding a grabbable (level-derived, releases with it)"
+            : GripSuppressed ? $"grip HELD on this hand (grip={_hand.GripValue:0.00}) — physical " +
+              "press posture, the beam stands down for THIS hand only and returns on release"
             // Keyed on the ZONE, not the card: sweeping from card to card inside one contact
             // episode must not re-log. The card itself is named by the STAND-DOWN line.
             : $"physical card contact ({_cardContactZone}) — the hand is in a card, so the beam " +

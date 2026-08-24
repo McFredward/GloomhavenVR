@@ -53,12 +53,24 @@ internal sealed class RayGrabDriver
 
     internal RayGrabDriver(VRHand hand) => _hand = hand;
 
+    /// <summary>
+    /// Falsifier readback (grip-held laser suppression): is a panel drag-bar currently
+    /// hovered/tinted by this hand's beam? The LIVE field — <see cref="ClearHover"/> is what
+    /// drops it, so a line built from this reports the outcome, not the intent.
+    /// </summary>
+    internal bool IsHovering => _hovered != null;
+
     internal void Tick()
     {
         // Dominant hand only (the off-hand holds the fan) and only while the ray is the
         // live effective state — Ray.Active is false while THIS hand already holds a
         // grabbable (including a laser-carry in progress), so we stop ray-testing and let
         // the Grabber run the hold/release; PanelGrabHandle.Update carries the window.
+        // Ray.Active is ALSO false while this hand's GRIP is held (RayInteractor.GripSuppressed,
+        // 2026-08-24): the player is in the physical fingertip-press posture, so the bar loses
+        // its hover tint here and no trigger can start a new laser carry until the grip opens.
+        // A carry ALREADY in flight is untouched — by then Grabber.Held != null owns it, this
+        // method is not what keeps it alive, and its hold button is the trigger.
         // User bug A (honest affordance): when the Grabber itself is policy-disabled,
         // ForceGrab below would refuse anyway — hovering/tinting/buzzing the bar then
         // PROMISED a grab that could never engage ("flickers and vibrates but won't

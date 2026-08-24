@@ -1024,6 +1024,60 @@ internal static partial class ModalFallback
             }
         }
 
+        // ---- ModBuild 251 — THE MAP ROOM'S ONE BAR HEIGHT, AND IT IS THE LAST WORD ON Y ----------
+        //
+        // USER RULING (2026-08-24, with zu_tief.jpg): "Die Begegnung ist zu tief gespawned … das
+        // darf nie passieren - die Höhe soll beim Spawn am Besten bei allen Fenster gleich sein
+        // gemessen am Greifbalken!"
+        //
+        // WHY THIS BLOCK EXISTS AT ALL — the map room had TWO height rules and this is the one that
+        // was not a rule. A SHARED window returns from TrySharedWindowAnchor at the top of this
+        // method with a table-relative height; everything that reaches HERE was seated at the RAW
+        // GAZE HEIGHT with only a floor under it, so its bar landed wherever the player's head
+        // happened to be pitched. In the ModBuild 250 log that is 0.521 m above the table for
+        // 'New Party display' and 0.677 m for 'Quest Log Manager' — against 0.092 m for all three
+        // shared windows — and the SAME window spawns anywhere between 1.42 m and 2.11 m above the
+        // tracking floor across that one session. Both halves of "bei allen Fenstern gleich" are
+        // broken: between the families, and within this one.
+        //
+        // IT OVERRIDES, IT DOES NOT FLOOR. ClampSpawnPose's board-top floor and eye cap are a
+        // MINIMUM ("never in the furniture, never overhead"); a common height is an EQUALITY, and a
+        // floor cannot produce one. Their numbers are still computed and still printed on the
+        // clamp line below, so the reason a window used to sit where it did stays readable.
+        //
+        // IT IS ONLY THE HEIGHT. X and Z are untouched, so the ModBuild 250 arc, the reservation
+        // and the hard cone clamp above all keep the window exactly where they put it; a pure Y
+        // write cannot change an azimuth. It runs AFTER the cone clamp for that reason — the clamp
+        // preserves height and this preserves azimuth, so neither can undo the other.
+        //
+        // THE GATE IS arcGoverned, WHICH IS EXACTLY "the map room seated this window". It is false
+        // outside the map room, false for a level message, and false for the HOVER CARD, whose pose
+        // MapRoom.HoverCardPose rewrites every tick from the map icon it describes — a spawn height
+        // written for that family would be overwritten the same frame and would look, in the log,
+        // exactly like a rule that worked.
+        string? barHeightNote = null;
+        if (arcGoverned && !levelMessage && TryMapTableTopWorldY(out float tableTopY,
+                out float tableScale))
+        {
+            // The SAME half-height floor the shared path applies, for the same reason: a panel
+            // measured before its content fit can report a degenerate rect, and hanging a
+            // zero-height window from the bar would put its centre ON the bar. The floor is a
+            // shared constant so the two families cannot disagree about the degenerate case
+            // either.
+            float halfWinYm = Mathf.Max(halfSize.y / tableScale, SharedAnchorMinHalfHeightMeters);
+            float barYm = ResolveMapRoomBarHeightMeters(halfWinYm, out string barRule);
+            float targetY = tableTopY + (barYm + GrabBarDropMeters + halfWinYm) * tableScale;
+            float wasY = pos.y;
+            pos.y = targetY;
+            barHeightNote = $"seated at the map room's one bar height — bar {barYm:F3} m above the "
+                            + $"table top (world y {tableTopY:F2} wu at {tableScale:F2} wu/m), so "
+                            + $"the centre goes to {targetY:F2} wu, moving it "
+                            + $"{(targetY - wasY) / tableScale:+0.000;-0.000} m from the "
+                            + $"{wasY:F2} wu the gaze clamps had left it at. {barRule}";
+            LogMapRoomBarHeight(self != null ? PanelLogName(self) : "<panel>", "LOCAL", barYm,
+                halfWinYm, barRule);
+        }
+
         // LEVEL-MESSAGE VIEW-CONE (user requirement, torbogen report): the tutorial window must
         // ALWAYS spawn inside the CURRENT view. The soft clamps above optimize for board
         // clearance and can sum to a large angular offset from the gaze — the log showed boxes
@@ -1143,6 +1197,14 @@ internal static partial class ModalFallback
                               (mapConeNote == null
                                   ? ""
                                   : $" MAP-CONE: {mapConeNote}.") +
+                              // ModBuild 251. Silent outside the map room. When it prints, the
+                              // HEIGHT DECISION below describes candidates that were computed and
+                              // then OVERRIDDEN — they are kept because they still explain where
+                              // the window used to land, and this clause is what says they lost.
+                              (barHeightNote == null
+                                  ? ""
+                                  : $" MAP-ROOM BAR HEIGHT (this is the FINAL word on y, and the "
+                                    + $"HEIGHT DECISION below is what it overrode): {barHeightNote}.") +
                               // The head this whole line measured from — stated whenever it was not
                               // the one the headset reported, and silent otherwise.
                               (headSubstituted ? $" {headEyeNote}." : "") +

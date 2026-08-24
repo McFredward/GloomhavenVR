@@ -2108,6 +2108,22 @@ internal static partial class Loc
                 + "größer. 0 = die Oberkante streifen; erhöhe den Wert, wenn die Enthüllung noch zu nah am "
                 + "Brett wirkt. Live änderbar im Debug-Menü (Tafeln -> Initiative); gilt ab der nächsten "
                 + "Enthüllung bzw. dem nächsten trägen Nachführschritt. Bereich 0-0.5.",
+            ["WorldUI/MapRoomWindowBarHeightMeters"] =
+                "Wie hoch über dem KARTENTISCH jedes Fenster im Kartenraum beim Öffnen hängt, in echten "
+                + "Metern, GEMESSEN AM GREIFBALKEN. Eine Höhe für alle — die gemeinsamen (blau "
+                + "beleisteten) Fenster auf dem Halbkreis über dem Tisch und deine eigenen Fenster auf "
+                + "ihren Plätzen — damit alle Greifbalken im Raum auf einer Linie liegen und kein Fenster "
+                + "mehr auf der Karte liegend aufgeht. Der Fensterkörper hängt am Balken, ein höheres "
+                + "Fenster ragt also weiter hinauf; eines, das dadurch absurd hoch käme, wird gerade so "
+                + "weit abgesenkt — welches und warum, steht im Log. Größer = alles hängt höher (weiter "
+                + "über der Karte, näher an und über Augenhöhe); kleiner = alles rückt zum Tisch hinunter. "
+                + "Der Standard 0,60 m ist der Mittelwert der beiden Greifbalken-Höhen aus deinem eigenen "
+                + "\"ideale Position\"-Screenshot, gemessen aus dem Platzierungs-Log. NUR DIE ANFANGS-"
+                + "HÖHE: jedes Fenster bleibt frei verschiebbar, und ein bereits stehendes Fenster bewegt "
+                + "sich nicht, wenn du das hier änderst. MEHRSPIELER: Dieser Wert gehört zur gemeinsamen "
+                + "Platzierung — alle Spieler einer Sitzung sollten dieselbe Zahl stehen lassen. Ein "
+                + "abweichender Wert hängt die eigene Kopie eines gemeinsamen Fensters auf eine andere "
+                + "Höhe, bis es jemand verschiebt. Bereich 0.05-1.2.",
             ["WorldUI/DesktopMirrorLeftEye"] =
                 "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "

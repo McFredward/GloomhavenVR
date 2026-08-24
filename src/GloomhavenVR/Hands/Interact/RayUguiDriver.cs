@@ -85,6 +85,16 @@ internal sealed class RayUguiDriver
     /// </summary>
     internal Canvas? HoveredCanvas => _canvas;
 
+    /// <summary>
+    /// Falsifier readback (grip-held laser suppression): is a far pointer press/drag actually
+    /// in flight right now? Reports the LIVE field, so a line built from it says what happened
+    /// rather than what the caller expected — <see cref="Cancel"/> is what clears it.
+    /// </summary>
+    internal bool IsPressing => _pressing;
+
+    /// <summary>Falsifier readback: does this driver currently own a hovered canvas?</summary>
+    internal bool IsHovering => _canvas != null;
+
     internal void Tick()
     {
         // THE EAR, ONCE PER TAKEOVER — deliberately BEFORE the early return below, and deliberately

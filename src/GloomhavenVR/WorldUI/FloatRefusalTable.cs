@@ -504,6 +504,43 @@ internal static class FloatRefusalTable
     /// </summary>
     internal static bool Refuses(UIWindow? window) => Refuses(window, out _);
 
+    /// <summary>
+    /// IS THIS WINDOW REFUSED BECAUSE IT IS NOT ITS MOMENT, RATHER THAN BECAUSE OF WHAT IT IS?
+    /// (ModBuild 251.) True only for <see cref="FloatRefusalClass.PastThePointOfNoReturn"/>.
+    ///
+    /// <para><b>THE DISTINCTION IS THE ONE THIS ENUM'S OWN DOC ALREADY MAKES, AND ONE CALLER WAS
+    /// MISSING IT.</b> <c>ScreenSpaceVeil</c> and <c>BareControl</c> say <i>"this OBJECT is not a
+    /// window"</i> — they say nothing at all about what is nested inside it, and a real panel that
+    /// happens to live under a veil must still be reachable. <c>PastThePointOfNoReturn</c> says
+    /// <i>"this window is fine and it is not this window's moment"</i>, and that statement covers
+    /// everything the window draws — including a <c>UIWindow</c> one level down.</para>
+    ///
+    /// <para><b>WHY IT EXISTS: THE ModBuild 250 HARDWARE TRACE.</b> The story curtain refused the
+    /// Character-UI <c>'New Party display'</c> and the mod released its float (Player.log:4999).
+    /// One tick later <c>ModalFallback.10.CatchAll</c>'s <c>AncestorWillBeFloated</c> read that
+    /// refusal as "a child may not defer to a host that will not exist" and printed
+    /// <c>PARENT WINS STOOD DOWN: 'New Party display' … the float refusal table refuses it</c>
+    /// (:5005) — so the window's own child <c>'Party Display UI '</c> (path
+    /// <c>Campaign Canvas/New Party display/Party Display UI </c>, :5007) was floated on its own
+    /// instead (:5011-:5025) and stood in front of the player, with a grab bar and a close cross,
+    /// for the whole quest start. USER REPORT, verbatim: <i>"Obwohl der Point of no return
+    /// überschritten war ist die Controller-UI neu davor gespawnt … die soll genau wie die
+    /// Questliste verschwinden und nicht mehr wiederkehren."</i> The curtain's own audit line named
+    /// it and could not act — <c>'Party Display UI ' (a curtain member: False)</c> at :5030 — because
+    /// the frozen member set is taken at the rising edge and this window began floating after it.
+    /// Widening that set is the ModBuild 231 exclusion again; asking the ANCESTOR is not, because the
+    /// ancestor is a named instance that was already refused.</para>
+    ///
+    /// <para><b>THE FAIL DIRECTION IS STILL SAFE.</b> Every row of this class is a bounded interval
+    /// with a live claim behind it, and a refusal that lapses lets the child through again on the
+    /// very next tick. ROW 4's claim additionally MEASURES that the advancing control is drawing in
+    /// some other floated window, so "the child carried the only button" cannot be true while it
+    /// stands.</para>
+    /// </summary>
+    internal static bool RefusesForTheMoment(UIWindow? window) =>
+        Refuses(window, out FloatRefusalRule? rule)
+        && rule != null && rule.Class == FloatRefusalClass.PastThePointOfNoReturn;
+
     /// <summary>Pure verdict, with the row that answered.</summary>
     internal static bool Refuses(UIWindow? window, out FloatRefusalRule? rule)
     {

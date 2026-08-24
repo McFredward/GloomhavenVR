@@ -312,6 +312,12 @@ internal static class PerfSceneProfile
         // 8,600 renderers would double the most expensive thing in this file. Armed here, fed inside
         // the loop, printed by AppendGfxLine. See PerfTextureCensus for what it answers and why.
         PerfTextureCensus.Begin(head);
+        // The glow-card census rides the SAME walk, for the same reason and at a smaller price: one
+        // dictionary lookup per material slot, keyed by the SHADER's instance id, so a shader name
+        // is marshalled once per distinct shader and never once per renderer. It answers "what ARE
+        // those pale rectangles on the gate, and can their opacity work on this camera at all" —
+        // see GlowCardCensus for the report and the two competing explanations it separates.
+        GlowCardCensus.Begin(head);
 
         int enabled = 0, visible = 0, inMask = 0, submitted = 0;
         int materialsTotal = 0, materialsSubmitted = 0, instanced = 0;
@@ -391,7 +397,14 @@ internal static class PerfSceneProfile
                         instanced++;
                     if (subm)
                         SubmittedMaterials.Add(mat.GetInstanceID());
-                    TallyShader(mat, subm);
+                    Shader? slotShader = TallyShader(mat, subm);
+                    // NOT gated on texSpanPx: a glow card that is currently DISABLED, or too small
+                    // for the texture census's 120px floor, is exactly as interesting as a big one
+                    // — "is anything driving it" is the question, and a hidden card still answers
+                    // it. The shader reference is the one TallyShader just resolved, so this call
+                    // adds one dictionary lookup per slot and no second Material.shader marshal.
+                    if (slotShader != null)
+                        GlowCardCensus.Offer(r, mat, slotShader, subm, texSpanPx);
                     if (texSpanPx > 0f)
                         PerfTextureCensus.Offer(r, mat, texSpanPx);
                 }
@@ -577,7 +590,10 @@ internal static class PerfSceneProfile
     /// of forty different ones" stop looking identical. It is also how the mod's own bundled
     /// shaders become visible as a share of the frame rather than an assumption about one.</para>
     /// </summary>
-    private static void TallyShader(Material mat, bool submitted)
+    /// <returns>The material's shader, so the caller can hand the SAME resolved reference to
+    /// <see cref="GlowCardCensus"/> instead of paying for a second <c>Material.shader</c> marshal on
+    /// every one of the scene's ~2,500 material slots. Null when it could not be read.</returns>
+    private static Shader? TallyShader(Material mat, bool submitted)
     {
         Shader? sh;
         try
@@ -586,10 +602,10 @@ internal static class PerfSceneProfile
         }
         catch (Exception)
         {
-            return;     // a material whose shader failed to load still counted as a slot above
+            return null;    // a material whose shader failed to load still counted as a slot above
         }
         if (sh == null)
-            return;
+            return null;
 
         int id = sh.GetInstanceID();
         if (!Shaders.TryGetValue(id, out ShaderRec rec))
@@ -601,6 +617,7 @@ internal static class PerfSceneProfile
         rec.Slots++;
         if (submitted)
             rec.SubmittedSlots++;
+        return sh;
     }
 
     /// <summary>
@@ -1334,6 +1351,10 @@ internal static class PerfSceneProfile
         // PerfMonitor: that file is not this lane's to edit, and one call from the class that owns
         // the walk is a smaller seam than a new entry point in the monitor.
         PerfTextureCensus.Log();
+        // …and the glow-card census after it, still before GFX: GFX is the line that prints
+        // depthTextureMode as one field among thirty, and GLOW CARDS is the line that says what
+        // that one field COSTS in this room. Reading them adjacent is the point.
+        GlowCardCensus.Log();
 
         sb.Append("GFX — the render state that multiplies submission volume");
 

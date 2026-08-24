@@ -68,7 +68,46 @@ internal static class WallFadeTuning
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
     internal static float On => Clamped(OnFraction, 0.25f, 0.05f, 0.95f);
-    internal static float Off => Mathf.Min(Clamped(OffFraction, 0.10f, 0.01f, 0.95f), On);
+
+    /// <summary>
+    /// Fraction of <see cref="On"/> the low bar falls back to when the configured pair cannot
+    /// form a Schmitt band at all. 0.6 keeps a band wide enough to survive the EMA's own jitter
+    /// (tau 0.15 s) without making a wall that genuinely stopped occluding wait for a near-zero
+    /// reading before it comes back.
+    /// </summary>
+    private const float DegenerateBandFallback = 0.6f;
+
+    /// <summary>
+    /// Schmitt LOW bar. A Schmitt trigger needs <c>Off &lt; On</c>; a pair where the configured
+    /// low bar is at or above the high bar has no band at all and the trigger degenerates into a
+    /// single threshold that a wall's coverage crosses back and forth on EMA noise.
+    ///
+    /// <para>THE SHIPPED DEFAULTS ARE SUCH A PAIR AND HAVE BEEN SINCE THE STEPPERS LANDED:
+    /// <c>Defaults.OnFraction = 0.1f</c> with <c>Defaults.OffFraction = 0.2f</c> — the low bar is
+    /// authored ABOVE the high bar, which reads like the two constants were transposed. The old
+    /// accessor clamped it with <c>Min(Off, On)</c>, so both bars became 0.10 and the log said so
+    /// on every heartbeat and every BOARD VOLUME line — <c>on ≥0.10, off &lt;0.10</c>,
+    /// <c>the live 0.10/0.10</c> — for anyone who read it as a pair rather than as two numbers.
+    /// That is the mechanism behind the group churn in the ModBuild 250 hardware log, where all
+    /// four walls flip OFF together and ON together at lines 9471/9477, 10856/10870, 11746/11751,
+    /// 12660/12667 and 12706/12709: four coverages sitting near one shared bar with no band
+    /// between them.</para>
+    ///
+    /// <para>A CONFIGURED low bar BELOW the high bar is honoured exactly as written — this only
+    /// repairs the degenerate case, and it repairs it here rather than in
+    /// <c>Defaults.Core.cs</c> because that file belongs to another lane. Fixing the two
+    /// defaults to a real pair would make this fallback dead code, which is the right end state.
+    /// </para>
+    /// </summary>
+    internal static float Off
+    {
+        get
+        {
+            float on = On;
+            float configured = Clamped(OffFraction, 0.10f, 0.01f, 0.95f);
+            return configured < on ? configured : on * DegenerateBandFallback;
+        }
+    }
     internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
@@ -1038,22 +1077,15 @@ internal static partial class WallSegmentFade
             float offFraction = WallFadeTuning.Off;
             float exitDwellMoved = WallFadeTuning.DwellMoved;
             float exitDwellStationary = WallFadeTuning.DwellStationary;
-            // INSIDE THE MAP: the stand-down is a RAISED BAR, not a second code path — one
-            // substituted threshold pair, so the identical Schmitt trigger, dwell hysteresis,
-            // ramp and delivery run. 0.98 is unreachable from inside the board by any wall the
-            // player can look at (the ModBuild 241 log reads 0.00-0.13 in there), and reachable
-            // only through BlockedFraction's hard 1f for a head inside the wall's own AABB —
-            // the head-in-stone escape hatch. The normal bars are kept for the census, which
-            // reports how many walls the raised bar actually spared.
-            float normalOnFraction = onFraction;
-            float normalOffFraction = offFraction;
+            // INSIDE THE MAP: a HARD stand-down of this client's own occlusion decision, not a
+            // raised bar. ModBuild 241-250 substituted a 0.98/0.90 pair here; the ModBuild 250
+            // hardware log proved that pair inert, because BlockedFraction's head-inside-AABB
+            // shortcut reached a hard 1f from open floor and 1.00 clears 0.98 as easily as 0.10.
+            // See WallSegmentFade.Inside.cs. The bars below are NOT substituted any more — the
+            // segments in the mesh-keyed carve-out run the ordinary live policy, everything else
+            // is forced solid outright after the decision chain.
             if (insideBoard)
-            {
-                onFraction = InsideOnFraction;
-                offFraction = InsideOffFraction;
-                if (evaluate)
-                    BeginInsideCensus();
-            }
+                BeginInsideCensus();
             foreach (Segment seg in _segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -1112,11 +1144,6 @@ internal static partial class WallSegmentFade
                     {
                         seg.Smooth += (fraction - seg.Smooth) * fracStep;
                     }
-                    // Census BEFORE the verdict, against the bars that WOULD have applied — the
-                    // falsifier's "spared" count has to be measured on the live coverage, not
-                    // inferred from the outcome the raised bar produced.
-                    if (insideBoard)
-                        NoteInsideSpared(seg, normalOnFraction, normalOffFraction);
                     bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
                     if (raw != seg.PendingRaw)
                     {
@@ -1135,6 +1162,13 @@ internal static partial class WallSegmentFade
                         }
                     }
                 }
+
+                // INSIDE THE MAP — THE STAND-DOWN, DELIBERATELY HERE. It runs AFTER the whole
+                // decision chain, so it owns the final seg.State that feeds the ramp below
+                // (a remedy must own the final value, not be one of several writers), and
+                // OUTSIDE the `evaluate` gate, so a skipped evaluation under
+                // [Optimize] WallFadeInterval can never leave a stale decision standing.
+                bool insideForced = insideBoard && ApplyInsideStandDown(seg, headPos, now);
 
                 // Critically-damped-style exponential fade toward the debounced state — OR a
                 // PEER's synced fade (MP sync, wire record 17): effective target =
@@ -1162,6 +1196,11 @@ internal static partial class WallSegmentFade
                 seg.Fade += (target - seg.Fade) * fadeStep;
                 if (Mathf.Abs(target - seg.Fade) < 0.005f)
                     seg.Fade = target;
+                // The stand-down's falsifier is measured on the OUTCOME, after the ramp: which
+                // forced-solid walls an EXTERNAL signal still hides, and whether any of them
+                // carries a fade nobody in this loop asked for.
+                if (insideForced)
+                    NoteInsideOutcome(seg, remoteFade, gateLift, peerFadeId);
                 // Round-14 watchdog: a fade the live coverage no longer supports must be
                 // impossible to miss in the next hardware log (see WatchLatch).
                 WatchLatch(seg, now, reevalArmed ? exitDwellMoved : exitDwellStationary,
@@ -1192,6 +1231,7 @@ internal static partial class WallSegmentFade
             {
                 _nextInsideLogTime = now + InsideLogIntervalSeconds;
                 LogInsideState(headPos, rigScale, edge: false);
+                LogInsideStandDown();
             }
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
@@ -1496,9 +1536,11 @@ internal static partial class WallSegmentFade
             if (total <= 0)
                 return 0f;
 
-            if (seg.Bounds.Contains(headPos))
+            // WALL IN THE FACE — treat as full coverage of its room. The test is the head
+            // inside an actual wall MESH, never inside seg.Bounds: see HeadInsideWallMesh for
+            // the photograph and the 75 log samples that killed the union-box version.
+            if (seg.Bounds.Contains(headPos) && HeadInsideWallMesh(seg, headPos, out _))
             {
-                // Wall in the face — treat as full coverage of its room.
                 seg.LastBlocked = total;
                 seg.LastRoomVisible = total;
                 return 1f;
@@ -1571,15 +1613,142 @@ internal static partial class WallSegmentFade
                 // too strict for long grazing rays, a pure percentage was the round-4 bug.
                 float eps = Mathf.Max(thicknessEps, BlockEpsDistFraction * dist);
                 var ray = new Ray(headPos, to / dist);
-                if (b.IntersectRay(ray, out float d)
-                    && (d < dist - eps || b.Contains(sample)))
-                {
+                // BROAD PHASE ONLY. seg.Bounds rejects the ray cheaply; it may never ACCEPT
+                // one on its own — see RayHitsWallMesh for why a union AABB is not a wall.
+                if (!b.IntersectRay(ray, out float d) || (d >= dist - eps && !b.Contains(sample)))
+                    continue;
+                if (RayHitsWallMesh(seg, ray, dist, eps, sample))
                     blocked++;
-                }
             }
             blockedOut = blocked;
             visibleOut = roomVisible;
             return blocked / (float)totalOut;
+        }
+
+        /// <summary>
+        /// NARROW PHASE: does any of this segment's own wall MESHES actually interrupt the
+        /// head→sample ray? Same "clearly before the point" rule as the broad phase, applied to
+        /// the renderer's own world AABB instead of the segment's union box.
+        ///
+        /// <para>WHY THIS EXISTS (user report 2026-08-24, walls_gone.jpg — looking down at the
+        /// diorama from outside with essentially every wall dissolved and the gate structure
+        /// itself see-through): <i>"In der map die ich gerade verteste, sind so gut wie dauerhaft
+        /// alle Wände ausgeblendet ohne ersichtlichen Grund. Wenn ich von einer Seite schaue
+        /// erwarte ich das nur die wände ausgeblendet würden, die mir die Sicht versperren würden.
+        /// Stattdessen werden aber auch die Gegenüberliegende Wände ausgeblendet, die dahinter
+        /// nichts haben."</i></para>
+        ///
+        /// <para>A <c>Segment</c> is a whole <c>ProceduralWall</c> RUN, and <c>seg.Bounds</c> is
+        /// the axis-aligned UNION of every renderer it owns — masonry, pillars, adopted stacked
+        /// shells and, in this tileset, TREES. In the ModBuild 250 log 'Wall 2' carries
+        /// <c>FR_Wall_Grassy_Verge_Thin_Narrow_01@2.0</c> next to
+        /// <c>FR_Pillar_Tree_Trunk_03@5.0</c> and <c>FR_Pillar_Tree_Trunk_03 (1)@4.9</c>, so its
+        /// box is <c>wy[-0.52..9.47]</c> — ten world units tall over masonry two units high, and
+        /// several units thick in both horizontal axes. That box is mostly AIR, and a ray through
+        /// air was being counted as a ray through a wall.</para>
+        ///
+        /// <para>THE INSTRUMENT HAD BEEN SAYING SO ALL ALONG. <c>AppendSegDiag</c> prints
+        /// <c>!FAT</c> when <c>min(size.x, size.z) &gt; GroupSlabMaxHorizontal</c> (3.5 wu), with
+        /// the comment "its coverage numbers may read permanently high … distinguishes 'genuinely
+        /// occluding' from 'AABB artifact'". 73 of the 74 diag lines in that session carry
+        /// <c>!FAT</c> and ZERO carry <c>!ENGULF</c>: every wall the player was looking at was a
+        /// fat box, and nothing acted on the flag, because
+        /// <see cref="NeutralizeEngulfingSegments"/> only splits a fat segment that also
+        /// XZ-CONTAINS 40% of its room's samples — a perimeter L-run never does.</para>
+        ///
+        /// <para>WHY THIS ANSWERS "die Gegenüberliegende Wände" BY CONSTRUCTION rather than with
+        /// another threshold. The suggestion on the table was a directional term — fade only a
+        /// wall between the head and the room centre. That would work for the reported view and
+        /// would be wrong for a wall that genuinely occludes from an oblique angle, and it would
+        /// be a second heuristic stacked on the first. Mesh-accurate blocking needs no such term:
+        /// a ray from an elevated head to a floor sample TERMINATES at that sample, and the far
+        /// wall's masonry stands beyond it, so the far wall cannot be hit. The opposite wall
+        /// stops fading because it stops measuring as an occluder, not because a rule exempted
+        /// it.</para>
+        ///
+        /// <para>COST. The broad phase is unchanged, so a ray the union box rejects costs exactly
+        /// what it did before. Only an ACCEPTED ray pays the walk, over
+        /// <see cref="Segment.Renderers"/> (the fade masonry) and the plain-body meshes — not
+        /// foliage, not mounted props, not stacked shells, which are dressing that rides the
+        /// wall rather than geometry the eye reads as a wall. The logged scenario's four
+        /// fadeable walls own 41 + 23 + 14 + 34 renderers against a 16-sample grid, so the worst
+        /// case is ~1800 <c>Bounds.IntersectRay</c> calls per evaluation and only in the
+        /// pathological all-rays-accepted case this change exists to end.</para>
+        ///
+        /// <para>FAIL-OPEN: a segment with no wall meshes of its own (renderer list emptied by
+        /// Apparance churn between rescans) keeps the broad-phase verdict, so this can never
+        /// make a wall LESS able to fade than the geometry it currently owns justifies.</para>
+        /// </summary>
+        private static bool RayHitsWallMesh(Segment seg, Ray ray, float dist, float eps,
+            Vector3 sample)
+        {
+            int meshes = 0;
+            for (int i = 0; i < seg.Renderers.Count; i++)
+            {
+                MeshRenderer r = seg.Renderers[i];
+                if (r == null)
+                    continue;
+                meshes++;
+                Bounds rb = r.bounds;
+                if (rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample)))
+                    return true;
+            }
+            for (int i = 0; i < seg.Body.Count; i++)
+            {
+                Renderer r = seg.Body[i].Renderer;
+                if (r == null)
+                    continue;
+                meshes++;
+                Bounds rb = r.bounds;
+                if (rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample)))
+                    return true;
+            }
+            // No meshes to ask: keep the broad-phase verdict rather than silently un-fading a
+            // wall whose renderer list is mid-refresh.
+            return meshes == 0;
+        }
+
+        /// <summary>
+        /// Is the head inside one of this segment's own wall MESHES — the honest "camera sealed
+        /// in masonry" test, and the only thing that may still hide a wall while the INSIDE rule
+        /// holds. Names the mesh so the falsifier can print it.
+        ///
+        /// <para>The union-box version of this test (<c>seg.Bounds.Contains(headPos)</c>) was the
+        /// defect behind the FIRST of the two 2026-08-24 reports: <i>"ich bin voll IN dem Spiel
+        /// drin und schaue nach draußen nicht nach drinnen, warum wird es dann ausgeblendet?"</i>
+        /// (wandausblendung.jpg). 'Wall 4' in that log owns scattered
+        /// <c>PCG_FR_Pillar_Tree_Trunk_01_PR</c> pieces at world XZ (-9.4,-2.4), (-12.9,-0.4),
+        /// (-6.9,1.9) and (-10.4,3.9), so its box spans roughly x[-13..-6], z[-3..4],
+        /// y[-0.42..5.00] — a player standing on open floor is inside it. 75 of that session's
+        /// diag samples show the resulting hard <c>1f</c> (a wall reporting <c>blk16/16 v16</c>
+        /// against the room TOTAL while the frustum held only <c>vis 8/16</c>); the ModBuild 241
+        /// session the escape hatch was designed against contained exactly TWO in 25 MB.</para>
+        ///
+        /// <para>Caller-guarded by the cheap union test: a mesh box is contained in the union
+        /// box, so <c>!seg.Bounds.Contains(headPos)</c> already proves this false.</para>
+        /// </summary>
+        private static bool HeadInsideWallMesh(Segment seg, Vector3 headPos, out string meshName)
+        {
+            meshName = "-";
+            for (int i = 0; i < seg.Renderers.Count; i++)
+            {
+                MeshRenderer r = seg.Renderers[i];
+                if (r != null && r.bounds.Contains(headPos))
+                {
+                    meshName = r.name;
+                    return true;
+                }
+            }
+            for (int i = 0; i < seg.Body.Count; i++)
+            {
+                Renderer r = seg.Body[i].Renderer;
+                if (r != null && r.bounds.Contains(headPos))
+                {
+                    meshName = r.name;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>

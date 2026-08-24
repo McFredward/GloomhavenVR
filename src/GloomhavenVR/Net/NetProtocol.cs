@@ -416,7 +416,188 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 250;
+    public const ushort ModBuild = 251;
+    // Build 251: FIVE REPORTS FROM TWO HARDWARE RUNS, AND THREE OF MY OWN PREMISES REFUTED.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // (1) "Obwohl der Point of no return überschritten war ist die Controller-UI neu davor
+    //     gespawnt (bzw nicht despawned, kann ich nicht genau sagen), die soll genau wie die
+    //     Questliste verschwinden und nicht mehr wiederkehren." He later named it exactly:
+    //     "wenn ich von der Controller-UI spreche meine ich immer die Party Display UI, also die
+    //     Leiste mit allen 4 Characteren."
+    //     IT NEVER CAME BACK — IT TOOK ITS PARENT'S PLACE. 'Party Display UI ' is a CHILD of
+    //     'New Party display' (path Campaign Canvas/New Party display/Party Display UI ). At
+    //     Player.log:4999 the parent is released on refusal, and at :5005 AncestorWillBeFloated
+    //     prints PARENT WINS STOOD DOWN — it treats "the refusal table refuses the ancestor" the
+    //     same as "the ancestor's conversion failed" and hands the nested windows out to float on
+    //     their own. :5011-5025 the strip converts, takes a seat, a grab bar and a close X. The
+    //     curtain's own audit at :5030 names it and cannot act ("a curtain member: False" — it
+    //     opened AFTER the edge and is out of scope by construction). It stood 1244 log lines,
+    //     to the next edge. FIX: refusals now split by class. An IDENTITY row (ScreenSpaceVeil,
+    //     BareControl) says "this OBJECT is not a window" and says nothing about its contents —
+    //     suppressing its children would be the merchant bug. The INTERVAL row
+    //     (PastThePointOfNoReturn) says "it is not this WINDOW's moment", which covers everything
+    //     it draws, so RefusedForTheMomentAbove walks the parent chain and the catch-all declines.
+    //     The release loop uses it as a backstop, so a child already floating loses its Sticky
+    //     float too. Level-triggered: the child floats again the tick the ancestor's refusal
+    //     lapses. Widening the curtain's frozen member set was REFUSED — that is the ModBuild 231
+    //     exclusion that ate the loadout sequence.
+    //
+    // (2) "Die Begegnung ist zu tief gespawned siehe zu_tief.jpg - das darf nie passieren - die
+    //     Höhe soll beim Spawn am Besten bei allen Fenster gleich sein gemessen am Greifbalken!"
+    //     TWO FAMILIES, AND ONLY ONE HAD A HEIGHT RULE. Bar heights above the table top, from the
+    //     ModBuild 250 log: shared windows 0.092 m (bottom edge pinned at +0.110 m); local
+    //     arc-seated windows 0.521 m ('New Party display') and 0.677 m ('Quest Log Manager'),
+    //     i.e. the RAW GAZE POSE with only a floor under it — so the local family did not agree
+    //     with ITSELF either and ranged 1.42-2.11 m over the tracking floor with head pitch.
+    //     0.43-0.59 m of disagreement at the bar. Eye 1.169 m over the table; the Begegnung
+    //     window's drawn content bottom sat 28.3° BELOW the horizon at 1.97 m out.
+    //     AND THE 0.110 m WAS A MISREAD PHOTOGRAPH. ModBuild 244 derived it from
+    //     ideale_position.jpg as "both grab bars sit ~7 % of the far edge's own 1.55 m span above
+    //     the table plane" — a pixel offset converted with the scale of the table's FAR EDGE,
+    //     while the two windows in that photograph stand well BEHIND that edge. The log gives
+    //     those same two windows' real bar heights: 0.521 m and 0.677 m, ~5x higher than the
+    //     number read out of the picture. A LENGTH MEASURED IN A PHOTOGRAPH NEEDS A DEPTH BEFORE
+    //     IT IS A LENGTH IN THE ROOM. SharedAnchorTableClearanceMeters is deleted with a
+    //     tombstone. FIX: one grab-bar height for every map-room window,
+    //     bottom = bar + GrabBarDropMeters (0.018 m, MEASURED — "below the window's own frame …
+    //     = 18 mm" holds for every window at every authored pixel scale), centre = top + bottom +
+    //     own half-height. [WorldUI] MapRoomWindowBarHeightMeters = 0.60 m, the mean of the two
+    //     bar heights in his own ideale_position.jpg measured FROM THE LOG (0.521, 0.677 →
+    //     0.599). Begegnung goes from -28.3/-20.2/-11.0° to -15.7/-6.2/+3.6°. MB243 stays
+    //     impossible: a hard 0.05 m floor IN CODE, not in the cfg range. The ceiling
+    //     (1.90 m on the top edge) is a constant of the TABLE, never of a head — a head-derived
+    //     ceiling would make a shared window's pose per-client — and names itself when it fires.
+    //     The hover card is deliberately excluded and SAYS SO: HoverCardPose.Place rewrites its
+    //     pose every tick from the map icon, so a spawn height for it would be overwritten in the
+    //     same frame and would look, in the log, exactly like a rule that worked.
+    //
+    // (3) "Nach der bestätigung ist ein Greifbalken ohne sichtbaren Inhalt kurz erschienen … Ich
+    //     hab ihn auch kurz mit dem laser gegrabbed."
+    //     MY LEAD WAS WRONG AND THE LOG FALSIFIES IT. I pointed at the 'UI Loadout Window'
+    //     re-float at :6563; its MODAL DIAG reads canvas.enabled=False for its whole life and
+    //     :6598 says POSE WATCH NEVER ARMED — the window closed while still behind the reveal
+    //     gate, where the grab holder is hidden with the panel and GrabVisible requires
+    //     !RenderHidden. That float was invisible AND ungrabbable. The real one is
+    //     'New Party display': :6044 THE INK UNION COULD NOT BE MEASURED, :6059 MODAL REVEAL
+    //     FORCED after 608 ms (deadline 600 ms, still waiting on first content fit) — the "a
+    //     window must never stay invisible" branch, correct in itself, put a bar with a live
+    //     laser collider and nothing behind it in front of him — :6120 EMPTY WINDOW RELEASED …
+    //     DARK — not one of 720 Graphic(s) passes. ~1 s of grabbable brass.
+    //     WHY THE EXISTING REMEDY MISSED IT: ModBuild 243 already built this rule
+    //     (_barHiddenForEmpty, SetActive(false) so the collider goes with the bar, close X kept
+    //     as the rescue) but GrabbableModal returned early on !_inkValid, so the empty run was
+    //     started ONLY for a window that already had a committed rectangle. "Has stopped drawing"
+    //     was answered; "has NEVER drawn" was exempt — its own ledger printed
+    //     `0 empty-window handle hide(s)` on every line of that log. The early-out now applies
+    //     only while the panel is BEHIND the reveal gate, where the bar is hidden anyway.
+    //
+    // (4) "Die Wandausblendung ist immer noch streng … ALLE wände voll dargestellt" and, from the
+    //     second run: "so gut wie dauerhaft alle Wände ausgeblendet ohne ersichtlichen Grund …
+    //     auch die Gegenüberliegende Wände … dahinter sind bisher nicht endeckte tiles, werden
+    //     sie auch bereits als Raum gezählt?"
+    //     NOT THE 10 % BAR — THE BOX. Segment.Bounds is the axis-aligned UNION of every renderer
+    //     a ProceduralWall run owns: masonry PLUS TREES. 'Wall 2' carries
+    //     FR_Wall_Grassy_Verge_Thin_Narrow_01@2.0 next to FR_Pillar_Tree_Trunk_03@5.0, so its box
+    //     is wy[-0.52..9.47] — ten world units tall over two units of masonry, and mostly air. A
+    //     ray through that air was counted as a ray through a wall. THE INSTRUMENT HAD BEEN
+    //     SAYING SO ALL SESSION: AppendSegDiag prints !FAT with the comment "its coverage numbers
+    //     may read permanently high … 'genuinely occluding' vs 'AABB artifact'", and 73 of 74
+    //     diag lines carry it while ZERO carry !ENGULF — the only consumer of the flag splits a
+    //     fat segment that also XZ-contains 40 % of its room, which a perimeter run never does.
+    //     Same box, second symptom: the "head is inside the wall" escape hatch tested
+    //     Bounds.Contains(headPos) and fired FROM OPEN FLOOR (75 samples at blk16/16 against
+    //     vis 8/16), which made the raised INSIDE bar of 0.98 inert — 1.00 clears it as easily
+    //     as 0.10. FIX: the union box is BROAD PHASE ONLY, it may reject a ray and never accept
+    //     one; acceptance is confirmed against the segment's own renderer bounds (fails OPEN if
+    //     the renderer list is mid-refresh). The escape hatch is re-keyed to real masonry. The
+    //     0.98/0.90 substitution is replaced by a HARD stand-down that runs after the decision
+    //     chain and outside the evaluate gate, so it owns the final value. A DIRECTIONAL
+    //     near-side term was proposed by me and REFUSED with a better argument: a ray to a floor
+    //     sample TERMINATES at that sample and the far wall's masonry stands beyond it, so the
+    //     opposite wall stops FADING because it stops MEASURING as an occluder — by construction,
+    //     not by exemption — and a near-side rule would have been wrong for a wall that genuinely
+    //     occludes from an oblique angle.
+    //     HIS QUESTION, ANSWERED: undiscovered tiles are NOT counted as a room. The registry is
+    //     built from the game's occlusion volume renderers ("0→1 LOGICAL room(s)") and preview
+    //     tiles have none; their 'Full' child is self=OFF hier=OFF, 0 drawing. No preview floor
+    //     cell can enter any numerator. Preview WALLS do widen _boardVolume (1 decision-valid
+    //     room, 8 walls), which feeds only the INSIDE verdict and never coverage — left alone
+    //     deliberately, because with the stand-down now hard, a more generous "inside" errs
+    //     toward MORE walls solid.
+    //     AND A DEFECT NOBODY ASKED ABOUT: the shipped bars are OnFraction 0.1 / OffFraction 0.2
+    //     — the LOW bar authored ABOVE the high one, as if transposed — and a Min(Off, On)
+    //     downstream collapsed both to 0.10, leaving NO hysteresis band at all. That is the group
+    //     flapping in the log (all four walls off and on together at :9471/:9477, :10856/:10870,
+    //     :11746/:11751, :12660/:12667). Repaired in the WallFadeTuning.Off accessor; the two
+    //     constants are NOT touched, because swapping them would move the enter bar from 10 % to
+    //     20 % and that is a judgement about his picture, not a bug fix.
+    //
+    // (5) "Diese schwebenden viereckigen Lichter an dem Tor … wird das richtig gerendert? Fehlt
+    //     hier irgendwas? Das ist dauerhaft so egal was ein oder ausgeblendet wird."
+    //     A REGRESSION, FOUND BY READING GIT HISTORY. [Optimize] HeadDepthPrepass was bound TRUE
+    //     at 19b120cb; it is FALSE today. It flipped in c5d6bbc9 — the refactor that moved every
+    //     default onto one annotated line, whose own message says "Descriptions, ordering,
+    //     ranges, seeding — untouched" — because that commit joined the defaults against
+    //     .planning/debug/default/*.cfg and dev.gloomhavenvr.perf.cfg carried `false` from a
+    //     session in which the value was being A/B'd. A measurement state became a shipped
+    //     default. Both hardware logs confirm the consequence every window: head camera
+    //     path=Forward depthTextureMode=None. Under D3D11's REVERSED depth an unwritten depth
+    //     texture reads as the far plane, so a saturate((sceneZ - fragZ) * _InvFade) term
+    //     saturates to 1 for every fragment — full authored opacity, hard edge, INDEPENDENT of
+    //     the wall fade, which is precisely his "dauerhaft so egal was ein oder ausgeblendet
+    //     wird". VRRigDriver.HeadCamera.cs documents this exact failure in the past tense
+    //     ("the fade sampled nothing and FAILED OPEN ⇒ glow rendered fully through walls") and
+    //     CompatModule/water hit the same mechanism from the other side.
+    //     NOT FLIPPED IN THIS BUILD, ON PURPOSE. Turning it on re-submits every opaque renderer
+    //     through its shadow-caster pass once per eye pass — four full submissions per frame
+    //     under MultiPass instead of two — in a room already at 11.65-12.00 ms against 11.11 ms,
+    //     and nobody has measured that here. It would also change nothing on an existing install,
+    //     since BepInEx keeps the value already in the cfg. So this build ships the INSTRUMENT
+    //     and the one-line experiment instead: set [Optimize] HeadDepthPrepass = true in
+    //     dev.gloomhavenvr.perf.cfg and read [Perf] FRAME on both sides of it. If the rectangles
+    //     do not go soft, the diagnosis is dead. See Defaults.Core.cs for the full note.
+    //     Also corrected: my brief blamed the PPv2 kill-switch. Wrong — the head camera is
+    //     created by the mod and never had a PostProcessLayer; its depth bit comes solely from
+    //     PerfConfig.DepthPrepassOn. The flat-vs-VR difference is real for a different reason
+    //     (the GAME's camera gets depth from EnableCameraDepthInForward / VolumetricFog /
+    //     DynamicFogBase / Beautify). CompatModule.cs:127 and the note at NetProtocol.cs:7724
+    //     are half right: the 2026-07 pass added the SWITCH, defaulted true; the VALUE flipped a
+    //     month later in the defaults extraction.
+    //     NEW INSTRUMENT Core/GlowCardCensus.cs — [Perf] GLOW CARDS, one line per [Perf] window,
+    //     no new scene sweep (it rides PerfSceneProfile's existing walk and its TallyShader
+    //     result, so it adds no second Material.shader marshal). Per card: path, shader,
+    //     material, queue, layer, AABB, pixel span, _SrcBlend/_DstBlend/_ZWrite, every depth-fade
+    //     property present with its value, SOFTPARTICLES_ON, the keyword list, the authored tint
+    //     alpha AND the LIVE MaterialPropertyBlock alpha — which is the clause that separates the
+    //     two competing leads per card: "NO property block ⇒ nothing is driving this card"
+    //     (a claiming answer) vs "LIVE block a=0.000 ⇒ the fade IS writing it to invisible"
+    //     vs "ADDITIVE ⇒ a colour-ALPHA write cannot dim it at all". It prints
+    //     GLOW CARDS — NOT SAMPLED this window rather than looking like it ran when it did not.
+    //     WHAT IS PROVEN: one of the quads is a MeshRenderer literally named 'Glow' at y 2.2-2.8
+    //     over the floor, 0.22 wu from the gate, alternately owned by 'Wall 3' (mounted dressing)
+    //     and by the door (stacked shell), churning owners 3 times in 60 s — and the gate's
+    //     DISSOLVE CENSUS says it IS claimed and IS being written an alpha ramp ("1 through their
+    //     own alpha/particle channel") while standing at full strength in walls_gone.jpg with its
+    //     wall dissolved around it. So for that renderer "never claimed" is FALSIFIED. The photos
+    //     show THREE quads; the census names ONE and its lists are truncated. That gap is what
+    //     the new line closes.
+    //
+    // STILL OPEN, NAMED RATHER THAN QUIETLY LEFT:
+    //   * The 'UI Loadout Window' convert→refuse flap at :6563 — it converts, claims a seat,
+    //     builds chrome and gives it all back one tick later. Costs no visible frame (it never
+    //     reveals), but the cause is ROW 4's claim going false when the release of the loadout
+    //     float removes the precondition, which lives in StoryComposite/LoadoutConfirmPark claim
+    //     timing. Fixing it blind risks the ModBuild 234 deadlock. Own round.
+    //   * Core/MaterialLoaderHeal.cs:496-541 — the "foreign-disabled ⇒ re-enable" branch treats
+    //     ANY disabled renderer with loaded+assigned materials as stuck, on an uncapped 1 Hz
+    //     scan (the MaxRetries/cooldown throttle covers only TryRetrigger), with no guard for
+    //     renderers THE MOD ITSELF disabled — and WallSegmentFade disables them in six places.
+    //     Session 1 logs 990 re-enables of 'CR_RU_Vines (3)', 546 of '(2)', 12 of 'Glow': a
+    //     tug-of-war, not a repair. Compounded by RestoreProp force-enabling unconditionally, so
+    //     a transient heal becomes permanent visibility. Not this round's symptom; routed.
+    //
     // Build 250: THE MAP-ROOM WINDOWS MOVE ONTO A HALF-RING OVER THE TABLE'S CENTRE.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

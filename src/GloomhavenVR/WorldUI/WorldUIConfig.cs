@@ -326,6 +326,32 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> SharedWindowArcRadiusMeters = null!;
 
+    /// <summary>
+    /// ModBuild 251 — THE ONE SPAWN HEIGHT FOR EVERY MAP-ROOM WINDOW, measured AT THE GRAB BAR, in
+    /// real metres above the map table's top surface. User ruling, verbatim: "die Höhe soll beim
+    /// Spawn am Besten bei allen Fenster gleich sein gemessen am Greifbalken!"
+    ///
+    /// <para>It seats BOTH map-room families — the shared (blue-barred) windows on the ModBuild 250
+    /// half-ring and the local windows on their arc seats — so the room has one bar line instead of
+    /// two rules that never agreed (0.092 m against 0.52–0.68 m in the ModBuild 250 log). The
+    /// window's body hangs from the bar, so a taller window reaches higher; a window tall enough to
+    /// put its top edge over <c>MapRoomWindowTopCeilingMeters</c> is lowered and SAYS SO by name on
+    /// the <c>MAP ROOM WINDOW BAR HEIGHT</c> line rather than silently.</para>
+    ///
+    /// <para>THE RANGE STARTS AT 0.05 m FOR A REASON: that is the same floor
+    /// <c>ArcSeats.MapRoomWindowMinBarHeightMeters</c> enforces in code, so no value a player can
+    /// type here can put a window's drawn body into the table (the ModBuild 243 defect,
+    /// <c>multiplayer_fesnter_position.jpg</c>). The code floor is the guarantee; this range is the
+    /// courtesy.</para>
+    ///
+    /// <para>MULTIPLAYER, STATED: for a SHARED window this number is part of a pose that is
+    /// otherwise 1:1 by construction, so it is the one term two clients can disagree about — the
+    /// same divergence surface <see cref="SharedWindowArcRadiusMeters"/> has. Different values seat
+    /// a shared window at different heights until somebody drags it; the falsifier line prints the
+    /// resolved number on every placement.</para>
+    /// </summary>
+    internal static ConfigEntry<float> MapRoomWindowBarHeightMeters = null!;
+
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
@@ -752,6 +778,25 @@ internal static class WorldUIConfig
                 "— a different value on one client seats that client's copy somewhere else until " +
                 "somebody drags it. Range 0.3-2.",
                 new AcceptableValueRange<float>(0.3f, 2f)));
+        MapRoomWindowBarHeightMeters = _file.Bind("WorldUI", "MapRoomWindowBarHeightMeters",
+            Defaults.MapRoomWindowBarHeightMeters,
+            new ConfigDescription(
+                "How high above the MAP TABLE every map-room window is hung when it opens, in real " +
+                "metres, MEASURED AT ITS GRAB BAR. One height for all of them — the shared " +
+                "(blue-barred) windows on the ring over the table and your own windows on their " +
+                "seats — so every bar in the room is on one line and no window can open lying on " +
+                "the map. The window's body hangs from the bar, so a taller window reaches higher; " +
+                "one tall enough to put its top edge absurdly high is lowered just far enough, and " +
+                "the log says which window and why. Larger = everything hangs higher (further above " +
+                "the map, closer to and past eye level); smaller = everything comes down toward " +
+                "the table. The default 0.60 m is the average of the two grab-bar heights in your " +
+                "own 'ideal position' screenshot, measured from the placement log. THIS IS THE " +
+                "INITIAL SPAWN HEIGHT ONLY: every window stays freely movable, and a window that " +
+                "is already standing does not move when this changes. MULTIPLAYER: this value is " +
+                "part of the shared placement, so all players in a session should leave it at the " +
+                "same number — a different value on one client hangs that client's copy of a " +
+                "shared window at a different height until somebody drags it. Range 0.05-1.2.",
+                new AcceptableValueRange<float>(0.05f, 1.2f)));
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +

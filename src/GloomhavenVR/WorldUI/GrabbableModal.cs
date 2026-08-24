@@ -1803,19 +1803,62 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // could diagnose. Byte-for-byte the ModBuild 242 behaviour.
             if (!_inkValid)
             {
-                _inkEmptyRun = 0;
-                if (!_inkFallbackReported)
+                // ModBuild 251 — "HAS NEVER DRAWN" AND "HAS STOPPED DRAWING" LOOK IDENTICAL TO THE
+                // PLAYER, AND ONLY ONE OF THEM WAS ANSWERED.
+                //
+                // USER REPORT (ModBuild 250 hardware), verbatim: "Nach der bestätigung ist ein
+                // Greifbalken ohne sichtbaren Inhalt kurz erschienen, kannst du in den logs lesen was
+                // das war? Ich hab ihn auch kurz mit dem laser gegrabbed. Das darf nicht passieren."
+                //
+                // THE TRACE, and it is one window from one float. 'New Party display' converts at
+                // Player.log:6032, takes its handle at :6042 and reports THE INK UNION COULD NOT BE
+                // MEASURED at :6044 — and is then REVEALED ANYWAY at :6059: "MODAL REVEAL:
+                // 'GloomhavenVR.Panel_Modal_New Party display' FORCED after 608 ms (deadline 600 ms;
+                // still waiting on first content fit)". That deadline branch is RIGHT and is not being
+                // touched here — a window must never stay invisible — but what it put in front of the
+                // player was a brass bar with a laser collider and nothing behind it. Two further
+                // instruments agree with him and both arrive too late to help: ":6079 MODAL LIVENESS
+                // ARMED: 'New Party display' … it has NEVER been measured drawing" and ":6120 EMPTY
+                // WINDOW RELEASED: 'New Party display' (ID PartyPanel) — DARK — not one of 720
+                // Graphic(s) under it passes". The bar therefore stood, and was grabbed, for the whole
+                // liveness grace between :6059 and :6120.
+                //
+                // ModBuild 243 BUILT THE ENTIRE REMEDY BELOW AND COULD NOT REACH IT, and its own
+                // ledger says so on every GRAB BAR line of that log: "0 empty-window handle hide(s)".
+                // The empty run it counts was started only for a window that ALREADY HAD a committed
+                // rectangle, so the one shape that produces a bar with no window in its whole life was
+                // the one shape exempt from the rule [[ask-the-extent-of-the-symptom]].
+                //
+                // THE GUARD IS THE REVEAL GATE, NOT A TIMER, and that is what keeps the ModBuild 242
+                // sentence below true where it was true. While the panel is render-hidden the bar is
+                // hidden with it (GrabbableModal registers the holder as an extra render root, so
+                // CanvasConversion.HideTree walks it), there is nothing on the screen to take off, and
+                // "the frame-based handle is the right answer for a window that has not laid out yet"
+                // describes exactly that interval. The instant the panel is DRAWN, the same two
+                // agreeing empty walks that answer "stopped drawing" answer "never drew" — and
+                // SyncBarVisibility puts the handle straight back on the first sample that measures
+                // ink, because it clears the flag from _inkValid and nothing else.
+                bool behindTheRevealGate = _panel == null || _panel.RevealPending
+                                           || _panel.RenderHidden || _panel.OwnerRenderHidden;
+                if (behindTheRevealGate || _barHiddenForEmpty)
                 {
-                    _inkFallbackReported = true;
-                    _inkFallbackDue = true;
+                    _inkEmptyRun = 0;
+                    if (!_inkFallbackReported)
+                    {
+                        _inkFallbackReported = true;
+                        _inkFallbackDue = true;
+                    }
+                    return;
                 }
-                return;
+                // Fall through: the panel is on the screen and it is drawing nothing. Same confirm
+                // run, same hide, same instant return of the handle when content arrives.
             }
 
             // A COMMITTED RECTANGLE EXISTS AND THE WINDOW HAS STOPPED DRAWING (ModBuild 243). Through
             // ModBuild 242 this returned, so the handle kept the full width of content that is no
             // longer on the screen until ModalFallback's 2 s liveness dwell released the whole float.
             // Confirm it and take the handle off; the whole policy is on the InkSettleFrames block.
+            bool neverDrew = !_inkValid;   // ModBuild 251 — see the block above
             _inkEmptyRun++;
             if (_inkEmptyRun < InkEmptyConfirmSamples)
             {
@@ -1831,8 +1874,39 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkReleaseValid = false;
             _inkReleaseRun = 0;
             _inkBottomName = string.Empty;
-            _inkCause = $"the window stopped drawing anything ({InkEmptyConfirmSamples} agreeing "
-                        + "empty walk(s)), so the handle was taken off the screen";
+            _inkCause = neverDrew
+                ? $"the window has NEVER drawn anything and it is past the reveal gate "
+                  + $"({InkEmptyConfirmSamples} agreeing empty walk(s)), so the handle was taken off "
+                  + "the screen"
+                : $"the window stopped drawing anything ({InkEmptyConfirmSamples} agreeing "
+                  + "empty walk(s)), so the handle was taken off the screen";
+            // THE FALSIFIER, and it reports what it MEASURED rather than what the rule intends. The
+            // two states share this line and are told apart by the middle clause, because only one of
+            // them is new in ModBuild 251 and the next reader must be able to see which fired.
+            VRLog.Warn("WorldUI",
+                $"EMPTY GRAB BAR TAKEN OFF: '{_logName}' — MEASURED THIS TICK: "
+                + $"{InkEmptyConfirmSamples} agreeing ink walk(s) at the confirm stride found ZERO "
+                + "drawn graphic(s) under this window's own root (or a zero-size union) while the "
+                + $"panel was ON THE SCREEN (RevealPending={(_panel != null && _panel.RevealPending)}, "
+                + $"RenderHidden={(_panel != null && _panel.RenderHidden)}, "
+                + $"OwnerRenderHidden={(_panel != null && _panel.OwnerRenderHidden)}), and this window "
+                + (neverDrew
+                    ? "HAS NEVER MEASURED INK IN ITS LIFE — the ModBuild 251 case, which is the "
+                      + "shape of the user's report: a window that is force-revealed at the gate's "
+                      + "600 ms deadline without ever having laid out leaves a brass bar with "
+                      + "nothing behind it, and ModBuild 243's rule could not see it because the run "
+                      + "it counts was started only for a window that already had a committed "
+                      + "rectangle"
+                    : "HAD a committed ink rectangle and then stopped drawing — the ModBuild 243 "
+                      + "case, unchanged")
+                + $". THE BAR'S GameObject IS NOW INACTIVE, which takes its laser collider with it, "
+                + "and the palm grab zone is disabled; a bar that is being HELD is exempt until it is "
+                + "let go. The close X deliberately stays on the frame's own corner — it is the "
+                + "rescue for a window the player can no longer see. Both come back on the first "
+                + $"sample that measures ink again. This is hide {_inkEmpties} over this window's "
+                + "life. NOTHING WAS WRITTEN TO THE GAME: no Hide, no Escape, no SetActive on any "
+                + "game object and no CanvasGroup — the only objects switched are the mod's own "
+                + "chrome.");
             // KEEP SAMPLING FAST. Content that comes back must push the handle out again immediately,
             // which is the same reason a committed release re-arms the burst.
             _inkSettleUntilFrame = now + InkSettleFrames;
@@ -2234,14 +2308,21 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // frame-based one, unchanged since ModBuild 235) and a window that HAD ink and stopped
             // drawing (the handle has been taken off the screen, which is the user's second report).
             string handle = _barHiddenForEmpty
-                ? "THE HANDLE HAS BEEN TAKEN OFF THE SCREEN (ModBuild 243): this window had a "
-                  + $"committed ink rectangle and then drew nothing for {InkEmptyConfirmSamples} "
-                  + "agreeing walk(s), so the brass bar and its laser collider are switched off and "
-                  + "the close X is back on the frame's own corner. It all comes back on the first "
+                ? "THE HANDLE HAS BEEN TAKEN OFF THE SCREEN (ModBuild 243/251): this window drew "
+                  + $"nothing for {InkEmptyConfirmSamples} agreeing walk(s) while its panel was on "
+                  + "the screen, so the brass bar and its laser collider are switched off and the "
+                  + "close X is back on the frame's own corner. It all comes back on the first "
                   + "sample that measures ink again. The X was deliberately NOT hidden — it is the "
-                  + "rescue for a window the player can no longer see"
+                  + "rescue for a window the player can no longer see. GREP EMPTY GRAB BAR TAKEN OFF "
+                  + "for which of the two shapes it was (never drew / stopped drawing)"
+                // ModBuild 251 — this branch is now reached ONLY while the panel is still behind the
+                // reveal gate, where the bar is render-hidden with it and the frame-based placement
+                // costs nothing. A window that is drawn and drawing nothing takes the branch above.
                 : "the bar keeps the frame-based placement this round exists to replace: bar "
-                  + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px";
+                  + $"top edge y={barTopPx:F0} px, centre x={barCentrePx:F0} px, half-width {barHalfPx:F0} px"
+                  + " (this reading is only reachable while the panel is still render-hidden behind "
+                  + "the reveal gate — a REVEALED window that measures no ink loses the handle "
+                  + "outright, ModBuild 251)";
             VRLog.Warn("WorldUI",
                 $"GRAB BAR CLEARS THE INK: NOT ACHIEVED for '{_logName}' — failing term: THE INK UNION "
                 + "COULD NOT BE MEASURED (zero drawn graphic(s) under the window's own root, or zero "

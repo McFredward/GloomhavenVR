@@ -2702,13 +2702,35 @@ internal static partial class ModalFallback
             // something must never take it away from a game that still needs it. That is
             // WithdrawRefusedFloat's own ruling, applied on the paths WithdrawRefusedFloat cannot
             // reach.
-            bool refused = wp.Window != null && FloatRefusalTable.Refuses(wp.Window);
+            //
+            // ModBuild 251 — AND A REFUSAL REACHES A FLOAT THAT IS NESTED INSIDE THE REFUSED WINDOW.
+            // The clause above asks the table about THIS window only, which is right for an identity
+            // refusal and one window short for an interval one: a child that was already floating when
+            // its ancestor was refused for the moment keeps its float on `wp.Sticky` for exactly the
+            // reason the ModBuild 235 note above describes. It is the same lever and the same line.
+            // The catch-all's own eligibility check stops the child being taken in the first place
+            // (ModalFallback.10.CatchAll.RefusedForTheMomentAbove, which carries the ModBuild 250
+            // hardware trace); this is the backstop for a float that already exists.
+            UIWindow? intervalHost = wp.Window != null ? RefusedForTheMomentAbove(wp.Window) : null;
+            bool refused = wp.Window != null
+                           && (FloatRefusalTable.Refuses(wp.Window) || intervalHost != null);
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
                              && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky
                                  || ScriptedLevelMessageActive(wp.Window));
             if (refused && alive)
                 VRLog.Info("WorldUI", $"FLOAT RELEASED ON REFUSAL: '{wp.Window!.name}' (ID " +
-                                      $"{wp.Window.ID}) — {FloatRefusalTable.Describe(wp.Window)}. The " +
+                                      $"{wp.Window.ID}) — " +
+                                      (FloatRefusalTable.Describe(wp.Window)
+                                       ?? (intervalHost != null
+                                           ? "it is NESTED INSIDE '" + intervalHost.name + "' (ID " +
+                                             intervalHost.ID + "), which the table refuses for the "
+                                             + "moment, so drawing this child would put the refused "
+                                             + "window's own content in front of the player under a "
+                                             + "different frame (ModBuild 251). THE ANCESTOR'S "
+                                             + "REFUSAL: " +
+                                             (FloatRefusalTable.Describe(intervalHost) ?? "<none>")
+                                           : "<the table has nothing to say about this window>")) +
+                                      ". The " +
                                       "float is given up through the ORDINARY release path (panel, grab " +
                                       "bar, close cross and arc slot together; CanvasConversion.Release " +
                                       "restores the exact 2D home). NOTHING WAS WRITTEN TO THE GAME: " +

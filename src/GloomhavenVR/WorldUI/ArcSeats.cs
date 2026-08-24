@@ -3466,36 +3466,331 @@ internal static partial class ModalFallback
     // diff those two lines: frame-local equal ⇒ this is 1:1; frame-local different ⇒ it is not, and
     // the frame is the suspect, not this table.
 
-    /// <summary>How far above the map table's top surface a shared window's BOTTOM EDGE hangs, real
-    /// metres, multiplied by the shared parchment frame scale and by nothing else.
-    ///
-    /// <para>DERIVED FROM <c>ideale_position.jpg</c>: both grab bars in that photograph sit ~7 % of
-    /// the far edge's own 1.55 m span above the table plane, i.e. ~0.11 m, and a bar IS the window's
-    /// bottom edge.</para>
-    ///
-    /// <para><b>ModBuild 244 — THIS IS A BOTTOM-EDGE CLEARANCE NOW, AND ModBuild 243's CENTRE
-    /// HEIGHT WAS THE BUG.</b> 243 hung the window's CENTRE 0.40 m above the table and deliberately
-    /// refused to read the fitted half-height, on the argument that a term which changes between the
-    /// spawn and the pre-reveal re-place would make the anchor assert a different pose. The
-    /// arithmetic that argument skipped: 0.40 m was 0.11 m of clearance plus an ASSUMED 0.28 m
-    /// half-height, and the quest-confirm window measures 1052 px = 1.105 m tall, so its half-height
-    /// is 0.553 m and its bottom edge landed 153 mm BELOW the table surface. The user's photograph
-    /// <c>multiplayer_fesnter_position.jpg</c> shows exactly that — the window standing in the
-    /// table — and his ruling is one line: "Es soll ÜBER dem Tisch spawnen."
-    ///
-    /// A clearance can only be honoured by a term that knows how tall the window is, so the height
-    /// is now <c>clearance + this client's own half-height</c>. WHAT THAT COSTS, STATED PLAINLY:
-    /// the frame-local X and Z stay 1:1 by construction, and Y is 1:1 for exactly as long as two
-    /// players' window-size dials agree — which is the default, and which is ALREADY true of the
-    /// window's own SIZE (see the note on <c>DeriveWindowScale</c>'s extraScale in this block).
-    /// A window standing in the table is wrong for every player; a Y that differs by the same
-    /// amount their windows already differ in size is not. Clearance wins.</para></summary>
-    private const float SharedAnchorTableClearanceMeters = 0.11f;
+    // ModBuild 251 TOMBSTONE — SharedAnchorTableClearanceMeters (0.11 m of BOTTOM-EDGE clearance
+    // over the table) IS DELETED, AND THE PHOTOGRAPH IT WAS READ OFF WAS MISREAD. Keep the history,
+    // because the mistake is repeatable and the correction is a measurement:
+    //
+    //  * WHAT IT WAS. ModBuild 243 hung a shared window's CENTRE 0.40 m over the table and refused
+    //    to read the fitted half-height; the quest-confirm window is 1.105 m tall, so its bottom
+    //    edge landed 153 mm INSIDE the table (multiplayer_fesnter_position.jpg, "Es soll ÜBER dem
+    //    Tisch spawnen"). ModBuild 244 answered that correctly in SHAPE — a clearance can only be
+    //    honoured by a term that knows how tall the window is, so it became
+    //    `clearance + own half-height` — and wrongly in MAGNITUDE.
+    //
+    //  * WHY 0.11 m WAS WRONG. It was derived from ideale_position.jpg as "both grab bars sit ~7 %
+    //    of the far edge's own 1.55 m span above the table plane", i.e. a PIXEL OFFSET converted
+    //    with the scale of the table's FAR EDGE. The two windows in that photograph stand well
+    //    BEHIND the far edge, so a pixel there is worth far more than a pixel on the edge; the
+    //    conversion is not a height at all. A length measured in a photograph needs a DEPTH before
+    //    it is a length in the room.
+    //
+    //  * WHAT THOSE TWO WINDOWS WERE ACTUALLY SEATED AT, from their own placement lines in the
+    //    ModBuild 250 hardware log: 'New Party display' centre 219.12 wu with half-height 112.33 wu
+    //    and 'Quest Log Manager' centre 229.18 wu with half-height 91.53 wu, over a table top at
+    //    0.00 wu at 198.12 wu/m — frame bottoms 0.539 m and 0.695 m above the table, BARS 0.521 m
+    //    and 0.677 m. The "ideal" photograph's own windows sat FIVE TIMES higher than the number
+    //    read out of it, and every shared window has been seated at that number since ModBuild 244.
+    //    That is the whole of zu_tief.jpg.
+    //
+    //  * WHAT REPLACES IT: MapRoomWindowBarHeightMeters, one bar height for every window in the
+    //    room, with MapRoomWindowMinBarHeightMeters as the hard table floor. Do not reintroduce a
+    //    bottom-edge constant read off a picture.
 
     /// <summary>The floor under the computed half-height, real metres. A panel measured before its
     /// content fit can report a degenerate rect; without this the window would sit ON the table
     /// rather than above it, which is the defect this constant exists to prevent, in miniature.</summary>
     private const float SharedAnchorMinHalfHeightMeters = 0.15f;
+
+    // =============================================================================================
+    //  ModBuild 251 — ONE SPAWN HEIGHT FOR EVERY MAP-ROOM WINDOW, DEFINED AT THE GRAB BAR.
+    //
+    //  USER REPORT (2026-08-24, verbatim, with zu_tief.jpg): "Die Begegnung ist zu tief gespawned
+    //  siehe zu_tief.jpg - das darf nie passieren - die Höhe soll beim Spawn am Besten bei allen
+    //  Fenster gleich sein gemessen am Greifbalken!" — and, in the same message, the ModBuild 250
+    //  half-ring is KEPT: "Die neue Position von den remote-Fenster gefällt mir". This is a HEIGHT
+    //  change and nothing else: the arc, the radius, the lateral step, the facing and the
+    //  map-occlusion floor are untouched.
+    //
+    //  WHAT THE ModBuild 250 LOG ACTUALLY SHOWS — the map room had TWO height rules, and only one
+    //  of them was a rule at all. All figures below are real metres above the map table's top
+    //  surface (world y 0.00 wu, frame scale 198.12 wu/m), read off that session's own lines:
+    //
+    //    FAMILY                      WINDOW                BAR ABOVE THE TABLE   HOW IT WAS SEATED
+    //    ---------------------------------------------------------------------------------------
+    //    SHARED (SharedWindowKind)   'Map Story Window'    0.092 m               BOTTOM EDGE at a
+    //                                'UI Event Window'     0.092 m               constant +0.110 m
+    //                                'UI Quest Popup'      0.092 m               over the table
+    //    LOCAL  (arc-seated)         'New Party display'   0.521 m               RAW GAZE HEIGHT,
+    //                                'Quest Log Manager'   0.677 m               floored only
+    //
+    //  So the two families disagreed by 0.43–0.59 m AT THE BAR — and the LOCAL family did not even
+    //  agree with ITSELF: its height is whatever the head happened to be pitched at when the window
+    //  opened, so that one session seats windows anywhere between 1.42 m and 2.11 m above the
+    //  tracking floor. "Bei allen Fenstern gleich" is therefore two fixes, not one.
+    //
+    //  AND THE PHOTOGRAPH IS THE SHARED NUMBER. 'UI Event Window' fits its frame to its ink (the
+    //  250 log: "the LOWEST drawn graphic 'Image Container' ends at y=-384 px … to the ink 29 px =
+    //  31 mm"), so with the frame bottom at +0.110 m its VISIBLE content bottom is 0.123 m over a
+    //  table the player reads from 1.17 m above and ~2.0 m away: 28° below the horizon, its lower
+    //  edge grazing the far edge of the wood. That is zu_tief.jpg exactly.
+    //
+    //  THE RULE. Every map-room window's GRAB BAR is seated at ONE height above the table top,
+    //  [WorldUI] MapRoomWindowBarHeightMeters, and the window's body hangs from it:
+    //
+    //      bottom edge = bar + GrabBarDropMeters
+    //      centre      = table top + bottom edge + own half-height
+    //      top edge    = bottom edge + own height           (see the ceiling rule below)
+    //
+    //  MEASURED AT THE BAR AND NOT AT THE BOTTOM EDGE, because that is what he asked for and
+    //  because the two differ by a CONSTANT: GrabbableModal hangs the bar a fixed real-metre gap
+    //  below the FRAME, not below the ink, and the 250 log proves the gap is the same number for
+    //  windows with wildly different authored pixel scales — 'Map Story Window' "below the window's
+    //  own frame 29 px = 18 mm" at 0.625 mm per authored px, 'New Party display' and 'UI Event
+    //  Window' "17 px = 18 mm" at 1.050 mm per authored px. Equal bar ⇔ equal bottom edge, so the
+    //  rule is ENFORCED on the bottom edge (which the placement code owns) and STATED at the bar
+    //  (which is what he sees and grabs).
+    //
+    //  WHY THIS IS STILL 1:1 FOR THE SHARED WINDOWS. Every term is a constant of the shared
+    //  parchment frame or a cfg value; not one of them reads a head, and nothing re-orients. The
+    //  ONE divergence surface is the dial itself — two clients holding different values seat a
+    //  shared window at different heights until somebody drags it — which is exactly the property
+    //  SharedWindowArcRadiusMeters already has, and the falsifier prints the resolved number for
+    //  the same reason.
+    //
+    //  WHAT IS DELIBERATELY *NOT* IN THIS RULE. The map room's HOVER CARD ('UI Quest Preview
+    //  Popup') is pinned to the map icon it describes and re-posed EVERY TICK by
+    //  MapRoom.HoverCardPose (TickHoverCards); TryClaimArcSeat refuses it a seat outright for that
+    //  reason. Forcing a spawn height on it would be overwritten the same frame —
+    //  [[gated-remedy-never-ran]] with a log line that looks like it worked — so it is left alone
+    //  and this comment is the record that the omission is a decision.
+    // =============================================================================================
+
+    /// <summary>How far BELOW a floated window's own FRAME the grab bar's top edge hangs, real
+    /// metres. MEASURED, NOT ASSUMED: <c>GRAB BAR CLEARS THE INK</c> reports it on every window it
+    /// confirms, and in the ModBuild 250 log it is 18 mm for every one of them regardless of the
+    /// window's authored pixel scale ('Map Story Window' 29 px at 0.625 mm/px, 'New Party display'
+    /// and 'UI Event Window' 17 px at 1.050 mm/px). It is the world-space consequence of
+    /// <c>GrabbableModal</c>'s bar gap (0.030 m to the bar's CENTRE) less half the bar's own
+    /// thickness.
+    ///
+    /// <para>THIS FILE DOES NOT OWN THAT CONSTANT and deliberately does not reach for it: widening
+    /// a private const in another class to read it would make this a copy of an INPUT, where what
+    /// is wanted is a measurement of the shipped RESULT. If a future build changes the bar geometry
+    /// the <c>MAP ROOM WINDOW BAR HEIGHT</c> line and the <c>GRAB BAR CLEARS THE INK</c> line will
+    /// disagree by exactly the drift, in millimetres, on every window — a falsifier, not a silent
+    /// skew.</para></summary>
+    private const float GrabBarDropMeters = 0.018f;
+
+    /// <summary>Hard floor under the resolved bar height, real metres above the table top. With the
+    /// bar here the window's BOTTOM EDGE is still <c>+ GrabBarDropMeters</c> above the table, so the
+    /// ModBuild 243 defect (a window standing IN the table, <c>multiplayer_fesnter_position.jpg</c>)
+    /// is impossible by construction and not merely by a range check somebody can widen in a cfg
+    /// file. The cfg range starts at this same number so the two can never disagree.</summary>
+    private const float MapRoomWindowMinBarHeightMeters = 0.05f;
+
+    /// <summary>Ceiling on a map-room window's TOP EDGE, real metres above the table top. A common
+    /// bar height means a TALL window's top rides higher than a short one's, and past some height
+    /// that stops being "one height for every window" and becomes a window nobody can read without
+    /// tipping their head back.
+    ///
+    /// <para>IT IS A CONSTANT OF THE TABLE AND NOT OF THE HEAD, and that is not a detail: a ceiling
+    /// derived from THIS player's eye height would make a SHARED window's pose per-client, which is
+    /// the one thing the shared anchor exists to prevent. 1.90 m is set against the surveyed eye
+    /// height over this table (ModBuild 250 log: eye 231.57 wu, table top 0.00 wu, 198.12 wu/m ⇒
+    /// 1.169 m), i.e. ~0.73 m above the eye — around +25° at the map room's reading distances. At
+    /// the shipped default it is UNREACHED by every window that session placed: the tallest is
+    /// 'New Party display' at 1.134 m, whose top lands at 1.752 m. It exists for the window that has
+    /// not been measured yet, and when it fires it SAYS SO, by name, on its own line.</para></summary>
+    private const float MapRoomWindowTopCeilingMeters = 1.90f;
+
+    /// <summary>
+    /// THE ONE HEIGHT, resolved for one window: how far above the map table's top surface this
+    /// window's GRAB BAR is seated, in real metres.
+    ///
+    /// <para>Returns the dial's value for every window that fits under
+    /// <see cref="MapRoomWindowTopCeilingMeters"/>, which is the whole point — a room full of
+    /// windows whose bars are on one line. A window too tall for that is LOWERED, by the least
+    /// amount that brings its top edge under the ceiling, and never below
+    /// <see cref="MapRoomWindowMinBarHeightMeters"/>. <paramref name="rule"/> names which of the
+    /// three branches decided, in the words the log line prints; it is never empty, so a reader can
+    /// always tell "the dial" from "the ceiling overruled the dial" without re-deriving
+    /// anything.</para>
+    /// </summary>
+    /// <param name="halfHeightMeters">The window's own half-height in REAL METRES (its world
+    /// half-size divided by the shared frame scale) — the units everything else here is in.</param>
+    /// <param name="rule">Which branch decided, in the words the falsifier prints.</param>
+    internal static float ResolveMapRoomBarHeightMeters(float halfHeightMeters, out string rule)
+    {
+        float dial = Mathf.Max(WorldUIConfig.MapRoomWindowBarHeightMeters.Value,
+            MapRoomWindowMinBarHeightMeters);
+        float height = 2f * Mathf.Max(halfHeightMeters, 0f);
+        float top = dial + GrabBarDropMeters + height;
+        if (top <= MapRoomWindowTopCeilingMeters)
+        {
+            rule = "THE DIAL DECIDED IT: [WorldUI] MapRoomWindowBarHeightMeters = "
+                   + $"{dial:F3} m above the table top, and this window's top edge lands at "
+                   + $"{top:F3} m, under the {MapRoomWindowTopCeilingMeters:F2} m ceiling — so it "
+                   + "takes the common height and its bar is level with every other window here";
+            return dial;
+        }
+
+        float lowered = MapRoomWindowTopCeilingMeters - GrabBarDropMeters - height;
+        if (lowered >= MapRoomWindowMinBarHeightMeters)
+        {
+            rule = $"*** THE TOP-EDGE CEILING OVERRULED THE DIAL: this window is {height:F3} m "
+                   + $"tall, so the common bar height {dial:F3} m would put its top edge at "
+                   + $"{top:F3} m, above the {MapRoomWindowTopCeilingMeters:F2} m ceiling "
+                   + "(MapRoomWindowTopCeilingMeters — a constant of the TABLE and of no head, so "
+                   + "this decision is identical on every client). The bar is lowered to "
+                   + $"{lowered:F3} m, the least that brings the top under the ceiling, and THIS "
+                   + "WINDOW'S BAR IS THEREFORE NOT LEVEL WITH THE OTHERS: a stated trade, not a "
+                   + "silent one ***";
+            return lowered;
+        }
+
+        rule = $"*** THE CEILING COULD NOT BE HONOURED: this window is {height:F3} m tall, more "
+               + $"than the {MapRoomWindowTopCeilingMeters:F2} m ceiling leaves above the table "
+               + $"once the {MapRoomWindowMinBarHeightMeters:F2} m table floor is taken, so no bar "
+               + "height satisfies both. THE TABLE FLOOR WINS — a window standing IN the table is "
+               + "the ModBuild 243 defect and is never traded away — so the bar sits at "
+               + $"{MapRoomWindowMinBarHeightMeters:F3} m and the top edge at "
+               + $"{MapRoomWindowMinBarHeightMeters + GrabBarDropMeters + height:F3} m, OVER the "
+               + "ceiling. A window this tall has to be made shorter; nothing here can fix it ***";
+        return MapRoomWindowMinBarHeightMeters;
+    }
+
+    /// <summary>Every map-room window this room has placed, in placement order, with the bar height
+    /// it was placed at — so the falsifier can print the WHOLE room on ONE line and a disagreement
+    /// is a difference between two numbers side by side rather than a diff between two log lines a
+    /// thousand entries apart.</summary>
+    private static readonly List<string> MapRoomBarNames = new(8);
+
+    /// <summary>Bar heights above the table top, parallel to <see cref="MapRoomBarNames"/>.</summary>
+    private static readonly List<float> MapRoomBarHeights = new(8);
+
+    /// <summary>Scratch for the roster text. One instance, cleared per call: this runs on the spawn
+    /// / re-place path only, never per frame.</summary>
+    private static readonly System.Text.StringBuilder MapRoomBarRoster = new(192);
+
+    /// <summary>
+    /// THE FALSIFIER FOR "die Höhe soll bei allen Fenstern gleich sein gemessen am Greifbalken".
+    /// One line per map-room placement carrying THIS window's resolved bar height, the rule that
+    /// decided it, the body it hangs, and the bar height of EVERY map-room window placed since the
+    /// room opened. Grep <c>MAP ROOM WINDOW BAR HEIGHT</c>: if the roster at the end of the line
+    /// does not read the same number for every entry, the rule did not hold — and the entry whose
+    /// number differs carries its own reason on its own line.
+    /// </summary>
+    /// <param name="windowName">The window as the rest of the log names it.</param>
+    /// <param name="family">SHARED or LOCAL — which placement path seated it.</param>
+    /// <param name="barYm">Bar height above the table top, real metres.</param>
+    /// <param name="halfHeightMeters">The window's own half-height, real metres.</param>
+    /// <param name="rule">The branch <see cref="ResolveMapRoomBarHeightMeters"/> took.</param>
+    internal static void LogMapRoomBarHeight(string windowName, string family, float barYm,
+        float halfHeightMeters, string rule)
+    {
+        int at = MapRoomBarNames.IndexOf(windowName);
+        if (at < 0)
+        {
+            MapRoomBarNames.Add(windowName);
+            MapRoomBarHeights.Add(barYm);
+        }
+        else
+        {
+            MapRoomBarHeights[at] = barYm;
+        }
+
+        float own = 2f * Mathf.Max(halfHeightMeters, 0f);
+        float bottom = barYm + GrabBarDropMeters;
+        float top = bottom + own;
+        float lowest = float.MaxValue;
+        float highest = float.MinValue;
+        MapRoomBarRoster.Length = 0;
+        for (int i = 0; i < MapRoomBarNames.Count; i++)
+        {
+            float h = MapRoomBarHeights[i];
+            if (h < lowest)
+                lowest = h;
+            if (h > highest)
+                highest = h;
+            if (i > 0)
+                MapRoomBarRoster.Append(" | ");
+            MapRoomBarRoster.Append('\'').Append(MapRoomBarNames[i]).Append("' ")
+                .Append(h.ToString("F3")).Append(" m");
+        }
+        float spreadMm = (highest - lowest) * 1000f;
+
+        VRLog.Info("WorldUI",
+            $"MAP ROOM WINDOW BAR HEIGHT — '{windowName}' ({family}) bar seated {barYm:F3} m above "
+            + "the map table's top surface, and its body hangs from there: bottom edge "
+            + $"{bottom:F3} m (= bar + the measured {GrabBarDropMeters:F3} m frame-to-bar drop), "
+            + $"top edge {top:F3} m, own height {own:F3} m. {rule}. A BOTTOM EDGE AT OR BELOW "
+            + "0.000 m WOULD BE THE ModBuild 243 DEFECT (the window standing IN the table, "
+            + "multiplayer_fesnter_position.jpg) and cannot happen while the "
+            + $"{MapRoomWindowMinBarHeightMeters:F2} m floor holds. EVERY MAP-ROOM WINDOW PLACED "
+            + $"SINCE THIS ROOM OPENED, bar above the table: [{MapRoomBarRoster}] — SPREAD "
+            + $"{spreadMm:F0} mm. "
+            + (spreadMm <= 1f
+                ? "ALL LEVEL, which is the user ruling \"die Höhe soll beim Spawn am Besten bei "
+                  + "allen Fenster gleich sein gemessen am Greifbalken\" holding."
+                : "*** NOT LEVEL — the entries above disagree, and the ONLY sanctioned reason is a "
+                  + "window whose own line says the TOP-EDGE CEILING overruled the dial. If no "
+                  + "line says that, this build's rule did not hold and a THIRD path is seating "
+                  + "map-room windows. ***")
+            + " NOT IN THIS ROSTER, BY DESIGN: the hover card ('UI Quest Preview Popup'), which is "
+            + "pinned to the map icon it describes and re-posed every tick by HoverCardPose, so it "
+            + "has no spawn height to set. MULTIPLAYER: the height is [WorldUI] "
+            + "MapRoomWindowBarHeightMeters, a cfg value, so for a SHARED (blue-barred) window it "
+            + "is 1:1 only while both clients hold the same number — the same divergence surface "
+            + "SharedWindowArcRadiusMeters has, and the reason this line prints the number it "
+            + "used. Nothing here reads a head, so nothing here can differ for any other reason.");
+    }
+
+    /// <summary>Forget the roster. Called on the same teardown edge that resets the shared anchors —
+    /// a roster that outlived the room would print windows that are not standing and make the
+    /// spread unreadable.</summary>
+    private static void ResetMapRoomBarRoster()
+    {
+        MapRoomBarNames.Clear();
+        MapRoomBarHeights.Clear();
+    }
+
+    /// <summary>
+    /// THE MAP TABLE'S TOP SURFACE IN WORLD Y, and the frame scale that turns real metres into
+    /// world units on it — the two numbers a LOCAL map-room window needs to be seated at the same
+    /// bar height as the shared ones.
+    ///
+    /// <para>IT IS THE SAME MEASUREMENT THE SHARED ANCHOR USES, so the two families cannot drift
+    /// apart by construction: <c>TrySharedAnchorOnTable</c> computes the top as
+    /// <c>(b.max.y − centre.y) / scale</c> in frame-local metres and then converts back with
+    /// <c>centre + local × scale</c>, which is <c>b.max.y</c> exactly. Read directly here so a
+    /// local window is measured against the SAME surface and not against
+    /// <c>CameraController.FocusPoint</c>, which happens to coincide in the shipped map room and is
+    /// a different object.</para>
+    ///
+    /// <para>NO SURVEY CHECK, DELIBERATELY. The shared anchor refuses when the parchment's aspect
+    /// is not the surveyed one, because it INVENTS a table slab around the map from surveyed
+    /// ratios and an invented table is not a shared reference. This function invents nothing: the
+    /// top of the parchment's own bounds is the top of the parchment's own bounds whatever shape it
+    /// is.</para>
+    /// </summary>
+    internal static bool TryMapTableTopWorldY(out float topWorldY, out float frameScale)
+    {
+        topWorldY = 0f;
+        frameScale = 1f;
+        if (!MapRoom.MapRoomDriver.Active)
+            return false;
+        if (!MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 _, out float scale))
+            return false;
+        MeshRenderer? parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+        if (parchment == null)
+            return false;
+        Bounds b = parchment.bounds;
+        if (b.size.x <= 1e-3f || b.size.z <= 1e-3f)
+            return false;
+        topWorldY = b.max.y;
+        frameScale = Mathf.Max(scale, 1e-4f);
+        return true;
+    }
 
     // ModBuild 245 TOMBSTONE — SharedAnchorLateralFraction (0.45 of the table's half-depth) is
     // DELETED, not merely unused. It seated a shared window by a fraction of the FURNITURE, which
@@ -3575,6 +3870,11 @@ internal static partial class ModalFallback
     /// that session made.</summary>
     internal static void ResetSharedAnchors(string reason)
     {
+        // The bar-height roster dies with the room, and it dies BEFORE the early return below: it
+        // fills up on ordinary placements that never spend an anchor, so gating its clear on
+        // SharedAnchorSpent.Count would leave last room's windows in the next room's falsifier and
+        // make the SPREAD read as a disagreement that nobody can see.
+        ResetMapRoomBarRoster();
         if (SharedAnchorSpent.Count == 0)
             return;
         VRLog.Info("WorldUI", $"SHARED WINDOW ANCHOR RESET ({reason}) — {SharedAnchorSpent.Count} "
@@ -3845,8 +4145,8 @@ internal static partial class ModalFallback
         // extraScale; dividing by the frame scale puts it in the same real metres every other term
         // here is in. On the SPAWN call this is the pre-fit host rect and on the RE-PLACE it is the
         // fitted one — that is why the re-place exists, and why the pose it lands on is the one the
-        // player sees. See SharedAnchorTableClearanceMeters for why reading it at all is the fix and
-        // not a hazard.
+        // player sees. See the ModBuild 251 block above (and the ModBuild 244 tombstone in it) for
+        // why reading it at all is the fix and not a hazard.
         float halfWinYm = Mathf.Max(halfSize.y / scale, SharedAnchorMinHalfHeightMeters);
         float halfWinXm = Mathf.Max(halfSize.x / scale, 0f);
 
@@ -3869,7 +4169,14 @@ internal static partial class ModalFallback
             2 => -step,
             _ => 0f,
         };
-        float centreYm = topYm + SharedAnchorTableClearanceMeters + halfWinYm;
+        // ---- ModBuild 251 — THE HEIGHT IS THE ROOM'S ONE BAR HEIGHT, NOT A BOTTOM-EDGE CLEARANCE.
+        //      "die Höhe soll beim Spawn am Besten bei allen Fenster gleich sein gemessen am
+        //      Greifbalken!" The bar is seated at barYm above the table top and the body hangs from
+        //      it; see the ModBuild 251 block above for why the 0.110 m this replaces was a misread
+        //      photograph and what the same photograph's windows were actually seated at.
+        float barYm = ResolveMapRoomBarHeightMeters(halfWinYm, out string barRule);
+        float bottomYm = barYm + GrabBarDropMeters;
+        float centreYm = topYm + bottomYm + halfWinYm;
 
         // ---- ModBuild 250 — THE HALF-RING OVER THE TABLE CENTRE. User ruling, verbatim:
         //
@@ -3981,11 +4288,14 @@ internal static partial class ModalFallback
                + $"({TableToMapWidthRatio:F2}x wide, {TableToMapDepthRatio:F2}x deep). "
                + "ABOVE THE TABLE, AND THIS IS THE ARITHMETIC THAT MUST BE CHECKED AGAINST THE "
                + $"PICTURE: window half-height {halfWinYm:F3} m, half-width {halfWinXm:F3} m; "
-               + $"centre = top {topYm:F3} + clearance {SharedAnchorTableClearanceMeters:F3} + "
-               + $"half-height {halfWinYm:F3} = {centreYm:F3} m, so the BOTTOM EDGE sits "
-               + $"{centreYm - halfWinYm - topYm:+0.000;-0.000} m above the table surface — a "
+               + $"GRAB BAR at {barYm:F3} m ([WorldUI] MapRoomWindowBarHeightMeters — ModBuild 251, "
+               + "\"die Höhe soll beim Spawn am Besten bei allen Fenster gleich sein gemessen am "
+               + $"Greifbalken\"), so bottom edge = bar {barYm:F3} + the measured frame-to-bar drop "
+               + $"{GrabBarDropMeters:F3} = {bottomYm:F3} m and centre = top {topYm:F3} + "
+               + $"{bottomYm:F3} + half-height {halfWinYm:F3} = {centreYm:F3} m. THE BOTTOM EDGE "
+               + $"SITS {centreYm - halfWinYm - topYm:+0.000;-0.000} m above the table surface — a "
                + "NEGATIVE number here is the ModBuild 243 defect (the window standing IN the "
-               + "table, multiplayer_fesnter_position.jpg) and nothing else. "
+               + $"table, multiplayer_fesnter_position.jpg) and nothing else. {barRule}. "
                + $"LATERAL STEP {step:F3} m = own half-width {halfWinXm:F3} + half the gap "
                + $"{SharedAnchorLateralGapMeters * 0.5f:F3}, so a PAIR separates by exactly "
                + $"halfA + halfB + {SharedAnchorLateralGapMeters:F2} m and by nothing more "
@@ -4017,6 +4327,11 @@ internal static partial class ModalFallback
                + "which is the same frame record 21 already sends a DRAGGED pose in. THE DRAG STILL "
                + "WINS — this is the initial spawn pose only, and the first published or applied "
                + "pose spends the anchor (grep SHARED WINDOW ANCHOR SPENT / REFUSED).";
+        // THE ONE-LINE FALSIFIER FOR THE HEIGHT RULE, on the same event and never per frame. It is
+        // separate from the line above because it is about the ROOM and not about this window: it
+        // carries every map-room window's bar height side by side, so "sind alle gleich hoch?" is
+        // one grep and one glance instead of a diff between two placements.
+        LogMapRoomBarHeight(window.name, "SHARED", barYm, halfWinYm, barRule);
         return true;
     }
 

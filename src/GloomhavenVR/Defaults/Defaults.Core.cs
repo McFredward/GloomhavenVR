@@ -73,6 +73,33 @@ internal static partial class Defaults
     internal const float InitiativeDepthEvalInterval = 0f;   // => [Optimize] InitiativeDepthEvalInterval
     internal const bool QuietDiagnostics = false;            // => [Optimize] QuietDiagnostics
     internal const float RemoteContentInterval = 0f;         // => [Optimize] RemoteContentInterval
+    // ModBuild 251 — THIS `false` IS A REGRESSION AND THE VALUE IS DELIBERATELY LEFT AS IT IS
+    // UNTIL ONE HARDWARE MEASUREMENT DECIDES IT. Read this before touching the line below.
+    //  * It was bound `true` at 19b120cb, and every piece of prose still attached to it says so:
+    //    PerfConfig's description opens "ON is today's behaviour", and VRRigDriver.HeadCamera.cs
+    //    documents the OFF state's failure in the PAST TENSE — the game's VFX shaders (torch and
+    //    candle glow, clouds, distortion) soft-fade against _CameraDepthTexture, and with
+    //    DepthTextureMode.None "the fade sampled nothing and FAILED OPEN".
+    //  * It became `false` in c5d6bbc9 — the refactor that moved every default onto one line in
+    //    this folder, whose own message says "Descriptions, ordering, ranges, seeding — untouched".
+    //    That commit joined the defaults against .planning/debug/default/*.cfg, and
+    //    dev.gloomhavenvr.perf.cfg carried `false` because it was a dump of a session in which the
+    //    value was being A/B'd. A measurement state was promoted to a shipped default by a
+    //    refactor that believed it was changing nothing.
+    //  * THE USER'S REPORT IS THE CONSEQUENCE (schwebende_lichter.jpg, walls_gone.jpg): hard-edged
+    //    pale rectangles floating at the gate, "dauerhaft so egal was ein oder ausgeblendet wird".
+    //    Under D3D11's reversed depth an unwritten depth texture reads as the FAR PLANE, so every
+    //    soft-fade term saturates to full authored opacity — independent of the wall fade, which
+    //    is exactly the invariance he reported.
+    //  * WHY IT IS NOT SIMPLY FLIPPED HERE. (a) Turning it on makes Unity build the depth texture
+    //    on the built-in forward path by submitting every opaque renderer a SECOND time through
+    //    its shadow-caster pass — four full submissions per frame under MultiPass instead of two,
+    //    the largest single piece of submission volume the mod adds — and this room already runs
+    //    11.65-12.00 ms against an 11.11 ms budget. Nobody has measured that trade on this
+    //    hardware. (b) Flipping it would change NOTHING on an existing install anyway: BepInEx
+    //    keeps the value already in the cfg. The honest sequence is one line in
+    //    dev.gloomhavenvr.perf.cfg, [Perf] FRAME read on both sides of it, and THEN this default
+    //    set deliberately — with the answer in hand instead of a guess.
     internal const bool HeadDepthPrepass = false;            // => [Optimize] HeadDepthPrepass
     internal const string HeadCullingMaskDrop = "";          // => [Optimize] HeadCullingMaskDrop
     internal const bool HeadMaskFromScenarioCamera = false;  // => [Optimize] HeadMaskFromScenarioCamera

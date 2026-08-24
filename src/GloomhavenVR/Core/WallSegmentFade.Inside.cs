@@ -104,19 +104,56 @@ namespace GloomhavenVR.Core;
 /// two populations are cleanly separated and the boundary is in the empty space between them,
 /// which is where a Schmitt band belongs.</para>
 ///
-/// <para>WHAT STANDING DOWN MEANS: A RAISED BAR, NOT A HARD OFF. While INSIDE holds, the
-/// decision loop substitutes <see cref="FadeDriver.InsideOnFraction"/> 0.98 /
-/// <see cref="FadeDriver.InsideOffFraction"/> 0.90 for the live 0.25 / 0.10 — one substituted
-/// threshold pair, no second code path, no second state machine. The log says what that buys:
-/// inside the room the fractions are 0.00-0.13 and <c>vis</c> never once reached 16/16 except
-/// through the head-inside-AABB shortcut, so 0.98 is unreachable by ANY wall he can look at, and
-/// every one of them stays fully solid — "alle Wände voll sichtbar". What it does NOT do is trap
-/// him: <c>BlockedFraction</c>'s hard <c>1f</c> for a head inside the wall's own AABB still
-/// clears 0.98 after roughly 0.75 s (EMA tau 0.15 s from ~0.13 to 0.98, plus the 0.20 s enter
-/// dwell), so walking into stone still dissolves the stone instead of leaving him blind, while a
-/// momentary clip through a corner does not. Pressing his face against a wall from OUTSIDE its
-/// AABB is not that case and stays solid, which is correct — a wall seen from 20 cm away is
-/// still a wall he is looking at.</para>
+/// <para>WHAT STANDING DOWN MEANS: A HARD OFF, WITH ONE CARVE-OUT MEASURED IN MESHES.
+/// ModBuild 241-250 shipped the weaker form of this rule — a substituted threshold pair
+/// (0.98/0.90 instead of the live bars) rather than a stand-down — on the argument that 0.98 is
+/// "unreachable by any wall he can look at" and reachable "only through
+/// <c>BlockedFraction</c>'s hard <c>1f</c> for a head inside the wall's own AABB". THE FIRST
+/// ARGUMENT WAS SOUND AND THE SECOND WAS THE BUG. The hardware log of ModBuild 250
+/// (.planning/debug/Player.log, and the photograph wandausblendung.jpg it belongs to) shows the
+/// escape hatch firing as the STEADY STATE inside the board:
+/// <list type="bullet">
+/// <item>75 of the session's throttled <c>diag:</c> samples carry the head-inside-AABB
+///   signature — a wall reporting <c>blk N/N v N</c> against the room TOTAL while the frustum
+///   only had part of the room in view (e.g. <c>vis 8/16 headY 3.30 | 'Wall 4' raw1.00 ema1.00
+///   blk16/16 v16 ON 1.00 wy[-0.42..5.00]</c>). The ModBuild 241 session this class was written
+///   against contained exactly TWO such events in 25 MB; at figure scale inside a room they are
+///   continuous.</item>
+/// <item>The reason is that <c>Segment.Bounds</c> is not a wall. It is the union AABB of every
+///   renderer the segment owns, grown further by stacked-shell adoption and compared with a
+///   <c>BlockEps</c> up to 0.90 wu. 'Wall 4' in that log owns scattered
+///   <c>PCG_FR_Pillar_Tree_Trunk_01_PR</c> pieces at world XZ (-9.4,-2.4), (-12.9,-0.4),
+///   (-6.9,1.9) and (-10.4,3.9): its box spans roughly x[-13..-6], z[-3..4] and y[-0.42..5.00] —
+///   most of the room, and almost all of it AIR. A player standing on open floor is inside it,
+///   so <c>BlockedFraction</c> returns its hard <c>1f</c>, the EMA reaches 1.00, and 1.00 clears
+///   a 0.98 bar as easily as a 0.25 one. The raised bar therefore did nothing at all for the
+///   walls that matter, which is precisely the report: <i>"Die Wandausblendung ist immer noch
+///   streng … ich bin voll IN dem Spiel drin und schaue nach draußen nicht nach drinnen, warum
+///   wird es dann ausgeblendet?"</i> (user, 2026-08-24, wandausblendung.jpg — standing inside the
+///   room at figure scale, looking out past a group of monsters, with the masonry behind them
+///   gone and the forest environment showing through).</item>
+/// </list>
+/// So the rule becomes what the report asks for literally: while INSIDE holds, this client's OWN
+/// occlusion decision is FORCED OFF for every wall — <c>seg.State</c> and <c>seg.PendingRaw</c>
+/// are cleared every frame, not every evaluation, so a skipped evaluation cannot leave a stale
+/// decision standing and the rule owns the final value that feeds the ramp.</para>
+///
+/// <para>THE CARVE-OUT, AND WHY IT IS KEYED TO A MESH. Being sealed inside opaque geometry with
+/// no way out but backing up blind is still worse than a wall dissolving, so the escape hatch
+/// stays — re-keyed from the segment's union box to the world AABB of an actual wall MESH
+/// (<c>Renderer.bounds</c> over <c>Segment.Renderers</c> and the plain-body meshes), with no
+/// epsilon and no growth. "The camera is inside a wall" is a statement about masonry, and the
+/// only geometry that IS masonry is the mesh. A segment in the carve-out runs the ORDINARY
+/// policy with the live bars — no substituted pair anywhere — so the head-in-stone case
+/// dissolves after the usual 0.20 s enter dwell exactly as it did before. Every segment in the
+/// carve-out is NAMED in the falsifier line, mesh and all, so an over-broad hatch can never
+/// again be invisible. The cheap union test still guards the walk (a mesh box is contained in
+/// the union box), so the per-renderer loop only runs for a segment the head is plausibly in,
+/// and only while INSIDE holds.</para>
+///
+/// <para>PRESSING HIS FACE AGAINST A WALL from outside its meshes is not the trapped case and
+/// stays solid, which is correct — a wall seen from 20 cm away is still a wall he is looking
+/// at.</para>
 ///
 /// <para>WALLS ALREADY FADED WHEN HE CROSSES IN are released on the rising edge
 /// (<see cref="FadeDriver.ReleaseFadesForInside"/>), immediately, without waiting out the exit
@@ -167,13 +204,12 @@ namespace GloomhavenVR.Core;
 ///
 /// <para>ALTERNATIVES REJECTED.
 /// <list type="bullet">
-/// <item>A HARD STAND-DOWN (fade forced off entirely while inside) is simpler and matches "alle
-///   Wände voll sichtbar" literally, and it was rejected for one reason: it removes the
-///   head-in-stone escape hatch. The log shows two head-inside-AABB events in one session at
-///   this zoom, on AABBs that are grown by stacked-shell adoption and carry a blocked epsilon up
-///   to 0.90 wu, and being sealed inside opaque geometry with no way out but backing up blind is
-///   a worse experience than a wall dissolving. The raised bar keeps the literal promise for
-///   every wall he can actually look at and costs one extra threshold constant.</item>
+/// <item>A RAISED BAR (0.98/0.90 substituted for the live pair) was what ModBuild 241-250
+///   shipped, on the argument that it keeps the head-in-stone escape hatch for one extra
+///   constant. It is retired, not re-litigated: the escape hatch it relied on was keyed to
+///   <c>seg.Bounds</c>, so it fired from open floor and the raised bar spared nothing. The
+///   hatch is now keyed to a MESH, which makes it narrow enough that the surrounding policy no
+///   longer has to be soft to accommodate it.</item>
 /// <item>A THRESHOLD ON THE WORLD SCALE ("below N world units per metre, stand down") was
 ///   rejected because the log falsifies it: the scale is a continuous dial ridden from 8.28 to
 ///   1.15 and back within one scenario, the map room sits at 198.12, and the same scale describes
@@ -211,16 +247,10 @@ internal static partial class WallSegmentFade
         /// <summary>Schmitt low bar: leave INSIDE only once the head is this fraction of the
         /// crest height OUTSIDE the volume — a 0.45·C band the head must cross to flip back.</summary>
         private const float InsideExitDepthFraction = 0.35f;
-        /// <summary>Coverage high bar substituted for <see cref="WallFadeTuning.On"/> while
-        /// INSIDE. Unreachable by any wall the player can look at from in there (the log's
-        /// inside readings are 0.00-0.13 and the in-view sample count never reaches the room
-        /// total), and reachable only through <c>BlockedFraction</c>'s hard 1f for a head inside
-        /// the wall's own AABB — the head-in-stone escape hatch, roughly 0.75 s of standing in
-        /// the stone once the EMA and the enter dwell are paid.</summary>
-        private const float InsideOnFraction = 0.98f;
-        /// <summary>Coverage low bar substituted for <see cref="WallFadeTuning.Off"/> while
-        /// INSIDE — the Schmitt partner of <see cref="InsideOnFraction"/>.</summary>
-        private const float InsideOffFraction = 0.90f;
+        /// <summary>How many carve-out / external-signal walls the falsifier names before it
+        /// starts counting the rest. The whole point of the line is that an over-broad escape
+        /// hatch can never again hide behind a bare number, so this is generous.</summary>
+        private const int InsideNameCap = 6;
         /// <summary>Floor under the derived crest height, so a degenerate or half-generated
         /// board can never produce a zero-height volume that the head is trivially outside.</summary>
         private const float BoardCrestMinWU = 0.5f;
@@ -256,13 +286,35 @@ internal static partial class WallSegmentFade
         /// <summary>Last per-axis slabs of that distance — which TERM decided the verdict.</summary>
         private float _lastInsideMarginY;
         private float _lastInsideMarginXZ;
-        /// <summary>Walls the raised bar spared on the last evaluation: their smoothed coverage
-        /// clears the NORMAL bar and would have faded them.</summary>
-        private int _insideSpared;
-        /// <summary>Worst-offending wall of the last evaluation while inside — the highest
-        /// smoothed coverage seen, and whose it was.</summary>
+        // --- stand-down census (all MEASURED on the last pass, never intended) --------------
+        /// <summary>Fadeable walls the stand-down held at State=false on the last pass.</summary>
+        private int _insideForcedSolid;
+        /// <summary>Of those, how many the LIVE bars would have faded — the number that proves
+        /// the rule did work. A session where the player stands inside, walls dissolve, and this
+        /// reads 0 says the rule is not what is holding them.</summary>
+        private int _insideWouldHaveFaded;
+        /// <summary>Highest smoothed coverage among the forced-solid walls, and whose.</summary>
         private float _insideWorstSmooth;
         private string _insideWorstWall = "-";
+        /// <summary>Walls exempted because the head is inside one of their MESHES, named.</summary>
+        private int _insideCarveOut;
+        private readonly List<string> _insideCarveNames = new();
+        /// <summary>Forced-solid walls an EXTERNAL signal still hides, named with which signal.
+        /// Peer fades (wire record 17) are the external case the report grants; a gate lift is
+        /// this client's own decision propagating and is counted separately so the line cannot
+        /// pass one off as the other.</summary>
+        private int _insideExternalPeer;
+        private int _insideExternalGate;
+        private readonly List<string> _insideExternalNames = new();
+        /// <summary>Forced-solid walls with NO external signal that still carry a non-zero fade
+        /// after the ramp — mid-unfade is normal and transient, a value that persists here is a
+        /// writer this loop does not know about.</summary>
+        private int _insideResidual;
+        private float _insideResidualWorst;
+        private string _insideResidualWall = "-";
+        /// <summary>False until a pass has actually run under the rule, so the falsifier can say
+        /// "no pass yet" instead of printing zeros that look like a measurement.</summary>
+        private bool _insideCensusTaken;
         /// <summary>Walls released by the last INSIDE rising edge.</summary>
         private int _insideReleased;
         private float _nextInsideLogTime;
@@ -383,8 +435,10 @@ internal static partial class WallSegmentFade
                 + $"<= {-InsideEnterDepthFraction * _boardCrestWU:F2} wu, leave at "
                 + $">= {InsideExitDepthFraction * _boardCrestWU:F2} wu (dwell "
                 + $"{EnterDwellSeconds:F2}s in / {WallFadeTuning.DwellMoved:F2}s out); while "
-                + $"INSIDE the coverage bars become {InsideOnFraction:F2}/{InsideOffFraction:F2} "
-                + $"instead of the live {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}.");
+                + "INSIDE this client's own occlusion decision is FORCED OFF for every wall "
+                + "(no substituted bars — the live bars stay "
+                + $"{WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2} and apply only to a wall "
+                + "whose own masonry contains the head, and to nothing else).");
         }
 
         /// <summary>
@@ -466,10 +520,20 @@ internal static partial class WallSegmentFade
             _insideBoard = false;
             _insidePending = false;
             _insidePendingSince = 0f;
-            _insideSpared = 0;
             _insideReleased = 0;
+            _insideCensusTaken = false;
+            _insideForcedSolid = 0;
+            _insideWouldHaveFaded = 0;
             _insideWorstSmooth = 0f;
             _insideWorstWall = "-";
+            _insideCarveOut = 0;
+            _insideCarveNames.Clear();
+            _insideExternalPeer = 0;
+            _insideExternalGate = 0;
+            _insideExternalNames.Clear();
+            _insideResidual = 0;
+            _insideResidualWorst = 0f;
+            _insideResidualWall = "-";
         }
 
         /// <summary>
@@ -490,34 +554,166 @@ internal static partial class WallSegmentFade
                 seg.State = false;
                 seg.PendingRaw = false;
                 seg.PendingSince = now;
+                seg.GateLiftUntil = 0f;
                 _insideReleased++;
                 LogStateFlip(seg); // the ordinary fade OFF line, so the release is attributable
             }
         }
 
-        /// <summary>Reset the per-evaluation census the falsifier line reports.</summary>
+        /// <summary>Reset the per-pass census the falsifier line reports.</summary>
         private void BeginInsideCensus()
         {
-            _insideSpared = 0;
+            _insideForcedSolid = 0;
+            _insideWouldHaveFaded = 0;
             _insideWorstSmooth = 0f;
             _insideWorstWall = "-";
+            _insideCarveOut = 0;
+            _insideCarveNames.Clear();
+            _insideExternalPeer = 0;
+            _insideExternalGate = 0;
+            _insideExternalNames.Clear();
+            _insideResidual = 0;
+            _insideResidualWorst = 0f;
+            _insideResidualWall = "-";
+            _insideCensusTaken = true;
         }
 
         /// <summary>
-        /// Count one segment against the NORMAL bar it would have been judged by. This is the
-        /// number that makes the line falsifiable: a session where the player stands inside and
-        /// this reads 0 while walls are still dissolving says the rule is not the thing holding
-        /// them, and a session where it is large says exactly how much work the rule did.
+        /// THE STAND-DOWN. Called for every segment AFTER the decision chain and OUTSIDE the
+        /// evaluation cadence, so it owns the final <c>seg.State</c> that feeds the ramp and a
+        /// skipped evaluation cannot leave a stale decision standing.
+        ///
+        /// <para>Returns true when this segment's own occlusion decision was forced/held OFF by
+        /// the rule — the caller then measures the OUTCOME against the external signals.</para>
+        ///
+        /// <para>Segments already held solid by another rule (boundless, engulfing, doorway,
+        /// room without a valid floor grid) are not counted: they would be solid anyway and
+        /// claiming them would inflate the falsifier's own number.</para>
         /// </summary>
-        private void NoteInsideSpared(Segment seg, float normalOn, float normalOff)
+        private bool ApplyInsideStandDown(Segment seg, Vector3 headPos, float now)
         {
-            if (seg.Smooth >= (seg.State ? normalOff : normalOn))
-                _insideSpared++;
+            if (!seg.HasBounds || seg.Engulfing || seg.DoorRoot != null
+                || !RoomDecisionValid(seg.RoomIndex))
+                return false;
+
+            // THE CARVE-OUT: the head is inside actual masonry, not merely inside the segment's
+            // union box. Such a segment runs the ORDINARY live policy — no substituted bars
+            // anywhere — so walking into stone still dissolves it after the usual enter dwell.
+            if (seg.Bounds.Contains(headPos) && HeadInsideWallMesh(seg, headPos, out string mesh))
+            {
+                _insideCarveOut++;
+                if (_insideCarveNames.Count < InsideNameCap)
+                {
+                    string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    _insideCarveNames.Add($"'{wall}' (head inside mesh '{mesh}')");
+                }
+                return false;
+            }
+
+            _insideForcedSolid++;
+            if (seg.Smooth >= (seg.State ? WallFadeTuning.Off : WallFadeTuning.On))
+                _insideWouldHaveFaded++;
             if (seg.Smooth > _insideWorstSmooth)
             {
                 _insideWorstSmooth = seg.Smooth;
                 _insideWorstWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             }
+
+            if (seg.State || seg.PendingRaw)
+            {
+                seg.State = false;
+                seg.PendingRaw = false;
+                seg.PendingSince = now;
+            }
+            // A gate lift is this client's own decision reaching a second wall; while the rule
+            // holds, its LINGER must not outlive the decision that armed it.
+            seg.GateLiftUntil = 0f;
+            return true;
+        }
+
+        /// <summary>
+        /// Measure what actually became of a forced-solid wall, after the ramp. Called from the
+        /// tick with the composed external signals, so the falsifier reports outcomes rather
+        /// than the intentions of the branch above.
+        /// </summary>
+        private void NoteInsideOutcome(Segment seg, bool remoteFade, bool gateLift, int peerId)
+        {
+            if (remoteFade || gateLift)
+            {
+                if (remoteFade)
+                    _insideExternalPeer++;
+                else
+                    _insideExternalGate++;
+                if (_insideExternalNames.Count < InsideNameCap)
+                {
+                    string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    _insideExternalNames.Add(remoteFade
+                        ? $"'{wall}' (peer {peerId}, wire record 17)"
+                        : $"'{wall}' (gate lift)");
+                }
+                return;
+            }
+            if (seg.Fade <= 0.005f)
+                return;
+            _insideResidual++;
+            if (seg.Fade > _insideResidualWorst)
+            {
+                _insideResidualWorst = seg.Fade;
+                _insideResidualWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            }
+        }
+
+        /// <summary>
+        /// THE STAND-DOWN FALSIFIER. Printed ONLY while the rule is in force, and every number
+        /// in it is measured on the pass that just ran:
+        /// <list type="bullet">
+        /// <item>how many walls the rule forced solid, and how many of those the LIVE bars would
+        ///   have faded — if walls are dissolving while the player stands inside and this second
+        ///   number is 0, the rule is not what is holding them and the search moves elsewhere;
+        ///   </item>
+        /// <item>how many an EXTERNAL signal still hides, named and attributed — peer fades are
+        ///   the exception the report grants, gate lifts are counted apart because they are this
+        ///   client's own decision and must not be passed off as external;</item>
+        /// <item>how many carry a fade with NO signal behind them at all, which is the shape of
+        ///   a writer this loop does not own.</item>
+        /// </list>
+        /// </summary>
+        private void LogInsideStandDown()
+        {
+            if (!_insideCensusTaken)
+            {
+                VRLog.Info(Name,
+                    "WALLS FORCED SOLID (INSIDE): no pass has run under the rule yet — the "
+                    + "verdict flipped this frame and the numbers below would be an artifact of "
+                    + "the ordering, not a measurement.");
+                return;
+            }
+            string carve = _insideCarveOut == 0
+                ? "0 wall(s) carved out"
+                : $"{_insideCarveOut} wall(s) carved out because the head is inside their own "
+                  + $"masonry: {string.Join(", ", _insideCarveNames)}"
+                  + (_insideCarveOut > _insideCarveNames.Count
+                      ? $", +{_insideCarveOut - _insideCarveNames.Count} more" : "");
+            int external = _insideExternalPeer + _insideExternalGate;
+            string ext = external == 0
+                ? "0 wall(s) are still hidden by an external signal"
+                : $"{external} wall(s) are still hidden by another signal "
+                  + $"({_insideExternalPeer} peer, {_insideExternalGate} gate lift): "
+                  + string.Join(", ", _insideExternalNames)
+                  + (external > _insideExternalNames.Count
+                      ? $", +{external - _insideExternalNames.Count} more" : "");
+            string residual = _insideResidual == 0
+                ? "and none of the forced-solid walls carries an unexplained fade"
+                : $"and {_insideResidual} forced-solid wall(s) still carry a fade with NO signal "
+                  + $"behind it — worst '{_insideResidualWall}' at fade "
+                  + $"{_insideResidualWorst:F2} (transient while a fade ramps out; persistent "
+                  + "means a writer this loop does not own)";
+            VRLog.Info(Name,
+                $"WALLS FORCED SOLID (INSIDE): {_insideForcedSolid} wall(s) held at their own "
+                + $"decision OFF this pass, {_insideWouldHaveFaded} of which the live bars "
+                + $"{WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2} would have faded "
+                + $"(worst '{_insideWorstWall}' at ema {_insideWorstSmooth:F2}); "
+                + $"{carve}; {ext}, {residual}.");
         }
 
         /// <summary>
@@ -561,20 +757,8 @@ internal static partial class WallSegmentFade
                 + $">= {InsideExitDepthFraction * _boardCrestWU:F2} wu. In real metres at rig "
                 + $"scale {rigScale:F2} wu per metre: {metres}. "
                 + (_insideBoard
-                    ? $"Raised bar {InsideOnFraction:F2}/{InsideOffFraction:F2} in force instead "
-                      + $"of {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}: "
-                      // On the RISING edge no evaluation has run under the raised bar yet, so a
-                      // spared count of 0 there would be an artifact of the ordering and not a
-                      // measurement. Say which one this is rather than print a number that has
-                      // not been taken.
-                      + (_insideWorstWall == "-"
-                          ? "census pending — the first evaluation under the raised bar has not "
-                            + "run yet, so there is no spared count to report on this line. "
-                          : $"it spared {_insideSpared} wall(s) on the last evaluation that the "
-                            + $"normal bar would have faded; worst offender "
-                            + $"'{_insideWorstWall}' at ema {_insideWorstSmooth:F2} (only a head "
-                            + $"INSIDE a wall AABB can still reach {InsideOnFraction:F2} from in "
-                            + "here). ")
+                    ? "This client's own occlusion fade is FORCED OFF for every wall; the "
+                      + "per-pass counts are on the WALLS FORCED SOLID (INSIDE) line. "
                       + $"{_insideReleased} wall(s) were released on entry."
                     : $"Normal bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2} in force — "
                       + "the fade policy is running unchanged."));

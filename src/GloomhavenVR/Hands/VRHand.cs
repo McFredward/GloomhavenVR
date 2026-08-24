@@ -512,6 +512,12 @@ internal sealed class VRHand : MonoBehaviour
 
     private void UpdateBody()
     {
+        // Falsifier sample, deliberately the FIRST thing in the frame: what the beam still owned
+        // when this frame started. Read before anything ticks, so the grip-suppression line below
+        // can name what was actually dropped instead of what it expected to drop. Four field
+        // reads; not part of any locked ordering (it drives a log line, nothing consumes it).
+        SampleLaserFlight();
+
         // FRAME-ORDER VRHand.UpdateBody.pose [ReadSimulated, ReadDevice, UpdateVelocity, UpdatePoseClassification, UpdateCurlTargets, _curler.Tick, Poke.Tick]
         //   Every later step consumes the step before it: velocity is differentiated from the
         //   pose read THIS frame, the pose classifier reads that velocity, the curl targets read
@@ -544,6 +550,142 @@ internal sealed class VRHand : MonoBehaviour
         RayGrab.Tick();
         Grabber.Tick();
         PalmGate.Tick();
+
+        // AFTER every interactor has run, so the line reports the state the frame ENDED in —
+        // beam drawn or not, press cancelled or not. Placed here on purpose: run before the
+        // interactors and it could only report an intention.
+        TickGripLaserFalsifier();
+    }
+
+    // ---- grip-held laser suppression: falsifier -----------------------------------------
+
+    /// <summary>
+    /// One Info line per transition, per hand, when this hand's laser stands down because the
+    /// GRIP is held (RayInteractor.GripSuppressed — the physical fingertip-press posture) and
+    /// one more when it comes back.
+    ///
+    /// <para>It is written to report the OUTCOME. Every value in it is read back AFTER the
+    /// interactors ran (<c>Ray.Active</c>, <c>Ray.BeamDrawn</c>, the drivers' live in-flight
+    /// fields), and the "cancelled" list is the difference between the state sampled at the
+    /// TOP of this frame (<see cref="SampleLaserFlight"/>) and the state now — so a line that
+    /// says a press was cancelled is a line that watched the field go false. If the beam
+    /// somehow stays drawn while the grip is held, this line says <c>beam drawn=True</c> and
+    /// the fix is falsified on the spot.</para>
+    ///
+    /// <para>Rate limit: at most one Info line per hand per
+    /// <see cref="GripFalsifierInfoIntervalSeconds"/>. Transitions inside that window are still
+    /// printed (at Debug, so nothing is lost from a Trace-level hardware log) and counted, and
+    /// the count is carried on the next Info line — a throttle that silently ate transitions
+    /// would make this instrument lie about how often the beam moved.</para>
+    /// </summary>
+    private const float GripFalsifierInfoIntervalSeconds = 0.25f;
+
+    private bool _gripLaserSuppressed;
+    private float _gripLaserSuppressedAt;
+    private float _nextGripFalsifierInfoAt;
+    private int _gripFalsifierCollapsed;
+
+    // In-flight snapshot taken at the top of the frame (see SampleLaserFlight).
+    private bool _preUguiPress;
+    private bool _preUguiHover;
+    private bool _preBarHover;
+    private bool _preFreshUiHit;
+
+    private void SampleLaserFlight()
+    {
+        // Defensive: Update can run on the frame the hand is built, before Initialize has
+        // created the interactors (they are declared `null!`). An unguarded read here would
+        // throw every frame and starve input for the session.
+        _preUguiPress = RayUgui != null && RayUgui.IsPressing;
+        _preUguiHover = RayUgui != null && RayUgui.IsHovering;
+        _preBarHover = RayGrab != null && RayGrab.IsHovering;
+        _preFreshUiHit = Ray != null && Ray.HasFreshUiHit;
+    }
+
+    private void TickGripLaserFalsifier()
+    {
+        try
+        {
+            bool suppressed = Ray != null && Ray.GripSuppressed;
+            if (suppressed == _gripLaserSuppressed)
+                return;
+            _gripLaserSuppressed = suppressed;
+
+            string message;
+            if (suppressed)
+            {
+                _gripLaserSuppressedAt = Time.unscaledTime;
+                bool uguiPress = RayUgui.IsPressing;
+                bool uguiHover = RayUgui.IsHovering;
+                bool barHover = RayGrab.IsHovering;
+                bool freshUiHit = Ray!.HasFreshUiHit;
+
+                string cancelled = DescribeCancelled(
+                    _preUguiPress && !uguiPress,
+                    _preUguiHover && !uguiHover,
+                    _preBarHover && !barHover,
+                    _preFreshUiHit && !freshUiHit);
+
+                message =
+                    $"LASER SUPPRESSED ({Side}) — grip HELD (grip={GripValue:0.00}, pressed={GripPressed}); " +
+                    $"read back after the interactors ran: ray Active={Ray.Active}, beam drawn={Ray.BeamDrawn} " +
+                    $"[{Ray.StateReason}]; in flight at the top of this frame: uGUI press={_preUguiPress}, " +
+                    $"uGUI hover={_preUguiHover}, panel-bar hover={_preBarHover}, fresh-UI-hit={_preFreshUiHit}; " +
+                    $"now: uGUI press={uguiPress}, uGUI hover={uguiHover}, panel-bar hover={barHover}, " +
+                    $"fresh-UI-hit={freshUiHit} => cancelled {cancelled}; carried object: " +
+                    $"{DescribeHeld()} (NOT dropped — the Grabber owns it and its hold button is unchanged).";
+            }
+            else
+            {
+                message =
+                    $"LASER RESTORED ({Side}) — grip RELEASED (grip={GripValue:0.00}, pressed={GripPressed}) " +
+                    $"after {Time.unscaledTime - _gripLaserSuppressedAt:0.00}s; read back after the interactors " +
+                    $"ran: ray Active={Ray!.Active}, beam drawn={Ray.BeamDrawn} [{Ray.StateReason}]; " +
+                    $"carried object: {DescribeHeld()}.";
+            }
+
+            float now = Time.unscaledTime;
+            if (now < _nextGripFalsifierInfoAt)
+            {
+                _gripFalsifierCollapsed++;
+                VRLog.Debug("Hands", message + $" [throttled: {_gripFalsifierCollapsed} transition(s) " +
+                                               $"within {GripFalsifierInfoIntervalSeconds:0.00}s]");
+                return;
+            }
+            _nextGripFalsifierInfoAt = now + GripFalsifierInfoIntervalSeconds;
+            if (_gripFalsifierCollapsed > 0)
+                message += $" [+{_gripFalsifierCollapsed} earlier transition(s) were logged at Debug by the throttle]";
+            _gripFalsifierCollapsed = 0;
+            VRLog.Info("Hands", message);
+        }
+        catch (Exception ex)
+        {
+            // A log line may never cost the session its input (the unguarded-Update failure mode).
+            VRLog.Error("Hands", $"grip laser falsifier threw: {ex}");
+        }
+    }
+
+    private static string DescribeCancelled(bool uguiPress, bool uguiHover, bool barHover, bool freshUiHit)
+    {
+        if (!uguiPress && !uguiHover && !barHover && !freshUiHit)
+            return "nothing (the beam was idle)";
+        string list = "";
+        if (uguiPress) list += "uGUI press/drag";
+        if (uguiHover) list += (list.Length > 0 ? ", " : "") + "uGUI hover";
+        if (barHover) list += (list.Length > 0 ? ", " : "") + "panel-bar hover";
+        if (freshUiHit) list += (list.Length > 0 ? ", " : "") + "beam UI clamp";
+        return "[" + list + "]";
+    }
+
+    private string DescribeHeld()
+    {
+        IGrabbable? held = Grabber != null ? Grabber.Held : null;
+        return held switch
+        {
+            null => "none",
+            UnityEngine.Object o => o != null ? $"'{o.name}'" : "'<destroyed>'",
+            _ => held.GetType().Name,
+        };
     }
 
     private void ReadDevice()

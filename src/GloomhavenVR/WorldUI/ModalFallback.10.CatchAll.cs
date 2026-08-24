@@ -385,6 +385,12 @@ internal static partial class ModalFallback
         // one-line-per-edge logging belongs to the single call in TickCatchAll. See FloatRefusalTable.
         if (FloatRefusalTable.Refuses(window))
             return false;
+        // ModBuild 251 — AND NEITHER MAY A WINDOW NESTED INSIDE ONE THAT IS REFUSED FOR THE MOMENT.
+        // See RefusedForTheMomentAbove for the hardware trace and for why this is asked about the
+        // INTERVAL class only. Level-triggered like everything else here: the instant the ancestor's
+        // refusal lapses this returns null again and the child floats on its own.
+        if (RefusedForTheMomentAbove(window) != null)
+            return false;
         // Known-handled IDs (passives with post-mortems + surface-owned windows).
         if (CatchAllKnownHandled.Contains(window.ID))
             return false;
@@ -642,6 +648,88 @@ internal static partial class ModalFallback
     private static readonly HashSet<string> AncestorRefusalWarned = new();
 
     /// <summary>
+    /// IS SOME <c>UIWindow</c> ABOVE THIS ONE REFUSED <b>FOR THE MOMENT</b> — i.e. by the
+    /// <see cref="FloatRefusalClass.PastThePointOfNoReturn"/> class? (ModBuild 251.) Returns that
+    /// ancestor, or null.
+    ///
+    /// <para><b>THE DEFECT THIS ANSWERS, FROM THE ModBuild 250 HARDWARE LOG AND NOT FROM
+    /// INFERENCE.</b> The story curtain refused the Character-UI <c>'New Party display'</c> and the
+    /// release loop took its float down (<c>FLOAT RELEASED ON REFUSAL</c>, Player.log:4999). On the
+    /// next tick <see cref="AncestorWillBeFloated"/> saw the refusal, correctly concluded that the
+    /// host would not exist, and printed its own falsifier —
+    /// <c>PARENT WINS STOOD DOWN: 'New Party display' (ID PartyPanel) … the float refusal table
+    /// refuses it</c> (:5005) — which releases the windows nested inside it to float on their own.
+    /// The catch-all then took the window's own child: <c>WINDOW IDENTITY 'Party Display UI '
+    /// (ID None): path Campaign Canvas/New Party display/Party Display UI ; rect 300x1080;
+    /// components […, NewPartyDisplayUI, UIWindow, …]; nearest ancestor UIWindow 'New Party display'
+    /// (ID PartyPanel, open=True)</c> (:5007), converted it (:5011), gave it a grab bar (:5021), a
+    /// close cross (:5024) and a map-room seat, and announced it <c>floated in front of the HMD
+    /// (1.4 m, poke + laser clickable)</c> (:5025). It stood there for the whole quest start and was
+    /// let go only at the NEXT point-of-no-return edge, 1244 log lines later (:6255).</para>
+    ///
+    /// <para><b>USER REPORT, verbatim</b> (and he has since confirmed which window he means:
+    /// <i>"wenn ich von der Controller-UI spreche meine ich immer die Party Display UI, also die
+    /// Leiste mit allen 4 Characteren"</i>): <i>"Obwohl der Point of no return überschritten war ist
+    /// die Controller-UI neu davor gespawnt (bzw nicht despawned, kann ich nicht genau sagen), die
+    /// soll genau wie die Questliste verschwinden und nicht mehr wiederkehren."</i> The parenthesis
+    /// is the trace exactly: the parent DESPAWNED and its child spawned in its place.</para>
+    ///
+    /// <para><b>WHY THE ANCESTOR AND NOT THE CURTAIN'S MEMBER SET.</b> The curtain freezes its
+    /// members at the rising edge and its own audit named this window and could not act —
+    /// <c>OTHER floated window(s): 1 ['Party Display UI ' (a curtain member: False)]</c> (:5030),
+    /// where <c>False</c> means "opened after the edge, out of scope by construction". Appending to
+    /// that set afterwards is the ModBuild 231 exclusion that ate the loadout sequence and cost a
+    /// session. This rule appends nothing: it asks about ONE named instance that the table has
+    /// ALREADY refused, and it stops the moment that refusal does.</para>
+    ///
+    /// <para><b>AND ONLY THE INTERVAL CLASS.</b> A <c>ScreenSpaceVeil</c> or a <c>BareControl</c> row
+    /// says "this object is not a window" and says nothing about its contents — suppressing those
+    /// children is the merchant bug ([[parent-wins-needs-a-real-parent]]), where a fragment deferred
+    /// to a host that was never going to draw it. <c>PastThePointOfNoReturn</c> says "it is not this
+    /// window's moment", which is a statement about everything the window draws. See
+    /// <see cref="FloatRefusalTable.RefusesForTheMoment"/>.</para>
+    ///
+    /// <para>The walk is the same parent chain <see cref="HasOpenAncestorWindow"/> already runs once
+    /// per candidate per tick, so this adds no new class of cost — and it short-circuits on the very
+    /// first level for the overwhelming majority of windows, which have no <c>UIWindow</c> above them
+    /// at all.</para>
+    /// </summary>
+    private static UIWindow? RefusedForTheMomentAbove(UIWindow window)
+    {
+        Transform? t = window.transform.parent;
+        while (t != null)
+        {
+            var above = t.GetComponent<UIWindow>();
+            if (above != null && !ReferenceEquals(above, window)
+                && FloatRefusalTable.RefusesForTheMoment(above))
+            {
+                if (IntervalAncestorWarned.Add(window.name))
+                    VRLog.Info("WorldUI",
+                        $"NESTED IN A WINDOW THAT IS REFUSED FOR THE MOMENT: '{window.name}' (ID "
+                        + $"{window.ID}) is NOT floated on its own. MEASURED THIS TICK: its ancestor "
+                        + $"'{above.name}' (ID {above.ID}) is refused by the refusal table as a "
+                        + $"{FloatRefusalClass.PastThePointOfNoReturn}, and this child sits inside "
+                        + "that window's own subtree, so drawing it would put the refused window's "
+                        + "content in front of the player under a different frame. THE REFUSAL "
+                        + $"ITSELF: {FloatRefusalTable.Describe(above) ?? "<no description>"}. THIS "
+                        + "IS AN INTERVAL AND NOT AN IDENTITY: nothing is written to the game, the "
+                        + "child keeps its ordinary 2D rendering, and it floats on its own again on "
+                        + "the first tick the ancestor's refusal stops standing. A ScreenSpaceVeil or "
+                        + "BareControl refusal on the ancestor deliberately does NOT reach this line "
+                        + "— those rows say the OBJECT is not a window and say nothing about what is "
+                        + "nested in it (ModBuild 184's merchant).");
+                return above;
+            }
+            t = t.parent;
+        }
+        return null;
+    }
+
+    /// <summary>Per-child-name latch for the interval-ancestor Info line — one per window type,
+    /// cleared with the rest of the catch-all state when the room stands down.</summary>
+    private static readonly HashSet<string> IntervalAncestorWarned = new();
+
+    /// <summary>
     /// IS THIS ANCESTOR ACTUALLY GOING TO BE A FLOATED WINDOW? (ModBuild 184.)
     ///
     /// <para>181's "parent wins" rule asked only whether an ancestor was OPEN, and 182 patched a
@@ -784,7 +872,24 @@ internal static partial class ModalFallback
                                       + ". A child may not defer to a host that will not exist, so the "
                                       + "children float on their own instead. THIS LINE IS A FALSIFIER: "
                                       + "if it never appears, no child was ever suppressed by an absent "
-                                      + "parent; if it appears, the room stayed reachable BECAUSE of it.");
+                                      + "parent; if it appears, the room stayed reachable BECAUSE of it. "
+                                      // ModBuild 251 — THE SENTENCE ABOVE WAS TRUE OF EVERY HOLD EXCEPT
+                                      // ONE, AND THAT ONE COST THE POINT OF NO RETURN. This same line at
+                                      // Player.log:5005 released 'Party Display UI ' to float on its own
+                                      // because its parent 'New Party display' was refused BY THE
+                                      // INTERVAL CLASS — i.e. because nothing of that window was allowed
+                                      // on screen at that instant. The children are no longer let out
+                                      // for that reason; see RefusedForTheMomentAbove.
+                                      + (FloatRefusalTable.RefusesForTheMoment(above)
+                                          ? "ModBuild 251 EXCEPTION IN FORCE FOR THIS HOST: the refusal "
+                                            + "is the PastThePointOfNoReturn class, which is a statement "
+                                            + "about the MOMENT and therefore about everything this "
+                                            + "window draws — its nested windows are refused with it by "
+                                            + "CatchAllEligible and do NOT float on their own. Grep "
+                                            + "NESTED IN A WINDOW THAT IS REFUSED FOR THE MOMENT."
+                                          : "The refusal classes that reach this branch are the IDENTITY "
+                                            + "ones (ScreenSpaceVeil, BareControl), which say nothing "
+                                            + "about what is nested inside the object."));
             return false;
         }
         if (ContainsWindow(OpenWindows, above))
@@ -1257,6 +1362,7 @@ internal static partial class ModalFallback
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
         AncestorRefusalWarned.Clear();
         AncestorHeldOutWarned.Clear();
+        IntervalAncestorWarned.Clear();
         SubViewRetractWarned.Clear();  // ModBuild 234 — the retraction's per-sub-view latch
         DoubleHostWarned.Clear();      // ModBuild 234 — and the double-hosting audit's
         SubViewRetracted.Clear();      // ModBuild 234 — the one-tick bridge to the release loop

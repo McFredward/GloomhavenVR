@@ -184,6 +184,34 @@ internal static partial class Defaults
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
     internal const float SharedWindowArcRadiusMeters = 0.80f; // => [WorldUI] SharedWindowArcRadiusMeters
+    // ModBuild 251 — THE ARITHMETIC FOR 0.60, written where the number lives.
+    //
+    // It is the MEAN OF THE TWO GRAB-BAR HEIGHTS IN ideale_position.jpg, measured from the log
+    // rather than from the image. Those two windows ('New Party display', 'Quest Log Manager') are
+    // the ones the user called ideal, and their own ModBuild 250 placement lines give centre
+    // 219.12 wu / half-height 112.33 wu and centre 229.18 wu / half-height 91.53 wu over a table
+    // top at 0.00 wu at 198.12 wu/m — frame bottoms 0.539 m and 0.695 m, bars (18 mm lower)
+    // 0.521 m and 0.677 m. Mean 0.599 ⇒ 0.60.
+    //
+    // WHAT IT DOES TO THE WINDOW HE PHOTOGRAPHED. The eye sits 1.169 m above that table (eye
+    // 231.57 wu) and 'UI Event Window' is seated at arc depth 0.501 m, lateral −0.660 m, with the
+    // head 1.35 m out along the short axis — 1.965 m of horizontal reach. Elevation of its edges,
+    // + = above the horizon:
+    //
+    //     BEFORE (bottom edge pinned at +0.110 m)   bottom −28.3°   centre −20.2°   top −11.0°
+    //     AFTER  (bar 0.600, bottom 0.618 m)        bottom −15.7°   centre  −6.2°   top  +3.6°
+    //
+    // i.e. the window stops lying on the map and comes up to the reading line. 'UI Quest Popup'
+    // moves −14.6° → −0.4° at its centre; 'Map Story Window' −10.2° → +3.4° at its top. The LOCAL
+    // family barely moves — 'New Party display' +79 mm, 'Quest Log Manager' −77 mm — which is the
+    // point: they were already where he wanted them, and now they are there ON PURPOSE and stop
+    // varying with head pitch.
+    //
+    // MULTIPLAYER: this is part of a SHARED window's spawn pose, exactly like
+    // SharedWindowArcRadiusMeters above. Two clients holding different values seat a shared window
+    // at different heights until someone drags it; the MAP ROOM WINDOW BAR HEIGHT log line prints
+    // the resolved number on every placement so that is one grep, not a mystery.
+    internal const float MapRoomWindowBarHeightMeters = 0.60f; // => [WorldUI] MapRoomWindowBarHeightMeters
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
