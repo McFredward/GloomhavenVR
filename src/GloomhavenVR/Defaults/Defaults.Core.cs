@@ -98,9 +98,15 @@ internal static partial class Defaults
     //    three cards it counted as depth-fade dependent are offscreen, not-submitted shield clouds
     //    on stone golems, while every gate-area card printed "depth-fade props: NONE".
     //    So this entry is a REGRESSION WITH NO KNOWN SYMPTOM: still worth correcting one day, no
-    //    longer evidence about the gate. (ModBuild 259 also killed the successor identification —
-    //    the gate's 'Door_Light_*_Mesh' plates are an 8:1 strip 0.257 wu tall and the photographed
-    //    regions are taller than wide; see GlowCardCensus.GateDump.cs.)
+    //    longer evidence about the gate.
+    //  * AND THE GATE IS NOW CLOSED, AGAINST ModBuild 259's DISMISSAL. 259 acquitted the gate's
+    //    'Door_Light_*_Mesh' plates because their bounds are an 8:1 strip 0.257 wu tall while the
+    //    photographed regions are taller than wide. Both halves are true and the conclusion does not
+    //    follow: 8:1 is the UNION of a row of small coplanar quads and each quad in it is taller than
+    //    wide. Measured on both photographs, the trio spans ~2.1 wu at exactly 0.257 wu tall, which
+    //    IS that bounding box. They are the game's own opaque LIT plates a few cm from the door's own
+    //    light, which is why no fade and no depth term ever touched them. Core/DoorLightPlates.cs
+    //    hides the RENDERER game-wide (user, 2026-08-25) and carries the full measurement.
     //  * WHY IT IS NOT SIMPLY FLIPPED HERE. (a) Turning it on makes Unity build the depth texture
     //    on the built-in forward path by submitting every opaque renderer a SECOND time through
     //    its shadow-caster pass — four full submissions per frame under MultiPass instead of two,

@@ -69,11 +69,12 @@ namespace GloomhavenVR.Core;
 /// 5 s and capped at 5 per entry (then ONE error naming the assets). Zero behavior when
 /// nothing is stuck.
 ///
-/// ROUND 9 (ModBuild 259) adds NO behaviour: a session write ledger that answers, positively,
-/// whether this file is a writer on the door props' 'Door_Light_*_Mesh' renderers — the lead
-/// behind schwebende_lichter.jpg. Grep <c>MaterialLoaderHeal LEDGER</c>; the rule it protects
-/// is the door-prop skip in the heal loop, and the ledger's own error line is what would
-/// falsify it. Nothing about the heal decisions changed.
+/// ROUND 9's write ledger (ModBuild 259) is GONE, retired with the question it existed for.
+/// It answered, positively, that this file is not a writer on the door props'
+/// 'Door_Light_*_Mesh' renderers — 596 renderers written in a session, 0 of them named
+/// '*door_light*', all 12 that exist under the 6 registered door props reached by the scan. That
+/// acquittal is what let <see cref="DoorLightPlates"/> stop looking for a mod defect and identify
+/// the plates as the game's own art; the door-prop skip it protected is still in the heal loop.
 ///
 /// MP-SAFE: local rendering only — materials/renderer state are never synced; peers run
 /// their own loaders. REVERSIBLE: the healer only pushes the game's OWN load path to its
@@ -121,198 +122,6 @@ internal static class MaterialLoaderHeal
     /// <summary>Census forensics: is this loader under the healer's supervision?</summary>
     private static bool IsRegistered(MaterialLoader loader) => RegisteredSet.Contains(loader);
 
-    // ---------------------------------------------------------------------------------
-    // ROUND 9 — THE WRITE LEDGER (ModBuild 259). The gate-rectangle lane asked a question
-    // this file could not answer: does the healer ever touch the door props' own
-    // 'Door_Light_*_Mesh' renderers, and is the mod therefore the reason they are visible
-    // at all? The existing forensics line prints THREE entries per scan and is emitted only
-    // on the done-stuck path, so `Door_Light` never appearing in it proved nothing — an
-    // absence produced by a print budget looks exactly like an absence produced by the code.
-    //
-    // This ledger answers it positively and in one grep, `MaterialLoaderHeal LEDGER`:
-    //   * SIGHTING — the scan REACHED a watched renderer, with its state at first sight
-    //     (enabled, activeInHierarchy, loader state token, material slots, door-prop
-    //     ancestor). One line per renderer per session, capped.
-    //   * WRITE — the healer wrote `enabled` or `sharedMaterials` on a renderer. Every write
-    //     site in this file funnels through NoteWrite, so the count is total by construction,
-    //     and a write landing under a UnityGameEditorDoorProp is logged as an ERROR because
-    //     the door-prop skip below makes that impossible: a non-zero there means the guard
-    //     leaked, not that the door lights were healed.
-    //   * POPULATION — how many watched renderers EXIST under the registered door props,
-    //     counted independently of the healer's own registry, so "seen 0 of 12" cannot be
-    //     confused with "there were none".
-    //
-    // FALSIFIER: `writes under a door prop` > 0, or a SIGHTING line whose state reads
-    // `enabled=False` with the healer subsequently writing it. Both would revive the lead.
-    // ---------------------------------------------------------------------------------
-
-    /// <summary>Renderer-name fragment the ledger reports on (ordinal, case-insensitive).
-    /// Matches both 'Door_Light_Front_Mesh' and 'CR_OS_Door_Light_Back_Mesh'.</summary>
-    private const string WatchFragment = "door_light";
-
-    /// <summary>Sighting lines the ledger prints per session before it stops naming
-    /// individuals and reports counts only.</summary>
-    private const int MaxWatchLines = 8;
-
-    /// <summary>Every renderer this file has ever written — the total, not a sample.</summary>
-    private static readonly HashSet<int> WrittenRenderers = new();
-
-    /// <summary>Distinct renderers written that sit under a door prop. Zero by construction;
-    /// see the header.</summary>
-    private static int _writesUnderDoorProp;
-
-    /// <summary>Distinct WATCHED renderers written. Zero unless the lead is alive.</summary>
-    private static int _writesOnWatched;
-
-    /// <summary>Renderer ids already name-checked — one <c>Renderer.name</c> marshal per
-    /// renderer per session rather than one per scan, which is the whole cost of the ledger.</summary>
-    private static readonly HashSet<int> WatchChecked = new();
-
-    /// <summary>Watched renderer ids the heal scan has REACHED.</summary>
-    private static readonly HashSet<int> WatchSeen = new();
-
-    private static int _watchLinesPrinted;
-
-    private static readonly List<UnityGameEditorDoorProp> LedgerDoors = new(8);
-    private static readonly List<Renderer> LedgerSubtree = new(64);
-
-    /// <summary>The door prop this renderer hangs from, or null. The SAME relation the heal
-    /// loop's door skip uses, so the ledger and the guard cannot disagree.</summary>
-    private static UnityGameEditorDoorProp? DoorPropOf(Renderer r)
-    {
-        try { return r.GetComponentInParent<UnityGameEditorDoorProp>(); }
-        catch (System.Exception) { return null; }
-    }
-
-    /// <summary>Record a write. Called from EVERY site in this file that assigns
-    /// <c>Renderer.enabled</c> or <c>Renderer.sharedMaterials</c>.</summary>
-    private static void NoteWrite(Renderer r, string what)
-    {
-        int id;
-        try { id = r.GetInstanceID(); }
-        catch (System.Exception) { return; }
-        // FIRST write per renderer only. The heal loop re-writes the same ~120 renderers every
-        // scan, and the ancestry walk below is the ledger's only non-trivial cost — paying it
-        // once per renderer per session keeps the instrument free, and "distinct renderers
-        // written" is the number the verdict reports anyway.
-        if (!WrittenRenderers.Add(id))
-            return;
-
-        bool watched = WatchSeen.Contains(id);
-        UnityGameEditorDoorProp? dp = DoorPropOf(r);
-        if (dp == null && !watched)
-            return;
-
-        if (dp != null)
-        {
-            _writesUnderDoorProp++;
-            VRLog.Error(Name,
-                $"MaterialLoaderHeal LEDGER: WROTE {what} on renderer '{r.name}' which sits under "
-                + $"door prop '{dp.gameObject.name}'. That is supposed to be impossible — the heal "
-                + "loop skips the whole UnityGameEditorDoorProp subtree in every state — so this "
-                + "line means the guard leaked and the door-light lead is BACK.");
-        }
-        if (watched)
-        {
-            _writesOnWatched++;
-            VRLog.Warn(Name,
-                $"MaterialLoaderHeal LEDGER: WROTE {what} on WATCHED renderer '{r.name}' — the mod "
-                + "is a writer on this object, so it may be the reason it draws.");
-        }
-    }
-
-    /// <summary>First sight of a renderer inside the heal scan. One name marshal per renderer
-    /// per session; only watched names produce a line.</summary>
-    private static void NoteSighting(Renderer r, MaterialLoader owner, MaterialLoaderData data)
-    {
-        int id;
-        try { id = r.GetInstanceID(); }
-        catch (System.Exception) { return; }
-        if (!WatchChecked.Add(id))
-            return;
-
-        string name;
-        try { name = r.name; }
-        catch (System.Exception) { return; }
-        if (name.IndexOf(WatchFragment, System.StringComparison.OrdinalIgnoreCase) < 0)
-            return;
-
-        WatchSeen.Add(id);
-        if (_watchLinesPrinted >= MaxWatchLines)
-            return;
-        _watchLinesPrinted++;
-
-        bool enabled = false, active = false;
-        try { enabled = r.enabled; active = r.gameObject.activeInHierarchy; }
-        catch (System.Exception) { /* destroyed mid-scan */ }
-        Material[] shared;
-        try { shared = r.sharedMaterials; }
-        catch (System.Exception) { shared = System.Array.Empty<Material>(); }
-        var slots = new List<string>(shared.Length);
-        foreach (Material m in shared)
-            slots.Add(m == null ? "<null>" : m.name);
-        UnityGameEditorDoorProp? dp = DoorPropOf(r);
-
-        VRLog.Info(Name,
-            $"MaterialLoaderHeal LEDGER: SIGHTING '{name}' — the heal scan reached this renderer. "
-            + $"State at first sight: enabled={enabled}, activeInHierarchy={active}, "
-            + $"loader='{owner.gameObject.name}' state='{Describe(data, enabled)}', "
-            + $"slots={shared.Length} of "
-            + (slots.Count == 0 ? "<none>" : string.Join(", ", slots))
-            + $", doorProp='{(dp != null ? dp.gameObject.name : "<none>")}'. A renderer under a door "
-            + "prop is skipped by the heal loop in EVERY state, so a sighting here is the scan "
-            + "looking at it, never the healer writing it.");
-    }
-
-    /// <summary>How many watched renderers actually EXIST under the registered door props —
-    /// counted from <see cref="SceneRegistry.DoorProps"/>, not from the healer's own registry,
-    /// so a zero sighting count cannot be read as an empty scene.</summary>
-    private static int CountWatchedPopulation(out int doorProps)
-    {
-        doorProps = 0;
-        int hits = 0;
-        try
-        {
-            SceneRegistry.DoorProps.Collect(LedgerDoors);
-            doorProps = LedgerDoors.Count;
-            foreach (UnityGameEditorDoorProp dp in LedgerDoors)
-            {
-                if (dp == null)
-                    continue;
-                LedgerSubtree.Clear();
-                dp.transform.GetComponentsInChildren(true, LedgerSubtree);
-                foreach (Renderer r in LedgerSubtree)
-                {
-                    if (r != null
-                        && r.name.IndexOf(WatchFragment, System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        hits++;
-                    }
-                }
-            }
-        }
-        catch (System.Exception)
-        {
-            return -1;
-        }
-        return hits;
-    }
-
-    /// <summary>The one line that answers the round's question. Grep: <c>LEDGER VERDICT</c>.</summary>
-    private static void LogLedgerVerdict()
-    {
-        int population = CountWatchedPopulation(out int doorProps);
-        VRLog.Info(Name,
-            $"MaterialLoaderHeal LEDGER VERDICT: this session the healer has written to "
-            + $"{WrittenRenderers.Count} distinct renderer(s); {_writesUnderDoorProp} of them sit "
-            + $"under a UnityGameEditorDoorProp and {_writesOnWatched} of them are named "
-            + $"'*{WatchFragment}*'. The heal scan has REACHED {WatchSeen.Count} such "
-            + $"renderer(s), out of {population} that exist under the {doorProps} registered door "
-            + "prop(s). Read it this way: writes-under-a-door-prop is the guard's own counter and "
-            + "must be 0, and a population above 0 with 0 writes is a POSITIVE acquittal — the door "
-            + "lights are not drawn because of this file. A population of -1 means the count threw.");
-    }
-
     /// <summary>Install the watchdog (idempotent). No-op when VR isn't running.</summary>
     public static void Install()
     {
@@ -325,12 +134,18 @@ internal static class MaterialLoaderHeal
             "MaterialLoaderHeal installed — 1 s watchdog re-triggers map-tile MaterialLoaders "
             + "whose renderers are stuck active-but-disabled with unloaded materials "
             + "(reveal-time Addressables loads have no retry path in the game).");
+        // The door-light plates ride along here rather than on their own CompatModule line
+        // because this file is where the question was answered: the round-9 ledger (see the
+        // header) acquitted the healer of drawing them, and this install point is already
+        // game-wide and DontDestroyOnLoad. See DoorLightPlates for the identification and rule.
+        DoorLightPlates.Install();
     }
 
     /// <summary>Drop the watchdog. Nothing to restore: it only ever completed the game's
     /// own load path; healed renderers are exactly what the game intended to produce.</summary>
     public static void Uninstall()
     {
+        DoorLightPlates.Uninstall();  // re-enables every door-light renderer it switched off
         if (_driver == null)
             return;
         try { Object.Destroy(_driver.gameObject); }
@@ -597,15 +412,9 @@ internal static class MaterialLoaderHeal
         private readonly List<ProceduralMapTile> _tileScratch = new();
         private readonly List<MaterialLoaderData> _pruneScratch = new();
         private readonly HashSet<MaterialLoader> _touchedLoaders = new();
-        /// <summary>Cadence of the ROUND-9 <c>LEDGER VERDICT</c> line. Slow on purpose: it is a
-        /// session-cumulative answer, and its only per-print cost is one walk of the ~10-entry
-        /// door-prop registry.</summary>
-        private const float LedgerIntervalSeconds = 30f;
-
         private float _nextScan;
         private float _nextPrune;
         private float _nextSeed;
-        private float _nextLedger;
         private int _seedBurst = SeedBurstScans;
         private System.Action? _tick;
 
@@ -649,12 +458,6 @@ internal static class MaterialLoaderHeal
             {
                 _nextPrune = now + TrackExpirySeconds;
                 PruneTracks(now);
-            }
-
-            if (now >= _nextLedger)
-            {
-                _nextLedger = now + LedgerIntervalSeconds;
-                LogLedgerVerdict();
             }
         }
 
@@ -703,11 +506,6 @@ internal static class MaterialLoaderHeal
                     Renderer? r = data?.Renderer;
                     if (data == null || r == null)
                         continue;
-                    // ROUND 9 LEDGER, and it sits BEFORE every filter on purpose: the question
-                    // the gate-rectangle lane asked is whether the scan REACHES these renderers
-                    // at all, and the very next line drops anything already enabled. Costs one
-                    // Renderer.name marshal per renderer per session, never per scan.
-                    NoteSighting(r, loader, data);
                     if (!r.gameObject.activeInHierarchy || r.enabled)
                     {
                         _tracks.Remove(data); // healthy/hidden — restart observation if it re-sticks
@@ -745,7 +543,6 @@ internal static class MaterialLoaderHeal
                     if (state == LoaderState.DoneStuck && MaterialsAlreadyAssigned(data, r))
                     {
                         r.enabled = true;
-                        NoteWrite(r, "enabled=true");
                         nDone++;
                         _touchedLoaders.Add(loader);
                         _tracks.Remove(data);
@@ -985,7 +782,6 @@ internal static class MaterialLoaderHeal
 
             r.sharedMaterials = final;
             r.enabled = true;
-            NoteWrite(r, "sharedMaterials+enabled=true");
             return true;
         }
 

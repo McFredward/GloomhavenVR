@@ -274,12 +274,6 @@ internal static class PerfSceneProfile
               .Append(_skipWindows).Append(" more window(s) will be skipped before the next sample. "
                       + "This is the instrument refusing to become the thing it measures, not a "
                       + "fault. Set [Perf] SceneProfile = false to stop it entirely.");
-            // The GLOW CARDS census does NOT have to be rationed with this walk, and must not be:
-            // ModBuild 251's whole A/B session produced exactly one armed window because the census
-            // could only sample when this walk chose to, and that window landed on a five-renderer
-            // frame. It runs a renderer-only sweep of its own here — self-timed, self-rationed to
-            // 2ms/window, and printed — on windows this walk has already declined to pay for.
-            GlowCardCensus.RunStandalone(Rig.VRRigDriver.HeadCamera);
             return;
         }
 
@@ -318,12 +312,6 @@ internal static class PerfSceneProfile
         // 8,600 renderers would double the most expensive thing in this file. Armed here, fed inside
         // the loop, printed by AppendGfxLine. See PerfTextureCensus for what it answers and why.
         PerfTextureCensus.Begin(head);
-        // The glow-card census rides the SAME walk, for the same reason and at a smaller price: one
-        // dictionary lookup per material slot, keyed by the SHADER's instance id, so a shader name
-        // is marshalled once per distinct shader and never once per renderer. It answers "what ARE
-        // those pale rectangles on the gate, and can their opacity work on this camera at all" —
-        // see GlowCardCensus for the report and the two competing explanations it separates.
-        GlowCardCensus.Begin(head);
 
         int enabled = 0, visible = 0, inMask = 0, submitted = 0;
         int materialsTotal = 0, materialsSubmitted = 0, instanced = 0;
@@ -386,12 +374,6 @@ internal static class PerfSceneProfile
             // ONCE here so the Renderer.bounds read is not repeated per material slot below.
             float texSpanPx = subm ? PerfTextureCensus.PixelSpan(r) : 0f;
 
-            // ONE Renderer.bounds read per SUBMITTED renderer, for the glow census's PLATE test and
-            // its own unfloored pixel span. It cannot reuse PerfTextureCensus.PixelSpan: that one
-            // applies a 120px floor and returns 0 below it, which is exactly why ModBuild 251 printed
-            // "~0px" for every candle and every torch and then ranked its cap-of-16 by nothing at all.
-            GlowCardCensus.OfferRenderer(r, subm, layer);
-
             // GetSharedMaterials fills OUR list; the sharedMaterials PROPERTY would allocate a
             // fresh array per renderer, which at ~1700 renderers is the difference between a
             // sampling hitch and a garbage-collection one.
@@ -409,14 +391,7 @@ internal static class PerfSceneProfile
                         instanced++;
                     if (subm)
                         SubmittedMaterials.Add(mat.GetInstanceID());
-                    Shader? slotShader = TallyShader(mat, subm);
-                    // NOT gated on texSpanPx: a glow card that is currently DISABLED, or too small
-                    // for the texture census's 120px floor, is exactly as interesting as a big one
-                    // — "is anything driving it" is the question, and a hidden card still answers
-                    // it. The shader reference is the one TallyShader just resolved, so this call
-                    // adds one dictionary lookup per slot and no second Material.shader marshal.
-                    if (slotShader != null)
-                        GlowCardCensus.Offer(r, mat, slotShader, subm, texSpanPx);
+                    TallyShader(mat, subm);
                     if (texSpanPx > 0f)
                         PerfTextureCensus.Offer(r, mat, texSpanPx);
                 }
@@ -425,10 +400,6 @@ internal static class PerfSceneProfile
             {
                 mats = 0; // a renderer with no material array still counts as an object
             }
-            // Close the glow census's per-renderer accumulation: it scores and pools the renderer HERE,
-            // with its render queue and its shader's lighting passes already known, because the band
-            // test depends on both and neither is available while the geometry pass is running.
-            GlowCardCensus.EndRenderer(r);
             materialsTotal += mats;
             if (subm)
                 materialsSubmitted += mats;
@@ -436,12 +407,6 @@ internal static class PerfSceneProfile
             TallyKind(r, on, vis, subm);
             TallyRoot(r, on, vis, subm, mats);
         }
-
-        // Hand the per-layer population to the glow census rather than making it count again: its
-        // path-contrast block needs to say how many renderers sit on the layers only the head camera
-        // draws, and a second pass over 3,000 renderers to re-count what this loop already counted is
-        // the exact shape of defect this file's own doc calls the default suspect.
-        GlowCardCensus.NoteLayerPopulation(LayerCounts, LayerVisible);
 
         int passes = XRSettings.stereoRenderingMode == XRSettings.StereoRenderingMode.MultiPass ? 2 : 1;
 
@@ -612,9 +577,9 @@ internal static class PerfSceneProfile
     /// of forty different ones" stop looking identical. It is also how the mod's own bundled
     /// shaders become visible as a share of the frame rather than an assumption about one.</para>
     /// </summary>
-    /// <returns>The material's shader, so the caller can hand the SAME resolved reference to
-    /// <see cref="GlowCardCensus"/> instead of paying for a second <c>Material.shader</c> marshal on
-    /// every one of the scene's ~2,500 material slots. Null when it could not be read.</returns>
+    /// <returns>The material's shader — the resolved reference, so a caller that needs it does not
+    /// pay for a second <c>Material.shader</c> marshal on every one of the scene's ~2,500 material
+    /// slots. Null when it could not be read.</returns>
     private static Shader? TallyShader(Material mat, bool submitted)
     {
         Shader? sh;
@@ -1373,19 +1338,6 @@ internal static class PerfSceneProfile
         // PerfMonitor: that file is not this lane's to edit, and one call from the class that owns
         // the walk is a smaller seam than a new entry point in the monitor.
         PerfTextureCensus.Log();
-        // …and the glow-card census after it, still before GFX: GFX is the line that prints
-        // depthTextureMode as one field among thirty, and GLOW CARDS is the line that says what
-        // that one field COSTS in this room. Reading them adjacent is the point.
-        GlowCardCensus.Log();
-        // …and the ONE-SHOT gate dump after that. Different instrument, same file family: GLOW CARDS
-        // ranks a sampled population and the subject of the report has never been in it, so GATE DUMP
-        // stops describing the object and goes to its address — every renderer under every door prop,
-        // unconditionally, once per scene. It is driven from here rather than from the window loop
-        // because this method runs on EVERY [Perf] window (AppendSceneLine can ration itself away;
-        // this cannot), which is what gives the dump its retries while Apparance is still generating.
-        // It logs on its own lines and never appends to `sb`; it catches its own exceptions so that a
-        // fault here cannot latch the caller's _sceneProfileFaulted and cost the SCENE and GFX lines.
-        GlowCardCensus.GateDump();
 
         sb.Append("GFX — the render state that multiplies submission volume");
 
