@@ -3272,8 +3272,17 @@ internal static partial class WallSegmentFade
             _figurePurgeScratch.Clear();
             foreach (MountedProp p in _mountedTouched.Values)
             {
-                if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer))
+                // MODBUILD 266: a piece the WALL GENERATOR built and no actor owns is wall
+                // dressing, so the restitution sweep must not take it straight back off the
+                // lane that just adopted it (a remedy undone by the guard it is exempt from
+                // would have shipped as "no improvement" — the gated-remedy failure this repo
+                // has paid for). The actor veto inside IsWallGeneratedDressing is what keeps
+                // this narrower than the guard, never wider: a real figure fails it twice over.
+                if (p.Renderer != null && IsFigureOrActorRenderer(p.Renderer)
+                    && !IsWallGeneratedDressing(p.Renderer))
+                {
                     _figurePurgeScratch.Add(p);
+                }
             }
             if (_figurePurgeScratch.Count == 0)
                 return;
@@ -5423,6 +5432,7 @@ internal static partial class WallSegmentFade
         {
             FigureAncestryMemo.Clear();
             GameLogicAncestryMemo.Clear();
+            WallGeneratorAncestryMemo.Clear();
             _figureMemoActive = true;
         }
 
@@ -5431,6 +5441,7 @@ internal static partial class WallSegmentFade
             _figureMemoActive = false;
             FigureAncestryMemo.Clear(); // never hold transform references across frames
             GameLogicAncestryMemo.Clear();
+            WallGeneratorAncestryMemo.Clear();
         }
 
         /// <summary>Does this transform or any ancestor carry one of the figure components?
@@ -5495,6 +5506,107 @@ internal static partial class WallSegmentFade
             bool verdict = here || (parent != null && GameLogicAncestry(parent));
             GameLogicAncestryMemo[t] = verdict;
             return verdict;
+        }
+
+        /// <summary>
+        /// MODBUILD 266 — "DID THE WALL GENERATOR BUILD THIS?", memoised exactly like
+        /// <see cref="FigureAncestryMemo"/> and <see cref="GameLogicAncestryMemo"/>: same
+        /// chain-property argument, same active-chain qualifier, same
+        /// <see cref="BeginFigureMemo"/>/<see cref="EndFigureMemo"/> window. The question itself
+        /// is the one term the WALL MEMBER leftover class already resolves membership with
+        /// (<c>WallSegmentFade.Inside.cs</c>, <c>IsWallGeneratedMember</c>:
+        /// <c>r.GetComponentInParent&lt;ProceduralWall&gt;() != null</c>) and the one the
+        /// unit-affinity walk stops at — no second resolver is introduced.
+        /// </summary>
+        private static readonly Dictionary<Transform, bool> WallGeneratorAncestryMemo = new(1024);
+
+        private static bool HasWallGeneratorAncestry(Component c)
+        {
+            if (_figureMemoActive && c.gameObject.activeInHierarchy)
+                return WallGeneratorAncestry(c.transform);
+            return c.GetComponentInParent<ProceduralWall>() != null;
+        }
+
+        private static bool WallGeneratorAncestry(Transform t)
+        {
+            if (WallGeneratorAncestryMemo.TryGetValue(t, out bool cached))
+                return cached;
+            bool here = t.GetComponent<ProceduralWall>() != null;
+            Transform? parent = t.parent;
+            bool verdict = here || (parent != null && WallGeneratorAncestry(parent));
+            WallGeneratorAncestryMemo[t] = verdict;
+            return verdict;
+        }
+
+        /// <summary>
+        /// MODBUILD 266 — WALL DRESSING BY PROVENANCE, THE ANSWER TO "die Flaggen an den Wänden
+        /// faden nicht mit der Wand mit" (user, 2026-08-25, Flaggen.jpg: "Von hinten sind dann
+        /// noch die Stangen zu sehen … Ich möchte, dass die Flagge inklusive der Stange
+        /// vollständig mit faded").
+        ///
+        /// <para><b>THE RULE.</b> A renderer the WALL GENERATOR built is wall dressing —
+        /// whatever its renderer TYPE and whatever ANIMATES it. Membership in a
+        /// <c>ProceduralWall</c> subtree is the discriminator, which is the same term the WALL
+        /// MEMBER leftover class is already resolved with; nothing is keyed on a name family
+        /// ("Banner", "Hanging", "Flag"), because the standing requirement is that this works in
+        /// every scenario and room in the game and a tileset is free to name its hangings
+        /// anything.</para>
+        ///
+        /// <para><b>THE TWO REFUSALS IT LIFTS, from the ModBuild-265 log verbatim.</b>
+        /// <c>[FLOATING] 'EN_CR_Hanging_01_Cloth_Post'[skinned] foot 2.26 wu … DRAWING 3.75 wu
+        /// from 'Wall 4' whose fade is 1.00 — not adopted because: renderer type
+        /// SkinnedMeshRenderer is not scenery</c> and <c>[FLOATING] 'CR_BT_BanditBanner_Wall'
+        /// [mesh] foot 2.98 wu … — not adopted because: FIGURE (never touched — round-7 ruling,
+        /// Lights-rule severity)</c>. Both hang under <c>Wall N/Generated Content/…</c>, i.e.
+        /// inside the wall's own subtree, and the same log's whole-unit line names them as the
+        /// only holdouts of a unit the wall is otherwise fading:
+        /// <c>TORN 'PCG_Test_Feature_Small_2' 19/21 written … LEFT SOLID under the same root:
+        /// EN_CR_Hanging_01_Cloth_Post, EN_CR_Hanging_01_Mesh</c>.</para>
+        ///
+        /// <para><b>WHY IT CANNOT WIDEN THE FIGURE GATE — the round-7 ruling is untouched
+        /// (FIGURES ARE NEVER TOUCHED, Lights-rule severity).</b>
+        /// <see cref="IsFigureOrActorRenderer"/> itself is NOT changed: this is a separate,
+        /// strictly narrower predicate that a call site may consult, and it carries the
+        /// <c>ActorBehaviour</c> / <c>CInteractableActor</c> parent chain as an ABSOLUTE VETO.
+        /// The load-bearing claim is that a figure is never a child of a wall's
+        /// <c>Generated Content</c>, and it is CHECKED rather than asserted — from the game's own
+        /// code, not from our ledger: <c>Choreographer</c> parents every figure it spawns to the
+        /// BOARD root and nowhere else (<c>gameObject.transform.SetParent(ClientScenarioManager
+        /// .s_ClientScenarioManager.m_Board.transform)</c> at :904 for enemies/characters, the
+        /// same call at :1087, and <c>ObjectPool.Spawn(characterPrefabFromBundle,
+        /// …m_Board.transform, …)</c> at :1191 — all three spawn paths), while the actor prefab
+        /// that carries <c>ActorBehaviour</c> is parented under the figure's own rig
+        /// <c>Animator</c>. A <c>ProceduralWall</c> is an Apparance <c>ProceduralTileObserver</c>
+        /// hanging off a map tile, so it is on no figure's ancestor chain. The round-7 incident
+        /// (the BRUTE's horned head, mauern_problem_neu.png) was a GEOMETRIC over-reach — an
+        /// accessory swallowed by a faded wall's ring-spanning AABB — and hierarchy would have
+        /// refused it on both terms at once.</para>
+        ///
+        /// <para>WHAT IS DELIBERATELY NOT DONE: the <c>SkinnedMeshRenderer</c> arm and the
+        /// <c>Animator</c> arm of <see cref="IsFigureOrActorRenderer"/> stay exactly as they are
+        /// for every renderer OUTSIDE a wall subtree, which is every figure in the game. The
+        /// mod-object test is asked first so a mod-owned visual can never be read as scenery.</para>
+        ///
+        /// <para>COST: one memoised ancestor walk, and the un-memoised actor pair only for a
+        /// renderer that IS inside a wall subtree — a handful per rescan. Rescan cadence only,
+        /// never per frame, no scene sweep. MULTIPLAYER: a read of local scene hierarchy;
+        /// no decision is networked, no wire field, no peer-visible state.</para>
+        ///
+        /// <para>FALSIFIED BY: a FIGURE RESTITUTION line, or a mounted census naming a hero,
+        /// monster or summon renderer — then a figure IS reachable inside a wall subtree and the
+        /// provenance term is not the discriminator.</para>
+        /// </summary>
+        private static bool IsWallGeneratedDressing(Renderer r)
+        {
+            if (r == null || IsModObject(r))
+                return false;
+            if (!HasWallGeneratorAncestry(r))
+                return false;
+            // THE ABSOLUTE VETO. Never relaxed, and never memoised through the figure memo:
+            // that memo bundles Animator in with the two actor components, and Animator is
+            // exactly the term this predicate exists to stop deciding on its own.
+            return r.GetComponentInParent<ActorBehaviour>() == null
+                && r.GetComponentInParent<CInteractableActor>() == null;
         }
 
         /// <summary>Any shared material on a foliage-family shader? (Cached per Shader.)</summary>

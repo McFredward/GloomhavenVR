@@ -457,6 +457,17 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Transform, int> _mountedUnitHomeVotes = new(64);
         private int _censusMountedUnitHome;
 
+        /// <summary>MODBUILD 266 — THE ACCEPTANCE NUMBER for "die Flagge inklusive der Stange
+        /// vollständig mit faden": how many pieces reached the mounted ledger ONLY because the
+        /// wall generator built them, i.e. how many of the three refusals
+        /// <see cref="FadeDriver.IsWallGeneratedDressing"/> lifts actually turned into an
+        /// adoption. Counted at the ADOPTION and never at the refusal, and read off the sweep
+        /// rather than off the ledger's opinion of itself. A ZERO in the next hardware log while
+        /// the [FLOATING] / [WALL MEMBER] classes still name a hanging renderer falsifies this
+        /// change outright: the exemption then never fired and the refusal is somewhere else.
+        /// Named per piece on the same line ([WALL-BUILT]).</summary>
+        private int _censusMountedWallBuilt;
+
         /// <summary>Props that changed OWNER this rescan without ever being restored to visible —
         /// the leavers loop's ModBuild-265 handover. Reported so a handover that quietly loses
         /// its target is a number and not a silence.</summary>
@@ -494,6 +505,7 @@ internal static partial class WallSegmentFade
         private int _censusMountedLeftover;
         private int _lastLoggedMountedLeftover = -1;
         private int _lastLoggedMountedHandover = -1;
+        private int _lastLoggedMountedWallBuilt = -1;
 
         /// <summary>How many of the leftovers are ParticleSystemRenderers, and how many particle
         /// candidates were skipped for being already carried.
@@ -1072,6 +1084,7 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
+            _censusMountedWallBuilt = 0;
             _censusMountedHandover = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
@@ -1342,11 +1355,32 @@ internal static partial class WallSegmentFade
                     // only when the reject list can still take one (StructuralSkipArmed) —
                     // formatting 8630 interpolated strings per rescan to throw all but 24 away
                     // was pure waste, and `c.GetType().Name` is a reflection call on top.
+                    // MODBUILD 266 — THE RENDERER TYPE IS NOT THE QUESTION WHEN THE WALL
+                    // GENERATOR BUILT THE PIECE. 'EN_CR_Hanging_01_Cloth_Post' is a cloth
+                    // SkinnedMeshRenderer hanging under 'Wall 4/Generated Content/…' and left
+                    // here silently for every build: the ModBuild-265 log has it as
+                    // "[FLOATING] … not adopted because: renderer type SkinnedMeshRenderer is
+                    // not scenery", 2.26 wu over the floor beside a wall at fade 1.00, which is
+                    // the pole in Flaggen.jpg. See FadeDriver.IsWallGeneratedDressing for the
+                    // provenance test and for why it cannot widen the round-7 figure gate.
+                    // THE ACCEPTANCE NUMBER (see LogMountedCensus): how many pieces reached the
+                    // ledger ONLY because the wall generator built them. It is set at the
+                    // refusal each exemption lifts and counted at the ADOPTION, never here —
+                    // a census that counts intentions is the failure this file has paid for
+                    // twice, and every one of these candidates can still be refused below.
+                    bool wallBuilt = false;
                     if (!f.Mountable)
                     {
-                        if (StructuralSkipArmed)
-                            NoteStructuralSkip(c, $"renderer type {c.GetType().Name} is not scenery");
-                        continue;
+                        if (!IsWallGeneratedDressing(c))
+                        {
+                            if (StructuralSkipArmed)
+                            {
+                                NoteStructuralSkip(c,
+                                    $"renderer type {c.GetType().Name} is not scenery");
+                            }
+                            continue;
+                        }
+                        wallBuilt = true;
                     }
                     if (_attachmentOwned.TryGetValue(c, out OwnerRef owner))
                     {
@@ -1564,11 +1598,27 @@ internal static partial class WallSegmentFade
                             + "never sconce dressing");
                         continue;
                     }
+                    // MODBUILD 266 — "GetComponentInParent<Animator>() != null" ANSWERS "is
+                    // there an Animator anywhere above me", NOT "am I a creature", and the
+                    // in-repo lesson for exactly that confusion is containment-is-not-identity.
+                    // 'CR_BT_BanditBanner_Wall' is a MeshRenderer under 'Wall N/Generated
+                    // Content/…' whose banner WAVES, and the ModBuild-265 log refuses it here:
+                    // "[FLOATING] … not adopted because: FIGURE (never touched — round-7
+                    // ruling, Lights-rule severity)", 2.98 wu over the floor beside a wall at
+                    // fade 1.00. The round-7 ruling is NOT relaxed: IsWallGeneratedDressing
+                    // keeps the ActorBehaviour/CInteractableActor chain as an absolute veto and
+                    // adds a provenance term on top, so it is strictly narrower on figures than
+                    // the guard it stands beside. See its doc for the game-source evidence that
+                    // a figure is never a child of a wall's Generated Content.
                     if (IsFigureOrActorRenderer(c))
                     {
-                        NoteMountedReject(c, anchorY, bestGap,
-                            "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
-                        continue;
+                        if (!IsWallGeneratedDressing(c))
+                        {
+                            NoteMountedReject(c, anchorY, bestGap,
+                                "FIGURE (never touched — round-7 ruling, Lights-rule severity)");
+                            continue;
+                        }
+                        wallBuilt = true;
                     }
                     // FLOOR-STANDING PROP (skelet.jpg, fourth round): the wall path refuses these
                     // at CollectWallFadeInfo, which leaves them UNCLAIMED — and this sweep runs
@@ -1581,11 +1631,26 @@ internal static partial class WallSegmentFade
                     // WallSegmentFade.Standing.cs.
                     if (IsStandingFigureProp(c))
                     {
-                        NoteStandingPropBlocked(c, null);
-                        NoteMountedReject(c, anchorY, bestGap,
-                            "part of a prop unit that STANDS ON THE FLOOR — never wall dressing "
-                            + "(WallSegmentFade.Standing.cs)");
-                        continue;
+                        // MODBUILD 266 — ONE ARM OF THAT RULE, AND ONLY ONE. The standing rule
+                        // has two (WallSegmentFade.Standing.cs): the FIGURE arm, which protects
+                        // a unit because something above it carries ActorBehaviour /
+                        // CInteractableActor / Animator, and the FLOOR arm, which is the
+                        // skelet.jpg arm and protects floor-standing SCENERY that has no figure
+                        // ancestry at all. IsStandingFigureOnlyProp is the FIGURE arm on its own
+                        // — the same memoised measurement, no second walk — so this exemption
+                        // can reach a unit protected for ANIMATING and can never reach one
+                        // protected for STANDING ON THE FLOOR. The 2026-08-19 skull keeps every
+                        // renderer it has: its unit has no figure ancestry, so this arm reads
+                        // false for it and the refusal below stands unchanged.
+                        if (!(IsStandingFigureOnlyProp(c) && IsWallGeneratedDressing(c)))
+                        {
+                            NoteStandingPropBlocked(c, null);
+                            NoteMountedReject(c, anchorY, bestGap,
+                                "part of a prop unit that STANDS ON THE FLOOR — never wall "
+                                + "dressing (WallSegmentFade.Standing.cs)");
+                            continue;
+                        }
+                        wallBuilt = true;
                     }
                     if (HasGameLogicAncestry(c)   // PERF S3: memoised TileBehaviour+Canvas pair
                         || c.GetComponent<TMPro.TMP_Text>() != null)
@@ -1625,6 +1690,8 @@ internal static partial class WallSegmentFade
                     _mountedOwned.Add(c);
                     if (byUnitHome)
                         _censusMountedUnitHome++;
+                    if (wallBuilt)
+                        _censusMountedWallBuilt++;
                     NoteOwnershipChange(c,
                         $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
                         + (byUnitHome ? "(prop unit)" : string.Empty));
@@ -1635,7 +1702,9 @@ internal static partial class WallSegmentFade
                         _mountedCensus.Add(
                             $"'{c.name}'[{RendererKind(c)}→{prop.Tier}] anchor {anchorY:F1} "
                             + $"gap {bestGap:F2} → '{wall}'"
-                            + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty));
+                            + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty)
+                            + (wallBuilt ? " [WALL-BUILT: adopted on provenance, ModBuild 266]"
+                                         : string.Empty));
                     }
                 }
             }
@@ -1739,7 +1808,11 @@ internal static partial class WallSegmentFade
             if (_censusMounted != _lastLoggedMountedCount
                 || _censusMountedRejected != _lastLoggedMountedRejected
                 || _censusMountedLeftover != _lastLoggedMountedLeftover
-                || _censusMountedHandover != _lastLoggedMountedHandover)
+                || _censusMountedHandover != _lastLoggedMountedHandover
+                // ModBuild 266: the acceptance number gets its own trigger, so a session in
+                // which only the provenance population moves still re-prints the line the
+                // number lives on. A held instrument reads as a dead one.
+                || _censusMountedWallBuilt != _lastLoggedMountedWallBuilt)
                 LogMountedCensus();
             // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
@@ -1953,6 +2026,7 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedRejected = _censusMountedRejected;
             _lastLoggedMountedLeftover = _censusMountedLeftover;
             _lastLoggedMountedHandover = _censusMountedHandover;
+            _lastLoggedMountedWallBuilt = _censusMountedWallBuilt;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
@@ -1991,7 +2065,22 @@ internal static partial class WallSegmentFade
                 + $"more visible, so the leavers loop concedes the piece instead of restoring it; "
                 + $"{_censusMountedUnitHome} attached to the wall that owns their PROP UNIT "
                 + $"rather than to the nearest one — ModBuild 258, wandproblem3.jpg: one prop "
-                + $"with two owners is one prop that half-survives every fade){full}.");
+                + $"with two owners is one prop that half-survives every fade; "
+                // MODBUILD 266 — THE ACCEPTANCE NUMBER for Flaggen.jpg, read off the sweep and
+                // not off the ledger. It must be > 0 in any scenario whose leftover audit used
+                // to name a hanging, and the [FLOATING] / [WALL MEMBER] classes on the LEFTOVER
+                // line must stop naming one. If this reads 0 while a hanging is still named
+                // there, the exemption never fired and the refusal is elsewhere — which is a
+                // different defect and this line says so instead of implying success.
+                + $"{_censusMountedWallBuilt} adopted ONLY because the WALL GENERATOR built them "
+                + "(inside a ProceduralWall subtree, no ActorBehaviour/CInteractableActor "
+                + "anywhere above them) — ModBuild 266, Flaggen.jpg: 'Ich möchte, dass die "
+                + "Flagge inklusive der Stange vollständig mit faded'. These are the pieces the "
+                + "renderer-type test, the round-7 figure gate or the standing rule's FIGURE arm "
+                + "used to refuse; each is tagged [WALL-BUILT] in the list above. A figure is "
+                + "never among them: every figure the game spawns is parented to the BOARD root, "
+                + "so no ProceduralWall is on its ancestor chain, and the actor pair is an "
+                + $"absolute veto on top of that){full}.");
         }
 
         /// <summary>
