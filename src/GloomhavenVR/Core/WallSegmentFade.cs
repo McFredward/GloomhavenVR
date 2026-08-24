@@ -2494,6 +2494,126 @@ internal static partial class WallSegmentFade
             return resolved ? root : null;
         }
 
+        /// <summary>
+        /// Is this piece delivered by the foliage <c>_Cutoff</c> LERP in <see cref="DriveProp"/> —
+        /// the ONE delivery in this file whose mid-ramp value can discard every texel the
+        /// renderer has?
+        ///
+        /// <para>The three other deliveries cannot. An alpha ramp at fade f still draws the piece
+        /// at alpha 1-f. A real Amp dissolve draws a partially dissolved piece. And
+        /// <see cref="DriveNativeProp"/> is the WALL'S OWN occlusion-map/_Cutoff sweep, which is
+        /// the masonry dissolve the user has accepted on both edges and which this round may not
+        /// disturb. Only <c>Mathf.Lerp(p.BaseCutoff, FoliageCutoffEnd, fade)</c> crosses 1, and
+        /// texture alpha never exceeds 1 — a fact about textures, not a tuned number — so past
+        /// that point the renderer is drawn, paid for and contributes nothing.</para>
+        ///
+        /// <para>The test mirrors <see cref="DriveProp"/>'s own branch structure exactly:
+        /// NativeFade returns first, and inside the block <c>if (ColorId >= 0)</c> wins over
+        /// <c>else if (CutoffId >= 0)</c>. If that structure is ever changed this predicate must
+        /// change with it; the SHOW EDGE audit reads the property block and will say so.</para>
+        /// </summary>
+        private static bool RidesCutoffLerp(MountedProp p) =>
+            !p.NativeFade && p.ColorId < 0 && p.CutoffId >= 0;
+
+        /// <summary>
+        /// SHOW ONE ATTACHMENT PIECE — the single implementation of every applier's show branch,
+        /// and with it THE RETURN HALF OF THE STAGGER RULE (ModBuild 265).
+        ///
+        /// <para>THE RULE: A PIECE IS NOT SHOWN UNTIL IT CAN BE DRAWN AS AUTHORED. On the way
+        /// back, a piece we hid stays disabled until the fade reaches the threshold its PROP UNIT
+        /// already returns on, and is then enabled in the same frame it is written with its
+        /// authored value — never with an intermediate one. Nothing about the way OUT changes:
+        /// outbound a piece is <see cref="ReturnPhase.Free"/> the whole way, this method drives
+        /// the ordinary ramp, and only <c>want == 2</c> hides it.</para>
+        ///
+        /// <para>THE NUMBER THAT MADE THE RULE (LogOutput.log, ModBuild 264): SHOW EDGE reports
+        /// 123 of 278 and 123 of 234 pieces "shown with a clip value that discards every texel",
+        /// every named one of them at fade 0.82-0.92 with <c>_Cutoff</c> 1.07-1.20 against an
+        /// authored 0.50. 0.91 is the FIRST frame of an un-fade (fadeStep = 1-exp(-1/90/0.12) =
+        /// 0.0885, so fade 1.00 becomes 0.9115 in one frame) and <c>FoliageHideFade</c> is 0.99,
+        /// so the old show branch turned those renderers on with <c>Lerp(0.50, 1.20, 0.91)</c> =
+        /// 1.14 — every texel discarded — and then resolved them out of nothing as the clip fell
+        /// back through 1.0 (at fade 0.714) to 0.50 (at fade 0, t = 0.12*ln(1/0.005) = 0.64 s).
+        /// That ramp IS the user's "1s undefinierter Matsch an den Ästen".</para>
+        ///
+        /// <para>WHY THE STAGGER THRESHOLD AND NOT "WAIT FOR FADE 0". Waiting for the drive value
+        /// to reach the authored one means waiting for fade 0, which is the frame the wall is
+        /// solid: the whole cutoff population would then return in ONE pop, 0.36-0.63 s after the
+        /// staggered population it shares its trees with — the ModBuild-261 TORN RETURN defect
+        /// rebuilt on purpose. <see cref="StaggerThresholdFor"/> is keyed on the PROP UNIT ROOT,
+        /// so gating on it returns a tree's cutoff leaves on the same frame as that same tree's
+        /// channel-less ones. No new threshold is introduced: this is the existing rule read in
+        /// the other direction.</para>
+        ///
+        /// <para>LATENCY — NOTHING IS DELAYED. A cutoff piece is FULLY AUTHORED at fade
+        /// threshold ∈ [0.10, 0.92), i.e. 0.010-0.276 s into the un-fade (t = 0.12*ln(1/fade)),
+        /// against 0.64 s before this change. Every such piece reaches its final look EARLIER
+        /// than it used to, by 33 to 57 frames at 90 Hz. What is later is only the frame it
+        /// starts being DRAWN, and until now every one of those frames drew nothing.</para>
+        ///
+        /// <para>COST: one enum compare per piece per frame in the steady state, plus the O(1)
+        /// <see cref="StaggerThresholdFor"/> memo read that only the held cutoff pieces make and
+        /// only until they return. No property-block read-back and no scene walk. MULTIPLAYER:
+        /// presentation only — local scene state, no networked state, no wire record; a peer's
+        /// synced fade drives the identical ramp through the identical appliers.</para>
+        ///
+        /// <para>WHAT WOULD FALSIFY IT: SHOW EDGE's "shown with a clip value that discards every
+        /// texel" must read 0. It reads the renderer's own property block on the edge frame, so
+        /// no ledger claim can satisfy it. A non-zero residue whose fades are NOT the first
+        /// frames of an un-fade would be a piece adopted mid-return that this rule never held
+        /// (<see cref="ReturnPhase.Free"/>) — a different defect, and the fades in the line say
+        /// which one it is.</para>
+        /// </summary>
+        /// <param name="rampFade">The fade this applier would otherwise DRIVE the piece at
+        /// (ApplyMounted leads by <c>MountedFadeLead</c>, the held branches pass 1).</param>
+        /// <param name="segFade">The SEGMENT's own fade — the quantity
+        /// <see cref="StaggerThresholdFor"/> is compared against everywhere else, so that a prop
+        /// split across two appliers cannot key on two different numbers.</param>
+        private void ShowAttachmentPiece(MountedProp p, Renderer r, float rampFade, float segFade)
+        {
+            switch (p.Return)
+            {
+                case ReturnPhase.HeldHidden when RidesCutoffLerp(p):
+                    if (segFade >= StaggerThresholdFor(r))
+                    {
+                        // Still hidden: nothing written, nothing drawn. The disable is not a
+                        // no-op — Apparance re-enables regenerated pieces over a wall we hold
+                        // (the reason no applier here has a held-state early-out), and such a
+                        // piece would otherwise draw the held block's clip 1.20 and show
+                        // nothing while its opaque slots kept drawing.
+                        if (r.enabled)
+                            r.enabled = false;
+                        ShowEdge(p, false, segFade);
+                        return;
+                    }
+                    DriveProp(p, 0f); // authored, on the very frame it is turned on
+                    p.Return = ReturnPhase.ReturnedAuthored;
+                    break;
+                case ReturnPhase.ReturnedAuthored:
+                    // THE LATCH IS RELEASED WHEN THE PIECE IS OUTBOUND AGAIN — the same
+                    // threshold, read in the same direction as the hold. Without this, a return
+                    // INTERRUPTED by a new fade (the user turns his head back mid-ramp, which is
+                    // the common case, not the corner one) would leave the piece latched at its
+                    // authored look all the way up to FoliageHideFade and then switch it off in
+                    // one frame: the fade-OUT pop this subsystem spent ModBuild 255 removing.
+                    // Above the threshold the ordinary ramp is safe by construction — the clip
+                    // only reaches 1.0 at fade 0.714, and every value below that still draws —
+                    // so resuming it here cannot produce the blank frame the hold exists for.
+                    if (segFade >= StaggerThresholdFor(r))
+                    {
+                        p.Return = ReturnPhase.Free;
+                        DriveProp(p, rampFade);
+                    }
+                    break; // otherwise its block already holds the authored values; re-driving is the bug
+                default:
+                    DriveProp(p, rampFade); // outbound, or a piece the cutoff lerp cannot blank
+                    break;
+            }
+            ShowEdge(p, true, segFade);
+            if (!r.enabled)
+                r.enabled = true;
+        }
+
         private static bool IsStandingPiece(in Bounds rb)
         {
             Vector3 s = rb.size;
@@ -2959,15 +3079,22 @@ internal static partial class WallSegmentFade
                 NoteFoliageChannel(seg, p);
                 if (ownChannel)
                 {
-                    DriveProp(p, seg.Fade);
                     if (want == 2)
                     {
+                        DriveProp(p, seg.Fade);
+                        p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                         if (f.enabled)
                             f.enabled = false;
+                        ShowEdge(p, false, seg.Fade);
                     }
-                    else if (!f.enabled)
+                    else
                     {
-                        f.enabled = true;
+                        // ModBuild 265: this branch is now audited. It never called ShowEdge, so
+                        // the foliage pieces WITH a channel of their own were the one attachment
+                        // population the SHOW EDGE line could not see — the same blind spot the
+                        // TORN RETURN term had before ModBuild 261. Expect the line's denominator
+                        // to grow; the fault terms are what must read 0.
+                        ShowAttachmentPiece(p, f, seg.Fade, seg.Fade);
                     }
                     continue;
                 }

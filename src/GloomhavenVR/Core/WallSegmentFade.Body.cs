@@ -211,6 +211,7 @@ internal static partial class WallSegmentFade
                         EnsureDissolveChannel(p);
                         DriveProp(p, 1f);
                     }
+                    p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
                         p.Renderer.enabled = false;
                     ShowEdge(p, false, seg.Fade);
@@ -219,10 +220,9 @@ internal static partial class WallSegmentFade
                 {
                     _mountedTouched[p.Renderer] = p;
                     EnsureDissolveChannel(p); // round 15: everything that fades animates
-                    DriveProp(p, seg.Fade);
-                    ShowEdge(p, true, seg.Fade);
-                    if (!p.Renderer.enabled)
-                        p.Renderer.enabled = true;
+                    // ModBuild 265: one shared show branch — the ramp, the return gate, the
+                    // audit call and the enable. See FadeDriver.ShowAttachmentPiece.
+                    ShowAttachmentPiece(p, p.Renderer, seg.Fade, seg.Fade);
                 }
             }
             if (lost)

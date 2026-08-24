@@ -1647,16 +1647,19 @@ internal static partial class WallSegmentFade
                     ShowEdge(p, !hide, seg.Fade);
                     continue;
                 }
-                DriveProp(p, want == 2 ? 1f : seg.Fade);
-                ShowEdge(p, want != 2, seg.Fade);
                 if (want == 2)
                 {
+                    DriveProp(p, 1f);
+                    p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
+                    ShowEdge(p, false, seg.Fade);
                     if (r.enabled)
                         r.enabled = false;
                 }
-                else if (!r.enabled)
+                else
                 {
-                    r.enabled = true;
+                    // ModBuild 265: one shared show branch — the ramp, the return gate, the
+                    // audit call and the enable. See FadeDriver.ShowAttachmentPiece.
+                    ShowAttachmentPiece(p, r, seg.Fade, seg.Fade);
                 }
             }
             if (lost)

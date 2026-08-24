@@ -416,7 +416,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 264;
+    public const ushort ModBuild = 265;
+    // Build 265: *** THIS ONE CHANGES BEHAVIOUR *** TWO RULES, BOTH ABOUT A PIECE BEING SWITCHED
+    // ON AT A MOMENT IT MUST NOT BE.
+    //  (a) OWNERSHIP IS STICKY WHILE THE WALL IS FADED. ResolvePropUnit's PASS 1 skipped any unit
+    //      member that was not IsActuallyDrawing — and ApplyUnitDressing ends its hide branch with
+    //      r.enabled = false, so one rescan later the test READ BACK OUR OWN WRITE, dropped the
+    //      member, and FinishPropUnitDressing "restored" it over a wall at fade 1.00. A two-rescan
+    //      oscillation: the user's "das Gestrüp verschwindet erst, ploppt dann aber plötzlich
+    //      wieder auf" (2026-08-24). 66 of the ModBuild-264 log's 76 RELEASED OVER A FADED WALL
+    //      warns are this; the other 10 are a leaver whose new owner drives it through the same
+    //      prop ledger, now HANDED OVER rather than restored. ACCEPTANCE: that warn reads 0 for
+    //      every reason except a FIGURE or a MOBILE prop.
+    //  (b) A PIECE IS NOT SHOWN UNTIL IT CAN BE DRAWN AS AUTHORED. The foliage _Cutoff lerp is the
+    //      one delivery whose mid-ramp value crosses 1 and discards every texel, and the old show
+    //      branch enabled pieces at fade 0.91 with _Cutoff 1.14 against an authored 0.50, then
+    //      resolved them out of nothing over 0.64 s — the user's "1s undefinierter Matsch an den
+    //      Ästen". Such a piece is now held disabled until its PROP UNIT's existing stagger
+    //      threshold and written its authored value on the frame it is turned on; the latch is
+    //      released again the moment the fade climbs back past that threshold, so an interrupted
+    //      return still ramps OUT. ACCEPTANCE: SHOW EDGE's "shown with a clip value that discards
+    //      every texel" reads 0 (123 of 278 at worst in the ModBuild-264 log).
+    // ModBuild 264 is untouched: SplitPieceMayClaim and the water-arm per-renderer skip both stand.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 264: THE WATER RECT WAS HOLDING WHOLE WALLS, AND THE COHESION PASS NEVER RAN ON THEM.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.

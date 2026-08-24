@@ -774,8 +774,17 @@ internal static partial class WallSegmentFade
                 + "contradicted the picture; ModBuild 260's DISSOLVE CENSUS named four dissolving "
                 + "pieces as poppers and blamed an un-fade-edge evaluation its own STEP totals "
                 + "show never ran). ZERO is the acceptance bar for the ModBuild-261 report "
-                + $"(wände_problem4.mp4, the fir's crown appearing in one frame at 25.53s).{keys}"
-                + $"{detail}");
+                + "(wände_problem4.mp4, the fir's crown appearing in one frame at 25.53s). "
+                + "MODBUILD 265 — the blank-clip term is what the user's \"1s undefinierter "
+                + "Matsch an den Ästen\" is: 123 of 278 pieces here were shown at fade 0.82-0.92 "
+                + "with _Cutoff 1.07-1.20 against an authored 0.50, i.e. on the first frames of "
+                + "an un-fade, drawing nothing, and resolved out of nothing over the next 0.6s. "
+                + "A piece we hid is now held disabled until its PROP UNIT's stagger fade and "
+                + "written with its authored value on the frame it is turned on "
+                + "(FadeDriver.ShowAttachmentPiece). So a blank-clip residue can no longer be a "
+                + "held piece returning: read the FADES below — first-frame-of-un-fade fades "
+                + "would falsify the rule, any other fade is a piece adopted mid-return that the "
+                + $"rule never held, which is a different defect.{keys}{detail}");
             _showEdgeNames.Clear();
             _showEdgeSwapped = 0;
             _showEdgeBlankClip = 0;

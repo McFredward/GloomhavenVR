@@ -123,6 +123,40 @@ internal static partial class WallSegmentFade
     }
 
     /// <summary>
+    /// WHERE ONE PIECE IS IN ITS RETURN (ModBuild 265). The whole of the "a piece is not shown
+    /// until it can be drawn as authored" rule needs to know two things the renderer cannot be
+    /// asked: did WE hide this piece, and has it already come back as authored this episode.
+    ///
+    /// <para>WHY NOT <c>Renderer.enabled</c>. It answers the first question and not the second.
+    /// A cutoff piece shown as authored is <c>enabled</c> from that frame on, so a rule reading
+    /// only the renderer would hand it back to the ramp on the very next frame and re-write the
+    /// clip value that discards it — the defect would last one frame less and be otherwise
+    /// identical. It is also not proof that we hid it: Apparance re-enables regenerated pieces
+    /// over a held wall (that is why no applier here has a held-state early-out), and such a
+    /// piece must keep the ordinary ramp rather than be gated.</para>
+    ///
+    /// <para>Armed in every applier's <c>want == 2</c> branch, cleared in
+    /// <see cref="FadeDriver.RestoreProp(MountedProp, Segment, string)"/> — i.e. exactly when the
+    /// piece goes back to being untouched. Foliage records need no clear: <c>RestoreSegmentFoliage</c>
+    /// destroys <c>seg.FoliageProps</c> at fade 0, so every episode starts with fresh records.</para>
+    /// </summary>
+    private enum ReturnPhase : byte
+    {
+        /// <summary>Not held by us — outbound, or a piece we never hid. The applier ramps it
+        /// exactly as it always did. An outbound piece is normally in this state, but NOT
+        /// always: a return interrupted by a new fade is outbound while still reading
+        /// <see cref="ReturnedAuthored"/>, and <c>ShowAttachmentPiece</c> hands it back here the
+        /// moment the fade climbs past the piece's own stagger threshold.</summary>
+        Free = 0,
+        /// <summary>We disabled it at the held threshold. It may only be turned on again with
+        /// its authored look.</summary>
+        HeldHidden = 1,
+        /// <summary>It came back this episode carrying its authored values. The ramp may not
+        /// touch it again until the next hide re-arms <see cref="HeldHidden"/>.</summary>
+        ReturnedAuthored = 2,
+    }
+
+    /// <summary>
     /// One wall-mounted prop plus everything needed to dissolve it and to put it back EXACTLY as
     /// authored. Built once when the prop is attached (see <see cref="FadeDriver.ClassifyProp"/>).
     /// </summary>
@@ -183,6 +217,12 @@ internal static partial class WallSegmentFade
         /// <c>false → true</c> is the frame the piece becomes visible again, which is the only
         /// frame the ModBuild-261 SHOW EDGE audit reads (WallSegmentFade.FadeCensus.cs).</summary>
         public bool WasDrawing;
+
+        /// <summary>Where this piece is in its RETURN — see <see cref="ReturnPhase"/>. Written
+        /// only by the appliers' hide branches, by <see cref="FadeDriver.ShowAttachmentPiece"/>
+        /// and by <see cref="FadeDriver.RestoreProp(MountedProp, Segment, string)"/>; never by an
+        /// instrument, so the SHOW EDGE audit stays free to contradict it.</summary>
+        public ReturnPhase Return;
 
         // ModBuild 261: there is deliberately NO cached StaggerAt here. A record is reused out of
         // _mountedTouched across rescans and nothing reset the cache, so a piece Apparance had
@@ -694,6 +734,10 @@ internal static partial class WallSegmentFade
                 _showEdgeTotal++;
             p.WasDrawing = true;
             p.ShownAtFade = 0f;
+            // ModBuild 265: the piece is untouched again, so the RETURN latch is spent. Leaving
+            // it set would make the NEXT fade-out skip the ramp for this piece (the ramp is
+            // suppressed while it reads ReturnedAuthored) and turn its disappearance into a pop.
+            p.Return = ReturnPhase.Free;
         }
 
         /// <summary>Restore ALL of a segment's mounted props — called on every path where the
@@ -778,6 +822,7 @@ internal static partial class WallSegmentFade
                         EnsureDissolveChannel(p);
                         DriveProp(p, ramp);
                     }
+                    p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
                         p.Renderer.enabled = false;
                     ShowEdge(p, false, seg.Fade);
@@ -786,10 +831,10 @@ internal static partial class WallSegmentFade
                 {
                     _mountedTouched[p.Renderer] = p;
                     EnsureDissolveChannel(p); // round 15: dressing without a channel animates too
-                    DriveProp(p, ramp);
-                    ShowEdge(p, true, seg.Fade);
-                    if (!p.Renderer.enabled)
-                        p.Renderer.enabled = true;
+                    // ModBuild 265: the ramp, the return gate, the audit call and the enable are
+                    // ONE implementation for all five appliers — the ModBuild-261 lesson about
+                    // two lanes writing "the same" rule twice.
+                    ShowAttachmentPiece(p, p.Renderer, ramp, seg.Fade);
                 }
             }
             if (lost)
