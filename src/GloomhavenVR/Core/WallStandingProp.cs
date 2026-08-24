@@ -118,6 +118,66 @@ namespace GloomhavenVR.Core;
 /// bottom metre of a wall that is dissolving above it. See <see cref="UnitFadesAsOne"/> for the
 /// term and for what stops it eating a floor.</para>
 ///
+/// <para>MODBUILD 266 — A FRAGMENT OF A WALL FEATURE IS NOT A PROP, AND THE DEFECT WAS THE UNIT
+/// AND NOT THE HEIGHT. User report 2026-08-25, hardware, ModBuild 265: <i>"In dem Level gibt es
+/// Bücherregale die als Wandersatz dienen … faden aber nicht in den Tests. Ich möchte, dass auch
+/// sie vollständig faden."</i> and <i>"Noch eine Wandhalterung/Regal/Brett faded nicht mit, obwohl
+/// es an der Wand hängt. Die Tränke die darauf liegen faden mit, aber Regal selber nicht."</i>
+/// The same log answers it with ONE prefab that this rule measures TWICE, at two different
+/// roots:</para>
+/// <code>
+/// TORN 'PCG_Test_Feature_Small_2' 19/21 written, unit y[0.0..3.4] over floor 0.0, widest 3.5 wu:
+///     'CR_ST_Shelves_Stone_Wood'[mesh] under 'Wall 4/Generated Content/PCG_Test_Feature_Small_2/…'
+///     anchor 2.05 … ← wall renderer of 'Wall 4' fade 1.00
+///     'CR_ST_Shelves_Stone_Wood_Shelf'[mesh] anchor 2.20 … ← wall renderer of 'Wall 4' fade 1.00
+///     'Blocks (1)'[mesh]  anchor 0.00 over floor, AABB s(1.1,2.8,0.8)   ← the feature's masonry
+///     'Pillar'[mesh]      anchor 2.82 over floor                        ← its capital
+///
+/// 'CR_ST_Shelves_Stone_Wood'[shared ancestor] 2 renderer(s)    ← the SAME prefab, other instance
+/// [WALL MEMBER] 'CR_ST_Shelves_Stone_Wood'       foot 0.90 / top 1.31  … drawing over a wall at fade 1.00
+/// [FLOATING]    'CR_ST_Shelves_Stone_Wood_Shelf' foot 1.13 / top 1.23  … "part of a prop unit that STANDS ON THE FLOOR"
+/// </code>
+/// <para>Read the two roots. Where the climb reaches <c>PCG_Test_Feature_Small_2</c> the unit is
+/// the WHOLE wall feature — a 2.8 wu masonry block standing at anchor 0.00, a pillar capital, and
+/// the shelf bracketed to it — measuring <b>3.4 wu tall</b>, so <see cref="MaxHeightWU"/> already
+/// calls it architecture and every renderer under it fades. Where the climb stops one level lower
+/// the unit is the 2-renderer SHELF alone, <b>0.41 wu tall</b> with its foot 0.90 wu up, which is
+/// a textbook floor prop by these very numbers — and is protected on every path and left drawing
+/// over a wall at fade 1.00.</para>
+///
+/// <para><b>SO THE HEIGHT CAP WAS NEVER WRONG AND NO NUMBER NEEDED MOVING.</b> The rule was
+/// judging a FRAGMENT. That is the exact failure this file was written against, in its own words
+/// — <i>"a skull one metre up looks airborne on its own and does not once it is judged as part of
+/// the skeleton it belongs to"</i> — with the fragment and the whole swapped round. Four
+/// thresholds in this subsystem have been shipped from one scenario's numbers and falsified by the
+/// next log; this round moves none of them.</para>
+///
+/// <para><b>THE TERM.</b> FLOOR arm only, two conjuncts, no new constant:
+/// <list type="number">
+/// <item>the unit's climb passed a WALL ENTITY inside its own bounded window (<c>wallCut</c>,
+///   measured by <c>WallSegmentFade.PropUnit.cs</c>'s walk and reported out of it) — i.e. what
+///   sits immediately above this unit is a wall, so the unit is a piece of that wall's feature
+///   rather than a prop standing in the room; and</item>
+/// <item>the unit rises out of the ground band (<see cref="FootBandWU"/>, the same 1.0 wu as
+///   <c>GroundExclusionHeightWU</c>) — the guard that keeps floor hexes, grass and ground scatter
+///   protected, which this tileset also parents under <c>Wall N/Generated Content/</c>.</item>
+/// </list></para>
+///
+/// <para><b>WHY conjunct 1 IS NOT <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>, and this is
+/// the whole care of the round.</b> That probe — what <c>IsWallGeneratedMember</c> and the flags
+/// lane's <c>WallGeneratorAncestry</c> both use — climbs to the SCENE ROOT, and in the
+/// ModBuild-265 log it answers YES for things no wall built: <c>'right_thigh01'</c> and
+/// <c>'left_thigh01'</c> (a rigged skeleton), <c>'LightShaft_Prefab (1)'</c>, and 348 renderers of
+/// <c>'CV_Ice_Crystal_Form_02/03'</c> — the ice formation the user expressly allows to stay. The
+/// term here rides the unit walk, which is bounded to four levels, so it can only ever be about
+/// the unit's own neighbourhood. The crystal's logged path
+/// (<c>'L : (…)/Generated Content/Full/PCG_CV_Ice_Clutter_Floor_07_PR/CV_Ice_Crystal_Form_02 (2)/…'</c>)
+/// puts four non-wall nodes above the renderer's parent, and <c>Full</c> and
+/// <c>Generated Content</c> are SIBLINGS of <c>Walls/</c> rather than children of it, so no node
+/// in the window is or contains a wall. That is a property of the loop bound and of a path the log
+/// prints in full — not a claim about which components are in <c>m_WallCache</c>, which cannot be
+/// measured off a log and is therefore not relied on anywhere in this round.</para>
+///
 /// <para>THE SPAN AND RENDERER CAPS ARE UNCHANGED, and they are what stops the FLOOR arm being the
 /// catastrophe the height cap was added against: a whole wall RUN is over 6.0 wu across or over 24
 /// renderers and can never be a unit at all.</para>
@@ -175,6 +235,12 @@ internal static class WallStandingProp
     /// from 2.8 wu upward, floor-band dressing to 2.5 wu). A first cut, printed with every verdict
     /// by the FADE WRITE census so the next log can move it on evidence.</summary>
     internal const float MaxHeightWU = 2.5f;
+
+    /// <summary>The leading tag of the ModBuild-266 WALL-FRAGMENT refusal sentence. A constant so
+    /// the census can COUNT that refusal without a second copy of the term's arithmetic standing
+    /// next to the first one and drifting from it. Also what to grep the next hardware log
+    /// for.</summary>
+    internal const string WallFragmentTag = "wall-feature fragment";
 
     /// <summary>A prop unit's measured extent — the union AABB of every renderer under its root,
     /// which is the whole point: a skull is judged as part of its skeleton, never on its own.</summary>
@@ -246,6 +312,14 @@ internal static class WallStandingProp
                                         out string why)
         => !StandsOnFloor(unit, floorY, figureAncestry, out why);
 
+    /// <inheritdoc cref="UnitFadesAsOne(in Unit, float, bool, out string)"/>
+    /// <param name="vegetation">Reported only — see the other overload.</param>
+    /// <param name="wallCut">See
+    /// <see cref="StandsOnFloor(in Unit, float, bool, bool, bool, out string)"/>.</param>
+    internal static bool UnitFadesAsOne(in Unit unit, float floorY, bool figureAncestry,
+                                        bool vegetation, bool wallCut, out string why)
+        => !StandsOnFloor(unit, floorY, figureAncestry, vegetation, wallCut, out why);
+
     /// <summary>
     /// Does this unit STAND ON THE FLOOR of the room whose plane is <paramref name="floorY"/> —
     /// and is it therefore never wall geometry, on any path, whatever shader or material slot its
@@ -274,6 +348,16 @@ internal static class WallStandingProp
     /// keep.</param>
     internal static bool StandsOnFloor(in Unit unit, float floorY, bool figureAncestry,
                                        bool vegetation, out string why)
+        => StandsOnFloor(unit, floorY, figureAncestry, vegetation, wallCut: false, out why);
+
+    /// <inheritdoc cref="StandsOnFloor(in Unit, float, bool, bool, out string)"/>
+    /// <param name="wallCut">MODBUILD 266 — the unit's climb passed a WALL ENTITY inside its own
+    /// bounded four-level window, so what sits immediately above this unit is a wall and the unit
+    /// is a FRAGMENT of that wall's feature. Measured by the caller off the unit walk itself, not
+    /// by an unbounded <c>GetComponentInParent&lt;ProceduralWall&gt;()</c> climb — see the file
+    /// header for the three subjects that probe gets wrong.</param>
+    internal static bool StandsOnFloor(in Unit unit, float floorY, bool figureAncestry,
+                                       bool vegetation, bool wallCut, out string why)
     {
         // SHAPE, printed on EVERY line this method produces — verdict and refusal alike. This is
         // the column that killed the ModBuild-257 TREE arm in one grep (h/w 0.23…2.11 across the
@@ -282,6 +366,11 @@ internal static class WallStandingProp
         // this project a round before.
         string shape = $"h {unit.Height:0.0} wu / w {unit.WidestSpanXZ:0.0} wu = "
                        + $"{unit.SlendernessHW:0.00} h/w"
+                       // PROVENANCE goes BEFORE the vegetation flag deliberately: the shipped
+                       // wire vectors pin this column to END in ", vegetation]" / ", no
+                       // vegetation]" (that suffix is the TREE arm's tombstone), so a new column
+                       // may be inserted here but never appended.
+                       + (wallCut ? ", under a wall" : ", no wall above")
                        + (vegetation ? ", vegetation" : ", no vegetation");
         if (unit.RendererCount <= 0 || unit.RendererCount > MaxRenderers)
         {
@@ -300,6 +389,55 @@ internal static class WallStandingProp
         {
             why = $"foot {foot:0.0} wu over floor {floorY:0.0} — wall-MOUNTED dressing, keeps "
                   + $"fading with its masonry (band {FootBandWU:0.0} wu) [{shape}]";
+            return false;
+        }
+        // WALL-FEATURE FRAGMENT, the FLOOR arm only — ModBuild 266, bücherregale1/2.jpg and
+        // regal_brett.jpg. See the file header for the two log lines this is read off. In short:
+        // the identical shelf prefab measures 3.4 wu as the wall feature it belongs to (and is
+        // correctly refused by the height cap below) and 0.41 wu as a 2-renderer fragment of that
+        // same feature — and as a fragment it passes every term here and is protected on every
+        // path. The rule was judging a piece of a wall, which is the inverse of the split this
+        // file exists to fix ("a skull … does not [look airborne] once it is judged as part of
+        // the skeleton it belongs to").
+        //
+        // Asked AFTER the foot band, because a unit whose foot is already above the band is
+        // refused there for the right reason and with the better sentence; asked BEFORE the
+        // height cap, because a fragment is small BY CONSTRUCTION and would sail through it —
+        // that is what being a fragment means.
+        //
+        // CONJUNCT 2, `unit.MaxY - floorY > FootBandWU`, is the guard that stops this eating the
+        // floor, and it is load-bearing rather than decorative: this tileset really does parent
+        // ground cover under walls, e.g.
+        // 'L : (…)/Walls/Wall 2/Generated Content/PCG_FR_Floor_Grass_Hex_Half_PR/FR_Floor_Grass_Half_01'
+        // in the same log. Those units top out ~0.2 wu over the floor, stay inside the band, and
+        // keep their protection. No new constant: it is the same 1.0 wu as GroundExclusionHeightWU,
+        // which is the number this whole subsystem already means "ground, never wall" by.
+        //
+        // WHAT THIS CANNOT REACH, stated as consequences rather than hopes:
+        //   * every FIGURE and actor prop — the FIGURE arm never asks this question, and the
+        //     round-7 ruling (figures are never touched) is untouched;
+        //   * the fountain and the doorway arch — their rects are asked by the caller before
+        //     wallCut can be set, and are independently enforced at three other choke points;
+        //   * anything with NO authored wall-fade channel — this term removes a VETO at the
+        //     collection choke point, it does not grant admission. A renderer still has to carry
+        //     a WallFade-family shader name or a live _WallFade_On/_ToggleWallfade gate to be
+        //     collected at all, and the shelf demonstrably does (both its renderers are logged as
+        //     "wall renderer of 'Wall 4'" in the instance that fades).
+        //
+        // FALSIFIER: the STANDING PROP census now prints "under a wall" / "no wall above" for
+        // every unit and a per-subject roll-call for the five named cases. If the next log shows
+        // 'CV_Ice_Crystal_Form_02', a skeleton limb or 'LightShaft_Prefab (1)' as "under a wall",
+        // the four-level window is NOT narrower than the unbounded climb in this tileset and this
+        // term must be withdrawn — not retuned.
+        if (!figureAncestry && wallCut && unit.MaxY - floorY > FootBandWU)
+        {
+            why = $"{WallFragmentTag}: foot {foot:0.0} wu over floor {floorY:0.0}, top "
+                  + $"{unit.MaxY - floorY:0.0} wu, height {unit.Height:0.0} wu over "
+                  + $"{unit.RendererCount} renderer(s) — a WALL sits immediately above this unit "
+                  + $"inside the unit walk's own window, so this is a FRAGMENT of that wall's "
+                  + $"feature and not a prop standing in the room; it rises out of the ground "
+                  + $"band ({FootBandWU:0.0} wu), so the whole unit fades with the wall "
+                  + $"[{shape}]";
             return false;
         }
         // HEIGHT, the FLOOR arm only. No escape hatch since ModBuild 258: the TREE arm that used

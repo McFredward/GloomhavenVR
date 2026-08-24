@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 266;
+    public const ushort ModBuild = 267;
+    // Build 267: *** THIS ONE CHANGES BEHAVIOUR *** THE SHELF THAT SERVES AS A WALL — AND THE
+    // DEFECT WAS THE UNIT, NOT THE HEIGHT.
+    //  The 265 log measures ONE prefab at TWO roots. Where the unit climb reaches
+    //  PCG_Test_Feature_Small_2 the unit is the whole 21-renderer WALL FEATURE — a 2.8 wu masonry
+    //  block at anchor 0.00, a pillar capital and a shelf bracketed to it — 3.4 wu tall, so
+    //  MaxHeightWU already calls it architecture and every renderer under it fades. Where the
+    //  climb stops one level lower the unit is the 2-renderer SHELF alone, 0.41 wu tall with its
+    //  foot 0.90 wu up: a textbook floor prop by those very numbers, protected on every path and
+    //  left drawing over a wall at fade 1.00. THE HEIGHT CAP WAS NEVER WRONG. The rule was judging
+    //  a FRAGMENT — the failure this file was written against, with fragment and whole swapped
+    //  round ("a skull one metre up looks airborne on its own and does not once it is judged as
+    //  part of the skeleton it belongs to"). No threshold is moved in this build.
+    //  THE TERM: FLOOR arm only, two conjuncts, no new constant — the unit's own climb passed a
+    //  wall entity INSIDE its bounded four-level window, and the unit rises out of the ground band.
+    //  Deliberately NOT GetComponentInParent<ProceduralWall>(), which climbs to the scene root and
+    //  in the 265 log answers YES for a rigged skeleton's limbs, LightShaft_Prefab and 348
+    //  renderers of CV_Ice_Crystal_Form_02/03 — the formation the user rules must STAY.
+    //  A NEGATIVE RESULT WORTH KEEPING: the authored wall-fade channel does NOT separate them.
+    //  The session's whole toggle-native roster includes a candlestick, a generic prop atlas and
+    //  FR_Floor_LargeBush_Dead_M — the channel marks "driveable", not "wall-attached". It is now
+    //  REPORTED per subject instead, so "the crystal and the light shaft cannot be affected" is a
+    //  number in the next log rather than an assertion.
+    //  ACCEPTANCE, five named subjects on the STANDING PROP roll-call: shelf + board FADE;
+    //  crystal, skeleton limbs and LightShaft_Prefab STAY. Zero refusals with the shelves still
+    //  solid means the window does not see their wall and the term is the wrong lever; a crystal
+    //  or limb printed as `under a wall` means the term must be WITHDRAWN, not retuned.
+    //  STILL OPEN: EN_CR_Curtain_Mesh and CR_BT_BanditBanner_Wall are held by the FIGURE arm, not
+    //  the floor arm — 266's IsWallGeneratedDressing is the lever there, and this build does not
+    //  touch it.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 266: *** THIS ONE CHANGES BEHAVIOUR *** TWO ANSWERS, AND BOTH WERE A CLASSIFIER
     // ANSWERING A QUESTION IT WAS NEVER ASKED.
     //  (a) FLAGS AND BANNERS FADE WITH THE WALL THAT CARRIES THEM. The wall was already driving

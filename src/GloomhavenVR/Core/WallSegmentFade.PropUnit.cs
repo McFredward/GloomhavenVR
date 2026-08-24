@@ -882,10 +882,34 @@ internal static partial class WallSegmentFade
         /// or containing a <c>ProceduralWall</c>, and at the first container-scale subtree — the
         /// three ways a wall could otherwise be swallowed whole into a "prop".
         /// </summary>
-        private Transform? PropUnitRootOf(Transform parent)
+        private Transform? PropUnitRootOf(Transform parent) => PropUnitRootOf(parent, out _);
+
+        /// <inheritdoc cref="PropUnitRootOf(Transform)"/>
+        /// <param name="wallInWindow">
+        /// MODBUILD 266 — did this climb pass a WALL ENTITY inside its own window? True when any
+        /// node the walk LOOKED AT (segment anchor, a node carrying a <c>ProceduralWall</c>, or a
+        /// node whose subtree contains one) is a wall. It is reported rather than acted on here;
+        /// <see cref="FadeDriver.IsStandingProp"/> is the only consumer.
+        ///
+        /// <para><b>WHY IT IS REPORTED FROM INSIDE THE WALK AND NOT ASKED SEPARATELY.</b> The
+        /// walk is bounded to <see cref="PropUnitMaxDepth"/> (4) levels, and that bound is the
+        /// whole safety property: this answer can only ever be about the unit's own four-level
+        /// neighbourhood, never about the scene. <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>
+        /// — which is what <c>IsWallGeneratedMember</c> and the flags lane's
+        /// <c>WallGeneratorAncestry</c> both ask — climbs to the SCENE ROOT, and in the
+        /// ModBuild-265 log that reaches far enough to answer "yes" for a rigged skeleton's
+        /// thighs, a light shaft and 348 ice-crystal renderers whose own logged path is
+        /// <c>'L : (…)/Generated Content/Full/PCG_CV_Ice_Clutter_Floor_07_PR/…'</c>. That path
+        /// has FOUR nodes above the renderer's parent before <c>L :</c>, so whatever wall
+        /// component the unbounded climb is finding up there, THIS window cannot see it. The
+        /// narrowness is a property of the loop bound, which is checkable here, and not a claim
+        /// about which walls are in <c>m_WallCache</c>, which is not.</para>
+        /// </param>
+        private Transform? PropUnitRootOf(Transform parent, out bool wallInWindow)
         {
             Transform? node = parent;
             Transform? best = null;
+            wallInWindow = false;
             for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
             {
                 // PERF S3: the three questions below are the SAME three calls this walk always
@@ -895,7 +919,10 @@ internal static partial class WallSegmentFade
                 // ancestor once per distinct parent, and the priciest walk of the climb is the
                 // one that decides to stop).
                 if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
+                {
+                    wallInWindow = true;
                     break;
+                }
                 int count = NodeRendererCount(node);
                 if (count > PropUnitMaxRenderers)
                     break; // container scale — this node and everything above it are architecture
@@ -905,7 +932,12 @@ internal static partial class WallSegmentFade
                     continue;
                 }
                 if (NodeContainsWallEntity(node))
-                    break; // the subtree contains a wall entity: not a prop, whatever its size
+                {
+                    // The subtree contains a wall entity: not a prop, whatever its size — and the
+                    // fragment left BELOW this node is a piece of that wall's own feature.
+                    wallInWindow = true;
+                    break;
+                }
                 best = node;
                 node = node.parent;
             }

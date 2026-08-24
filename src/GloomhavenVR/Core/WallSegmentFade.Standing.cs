@@ -80,6 +80,31 @@ namespace GloomhavenVR.Core;
 /// (<see cref="FadeDriver.PropUnitRecruit"/>), because that is the pass that already owns "one
 /// unit, one owner".</para>
 ///
+/// <para>MODBUILD 266 — THE RULE WAS JUDGING A FRAGMENT OF A WALL. User report 2026-08-25,
+/// hardware, ModBuild 265: <i>"In dem Level gibt es Bücherregale die als Wandersatz dienen …
+/// faden aber nicht in den Tests"</i> and <i>"Noch eine Wandhalterung/Regal/Brett faded nicht mit,
+/// obwohl es an der Wand hängt"</i>. The same log measures the SAME shelf prefab at two different
+/// unit roots — <c>TORN 'PCG_Test_Feature_Small_2' 19/21 written, unit y[0.0..3.4]</c> (the whole
+/// wall feature: a 2.8 wu masonry block at anchor 0.00, a pillar capital, the shelf bracketed to
+/// it; refused as architecture, and it fades) versus
+/// <c>'CR_ST_Shelves_Stone_Wood'[shared ancestor] 2 renderer(s)</c> (the shelf alone, y[0.9..1.3],
+/// 0.4 wu tall; accepted as a floor prop, and it is the leftover in the photographs). No number
+/// here was wrong. The unit was. The term added for it — a unit whose own walk passed a WALL
+/// inside its bounded window is a FRAGMENT of that wall's feature, not a prop standing in the
+/// room — lives in <see cref="WallStandingProp"/> with the numbers and the falsifier; read that
+/// header before touching anything here. The FIGURE arm is untouched, and so is every
+/// constant.</para>
+///
+/// <para>WHAT THIS ROUND DELIBERATELY DOES <b>NOT</b> FIX, because the honest boundary is worth
+/// more than an over-reach. <c>'EN_CR_Curtain_Mesh'</c> (151 leftovers) and
+/// <c>'CR_BT_BanditBanner_Wall'</c> (305) are wall dressing held solid over faded walls by the
+/// <b>FIGURE</b> arm, not by the floor arm — the ModBuild-265 census reads
+/// <c>'EN_CR_Curtain_Cloth' foot 0.3 wu … 2 renderer(s) — figure/actor prop</c>. Widening the
+/// figure arm is the round-7 ruling's territory (figures are NEVER touched, Lights-rule severity)
+/// and it is the flags lane's <c>IsWallGeneratedDressing</c>, which carries an
+/// <c>ActorBehaviour</c>/<c>CInteractableActor</c> veto for exactly that reason. Nothing here
+/// touches it.</para>
+///
 /// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
 /// piece's base to sit at or above the wall's ORIGINAL course top minus 1.2 wu — floor-band
 /// geometry cannot satisfy that, so adding a second guard there would be a line of code that can
@@ -157,13 +182,33 @@ internal static partial class WallSegmentFade
             /// vegetation when its own canopy is part of the same prop.</summary>
             internal readonly bool Vegetation;
 
+            /// <summary>MODBUILD 266 — the unit walk passed a WALL ENTITY inside its own bounded
+            /// window, i.e. this unit is a FRAGMENT of a wall's feature. See
+            /// <see cref="FadeDriver.StandingFloorUnitRootOf"/>.</summary>
+            internal readonly bool WallCut;
+
+            /// <summary>MODBUILD 266, REPORTED ONLY and deciding nothing. Does any member of the
+            /// unit carry an authored wall-fade channel (a WallFade-family shader NAME or a live
+            /// <c>_WallFade_On</c>/<c>_ToggleWallfade</c>/<c>_ToggleWallFadeLocal</c> gate)?
+            ///
+            /// <para>It is here because it is the fact that bounds this round's blast radius, and
+            /// it was asserted once already in this lane instead of measured. Lifting the FLOOR
+            /// arm's veto cannot make a renderer fade unless it ALSO passes the material walk in
+            /// <see cref="FadeDriver.CollectWallFadeInfo"/>; so for each of the five named
+            /// acceptance subjects the next hardware log states, in one grep, whether this rule
+            /// was ever what held it. A "no channel" subject cannot move whatever this term
+            /// decides.</para></summary>
+            internal readonly bool FadeChannel;
+
             internal StandingMeasure(bool ok, WallStandingProp.Unit unit, float floorY,
-                                     bool vegetation)
+                                     bool vegetation, bool wallCut, bool fadeChannel)
             {
                 Ok = ok;
                 Unit = unit;
                 FloorY = floorY;
                 Vegetation = vegetation;
+                WallCut = wallCut;
+                FadeChannel = fadeChannel;
             }
         }
 
@@ -179,6 +224,34 @@ internal static partial class WallSegmentFade
 
         /// <summary>Description of each protected unit for the census, keyed by unit root.</summary>
         private readonly Dictionary<Transform, string> _standingPropDesc = new(64);
+
+        /// <summary>MODBUILD 266 — roots of the units the WALL-FRAGMENT term refused this rescan.
+        /// Its COUNT is what the census prints. A SET and not a counter because this rule is asked
+        /// once per RENDERER while its verdict is a property of the UNIT, and the near-miss map
+        /// cannot stand in for it (that one stops filling at
+        /// <see cref="StandingNearMissCap"/>).</summary>
+        private readonly HashSet<Transform> _standingWallCutRoots = new(32);
+
+        /// <summary>MODBUILD 266 — the per-subject ROLL-CALL. One line per distinct renderer NAME
+        /// this rescan, carrying the two facts that adjudicate the five named acceptance subjects
+        /// (shelf + board must fade; curtain must fade; ice crystal, skeleton limbs and light
+        /// shaft must stay): was a wall inside this unit's walk window, and does the unit carry an
+        /// authored fade channel at all.
+        ///
+        /// <para>Keyed by NAME rather than by root on purpose — the subjects are named in the
+        /// user's report and in the leftover audit by name, and one line per name is what makes
+        /// the next log answer all five with a single grep instead of five cross-references. The
+        /// cap is what stops a roll-call becoming a census.</para></summary>
+        private readonly Dictionary<string, string> _standingSubjectRoll = new(64);
+
+        /// <summary>How many distinct names the roll-call carries before it stops collecting.</summary>
+        private const int StandingSubjectRollCap = 48;
+
+        /// <summary>Scratch for the fade-channel probe. Deliberately NOT <c>_matScratch</c>:
+        /// <see cref="FadeDriver.CollectWallFadeInfo"/> and
+        /// <see cref="FadeDriver.HasGatedOffWallFadeToggle"/> both iterate that one, and this runs
+        /// from inside the standing check those call.</summary>
+        private readonly List<Material> _standingMatScratch = new(8);
 
         /// <summary>NEAR MISSES: units whose foot IS in the floor band but that failed another
         /// term, with the number they failed on. Keyed by root so one unit is named once.</summary>
@@ -212,8 +285,11 @@ internal static partial class WallSegmentFade
         {
             _standingUnitMemo.Clear();
             _standingRootMemo.Clear();
+            _standingRootCutMemo.Clear();
             _standingPropDesc.Clear();
             _standingNearMiss.Clear();
+            _standingWallCutRoots.Clear();
+            _standingSubjectRoll.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
             // PERF S3: the per-node subtree facts PropUnitRootOf reads are dropped HERE and only
@@ -247,17 +323,40 @@ internal static partial class WallSegmentFade
         /// siblings share the answer. Null when the walk finds nothing — a renderer hanging
         /// directly off its wall entity, which is most of the masonry in any scene and is the
         /// cheap path out of this rule.</summary>
-        private Transform? StandingFloorUnitRootOf(Renderer r)
+        /// <summary>The unit root alone, for the two censuses that only want to GROUP renderers
+        /// by unit (<c>WallSegmentFade.FadeCensus.cs</c>, <c>WallSegmentFade.Mounted.cs</c>).
+        /// They ask no verdict, so they need no <c>wallCut</c>, and giving them one would put a
+        /// second reader on a fact only <see cref="IsStandingProp"/> may act on.</summary>
+        private Transform? StandingFloorUnitRootOf(Renderer r) => StandingFloorUnitRootOf(r, out _);
+
+        /// <inheritdoc cref="StandingFloorUnitRootOf(Renderer)"/>
+        /// <param name="wallCut">MODBUILD 266 — the walk passed a WALL ENTITY inside its own
+        /// bounded window. Memoised beside the root, never recomputed by a second climb.</param>
+        private Transform? StandingFloorUnitRootOf(Renderer r, out bool wallCut)
         {
+            wallCut = false;
             Transform? parent = r.transform.parent;
             if (parent == null)
                 return null;
             if (_standingRootMemo.TryGetValue(parent, out Transform? cached))
+            {
+                // The cut is a property of the WALK, so it is memoised beside the root it
+                // produced and never recomputed with a second, differently-bounded climb — the
+                // whole safety argument of this term is that it sees exactly the window the unit
+                // walk saw, and a separate probe would quietly stop being that.
+                wallCut = _standingRootCutMemo.Contains(parent);
                 return cached;
-            Transform? root = PropUnitRootOf(parent);
+            }
+            Transform? root = PropUnitRootOf(parent, out wallCut);
             _standingRootMemo[parent] = root;
+            if (wallCut)
+                _standingRootCutMemo.Add(parent);
             return root;
         }
+
+        /// <summary>MODBUILD 266 — the <c>wallInWindow</c> half of <see cref="_standingRootMemo"/>,
+        /// keyed by the same renderer PARENT. Per-rescan, cleared with everything else.</summary>
+        private readonly HashSet<Transform> _standingRootCutMemo = new(128);
 
         /// <summary>
         /// Is this renderer part of a prop that STANDS ON THE FLOOR — and therefore never wall
@@ -295,19 +394,30 @@ internal static partial class WallSegmentFade
             // 167 widening the skeleton photograph needed — a scenery skeleton on a deck has no
             // figure ancestry at all. There is no third arm (ModBuild 258 retired it).
             bool figure = IsFigureOrActorRenderer(r);
+            bool wallCut = false;
             Transform? root = figure
                 ? FigurePropRootOf(r.transform)
-                : StandingFloorUnitRootOf(r);
+                : StandingFloorUnitRootOf(r, out wallCut);
             if (root == null)
                 return false;
-            if (!MeasureStandingUnit(root, out WallStandingProp.Unit unit, out float floorY,
-                                     out bool vegetation))
+            if (!MeasureStandingUnit(root, wallCut, out WallStandingProp.Unit unit,
+                                     out float floorY, out bool vegetation,
+                                     out bool fadeChannel))
             {
                 return false;
             }
 
             bool verdict = WallStandingProp.StandsOnFloor(unit, floorY, figure, vegetation,
-                                                          out string why);
+                                                          wallCut, out string why);
+            // MODBUILD 266 — how many UNITS the new term is the one that refused. Read off the
+            // refusal SENTENCE's own tag rather than a second copy of the term's arithmetic:
+            // one definition, no drift.
+            if (!verdict && why.StartsWith(WallStandingProp.WallFragmentTag,
+                                           System.StringComparison.Ordinal))
+            {
+                _standingWallCutRoots.Add(root);
+            }
+            NoteStandingSubject(r, figure, wallCut, fadeChannel, verdict);
             // THE FOLIAGE PATHS TAKE THE FIGURE ARM AND NEVER THE PLAIN FLOOR ARM, and that split
             // is the whole reason this method has a flag. ModBuild 167's note holds word for word:
             // a bush is a multi-piece thing standing on the ground under the height cap, so
@@ -339,19 +449,23 @@ internal static partial class WallSegmentFade
         /// room floor nearest its foot. False when the unit has no measurable geometry or the scene
         /// has no anchored floor at all — and with zero anchors every wall is fail-safe solid
         /// anyway, so refusing to protect costs nothing.</summary>
-        private bool MeasureStandingUnit(Transform root, out WallStandingProp.Unit unit,
-                                         out float floorY, out bool vegetation)
+        private bool MeasureStandingUnit(Transform root, bool wallCut,
+                                         out WallStandingProp.Unit unit,
+                                         out float floorY, out bool vegetation,
+                                         out bool fadeChannel)
         {
             if (_standingUnitMemo.TryGetValue(root, out StandingMeasure memo))
             {
                 unit = memo.Unit;
                 floorY = memo.FloorY;
                 vegetation = memo.Vegetation;
+                fadeChannel = memo.FadeChannel;
                 return memo.Ok;
             }
             unit = default;
             floorY = 0f;
             vegetation = false;
+            fadeChannel = false;
             _standingUnitScratch.Clear();
             root.GetComponentsInChildren(includeInactive: true, _standingUnitScratch);
             Bounds union = default;
@@ -370,6 +484,13 @@ internal static partial class WallSegmentFade
                 // dictionary hit per material per unit per rescan.
                 if (!vegetation && piece is MeshRenderer mesh && RendererUsesFoliage(mesh))
                     vegetation = true;
+                // MODBUILD 266, REPORTED ONLY: does the unit carry an authored fade channel at
+                // all? Same two tests CollectWallFadeInfo runs, in the same order, so the answer
+                // is the one that actually gates admission. Shader verdicts are cached per
+                // Shader and the material walk is a list fill, so this is a handful of dictionary
+                // hits per unit per RESCAN.
+                if (!fadeChannel && RendererHasFadeChannel(piece))
+                    fadeChannel = true;
                 if (!have) { union = piece.bounds; have = true; }
                 else union.Encapsulate(piece.bounds);
             }
@@ -379,9 +500,78 @@ internal static partial class WallSegmentFade
             {
                 unit = new WallStandingProp.Unit(union.min.y, union.max.y,
                                                  union.size.x, union.size.z, kept);
+                // THE TWO STANDING RULINGS. A unit inside the water rect (2026-08-09,
+                // brunnen.png) or the doorway-arch rect (2026-08-02) has an owner of its own, and
+                // the wall-fragment term must never claim it for a wall. Asked HERE because this
+                // is the one place holding the whole prop's union box, which is the geometry
+                // every other consumer of those rects is asked with. Same two rects, same order,
+                // as IsWallGeneratedMember and the mounted sweep.
+                if (wallCut && (IsWaterProtected(union) || IsArchProtected(union, root.name)))
+                    wallCut = false;
             }
-            _standingUnitMemo[root] = new StandingMeasure(ok, unit, floorY, vegetation);
+            _standingUnitMemo[root] =
+                new StandingMeasure(ok, unit, floorY, vegetation, wallCut, fadeChannel);
             return ok;
+        }
+
+        /// <summary>
+        /// MODBUILD 266, REPORTED ONLY — does this renderer carry an AUTHORED wall-fade channel?
+        /// The same two tests <see cref="CollectWallFadeInfo"/> gates admission on: a
+        /// WallFade-family shader NAME, or a live <c>_WallFade_On</c> / <c>_ToggleWallfade</c> /
+        /// <c>_ToggleWallFadeLocal</c> gate.
+        ///
+        /// <para>IT DECIDES NOTHING, and it is measured because the alternative was to assert it.
+        /// The FLOOR arm is a VETO at the collection choke point; lifting it cannot make anything
+        /// fade that would not also pass this test. So printing it per subject is what turns
+        /// "the crystal and the light shaft cannot be affected" from a claim into a number the
+        /// next hardware log states. The 2026-08-25 measurement that put it here: this session's
+        /// TOGGLE-NATIVE roster is 'CR_RU_PillarThin_MAT', 'CR_RU_Rock_MAT',
+        /// 'CR_ST_Candlestick_MAT', 'EN_CR_PropAtlas_01_Temp_MAT', 'FR_Floor_LargeBush_Dead_M'
+        /// and 'FR_UnderWall_Rock_M' — a candlestick, a generic prop atlas and a FLOOR BUSH among
+        /// the masonry, which is why the channel is NOT a "the artist marked this as
+        /// wall-attached" flag and cannot be the discriminator on its own. CollectWallFadeInfo's
+        /// own note says the same thing: "N_MRAO dresses half the scenery, and a scene-wide
+        /// toggle-based adoption would claim all of it as walls".</para>
+        /// </summary>
+        private bool RendererHasFadeChannel(Renderer r)
+        {
+            _standingMatScratch.Clear();
+            r.GetSharedMaterials(_standingMatScratch);
+            bool any = false;
+            foreach (Material m in _standingMatScratch)
+            {
+                if (m == null || m.shader == null)
+                    continue;
+                if (m.shader.name.Contains("WallFade") || HasLiveWallFadeToggle(m))
+                {
+                    any = true;
+                    break;
+                }
+            }
+            _standingMatScratch.Clear();
+            return any;
+        }
+
+        /// <summary>
+        /// MODBUILD 266 — one roll-call line per distinct renderer NAME, carrying the two facts
+        /// that adjudicate this round's five named acceptance subjects. The coordinator's
+        /// acceptance is five named cases rather than one number, and a truncated
+        /// PROTECTED/NEAR-MISS name list cannot answer five questions at once — that is the
+        /// "a summary stat is not the field" lesson, paid for twice in this subsystem.
+        /// </summary>
+        private void NoteStandingSubject(Renderer r, bool figure, bool wallCut, bool fadeChannel,
+                                         bool verdict)
+        {
+            if (_standingSubjectRoll.Count >= StandingSubjectRollCap
+                || _standingSubjectRoll.ContainsKey(r.name))
+            {
+                return;
+            }
+            _standingSubjectRoll[r.name] =
+                $"'{r.name}' {(figure ? "FIGURE arm" : "FLOOR arm")}, "
+                + (wallCut ? "under a wall" : "no wall above") + ", "
+                + (fadeChannel ? "HAS a fade channel" : "NO fade channel — this rule cannot move it")
+                + ", " + (verdict ? "PROTECTED" : "fades with its wall");
         }
 
         /// <summary>The anchored room floor plane nearest to a prop's foot. Rooms can be
@@ -430,8 +620,13 @@ internal static partial class WallSegmentFade
         private void LogStandingPropCensus()
         {
             int protectedUnits = _standingPropDesc.Count;
+            int wallCutRefused = _standingWallCutRoots.Count;
+            // ModBuild 266: the new term and the roll-call are IN the signature, or their whole
+            // population can turn over under a line that never reprints (the held-instrument
+            // lesson).
             int sig = protectedUnits * 977 + _standingBlockedCount * 13
-                      + _standingBlocked.Count * 7 + _standingNearMiss.Count;
+                      + _standingBlocked.Count * 7 + _standingNearMiss.Count
+                      + wallCutRefused * 31 + _standingSubjectRoll.Count * 3;
             if (sig == _standingCensusSig)
                 return;
             _standingCensusSig = sig;
@@ -455,6 +650,18 @@ internal static partial class WallSegmentFade
                 if (names.Length > 0)
                     names.Append("; ");
                 names.Append(kv.Value);
+            }
+            var roll = new System.Text.StringBuilder();
+            foreach (KeyValuePair<string, string> kv in _standingSubjectRoll)
+            {
+                if (roll.Length > 2200)
+                {
+                    roll.Append("; …");
+                    break;
+                }
+                if (roll.Length > 0)
+                    roll.Append("; ");
+                roll.Append(kv.Value);
             }
             var misses = new System.Text.StringBuilder();
             foreach (KeyValuePair<Transform, string> kv in _standingNearMiss)
@@ -487,7 +694,32 @@ internal static partial class WallSegmentFade
                 + $"wandproblem3.jpg). Every actual trunk unit in that session measured 1.39, "
                 + $"1.46 and 1.79 h/w, so no tree ever reached the bar. Do not re-derive a shape "
                 + $"term here; the h/w column below is REPORTED and decides nothing. "
-                + $"WHOLE-UNIT RULE (ModBuild 258): a unit in the NEAR MISS list has been judged "
+                + $"WALL-FEATURE FRAGMENT (ModBuild 266, bücherregale1/2.jpg + regal_brett.jpg): "
+                + $"the FLOOR arm also refuses a unit whose own walk passed a WALL inside its "
+                + $"bounded window and whose top clears the ground band "
+                + $"({StandingPropFootBandWU:0.0} wu). It is NOT a new threshold — the ModBuild-265 "
+                + $"log measures ONE shelf prefab at two roots: as the wall feature it belongs to "
+                + $"('PCG_Test_Feature_Small_2', 21 renderer(s), unit y[0.0..3.4], refused as "
+                + $"architecture, fades) and as a 2-renderer FRAGMENT of that same feature "
+                + $"(y[0.9..1.3], 0.4 wu tall, accepted as a floor prop and left drawing over a "
+                + $"wall at fade 1.00). The rule was judging a piece of a wall. Membership rides "
+                + $"the unit walk's own four-level window, never "
+                + $"GetComponentInParent<ProceduralWall>() — that probe reaches the scene root and "
+                + $"in this same log answers YES for a skeleton's thighs, a light shaft and 348 "
+                + $"ice-crystal renderers the user allows to stay. "
+                + $"{wallCutRefused} unit(s) refused by this term this rescan"
+                + (wallCutRefused == 0
+                    ? " — ZERO with the shelves still solid means the window does not see their "
+                      + "wall and this term is the wrong lever."
+                    : ".")
+                + (roll.Length > 0
+                    ? $" SUBJECT ROLL-CALL (one line per renderer NAME, up to "
+                      + $"{StandingSubjectRollCap}; this is what adjudicates the named cases — "
+                      + $"shelf + board and curtain must read 'fades with its wall', the ice "
+                      + $"crystal, the skeleton limbs and the light shaft must read 'no wall "
+                      + $"above' or 'NO fade channel'): {roll}."
+                    : string.Empty)
+                + $" WHOLE-UNIT RULE (ModBuild 258): a unit in the NEAR MISS list has been judged "
                 + $"architecture, so every renderer under its root fades with its owner — the "
                 + $"per-renderer ground band gets no vote inside it (see PROP UNIT). "
                 + $"Protected: {(protectedUnits > 0 ? names.ToString() : "none")}. "
