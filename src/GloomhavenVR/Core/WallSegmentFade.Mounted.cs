@@ -468,6 +468,17 @@ internal static partial class WallSegmentFade
         /// Named per piece on the same line ([WALL-BUILT]).</summary>
         private int _censusMountedWallBuilt;
 
+        /// <summary>MODBUILD 268 — THE SECOND HALF OF THAT ACCEPTANCE NUMBER, and without it the
+        /// first half reads as a regression the moment this round works. The 266 counter is set
+        /// at the ADOPTION only, and a piece is adopted exactly once: from the next rescan on it
+        /// is CARRIED by the sticky loop, which is why the 266 log oscillates between 12-18 and
+        /// 0 on that field — it was being released and re-adopted every rescan, which is the
+        /// defect this round closes. This counts the pieces the sticky loop KEPT that the
+        /// round-7 figure guard would otherwise have handed back, i.e. exactly the population
+        /// that produced the 165 x <c>RELEASED OVER A FADED WALL … term that failed: FIGURE —
+        /// never carried</c> lines. Acceptance: this &gt; 0 while that grep reads 0.</summary>
+        private int _censusMountedWallBuiltCarried;
+
         /// <summary>Props that changed OWNER this rescan without ever being restored to visible —
         /// the leavers loop's ModBuild-265 handover. Reported so a handover that quietly loses
         /// its target is a number and not a silence.</summary>
@@ -506,6 +517,7 @@ internal static partial class WallSegmentFade
         private int _lastLoggedMountedLeftover = -1;
         private int _lastLoggedMountedHandover = -1;
         private int _lastLoggedMountedWallBuilt = -1;
+        private int _lastLoggedMountedWallBuiltCarried = -1;
 
         /// <summary>How many of the leftovers are ParticleSystemRenderers, and how many particle
         /// candidates were skipped for being already carried.
@@ -1085,6 +1097,7 @@ internal static partial class WallSegmentFade
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
             _censusMountedWallBuilt = 0;
+            _censusMountedWallBuiltCarried = 0;
             _censusMountedHandover = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
@@ -1194,11 +1207,41 @@ internal static partial class WallSegmentFade
                         if (p.Renderer == null || !_mountedOwned.Add(p.Renderer))
                             continue;
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
+                        //
+                        // MODBUILD 268 — THE FIFTH SITE. ModBuild 266 lifted this same refusal
+                        // for wall-generated dressing at FOUR places (the `!f.Mountable`
+                        // structural skip, the sweep's FIGURE reject, the sweep's standing
+                        // reject and PurgeFigureRenderers) and MISSED this one, which is the
+                        // only one that RELEASES a piece it already owns. The 266 hardware log
+                        // says so in one line and with one reason: 165 x
+                        // `RELEASED OVER A FADED WALL … term that failed: FIGURE — never
+                        // carried (round-7 ruling)`, 86 of them 'EN_CR_Hanging_01_Cloth_Post'
+                        // and 79 'CR_BT_BanditBanner_Wall' — the two subjects the 266 exemption
+                        // adopts, and NOTHING else in the histogram. The sweep below adopted
+                        // them on provenance; this loop handed them straight back on the next
+                        // rescan and RestoreProp ends with `r.enabled = true` over a wall at
+                        // fade 1.00, which is the user's "ab und zu ploppen sie weg, aber
+                        // tauchen wieder auf" (2026-08-25) exactly — the same two-rescan
+                        // oscillation ModBuild 265 fixed for the scrub, in a different loop.
+                        //
+                        // THE ROUND-7 RULING IS NOT RELAXED. IsWallGeneratedDressing is a
+                        // CONJUNCTION with the actor veto, never a widening: it keeps
+                        // ActorBehaviour / CInteractableActor in the parent chain as an
+                        // absolute veto and adds ProceduralWall provenance on top, so it is
+                        // strictly narrower on figures than the guard it stands beside. It is
+                        // also the same predicate, at the same severity, that already decides
+                        // whether this piece may be ADOPTED — a carry rule that disagreed with
+                        // the adoption rule is what produced this round.
+                        bool carriedWallBuilt = false;
                         if (IsFigureOrActorRenderer(p.Renderer))
                         {
-                            RestoreProp(p, seg, "FIGURE — never carried (round-7 ruling)");
-                            _mountedReleased.Add(p);
-                            continue;
+                            if (!IsWallGeneratedDressing(p.Renderer))
+                            {
+                                RestoreProp(p, seg, "FIGURE — never carried (round-7 ruling)");
+                                _mountedReleased.Add(p);
+                                continue;
+                            }
+                            carriedWallBuilt = true;
                         }
                         // MODBUILD 257: nor is anything that has MOVED relative to this wall.
                         // Sticky exists because a particle system's live AABB drifts every
@@ -1230,12 +1273,16 @@ internal static partial class WallSegmentFade
                             _mountedReleased.Add(p); // the leavers loop must not undo the handover
                             _censusMounted++;
                             _censusMountedUnitHome++;
+                            if (carriedWallBuilt)
+                                _censusMountedWallBuiltCarried++;
                             NoteOwnershipChange(p.Renderer,
                                 $"mounted:'{stickyHome.Anchor!.name}'(prop unit)");
                             continue;
                         }
                         seg.Mounted.Add(p);
                         _censusMounted++;
+                        if (carriedWallBuilt)
+                            _censusMountedWallBuiltCarried++;
                     }
                 }
                 foreach (MeshRenderer r in seg.Renderers)
@@ -1812,7 +1859,12 @@ internal static partial class WallSegmentFade
                 // ModBuild 266: the acceptance number gets its own trigger, so a session in
                 // which only the provenance population moves still re-prints the line the
                 // number lives on. A held instrument reads as a dead one.
-                || _censusMountedWallBuilt != _lastLoggedMountedWallBuilt)
+                || _censusMountedWallBuilt != _lastLoggedMountedWallBuilt
+                // ModBuild 268: same argument for the CARRY half. Once the fifth site stops
+                // releasing them, the adoption half settles at 0 and this one carries the
+                // signal — a trigger on the adoption half alone would print the line once and
+                // then look like a stopped tick.
+                || _censusMountedWallBuiltCarried != _lastLoggedMountedWallBuiltCarried)
                 LogMountedCensus();
             // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
@@ -1949,6 +2001,69 @@ internal static partial class WallSegmentFade
             : r is MeshRenderer ? "mesh"
             : r.GetType().Name;
 
+        /// <summary>
+        /// MODBUILD 268 — HOW FAR UP IS THE WALL, for a named leftover. The one measurement no
+        /// hardware log has yet carried, and the one that decides whether the airborne bar at
+        /// the mounted sweep can ever be opened for hangings without also opening it for the
+        /// ice formation, the rigged skeleton and the light shaft.
+        ///
+        /// <para><b>WHY IT IS NEEDED, from the two logs and not from an opinion.</b> Every term
+        /// already on that line was measured against the six subjects and every one of them is
+        /// interleaved — must-FADE against must-STAY, in the ModBuild-267 log
+        /// (<c>.planning/debug/second_logs/</c>):
+        /// <list type="bullet">
+        /// <item>FOOT over the room floor: hanging 0.44, curtain 0.33, shelf 0.90 — crystal
+        ///   0.27/0.52, skeleton limbs 0.76/0.77/1.00, light shaft 0.47;</item>
+        /// <item>TOP: hanging 2.28, curtain 2.97, shelf 1.31 — crystal 2.11/2.80, limbs
+        ///   1.27/1.29, light shaft 7.69;</item>
+        /// <item>XZ GAP to the nearest eligible wall, for every subject the capped NEAR-MISS
+        ///   list actually names: hanging 0.00 and shelf 0.00 — crystal 0.00, light shaft
+        ///   0.00, skull 0.00, geranium 0.00, knife 0.00. So "it touches its wall" separates
+        ///   nothing. (The curtain and the skeleton limbs are NOT in that list — it caps at
+        ///   <see cref="MountedRejectCap"/> — so their gap is unmeasured, not 0.00.)</item>
+        /// <item>RENDERER TYPE: only the hanging is skinned; the curtain and the shelf are
+        ///   plain meshes, exactly like the crystal and the light shaft;</item>
+        /// <item>WALL-GENERATOR PROVENANCE: all nine are tagged <c>[WALL MEMBER]</c> by the
+        ///   leftover classifier, which IS
+        ///   <c>GetComponentInParent&lt;ProceduralWall&gt;() != null</c>, so the unbounded
+        ///   provenance climb answers YES for every one of them;</item>
+        /// <item>the ModBuild-266/267 <c>wallCut</c> term ("a WALL sits immediately above this
+        ///   unit inside the unit walk's four-level window"): the 267 log reads
+        ///   <c>under a wall</c> ZERO times and <c>no wall above</c> 1010 times — it does not
+        ///   fire at all in this scenario, for the shelf and the curtain either.</item>
+        /// </list>
+        /// A BOUNDED provenance window is the one term left untried, and the only evidence for
+        /// or against it is the DEPTH of the ProceduralWall above each subject — which no log
+        /// prints. The 266 doc asserts the hangings sit under <c>Wall N/Generated Content/…</c>
+        /// and the 267 doc asserts the crystal sits under a tile's <c>Generated Content/Full/…</c>
+        /// with the wall far above; the only path either log actually prints is the shelf's
+        /// (<c>Wall 4/Generated Content/PCG_Test_Feature_Small_2/CR_ST_Shelves_Stone_Wood</c>,
+        /// depth 3). This makes the rest measurable instead of asserted.</para>
+        ///
+        /// <para>COST: a climb of at most <see cref="WallProvenanceProbeLevels"/> transforms,
+        /// for NAMED leftovers only — the list is capped at <see cref="MountedLeftoverCap"/> =
+        /// 40 — at rescan cadence, never per frame and never a scene sweep. MULTIPLAYER: reads
+        /// local scene hierarchy for a log string; decides nothing and goes nowhere near the
+        /// wire.</para>
+        /// </summary>
+        private const int WallProvenanceProbeLevels = 12;
+
+        private static string WallProvenanceNote(Renderer r)
+        {
+            Transform? t = r.transform;
+            for (int depth = 0; t != null && depth <= WallProvenanceProbeLevels; depth++)
+            {
+                if (t.GetComponent<ProceduralWall>() != null)
+                {
+                    return $", ProceduralWall '{t.name}' {depth} level(s) above it";
+                }
+                t = t.parent;
+            }
+            return t == null
+                ? ", NO ProceduralWall anywhere above it"
+                : $", no ProceduralWall within {WallProvenanceProbeLevels} levels";
+        }
+
         private void NoteMountedReject(Renderer c, float anchorY, float gap, string why)
         {
             if (gap > MountedNearMissXZ)
@@ -2000,7 +2115,12 @@ internal static partial class WallSegmentFade
                 (allowed ? string.Empty : $"[{cls}] ")
                 + $"'{c.name}'[{RendererKind(c)}] foot {foot:F2} wu / top {top:F2} wu over room "
                 + $"{faded.RoomIndex}'s floor, hides {blockedSamples} of {visibleSamples} in-view "
-                + $"playable-tile sample(s){LeftoverExemptionNote(c)}, "
+                + $"playable-tile sample(s){LeftoverExemptionNote(c)}"
+                // ModBuild 268: the DEFECT entries carry the wall-provenance DEPTH, because
+                // every other term on this line was measured against the six named subjects
+                // and all of them are interleaved. See WallProvenanceNote for the table.
+                + (allowed ? string.Empty : WallProvenanceNote(c))
+                + ", "
                 + $"DRAWING {_leftoverFadedGap:F2} wu from "
                 + $"'{wall}' whose fade is {faded.Fade:F2} — not adopted because: {why}");
         }
@@ -2027,6 +2147,7 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedLeftover = _censusMountedLeftover;
             _lastLoggedMountedHandover = _censusMountedHandover;
             _lastLoggedMountedWallBuilt = _censusMountedWallBuilt;
+            _lastLoggedMountedWallBuiltCarried = _censusMountedWallBuiltCarried;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
@@ -2080,7 +2201,20 @@ internal static partial class WallSegmentFade
                 + "used to refuse; each is tagged [WALL-BUILT] in the list above. A figure is "
                 + "never among them: every figure the game spawns is parented to the BOARD root, "
                 + "so no ProceduralWall is on its ancestor chain, and the actor pair is an "
-                + $"absolute veto on top of that){full}.");
+                + "absolute veto on top of that; "
+                // MODBUILD 268 — THE CARRY HALF, and the acceptance number for this round. The
+                // count above is set at the ADOPTION, which happens ONCE per piece; every later
+                // rescan the sticky loop carries it instead. Until this build that loop asked
+                // the bare round-7 figure guard and handed the piece straight back — 165 x
+                // 'RELEASED OVER A FADED WALL … term that failed: FIGURE — never carried' in
+                // the ModBuild-266 log, 86 'EN_CR_Hanging_01_Cloth_Post' + 79
+                // 'CR_BT_BanditBanner_Wall', with no second reason in the histogram — which is
+                // why the count above oscillated between 12-18 and 0 rather than settling.
+                + $"{_censusMountedWallBuiltCarried} of them CARRIED sticky over that same "
+                + "guard rather than released (ModBuild 268 — the fifth exemption site, the "
+                + "only one that lets a piece go instead of refusing it). Read this against "
+                + "the RELEASED OVER A FADED WALL warn: this > 0 while that names no hanging "
+                + $"is the whole of this round){full}.");
         }
 
         /// <summary>

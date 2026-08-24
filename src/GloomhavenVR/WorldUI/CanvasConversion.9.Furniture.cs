@@ -444,6 +444,85 @@ internal static partial class CanvasConversion
         return order < ceiling ? order : ceiling;
     }
 
+    /// <summary>
+    /// Name the two subjects that DECIDED <see cref="OrderAboveDistanceAndClusters"/>'s answer for a
+    /// free plate at <paramref name="eyeDistance"/>: the highest-ordered subject measurably BEHIND it
+    /// (the one the plate must now cover) and the NEAREST subject measurably in front (the one that
+    /// must cover the plate). Panels and furniture clusters are both walked with the SAME
+    /// comparisons the arithmetic above uses — tie counts as behind, <see cref="OrderSwapMargin"/>
+    /// is the margin — so the string can never name a subject the decision did not consider.
+    ///
+    /// <para>DIAGNOSTIC ONLY. It allocates a string, so a caller must place it behind its own change
+    /// gate and never call it every frame (<c>WorldUI.FreeLabelOrder.LogOrder</c> is the shipped
+    /// caller and does exactly that). It reads only the distances/orders the last
+    /// <see cref="TickPanelOrder"/> measured; it never writes.</para>
+    /// </summary>
+    internal static string DescribeOrderNeighbours(float eyeDistance)
+    {
+        string behindName = "<nothing>";
+        float behindDistance = 0f;
+        int behindOrder = int.MinValue;
+        string frontName = "<nothing>";
+        float frontDistance = float.PositiveInfinity;
+        int frontOrder = 0;
+
+        for (int i = 0; i < OrderedPanels.Count; i++)
+        {
+            ConvertedPanel p = OrderedPanels[i];
+            if (p == null || !p.IsAlive)
+                continue;
+            string name = p.HostGo != null ? p.HostGo.name : "<dead>";
+            if (p.OrderDistance >= eyeDistance - OrderSwapMargin)
+            {
+                if (p.DrawSortingOrder > behindOrder)
+                {
+                    behindOrder = p.DrawSortingOrder;
+                    behindName = name;
+                    behindDistance = p.OrderDistance;
+                }
+            }
+            else if (p.OrderDistance < frontDistance)
+            {
+                frontDistance = p.OrderDistance;
+                frontName = name;
+                frontOrder = p.DrawSortingOrder;
+            }
+        }
+
+        for (int i = 0; i < FurnitureGroups.Count; i++)
+        {
+            FurnitureGroup group = FurnitureGroups[i];
+            if (group.AppliedRank < 0 || !group.Anchor.FurnitureOrderAlive)
+                continue;
+            int bandBase = FurnitureBandBase(group.AppliedRank);
+            string name = group.Anchor.FurnitureOrderName + " (cluster)";
+            if (group.Distance >= eyeDistance - OrderSwapMargin)
+            {
+                int bandTop = bandBase + FurnitureBandWidth - 1;
+                if (bandTop > behindOrder)
+                {
+                    behindOrder = bandTop;
+                    behindName = name;
+                    behindDistance = group.Distance;
+                }
+            }
+            else if (group.Distance < frontDistance)
+            {
+                frontDistance = group.Distance;
+                frontName = name;
+                frontOrder = bandBase;
+            }
+        }
+
+        string behind = behindOrder == int.MinValue
+            ? "behind: <nothing listed>"
+            : $"behind: '{behindName}' (d={behindDistance:F2} m, order {behindOrder})";
+        string front = float.IsPositiveInfinity(frontDistance)
+            ? "in front: <nothing listed>"
+            : $"in front: '{frontName}' (d={frontDistance:F2} m, order {frontOrder})";
+        return behind + "; " + front;
+    }
+
     /// <summary>Attribution line for the next hardware log (rank changes are rare and
     /// deliberate, but a "placard still hidden" report must be decidable from the log):
     /// names the group, its measured distance, how many panels rank behind it and the

@@ -94,6 +94,12 @@ internal sealed class ActivePileViewer
         WorldUI.NativeButtonSkin.ApplyFont(_title); // native HUD font, like the pile captions
         Core.TmpFit.Fit(_title, 0.09f, 0.024f, maxFontSize: 0.22f, wrap: false);
         WorldUI.MrBacking.Label(_title); // off-board title → sky/room behind it in MR
+        // PERSPECTIVE: the active column mounts at BoardW/2 + 0.182 m — OUTSIDE the control board's
+        // furnished apron (PlayTray.FurnitureApronMeters = 0.18), so there is no depth-writing slab
+        // behind this caption and it was never adopted into the board's furniture band either. It
+        // was the third unranked pile title (sortingOrder 0) and lost to every converted panel for
+        // the same reason the items fan's title did. See WorldUI.FreeLabelOrder.
+        WorldUI.FreeLabelOrder.Rank(_title);
 
         // Live language following: the title is built once — re-read it on a language change.
         if (!_locHooked)

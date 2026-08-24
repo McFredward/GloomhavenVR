@@ -416,7 +416,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 267;
+    public const ushort ModBuild = 268;
+    // Build 268: *** THIS ONE CHANGES BEHAVIOUR *** THE FIFTH SITE, AND A LABEL THAT WAS NEVER
+    // BEHIND ANYTHING.
+    //  (a) FLAGS AND BANNERS STAY HIDDEN. ModBuild 266 adopted them and then let them go again:
+    //      the 266 log has 165 RELEASED OVER A FADED WALL with a reason histogram of EXACTLY ONE
+    //      entry, "FIGURE — never carried", naming 86 EN_CR_Hanging_01_Cloth_Post and 79
+    //      CR_BT_BanditBanner_Wall — the two subjects 266's exemption adopts. 266 applied the
+    //      exemption at four sites; the sticky-carry loop of CollectWallMountedProps is a FIFTH
+    //      and was missed, so every rescan adopted the piece and RestoreProp switched it back on
+    //      over a wall at fade 1.00. That is the user's "ab und zu ploppen sie weg, aber tauchen
+    //      wieder auf". The full call-site inventory of both figure predicates is now in the
+    //      lane report and each site carries a verdict. ACCEPTANCE: that warn 165 -> 0, and the
+    //      new "N of them CARRIED sticky over that same guard" > 0 (the 266 counter fires at
+    //      ADOPTION only, so it settles at 0 after this fix and would otherwise read as a
+    //      regression).
+    //  (b) PILE LABELS PAINT IN FRONT WHEN THEY ARE IN FRONT. "der Text über dem Item-Fächer wird
+    //      von der Initiativreihenfolge verdeckt … ist der Text davor, soll er auch davor sein",
+    //      extended by the user to EVERY pile's text, not just Gegenstände. It is NOT a depth
+    //      failure and NOT alpha: NEITHER subject writes depth (ZWrite Off on both), so the depth
+    //      buffer cannot arbitrate at all. Unity resolves them by sortingOrder, the converted
+    //      initiative track is rewritten every frame to >= PanelOrderBase (100), and the labels
+    //      are world TextMeshPro at sortingOrder 0 — 0 loses to 100 at every distance and every
+    //      angle. The label was never behind the portraits, it was painted before them.
+    //      FreeLabelOrder ranks the four free-floating labels (Gegenstände, Abgeworfen/Verbrannt,
+    //      AKTIV, the palm placard) from MEASURED eye distance every frame — not a fixed winner,
+    //      and ZTest LEqual is kept so real geometry still occludes. The board-furniture labels
+    //      are deliberately untouched: their cap below every board-docked panel IS the structural
+    //      fix of the 2026-08-04 report and re-ranking them would add a second writer.
+    // STILL OPEN: the shelf family. ModBuild 267's term is under investigation because ITS OWN
+    // INSTRUMENT CONTRADICTS ITSELF — "N unit(s) refused by this term" reads 2/4/6 while
+    // "under a wall" reads 0 occurrences and "no wall above" reads 1010 in the same log. Neither
+    // number is trusted until the instrument is verified. Separately the shelf sits behind a
+    // SECOND gate (the mounted sweep's airborne bar) which 267 never reached, which is why the
+    // user could not distinguish 267 from 266. Every geometric discriminator at that gate is
+    // measured and interleaved — foot (FADE 0.33-0.90 vs STAY 0.27-1.00), top (1.31-2.97 vs
+    // 1.27-7.69), horizontal gap (0.00 for the shelf AND for the crystal, the light shaft and
+    // the skull) — so no threshold can separate them and none was invented.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 267: *** THIS ONE CHANGES BEHAVIOUR *** THE SHELF THAT SERVES AS A WALL — AND THE
     // DEFECT WAS THE UNIT, NOT THE HEIGHT.
     //  The 265 log measures ONE prefab at TWO roots. Where the unit climb reaches

@@ -236,6 +236,15 @@ internal sealed class EmptyFanHint
         _label.color = new Color(InkBrown.r, InkBrown.g, InkBrown.b, TextAlpha);
         TmpFit.Fit(_label, w * 1.0f, h * 0.34f, maxFontSize: 0f, wrap: false); // cap from box height
 
+        // PERSPECTIVE (same class as the pile fan titles — WorldUI.FreeLabelOrder): this placard
+        // hangs at the palm with nothing but the room behind it, and both halves were transparent,
+        // depth-less and parked at sortingOrder 0, so any converted panel painted over them however
+        // far away it was. Plate and ink take the SAME ladder order: within one order Unity falls
+        // back to renderQueue then distance, and the ink sits 2 mm proud of the plate, so their
+        // relative draw order is unchanged from the shipped picture.
+        WorldUI.FreeLabelOrder.Rank(plate);
+        WorldUI.FreeLabelOrder.Rank(_label);
+
         _root.SetActive(false);
     }
 

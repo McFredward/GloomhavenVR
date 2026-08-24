@@ -202,6 +202,12 @@ internal sealed class PileBrowser
             // Single line: localized pile names + count shrink into the box (TmpFit, test #12).
             Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
             WorldUI.MrBacking.Label(_title); // browser title floats over the room in MR
+            // PERSPECTIVE: identical geometry to the items fan's title (same local offset, same
+            // PlaceAboveBoard anchor), therefore identically defective before this — the discard and
+            // burnt fans' titles were painted under the board-docked initiative track whatever the
+            // real depth order was. User scope ruling 2026-08-25: "Selbstverständlich soll der fix …
+            // für jeglichen Text — auch der anderen Piles — gelten." See WorldUI.FreeLabelOrder.
+            WorldUI.FreeLabelOrder.Rank(_title);
         }
         // Anchor under the board root so the fan inherits the board's live scale + pose
         // (tracks a resize + a board switch). No board → head-relative fallback.
