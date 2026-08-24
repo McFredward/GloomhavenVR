@@ -919,7 +919,19 @@ internal sealed partial class CardsDriver
                             $"{_reopenKeep.Count} still-placed card(s). The popup can never stay open " +
                             "with an incomplete selection.");
         CardsHandUI handRef = hand;
-        CardActionQueue.Enqueue(() => CardsGameApi.CancelPickConfirmDialog());
+        // THE CANCEL'S OUTCOME IS REPORTED, not assumed (the ModBuild 247 defect: DialogPopup.Cancel
+        // silently refuses a hidden option button, and this seam looked identical whether it worked
+        // or not — see CardsGameApi.CancelPickConfirmDialog). A refused cancel means the popup is
+        // still open with the OLD selection, so the re-selects below are no-ops and the swap the
+        // player asked for did not happen: that has to be visible in the log, once, on the spot.
+        CardActionQueue.Enqueue(() =>
+        {
+            if (!CardsGameApi.CancelPickConfirmDialog())
+                VRLog.Warn("Cards", $"Pick reopen ({why}): the game's \"choose another card\" did NOT fire — " +
+                                    "no cancel option was pressable on the open DialogPopup. The selection " +
+                                    "is unchanged and the re-selects that follow are no-ops; the popup is " +
+                                    "still showing the old set.");
+        });
         for (int i = 0; i < _reopenKeep.Count; i++)
         {
             CAbilityCard keep = _reopenKeep[i];
@@ -1330,6 +1342,49 @@ internal sealed partial class CardsDriver
             VRLog.Info("Cards", $"Pick batch EXIT: {flown} flew, {skipped} skipped (held, already animating, " +
                                 "already flown, or not live) — a skipped card keeps its overflow seat and is " +
                                 "re-offered by the next page turn / the final commit's park sweep.");
+    }
+
+    /// <summary>
+    /// PICK RESTART — back to page 1, from the beginning, and hand the flown pages to the return
+    /// flight. The counterpart of <see cref="TryLockPickBatch"/> / <see cref="FlyLockedPicksToPile"/>
+    /// and the VR half of the game's own "Wähle eine andere Karte" cancel.
+    ///
+    /// <para>USER REPORT 2026-08-24: "Wird der gedrückt soll die Auswahl auf der ersten Seite
+    /// nochmal komplett von anfang an beginnen." That is not a preference the mod may interpret
+    /// loosely — it is what the GAME does: the cancel callback runs <c>DeselectAllCards()</c>
+    /// (CardsHandUI.cs:2099-2115), which drops EVERY selection including the ones an earlier VR page
+    /// locked. Leaving <see cref="_pickLockedCount"/> standing would have the banner claim "Schritt
+    /// 2/2" over a selection the game has already emptied.</para>
+    ///
+    /// <para>IT DOES NOT CLEAR <see cref="_fieldCards"/> ITSELF, deliberately. That list is what the
+    /// park sweep uses to recognise a card that just left a pick recess
+    /// (<c>_lastFieldCards</c> → <c>TryStartFlyToPile</c>'s pick-field pre-filter), and the next
+    /// Rebuild prunes it from the game's own <c>IsSelected</c> — the one authority — and calls
+    /// <c>RelayoutField</c> itself. Clearing it here would be the mod asserting a card left the
+    /// field before the model says so.</para>
+    ///
+    /// <para>Called ONLY from the completion callback of the queued cancel, i.e. after the cancel
+    /// has actually landed. No game state is written; every value touched is mod-local
+    /// presentation bookkeeping.</para>
+    /// </summary>
+    /// <returns>How many already-flown cards were queued for the return flight.</returns>
+    private int ArmPickRestart()
+    {
+        _pickReturnFlight.Clear();
+        foreach (VRCard flown in _pickExitFlown)
+        {
+            if (flown != null)
+                _pickReturnFlight.Add(flown);
+        }
+        int queued = _pickReturnFlight.Count;
+        // The batch bookkeeping is dropped WHOLESALE — that is what "from the beginning" means.
+        // Dropping the flown claim with it is safe because no RelayoutField can run between here
+        // and the Rebuild this same frame (CardActionQueue.Pump runs before it, and the prune in
+        // the pick branch empties _fieldCards before the field is laid out again).
+        _pickExitFlown.Clear();
+        _pickLockedCount = 0;
+        _loggedFieldOverflow = -1; // the overflow diagnostic re-arms with the fresh page
+        return queued;
     }
 
     // -------------------------------------------------------------- short rest --

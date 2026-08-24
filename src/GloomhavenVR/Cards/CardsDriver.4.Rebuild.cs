@@ -790,6 +790,7 @@ internal sealed partial class CardsDriver
             _fieldCards.Clear();
             _pickLockedCount = 0;     // event-discard batching never survives the mode
             _pickExitFlown.Clear();   // …nor do the exit-flight claims it made
+            _pickReturnFlight.Clear();// …nor a restart return flight the pick no longer owns
             _loggedPickSource = null; // re-entering a pick mode logs its source afresh (item 9)
         }
 
@@ -1033,6 +1034,10 @@ internal sealed partial class CardsDriver
         // handSwap: not "the list changed" but "this is the OTHER character's hand" — CardFan turns
         // that into the exchange wipe instead of a plain relayout. See the swap-edge block above.
         _fan.SetCards(_fanBuffer, handSwap);
+        // PICK RESTART: the pages that already flew into the discard stack arc back OUT of it.
+        // Runs immediately after SetCards for the same reason the docked-card APPEAR pass below
+        // does: FlyFromPile flies to the card's HOME, and the fan has just asserted it.
+        DrainPickReturnFlight();
         // ORDER PROOF for the scenario hand. Nothing above sorts it and nothing needs to: the
         // widget list this was filled from (CardsGameApi.GetCards -> CardsHandUI.cardsUI) is kept
         // in the game's own hand order, whose final term IS the initiative — and ReorderFanBuffer
@@ -2184,6 +2189,131 @@ internal sealed partial class CardsDriver
     /// </summary>
     internal static int PendingPileArrivals(CardsHandUI? hand, PileKind kind) =>
         Instance != null ? Instance.PileArrivalsPending(hand, kind) : 0;
+
+    // ------------------------------------------------------------ pick restart return flight --
+
+    /// <summary>
+    /// PICK RESTART — the pages that already flew into the discard stack arc back OUT of it.
+    ///
+    /// <para>USER REPORT 2026-08-24 (verbatim): "Der Knopf am Ende 'Wähle eine andere Karte' Flow
+    /// funktioniert nicht. Wird der gedrückt soll die Auswahl auf der ersten Seite nochmal komplett
+    /// von anfang an beginnen. Am Besten mit einer kleinen Animation, weil ja bereits zwei Karten in
+    /// den jeweiligen pile geflogen sind."</para>
+    ///
+    /// <para>THE FLIGHT IS THE EXISTING ONE, PLAYED IN REVERSE. <see cref="VRCard.FlyFromPile"/> is
+    /// the exact mirror of the <see cref="VRCard.FlyToPile"/> that <c>FlyLockedPicksToPile</c> used
+    /// to put these cards in the stack — same duration (<see cref="FlyToPileSeconds"/>), same
+    /// world-up arch with the same <see cref="BoardArcMin"/> floor, same locked orientation, same
+    /// grow-from-slab-width scale ramp read backwards. It is the very call the short-rest sacrifice
+    /// already uses to come out of the discard pile (CardsDriver.5.Interactions.cs:1417), so nothing
+    /// new animates and no second animation system exists.</para>
+    ///
+    /// <para>WHY IT RUNS HERE AND NOT AT THE BUTTON. <c>FlyFromPile</c> flies to the card's HOME
+    /// pose, which only exists once a layout has asserted one — and at cancel time these cards are
+    /// parked on the (inactive) pool root with no home at all. <see cref="CardFan.SetCards"/>, one
+    /// line above the call site, is what gives each returning card its seat; this drains the list
+    /// immediately afterwards, exactly as the docked-card APPEAR pass below waits for
+    /// <c>_half.SetCards</c>.</para>
+    ///
+    /// <para>WHAT IT REFUSES, out loud rather than silently. A card that is HELD, already animating,
+    /// or not live in the hierarchy has another owner (or no visible destination at all — a CLOSED
+    /// hand fan parents its cards under a disabled root, where no Update ticks and therefore no
+    /// flight could run); and with no discard stack built there is no origin to fly from. Each of
+    /// those is logged with its reason and the card simply IS back in the hand, un-animated —
+    /// never teleported to a wrong spot, and never left mid-air.</para>
+    ///
+    /// <para>MULTIPLAYER: announced through the same two-byte semantic anchor pair every other
+    /// flight uses (<c>Discard → HandFan</c>, the reverse of the exit flight's <c>Slot → Discard</c>).
+    /// No card identity, no new channel, no game state written — the deselection that put these
+    /// cards back in the hand is the GAME's own cancel callback and the game replicates it.</para>
+    /// </summary>
+    private void DrainPickReturnFlight()
+    {
+        if (_pickReturnFlight.Count == 0)
+            return;
+        bool havePile = _piles.TryGetPileWorld(PileKind.Discard, out Vector3 pilePos, out float slabWidth);
+        Vector3 arcUp = BoardUp();
+        float minArc = BoardArcMin();
+        int flew = 0, skipped = 0;
+        for (int i = 0; i < _pickReturnFlight.Count; i++)
+        {
+            VRCard card = _pickReturnFlight[i];
+            if (card == null)
+            {
+                skipped++;
+                VRLog.Info("Cards", "Pick restart RETURN REFUSED: the VR card is gone (its widget was " +
+                                    "recycled under the restart) — nothing to fly.");
+                continue;
+            }
+            string? refusal =
+                card.IsHeld ? "the player is holding it — the hand owns the pose"
+                : card.IsFlying || card.IsVanishing ? "another animation already owns it"
+                : !card.gameObject.activeInHierarchy
+                    ? "it is not live in the hierarchy (a CLOSED hand fan parents its cards under a " +
+                      "disabled root, so no flight could tick) — it is simply back in the hand"
+                : !havePile ? "the discard stack is not built / not visible, so there is no origin to " +
+                              "fly out of"
+                : null;
+            if (refusal != null)
+            {
+                skipped++;
+                VRLog.Info("Cards", $"Pick restart RETURN REFUSED: '{card.name}' stays where it is — " +
+                                    $"{refusal}. The game's own cancel already put the card back in the " +
+                                    "hand; only the animation is skipped.");
+                continue;
+            }
+            card.FlyFromPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, minArc);
+            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.HandFan);
+            flew++;
+            VRLog.Info("Cards", $"Pick restart RETURN: CARD FLIGHT '{card.name}' — WHY: the game's own " +
+                                "\"choose another card\" (DialogPopup cancel option) reopened the whole event " +
+                                "discard, so the page that had already flown into the Discard stack comes back " +
+                                $"OUT of it into the hand ({FlyToPileSeconds:F2}s, arc over the board, " +
+                                "orientation locked) — the exact reverse of the Pick batch EXIT flight that " +
+                                "put it there. The selection restarts at page 1. VR presentation only — the " +
+                                "deselection is the game's own cancel callback.");
+        }
+        _pickReturnFlight.Clear();
+        if (flew > 0)
+        {
+            // Re-arm ONE rebuild for when the flight lands — see _pickReturnSettleAt. The margin is
+            // over the flight's REAL duration, which VRCard floors at MinFlySeconds.
+            _pickReturnSettleAt = Time.unscaledTime
+                                  + Mathf.Max(VRCard.MinFlySeconds, FlyToPileSeconds) + 0.05f;
+        }
+        if (flew > 0 || skipped > 0)
+            VRLog.Info("Cards", $"Pick restart RETURN: {flew} card(s) flew back out of the Discard stack, " +
+                                $"{skipped} skipped. The pick is back at page 1 with both recesses empty " +
+                                $"(locked batches {_pickLockedCount}, field {_fieldCards.Count}).");
+    }
+
+    /// <summary>
+    /// The other half of <see cref="DrainPickReturnFlight"/>: give the returned cards their
+    /// affordances back the moment the reverse flight lands.
+    ///
+    /// <para>WHY IT IS NEEDED AT ALL. <c>Rebuild</c>'s per-card zone stamp skips a flying card
+    /// outright (a flight owns its transform), and <see cref="VRCard.FlyFromPile"/> clears
+    /// <c>Grabbable</c> for the duration — so unless a rebuild happens AFTER the landing, a card
+    /// that just flew back out of the discard stack sits in the fan un-grabbable, and the restart
+    /// fails at its last step. <c>FlyFromPile</c> takes no completion callback (its fly-IN branch
+    /// settles at home and returns), so the trigger is an unscaled deadline over the flight's own
+    /// fixed duration rather than a per-card watch.</para>
+    ///
+    /// <para>One-shot: the deadline is consumed when it fires. A grab, a drop, a mode change or any
+    /// other dirty edge in the meantime simply rebuilds earlier and this fires harmlessly on top
+    /// (Rebuild is idempotent).</para>
+    /// </summary>
+    private void TickPickReturnSettle()
+    {
+        if (_pickReturnSettleAt <= 0f || Time.unscaledTime < _pickReturnSettleAt)
+            return;
+        _pickReturnSettleAt = 0f;
+        _dirty = true;
+        VRLog.Info("Cards", "Pick restart RETURN: the reverse flight has landed — rebuilding so the " +
+                            "returned card(s) get their grab/poke affordances back (a flying card is " +
+                            "skipped by the zone stamp and FlyFromPile drops Grabbable for the " +
+                            "flight). The pick is choosable again from page 1.");
+    }
 
     // ---------------------------------------------------------------- MP card-FX anchors --
     //

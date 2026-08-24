@@ -400,6 +400,8 @@ internal sealed partial class CardsDriver
         ClearFanInsertion();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field
         _pickExitFlown.Clear(); // …and with them every claim on a pick-exit flight
+        _pickReturnFlight.Clear(); // …and the restart's return flight, which names the same cards
+        _pickReturnSettleAt = 0f;  // …and its landing deadline, which would rebuild for nobody
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
         _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
@@ -457,6 +459,7 @@ internal sealed partial class CardsDriver
                 _shortRestPresented = null;
             }
             _tray.RemoveCard(card);
+            _pickReturnFlight.Remove(card); // a dead card cannot fly back out of the discard stack
             _flyingToPile.Remove(card); // recycled mid-flight: drop the stale fly ref (card dies)
             _lastHalfCards.Remove(card);
             _lastTrayCards.Remove(card); // issue 1: no dead refs across a recycle
@@ -768,6 +771,7 @@ internal sealed partial class CardsDriver
             _piles.TickItemDemand(_fakeActive ? null : hand);
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
 
+        TickPickReturnSettle(); // pick restart: re-arm the returned cards once the reverse flight lands
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change
         if (!_fakeActive)
         {

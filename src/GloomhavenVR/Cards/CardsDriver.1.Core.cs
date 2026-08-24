@@ -113,6 +113,30 @@ internal sealed partial class CardsDriver : MonoBehaviour
     // the flight's own completion callback parks it. Cleared with _pickLockedCount everywhere.
     private readonly HashSet<VRCard> _pickExitFlown = new();
 
+    // PICK RESTART RETURN FLIGHT (user report 2026-08-24: "Wird der gedrückt soll die Auswahl auf
+    // der ersten Seite nochmal komplett von anfang an beginnen. Am Besten mit einer kleinen
+    // Animation, weil ja bereits zwei Karten in den jeweiligen pile geflogen sind.").
+    //
+    // When the game's own "Wähle eine andere Karte" is pressed, the whole event discard restarts at
+    // page 1 — and the pages that ALREADY flew into the discard stack (_pickExitFlown) have to come
+    // back out of it. This is the hand-over list between the two halves of that restart: the UNDO
+    // seam fills it the moment the cancel actually lands, and Rebuild empties it one pass later,
+    // AFTER CardFan.SetCards has given each card its new home, by playing VRCard.FlyFromPile — the
+    // exact reverse of the FlyToPile arc that put them there. It is deliberately NOT a claim on the
+    // card (unlike _pickExitFlown): the cards are ordinary fan cards again from the game's point of
+    // view the instant the cancel deselects them, and a card that cannot fly (held, parked with the
+    // fan closed, no discard stack built) is simply dropped from the list with a logged reason.
+    private readonly List<VRCard> _pickReturnFlight = new(4);
+
+    // …and the ONE piece of state the return flight leaves behind: when it lands. Rebuild's zone
+    // stamp SKIPS a flying card outright (CardsDriver.4.Rebuild.cs:822 — a flight owns its
+    // transform), and VRCard.FlyFromPile drops Grabbable for the duration, so a returned card would
+    // stay un-grabbable until something else happened to mark the driver dirty. A returned card the
+    // player cannot pick up again would be the restart failing at the last step, so the landing is
+    // not left to chance: an unscaled deadline (the flight is a fixed duration and FlyFromPile takes
+    // no completion callback) re-arms ONE rebuild. 0 = nothing pending.
+    private float _pickReturnSettleAt;
+
     // FLIGHT TRIGGER IS THE MODEL, NOT THE DOCK (user report 2026-08-08: "Wenn ich in der
     // Aktionsphase von dem aktiven Character zu einem anderen Character wechsel ... wird die
     // Animation abgespielt dass beide Karten des aktiven Characters in den 'abgeworfen' pile gehen

@@ -83,6 +83,15 @@ internal sealed partial class CardsDriver
             _tray.SetWantedSlots(0);
             return;
         }
+        // THE OVERLAY BELONGS TO THE CHARACTER ON THE BOARD, NOT TO THE ONE THE GAME IS ASKING
+        // (user report 2026-08-24 — see PlacementIsOffered). Switching character during a forced
+        // discard leaves the recesses pulsing "lay a card here" for a hand whose cards this board
+        // does not even make grabbable.
+        if (!PlacementIsOffered(hand))
+        {
+            _tray.SetWantedSlots(0);
+            return;
+        }
         // TASK #9 (BUG A/B): during a short rest the game presents a burn/redraw choice for a
         // RANDOMLY sacrificed card — shown display-only in the LEFT slot (PresentShortRestCard),
         // committed via the docked dialog. NO card placement into either slot is expected, so the
@@ -400,7 +409,12 @@ internal sealed partial class CardsDriver
             return; // the item-surrender demand owns the banner while its picker is open
         if (UpdatePanelDecisionStatus())
             return; // a floating-panel decision (doom / distribute) owns the banner
-        if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand)))
+        // THE PICK OVERLAY IS SHOWN ONLY WHERE A CARD CAN ACTUALLY BE LAID DOWN (user report
+        // 2026-08-24) — see PlacementIsOffered for the rule and its evidence. The banner, the
+        // CONFIRM/UNDO keycap overrides and the recess hint all stand or fall together: they are
+        // one promise, and half of it would be worse than none.
+        if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand))
+            || !PlacementIsOffered(hand))
         {
             if (_pickStatusKey.HasValue)
             {
@@ -1223,15 +1237,44 @@ internal sealed partial class CardsDriver
         // dialog's own CANCEL ("Wähle eine andere Karte") — the game deselects every
         // pick and the candidates return to the fan for a fresh choice. Queued: the
         // cancel callback runs DeselectAllCards (the spin-wait path).
+        //
+        // PICK RESTART (user report 2026-08-24: "Wird der gedrückt soll die Auswahl auf der ersten
+        // Seite nochmal komplett von anfang an beginnen"). The game's cancel deselects EVERYTHING,
+        // including the cards a >2-card discard had already locked into earlier VR pages — so the
+        // mod's page bookkeeping has to go back to page 1 in the same breath, and the pages that
+        // already FLEW into the discard stack have to come back out of it (DrainPickReturnFlight).
+        // Both happen in the completion callback, i.e. only once the cancel has ACTUALLY landed:
+        // resetting the page count while the picks are still selected would leave RelayoutField
+        // trying to seat three cards in two recesses for a frame.
         CardsHandUI? pickHand = CurrentHand();
         if (pickHand != null && CardsGameApi.IsPickConfirmDialogOpen(pickHand))
         {
+            bool pressed = false;
             CardActionQueue.Enqueue(
-                () => CardsGameApi.CancelPickConfirmDialog(),
+                () => pressed = CardsGameApi.CancelPickConfirmDialog(),
                 () =>
                 {
+                    if (!pressed)
+                    {
+                        // THE FALSIFIER FOR THE 247 DEFECT. This line used to be printed
+                        // unconditionally, which is why nine dead presses read exactly like nine
+                        // working ones in the hardware log (LogOutput.log:3978-4028).
+                        VRLog.Warn("Cards", "Board: UNDO → pick confirm dialog CANCEL did NOT fire — " +
+                                            "no cancel option was pressable on the open DialogPopup " +
+                                            "(see the [Cards] 'Pick confirm CANCEL' line above for which " +
+                                            "test refused). NOTHING changed: the picks are still selected, " +
+                                            "the popup is still open and the VR pages are untouched.");
+                        _dirty = true;
+                        return;
+                    }
+                    int returning = ArmPickRestart();
                     VRLog.Info("Cards", "Board: UNDO → pick confirm dialog CANCEL (the game's own " +
-                                        "\"choose another card\") — all picks reopened, candidates back in the fan.");
+                                        "\"choose another card\") PRESSED — the game deselected every pick " +
+                                        "and the candidates are back in the fan. VR side: the selection " +
+                                        "RESTARTS AT PAGE 1 (locked batches dropped, both recesses cleared) " +
+                                        $"and {returning} card(s) that had already flown into the Discard " +
+                                        "stack are queued to fly back OUT of it on the next rebuild " +
+                                        "(see 'Pick restart RETURN').");
                     _dirty = true;
                 });
             return;
@@ -1333,6 +1376,103 @@ internal sealed partial class CardsDriver
         }
         refusal = null;
         return true;
+    }
+
+    /// <summary>
+    /// MAY THE BOARD OFFER A CARD PLACEMENT RIGHT NOW — i.e. can a card actually be laid down FOR
+    /// THE CHARACTER THE BOARD IS PRESENTING? Every "put a card here" overlay is gated on this and
+    /// nothing else: the pulsing recess hint (<see cref="UpdateWantedSlots"/>), the pick banner and
+    /// the CONFIRM/UNDO keycap overrides (<see cref="UpdatePickStatus"/>).
+    ///
+    /// <para>USER REPORT 2026-08-24 (verbatim): "Wenn man einen Character auswählt der die
+    /// Entscheidung aktuell gerade nicht treffen muss bzw. nicht vom Mod her am Zug ist (Oben steht
+    /// Character-Name: Wähle 2 von 3 Karten […]) - dann soll auch das Kartenoverlay nicht angezeigt
+    /// werden. <b>Generell gilt die Regel, dass das nur angezeigt werden soll wenn für diesen
+    /// ausgewählten Character auch tatsächlich Karten hingelegt werden können.</b>" The general rule
+    /// is the sentence in bold, so this predicate answers the general question; owner-vs-selected is
+    /// merely the instance that exposed it.</para>
+    ///
+    /// <para>WHAT WENT WRONG, and why the two halves of the board disagreed. The pick FIELD is built
+    /// by <c>Rebuild</c> from <c>CharacterFocus.ResolveHand</c> and is forced off for a focus view
+    /// (<c>bool pick = !readOnly &amp;&amp; IsPickMode(mode)</c>, CardsDriver.4.Rebuild.cs:766) — so
+    /// switching character during a forced discard already removed the placeable field and made
+    /// every card non-grabbable (<c>commitGrab</c> requires <c>!readOnly</c>, :924). But the banner
+    /// and the recess hint are driven from the per-frame tick with the GAME's hand
+    /// (<c>UpdatePickStatus(hand)</c> / <c>UpdateWantedSlots(hand)</c> off <c>CurrentHand()</c>,
+    /// CardsDriver.2.Update.cs:762-763), which never had a focus term at all. Result: the board kept
+    /// pulsing "lay a card here" and kept the banner up — naming the PICK'S OWNER, not the character
+    /// on the board — over a hand that could not place anything. The hardware log shows exactly that
+    /// pairing: the banner is pushed once (LogOutput.log:1210, "Hilde Die 2Te: Wähle 2 von 3 Karten
+    /// …") and is never re-pushed or cleared across the focus switches at :1545/:1581/:1652/…, each
+    /// of which logs "[Cards] [Focus] presenting '…' READ-ONLY".</para>
+    ///
+    /// <para>THE TEST IS THE LIVE TWIN OF <c>Rebuild</c>'s <c>readOnly</c>, term for term: is the
+    /// hand the board PRESENTS the same object as the hand the GAME drives? Derived here rather than
+    /// read off <c>CharacterFocus.ReadOnlyView</c>, which is latched by the edge-driven rebuild — a
+    /// per-frame surface asking that flag would answer with the PREVIOUS rebuild's view for the frame
+    /// after a focus click. <c>OnPileToggled</c> already derives it the same way
+    /// (<c>bool readOnly = !ReferenceEquals(presentedHand, gameHand)</c>, this file), so the two
+    /// cannot drift.</para>
+    ///
+    /// <para>IT IS NOT A TURN TEST AND MUST NEVER BECOME ONE. "Whose turn is it" has no say here —
+    /// the 2026-08-08 ruling ("das Wechseln darf nie blockiert sein") stands, and the character
+    /// switch this gate reacts to keeps working exactly as ModBuild 247 shipped it. This only stops
+    /// the board from ADVERTISING a placement it will refuse.</para>
+    ///
+    /// <para>MULTIPLAYER: a pure local-view question (which character THIS client's board shows).
+    /// The peer mirror carries the wanted-slot mask and the banner from the sender's own board, so a
+    /// suppressed overlay is suppressed identically for every viewer of that board, and nothing new
+    /// goes on the wire.</para>
+    /// </summary>
+    private bool PlacementIsOffered(CardsHandUI? gameHand)
+    {
+        if (gameHand == null)
+            return false;
+        CardsHandUI? presented = Board.CharacterFocus.PresentedHand(gameHand);
+        bool offered = ReferenceEquals(presented, gameHand);
+        LogPlacementOffer(gameHand, presented, offered);
+        return offered;
+    }
+
+    /// <summary>Change-gated key for <see cref="LogPlacementOffer"/>: (offered, game actor id,
+    /// presented actor id). One line per transition, never per frame.</summary>
+    private (bool offered, int owner, int shown)? _loggedPlacementOffer;
+
+    /// <summary>
+    /// THE FALSIFIER FOR <see cref="PlacementIsOffered"/>. It prints the two identities the verdict
+    /// is made of — who the game is asking, who the board is showing — so a hardware log can convict
+    /// this gate either way: an overlay still up while the line says <c>offered=False</c> means the
+    /// suppression did not reach that surface, and a MISSING overlay while it says
+    /// <c>offered=True</c> means the cause is elsewhere entirely. A line that never appears at all
+    /// means the pick tick is not running.
+    /// </summary>
+    private void LogPlacementOffer(CardsHandUI gameHand, CardsHandUI? presented, bool offered)
+    {
+        CPlayerActor? owner = gameHand.PlayerActor;
+        CPlayerActor? shown = presented != null ? presented.PlayerActor : null;
+        // While the answer is OPEN the identities are irrelevant (they are the same hand by
+        // definition), so an ordinary game-driven character switch does NOT produce a line — the
+        // key collapses to the verdict alone. A WITHHELD answer keys on both identities, because
+        // "which pair is it refusing for" is exactly the question a report would ask.
+        var key = offered
+            ? (true, 0, 0)
+            : (false, owner != null ? owner.ID : 0, shown != null ? shown.ID : 0);
+        if (_loggedPlacementOffer.HasValue && _loggedPlacementOffer.Value.Equals(key))
+            return;
+        _loggedPlacementOffer = key;
+        VRLog.Info("Cards", $"Placement offer {(offered ? "OPEN" : "WITHHELD")}: the game is presenting " +
+                            $"'{Board.CharacterFocus.Describe(owner)}' and the control board is showing " +
+                            $"'{Board.CharacterFocus.Describe(shown)}'" +
+                            (offered
+                                ? " — the same hand, so the board may offer a placement: the wanted-slot " +
+                                  "hint and the pick banner/keycaps are live."
+                                : " — a DIFFERENT hand, so no card of the shown character can be laid down " +
+                                  "here (Rebuild builds a focus view read-only: no drop field, nothing " +
+                                  "grabbable). The wanted-slot hint and the pick banner/keycap overrides " +
+                                  "are therefore withheld — the board must never advertise a placement it " +
+                                  "will refuse (user ruling 2026-08-24). The character switch itself is " +
+                                  "untouched.") +
+                            " Local view only — no game state read or written, nothing on the wire.");
     }
 
     /// <summary>The modal pick modes (poke-select fan flows; drop-field flows since test #21).</summary>

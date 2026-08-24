@@ -204,24 +204,44 @@ this pipeline the hour they were written:
 **`_Cull` is set from that shell measurement, per set** (`BuildHands.cs` `HandSets`).
 `Cull Off` is a repair for fragmented AI shells, not a look: it makes a hole show the
 surface behind it instead of a black void, and it costs a second shaded fragment over
-the whole hand in both eyes every frame. Glove and Arcane are closed (0/0 above) so they
-render single-sided; only Plate (540 boundary / 1072 non-manifold) is still an AI shell
-and keeps `Cull Off`.
+the whole hand in both eyes every frame. **As of ModBuild 243 every set is closed and wound
+outward** (glove 0/0, arcane 0/0, plate 0/0 — the plate was 540 boundary / 1072 non-manifold
+while it was still an AI shell, up to 242), so `Cull Off` is set nowhere and the repair is
+dead weight nobody carries. The flag is kept rather than deleted because it is the only
+thing standing between a future fragmented mesh and a hand full of black voids — and it is
+turned on by the MEASUREMENT above, never by a look.
 
 **Normal maps.** `BoardLit` has always declared `_BumpMap` / `_NormalStrength` and read
 `TANGENT`, but no hand set supplied a map until ModBuild 171, so every hand rendered on
 the shader's flat bump default and carried only what its albedo had baked in. Arcane
-brought the first, the glove followed at 172 with a re-baked albedo of its own; only the
-AI-generated **Plate** gauntlet is still flat-bumped, because nobody ever baked one for it.
+brought the first, the glove followed at 172 with a re-baked albedo of its own, and the
+**plate gauntlet got one with its second delivery at ModBuild 248** — so all three sets now
+carry a real map and the `normal` column of `HandSets` has no nulls left in it.
 
 `BuildHands` binds a set's map when `HandSets` names one and forces the texture's importer
 to `NormalMap` — left as a plain colour texture it samples happily and every slope on it is
 wrong, which is the silent version of this failure. Tangents are `CalculateMikk`, so they
 come from the same UVs the map was baked against.
 
-Both artist sets also delivered a **displacement** map. Neither is shipped: nothing in this
-pipeline can read one (`BoardLit` has no height, parallax or tessellation term and the hands
-are not subdivided), so they would be ~1.7 MB of bundle for no pixel.
+**Maps that are delivered and deliberately NOT shipped.** Both glove sets delivered a
+**displacement** map and the second plate delivery adds **metallic** and **roughness**. None
+of them ships, for one reason: `BoardLit` has no term that could read them. It has no height,
+parallax or tessellation stage, and its fragment stage is `albedo × (ambient + two baked
+Lambert terms)` — no half-vector, no reflection, no smoothness anywhere. Binding them would
+be inert; pre-multiplying them into the albedo would bake a fixed highlight into a hand that
+**moves**, which is the one place a painted specular is guaranteed to be wrong. The
+consequence is stated rather than hidden: the plate's metal (mean metallic 0.71) renders as
+its base colour plus baked detail, not as a surface that catches a light as the hand turns.
+Giving it one means adding a specular term to `BoardLit`, which the two control boards also
+use — its own round, defaulted off so every other material stays bit-identical.
+
+**The plate atlas is no longer resampled** (248). The first delivery arrived 1254×1254 — not
+a power of two and not a multiple of four, so Unity could block-compress none of it — and was
+committed upscaled to 2048² (Lanczos) purely to buy DXT1 + mips without discarding a
+delivered pixel. The second delivery is natively 2048², so it is committed exactly as
+delivered, and those are 2048 real texels rather than 1254 upscaled. It also arrives with its
+UV islands **dilated into the background** instead of sitting on black, which is what stops an
+island edge bleeding void into itself at the lower mips.
 
 Missing styled prefabs (old bundle) degrade to the Glove pair at runtime; no bundle
 at all still degrades to the procedural hand.

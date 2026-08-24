@@ -2312,10 +2312,19 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// widget block from ACTIVE widgets only (<see cref="ResolvePromptWidgets"/> skips
     /// inactive buttons) against the same DecisionGap placement anchor as before.
     ///
-    /// Hiding the GameObject is safe (see the helper's doc): DialogPopup.Cancel invokes
-    /// the onClick regardless of active state, and HelperTools.NormalizePool re-activates
-    /// pooled option buttons on every Show. Re-asserted every docked tick (level-
-    /// triggered, the house pattern); restored on undock/prompt change/shutdown.
+    /// THAT SENTENCE USED TO SAY "hiding the GameObject is safe: DialogPopup.Cancel invokes
+    /// the onClick regardless of active state". IT IS FALSE, and it cost a build (ModBuild
+    /// 248): <c>DialogPopup.Cancel()</c> gates on
+    /// <c>optionButtons[cancelOption].ExtendedButton.gameObject.activeSelf</c>
+    /// (GH.Runtime/DialogPopup.cs:389-403), so for as long as this suppression is applied the
+    /// game's own cancel is a SILENT NO-OP — which is exactly what broke the forced-discard
+    /// "choose another card" flow. The suppression stays (grabbing the laid-down card IS that
+    /// action in VR); what changed is that the mod no longer relies on <c>Cancel()</c> to
+    /// reach the button. See <c>Cards.CardsGameApi.CancelPickConfirmDialog</c>, which resolves
+    /// the option itself and invokes the same onClick when it is inactive.
+    /// HelperTools.NormalizePool re-activates pooled option buttons on every Show.
+    /// Re-asserted every docked tick (level-triggered, the house pattern); restored on
+    /// undock/prompt change/shutdown.
     /// </summary>
     private void ApplyPickCancelSuppression()
     {

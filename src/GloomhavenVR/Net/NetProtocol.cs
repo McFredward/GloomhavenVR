@@ -416,7 +416,49 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 247;
+    public const ushort ModBuild = 248;
+    // Build 248: THE PLATE GAUNTLET'S SECOND DELIVERY, THE SHADER TERM THAT READS IT, AND THE
+    // "CHOOSE ANOTHER CARD" BUTTON THAT WAS A SILENT NO-OP.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE 72,966,925 bytes (was 70,009,303) — BOTH the DLL and the bundle must be installed.
+    //
+    // 1. THE FORCED DISCARD, ROUND TWO (user, hardware). Two faults, both with a named cause:
+    //    a) The pick overlay followed the SELECTED character instead of the pick's OWNER.
+    //       CardsDriver.2.Update.cs fed the banner and the recess hint the GAME's hand while the
+    //       pick FIELD was built from the focus-resolved hand and forced off for a read-only view
+    //       — so clicking another portrait removed every placeable slot but left the banner and
+    //       the pulsing recess offering a placement that could not happen. Both are now gated on
+    //       the same predicate the field uses. The general rule the user stated is the one that
+    //       shipped: the overlay appears only where a card can actually be laid down.
+    //    b) "Wähle eine andere Karte" did nothing, and the reason is in the GAME's source:
+    //       DialogPopup.Cancel() gates on optionButtons[cancelOption].…gameObject.activeSelf
+    //       (GH.Runtime/DialogPopup.cs:389-403), and the mod's own decision dock DEACTIVATES that
+    //       button for as long as the pick confirm is docked. So every call the mod made to it —
+    //       the tray UNDO, the grab-back reopen, the fan swap-in — was a SILENT NO-OP. Nine
+    //       presses in the user's log with the fan buffer frozen at 7 across all of them. The
+    //       comment in DecisionDockSurface asserting the opposite was false and is corrected in
+    //       place. CancelPickConfirmDialog now resolves the option itself and invokes the same
+    //       onClick when it is inactive, and the UNDO restarts the pick AT PAGE 1 with the
+    //       already-flown cards flying back OUT of the discard stack, on the exact reverse of the
+    //       arc that put them there.
+    //
+    // 2. THE PLATE GAUNTLET, SECOND DELIVERY. Same FBX, everything else new: a 2048² base colour
+    //    (native, no longer upscaled from 1254², and with its UV islands dilated instead of
+    //    sitting on black), a real tangent-space NORMAL map — it was the last set without one —
+    //    and, new for this project, METALLIC and ROUGHNESS.
+    //
+    // 3. BoardLit GAINS AN OPT-IN SPECULAR LOBE, and that is a decision rather than a flourish.
+    //    The new base colour is FLAT BY DESIGN: the hammered-steel micro-detail the first
+    //    delivery had baked into the albedo now lives in the normal and roughness maps. Shipping
+    //    albedo+normal alone was rendered, measured and rejected — the delivery got better and
+    //    the picture got worse. So the shader reads a packed metallic/roughness texture through a
+    //    Blinn-Phong lobe against the SAME two baked directions its diffuse already uses (never a
+    //    scene light — the whole reason BoardLit exists is that the diorama's lighting is not
+    //    guaranteed). _SpecStrength defaults to 0 and the branch does not execute there, so the
+    //    leather glove, the arcane glove and BOTH CONTROL BOARDS are bit-identical to 247 — not
+    //    "look the same", identical, because the code does not run. Only VRHandPlate_{L,R}.mat
+    //    opts in.
+    //
     // Build 247: THE FORCED DISCARD — THE CARDS FLY TO THE PILE INSTEAD OF INTO THE WOODWORK, AND
     // THE INITIATIVE BAND COMES BACK (WHICH THE FLAT GAME NEVER HAD).
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — the new

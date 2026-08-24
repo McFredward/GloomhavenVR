@@ -366,13 +366,88 @@ internal static class CardsGameApi
     /// another card" — LOCAL UI only, the game's own seams handle any network sync.
     /// MUST be queued (<see cref="CardActionQueue"/>): DeselectAllCards funnels into
     /// the spin-wait deselect path.
+    ///
+    /// <para><b>WHY THIS IS NOT SIMPLY <c>popup.Cancel()</c> ANY MORE — the ModBuild 247
+    /// defect (user report 2026-08-24: "Der Knopf am Ende 'Wähle eine andere Karte' Flow
+    /// funktioniert nicht … Aktuell breaked dieser Knopf den ganzen flow").</b>
+    /// <c>DialogPopup.Cancel()</c> does NOT invoke the option unconditionally — it gates on the
+    /// option button's own active state (DialogPopup.cs:389-403):</para>
+    /// <code>
+    /// if (cancelOption >= 0 &amp;&amp; cancelOption &lt; optionButtons.Count) {
+    ///     ExtendedButton b = optionButtons[cancelOption].ExtendedButton;
+    ///     if (b.gameObject.activeSelf) b.onClick.Invoke();   // &lt;-- THE GATE
+    /// }
+    /// </code>
+    /// <para>and <c>WorldUI.Surfaces.DecisionDockSurface.ApplyPickCancelSuppression</c>
+    /// (DecisionDockSurface.cs:2320-2348) deactivates exactly that GameObject for the whole time
+    /// the pick confirm is docked (user ruling 2026-08-04: the docked row shows the commit option
+    /// only). So from the frame the dock hides the button, EVERY cancel seam in the mod — the tray
+    /// UNDO, <c>CardsDriver.MaybeReopenPickSelection</c>, <c>CardsDriver.BeginPickSwapReopen</c> —
+    /// became a silent no-op: the popup never closed, <c>DeselectAllCards</c> never ran, the picks
+    /// stayed selected, and every later drop re-entered the swap-reopen path instead of a fresh
+    /// choice. That is the alternating "Pick reopen … re-selecting 0 still-placed card(s)" /
+    /// "Pick commit" thrash in the hardware log (LogOutput.log:3925 hides the button;
+    /// :3978-4028 are nine UNDO presses that changed nothing; the fan buffer sits at 7 across all
+    /// of them, i.e. the three picks were never released).</para>
+    ///
+    /// <para>THE COMMENT THAT SAID OTHERWISE WAS WRONG, and it is corrected in
+    /// <see cref="PickConfirmCancelButton"/> too: "active state irrelevant" is what the mod
+    /// ASSUMED, not what the decompile says. This method therefore asks the question
+    /// <c>Cancel()</c> asks — is the cancel option's GameObject active? — and, when it is not,
+    /// invokes the very same <c>onClick</c> <c>Cancel()</c> would have invoked. That listener is
+    /// the one <c>DialogPopup.Show</c> wired (DialogPopup.cs:179-186):
+    /// <c>Hide(); option.onMouseClickAction?.Invoke();</c> — so the game's own hide plus the
+    /// game's own cancel callback run, in the game's own order. Nothing is faked and no game
+    /// state is written here; the only thing bypassed is the ACTIVE-STATE gate on a button the
+    /// mod itself deactivated. When the button IS active (any non-docked pick confirm, and every
+    /// other DialogPopup) the untouched <c>popup.Cancel()</c> runs, so the gamepad bookkeeping
+    /// (<c>MarkActionAsHandled</c>) it also does is not lost for the case that has it.</para>
     /// </summary>
-    internal static void CancelPickConfirmDialog()
+    /// <returns>True when a cancel option was actually pressed — the ONE fact every caller used
+    /// to assume. A false here is what the nine dead UNDO presses would have reported.</returns>
+    internal static bool CancelPickConfirmDialog()
     {
         UIManager? ui = UIManager.Instance;
         DialogPopup? popup = ui != null ? ui.dialogPopup : null;
-        if (popup != null && popup.IsOpen())
-            popup.Cancel();
+        if (popup == null || !popup.IsOpen())
+            return false;
+        List<Script.GUI.Popups.InputButton> buttons = popup.optionButtons;
+        int cancel = popup.cancelOption;
+        Script.GUI.Popups.InputButton? button =
+            buttons != null && cancel >= 0 && cancel < buttons.Count ? buttons[cancel] : null;
+        ExtendedButton? ext = button != null ? button.ExtendedButton : null;
+        if (ext == null)
+        {
+            VRLog.Info("Cards", "Pick confirm CANCEL: the open DialogPopup exposes no cancel option " +
+                                $"(cancelOption={cancel}, optionButtons=" +
+                                $"{(buttons != null ? buttons.Count : 0)}) — nothing was pressed and the " +
+                                "picks stay exactly as they were. DialogPopup.Cancel would have fallen " +
+                                "through to its cancelAction, which the burn/lose confirm never sets " +
+                                "(CardsHandUI.cs:2116 passes cancelOption:1 and no cancelAction).");
+            return false;
+        }
+        if (ext.gameObject.activeSelf)
+        {
+            // Logged even though nothing is wrong here: the two branches are the whole diagnosis,
+            // and a hardware run that shows THIS one while the flow is still broken proves the
+            // hidden-button mechanism is not the cause and the search has to move on.
+            VRLog.Info("Cards", "Pick confirm CANCEL: optionButtons[cancelOption] is ACTIVE — pressing it " +
+                                "through the game's own DialogPopup.Cancel (MarkActionAsHandled → Hide → " +
+                                "the cancel callback).");
+            popup.Cancel(); // the game's own full path (MarkActionAsHandled → Hide → the callback)
+            return true;
+        }
+        // The docked row hid this button (DecisionDockSurface.ApplyPickCancelSuppression), which is
+        // precisely the state DialogPopup.Cancel refuses to act on. Press the option the way
+        // DialogPopup.Show wired it — Hide() + the game's own cancel callback.
+        VRLog.Info("Cards", "Pick confirm CANCEL: optionButtons[cancelOption] is INACTIVE — the mod's own " +
+                            "decision dock hid it, and DialogPopup.Cancel (DialogPopup.cs:389-403) only " +
+                            "invokes an ACTIVE option, so every cancel seam was a silent no-op before " +
+                            "this build. Invoking the button's own onClick listener directly instead " +
+                            "(Hide + the game's cancel callback: selectability restore, DeselectAllCards, " +
+                            "TakeDamagePanel back on). No game state is written here.");
+        ext.onClick.Invoke();
+        return true;
     }
 
     /// <summary>
@@ -429,10 +504,17 @@ internal static class CardsGameApi
     /// grabbing a laid-down pick card IS "choose another card" (the
     /// <c>MaybeReopenPickSelection</c> seam presses this very option via
     /// <see cref="CancelPickConfirmDialog"/>), so the dock keeps only the commit
-    /// option, centered. Hiding the GameObject is safe: <c>DialogPopup.Cancel()</c>
-    /// invokes the option's <c>onClick</c> directly (active state irrelevant), and
-    /// <c>HelperTools.NormalizePool</c> re-activates pooled option buttons on every
-    /// <c>Show</c>, so no hidden state can leak into the next dialog.
+    /// option, centered. <c>HelperTools.NormalizePool</c> re-activates pooled option buttons on
+    /// every <c>Show</c>, so no hidden state can leak into the next dialog.
+    ///
+    /// <para><b>CORRECTION (user report 2026-08-24, ModBuild 247).</b> This doc used to end with
+    /// "Hiding the GameObject is safe: <c>DialogPopup.Cancel()</c> invokes the option's
+    /// <c>onClick</c> directly (active state irrelevant)". That is FALSE against the decompile —
+    /// <c>Cancel()</c> tests <c>optionButtons[cancelOption].ExtendedButton.gameObject.activeSelf</c>
+    /// first (DialogPopup.cs:389-403) and does nothing when it is clear, which broke every cancel
+    /// seam in the mod. Hiding the button is safe again only because
+    /// <see cref="CancelPickConfirmDialog"/> now presses the option itself in that case; see its
+    /// doc for the whole mechanism. Do not restore the old sentence.</para>
     /// </summary>
     internal static Script.GUI.Popups.InputButton? PickConfirmCancelButton()
     {

@@ -11,8 +11,7 @@ from PIL import Image, ImageDraw
 T = os.environ.get('ASSET_RENDER_DIR', 'render/')
 OUT = os.environ.get('README_IMG_DIR', 'docs/img/')
 BACKDROP = (26, 22, 19)          # warm near-black; reads as deliberate on both GitHub themes
-LIGHT = (255, 255, 255)          # GitHub light canvas
-DARK = (13, 17, 23)              # GitHub dark canvas
+PLATE = (20, 17, 14)             # the wordmark's own backing — warm near-black, both themes
 
 
 def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
@@ -43,13 +42,28 @@ def strip(names, out, width=1280, pad=0.06, backdrop=BACKDROP):
 
 
 def logo():
-    src = Image.open('src/GloomhavenVR/Assets/GloomhavenVR_logo.png')
-    src = src.convert('RGBA')
-    for name, bg in (('logo-light.png', LIGHT), ('logo-dark.png', DARK)):
-        c = Image.new('RGBA', src.size, bg + (255,))
-        c.alpha_composite(src)
-        c.convert('RGB').save(OUT + name, optimize=True)
-        print('wrote', name, c.size)
+    """The wordmark on its own DARK PLATE, one file for both GitHub themes.
+
+    The "weisse Luecken" report was accurate and was never a file defect: the letter interiors of
+    GLOOMHAVEN are a light parchment tone, which reads as lit metal on black and as a hole on
+    white. The earlier two-copy build (flattened onto #ffffff and #0d1117, picked by <picture>)
+    was verified byte-exact against the artist's artwork on both canvases — max difference 0 —
+    so there was nothing in the file to fix. What was wrong was putting it on a white page.
+
+    Do NOT brighten the letter fill to make it survive a light canvas; it is never shown on one.
+    """
+    src = Image.open('src/GloomhavenVR/Assets/GloomhavenVR_logo.png').convert('RGBA')
+    W, pad_x, pad_y = 1280, 0.075, 0.28
+    inner = int(W * (1 - 2 * pad_x))
+    f = inner / src.width
+    mark = src.resize((inner, max(1, round(src.height * f))), Image.LANCZOS)
+    H = round(mark.height * (1 + 2 * pad_y))
+    plate = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(plate).rounded_rectangle((0, 0, W - 1, H - 1), radius=round(H * 0.10),
+                                            fill=PLATE + (255,))
+    plate.alpha_composite(mark, ((W - mark.width) // 2, (H - mark.height) // 2))
+    plate.convert('RGB').save(OUT + 'logo.png', optimize=True)
+    print('wrote logo.png', plate.size)
 
 
 def poster(mp4, out, at='0:04'):

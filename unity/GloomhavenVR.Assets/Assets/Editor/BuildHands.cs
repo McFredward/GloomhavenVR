@@ -70,32 +70,51 @@ namespace GloomhavenVR
         // to ModBuild 170 no hand set supplied one, so every hand rendered on the shader's flat
         // "bump" default and carried only what the albedo had baked into it. The arcane set brought
         // the first (171) and the glove followed with a re-baked albedo of its own (172). The plate
-        // gauntlet is STILL flat-bumped at 243: its delivery is a mesh and a base colour, with no
-        // normal map in it, and BoardLit's flat default is the honest reading of that — inventing
-        // one from the albedo's luminance would emboss the painted rivets and the painted shadows
-        // alike. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
-        // plain colour texture is the silent version of this failure: it samples, it looks
-        // roughly right, and every slope is wrong.
+        // gauntlet was flat-bumped from 243 to 247 because its first delivery was a mesh and a base
+        // colour and nothing else — BoardLit's flat default being the honest reading of that, since
+        // inventing a map from the albedo's luminance would emboss the painted rivets and the
+        // painted shadows alike. THE SECOND PLATE DELIVERY (ModBuild 248) BRINGS ONE, so every set
+        // now carries a real map and the null column is empty. The importer is told the texture is
+        // a NORMAL MAP (below) — leaving it as a plain colour texture is the silent version of this
+        // failure: it samples, it looks roughly right, and every slope is wrong.
         //
         // The arcane set also delivered a DISPLACEMENT map. It is deliberately NOT shipped:
         // BoardLit has no height, parallax or tessellation term, and the hands are not
         // subdivided, so there is nothing in this pipeline that could read it. Adding it would
         // put 3.4 MB in the bundle for no pixel.
         //
-        // THE PLATE ATLAS IS RESAMPLED, AND THAT IS THE CHEAP DIRECTION. It arrived 1254x1254,
-        // which is not a power of two AND not a multiple of four, so Unity can block-compress
-        // none of it: kept native it imports as RGBA32, about 8.4 MB with mips. The importer's
-        // own nPOTScale default (ToNearest) would instead have silently resampled it DOWN to
-        // 1024 and thrown away a third of the delivered pixels with nothing in the log. It is
-        // therefore committed upscaled to 2048x2048 (Lanczos), where DXT1 + mips costs about
-        // 2.8 MB — a third of native, and the only option that discards no delivered pixel.
-        // It carries 1254x1254 of real detail; the extra size buys compression, not sharpness.
-        private static readonly (string baseName, string albedo, string normal, bool doubleSided)[]
-            HandSets =
+        // mrs: THE PLATE'S METALLIC AND ROUGHNESS, PACKED — and the displacement rule does NOT
+        // extend to them, because at ModBuild 248 the shader grew the term that reads them. The
+        // second plate delivery is a full PBR set, and its base colour is FLAT BY DESIGN: the
+        // hammered-steel micro-detail that the first delivery had baked into the albedo now lives
+        // in the normal and roughness maps. Shipping albedo+normal alone was measured and rejected
+        // on that basis — the delivery got better and the picture got worse, a lighter, flatter
+        // gauntlet than the asset it replaced. So BoardLit gained an OPT-IN Blinn-Phong lobe
+        // against the same two baked directions its diffuse already uses, and this column is the
+        // opt-in: R = metallic, G = roughness, packed by unity/hand-prep/pack_mrs.py, imported as
+        // LINEAR data (sRGB off — see ImportAsLinearData; a metallic map read through the sRGB
+        // curve is wrong at every value except 0 and 1, and wrong silently).
+        //
+        // A null here is not a degraded path, it is the ZERO STATE: _SpecStrength stays at its 0
+        // default and the shader's specular branch does not execute, so the leather glove, the
+        // arcane glove and both control boards are bit-identical to the build before this existed.
+        // That is what makes it safe for one asset's delivery to change a SHARED shader.
+        //
+        // THE PLATE ATLAS IS NO LONGER RESAMPLED (ModBuild 248). The FIRST delivery arrived
+        // 1254x1254 — not a power of two AND not a multiple of four, so Unity could block-compress
+        // none of it — and was committed upscaled to 2048x2048 (Lanczos) so that DXT1 + mips cost
+        // ~2.8 MB instead of ~8.4 MB of RGBA32, while discarding no delivered pixel. THE SECOND
+        // DELIVERY IS NATIVELY 2048x2048 and needs none of that: it is committed exactly as
+        // delivered, and unlike its predecessor those are 2048 real texels rather than 1254
+        // upscaled. It also arrives with its UV islands DILATED into the background instead of
+        // sitting on black, which is what stops an island's edge from bleeding void into itself at
+        // the lower mips — the reason to take this delivery even where the pixels look the same.
+        private static readonly (string baseName, string albedo, string normal, string mrs,
+                                 bool doubleSided)[] HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",        false),
-            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  null,                                false),
-            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png",  false),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",       null,                           false),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  Hands + "/VRHandPlate_normal.png",  Hands + "/VRHandPlate_mrs.png", false),
+            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png", null,                           false),
         };
 
         // Every transform name the mod's HandVisuals.MapPrefabRig resolves by name.
@@ -114,10 +133,11 @@ namespace GloomhavenVR
             try
             {
                 AssetDatabase.Refresh();
-                foreach ((string baseName, string albedo, string normal, bool doubleSided) in HandSets)
+                foreach ((string baseName, string albedo, string normal, string mrs,
+                          bool doubleSided) in HandSets)
                 {
-                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, normal, doubleSided);
-                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, normal, doubleSided);
+                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, normal, mrs, doubleSided);
+                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, normal, mrs, doubleSided);
                 }
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
@@ -130,13 +150,13 @@ namespace GloomhavenVR
         }
 
         private static void BuildHand(string fbxName, string rootName, string albedoPath,
-                                      string normalPath, bool doubleSided)
+                                      string normalPath, string mrsPath, bool doubleSided)
         {
             string fbx = $"{Hands}/{fbxName}";
             Debug.Log($"[GloomhavenVR] === building {rootName} from {fbx} ===");
 
             ImportModel(fbx);
-            Material mat = BuildMaterial(rootName, albedoPath, normalPath, doubleSided);
+            Material mat = BuildMaterial(rootName, albedoPath, normalPath, mrsPath, doubleSided);
             AssemblePrefab(fbx, rootName, mat);
         }
 
@@ -192,8 +212,29 @@ namespace GloomhavenVR
             Debug.Log($"[GloomhavenVR] {path} re-imported as a NormalMap.");
         }
 
+        // A metallic/roughness pack is DATA, not colour. Left on the importer's sRGB default every
+        // intermediate value is read through the sRGB curve and is wrong — and wrong SILENTLY: the
+        // texture samples, the highlight appears, and only 0 and 1 come out right. This is the same
+        // failure shape as leaving a normal map typed as a colour texture, which is why it is
+        // forced here rather than trusted to a committed .meta.
+        private static void ImportAsLinearData(string path)
+        {
+            var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (ti == null)
+            {
+                Debug.LogWarning($"[GloomhavenVR] no TextureImporter at {path} — MRS pack skipped.");
+                return;
+            }
+            if (ti.textureType == TextureImporterType.Default && !ti.sRGBTexture)
+                return;
+            ti.textureType = TextureImporterType.Default;
+            ti.sRGBTexture = false;
+            ti.SaveAndReimport();
+            Debug.Log($"[GloomhavenVR] {path} re-imported as LINEAR data (sRGB off).");
+        }
+
         private static Material BuildMaterial(string rootName, string albedoPath, string normalPath,
-                                              bool doubleSided)
+                                              string mrsPath, bool doubleSided)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
@@ -212,9 +253,31 @@ namespace GloomhavenVR
                                      + "hand falls back to BoardLit's flat bump.");
             }
 
+            Texture2D mrs = null;
+            if (!string.IsNullOrEmpty(mrsPath))
+            {
+                ImportAsLinearData(mrsPath);
+                mrs = AssetDatabase.LoadAssetAtPath<Texture2D>(mrsPath);
+                if (mrs == null)
+                    Debug.LogWarning($"[GloomhavenVR] MRS pack not found at {mrsPath} — the hand "
+                                     + "keeps BoardLit's zero specular.");
+            }
+
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
             if (normal != null) mat.SetTexture("_BumpMap", normal);
+            // SPECULAR IS OPT-IN, AND THE OPT-IN IS THE MAP (ModBuild 248). A set that delivers
+            // no metallic/roughness pack leaves _SpecStrength at BoardLit's 0 default, where the
+            // shader's specular branch does not execute at all — so the leather glove, the arcane
+            // glove and both control boards render BIT-IDENTICALLY to the build before this
+            // existed. 1.0 is the neutral weight, "as authored"; it is a material float precisely
+            // so that a hardware round can say "too hot" and be answered without rebuilding
+            // anything else.
+            if (mrs != null)
+            {
+                mat.SetTexture("_MRSMap", mrs);
+                mat.SetFloat("_SpecStrength", 1f);
+            }
             // DEFECT 2 FIX — Cull Off for the AI-generated shells only; see HandSets for
             // the measurement that decides it per set. 0 = CullMode.Off, 2 = CullMode.Back.
             mat.SetFloat("_Cull", doubleSided ? 0f : 2f);
@@ -224,6 +287,7 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
             Debug.Log($"[GloomhavenVR] material written: {matPath} "
                       + $"(albedo={(albedo ? "yes" : "none")}, normal={(normal ? "yes" : "flat")}, "
+                      + $"specular={(mrs ? "metallic/roughness pack" : "off")}, "
                       + $"cull={(doubleSided ? "Off" : "Back")})");
             return mat;
         }

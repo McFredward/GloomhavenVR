@@ -8,11 +8,16 @@
 # tool covers hands, masks, boards and anything else that arrives as FBX + albedo.
 #
 # THE SHADING IS THE GAME'S ARITHMETIC, NOT A LOOK-ALIKE. The shipped material is
-# GloomhavenVR/BoardLit with _Ambient 0.5 and _LightBoost 0.85 — pure Lambert against two BAKED
-# world-space directions plus an ambient floor, with no specular term at all:
+# GloomhavenVR/BoardLit with _Ambient 0.5 and _LightBoost 0.85 — Lambert against two BAKED
+# world-space directions plus an ambient floor:
 #
 #     shade = 0.5 + saturate(N.key) * 0.85 + saturate(N.fill) * 0.35
 #     key   = normalize( 0.35,  0.85, -0.45)      fill = normalize(-0.55, 0.35, 0.30)
+#
+# ...plus, since ModBuild 248, an OPT-IN Blinn-Phong lobe against those same two directions,
+# reached only by passing --mrs. A material with no metallic/roughness pack has _SpecStrength 0 and
+# the shader's specular branch does not execute, so leaving --mrs off is not an approximation of
+# that case, it IS that case.
 #
 # (Unity is Y-up left-handed, Blender Z-up right-handed, so (x, y, z)_unity -> (x, z, y)_blender.)
 # It is built as EMISSION of albedo x shade so no renderer lighting model gets a say. A render that
@@ -26,7 +31,8 @@
 # RUN:
 #   /home/claw/blender-4.2/blender --background --python unity/asset-preview/render_asset.py -- \
 #       <in.fbx> <albedo.png> <out.png> [--normal <normal.png>] [--res 900] [--yaw 35] [--pitch 18]
-#       [--cull] [--unlit] [--alpha] [--margin 1.06] [--scale 0.42] [--focus-z 0.10]
+#       [--mrs <metallic_roughness.png>] [--cull] [--unlit] [--alpha] [--margin 1.06]
+#       [--scale 0.42] [--focus-z 0.10]
 import bpy, sys, os, math
 from mathutils import Vector, Matrix
 
@@ -55,6 +61,7 @@ FIXED_SCALE = float(opt("--scale", "0"))
 # --focus-z pins the frame centre to that span instead.
 FOCUS_Z = opt("--focus-z", "")
 NORMAL = opt("--normal", "")
+MRS = opt("--mrs", "")           # R = metallic, G = roughness; BoardLit's _MRSMap
 CULL = "--cull" in argv          # match the shipped material's _Cull
 UNLIT = "--unlit" in argv        # GloomhavenVR/HeadUnlit — the masks
 ALPHA_CLIP = "--alpha" in argv   # only for a genuinely cut-out albedo
@@ -146,6 +153,11 @@ log(f"ortho scale {cam_data.ortho_scale:.4f} at yaw {YAW:.0f} pitch {PITCH:.0f}"
 albedo = bpy.data.images.load(os.path.abspath(TEX))
 albedo.colorspace_settings.name = 'sRGB'
 normal_img = None
+mrs_img = None
+if MRS and os.path.exists(MRS):
+    mrs_img = bpy.data.images.load(os.path.abspath(MRS))
+    log(f"metallic/roughness pack: {os.path.basename(MRS)}")
+
 if NORMAL and os.path.exists(NORMAL):
     normal_img = bpy.data.images.load(os.path.abspath(NORMAL))
     normal_img.colorspace_settings.name = 'Non-Color'
@@ -236,7 +248,112 @@ else:
     mul.inputs["Fac"].default_value = 1.0
     nt.links.new(tex.outputs["Color"], mul.inputs["Color1"])
     nt.links.new(amb.outputs[0], mul.inputs["Color2"])
-    nt.links.new(mul.outputs["Color"], em.inputs["Color"])
+    lit_out = mul.outputs["Color"]
+
+    # ---- SPECULAR (ModBuild 248), and it is here because A PREVIEW THAT OMITS A TERM AGREES
+    # WITH EVERY BROKEN BUILD. BoardLit gained an opt-in Blinn-Phong lobe so the plate gauntlet's
+    # delivered metallic/roughness maps have a consumer; a strip rendered without it would show
+    # the flat grey steel that motivated the shader change in the first place and would keep
+    # doing so no matter how the shader was tuned. The arithmetic below is the shader's, verbatim:
+    #   rough = max(0.08, mrs.g);  power = exp2((1 - rough) * 9 + 1)
+    #   f0    = lerp(0.04, albedo, mrs.r)
+    #   spec  = f0 * (pow(saturate(N.Hkey), power) * saturate(N.key) * 0.85
+    #                 + pow(saturate(N.Hfill), power) * saturate(N.fill) * 0.35)
+    if mrs_img is not None:
+        mtex = nt.nodes.new("ShaderNodeTexImage")
+        mtex.image = mrs_img
+        mtex.image.colorspace_settings.name = 'Non-Color'   # it is data, not colour
+        sep = nt.nodes.new("ShaderNodeSeparateColor")
+        nt.links.new(mtex.outputs["Color"], sep.inputs["Color"])
+        metallic, roughness = sep.outputs[0], sep.outputs[1]
+
+        rough = nt.nodes.new("ShaderNodeMath")
+        rough.operation = 'MAXIMUM'
+        rough.inputs[1].default_value = 0.08
+        nt.links.new(roughness, rough.inputs[0])
+        inv = nt.nodes.new("ShaderNodeMath")
+        inv.operation = 'SUBTRACT'
+        inv.inputs[0].default_value = 1.0
+        nt.links.new(rough.outputs[0], inv.inputs[1])
+        expo = nt.nodes.new("ShaderNodeMath")
+        expo.operation = 'MULTIPLY_ADD'
+        expo.inputs[1].default_value = 9.0
+        expo.inputs[2].default_value = 1.0
+        nt.links.new(inv.outputs[0], expo.inputs[0])
+        power = nt.nodes.new("ShaderNodeMath")
+        power.operation = 'POWER'
+        power.inputs[0].default_value = 2.0
+        nt.links.new(expo.outputs[0], power.inputs[1])
+
+        # f0 = lerp(dielectric 0.04, albedo, metallic) — metals tint their own highlight.
+        f0 = nt.nodes.new("ShaderNodeMixRGB")
+        f0.blend_type = 'MIX'
+        f0.inputs["Color1"].default_value = (0.04, 0.04, 0.04, 1.0)
+        nt.links.new(metallic, f0.inputs["Fac"])
+        nt.links.new(tex.outputs["Color"], f0.inputs["Color2"])
+
+        spec = None
+        for vec, gain in ((GAME_KEY, 0.85), (GAME_FILL, 0.35)):
+            # H = normalize(L + V); Geometry.Incoming is the direction TOWARD the camera.
+            half = nt.nodes.new("ShaderNodeVectorMath")
+            half.operation = 'ADD'
+            half.inputs[1].default_value = vec
+            nt.links.new(geo.outputs["Incoming"], half.inputs[0])
+            hn = nt.nodes.new("ShaderNodeVectorMath")
+            hn.operation = 'NORMALIZE'
+            nt.links.new(half.outputs["Vector"], hn.inputs[0])
+            nh = nt.nodes.new("ShaderNodeVectorMath")
+            nh.operation = 'DOT_PRODUCT'
+            nt.links.new(normal_src, nh.inputs[0])
+            nt.links.new(hn.outputs["Vector"], nh.inputs[1])
+            nhc = nt.nodes.new("ShaderNodeMath")
+            nhc.operation = 'MAXIMUM'
+            nhc.inputs[1].default_value = 0.0
+            nt.links.new(nh.outputs["Value"], nhc.inputs[0])
+            lobe = nt.nodes.new("ShaderNodeMath")
+            lobe.operation = 'POWER'
+            nt.links.new(nhc.outputs[0], lobe.inputs[0])
+            nt.links.new(power.outputs[0], lobe.inputs[1])
+            # x saturate(N.L) x gain — the same wrap the diffuse pays, so a face turned away
+            # from a baked direction cannot grow a highlight out of nothing.
+            nl = nt.nodes.new("ShaderNodeVectorMath")
+            nl.operation = 'DOT_PRODUCT'
+            nl.inputs[1].default_value = vec
+            nt.links.new(normal_src, nl.inputs[0])
+            nlc = nt.nodes.new("ShaderNodeMath")
+            nlc.operation = 'MAXIMUM'
+            nlc.inputs[1].default_value = 0.0
+            nt.links.new(nl.outputs["Value"], nlc.inputs[0])
+            wrap = nt.nodes.new("ShaderNodeMath")
+            wrap.operation = 'MULTIPLY'
+            nt.links.new(lobe.outputs[0], wrap.inputs[0])
+            nt.links.new(nlc.outputs[0], wrap.inputs[1])
+            gn = nt.nodes.new("ShaderNodeMath")
+            gn.operation = 'MULTIPLY'
+            gn.inputs[1].default_value = gain
+            nt.links.new(wrap.outputs[0], gn.inputs[0])
+            if spec is None:
+                spec = gn
+            else:
+                sa = nt.nodes.new("ShaderNodeMath")
+                sa.operation = 'ADD'
+                nt.links.new(spec.outputs[0], sa.inputs[0])
+                nt.links.new(gn.outputs[0], sa.inputs[1])
+                spec = sa
+
+        tint = nt.nodes.new("ShaderNodeMixRGB")
+        tint.blend_type = 'MULTIPLY'
+        tint.inputs["Fac"].default_value = 1.0
+        nt.links.new(f0.outputs["Color"], tint.inputs["Color1"])
+        nt.links.new(spec.outputs[0], tint.inputs["Color2"])
+        add = nt.nodes.new("ShaderNodeMixRGB")
+        add.blend_type = 'ADD'
+        add.inputs["Fac"].default_value = 1.0
+        nt.links.new(lit_out, add.inputs["Color1"])
+        nt.links.new(tint.outputs["Color"], add.inputs["Color2"])
+        lit_out = add.outputs["Color"]
+
+    nt.links.new(lit_out, em.inputs["Color"])
 
 if ALPHA_CLIP:
     mix = nt.nodes.new("ShaderNodeMixShader")

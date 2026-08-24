@@ -1,22 +1,32 @@
 # README images
 
-## The wordmark is committed FLATTENED, twice — and that is a workaround, not a fix
+## `logo.png` — the wordmark on a dark plate, and the "white gaps" that were never a file defect
 
-The user reported white gaps in the wordmark **on GitHub only**: correct locally, correct in the
-game, wrong on the page. It could not be reproduced from the file. The alpha is clean (68,956 fully
-transparent pixels, all with RGB 0,0,0), the 15,486 partial pixels are dark brown, there is no
-`gAMA`, `sRGB` or `iCCP` chunk to be mis-read, and compositing it by hand onto `#ffffff` and onto
-`#0d1117` produces the right picture both times.
+The user reported white gaps in the wordmark **on GitHub only**. Two rounds looked for a file or an
+encoding fault and found none. It is neither:
 
-So rather than assert a cause no instrument here can observe, the variable is removed:
-`logo-light.png` and `logo-dark.png` are that same artwork **flattened onto GitHub's two canvas
-colours, with no alpha channel at all**, selected by `<picture>` + `prefers-color-scheme`. Nothing
-composites anything at view time, so nothing can composite it wrongly.
+- `logo-light.png` was byte-exact against the artist's artwork composited on white — **max
+  difference 0 on every channel of every pixel**, and the same for `logo-dark.png` on `#0d1117`.
+- On the fully-opaque pixels the two shipped copies were **identical to each other**, so nothing
+  about compositing could be producing a difference between the two themes.
+- The PNG itself is unremarkable: 1024×179, 8-bit, colour type 2, non-interlaced, no `gAMA`,
+  `sRGB` or `iCCP` chunk to be mis-read.
 
-**The cost, stated:** the page and the game now read the wordmark from two different files, and
-`src/GloomhavenVR/Assets/GloomhavenVR_logo.png` is still the one the mod puts in the main menu. A
-future change to the artwork has to re-flatten these two onto `#ffffff` and `#0d1117` or the page
-will quietly show the old one.
+**The pale patches are IN THE ARTWORK.** The letter interiors of GLOOMHAVEN are filled with a light
+parchment tone; against black — the game's main menu, and any viewer with a dark canvas — that
+reads as lit metal, and against white it reads as a hole. The report was accurate and the diagnosis
+was contrast inversion, not corruption. The reason it appeared "only on GitHub" is that GitHub's
+light theme was the only place the wordmark was ever put on a white page.
+
+So it is not put on one any more. `logo.png` is the artwork centred on **its own dark rounded
+plate**, used on both themes — no `<picture>`, no `prefers-color-scheme`, nothing that can pick the
+wrong copy. `logo-light.png` / `logo-dark.png` are superseded.
+
+**Regenerating it:** composite `src/GloomhavenVR/Assets/GloomhavenVR_logo.png` (still the file the
+mod itself shows in the main menu — one source of truth for the artwork) onto `#141110` at 1280 px
+wide with 7.5 % side padding and 28 % vertical padding. **Do not brighten the letter fill to "fix"
+it on light backgrounds** — that would repaint the artist's wordmark to survive a canvas it is
+never shown on again.
 
 ## The demo clips are MP4, not GIF, and that was measured
 
@@ -99,8 +109,17 @@ Notes that matter here:
 - The file then lives OUTSIDE the repository. Keep the committed `docs/img/*.mp4` as the durable
   copy: it is the thing a clone carries, and the attachment can be regenerated from it.
 
-Until those URLs exist the poster-and-link above is what ships, because it is the only form that is
-visible at all on a private repo.
+**THIS IS NOW DONE.** The user uploaded both clips through a comment box and handed back the two
+`user-attachments` URLs, which sit bare on their own lines in the README — that is the whole
+embed, GitHub turns a bare attachment URL into a player. The poster JPGs and the
+`docs/img/*.mp4` files stay committed: the mp4 is the durable copy a clone carries and the one
+an attachment can be regenerated from, and the posters are the fallback if the attachment CDN
+is ever not an option.
+
+**Which URL is which was taken on the user's word**, in the order he sent them (card-fan first,
+figure-grab second). It cannot be checked from here — an attachment URL on a private repo 404s
+without a session — so if the two clips ever appear under the wrong headings, that is the
+reason and swapping the two lines is the fix.
 
 ## Encoding a new clip
 
@@ -168,7 +187,22 @@ Two further things in that script are load-bearing, and both were learned the ha
   sizes the player actually sees: the armoured hands are ~2.3x bulkier in mesh and are worn at
   `[Hands] PlateScale` 0.62, the number that matches them to the glove's real hand bulk.
 
-Regenerate them with the recipe in each strip's caption below, then flatten onto `#1a1613`.
+**THE RECIPE IS NOW A SCRIPT, because it was once only in a shell history.** The strips were
+rebuilt at ModBuild 247 and the exact per-asset flags lived nowhere, so the next asset delivery
+could not reproduce the frame it was replacing. `unity/asset-preview/build_asset_strips.sh` holds
+them: yaw 215 (the BACK of the hand, the side every set carries its decoration on), `--cull` to
+match `_Cull: 2`, `--normal` for all three sets, and `--mrs` for the plate. Then
+`ASSET_RENDER_DIR=<dir>/ python3 unity/asset-preview/build_readme_images.py` flattens onto
+`#1a1613`.
+
+**ModBuild 248 added `--mrs` to the renderer for one reason: A PREVIEW THAT OMITS A TERM AGREES
+WITH EVERY BROKEN BUILD.** BoardLit gained an opt-in specular lobe so the plate gauntlet's
+delivered metallic/roughness maps have a consumer; a strip rendered without it would show the flat
+grey steel that motivated the shader change and would keep showing it however the shader was tuned.
+The node graph is the shader's arithmetic verbatim. Note what a STILL cannot show: a highlight is
+view-dependent, so on one frozen frame it is a broad sheen (measured: 27,647 pixels lifted, +40/255
+at most, +7 on average) and only a hand that TURNS makes it read as metal. That judgement is the
+hardware round's, not the strip's.
 
 ## The environment images
 
