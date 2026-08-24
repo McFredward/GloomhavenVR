@@ -23,11 +23,7 @@
 control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
 Players without a headset join the same game on a flat screen.
 
-## Your cards and your board
-
-Turn your palm up and the hand of ability cards fans out. Take one, hold it up to read it, drop it
-into a slot on the control board at your side — slot order is your initiative. The board carries
-the round counter and its own physical keycaps.
+### Your cards and your board
 
 <table>
 <tr>
@@ -36,11 +32,7 @@ the round counter and its own physical keycaps.
 </tr>
 </table>
 
-## The board in front of you
-
-Reach into the scenario: squeeze a miniature off its hex, hold it up, resize it in mid-air and let
-go. Point at a hex, touch what you want to look at. The game's windows become panels in the room
-you can grab, move and park; between scenarios the campaign map is a room with a table in it.
+### The board in front of you
 
 <table>
 <tr>
