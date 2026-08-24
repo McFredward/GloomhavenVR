@@ -26,7 +26,7 @@
 # RUN:
 #   /home/claw/blender-4.2/blender --background --python unity/asset-preview/render_asset.py -- \
 #       <in.fbx> <albedo.png> <out.png> [--normal <normal.png>] [--res 900] [--yaw 35] [--pitch 18]
-#       [--cull] [--margin 1.06] [--scale 0.42] [--focus-z 0.10]
+#       [--cull] [--unlit] [--alpha] [--margin 1.06] [--scale 0.42] [--focus-z 0.10]
 import bpy, sys, os, math
 from mathutils import Vector, Matrix
 
@@ -55,7 +55,9 @@ FIXED_SCALE = float(opt("--scale", "0"))
 # --focus-z pins the frame centre to that span instead.
 FOCUS_Z = opt("--focus-z", "")
 NORMAL = opt("--normal", "")
-CULL = "--cull" in argv
+CULL = "--cull" in argv          # match the shipped material's _Cull
+UNLIT = "--unlit" in argv        # GloomhavenVR/HeadUnlit — the masks
+ALPHA_CLIP = "--alpha" in argv   # only for a genuinely cut-out albedo
 
 GAME_KEY = (0.35, -0.45, 0.85)
 GAME_FILL = (-0.55, 0.30, 0.35)
@@ -151,8 +153,27 @@ if NORMAL and os.path.exists(NORMAL):
 
 mat = bpy.data.materials.new("m_game")
 mat.use_nodes = True
+
+# ---- CULL AND BLEND ARE READ OFF THE SHIPPED MATERIAL, NOT GUESSED (ModBuild 247 fix).
+#
+# THE FIRST CUT OF THIS SCRIPT GOT BOTH WRONG AND THE USER SAW IT: "Die Renderbilder von den
+# Masken und Händen sehen kaputt aus ... zB die Finger bei den Händen".
+#
+#   blend_method = 'BLEND' was the finger fault. Every hand and mask albedo in this bundle is
+#   FULLY OPAQUE — alpha is 255 at every one of 2048x2048 texels, measured, on all six — so the
+#   Mix-Shader-against-a-Transparent-BSDF this used to build could only ever pass 1.0 and did
+#   nothing but put the material in Eevee's BLEND path, where depth writes are off and overlapping
+#   geometry sorts per object instead of per pixel. Four fingers in front of a palm is exactly the
+#   case that breaks under, and it read as broken fingers because it WAS broken fingers.
+#   OPAQUE now, with no alpha term at all; --alpha brings back a CLIP path if a cut-out asset ever
+#   needs one, and clip is still not blend.
+#
+#   Backface culling has to MATCH THE MATERIAL. Every shipped hand material carries `_Cull: 2`
+#   (Back) since the artist's plate gauntlet closed the last open shell; every mask material
+#   carries `_Cull: 0` (Off), because the mask shells are thin and a backface must not read as a
+#   hole. Rendering a hand double-sided draws its inside surfaces through itself.
 mat.use_backface_culling = CULL
-mat.blend_method = 'BLEND'
+mat.blend_method = 'CLIP' if ALPHA_CLIP else 'OPAQUE'
 nt = mat.node_tree
 nt.nodes.clear()
 out = nt.nodes.new("ShaderNodeOutputMaterial")
@@ -160,61 +181,72 @@ out = nt.nodes.new("ShaderNodeOutputMaterial")
 tex = nt.nodes.new("ShaderNodeTexImage")
 tex.image = albedo
 
-geo = nt.nodes.new("ShaderNodeNewGeometry")
-normal_src = geo.outputs["Normal"]
-if normal_img is not None:
-    ntex = nt.nodes.new("ShaderNodeTexImage")
-    ntex.image = normal_img
-    nmap = nt.nodes.new("ShaderNodeNormalMap")
-    nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
-    normal_src = nmap.outputs["Normal"]
-
-shade = None
-for vec, gain in ((GAME_KEY, 0.85), (GAME_FILL, 0.35)):
-    dot = nt.nodes.new("ShaderNodeVectorMath")
-    dot.operation = 'DOT_PRODUCT'
-    dot.inputs[1].default_value = vec
-    nt.links.new(normal_src, dot.inputs[0])
-    cl = nt.nodes.new("ShaderNodeMath")
-    cl.operation = 'MAXIMUM'
-    cl.inputs[1].default_value = 0.0
-    nt.links.new(dot.outputs["Value"], cl.inputs[0])
-    sc = nt.nodes.new("ShaderNodeMath")
-    sc.operation = 'MULTIPLY'
-    sc.inputs[1].default_value = gain
-    nt.links.new(cl.outputs[0], sc.inputs[0])
-    if shade is None:
-        shade = sc
-    else:
-        ad = nt.nodes.new("ShaderNodeMath")
-        ad.operation = 'ADD'
-        nt.links.new(shade.outputs[0], ad.inputs[0])
-        nt.links.new(sc.outputs[0], ad.inputs[1])
-        shade = ad
-
-amb = nt.nodes.new("ShaderNodeMath")
-amb.operation = 'ADD'
-amb.inputs[1].default_value = 0.5              # BoardLit _Ambient
-nt.links.new(shade.outputs[0], amb.inputs[0])
-
-mul = nt.nodes.new("ShaderNodeMixRGB")
-mul.blend_type = 'MULTIPLY'
-mul.inputs["Fac"].default_value = 1.0
-nt.links.new(tex.outputs["Color"], mul.inputs["Color1"])
-nt.links.new(amb.outputs[0], mul.inputs["Color2"])
-
 em = nt.nodes.new("ShaderNodeEmission")
 em.inputs["Strength"].default_value = 1.0
-nt.links.new(mul.outputs["Color"], em.inputs["Color"])
 
-# The albedo's own alpha decides what exists — a mask cut-out has holes, and filling them would be
-# inventing geometry the player never sees.
-mix = nt.nodes.new("ShaderNodeMixShader")
-transp = nt.nodes.new("ShaderNodeBsdfTransparent")
-nt.links.new(tex.outputs["Alpha"], mix.inputs["Fac"])
-nt.links.new(transp.outputs[0], mix.inputs[1])
-nt.links.new(em.outputs[0], mix.inputs[2])
-nt.links.new(mix.outputs[0], out.inputs[0])
+if UNLIT:
+    # ---- THE MASKS ARE NOT LIT, AND THAT WAS THE SECOND FAULT. They do not run BoardLit at all;
+    # they run GloomhavenVR/HeadUnlit, whose whole fragment stage is `albedo * tint`. Its header
+    # says why in as many words: the head floats in the light-less VR void and in the mirror, where
+    # "any scene-lit shader (Standard, BoardLit's baked rig included) would either render black or
+    # add shading the albedo doesn't expect", because that texture already carries its own baked
+    # light. Putting BoardLit's Lambert on top of a pre-lit texture is double-shading, and it is why
+    # the first mask strip came out dark and muddy against what the player sees.
+    nt.links.new(tex.outputs["Color"], em.inputs["Color"])
+else:
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    normal_src = geo.outputs["Normal"]
+    if normal_img is not None:
+        ntex = nt.nodes.new("ShaderNodeTexImage")
+        ntex.image = normal_img
+        nmap = nt.nodes.new("ShaderNodeNormalMap")
+        nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
+        normal_src = nmap.outputs["Normal"]
+
+    shade = None
+    for vec, gain in ((GAME_KEY, 0.85), (GAME_FILL, 0.35)):
+        dot = nt.nodes.new("ShaderNodeVectorMath")
+        dot.operation = 'DOT_PRODUCT'
+        dot.inputs[1].default_value = vec
+        nt.links.new(normal_src, dot.inputs[0])
+        cl = nt.nodes.new("ShaderNodeMath")
+        cl.operation = 'MAXIMUM'
+        cl.inputs[1].default_value = 0.0
+        nt.links.new(dot.outputs["Value"], cl.inputs[0])
+        sc = nt.nodes.new("ShaderNodeMath")
+        sc.operation = 'MULTIPLY'
+        sc.inputs[1].default_value = gain
+        nt.links.new(cl.outputs[0], sc.inputs[0])
+        if shade is None:
+            shade = sc
+        else:
+            ad = nt.nodes.new("ShaderNodeMath")
+            ad.operation = 'ADD'
+            nt.links.new(shade.outputs[0], ad.inputs[0])
+            nt.links.new(sc.outputs[0], ad.inputs[1])
+            shade = ad
+
+    amb = nt.nodes.new("ShaderNodeMath")
+    amb.operation = 'ADD'
+    amb.inputs[1].default_value = 0.5              # BoardLit _Ambient
+    nt.links.new(shade.outputs[0], amb.inputs[0])
+
+    mul = nt.nodes.new("ShaderNodeMixRGB")
+    mul.blend_type = 'MULTIPLY'
+    mul.inputs["Fac"].default_value = 1.0
+    nt.links.new(tex.outputs["Color"], mul.inputs["Color1"])
+    nt.links.new(amb.outputs[0], mul.inputs["Color2"])
+    nt.links.new(mul.outputs["Color"], em.inputs["Color"])
+
+if ALPHA_CLIP:
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    transp = nt.nodes.new("ShaderNodeBsdfTransparent")
+    nt.links.new(tex.outputs["Alpha"], mix.inputs["Fac"])
+    nt.links.new(transp.outputs[0], mix.inputs[1])
+    nt.links.new(em.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs[0])
+else:
+    nt.links.new(em.outputs[0], out.inputs[0])
 
 for ob in meshes:
     ob.data.materials.clear()

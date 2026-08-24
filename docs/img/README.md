@@ -64,9 +64,43 @@ What ships instead is a **poster image that links to the mp4**:
 ```
 
 A relative `<img>` is rewritten by GitHub on **every** branch, public or private, and has never
-needed a sanitiser exemption. The link opens the clip in GitHub's own file view. There is no inline
-playback — that is the price, and it is worth paying for something that is visible at all. Posters
-carry a play glyph drawn on top so the still reads as a video.
+needed a sanitiser exemption. Posters carry a play glyph drawn on top so the still reads as a video.
+
+**But the link only reaches GitHub's blob page**, where the reader has to press *View raw* and the
+file downloads — the user's report, and a fair complaint.
+
+### The only way a video actually PLAYS in a GitHub README
+
+It has to be served from GitHub's **attachment CDN**, not from the repository. A repo-relative path
+and a `raw.githubusercontent.com` URL both refuse to play; nothing you can commit will play by
+itself. The URL has to look like:
+
+```
+https://github.com/user-attachments/assets/<uuid>
+```
+
+and you only get one by **uploading the file through a comment box**: open a new issue, a PR, or a
+discussion in this repository, drag `docs/img/card-fan.mp4` into the text area, wait for the upload
+to finish, and copy the `https://github.com/user-attachments/assets/…` URL it writes into the box.
+**Do not submit the issue** — the upload has already happened and the URL is permanent. Then either
+put that URL bare on its own line, or wrap it:
+
+```html
+<video src="https://github.com/user-attachments/assets/xxxxxxxx" controls muted loop></video>
+```
+
+Notes that matter here:
+- **Limits are fine for us**: 10 MB through the web editor, 25 MB through a comment box. Our clips
+  are 1.2 MB and 1.3 MB.
+- **MP4/H.264, MOV and WebM** are the accepted formats. Ours is already MP4/H.264.
+- **While this repository is PRIVATE**, an attachment URL still needs the reader to be signed in
+  and permitted — so it will play for the maintainer and be blank for a stranger, and it starts
+  working for everyone the day the repository goes public.
+- The file then lives OUTSIDE the repository. Keep the committed `docs/img/*.mp4` as the durable
+  copy: it is the thing a clone carries, and the attachment can be regenerated from it.
+
+Until those URLs exist the poster-and-link above is what ships, because it is the only form that is
+visible at all on a private repo.
 
 ## Encoding a new clip
 
@@ -93,7 +127,37 @@ assets** by `unity/asset-preview/render_asset.py`, which reproduces `GloomhavenV
 node — the same emission-of-albedo-times-shade the player sees, with no renderer lighting model
 getting a say. A strip is not concept art; it is the asset.
 
-Two things in that script are load-bearing, and both were learned the hard way:
+**THE FIRST STRIPS WERE WRONG IN THREE WAYS AT ONCE** — the user's report was "die Renderbilder von
+den Masken und Händen sehen kaputt aus, nicht so wie sie im Spiel zu sehen sind ... zB die Finger
+bei den Händen". He was right about all of it, and the textures were the one thing that was not the
+problem: the script has always bound the same loose PNGs the shipped `.mat` files bind, by GUID.
+What was wrong was everything around them.
+
+1. **`blend_method = 'BLEND'` broke the fingers.** Every hand and mask albedo in this bundle is
+   FULLY OPAQUE — alpha is 255 at all 2048x2048 texels, measured, on all six — so the alpha-mix the
+   script built could only ever pass 1.0. It did nothing except put the material in Eevee's BLEND
+   path, where depth writes are off and geometry sorts per OBJECT instead of per pixel. Four fingers
+   in front of a palm is exactly the case that breaks under, so they drew through each other. Now
+   `OPAQUE`, with no alpha term at all.
+2. **Backface culling did not match the material.** Every shipped hand material carries `_Cull: 2`
+   (Back); the script rendered double-sided, so each hand drew its own inside surfaces through
+   itself. This one also hid the third fault from me: the arcane glove's cyan runes are on its BACK,
+   and in the double-sided renders I was admiring them THROUGH the palm — which is why the first
+   corrected render came out plain black and looked like a regression when it was the first honest
+   picture. The masks are `_Cull: 0` and stay double-sided, deliberately.
+3. **The masks are not lit at all.** They do not run BoardLit; they run `GloomhavenVR/HeadUnlit`,
+   whose entire fragment stage is `albedo * tint`. Its own header says why: the head floats in the
+   light-less VR void and in the mirror, where "any scene-lit shader (Standard, BoardLit's baked rig
+   included) would either render black or add shading the albedo doesn't expect", because that
+   texture already carries its own baked light. Putting BoardLit's Lambert on a pre-lit texture is
+   double-shading — which is exactly why the first mask strip was dark and muddy and the corrected
+   one shows a gold visor slit, lit runes and teal eyes. Pass `--unlit` for anything on HeadUnlit.
+
+**Rule that follows from all three: read the shipped `.mat`, do not assume.** `_Cull`, the shader
+GUID and the `_BumpMap` slot are all in there — the plate gauntlet's `_BumpMap` is `fileID: 0`,
+i.e. no normal map, and passing one would have been a fourth wrong answer.
+
+Two further things in that script are load-bearing, and both were learned the hard way:
 
 - **`view_layer.update()` before reading `cam.matrix_world`.** Without it the matrix is still
   identity, the "camera-space" fit silently becomes a world X/Y fit, and the framing is right only
