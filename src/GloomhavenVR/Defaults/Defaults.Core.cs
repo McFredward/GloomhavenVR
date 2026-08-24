@@ -130,8 +130,23 @@ internal static partial class Defaults
     // than a different one. The value now lives as a constant at its own use site.
 
     // ---- Core/WallSegmentFade.cs ---------------------------------------------------
-    internal const float OnFraction = 0.1f;                  // => [WallFade] OnFraction
-    internal const float OffFraction = 0.2f;                 // => [WallFade] OffFraction
+    // A Schmitt trigger needs Off < On. These two shipped TRANSPOSED — On 0.1 with Off 0.2, the
+    // low bar above the high one — so WallFadeTuning.Off had to clamp it back down and the pair
+    // collapsed to a single shared threshold with no band at all. That is the mechanism behind
+    // the group churn in the ModBuild 250/251 hardware logs, where every wall flips together:
+    // several coverages sitting on one bar with nothing between them. Corrected at source here,
+    // which leaves the degenerate-pair fallback in WallFadeTuning.Off as a pure guard.
+    // 0.25/0.10 is the pair those accessors always named as their own fallback.
+    // PINNED against the cfg drop on purpose: that drop carries 0.1/0.2 because it is the
+    // transposed pair written out verbatim on first run (its own "# Default value:" lines say
+    // 0.1 and 0.2), not a value the user ever tuned. Rebasing onto it would restore the defect.
+    internal const float OnFraction = 0.25f;                 // => [WallFade] OnFraction  (pinned: cfg drop holds the transposed pair, never tuned)
+    internal const float OffFraction = 0.1f;                 // => [WallFade] OffFraction  (pinned: cfg drop holds the transposed pair, never tuned)
+    // BepInEx keeps whatever is already in the cfg, so correcting the two constants above only
+    // ever reaches a FRESH install — every existing install would keep the transposed pair and
+    // the group churn with it. This marker carries the correction across exactly once; see the
+    // migration block in WallFadeTuning.Bind for why it only fires on the degenerate shape.
+    internal const bool WallFadeBarsMigrated252 = false;      // => [WallFade] WallFadeBarsMigrated252  (pinned: one-shot migration marker — a fresh install must start false)
     internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade

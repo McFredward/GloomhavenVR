@@ -34,6 +34,8 @@ internal static class WallFadeTuning
     /// <summary>MP: also fade the walls a TEAMMATE's wall fade currently hides (wire record 17;
     /// receiver-side gate — own fades are always broadcast, see WallSegmentFade.Net.cs).</summary>
     internal static ConfigEntry<bool>? SyncPeerFades;
+    /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
+    internal static ConfigEntry<bool>? BarsMigrated252;
 
     internal static void Bind()
     {
@@ -64,6 +66,68 @@ internal static class WallFadeTuning
             "they do for them) — same animation as your own wall fades. Receiver-side setting: " +
             "your own fades are always broadcast (bytes are cheap), each player's toggle decides " +
             "only what THEY see, so toggling mid-session needs no renegotiation. Live.");
+
+        // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
+        //
+        // WHY IT IS NEEDED AT ALL. BepInEx keeps a value that is already present in the cfg, so
+        // fixing Defaults.OnFraction/OffFraction only reaches a FRESH install. Every existing
+        // install would keep On 0.10 / Off 0.20, Off would be clamped back below On, and the
+        // degenerate single-bar trigger — and the group churn it causes — would survive the very
+        // build that fixes it.
+        //
+        // WHY IT IS SAFE TO OVERWRITE. The trigger is not "the value differs from the new
+        // default", it is the one shape that CANNOT be a deliberate tuning: Off >= On. A Schmitt
+        // trigger is defined by a band between a high bar and a low one; a low bar at or above
+        // the high bar leaves no band at all, so the whole hysteresis mechanism is inoperative.
+        // Nobody tunes their way to that on purpose, and the shipped pair reached it by having
+        // the two constants transposed. A user who set some other SANE pair (Off < On) — however
+        // far from the default — is left completely alone.
+        //
+        // WHY IT WRITES THE DEFAULTS RATHER THAN SWAPPING HIS TWO NUMBERS. Swapping would give
+        // 0.20/0.10 and would look more conservative, but it would leave a migrated install
+        // permanently different from a fresh one, and every later bug report would then depend on
+        // which install it came from. Adopting the shipped pair makes the two identical.
+        //
+        // WHY IT CAN ONLY HAPPEN ONCE. The marker is written true BEFORE anything else, whatever
+        // the outcome of the test — so even a fresh install (where the pair is already sane and
+        // nothing is rewritten) burns the one-shot. After this, both bars are ordinary live
+        // settings for ever: tune them to anything, including a degenerate pair, and they stay
+        // exactly as tuned. Setting the marker back to false by hand re-arms it.
+        BarsMigrated252 = config.Bind("WallFade", "WallFadeBarsMigrated252",
+            Defaults.WallFadeBarsMigrated252,
+            "One-shot migration marker, not a setting. FALSE on a fresh install; set TRUE the "
+            + "first time this build inspects an existing config. If OnFraction/OffFraction were "
+            + "found in the impossible order (OffFraction at or above OnFraction — no Schmitt "
+            + "band at all, which is how they shipped transposed), they are rewritten to the "
+            + "corrected defaults at the same moment. Afterwards both bars are ordinary settings "
+            + "again and any value you tune is kept for ever. Set this back to false to re-run.");
+        if (BarsMigrated252 != null && !BarsMigrated252.Value)
+        {
+            BarsMigrated252.Value = true;
+            float hadOn = OnFraction != null ? OnFraction.Value : Defaults.OnFraction;
+            float hadOff = OffFraction != null ? OffFraction.Value : Defaults.OffFraction;
+            bool degenerate = hadOff >= hadOn;
+            if (degenerate && OnFraction != null && OffFraction != null)
+            {
+                OnFraction.Value = Defaults.OnFraction;
+                OffFraction.Value = Defaults.OffFraction;
+            }
+            VRLog.Info("WallSegmentFade", degenerate
+                ? $"One-shot migration: this config carried [WallFade] OnFraction {hadOn:F2} with "
+                  + $"OffFraction {hadOff:F2} — the low bar at or above the high bar, which is no "
+                  + "Schmitt band at all and is how the two shipped defaults were transposed. The "
+                  + "effective pair was therefore a single shared threshold, and every wall's "
+                  + "coverage crossed it at the same moment (the group churn reported 2026-08-24: "
+                  + "'entweder alle grünen Wände verschwinden auf einmal, oder alle sind da'). "
+                  + $"Rewritten to the corrected defaults {Defaults.OnFraction:F2}/"
+                  + $"{Defaults.OffFraction:F2}, which is exactly what a fresh install now gets. "
+                  + "This runs ONCE — both bars are ordinary settings from here on and anything "
+                  + "you tune is kept."
+                : $"One-shot migration: nothing to do — [WallFade] OnFraction {hadOn:F2} / "
+                  + $"OffFraction {hadOff:F2} already form a valid Schmitt band (low bar below "
+                  + "high bar), so they were left exactly as they are. The marker is now spent "
+                  + "and these bars will never be rewritten again.");
+        }
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults).
@@ -82,8 +146,10 @@ internal static class WallFadeTuning
     /// low bar is at or above the high bar has no band at all and the trigger degenerates into a
     /// single threshold that a wall's coverage crosses back and forth on EMA noise.
     ///
-    /// <para>THE SHIPPED DEFAULTS ARE SUCH A PAIR AND HAVE BEEN SINCE THE STEPPERS LANDED:
-    /// <c>Defaults.OnFraction = 0.1f</c> with <c>Defaults.OffFraction = 0.2f</c> — the low bar is
+    /// <para>THE SHIPPED DEFAULTS WERE SUCH A PAIR FROM THE STEPPERS LANDING UNTIL ModBuild 252,
+    /// WHICH CORRECTED THEM AT SOURCE TO 0.25/0.10 — so this clause is now a GUARD against a
+    /// hand-written cfg, not a description of what the mod ships. Read the rest as history.
+    /// <c>Defaults.OnFraction = 0.1f</c> with <c>Defaults.OffFraction = 0.2f</c> — the low bar was
     /// authored ABOVE the high bar, which reads like the two constants were transposed. The old
     /// accessor clamped it with <c>Min(Off, On)</c>, so both bars became 0.10 and the log said so
     /// on every heartbeat and every BOARD VOLUME line — <c>on ≥0.10, off &lt;0.10</c>,
@@ -94,10 +160,12 @@ internal static class WallFadeTuning
     /// between them.</para>
     ///
     /// <para>A CONFIGURED low bar BELOW the high bar is honoured exactly as written — this only
-    /// repairs the degenerate case, and it repairs it here rather than in
-    /// <c>Defaults.Core.cs</c> because that file belongs to another lane. Fixing the two
-    /// defaults to a real pair would make this fallback dead code, which is the right end state.
-    /// </para>
+    /// repairs the degenerate case. ModBuild 252 fixed the two defaults to a real pair AND added
+    /// the one-shot <c>WallFadeBarsMigrated252</c> above, which repairs an EXISTING cfg that
+    /// still holds the transposed pair (a changed default never reaches a cfg BepInEx has already
+    /// written). So on a fresh or migrated install this branch is unreachable and that is the
+    /// intended end state; it survives only for a cfg somebody edits into the impossible order by
+    /// hand.</para>
     /// </summary>
     internal static float Off
     {
@@ -1077,15 +1145,11 @@ internal static partial class WallSegmentFade
             float offFraction = WallFadeTuning.Off;
             float exitDwellMoved = WallFadeTuning.DwellMoved;
             float exitDwellStationary = WallFadeTuning.DwellStationary;
-            // INSIDE THE MAP: a HARD stand-down of this client's own occlusion decision, not a
-            // raised bar. ModBuild 241-250 substituted a 0.98/0.90 pair here; the ModBuild 250
-            // hardware log proved that pair inert, because BlockedFraction's head-inside-AABB
-            // shortcut reached a hard 1f from open floor and 1.00 clears 0.98 as easily as 0.10.
-            // See WallSegmentFade.Inside.cs. The bars below are NOT substituted any more — the
-            // segments in the mesh-keyed carve-out run the ordinary live policy, everything else
-            // is forced solid outright after the decision chain.
-            if (insideBoard)
-                BeginInsideCensus();
+            // INSIDE THE MAP is an OBSERVATION now and gates nothing — see the retirement
+            // record in WallSegmentFade.Inside.cs. Two builds tried to make it a policy (a
+            // raised bar in 241-250, a hard stand-down in 251) and both were rejected; the
+            // per-wall metric below is the whole decision.
+            BeginPerWallCensus();
             foreach (Segment seg in _segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -1163,12 +1227,13 @@ internal static partial class WallSegmentFade
                     }
                 }
 
-                // INSIDE THE MAP — THE STAND-DOWN, DELIBERATELY HERE. It runs AFTER the whole
-                // decision chain, so it owns the final seg.State that feeds the ramp below
-                // (a remedy must own the final value, not be one of several writers), and
-                // OUTSIDE the `evaluate` gate, so a skipped evaluation under
-                // [Optimize] WallFadeInterval can never leave a stale decision standing.
-                bool insideForced = insideBoard && ApplyInsideStandDown(seg, headPos, now);
+                // R2 (user ruling 2026-08-24: "Ich will aber das jede Wand einzeln verschwinden
+                // kann und andere bleiben"). Every wall's verdict is now decided ONLY by the
+                // branches above, from its own coverage of its own room. Nothing in this loop
+                // reads a scene-wide switch any more, which is what makes independence a
+                // property of the code rather than a hope. NotePerWallVerdict records each
+                // wall's own numbers so the falsifier can show them DISAGREEING.
+                NotePerWallVerdict(seg);
 
                 // Critically-damped-style exponential fade toward the debounced state — OR a
                 // PEER's synced fade (MP sync, wire record 17): effective target =
@@ -1196,11 +1261,7 @@ internal static partial class WallSegmentFade
                 seg.Fade += (target - seg.Fade) * fadeStep;
                 if (Mathf.Abs(target - seg.Fade) < 0.005f)
                     seg.Fade = target;
-                // The stand-down's falsifier is measured on the OUTCOME, after the ramp: which
-                // forced-solid walls an EXTERNAL signal still hides, and whether any of them
-                // carries a fade nobody in this loop asked for.
-                if (insideForced)
-                    NoteInsideOutcome(seg, remoteFade, gateLift, peerFadeId);
+                NotePerWallOutcome(seg, remoteFade, gateLift, peerFadeId);
                 // Round-14 watchdog: a fade the live coverage no longer supports must be
                 // impossible to miss in the next hardware log (see WatchLatch).
                 WatchLatch(seg, now, reevalArmed ? exitDwellMoved : exitDwellStationary,
@@ -1231,7 +1292,14 @@ internal static partial class WallSegmentFade
             {
                 _nextInsideLogTime = now + InsideLogIntervalSeconds;
                 LogInsideState(headPos, rigScale, edge: false);
-                LogInsideStandDown();
+            }
+            // R2/R1 falsifiers, on the diag cadence: the per-wall spread, and the animation path
+            // every fade in flight actually took.
+            if (now >= _nextPerWallLogTime && !PerfConfig.Quiet)
+            {
+                _nextPerWallLogTime = now + DiagIntervalSeconds;
+                LogPerWallIndependence();
+                LogAnimationPaths();
             }
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
@@ -1666,14 +1734,39 @@ internal static partial class WallSegmentFade
         /// stops fading because it stops measuring as an occluder, not because a rule exempted
         /// it.</para>
         ///
+        /// <para>WHAT COUNTS AS THE WALL — CORRECTED IN ModBuild 252. The first version of this
+        /// method walked only <see cref="Segment.Renderers"/> and the plain-body meshes, on the
+        /// reasoning that foliage is "dressing that rides the wall rather than geometry the eye
+        /// reads as a wall". For ivy on masonry that is true. For the tileset's SCRUB WALLS it is
+        /// exactly backwards, and the user reported the consequence within one build:
+        /// <i>"Die anderen 'gestrüpp-wände' versperren mir nun auch manchmal die Sicht. Das darf
+        /// niemals passieren."</i> A <c>FR_Wall_Grassy_Verge_Thin_Narrow</c> run is ONE wall
+        /// renderer (<c>..._01</c>, 2.0 wu tall) plus THREE foliage attachments
+        /// (<c>..._Bushes_01</c>, <c>..._Ivy_Grass_01</c>, <c>..._Plants_01</c>) — the log
+        /// attributes them as <c>← foliage of 'Wall 2'</c> against <c>← wall renderer of
+        /// 'Wall 2'</c>, and 345 such attachments exist in that scenario. The opaque mass a
+        /// player reads as "wall" is the foliage; measuring only the masonry made these walls
+        /// score as non-occluders, so they stayed solid and blocked his view of the board.</para>
+        ///
+        /// <para>THE RULE IS NOW STRUCTURAL, not a list of names: a renderer counts as this
+        /// wall's occluding geometry exactly when it RIDES this wall's fade — because if it
+        /// disappears when the wall fades, then while the wall is solid it is part of what the
+        /// wall is hiding. That is one criterion, it needs no per-tileset knowledge, and it
+        /// cannot disagree with what the player sees dissolve. Foliage, asset siblings and
+        /// stacked shell pieces all qualify.</para>
+        ///
+        /// <para>MOUNTED DRESSING IS THE ONE EXCLUSION and it is deliberate: torches, candles,
+        /// sparks and fireflies ride the fade too, but they are small emissive props and
+        /// PARTICLE systems whose world bounds are animated and frequently far larger than
+        /// anything opaque in them. Counting a spark cloud as an occluder would put the coverage
+        /// metric back on exactly the "box full of air" footing this narrow phase exists to end.
+        /// They are named in the falsifier's excluded count so the choice stays visible.</para>
+        ///
         /// <para>COST. The broad phase is unchanged, so a ray the union box rejects costs exactly
-        /// what it did before. Only an ACCEPTED ray pays the walk, over
-        /// <see cref="Segment.Renderers"/> (the fade masonry) and the plain-body meshes — not
-        /// foliage, not mounted props, not stacked shells, which are dressing that rides the
-        /// wall rather than geometry the eye reads as a wall. The logged scenario's four
-        /// fadeable walls own 41 + 23 + 14 + 34 renderers against a 16-sample grid, so the worst
-        /// case is ~1800 <c>Bounds.IntersectRay</c> calls per evaluation and only in the
-        /// pathological all-rays-accepted case this change exists to end.</para>
+        /// what it did before; only an ACCEPTED ray pays the walk. The logged scenario's fadeable
+        /// walls own 41 + 23 + 14 + 34 wall renderers plus 345 foliage attachments against a
+        /// 16-sample grid, and the walk returns on the FIRST hit, which for a genuine occluder is
+        /// almost immediate.</para>
         ///
         /// <para>FAIL-OPEN: a segment with no wall meshes of its own (renderer list emptied by
         /// Apparance churn between rescans) keeps the broad-phase verdict, so this can never
@@ -1683,29 +1776,53 @@ internal static partial class WallSegmentFade
             Vector3 sample)
         {
             int meshes = 0;
+            // Wall renderers (the fade masonry).
             for (int i = 0; i < seg.Renderers.Count; i++)
             {
-                MeshRenderer r = seg.Renderers[i];
-                if (r == null)
-                    continue;
-                meshes++;
-                Bounds rb = r.bounds;
-                if (rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample)))
+                if (HitsPiece(seg.Renderers[i], ray, dist, eps, sample, ref meshes))
                     return true;
             }
+            // FOLIAGE — for a scrub wall this IS the wall (see the header).
+            for (int i = 0; i < seg.Foliage.Count; i++)
+            {
+                if (HitsPiece(seg.Foliage[i], ray, dist, eps, sample, ref meshes))
+                    return true;
+            }
+            // Asset siblings: door wings, arch trim — opaque, and they vanish with the wall.
+            for (int i = 0; i < seg.Siblings.Count; i++)
+            {
+                if (HitsPiece(seg.Siblings[i], ray, dist, eps, sample, ref meshes))
+                    return true;
+            }
+            // Plain wall body (masonry with no fade shader of its own).
             for (int i = 0; i < seg.Body.Count; i++)
             {
-                Renderer r = seg.Body[i].Renderer;
-                if (r == null)
-                    continue;
-                meshes++;
-                Bounds rb = r.bounds;
-                if (rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample)))
+                if (HitsPiece(seg.Body[i].Renderer, ray, dist, eps, sample, ref meshes))
                     return true;
             }
+            // Stacked shell pieces already extend this wall's occlusion AABB by design.
+            for (int i = 0; i < seg.Stacked.Count; i++)
+            {
+                if (HitsPiece(seg.Stacked[i].Renderer, ray, dist, eps, sample, ref meshes))
+                    return true;
+            }
+            // seg.Mounted is deliberately NOT walked — see the header's exclusion note.
             // No meshes to ask: keep the broad-phase verdict rather than silently un-fading a
             // wall whose renderer list is mid-refresh.
             return meshes == 0;
+        }
+
+        /// <summary>One piece of a wall against the head→sample ray, with the same "clearly
+        /// before the point" rule the broad phase uses. Counts the piece so the caller can tell
+        /// "nothing blocked" from "nothing to ask".</summary>
+        private static bool HitsPiece(Renderer? r, Ray ray, float dist, float eps, Vector3 sample,
+            ref int meshes)
+        {
+            if (r == null)
+                return false;
+            meshes++;
+            Bounds rb = r.bounds;
+            return rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample));
         }
 
         /// <summary>
@@ -1732,23 +1849,30 @@ internal static partial class WallSegmentFade
             meshName = "-";
             for (int i = 0; i < seg.Renderers.Count; i++)
             {
-                MeshRenderer r = seg.Renderers[i];
-                if (r != null && r.bounds.Contains(headPos))
-                {
-                    meshName = r.name;
+                if (ContainsHead(seg.Renderers[i], headPos, ref meshName))
                     return true;
-                }
+            }
+            // Same correction as RayHitsWallMesh: on a scrub wall the foliage is the wall, so a
+            // head buried in the bushes is a head in the wall and must get the same way out.
+            for (int i = 0; i < seg.Foliage.Count; i++)
+            {
+                if (ContainsHead(seg.Foliage[i], headPos, ref meshName))
+                    return true;
             }
             for (int i = 0; i < seg.Body.Count; i++)
             {
-                Renderer r = seg.Body[i].Renderer;
-                if (r != null && r.bounds.Contains(headPos))
-                {
-                    meshName = r.name;
+                if (ContainsHead(seg.Body[i].Renderer, headPos, ref meshName))
                     return true;
-                }
             }
             return false;
+        }
+
+        private static bool ContainsHead(Renderer? r, Vector3 headPos, ref string meshName)
+        {
+            if (r == null || !r.bounds.Contains(headPos))
+                return false;
+            meshName = r.name;
+            return true;
         }
 
         /// <summary>
@@ -2139,7 +2263,37 @@ internal static partial class WallSegmentFade
             // the material becomes the shader-swap candidate — the toggle diag line plus the
             // next hardware round adjudicate.
             _mpb.SetFloat(WallFadeOnMatId, 1f);
-            if (seg.Fade >= 1f)
+            // R1 (user ruling 2026-08-24: "Wände sollen niemals einfach so auftauchen und wieder
+            // verschwinden … IMMER mit der Animation, niemals ohne"). THE PROVEN POP: the two
+            // branches below do not meet at the Fade == 1 boundary. Just under 1 the dissolve
+            // sets _Cutoff = Lerp(-0.05, 1, Fade) ≈ 1 against the NOISE map, whose m = 1-r tops
+            // out at 0.94, so EVERY fragment is clipped — the wall is completely gone. At Fade
+            // == 1 exactly, the map becomes the constant occluded texture and _Cutoff drops to
+            // the authored 0.50, which is precisely the state in which the HIGH shader's world-Y
+            // gradient keeps the FOUNDATION BAND solid. So the base course of every wall winks
+            // out one frame before the fade completes and snaps back on the next — un-animated,
+            // in both directions, on every fade and every un-fade.
+            //
+            // THE FIX, for the HIGH variant: run the whole ramp on the occluded map so the
+            // world-Y gradient is live throughout, and sweep _Cutoff from -0.05 (clip = S-c > 0
+            // everywhere, wall fully solid) up to the authored HeldCutoff. Because S is a
+            // GRADIENT in world Y, a rising c dissolves the wall top-down and lands exactly on
+            // the held look with no texture swap and no step. The noise speckle is lost; that is
+            // cosmetic and the ruling on animation is absolute.
+            //
+            // LOW keeps the noise path: its shader gates on a HARD objY-0.4 threshold rather
+            // than a gradient, so an occluded-map sweep would discard its whole upper wall the
+            // instant c crossed 0 — a worse pop than the one being fixed. This scenario logs
+            // "shader variants: 0 LOW / 6 HIGH"; the residual LOW discontinuity is called out in
+            // the ANIMATION line and needs a shader change, not a tuning.
+            bool gradientDissolve = seg.VariantHigh && !seg.VariantLow;
+            if (gradientDissolve)
+            {
+                _mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
+                _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, seg.HeldCutoff, seg.Fade));
+                NoteAnimationPath(seg, smooth: true);
+            }
+            else if (seg.Fade >= 1f)
             {
                 // Held fully faded (R3, foundation-band fix): constant r=1,a=0 map → map
                 // term m = 1-r = 0 view-independently (a=0 fails the depth compare for
@@ -2153,6 +2307,7 @@ internal static partial class WallSegmentFade
                 // the class header.
                 _mpb.SetTexture(TilesOcclusionMapId, _occludedTex!);
                 _mpb.SetFloat(CutoffId, seg.HeldCutoff);
+                NoteAnimationPath(seg, smooth: false);
             }
             else
             {
@@ -2160,6 +2315,7 @@ internal static partial class WallSegmentFade
                 // (screen-space pattern — cosmetic, confined to the ~0.35s transition).
                 _mpb.SetTexture(TilesOcclusionMapId, _noiseTex!);
                 _mpb.SetFloat(CutoffId, Mathf.Lerp(-0.05f, 1f, seg.Fade));
+                NoteAnimationPath(seg, smooth: false);
             }
 
             seg.HasBlock = true;

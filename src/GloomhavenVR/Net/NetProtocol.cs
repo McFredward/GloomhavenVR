@@ -416,7 +416,116 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 251;
+    public const ushort ModBuild = 252;
+    // Build 252: THE WALL FADE, ROUND TWO — AND THE ROUND-ONE FIX WAS PART OF THE PROBLEM.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // USER, after testing ModBuild 251: "1) Wände sollen niemals einfach so auftauchen und wieder
+    // verschwinden. Wenn ich in die Map gehe tauchen die wände plötzlich auf, ohne die Animation.
+    // IMMER mit der Animations, niemals ohne. 2) Seit deiner letzt Änderung gibt es in der Map nur
+    // noch zwei Stati: Entweder alle grünen Wände verschwinden auf einmal, oder alle sind da. Ich
+    // will aber das jede Wand einzlen verschwinden kann und andere bleiben. Die Wände an der Tür
+    // bleiben jetzt und reagieren sofort. Die anderen 'gestrüpp-wände' versperren mir nun auch
+    // manchmal die Sicht. Das darf niemals passieren. … Es sollte anhand der verdeckten Boden-
+    // tiles des jeweiligen Raumes berechnet werden, oder?"
+    //
+    // HIS METRIC QUESTION, ANSWERED FROM SOURCE: YES. RoomBlockedFraction walks ITS OWN room's
+    // floor-grid samples, drops the ones outside the frustum, casts head→sample and counts a
+    // sample blocked when this wall interrupts it clearly before the point;
+    // fraction = blocked / roomTotal, EMA-smoothed, Schmitt trigger. Per wall, per its own room —
+    // exactly what he described. Nothing about that had to change.
+    //
+    // (R2) THE "ZWEI STATI" WAS MY OWN ModBuild 251 REQUIREMENT. I asked for a blanket
+    //   stand-down "while his head is INSIDE the room volume", meaning the figure-scale case.
+    //   What that measures is not what I meant: the verdict flipped four times in one session and
+    //   its deciding term was FOOTPRINT 27 times against HEIGHT 26, with the real-metre column
+    //   reading "head … 0.34 m above the floor plane, walls 0.61 m tall" — it fired whenever he
+    //   LEANED OVER HIS OWN TABLE. Every rising edge released all segments and every pass forced
+    //   all of them solid ("6 wall(s) held … 6 wall(s) were released on entry"), which is his two
+    //   states exactly. RETIRED ENTIRELY. The narrow case it was meant to protect — his head
+    //   inside real masonry — was already per-wall through HeadInsideWallMesh feeding
+    //   BlockedFraction's hard 1f, so it dissolves the ONE wall he is standing in and nothing
+    //   else. The board volume and the INSIDE THE MAP line survive as a pure diagnostic that now
+    //   says in its own text that it GATES NOTHING, and WallSegmentFade.Inside.cs is a retirement
+    //   record carrying a standing rule against a third attempt.
+    //
+    // (R3) THE "GESTRÜPP-WÄNDE" ARE A ModBuild 251 REGRESSION OF MINE. 251's narrow phase walked
+    //   only Renderers+Body and deliberately excluded foliage as "dressing". For a masonry wall
+    //   with ivy that is right; for FR_Wall_Grassy_Verge_Thin_Narrow it is not — that wall is ONE
+    //   2.0 wu wall renderer plus THREE foliage attachments (…_Bushes_01, …_Ivy_Grass_01,
+    //   …_Plants_01; the log attributes them "← foliage of 'Wall 2'"), and the foliage IS the
+    //   opaque mass. 345 such attachments in that scenario. So the metric could not see what was
+    //   standing in his way, the wall stayed solid, and it blocked the board. Coverage fell
+    //   measurably between the builds for exactly those walls: 0.94→0.81, 0.63→0.50, 0.38→0.25.
+    //   FIXED STRUCTURALLY, NOT WITH A NAME LIST: a renderer counts as occluding exactly when it
+    //   RIDES THIS WALL'S FADE — if it vanishes when the wall vanishes, it was part of what the
+    //   wall was hiding. Foliage, siblings, body and stacked shells all qualify. Mounted dressing
+    //   is the single exclusion, because its particle bounds are animated and would reintroduce
+    //   the box-full-of-air the 251 narrow phase existed to kill.
+    //
+    // (R1) THE POP IS REAL AND IT IS NOT WHERE I SAID. My brief blamed pieces driven by
+    //   renderer.enabled; that is REFUTED — every dissolve census line all session reads
+    //   "0 enabled-only", so no piece class pops that way and foliage and masonry both ramp. The
+    //   defect is in Apply: its two branches do not meet at Fade == 1. Just below 1,
+    //   _Cutoff = Lerp(-0.05, 1, Fade) ≈ 1 is tested against the NOISE map, whose m = 1-r tops out
+    //   at 0.94, so every fragment clips. At exactly 1 the map becomes the constant occluded
+    //   texture and _Cutoff drops to 0.50 — the state in which the HIGH shader's world-Y gradient
+    //   keeps the foundation band solid. So every wall's base course winks out for one frame
+    //   before the fade completes and snaps back on the next, in BOTH directions. Fixed for HIGH
+    //   by running the whole ramp on the occluded map with the gradient live throughout and
+    //   sweeping _Cutoff from -0.05 to the held value: one unbroken ramp, no texture swap, landing
+    //   exactly on the held look.
+    //
+    // (e) THE TRANSPOSED SCHMITT BARS, CORRECTED AT SOURCE THIS TIME. OnFraction 0.1 with
+    //   OffFraction 0.2 is the low bar authored ABOVE the high one; a Schmitt trigger IS the band
+    //   between them, so that pair has no band at all and the accessor's Min() collapsed both to
+    //   0.10. That is the group flapping in the 250/251 logs. Now 0.25/0.10 in Defaults.Core.cs,
+    //   both entries marked (pinned: …) because the cfg drop carries the transposed pair verbatim
+    //   from first run — its own "# Default value:" lines say 0.1 and 0.2 — so it was never tuned
+    //   and rebasing onto it would restore the defect.
+    //   AND THE REACH PROBLEM, WHICH WOULD HAVE MADE THE WHOLE FIX INVISIBLE TO HIM: BepInEx keeps
+    //   a value the cfg already holds, so a corrected DEFAULT never reaches an existing install.
+    //   His dump holds 0.1/0.2. New one-shot [WallFade] WallFadeBarsMigrated252, modelled on
+    //   ProfileDefaultsMigrated227: on first run of this build it inspects the pair and, ONLY if
+    //   OffFraction >= OnFraction — the one shape that cannot be a deliberate tuning, because it
+    //   leaves the hysteresis mechanism inoperative by definition — rewrites both to the shipped
+    //   defaults. Any other pair with Off < On is left completely alone however far from the
+    //   default it sits. The marker is spent whatever the outcome, so it can fire exactly once,
+    //   and it LOGS IN BOTH BRANCHES at Info, so the next log distinguishes "ran and found nothing
+    //   to do" from "never ran" — a held instrument must not read as a dead one.
+    //
+    // NOT FIXED, NAMED RATHER THAN LEFT QUIET:
+    //   * LOW-variant walls keep the stepped two-texture path. Their shader gates on a hard
+    //     objY-0.4 threshold instead of a gradient, so the occluded-map sweep would discard the
+    //     whole upper wall the instant the cutoff crossed zero — a WORSE pop than the one being
+    //     fixed. This scenario logs 0 LOW / 6 HIGH so it does not bite here, and the ANIMATION
+    //     line names any LOW wall that appears. It needs a shader change, not a tuning.
+    //   * The gradient sweep loses the noise speckle during the dissolve. Cosmetic; his animation
+    //     ruling is absolute so continuity won. Trivially revertible.
+    //   * FinishRefresh clears a leaver's property block instantly — an un-animated transition
+    //     when Apparance churn moves a renderer out of a faded segment. It is a correct fail-safe
+    //     (the alternative is a permanent latch) and is flagged rather than changed.
+    //   * "Die Wände an der Tür bleiben" is PARTLY A STANDING RULING OF HIS: doorway segments
+    //     never fade (2026-08-02). Two real gate columns exist and GATE-LIFT fired once. Making
+    //     door-adjacent walls fade is a ruling change, not a bug fix, and is not made here.
+    //
+    // ALSO CORRECTED: MaterialLoaderHeal's 1455 re-enables in the 251 session are only THREE
+    // distinct renderers (FR_Floor_* plants, ~485x each) — a Compat-vs-game fight over floor
+    // bushes, not the wall foliage, and not this subsystem's writers. The tug-of-war is still
+    // worth fixing; it is not this report.
+    //
+    // AND ONE HYPOTHESIS THIS BUILD BURIES: the floating rectangles at the gate are NOT the
+    // missing depth texture. He ran the A/B — second_logs/Player.log shows depthTextureMode=Depth
+    // with [Optimize] HeadDepthPrepass=true — and the rectangles are unchanged. ModBuild 251's own
+    // GLOW CARDS line had already refuted its verdict: the 3 cards it counted as depth-fade
+    // dependent are offscreen, not-submitted SimpleParticleAlphaDFade shield clouds on stone
+    // golems, while EVERY gate-area card prints "depth-fade props: NONE". An instrument asserting
+    // a cause its own numbers exclude, for the third time in this project's history. The live lead
+    // is now LightShaft_Prefab / 'LightShaftShd' / 'LightShaftMat', 583 px, enabled+visible+
+    // submitted, keyword _TOGGLE_CAMFADE_ON, and "no _TintColor/_Color/_BaseColor on this material
+    // ⇒ the wall fade cannot classify it as an alpha prop at all". Unproven; a separate round.
+    //
     // Build 251: FIVE REPORTS FROM TWO HARDWARE RUNS, AND THREE OF MY OWN PREMISES REFUTED.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
