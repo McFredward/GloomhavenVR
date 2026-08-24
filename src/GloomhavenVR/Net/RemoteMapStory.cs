@@ -699,6 +699,13 @@ internal static class RemoteMapStory
             local.FrameSize = size;
             local.Moving = true;
             local.MoveSettleAt = now + MoveSettleSeconds;
+            // AND THE SPAWN ANCHOR IS SPENT FROM THE FIRST MILLIMETRE (ModBuild 243), not from the
+            // settle: the anchor must be over the instant a hand takes the window, never one
+            // MoveSettleSeconds later. Cheap to call repeatedly — the latch adds once and the log
+            // line prints once. The window itself is already safe (a grabbed window is never
+            // re-placed), so this covers the interval between the release and the settle.
+            WorldUI.ModalFallback.NoteSharedAnchorSpent(
+                kind, $"this client moved its own {kind} window by hand");
             // A hand owns it right now: stop following anybody. Never yank a panel out of a hand,
             // and never fight a hand at 5 Hz.
             local.FollowingPeer = 0;
@@ -1451,6 +1458,13 @@ internal static class RemoteMapStory
         // watch re-baselines on every sanctioned write, so a couple of clear frames is all it needs.
         // This is Net → WorldUI, the direction the module boundary already runs in.
         WorldUI.SharedWindowIdentity.NotePoseApplied(kind);
+        // AND SPEND THE SPAWN ANCHOR (ModBuild 243). A real pose for this kind now exists, so the
+        // table/board anchor is over: the user's narrowing is "ich meine nur die initiale
+        // Spawnposition - es soll weiterhin von jedem verschiebbar sein". Without this the one
+        // pre-reveal re-place could put a window a peer had already dragged back on its home, which
+        // is a drag being undone by placement code — the one thing that must never happen here.
+        WorldUI.ModalFallback.NoteSharedAnchorSpent(
+            kind, $"a peer's pose was applied to this client's {kind} window");
 
         // Record what WE just wrote as the movement baseline, or the very next tick reads our own
         // write back as a local user move and starts a stamp war.

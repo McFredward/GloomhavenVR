@@ -428,6 +428,13 @@ internal static class RemoteStorySync
             _lastFrameSize = size;
             _localMoving = true;
             _localMoveSettleAt = now + MoveSettleSeconds;
+            // AND THE SPAWN ANCHOR IS SPENT FROM THE FIRST MILLIMETRE (ModBuild 243), not from the
+            // settle — the anchor must be over the instant a hand takes the window, never one
+            // MoveSettleSeconds later. The mirror of the same line in RemoteMapStory for the map
+            // room's kinds; see the SHARED WINDOW ANCHOR block in ArcSeats.cs.
+            WorldUI.ModalFallback.NoteSharedAnchorSpent(
+                WorldUI.SharedWindowKind.ScenarioStory,
+                "this client moved its own scenario story window by hand");
             // The local user is moving it: stop following anybody. Never yank a panel out of a
             // hand, and never fight a hand at 5 Hz.
             _followingPeer = 0;
@@ -770,6 +777,17 @@ internal static class RemoteStorySync
             frame.localScale = Vector3.one
                                * Mathf.Clamp(size, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         grab.PlaceFrameAt(worldPos, worldRot);
+
+        // AND THE SPAWN ANCHOR IS SPENT (ModBuild 243). This is the hole the shared-anchor block in
+        // ArcSeats.cs names and leaves open because it belongs to this file: record 19 carries kind
+        // 1, and without this line a peer's pose applied in the few hundred milliseconds between the
+        // scenario story window's spawn and its reveal could be overwritten by the pre-reveal
+        // re-place putting the anchor back. The window has a REAL pose now — somebody moved it — so
+        // the anchor is over for its life, exactly as the user's narrowing requires ("nur die
+        // initiale Spawnposition"). Cheap to call every arrival: the latch adds once.
+        WorldUI.ModalFallback.NoteSharedAnchorSpent(
+            WorldUI.SharedWindowKind.ScenarioStory,
+            $"a peer's pose was applied (player {bestPeer}, record 19)");
 
         // Record what WE just wrote as the movement baseline, or the very next tick would read our
         // own write back as a local user move and start a stamp war.

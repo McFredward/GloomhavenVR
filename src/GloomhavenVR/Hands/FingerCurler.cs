@@ -77,6 +77,18 @@ internal sealed class FingerCurler
     /// styles now run the full default-angle range. Kept as a tuning point for
     /// future styles whose authored rest pose over- or under-closes.
     ///
+    /// <para>RE-MEASURED AT ModBuild 243, because the plate gauntlet's mesh, rig and weights
+    /// were all replaced by the artist's and none of the numbers above were measured on it.
+    /// unity/hand-prep/fist_metrics.py at curl 1.0, tip centroid to Anchor_Palm, in mm:
+    /// glove 47-58, arcane 41-70, plate NOW 40-64 (was 43-63 on the AI shell). The new plate
+    /// is 2.4 mm tighter at the middle finger and 1.0 mm looser at the pinky — the same band,
+    /// not a new one, so the 1.0 entry stands unchanged. Its fingertips also end the fist
+    /// 75.8 mm apart where the AI shell left them 91.3 mm apart, i.e. the replacement closes
+    /// into a TIGHTER fist, toward the glove's 48.5 mm, which is the direction a fist should
+    /// move. NOTE the historical figures in the paragraph above (65-76 / 59-72) belong to the
+    /// round-3 GENERATED rigs and no longer describe anything shipped; they are kept as the
+    /// record of what the 0.72/0.85 clamps were reacting to, not as current measurements.</para>
+    ///
     /// <para>KEEP — this is NOT dead code, despite being all-1.0 (refactor Batch D, verified at
     /// HEAD): the constructor below indexes it every time a hand is built, so it is a live
     /// lookup whose current values happen to be identity. "All entries are 1" is the RESULT the

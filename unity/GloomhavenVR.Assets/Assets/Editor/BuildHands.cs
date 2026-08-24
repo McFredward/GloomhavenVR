@@ -43,8 +43,10 @@ namespace GloomhavenVR
         // one atlas — the mirrored hand samples the same texels).
         //   VRHand       — leather glove (default style); artist-authored mesh + rig,
         //                  adopted via unity/hand-prep/import_glove_fbx.py
-        //   VRHandPlate  — plate-armor gauntlet   (prepare_hand.py + rig_hand.py, Hunyuan3D)
+        //   VRHandPlate  — plate-armor gauntlet   (artist-authored mesh + rig, same script)
         //   VRHandArcane — arcane-runes mage glove (same pipeline)
+        // As of ModBuild 243 NO hand set is AI output any more; the plate gauntlet was the last
+        // one, and prepare_hand.py / rig_hand.py no longer produce anything that ships.
         //
         // doubleSided: render the set with Cull Off. This is a REPAIR, not a look — an
         // AI-generated shell is fragmented and non-manifold, so back-facing and missing
@@ -55,16 +57,23 @@ namespace GloomhavenVR
         // (unity/hand-prep, boundary + non-manifold edge counts on the shipped rigs):
         //   VRHand       0 boundary,   0 non-manifold, +298 cm3  -> closed, wound outward
         //   VRHandArcane 0 boundary,   0 non-manifold, +1748 cm3 -> closed, wound outward
-        //   VRHandPlate  540 boundary, 1072 non-manifold         -> open shell
-        // A closed, outward-wound shell has no hole to fill, so it pays nothing. Only the
-        // plate gauntlet is still an AI-generated shell and still needs the repair.
+        //   VRHandPlate  0 boundary,   0 non-manifold, +1526 cm3 -> closed, wound outward
+        //                (was 540 / 1072 on the AI shell, up to ModBuild 242)
+        // A closed, outward-wound shell has no hole to fill, so it pays nothing — and with
+        // the plate gauntlet replaced, EVERY set is false and the repair is now dead weight
+        // no one carries. Kept as a flag rather than deleted because it is the only thing
+        // standing between a future fragmented mesh and a hand full of black voids; the
+        // measurement above is what turns it on, never a look.
         //
         // normal: an artist-authored tangent-space normal map, or null for none. BoardLit has
         // always declared _BumpMap and _NormalStrength and read TANGENT in its vertex input; up
         // to ModBuild 170 no hand set supplied one, so every hand rendered on the shader's flat
         // "bump" default and carried only what the albedo had baked into it. The arcane set brought
-        // the first (171) and the glove followed with a re-baked albedo of its own (172); only the
-        // AI-generated plate gauntlet is still flat-bumped, because nobody ever baked one for it. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
+        // the first (171) and the glove followed with a re-baked albedo of its own (172). The plate
+        // gauntlet is STILL flat-bumped at 243: its delivery is a mesh and a base colour, with no
+        // normal map in it, and BoardLit's flat default is the honest reading of that — inventing
+        // one from the albedo's luminance would emboss the painted rivets and the painted shadows
+        // alike. The importer is told the texture is a NORMAL MAP (below) — leaving it as a
         // plain colour texture is the silent version of this failure: it samples, it looks
         // roughly right, and every slope is wrong.
         //
@@ -72,11 +81,20 @@ namespace GloomhavenVR
         // BoardLit has no height, parallax or tessellation term, and the hands are not
         // subdivided, so there is nothing in this pipeline that could read it. Adding it would
         // put 3.4 MB in the bundle for no pixel.
+        //
+        // THE PLATE ATLAS IS RESAMPLED, AND THAT IS THE CHEAP DIRECTION. It arrived 1254x1254,
+        // which is not a power of two AND not a multiple of four, so Unity can block-compress
+        // none of it: kept native it imports as RGBA32, about 8.4 MB with mips. The importer's
+        // own nPOTScale default (ToNearest) would instead have silently resampled it DOWN to
+        // 1024 and thrown away a third of the delivered pixels with nothing in the log. It is
+        // therefore committed upscaled to 2048x2048 (Lanczos), where DXT1 + mips costs about
+        // 2.8 MB — a third of native, and the only option that discards no delivered pixel.
+        // It carries 1254x1254 of real detail; the extra size buys compression, not sharpness.
         private static readonly (string baseName, string albedo, string normal, bool doubleSided)[]
             HandSets =
         {
             ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",        false),
-            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  null,                                true),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  null,                                false),
             ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png",  false),
         };
 

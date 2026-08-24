@@ -2,9 +2,12 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 148` shipped, bundle 67,064,834 bytes — awaiting its hardware run.** Rounds are run as parallel agents on
+  **`NetProtocol.ModBuild = 243` shipped, bundle 70,009,303 bytes — awaiting its hardware run.** Rounds are run as parallel agents on
   disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
-- **Last update:** 2026-08-14
+- **Last update:** 2026-08-24
+- **Caveat:** this file's §0 briefing is prose from the ModBuild 148 era and has not been
+  re-audited since. Trust the line above and the build notes in `src/GloomhavenVR/Net/NetProtocol.cs`
+  (newest first) over anything further down; an audit is a snapshot, and this one is old.
 
 ---
 

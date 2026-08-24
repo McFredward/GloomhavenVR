@@ -198,9 +198,16 @@ def snap_wrist(arm, reference, side_label):
         arcane, as shipped at ModBuild 170 : waist z = -0.0727, bone at +0.006  -> 79 mm FORWARD
         arcane, as delivered               : waist z = -0.0719, bone at -0.1385 -> 67 mm BEHIND
         glove,  accepted                   : waist z = +0.0376, bone at +0.006  -> 32 mm behind
+        plate,  as shipped at ModBuild 242 : waist z = -0.0478, bone at +0.006  -> 54 mm FORWARD
+        plate,  as delivered   (243)       : waist z = -0.0562, bone at -0.1221 -> 66 mm BEHIND
 
     The two arcane meshes agree on where the wrist is to within a millimetre; their two rigs
-    disagree about where to put the bone by 145 mm. So there is no "correct" placement to
+    disagree about where to put the bone by 145 mm. THE PLATE DELIVERY REPEATED IT: the two
+    plate meshes put the waist within 8 mm of each other and their rigs disagree by 143 mm —
+    the same sign and very nearly the same distance as the arcane pair. Two deliveries out of
+    two is not a coincidence, it is how the artist's tool writes the root, which is the
+    strongest argument yet that this snap is a permanent part of the pipeline and not a
+    one-off repair. So there is no "correct" placement to
     restore — only a placement the user's tuning is already measured against. Snapping is
     therefore the conservative reading of "adopt the new asset": the artist owns the mesh, the
     weights and the atlas; the contract anchor stays where everything downstream was tuned.

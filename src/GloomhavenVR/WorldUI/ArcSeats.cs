@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using GloomhavenVR.Core;
@@ -3218,5 +3219,552 @@ internal static partial class ModalFallback
                      + "is what the depth level is for"
                    : ", overlapping nothing in angle")
                + ". NO SECOND SEAT WAS TAKEN and no other window was moved";
+    }
+
+    // ---- THE SHARED WINDOW ANCHOR (ModBuild 243) ------------------------------------------------
+    //
+    // USER RULING (2026-08-24, verbatim), which OVERRULES "nobody decides where a shared window
+    // opens":
+    //
+    //   "'niemand entscheidet das' bei den blauen Fenstern ist nicht was ich will. Multiplayer
+    //    Fenster, also 'blaue' Fenster, sollen komplett 1:1 synchronisiert werden von Anfang an.
+    //    D.h. dass ihre Position von Anfang an auch für alle synchronisiert sein muss. Gut,
+    //    verankere es am Tisch bzw. über dem Spielfeld innerhalb eines Szenarios."
+    //
+    // AND HIS OWN NARROWING OF IT, same day, verbatim — this is the whole scope of this block:
+    //
+    //   "'verankert am Tisch' - ich meine nur die initiale Spawnposition - es soll weiterhin von
+    //    jedem verschiebbar sein wie du es bereits implementiert hast (voll synchronisiert)"
+    //
+    // SO: THE ANCHOR IS THE SPAWN POSE AND NOTHING ELSE. Record 21 / record 19 keep the drag
+    // exactly as they are — parchment-local position, absolute world rotation, size, last-mover-wins
+    // ranked by the local receive time of a CHANGED stamp, applied verbatim and eased, a local hand
+    // always outranking the wire. Nothing in this block touches any of that, and the anchor is SPENT
+    // the moment a pose exists (see SharedAnchorSpent below).
+    //
+    // ---------------------------------------------------------------------------------------------
+    // WHY THIS NEEDS NO WIRE FIELD, WHICH IS THE WHOLE DESIGN.
+    //
+    // A pose that is DERIVED FROM GEOMETRY EVERY CLIENT ALREADY SHARES is 1:1 by construction and
+    // has nothing to send. Record 21 already proves the frame exists: it expresses a DRAGGED pose as
+    // parchment-LOCAL precisely because the parchment is the common reference
+    // (Net/RemoteMapStory.ToShared, MapRoom/MapRoomDriver.TryGetParchmentFrame — "Nothing per-player
+    // enters it"). This block expresses the SPAWN pose in the same frame, by the same call, so the
+    // two agree by construction and the wire is untouched. NO RECORD, NO FIELD, NO NEW BYTE.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // THE TWO FRAMES, AND WHERE EACH IS READ FROM.
+    //
+    //  * MAP ROOM → THE MAP TABLE. MapRoomDriver.TryGetParchmentFrame gives (centre, scale) off the
+    //    parchment renderer's own world bounds; the table slab around it is a fixed multiple of that
+    //    map on each axis (TableToMapWidthRatio / TableToMapDepthRatio, surveyed in
+    //    MapRoom/MapTableLegs.cs and already used by TryTableFarCornersDeg). Frame-local units are
+    //    REAL METRES, because the frame scale IS game-units-per-real-metre. The frame carries NO
+    //    rotation: the parchment bounds are an AABB and world axes are already shared, which is the
+    //    same reason record 21 sends rotation as an ABSOLUTE world rotation.
+    //
+    //  * SCENARIO → THE BOARD. PlayTray.Current.Root is the board frame and
+    //    PlayTray.MeasureBoardLocalExtents gives the VISIBLE board's top (far) edge and half-width
+    //    in board-LOCAL metres — the same measurement WorldTooltips.TryGetBoardAreaPose and
+    //    EnemyRevealSurface already anchor to. "Über dem Spielfeld" is read as: centred on the
+    //    board's X, one clearance above its measured TOP edge, in the board's own plane.
+    //
+    // THE ASYMMETRY BETWEEN THE TWO IS REAL AND IS NOT A BUG. The parchment frame is a place in the
+    // ROOM and every client's map room is built from the same parchment, so a map-room anchor is 1:1
+    // in WORLD. The board is a piece of furniture each player has posed, tilted and resized for
+    // HIMSELF (WorldGrab, the tray grab-resize, the per-board config offsets), so a scenario anchor
+    // is 1:1 in BOARD-LOCAL and every player reads it square-on above his own board. Both are "the
+    // same place" in the only frame in which that sentence means anything.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // THE SLOT IS A FUNCTION OF THE WINDOW'S IDENTITY, NEVER OF ARRIVAL ORDER. THIS IS THE HAZARD.
+    //
+    // ModBuild 243's corner rule says "left is tried first, so the FIRST CLAIMER takes the left
+    // corner" — and first claimer is LOCAL claim order. Two clients can claim in different orders
+    // (different frame timing, a peer who opened a local window first, a client that joined late),
+    // and then client A has the story window on the left and client B has it on the right, both
+    // "correct" locally. That rule is right for LOCAL windows, where there is nobody to disagree
+    // with, and it is fatal for a shared one.
+    //
+    // So a shared window's home is SharedHomeIndex(kind) — the rank of its SharedWindowKind byte
+    // among the kinds that can stand in that room, computed with no reference to what is already
+    // open. TWO KINDS CAN THEREFORE NEVER WANT THE SAME HOME: the index is reserved by identity, not
+    // claimed, so "what happens when the anchor is occupied" has no case to answer. The price is
+    // that a home reserved for a window that is not open stays empty; that is the correct trade,
+    // because the alternative is precisely the divergence above.
+    //
+    //   SharedWindowKind      room       home  where it lands
+    //   ------------------------------------------------------------------------------------------
+    //   ScenarioStory  (1)    scenario   0     centred above the board's measured TOP (far) edge
+    //   MapStory       (2)    map room   0     over the table's far short end, centred
+    //   QuestConfirm   (3)    map room   1     the same far end, one lateral step toward +Z
+    //   Encounter      (4)    map room   2     the same far end, one lateral step toward −Z
+    //
+    // The two rooms never coexist (ParticipatesHere gates 2/3/4 behind MapRoomDriver.Active and
+    // ScenarioStory is never in the map room), so the two tables are independent and kind 1 taking
+    // index 0 costs the map kinds nothing.
+    //
+    // WHY THE FAR SHORT END AND NOT ONE OF HIS TWO TABLE CORNERS. The corners are SPOKEN FOR: his
+    // ModBuild 243 ruling put the Character-UI on the left corner and the Weltquests on the upper
+    // right corner, and both of those are LOCAL windows (PartyPanel / Quest Log Manager — see the
+    // MAP ROOM WINDOW SLOT lines of the ModBuild 242 session). Seating the shared windows there
+    // would evict the two windows he photographed. The far short end is the free place that is still
+    // "am Tisch", it is between the two corners rather than on either, and — measured against the
+    // ModBuild 242 session's own numbers — it is CLEAR OF THE MAP in the view: with the seat 0.93 m
+    // out along −X and the eye 1.12 m above the parchment, the map occupies 38°–68° below the
+    // horizon and this home sits at 23° below it.
+    //
+    // WHICH END IS "FAR" IS A CONSTANT AND NOT A MEASUREMENT, AND THAT IS THE COST OF 1:1. The
+    // table's long axis is its DEEP one (2.30 m against 1.55 m), so the two SHORT ends are the ends
+    // a player stands at — on the surveyed map that is the world X axis, the map's own shorter
+    // horizontal extent. The sign is fixed at +: a measurement ("the end furthest from MY head",
+    // which is what TryTableFarCornersDeg does and must do) is per-client by definition and would
+    // put the window at opposite ends of the table for two players standing opposite each other.
+    // MapRoomSeat seats every client from the GAME's own map camera, so in practice every player in
+    // a session stands at the same end and + is that end; a client seated at the other end gets the
+    // window across the table facing away from him. The falsifier prints this client's seat side so
+    // that case is one grep, not a mystery.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // FACING: FULLY 1:1, OPTION (a). CONSEQUENCE, IN ONE SENTENCE HE CAN READ:
+    //
+    //   "Ein blaues Fenster hängt für alle an derselben Stelle am Tisch und ist auch für alle gleich
+    //    gedreht — wer auf der anderen Seite des Tisches steht, sieht es dadurch schräg oder von
+    //    hinten; das ist der Preis für 'komplett 1:1'."
+    //
+    // WHY NOT (b), a shared ANCHOR with per-client facing, which the previous lane recommended: it
+    // is contradicted by the SHIPPED SYNC, not merely by a ruling. Record 21 sends rotation as an
+    // ABSOLUTE WORLD ROTATION (RemoteMapStory.ToShared: "world axes are already shared … nothing
+    // per-client to rotate back in"), so the FIRST drag makes rotation 1:1 for everybody anyway. A
+    // per-client spawn facing would therefore be a rotation that silently snaps to the first
+    // dragger's on the first drag — a jump nobody asked for, at the worst possible moment. It also
+    // sits badly beside the user's own earlier ruling that a shared window must NOT re-face on
+    // release ("Da es ein Fenster für alle ist, sollen diese Fenster nach dem Greifen auch nicht die
+    // Orientierung nach dem Spieler ändern"): that ruling exists because a per-player rotation on a
+    // window that belongs to everybody is wrong, and a per-player rotation at SPAWN is the same
+    // thing one moment earlier. FUTURE ROUNDS: an edge-on view for a player on the far side is the
+    // ACCEPTED consequence of this ruling. Do NOT "fix" it by re-facing a shared window.
+    //
+    // The scenario case is 1:1 in the board frame instead, for the reason stated above — the board
+    // is not shared furniture, it is each player's own copy — so nothing there faces away from
+    // anybody and no ruling is strained.
+    //
+    // ---------------------------------------------------------------------------------------------
+    // THE ANCHOR MUST NOT RE-ASSERT, AND HOW THAT IS ENFORCED.
+    //
+    // Once a shared window has a dragged pose the anchor is spent for the life of that window.
+    // Three independent guards, and none of them is a second writer:
+    //   1. THE ANCHOR IS DERIVED, NOT REMEMBERED. It is a pure function of the shared frame and two
+    //      constants, with no term that depends on the head, the window's fitted size or anything
+    //      that changes between the spawn and the pre-reveal re-place. Replaying it is therefore a
+    //      NO-OP by construction — the same shape as ModBuild 242's handover, which the re-place
+    //      CONSUMES rather than racing.
+    //   2. A GRABBED WINDOW IS NEVER RE-PLACED AT ALL. ModalFallback.TickPoseRePlaceOne returns at
+    //      `grab.IsGrabbed` before it ever reaches ComputeHmdPose, and a REVEALED window is never
+    //      re-placed either. So a local hand ends the anchor's life with no code here.
+    //   3. A POSE THAT EXISTS SPENDS THE ANCHOR OUTRIGHT. NoteSharedAnchorSpent is called by
+    //      Net/RemoteMapStory both when a peer's pose is APPLIED here and when this client PUBLISHES
+    //      one, and from then on the anchor stands down for that kind and SAYS SO on every
+    //      subsequent placement opportunity. A silent no-op would be indistinguishable from the
+    //      anchor never having been built.
+    //
+    //      Kind 1 (ScenarioStory) travels on record 19 in Net/RemoteStorySync instead, and that file
+    //      calls it on the same two edges: a peer pose applied, and a local hand taking the window.
+    //      So all four kinds spend, on both edges — there is no path left that reaches a pose
+    //      without standing the anchor down.
+    //
+    // GREP: `SHARED WINDOW ANCHOR` — one line per shared spawn/re-place, carrying the frame, the
+    // identity-earned home, THE POSE IN THE FRAME (the number that must be identical on two
+    // clients, to the millimetre) and the pose in world (which may legitimately differ). Two players
+    // diff those two lines: frame-local equal ⇒ this is 1:1; frame-local different ⇒ it is not, and
+    // the frame is the suspect, not this table.
+
+    /// <summary>How far above the map table's top surface a shared window's CENTRE hangs, real
+    /// metres, multiplied by the shared parchment frame scale and by nothing else.
+    ///
+    /// <para>DERIVED FROM <c>ideale_position.jpg</c> AND STATED AS THE APPROXIMATION IT IS: both
+    /// grab bars in that photograph sit ~7 % of the far edge's own 1.55 m span above the table
+    /// plane, i.e. ~0.11 m, and a bar IS the window's bottom edge; a window of the usual reading
+    /// size adds ~0.28 m of half-height on top of that. It is a CENTRE height and deliberately does
+    /// NOT read the window's fitted half-height: a term that changes between the spawn and the
+    /// pre-reveal re-place would make the anchor re-assert a DIFFERENT pose, which is exactly what
+    /// this build is forbidden to do. A very tall shared window therefore hangs a little lower over
+    /// the table than a short one, which is a look, not a divergence — it is the same number on
+    /// every client.</para></summary>
+    private const float SharedAnchorTableHeightMeters = 0.40f;
+
+    /// <summary>The lateral step between two map-room homes along the table's LONG (deep) axis, as
+    /// a fraction of the table slab's half-depth. 0.45 of 1.15 m ≈ 0.52 m on the surveyed table —
+    /// wide enough that two reading-size windows do not merge, short enough that home 1 and home 2
+    /// are still on the table rather than off its ends.</summary>
+    private const float SharedAnchorLateralFraction = 0.45f;
+
+    /// <summary>How far above the board's measured TOP (far) edge a shared scenario window's centre
+    /// hangs, in board-LOCAL units (which are metres at board scale 1, the same convention
+    /// <c>WorldTooltips.BoardAnchorMarginY</c> and <c>PlayTray.BoardTopLocalY</c> use). Larger than
+    /// the tooltip's 0.03 because a story window is a window and not a hint.</summary>
+    private const float SharedAnchorBoardMarginLocal = 0.30f;
+
+    /// <summary>Which shared kinds have had a real pose and may no longer be anchored. Keyed by the
+    /// KIND and not by the window, because the kind is what the pose is addressed to on the wire and
+    /// because <see cref="SharedWindowIdentity"/> may legitimately move a kind to a different
+    /// window while the pose stays.</summary>
+    private static readonly HashSet<SharedWindowKind> SharedAnchorSpent = new();
+
+    /// <summary>Why each spent kind is spent, in the words the refusal line prints.</summary>
+    private static readonly Dictionary<SharedWindowKind, string> SharedAnchorSpentWhy = new();
+
+    /// <summary>
+    /// A REAL POSE NOW EXISTS FOR THIS KIND — this client published one, or a peer's was applied
+    /// here — so the spawn anchor is spent for the rest of this window's life.
+    ///
+    /// <para>Called from <c>Net.RemoteMapStory</c> on both edges. The dependency direction is the
+    /// one this project already has (<c>Net → WorldUI</c>), the same mailbox shape as
+    /// <see cref="SharedWindowIdentity.NotePoseApplied"/>.</para>
+    /// </summary>
+    internal static void NoteSharedAnchorSpent(SharedWindowKind kind, string why)
+    {
+        if (kind == SharedWindowKind.None || !SharedAnchorSpent.Add(kind))
+            return;
+        SharedAnchorSpentWhy[kind] = why;
+        VRLog.Info("WorldUI", $"SHARED WINDOW ANCHOR SPENT — {kind}: {why}. From here on the spawn "
+                              + "anchor stands down for this kind and every further placement "
+                              + "opportunity prints REFUSED with this reason. The user's own "
+                              + "narrowing is what this enforces: \"'verankert am Tisch' - ich meine "
+                              + "nur die initiale Spawnposition - es soll weiterhin von jedem "
+                              + "verschiebbar sein wie du es bereits implementiert hast (voll "
+                              + "synchronisiert)\". NOTHING IS MOVED BY THIS LINE — it only decides "
+                              + "whether a FUTURE placement is allowed to use the anchor.");
+    }
+
+    /// <summary>Forget every spend. Called on the same teardown edges that release the floats: a
+    /// latch that outlived the room would refuse the anchor on the next entry for a drag nobody in
+    /// that session made.</summary>
+    internal static void ResetSharedAnchors(string reason)
+    {
+        if (SharedAnchorSpent.Count == 0)
+            return;
+        VRLog.Info("WorldUI", $"SHARED WINDOW ANCHOR RESET ({reason}) — {SharedAnchorSpent.Count} "
+                              + "kind(s) had a pose and had spent their anchor; they may be anchored "
+                              + "again on the next spawn. A latch that outlived the room would "
+                              + "refuse the anchor for a drag nobody in the new session made.");
+        SharedAnchorSpent.Clear();
+        SharedAnchorSpentWhy.Clear();
+    }
+
+    /// <summary>The home this kind owns, by IDENTITY and never by arrival order. −1 = this kind has
+    /// no home in the room that is standing. See the block comment for the whole table.</summary>
+    private static int SharedHomeIndex(SharedWindowKind kind) => kind switch
+    {
+        SharedWindowKind.ScenarioStory => 0,   // its own room; the map kinds are not in it
+        SharedWindowKind.MapStory => 0,
+        SharedWindowKind.QuestConfirm => 1,
+        SharedWindowKind.Encounter => 2,
+        _ => -1,
+    };
+
+    /// <summary>The shared kinds, in the order their homes are reserved. A static array so the
+    /// lookup below allocates nothing.</summary>
+    private static readonly SharedWindowKind[] SharedKinds =
+    {
+        SharedWindowKind.ScenarioStory,
+        SharedWindowKind.MapStory,
+        SharedWindowKind.QuestConfirm,
+        SharedWindowKind.Encounter,
+    };
+
+    /// <summary>
+    /// The game window this converted panel was built for, or null. Taken ONLY on the spawn /
+    /// re-place path — never per frame.
+    ///
+    /// <para><b>TWO LOOKUPS, AND THE SECOND ONE IS NOT OPTIONAL.</b> The float list answers on the
+    /// pre-reveal re-place, when the <c>WindowPanel</c> exists. IT DOES NOT ANSWER AT THE SPAWN:
+    /// <c>ModalFallback.8.Convert</c> calls <c>PlaceAtHmd</c> BEFORE <c>Converted.Add(wp)</c>
+    /// (Convert.cs:443 against :677), so at the moment the pose is first computed this panel is in
+    /// no list at all. Relying on the list alone would have made the anchor a re-place-only effect
+    /// that never printed a spawn line — [[gated-remedy-never-ran]] with a plausible-looking log.
+    /// So the fallback asks each SHARED KIND for its own window and tests this panel's converted
+    /// rect against it.</para>
+    ///
+    /// <para>The second test is a containment question about ONE NAMED INSTANCE, not the
+    /// "is this an X?" question [[containment-is-not-identity]] is about: identity is still decided
+    /// by <see cref="SharedWindows.KindOf"/> against the game's own singletons, and this only asks
+    /// whether the rect that was converted is that window's own rect or a rect inside it — which is
+    /// exactly what a conversion of that window produces.</para>
+    /// </summary>
+    private static UIWindow? WindowForPanel(ConvertedPanel? panel)
+    {
+        if (panel == null)
+            return null;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+                return Converted[i].Window;
+        }
+        RectTransform? target = panel.Target;
+        if (target == null)
+            return null;
+        for (int i = 0; i < SharedKinds.Length; i++)
+        {
+            SharedWindowKind kind = SharedKinds[i];
+            if (!SharedWindows.ParticipatesHere(kind))
+                continue;
+            UIWindow? window = kind == SharedWindowKind.QuestConfirm
+                ? QuestPopupWindow()
+                : SharedWindows.WindowOf(kind);
+            if (window == null)
+                continue;
+            if (ReferenceEquals(target.gameObject, window.gameObject)
+                || target.IsChildOf(window.transform))
+                return window;
+        }
+        return null;
+    }
+
+    /// <summary>The quest popup has no singleton — its identity IS its id, the same rule
+    /// <c>SharedWindows.TryGetGrab</c> applies to it. Found on the OPEN set rather than by a scene
+    /// sweep ([[findobjectsoftype-is-the-default-suspect]]).</summary>
+    private static UIWindow? QuestPopupWindow()
+    {
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            UIWindow w = Converted[i].Window;
+            if (w != null && w.ID == UIWindowID.QuestPopup)
+                return w;
+        }
+        foreach (UIWindow w in Open)
+        {
+            if (w != null && w.ID == UIWindowID.QuestPopup)
+                return w;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// THE SHARED SPAWN POSE, or false when this window is not a shared one / the frame cannot be
+    /// measured / the anchor is spent.
+    ///
+    /// <para>Returning false is the ONLY way a local window is affected by any of this, and it
+    /// leaves <c>ComputeHmdPose</c> on exactly the path it took before ModBuild 243 — the arc seat,
+    /// the clamps, the head-facing yaw, bit for bit.</para>
+    /// </summary>
+    /// <param name="worldPos">The anchored world position of the HOST rect.</param>
+    /// <param name="worldRot">The anchored world rotation, yaw-only.</param>
+    /// <param name="worldScale">The world scale to build the window at — taken from the SHARED
+    /// frame, so the window is the same size relative to the furniture on every client.</param>
+    /// <param name="line">The whole falsifier line, ready to print.</param>
+    private static bool TrySharedWindowAnchor(ConvertedPanel? panel, bool replay,
+        out Vector3 worldPos, out Quaternion worldRot, out float worldScale, out string line)
+    {
+        worldPos = Vector3.zero;
+        worldRot = Quaternion.identity;
+        worldScale = 1f;
+        line = string.Empty;
+
+        UIWindow? window = WindowForPanel(panel);
+        if (window == null)
+            return false;
+        SharedWindowKind kind = SharedWindows.KindOf(window);
+        if (kind == SharedWindowKind.None || !SharedWindows.ParticipatesHere(kind))
+            return false;   // a LOCAL window, or a shared kind this client does not sync — untouched
+
+        string stage = replay ? "RE-PLACE at the final fitted geometry" : "SPAWN";
+        if (SharedAnchorSpent.Contains(kind))
+        {
+            SharedAnchorSpentWhy.TryGetValue(kind, out string? spentWhy);
+            VRLog.Info("WorldUI",
+                $"SHARED WINDOW ANCHOR REFUSED ({stage}) — '{window.name}' carries "
+                + $"SharedWindowKind.{kind}, and a real pose already exists for that kind: "
+                + $"{spentWhy ?? "a pose was published or applied"}. The anchor is the INITIAL spawn "
+                + "position and nothing else (\"ich meine nur die initiale Spawnposition\"), so it "
+                + "stands down and the window keeps the pose the drag gave it. THIS IS THE EXPECTED "
+                + "LINE after anybody has moved the window; its ABSENCE on a re-place after a drag "
+                + "is the bug, because a silent no-op looks exactly like the anchor never having "
+                + "been built.");
+            return false;
+        }
+
+        int home = SharedHomeIndex(kind);
+        if (home < 0)
+            return false;
+
+        return MapRoom.MapRoomDriver.Active
+            ? TrySharedAnchorOnTable(window, kind, home, stage, out worldPos, out worldRot,
+                                     out worldScale, out line)
+            : TrySharedAnchorOverBoard(window, kind, home, stage, out worldPos, out worldRot,
+                                       out worldScale, out line);
+    }
+
+    /// <summary>THE MAP ROOM HOME — parchment frame, real metres, absolute world rotation. Every
+    /// term is a pure function of the parchment renderer's own world bounds, so two clients compute
+    /// the same frame-local numbers with nothing sent.</summary>
+    private static bool TrySharedAnchorOnTable(UIWindow window, SharedWindowKind kind, int home,
+        string stage, out Vector3 worldPos, out Quaternion worldRot, out float worldScale,
+        out string line)
+    {
+        worldPos = Vector3.zero;
+        worldRot = Quaternion.identity;
+        worldScale = 1f;
+        line = string.Empty;
+
+        if (!MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 centre, out float frameScale))
+            return false;
+        MeshRenderer? parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+        if (parchment == null)
+            return false;
+        Bounds b = parchment.bounds;
+        if (b.size.x <= 1e-3f || b.size.z <= 1e-3f)
+            return false;
+
+        // THE SAME SURVEY FALSIFIER THE CORNER RULE USES. A parchment that is not the shape that was
+        // surveyed would have a table INVENTED around it, and an invented table is not a shared
+        // reference. The anchor stands down rather than guessing, and the window falls back to the
+        // ordinary per-client placement — worse, but honest, and the log says which happened.
+        float aspect = b.size.x / b.size.z;
+        if (Mathf.Abs(aspect - MapAspectXOverZ) > MapAspectTolerance)
+        {
+            VRLog.Info("WorldUI",
+                $"SHARED WINDOW ANCHOR UNAVAILABLE ({stage}) — '{window.name}' ({kind}): the live "
+                + $"parchment measures {b.size.x:F1} x {b.size.z:F1} world units, aspect "
+                + $"{aspect:F2}, and the surveyed map is {MapAspectXOverZ:F2}. The slab ratios "
+                + "describe a table around THAT map, so the table this anchor would hang on is a "
+                + "fiction. The window takes the ordinary per-client placement instead, which means "
+                + "IT IS NOT 1:1 THIS TIME — and this line, not a silence, is what says so.");
+            return false;
+        }
+
+        float scale = Mathf.Max(frameScale, 1e-4f);
+        // Frame-local metres. The table half-extents come off the same surveyed ratios
+        // TryTableFarCornersDeg uses, about the centre the two objects share.
+        float halfXm = b.size.x * 0.5f * TableToMapWidthRatio / scale;
+        float halfZm = b.size.z * 0.5f * TableToMapDepthRatio / scale;
+        float topYm = (b.max.y - centre.y) / scale;
+
+        // The SHORT horizontal axis of the map is the axis the player reads it from — the table is
+        // deeper than it is wide, so its two SHORT ends are the ends a person stands at. The sign is
+        // a CONSTANT (+) and not a measurement; see the block comment for why, and for what it costs
+        // a player standing at the other end.
+        bool shortAxisIsX = b.size.x <= b.size.z;
+        float farHalf = shortAxisIsX ? halfXm : halfZm;
+        float lateralHalf = shortAxisIsX ? halfZm : halfXm;
+        float lateral = home switch
+        {
+            1 => +SharedAnchorLateralFraction * lateralHalf,
+            2 => -SharedAnchorLateralFraction * lateralHalf,
+            _ => 0f,
+        };
+        Vector3 localPos = shortAxisIsX
+            ? new Vector3(farHalf, topYm + SharedAnchorTableHeightMeters, lateral)
+            : new Vector3(lateral, topYm + SharedAnchorTableHeightMeters, farHalf);
+
+        // FACING IS 1:1: the window looks back across the table, from its home toward the map's
+        // centre. Canvas front faces −forward, so pointing +Z AWAY from the reader is what faces
+        // them — the same convention ComputeHmdPose's head-facing branch and PanelPlacement.Facing
+        // use. Yaw only (ModBuild 189's ruling): a place has a level horizon.
+        Vector3 outward = new Vector3(localPos.x, 0f, localPos.z);
+        if (outward.sqrMagnitude < 1e-6f)
+            outward = Vector3.forward;
+        worldRot = Quaternion.LookRotation(outward.normalized, Vector3.up);
+        worldPos = centre + localPos * scale;
+        // THE SIZE IS TAKEN FROM THE SHARED FRAME TOO, not from PanelLayout.WorldScale, because that
+        // one carries this player's own pinch-zoom — the same reason MapRoomDriver derives the frame
+        // scale from the parchment and says so in as many words ("a shared frame must not move when
+        // one player zooms"). A window that is 1:1 in place and not in size is not 1:1.
+        worldScale = scale;
+
+        // WHICH END THIS PLAYER IS STANDING AT, measured off the live head rather than re-solved:
+        // MapRoomDriver.TrySolveSeat would re-run the parchment ENSURE on a spawn path, and the
+        // only thing needed here is the sign, which the head's own offset from the shared centre
+        // already carries. Read-only, no sweep, [[findobjectsoftype-is-the-default-suspect]].
+        Camera? headCam = CanvasConversion.WorldCamera;
+        string seatSide = "(no head camera)";
+        if (headCam != null)
+        {
+            Vector3 fromCentre = headCam.transform.position - centre;
+            float along = shortAxisIsX ? fromCentre.x : fromCentre.z;
+            seatSide = $"{along / scale:F2} m along the short axis ⇒ this player stands at the "
+                       + $"{(along >= 0f ? "POSITIVE (same as the home — he will see it edge-on or "
+                                          + "from behind)" : "NEGATIVE (opposite the home — he reads "
+                                          + "it square-on, which is the intended case)")} end";
+        }
+        line = $"SHARED WINDOW ANCHOR APPLIED ({stage}) — '{window.name}' carries "
+               + $"SharedWindowKind.{kind}, which owns HOME {home} of the map table BY ITS IDENTITY "
+               + "and not by the order anything opened. "
+               + $"FRAME=PARCHMENT (MapRoomDriver.TryGetParchmentFrame: centre "
+               + $"({centre.x:F2},{centre.y:F2},{centre.z:F2}) wu, scale {scale:F2} wu/m). "
+               + "FRAME-LOCAL POSE, IN REAL METRES — THIS IS THE NUMBER THAT MUST BE IDENTICAL ON "
+               + $"TWO CLIENTS: pos ({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}) m, yaw "
+               + $"{worldRot.eulerAngles.y:F2}°, size {worldScale:F2} wu/m. WORLD POSE, WHICH MAY "
+               + $"LEGITIMATELY DIFFER: ({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu. "
+               + $"TABLE: half-width {halfXm:F3} m, half-depth {halfZm:F3} m, top surface "
+               + $"{topYm:F3} m above the frame centre, derived from the parchment's own "
+               + $"{b.size.x:F1}x{b.size.z:F1} wu bounds by the surveyed ratios "
+               + $"({TableToMapWidthRatio:F2}x wide, {TableToMapDepthRatio:F2}x deep). The short "
+               + $"horizontal axis is {(shortAxisIsX ? "X" : "Z")} and the far end is its POSITIVE "
+               + $"one, fixed; this client's own head sits at {seatSide}. "
+               + "NO WIRE FIELD WAS NEEDED: both terms are pure functions of the parchment bounds, "
+               + "which is the same frame record 21 already sends a DRAGGED pose in. THE DRAG STILL "
+               + "WINS — this is the initial spawn pose only, and the first published or applied "
+               + "pose spends the anchor (grep SHARED WINDOW ANCHOR SPENT / REFUSED).";
+        return true;
+    }
+
+    /// <summary>THE SCENARIO HOME — above the play field, in the BOARD's own frame. 1:1 in
+    /// board-local, which is the only frame in which "the same place" means anything for a piece of
+    /// furniture each player has posed for himself.</summary>
+    private static bool TrySharedAnchorOverBoard(UIWindow window, SharedWindowKind kind, int home,
+        string stage, out Vector3 worldPos, out Quaternion worldRot, out float worldScale,
+        out string line)
+    {
+        worldPos = Vector3.zero;
+        worldRot = Quaternion.identity;
+        worldScale = 1f;
+        line = string.Empty;
+
+        Cards.PlayTray? tray = Cards.PlayTray.Current;
+        Transform? root = tray != null && tray.IsVisible ? tray.Root : null;
+        if (root == null)
+            return false;
+
+        Cards.PlayTray.MeasureBoardLocalExtents(root, out float topLocalY, out float halfLocalX);
+        // "Über dem Spielfeld": centred on the board's X, one clearance above its MEASURED top (far)
+        // edge — the visible board including its bundled frame and decorations, not the authored
+        // plate, which is the distinction WorldTooltips already had to make. home is 0 for the only
+        // shared kind a scenario has; a second one would step laterally the same way the table does.
+        float lateral = home switch
+        {
+            1 => +SharedAnchorLateralFraction * halfLocalX * 2f,
+            2 => -SharedAnchorLateralFraction * halfLocalX * 2f,
+            _ => 0f,
+        };
+        var localPos = new Vector3(lateral, topLocalY + SharedAnchorBoardMarginLocal, 0f);
+        worldPos = root.TransformPoint(localPos);
+        // Board-local identity rotation, yaw-only in world: the board is tilted like a table and a
+        // window in its plane would lean back. Upright is applied by the caller's own guard; taking
+        // the board's yaw here is what makes the anchor board-LOCAL rather than world-absolute.
+        Vector3 flat = root.rotation * Vector3.forward;
+        flat.y = 0f;
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = Vector3.forward;
+        worldRot = Quaternion.LookRotation(flat.normalized, Vector3.up);
+        worldScale = Mathf.Max(root.lossyScale.x, 0.01f);
+
+        line = $"SHARED WINDOW ANCHOR APPLIED ({stage}) — '{window.name}' carries "
+               + $"SharedWindowKind.{kind}, which owns HOME {home} above the play field BY ITS "
+               + "IDENTITY and not by the order anything opened. FRAME=BOARD "
+               + $"(PlayTray.Current.Root '{root.name}', extents from "
+               + "PlayTray.MeasureBoardLocalExtents). FRAME-LOCAL POSE, IN BOARD-LOCAL UNITS — THIS "
+               + "IS THE NUMBER THAT MUST BE IDENTICAL ON TWO CLIENTS: pos "
+               + $"({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}), yaw 0.00° board-local, board "
+               + $"top edge {topLocalY:F4}, half-width {halfLocalX:F4}, margin "
+               + $"{SharedAnchorBoardMarginLocal:F2}. WORLD POSE, WHICH MUST DIFFER BETWEEN CLIENTS "
+               + "AND IS NOT A FAULT WHEN IT DOES — every player has posed, tilted and resized his "
+               + $"OWN board: ({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu, yaw "
+               + $"{worldRot.eulerAngles.y:F2}°, scale {worldScale:F2}. NO WIRE FIELD WAS NEEDED. "
+               + "THE DRAG STILL WINS — this is the initial spawn pose only. CAVEAT, STATED: this "
+               + "kind's drag travels on record 19 (Net/RemoteStorySync), whose frame is the "
+               + "per-client SEAT ANCHOR rather than the board, so the anchor and the drag do not "
+               + "share a frame; that seam is not this build's to close and no record was touched.";
+        return true;
     }
 }

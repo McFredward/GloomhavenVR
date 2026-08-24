@@ -31,7 +31,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _Ambient: 0.5
-    - _Cull: 0
+    - _Cull: 2
     - _LightBoost: 0.85
     - _NormalStrength: 1
     m_Colors:

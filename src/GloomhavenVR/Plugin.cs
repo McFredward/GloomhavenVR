@@ -813,6 +813,17 @@ public class Plugin : BaseUnityPlugin
     /// measured on the prepped GLBs). 0.62 matches the Plate knuckle width and the
     /// Arcane MCP span to the glove's real-world hand bulk. Live-applied per frame
     /// via VRHand.SyncVisualOffset — no rebuild needed.
+    ///
+    /// <para>PlateScale RE-CHECKED, NOT RE-TUNED, AT ModBuild 243. The plate mesh was replaced
+    /// wholesale by the artist's, and a scale chosen for one mesh is worthless on another
+    /// unless the bulk it was measured against survived. Measured on the shipped rigs (mesh,
+    /// not bones — a 12 mm slab across the middle knuckle): plate 179.5 x 84.1 mm where the
+    /// AI shell was 181.8 x 86.7, i.e. 1.3 % narrower and 3.0 % thinner. Wrist-to-fingertip
+    /// is 183.0 mm against 183.2 mm, and all four shipped hands agree on that length to
+    /// 0.6 mm because the prep pipeline normalizes it. So the number this default was fitted
+    /// to is intact and 0.62 stays. The rig's four-finger MCP span DID shrink (96.4 -> 83.1 mm)
+    /// — that is the artist placing the knuckle roots differently inside the same silhouette,
+    /// and it is why the mesh slab is the measurement here and the bone span is not.</para>
     /// </summary>
     /// <summary>
     /// Read ONE raw value straight out of a BepInEx .cfg file, without binding anything. Returns

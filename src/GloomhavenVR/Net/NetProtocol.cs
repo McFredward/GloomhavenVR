@@ -416,7 +416,131 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 242;
+    public const ushort ModBuild = 243;
+    // Build 243: THE CORNERS OF THE TABLE ARE PLACES, THE BLUE WINDOWS GET ONE EACH, AND THE LAST
+    // AI-GENERATED HAND IS GONE.
+    // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests
+    // 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED — no new Harmony patch).
+    // BUNDLE CHANGED: 70,226,449 -> 70,009,303 bytes. Format 7, Unity 2021.3.5f1, verified.
+    // Nine lanes on disjoint files.
+    //
+    //   1. THE PLATE GAUNTLET IS SOMEONE'S WORK NOW, AND THE Cull Off REPAIR IS FINALLY DEAD.
+    //   The artist delivered VRHand_Plate_L.fbx + a base colour. import_glove_fbx.py adopted it
+    //   with NO change to the script's logic — the third set in a row it has driven unmodified,
+    //   which is the first evidence this pipeline is finished rather than merely working.
+    //   THE SHELL IS CLOSED: 0 boundary / 0 non-manifold edges, +1526 cm3, against the AI shell's
+    //   540 / 1072. So `doubleSided` goes FALSE for the plate and EVERY set now renders
+    //   single-sided. That repair cost a second shaded fragment over the whole hand, in both eyes,
+    //   every frame, and it has been paid on the default-adjacent style since the styles shipped.
+    //   The flag stays in the table (a future fragmented mesh would need it) but nothing sets it.
+    //   THE WRIST SNAP REPEATED ITSELF, WHICH IS THE INTERESTING PART. The delivered rig puts
+    //   Anchor_Wrist 143 mm from where the shipped one has it — the arcane delivery was 145 mm,
+    //   same sign. Two deliveries out of two is not a coincidence, it is how the artist's tool
+    //   writes the root, so snap_wrist is permanent pipeline, not a one-off repair. The bone is
+    //   snapped back because [WristHud] PlatePitch/Yaw/Roll/Offset* are hand-tuned offsets FROM it.
+    //   RE-CHECKED RATHER THAN ASSUMED, because a constant fitted to one mesh is worthless on
+    //   another: knuckle-slab bulk 179.5 x 84.1 mm against the AI shell's 181.8 x 86.7 (-1.3 % /
+    //   -3.0 %), wrist-to-fingertip 183.0 mm against 183.2 — so [Hands] PlateScale 0.62 stands
+    //   untouched. Full-range fist closure 40-64 mm against 43-63, and the fingertips end the fist
+    //   75.8 mm apart where the AI shell left them 91.3 — a TIGHTER fist, toward the glove's 48.5,
+    //   so the StyleCurlScale 1.0 entry stands too. The rig's four-finger MCP span did shrink
+    //   96.4 -> 83.1 mm; that is the artist placing knuckle roots inside the same silhouette, which
+    //   is why the mesh slab is the measurement and the bone span is not.
+    //   THE ATLAS IS UPSCALED, AND THAT IS THE CHEAP DIRECTION — the one counter-intuitive call
+    //   here. It arrived 1254x1254: not a power of two AND not a multiple of four, so Unity can
+    //   block-compress none of it and native import is RGBA32, ~8.4 MB with mips. The importer's
+    //   own nPOTScale default would instead have silently resampled it DOWN to 1024 and dropped a
+    //   third of the delivered pixels with nothing in any log. Committed at 2048 (Lanczos), DXT1,
+    //   ~2.8 MB — a third of native and the only option that discards no delivered pixel. It
+    //   carries 1254^2 of real detail; the size buys compression, not sharpness. Net effect on the
+    //   bundle is -217 kB DESPITE 20,526 triangles against 9,656, because the old plate atlas was
+    //   2048 RGBA (DXT5) and this one is RGB (DXT1).
+    //   STILL FLAT-BUMPED: the delivery has no normal map. BoardLit's flat default is the honest
+    //   reading of that — deriving one from the albedo's luminance would emboss the painted rivets
+    //   and the painted shadows alike.
+    //
+    //   2. THE SHARED WINDOWS ARE ANCHORED 1:1 FROM THE FIRST FRAME.
+    //   "Multiplayer Fenster also 'Blaue' Fenster, sollen komplett 1:1 synchronisiert werden von
+    //   anfang an ... Gut verankere es am Tisch bzw. über dem Spielfeld", narrowed the same day to
+    //   "ich meine nur die initiale Spawnposition - es soll weiterhin von jedem Verschiebar sein".
+    //   Both halves are in the code: the spawn pose is derived from a SHARED frame, and the anchor
+    //   is SPENT the moment any real pose exists.
+    //   THE FRAMES ARE ONES THAT ALREADY CARRY POSES: the map room reads
+    //   MapRoomDriver.TryGetParchmentFrame (the same call record 21 sends a dragged pose in), the
+    //   scenario reads PlayTray.MeasureBoardLocalExtents. The asymmetry is deliberate — the
+    //   parchment is shared furniture so the map anchor is 1:1 in WORLD; the board is each player's
+    //   own copy (own grab pose, tilt, resize) so the scenario anchor is 1:1 in BOARD-LOCAL.
+    //   NO WIRE FIELD, because both terms are pure functions of a frame both clients already share.
+    //   IDENTITY EARNS A HOME, so there is no tie to break and no "what if it is occupied" case: a
+    //   home is RESERVED by kind, not claimed. Stated cost: a home reserved for a window nobody
+    //   opened stays empty.
+    //   NOT THE TABLE CORNERS — those are spoken for by lane 3 below, by his own photograph, and
+    //   seating a blue window there would evict the Character-UI or the Weltquests. The far short
+    //   end sits between them at 23 deg below the horizon while the map occupies 38-68 deg.
+    //   FACING IS 1:1 TOO, and that is a real cost to state: a player on the far side of the table
+    //   sees a blue window edge-on or from behind. Not a choice so much as a consequence —
+    //   RemoteMapStory sends rotation as an ABSOLUTE WORLD rotation, so the first drag makes facing
+    //   1:1 for everybody anyway, and a per-client spawn facing would snap on that first drag.
+    //   THE HOLE LANE T NAMED IS CLOSED, not carried: record 19 (the scenario story window, kind 1)
+    //   travels in RemoteStorySync, which now spends the anchor on both edges like RemoteMapStory.
+    //   All four kinds, both edges, no path left that reaches a pose without standing the anchor
+    //   down. Grep `SHARED WINDOW ANCHOR`: APPLIED carries the FRAME-LOCAL pose in real metres to
+    //   4 decimals — that is the number two clients must match; the world pose may legitimately
+    //   differ. UNAVAILABLE says outright "IT IS NOT 1:1 THIS TIME".
+    //   HONEST ABOUT COVERAGE: the map-room path is exercised in the 242 log; the SCENARIO path is
+    //   built and unexercised (that session never enters a scenario). The frame is right; I am not
+    //   claiming it is proven.
+    //
+    //   3. THE CORNERS ARE PLACES, NOT ANGLES — and my reading of his photograph was wrong by
+    //   143 px. "eine Fenster (die Character-UI) auf der linken Ecke des Tisches und das andere
+    //   (die Weltquests) auf der oberen rechten ecke". I had read an ANGULAR rule out of
+    //   ideale_position.jpg; it only ever agreed because he was standing square to the table, and
+    //   a photograph cannot constrain depth at all. The corners now come from
+    //   MapRoomDriver.ParchmentRenderer.bounds scaled by the surveyed table ratios. STATED LIMIT:
+    //   the Character-UI is 72 deg of an 80 deg field, so no corner can ever be offered to it and
+    //   that one is placed, not cornered.
+    //
+    //   4. THE X AND THE GRAB BAR REACT IN ONE FRAME NOW (~11 ms, was 717-1131 ms). The cause was
+    //   not the settle budget: ActiveSetSignature was DEPTH-1 and an options tab window is
+    //   DEPTH-2, so four tab presses in his log produced ZERO generation events. It never ran.
+    //   Deepened to depth-2 with a 256-node budget and an 8-slot memo, plus a self-extending
+    //   settle burst. NOTE the same defect still stands in PanelSupersample.4.Content.cs.
+    //
+    //   5. "FENSTER SCHARFZEICHNEN" WAS SIZING ITS CAPTURE AGAINST A GRID THE PLAYER NEVER SEES.
+    //   The capture is now sized from the window's LIVE ANGULAR SIZE — rate = 2^(k+0.125)/apr,
+    //   snapped up to 1/32 — so a window read from across the room stops being resampled to mush.
+    //
+    //   6. THE CARD ART HAD NOT BEEN ASKED FOR UNTIL THE FRAME THE FAN OPENED. Grey cards on first
+    //   open were not a load stall but a request that was never made; CardArtPrewarm calls
+    //   ShowCard on the adopted-but-parked face, 2 faces/frame. Grep `HAND FAN ART WARM-UP`.
+    //
+    //   7. THE QUEST LIST CAME BACK BECAUSE THE MOD DROVE A TRANSITION THE FLAT GAME CANNOT.
+    //   AdventureMapUIManager raises a full-screen raycast blocker at the point of no return, so no
+    //   flat pointer can reach a MapLocation — but MapLocationInteractor dispatches onto those
+    //   objects directly and never crosses the mask. One table click re-opened the list through
+    //   QuestManager.OnMapLocationQuestSelected(quest, false). Only the DESELECT is gated; hovering
+    //   quest previews stays live, which is the point of the room.
+    //
+    //   8. THE BRILLE, AND WHY "WIEDER" IS RIGHT BUT IT NEVER WORKED. All four use bars hang off
+    //   ONE GameObject root, so the augment panel's content fit measured the item slot beside it.
+    //   The old suppression's counter reads ZERO in all three logs: it could not fire for a
+    //   trigger-only bar, because the item bar is converted only when a sub-decision exists and the
+    //   Brille has none. Now a per-bar rule — two of the four carry triggers, the other two are
+    //   pure decisions and are untouched. IT HIDES RATHER THAN DISABLES: three flows still need the
+    //   slot ACTIVE (placing a shield on damage), and a disabled slot would be a deadlock.
+    //
+    //   9. TWO QUESTIONS ANSWERED WITHOUT BUILDING ANYTHING, which is the right outcome for both.
+    //   THE SKIP BUTTON CANNOT JOIN THE GENERIC PAIR: the maximum is THREE, in at least six states
+    //   (first movement waypoint, AoE with enough targets, summon/object placement, null-ability
+    //   confirm, AoE targeting focus, damage focus) — enumerated from all 364 toggle sites, not
+    //   from a session, because a log shows what happened and never what cannot. His "nie mehr
+    //   als 2" impression is right for the MAJORITY of states, because ReadyButton.Toggle leaves
+    //   Confirm hidden at most sites. A 122-line table in ButtonCluster.cs so a later round checks
+    //   it instead of re-deriving it.
+    //   THE EMPTY ALLY CARD ships as an INSTRUMENT AND NO FIX: the decisive data is not available
+    //   on this machine, and a fix aimed at a guess would have been indistinguishable from one that
+    //   works. Grep `ENEMY INFO AUDIT`.
+    //
     // Build 242: A NAME PREFIX ATE OUR OWN MENU, THE EMPTY FRAME WAS CATCHING THE BEAM, AND THE
     // WALLS WERE OBEYING A RULE WRITTEN FOR A GIANT.
     // NO WIRE CHANGE. Version byte 3, no record moves, every record byte-identical. Wire tests

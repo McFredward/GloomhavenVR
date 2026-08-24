@@ -17,10 +17,12 @@ internal enum HandStyle
     /// is missing from an old bundle).</summary>
     Glove = 0,
 
-    /// <summary>Plate-armor gauntlet (Hunyuan3D-generated, prepare_hand.py pipeline).</summary>
+    /// <summary>Plate-armor gauntlet. Artist-authored mesh, rig and atlas since ModBuild 243,
+    /// adopted through unity/hand-prep/import_glove_fbx.py; it was the last Hunyuan3D-generated
+    /// hand and its replacement retired that pipeline from everything that ships.</summary>
     Plate = 1,
 
-    /// <summary>Arcane-runes mage glove (same pipeline).</summary>
+    /// <summary>Arcane-runes mage glove (artist-authored since ModBuild 171).</summary>
     Arcane = 2,
 }
 

@@ -703,6 +703,59 @@ internal static partial class ModalFallback
         // would look like a second, independent measurement agreeing with the first.
         bool headSubstituted = false;
         string headEyeNote = string.Empty;
+
+        // ---- THE SHARED WINDOW ANCHOR, AND IT IS TRIED BEFORE ANYTHING ELSE (ModBuild 243) -------
+        //
+        // USER RULING (2026-08-24, verbatim): "'niemand entscheidet das' bei den blauen Fenstern ist
+        // nicht was ich will. Multiplayer Fenster, also 'blaue' Fenster, sollen komplett 1:1
+        // synchronisiert werden von Anfang an. D.h. dass ihre Position von Anfang an auch für alle
+        // synchronisiert sein muss. Gut, verankere es am Tisch bzw. über dem Spielfeld innerhalb
+        // eines Szenarios." — narrowed by him the same day to the SPAWN POSE ONLY: "'verankert am
+        // Tisch' - ich meine nur die initiale Spawnposition - es soll weiterhin von jedem
+        // verschiebbar sein wie du es bereits implementiert hast (voll synchronisiert)".
+        //
+        // A SHARED WINDOW RETURNS FROM HERE AND MEETS NONE OF THE CLAMPS BELOW, AND THAT IS THE
+        // POINT. Everything from this line down is HEAD-RELATIVE by construction — the arc seat is
+        // an angle off THIS player's gaze, ClampSpawnPose floors and caps against THIS player's eye
+        // and board plane, ResolveSpawnOverlap swings against THIS client's open windows, and the
+        // facing yaw points at THIS player's head. Every one of them would turn a pose that is 1:1
+        // by construction into one that agrees with nobody, and would do it silently. The anchored
+        // pose is a pure function of geometry every client already shares (see the SHARED WINDOW
+        // ANCHOR block at the end of ArcSeats.cs for the frames, the identity-keyed home table, the
+        // facing decision and why no wire field was needed), so it is returned verbatim.
+        //
+        // A LOCAL WINDOW IS UNTOUCHED, BIT FOR BIT. TrySharedWindowAnchor returns false for
+        // SharedWindowKind.None and for a shared kind this client does not participate in, which is
+        // every window this method has ever placed before this build, and the code below is
+        // character-for-character what it was.
+        if (TrySharedWindowAnchor(self, replay.HasValue, out Vector3 sharedPos,
+                out Quaternion sharedRot, out float sharedScale, out string sharedLine))
+        {
+            pos = sharedPos;
+            rot = sharedRot;
+            scale = sharedScale;
+            // The anchor is DERIVED, so a replay recomputes the identical pose and the stored anchor
+            // only has to name the same inputs. ArcSlot −1 keeps this window out of the angular
+            // registry: it is not seated by angle at all, and booking arc for it would let a LOCAL
+            // window's search treat a fixed place in the room as a gaze-relative reservation.
+            s_lastSpawnAnchor = new SpawnAnchor
+            {
+                Valid = true,
+                HeadPos = pos,
+                HeadForward = rot * Vector3.forward,
+                RawPos = pos,
+                Scale = scale,
+                StaggerIndex = 0,
+                LevelMessage = false,
+                ArcSlot = -1,
+                ArcGoverned = false,
+                ArcYawDeg = 0f,
+                HeadSubstituted = false,
+            };
+            VRLog.Info("WorldUI", sharedLine);
+            return true;
+        }
+
         if (replay.HasValue)
         {
             // Replay: the placement inputs are frozen, only the geometry changed.
@@ -1878,6 +1931,11 @@ internal static partial class ModalFallback
         // site — a subtree parked under a destroyed host has nowhere to go home to, and a merchant
         // left grey across a scene change is a presentation bug that outlives its own gate.
         StoryComposite.Reset();
+        // Every shared pose dies with the windows that carried it, so every spent shared anchor is
+        // re-armed here (ModBuild 243) — see the SHARED WINDOW ANCHOR block at the end of
+        // ArcSeats.cs. A latch that outlived its edge would refuse the anchor in the NEXT scenario
+        // for a drag nobody there made ([[gate-outliving-its-edge]]).
+        ResetSharedAnchors($"every floated window is being released: {reason}");
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
             WindowPanel wp = Converted[i];
@@ -1967,6 +2025,11 @@ internal static partial class ModalFallback
     /// </summary>
     internal static void ReleaseMapRoomFloats(string reason)
     {
+        // Every shared window in this room is about to stop existing, so every pose that spent a
+        // shared anchor is about to stop existing with it. A latch that outlived the room would
+        // refuse the anchor on the next entry for a drag nobody in that session made — the same
+        // failure shape as [[gate-outliving-its-edge]].
+        ResetSharedAnchors($"the map room floats are being released: {reason}");
         int released = 0;
         int hidden = 0;
         string names = string.Empty;
