@@ -199,6 +199,25 @@ Two further things in that script are load-bearing, and both were learned the ha
   sizes the player actually sees: the armoured hands are ~2.3x bulkier in mesh and are worn at
   `[Hands] PlateScale` 0.62, the number that matches them to the glove's real hand bulk.
 
+**THE CONTROL BOARDS WERE WRONG IN THREE WAYS AT ONCE** (user: "die Controlboards werden nicht
+richtig gerendert in der README, sie sehen dort kaputt aus"), and all three were in the flags, not
+in the assets:
+
+1. **No normal map.** All three tray materials bind one and always did. Without it the carved
+   recesses, the wood grain and the brass corner straps have no relief and a tray reads as a
+   painted plank.
+2. **Pitch 18 is edge-on.** A tray lies FLAT. Shot from 18 degrees it is a sliver; the player looks
+   down at it, so 50 does what his eye does.
+3. **No shared scale.** All three are 639-640 mm wide in the room but their depth differs
+   (318 / 369 / 218 mm), so auto-fit sized each to its own bounding box and the strip claimed the
+   brass one was half again as big as the others. `--scale 0.78` pins all three to one ortho width.
+
+Note the boards are **`_Cull: 0`** (double-sided), unlike the hands' `_Cull: 2` — so they are
+rendered WITHOUT `--cull`, and that is correct rather than an oversight to be "fixed" by copying
+the hand line. Read the `.mat`. And the names swap easily and have been swapped once:
+`PlayTray_16vm268h` is **bronze**, `PlayTray_9capjqp6` is **steel** (`BoardFrame.cs:68-69`,
+`VRCardFactory.cs:29-30`) — check the source, not the look of the render.
+
 **THE RECIPE IS NOW A SCRIPT, because it was once only in a shell history.** The strips were
 rebuilt at ModBuild 247 and the exact per-asset flags lived nowhere, so the next asset delivery
 could not reproduce the frame it was replacing. `unity/asset-preview/build_asset_strips.sh` holds
@@ -254,7 +273,7 @@ rows are chosen for the SIZE of the difference rather than for covering the set:
 
 | Row | What changes |
 |---|---|
-| Cellar · Fire | the same corner goes from dark and quiet to a burning crate, a burning plank and a burning barrel |
+| Cellar · Fire | the same corner goes from two quiet barrels to a burning spill, flames on the floor and stone glowing red |
 | Cellar · Ice | frost grows out across the flagstones, cold blue against the candle |
 | Forest · Light | canopy, ferns and shafts all lift out of the dark |
 | Forest · Dark | the moon goes into total eclipse and turns copper; the wood goes black |
@@ -272,13 +291,23 @@ the occlusion *worse*, because every direction out of the centre walks under ano
 file's own note says the same thing ("from inside the clearing the crowns cover most of the moon").
 A partly-veiled moon is what the player gets.
 
-**The Fire row is shot from `FireRoom`, not from the README station** — the user's second verdict
-on this image was "das Feuer sieht man nicht auf dem Bild", and he was right. `ReadmeC` looks at
-the candle table, so under Fire it showed the room BRIGHTENING with no fire anywhere in frame,
-which reads as a light switch rather than as a fire. The gated fires are props in fixed places (a
-crate, a plank, a barrel) and a frame has to point AT them. `FireRoom` holds three at once and its
-"off" half is the same corner, dark and quiet. **A row does not have to share a camera with the
-other rows** — it has to share one with its own other half, which is the only comparison being made.
+**The Fire row is shot at a fire, not from the README station.** The user's verdict was "das Feuer
+sieht man nicht auf dem Bild", and he was right: `ReadmeC` looks at the candle table, so under Fire
+it showed the room BRIGHTENING with no fire anywhere in frame, which reads as a light switch. The
+gated fires are props in fixed places and a frame has to point AT them. **A row does not have to
+share a camera with the other rows** — it has to share one with its own other half, which is the
+only comparison being made.
+
+**It is `FireSpill` and not `FireRoom`, on his next report:** *"beim Feuer-Render sieht man solche
+Kreise um das Feuer herum — das sehe ich ingame nicht."* Those circles are the `Env_GlowSphere`
+shells (`EnvGlow.shader`): real scene geometry, an additive sphere whose brightness falls off
+toward its own silhouette. In the headset they read as volumetric haze around a flame; on a flat
+still shot from across the room they read as two hard-edged discs on the masonry. **No cause is
+asserted beyond that** — it was not investigated as a defect, because the user reports the headset
+looks right and this file's own note already says previews come out brighter than the headset. What
+changed is the FRAME, not the room: `FireSpill` stands close to a burning spill where the flames and
+the glowing floor fill the picture and no glow shell is seen edge-on against a wall. **Never re-light
+or re-grade a room to make a screenshot behave.**
 
 All four use the fixed non-zero clock (3.7 s) the element review set uses, and the `ReadmeMoon`
 station was ADDED to the Views table — nothing above it moved. Do not move an existing station to
