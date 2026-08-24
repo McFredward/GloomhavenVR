@@ -151,6 +151,24 @@ internal static partial class WallSegmentFade
         private int _animStepped;
         private readonly List<string> _animSteppedNames = new();
 
+        // --- R1 FOLIAGE CHANNEL CENSUS -----------------------------------------------------
+        /// <summary>THE BLIND SPOT THIS ROUND CLOSED. The ModBuild 253 ANIMATION line read
+        /// "0 on the stepped two-texture path: every transition in flight is animated end to
+        /// end" while the user was watching walls pop. It was true and it was not the picture:
+        /// it counted only the WALL renderers, and the DISSOLVE CENSUS it sat next to has no
+        /// foliage bucket either. 345 foliage attachments — the visible mass of every scrub
+        /// wall — were animated by nobody's measurement. These count them by the channel each
+        /// piece actually got.</summary>
+        private int _folNative, _folSwapped, _folOwnChannel, _folNoChannel;
+        private readonly List<string> _folNoChannelNames = new();
+
+        // --- R2 NUMERATOR ADMISSION CENSUS -------------------------------------------------
+        /// <summary>Per wall: how many of its pieces the standing test admitted to the occlusion
+        /// numerator and how many it excluded as ground dressing, with the widest excluded piece
+        /// named. This is what settles "which renderer inflated Wall 2" without another round.
+        /// </summary>
+        private readonly List<string> _admitNames = new();
+
         /// <summary>
         /// COMMIT PHASE 24 — see <c>RescanCore</c>. Rebuild the cached board volume. Deliberately
         /// LAST: it reads the room registry AND every segment's final decision AABB, so it must
@@ -370,6 +388,94 @@ internal static partial class WallSegmentFade
             _animSmooth = 0;
             _animStepped = 0;
             _animSteppedNames.Clear();
+            _folNative = 0;
+            _folSwapped = 0;
+            _folOwnChannel = 0;
+            _folNoChannel = 0;
+            _folNoChannelNames.Clear();
+            _admitNames.Clear();
+        }
+
+        /// <summary>
+        /// Record the dissolve channel ONE foliage piece actually received this frame — read off
+        /// the record <c>EnsureDissolveChannel</c> just filled in, so it reports what the piece
+        /// got rather than what it was meant to get. A piece with no channel at all cannot
+        /// dissolve; it can only switch off, and it is named.
+        /// </summary>
+        private void NoteFoliageChannel(Segment seg, MountedProp p)
+        {
+            if (p.NativeFade)
+            {
+                if (p.SwapCopies != null)
+                    _folSwapped++;
+                else
+                    _folNative++;
+                return;
+            }
+            if (p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0 || p.System != null)
+            {
+                _folOwnChannel++;
+                return;
+            }
+            _folNoChannel++;
+            if (_folNoChannelNames.Count < PerWallNameCap)
+            {
+                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                string piece = p.Renderer != null ? p.Renderer.name : "<dead>";
+                _folNoChannelNames.Add($"'{piece}' on '{wall}'");
+            }
+        }
+
+        /// <summary>
+        /// R2 FALSIFIER, second half. Record how ONE wall's pieces split between the occlusion
+        /// numerator and the ground dressing the standing test excludes, and name the widest
+        /// excluded piece — the one the user asked about directly
+        /// (<i>"größere nicht begehbare Flächen … kann es sein, dass diese Flächen irgendeine
+        /// Rolle bei dem Problem spielen?"</i>). Measured by re-reading the live bounds, so it
+        /// reports the same verdict the numerator used.
+        /// </summary>
+        private void NoteAdmission(Segment seg)
+        {
+            if (!seg.HasBounds || seg.DoorRoot != null || _admitNames.Count >= PerWallNameCap)
+                return;
+            int admitted = 0, excluded = 0;
+            float widestExcluded = 0f;
+            string widestName = "-";
+            CountAdmission(seg.Renderers, ref admitted, ref excluded, ref widestExcluded,
+                ref widestName);
+            CountAdmission(seg.Foliage, ref admitted, ref excluded, ref widestExcluded,
+                ref widestName);
+            CountAdmission(seg.Siblings, ref admitted, ref excluded, ref widestExcluded,
+                ref widestName);
+            if (admitted == 0 && excluded == 0)
+                return;
+            string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+            _admitNames.Add($"'{wall}' {admitted} admitted / {excluded} excluded"
+                + (excluded > 0 ? $", widest excluded '{widestName}' {widestExcluded:F1} wu" : ""));
+        }
+
+        private static void CountAdmission(List<MeshRenderer> list, ref int admitted,
+            ref int excluded, ref float widestExcluded, ref string widestName)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                MeshRenderer r = list[i];
+                if (r == null)
+                    continue;
+                Bounds b = r.bounds;
+                if (IsStandingPiece(b))
+                {
+                    admitted++;
+                    continue;
+                }
+                excluded++;
+                float widest = Mathf.Max(b.size.x, b.size.z);
+                if (widest > widestExcluded)
+                {
+                    widestExcluded = widest;
+                    widestName = r.name;
+                }
+            }
         }
 
         /// <summary>
@@ -403,6 +509,7 @@ internal static partial class WallSegmentFade
                     + $"blk {seg.LastBlocked}/{seg.LastRoomTotal} "
                     + (seg.State ? "FADED" : "solid"));
             }
+            NoteAdmission(seg);
         }
 
         /// <summary>Record where a wall's fade came from when it was not its own decision.</summary>
@@ -479,7 +586,8 @@ internal static partial class WallSegmentFade
                 + $"{_pwPeerDriven} peer-driven, {_pwGateDriven} gate-lifted. Per wall: "
                 + string.Join(" | ", _pwNames)
                 + (_pwTotal > _pwNames.Count ? $" | +{_pwTotal - _pwNames.Count} more" : "")
-                + ".");
+                + ". Numerator admission (standing pieces that can hide floor vs ground dressing "
+                + "that only rides the fade): " + string.Join(" | ", _admitNames) + ".");
         }
 
         /// <summary>
@@ -501,22 +609,34 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogAnimationPaths()
         {
-            if (_animSmooth == 0 && _animStepped == 0)
+            int foliage = _folNative + _folSwapped + _folOwnChannel + _folNoChannel;
+            if (_animSmooth == 0 && _animStepped == 0 && foliage == 0)
                 return;
             VRLog.Info(Name,
-                $"ANIMATION: {_animSmooth + _animStepped} fade(s) in flight this frame — "
-                + $"{_animSmooth} on the CONTINUOUS occluded-map gradient sweep (solid → held "
-                + "look in one unbroken cutoff ramp, no texture swap, no step at either end)"
+                $"ANIMATION: {_animSmooth + _animStepped} wall renderer fade(s) in flight this "
+                + $"frame — {_animSmooth} on the CONTINUOUS occluded-map gradient sweep (solid → "
+                + "held look in one unbroken cutoff ramp, no texture swap, no step at either end)"
                 + (_animStepped == 0
-                    ? " and 0 on the stepped two-texture path: every transition in flight is "
-                      + "animated end to end."
+                    ? " and 0 on the stepped two-texture path"
                     : $", {_animStepped} still on the STEPPED two-texture path — these pop their "
-                      + "foundation band at the Fade==1 boundary and are the remaining "
-                      + "un-animated transition: "
+                      + "foundation band at the Fade==1 boundary and need a shader change: "
                       + string.Join(", ", _animSteppedNames)
                       + (_animStepped > _animSteppedNames.Count
-                          ? $", +{_animStepped - _animSteppedNames.Count} more" : "")
-                      + "."));
+                          ? $", +{_animStepped - _animSteppedNames.Count} more" : ""))
+                // THE HALF THE ModBuild 253 LINE DID NOT COUNT. It reported only the numbers
+                // above, said "every transition in flight is animated end to end", and was
+                // believed — while the largest population in the scene was measured by nobody.
+                + $". FOLIAGE this frame: {foliage} attachment(s) — {_folNative} on the wall's "
+                + $"own native ramp, {_folSwapped} on swapped masonry-fade copies, "
+                + $"{_folOwnChannel} on their own alpha/cutoff/particle channel, "
+                + (_folNoChannel == 0
+                    ? "and 0 with NO dissolve channel at all: every foliage piece in flight is "
+                      + "animated, not switched."
+                    : $"and {_folNoChannel} with NO CHANNEL AT ALL — these cannot dissolve, they "
+                      + "can only switch off, and they are the pop: "
+                      + string.Join(", ", _folNoChannelNames)
+                      + (_folNoChannel > _folNoChannelNames.Count
+                          ? $", +{_folNoChannel - _folNoChannelNames.Count} more" : "")));
         }
         /// <summary>
         /// THE FALSIFIER. One line that can disagree with itself: the verdict, the term that

@@ -75,6 +75,18 @@ internal static partial class WallSegmentFade
         /// sweep, and putting them in that ledger would make the orphan guard release them
         /// every rescan.</summary>
         public readonly Dictionary<MeshRenderer, MountedProp> SiblingProps = new();
+
+        /// <summary>Per-foliage dissolve records, same shape and same reasoning as
+        /// <see cref="SiblingProps"/>. ModBuild 254: foliage was the LAST attachment class still
+        /// driven by the round-3 shared-MPB guess (one <c>_Cutoff</c> lerp from a hardcoded
+        /// 0.35, written blind to every foliage material, then <c>renderer.enabled = false</c>
+        /// at the end of the ramp). Round 15 had already retired that assumption for siblings —
+        /// "a channel-less material gets COPIES on the game's masonry fade shader, a
+        /// toggle-native one gets the wall's own map/_Cutoff ramp" — and foliage simply never
+        /// got the same treatment. It is the largest population of all (345 attachments in the
+        /// ModBuild 253 scenario, 123 on 'Wall 2' alone), so it is also the most visible thing
+        /// in the scene when the guess is wrong.</summary>
+        public readonly Dictionary<MeshRenderer, MountedProp> FoliageProps = new();
     }
 
     private sealed partial class FadeDriver

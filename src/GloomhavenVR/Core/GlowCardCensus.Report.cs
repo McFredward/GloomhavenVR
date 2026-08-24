@@ -163,8 +163,12 @@ internal static partial class GlowCardCensus
                       + "different in VR");
         }
 
+        AppendCommandBuffers(sb);
+
         int vrOnly = _headMask & ~_scenarioMask;
-        sb.Append(" | LAYERS THE HEAD RENDERS AND THE GAME DOES NOT: ");
+        sb.Append(" | LAYERS THE HEAD RENDERS AND THE GAME DOES NOT (the mod's OWN layer ")
+          .Append(VRLayers.ModLayer)
+          .Append(" is excluded from the candidate pool entirely and is not listed here): ");
         if (vrOnly == 0)
         {
             sb.Append("none — the head camera's mask is no wider than the ScenarioCamera's, so "
@@ -178,8 +182,8 @@ internal static partial class GlowCardCensus
             if ((vrOnly & (1 << layer)) == 0)
                 continue;
             int pop = _layerPopKnown ? LayerPop[layer] : -1;
-            if (pop == 0)
-                continue;   // an empty layer is not a finding, only noise
+            if (pop == 0 || layer == VRLayers.ModLayer)
+                continue;   // an empty layer is not a finding, and our own layer is not a suspect
             string name = LayerMask.LayerToName(layer);
             sb.Append(any ? ", " : "").Append(layer).Append('=')
               .Append(string.IsNullOrEmpty(name) ? "<unnamed>" : name);
@@ -204,6 +208,93 @@ internal static partial class GlowCardCensus
                   + "screen; cards below carry the VrOnly mark when they are");
     }
 
+    /// <summary>Every CameraEvent a built-in-pipeline camera can carry a command buffer at. Written
+    /// out rather than taken from <c>Enum.GetValues</c> (which allocates and boxes) and ordered the
+    /// way the frame runs, so a reader can see WHERE in the frame each buffer sits.</summary>
+    private static readonly CameraEvent[] AllCameraEvents =
+    {
+        CameraEvent.BeforeDepthTexture, CameraEvent.AfterDepthTexture,
+        CameraEvent.BeforeDepthNormalsTexture, CameraEvent.AfterDepthNormalsTexture,
+        CameraEvent.BeforeGBuffer, CameraEvent.AfterGBuffer,
+        CameraEvent.BeforeReflections, CameraEvent.AfterReflections,
+        CameraEvent.BeforeLighting, CameraEvent.AfterLighting,
+        CameraEvent.BeforeFinalPass, CameraEvent.AfterFinalPass,
+        CameraEvent.BeforeForwardOpaque, CameraEvent.AfterForwardOpaque,
+        CameraEvent.BeforeImageEffectsOpaque, CameraEvent.AfterImageEffectsOpaque,
+        CameraEvent.BeforeSkybox, CameraEvent.AfterSkybox,
+        CameraEvent.BeforeForwardAlpha, CameraEvent.AfterForwardAlpha,
+        CameraEvent.BeforeHaloAndLensFlares, CameraEvent.AfterHaloAndLensFlares,
+        CameraEvent.BeforeImageEffects, CameraEvent.AfterImageEffects,
+        CameraEvent.AfterEverything,
+    };
+
+    /// <summary>
+    /// NAME the command buffers on both cameras, and say which of them the head camera cannot run.
+    ///
+    /// <para>WHY THIS IS EVIDENCE AND NOT TRIVIA. The head camera reports
+    /// <c>commandBuffers: 0 total</c>; the game's ScenarioCamera reported <b>2</b> in the ModBuild 253
+    /// hardware log, and the mod knew the name of only one of them (<c>TilesOcclusionGenerator</c>'s
+    /// "Tile Occlusion Map Generation" at <c>BeforeGBuffer</c>, from the decompiled source). A buffer
+    /// attached at a DEFERRED-only event — BeforeGBuffer, AfterGBuffer, Before/AfterLighting,
+    /// Before/AfterReflections, Before/AfterFinalPass — is never reached on a FORWARD camera. So any
+    /// compositing the game does there simply does not happen in VR, on the same geometry, and that is
+    /// a mechanism for "it looks different in the headset" that is entirely independent of shaders,
+    /// layers and the wall fade. If the second buffer composites decals, light pools or emissive
+    /// cards, it is the answer. This block names it so the next reader does not have to guess.</para>
+    /// </summary>
+    private static void AppendCommandBuffers(StringBuilder sb)
+    {
+        sb.Append(" | COMMAND BUFFERS: ");
+        AppendBuffersFor(sb, _head, "head");
+        sb.Append("; ");
+        AppendBuffersFor(sb, _scenarioCam, "ScenarioCamera");
+    }
+
+    private static void AppendBuffersFor(StringBuilder sb, Camera? cam, string label)
+    {
+        if (cam == null)
+        {
+            sb.Append(label).Append(" n/a (camera not resolved)");
+            return;
+        }
+        try
+        {
+            int total = cam.commandBufferCount;
+            sb.Append(label).Append(' ').Append(total);
+            if (total == 0)
+            {
+                sb.Append(" (none — nothing outside the ordinary render loop is attached)");
+                return;
+            }
+            bool forward = cam.actualRenderingPath == RenderingPath.Forward;
+            sb.Append(':');
+            for (int e = 0; e < AllCameraEvents.Length; e++)
+            {
+                CameraEvent evt = AllCameraEvents[e];
+                CommandBuffer[] bufs = cam.GetCommandBuffers(evt);
+                if (bufs.Length == 0)
+                    continue;
+                for (int i = 0; i < bufs.Length; i++)
+                {
+                    sb.Append(" '").Append(bufs[i].name).Append("' at ").Append(evt)
+                      .Append(" (").Append(bufs[i].sizeInBytes).Append("B)");
+                }
+                if (forward && IsDeferredOnlyEvent(evt))
+                    sb.Append(" [DEFERRED-ONLY EVENT — INERT on this forward camera]");
+            }
+        }
+        catch (Exception e)
+        {
+            sb.Append(label).Append(" n/a (").Append(e.GetType().Name).Append(')');
+        }
+    }
+
+    private static bool IsDeferredOnlyEvent(CameraEvent evt) => evt
+        is CameraEvent.BeforeGBuffer or CameraEvent.AfterGBuffer
+        or CameraEvent.BeforeReflections or CameraEvent.AfterReflections
+        or CameraEvent.BeforeLighting or CameraEvent.AfterLighting
+        or CameraEvent.BeforeFinalPass or CameraEvent.AfterFinalPass;
+
     private static void AppendPopulation(StringBuilder sb)
     {
         sb.Append(" | POPULATION: ").Append(_renderersOffered).Append(" renderer(s) and ")
@@ -214,7 +305,14 @@ internal static partial class GlowCardCensus
           .Append(_dropped).Append(" dropped");
         if (_dropped > 0)
             sb.Append(" — the largest dropped one spanned ").Append(_droppedMaxSpan.ToString("F0")).Append("px");
-        sb.Append("; the collection half cost ").Append(_boundsReads)
+        sb.Append("; ").Append(_modLayerSkipped)
+          .Append(" renderer(s) were REFUSED for being on the mod's own layer ")
+          .Append(VRLayers.ModLayer)
+          .Append(" — in ModBuild 253 those filled all 14 detailed records and 41 of 96 candidates "
+                  + "with the mod's environment room, its hand meshes and its pointer laser, because "
+                  + "they are large, flat, transparent-queued and on a layer the ScenarioCamera does "
+                  + "not render, which lights four marks at once. The subject is GAME geometry")
+          .Append("; the collection half cost ").Append(_boundsReads)
           .Append(" Renderer.bounds read(s) and ").Append(_slotsOffered)
           .Append(" dictionary lookup(s), and nothing else per renderer");
         sb.Append(" | SELECTOR — a candidate needs ANY ONE of four independent tests, and every record "
@@ -227,9 +325,20 @@ internal static partial class GlowCardCensus
                   + "[Plate] the object is SUBMITTED, at least ").Append(SubjectMinPx.ToString("F0"))
           .Append("px across and its thinnest AABB axis is <= ").Append((PlateRatio * 100f).ToString("F0"))
           .Append("% of its longest — i.e. it is a QUAD, which is the only test that does not need to "
-                  + "know what the subject is called. RANKING is span-in-pixels x8 if VrOnly x3 if "
-                  + "Plate x0.05 if not submitted; the score is printed so the order can be checked "
-                  + "rather than trusted");
+                  + "know what the subject is called. RANKING has a SUBJECT BAND: submitted plate-"
+                  + "shaped candidates between ").Append(SubjectMinPx.ToString("F0")).Append(" and ")
+          .Append(SubjectMaxPx.ToString("F0"))
+          .Append("px outrank everything else by construction and are ordered among themselves by how "
+                  + "close their span is to ").Append(SubjectTargetPx.ToString("F0"))
+          .Append("px ON A LOG SCALE (so 45px and 180px rank equally, and an estimate that is out by "
+                  + "a factor of two still keeps the subject near the top); everything outside the "
+                  + "band is ordered by span x8 if VrOnly x3 if Plate x0.05 if not submitted. The "
+                  + "band exists because ModBuild 253 ranked by raw span "
+                  + "and filled every detailed record with the biggest things on screen — a 71,202px "
+                  + "ground plane, a 17,983px star dome — while the photographed rectangles are of "
+                  + "order SEVENTY pixels across. Bigger is not more likely to be the subject; being "
+                  + "the shape and size in the photograph is. The score is printed so this can be "
+                  + "checked rather than trusted");
         sb.Append(" | READ 'submitted' WITH CARE: it is enabled AND Renderer.isVisible AND in the head "
                   + "culling mask, and Unity's isVisible is true when ANY camera can see the renderer "
                   + "— the ScenarioCamera, a preview station, an RT capture. The screen rect on each "
@@ -336,12 +445,40 @@ internal static partial class GlowCardCensus
           .Append(c.B.size.y.ToString("F3")).Append(',').Append(c.B.size.z.ToString("F3")).Append(')');
     }
 
+    /// <summary>The AABB's 12 edges, as index pairs into the 8 corners built with bit0=x, bit1=y,
+    /// bit2=z. Used to clip the box against the near plane instead of projecting bare corners.</summary>
+    private static readonly int[] BoxEdges =
+    {
+        0, 1, 0, 2, 0, 4, 1, 3, 1, 5, 2, 3,
+        2, 6, 3, 7, 4, 5, 4, 6, 5, 7, 6, 7
+    };
+
+    private static readonly Vector3[] CornerScratch = new Vector3[8];
+
     /// <summary>
-    /// WHERE THIS IS ON THE SCREEN. The identification key: the user's photographs put the three
-    /// rectangles at known pixel positions in a 3840x2160 frame, so a record whose rect lands on one
-    /// of them IS the subject and a record whose rect lands elsewhere is not, without another
-    /// hardware round and without any judgement about what a 'glow card' ought to look like.
-    /// Coordinates are TOP-LEFT origin, the way an image viewer reports them.
+    /// WHERE THIS IS ON THE SCREEN, computed a way that survives an object straddling the near plane.
+    ///
+    /// <para>WHAT WAS WRONG IN ModBuild 253, in full. The first version projected the eight AABB
+    /// corners with <c>Camera.WorldToViewportPoint</c>, skipped the ones with <c>z &lt;= 0</c> and took
+    /// the min/max of the rest. That is broken for any object the camera is inside or beside — which,
+    /// in a room-scale rig standing in a diorama, is most of them. A corner just BEHIND the eye is not
+    /// merely skipped: the corners just in FRONT of it project to enormous coordinates, because their
+    /// perspective divisor goes to zero. Every single record in the 253 hardware log read
+    /// <c>PARTIALLY BEHIND the camera</c> and printed rectangles like <c>px -152401,-9423 ..
+    /// 97640,11227</c>. Half a million pixels in a 3840-wide frame is not a conservative bound, it is
+    /// noise, and the caveat attached to it did not rescue it: the rect was supposed to be the
+    /// identification key against the photograph and it identified nothing.</para>
+    ///
+    /// <para>WHAT IT DOES NOW. The box is clipped against the near plane in VIEW space, edge by edge,
+    /// before anything is projected: for each of the twelve edges, an endpoint in front of the near
+    /// plane contributes itself, and an edge that straddles the plane contributes the exact
+    /// intersection point. Only points at or in front of the near plane are ever divided by, so no
+    /// coordinate can blow up. The result is the true screen-space bound of the box's visible part.
+    /// The printed rectangle is then CLAMPED to the frame, and when the unclamped bound ran outside it
+    /// the record says so in words rather than printing a number nobody can use.</para>
+    ///
+    /// <para>Coordinates are TOP-LEFT origin, the way an image viewer reports them, and scaled to a
+    /// 3840x2160 screenshot so a reader can type them straight into the photograph.</para>
     /// </summary>
     private static void AppendScreen(StringBuilder sb, Candidate c)
     {
@@ -354,51 +491,103 @@ internal static partial class GlowCardCensus
         }
         try
         {
+            Matrix4x4 toView = head.worldToCameraMatrix;
+            Matrix4x4 proj = head.projectionMatrix;
+            float near = Mathf.Max(head.nearClipPlane, 1e-4f);
+
             Vector3 ctr = c.B.center, ext = c.B.extents;
-            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
-            bool behind = false;
             for (int i = 0; i < 8; i++)
             {
-                var corner = new Vector3(
+                CornerScratch[i] = toView.MultiplyPoint3x4(new Vector3(
                     ctr.x + ((i & 1) != 0 ? ext.x : -ext.x),
                     ctr.y + ((i & 2) != 0 ? ext.y : -ext.y),
-                    ctr.z + ((i & 4) != 0 ? ext.z : -ext.z));
-                Vector3 v = head.WorldToViewportPoint(corner);
-                if (v.z <= 0f)
+                    ctr.z + ((i & 4) != 0 ? ext.z : -ext.z)));
+            }
+
+            float minX = float.MaxValue, minY = float.MaxValue;
+            float maxX = float.MinValue, maxY = float.MinValue;
+            bool clipped = false;
+            int accepted = 0;
+
+            for (int e = 0; e < BoxEdges.Length; e += 2)
+            {
+                Vector3 a = CornerScratch[BoxEdges[e]];
+                Vector3 b = CornerScratch[BoxEdges[e + 1]];
+                // Unity's view space looks down -Z, so distance in front of the eye is -z.
+                float da = -a.z, db = -b.z;
+                bool inA = da >= near, inB = db >= near;
+                if (!inA && !inB)
                 {
-                    behind = true;
+                    clipped = true;
                     continue;
                 }
-                if (v.x < minX) minX = v.x;
-                if (v.x > maxX) maxX = v.x;
-                if (v.y < minY) minY = v.y;
-                if (v.y > maxY) maxY = v.y;
+                if (inA)
+                    Accumulate(proj, a, ref minX, ref minY, ref maxX, ref maxY, ref accepted);
+                if (inB)
+                    Accumulate(proj, b, ref minX, ref minY, ref maxX, ref maxY, ref accepted);
+                if (inA == inB)
+                    continue;
+                clipped = true;
+                float denom = da - db;
+                if (Mathf.Abs(denom) < 1e-6f)
+                    continue;
+                float t = (near - db) / denom;
+                Accumulate(proj, b + (a - b) * t, ref minX, ref minY, ref maxX, ref maxY, ref accepted);
             }
-            if (minX > maxX)
+
+            if (accepted == 0)
             {
-                sb.Append("entirely behind the head camera this frame");
+                sb.Append("ENTIRELY BEHIND the near plane this frame — the head camera cannot see any "
+                          + "part of this renderer, so it is not what the photograph shows");
                 return;
             }
-            // Viewport y is bottom-up; an image viewer is top-down. Flip so the numbers can be typed
-            // straight into a photo editor.
+
+            // Viewport y is bottom-up; an image viewer is top-down.
             float top = 1f - maxY, bottom = 1f - minY;
-            sb.Append("x ").Append(minX.ToString("F3")).Append("..").Append(maxX.ToString("F3"))
-              .Append(", y ").Append(top.ToString("F3")).Append("..").Append(bottom.ToString("F3"))
-              .Append(" (top-left origin) = px ").Append((minX * PhotoW).ToString("F0")).Append(',')
-              .Append((top * PhotoH).ToString("F0")).Append(" .. ").Append((maxX * PhotoW).ToString("F0"))
-              .Append(',').Append((bottom * PhotoH).ToString("F0"))
-              .Append(" in a 3840x2160 screenshot; centre px ")
-              .Append((0.5f * (minX + maxX) * PhotoW).ToString("F0")).Append(',')
-              .Append((0.5f * (top + bottom) * PhotoH).ToString("F0"));
-            if (behind)
-                sb.Append(" — PARTIALLY BEHIND the camera, so this rect is a lower bound only");
-            if (minX > 1f || maxX < 0f || top > 1f || bottom < 0f)
-                sb.Append(" — OFF SCREEN (outside the viewport), so it is not what the photo shows");
+            bool outside = minX < 0f || maxX > 1f || top < 0f || bottom > 1f;
+            float cx = Mathf.Clamp01(0.5f * (minX + maxX));
+            float cy = Mathf.Clamp01(0.5f * (top + bottom));
+            float x0 = Mathf.Clamp01(minX), x1 = Mathf.Clamp01(maxX);
+            float y0 = Mathf.Clamp01(top), y1 = Mathf.Clamp01(bottom);
+
+            sb.Append("px ").Append((x0 * PhotoW).ToString("F0")).Append(',')
+              .Append((y0 * PhotoH).ToString("F0")).Append(" .. ")
+              .Append((x1 * PhotoW).ToString("F0")).Append(',').Append((y1 * PhotoH).ToString("F0"))
+              .Append(" (").Append(((x1 - x0) * PhotoW).ToString("F0")).Append('x')
+              .Append(((y1 - y0) * PhotoH).ToString("F0")).Append("), centre ")
+              .Append((cx * PhotoW).ToString("F0")).Append(',').Append((cy * PhotoH).ToString("F0"))
+              .Append(" — top-left origin, scaled to a 3840x2160 screenshot and CLAMPED to the frame");
+            if (x1 <= 0f || x0 >= 1f || y1 <= 0f || y0 >= 1f)
+                sb.Append("; OFF SCREEN (the unclamped bound lies entirely outside the viewport)");
+            else if (outside)
+                sb.Append("; the unclamped bound extends past the frame edge, so this renderer is "
+                          + "larger than the rectangle printed");
+            if (clipped)
+                sb.Append("; near-plane clipped (the box straddles the eye), exact for the visible part");
         }
         catch (Exception e)
         {
             sb.Append("n/a (").Append(e.GetType().Name).Append(')');
         }
+    }
+
+    /// <summary>Project one VIEW-space point that is already known to be at or in front of the near
+    /// plane, and fold it into the running viewport bound. <c>MultiplyPoint</c> does the perspective
+    /// divide; the divisor cannot approach zero here because the caller clipped first.</summary>
+    private static void Accumulate(in Matrix4x4 proj, Vector3 viewPos,
+                                   ref float minX, ref float minY,
+                                   ref float maxX, ref float maxY, ref int accepted)
+    {
+        Vector3 ndc = proj.MultiplyPoint(viewPos);
+        float vx = (ndc.x + 1f) * 0.5f;
+        float vy = (ndc.y + 1f) * 0.5f;
+        if (float.IsNaN(vx) || float.IsNaN(vy) || float.IsInfinity(vx) || float.IsInfinity(vy))
+            return;
+        if (vx < minX) minX = vx;
+        if (vx > maxX) maxX = vx;
+        if (vy < minY) minY = vy;
+        if (vy > maxY) maxY = vy;
+        accepted++;
     }
 
     /// <summary>
@@ -673,10 +862,14 @@ internal static partial class GlowCardCensus
         {
             sb.Append("mat.passCount threw ").Append(e.GetType().Name);
         }
+        bool hasDeferred = false, hasForwardBase = false, hasUntagged = false, tagsRead = false;
         try
         {
+            bool supported;
+            try { supported = sh.isSupported; } catch (Exception) { supported = true; }
             int subs = sh.subshaderCount;
-            sb.Append(" | shader declares ").Append(subs).Append(" subshader(s), LightMode per pass:");
+            sb.Append(" | isSupported=").Append(supported ? "yes" : "NO")
+              .Append(", shader declares ").Append(subs).Append(" subshader(s), LightMode per pass:");
             for (int s = 0; s < subs && s < 4; s++)
             {
                 int pc = sh.GetPassCountInSubshader(s);
@@ -684,8 +877,20 @@ internal static partial class GlowCardCensus
                 for (int p = 0; p < pc && p < 8; p++)
                 {
                     ShaderTagId tag = sh.FindPassTagValue(s, p, LightModeTag);
-                    sb.Append(p == 0 ? "" : ",")
-                      .Append(string.IsNullOrEmpty(tag.name) ? "<none>" : tag.name);
+                    string name = tag.name;
+                    sb.Append(p == 0 ? "" : ",").Append(string.IsNullOrEmpty(name) ? "<none>" : name);
+                    tagsRead = true;
+                    if (string.IsNullOrEmpty(name))
+                        hasUntagged = true;
+                    else if (name.Equals("Deferred", StringComparison.OrdinalIgnoreCase))
+                        hasDeferred = true;
+                    else if (name.Equals("ForwardBase", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("ForwardAdd", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("Always", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("Vertex", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("VertexLM", StringComparison.OrdinalIgnoreCase)
+                             || name.Equals("VertexLMRGBM", StringComparison.OrdinalIgnoreCase))
+                        hasForwardBase = true;
                 }
                 sb.Append('}');
             }
@@ -693,24 +898,95 @@ internal static partial class GlowCardCensus
         catch (Exception e)
         {
             sb.Append(" | subshader tags n/a (").Append(e.GetType().Name).Append(')');
+            return;
+        }
+
+        // THE PROOF SENTENCE, or its absence. Stated in exactly these words so it can be grepped, and
+        // stated ONLY when the tags were actually read — an unreadable tag set must not look like a
+        // clean forward shader.
+        if (!tagsRead)
+        {
+            sb.Append(" ⇒ no LightMode tag could be read, so this card says NOTHING about the "
+                      + "forward/deferred difference either way");
+        }
+        else if (hasDeferred && !hasForwardBase && !hasUntagged)
+        {
+            sb.Append(" ⇒ DEFERRED PASS BUT NO FORWARDBASE. This material cannot be drawn as authored "
+                      + "by the mod's FORWARD head camera: Unity falls through to the shader's "
+                      + "Fallback, a different program with different blending, on the same geometry. "
+                      + "The game's DeferredShading ScenarioCamera draws it correctly. THAT IS THE "
+                      + "MECHANISM, and it is proven for this card, not inferred");
+        }
+        else if (hasDeferred)
+        {
+            sb.Append(" ⇒ has a Deferred pass AND a forward-drawable pass, so the path difference "
+                      + "changes how it is LIT but cannot make it fall back to another program");
+        }
+        else
+        {
+            sb.Append(" ⇒ no Deferred pass at all: this card is drawn by the same program on both "
+                      + "cameras, so the forward/deferred difference is NOT why it looks like this");
         }
     }
 
+    /// <summary>
+    /// The tail, and it now carries the MATCHING KEY. ModBuild 253's tail printed only a name, a span
+    /// and the marks, which is not enough to recognise anything: the whole point of this line is that
+    /// a reader with the photograph open can find the record that sits where a rectangle sits. So every
+    /// tail entry gets its shader, its material, its queue and its screen-centre pixel — about 140
+    /// characters each, which is a cheap price for the only field that can close this.
+    /// </summary>
     private static void AppendTail(StringBuilder sb, List<Candidate> ranked)
     {
         if (ranked.Count <= MaxCards)
             return;
         int shown = Mathf.Min(MaxTail, ranked.Count - MaxCards);
         sb.Append(" | RANKED BUT NOT DETAILED (next ").Append(shown).Append(" of ")
-          .Append(ranked.Count - MaxCards).Append("):");
+          .Append(ranked.Count - MaxCards)
+          .Append("; centre px is top-left origin on a 3840x2160 screenshot — in Wandproblem.jpg the "
+                  + "two rectangles sit at roughly 670,1120 and 750,800):");
         for (int i = MaxCards; i < MaxCards + shown; i++)
         {
             Candidate c = ranked[i];
             if (c.R == null)
                 continue;
-            sb.Append(" [").Append(i).Append("] '").Append(c.R.name).Append("' ")
-              .Append(c.Span.ToString("F0")).Append("px ").Append(c.Marks)
-              .Append(c.Submitted ? " submitted" : " not-submitted");
+            sb.Append(" [").Append(i).Append("] '").Append(c.R.name).Append('\'');
+            if (c.Sh != null)
+                sb.Append(" sh'").Append(SafeName(c.Sh)).Append('\'');
+            if (c.Mat != null)
+            {
+                sb.Append(" mat'").Append(SafeName(c.Mat)).Append('\'');
+                try { sb.Append(" q").Append(c.Mat.renderQueue); } catch (Exception) { }
+            }
+            sb.Append(' ').Append(c.Span.ToString("F0")).Append("px ").Append(c.Marks)
+              .Append(c.InBand ? " IN-BAND" : "")
+              .Append(c.Submitted ? "" : " not-submitted");
+            AppendCentre(sb, c);
+        }
+    }
+
+    /// <summary>Just the clamped screen centre, for the compact tail entries.</summary>
+    private static void AppendCentre(StringBuilder sb, Candidate c)
+    {
+        Camera? head = _head;
+        if (head == null || !_projectionKnown || c.B.size == Vector3.zero)
+            return;
+        try
+        {
+            Vector3 v = head.WorldToViewportPoint(c.B.center);
+            if (v.z <= head.nearClipPlane)
+            {
+                sb.Append(" centre BEHIND-EYE");
+                return;
+            }
+            sb.Append(" centre ").Append((Mathf.Clamp01(v.x) * PhotoW).ToString("F0")).Append(',')
+              .Append((Mathf.Clamp01(1f - v.y) * PhotoH).ToString("F0"));
+            if (v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f)
+                sb.Append("(off-screen)");
+        }
+        catch (Exception)
+        {
+            // a centre that cannot be projected simply is not printed
         }
     }
 
@@ -721,6 +997,7 @@ internal static partial class GlowCardCensus
     private static void AppendVerdict(StringBuilder sb, List<Candidate> ranked)
     {
         int eligible = 0, plates = 0, vrOnly = 0, additive = 0, noTint = 0, nullMainTex = 0;
+        int inBand = 0, deferredOnly = 0;
         float biggest = 0f;
         for (int i = 0; i < ranked.Count; i++)
         {
@@ -728,6 +1005,10 @@ internal static partial class GlowCardCensus
             if (!c.Submitted || c.Span < SubjectMinPx)
                 continue;
             eligible++;
+            if (c.InBand)
+                inBand++;
+            if (IsDeferredOnly(c.Sh))
+                deferredOnly++;
             if (c.Span > biggest)
                 biggest = c.Span;
             if ((c.Marks & Mark.Plate) != 0)
@@ -774,13 +1055,26 @@ internal static partial class GlowCardCensus
             return;
         }
         sb.Append(eligible).Append(" eligible card(s), the largest ").Append(biggest.ToString("F0"))
-          .Append("px; ").Append(plates).Append(" of them are flat QUADS (the shape in the photo), ")
+          .Append("px; ").Append(inBand).Append(" are IN THE SUBJECT BAND (submitted flat quads of ")
+          .Append(SubjectMinPx.ToString("F0")).Append('-').Append(SubjectMaxPx.ToString("F0"))
+          .Append("px — the class the photograph shows), ").Append(deferredOnly)
+          .Append(" of the eligible cards have a DEFERRED PASS AND NO FORWARD-DRAWABLE PASS (those "
+                  + "cannot be drawn as authored by this forward head camera and ARE the mechanism), ")
+          .Append(plates).Append(" of them are flat QUADS (the shape in the photo), ")
           .Append(vrOnly).Append(" are on a layer the flat game never draws, ").Append(additive)
           .Append(" declare _DstBlend=One (ADDITIVE — an alpha write can never dim those, whatever is "
                   + "claiming them), ").Append(noTint)
           .Append(" expose no colour property the wall fade could write at all, and ").Append(nullMainTex)
           .Append(" have a NULL main texture (Unity draws white, i.e. a flat opaque rectangle). ");
-        if (vrOnly > 0)
+        if (deferredOnly > 0)
+        {
+            sb.Append("START WITH THE DEFERRED-ONLY ONES: the game draws this scene DeferredShading "
+                      + "and the mod draws it Forward, so a material whose only lighting pass is "
+                      + "Deferred is drawn here through its Fallback — a different program with "
+                      + "different blending, which is exactly how a soft card becomes a flat opaque "
+                      + "rectangle. That is proven per card in the 'passes' field, not inferred");
+        }
+        else if (vrOnly > 0)
         {
             sb.Append("START WITH THE VrOnly ONES: they are drawn by the head camera and by nothing "
                       + "else, which matches 'ich kann mich nicht erinnern, dass es flat sowas gab' "
@@ -868,6 +1162,52 @@ internal static partial class GlowCardCensus
         }
         parts.Reverse();
         return string.Join("/", parts.ToArray());
+    }
+
+    /// <summary>
+    /// TRUE when this shader declares a <c>Deferred</c> lighting pass and NO pass the forward path can
+    /// draw — the one configuration the mod's forward head camera cannot render as authored, because
+    /// Unity then falls through to the shader's Fallback. Deliberately conservative: an untagged pass
+    /// counts as forward-drawable (an unlit shader's single pass usually carries no LightMode), and a
+    /// shader whose tags cannot be read returns FALSE. Over-reporting this would be exactly the
+    /// ModBuild 251 mistake in a new coat.
+    /// </summary>
+    private static bool IsDeferredOnly(Shader? sh)
+    {
+        if (sh == null)
+            return false;
+        try
+        {
+            bool hasDeferred = false;
+            int subs = sh.subshaderCount;
+            for (int s = 0; s < subs && s < 4; s++)
+            {
+                int pc = sh.GetPassCountInSubshader(s);
+                for (int p = 0; p < pc && p < 8; p++)
+                {
+                    string name = sh.FindPassTagValue(s, p, LightModeTag).name;
+                    if (string.IsNullOrEmpty(name))
+                        return false;   // untagged ⇒ forward can draw it
+                    if (name.Equals("Deferred", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasDeferred = true;
+                        continue;
+                    }
+                    if (name.Equals("ForwardBase", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("ForwardAdd", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("Always", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("Vertex", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("VertexLM", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("VertexLMRGBM", StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+            }
+            return hasDeferred;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static string SafeName(UnityEngine.Object o)

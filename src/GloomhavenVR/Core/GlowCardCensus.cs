@@ -78,7 +78,7 @@ internal static partial class GlowCardCensus
 
     /// <summary>Detailed records printed. The reported defect is three quads; fourteen is room for
     /// the whole family plus whatever else is big on the gate wall.</summary>
-    private const int MaxCards = 14;
+    private const int MaxCards = 16;
 
     /// <summary>How many of those get the FULL property/keyword/pass dump. The dump is the expensive
     /// and verbose part, and the ranking puts the subject at the top by construction.</summary>
@@ -86,10 +86,10 @@ internal static partial class GlowCardCensus
 
     /// <summary>Ranked pool size. Candidates beyond this are dropped by SMALLEST span first and the
     /// count and largest dropped span are printed, so the cap never hides the subject silently.</summary>
-    private const int MaxCandidates = 96;
+    private const int MaxCandidates = 160;
 
     /// <summary>Compact one-line entries printed for pooled candidates that did not make MaxCards.</summary>
-    private const int MaxTail = 22;
+    private const int MaxTail = 44;
 
     /// <summary>Shader properties dumped per material before the dump says "+N more".</summary>
     private const int MaxProps = 44;
@@ -101,6 +101,31 @@ internal static partial class GlowCardCensus
     /// or above it, submitted, are allowed into the VERDICT.
     /// </summary>
     private const float SubjectMinPx = 24f;
+
+    /// <summary>
+    /// Upper edge of the subject band. Measured off the photographs rather than guessed: in
+    /// <c>Wandproblem.jpg</c> (3840x2160) the two rectangles measure about 40x44 and 22x42 SCREEN
+    /// pixels, and the eye texture is 3264 px tall against the screenshot's 2160, so their span in the
+    /// units this census reports is of order 70-110 px. 250 is a generous ceiling around that and it
+    /// is what keeps 9,000 px tree canopies and a 71,202 px ground plane from evicting them.
+    /// </summary>
+    private const float SubjectMaxPx = 250f;
+
+    /// <summary>
+    /// The size, in this census's own pixel units, the photographed rectangles actually are — and the
+    /// point the subject band ranks TOWARDS rather than away from.
+    ///
+    /// <para>Within the band the score falls off with the ABSOLUTE LOG RATIO of a candidate's span to
+    /// this number, so the ordering is scale-symmetric: 45 px and 180 px rank equally, 22 px and 360 px
+    /// rank equally. That matters because the alternative orderings are both wrong. "Biggest first" is
+    /// what ModBuild 253 did and it filled every record with ground planes. "Closest to 90 px, linear"
+    /// would over-fit an estimate taken off a JPEG with a ruler; if that estimate is out by a factor
+    /// of two the log form still keeps the subject near the top, and a linear one would not.</para>
+    /// </summary>
+    private const float SubjectTargetPx = 90f;
+
+    /// <summary>Score floor for the subject band, above anything the out-of-band product can reach.</summary>
+    private const float BandFloor = 1_000_000f;
 
     /// <summary>Thinnest AABB axis / longest AABB axis at or below which a renderer is PLATE-SHAPED —
     /// a card, a decal, a pane, a billboard. Shader-independent and material-independent, which is
@@ -191,14 +216,34 @@ internal static partial class GlowCardCensus
         public Mark Marks;
         public Bounds B;
 
-        /// <summary>Ranking key. Span is the base — the instrument's whole failure in 251 was ranking
-        /// by nothing at all — multiplied up for the two properties that make a candidate more likely
-        /// to be the photographed subject, and multiplied DOWN for a card nobody can currently see.
-        /// Printed next to every record so the order is checkable rather than trusted.</summary>
-        public float Score => Span
-                              * ((Marks & Mark.VrOnly) != 0 ? 8f : 1f)
-                              * ((Marks & Mark.Plate) != 0 ? 3f : 1f)
-                              * (Submitted ? 1f : 0.05f);
+        /// <summary>
+        /// Ranking key, and the second thing ModBuild 253 got wrong. 253 ranked by raw span, so the
+        /// pool filled with the biggest things on screen — a 71,202 px ground plane, a 17,983 px star
+        /// dome, 9,000 px tree canopies — while the photographed rectangles are roughly SEVENTY pixels
+        /// across. Bigger is not more likely to be the subject; being the SHAPE AND SIZE IN THE PHOTO
+        /// is.
+        ///
+        /// <para>So there is a SUBJECT BAND: submitted, plate-shaped, and between
+        /// <see cref="SubjectMinPx"/> and <see cref="SubjectMaxPx"/> pixels across. Everything in that
+        /// band outranks everything outside it by construction (the +<see cref="BandFloor"/> term),
+        /// and inside the band the ordering is by span. Outside it the old span product still applies,
+        /// so the big context objects are still pooled and still printed — they just cannot evict the
+        /// class the report is about. The score is printed on every record so this ordering can be
+        /// checked rather than trusted.</para>
+        /// </summary>
+        public float Score => InBand
+            ? BandFloor - Mathf.Abs(Mathf.Log(Mathf.Max(Span, 1f) / SubjectTargetPx)) * 1000f
+            : Mathf.Min(BandFloor - 100_000f,
+                        Span * ((Marks & Mark.VrOnly) != 0 ? 8f : 1f)
+                             * ((Marks & Mark.Plate) != 0 ? 3f : 1f)
+                             * (Submitted ? 1f : 0.05f));
+
+        /// <summary>In the subject band: the shape, the size and the visibility of the rectangles in
+        /// schwebende_lichter.jpg / Wandproblem.jpg.</summary>
+        public bool InBand => Submitted
+                              && (Marks & Mark.Plate) != 0
+                              && Span >= SubjectMinPx
+                              && Span <= SubjectMaxPx;
     }
 
     private static readonly List<Candidate> Pool = new(MaxCandidates);
@@ -216,6 +261,7 @@ internal static partial class GlowCardCensus
 
     // ---- per-renderer latch, set by OfferRenderer and consumed by Offer -----------------------
     private static int _curRendererId;
+    private static bool _curIsModLayer;
     private static Mark _curMarks;
     private static float _curSpan;
     private static Bounds _curBounds;
@@ -236,6 +282,10 @@ internal static partial class GlowCardCensus
     /// the SCENE walk it rides. Printed so the price is a number in the log and not a claim in a
     /// comment; this repo has shipped "the scan is type-indexed, near-free" as a defect twice.</summary>
     private static int _boundsReads;
+
+    /// <summary>Renderers refused because they are on the mod's OWN layer. Printed, because an
+    /// exclusion nobody can see is indistinguishable from a scan that never ran.</summary>
+    private static int _modLayerSkipped;
     private static int _matched;
     private static int _dropped;
     private static float _droppedMaxSpan;
@@ -393,6 +443,23 @@ internal static partial class GlowCardCensus
         if (!_armed || r == null)
             return;
         _renderersOffered++;
+
+        // THE MOD'S OWN LAYER IS NOT A CANDIDATE. ModBuild 253's hardware sample proved this the
+        // expensive way: all 14 detailed records and 41 of the 96 pooled candidates were the mod's
+        // own environment room — a 1005 wu ground plane, a star dome, fog emitters, the hand meshes
+        // and the pointer laser — because they are large, flat, transparent-queued AND on a layer the
+        // ScenarioCamera does not render, which lights up four marks at once and scores x8 for being
+        // "VR-only". They are VR-only by construction and they are not what the user photographed.
+        // The subject is GAME geometry, so the pool holds game geometry.
+        _curIsModLayer = layer == VRLayers.ModLayer;
+        if (_curIsModLayer)
+        {
+            _curRendererId = r.GetInstanceID();
+            _curMarks = Mark.None;
+            _curSpan = 0f;
+            _modLayerSkipped++;
+            return;
+        }
         _curRendererId = r.GetInstanceID();
         _curMarks = Mark.None;
         _curSpan = 0f;
@@ -454,6 +521,9 @@ internal static partial class GlowCardCensus
     internal static void Offer(Renderer r, Material mat, Shader sh, bool submitted, float texSpanPx)
     {
         if (!_armed || r == null || mat == null || sh == null)
+            return;
+        // Same exclusion as OfferRenderer, latched there so this stays one boolean per slot.
+        if (_curIsModLayer && _curRendererId == r.GetInstanceID())
             return;
         _slotsOffered++;
 
@@ -751,6 +821,8 @@ internal static partial class GlowCardCensus
         _slotsOffered = 0;
         _renderersOffered = 0;
         _boundsReads = 0;
+        _modLayerSkipped = 0;
+        _curIsModLayer = false;
         _matched = 0;
         _dropped = 0;
         _droppedMaxSpan = 0f;

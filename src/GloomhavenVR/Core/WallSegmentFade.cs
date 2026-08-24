@@ -567,14 +567,24 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Shader, bool> _shaderVerdict = new();
         /// <summary>Same cache for the foliage-family verdict.</summary>
         private readonly Dictionary<Shader, bool> _shaderFoliageVerdict = new();
-        /// <summary>Shared MPB for the foliage cutoff ramp (rewritten per renderer per frame
-        /// while a segment is mid-dissolve; segments in a held state use none).</summary>
-        private MaterialPropertyBlock? _foliageMpb;
         /// <summary>Cutoff the dissolve ramps TOWARD: safely above every texel's alpha, so a
-        /// fully-faded cutout leaf discards completely. The ramp START approximates the common
-        /// authored "Mask Clip Value" (~0.35) — close enough for a 0.35s transition.</summary>
-        private const float FoliageCutoffStart = 0.35f;
+        /// fully-faded cutout leaf discards completely.
+        ///
+        /// <para>The matching ramp START used to be a hardcoded 0.35 — a GUESS at "the common
+        /// authored Mask Clip Value" — written through one shared MPB to every foliage material
+        /// in the scene. ModBuild 254 retired that: foliage goes through <c>ClassifyProp</c> /
+        /// <c>DriveProp</c> like every other attachment class, and that path already ramps from
+        /// <c>p.BaseCutoff</c>, the material's OWN authored value, read per piece. A guessed
+        /// start is a step at both ends of the ramp for any material that authored something
+        /// else, and a material with no live cutoff at all got no dissolve whatsoever.</para>
+        /// </summary>
         private const float FoliageCutoffEnd = 1.2f;
+        /// <summary>Minimum vertical extent, as a fraction of the NARROWER horizontal extent,
+        /// for a piece to be admitted to the occlusion numerator — see
+        /// <see cref="IsStandingPiece"/>. 0.5 sits an order of magnitude clear of both
+        /// populations in the logged tileset (ground mats ≈0.08, the scrub wall's own bushes
+        /// 0.59-1.43, a wall slab ≥6), so it is not a value that wants tuning.</summary>
+        private const float StandingPieceRatio = 0.5f;
         /// <summary>Above this fade the foliage renderer is DISABLED outright — the cutoff ramp
         /// only removes cutout texels, and any opaque twig material would otherwise survive.</summary>
         private const float FoliageHideFade = 0.99f;
@@ -1812,16 +1822,66 @@ internal static partial class WallSegmentFade
             return meshes == 0;
         }
 
+        /// <summary>
+        /// THE STANDING TEST — the discriminator between geometry you cannot see past and
+        /// dressing you look OVER. A piece is admitted to the occlusion numerator only when its
+        /// vertical extent is at least <see cref="StandingPieceRatio"/> of its NARROWER
+        /// horizontal extent.
+        ///
+        /// <para>WHY THIS EXISTS (user report 2026-08-24, Wandproblem.jpg): <i>"Ich schaue nur
+        /// von einer Seite, d.h. es gibt keinen Grund für die Wand gegenüber ausgeblendet zu
+        /// sein … Alle diese 'Wände' mit Gestrüp haben auch größere nicht begehbare Flächen die
+        /// auch ausgeblendet werden … kann es sein, dass diese Flächen irgendeine Rolle bei dem
+        /// Problem spielen?"</i> He was right, and it was a regression of my own making. ModBuild
+        /// 252 admitted a piece to the numerator on one rule — "it counts as occluding exactly
+        /// when it RIDES this wall's fade" — which correctly caught the scrub walls' bushes and
+        /// incorrectly caught the wide, ground-hugging verge and undergrowth areas that belong
+        /// to the same wall run but spread several world units INTO the room.</para>
+        ///
+        /// <para>THE MECHANISM IS NOT THE RAY, IT IS <c>Contains</c>. A mat lying on the floor
+        /// spans the floor plane, so the room's own floor samples sit INSIDE its AABB, and the
+        /// <c>rb.Contains(sample)</c> clause marks every one of them blocked — from any viewing
+        /// angle whatsoever, because containment has nothing to do with where the head is. That
+        /// is how 'Wall 2' reached <c>blk 16/16</c>: not by standing between the eye and the
+        /// floor, but by lying ON it. Nothing that is genuinely a wall at the room's edge can
+        /// interrupt every ray to its own room's floor, which is exactly the tell.</para>
+        ///
+        /// <para>HIS RULING IS UNAFFECTED, AND THAT IS THE POINT OF PUTTING THE TEST HERE.
+        /// "Wenn die Wand ausgeblendet wird sollen die auch mit ausgeblendet werden wie es der
+        /// Fall ist" — the ground areas must still DISSOLVE with their wall, and they still do:
+        /// this test lives in the occlusion numerator only. What a wall HIDES and what a wall
+        /// TAKES WITH IT when it goes are two different questions, and ModBuild 252 answered
+        /// both with one predicate. They are separate now.</para>
+        ///
+        /// <para>THE RATIO IS STRUCTURAL, NOT A NAME LIST, and it is checked against the logged
+        /// geometry: the scrub wall's own pieces are
+        /// <c>..._Bushes_01 s(2.6,1.3,2.2)</c> → 1.3 vs 2.2 = 0.59, <c>..._Ivy_Grass_01
+        /// s(1.8,2.0,1.4)</c> → 1.43, <c>..._Plants_01 s(1.4,0.9,1.2)</c> → 0.75 — all admitted,
+        /// so the scrub walls keep blocking exactly as ModBuild 252 correctly made them. A wall
+        /// slab <c>s(0.5,3,8)</c> scores 6.0 and a ground mat <c>s(6,0.4,5)</c> scores 0.08.
+        /// The narrower horizontal extent is deliberately the denominator: a long wall RUN is
+        /// wide in one axis and thin in the other, and using the wider one would exclude it.</para>
+        /// </summary>
+        private static bool IsStandingPiece(in Bounds rb)
+        {
+            Vector3 s = rb.size;
+            float thin = Mathf.Min(s.x, s.z);
+            return s.y >= StandingPieceRatio * thin;
+        }
+
         /// <summary>One piece of a wall against the head→sample ray, with the same "clearly
         /// before the point" rule the broad phase uses. Counts the piece so the caller can tell
-        /// "nothing blocked" from "nothing to ask".</summary>
+        /// "nothing blocked" from "nothing to ask", and skips anything that fails the standing
+        /// test — see <see cref="IsStandingPiece"/>.</summary>
         private static bool HitsPiece(Renderer? r, Ray ray, float dist, float eps, Vector3 sample,
             ref int meshes)
         {
             if (r == null)
                 return false;
-            meshes++;
             Bounds rb = r.bounds;
+            if (!IsStandingPiece(rb))
+                return false; // ground dressing: it fades with the wall, it does not hide it
+            meshes++;
             return rb.IntersectRay(ray, out float rd) && (rd < dist - eps || rb.Contains(sample));
         }
 
@@ -1852,13 +1912,16 @@ internal static partial class WallSegmentFade
                 if (ContainsHead(seg.Renderers[i], headPos, ref meshName))
                     return true;
             }
-            // Same correction as RayHitsWallMesh: on a scrub wall the foliage is the wall, so a
-            // head buried in the bushes is a head in the wall and must get the same way out.
-            for (int i = 0; i < seg.Foliage.Count; i++)
-            {
-                if (ContainsHead(seg.Foliage[i], headPos, ref meshName))
-                    return true;
-            }
+            // FOLIAGE IS DELIBERATELY NOT ASKED HERE, and this reverses a ModBuild 252 change.
+            // 252 added it by symmetry with RayHitsWallMesh — "on a scrub wall the foliage IS
+            // the wall" — but the two tests answer different questions. RayHitsWallMesh asks
+            // "does this hide the floor", where a bush counts. This asks "is the camera SEALED
+            // INSIDE opaque geometry with no way out", which is the only thing that justifies
+            // the hard 1f, and a head in a bush is not that: cutout foliage is see-through by
+            // construction and the player can simply look past it. The ModBuild 253 log caught
+            // the consequence — 'Wall 2' reporting blk 16/16 v16 while the frustum held only
+            // vis 15/16, i.e. the whole wall dissolved through the escape hatch because a head
+            // brushed a bush's AABB. The hatch is masonry only.
             for (int i = 0; i < seg.Body.Count; i++)
             {
                 if (ContainsHead(seg.Body[i].Renderer, headPos, ref meshName))
@@ -2057,7 +2120,7 @@ internal static partial class WallSegmentFade
         /// table or goes solid, so no bush can stay hidden without an owner.</summary>
         private static void RestoreSegmentFoliage(Segment seg)
         {
-            if (seg.FoliageState == 0)
+            if (seg.FoliageState == 0 && seg.FoliageProps.Count == 0)
                 return;
             seg.FoliageState = 0;
             foreach (MeshRenderer f in seg.Foliage)
@@ -2065,6 +2128,25 @@ internal static partial class WallSegmentFade
                 if (f != null)
                     RestoreFoliageRenderer(f);
             }
+            // ModBuild 254: foliage carries real dissolve records now, so restoring it has to
+            // undo them exactly the way siblings do — authored materials back and OUR copies
+            // destroyed. Anything still recorded is no longer in the foliage list (Apparance
+            // churn, a dead renderer): its copy must die with it, or the swap leaks a material
+            // per regenerated bush.
+            foreach (MountedProp p in seg.FoliageProps.Values)
+            {
+                Renderer r = p.Renderer;
+                bool wroteBlock = p.NativeFade || p.ColorId >= 0 || p.CutoffId >= 0
+                    || p.DissolveControlId >= 0;
+                RestorePropSwap(p, r);
+                if (r == null)
+                    continue;
+                if (wroteBlock)
+                    r.SetPropertyBlock(null);
+                if (!r.enabled)
+                    r.enabled = true;
+            }
+            seg.FoliageProps.Clear();
         }
 
         /// <summary>Put ONE asset sibling back exactly as authored: its dissolve channel undone
@@ -2179,7 +2261,11 @@ internal static partial class WallSegmentFade
         private void ApplyFoliage(Segment seg)
         {
             if (seg.Foliage.Count == 0)
+            {
+                if (seg.FoliageState != 0)
+                    RestoreSegmentFoliage(seg);
                 return;
+            }
             int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
             if (want == 0)
             {
@@ -2188,27 +2274,32 @@ internal static partial class WallSegmentFade
             }
             // No held-state early-out (round 5, regen churn): a bush regenerated while the
             // wall is held faded must be re-hidden this frame, not never.
-            if (want == 1)
-            {
-                _foliageMpb ??= new MaterialPropertyBlock();
-                _foliageMpb.Clear();
-                _foliageMpb.SetFloat(CutoffId,
-                    Mathf.Lerp(FoliageCutoffStart, FoliageCutoffEnd, seg.Fade));
-            }
             foreach (MeshRenderer f in seg.Foliage)
             {
                 if (f == null)
                     continue;
+                // ModBuild 254: the SAME per-material channel every other attachment class
+                // uses, instead of one shared _Cutoff MPB written blind to all of them.
+                // ClassifyProp reads what the material can actually express and
+                // EnsureDissolveChannel gives a channel-less one a swapped copy of the game's
+                // masonry fade shader, so a foliage material that never had a live _Cutoff now
+                // dissolves instead of surviving the whole ramp and switching off at the end.
+                if (!seg.FoliageProps.TryGetValue(f, out MountedProp? p))
+                {
+                    p = ClassifyProp(f);
+                    seg.FoliageProps[f] = p;
+                }
+                EnsureDissolveChannel(p);
+                DriveProp(p, seg.Fade);
+                NoteFoliageChannel(seg, p);
                 if (want == 2)
                 {
                     if (f.enabled)
                         f.enabled = false;
                 }
-                else
+                else if (!f.enabled)
                 {
-                    if (!f.enabled)
-                        f.enabled = true;
-                    f.SetPropertyBlock(_foliageMpb);
+                    f.enabled = true;
                 }
             }
             seg.FoliageState = want;
@@ -4815,14 +4906,24 @@ internal static partial class WallSegmentFade
             }
             seg.PrevRenderers.Clear();
             // Foliage that LEFT the segment is restored unconditionally — a hidden bush no
-            // list points at any more would otherwise stay invisible forever.
-            if (seg.FoliageState != 0)
+            // list points at any more would otherwise stay invisible forever. ModBuild 254:
+            // foliage carries dissolve RECORDS now, so a leaver must also have its swapped
+            // material copies destroyed and its authored materials put back. Without this the
+            // swap leaks one material per bush per Apparance regeneration, which on a 345-piece
+            // scenario is the fastest leak in the subsystem. Unconditional on the record rather
+            // than on FoliageState, because a piece can hold a swap while the segment reads
+            // solid (the record survives one frame longer than the state).
+            foreach (MeshRenderer prev in seg.PrevFoliage)
             {
-                foreach (MeshRenderer prev in seg.PrevFoliage)
+                if (prev == null || seg.Foliage.Contains(prev))
+                    continue;
+                if (seg.FoliageProps.TryGetValue(prev, out MountedProp? gone))
                 {
-                    if (prev != null && !seg.Foliage.Contains(prev))
-                        RestoreFoliageRenderer(prev);
+                    seg.FoliageProps.Remove(prev);
+                    RestorePropSwap(gone, prev);
                 }
+                if (seg.FoliageState != 0)
+                    RestoreFoliageRenderer(prev);
             }
             seg.PrevFoliage.Clear();
             if (seg.HasBounds)

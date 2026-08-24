@@ -416,7 +416,118 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 253;
+    public const ushort ModBuild = 254;
+    // Build 254: HE ASKED WHETHER THE GROUND AREAS PLAY A ROLE. THEY DO, AND IT WAS MY RULE.
+    // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    //
+    // CONFIRMED ON HARDWARE IN THE 253 LOG AND NOT TOUCHED AGAIN: the one-shot migration fired
+    // ("this config carried [WallFade] OnFraction 0.10 with OffFraction 0.20 … Rewritten to the
+    // corrected defaults 0.25/0.10") and per-wall independence is real ("PER-WALL: faded 3 of 6 …
+    // MIXED … Session so far: 56 mixed pass(es) vs 15 unanimous"). His "nur zwei Stati" is gone.
+    //
+    // USER, with Wandproblem.jpg: "Ich schaue nur von einer Seite, d.h. es gibt keinen Grund für
+    // die Wand gegenüber ausgeblendet zu sein. Genau das selbe für die Wand rechts. Alle diese
+    // 'Wände' mit Gestrüp haben auch größere nicht begehbare Flächen die auch ausgeblendet werden.
+    // Wenn die Wand ausgeblendet wird sollen die auch mit ausgeblendet werden wie es der Fall ist
+    // - kann es sein, dass diese Flächen irgendeine Rolle bei dem Problem spielen?"
+    //
+    // (A) YES, AND THE MECHANISM IS NOT THE RAY — IT IS `Contains`. ModBuild 252 admitted a
+    //   renderer to the occlusion numerator on one rule of mine: "it counts as occluding exactly
+    //   when it RIDES THIS WALL'S FADE". That correctly caught the scrub walls' bushes and
+    //   incorrectly caught the wide ground-hugging verge and undergrowth that belong to the same
+    //   wall run but spread several units INTO the room. A mat lying on the floor SPANS the floor
+    //   plane, so the room's own floor samples sit INSIDE its AABB and the `rb.Contains(sample)`
+    //   clause marks every one of them blocked — FROM ANY VIEWING ANGLE, because containment has
+    //   nothing to do with where the head is. That is how 'Wall 2' reached blk 16/16, and the tell
+    //   was in the log all along: nothing that is genuinely a wall at a room's edge can interrupt
+    //   EVERY ray to its own room's floor.
+    //   FIX — THE STANDING TEST, structural and not a name list: a piece enters the numerator only
+    //   when its vertical extent is at least half its NARROWER horizontal extent. Checked against
+    //   the logged geometry: ..._Bushes_01 s(2.6,1.3,2.2) → 0.59, ..._Ivy_Grass_01 s(1.8,2.0,1.4)
+    //   → 1.43, ..._Plants_01 s(1.4,0.9,1.2) → 0.75, all ADMITTED, so the scrub walls keep
+    //   blocking exactly as 252 correctly made them; a wall slab s(0.5,3,8) scores 6.0 and a
+    //   ground mat s(6,0.4,5) scores 0.08 — two orders of magnitude of daylight, so this is not a
+    //   number that wants tuning. The narrower horizontal extent is the denominator on purpose: a
+    //   long wall RUN is wide in one axis and thin in the other.
+    //   HIS RULING IS UNTOUCHED, and that is the point of WHERE the test sits: it lives in the
+    //   occlusion numerator only. The ground areas still dissolve with their wall. What a wall
+    //   HIDES and what it TAKES WITH IT are two questions; 252 answered both with one predicate.
+    //
+    // (B) A SECOND INFLATOR HE COULD NOT HAVE SEEN, ALSO MINE FROM 252. I extended
+    //   HeadInsideWallMesh — the "camera sealed in masonry" escape hatch with its hard 1f — to
+    //   foliage "by symmetry". Wrong: RayHitsWallMesh asks DOES THIS HIDE THE FLOOR (a bush
+    //   counts); the hatch asks IS THE CAMERA SEALED IN OPAQUE GEOMETRY WITH NO WAY OUT (a cutout
+    //   bush is see-through). A head merely brushing a bush's AABB dissolved the ENTIRE wall.
+    //   'Wall 2' sits at exactly raw 1.00 in 31 of 66 diag samples — 47 % of that session. The
+    //   hatch is masonry-only again.
+    //
+    // (C) THE POP IS IN THE FOLIAGE, THE ONE CLASS NO CENSUS COUNTED. My brief blamed the
+    //   "own alpha/particle channel" pieces; that is refuted — those are mounted torches and
+    //   fireflies and 'Wall 2' has two of them, so they are not the visible mass. Foliage was the
+    //   last attachment class still on the round-3 shared-MPB guess: ONE `_Cutoff` lerp from a
+    //   hardcoded 0.35 — an explicit guess at "the common authored Mask Clip Value" — written
+    //   blind to every foliage material, then renderer.enabled = false at the end. Two failure
+    //   modes, both real: a material authoring a different clip value steps at BOTH ends, and a
+    //   material with no live cutoff gets no dissolve at all and can only switch off. Foliage is
+    //   the largest population in the scene — 345 attachments, 123 on 'Wall 2' alone — and it is
+    //   the entire visible mass of a scrub wall. It also explains WORSE THAN BEFORE: 252 made more
+    //   scrub walls fade, so more of it popped. Round 15 had already retired that same assumption
+    //   FOR SIBLINGS, with the reasoning verbatim in the code; foliage simply never got it.
+    //   Foliage now routes through ClassifyProp/EnsureDissolveChannel/DriveProp and ramps from the
+    //   material's OWN authored value, read per piece. The guess is deleted.
+    //   WHY THE INSTRUMENT SAID THE OPPOSITE: `ANIMATION` counted only wall renderers, and the
+    //   DISSOLVE CENSUS beside it HAS NO FOLIAGE BUCKET AT ALL (0 stacked / 0 body / 2 mounted /
+    //   0 sibling / 0 corner). The largest population was measured by nobody, so "every transition
+    //   in flight is animated end to end" was true and irrelevant. Both count it now.
+    //
+    // AND A LEAK I INTRODUCED IN THIS SAME ROUND AND CAUGHT: giving foliage real dissolve records
+    // meant a churned leaver in FinishRefresh would keep its swapped material copies — one leaked
+    // material per bush per Apparance regeneration, on 345 pieces the fastest leak in the
+    // subsystem. Leavers now have their swap undone.
+    //
+    // NOT FIXED, NAMED: whether Amp_Basic_Foliage (queue 1900) exposes a live _Cutoff at all could
+    // not be settled from the repo — no shader source, no property dump in any log. It is now
+    // MEASURED rather than assumed: the census reports pieces with NO CHANNEL AT ALL, by name. If
+    // that count is non-zero in the next log, those pieces genuinely cannot dissolve and only
+    // switch off, and that will be said plainly. FinishRefresh's instant property-block clear on a
+    // leaver also stands, unanimated by necessity — there is no owner left to ramp it.
+    //
+    // THE GATE RECTANGLES, ROUND THREE — STILL AN INSTRUMENT, STILL NO GUESS. The 253 census ran
+    // and moved the leading hypothesis from inference to measurement:
+    //   `head path=Forward mask=0xFFFFFFFF; game 'ScenarioCamera' path=DeferredShading
+    //    mask=0x700FFF17 commandBuffers=2 ⇒ THE TWO CAMERAS RENDER THIS SCENE THROUGH DIFFERENT
+    //    PATHS`
+    // — read off the live camera, so the BeforeGBuffer inference was right. The culling-mask
+    // prediction also held: one populated layer in the difference and it is 27, the mod's own, so
+    // masking is not the explanation and HeadMaskFromScenarioCamera will not fix this.
+    // IT STILL COULD NOT NAME THE CARD, for two reasons now fixed. (1) EVERY screen rect printed
+    // `PARTIALLY BEHIND the camera` with values like `centre px 462950,72602` — projecting eight
+    // bare AABB corners explodes for any box the eye is inside or beside, which in a room-scale
+    // rig is most of them. The box is now clipped against the near plane IN VIEW SPACE, edge by
+    // edge, before anything is projected, and the result is clamped to the frame with three
+    // distinct states (ENTIRELY BEHIND / OFF SCREEN / near-plane clipped, exact for the visible
+    // part). Verified numerically against a box straddling the eye: 1572..3660 x 528..1632 where
+    // the 253 form returns ±150,000. (2) The pool was 96 candidates of which 41 sat on layer 27 —
+    // the mod's own panels, refused outright now and counted with the reason.
+    // AND A THIRD REASON THE COORDINATOR DID NOT NAME: 253 ranked by RAW SPAN, so the pool led
+    // with a 71,202 px ground plane and a 17,983 px star dome while the photographed rectangles
+    // are of order SEVENTY pixels. Bigger is not more likely to be the subject. There is now a
+    // SUBJECT BAND — submitted, plate-shaped, 24-250 px — ordered by LOG-distance to 90 px, so a
+    // 2x error in my ruler still leaves the subject near the top; a linear preference would not
+    // survive that. Each dump prints isSupported plus the LightMode tag of every pass of every
+    // subshader, and the proof sentence is verbatim: "DEFERRED PASS BUT NO FORWARDBASE … THAT IS
+    // THE MECHANISM, and it is proven for this card, not inferred". The classifier is deliberately
+    // conservative — an UNTAGGED pass counts as forward-drawable, and an unreadable one says it
+    // proves nothing either way, because over-reporting this would be the 251 mistake in a new
+    // coat. Both cameras' command buffers are named with their CameraEvent and a
+    // [DEFERRED-ONLY EVENT — INERT on this forward camera] flag; the ScenarioCamera's SECOND
+    // buffer has never been identified and could be a mechanism of its own.
+    // WHAT CLOSES IT NEXT LOG: the SUBJECT BAND record whose screen centre lands on 670,1120 or
+    // 750,800 in Wandproblem.jpg. Caveat carried forward: the standalone walk measures 5.0 ms and
+    // rations itself to skip two windows, so it samples roughly every third one — if the gate is
+    // missed again, read the best-sample latch.
+    //
     // Build 253: THE GATE RECTANGLES — AN INSTRUMENT, NOT A GUESS. NO BEHAVIOUR CHANGE AT ALL.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. 253 SUPERSEDES 252: it carries
