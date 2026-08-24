@@ -23,8 +23,8 @@ travels.
 Everything else is exactly the game you already have. Same rules, same saves, same campaign, and
 the same people to play it with — including the ones who are not in a headset.
 
-<!-- GIF: docs/img/gifs/overview.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/overview.gif` ]**
+<!-- VIDEO: docs/img/overview.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/overview.mp4` ]**
 > *The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming
 > the board with the two-handed world grab.*
 
@@ -36,32 +36,40 @@ the same people to play it with — including the ones who are not in a headset.
 two cards you want into the slots on your control board — slot order is your initiative, exactly
 like the physical game.
 
-<!-- GIF: docs/img/gifs/card-fan.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/card-fan.gif` ]**
+<div align="center">
+  <video src="https://github.com/McFredward/GloomhavenVR/raw/main/docs/img/card-fan.mp4" width="800" controls muted loop playsinline>
+    <a href="./docs/img/card-fan.mp4">card-fan.mp4</a>
+  </video>
+</div>
+
 > *Palm rolls up, the card fan opens, a card is grabbed and dropped into a board slot; then the
 > top or bottom half is poked to choose it.*
 
 **You pick the miniatures up.** Squeeze one off the board, hold it up to see what it is, resize it
 in mid-air with your other hand, and let go — it glides back down to its hex.
 
-<!-- GIF: docs/img/gifs/figure-grab.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/figure-grab.gif` ]**
+<div align="center">
+  <video src="https://github.com/McFredward/GloomhavenVR/raw/main/docs/img/figure-grab.mp4" width="800" controls muted loop playsinline>
+    <a href="./docs/img/figure-grab.mp4">figure-grab.mp4</a>
+  </video>
+</div>
+
 > *A miniature is picked off the board, held up, scaled with the second hand, and glides back
 > to its hex when released.*
 
 **The game's windows become panels in the room.** Character sheets, the merchant, the story — grab
 one by its bar, move it, resize it, park it where you want it. Where you put one is where it stays.
 
-<!-- GIF: docs/img/gifs/windows.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/windows.gif` ]**
+<!-- VIDEO: docs/img/windows.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/windows.mp4` ]**
 > *A window opens in front of the player, is grabbed by its bar, moved and resized, then reeled
 > closer with the thumbstick.*
 
 **The campaign map is a room, not a menu.** The guildmaster buttons are physical caps on the table
 rim. Press one and its window opens; press it again and it closes.
 
-<!-- GIF: docs/img/gifs/map-room.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/map-room.gif` ]**
+<!-- VIDEO: docs/img/map-room.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/map-room.mp4` ]**
 > *The 3D campaign map room: pressing a table-rim cap to open a window, pointing at a location,
 > the party token walking its route.*
 
@@ -70,8 +78,8 @@ by hand for this, with a real star catalogue overhead, firelight, drips, cobwebs
 Both of them hide rare apparitions you will hopefully not be looking at when they happen. They have
 their own off switch.
 
-<!-- GIF: docs/img/gifs/environments.gif -->
-> **[ GIF PLACEHOLDER — `docs/img/gifs/environments.gif` ]**
+<!-- VIDEO: docs/img/environments.mp4 -->
+> **[ VIDEO PLACEHOLDER — `docs/img/environments.mp4` ]**
 > *The cellar and the night forest: firelight, the night sky, foliage moving, the switch between
 > environments in the settings.*
 
