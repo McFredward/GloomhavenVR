@@ -362,23 +362,34 @@ internal static partial class WallSegmentFade
                 }
                 if (want == 2)
                 {
-                    if (p.Renderer.enabled)
+                    // Fresh arrival during the held state: park the material/particle
+                    // ramp at the hidden end first, then the guaranteed disable. The
+                    // channel is established HERE too (round 15) so the piece is parked in
+                    // the native held look and its RETURN edge animates from frame one.
+                    //
+                    // MODBUILD 261: that promise was only kept for a piece that arrived
+                    // ENABLED. The `if (p.Renderer.enabled)` guard used to wrap the evaluation
+                    // as well as the disable, so a piece adopted already-disabled got its very
+                    // first classification on the frame the un-fade edge re-enabled it — the
+                    // exact "evaluated on the frame it becomes visible" the round forbids.
+                    // The guard now covers only the WRITE. Falsifier: see WallSegmentFade.Body.cs.
+                    bool drawing = p.Renderer.enabled;
+                    if (drawing || !p.SwapChecked)
                     {
-                        // Fresh arrival during the held state: park the material/particle
-                        // ramp at the hidden end first, then the guaranteed disable. The
-                        // channel is established HERE too (round 15) so the piece is parked in
-                        // the native held look and its RETURN edge animates from frame one.
                         _mountedTouched[p.Renderer] = p;
                         EnsureDissolveChannel(p);
                         DriveProp(p, 1f);
-                        p.Renderer.enabled = false;
                     }
+                    if (drawing)
+                        p.Renderer.enabled = false;
+                    ShowEdge(p, false, seg.Fade);
                 }
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
                     EnsureDissolveChannel(p); // round 15: everything that fades animates
                     DriveProp(p, seg.Fade);
+                    ShowEdge(p, true, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
                 }

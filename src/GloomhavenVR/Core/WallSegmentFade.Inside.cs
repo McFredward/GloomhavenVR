@@ -260,6 +260,15 @@ internal static partial class WallSegmentFade
             public int Deciders;
             /// <summary>Pieces carrying this run's key at all, deciders or not.</summary>
             public int Members;
+            /// <summary>ModBuild 261: of the non-deciders, the ones that own NO renderer because
+            /// the wall choke point refused them (<see cref="Segment.GeometryRefusedWhy"/>). They
+            /// are NOT "held solid by a fail-safe" — they were never wall geometry, and calling
+            /// them fail-safe-held is what pointed ModBuild 260's report at the wrong rule.</summary>
+            public int Refused;
+            /// <summary>ModBuild 261: members recruited by <c>SplitRunAdoptGroundScenery</c>.
+            /// They ride the verdict and never contribute a cell to it — see
+            /// <see cref="Segment.RunPassenger"/>.</summary>
+            public int Passengers;
             /// <summary>Union size, room total and room index of the winning room.</summary>
             public int Blocked;
             public int Total;
@@ -270,6 +279,18 @@ internal static partial class WallSegmentFade
             public string BestMemberName = "-";
             /// <summary>Evaluation generation this run was last seen in (pruning).</summary>
             public int Seen = -1;
+            /// <summary>ModBuild 261 IMMEDIACY AUDIT (user ruling 2026-08-24: "direkt wieder
+            /// unfaded wenn es keine spielbaren tiles verdeckt"). Wall-clock this run has spent
+            /// FADED with its UNION at or above the exit bar while its widest single member is
+            /// already BELOW it — i.e. time the union alone is holding the wall down. Continuous
+            /// stretch and session worst. Raw coverage on both sides, deliberately not the EMA:
+            /// the members have no run-comparable EMA, and an unmatched pair would be a
+            /// comparison of two different filters. Zero here means the union costs nothing on
+            /// the exit and the delay is entirely bar + dwell.</summary>
+            public float UnionHoldSeconds;
+            public float UnionHoldWorst;
+            /// <summary>Last evaluation time, for the dt this audit integrates.</summary>
+            public float LastEval;
             /// <summary>Highest fade any member has reached — the audit's "is this run actually
             /// gone from the picture yet", so a sweep landing mid-ramp reports nothing.</summary>
             public float MaxFade;
@@ -288,6 +309,18 @@ internal static partial class WallSegmentFade
         /// here so an unexpectedly large orphan population is visible instead of silent.</summary>
         private int _runOrphans;
         private int _runsTotal, _runsFaded, _runMembersTotal, _runMembersHeld;
+        /// <summary>ModBuild 261: the refused subset of <see cref="_runMembersHeld"/> — pieces
+        /// that own no renderer at all. See <see cref="WallRun.Refused"/>.</summary>
+        private int _runMembersRefused;
+        /// <summary>ModBuild 261: members recruited by <c>SplitRunAdoptGroundScenery</c> this
+        /// pass — zero while the dial is off, which is how it ships.</summary>
+        private int _runMembersPassenger;
+        /// <summary>ModBuild 261 immediacy audit, scene-level: the widest run's live union
+        /// numerator/denominator and its widest single member, sampled EVERY evaluation so the
+        /// 2 s census carries the pair instead of only the edges carrying it. Plus the current
+        /// and session-worst seconds a union alone has held a faded run down (WallRun).</summary>
+        private int _runUnionBlocked, _runUnionTotal, _runUnionBest;
+        private float _runUnionHoldNow, _runUnionHoldWorst;
         private float _nextRunLogTime;
         /// <summary>Session tally of run-level fade edges — the counterpart of the per-piece
         /// `fade ON` census that showed 69 switches across 12 pieces of ONE wall.</summary>
@@ -320,9 +353,14 @@ internal static partial class WallSegmentFade
             _runsFaded = 0;
             _runMembersTotal = 0;
             _runMembersHeld = 0;
+            _runMembersRefused = 0;
+            _runMembersPassenger = 0;
             _runOrphans = 0;
             _runLeftover = 0;
             _runLeftoverNames.Clear();
+            _runLeftoverByReason.Clear();
+            _runLeftoverByClass.Clear();
+            _runLeftoverAllowed.Clear();
             foreach (Segment seg in _segments.Values)
                 seg.RunDriven = false;
         }
@@ -340,6 +378,8 @@ internal static partial class WallSegmentFade
             _runOrphans = 0;
             _runMembersTotal = 0;
             _runMembersHeld = 0;
+            _runMembersRefused = 0;
+            _runMembersPassenger = 0;
 
             // ---- pass 1: measure each piece, union its cells into its run ------------------
             foreach (Segment seg in _segments.Values)
@@ -372,6 +412,8 @@ internal static partial class WallSegmentFade
                     run.RoomHits.Clear();
                     run.Deciders = 0;
                     run.Members = 0;
+                    run.Refused = 0;
+                    run.Passengers = 0;
                     run.BestMember = 0;
                     run.BestMemberName = "-";
                 }
@@ -384,6 +426,29 @@ internal static partial class WallSegmentFade
                     || !RoomDecisionValid(seg.RoomIndex))
                 {
                     _runMembersHeld++;
+                    // ModBuild 261: split the held population at its real seam. A piece the wall
+                    // choke point REFUSED owns no renderer, so it is not a wall being held solid
+                    // — it is a floor prop that never entered the wall path. Counting the two
+                    // together is why ModBuild 260's report read "99 held by an older fail-safe".
+                    if (seg.GeometryRefusedWhy != null)
+                    {
+                        _runMembersRefused++;
+                        run.Refused++;
+                    }
+                    continue;
+                }
+                // PASSENGER (ModBuild 261, [WallFade] SplitRunAdoptGroundScenery). Recruited
+                // ground scenery takes the run's verdict — that is the whole point of recruiting
+                // it — but it must never steer one: a bush standing a metre inside the room would
+                // otherwise hide floor it has no business voting on, and the trigger would have
+                // moved in the same build as the population. RunDriven, deliberately NOT a
+                // Decider, and no cells into the union. Falsified by: RUN FADE union/best-single
+                // numbers that differ between the two dial positions on the same scenario.
+                if (seg.RunPassenger)
+                {
+                    run.Passengers++;
+                    _runMembersPassenger++;
+                    seg.RunDriven = true;
                     continue;
                 }
                 float fraction = BlockedFraction(seg, headPos);
@@ -437,6 +502,10 @@ internal static partial class WallSegmentFade
             // ---- pass 2: one verdict per run ----------------------------------------------
             _runsTotal = 0;
             _runsFaded = 0;
+            _runUnionBlocked = 0;
+            _runUnionTotal = 0;
+            _runUnionBest = 0;
+            _runUnionHoldNow = 0f; // per pass; the WORST is a session figure and never resets
             _runDeadKeys.Clear();
             foreach (KeyValuePair<Component, WallRun> kv in _runs)
             {
@@ -477,6 +546,34 @@ internal static partial class WallSegmentFade
                 {
                     run.Smooth += (fraction - run.Smooth) * fracStep;
                 }
+                // ---- IMMEDIACY AUDIT (see WallRun.UnionHoldSeconds) -------------------------
+                // Does the UNION delay the un-fade? The RUN FADE line answers this only AT an
+                // edge, where the union has already dropped under the bar by construction — so
+                // it can never show the delay it is being asked about. Integrated here instead,
+                // every evaluation, and reported on the 2 s census.
+                float bestRaw = run.Total > 0 ? run.BestMember / (float)run.Total : 0f;
+                float dtRun = run.LastEval > 0f ? Mathf.Min(now - run.LastEval, 0.5f) : 0f;
+                run.LastEval = now;
+                if (run.State && fraction >= offFraction && bestRaw < offFraction)
+                {
+                    run.UnionHoldSeconds += dtRun;
+                    if (run.UnionHoldSeconds > run.UnionHoldWorst)
+                        run.UnionHoldWorst = run.UnionHoldSeconds;
+                }
+                else
+                {
+                    run.UnionHoldSeconds = 0f;
+                }
+                if (run.Blocked > _runUnionBlocked || run.Total != _runUnionTotal)
+                {
+                    _runUnionBlocked = run.Blocked;
+                    _runUnionTotal = run.Total;
+                    _runUnionBest = run.BestMember;
+                }
+                if (run.UnionHoldSeconds > _runUnionHoldNow)
+                    _runUnionHoldNow = run.UnionHoldSeconds;
+                if (run.UnionHoldWorst > _runUnionHoldWorst)
+                    _runUnionHoldWorst = run.UnionHoldWorst;
                 bool raw = run.Smooth >= (run.State ? offFraction : onFraction);
                 if (raw != run.PendingRaw)
                 {
@@ -513,7 +610,13 @@ internal static partial class WallSegmentFade
             VRLog.Info(Name,
                 $"RUN FADE {(run.State ? "ON" : "OFF")} '{wall}' — {run.Members} piece(s) of ONE "
                 + $"split wall run move together ({run.Deciders} of them measured, "
-                + $"{run.Members - run.Deciders} held solid by an older fail-safe). Run coverage "
+                + $"{run.Passengers} riding as PASSENGERS (recruited ground scenery — they take "
+                + "this verdict and never vote on it), "
+                + $"{run.Refused} REFUSED as wall geometry and owning no renderer at all, "
+                + $"{run.Members - run.Deciders - run.Refused - run.Passengers} held solid by an "
+                + "older fail-safe WITH geometry — ModBuild 261 split those apart, because 260 "
+                + "reported them as one number and that pointed the whole round at the boundless "
+                + "fail-safe instead of at the choke point). Run coverage "
                 + $"{run.Blocked}/{run.Total} cell(s) of room {run.Room} = "
                 + (run.Total > 0 ? (run.Blocked / (float)run.Total).ToString("F2") : "n/a")
                 + $" (ema {run.Smooth:F2}) against bars {WallFadeTuning.On:F2}/"
@@ -536,11 +639,30 @@ internal static partial class WallSegmentFade
         /// <para>Run at the mounted-dressing cadence (once per rescan) and reported on the SAME
         /// <c>LEFTOVER OVER A FADED WALL</c> line, so one grep still finds every leftover class.
         /// </para>
+        ///
+        /// <para><b>MODBUILD 261 — THE INSTRUMENT WAS BLIND TO THE POPULATION IT EXISTED FOR.</b>
+        /// The ModBuild 260 log printed <c>SPLIT-RUN PIECES: 0</c> on all 122 sweeps while the
+        /// same log's own RUN FADE line said 99 of 140 pieces of 'Wall 1' never move, and the
+        /// video (wände_problem4.mp4) shows a standing hedge. Both were true: this sweep asked
+        /// <c>seg.Renderers</c> and <c>seg.Foliage</c>, and a refused split piece has BOTH LISTS
+        /// EMPTY — <see cref="RefreshSplitWall"/> adds the renderer only when
+        /// <see cref="CollectWallFadeInfo"/> accepts it, and the nearest-piece foliage bind skips
+        /// pieces without bounds. So the sweep polled exactly the 41 members that already work
+        /// and answered honestly about them: the ModBuild 252 scar, one layer further in.</para>
+        ///
+        /// <para>THE FIX IS STRUCTURAL, NOT A THRESHOLD: a split piece's dictionary key AND its
+        /// <c>Anchor</c> ARE its MeshRenderer (both split sites construct it that way), so the
+        /// piece's geometry is reachable without any list. The sweep now asks the anchor whenever
+        /// the lists are empty. A ZERO from this method now means the picture is clean; before it
+        /// only meant the ledger was.</para>
         /// </summary>
         private void SweepRunLeftovers()
         {
             _runLeftover = 0;
             _runLeftoverNames.Clear();
+            _runLeftoverByReason.Clear();
+            _runLeftoverByClass.Clear();
+            _runLeftoverAllowed.Clear();
             if (_runs.Count == 0)
                 return;
             // PASS 1: how far has each run actually got? The audit may only fire for a run some
@@ -567,36 +689,277 @@ internal static partial class WallSegmentFade
                 if (seg.Fade >= FoliageHideFade)
                     continue; // this piece went with its run — nothing to report
                 bool drawing = false;
+                Renderer? shown = null;
                 for (int i = 0; i < seg.Renderers.Count && !drawing; i++)
-                    drawing = IsActuallyDrawing(seg.Renderers[i]);
+                {
+                    if (IsActuallyDrawing(seg.Renderers[i]))
+                    {
+                        drawing = true;
+                        shown = seg.Renderers[i];
+                    }
+                }
                 for (int i = 0; i < seg.Foliage.Count && !drawing; i++)
-                    drawing = IsActuallyDrawing(seg.Foliage[i]);
+                {
+                    if (IsActuallyDrawing(seg.Foliage[i]))
+                    {
+                        drawing = true;
+                        shown = seg.Foliage[i];
+                    }
+                }
+                // THE 260 BLIND SPOT (see the method doc). A piece the choke point refused owns
+                // nothing in either list, so the two loops above never ran and the piece read as
+                // "not drawing" while it stood in the photograph. Its ANCHOR is the renderer it
+                // was split off — that is the whole piece, and it is what the eye sees.
+                if (!drawing && seg.Renderers.Count == 0 && seg.Foliage.Count == 0
+                    && seg.Anchor is Renderer own)
+                {
+                    drawing = IsActuallyDrawing(own);
+                    if (drawing)
+                        shown = own;
+                }
                 if (!drawing)
                     continue;
                 _runLeftover++;
+                // ORDER IS THE DIAGNOSIS. The refusal is asked FIRST because boundless is its
+                // CONSEQUENCE — a refused renderer is never collected, so there is nothing to
+                // build an AABB from, and no room association either. ModBuild 260 asked
+                // HasBounds first and therefore reported the symptom as the cause for every one
+                // of these pieces. Falsified by: a piece printing the refusal reason that the
+                // STANDING PROP census does not also name.
+                //
+                // TWO STRINGS, ON PURPOSE. `tag` is the tally KEY and must be short and free of
+                // any per-piece number — a fade value in a key turns one class of 99 into 99
+                // classes of one, and the distribution is the whole point of the line. `why` is
+                // the long form for the (capped) names list.
+                string tag, why;
+                if (seg.GeometryRefusedWhy != null)
+                {
+                    tag = ReferenceEquals(seg.GeometryRefusedWhy, SplitPieceFigureRefusalReason)
+                        ? "REFUSED as wall geometry (FIGURE arm, never relaxed) — owns no renderer"
+                        : "REFUSED as wall geometry (floor-standing prop) — owns no renderer";
+                    why = seg.GeometryRefusedWhy;
+                }
+                else if (!seg.HasBounds)
+                {
+                    tag = "no decision AABB, and NOT a choke-point refusal";
+                    why = "no decision AABB — boundless fail-safe (round 14), and NOT a "
+                          + "choke-point refusal: this piece owns renderers or foliage and still "
+                          + "has no bounds, which is a different defect from the 260 population";
+                }
+                else if (seg.Engulfing)
+                {
+                    tag = "ENGULFING single mesh — undecidable as one unit";
+                    why = "single mesh that ENGULFS its own room — held solid, undecidable as "
+                          + "one unit (NeutralizeEngulfingSegments)";
+                }
+                else if (seg.DoorRoot != null)
+                {
+                    tag = "doorway — never fades (user ruling 2026-08-02)";
+                    why = tag;
+                }
+                else if (!RoomDecisionValid(seg.RoomIndex))
+                {
+                    tag = "room has no valid floor grid — FAIL-SAFE solid";
+                    why = $"room {seg.RoomIndex} has no valid floor grid — FAIL-SAFE solid";
+                }
+                else if (!seg.RunDriven)
+                {
+                    tag = "NOT run-driven though it carries the run key";
+                    why = "NOT run-driven though it carries the run key — the distribution "
+                          + "missed it, and THAT would be a distribution bug";
+                }
+                else
+                {
+                    tag = "run-driven, below full fade — mid-ramp or no dissolve channel";
+                    why = tag + " (see the DISSOLVE CENSUS for this piece)";
+                }
+                _runLeftoverByReason.TryGetValue(tag, out int seen);
+                _runLeftoverByReason[tag] = seen + 1;
+                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                // THE USER'S CLASSES. A leftover is not automatically a defect since the
+                // 2026-08-24 refinement — measured against the room the RUN decided on, because
+                // that is the floor he is looking at when the wall goes.
+                string cls = "UNKNOWN (nothing drawing to measure)";
+                int blockedSamples = 0;
+                float foot = 0f, top = 0f;
+                if (shown != null)
+                {
+                    int room = run.Room >= 0 ? run.Room : seg.RoomIndex;
+                    cls = ClassifyLeftover(shown, room, out blockedSamples, out foot, out top);
+                }
+                _runLeftoverByClass.TryGetValue(cls, out int clsSeen);
+                _runLeftoverByClass[cls] = clsSeen + 1;
+                string geom = $"foot {foot:F2} wu / top {top:F2} wu over its room's floor, hides "
+                              + $"{blockedSamples} visible playable-tile sample(s)";
+                // ALLOWED pieces get their own list so a large ALLOWED population can never be
+                // read as a large defect — which is precisely the mistake the previous two rounds
+                // made with the 99 and the 111.
+                if (cls == "ALLOWED")
+                {
+                    if (_runLeftoverAllowed.Count < PerWallNameCap)
+                        _runLeftoverAllowed.Add($"'{wall}' ({geom})");
+                    continue;
+                }
                 if (_runLeftoverNames.Count >= PerWallNameCap)
                     continue;
-                string why =
-                    !seg.HasBounds ? "no decision AABB — boundless fail-safe (round 14)"
-                    : seg.Engulfing ? "single mesh that ENGULFS its own room — held solid, "
-                                      + "undecidable as one unit (NeutralizeEngulfingSegments)"
-                    : seg.DoorRoot != null ? "doorway — never fades (user ruling 2026-08-02)"
-                    : !RoomDecisionValid(seg.RoomIndex)
-                        ? $"room {seg.RoomIndex} has no valid floor grid — FAIL-SAFE solid"
-                    : !seg.RunDriven ? "NOT run-driven though it carries the run key — the "
-                                       + "distribution missed it, and THAT is this round's bug"
-                    : $"run-driven and still at fade {seg.Fade:F2} — mid-ramp, or it has no "
-                      + "dissolve channel (see the DISSOLVE CENSUS for this piece)";
-                string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                 string owner = run.Anchor != null ? run.Anchor.name : "<dead>";
                 _runLeftoverNames.Add(
-                    $"'{wall}' is DRAWING at fade {seg.Fade:F2} while its run '{owner}' is at "
-                    + $"{run.MaxFade:F2} — {why}");
+                    $"[{cls}] '{wall}' is DRAWING at fade {seg.Fade:F2} while its run '{owner}' "
+                    + $"is at {run.MaxFade:F2}, {geom} — {why}");
             }
         }
 
         private int _runLeftover;
         private readonly List<string> _runLeftoverNames = new();
+        /// <summary>ModBuild 261: leftover count per REASON. The shared LEFTOVER line names at
+        /// most <see cref="PerWallNameCap"/> pieces, which for a 99-piece population is a sample
+        /// and not a distribution — the in-repo lesson is read-the-whole-distribution. This map
+        /// is printed complete on the SPLIT-RUN LEFTOVER line below.</summary>
+        private readonly Dictionary<string, int> _runLeftoverByReason = new();
+        /// <summary>ModBuild 261: the same leftovers again, by the user's OWN three classes (see
+        /// <see cref="ClassifyLeftover"/>). Separate from the reason tally because a reason says
+        /// which rule holds a piece and a class says whether he minds.</summary>
+        private readonly Dictionary<string, int> _runLeftoverByClass = new();
+        private readonly List<string> _runLeftoverAllowed = new();
+
+        /// <summary>
+        /// THE USER'S THREE CLASSES (ruling 2026-08-24, refining the same day's "alles muss
+        /// faden"): "Es gibt Dinge die stehen bleiben dürfen. zB der Brunnen … oder auch dieses
+        /// Steingebilde … weil es auch niedrig ist und nicht die Sicht verdeckt. Aber es dürfen
+        /// keine Elemente 'herumfliegen' weil die Wand die es gehalten hat nicht mehr da ist."
+        ///
+        /// <list type="bullet">
+        /// <item>FLOATING — its foot does not reach the floor band. It was carried by the wall and
+        ///   the wall is gone. He calls this out most sharply; it must never happen.</item>
+        /// <item>OBSTRUCTING — it stands on the floor and still hides a playable tile.</item>
+        /// <item>ALLOWED — it stands on the floor and hides nothing. A well, a low stone
+        ///   formation. Not part of the wall at all, in his words.</item>
+        /// </list>
+        ///
+        /// <para>NO NEW CONSTANT IS INTRODUCED, deliberately — four thresholds in this subsystem
+        /// have been falsified by the next hardware log. FLOATING reuses
+        /// <see cref="WallStandingProp.FootBandWU"/>, the incumbent foot band every standing-prop
+        /// verdict is already measured with. OBSTRUCTING is not a height at all: it asks the
+        /// subsystem's own question — does this piece intercept the head→sample ray of any
+        /// FRUSTUM-VISIBLE playable-tile sample of the room? A piece that blocks zero samples does
+        /// not obstruct, by the definition the fade trigger itself runs on, and "low enough" then
+        /// needs no number. The blocked-sample COUNT is reported rather than a bare bool, so the
+        /// next log shows how many pieces sit at the 0/1 boundary — i.e. whether a rule built on
+        /// this test would need hysteresis or is comfortably separated.</para>
+        /// </summary>
+        private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
+            out float foot, out float top)
+        {
+            Bounds b = r.bounds;
+            float floorY = room >= 0 && room < _roomFloorY.Count ? _roomFloorY[room] : 0f;
+            foot = b.min.y - floorY;
+            top = b.max.y - floorY;
+            blockedSamples = PieceBlockedSamples(r, room);
+            if (room < 0 || room >= _roomFloorY.Count)
+                return "UNKNOWN (no anchored floor to measure against)";
+            if (foot > WallStandingProp.FootBandWU)
+                return "FLOATING";
+            return blockedSamples > 0 ? "OBSTRUCTING" : "ALLOWED";
+        }
+
+        /// <summary>
+        /// How many of a room's FRUSTUM-VISIBLE playable-tile samples this one renderer hides from
+        /// the head — the broad phase of <c>RoomBlockedFraction</c> applied to the renderer's own
+        /// world AABB instead of a segment's union box, with the same "clearly before the point"
+        /// rule and the SAME constants (<c>BlockEpsDistFraction</c>, <c>BlockEpsMin/MaxWorld</c>).
+        /// Nothing new is tuned here. Sixteen samples per room in the ModBuild 260 scenario, run
+        /// once per leftover per rescan, so the cost is not in the frame.
+        /// </summary>
+        private int PieceBlockedSamples(Renderer r, int room)
+        {
+            if (room < 0 || room >= _roomSampleCount.Count)
+                return 0;
+            int total = _roomSampleCount[room];
+            if (total <= 0)
+                return 0;
+            Bounds b = r.bounds;
+            float thicknessEps = Mathf.Clamp(0.5f * Mathf.Min(b.size.x, b.size.z),
+                                             BlockEpsMinWorld, BlockEpsMaxWorld);
+            int start = _roomSampleStart[room];
+            int end = Mathf.Min(start + total,
+                                Mathf.Min(_allSamples.Count, _sampleVisible.Length));
+            Vector3 headPos = _lastHeadPos;
+            int blocked = 0;
+            for (int i = start; i < end; i++)
+            {
+                if (!_sampleVisible[i])
+                    continue; // out of view direction — it cannot be hiding this from him
+                Vector3 sample = _allSamples[i];
+                Vector3 to = sample - headPos;
+                float dist = to.magnitude;
+                if (dist < 0.001f)
+                    continue;
+                float eps = Mathf.Max(thicknessEps, BlockEpsDistFraction * dist);
+                var ray = new Ray(headPos, to / dist);
+                if (b.IntersectRay(ray, out float d) && (d < dist - eps || b.Contains(sample)))
+                    blocked++;
+            }
+            return blocked;
+        }
+
+        /// <summary>
+        /// ModBuild 261 — THE COMPLETE DISTRIBUTION of everything still drawing beside a faded
+        /// run, one entry per reason with its count, nothing truncated. It is a separate line
+        /// from the shared <c>LEFTOVER OVER A FADED WALL</c> warn on purpose: that line caps its
+        /// names at <see cref="PerWallNameCap"/> = 8, and 8 of 99 is a mode, not a distribution
+        /// (the in-repo lesson that cost a build: "sort -u | head shows the mode").
+        ///
+        /// <para>WHAT TO READ OFF IT. If the refusal reason dominates, the boundless fail-safe is
+        /// innocent and the lever is the choke point's FLOOR arm — those pieces own no renderer,
+        /// so no change to the fail-safe can move them. If any OTHER reason carries a large
+        /// count, that reason is the lever instead and this line says so by name. Silent when
+        /// nothing is left over, so a clean session prints nothing.</para>
+        /// </summary>
+        private void LogSplitRunLeftoverBreakdown()
+        {
+            if (_runLeftoverByReason.Count == 0)
+                return;
+            _runReasonSb.Length = 0;
+            foreach (KeyValuePair<string, int> kv in _runLeftoverByReason)
+            {
+                if (_runReasonSb.Length > 0)
+                    _runReasonSb.Append("; ");
+                _runReasonSb.Append(kv.Value).Append(" × ").Append(kv.Key);
+            }
+            _runClassSb.Length = 0;
+            foreach (KeyValuePair<string, int> kv in _runLeftoverByClass)
+            {
+                if (_runClassSb.Length > 0)
+                    _runClassSb.Append("; ");
+                _runClassSb.Append(kv.Value).Append(" × ").Append(kv.Key);
+            }
+            VRLog.Warn(Name,
+                $"SPLIT-RUN LEFTOVER: {_runLeftover} piece(s) of a FADED run are actually drawing "
+                + "— read off each piece's own renderer (its Anchor), never off our ledger, "
+                + "which is the ModBuild 260 blind spot this line exists to close: that log "
+                + "printed 'SPLIT-RUN PIECES: 0' on all 122 sweeps while its own RUN FADE line "
+                + "said 99 of 140 pieces never move. "
+                // THE CLASSIFICATION IS THE HEADLINE, NOT THE COUNT (user ruling 2026-08-24, and
+                // it retires "0 leftovers" as a target): FLOATING and OBSTRUCTING are the defect,
+                // ALLOWED is not. A big ALLOWED number here is a HEALTHY reading.
+                + $"BY THE USER'S THREE CLASSES: {_runClassSb}. FLOATING = its foot is above the "
+                + $"{WallStandingProp.FootBandWU:0.0} wu floor band, i.e. the wall was holding it "
+                + "up and is gone — the one he says must never happen. OBSTRUCTING = on the floor "
+                + "and still hiding at least one FRUSTUM-VISIBLE playable-tile sample, measured "
+                + "with the fade trigger's own ray test, so 'low enough' needs no height constant. "
+                + "ALLOWED = on the floor, hides nothing — the well and the low stone formation, "
+                + $"which he does not regard as part of the wall: {_runLeftoverAllowed.Count} "
+                + "named ["
+                + string.Join("; ", _runLeftoverAllowed)
+                + "]. COMPLETE per-reason distribution over ALL three classes (which RULE holds "
+                + "each piece, as opposed to whether he minds), nothing truncated "
+                + $"({_runLeftoverByReason.Count} distinct reason(s)): {_runReasonSb}. Named "
+                + $"defects (up to {PerWallNameCap}): " + string.Join("; ", _runLeftoverNames)
+                + ".");
+        }
+
+        private readonly System.Text.StringBuilder _runReasonSb = new();
+        private readonly System.Text.StringBuilder _runClassSb = new();
 
         /// <summary>
         /// The SPLIT RUN census, printed on the PER-WALL cadence. Its whole job is to make the
@@ -611,12 +974,18 @@ internal static partial class WallSegmentFade
             if (now < _nextRunLogTime)
                 return;
             _nextRunLogTime = now + InsideLogIntervalSeconds;
+            LogSplitRunLeftoverBreakdown();
             VRLog.Info(Name,
                 $"SPLIT RUN: {_runsFaded} of {_runsTotal} split wall run(s) faded, driving "
-                + $"{_runMembersTotal} piece(s) as whole walls ({_runMembersHeld} of those are "
-                + "held solid by an OLDER fail-safe — boundless, room-engulfing single mesh, "
+                + $"{_runMembersTotal} piece(s) as whole walls ({_runMembersRefused} of those "
+                + "own NO renderer because the wall choke point REFUSED them as floor-standing "
+                + "props — they were never wall geometry and no fail-safe is holding them; a "
+                + "further "
+                + $"{_runMembersHeld - _runMembersRefused} are held solid by an OLDER fail-safe "
+                + "WITH geometry — boundless for some other reason, room-engulfing single mesh, "
                 + "doorway, or a room with no valid floor grid — and are the only members that "
-                + "can legitimately stay while their run goes; the LEFTOVER line names them). "
+                + "can legitimately stay while their run goes; the SPLIT-RUN LEFTOVER line below "
+                + "gives the complete per-reason distribution, the LEFTOVER line a sample). "
                 + $"{_runOrphans} orphan(s): pieces whose run anchor is destroyed, which keep "
                 + "their OWN decision (the pre-259 behaviour, fail-open — never a latch). A run "
                 + "is a ProceduralWall/tile-observer group carved up by "
@@ -625,7 +994,28 @@ internal static partial class WallSegmentFade
                 + "'Wall 4' in the ModBuild 258 log) are absent from this line BY CONSTRUCTION "
                 + "and their code path is byte-for-byte the ModBuild 258 one. Live dial "
                 + $"[WallFade] SplitRunUnified = {WallFadeTuning.SplitRunUnifiedOn} — a false "
-                + "here means this whole mechanism did not run and any verdict about it is void.");
+                + "here means this whole mechanism did not run and any verdict about it is void. "
+                + "Live dial [WallFade] SplitRunAdoptGroundScenery = "
+                + $"{WallFadeTuning.AdoptGroundScenery} ({_runMembersPassenger} passenger(s) "
+                + "recruited this pass — the scrub/stones/low bushes the FLOOR arm used to refuse; "
+                + "a FALSE here with a large refused count above means the recruitment did not "
+                + "run and any verdict about the standing hedge is void). "
+                // IMMEDIACY (user ruling 2026-08-24: "direkt wieder unfaded wenn es keine
+                // spielbaren tiles verdeckt"). Three delays sit between "covers nothing" and
+                // "solid again", and this clause states all three so the next log can rank them
+                // instead of a lane guessing. The samples ARE playable tiles already: the grid is
+                // CNode.Walkable and not CNode.Blocked (see the SAMPLE GRID line).
+                + $"UN-FADE: union {_runUnionBlocked}/{_runUnionTotal} vs widest single member "
+                + $"{_runUnionBest}/{_runUnionTotal}, sampled NOW and not at an edge (at an edge "
+                + "the union is under the bar by construction, which is why the RUN FADE pair "
+                + "could never measure this). The union alone has held a faded run down for "
+                + $"{_runUnionHoldNow:F1}s right now, worst {_runUnionHoldWorst:F1}s this "
+                + $"session — zero means the union costs the un-fade nothing. Exit bar "
+                + $"{WallFadeTuning.Off:F2} of the room's playable hexes (a run stays faded while "
+                + "it still covers that much, so 'covers nothing' is NOT the release condition), "
+                + $"then dwell {WallFadeTuning.DwellMoved:0.0}s if the perspective moved / "
+                + $"{WallFadeTuning.DwellStationary:0.0}s if the head only rotated, on top of the "
+                + "EMA lag. All three are live [WallFade] dials.");
         }
 
         /// <summary>

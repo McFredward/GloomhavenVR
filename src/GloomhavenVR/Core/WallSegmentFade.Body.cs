@@ -195,19 +195,32 @@ internal static partial class WallSegmentFade
                 }
                 if (want == 2)
                 {
-                    if (p.Renderer.enabled)
+                    // MODBUILD 261 — THE CHANNEL IS DECIDED WHEN THE PIECE IS ADOPTED, NOT WHEN
+                    // IT BECOMES VISIBLE AGAIN. Until now the whole held branch sat behind
+                    // `if (p.Renderer.enabled)`, so a piece that arrived (or was re-parked by
+                    // Apparance) ALREADY disabled was never classified while the wall was held
+                    // faded: its first evaluation happened on the frame the un-fade edge
+                    // re-enabled it. That is the shape the ModBuild-260 DISSOLVE CENSUS reported
+                    // 72 times, and nothing may be evaluated for the first time on the frame it
+                    // is drawn. FALSIFIER: EnabledOnlyWhy's "not evaluated yet" branch must never
+                    // print on two consecutive census lines for the same piece.
+                    bool drawing = p.Renderer.enabled;
+                    if (drawing || !p.SwapChecked)
                     {
                         _mountedTouched[p.Renderer] = p;
                         EnsureDissolveChannel(p);
                         DriveProp(p, 1f);
-                        p.Renderer.enabled = false;
                     }
+                    if (drawing)
+                        p.Renderer.enabled = false;
+                    ShowEdge(p, false, seg.Fade);
                 }
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
                     EnsureDissolveChannel(p); // round 15: everything that fades animates
                     DriveProp(p, seg.Fade);
+                    ShowEdge(p, true, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
                 }

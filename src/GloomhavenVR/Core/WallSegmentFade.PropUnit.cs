@@ -525,6 +525,11 @@ internal static partial class WallSegmentFade
             _propUnitOwnerLast.Clear();
             foreach (KeyValuePair<string, string> kv in _propUnitOwnerNow)
                 _propUnitOwnerLast[kv.Key] = kv.Value;
+
+            // ModBuild 261, and it must stay LAST in this method: both stagger-keyed lists are
+            // final at this point, and every frame until the next commit reads the memo this
+            // fills without being allowed to fill it itself. See WarmStaggerKeys.
+            WarmStaggerKeys();
         }
 
         /// <summary>Open a fresh scope: drop last rescan's transform-keyed memos (they dangle),
@@ -628,11 +633,7 @@ internal static partial class WallSegmentFade
                 return null;
 
             // PRIMARY RULE — the shared ancestor.
-            if (!_propUnitRootMemo.TryGetValue(parent, out Transform? root))
-            {
-                root = PropUnitRootOf(parent);
-                _propUnitRootMemo[parent] = root;
-            }
+            Transform? root = PropUnitRootMemoized(parent);
             if (root != null)
             {
                 if (_propUnitByRoot.TryGetValue(root, out int existing))
@@ -755,6 +756,75 @@ internal static partial class WallSegmentFade
                 node = node.parent;
             }
             return best;
+        }
+
+        /// <summary>The unit root of a parent, out of (and into) the per-rescan memo. The ONLY
+        /// writer of <see cref="_propUnitRootMemo"/>: everything that reads the memo without
+        /// filling it — <see cref="FadeDriver.StaggerRootOf"/>, which runs per frame and may not
+        /// walk — depends on this having been called for that parent during the commit. See
+        /// <see cref="WarmStaggerKeys"/>.</summary>
+        private Transform? PropUnitRootMemoized(Transform parent)
+        {
+            if (!_propUnitRootMemo.TryGetValue(parent, out Transform? root))
+            {
+                root = PropUnitRootOf(parent);
+                _propUnitRootMemo[parent] = root;
+            }
+            return root;
+        }
+
+        /// <summary>
+        /// MODBUILD 261 — MAKE THE MEMO COMPLETE FOR EVERYTHING THE APPLIERS WILL ASK ABOUT.
+        ///
+        /// <para>THE DEFECT THIS CLOSES. Two appliers stagger channel-less leafy pieces off a
+        /// prop-unit key: <c>ApplyFoliage</c> over <c>seg.Foliage</c> and
+        /// <see cref="ApplyUnitDressing"/> over <see cref="Segment.UnitDressing"/>. Both run every
+        /// frame, so neither may resolve the root itself (<see cref="PropUnitRootOf"/> is a
+        /// hierarchy climb with two subtree walks per level — the per-frame scene-walk defect this
+        /// subsystem has shipped three times). They therefore read
+        /// <see cref="_propUnitRootMemo"/> read-only, and a parent MISSING from it makes them fall
+        /// back to the renderer's own id. Before this pass the memo held only the parents
+        /// <see cref="UnitOf"/> happened to touch — i.e. parents of renderers in
+        /// <c>seg.Renderers</c> — so a conifer whose needle cards sit in <c>seg.Foliage</c> under a
+        /// DIFFERENT parent from its dressed twigs got a renderer key on one half and a root key
+        /// on the other, and tore mid-ramp. Whether it did depended on rescan order, which is why
+        /// it was intermittent.</para>
+        ///
+        /// <para>WHERE, AND WHY EXACTLY HERE. At the tail of
+        /// <see cref="EnforcePropUnitCohesion"/>: <c>seg.UnitDressing</c> is built by this very
+        /// pass and final only now, <c>seg.Foliage</c> was final at the Ground2 phase and is only
+        /// ever SHRUNK afterwards (this pass moves members out of it; the Siblings and Mounted
+        /// phases that follow read it and never add), and the per-node fact memos
+        /// (<c>_nodeRendererCount</c> and friends) are still open, so each fresh climb answers out
+        /// of the same cache the rest of the commit already paid for. The memo is cleared once per
+        /// rescan in <see cref="BeginPropUnitScope"/> and nothing clears it in between, so one
+        /// warm here covers every frame until the next commit.</para>
+        ///
+        /// <para>COST: one dictionary lookup per stagger-keyed renderer per RESCAN (~2 s), and a
+        /// climb only for parents no earlier phase resolved. It removes work from the per-frame
+        /// path rather than adding any.</para>
+        ///
+        /// <para>FALSIFIER: <c>NoteStaggerKeyMiss</c> counts every applier lookup that still finds
+        /// nothing, and the SHOW EDGE line prints the count with an <c>[ALARM]</c>. A future
+        /// applier that stagger-keys a THIRD list will make it non-zero on the next run rather
+        /// than tear silently.</para>
+        /// </summary>
+        private void WarmStaggerKeys()
+        {
+            foreach (Segment seg in _segments.Values)
+            {
+                foreach (MeshRenderer f in seg.Foliage)
+                {
+                    if (f != null && f.transform.parent != null)
+                        PropUnitRootMemoized(f.transform.parent);
+                }
+                foreach (MountedProp p in seg.UnitDressing)
+                {
+                    Renderer r = p.Renderer;
+                    if (r != null && r.transform.parent != null)
+                        PropUnitRootMemoized(r.transform.parent);
+                }
+            }
         }
 
         /// <summary>
@@ -1291,12 +1361,18 @@ internal static partial class WallSegmentFade
                     EnsureDissolveChannel(p); // never for foliage — ModBuild 255 ruling
                 if (leafy && !ownChannel)
                 {
-                    bool hide = want == 2 || seg.Fade >= StaggerThreshold(r);
+                    // ModBuild 261: ONE implementation of the staggered-return rule, shared with
+                    // ApplyFoliage. This lane and the foliage lane each had their own and the two
+                    // resolved the KEY differently on a memo miss, which tore any prop split
+                    // between seg.Foliage and seg.UnitDressing. See StaggerThresholdFor.
+                    bool hide = want == 2 || seg.Fade >= StaggerThresholdFor(r);
                     if (r.enabled == hide)
                         r.enabled = !hide;
+                    ShowEdge(p, !hide, seg.Fade);
                     continue;
                 }
                 DriveProp(p, want == 2 ? 1f : seg.Fade);
+                ShowEdge(p, want != 2, seg.Fade);
                 if (want == 2)
                 {
                     if (r.enabled)

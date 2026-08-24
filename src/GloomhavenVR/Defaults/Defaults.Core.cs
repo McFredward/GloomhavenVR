@@ -188,4 +188,20 @@ internal static partial class Defaults
     // OFF is the ModBuild 258 behaviour the ruling rejects, and the dial exists only so the
     // mechanism can be turned off without a build if the next hardware log falsifies it.
     internal const bool SplitRunUnified = true;              // => [WallFade] SplitRunUnified
+    // ModBuild 261. The ModBuild 260 hardware log: 99 of 'Wall 1''s 140 fade-shaded renderers are
+    // refused at the wall choke point by the standing-prop FLOOR arm and therefore own no segment
+    // geometry at all — the standing hedge in wände_problem4.mp4. They ride their run as
+    // PASSENGERS: they take its verdict, they never vote on it, so WHEN a wall fades is unchanged.
+    //
+    // SHIPPED OFF, and the ruling that decides it is the user's REFINEMENT of the same day: "Es
+    // gibt Dinge die stehen bleiben dürfen. zB der Brunnen … oder auch dieses Steingebilde … weil
+    // es auch niedrig ist und nicht die Sicht verdeckt." This dial recruits the WHOLE FLOOR-arm-
+    // refused class, and that class is exactly the low floor-standing scenery he has just said may
+    // stay — a well and a low stone formation would vanish with the wall. It is the blunt lever,
+    // kept so the population can be moved with one cfg line and no build. The SHARP lever is to
+    // recruit only the refused pieces that BLOCK A PLAYABLE-TILE SAMPLE, which needs no height
+    // constant at all; the SPLIT-RUN LEFTOVER line now classifies every leftover ALLOWED /
+    // FLOATING / OBSTRUCTING with its blocked-sample count, so the next log sizes that rule before
+    // it is written. NEW key ⇒ BepInEx cannot keep an old value ⇒ no migration marker needed.
+    internal const bool SplitRunAdoptGroundScenery = false;  // => [WallFade] SplitRunAdoptGroundScenery
 }

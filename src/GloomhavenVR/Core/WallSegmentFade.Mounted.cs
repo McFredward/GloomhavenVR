@@ -178,6 +178,21 @@ internal static partial class WallSegmentFade
         /// <summary>Why this piece has NO dissolve channel (enabled-only), for the round-15
         /// DISSOLVE CENSUS line. Null when it dissolves.</summary>
         public string? DissolveWhy;
+
+        /// <summary>Was this piece DRAWING after the previous frame's applier ran? The edge
+        /// <c>false → true</c> is the frame the piece becomes visible again, which is the only
+        /// frame the ModBuild-261 SHOW EDGE audit reads (WallSegmentFade.FadeCensus.cs).</summary>
+        public bool WasDrawing;
+
+        // ModBuild 261: there is deliberately NO cached StaggerAt here. A record is reused out of
+        // _mountedTouched across rescans and nothing reset the cache, so a piece Apparance had
+        // regenerated kept a threshold hashed from an instance id that no longer existed, while
+        // the foliage applier recomputed one from the new id — the same prop, two return points.
+        // FadeDriver.StaggerThresholdFor is an O(1) memo read; there is nothing to cache.
+
+        /// <summary>The fade at which this piece's prop unit was last seen returning, recorded by
+        /// the SHOW EDGE audit so a unit that comes back IN PIECES can be named.</summary>
+        public float ShownAtFade = -1f;
     }
 
     private sealed partial class FadeDriver
@@ -650,8 +665,29 @@ internal static partial class WallSegmentFade
                 ParticleSystem.EmissionModule em = p.System.emission;
                 em.rateOverTimeMultiplier = p.EmissionRate;
             }
+            // Read the picture BEFORE the enable, so the denominator below counts an actual
+            // transition and not a no-op restore.
+            bool wasDrawing = IsActuallyDrawing(r);
             if (!r.enabled)
                 r.enabled = true;
+            // ModBuild 261: this piece is visible again, and BY CONSTRUCTION as authored —
+            // authored materials reassigned, property block cleared, particle modules restored
+            // above. It is counted in the SHOW EDGE denominator so the line's "0 not as authored"
+            // is a ratio and not an empty set, but it is not re-audited: there is nothing left
+            // for the audit to read that the restore did not just write, and the un-fade edge is
+            // the one frame this round may not add a per-prop ancestor walk to.
+            //
+            // ONLY ON A REAL EDGE. RestoreProp runs for EVERY prop of a segment on every restore
+            // path — RestoreSegmentMounted, RestoreSegmentUnitDressing, FinishPropUnitDressing,
+            // the orphan guard, teardown — including props that were never hidden. Counting those
+            // inflated the denominator of a line whose whole purpose is the ratio "N became
+            // visible again, F of them not as authored", i.e. it made the round's own acceptance
+            // bar easier to pass the more restores ran. The condition is read off the renderer,
+            // never off p.WasDrawing, which the restore paths also write.
+            if (!wasDrawing)
+                _showEdgeTotal++;
+            p.WasDrawing = true;
+            p.ShownAtFade = 0f;
         }
 
         /// <summary>Restore ALL of a segment's mounted props — called on every path where the
@@ -726,19 +762,26 @@ internal static partial class WallSegmentFade
                 }
                 if (want == 2)
                 {
-                    if (p.Renderer.enabled)
+                    // MODBUILD 261: evaluate on ADOPTION, not on the frame the piece is drawn
+                    // again — the `enabled` guard now covers only the write. See
+                    // WallSegmentFade.Body.cs for the ModBuild-260 evidence and the falsifier.
+                    bool drawing = p.Renderer.enabled;
+                    if (drawing || !p.SwapChecked)
                     {
                         _mountedTouched[p.Renderer] = p;
                         EnsureDissolveChannel(p);
                         DriveProp(p, ramp);
-                        p.Renderer.enabled = false;
                     }
+                    if (drawing)
+                        p.Renderer.enabled = false;
+                    ShowEdge(p, false, seg.Fade);
                 }
                 else
                 {
                     _mountedTouched[p.Renderer] = p;
                     EnsureDissolveChannel(p); // round 15: dressing without a channel animates too
                     DriveProp(p, ramp);
+                    ShowEdge(p, true, seg.Fade);
                     if (!p.Renderer.enabled)
                         p.Renderer.enabled = true;
                 }
@@ -765,6 +808,10 @@ internal static partial class WallSegmentFade
             // scenario where the same Renderer id belongs to something else.
             _mountedAnchorLedger.Clear();
             _mountedMobile.Clear();
+            // Same reasoning for the ModBuild-261 SHOW EDGE unit ledger: it is keyed by scene
+            // Transforms, and a destroyed one must never be compared against a new prop that
+            // happens to reuse the slot.
+            _showEdgeUnitReturn.Clear();
             foreach (Segment seg in _segments.Values)
             {
                 seg.MountedState = 0;
@@ -1804,14 +1851,11 @@ internal static partial class WallSegmentFade
                     + "drawing (renderer enabled + active in hierarchy — read off the renderer, "
                     + "never off our ledger) while the wall run they belong to is faded. This is "
                     + "the 2026-08-24 photograph (neues_wandproblem.jpg): "
-                    + "\"nur manche Bäume einzeln und Teilwände bleiben stehen\". A ZERO here is "
-                    + "the whole claim of ModBuild 259 and it is read off the picture, not off "
-                    + "the driver. Names (up to " + PerWallNameCap + "): "
-                    + string.Join("; ", _runLeftoverNames)
-                    + (_runLeftover > _runLeftoverNames.Count
-                        ? $"; … ({_runLeftover - _runLeftoverNames.Count} more)"
-                        : string.Empty)
-                    + ".");
+                    + "\"nur manche Bäume einzeln und Teilwände bleiben stehen\". ModBuild 261: "
+                    + "a ZERO here is NO LONGER the claim — the same day's refinement allows a "
+                    + "piece that stands on the floor and hides nothing to stay, so the verdict "
+                    + "is the class split, not the count."
+                    + SplitRunPiecesClause());
                 return;
             }
             VRLog.Warn(Name,
@@ -1838,18 +1882,47 @@ internal static partial class WallSegmentFade
                 + ". This is the shape of the 2026-08-24 report (wandproblem3.jpg): the wall is "
                 + "gone and the thing that hung on it is not."
                 // ModBuild 259's own class, on the same line so one grep covers both: a whole
-                // PIECE of a split wall run still drawing while its run is faded. Zero here is
-                // the claim of this round, and it is read off the renderers.
-                + (_runLeftover == 0
-                    ? " SPLIT-RUN PIECES: 0 drawing beside a faded run — every piece of every "
-                      + "faded run went with it (ModBuild 259)."
-                    : $" SPLIT-RUN PIECES: {_runLeftover} still DRAWING beside a faded run "
-                      + "(neues_wandproblem.jpg — \"nur manche Bäume einzeln und Teilwände "
-                      + "bleiben stehen\"): " + string.Join("; ", _runLeftoverNames)
-                      + (_runLeftover > _runLeftoverNames.Count
-                          ? $"; … ({_runLeftover - _runLeftoverNames.Count} more)"
-                          : string.Empty)
-                      + "."));
+                // PIECE of a split wall run still drawing while its run is faded. ModBuild 261:
+                // the count is no longer a verdict — see SplitRunPiecesClause.
+                + SplitRunPiecesClause());
+        }
+
+        /// <summary>
+        /// The <c>SPLIT-RUN PIECES</c> trailer, and why it no longer reads as a pass/fail count.
+        ///
+        /// <para>ModBuild 259 wrote it as "0 = every piece of every faded run went with it", and
+        /// that was the right bar for "alles muss faden". The user's 2026-08-24 REFINEMENT retired
+        /// it: <i>"Es gibt Dinge die stehen bleiben dürfen … Aber es dürfen keine Elemente
+        /// 'herumfliegen' … Und es muss niedrig genug sein, dass es nicht stört."</i> A piece that
+        /// stands on the floor and hides no playable tile is now ALLOWED, so a non-zero count is
+        /// not a defect and the old wording would read as one. <c>_runLeftover</c> counts all three
+        /// classes; <c>_runLeftoverNames</c> deliberately holds only FLOATING and OBSTRUCTING (the
+        /// ALLOWED ones go to <c>_runLeftoverAllowed</c>), which is why the old
+        /// "<c>N − names.Count</c> more" arithmetic over-counted the omission. Both are stated
+        /// here instead of inferred.</para>
+        /// </summary>
+        private string SplitRunPiecesClause()
+        {
+            if (_runLeftover == 0)
+            {
+                return " SPLIT-RUN PIECES: 0 drawing beside a faded run. Since the 2026-08-24 "
+                    + "refinement this is no longer the acceptance bar — a piece standing on the "
+                    + "floor that hides nothing may stay — so read the SPLIT-RUN LEFTOVER line's "
+                    + "FLOATING and OBSTRUCTING counts, not this one.";
+            }
+            _runLeftoverByClass.TryGetValue("FLOATING", out int floating);
+            _runLeftoverByClass.TryGetValue("OBSTRUCTING", out int obstructing);
+            _runLeftoverByClass.TryGetValue("ALLOWED", out int allowed);
+            int other = _runLeftover - floating - obstructing - allowed;
+            return $" SPLIT-RUN PIECES: {_runLeftover} still DRAWING beside a faded run — "
+                + $"{floating} FLOATING, {obstructing} OBSTRUCTING, {allowed} ALLOWED"
+                + (other > 0 ? $", {other} unmeasurable (no anchored floor)" : string.Empty)
+                + ". ONLY the FLOATING and OBSTRUCTING counts are the defect (user ruling "
+                + "2026-08-24); ALLOWED standing on the floor and hiding nothing is what he "
+                + $"expressly permits. The {_runLeftoverNames.Count} name(s) below are those two "
+                + "classes only, capped at " + PerWallNameCap + " — the ALLOWED pieces are named "
+                + "on the SPLIT-RUN LEFTOVER line, which also carries the complete per-reason "
+                + "distribution: " + string.Join("; ", _runLeftoverNames) + ".";
         }
 
         /// <summary>The mobility guard's own falsifier — every renderer it refused, with the

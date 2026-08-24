@@ -93,8 +93,29 @@ namespace GloomhavenVR.Core;
 /// every AABB and screen rect in this dump is a bind-pose number, not a measurement of the drawn
 /// geometry.</para>
 ///
+/// <para>MODBUILD 261 — THE QUESTION CHANGED, SO THE INSTRUMENT DID. Everything above asks WHAT
+/// THE RECTANGLES ARE, and six instrumented builds have now asked it. The user reframed it on
+/// 2026-08-24: "es kommt mir so vor als müsste eigentlich irgendwas darüber liegen, wird eventuell
+/// ein Stück des Torbogens/Türmauer hier nicht richtig dargestellt?" — the pale rectangles may be an
+/// inner surface a piece of the archway normally covers, and that piece may be missing. No field in
+/// tiers A or B could answer that, because every record describes ONE renderer and the question is a
+/// relation between two. Two passes were added, both after tier B so they can use the whole matched
+/// population, and both answerable with <c>grep 'GATE COVER VERDICT'</c>:</para>
+/// <list type="bullet">
+/// <item><b>GATE COVER</b> — for every SUBMITTED tier-A renderer, how many neighbours overlap its
+///   AABB (pose-independent) and how many the eye-to-centre segment passes through, each split into
+///   DRAWING and SILENT. A silent occluder is geometry that would cover the subject and does not.</item>
+/// <item><b>GATE FAMILY</b> — instances of the same prefab container compared against each other,
+///   so a renderer that is not merely silent but ABSENT from one door prop is a printed count. This
+///   is the only test in the dump that can see a piece tier A cannot print because it was never
+///   created.</item>
+/// </list>
+/// <para>The ruling this must never break: doorway segments never fade (user 2026-08-02, reaffirmed
+/// 2026-08-24, "was ich auch besser finde"). Nothing here fades anything.</para>
+///
 /// <para>MP-SAFE: reads only. Nothing here writes a material, a property block, a transform or a
-/// wire message.</para>
+/// wire message. No networked state is added or read; both new passes are local diagnostics over
+/// local scene geometry.</para>
 /// </summary>
 internal static partial class GlowCardCensus
 {
@@ -130,6 +151,28 @@ internal static partial class GlowCardCensus
     /// <c>not-submitted</c>: the dump spent its entire budget on floor tiles that draw nothing.
     /// The cap was never the binding constraint; the ORDER was.</para></summary>
     private const int GateMaxNearRecords = 64;
+
+    /// <summary>Ceiling on SUBMITTED tier-B records, ModBuild 261. Submitted records are no longer
+    /// subject to <see cref="GateMaxNearRecords"/> at all.
+    ///
+    /// <para>WHY THIS EXISTS. The ModBuild 260 footer printed its own defeat: "2593 NEAR
+    /// RENDERER(S) WERE NOT PRINTED … Of those cut, 726 were SUBMITTED: that is the only count that
+    /// can still hide the subject, because a rectangle in a photograph is being drawn. If it reads
+    /// 0 the truncation is harmless". It read 726, and the 64 records that WERE printed are all
+    /// forest walls, tree pillars, root plates and crypt courses — every one of them architecture,
+    /// none of them a small pale plate. Repairing the ORDER in 259 was necessary and did not
+    /// suffice: an order can only decide which 64 of 790 drawn renderers get named, and the subject
+    /// was not in the 64 either time. So the cap on drawn records is removed and the ceiling here
+    /// is a safety stop against a pathological scene, not a budget: the number is printed when it
+    /// binds, and <c>submittedCut</c> in the footer is now structurally 0 in any normal room.</para>
+    ///
+    /// <para>WHAT IT COSTS, said plainly because it is not free. The ModBuild 260 dump printed 151
+    /// records for 23.9 ms of one frame; this prints roughly 790 in that scene, so the one-shot
+    /// hitch grows to a low hundreds of milliseconds. It is once per scene, in an instrumented
+    /// build, and the footer prints the measured number rather than this comment's estimate. A
+    /// single stutter as a room opens is a cheaper price than a seventh build that cannot see the
+    /// subject.</para></summary>
+    private const int GateMaxNearSubmitted = 900;
 
     /// <summary>Tier B records that get the full dump, in the tier-B order. This is an ordering cap,
     /// not a property filter: no renderer is excluded for what it IS, only for being ordered behind
@@ -170,6 +213,85 @@ internal static partial class GlowCardCensus
     private static readonly HashSet<int> GateRootIds = new(64);
     private static readonly List<Bounds> GateAnchors = new(8);
     private static readonly List<NearRecord> GateNear = new(256);
+
+    // ---- ModBuild 261: the COVER pass and the FAMILY pass -------------------------------------
+    //
+    // Both exist to answer ONE question the user asked on 2026-08-24, which is not the question the
+    // first six instrumented builds were asking: "es kommt mir so vor als müsste eigentlich irgendwas
+    // darüber liegen, wird eventuell ein Stück des Torbogens/Türmauer hier nicht richtig
+    // dargestellt?" Six builds asked WHAT THE RECTANGLES ARE. He is asking WHAT IS MISSING IN FRONT
+    // OF THEM, and no field in this dump could answer that: every record describes one renderer in
+    // isolation, and "is anything covering it" is a relation between two.
+
+    private static readonly List<CoverSubject> GateCoverSubjects = new(32);
+    private static readonly List<CoverCandidate> GateCoverPool = new(4096);
+    private static readonly List<Material> GateCoverSlots = new(8);
+    private static readonly List<FamilyMember> GateFamily = new(128);
+
+    /// <summary>One SUBMITTED tier-A renderer, kept for the cover pass. Submitted is the right
+    /// filter here and nowhere else in this file: a renderer that is not being drawn cannot be a
+    /// pale rectangle in a photograph, so asking what covers it is asking about nothing. Small by
+    /// construction: 29 of the 103 tier-A records in the ModBuild 260 log were submitted, and 17 of
+    /// those were the two on-screen door props.</summary>
+    private readonly struct CoverSubject
+    {
+        public CoverSubject(Renderer r, Bounds b, int door, int idx)
+        {
+            R = r;
+            B = b;
+            Door = door;
+            Idx = idx;
+        }
+
+        public readonly Renderer R;
+        public readonly Bounds B;
+        public readonly int Door;
+        public readonly int Idx;
+    }
+
+    /// <summary>A renderer the cover pass may test as an occluder, with its bounds and its ALIVE
+    /// flag read once instead of once per subject.
+    ///
+    /// <para>ALIVE IS DELIBERATELY NOT <c>Submitted</c>. <c>Renderer.isVisible</c> is false for
+    /// anything outside the frustum, and a piece of masonry behind the camera is not a missing
+    /// piece of masonry. Alive means <c>enabled</c>, <c>activeInHierarchy</c> AND offering at least
+    /// one non-null material — the three ways this codebase has actually seen geometry go silent
+    /// (the fade's <c>renderer.enabled = false</c> delivery, a deactivated subtree, and the
+    /// zero-material state <see cref="MaterialLoaderHeal"/> exists for). A renderer that is not
+    /// alive is one that WOULD have drawn and does not.</para></summary>
+    private readonly struct CoverCandidate
+    {
+        public CoverCandidate(Renderer r, Bounds b, bool alive)
+        {
+            R = r;
+            B = b;
+            Alive = alive;
+        }
+
+        public readonly Renderer R;
+        public readonly Bounds B;
+        public readonly bool Alive;
+    }
+
+    /// <summary>One tier-A renderer, filed under the name of its immediate parent — which for every
+    /// door prop in the ModBuild 260 log is the prefab container
+    /// ('CR_DoorFrame_01_Narrow_Thick', 'CR_ST_Door_01_Thick', 'CR_OS_DoorFrame_01_Narrow_Thick',
+    /// 'CR_ST_Door_01'). The family pass compares instances of the SAME container against each
+    /// other, so "a piece the prefab should have is absent" becomes a count rather than an
+    /// impression.</summary>
+    private readonly struct FamilyMember
+    {
+        public FamilyMember(string family, int instance, string rendererName)
+        {
+            Family = family;
+            Instance = instance;
+            RendererName = rendererName;
+        }
+
+        public readonly string Family;
+        public readonly int Instance;
+        public readonly string RendererName;
+    }
 
     private readonly struct NearRecord
     {
@@ -417,6 +539,9 @@ internal static partial class GlowCardCensus
         // ---- tier A: every renderer under every door prop, unconditionally --------------------
         GatePrinted.Clear();
         GateAnchors.Clear();
+        GateCoverSubjects.Clear();
+        GateCoverPool.Clear();
+        GateFamily.Clear();
         var sb = new StringBuilder(4096);
         int tierAWalked = 0;
         int tierAPrinted = 0;
@@ -490,6 +615,10 @@ internal static partial class GlowCardCensus
                 Candidate c = BuildGateCandidate(r);
                 if (c.Marks == Mark.None)
                     unmarkedA++;
+                RecordGateFamily(r);
+                GateCoverPool.Add(new CoverCandidate(r, c.B, IsAliveRenderer(r)));
+                if (c.Submitted && c.B.size != Vector3.zero)
+                    GateCoverSubjects.Add(new CoverSubject(r, c.B, d, i));
                 if (c.B.size != Vector3.zero)
                 {
                     if (!anchorSeeded)
@@ -593,13 +722,23 @@ internal static partial class GlowCardCensus
                 if (nc.SelfLit)
                     nearSelfLit++;
                 GateNear.Add(new NearRecord(r, dist, centreDist, nc.Submitted, nc.Span));
+                // The cover pool is the WHOLE matched population, not the printed slice. The record
+                // cap on tier B is an ordering cap for human reading; an occluder that is missing
+                // does not care where it sorted.
+                GateCoverPool.Add(new CoverCandidate(r, nc.B, IsAliveRenderer(r)));
             }
             if (walkCapped)
                 break;
         }
 
         GateNear.Sort(ByPhotographability);
-        int nearPrinted = Mathf.Min(GateMaxNearRecords, GateNear.Count);
+
+        // MODBUILD 261: submitted records are printed in full, not sampled. The sort already puts
+        // every submitted record first, so taking the first max(64, submitted) entries prints all
+        // of them plus the old 64-record window when the scene has fewer than 64 drawn neighbours.
+        int nearPrinted = Mathf.Min(
+            GateNear.Count,
+            Mathf.Max(GateMaxNearRecords, Mathf.Min(nearSubmitted, GateMaxNearSubmitted)));
         int submittedCut = 0;
         for (int i = nearPrinted; i < GateNear.Count; i++)
         {
@@ -638,6 +777,10 @@ internal static partial class GlowCardCensus
             VRLog.Info(Scope, sb.ToString());
         }
 
+        // ---- ModBuild 261: the two relational passes -------------------------------------------
+        int familyShort = ReportGateFamilies(sb);
+        ReportGateCover(sb, familyShort);
+
         clock.Stop();
         double ms = clock.Elapsed.TotalMilliseconds;
         _gateDone = true;
@@ -658,11 +801,15 @@ internal static partial class GlowCardCensus
         if (GateNear.Count > nearPrinted)
         {
             sb.Append(" ⇒ ").Append(GateNear.Count - nearPrinted)
-              .Append(" NEAR RENDERER(S) WERE NOT PRINTED, past the ").Append(GateMaxNearRecords)
-              .Append("-record cap — THIS DUMP IS TRUNCATED. Of those cut, ").Append(submittedCut)
+              .Append(" NEAR RENDERER(S) WERE NOT PRINTED — THIS DUMP IS TRUNCATED. Of those cut, ")
+              .Append(submittedCut)
               .Append(" were SUBMITTED: that is the only count that can still hide the subject, "
-                      + "because a rectangle in a photograph is being drawn. If it reads 0 the "
-                      + "truncation is harmless and every drawn renderer near the gate is above");
+                      + "because a rectangle in a photograph is being drawn. ModBuild 261 removed "
+                      + "the cap on SUBMITTED records entirely — they are now printed to a ceiling "
+                      + "of ").Append(GateMaxNearSubmitted)
+              .Append(", so this number reads 0 unless that ceiling bound, and the records that "
+                      + "were cut are ones that draw nothing. In ModBuild 260 it read 726 against "
+                      + "a 64-record cap, and the 64 that were printed were all architecture");
         }
         else
         {
@@ -745,7 +892,16 @@ internal static partial class GlowCardCensus
                   + "printed 48 of 2657 in a saturated order — so read the TIER B POPULATION line "
                   + "first, then the records, which are now submitted-and-largest first. The one "
                   + "reading that means NOTHING is a footer with tier-A walked = 0, or a 'GATE DUMP "
-                  + "GAVE UP' line: that is an empty gate, not an absent subject.");
+                  + "GAVE UP' line: that is an empty gate, not an absent subject."
+                  + " | MODBUILD 261 ADDS A DIFFERENT QUESTION, AND IT IS ONE GREP. Six builds asked "
+                  + "what the rectangles ARE. The user asked on 2026-08-24 what is MISSING IN FRONT "
+                  + "of them. Read 'GATE COVER VERDICT' first — it carries three numbers and says in "
+                  + "words which way they read: door-prop renderers with a SILENT renderer "
+                  + "overlapping their own bounds, door-prop renderers with a SILENT renderer "
+                  + "between the eye and them, and renderers ABSENT from a door prop that a sibling "
+                  + "instance of the same prefab container has. All three zero falsifies the "
+                  + "hypothesis; any of them non-zero names the missing piece. The per-record detail "
+                  + "is on the 'GATE COVER A' and 'GATE FAMILY' lines above the footer.");
         VRLog.Info(Scope, sb.ToString());
     }
 
@@ -871,6 +1027,371 @@ internal static partial class GlowCardCensus
         if (bestCentre < float.MaxValue)
             centreDist = Mathf.Sqrt(Mathf.Max(bestCentre, 0f));
         return best >= float.MaxValue ? float.MaxValue : Mathf.Sqrt(Mathf.Max(best, 0f));
+    }
+
+    // ==========================================================================================
+    //  ModBuild 261 — WHAT IS MISSING IN FRONT OF THEM
+    // ==========================================================================================
+    //
+    // THE QUESTION THIS ANSWERS, AND WHY IT IS A NEW ONE. User, 2026-08-24: "es kommt mir so vor
+    // als müsste eigentlich irgendwas darüber liegen, wird eventuell ein Stück des
+    // Torbogens/Türmauer hier nicht richtig dargestellt? Ich erinnere mich an diese Lichter in
+    // einer frühen Phase als wir noch versucht hatten auch den Torbogen wegzufaden." Every field
+    // in this dump before ModBuild 261 describes ONE renderer in isolation. "Is something that
+    // should lie over it not being drawn" is a relation between TWO renderers, so no amount of
+    // per-record detail could answer it and six builds of ranking never could have.
+    //
+    // FALSIFIER, so the next round does not have to re-derive it: if a future log shows a SILENT
+    // occluder against a door-prop renderer, this pass names it and the hypothesis is alive. If it
+    // shows 0 silent occluders and 0 family shortfalls — which is what the ModBuild 260 tier-A
+    // records already imply, all 103 walked and all 103 printed with every on-screen door renderer
+    // enabled+visible+submitted — the hypothesis is dead by measurement and the subject is not a
+    // hole in the archway.
+
+    /// <summary>File one tier-A renderer under its immediate parent's name, for the family pass.
+    /// The parent is the prefab container in every door prop in the ModBuild 260 log; a renderer
+    /// parented directly to the prop root files under the prop's own name, which is still a
+    /// comparison across the instances of that prop.</summary>
+    private static void RecordGateFamily(Renderer r)
+    {
+        try
+        {
+            Transform t = r.transform;
+            Transform? p = t.parent;
+            string family = p != null ? p.name : "<root>";
+            int instance = p != null ? p.GetInstanceID() : t.GetInstanceID();
+            GateFamily.Add(new FamilyMember(family, instance, t.name));
+        }
+        catch (Exception)
+        {
+            // a renderer whose transform is unreadable simply does not take part in the comparison
+        }
+    }
+
+    /// <summary>
+    /// THE FAMILY PASS — "is a piece the prefab should have absent?", turned into a count.
+    ///
+    /// <para>Groups every tier-A renderer by container NAME, then by container INSTANCE, and
+    /// compares the instances of one name against each other. For every renderer name, the
+    /// richest instance sets the expectation; any instance carrying fewer copies of that name is
+    /// reported as SHORT by that many. This is the only test in the dump that can see a piece that
+    /// is not merely silent but ABSENT — a renderer that was never created has no record to be
+    /// enabled or disabled, and tier A can only print what exists.</para>
+    ///
+    /// <para>WHAT IT CANNOT SEE, stated so the negative is not over-read: three genuinely
+    /// different frame prefabs sit in this scene ('CR_DoorFrame_01_Narrow_Thick' with one renderer
+    /// per half, 'CR_ST_Door_01_Thick' with three, 'CR_OS_DoorFrame_01_Narrow_Thick' with four),
+    /// and a leaner prefab is not a damaged one. The comparison is therefore WITHIN a container
+    /// name and never across names.</para>
+    /// </summary>
+    /// <returns>Total shortfall across all families — 0 means every instance of every container is
+    /// as complete as the richest instance of that container.</returns>
+    private static int ReportGateFamilies(StringBuilder sb)
+    {
+        var families = new Dictionary<string, Dictionary<int, Dictionary<string, int>>>(16);
+        for (int i = 0; i < GateFamily.Count; i++)
+        {
+            FamilyMember m = GateFamily[i];
+            if (!families.TryGetValue(m.Family, out Dictionary<int, Dictionary<string, int>>? byInst))
+            {
+                byInst = new Dictionary<int, Dictionary<string, int>>(4);
+                families[m.Family] = byInst;
+            }
+            if (!byInst.TryGetValue(m.Instance, out Dictionary<string, int>? counts))
+            {
+                counts = new Dictionary<string, int>(8);
+                byInst[m.Instance] = counts;
+            }
+            counts.TryGetValue(m.RendererName, out int n);
+            counts[m.RendererName] = n + 1;
+        }
+
+        int totalShort = 0;
+        foreach (KeyValuePair<string, Dictionary<int, Dictionary<string, int>>> fam in families)
+        {
+            Dictionary<int, Dictionary<string, int>> byInst = fam.Value;
+
+            // The expectation: the highest count of each renderer name seen on ANY instance.
+            var expect = new Dictionary<string, int>(8);
+            foreach (KeyValuePair<int, Dictionary<string, int>> inst in byInst)
+            {
+                foreach (KeyValuePair<string, int> kv in inst.Value)
+                {
+                    expect.TryGetValue(kv.Key, out int have);
+                    if (kv.Value > have)
+                        expect[kv.Key] = kv.Value;
+                }
+            }
+
+            sb.Length = 0;
+            sb.Append("GATE FAMILY '").Append(fam.Key).Append("': ").Append(byInst.Count)
+              .Append(" instance(s) in this scene, expecting ").Append(expect.Count)
+              .Append(" distinct renderer name(s) per instance");
+
+            int famShort = 0;
+            foreach (KeyValuePair<int, Dictionary<string, int>> inst in byInst)
+            {
+                foreach (KeyValuePair<string, int> want in expect)
+                {
+                    inst.Value.TryGetValue(want.Key, out int have);
+                    if (have >= want.Value)
+                        continue;
+                    famShort += want.Value - have;
+                    sb.Append(" | SHORT: instance ").Append(inst.Key).Append(" has ").Append(have)
+                      .Append(" x '").Append(want.Key).Append("' where a sibling instance of the "
+                              + "same container has ").Append(want.Value)
+                      .Append(" — that many copies of this renderer are ABSENT from the scene, not "
+                              + "merely silent");
+                }
+            }
+            totalShort += famShort;
+            if (famShort == 0)
+            {
+                sb.Append(" | COMPLETE: every instance carries every renderer name its richest "
+                          + "sibling carries, in the same count. Nothing belonging to this "
+                          + "container is missing from the scene");
+            }
+            VRLog.Info(Scope, sb.ToString());
+        }
+
+        if (families.Count == 0)
+        {
+            VRLog.Info(Scope, "GATE FAMILY — no tier-A renderer offered a readable parent, so the "
+                              + "completeness comparison did not run. That is an instrument "
+                              + "failure, not a complete gate.");
+        }
+        return totalShort;
+    }
+
+    /// <summary>
+    /// THE COVER PASS — "is something that should lie over it not being drawn?"
+    ///
+    /// <para>For every SUBMITTED tier-A renderer it asks two independent questions against the
+    /// whole tier-A ∪ tier-B population:</para>
+    /// <list type="number">
+    /// <item><b>IN FRONT</b> — whose AABB does the segment from the head to this renderer's centre
+    ///   pass through, before it arrives? That is occlusion in the ordinary sense, and it is the
+    ///   literal form of "etwas müsste darüber liegen".</item>
+    /// <item><b>EMBEDDING</b> — whose AABB overlaps this renderer's own AABB? This one is
+    ///   POSE-INDEPENDENT and it is the more important of the two, because a plate that is
+    ///   normally buried inside a wall course is one whose bounds sit INSIDE that course whatever
+    ///   the camera does. A dump latches the head pose when the room opens; the photograph was
+    ///   taken somewhere else entirely, so an answer that depends on the pose is worth less than
+    ///   one that does not.</item>
+    /// </list>
+    ///
+    /// <para>Each question is answered with two numbers, drawing and SILENT, and the silent count
+    /// is the whole point. An occluder that is alive is doing its job. An occluder that is
+    /// <c>enabled = false</c>, deactivated, or offering no material is a piece of geometry that
+    /// WOULD cover the subject and does not — which is exactly the report.</para>
+    /// </summary>
+    private static void ReportGateCover(StringBuilder sb, int familyShort)
+    {
+        int subjectsWithSilentFront = 0;
+        int subjectsWithSilentEmbed = 0;
+        bool haveEye = _projectionKnown && _head != null;
+        Vector3 eye = _headPos;
+
+        for (int s = 0; s < GateCoverSubjects.Count; s++)
+        {
+            CoverSubject subj = GateCoverSubjects[s];
+            if (subj.R == null)
+                continue;
+
+            int frontAlive = 0;
+            int frontSilent = 0;
+            int embedAlive = 0;
+            int embedSilent = 0;
+            float nearestSilentT = float.MaxValue;
+            string nearestSilentFront = string.Empty;
+            string nearestSilentEmbed = string.Empty;
+            float nearestSilentEmbedD = float.MaxValue;
+            int subjId = subj.R.GetInstanceID();
+
+            for (int i = 0; i < GateCoverPool.Count; i++)
+            {
+                CoverCandidate cc = GateCoverPool[i];
+                if (cc.R == null || cc.R.GetInstanceID() == subjId)
+                    continue;
+                if (cc.B.size == Vector3.zero)
+                    continue;
+
+                if (cc.B.Intersects(subj.B))
+                {
+                    if (cc.Alive)
+                    {
+                        embedAlive++;
+                    }
+                    else
+                    {
+                        embedSilent++;
+                        float d = (cc.B.center - subj.B.center).magnitude;
+                        if (d < nearestSilentEmbedD)
+                        {
+                            nearestSilentEmbedD = d;
+                            nearestSilentEmbed = SafeName(cc.R);
+                        }
+                    }
+                }
+
+                if (!haveEye)
+                    continue;
+                if (!SegmentHitsBox(eye, subj.B.center, cc.B, out float t))
+                    continue;
+                if (cc.Alive)
+                {
+                    frontAlive++;
+                }
+                else
+                {
+                    frontSilent++;
+                    if (t < nearestSilentT)
+                    {
+                        nearestSilentT = t;
+                        nearestSilentFront = SafeName(cc.R);
+                    }
+                }
+            }
+
+            if (frontSilent > 0)
+                subjectsWithSilentFront++;
+            if (embedSilent > 0)
+                subjectsWithSilentEmbed++;
+
+            sb.Length = 0;
+            sb.Append("GATE COVER A[").Append(subj.Door).Append('.').Append(subj.Idx)
+              .Append("] '").Append(SafeName(subj.R)).Append("' AABB c(")
+              .Append(Fmt3(subj.B.center)).Append(") s(").Append(Fmt3(subj.B.size))
+              .Append(") — EMBEDDING, pose-independent: ").Append(embedAlive)
+              .Append(" drawing, ").Append(embedSilent).Append(" SILENT");
+            if (embedSilent > 0)
+            {
+                sb.Append(" (nearest silent '").Append(nearestSilentEmbed).Append("' at ")
+                  .Append(nearestSilentEmbedD.ToString("F2")).Append(" wu)");
+            }
+            sb.Append(" | IN FRONT, eye to centre: ");
+            if (!haveEye)
+            {
+                sb.Append("NOT TESTED — no head camera at dump time, which is an instrument gap and "
+                          + "not a finding");
+            }
+            else
+            {
+                sb.Append(frontAlive).Append(" drawing, ").Append(frontSilent).Append(" SILENT");
+                if (frontSilent > 0)
+                {
+                    sb.Append(" (nearest silent '").Append(nearestSilentFront).Append("' at t=")
+                      .Append(nearestSilentT.ToString("F2")).Append(" of the way from the eye)");
+                }
+            }
+            VRLog.Info(Scope, sb.ToString());
+        }
+
+        sb.Length = 0;
+        sb.Append("GATE COVER VERDICT — ").Append(GateCoverSubjects.Count)
+          .Append(" SUBMITTED door-prop renderer(s) tested against ").Append(GateCoverPool.Count)
+          .Append(" neighbour(s): ").Append(subjectsWithSilentEmbed)
+          .Append(" have a SILENT renderer overlapping their own AABB, ")
+          .Append(haveEye ? subjectsWithSilentFront.ToString() : "n/a")
+          .Append(" have a SILENT renderer between the eye and their centre, and the family pass "
+                  + "found ").Append(familyShort)
+          .Append(" renderer(s) ABSENT from a door prop that a sibling instance of the same "
+                  + "container has.");
+        if (GateCoverSubjects.Count == 0)
+        {
+            sb.Append(" NO SUBJECTS: not one door-prop renderer was being submitted at dump time, so "
+                      + "all three numbers are vacuous. That is an instrument that never got a "
+                      + "drawn gate to look at, NOT a falsification.");
+        }
+        else if (!haveEye)
+        {
+            sb.Append(" THE EYE HALF DID NOT RUN — no head camera at dump time. The EMBEDDING count "
+                      + "is pose-independent and still stands, but this line cannot falsify the "
+                      + "hypothesis on its own until a dump lands with a head camera.");
+        }
+        else if (subjectsWithSilentEmbed == 0 && subjectsWithSilentFront == 0 && familyShort == 0)
+        {
+            sb.Append(" ALL THREE ZERO ⇒ the 2026-08-24 hypothesis is FALSIFIED for this scene: "
+                      + "nothing belonging to the archway or the door wall is missing, disabled, "
+                      + "deactivated or material-less, and no piece of geometry that would cover a "
+                      + "drawn door-prop renderer is failing to draw. The pale rectangles are "
+                      + "therefore not an inner surface exposed by a hole — look for a renderer "
+                      + "that is drawn WHERE IT SHOULD NOT BE, not for one that is missing.");
+        }
+        else
+        {
+            sb.Append(" A NON-ZERO COUNT IS THE LEAD: the named renderer above is geometry that "
+                      + "would cover a drawn door-prop renderer and does not. Restore it before "
+                      + "looking anywhere else — and note that the doorway itself must not be made "
+                      + "to fade to achieve it (user ruling 2026-08-02, reaffirmed 2026-08-24: "
+                      + "'was ich auch besser finde').");
+        }
+        VRLog.Info(Scope, sb.ToString());
+    }
+
+    /// <summary>Is this renderer geometry that WOULD draw? See <see cref="CoverCandidate"/> on why
+    /// this is not <c>Submitted</c>.</summary>
+    private static bool IsAliveRenderer(Renderer r)
+    {
+        try
+        {
+            if (!r.enabled || !r.gameObject.activeInHierarchy)
+                return false;
+            GateCoverSlots.Clear();
+            r.GetSharedMaterials(GateCoverSlots);
+            for (int i = 0; i < GateCoverSlots.Count; i++)
+            {
+                if (GateCoverSlots[i] != null)
+                    return true;
+            }
+            return false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Slab test for the segment <paramref name="a"/> to <paramref name="b"/> against an
+    /// AABB. <paramref name="t"/> is where along the segment the box is first entered, 0 at the eye
+    /// and 1 at the subject, so a hit with t in [0,1] is a box the view ray passes through BEFORE it
+    /// arrives. A box containing the eye returns t = 0.</summary>
+    private static bool SegmentHitsBox(Vector3 a, Vector3 b, Bounds box, out float t)
+    {
+        t = 0f;
+        Vector3 d = b - a;
+        Vector3 lo = box.min;
+        Vector3 hi = box.max;
+        float tMin = 0f;
+        float tMax = 1f;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float da = d[axis];
+            float oa = a[axis];
+            if (Mathf.Abs(da) < 1e-6f)
+            {
+                if (oa < lo[axis] || oa > hi[axis])
+                    return false;
+                continue;
+            }
+            float inv = 1f / da;
+            float t1 = (lo[axis] - oa) * inv;
+            float t2 = (hi[axis] - oa) * inv;
+            if (t1 > t2)
+            {
+                (t1, t2) = (t2, t1);
+            }
+            if (t1 > tMin)
+                tMin = t1;
+            if (t2 < tMax)
+                tMax = t2;
+            if (tMin > tMax)
+                return false;
+        }
+
+        t = tMin;
+        return true;
     }
 
     /// <summary>

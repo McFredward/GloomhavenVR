@@ -386,7 +386,30 @@ internal static partial class WallSegmentFade
         /// <summary>How many enabled-only reasons a census line names.</summary>
         private const int DissolveCensusReasonCap = 6;
 
-        /// <summary>Which dissolve channel a piece currently runs on.</summary>
+        /// <summary>
+        /// Which dissolve channel a piece currently runs on.
+        ///
+        /// <para>MODBUILD 261 — THE <c>CutoffId</c> TERM WAS MISSING HERE, and it is why the
+        /// ModBuild-260 log carries 72 STILL POPPING entries naming four pieces that were
+        /// dissolving perfectly well. ModBuild 255 added <c>p.CutoffId &gt;= 0</c> to
+        /// <see cref="EnsureDissolveChannel"/>'s "already animates" gate (a cutout leaf ramps on
+        /// its own <c>_Cutoff</c>; the masonry swap was never needed for it) and to
+        /// <see cref="DriveProp"/>, <see cref="RestoreProp"/> and the Inside census — but not to
+        /// this classifier. A cutoff-only piece therefore left the evaluator with
+        /// <c>SwapChecked = true, DissolveWhy = null, NativeFade = false, SwapCopies = null</c>,
+        /// which this method read as class 3 (enabled-only) and <see cref="TallyPiece"/> then
+        /// captioned with the null-reason fallback "channel not evaluated yet (adopted while the
+        /// segment was already held faded — it gets one on the un-fade edge)". That caption
+        /// asserted a mechanism the same log falsifies on its own STEP line: <c>0 material
+        /// swap</c> and <c>0 swap removed</c> for the whole session, and
+        /// <c>[scene totals: 0 native, 0 swapped]</c> on all 108 census lines — nothing was ever
+        /// evaluated on any un-fade edge, so the four names could never leave the list and never
+        /// did, for five minutes.</para>
+        ///
+        /// <para>FALSIFIER: if a cutoff-driven piece is ever reported ENABLED-ONLY again, this
+        /// term has drifted from the evaluator's again — the two predicates must be read
+        /// together, and <see cref="TallyPiece"/> now says so in the line itself.</para>
+        /// </summary>
         private static int DissolveClassOf(MountedProp p)
         {
             if (p.Renderer == null)
@@ -395,10 +418,29 @@ internal static partial class WallSegmentFade
                 return 1;               // swapped copies (+ native ramp)
             if (p.NativeFade)
                 return 0;               // the game's own masonry fade branch
-            if (p.System != null || p.ColorId >= 0 || p.DissolveControlId >= 0)
-                return 2;               // alpha / particle / Amp-dissolve — animates already
+            if (HasOwnPropChannel(p))
+                return 2;               // alpha / cutoff / particle / Amp-dissolve — animates
             return 3;                   // enabled-only: no animation
         }
+
+        /// <summary>The four channels a <see cref="MountedProp"/> record can already animate on.
+        /// ONE definition, shared by <see cref="EnsureDissolveChannel"/> (which declines to swap
+        /// such a piece) and <see cref="DissolveClassOf"/> (which must therefore not call it a
+        /// popper) — ModBuild 261, see the note on <see cref="DissolveClassOf"/>.</summary>
+        private static bool HasOwnPropChannel(MountedProp p) =>
+            p.System != null || p.ColorId >= 0 || p.CutoffId >= 0 || p.DissolveControlId >= 0;
+
+        /// <summary>The same question asked of a bare material — the slot-0 rule
+        /// <see cref="ClassifyProp"/> uses to fill a record, so a PREDICTION for a renderer with
+        /// no record yet agrees with the record it will get. ModBuild 261: without this,
+        /// <see cref="PredictClassOfRenderer"/> promised "enabled-only" for every cutout leaf on
+        /// the <c>fade ON</c> banner.</summary>
+        private static bool MaterialOffersOwnChannel(Material? mat) =>
+            mat != null
+            && (mat.HasProperty(TintColorId) || mat.HasProperty(ColorPropId)
+                || mat.HasProperty(BaseColorId) || mat.HasProperty(CutoffId)
+                || (mat.HasProperty(ToggleDissolvePropId)
+                    && mat.HasProperty(InvisibilityControlPropId)));
 
         /// <summary>
         /// The channel a piece runs on, or — for one not yet evaluated — the channel it WILL
@@ -419,6 +461,11 @@ internal static partial class WallSegmentFade
         {
             if (r == null)
                 return -1;
+            // ModBuild 261: ask the OWN-CHANNEL question first, in the same order and by the same
+            // slot-0 rule ClassifyProp uses — EnsureDissolveChannel declines to swap such a piece,
+            // so a prediction that skipped this term could only ever contradict the record.
+            if (MaterialOffersOwnChannel(r.sharedMaterial))
+                return 2;
             _matScratch.Clear();
             r.GetSharedMaterials(_matScratch);
             if (_matScratch.Count == 0)
@@ -477,6 +524,40 @@ internal static partial class WallSegmentFade
             }
         }
 
+        /// <summary>
+        /// The reason an ENABLED-ONLY piece has no channel — and, when the evaluator recorded
+        /// none, a statement of what is actually known rather than an assertion about a mechanism
+        /// nobody watched.
+        ///
+        /// <para>MODBUILD 261. The string this replaces read "channel not evaluated yet (adopted
+        /// while the segment was already held faded — it gets one on the un-fade edge)". It was
+        /// printed 72 times in the ModBuild-260 log and it was wrong twice over: the pieces DID
+        /// have a channel (see <see cref="DissolveClassOf"/>), and the un-fade-edge evaluation it
+        /// promised never ran even once — the same log's STEP totals read <c>0 material swap</c>
+        /// / <c>0 swap removed</c> and every census read <c>[scene totals: 0 native, 0
+        /// swapped]</c>. A census line may state what it measured; it may not name a cause it
+        /// cannot see (see .planning notes on ModBuild 252's animated-end-to-end claim).</para>
+        ///
+        /// <para>Since ModBuild 261 the channel is decided on the frame a piece is ADOPTED, held
+        /// faded or not (the appliers no longer hide their evaluation behind
+        /// <c>renderer.enabled</c>), so "not evaluated yet" can only ever mean the single frame
+        /// the piece arrived. Falsifier: a piece reported with the not-yet reason on two
+        /// consecutive census lines means that move was undone.</para>
+        /// </summary>
+        private static string EnabledOnlyWhy(MountedProp p)
+        {
+            if (p.DissolveWhy != null)
+                return p.DissolveWhy;
+            return p.SwapChecked
+                ? "evaluated and given no channel, yet no reason was recorded — the evaluator and "
+                  + "DissolveClassOf disagree about what counts as a channel (ModBuild 261 fixed "
+                  + "the missing CutoffId term; this string printing again means a second term "
+                  + "has drifted apart, NOT that the piece pops)"
+                : "not evaluated yet — the channel is decided on the ADOPTION frame since "
+                  + "ModBuild 261, so this can only be the frame this segment first saw the "
+                  + "piece, never the un-fade edge";
+        }
+
         private void TallyPiece(MountedProp p, ref int native, ref int swapped, ref int own,
             ref int enabledOnly)
         {
@@ -488,12 +569,7 @@ internal static partial class WallSegmentFade
                 case 3:
                     enabledOnly++;
                     if (_dissolveWhyScratch.Count < DissolveCensusReasonCap)
-                    {
-                        _dissolveWhyScratch.Add($"'{p.Renderer.name}': "
-                            + (p.DissolveWhy ?? "channel not evaluated yet (adopted while the "
-                                + "segment was already held faded — it gets one on the un-fade "
-                                + "edge)"));
-                    }
+                        _dissolveWhyScratch.Add($"'{p.Renderer.name}': {EnabledOnlyWhy(p)}");
                     break;
             }
         }

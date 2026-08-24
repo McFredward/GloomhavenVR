@@ -37,6 +37,9 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 259: a wall run carved into per-renderer pieces decides ONCE, on the
     /// union of its pieces' coverage (see WallSegmentFade.Inside.cs, WallRun).</summary>
     internal static ConfigEntry<bool>? SplitRunUnified;
+    /// <summary>ModBuild 261: let a split-run piece that the standing-prop FLOOR arm refuses ride
+    /// its run as a PASSENGER (see WallSegmentFade.cs, SplitPieceRefusalReason).</summary>
+    internal static ConfigEntry<bool>? SplitRunAdoptGroundScenery;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -78,6 +81,20 @@ internal static class WallFadeTuning
             "with all its trees, scrub and part-walls, or it is fully there. OFF = each piece " +
             "decides alone, which is the ModBuild 258 behaviour where single trunks vanished and " +
             "part-walls stayed. Unsplit walls are unaffected either way. Live (next evaluation).");
+        SplitRunAdoptGroundScenery = config.Bind("WallFade", "SplitRunAdoptGroundScenery",
+            Defaults.SplitRunAdoptGroundScenery,
+            "The scrub, stones and low bushes standing along a split wall run carry the game's own " +
+            "wall-fade material, but the mod refuses them as floor-standing props and they stay as " +
+            "a hedge after the wall is gone (99 of 140 pieces of 'Wall 1' in the ModBuild 260 log). " +
+            "ON = those pieces ride their run's fade as PASSENGERS: they disappear with the wall, " +
+            "and they never contribute a single cell to the coverage that decides it, so WHEN a " +
+            "wall fades is bit-for-bit unchanged. Figures/actors are still refused (the FIGURE arm " +
+            "is untouched) and anything lying in the ground band is still stripped separately. " +
+            "OFF (the default) = ModBuild 260 behaviour. BLUNT BY DESIGN: it moves the WHOLE " +
+            "refused class, including low scenery the user has ruled may stay (a well, a low " +
+            "stone formation) — turn it on only to see the hedge go, and read the SPLIT-RUN " +
+            "LEFTOVER line's ALLOWED/FLOATING/OBSTRUCTING split for what it costs. " +
+            "Live (applies at the next 2s rescan).");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -251,6 +268,10 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 259 kill switch — printed live on the SPLIT RUN line, because a remedy
     /// that silently did not run has cost this project a whole build before.</summary>
     internal static bool SplitRunUnifiedOn => SplitRunUnified == null || SplitRunUnified.Value;
+    /// <summary>ModBuild 261 — shipped OFF, and printed live on the SPLIT RUN line for the same
+    /// reason as the one above: a remedy that silently did not run has cost this project a build.</summary>
+    internal static bool AdoptGroundScenery =>
+        SplitRunAdoptGroundScenery != null && SplitRunAdoptGroundScenery.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -564,6 +585,31 @@ internal static partial class WallSegmentFade
         public Transform? DoorRoot;
         public Bounds Bounds;
         public bool HasBounds;
+        /// <summary>
+        /// ModBuild 261 — WHY this segment owns no wall renderer, when that is the reason it is
+        /// boundless. Non-null ONLY for a split-run piece whose renderer was refused at the wall
+        /// choke point (<see cref="FadeDriver.CollectWallFadeInfo"/>); null everywhere else.
+        ///
+        /// <para>It exists because the ModBuild 260 log reported 99 of 'Wall 1''s 140 pieces as
+        /// "held solid by an older fail-safe" and named NO-BOUNDS as the reason. NO-BOUNDS is the
+        /// CONSEQUENCE — a refused renderer is never added to <c>Renderers</c>, so the AABB the
+        /// bounds are rebuilt from is empty. Naming the proximate cause sent four builds looking
+        /// at the wrong rule; this field carries the real one into the leftover audit.</para>
+        /// </summary>
+        public string? GeometryRefusedWhy;
+        /// <summary>
+        /// ModBuild 261 — this split-run piece is only wall geometry because
+        /// <c>[WallFade] SplitRunAdoptGroundScenery</c> stood the FLOOR arm down for it. It RIDES
+        /// its run's verdict and never contributes a cell to the coverage that decides it.
+        ///
+        /// <para>WHY A PASSENGER AND NOT A MEMBER. The union is what makes a run fade, and a bush
+        /// standing a metre inside the room would hide floor it has no business voting on — a
+        /// recruited piece that voted could make walls fade EARLIER, and the trigger would then
+        /// have changed in the same build as the population. Keeping the vote out means the
+        /// ModBuild 260 RUN FADE numbers are directly comparable with the dial in either
+        /// position, which is the only way the next log can attribute what it sees.</para>
+        /// </summary>
+        public bool RunPassenger;
 
         /// <summary>Last raw (unsmoothed) occlusion verdict and when it first held.</summary>
         public bool PendingRaw;
@@ -1668,19 +1714,39 @@ internal static partial class WallSegmentFade
                 // ROUND-12 FAIL-SAFE FORENSICS (zero ADJACENT RE-ANCHOR lines at reach 4.0
                 // — is the reach too short, or do these walls have no bounds at all?): name
                 // each fail-safe wall with its nearest-anchored-room XZ gap (or NO-BOUNDS).
+                // MODBUILD 261 — THE LINE WAS A HEAD, NOT A SAMPLE, AND THAT IS WHY IT SAT
+                // UNACTIONED FOR TWELVE ROUNDS. It named the first 10 segments in dictionary
+                // order and every one of them read NO-BOUNDS, so "the next lever" was read as
+                // "raise the re-anchor reach". The ModBuild 260 heartbeat says 127 of 175
+                // segments are fail-safe solid, and the reach cannot be the reason for a single
+                // one of them: AssociateRooms leaves RoomIndex at -1 for a BOUNDLESS segment and
+                // only ever re-anchors a segment that already has bounds. The three counts below
+                // are over the WHOLE population, so the next log states which lever exists at all
+                // — a nonzero 'beyond reach' is the only reading that makes the reach the lever.
                 var fsSb = new System.Text.StringBuilder();
-                int fsListed = 0;
+                int fsListed = 0, fsNoBounds = 0, fsBeyondReach = 0, fsWithinReach = 0;
+                int fsRefused = 0;
                 foreach (Segment s in _segments.Values)
                 {
                     if (RoomDecisionValid(s.RoomIndex) || s.DoorRoot != null)
                         continue;
-                    if (fsListed++ >= 10) { fsSb.Append(", …"); break; }
-                    if (fsSb.Length > 0)
-                        fsSb.Append(", ");
-                    string sn = s.Anchor != null ? s.Anchor.name : "<dead>";
                     if (!s.HasBounds)
                     {
-                        fsSb.Append('\'').Append(sn).Append("' NO-BOUNDS");
+                        fsNoBounds++;
+                        if (s.GeometryRefusedWhy != null)
+                            fsRefused++;
+                        // A refused split piece is boundless because it owns no renderer at all
+                        // (ModBuild 261) — it is NOT a wall the geometry pass failed on, and
+                        // lumping the two together is what made the 260 report unreadable.
+                        if (fsListed < 10)
+                        {
+                            if (fsListed++ > 0) fsSb.Append(", ");
+                            fsSb.Append('\'')
+                                .Append(s.Anchor != null ? s.Anchor.name : "<dead>")
+                                .Append(s.GeometryRefusedWhy != null
+                                    ? "' NO-RENDERER (choke-point refusal, not a bounds failure)"
+                                    : "' NO-BOUNDS");
+                        }
                         continue;
                     }
                     float bestSq = float.PositiveInfinity;
@@ -1697,13 +1763,38 @@ internal static partial class WallSegmentFade
                         if (sq < bestSq)
                             bestSq = sq;
                     }
-                    fsSb.Append('\'').Append(sn).Append("' gap ")
-                        .Append(float.IsInfinity(bestSq) ? "n/a" : Mathf.Sqrt(bestSq).ToString("F1"));
+                    if (float.IsInfinity(bestSq)
+                        || bestSq > AdjacentReanchorMaxGapWU * AdjacentReanchorMaxGapWU)
+                        fsBeyondReach++;
+                    else
+                        fsWithinReach++;
+                    if (fsListed < 10)
+                    {
+                        if (fsListed++ > 0) fsSb.Append(", ");
+                        fsSb.Append('\'')
+                            .Append(s.Anchor != null ? s.Anchor.name : "<dead>")
+                            .Append("' gap ")
+                            .Append(float.IsInfinity(bestSq)
+                                ? "n/a" : Mathf.Sqrt(bestSq).ToString("F1"));
+                    }
                 }
-                if (fsListed > 0)
-                    VRLog.Info(Name, $"FAIL-SAFE GAPS: {fsSb} (re-anchor reach "
-                        + $"{AdjacentReanchorMaxGapWU:0.0} wu — walls beyond it or without "
-                        + "bounds stay solid; the round-12 datum for the next lever).");
+                if (fsNoBounds + fsBeyondReach + fsWithinReach > 0)
+                    VRLog.Info(Name,
+                        $"FAIL-SAFE GAPS: {fsNoBounds + fsBeyondReach + fsWithinReach} segment(s) "
+                        + $"held FAIL-SAFE solid, split by the reason over the WHOLE population: "
+                        + $"{fsNoBounds} have NO BOUNDS AT ALL (AssociateRooms skips them, so the "
+                        + "re-anchor reach is not their lever and never was) — of those "
+                        + $"{fsRefused} own NO RENDERER because the wall choke point refused them "
+                        + "as floor-standing props, i.e. they are not walls at all and no wall "
+                        + "rule can move them, "
+                        + $"{fsBeyondReach} have bounds but border no decision-valid room within "
+                        + $"the {AdjacentReanchorMaxGapWU:0.0} wu reach (THIS is the only class "
+                        + "raising the reach could rescue), "
+                        + $"{fsWithinReach} have bounds and ARE within reach yet still read "
+                        + "invalid (that would be a bug in the re-anchor, and it must be zero). "
+                        + $"First {fsListed} by name: {fsSb} (round-12 datum, made honest in "
+                        + "ModBuild 261 — the old line printed only these names and every one of "
+                        + "them was NO-BOUNDS, which read as 'the reach is too short').");
 
                 string unfadeable = _censusWallsWithoutFade > 0
                     ? $"; TRIPWIRE {_censusWallsWithoutFade} cache wall(s) carry NO fade-capable "
@@ -2279,17 +2370,104 @@ internal static partial class WallSegmentFade
         /// very first frame of the fade (which would read as a pop of its own) and everything is
         /// gone before the held state begins.
         ///
-        /// <para>Derived from the renderer's instance id, which is stable for the lifetime of
-        /// the object — so a piece leaves and returns at the same point of every transition and
-        /// never flickers by re-randomising per frame. Apparance regenerating the mesh gives it
-        /// a new id and therefore a new slot, which is harmless: the slot only has to be stable
-        /// WITHIN a transition.</para>
+        /// <para>Derived from an instance id, which is stable for the lifetime of the object — so
+        /// a piece leaves and returns at the same point of every transition and never flickers by
+        /// re-randomising per frame. Apparance regenerating the mesh gives it a new id and
+        /// therefore a new slot, which is harmless: the slot only has to be stable WITHIN a
+        /// transition.</para>
+        ///
+        /// <para><b>MODBUILD 261 — THE KEY IS THE PROP UNIT, NOT THE RENDERER.</b> A conifer is
+        /// several renderers under one prop root, and a per-renderer key gave the trunk one
+        /// threshold and the needles another: the prop TEARS mid-ramp, which is the user's "die
+        /// Blätter laden nach". The key is now the prop-unit root whenever one is known, so every
+        /// renderer of one prop leaves at the same instant.</para>
+        ///
+        /// <para>THE MEMO IS READ-ONLY HERE, AND THAT IS LOAD-BEARING. This runs from
+        /// <see cref="Apply"/>, i.e. EVERY FRAME for every channel-less foliage piece.
+        /// <c>PropUnitRootOf</c> is a hierarchy climb whose per-node facts are memoised PER
+        /// COMMIT and dropped before the tick — calling it here would be a per-frame scene walk,
+        /// the defect class this subsystem has shipped three times. <c>_propUnitRootMemo</c> is
+        /// filled during the rescan and cleared by <c>BeginPropUnitScope</c>, so a lookup is O(1)
+        /// and a MISS falls back to the renderer id, which is exactly the ModBuild 260 behaviour.
+        /// </para>
+        ///
+        /// <para><b>MODBUILD 261 — THIS IS THE ONLY PLACE A STAGGER THRESHOLD IS COMPUTED.</b>
+        /// Two lanes independently moved the key from the renderer to the prop unit and each
+        /// wrote its own copy: this one, and <c>UnitStaggerThreshold</c> in
+        /// WallSegmentFade.PropUnit.cs. The arithmetic agreed; the KEY RESOLUTION did not. This
+        /// one read <see cref="_propUnitRootMemo"/> and fell back to the RENDERER id on a miss;
+        /// the other called <c>PropUnitRootOf</c> live, which always finds the root. A prop whose
+        /// pieces are split between <c>seg.Foliage</c> (this path) and <c>seg.UnitDressing</c>
+        /// (that one) therefore got TWO different thresholds whenever the memo happened not to
+        /// hold that parent — and whether it did depended on rescan order, i.e. the prop tore
+        /// INTERMITTENTLY, which is how the whole class has been reported. The duplicate is gone:
+        /// both appliers call this method, so "the two agree" is not a contract to keep, it is
+        /// the absence of a second implementation to disagree with.</para>
+        ///
+        /// <para>THE MEMO IS READ-ONLY HERE, AND THAT IS LOAD-BEARING. This runs from
+        /// <see cref="Apply"/>, i.e. EVERY FRAME for every channel-less foliage piece and every
+        /// channel-less unit-dressing piece. <c>PropUnitRootOf</c> is a hierarchy climb whose
+        /// per-node facts are memoised PER COMMIT and dropped before the tick — calling it here
+        /// would be a per-frame scene walk, the defect class this subsystem has shipped three
+        /// times. <c>WarmStaggerKeys</c> (WallSegmentFade.PropUnit.cs) resolves the parent of
+        /// every renderer in both lists at the END of the prop-unit commit phase, when both lists
+        /// are final and the per-node fact memos are still open, so every lookup here is an O(1)
+        /// dictionary hit.</para>
+        ///
+        /// <para>HOW A FUTURE EDIT THAT BREAKS THE AGREEMENT IS CAUGHT. Not by this comment.
+        /// (a) There is one implementation, so no second one can drift. (b) A memo ABSENCE — the
+        /// only remaining state in which two members of one prop can key differently — is counted
+        /// by <see cref="NoteStaggerKeyMiss"/> and printed with an <c>[ALARM]</c> on the SHOW EDGE
+        /// line; it can only become non-zero if an applier starts stagger-keying a list
+        /// <c>WarmStaggerKeys</c> does not walk. (c) The picture-side falsifier, SHOW EDGE's TORN
+        /// RETURN term, now watches BOTH lists (ModBuild 261 — it only ever saw the dressing half,
+        /// which is the half that was already right) and reads the fades off the renderers, so it
+        /// can contradict this rule outright.</para>
+        ///
+        /// <para>A memo entry whose VALUE is null is a resolved "this piece is in no prop unit",
+        /// not a miss: both lists then key on the renderer's own id and still agree.</para>
+        ///
+        /// <para>THE EVIDENCE (user, 2026-08-24, <c>wände_problem4.mp4</c>): <i>"immer wenn sie
+        /// auftaucht sieht man wie die Blätter vom Baum erst irgendwie anders geladen werden und
+        /// dann sichtbar richtig 'nachladen'"</i>. The fir at t = 25.10–25.52 s stands as a bare
+        /// twig skeleton — trunk and branch geometry drawn, needle cards absent — and at
+        /// t = 25.533 s the ENTIRE crown appears in ONE frame, in exactly the places the twigs
+        /// already were: same silhouette, same trunk shading, same texture detail. Not a material
+        /// swap (the ModBuild-260 STEP totals read <c>0 material swap</c>, <c>0 swap removed</c>
+        /// for the whole session), not a mip (a mip change blurs, it does not remove geometry),
+        /// not an LOD (an LOD change moves the branches). A VISIBILITY switch on part of a prop
+        /// while the rest of the same prop is drawn — which is what two disagreeing thresholds
+        /// look like. The spread BETWEEN props stays: it is what ModBuild 255 bought and the user
+        /// has accepted, and hashing the root rather than the renderer preserves it exactly.
+        /// </para>
         /// </summary>
-        private static float StaggerThreshold(Renderer r)
+        private float StaggerThresholdFor(Renderer r)
         {
-            // Knuth multiplicative hash on the instance id, folded to [0,1).
-            uint h = (uint)r.GetInstanceID() * 2654435761u;
+            Transform? root = StaggerRootOf(r, out bool resolved);
+            if (!resolved)
+                NoteStaggerKeyMiss(r);
+            // Knuth multiplicative hash on the key id, folded to [0.10, 0.92).
+            uint h = (uint)(root != null ? root.GetInstanceID() : r.GetInstanceID()) * 2654435761u;
             return 0.10f + (h >> 8) / (float)(1 << 24) * 0.82f;
+        }
+
+        /// <summary>The prop unit this renderer staggers with, or null when it staggers alone.
+        /// O(1): a read-only lookup in the memo <c>WarmStaggerKeys</c> filled during the commit —
+        /// see <see cref="StaggerThresholdFor"/> for why this may never resolve the root itself.
+        /// <paramref name="resolved"/> is false ONLY when the memo has no entry for the parent at
+        /// all, which is the one state in which two members of one prop can key differently; the
+        /// SHOW EDGE audit uses the same grouping so that its TORN RETURN term tests exactly the
+        /// pieces this rule claims to have kept together.</summary>
+        private Transform? StaggerRootOf(Renderer r, out bool resolved)
+        {
+            Transform? parent = r.transform.parent;
+            if (parent == null)
+            {
+                resolved = true; // nothing to group by — every path keys on the renderer's own id
+                return null;
+            }
+            resolved = _propUnitRootMemo.TryGetValue(parent, out Transform? root);
+            return resolved ? root : null;
         }
 
         private static bool IsStandingPiece(in Bounds rb)
@@ -2769,14 +2947,17 @@ internal static partial class WallSegmentFade
                     }
                     continue;
                 }
-                // Staggered: hidden once the ramp passes this piece's own threshold. The hash is
-                // the renderer's instance id, so the order is arbitrary but STABLE — a piece
-                // does not flicker by re-randomising between frames, and the same piece leaves
-                // and returns at the same point of the ramp.
-                float threshold = StaggerThreshold(f);
-                bool hide = seg.Fade >= threshold;
+                // Staggered: hidden once the ramp passes this PROP UNIT's threshold (ModBuild 261
+                // — it was the renderer's own until the conifers tore, "die Blätter laden nach").
+                // The order is arbitrary but STABLE: a piece does not flicker by re-randomising
+                // between frames, and every renderer of one prop leaves at the same instant.
+                bool hide = seg.Fade >= StaggerThresholdFor(f);
                 if (f.enabled == hide)
                     f.enabled = !hide;
+                // ModBuild 261: the TORN RETURN falsifier used to watch the unit-dressing list
+                // only — the half that was already keyed on the prop unit. The half that could
+                // disagree with it was this one, and it was invisible. Same call, same records.
+                ShowEdge(p, !hide, seg.Fade);
             }
             seg.FoliageState = want;
         }
@@ -4189,11 +4370,18 @@ internal static partial class WallSegmentFade
                     sub.RunOwner = engulfing.Key;
                     sub.FromSplitRun = true;
                     BeginRefresh(sub);
-                    if (CollectWallFadeInfo(r, sub))
+                    bool relaxG = WallFadeTuning.AdoptGroundScenery;
+                    if (CollectWallFadeInfo(r, sub, relaxG))
                     {
                         sub.Renderers.Add(r);
                         sub.Bounds = r.bounds;
                         sub.HasBounds = true;
+                        sub.RunPassenger = relaxG && IsStandingFigureProp(r);
+                    }
+                    else
+                    {
+                        sub.GeometryRefusedWhy = relaxG
+                            ? SplitPieceFigureRefusalReason : SplitPieceRefusalReason;
                     }
                     FinishRefresh(sub);
                     if (group.FromWallCache)
@@ -4393,6 +4581,39 @@ internal static partial class WallSegmentFade
         /// </summary>
         private readonly List<Segment> _splitPieceScratch = new();
 
+        /// <summary>
+        /// ModBuild 261 — the ONE way a split piece can be refused, stated once and proved here
+        /// rather than re-derived at two call sites.
+        ///
+        /// <para>PROOF OF EXHAUSTIVENESS. <see cref="CollectWallFadeInfo"/> returns false for
+        /// exactly two reasons: (a) <c>IsStandingFigureProp</c>, and (b) no shared material with
+        /// either a WallFade-family shader NAME or a live toggle. Neither split site can reach
+        /// (b): <see cref="RefreshSplitWall"/> pre-filters with <c>RendererUsesWallFade</c>, which
+        /// is the same <c>IsWallFadeShaderName</c> test the NAME arm uses, and the engulf split
+        /// only ever iterates <c>group.Renderers</c>, i.e. renderers that already returned true
+        /// from this very method earlier in the same rescan. So (a) is the whole set — and if a
+        /// future change breaks that, the leftover audit will print this string for a piece the
+        /// STANDING PROP census does not name, which is the falsifier.</para>
+        /// </summary>
+        private const string SplitPieceRefusalReason =
+            "REFUSED AS WALL GEOMETRY at the choke point — a floor-standing prop "
+            + "(WallSegmentFade.Standing.cs, FLOOR arm), so the piece owns NO renderer at all. "
+            + "Boundless is the CONSEQUENCE, not the cause: nothing was ever collected to build "
+            + "an AABB from. Relaxing the boundless fail-safe for this piece cannot move a pixel "
+            + "— it has nothing to fade. The renderer is counted in the WALL-PATH AUDIT's "
+            + "'standing-prop' class and named in the STANDING PROP census. Turn on "
+            + "[WallFade] SplitRunAdoptGroundScenery to recruit this class as run passengers";
+
+        /// <summary>The same refusal with the FLOOR arm already stood down — whatever is left is
+        /// a FIGURE or actor, which the recruitment deliberately never touches. A large count of
+        /// THIS while the dial is on would mean the hedge is figure-shaped, and that would be a
+        /// finding rather than a fix.</summary>
+        private const string SplitPieceFigureRefusalReason =
+            "REFUSED AS WALL GEOMETRY at the choke point with the FLOOR arm ALREADY STOOD DOWN "
+            + "(SplitRunAdoptGroundScenery is on) — so this is the FIGURE/actor arm, ModBuild 157, "
+            + "and it is the one arm the recruitment must never relax. The piece owns no renderer "
+            + "and no wall rule can move it";
+
         private void RefreshSplitWall(ProceduralWall wall)
         {
             _splitPieceScratch.Clear();
@@ -4411,11 +4632,21 @@ internal static partial class WallSegmentFade
                 sub.RunOwner = wall;
                 sub.FromSplitRun = true;
                 BeginRefresh(sub);
-                if (CollectWallFadeInfo(r, sub))
+                // ModBuild 261: the FLOOR arm stands down here ONLY while the dial is on, and a
+                // piece it would have refused is marked a PASSENGER — it rides the run's fade and
+                // is kept out of the union, so the trigger is unchanged in either dial position.
+                bool relaxG = WallFadeTuning.AdoptGroundScenery;
+                if (CollectWallFadeInfo(r, sub, relaxG))
                 {
                     sub.Renderers.Add(r);
                     sub.Bounds = r.bounds;
                     sub.HasBounds = true;
+                    sub.RunPassenger = relaxG && IsStandingFigureProp(r);
+                }
+                else
+                {
+                    sub.GeometryRefusedWhy = relaxG
+                        ? SplitPieceFigureRefusalReason : SplitPieceRefusalReason;
                 }
                 _claimedRenderers.Add(r);
                 _splitPieceScratch.Add(sub);
@@ -6011,6 +6242,8 @@ internal static partial class WallSegmentFade
             seg.PrevFoliage.AddRange(seg.Foliage);
             seg.Foliage.Clear();
             seg.HasBounds = false;
+            seg.GeometryRefusedWhy = null; // re-derived by the split paths every rescan
+            seg.RunPassenger = false;      // ditto — a dial turned off mid-session must not stick
             seg.VariantHigh = false;
             seg.VariantLow = false;
             seg.ToggleNative = 0;
@@ -6076,7 +6309,13 @@ internal static partial class WallSegmentFade
         /// construction (children of cache walls) — N_MRAO dresses half the scenery, and a
         /// scene-wide toggle-based adoption would claim all of it as walls.
         /// </summary>
-        private bool CollectWallFadeInfo(MeshRenderer r, Segment seg)
+        /// <param name="figureArmOnly">ModBuild 261, and ONLY ever true from the two split-run
+        /// sites while <c>[WallFade] SplitRunAdoptGroundScenery</c> is on. It swaps the guard for
+        /// <see cref="IsStandingFigureOnlyProp"/> — the FIGURE arm alone, which is the exact
+        /// substitution the foliage paths have made since ModBuild 167, not a new rule. Figures
+        /// and actors stay refused; only the plain FLOOR arm steps aside, and only for a piece
+        /// that then rides its run as a PASSENGER without ever voting on it.</param>
+        private bool CollectWallFadeInfo(MeshRenderer r, Segment seg, bool figureArmOnly = false)
         {
             // STANDING PROPS ARE NEVER WALL GEOMETRY (user report 2026-08-15, skelet.jpg —
             // the skeleton statue's skull faded with 'Wall 1' while its body stayed). This is
@@ -6088,7 +6327,7 @@ internal static partial class WallSegmentFade
             // authored-cutoff pick: the segment must not learn its wall math from a statue.
             // See WallSegmentFade.Standing.cs for the rule and why the plain figure guard is
             // not it.
-            if (IsStandingFigureProp(r))
+            if (figureArmOnly ? IsStandingFigureOnlyProp(r) : IsStandingFigureProp(r))
             {
                 NoteStandingPropBlocked(r, seg);
                 // Restitution: if this renderer was in THIS segment's list before the rule

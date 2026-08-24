@@ -225,6 +225,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogFadeWriteCensus(float now)
         {
+            EmitShowEdgeAudit(now); // ModBuild 261 — its own cadence, see below
             if (now < _nextFadeCensus)
                 return;
             _nextFadeCensus = now + FadeCensusIntervalSeconds;
@@ -557,6 +558,231 @@ internal static partial class WallSegmentFade
             }
             parts.Reverse();
             return parts.Count == 0 ? "<scene root>" : string.Join("/", parts);
+        }
+
+        // ---- SHOW EDGE AUDIT (ModBuild 261) --------------------------------------------------
+
+        /// <summary>
+        /// WHAT A PIECE LOOKS LIKE ON THE FRAME IT BECOMES VISIBLE AGAIN — read off the RENDERER
+        /// and its property block, never off the ledger that decided it.
+        ///
+        /// <para>WHY IT IS BUILT THIS WAY. ModBuild 252 shipped an instrument reporting "every
+        /// transition is animated end to end" while the dissolve was a one-frame switch, because
+        /// it watched the DRIVER. The ModBuild-260 DISSOLVE CENSUS did the same thing in the
+        /// other direction: it named four pieces as poppers that were dissolving, and captioned
+        /// them with an un-fade-edge evaluation that the same log's STEP totals
+        /// (<c>0 material swap</c>, <c>0 swap removed</c>) prove never ran. So this audit asks
+        /// only questions whose answer is a property of what will be SAMPLED this frame:</para>
+        /// <list type="number">
+        /// <item>MATERIAL — is the renderer wearing our dissolve-swap copies rather than its
+        ///   authored <c>sharedMaterials</c>? A swap copy is a different shader family and cannot
+        ///   look like the authored asset (that is the whole of the ModBuild 255 foliage
+        ///   ruling).</item>
+        /// <item>CLIP VALUE — read back with <c>Renderer.GetPropertyBlock</c>, i.e. the number the
+        ///   shader will actually clip against. Texture alpha never exceeds 1, so a piece shown
+        ///   with <c>_Cutoff ≥ 1</c> is shown discarding every texel it has: drawn, paid for, and
+        ///   contributing nothing. That is not a dissolve, it is an invisible frame with the
+        ///   piece's OTHER slots still opaque — a half-drawn object.</item>
+        /// <item>TORN RETURN — did the rest of this piece's PROP UNIT come back at a different
+        ///   fade? Both halves are read from the renderers, so this term can contradict
+        ///   <see cref="StaggerThresholdFor"/> and is the falsifier for it. Since ModBuild 261 it
+        ///   sees BOTH stagger-keyed lists — <c>seg.Foliage</c> and <c>seg.UnitDressing</c> — and
+        ///   the foliage half is the one that was previously unwatched. This is the shape of
+        ///   the report (user 2026-08-24, <c>wände_problem4.mp4</c>: a fir standing as bare twigs
+        ///   from t = 25.10 s and its whole needle crown appearing in the single frame between
+        ///   t = 25.517 s and t = 25.533 s).</item>
+        /// </list>
+        ///
+        /// <para>COST: nothing per frame. The three tests run only on the <c>false → true</c>
+        /// edge of a piece's drawing state, which happens once per piece per fade episode; the
+        /// property-block read-back is one managed call on that frame only. The line itself is
+        /// rate-limited and prints a healthy result exactly once after it becomes healthy.</para>
+        ///
+        /// <para>MULTIPLAYER: diagnostic only — it writes no renderer, no material and no wire
+        /// record.</para>
+        /// </summary>
+        private const float ShowEdgeAuditIntervalSeconds = 5f;
+
+        /// <summary>How many offenders one SHOW EDGE line names.</summary>
+        private const int ShowEdgeNameCap = 8;
+
+        /// <summary>Two members of the same prop unit returning within this much fade of each
+        /// other count as returning TOGETHER. One frame of a ramp moves the fade by well under
+        /// this, so it forgives frame granularity and nothing else.</summary>
+        private const float ShowEdgeSameReturn = 0.05f;
+
+        /// <summary>A unit's return is one episode as long as its members keep arriving inside
+        /// this window; a later arrival starts a new one.</summary>
+        private const float ShowEdgeEpisodeSeconds = 1f;
+
+        private MaterialPropertyBlock? _showEdgeMpb;
+        private readonly List<string> _showEdgeNames = new(ShowEdgeNameCap);
+        private readonly Dictionary<Transform, Vector2> _showEdgeUnitReturn = new(32);
+
+        /// <summary>Scratch for the episode-window prune below. ModBuild 261: with the foliage
+        /// list now reporting here too, the key set is every prop root in the scene rather than a
+        /// handful of dressed units, and Apparance replaces those constantly — an unpruned
+        /// Transform-keyed table would grow all session and compare a live prop against a
+        /// destroyed one. Cleared on teardown as well (WallSegmentFade.Mounted.cs).</summary>
+        private readonly List<Transform> _showEdgeStale = new(32);
+        private int _showEdgeTotal;
+        private int _showEdgeSwapped;
+        private int _showEdgeBlankClip;
+        private int _showEdgeTorn;
+        private int _showEdgeLastReported = -1;
+        private float _nextShowEdgeAudit;
+
+        /// <summary>Stagger lookups since the last SHOW EDGE line that found NO entry for the
+        /// renderer's parent in <c>_propUnitRootMemo</c>. See
+        /// <see cref="FadeDriver.StaggerThresholdFor"/>: that is the only remaining state in which
+        /// two members of one prop can key differently, and it can only arise if an applier
+        /// stagger-keys a list <c>WarmStaggerKeys</c> does not walk. This counter is the
+        /// mechanism that catches such an edit; the comment there is not.</summary>
+        private int _staggerKeyMiss;
+        private string? _staggerKeyMissFirst;
+
+        private void NoteStaggerKeyMiss(Renderer r)
+        {
+            _staggerKeyMiss++;
+            _staggerKeyMissFirst ??= r.name;
+        }
+
+        /// <summary>Track one piece's drawing state and audit the frame it turns back on.</summary>
+        private void ShowEdge(MountedProp p, bool drawing, float fade)
+        {
+            if (drawing && !p.WasDrawing)
+                AuditShowEdge(p, fade);
+            p.WasDrawing = drawing;
+            if (!drawing)
+                p.ShownAtFade = -1f;
+        }
+
+        private void AuditShowEdge(MountedProp p, float fade)
+        {
+            Renderer? r = p.Renderer;
+            if (r == null)
+                return;
+            _showEdgeTotal++;
+            p.ShownAtFade = fade;
+            string? fault = null;
+
+            // 1. MATERIAL — what this renderer will be drawn WITH, asked of the renderer.
+            if (p.SwapCopies != null)
+            {
+                _showEdgeSwapped++;
+                fault = "shown wearing our dissolve-swap copies, not its authored materials";
+            }
+
+            // 2. CLIP VALUE — read back the block that will be sampled this frame.
+            if (fault == null && p.CutoffId >= 0)
+            {
+                _showEdgeMpb ??= new MaterialPropertyBlock();
+                _showEdgeMpb.Clear();
+                r.GetPropertyBlock(_showEdgeMpb);
+                float clip = _showEdgeMpb.GetFloat(p.CutoffId);
+                if (clip >= 1f)
+                {
+                    _showEdgeBlankClip++;
+                    fault = $"shown with _Cutoff {clip:F2} (authored {p.BaseCutoff:F2}) — texture "
+                        + "alpha never exceeds 1, so every texel of this renderer is discarded "
+                        + "while its opaque slots keep drawing";
+                }
+            }
+
+            // 3. TORN RETURN — did the rest of the prop come back at a different fade?
+            // ModBuild 261: grouped by the SAME lookup the stagger rule keys on
+            // (StaggerRootOf, an O(1) memo read) rather than by a live PropUnitRootOf climb. Two
+            // reasons: this runs on an edge frame OUTSIDE the commit, where the per-node fact
+            // memos are shut and every climb is a full subtree walk — and with the foliage list
+            // now reporting here too that is hundreds of walks on one frame; and the term only
+            // means "the pieces the rule kept together did not arrive together" if it groups the
+            // way the rule groups. It stays a falsifier: both fades below are read off the
+            // renderers on their own edge frames, never off the threshold that placed them.
+            Transform? root = StaggerRootOf(r, out _);
+            if (root != null)
+            {
+                float now = Time.unscaledTime;
+                if (_showEdgeUnitReturn.TryGetValue(root, out Vector2 prev)
+                    && now - prev.y <= ShowEdgeEpisodeSeconds)
+                {
+                    if (Mathf.Abs(prev.x - fade) > ShowEdgeSameReturn)
+                    {
+                        _showEdgeTorn++;
+                        fault ??= $"its prop unit '{root.name}' returned IN PIECES — an earlier "
+                            + $"member came back at fade {prev.x:F2}, this one at {fade:F2}";
+                    }
+                }
+                else
+                {
+                    _showEdgeUnitReturn[root] = new Vector2(fade, now);
+                }
+            }
+
+            if (fault != null && _showEdgeNames.Count < ShowEdgeNameCap)
+                _showEdgeNames.Add($"'{r.name}' [{p.Tier}] at fade {fade:F2}: {fault}");
+        }
+
+        private void EmitShowEdgeAudit(float now)
+        {
+            if (now < _nextShowEdgeAudit)
+                return;
+            _nextShowEdgeAudit = now + ShowEdgeAuditIntervalSeconds;
+
+            // Drop episode records that can no longer group anything. The window is the existing
+            // ShowEdgeEpisodeSeconds — no new number — so this removes exactly what AuditShowEdge
+            // would already have ignored, and nothing it would have read. It is also what bounds
+            // the table: an Apparance-destroyed root stops being written to and leaves within one
+            // audit interval, so no dangling Transform is held for longer than that.
+            _showEdgeStale.Clear();
+            foreach (KeyValuePair<Transform, Vector2> kv in _showEdgeUnitReturn)
+            {
+                if (now - kv.Value.y > ShowEdgeEpisodeSeconds)
+                    _showEdgeStale.Add(kv.Key);
+            }
+            foreach (Transform t in _showEdgeStale)
+                _showEdgeUnitReturn.Remove(t);
+            _showEdgeStale.Clear();
+
+            int faults = _showEdgeSwapped + _showEdgeBlankClip + _showEdgeTorn;
+            if (faults == 0 && _staggerKeyMiss == 0 && _showEdgeLastReported == 0)
+            {
+                _showEdgeTotal = 0;
+                _showEdgeNames.Clear();
+                return; // healthy, and the line already said so once
+            }
+            _showEdgeLastReported = faults + _staggerKeyMiss;
+            string keys = _staggerKeyMiss > 0
+                ? $" STAGGER KEY MISS [ALARM]: {_staggerKeyMiss} lookup(s) found no prop-unit "
+                  + $"root memo entry for their parent (first '{_staggerKeyMissFirst}'). "
+                  + "WarmStaggerKeys() resolves every parent in seg.Foliage and seg.UnitDressing "
+                  + "at the end of the PropUnits commit phase, so non-zero means an applier now "
+                  + "stagger-keys a list that pass does not walk, and the two halves of one prop "
+                  + "can key differently again — which is the ModBuild-261 tear."
+                : " Stagger keys: 0 memo misses, so every piece keyed on its prop unit.";
+            string detail = faults > 0
+                ? " — " + string.Join("; ", _showEdgeNames)
+                  + (faults > _showEdgeNames.Count ? "; …" : string.Empty)
+                : " — every piece that came back came back as authored.";
+            VRLog.Info(Name,
+                $"SHOW EDGE: {_showEdgeTotal} piece(s) became visible again since the last line, "
+                + $"{faults} of them NOT as authored ({_showEdgeSwapped} wearing swap copies, "
+                + $"{_showEdgeBlankClip} shown with a clip value that discards every texel, "
+                + $"{_showEdgeTorn} whose prop unit returned in pieces). Every term is read off "
+                + "the RENDERER and its property block on the edge frame — the material it will "
+                + "be drawn with and the number the shader will clip against — never off the "
+                + "ledger that decided it (ModBuild 252 shipped a driver-side claim that "
+                + "contradicted the picture; ModBuild 260's DISSOLVE CENSUS named four dissolving "
+                + "pieces as poppers and blamed an un-fade-edge evaluation its own STEP totals "
+                + "show never ran). ZERO is the acceptance bar for the ModBuild-261 report "
+                + $"(wände_problem4.mp4, the fir's crown appearing in one frame at 25.53s).{keys}"
+                + $"{detail}");
+            _showEdgeNames.Clear();
+            _showEdgeSwapped = 0;
+            _showEdgeBlankClip = 0;
+            _showEdgeTorn = 0;
+            _showEdgeTotal = 0;
+            _staggerKeyMiss = 0;
+            _staggerKeyMissFirst = null;
         }
     }
 }

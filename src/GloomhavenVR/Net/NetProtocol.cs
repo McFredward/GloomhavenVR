@@ -416,7 +416,155 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 260;
+    public const ushort ModBuild = 261;
+    // Build 261: THE HALF-DRESSED TREE, AND THE CLASSES HE ACTUALLY ASKED FOR.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
+    // NOT THE BUILD TO TEST: the leftover classifier cannot see the two populations that decide
+    // his criterion (see below). 262 closes that; invite the test on 262.
+    //
+    // HIS ACCEPTANCE CRITERION, GIVEN IN TWO MESSAGES AND NOW THE BAR FOR THIS SUBSYSTEM:
+    //   "Ich erwarte das gesamte bereich, alle Bäume jegliches Gestrüp etc faded und direkt wieder
+    //    unfaded wenn es keine spielbaren tiles verdeckt."
+    //   "Es gibt Dinge die stehen bleiben dürfen. zB der Brunnen … oder auch dieses Steingebilde …
+    //    Ich sehe das nicht als Teil der Wand, weil es auch niedrig ist und nicht die Sicht
+    //    verdeckt. Aber es dürfen keine Elemente 'herumfliegen' weil die Wand die es gehalten hat
+    //    nicht mehr da ist. Und es muss niedrig genug sein, dass es nicht stört."
+    // THREE CLASSES, ONE ACCEPTABLE: ALLOWED (on the floor, obstructs nothing) — DEFECT FLOATING
+    // (does not reach the floor) — DEFECT OBSTRUCTING (on the floor, hides playable tiles).
+    // "0 leftovers" is RETIRED as the bar and I was wrong to have set it: a large ALLOWED
+    // population is healthy. Neither defect class needs a new constant — FLOATING is the incumbent
+    // FootBandWU every standing-prop verdict already uses, and OBSTRUCTING is "does this piece
+    // block ≥1 frustum-visible playable-tile sample", the fade trigger's own ray test.
+    //
+    // (1) THE HALF-DRESSED TREE. Video, 60 fps: 25.10-25.517 s the fir stands as a BARE BROWN TWIG
+    // SKELETON — trunk and branches drawn, needle fans absent; at 25.533 s the entire crown appears
+    // in ONE frame on exactly those twigs; at 25.900 s it vanishes again in one frame while the
+    // trunk stays. Same silhouette, same bark detail, same branch positions across both edges — so
+    // not a material swap (the log counts 0 material swap all session), not a mip (a mip blurs, it
+    // does not delete geometry), not an LOD (an LOD moves branches). It is a binary visibility
+    // switch on PART of a prop.
+    // CAUSE: the stagger that keeps everything from popping at once keyed on the RENDERER's
+    // instance id. A conifer is several renderers under one prop root, so the trunk returned at one
+    // fade and the needles at another, and the object stood half-dressed in between. The key is now
+    // the PROP-UNIT ROOT: the spread BETWEEN props survives (ModBuild 255's accepted behaviour),
+    // each prop returns whole.
+    // AND THE MERGE IS WHERE THIS NEARLY WENT WRONG. Two lanes fixed the same key independently,
+    // and only agreed on the arithmetic. The foliage path looked the root up in a memo and FELL
+    // BACK TO THE RENDERER ID on a miss; the dressing path resolved the root live. Same prop, two
+    // lists, two keys — the tear, back, intermittently, which is how the user has described this
+    // whole class of bug. The audit found a SECOND divergence vector the memo fix would not have
+    // caught: MountedProp.StaggerAt was cached on a record reused across rescans and never reset,
+    // so an Apparance rebirth (new instance id) desynchronised the two halves on its own.
+    // FIXED BY DELETION, NOT BY AGREEMENT: one implementation (StaggerThresholdFor), one key
+    // resolver (StaggerRootOf, an O(1) memo read — PropUnitRootOf is still never reachable from
+    // Apply), StaggerAt deleted, and WarmStaggerKeys resolves every Foliage and UnitDressing parent
+    // at the tail of the commit so the miss cannot occur. A miss is now COUNTED and alarms.
+    //
+    // (2) MY OWN PREMISE FOR THIS ROUND WAS FALSE. I briefed "a piece adopted while its segment was
+    // held faded gets its channel ON THE UN-FADE EDGE" — quoting our own census caption. The same
+    // log's swap counters read 0 built and 0 removed all session: no channel was evaluated on any
+    // un-fade edge in either direction. The caption asserted a mechanism nobody watched, which is
+    // the ModBuild 252 scar exactly. Its real cause was a classifier missing the CutoffId term that
+    // ModBuild 255 had added to three sibling call sites and not to it, so pieces riding a cutoff
+    // ramp perfectly well were reported as popping. There WAS a genuine late-evaluation hole in the
+    // held-faded branch (evaluation sat inside `if (renderer.enabled)`), and it is closed — but it
+    // was not what the caption said.
+    // `0 native, 0 swapped` is CORRECT for this tileset, not a defect: 993 of 3040 submitted
+    // material slots are Amp_Basic_Foliage, which carries no _WallFade_On toggle (never native) and
+    // which ModBuild 255 forbids routing through the swap (never swapped). The masonry dissolve is
+    // simply dead code in a forest scenario, which is why a per-renderer stagger key was able to
+    // become the visible defect.
+    //
+    // (3) THE 99 "HELD SOLID" ARE EMPTY SHELLS, AND BOUNDLESS IS THE SYMPTOM, NOT THE CAUSE.
+    // RefreshSplitWall creates one Segment per fade-shaded renderer and adds the renderer only if
+    // CollectWallFadeInfo accepts it; on refusal the Segment keeps an EMPTY renderer list, hence no
+    // AABB, hence RoomIndex = -1, hence "NO-BOUNDS". Both split sites pre-filter on the wall-fade
+    // shader name, so the only reachable refusal is the standing-prop FLOOR arm — and the audit
+    // counts 648 standing-prop refusals against 84+51 accepted. Relaxing the boundless fail-safe
+    // could not move a pixel: those segments own zero renderers, zero foliage, zero body.
+    // AND UNDER HIS REFINED CRITERION THE FLOOR-ARM-REFUSED CLASS IS PRECISELY WHAT MAY STAY — the
+    // Brunnen, the low stone formation. A lane had shipped an adopt-everything lever under my "0
+    // held solid" target; it was flipped back OFF when the refinement arrived.
+    // FAIL-SAFE GAPS WAS MISREAD FOR TWELVE ROUNDS: it prints the FIRST TEN segments in dictionary
+    // order out of 127, not a sample of a population. Every one reads NO-BOUNDS, which is why it
+    // read as "raise the re-anchor reach" — and the reach can rescue NONE of them, because
+    // AssociateRooms skips boundless segments before the re-anchor block runs.
+    //
+    // (4) THE ModBuild 260 UNION BOUGHT NOTHING ON THE WAY IN AND MAY COST ON THE WAY OUT.
+    // 12 ON edges, union vs widest single member: 9/8, 8/8, 11/9, 8/8, 8/8, 10/8, 7/7, 7/7, 13/13,
+    // 8/8, 12/9, 10/10 — equal on 8 of 12, mean gain 0.67 of 16 cells, and the worst single member
+    // at any ON edge was already 7/16 = 0.44 against a 0.35 bar. The union bought ZERO edges. It is
+    // monotone, so unification can only fade EARLIER, never later: the regression was never the
+    // trigger. 11 OFF edges read +0/+1/+2 cells against a 3.2-cell exit bar, which is material and
+    // is now instrumented (UnionHoldSeconds/UnionHoldWorst) rather than argued.
+    // THE LARGEST UN-FADE DELAY IS THE EXIT DWELL, and the audit corrected my number: it ships at
+    // ExitDwellMovedSeconds = 2.5 s (his live cfg holds 0.5), and ExitDwellStationarySeconds = 3.6
+    // is FLOORED AT MOVED, so lowering only stationary changes nothing. FractionTauSeconds 0.15 is
+    // a private const, not a dial, and the `tau 0.12s` in the log is FadeTauSeconds, the visual
+    // ramp — a different constant. Two dials are actionable, not three.
+    //
+    // (5) THE CLASSIFIER CANNOT SEE THE TWO POPULATIONS THAT DECIDE HIS CRITERION. It is driven off
+    // _segments filtered to FromSplitRun and consults seg.Renderers and seg.Foliage only, so it
+    // sees neither the 111 UNCLAIMED (unclaimed means no list owns it, by definition) nor the 71
+    // steady LEFTOVER renderers (they live in the mounted ledger; seg.Mounted, UnitDressing,
+    // Stacked, Body and Siblings get no class verdict at all). It also classifies ONE renderer per
+    // segment — the first drawing entry breaks both loops — so foot/top/blocked-samples describe
+    // that renderer, not the segment. For those two populations the answer is "we cannot", not "we
+    // will find out next run". THAT is why 261 is not the build to test.
+    //
+    // (6) PART OF THE 111 IS NOT A DEFECT AND NEVER WAS. LogWallPathAudit's else-if chain has NO
+    // BUCKET for water-protected renderers, and StripGroundRenderers removes them from both lists,
+    // so they land in UNCLAIMED [ALARM] by construction — documented in this repo's own words at
+    // WallSegmentFade.Water.cs:18-23, and proved live: 'CR_FR_Wall_Rocky_Verge_Bushes_02 (1)' is
+    // simultaneously UNCLAIMED [ALARM] and "STAYS WHOLE AND SOLID — water feature (user ruling
+    // 2026-08-09)", 22 times, at fades from 0.00 to 1.00. THAT IS THE BRUNNEN HE EXPRESSLY ALLOWS.
+    // And 111 is not a steady-state figure: WALL-PATH AUDIT fired THREE times, all in the first
+    // quarter of the session, and never re-armed (heartbeat-gated on a ±5 segment change).
+    // 154 → 111 is a startup transient with no follow-up measurement.
+    //
+    // (7) THE ACCEPTANCE BAR WAS DILUTING ITSELF. RestoreProp incremented the SHOW EDGE total
+    // unconditionally, outside the `if (!renderer.enabled)` guard, so every no-op restore on every
+    // restore path added to N and never to F — the more restores ran, the easier the ratio was to
+    // pass. It now increments only when the renderer was measurably not drawing before the enable.
+    //
+    // (8) HIS GATE HYPOTHESIS IS FALSIFIED, AND CLEANLY. "Wird eventuell ein Stück des
+    // Torbogens/Türmauer hier nicht richtig dargestellt?" — no. Tier A is an EXHAUSTIVE enumeration
+    // (103 walked, 103 printed, matching the six per-prop counts). Of the two on-screen door props'
+    // 23 renderers, 20 are enabled+visible+submitted with a real material at queue 2000 — frame,
+    // both leaves, both arch pieces, the lights — and the only three not submitted are the
+    // fog-of-war overlay, correctly off in a revealed hex. Nothing is disabled, unloaded or
+    // zero-material, and the mod is not a writer on any of them: their names appear in the whole
+    // 5.4 MB log ONLY inside GATE DUMP records, never in a fade, dissolve, dressing or leftover
+    // line. The archway history he remembers is real — four commits on 2026-08-02, ended by a
+    // −625-line commit citing his own rejection — and what survives is the gate column, which logs
+    // `0 renderer(s)` on every one of its edges with a matching clean release. Inert.
+    // The Door_Light plates are dead as candidates by a better argument than my aspect-ratio one:
+    // the three pale regions' centres are COLLINEAR TO 0.3 %, so they are three copies of one
+    // object on one line at one height, while the plates sit at door-local x = ±1.034 and two doors
+    // 1.72 wu apart would project FOUR blobs with a seam in the inner pair. The photo has three and
+    // the middle one is 91 px wide with no seam. Count and spacing, not shape.
+    // NEW INSTRUMENT FOR THE RELATION HE ACTUALLY DESCRIBED: every field before this described ONE
+    // renderer, and "something should lie over it" is a relation between TWO. GATE COVER prints,
+    // for every submitted door-prop renderer against all 2760 records, who EMBEDS it (AABB overlap,
+    // pose-independent) and who is IN FRONT of it (eye→centre slab test), each split DRAWING vs
+    // SILENT — where SILENT is !enabled || !activeInHierarchy || no non-null material, the three
+    // ways this codebase has actually seen geometry go dark, deliberately not !Submitted (frustum
+    // culling is not missing masonry). GATE FAMILY compares instances of the SAME prefab container
+    // against each other, which is the only test that can see a piece that was never created.
+    // Grep: GATE COVER VERDICT. Tier B's submitted cap is gone (726 DRAWN candidates were being cut
+    // silently); the one-shot hitch grows from ~24 ms to a few hundred ms, once per scene, printed.
+    //
+    // REPORTED, NOT FIXED — a third split-run creation site. AdoptShaderMatchedWalls sets
+    // FromSplitRun then calls the 2-arg CollectWallFadeInfo with no else branch, so a piece refused
+    // there gets no refusal reason and no bounds, and SweepRunLeftovers tags it as "a different
+    // defect from the 260 population" — which is false for that piece, and the line claiming a
+    // COMPLETE per-reason distribution is then wrong. Two pre-existing guard gaps confirmed
+    // reachable: ResolvePropUnit PASS 2 skips only the picked owner and per-renderer splits, so a
+    // doorway segment (Transform-anchored) and a gate column (DoorProp-anchored) are neither
+    // skipped; and CollectAdoptedSiblings skips FromWallCache and DoorRoot but a gate column is
+    // neither, and there is no IsArchProtected test in its attach loop.
+    //
     // Build 260: ONE WALL HAD BEEN SHATTERED INTO FORTY-ONE WALLS, AND EACH ONE VOTED.
     // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
     // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install. TEST THIS ONE, not 259.
