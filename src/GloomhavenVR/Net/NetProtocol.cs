@@ -416,7 +416,74 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 288;
+    public const ushort ModBuild = 289;
+    // Build 289: THE CAP CELL BECOMES A REGISTERED OBJECT INSTEAD OF A CROP OF A SWATCH.
+    // *** NEW BUNDLE: 69,615,927 bytes (was 71,023,039). IT SHRANK BY 1.4 MB. NOT DLL-only. ***
+    //   "Aber mir gefallen diese texturen ueberhaupt nicht. Die sind einheitlich und so sieht das
+    //   aus wie aus den 90'igern … So dass der button pro board immersiv dazugehoerig aussieht und
+    //   auch mehr 'Real' und nicht wie zusammengewuerfelte assets mit standard meshs
+    //   draufgeklatscht wie aktuell." — the THIRD rejection of these textures.
+    //   MY DIAGNOSIS WAS RIGHT AND IT WAS HALF THE CAUSE. I said both earlier rounds generated a
+    //   MATERIAL SWATCH where he was asking for a MADE OBJECT. THE OTHER HALF WAS IN OUR OWN
+    //   PIPELINE: cap_atlas.material_cell took a RANDOM CROP AT A RANDOM OFFSET. Whatever
+    //   registration round 2's art had did not survive that one line — REG 18.0 -> 3.7 on oak,
+    //   30.9 -> 3.8 on bronze. Better asks alone would have kept being ground back into a swatch.
+    //   THE INSTRUMENT THAT FOUND IT reports a statistic a swatch CANNOT have: REG, mean luminance
+    //   against distance-to-border, peak-to-trough, as a percent of the mean. Object-normalised,
+    //   so it is scale-free:
+    //       accepted board BACKS (oak/steel/bronze)   REG 89.8 / 57.3 / 106.6
+    //       round-2 plates as generated                    18.0 / 14.6 /  30.9
+    //       THE SHIPPED ATLAS CELLS                         3.7 /  9.9 /   3.8
+    //       NULL: a stationary noise swatch                17.4 +- 3.9
+    //       KNOWN-POSITIVE: a drawn object on that noise   68.6 / 72.4
+    //   THE SHIPPED CAP FACE CARRIED LESS BORDER STRUCTURE THAN RANDOM NOISE. And on total
+    //   contrast round 2 sat at 19.6% against the null swatch's 20.0% — it bought exactly as much
+    //   contrast as a random field, and exactly as much layout. Against the null-to-backs gap it
+    //   closed 23% on STORY and 5.7% on REG. That is why a real improvement drew the same word.
+    //   ROUND 3, same cell, 286 -> now: oak REG 6.2 -> 28.3, steel 10.3 -> 35.3, bronze 5.9 ->
+    //   23.7; total sigma 7.0 -> 15.6%, 10.3 -> 16.5%, 11.2 -> 19.3%. A cap-sized crop of an
+    //   ACCEPTED board back reads REG 13.6 / 10.6 / 9.4 at sigma 15.7 / 17.9 / 23.5%. Round 3
+    //   MATCHES THE BACKS' CONTRAST AND EXCEEDS THEIR BORDER STRUCTURE. Through the shipped chain
+    //   the whole cap renders at x2.21 / x1.63 / x1.97 the old contrast, ModBuild 286's per-board
+    //   colours are intact (min pairwise dE 17.2 -> 16.8), and cap-over-well stays 2.24 / 2.17 /
+    //   2.08 against a danger floor of 1.0.
+    //   WHAT MADE IT POSSIBLE IS STRUCTURAL: one atlas cell IS the whole button (planar UV over the
+    //   cap footprint, walls included), so the signet bands have exact known positions. The init
+    //   frame is now the MESH'S OWN ZONE GEOMETRY shaded by a dot product against BoardLit's baked
+    //   key — the first version hand-signed that and got BOTH CHAMFERS BACKWARDS.
+    //   FOUR IMAGES, THREE KEPT, ONE DISCARDED, all delivered exactly 1536x1024 and READ BACK WITH
+    //   PIL rather than assumed. Each carries both shapes, so 4 images cover 6 plates where round 2
+    //   needed 7 for 3. The discard is instructive: a LOUDER bronze field was asked for and
+    //   delivered (field contrast 7.0 -> 9.2%) while REG fell 23.7 -> 18.5 and whole-cap rendered
+    //   contrast fell 17.3 -> 15.3% with clipping 2.4 -> 7.1%. Taking it would have been round 2's
+    //   error in a new place. Prompts are VERBATIM in cap_object.PROMPTS and a manifest check
+    //   raises at import on any unaccounted plate — driven negative before it was believed.
+    //   THREE NORMAL-MAP DEFECTS, ALL THE DOUBLED EDGE, and the second is the one worth keeping:
+    //   subtracting the RADIAL band profile came out flat to +-0.001 against a height sigma of
+    //   0.024 AND THE RIDGES WERE STILL THERE — the gather tilts outward at every edge, so it is
+    //   +y at the top and -y at the bottom and a radial mean cancels it while leaving every ridge.
+    //   AN INSTRUMENT THAT AVERAGES OVER THE AXIS THE DEFECT LIVES ON AGREES WITH EVERY BROKEN
+    //   BUILD. Per-side profile now, and the relief AMOUNT is pinned to a measured 0.02376 rather
+    //   than to a gain that would have doubled the bump just because the new art has more contrast.
+    //   A FIX MEASURED AND NOT TAKEN: normalise_plate clips harder than anyone had recorded —
+    //   97.4% of oak's shipped texels reach >= 0.996 in a channel. The chroma-safe replacement is
+    //   WORSE: it collapses min pairwise dE from 17.0 to 6.8. The clipping is load-bearing. The
+    //   real lever — lower the target and raise BoardCapTint by the reciprocal — is a config round
+    //   across four tint families and their wire defaults, and it is written down, not taken.
+    //   THE BUNDLE SHRANK, against my own brief's expectation: registered art is smoother than a
+    //   photo crop, so the atlas PNGs fell 6.34 -> 4.02 MB (albedo) and 1.98 -> 1.59 MB (normal).
+    //   A KNOWN COST, STATED: one cell cannot carry both cap shapes' bands, so the round cap's
+    //   bezel drifts to plain rim material at its four diagonals. min() breaks ~74% of the square
+    //   cap's rim land and max() breaks ~38% of the round cap's bezel; cell 0 is exact for the
+    //   square and fills the round cap's never-sampled interior.
+    //   WHAT THE METRIC CANNOT SEE, stated because round 2's was not: it does not know what the
+    //   picture depicts — a rim in the wrong place scores like a rim in the right place. And the
+    //   phase-randomised surrogate null is UNINFORMATIVE here (these spectra are so red that
+    //   surrogates land at REG 27-69 by chance), so the absolute comparison carries the finding and
+    //   the z-score does not. It is printed anyway.
+    //   NO GATE NUMBER MOVED. Nothing has been on the rig: the station compiles the project's
+    //   BoardLit for OpenGL in a Linear project while the rig runs Gamma, emulated to 0.002 of 255,
+    //   but only the rig proves the bundle's D3D11 variants.
     // Build 288: THE CAPE IS A CAPE AGAIN, THE FREE HAND DISTURBS IT, AND THE GLOW STANDS DOWN
     // INSIDE THE DIORAMA. Bundle UNCHANGED at 71,023,039 — DLL-only on top of 287.
     //   "Die Klamotten skallieren leider nicht mehr richtig mit … der urspruengliche Umhang haengt

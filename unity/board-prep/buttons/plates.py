@@ -699,7 +699,7 @@ def structure_report(out_dir=OUT, bundle=None, dst=None):
         for tag, suffix in (("round 1", "_r1"), ("round 2", "")):
             path = os.path.join(out_dir, f"keycap_plate_{style}{suffix}.png")
             arr = np.asarray(Image.open(path).convert("RGB"), dtype=np.float64) / 255.0
-            norm, gain, achieved = C.normalise_plate(arr)
+            norm, gain, achieved, _spend = C.normalise_plate(arr)
             say(f"  {style:<7} {tag}  mean {arr.mean():.4f} "
                 f"rgb {arr.reshape(-1,3).mean(0).round(4).tolist()}  x gain {gain:.3f}  ->  "
                 f"mean {achieved:.4f} rgb {norm.reshape(-1,3).mean(0).round(4).tolist()}")

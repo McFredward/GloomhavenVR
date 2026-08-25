@@ -198,7 +198,7 @@ def seat_floor_engages(idle, tint=BOARD_CAP_TINT):
 def load_plate(style, plates_dir, suffix=""):
     raw = np.asarray(Image.open(os.path.join(plates_dir, f"keycap_plate_{style}{suffix}.png"))
                      .convert("RGB"), dtype=np.float64) / 255.0
-    norm, gain, achieved = C.normalise_plate(raw)
+    norm, gain, achieved, _spend = C.normalise_plate(raw)
     return raw, norm, gain, achieved
 
 

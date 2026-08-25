@@ -1049,7 +1049,12 @@ namespace GloomhavenVR
             {
                 Color top = SeatedCapColor(face);
                 Log($"{stem}: cap {w * 1000f:F1} x {h * 1000f:F1} x {thick * 1000f:F1} mm "
-                    + $"({(round ? "ROUND disc, 1 submesh" : "SQUARE, 3 submeshes")}), cell {cell}, "
+                    // The disc has had THREE submeshes since round 2 gave it the signet profile
+                    // (BuildRoundKeycap, and `mats` below is the same field/bezel/wall triple as
+                    // the square cap's). This line still said "1 submesh", which is the shape of
+                    // defect this station exists to avoid: a log that describes an earlier build
+                    // while the picture beside it is of the current one.
+                    + $"({(round ? "ROUND signet plate, 3 submeshes" : "SQUARE, 3 submeshes")}), cell {cell}, "
                     + $"face {C(top)} bevel {C(BevelTint(top))} wall {C(WallTint(top))}"
                     + (SeatFloorEngages(face) ? " [SEAT FLOOR LIFTED the face — it would have been darker than its own well]" : "")
                     + $", camera {d * 1000f:F0} mm at fov {BigFov} deg.");

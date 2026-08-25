@@ -79,9 +79,11 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 PREP = os.path.dirname(HERE)
 sys.path.insert(0, PREP)
+sys.path.insert(0, HERE)
 
 import tex_common as T          # noqa: E402
 import tex_symbols as S         # noqa: E402
+import cap_object as O          # noqa: E402  (round 3: the registered object cells)
 
 REPO = os.path.dirname(os.path.dirname(PREP))
 BUNDLE = os.path.join(REPO, "unity", "GloomhavenVR.Assets", "Assets", "Bundle", "Table")
@@ -216,6 +218,14 @@ NORMAL_STRENGTH = 26.0          # height units -> normal slope; tuned against th
 # same height units as the groove (DEPTH = 1). Small on purpose: the plate already carries
 # its grain in the albedo, and this only has to keep the surface from reading as glass.
 GRAIN_RELIEF = 0.35
+# The micro-relief's HEIGHT STANDARD DEVIATION, in the same units as DEPTH = 1. This is the
+# amplitude the ModBuild 286 chain actually produced, measured rather than chosen: 24 cells
+# (three boards x eight crops) through round 2's own `normalise_plate` -> `material_cell` ->
+# `(lum - lum.mean()) * GRAIN_RELIEF`, mean 0.02376 (oak 0.0158, steel 0.0264, bronze 0.0290).
+# Round 3 pins it instead of re-deriving it from a gain, because the registered art carries
+# roughly twice the luminance contrast of a swatch and the same GAIN would have doubled the
+# bump for a reason that has nothing to do with how rough the material is.
+GRAIN_RELIEF_STD = 0.02376
 
 # ---------------------------------------------------------------------------
 # THE LEVEL BELONGS TO THE STATE PALETTE, NOT TO THE MATERIAL
@@ -312,8 +322,12 @@ def min_feature_px(mask):
     return float(np.median(d[m]) * 2.0)
 
 
-def carve(mat, cov, cell_px):
-    """Cut `cov` into `mat`. Returns (albedo RGB in [0,1], height field)."""
+def carve(mat, cov, cell_px, band=None):
+    """Cut `cov` into `mat`. Returns (albedo RGB in [0,1], height field).
+
+    `band` is the per-texel distance-to-outline of a REGISTERED cell (`cap_object._band_coord`)
+    and is what lets the micro-relief tell a painted band from a real one -- see below.
+    """
     solid = cov >= 0.5
     rim = max(1.0, RIM_FRAC * cell_px)
     lip_w = max(1.0, LIP_FRAC * cell_px)
@@ -332,8 +346,55 @@ def carve(mat, cov, cell_px):
 
     # The MATERIAL's own micro-relief, from its luminance. Added to the height so the
     # normal map carries grain as well as the cut.
+    #
+    # IT IS THE HIGH-PASS, AND ROUND 3 IS WHY. This used to be `lum - lum.mean()`, i.e. the
+    # WHOLE luminance deviation. On a swatch that is the same thing -- a swatch has almost no
+    # low-frequency content, which is exactly what "einheitlich" meant. On a REGISTERED plate it
+    # is not: the rim land is a broad bright band, and feeding that straight into the height
+    # field builds a second, painted bevel in the normal map sitting on top of the real 45 deg
+    # geometry the mesh already has. That is the doubled edge, authored by the pipeline rather
+    # than by the model. A low-frequency albedo band is a difference in MATERIAL, not in HEIGHT;
+    # only the grain is relief.
+    #
+    # AND A HIGH-PASS IS NOT ENOUGH, WHICH IS THE HALF THAT HAD TO BE MEASURED TWICE. A band
+    # EDGE is a step, and a step has energy at every frequency -- so high-passing at cell/16
+    # and then again at cell/48 left the rim's and the chamfer's edges in the height field
+    # both times, and the rendered normal map showed exactly the doubled bevel this was
+    # supposed to prevent (`_scratch/oak_n1`: four bright/dark ridge pairs tracking the four
+    # band boundaries). The fix is to remove the thing by NAME rather than by frequency:
+    # subtract the cell's own RADIAL BAND PROFILE, which is by construction everything that is
+    # a pure function of distance-to-outline, and take the relief from what is left. Whatever
+    # the registration painted cannot survive that subtraction; whatever the MATERIAL did is
+    # untouched by it.
+    #
+    # AND THE PROFILE IS TAKEN PER SIDE, WHICH IS THE THIRD ATTEMPT AND THE ONE THAT WORKS. A
+    # single RADIAL profile came out flat to +-0.001 against a height sigma of 0.024 -- and the
+    # rendered normal map still showed four ridge pairs tracking the four band boundaries. Both
+    # were true: the gather tilts the surface OUTWARD at every edge, so the artefact is +y at
+    # the top and -y at the bottom and a radial mean cancels it exactly while leaving every
+    # ridge in place. An instrument that averages over the axis the defect lives on agrees with
+    # every broken build. Per side, the profile sees it.
     lum = mat.mean(axis=2)
-    micro = (lum - lum.mean()) * GRAIN_RELIEF
+    if band is not None:
+        b, side = band
+        nb, ns = 96, int(side.max()) + 1
+        idx = (np.clip((np.clip(b, 0.0, 0.5) / 0.5 * nb).astype(int), 0, nb - 1)
+               + nb * side.astype(int))
+        n = nb * ns
+        cnt = np.bincount(idx.ravel(), minlength=n).astype(np.float64)
+        tot = np.bincount(idx.ravel(), weights=lum.ravel(), minlength=n)
+        prof = np.where(cnt > 0, tot / np.maximum(cnt, 1.0), float(lum.mean()))
+        flat = lum - prof[idx]
+    else:
+        flat = lum - lum.mean()
+    micro = flat - T.box_blur(flat, max(1, cell_px // 48))
+    # THE RELIEF AMOUNT IS PINNED, NOT INHERITED. `GRAIN_RELIEF` was a GAIN on the plate's own
+    # luminance deviation, so a plate with more contrast automatically got more bump -- and
+    # round 3's registered art has roughly twice round 2's. Pinning the standard deviation
+    # instead means the surface's relief is the SHIPPED relief and the only thing that changed
+    # this round is the albedo, which is the one variable under test.
+    s = float(micro.std())
+    micro = micro * (GRAIN_RELIEF_STD / s) if s > 1e-9 else micro
 
     # AMBIENT OCCLUSION, at three radii, exactly as the board's own compositor does it --
     # and this is the term that makes the symbol readable at all, because the specular on a
@@ -346,29 +407,75 @@ def carve(mat, cov, cell_px):
     return alb, height + micro
 
 
-def normalise_plate(plate, target=GRAIN_TARGET_LUM):
-    """Re-base a plate's mean luminance to `target`, uniformly in RGB, with a soft top end.
+def _knee(x):
+    """Linear below KNEE; above it an exponential approach to 1.0 that never reaches it."""
+    return np.where(x <= KNEE, x,
+                    KNEE + (1.0 - KNEE) * (1.0 - np.exp(-(x - KNEE) / (1.0 - KNEE))))
+
+
+def normalise_plate(plate, target=GRAIN_TARGET_LUM, mask=None):
+    """Re-base a plate's mean luminance to `target` with a soft top end and NO clipping.
 
     Returns (normalised, gain, achieved_mean). The gain is SOLVED rather than computed in one
     step because the knee is non-linear: applying `target / mean` once and stopping would
     undershoot and leave the caps darker than intended, which is the very thing this function
-    exists to prevent.
+    exists to prevent. `mask` restricts the mean the solve targets (round 3 aims it at the
+    recessed FIELD, because the FACE is submesh [0] and samples only the field).
+
+    THE COMPRESSION STAYS PER CHANNEL, AND ROUND 3 TRIED TO CHANGE THAT AND MEASURED THAT IT
+    SHOULD NOT. The knee and the final clip do distort hue -- badly:
+
+        texels at >= 0.996 in ANY channel, SHIPPED ModBuild 286 atlases, Confirm cell
+            oak 97.4 %      steel 0.35 %      bronze 36.3 %
+        per-channel contrast of oak's field, same cell
+            R 4.70 %        G 8.63 %          B 22.30 %
+
+    So oak's modulator is very nearly a CONSTANT in its own brightest channel, and what
+    structure it has lives in the channel the warm state colour attenuates most. The obvious
+    correction is to compress each texel's BRIGHTEST channel and scale the other two with it:
+    hue ratios then exact, nothing clipped at all. It was built, and it is worse, because a
+    modulator's mean and its saturation trade off directly and there is no way round it -- a
+    warm plate whose channels sit near (1.00, 0.75, 0.45) of its own maximum cannot have a mean
+    luminance above 0.73 with its brightest channel under 1. Measured through the whole shipped
+    chain (`_scratch/spend_ab`, rendered face = plate x idle x BoardCapTint x shade):
+
+        chroma spent   rendered sigma oak/steel/bronze     min pairwise dE
+        shipped         8.04 / 11.04 /  9.82                    17.0
+        0 % (exact)     7.48 /  8.35 /  3.69                    13.7   (oak 19 % darker)
+        50 %            4.26 /  9.46 /  5.48                    15.8
+        100 % (grey)   13.79 / 10.77 / 10.99                     6.8
+
+    A greyscale modulator wins the contrast handsomely and collapses the per-board separation
+    ModBuild 286 solved for -- oak's rendered chroma falls from C* 15.3 to 3.5 and oak-steel dE
+    from 21.6 to 6.8 -- because with a neutral plate the boards differ only by their idle
+    colour, and those were solved WITH the plates' casts in the product. The clipping is
+    therefore load-bearing: it is what lets a warm plate reach 0.837 while keeping a cast.
+
+    It is left exactly as it shipped, and the numbers above are recorded so the next round does
+    not rediscover the trade. The lever that would actually free this is to lower the
+    modulator's target and raise `[ButtonColors] BoardCapTint` by the reciprocal -- the product
+    is unchanged, so nothing renders differently, and the texture gets its headroom back. That
+    is four tint families x three channels in `Defaults`, the wire defaults that mirror them,
+    and `KeycapGrain` itself for the caps that do not use a board atlas; it is a config round,
+    not a texture round, and it is out of this lane.
     """
-    base = float(plate.mean())
+    m = np.ones(plate.shape[:2], dtype=bool) if mask is None else mask
+    base = float(plate.mean(axis=2)[m].mean())
     if base <= 1e-6:
-        return plate, 1.0, base
+        return plate, 1.0, base, 0.0
     gain = target / base
     out = plate
-    for _ in range(NORM_ITERS):
-        x = plate * gain
-        # Linear below the knee; above it, an exponential approach to 1.0 that never clips.
-        out = np.where(x <= KNEE, x,
-                       KNEE + (1.0 - KNEE) * (1.0 - np.exp(-(x - KNEE) / (1.0 - KNEE))))
-        got = float(out.mean())
+    got = base
+    for _ in range(2 * NORM_ITERS):
+        out = _knee(plate * gain)
+        got = float(out.mean(axis=2)[m].mean())
         if abs(got - target) < 1e-4:
             break
         gain *= target / max(got, 1e-6)
-    return np.clip(out, 0.0, 1.0), gain, float(out.mean())
+    out = np.clip(out, 0.0, 1.0)
+    q = (out * 255.0 + 0.5).astype(np.uint8)
+    clipped = float((q >= 255).any(axis=2)[m].mean())
+    return out, gain, got, clipped
 
 
 def material_cell(plate, cell_px, rng):
@@ -393,13 +500,52 @@ def material_cell(plate, cell_px, rng):
     return crop
 
 
-def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, report=True):
+# Which cells wear the ROUND signet plate. `RestControls` builds the two rest pads with
+# `round: round`, and every other cap in the mod is boxy (`PlayTray.1.Core` builds the
+# follow/pin toggle with `boxy: true`), so these two are the whole list. If a third round
+# control ever appears it belongs here and in nothing else.
+ROUND_CELLS = {5, 6}
+
+
+def cell_band(style, cellkind, cell_px):
+    """`(b, side)` for a registered cell, or None for an unregistered one.
+
+    `b` is the distance to the cap's outline in units of the cap's SHORT side; `side` names
+    WHICH edge is nearest (0 top, 1 bottom, 2 left, 3 right; one class for a round cell, whose
+    bands really are annuli). `carve` subtracts the per-side profile of the cell's own
+    luminance before it takes any relief, so nothing the registration painted can become a
+    second bevel on top of the real one.
+    """
+    if cellkind is None:
+        return None
+    ys = np.broadcast_to(((np.arange(cell_px) + 0.5) / cell_px)[:, None], (cell_px, cell_px))
+    xs = np.broadcast_to(((np.arange(cell_px) + 0.5) / cell_px)[None, :], (cell_px, cell_px))
+    if cellkind == "round":
+        b = 0.5 - np.sqrt((ys - 0.5) ** 2 + (xs - 0.5) ** 2)
+        return b, np.zeros((cell_px, cell_px), dtype=np.int64)
+    su, sv = O.aspect(style)
+    b, vertical = O._band_coord(cell_px, su, sv)
+    side = np.where(vertical, np.where(ys < 0.5, 0, 1), np.where(xs < 0.5, 2, 3))
+    return b, side.astype(np.int64)
+
+
+def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, report=True,
+                objects=True):
     cols, rows = GRID
     atlas_px = (cols * cell_px, rows * cell_px)
+
+    art = None
+    if objects:
+        # ROUND 3: the cell is not a crop of a material any more, it is a REGISTERED PICTURE OF
+        # THE BUTTON. See cap_object.py for the measurement that forced the change -- the
+        # shipped cells carried LESS border structure than a random noise field, and half of
+        # that was `material_cell` cropping the registration out of whatever the plate had.
+        art, obj_gain, obj_base, obj_got, obj_spend = O.normalised_cells(style, cell_px)
+
     plate_path = os.path.join(plates_dir, f"keycap_plate_{style}.png")
     plate_img = Image.open(plate_path).convert("RGB")
     raw = np.asarray(plate_img, dtype=np.float64) / 255.0
-    plate, gain, achieved = normalise_plate(raw)
+    plate, gain, achieved, _plate_clip = normalise_plate(raw)
     # A STABLE SEED, and the first version of this line was not one. It read
     # `abs(hash(style)) % 2**31`, and Python randomises str hashing per process (PYTHONHASHSEED),
     # so every re-run drew DIFFERENT material crops -- the atlas was not reproducible from its own
@@ -417,7 +563,21 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
         for c in range(cols):
             idx = r * cols + c
             spec = by_idx.get(idx, dict(idx=idx, role=f"reserved{idx}", src=None, layout="plain"))
-            mat = material_cell(plate, cell_px, rng)
+            if art is not None:
+                # Cell 0 is the one EVERY cap's bevel ring and side walls sample
+                # (`PlayTray.7.Nested.cs` gives submeshes [1] and [2] `CapRole.Plain`), so it
+                # gets the bezel build; cells 5 and 6 are the round rest pads; everything else
+                # is a square cap's face. `rng` is still drawn from once per cell so the seed
+                # stream -- and therefore every OTHER cell -- is unchanged by this branch.
+                cellkind = "bezel" if idx == 0 else ("round" if idx in ROUND_CELLS
+                                                    else "square")
+                seed = int(rng.integers(0, 2 ** 31))
+                mat = np.clip(art[cellkind]
+                              * O.field_jitter(cell_px, seed, style, cellkind)[..., None],
+                              0.0, 1.0)
+            else:
+                cellkind = None
+                mat = material_cell(plate, cell_px, rng)
             cov = np.zeros((cell_px, cell_px), dtype=np.float64)
             src_note = "plain"
             if spec["src"] is not None:
@@ -432,7 +592,7 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
                     cov = place(mask, cell_px, size, cy)
                     src_note = (f"{kind}:{key} minlimb {min_feature_px(mask):.1f}px src "
                                 f"-> {min_feature_px(cov >= 0.5):.1f}px cell")
-            a, h = carve(mat, cov, cell_px)
+            a, h = carve(mat, cov, cell_px, band=cell_band(style, cellkind, cell_px))
             y0, x0 = r * cell_px, c * cell_px
             alb[y0:y0 + cell_px, x0:x0 + cell_px] = a
             hgt[y0:y0 + cell_px, x0:x0 + cell_px] = h
@@ -470,6 +630,17 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
     if report:
         print(f"\n{style}: plate {plate_img.size} -> atlas {atlas_px[0]}x{atlas_px[1]} "
               f"({cols}x{rows} cells of {cell_px})")
+        if art is not None:
+            print(f"    ROUND 3 OBJECT CELLS: registered from "
+                  f"{O.GENERATED[style]} -- cell 0 bezel (every cap's bevel + walls), "
+                  f"cells {sorted(ROUND_CELLS)} round, the rest square")
+            print(f"    level re-based ON THE FIELD: field mean {obj_base:.3f} x gain "
+                  f"{obj_gain:.2f} -> {obj_got:.3f} (target {GRAIN_TARGET_LUM:.3f}); the FACE "
+                  f"is submesh [0] and samples only the field, so the field is what the "
+                  f"cap-to-well ratio turns on")
+            print(f"    field texels clipped in at least one channel: {obj_spend * 100:.1f} % "
+                  f"-- the price of a warm modulator at mean {GRAIN_TARGET_LUM:.3f}; see "
+                  f"normalise_plate for the measured trade and the lever that would free it")
         print(f"    level re-based: plate mean {raw.mean():.3f} x gain {gain:.2f} -> "
               f"{achieved:.3f} (target {GRAIN_TARGET_LUM:.3f}, the shipped KeycapGrain's) — "
               "a keycap texture MODULATES the state colour, so the LEVEL is not the board's to "
@@ -518,6 +689,9 @@ def main():
     ap.add_argument("--out", default=BUNDLE)
     ap.add_argument("--styles", nargs="*", default=list(STYLE_FILES))
     ap.add_argument("--json", default=None, help="write a machine-readable build record here")
+    ap.add_argument("--no-objects", action="store_true",
+                    help="build from the round-2 material plates instead of the round-3 "
+                         "registered object cells (the A/B control for every sheet)")
     args = ap.parse_args()
 
     print(f"symbol sheet: {args.sheet}")
@@ -535,7 +709,7 @@ def main():
     recs = []
     for style in args.styles:
         recs.append(build_style(style, args.cell, sheet_masks, args.motifs, args.plates,
-                                args.out))
+                                args.out, objects=not args.no_objects))
         write_meta(args.out, STYLE_FILES[style], BUNDLE)
     print(f"\nmip guard: {MARGIN_NOTE}")
     if args.json:
