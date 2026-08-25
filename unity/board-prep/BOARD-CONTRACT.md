@@ -77,8 +77,22 @@ generated decorative image is stamped, in UV space, so the texture lane never gu
 
 ## Textures
 
-Three 2048² maps per board, names unchanged: `<base>_albedo.png`, `<base>_normal.png`, and
-`PlayTray_mr.png`-style packed metallic/roughness where a board has one.
+Three 2048² maps per board: `<base>_albedo.png`, `<base>_normal.png` and `<base>_mrs.png`.
+
+**THE PACKED MAP IS `_mrs`, NOT `_mr`, AND THE DIFFERENCE IS NOT COSMETIC.** The shipped shader
+(`Assets/Bundle/Table/BoardLit.shader`) reads `_MRSMap` as **R = metallic, G = roughness**, B
+unused. The pipeline's own intermediate `<base>_mr.png` is glTF ORM — R = occlusion, G = roughness,
+**B = metallic** — which is what `tex_render.py`'s Principled BSDF binds. Feeding the ORM map
+straight to `_MRSMap` reads OCCLUSION (≈0.97 everywhere) as metallic and makes every board fully
+metal. Repack before installing; `unity/hand-prep/pack_mrs.py` documents the same packing for the
+hands. The pack is LINEAR data — `BuildBoard.ImportAsLinearData` forces sRGB off on the importer.
+
+**A BOARD WITHOUT AN `_mrs.png` HAS NO SPECULAR AT ALL.** `_SpecStrength` defaults to 0 and the
+shader's specular branch then does not execute. That is the opt-in, and it is also how this went
+wrong for four rounds: the pipeline authored metallic and roughness, every render bound them, and
+the shipped material bound neither — steel is 99.3 % metallic in the map and rendered as white
+plaster in game. Judge material through `Editor/PreviewBoard.cs`, which renders the real prefab
+through the real shader, NOT through a Principled BSDF.
 
 - Bases are PROCEDURAL (wood grain / brushed steel / patinated bronze). No AI for material bases.
 - AI (`gpt-image-2`) is for **decorative symbols only**, generated on a flat neutral field, stamped
@@ -95,6 +109,19 @@ Three 2048² maps per board, names unchanged: `<base>_albedo.png`, `<base>_norma
 
 A render is not optional and not a formality: LOOK at it and say what you see. This project has a
 standing lesson that a preview station aimed at nothing renders happily.
+
+**AND FOR MATERIAL, THE BLENDER RENDERS ARE NOT THE SHIPPED THING.** `gen_render.py` is ~2 stops
+overexposed and `tex_render.py` binds a Principled BSDF the game does not run. The only picture of
+what the player sees comes out of the assembler:
+
+    BOARD_PREVIEW_OUT=<dir> xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode \
+        -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+        -executeMethod GloomhavenVR.BoardPreview.RenderAll -logFile board-preview.log
+
+It opens the BUILT bundle at the paths `VRCardFactory` asks for, dumps every anchor, seat extent
+and material binding at F5, replays the user's live `AssetOffset`/`AssetPitch` dials against the
+mesh, and renders through `BoardLit`. Read its header before trusting any of its output: the
+bundle pass draws MAGENTA on Linux and that is a viewer artifact, not a broken bundle.
 
 ## What is NOT in scope
 The bundle rebuild changes `gloomhavenvr.bundle`, which has been byte-identical since ModBuild 250
