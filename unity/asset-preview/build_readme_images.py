@@ -170,12 +170,16 @@ strip(['board_oak', 'board_steel', 'board_bronze'], 'styles-boards.png', pad=0.0
 # Mask_2 = Grimhorn (Loc.cs:1018-1020). Boards: PlayTray_9capjqp6 = STEEL,
 # PlayTray_16vm268h = BRONZE, PlayTray_prepped = OAK (BoardFrame.cs:68-69) — they swap easily,
 # and have been swapped once; check the source, not the look of the render.
+#
+# BOARDS ARE OAK, STEEL, BRONZE (user, 2026-08-25) — and the matrix row disagreed with the
+# strip above it, which has always been oak/steel/bronze. Both now read the same way, so the
+# two images cannot tell different stories about the same three assets.
 styles_matrix([[('hand_glove.png', 'Leather glove'), ('hand_plate.png', 'Plate gauntlet'),
                 ('hand_arcane.png', 'Arcane glove')],
                [('mask_2.png', 'Grimhorn'), ('mask_0.png', 'Ironwatch'),
                 ('mask_1.png', 'Runeveil')],
-               [('board_steel.png', 'Steel'), ('board_bronze.png', 'Bronze'),
-                ('board_oak.png', 'Oak')]], 'styles.png')
+               [('board_oak.png', 'Oak'), ('board_steel.png', 'Steel'),
+                ('board_bronze.png', 'Bronze')]], 'styles.png')
 logo()
 poster('card-fan.mp4', 'card-fan-poster.jpg', '0:05')
 poster('figure-grab.mp4', 'figure-grab-poster.jpg', '0:06')
