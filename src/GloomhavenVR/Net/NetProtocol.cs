@@ -416,7 +416,95 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 292;
+    public const ushort ModBuild = 293;
+    // Build 293: THE NOISE WAS A SLOPE, THE CAPTIONS WERE INSIDE THE BOARD, AND THE BOX ADMITS ITS
+    // OWN ERROR.
+    // *** NEW BUNDLE: 69,536,022 bytes (was 69,614,726). NOT DLL-only. ***
+    //
+    //   1. THE BUTTONS ARE "EXTREM RAU ... FAST WIE NOISE" — AND MY HYPOTHESIS WAS WRONG.
+    //   I blamed round 5's field-contrast rise (4.12 -> 10.69 % on oak) and proposed attenuating it.
+    //   THE NEW INSTRUMENT SAID NO BEFORE ANYTHING WAS CHANGED. cap_rough.py measures cap-vs-board
+    //   grain contrast at a Quest 3's 2.4 px/mm, band-passed to the 1.5-6 screen-pixel octave:
+    //       ALBEDO        0.93x / 1.03x / 1.51x of each cap's own board
+    //       NORMAL RELIEF 15.9x / 45.5x / 53.7x
+    //   Oak - the one he named as worst - was ALREADY BELOW ITS BAR on albedo. Undoing round 5's
+    //   colour would have cost the colour and bought nothing.
+    //   THE CAUSE IS ONE FACTOR OF A PRODUCT, AGAIN. GRAIN_RELIEF_STD pins the relief's HEIGHT; a
+    //   normal map carries its GRADIENT. The art's grain FREQUENCY rose between 286 and 289, so the
+    //   slope rose with it while the pinned height read as unchanged. GRAIN_RELIEF_SLOPE (per board,
+    //   solved) pins the Sobel gradient the shader actually consumes.
+    //   Combined cap-vs-board ratios: square 5.16 -> 0.93 / 7.61 -> 1.00 / 10.36 -> 1.26; round
+    //   4.64 -> 0.84 / 8.73 -> 1.19 / 8.26 -> 0.87. Two of twelve still sit above 1.00 and were
+    //   left there rather than flatten the material.
+    //   A STRUCTURAL TERM NOBODY HAD NAMED: the cap stores its material at 3.3-4.9x the board's
+    //   TEXEL DENSITY, so its grain lands higher in frequency at the same distance whatever the
+    //   contrast. That is why the albedo remedy is a low-pass at the board's own resolution limit
+    //   and not a contrast cut.
+    //   AND THE REASON FOUR ROUNDS COULD ARGUE ABOUT THIS WITHOUT SEEING IT: rounds 4 and 5 rendered
+    //   every preview WITHOUT the cap's _BumpMap. Every picture those rounds compared had the noisy
+    //   term switched off. cap_onboard.py had also never placed a ROUND cap at all, so the two rest
+    //   discs appeared in no on-board render before this round.
+    //   COLOUR HOLDS: oak's albedo is byte-identical to round 5 in every cell but the new one;
+    //   cap-vs-board hue error -1.3 / +7.5 / +3.3 deg, cap-to-cap 14.54 / 13.68 / 7.91.
+    //
+    //   2. "DIE RUNDEN BUTTONS TRAGEN EINE VIERECKIGE TEXTUR" — right symptom, wrong location.
+    //   The round cap's own FIELD cells were always round-registered. It is CELL 0, the shared plain
+    //   cell every cap's bezel and wall submeshes take, that is square-registered. This directory
+    //   had already recorded that as an accepted cost — and the atlas has SEVEN SPARE CELLS, so it
+    //   never had to be one. Cell 9 = CapRole.PlainRound. Round 4's winding fix does reach what
+    //   renders (positive signed volume on all three round submeshes); the empty seat in
+    //   noisy_buttons.jpg is the Confirm seat, not a rest pad.
+    //
+    //   3. "LANGE RAST"/"KURZE RAST" ALREADY SHIPPED IN ModBuild 281, IN GERMAN, AND WERE INVISIBLE.
+    //   _shortCaption/_longCaption were seated 0.8 mm proud of an anchor that sits on the rest pad's
+    //   RECESS FLOOR, then carried 46-53 mm out of that recess onto a panel 3.6-4.0 mm prouder —
+    //   i.e. 2.8-3.2 mm INSIDE THE OPAQUE BOARD. A depth-rejected transparent mesh is ABSENT, not
+    //   dim, which is why every state probe called them healthy. 'RUNDE 1' renders only because it
+    //   is the one engraving with a depth dial and the user had already tuned it negative on all
+    //   three boards. They do NOT ride CapLabelMaxBytes — each peer builds them from its own Loc.
+    //   Two per-board dials added, [Cards] {Short,Long}RestCaptionOffset_{board}, step 1 mm through
+    //   the real resolver. Two latent bugs found on the way: the peer mirror's follow caption
+    //   discarded its mount's -5 mm and sat 5 mm deeper than the owner's, and every engraving was
+    //   built on layer 0 while the rest of the board is on the mod layer.
+    //
+    //   4. THE BOSS BAR: MY HEAD-ANCHORED RULE WOULD HAVE BURIED THE DRAKES.
+    //   ModBuild 291's resample worked — the boss went 2.39 -> 6.00 wu and its box 2.37 -> 6.84 —
+    //   but the box top is not the head: head joint 3.41 against a top of 5.55, so the bar cleared
+    //   the wings and was clamped at 6.0. I proposed min(headJoint + clearance, boxTop + 12%).
+    //   THE SAME LOG REFUTES IT: SpittingDrakeID's head joint is at 0.57 under a box top of 1.52 —
+    //   37 %. A drake holds its head DOWN and its back UP, so that rule would have moved it 1.70 ->
+    //   0.76, INTO ITS BACK, reproducing the boss defect on the figures the user ALSO called wrong
+    //   ("die Health-Bar von ALLEN Drachen ist falsch" — my brief wrongly said he had not).
+    //   WHAT SHIPPED IS THE BOX'S OWN ADMITTED ERROR: 1.29 wu of the boss's box lies BELOW the floor
+    //   it stands on, so the same slack is subtracted from the top. Head joint demoted to a floor
+    //   (never binds on any of the five). Boss 6.00 -> 4.77; both rules agree on the boss to 0.03 wu
+    //   and only this one leaves the drakes alone. Brute 2.54 -> 2.14, Mindthief 1.41 -> 1.15,
+    //   Spitting 1.70 -> 1.66, Rending 1.33 -> 1.25. Nothing clamped. The heroes' 16-18 % drop is
+    //   the quantified regression risk and it is exactly the slack their own boxes admit.
+    //   ALSO: the resample's ATTRIBUTION was wrong. The renderer census is BIT-IDENTICAL across the
+    //   boss's two samples (5 of 36, 2 disabled) while the bounds grew 2.89x — nothing streamed in,
+    //   the figure was rescaled or re-posed. The latch never fired for animated figures
+    //   (Mathf.Approximately against breathing bounds; the Brute wrote 7 of the 16 anchor lines).
+    //   The "bounds top is the WINGS" story was MY inference and nothing measures it.
+    //
+    //   5. THE BOSS GRAB: the game gives ElderDrakeID an ordinary CapsuleCollider, world y
+    //   0.00..2.00, size (1,2,1) — it covers 30 % of a body that spans -1.22..5.50, and its top sits
+    //   3.50 wu below the drawn top. Everything above y=2 was unreachable ("muss es am unteren
+    //   Bereich tun").
+    //   THE FIELD I SAID WOULD DECIDE THE FIX DOES NOT DECIDE IT: the instrument printed a COUNT
+    //   ("1 under CInteractableActor and 4 under the actor root"), not what those colliders ARE. 4
+    //   is equally consistent with four body volumes and four aggro triggers, so electing across
+    //   them was refused. A mod-owned capsule copies the game capsule's radius, axis and XZ centre
+    //   and is TALLER ONLY, built only where the gap exceeds 5 % of the figure — of the five figures
+    //   in the log ONLY ElderDrakeID gets one (gaps: Brute -0.06, Mindthief -0.47, Spitting -0.52,
+    //   Rending -0.88, Elder +2.28). PickRadiusRealMeters untouched; that rejection stands and the
+    //   card fan is measured in the same number.
+    //   AND THE INSTRUMENT WAS ASSERTING A CAUSE IT COULD NOT OBSERVE: REACHED AND MISSED fired 192
+    //   times, NONE naming the boss, nearest figure 406-2424 mm away at a 40 mm pick radius — and
+    //   190 of them printed "a pinch above the collider can NEVER elect this figure" about a hand
+    //   two metres from the board. It is gated on the hand reaching the figure's drawn surface now,
+    //   and suppressed pulls are counted rather than discarded.
+    //
     // Build 292: WINDOWS BLOW AWAY INTO PARTICLES AND REASSEMBLE.
     // *** NEW BUNDLE: 69,614,726 bytes (was 69,613,225). NOT DLL-only — it carries a new shader. ***
     //   "Ich moechte nicht mehr, dass die Fenster einfach aufploppen und urploetzlich wieder von
