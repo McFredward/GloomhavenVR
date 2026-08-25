@@ -58,14 +58,22 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// während dem skallieren alles intakt bleibt, inklusive der Reaktion. Ist das möglich?" — both
 /// halves of that are ONE mechanism with opposite sign and BOTH of them are the pin, which was not
 /// where this lane expected to find them. The account, the arm table and the answer to "ist das
-/// möglich" are on <see cref="ApplyStretch"/> and in .planning/CLOTH-DURING-SCALE.md. The short
-/// version: while the size moves, the fabric is still baked at the size the figure last settled at,
-/// and <c>maxDistance</c> is a SOFT constraint that argues with it rather than overriding it — too
-/// short a fabric on the way up gives a taut cape with no folds ("steif"), too long a fabric on the
-/// way down gives a buckled one ("Polygon matsch"). Driving <c>stretchingStiffness</c> down with the
-/// pin ends the argument, costs 0.004 ms, and changes the SETTLED cape not at all. The answer to
-/// the second question is NO and it is a measured no: full physics during the gesture needs the
-/// fabric to follow the scale, that needs a cook, and a cook is 25-165 ms on his rig.</para>
+/// möglich" are on <see cref="StepLiveCook"/> and in .planning/CLOTH-DURING-SCALE.md. The short
+/// version: while the size moves, the fabric is still baked at the size the figure last settled at
+/// — too short a fabric on the way up gives a taut cape with no folds ("steif"), too long a fabric
+/// on the way down gives a buckled one ("Polygon matsch").</para>
+///
+/// <para>FIFTH USER REPORT (hardware test, ModBuild 290, verbatim): "Das Problem mit dem
+/// Skallieren von Figuren ist 1:1 noch genau gleich, ich sehe keinen Unterschied zu dem wie es im
+/// Video ist." — and he is right, twice over. ModBuild 290 answered "inklusive der Reaktion" with
+/// <b>NO</b>, in this comment, on the strength of "a cook is 25-165 ms on his rig". <b>THAT WAS
+/// WRONG.</b> The counter ModBuild 290 shipped to check it says a cook of one of his capes costs
+/// 1.3-2.5 ms, on his hardware and in the harness alike — see the block comment on
+/// <see cref="LiveCookPeakMs"/>. And the remedy ModBuild 290 shipped in place of the answer was
+/// measured only at 1.345x, a factor taken from one ModBuild 289 log; his gesture clamp is
+/// [0.417 .. 2.503] and his ModBuild 290 log settles at 2.5x. At 2.5x that remedy does not help the
+/// shrink and makes the GROW worse — see <see cref="ApplyStretch"/>. ModBuild 291 makes the fabric
+/// FOLLOW the size instead (<see cref="StepLiveCook"/>), which is what the user asked for.</para>
 ///
 /// <para>THIRD USER REPORT (hardware test, ModBuild 286, verbatim): "Regression beim Skallieren:
 /// Die Klamotten skallieren leider nicht mehr richtig mit, siehe klamotten_problem.jpg. Wie man
@@ -371,6 +379,66 @@ internal static class FigureCloth
     /// unchanged for every purpose the pin exists for.</para></summary>
     private const float PinFloorFraction = 1e-3f;
 
+    // =============================================================================================
+    // THE LIVE RE-COOK (ModBuild 291) — "inklusive der Reaktion", which ModBuild 290 answered NO.
+    //
+    // THE NO WAS WRONG AND IT WAS MY NO. ModBuild 290 wrote, in this file and to the user: "full
+    // physics during the gesture needs the fabric to follow the scale, that needs a cook, and a
+    // cook is 25-165 ms on his rig". That sentence came from one ModBuild 289 log's
+    // FigureGrab.Cloth.Cook step line. The counter that shipped in ModBuild 290 to check it says
+    // otherwise, in his own ModBuild 290 log, on his own hardware:
+    //
+    //     FigureGrab.ClothCooks     total 17
+    //     FigureGrab.ClothCookVerts total 1754, worst frame 143      -> 103 particles per cook
+    //
+    // and in that same 30.0 s window FigureGrab.Cloth.Cook appears on NEITHER the [Perf] STEPS line
+    // NOR the [Perf] STEPS TAIL line, whose floor is 1.0 ms/s. Seventeen cooks therefore cost under
+    // 30 ms BETWEEN THEM: under 1.76 ms each. Re-measured in the harness at the sizes his capes
+    // actually are (LiveCookBench, --bench=live, 9 reps, median, NULL 0.0009 ms):
+    //
+    //     81 particles  1.277 ms   (15.8 us/particle)
+    //    144 particles  2.475 ms   (17.2 us/particle)
+    //    441 particles  6.666 ms   (15.1 us/particle)
+    //
+    // A cook of one of HIS capes is one to two and a half milliseconds. It fits.
+    //
+    // WHAT THAT BUYS. The stale fabric is the whole defect — "steif" on the way up and "Polygon
+    // matsch" on the way down are one mismatch with two signs. Re-cooking every few frames means
+    // the fabric is never more than a few frames stale, so there is nothing to pin against and the
+    // cape can simply simulate. Measured over the whole gesture at HIS 2.5x (ThrottleBench):
+    // shrink incoherence mean 0.8503 (ModBuild 289) / 1.0445 (ModBuild 290 shipped) / 0.0001 at
+    // period 6, and the settled cape is bit-identical in every arm.
+    // =============================================================================================
+
+    /// <summary>Cost model for one cook, in microseconds per cloth particle. MEASURED at 15.1-17.2
+    /// us/particle over 81-441 particles and falling to 5.9 above that (LiveCookBench part 1);
+    /// 20 is deliberately above the whole measured range, because this number decides how much
+    /// work gets scheduled and the safe direction to be wrong in is "too expensive".</summary>
+    private const float LiveCookMicrosecondsPerParticle = 20f;
+
+    /// <summary>A single cook this expensive is never scheduled mid-gesture, whatever the period —
+    /// the cook lands on ONE frame and no amortisation makes that frame cheaper. 4 ms is a third of
+    /// the 11.11 ms budget and is the same cost this file ALREADY pays, once per cloth, on every
+    /// settle. At <see cref="LiveCookMicrosecondsPerParticle"/> it admits cloths up to 200
+    /// particles: his two test figures' capes are 82 and 143. A figure carrying anything bigger
+    /// keeps the ModBuild 285 pin, unchanged.</summary>
+    private const float LiveCookPeakMs = 4.0f;
+
+    /// <summary>The AMORTISED budget: total cook cost across all of a figure's cloths, divided by
+    /// the period, must not exceed this per frame. Half a millisecond of an 11.11 ms frame, and
+    /// only while a gesture is actually running.</summary>
+    private const float LiveCookBudgetMsPerFrame = 0.5f;
+
+    /// <summary>Frames between two cooks of the SAME cloth. The floor is the fastest arm the
+    /// harness actually measured (period 6: shrink incoherence mean 0.0001 at 2.5x) and the ceiling
+    /// is the slowest one that still beats the pin by two orders of magnitude (period 30: 0.1674
+    /// against the ModBuild 289 pin's 0.8503). Nothing outside that range has been measured, so
+    /// nothing outside it is scheduled. The period is also floored at twice the cloth count, which
+    /// is what keeps two cloths from being disabled on the same frame — the invariant
+    /// <c>FigureGrab.ClothCooks</c>' `worst frame` reports.</summary>
+    private const int LiveCookMinPeriod = 6;
+    private const int LiveCookMaxPeriod = 30;
+
     /// <summary>Unity's "unconstrained" sentinel in a <see cref="ClothSkinningCoefficient"/> is
     /// <c>float.MaxValue</c> — MEASURED, see the class comment; the pre-284 <c>IsInfinity</c> guard
     /// did not catch it and overflowed it to a real infinity. <c>Infinity</c> is accepted too
@@ -474,13 +542,113 @@ internal static class FigureCloth
         /// that appears mid-sequence (the subtree is asynchronous — see LATE AND RESPAWNED PARTS)
         /// is not cooked: it was born at the current size and its fabric is already right.</summary>
         public int CookCount;
+
+        // ==================================================================================
+        // THE LIVE RE-COOK — ModBuild 291. Read WHY on LiveCookPeakMs and StepLiveCook.
+        // ==================================================================================
+
+        /// <summary>Decided once per gesture, in <see cref="Suspend"/>: may THIS figure keep its
+        /// fabric following the size instead of pinning? PER FIGURE and not per cloth, because
+        /// <see cref="Weight"/> is one number for the whole figure and a half-pinned figure would
+        /// need two of them. A figure with one cloth too big to cook mid-gesture keeps the ModBuild
+        /// 285 pin for all of them.</summary>
+        public bool LiveCookable;
+
+        /// <summary>Frames between two cooks of the SAME cloth, derived from the particle counts in
+        /// <see cref="Suspend"/>. Cloth <c>i</c> goes down on gesture frames where
+        /// <c>(GestureFrames - 2*i) % LivePeriod == 0</c> and comes up on the next one, so no two
+        /// cloths are ever disabled together.</summary>
+        public int LivePeriod = LiveCookMinPeriod;
+
+        /// <summary>Per managed cloth, whether it is between the two frames of a live cook — i.e.
+        /// <c>enabled == false</c> and waiting to be brought back up. A disabled Cloth never
+        /// simulates again unless somebody enables it, so every exit from the live path has to
+        /// drain this.</summary>
+        public readonly List<bool> LiveDown = new(2);
+
+        /// <summary>Per managed cloth, the size its fabric was baked at by its last LIVE cook — a
+        /// separate record from <see cref="CookedFactor"/>, which a live cook deliberately poisons
+        /// with a sentinel so the settle always re-cooks (see <see cref="FinishLiveCook"/>). Without
+        /// it there is no way to answer "has the body moved since this cloth was last baked?", and
+        /// a figure the player is holding still would go on cooking on schedule for the whole
+        /// twelve-frame settle window — two or three cooks bought for nothing, on every micro-pause
+        /// of every gesture.</summary>
+        public readonly List<float> LiveFactor = new(2);
+
+        /// <summary>The collider arrays of the ONE cloth currently between the two frames of a live
+        /// cook, stashed across its disable/enable pair. At most one cloth per figure is ever down,
+        /// so one slot is enough.
+        ///
+        /// <para>WHY. <see cref="FigureClothHands"/> writes <c>sphereColliders</c> ONCE, when the
+        /// free hand comes into reach, and thereafter only moves the probe transforms — so if an
+        /// enable transition drops those arrays, the cape silently stops reacting to the player's
+        /// other hand for the rest of that session, and nothing in either file would say so. That
+        /// combination is not exotic: the free hand is the hand that runs the stretch gesture, so
+        /// it is present during exactly the gestures this path exists for. Stashing and restoring
+        /// is two array reads and two writes at 0.008-0.017 ms each (FigureClothHands measured
+        /// them), against a cook of 1.3-2.5 ms — it costs nothing and it does not depend on knowing
+        /// whether PhysX would have kept them.</para></summary>
+        public ClothSphereColliderPair[]? LiveSpheres;
+        public CapsuleCollider[]? LiveCapsules;
+
+        // ==================================================================================
+        // THE GESTURE RECORDER — ModBuild 291. Read WHY on LogGesture.
+        // ==================================================================================
+
+        /// <summary>How many <see cref="Cloth"/> components the last <see cref="Suspend"/> scan
+        /// FOUND in the subtree, against <see cref="Cloths"/>.Count, which is how many it took
+        /// responsibility for. A figure whose two numbers differ has cloths this file is not
+        /// managing — <see cref="Suspend"/> skips any cloth that is not <c>enabled</c> — and that
+        /// is the difference between "the remedy did nothing" and "the remedy was never near this
+        /// cape", which a user report cannot tell apart and which need opposite responses.</summary>
+        public int FoundCloths;
+
+        /// <summary>The size this gesture started from, and the smallest and largest size it
+        /// reached. EVERY arm table this lane has produced was measured at 1.345×, because that is
+        /// the factor one ModBuild 289 log happened to settle at. His ModBuild 290 log settles at
+        /// 2.5× and drives to the 2.503 end stop over and over. A stale-fabric error is a RATIO,
+        /// so it grows with the factor, and a measurement at 1.345 is not evidence about 2.5.
+        /// These three numbers exist so that substitution can never be made silently again.</summary>
+        public float GestureFromFactor = 1f;
+        public float GestureMinFactor = 1f;
+        public float GestureMaxFactor = 1f;
+
+        /// <summary>Frames this gesture spent with the size moving.</summary>
+        public int GestureFrames;
+
+        /// <summary>The lowest ramp weight the gesture actually reached. The pin and the stiffness
+        /// ramp are both <c>× Weight</c>, so a gesture that never gets near 0 never applied either
+        /// remedy at full strength — and "no improvement" from a remedy that never ran carries
+        /// zero information.</summary>
+        public float MinWeightReached = 1f;
+
+        /// <summary>How many times <see cref="ApplyStretch"/> wrote during this gesture, and the
+        /// lowest value it wrote to any cloth. Zero writes means the ramp never reached the
+        /// cloths at all.</summary>
+        public int StretchWrites;
+        public float MinStretchWritten = float.NaN;
     }
 
     private static readonly Dictionary<int, Tracked> _tracked = new();
     private static readonly List<int> _scratch = new(4);
-    private static bool _logged;
+
+    /// <summary>Figure roots whose census line has been printed. PER FIGURE, not per session: the
+    /// ModBuild 290 census fired once, on a figure with an 82-particle cape, and was then read as
+    /// evidence about a session in which the counters say cloths up to 143 particles were cooked
+    /// seventeen times. A latch that fires on the first sample it sees is not a census. Capped at
+    /// <see cref="CensusCap"/> figures because the line is long and the walk is three passes over a
+    /// subtree.</summary>
+    private static readonly HashSet<int> _censused = new();
     private static bool _loggedEmpty;
     private static bool _countersRegistered;
+    private static int _gestureLines;
+
+    /// <summary>How many DIFFERENT figures get a full census line, and how many gestures get a
+    /// <see cref="LogGesture"/> line, before both stand down for the session. Both are generous
+    /// enough to cover a whole hardware test (his ModBuild 290 session contained eight gestures on
+    /// two figures) and bounded so neither can flood a log.</summary>
+    private const int CensusCap = 6;
+    private const int GestureLineCap = 24;
 
     /// <summary>
     /// Report the size a figure is currently being rendered at, RELATIVE to its native board size
@@ -512,7 +680,13 @@ internal static class FigureCloth
             t.Factor = factor;
             t.QuietFrames = 0;
             if (!t.Suspended)
-                Suspend(t);
+                Suspend(t);   // resets the gesture recorder — it is the START EDGE of a gesture
+
+            // The extent of the gesture, recorded as it happens. Suspend() has already reset these
+            // to the current factor on the start edge, so the first sample never widens the range
+            // by itself.
+            if (factor < t.GestureMinFactor) t.GestureMinFactor = factor;
+            if (factor > t.GestureMaxFactor) t.GestureMaxFactor = factor;
         }
     }
 
@@ -544,6 +718,7 @@ internal static class FigureCloth
 
             if (t.Suspended)
             {
+                t.GestureFrames++;
                 if (t.QuietFrames >= SettleFrames)
                     Release(t);
             }
@@ -564,11 +739,21 @@ internal static class FigureCloth
             _tracked.Remove(_scratch[i]);
     }
 
-    /// <summary>Forget everything (driver teardown / scene change). Does not touch the cloths: the
-    /// figures they belong to are going away with the scene, and a Unity-null component cannot be
-    /// written to anyway.</summary>
+    /// <summary>Forget everything (driver teardown / scene change). It touches the cloths in
+    /// exactly ONE way: any cloth caught between the two frames of a live cook is brought back up
+    /// first. Everything else is left alone, because the figures these cloths belong to are going
+    /// away with the scene and a Unity-null component cannot be written to anyway — but a cloth
+    /// that is <c>enabled == false</c> when we stop ticking is a cape that is a plain skinned mesh
+    /// for the life of the figure, and the driver can be torn down by a config toggle without the
+    /// scene going anywhere.</summary>
     internal static void Clear()
     {
+        foreach (KeyValuePair<int, Tracked> kv in _tracked)
+        {
+            Tracked t = kv.Value;
+            for (int i = 0; i < t.Cloths.Count; i++)
+                FinishLiveCook(t, i);
+        }
         _tracked.Clear();
         _scratch.Clear();
     }
@@ -584,7 +769,19 @@ internal static class FigureCloth
     {
         t.Suspended = true;
 
+        // THE GESTURE RECORDER STARTS HERE, because this method IS the start edge of a gesture:
+        // Note only calls it on the transition out of the settled state. Everything reset here is
+        // read once, by LogGesture, on the matching Release.
+        t.GestureFromFactor = t.SeededFactor;
+        t.GestureMinFactor = t.Factor;
+        t.GestureMaxFactor = t.Factor;
+        t.GestureFrames = 0;
+        t.MinWeightReached = t.Weight;
+        t.StretchWrites = 0;
+        t.MinStretchWritten = float.NaN;
+
         Cloth[] found = t.Root.GetComponentsInChildren<Cloth>(true);
+        t.FoundCloths = found.Length;
         for (int i = 0; i < found.Length; i++)
         {
             Cloth c = found[i];
@@ -605,11 +802,15 @@ internal static class FigureCloth
             // figure settles, exactly as it did before; deciding otherwise is a separate question
             // and it is not this build's.
             t.CookedFactor.Add(1f);
+            t.LiveDown.Add(false);
+            t.LiveFactor.Add(1f);
             // A cloth captured on a LATER suspend has never had a stiffness written to it, so the
             // change-latch must be invalidated or it would be left at its authored value for the
             // whole pin — the one cloth on the figure still fighting the pin.
             t.StretchWeight = -1f;
         }
+
+        DecideLiveCook(t);
 
         if (!_countersRegistered && t.Cloths.Count > 0)
         {
@@ -658,6 +859,14 @@ internal static class FigureCloth
         t.SeededFactor = factor;
         t.Suspended = false;
 
+        // DRAIN THE LIVE PATH BEFORE THE SETTLE SEQUENCE TAKES OVER. A cloth caught between the two
+        // frames of a live cook is `enabled == false`, and a disabled Cloth never simulates again
+        // unless somebody enables it. StepCook would revive the ONE cloth it is pointed at and
+        // leave every other one a plain skinned mesh for the life of the figure. Nothing else in
+        // this file writes `enabled`.
+        for (int i = 0; i < t.Cloths.Count; i++)
+            FinishLiveCook(t, i);
+
         if (t.Cloths.Count > 0 && NeedsCook(t, factor))
         {
             t.Cooking = true;
@@ -671,6 +880,7 @@ internal static class FigureCloth
             t.Dirty = true;
         }
 
+        LogGesture(t, factor);
         LogOnce(t, factor);
     }
 
@@ -759,8 +969,222 @@ internal static class FigureCloth
         c.ClearTransformMotion();
         if (t.CookIndex < t.CookedFactor.Count)
             t.CookedFactor[t.CookIndex] = t.SeededFactor;
+        // The settle cook is a bake too, so the live path's "has the body moved since this cloth
+        // was last baked?" record has to see it — otherwise the NEXT gesture compares against a
+        // size from the gesture before last.
+        if (t.CookIndex < t.LiveFactor.Count)
+            t.LiveFactor[t.CookIndex] = t.SeededFactor;
         t.CookDown = false;
         t.CookIndex++;
+    }
+
+    /// <summary>
+    /// Decide, once per gesture, whether this figure's fabric can follow the size instead of the
+    /// cape being pinned — and at what period.
+    ///
+    /// <para>Two independent gates, because they answer different questions. The PEAK gate asks
+    /// "does one cook fit in one frame?" and no amount of spacing changes its answer: a cook lands
+    /// on a single frame. The AMORTISED gate asks "how often can this figure afford one?" and is
+    /// what the period is for. A figure fails outright if the peak gate rejects its largest cloth,
+    /// or if the period the amortised gate demands is longer than the longest one the harness
+    /// measured — scheduling outside the measured range would be a guess, and the fallback is the
+    /// ModBuild 285 pin, which is what ships today.</para>
+    ///
+    /// <para>PER FIGURE, not per cloth: <see cref="Tracked.Weight"/> is one number for the whole
+    /// figure, so a figure cannot be half pinned and half live without a second weight. His two
+    /// test figures carry capes of 82 and 143 particles and both qualify; the Savvas Icestorm in
+    /// figure_scale_problem.mp4 reported 771 for its widest and does not.</para>
+    /// </summary>
+    private static void DecideLiveCook(Tracked t)
+    {
+        t.LiveCookable = false;
+        t.LivePeriod = LiveCookMinPeriod;
+        if (t.Cloths.Count == 0)
+            return;
+
+        int worst = 0;
+        int total = 0;
+        for (int i = 0; i < t.Pristine.Count; i++)
+        {
+            ClothSkinningCoefficient[] p = t.Pristine[i];
+            int n = p != null ? p.Length : 0;
+            total += n;
+            if (n > worst) worst = n;
+        }
+        if (worst <= 0)
+            return;
+
+        float worstMs = worst * LiveCookMicrosecondsPerParticle / 1000f;
+        if (worstMs > LiveCookPeakMs)
+            return;   // one cook does not fit in one frame; no period fixes that
+
+        float totalMs = total * LiveCookMicrosecondsPerParticle / 1000f;
+        int needed = Mathf.CeilToInt(totalMs / LiveCookBudgetMsPerFrame);
+        int period = Mathf.Max(needed, Mathf.Max(LiveCookMinPeriod, 2 * t.Cloths.Count));
+        if (period > LiveCookMaxPeriod)
+            return;   // affordable only at a spacing nothing has been measured at
+
+        t.LivePeriod = period;
+        t.LiveCookable = true;
+    }
+
+    /// <summary>
+    /// Re-cook ONE cloth's fabric at the size the figure is at RIGHT NOW, on a fixed period, while
+    /// the gesture is still running.
+    ///
+    /// <para>=== THIS IS THE ANSWER TO "INKLUSIVE DER REAKTION" AND ModBuild 290 SAID IT WAS
+    /// IMPOSSIBLE ===</para>
+    ///
+    /// <para>PhysX bakes a cloth's fabric — its edge rest lengths — in world units at enable time
+    /// and never re-derives it from a transform scale. Everything the user filmed follows from
+    /// that one fact: while the size moves, the fabric is still baked at the size the figure last
+    /// settled at, so growing leaves a cape too taut to fold ("steif") and shrinking leaves it with
+    /// surplus length that buckles through itself ("Polygon matsch"). ModBuild 289 pinned the cape
+    /// to hide it. ModBuild 290 additionally drove <c>stretchingStiffness</c> to 0 to stop the pin
+    /// and the stale fabric arguing. Neither made the fabric right, because only a cook does that,
+    /// and ModBuild 290 concluded a cook could not be afforded mid-gesture.</para>
+    ///
+    /// <para>THAT CONCLUSION WAS WRONG, and the counter ModBuild 290 shipped to test it is what
+    /// says so — see the block comment on <see cref="LiveCookPeakMs"/> for the full arithmetic. A
+    /// cook of one of his capes is 1.3-2.5 ms, not 25-165 ms.</para>
+    ///
+    /// <para>MEASURED END TO END (<c>ThrottleBench</c>, <c>--bench=throttle</c>): three cloths, the
+    /// script grow 1 → 2.5 → pause → shrink 2.5 → 1 → release, normal incoherence sampled EVERY
+    /// frame of both moving windows, on the same 29×29 sheet the ModBuild 290 tables used.</para>
+    /// <list type="table">
+    /// <item><term>arm</term><description> GROW worst/mean | SHRINK worst/mean | SETTLED</description></item>
+    /// <item><term>ModBuild 289 (pin only)</term><description> 0.0000 / 0.0000 | 1.1085 / 0.8503 | 0.0000</description></item>
+    /// <item><term>ModBuild 290 (shipped)</term><description> 0.3097 / 0.1975 | 1.2202 / 1.0445 | 0.0000</description></item>
+    /// <item><term>NULL (290 run twice)</term><description> 0.3097 / 0.1975 | 1.2202 / 1.0445 | 0.0000</description></item>
+    /// <item><term>live, period 6</term><description>  0.0000 / 0.0000 | <b>0.0053 / 0.0001</b> | 0.0000</description></item>
+    /// <item><term>live, period 12</term><description> 0.0000 / 0.0000 | 0.0767 / 0.0055 | 0.0000</description></item>
+    /// <item><term>live, period 30</term><description> 0.0000 / 0.0000 | 0.9735 / 0.1674 | 0.0000</description></item>
+    /// </list>
+    /// <para>The settled cape is 0.0000 in EVERY arm — the state the user says is already fine is
+    /// untouched, which is the standing constraint on this lane. And the ModBuild 290 row is the
+    /// other thing this table found: at 2.5× the stiffness remedy is not merely useless, it makes
+    /// the GROW direction worse (0.0000 → 0.1975) and the shrink worse than doing nothing. See
+    /// <see cref="ApplyStretch"/>.</para>
+    ///
+    /// <para>TWO FRAMES PER CLOTH, ONE CLOTH AT A TIME, exactly as <see cref="StepCook"/>: the
+    /// coefficients go up and the component goes down on one frame, and the enable on the next is
+    /// the cook. A <c>false</c>/<c>true</c> pair inside ONE frame does not cook at all. The phase
+    /// offset of <c>2*i</c> against a period of at least <c>2 * cloths</c> is what keeps two cloths
+    /// from being disabled together, which is the invariant <c>FigureGrab.ClothCooks</c>' `worst
+    /// frame` reports and which must stay at 1.</para>
+    ///
+    /// <para>THE ONE-FRAME COST, named rather than hidden: a cloth is <c>enabled == false</c> for
+    /// one frame of each cook and a disabled <c>SkinnedMeshRenderer</c> draws the bare skinned pose
+    /// with no drape. The harness measured that as per-frame vertex motion ("jitter") and it does
+    /// not dominate: worst-frame jitter over the shrink is 0.142 at period 6 against the ModBuild
+    /// 289 pin's own 0.074, on a cape whose incoherence went from 0.85 to 0.0001. Longer periods
+    /// are WORSE on this column, not better (0.28 at period 9, 0.38 at period 18), because a fabric
+    /// left staler for longer has further to jump when it is finally corrected — which is why the
+    /// period is floored at the fastest measured arm rather than the slowest.</para>
+    /// </summary>
+    private static void StepLiveCook(Tracked t)
+    {
+        // FINISH BEFORE STARTING, and the order is load-bearing. A cloth put down on the previous
+        // frame must come up on this one; if a start ran first it could put the same cloth down
+        // again and it would never be enabled at all.
+        for (int i = 0; i < t.Cloths.Count; i++)
+            FinishLiveCook(t, i);
+
+        int period = t.LivePeriod > 0 ? t.LivePeriod : LiveCookMinPeriod;
+        for (int i = 0; i < t.Cloths.Count && i < t.LiveDown.Count; i++)
+        {
+            if (t.LiveDown[i])
+                continue;
+            int phase = t.GestureFrames - 2 * i;
+            if (phase < 0 || phase % period != 0)
+                continue;
+
+            Cloth c = t.Cloths[i];
+            if (c == null || !c.enabled)
+                continue;
+            // Has the body moved since this cloth was last baked? A gesture stays Suspended for a
+            // further SettleFrames after the player stops moving it, and cooking on schedule
+            // through that window buys nothing at all.
+            float last = i < t.LiveFactor.Count ? t.LiveFactor[i] : 1f;
+            if (Mathf.Abs(t.Factor - last) <= last * FactorEpsilon)
+                continue;
+
+            // The coefficients go up at the size the body is at RIGHT NOW and at full slack — the
+            // cape is not being pinned on this path, it is being allowed to simulate correctly.
+            if (BuildInto(t, i, 1f, t.Factor))
+            {
+                c.coefficients = t.Scratch[i];
+                PerfMonitor.Count("FigureGrab.ClothSeeds");
+            }
+            // Stashed BEFORE the disable — see Tracked.LiveSpheres for why this is not optional.
+            t.LiveSpheres = c.sphereColliders;
+            t.LiveCapsules = c.capsuleColliders;
+            c.enabled = false;
+            t.LiveDown[i] = true;
+            return;   // at most one cloth goes down per frame
+        }
+    }
+
+    /// <summary>Frame two of a live cook: the enable, which is the cook. Also the drain every exit
+    /// from the live path has to call — a cloth left <c>enabled == false</c> is a cape that is a
+    /// plain skinned mesh for the rest of the figure's life.</summary>
+    private static void FinishLiveCook(Tracked t, int i)
+    {
+        if (i < 0 || i >= t.LiveDown.Count || !t.LiveDown[i])
+            return;
+        t.LiveDown[i] = false;
+
+        Cloth? c = i < t.Cloths.Count ? t.Cloths[i] : null;
+        if (c == null || c.enabled)
+        {
+            // Either the cloth went away, or somebody else enabled it between our two frames — the
+            // game does exactly that (ActorBehaviour.cs:245-252 disables every m_Clothes entry and
+            // its LateUpdate re-enables them two frames later), and that enable cooks the same
+            // fabric ours would have. Nothing owed but the stash, which must not survive into the
+            // NEXT cloth's cook and be written onto it.
+            if (c != null && c.enabled)
+            {
+                if (t.LiveSpheres != null) c.sphereColliders = t.LiveSpheres;
+                if (t.LiveCapsules != null) c.capsuleColliders = t.LiveCapsules;
+            }
+            t.LiveSpheres = null;
+            t.LiveCapsules = null;
+            return;
+        }
+
+        int verts = t.Pristine.Count > i && t.Pristine[i] != null ? t.Pristine[i].Length : 0;
+        using (PerfMonitor.Scope("FigureGrab.Cloth.Cook"))
+            c.enabled = true;
+        PerfMonitor.Count("FigureGrab.ClothCooks");
+        PerfMonitor.Count("FigureGrab.ClothCookVerts", verts);
+        c.ClearTransformMotion();
+
+        // Put the free hand's colliders back on the far side of the enable. Restoring what was
+        // there rather than what we think should be there: these arrays belong to
+        // FigureClothHands, and on a figure the free hand is not near they are simply the empty
+        // arrays we read a frame ago.
+        if (t.LiveSpheres != null)
+            c.sphereColliders = t.LiveSpheres;
+        if (t.LiveCapsules != null)
+            c.capsuleColliders = t.LiveCapsules;
+        t.LiveSpheres = null;
+        t.LiveCapsules = null;
+
+        // A SENTINEL, NOT THE FACTOR, and this is what keeps the SETTLED cape bit-identical to what
+        // ModBuild 290 ships. A live cook bakes the fabric at whatever size the body happened to be
+        // at on that frame, which is within a few frames of the final one but not equal to it. If
+        // this recorded that size, NeedsCookAt would find it inside FactorEpsilon of the settle
+        // factor, the settle sequence would skip the cloth, and the figure would come to rest on a
+        // fabric baked at 2.4987 instead of at 2.5. 0 is never a legitimate factor (Note rejects
+        // any factor <= 0), so it reads as "unknown" and every cloth is re-cooked on the settle at
+        // exactly the size it settled at — which is precisely the sequence that runs today.
+        if (i < t.CookedFactor.Count)
+            t.CookedFactor[i] = 0f;
+        // The HONEST record of what this cook baked, kept separately because CookedFactor is now
+        // carrying a sentinel rather than a size. It is what the next scheduled slot compares
+        // against to decide whether the body has moved at all.
+        if (i < t.LiveFactor.Count)
+            t.LiveFactor[i] = t.Factor;
     }
 
     /// <summary>Does ANY managed cloth's fabric disagree with the size the figure settled at? The
@@ -826,6 +1250,8 @@ internal static class FigureCloth
                 // settle, and worse, the record would be a lie about what the cloth is carrying.
                 if (t.CookIndex < t.CookedFactor.Count)
                     t.CookedFactor[t.CookIndex] = t.SeededFactor;
+                if (t.CookIndex < t.LiveFactor.Count)
+                    t.LiveFactor[t.CookIndex] = t.SeededFactor;
             }
         }
 
@@ -884,10 +1310,47 @@ internal static class FigureCloth
     /// rendered wireframes say the same thing in one look: the ModBuild 289 pin on a shrink is a
     /// jagged band, and with this write it is a line.</para>
     ///
-    /// <para>ON THE WAY UP IT CHANGES NOTHING, which is why it is safe: incoherence 0.0000 with and
-    /// without, reaction 0.00133 m against 0.00146 m, and at weight 1 the authored value is written
-    /// back verbatim so the SETTLED cape — the state he says is already fine — is bit-for-bit what
-    /// ModBuild 289 shipped.</para>
+    /// <para>=== AND ALL OF THAT WAS MEASURED AT 1.345×, WHICH IS NOT A FACTOR HE USES. ModBuild 291
+    /// WITHDRAWS THE RAMP. ===</para>
+    ///
+    /// <para>The table above is real and it reproduces exactly — <c>FactorArmsBench</c> re-measured
+    /// it on the same mesh and got mean edge 1.1119 and incoherence 0.0372 for the last row, to four
+    /// decimal places. It is also the ONLY factor it was ever measured at, because 1.345 is what one
+    /// ModBuild 289 log happened to settle at. His stretch gesture clamps at [0.417 .. 2.503]; his
+    /// ModBuild 290 log settles at <b>2.5×</b> and drives to the end stop five times in one session.
+    /// The stale-fabric error is a RATIO between rest length and body, so it grows with the factor,
+    /// and the remedy does not survive the growth. Same bench, same sheet, same arms:</para>
+    /// <list type="table">
+    /// <item><term>SHRINK, incoherence</term><description> ... PINNED (289) -> PIN+NOSTRETCH (290)</description></item>
+    /// <item><term>1.345 -> 1</term><description> ......... 0.4688 -> <b>0.0372</b>   the remedy works, 12.6x</description></item>
+    /// <item><term>1.7 -> 1</term><description> ........... 0.9680 -> <b>1.1862</b>   WORSE</description></item>
+    /// <item><term>2.0 -> 1</term><description> ........... 1.1323 -> <b>1.2972</b>   WORSE</description></item>
+    /// <item><term>2.5 -> 1  (his)</term><description> .... 1.1719 -> <b>1.2950</b>   WORSE</description></item>
+    /// <item><term>3.5 -> 1</term><description> ........... 1.2660 -> 1.2904          WORSE</description></item>
+    /// <item><term>GROW, incoherence</term><description> ..... PINNED (289) -> PIN+NOSTRETCH (290)</description></item>
+    /// <item><term>1 -> 1.345</term><description> ......... 0.0000 -> 0.0000          neutral</description></item>
+    /// <item><term>1 -> 1.7</term><description> ........... 0.0000 -> 0.0106          worse</description></item>
+    /// <item><term>1 -> 2.0</term><description> ........... 0.0000 -> 0.1230          worse</description></item>
+    /// <item><term>1 -> 2.5  (his)</term><description> .... 0.0000 -> <b>0.3142</b>   WORSE</description></item>
+    /// <item><term>1 -> 3.5</term><description> ........... 0.0106 -> 0.4685          worse</description></item>
+    /// </list>
+    /// <para>The mean edge tells the same story more bluntly: on the shrink at 2.5 the pinned cape
+    /// sits at 2.35× its authored edge and the no-stretch one at 3.39× with a worst edge of 7.09 and
+    /// sixteen self-intersecting vertex pairs. With the fabric's stretching constraint gone there is
+    /// nothing left to stop a cape that is now far too big for its body folding through itself —
+    /// which is the ModBuild 286 failure, rediscovered at a larger factor. <b>The remedy inverts
+    /// between 1.345 and 1.7, in BOTH directions.</b> "Das Problem ist 1:1 noch genau gleich" is what
+    /// a 1.345-only fix looks like to somebody scaling to 2.5.</para>
+    ///
+    /// <para>SO THE RAMP IS GONE and this method is now always called with a weight of 1, i.e. it
+    /// writes each cloth's authored value back. It is kept rather than deleted for two reasons: the
+    /// restore is a real safety net (<see cref="StepCook"/> invalidates the latch, and a value left
+    /// low by an older build or by the game would otherwise stand), and this comment is the record
+    /// of a remedy that was measured, shipped, and withdrawn — a lever whose SIGN depends on the
+    /// factor is not one to rediscover.</para>
+    ///
+    /// <para>WHAT REPLACES IT is not another way to make a stale fabric behave. It is
+    /// <see cref="StepLiveCook"/>, which stops the fabric being stale.</para>
     ///
     /// <para>IT COSTS 0.004 ms AND IT DOES NOT COOK — measured on a live, enabled 841-vertex cloth,
     /// 8 reps, against the two anchors in the same run: a full coefficients upload is 0.004 ms and
@@ -908,7 +1371,19 @@ internal static class FigureCloth
             // At weight 1 the authored float is written back, not `authored * 1f` — the same
             // reasoning as the identity snap in Release: a figure back at its board size must end
             // up with exactly what the artist authored, not with it to within a rounding.
-            c.stretchingStiffness = weight >= 1f ? t.PristineStretch[i] : t.PristineStretch[i] * weight;
+            float value = weight >= 1f ? t.PristineStretch[i] : t.PristineStretch[i] * weight;
+            c.stretchingStiffness = value;
+
+            // RECORDED, NOT LOGGED HERE. This method runs once per ramp step per cloth and a line
+            // per write would be ninety a second; what a reader needs is one line per GESTURE
+            // saying whether the ramp reached the cloths at all and what the lowest value it wrote
+            // was — see LogGesture, which is where these two fields are read. The distinction that
+            // matters and that a user report cannot make is between a remedy that never executed
+            // and a remedy that executed and did nothing: `writes 0` is the first, and `writes N,
+            // lowest 0.000, authored 0.000` is the second.
+            t.StretchWrites++;
+            if (float.IsNaN(t.MinStretchWritten) || value < t.MinStretchWritten)
+                t.MinStretchWritten = value;
         }
     }
 
@@ -938,6 +1413,22 @@ internal static class FigureCloth
             AbortCook(t);
         }
 
+        // THE LIVE PATH. While the size is moving and this figure's cloths are small enough to
+        // re-cook inside a frame, the fabric follows the size instead of the cape being pinned —
+        // see StepLiveCook. It owns every cloth write while it runs, exactly as the settle sequence
+        // does, so the ramp below stands down rather than fighting it for the same array.
+        if (t.Suspended && t.LiveCookable && t.Cloths.Count > 0)
+        {
+            // The pin is not in use on this path, so the weight is held AT 1 rather than ramped to
+            // 0. Snapping rather than ramping is deliberate: the ramp exists to hide the pin
+            // engaging, and there is no pin to hide.
+            t.Weight = 1f;
+            t.Dirty = false;
+            ApplyStretch(t, 1f);   // authored stiffness, verbatim — the fabric is the thing working
+            StepLiveCook(t);
+            return;
+        }
+
         float target = t.Suspended ? 0f : 1f;
         if (t.Weight != target)
         {
@@ -946,6 +1437,11 @@ internal static class FigureCloth
             t.Weight = Mathf.MoveTowards(t.Weight, target, step);
             if (t.Weight != before)
                 t.Dirty = true;
+            // Recorded HERE and not in ApplyStretch, so a figure with no managed cloths still
+            // reports whether its ramp completed — that is the case where the answer to "did the
+            // remedy run" is "there was nothing for it to run on", and it must be distinguishable.
+            if (t.Weight < t.MinWeightReached)
+                t.MinWeightReached = t.Weight;
         }
 
         if (t.Cloths.Count == 0)
@@ -954,10 +1450,14 @@ internal static class FigureCloth
             return;          // has nowhere to land, and the flag must not latch true forever
         }
 
-        // The fabric follows the pin. Outside the ramp this is a float compare and a return; it is
-        // NOT folded into the `Dirty` block below because the stiffness also has to be restored on
-        // the re-cook path, where no coefficient upload happens at all.
-        ApplyStretch(t, t.Weight);
+        // ALWAYS 1, i.e. always the authored value — the ModBuild 290 ramp is withdrawn and the
+        // table that withdrew it is on ApplyStretch. Driving stretchingStiffness down with the pin
+        // helps on a shrink at 1.345x (0.4688 -> 0.0372) and hurts at every larger factor measured,
+        // in both directions, including the 2.5x his gesture actually reaches (grow 0.0000 ->
+        // 0.3142, shrink 1.1719 -> 1.2950). This call stays because the RESTORE is load-bearing:
+        // StepCook invalidates the latch, and a value left low by an older build must not stand.
+        // Outside a change this is a float compare and a return.
+        ApplyStretch(t, 1f);
 
         if (!t.Dirty)
             return;
@@ -1089,6 +1589,124 @@ internal static class FigureCloth
     }
 
     /// <summary>
+    /// ONE LINE PER GESTURE: did the ModBuild 290 remedy run on this figure, what did it write, and
+    /// HOW BIG was the size change it was asked to cover.
+    ///
+    /// <para>=== WHY THIS EXISTS, and it is the most important thing ModBuild 291 adds ===</para>
+    ///
+    /// <para>ModBuild 290 shipped a change to <c>stretchingStiffness</c> with a measured 9.4×
+    /// improvement on the shrink direction, and the user's verbatim reply after testing it was: "Das
+    /// Problem mit dem Skallieren von Figuren ist 1:1 noch genau gleich, ich sehe keinen Unterschied
+    /// zu dem wie es im Video ist." A fix that never executed and a fix that executed and did
+    /// nothing look IDENTICAL from that sentence, and they need opposite responses. The shipped
+    /// <see cref="ApplyStretch"/> logged nothing at all, so the ModBuild 290 log could not tell them
+    /// apart — the whole round after it had to be reasoned from counters that happened to be
+    /// adjacent.</para>
+    ///
+    /// <para>THE THREE THINGS THIS LINE SETTLES, each of which has cost this project builds:</para>
+    /// <list type="number">
+    /// <item><b>Whether the ramp reached the cloths.</b> <c>writes</c> is how many
+    /// <c>stretchingStiffness</c> assignments the gesture made. Zero, with cloths present, means
+    /// the remedy never ran and the user's report carries no information about it at all.</item>
+    /// <item><b>What it actually wrote.</b> The remedy's lever is <c>authored × weight</c>. If the
+    /// artist shipped the cape at <c>stretchingStiffness</c> 0 — or at 0.05 — then driving it to 0
+    /// is a no-op or nearly one, the write is INERT ON THAT ASSET, and no amount of harness work on
+    /// a procedurally-built sheet whose authored value is Unity's default 1 would ever have said
+    /// so. <c>authored</c> and <c>lowest written</c> are printed side by side for exactly that
+    /// comparison.</item>
+    /// <item><b>The size of the gesture.</b> Every arm table this lane has produced was measured at
+    /// 1.345×, because that is the factor one ModBuild 289 log happened to settle at. His ModBuild
+    /// 290 log settles at 2.5× and drives to the 2.503 gesture clamp repeatedly. The stale-fabric
+    /// error is a RATIO between the fabric's rest lengths and the body they are stretched over, so
+    /// it grows with the factor: a table at 1.345 is not evidence about 2.5. <c>range</c> and
+    /// <c>peak</c> are on the line so a report about 2.5 can never again be answered with a
+    /// measurement at 1.345.</item>
+    /// </list>
+    ///
+    /// <para>It also separates "this figure has no cloths" from "this figure has cloths and the
+    /// ramp never reached them": <see cref="Tracked.FoundCloths"/> is what the subtree scan saw and
+    /// <see cref="Tracked.Cloths"/>.Count is what this file took responsibility for, and
+    /// <see cref="Suspend"/> declines any cloth that is not <c>enabled</c>. Two numbers, printed
+    /// together, because a single "0 cloths" cannot say which.</para>
+    ///
+    /// <para>Capped at <see cref="GestureLineCap"/> lines per session. His whole ModBuild 290 test
+    /// contained eight gestures.</para>
+    /// </summary>
+    private static void LogGesture(Tracked t, float factor)
+    {
+        if (t.Root == null || _gestureLines >= GestureLineCap)
+            return;
+        // A gesture that never moved the size is not a gesture; Release runs on every settle.
+        if (Mathf.Abs(t.GestureMaxFactor - t.GestureMinFactor) <= FactorEpsilon
+            && Mathf.Abs(factor - t.GestureFromFactor) <= FactorEpsilon)
+            return;
+        _gestureLines++;
+
+        string cloths;
+        if (t.Cloths.Count == 0)
+        {
+            cloths = t.FoundCloths == 0
+                ? "MANAGED CLOTHS: 0 of 0 in the subtree — this figure carries no Cloth at all, so "
+                  + "neither the pin nor the stiffness ramp has anything to act on and this gesture "
+                  + "says NOTHING about either of them"
+                : $"MANAGED CLOTHS: 0 of {t.FoundCloths} in the subtree — every Cloth on this figure "
+                  + "was found DISABLED at the suspend scan and skipped (Suspend declines a cloth "
+                  + "that is not enabled, because a non-simulating cloth already scales as a plain "
+                  + "skinned mesh). THE RAMP NEVER REACHED THEM. If the user is complaining about a "
+                  + "cape on THIS figure, that is the whole answer and no remedy tuning is relevant";
+        }
+        else
+        {
+            var sb = new System.Text.StringBuilder(160);
+            sb.Append($"MANAGED CLOTHS: {t.Cloths.Count} of {t.FoundCloths} in the subtree [");
+            for (int i = 0; i < t.Cloths.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                int n = i < t.Pristine.Count && t.Pristine[i] != null ? t.Pristine[i].Length : 0;
+                float authored = i < t.PristineStretch.Count ? t.PristineStretch[i] : float.NaN;
+                sb.Append($"c{i} {n}p authored stretchingStiffness {authored:0.####}");
+            }
+            sb.Append(']');
+            cloths = sb.ToString();
+        }
+
+        string live = t.Cloths.Count == 0
+            ? "LIVE RE-COOK: n/a (no managed cloths)"
+            : t.LiveCookable
+                ? $"LIVE RE-COOK: ON, one cloth re-cooked every {t.LivePeriod} frame(s) — the fabric "
+                  + "FOLLOWED the size for this whole gesture and the pin was never engaged"
+                : "LIVE RE-COOK: OFF — this figure's largest cape does not fit a cook inside one "
+                  + $"frame at {LiveCookMicrosecondsPerParticle:0.#} us/particle against a "
+                  + $"{LiveCookPeakMs:0.#} ms ceiling, OR the amortised budget demands a period past "
+                  + $"{LiveCookMaxPeriod}. It kept the ModBuild 285 pin, which is where the "
+                  + "'steif' / 'Polygon matsch' the user filmed comes from — so THIS figure is one "
+                  + "the ModBuild 291 change does not reach, and that is a size question, not a "
+                  + "mechanism one";
+
+        VRLog.Info("FigureGrab",
+            $"CLOTH GESTURE {t.Root.name}: {live}. size went {t.GestureFromFactor:0.###}× → {factor:0.###}× "
+            + $"of board size, RANGE [{t.GestureMinFactor:0.###} .. {t.GestureMaxFactor:0.###}]×, "
+            + $"over {t.GestureFrames} moving frame(s). "
+            + $"PIN RAMP reached weight {t.MinWeightReached:0.###} (0 = fully pinned; a gesture that "
+            + "never reaches 0 never applied the pin OR the stiffness remedy at full strength, and "
+            + "'no improvement' from a remedy at partial strength carries no information). "
+            + $"STRETCHINGSTIFFNESS: {t.StretchWrites} write(s) this gesture, lowest value written "
+            + $"{(float.IsNaN(t.MinStretchWritten) ? -1f : t.MinStretchWritten):0.####}. {cloths}. "
+            + "HOW TO READ THIS. The ModBuild 290 stiffness RAMP is withdrawn — it helps a shrink at "
+            + "1.345× and hurts at every larger factor measured, in both directions (see "
+            + "ApplyStretch) — so `lowest written` should now equal the AUTHORED value on every "
+            + "gesture, and this line's job is to report what that authored value IS. It is the "
+            + "lever any future stiffness remedy would have: an asset shipped at 0.05 cannot be "
+            + "driven anywhere useful and no harness built on a procedural sheet (Unity's default "
+            + "is 1) would ever have said so. `writes 0` with managed cloths present would mean the "
+            + "restore never reached them at all. AND READ THE RANGE: every arm table before "
+            + "ModBuild 291 was measured at 1.345×, a factor taken from one ModBuild 289 log; the "
+            + "stale-fabric error is a RATIO and grows with the factor, so a peak of 2.5 here is "
+            + "NOT the condition those tables describe. That substitution is the single mistake "
+            + "that produced 'das Problem ist 1:1 noch genau gleich'.");
+    }
+
+    /// <summary>
     /// ONE line per session, on the first figure released at a size other than its board size — the
     /// census the next hardware round needs: what the subtree actually contains, how much of it this
     /// pass took responsibility for, HOW BIG the cloths are (the number that sets the cost of every
@@ -1111,11 +1729,27 @@ internal static class FigureCloth
         // OTHER figures. A census that latches on the first sample it sees is not a census; the
         // cloth-less case and the cloth-bearing case are different populations and each gets one
         // line. (See MEMORY: "a held instrument reads as dead", "a summary stat is not the field".)
+        // ONE LATCH PER FIGURE FOR THE CLOTH-BEARING CASE (ModBuild 291). Per POPULATION was still
+        // not enough, and his ModBuild 290 log is the proof: the one line it printed described a
+        // figure whose widest cape is 82 particles, and it was then read — by me — as evidence
+        // about a session in which FigureGrab.ClothCookVerts records seventeen cooks with a worst
+        // frame of 143. It also happened to be the ONLY figure it described, while the log's own
+        // grab lines name two (LivingBonesID and BanditGuardID). One sample is not a census of a
+        // population, however carefully the population was defined.
         bool hasCloths = t.Cloths.Count > 0;
-        if (hasCloths ? _logged : _loggedEmpty)
-            return;
-        if (hasCloths) _logged = true;
-        else _loggedEmpty = true;
+        if (hasCloths)
+        {
+            int rootId = t.Root.GetInstanceID();
+            if (_censused.Contains(rootId) || _censused.Count >= CensusCap)
+                return;
+            _censused.Add(rootId);
+        }
+        else
+        {
+            if (_loggedEmpty)
+                return;
+            _loggedEmpty = true;
+        }
 
         Transform[] transforms = t.Root.GetComponentsInChildren<Transform>(true);
         Renderer[] renderers = t.Root.GetComponentsInChildren<Renderer>(true);
@@ -1147,6 +1781,7 @@ internal static class FigureCloth
                 if (IsUnconstrained(p[v].maxDistance)) unconstrained++;
         }
 
+        VRLog.Info("FigureGrab", DescribeConfig(t));
         VRLog.Info("FigureGrab",
             $"FIGURE SCALE {t.Root.name} settled at {factor:0.###}× of its board size — subtree: "
             + $"{transforms.Length} transforms, {renderers.Length} renderers ({skinned} skinned, which "
@@ -1181,5 +1816,95 @@ internal static class FigureCloth
             + "(reported, not changed — see FigureCloth); the figure's worldspace health/condition "
             + "panel is parented outside the figure root by the game "
             + "(ActorBehaviour.CreateWorldSpaceGUIElements) and no root scale can reach it.");
+    }
+
+    /// <summary>
+    /// THE AUTHORED CONFIGURATION OF EVERY MANAGED CLOTH ON ONE FIGURE — every solver knob and the
+    /// shape of the painted coefficient array, printed once per figure beside the census.
+    ///
+    /// <para>WHY. Every measurement behind ModBuild 290 was taken on a cloth this lane BUILT: a
+    /// 29×29 procedural grid with a linear slack ramp, no colliders, and every solver property at
+    /// Unity's default — which for <c>stretchingStiffness</c> is 1. A Gloomhaven cape is an
+    /// authored asset and the mod cannot see the authoring. The remedy's whole lever is
+    /// <c>authored stretchingStiffness × ramp weight</c>, so if the artist shipped the cape at 0.1
+    /// the lever is a tenth of what the harness measured; if the game's own
+    /// <c>clothSolverFrequency</c> write (ActorBehaviour.cs:126-128 sets
+    /// <c>PhysicsController.SimplifyPhysicsRate</c> under <c>PlatformSetting.SimplifyPhysics</c>;
+    /// PhysicsController.cs:53 otherwise restores 120) lands somewhere else, the solver is not the
+    /// one the harness ran. None of that is guessable from here and all of it is one property read.
+    /// </para>
+    ///
+    /// <para>The coefficient array gets its DISTRIBUTION and not a summary: how many vertices are
+    /// hard-pinned at 0, how many are authored <c>float.MaxValue</c>, and the min/mean/max of the
+    /// finite remainder in metres. A cape that is 90 % unconstrained is ramped against its own
+    /// extent by <see cref="BuildInto"/> rather than multiplied by the factor, which is a
+    /// completely different code path from the one every arm table exercised.</para>
+    ///
+    /// <para>Read once, per figure, on the same latch as the census — never per frame.</para>
+    /// </summary>
+    private static string DescribeConfig(Tracked t)
+    {
+        var sb = new System.Text.StringBuilder(512);
+        sb.Append("CLOTH CONFIG ").Append(t.Root != null ? t.Root.name : "<null>")
+          .Append(" — the AUTHORED state of each managed cloth, which no harness on this project "
+                  + "has ever had and every arm table has had to assume:");
+
+        for (int i = 0; i < t.Cloths.Count; i++)
+        {
+            Cloth c = t.Cloths[i];
+            if (c == null)
+            {
+                sb.Append($" | c{i} <destroyed>");
+                continue;
+            }
+
+            int pinned = 0, free = 0, finite = 0;
+            float mn = float.MaxValue, mx = 0f;
+            double sum = 0d;
+            ClothSkinningCoefficient[]? p = i < t.Pristine.Count ? t.Pristine[i] : null;
+            if (p != null)
+            {
+                for (int v = 0; v < p.Length; v++)
+                {
+                    float m = p[v].maxDistance;
+                    if (IsUnconstrained(m)) { free++; continue; }
+                    if (m <= 0f) { pinned++; continue; }
+                    finite++;
+                    sum += m;
+                    if (m < mn) mn = m;
+                    if (m > mx) mx = m;
+                }
+            }
+            float mean = finite > 0 ? (float)(sum / finite) : 0f;
+            if (finite == 0) mn = 0f;
+
+            sb.Append($" | c{i} '{c.name}' {(p != null ? p.Length : 0)}p")
+              .Append($" stretchingStiffness {c.stretchingStiffness:0.####}")
+              .Append($" bendingStiffness {c.bendingStiffness:0.####}")
+              .Append($" useTethers {c.useTethers}")
+              .Append($" useVirtualParticles {c.useVirtualParticles:0.###}")
+              .Append($" selfCollisionDistance {c.selfCollisionDistance:0.####}")
+              .Append($" selfCollisionStiffness {c.selfCollisionStiffness:0.###}")
+              .Append($" solverFrequency {c.clothSolverFrequency:0.#}")
+              .Append($" damping {c.damping:0.###}")
+              .Append($" friction {c.friction:0.###}")
+              .Append($" worldVelocityScale {c.worldVelocityScale:0.###}")
+              .Append($" worldAccelerationScale {c.worldAccelerationScale:0.###}")
+              .Append($" stiffnessFrequency {c.stiffnessFrequency:0.#}")
+              .Append($" useGravity {c.useGravity}")
+              .Append($" enabled {c.enabled}")
+              .Append($" | coefficients: {pinned} hard-pinned at 0, {free} authored float.MaxValue, "
+                      + $"{finite} finite (min {mn:0.####} m, mean {mean:0.####} m, max {mx:0.####} m)");
+        }
+
+        sb.Append(". THE ONE THAT DECIDES THE ModBuild 290 REMEDY IS `stretchingStiffness`: the ramp "
+                  + "writes `authored × weight`, so an authored value at or near 0 makes that write "
+                  + "a no-op no matter how correct the mechanism is. The one that decides whether "
+                  + "the harness measured the right SOLVER is `solverFrequency` (the game writes it "
+                  + "at ActorBehaviour.cs:128 and PhysicsController.cs:53). The one that decides "
+                  + "whether the arm tables measured the right COEFFICIENT PATH is the float.MaxValue "
+                  + "count: those vertices are ramped against the cape's own extent, not multiplied "
+                  + "by the size factor, and every table so far was built on a cloth with none.");
+        return sb.ToString();
     }
 }
