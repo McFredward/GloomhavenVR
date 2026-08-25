@@ -155,11 +155,8 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                 // CPU field cannot drift apart. The shader's Properties block holds the same numbers,
                 // but only as the value an editor preview would show.
                 float canvasPerMetre = 1f / Mathf.Max(cloud.ApparentMetresPerCanvasUnit, 1e-7f);
-                float aspect = r.width / Mathf.Max(r.height, 0.01f);
-                var windCanvas = new Vector2(WindowMaterialiseField.Wind.x / Mathf.Max(aspect, 1e-3f),
-                                             WindowMaterialiseField.Wind.y);
-                windCanvas = windCanvas.sqrMagnitude > 1e-9f ? windCanvas.normalized : Vector2.right;
-                runner._mpb.SetVector(WindId, new Vector4(windCanvas.x, windCanvas.y, 0f, 0f));
+                runner._mpb.SetVector(WindId,
+                    new Vector4(cloud.WindCanvas.x, cloud.WindCanvas.y, 0f, 0f));
                 runner._mpb.SetFloat(LifeSpanId, WindowMaterialiseField.DebrisLifeSpan);
                 runner._mpb.SetFloat(DriftId,
                     WindowMaterialiseField.DebrisDriftMetres * canvasPerMetre);

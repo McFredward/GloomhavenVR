@@ -195,6 +195,10 @@ internal static partial class WindowMaterialise
         internal Mesh MeshBehind = null!;
         internal int Shards;
         internal float ApparentMetresPerCanvasUnit;
+        /// <summary>The downwind direction in CANVAS units, renormalised. Computed here and carried
+        /// so the runner pushes the same vector into <c>_Wind</c> that the build reasoned with,
+        /// rather than deriving it a second time from the aspect ratio.</summary>
+        internal Vector2 WindCanvas;
     }
 
     /// <summary>
@@ -379,6 +383,7 @@ internal static partial class WindowMaterialise
             Go = go,
             Shards = shards,
             ApparentMetresPerCanvasUnit = metresPerCanvas,
+            WindCanvas = windCanvas,
         };
         // THE FURTHEST ANY SHARD CAN GET FROM ITS BIRTH POINT, in host-local units, from the same
         // constants the vertex stage integrates. Every term is at its own maximum, so this is an
