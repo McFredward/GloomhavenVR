@@ -160,11 +160,16 @@ internal static partial class WindowMaterialise
     private static float _loggedMetresPerCanvas = -1f;
 
     /// <summary>
-    /// A deterministic 32-bit xorshift, seeded per effect from the panel's name. Deterministic on
-    /// purpose: <c>unity/asset-preview/windowmaterialise_field.py</c> carries the identical
-    /// generator, so a preview render of a given window is the SAME cloud the game builds, and a
-    /// difference between the strip and the headset is a real divergence rather than two draws of a
-    /// random variable.
+    /// A deterministic 32-bit xorshift, seeded per effect from the panel's name.
+    ///
+    /// <para>Deterministic so that a given window breaks the same way every time it closes, which is
+    /// what stops the effect reading as noise, and so that
+    /// <c>unity/asset-preview/windowmaterialise_field.py</c> — which carries the identical generator
+    /// and consumes the draws in the identical order — produces a reproducible cloud rather than a
+    /// fresh sample per render. <b>It does NOT make a preview the same cloud as the game's</b>: the
+    /// preview's element set is a synthetic stand-in, and the emission table is built from the
+    /// elements, so the birth points differ. What the preview is evidence about is the MECHANISM and
+    /// the arithmetic, not the particular window.</para>
     /// </summary>
     private static uint _rng = 0x9E3779B9u;
 
