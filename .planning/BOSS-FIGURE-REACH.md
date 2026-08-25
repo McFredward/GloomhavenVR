@@ -646,3 +646,321 @@ log-reading or arithmetic.
   for the beam to work on the boss's upper body, that is a separate, deliberate change.
 * **Nothing in this build was run.** It compiles clean and passes every gate; not one line of the
   new code has ever executed.
+
+---
+
+# ROUND THREE — ModBuild 294: the box was never the figure, and the boss's highlight was firing all along
+
+Two reports on ModBuild 293, verbatim:
+
+> 1) Die Health-Bars bei den Drachen (den kleinen, nicht dem Boss) sind immer noch mitten drin.
+> Kannst du allgemein versuchen die Health-Bars an die reale Größe anzupassen? Siehe
+> health_bars_drachen.jpg
+>
+> 2) Der Boss-Drache hat immer noch **kein** Highlighting wenn man mit der Hand in die Nähe kommt
+> um ihn zu greifen, alle anderen Figuren schon.
+
+Evidence: `.planning/debug/health_bars_drachen.jpg`, `.planning/debug/LogOutput.log` (ModBuild 293
+confirmed at line 17).
+
+## What the round-two round's own falsifier fired on, and what it took down with it
+
+ModBuild 293 shipped a `LOWEST` field into the `BAR ANCHOR` line for exactly one purpose: to
+falsify the symmetry assumption underneath the ModBuild 292 slack correction ("the box reaches
+1.29 wu below the floor, so take 1.29 wu off the top"). **It fired on every drake.**
+
+| figure | TALLEST renderer | LOWEST renderer | verdict |
+|---|---|---|---|
+| `BruteID` | `HE_Brute_Mesh` | `WP_Brute_Shield_01` | different objects |
+| `MindthiefID` | `HE_Mindthief` | `WP_Mindthief_Knife` | different objects |
+| `SpittingDrakeID` | `MO_Spitting_Drake_Mesh` | **the same** | one baked box |
+| `RendingDrakeEliteID` | `MO_Rending_Drake_Elite` | **the same** | one baked box |
+| `ElderDrakeID` | `MO_ElderDrake_MESH` | **the same** | one baked box |
+
+On the three figures the user complained about, the underhang and the overhang are two corners of a
+single authored box on a single renderer. Subtracting one from the other is arithmetic on one stale
+number, not a correction of an independently measured error. **The slack subtraction is removed**
+(`FigureBody.TrustedTopY` and `FigureBody.Underhang` are deleted, not deprecated), from both
+callers — the bar anchor in `WorldUI/ActorBars.cs` and the mod-owned reach capsule in
+`Board/FigureGrab/FigureGrabDriver.cs`.
+
+## The stale-bounds mechanism, stated exactly
+
+Round two's write-up said `Renderer.bounds` on a skinned mesh is "the authored local bounds, padded
+by the artist and covering every pose in the clip set". That is half right and the half it gets
+wrong is the half that matters. The precise statement is:
+
+> A `SkinnedMeshRenderer` with `updateWhenOffscreen = false` reports its authored `localBounds`
+> **carried by the root bone's transform**.
+
+Two consequences, and the ModBuild 293 log contains a clean instance of each.
+
+**1. A figure whose root bone does not move reports a box that never moves, however far the figure
+travels.** `SpittingDrakeID`'s box is `y -0.04..1.52` in the adopt line and `y -0.04..1.52` in every
+resample line of the session — identical to the centimetre. Over the same period its own head joint
+travelled `0.57 -> 2.10 -> 2.16` wu as the drake took off. A box whose top is 1.52 while the
+character's head is at 2.16 is not a loose box; it is measuring something else entirely.
+
+That is the whole of report (1). The ModBuild 293 rule read the head floor and then **capped it back
+to the box top** (`Mathf.Min(top, boundsMaxY)` at the end of `TrustedTopY`), so the drake's bar was
+placed at 1.70 wu — *0.4 wu below the drake's own head joint*, i.e. through its chest. The
+screenshot shows exactly that on both flying drakes.
+
+**2. A figure whose root bone bobs reports a box that jitters without its silhouette changing.**
+`ElderDrakeID`'s resamples, in session order: 5.09, 4.79, 5.14, 4.81, 5.05, 4.88, 5.10 wu. Seven
+re-adoptions, 0.35 wu of swing, no trend. That is not the dragon breathing; that is a fixed box
+riding a flight bob. It is also why the ModBuild 293 "latch" never latched: the samples genuinely
+differ, so no tolerance can stop them.
+
+## The fix: measure things that move
+
+`FigureBody` (in `Board/FigureGrab/FigureGrabbable.cs`) is rewritten around one function,
+`TryLiveExtentY(Renderer, out minY, out maxY, out liveBones)`:
+
+* **skinned renderer** → the world-space vertical extent of its **live bone transforms**
+  (`SkinnedMeshRenderer.bones`). Bones are written by the Animator every frame, so a wing that is up
+  is measured up and a drake that is flying is measured in the air.
+* **plain `MeshRenderer`** (a weapon, a shield, a prop) → its own `bounds`, which for a non-skinned
+  mesh *is* live: it is the mesh's authored box under the object's current transform, and that
+  transform is bone-parented.
+* **fallback** → the baked box, and the caller prints `liveBones == 0` so that degradation is never
+  silent.
+
+The figure's top is then `FigureBody.LiveTopY` = the live extent, **raised** to the character's head
+joint where the skeleton falls short. The head joint is a floor and never a cap; the cap is what
+buried the drakes.
+
+### The measured cost of obtaining live bounds
+
+**One `Transform.position` read per bone, per sampled renderer, on sampled frames only.** Nothing is
+written to any game object; no flag is flipped; no culling behaviour changes for any duration. The
+sampling cadence is unchanged from ModBuild 293: at most 8 samples per figure at 0.5 s intervals over
+the 4 s after adoption, in each of the two subsystems, and never again after that. On the largest
+figure in the log (`ElderDrakeID`: 5 mesh renderers of 36 active) that is a few hundred native
+property reads twice a second for four seconds, against an 11.11 ms frame.
+
+**Why not `updateWhenOffscreen`.** The obvious alternative is to set `updateWhenOffscreen = true`,
+read `bounds`, and restore the flag. It was rejected on two grounds, in this order: (i) it writes a
+culling-relevant flag on a **game** renderer, and the mod would own that renderer's culling for the
+duration of the read — a class of change this project has been burned by before; (ii) whether Unity
+recomputes skinned bounds *synchronously* on the next `bounds` get, or at the next skinning pass, is
+undocumented. If it is the latter, the remedy silently returns the same stale number it was added to
+replace — a gated remedy that never runs, which is a failure mode already in the memory index. The
+bone read has neither problem and needs no verification to be *correct*, only to be *sufficient*.
+
+**What the bone box does not cover, stated honestly.** Skin extends past the bones it is weighted
+to: the Brute's helmet horns are above his head joint and no bone is up there. The bone box is
+therefore a small under-estimate on humanoids. Padding it with a bind-pose-derived per-mesh constant
+was considered and rejected as a second unmeasured term stacked on a first. The 12 % clearance
+absorbs it, the authored floor below absorbs the rest, and the anchor line now prints the bone box
+and the baked box side by side so the size of any miss is readable rather than inferred.
+
+## The strongest reading in the log, and it came from a term treated as a fallback
+
+`m_WorldspaceOffsetY` is authored **per character** by the game's artists and this file had been
+treating it as nothing but the value to use when measurement fails. On all five figures in the
+ModBuild 293 log it lands within 0.15 wu of that character's **live head joint**:
+
+| figure | authored `m_WorldspaceOffsetY` | live head joint | Δ |
+|---|---|---|---|
+| `BruteID` | 1.87 | 1.84 | 0.03 |
+| `MindthiefID` | 1.10 | 1.03 | 0.07 |
+| `SpittingDrakeID` | 2.10 | 2.10 / 2.16 *(in flight)* | 0.00 |
+| `RendingDrakeEliteID` | 1.00 | 0.74 | 0.26 |
+| `ElderDrakeID` | 3.50 | 3.28 … 3.43 | 0.07–0.22 |
+
+Two completely independent sources — what a human typed into a prefab, and where the live skeleton
+is this frame — agreeing five times out of five. Note especially the Spitting Drake: the artists'
+number matches its head **in flight**, not on the ground, which is a second independent statement
+that the flying pose is the one the bar was designed around.
+
+So the authored offset is promoted from *fallback* to **floor**: the measured anchor may never come
+out below it. It costs nothing on any figure taller than the artists assumed, and it rescues the two
+cases where the live measurement legitimately under-reports — a quadruped whose head hangs below its
+back (`RendingDrakeElite`, 0.83 measured against 1.00 authored) and a flyer sampled while it happens
+to be standing on the ground (`SpittingDrake` at adopt, head 0.57).
+
+It can only raise, and it is re-clamped to the 6.0 wu hard ceiling.
+
+## The jitter: the sampling window keeps its maximum
+
+`ResampleAnchor` now adopts a new reading only when it is **higher** than the adopted one by more
+than the 2 % tolerance, and the confirming read must still be higher or the sample is discarded
+silently. The log verb changed from `RESAMPLED` to `RESAMPLED UP` so a hardware log cannot be
+misread as the old two-sided behaviour.
+
+The argument is not "less noise". It is that the bar must clear the figure at the **tallest** moment
+of its animation cycle, because an anchor set at the bottom of the cycle dips inside the figure at
+the top of it — which is literally the "mitten drin" complaint. A monotone rule converges and stops
+logging on its own; the budget still bounds the work, but the value latches because it runs out of
+things to rise to, not because a timer said so.
+
+The cost of being wrong in this direction is a bar sitting a little high on a figure that briefly
+reared up and then settled. The cost of the other direction is a bar drawn through a chest. The user
+has reported the second twice and the first never.
+
+## Before / after, every figure in the ModBuild 293 log
+
+The new anchor is `max(live bone extent top, live head joint) × 1.12`, floored at the authored
+offset. The bone extent is **not knowable from the 293 log** — no build has ever printed it — so the
+column below is a *lower bound* computed from the head joint, which is the term that is in the log.
+The real value is that number or higher, by however far the topmost bone sits above the head joint
+(nothing on a humanoid; the wing bones on a drake).
+
+| figure | ModBuild 293 anchor | authored floor | new anchor, **at least** | direction |
+|---|---|---|---|---|
+| `BruteID` | 2.14 | 1.87 | 2.06 | −0.08 wu (−3.7 %) — invisible |
+| `MindthiefID` | 1.16 | 1.10 | 1.15 | −0.01 wu — unchanged |
+| `SpittingDrakeID` (adopt, grounded) | 1.65 | 2.10 | **2.10** | +0.45 — the floor supplies it |
+| `SpittingDrakeID` (in flight) | 1.70 | 2.10 | **2.35** | +0.65 — *this is the reported defect* |
+| `RendingDrakeEliteID` | 1.26 | 1.00 | 1.00 … higher | ≈ −0.26 or less, floored at the authored value |
+| `ElderDrakeID` | 4.79 … 5.14 (jittering) | 3.50 | **3.67 … 3.84** | −1.1 to −1.3 wu, and it stops jittering |
+
+**The two figures the user has NOT complained about move by 8 cm and 1 cm of board.** That is the
+whole answer to "what does your change do to the Brute and the Mindthief": nothing a player can see,
+and in the direction of *lower*, not into the figure's head — the head joint is still the floor and
+the authored offset is still under it. `RendingDrakeElite` is the one figure that moves down
+materially, and it lands exactly on the number the game's own artists authored for it.
+
+## (2) The boss highlight — the brief's premise was false, and the log says so plainly
+
+The brief for this round stated that `ENGAGED` never names `ElderDrakeID` while `CLEARED` names it
+six times, and asked how a figure can be cleared without ever engaging. **It cannot, and it did not.**
+Counting the whole session:
+
+```
+ENGAGED  (Right near ElderDrakeID       6      CLEARED (ElderDrakeID       6
+ENGAGED  (Right near SpittingDrakeID    7      CLEARED (SpittingDrakeID    7
+ENGAGED  (Left  near MindthiefID        5 )
+ENGAGED  (Right near MindthiefID        1 ) 6  CLEARED (MindthiefID        6
+ENGAGED  (Left  near RendingDrakeElite  4      CLEARED (RendingDrakeElite  4
+ENGAGED  (Left  near BruteID            1      CLEARED (BruteID            1
+```
+
+Every figure's engage count equals its clear count exactly, the boss included. There is no
+asymmetry, and the boss engages as often as anything else on the board. The extraction that produced
+the asymmetry must have matched only `ENGAGED (Left near …`; the boss is grabbed with the right hand
+in every one of its six engagements.
+
+**So the highlight is not failing to fire.** Worse than that: each of the six lines ends
+`overlaid on the figure's own meshes (wall-occluded, no scale change)`, which is the branch taken
+when `FigureHighlight.Apply` returned **true** — a material was made, at least one renderer was
+cloned, an `OverlayPulse` was attached. Something is being drawn on that dragon every time, and the
+player cannot see it.
+
+### Where that leaves the cause, and why a boolean could not tell us
+
+The only remaining boss-specific term is **which subtree was cloned**. Until now that was
+`ActorBehaviour.m_AnimatedGameObject`, and the decompiled game sets it to
+`MF.GetGameObjectAnimator(root).gameObject` — which is (decompiled `MF.cs:135-146`):
+
+```csharp
+Animator[] componentsInChildren = gameObject.GetComponentsInChildren<Animator>();
+foreach (Animator animator in componentsInChildren)
+    if (animator.runtimeAnimatorController != null)
+        return animator;          // the FIRST one, in depth-first order
+```
+
+That is not defined to be the character's own Animator. It is defined to be whichever Animator the
+walk reaches first. And the boss is the one figure in the log whose subtree provably carries foreign
+animated content: its own `FIGURE REACH` line names a `WP_Scoundrel_Dart` collider at y 3.24..3.37
+and two `WP_Dummy` objects hanging off it, and its `BAR ANCHOR` census counts 36 active renderers of
+which **31 are neither mesh nor skinned mesh**. Clone the wrong Animator's subtree and you get a
+`true` return value, a real material, a real pulse — and an amber glow on something the size of a
+dart.
+
+**That is a hypothesis and this build no longer depends on it.** Two changes, in
+`Board/FigureGrab/FigureHighlight.cs`:
+
+1. **The renderer search starts at the ACTOR ROOT** (`m_RootGameObject`) — the same subtree
+   `ActorBars` and `FigureGrabDriver` already measure the figure with — so the glow covers whatever
+   those two call "the figure", regardless of where the game's animator lookup landed. Excluded from
+   the walk: mod-owned objects (anything named `VR…`, so an overlay can never clone an overlay), the
+   actor's selection ring (`m_Hilight`, which hangs off the actor root, draws `ZTest Always` and is
+   not part of the miniature — gilding it would change how *every* figure looks), non-mesh
+   renderers, and renderers whose component is disabled.
+2. **`Apply` returns a report, not a boolean**, and the `ENGAGED` line prints it: how many renderers
+   were cloned, the world box they span, **how many of them lay under `m_AnimatedGameObject` and
+   what box those span**. One hardware line now settles the hypothesis. If the two boxes differ on
+   the boss and agree everywhere else, the paragraph above was right. If they agree on the boss too,
+   it was wrong and the cause is elsewhere — and the line says which, instead of the next round
+   guessing a third time.
+
+### A real defect found on the way, unrelated to the boss
+
+The old clone walk used `GetComponentsInChildren<Renderer>(includeInactive: **true**)` and never
+checked `Renderer.enabled`. The clones it produced are on freshly created, **active** GameObjects, so
+every renderer the game had switched off — a sheathed weapon, a prop on a deactivated object, any
+renderer the async material loader had disabled mid-stream — acquired a *visible* amber ghost of
+itself floating in mid-air while the hand hovered. Fixed: `includeInactive: false` plus an `enabled`
+check. This affects every figure, not just the boss, and it may be part of what the user has been
+seeing as "highlighting flashing on the wrong things".
+
+Also fixed: a cloned `MeshRenderer` prop had its `localScale` left at 1 under a container parented to
+the actor root, so a prop with any local scale of its own drew its glow at the wrong size. It now
+matches the part's world scale exactly.
+
+### The extra colliders question, closed for good
+
+Round two refused to elect across the four extra colliders on the boss and said the instrument would
+name them. It did:
+
+```
+CapsuleCollider on 'MO_Elder_Drake'      y -0.30..1.70  size (2,2,2)  TRIGGER   [OUTSIDE CInteractableActor]
+CapsuleCollider on 'WP_Dummy'            y  3.35        size (0,0,0)  TRIGGER disabled
+CapsuleCollider on 'WP_Scoundrel_Dart'   y  3.24..3.37  size (0.14…)  TRIGGER
+CapsuleCollider on 'Actor(Clone)'        y  0.00..2.00  size (1,2,1)  TRIGGER   [USED]
+```
+
+They are a **trigger volume and weapon dummies** — not body volumes, and two of them are disabled
+zero-size points. The refusal to elect across them was correct and the question is settled: there
+was never a taller body collider to find, which is why the mod-owned extension had to be built. The
+same is true on the two small drakes (`MO_SpittingDrake` and `MO_RendingDrake_Elite` trigger volumes
+plus `WP_Dummy` points, all outside `CInteractableActor`).
+
+## What also changed in the reach volume
+
+`SizeReachVolume` now measures the same live extent, so:
+
+* the boss's mod-owned capsule follows the dragon's actual pose instead of a bobbing baked box;
+* the **flying** drakes become eligible for an extension they never got, because their live top in
+  flight (head joint 2.10–2.16 wu) clears the game's `y 0.00..2.00` capsule while their frozen box
+  (`1.52`) never did. That should make an airborne drake grabbable where the player sees it.
+
+`RENDERED BODY` and `FIGURE REACH EXTENDED` now print the live extent, the live bone count and the
+baked box side by side.
+
+## WHAT I COULD NOT VERIFY WITHOUT HARDWARE
+
+* **The bone extent of any figure.** Every "new anchor" number above is a *lower bound* derived from
+  the head joint, because no build has ever printed a bone extent. If a drake's wing bones reach far
+  above its head, its bar goes correspondingly higher — and on the boss that could put the anchor
+  back near where it is now, or into the 6.0 wu hard ceiling. **This is the single most important
+  thing the next log must be read for**, and the `BAR ANCHOR` line now prints `LIVE extent y a..b`,
+  the tallest renderer, its live bone count, and the baked box beside it. If the boss's live top
+  turns out to be its wing tips and the user still says "zu weit oben", the change is to stop taking
+  the max of the bone cloud and anchor on the head joint alone — which is what the five-for-five
+  authored-offset agreement above already endorses, and which I did not do this round only because
+  it cannot be right for a quadruped whose back is above its head.
+* **Whether the boss's glow becomes visible.** The `m_AnimatedGameObject` story is a mechanism that
+  *fits* every reading in the log; it is not a measurement. It has never been checked because
+  nothing has ever printed that object's name. If the new report line says
+  `ALL of them lie under m_AnimatedGameObject`, the hypothesis is dead and the cause is somewhere
+  this round did not look — most likely in how the overlay material draws on that particular
+  dragon's shaders.
+* **The ghost path has the same exposure and was not changed.** `FigureGhosts` /
+  `FigureOverlay.BuildFrozenGhost` still `Instantiate`s `m_AnimatedGameObject`. If that object is
+  wrong for the boss, the boss's release ghost is a floating dart too. `FigureOverlay.cs` was owned
+  by another lane this round and was deliberately left alone; the report line added here will say
+  whether it needs the same treatment.
+* **The Brute's and Mindthief's 1–8 cm drop.** Quantified from the log, never observed. If he
+  reports the hero bars now crowd the head, the term is the 12 % clearance fraction, not the
+  measurement.
+* **`RendingDrakeElite` landing on the authored 1.00.** That is a 0.26 wu drop from 1.26 on a figure
+  he has not complained about. It is defensible (it is the game's own number) and it is still a
+  change he did not ask for.
+* **The cost.** "A few hundred `Transform.position` reads, twice a second, for four seconds per
+  figure" is an argument from the shape of the loop, not a measurement on a Quest 3. No profiler has
+  seen this code.
+* **Nothing in this build was run.** It compiles clean and passes every gate; not one line of the
+  new code has ever executed.

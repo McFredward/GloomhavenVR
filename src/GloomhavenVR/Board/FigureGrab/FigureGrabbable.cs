@@ -443,13 +443,19 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             }
             // Overlay the figure's OWN meshes with an animated additive glow — NO scale change,
             // occlusion-correct, riding the live animation (see FigureHighlight / FigureOverlay).
-            GameObject animated = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
-            bool glow = _highlight.Apply(root, animated);
+            //
+            // THE LINE NOW CARRIES THE OVERLAY'S OWN MEASUREMENT, not a boolean. In the ModBuild 293
+            // log ElderDrakeID engaged six times and every line said the glow was applied, while the
+            // user reported no highlight on that figure at all — a pair a boolean cannot separate.
+            // See FigureHighlight for what the report says and why it is the term that settles it.
+            bool glow = _highlight.Apply(root, _actor.m_AnimatedGameObject,
+                                         _actor.m_Hilight != null ? _actor.m_Hilight.transform : null,
+                                         out string overlay);
             VRLog.Info("FigureGrab",
                 $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}, {DescribeReach(hand)}) — "
                 + "animated additive glow "
-                + (glow ? "overlaid on the figure's own meshes (wall-occluded, no scale change)."
-                        : "UNAVAILABLE (bundle Overlay shader missing) — no highlight."));
+                + (glow ? $"overlaid on the figure's own meshes (wall-occluded, no scale change): {overlay}."
+                        : $"UNAVAILABLE — no highlight: {overlay}."));
         }
         else
         {
@@ -561,11 +567,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             GameObject? root = g.Root;
             if (root == null || g._highlight.Active || NetHeldFigures.Owns(g._actor))
                 continue;
-            GameObject animated = g._actor.m_AnimatedGameObject != null ? g._actor.m_AnimatedGameObject : root;
-            if (g._highlight.Apply(root, animated))
+            if (g._highlight.Apply(root, g._actor.m_AnimatedGameObject,
+                                   g._actor.m_Hilight != null ? g._actor.m_Hilight.transform : null,
+                                   out string overlay))
                 VRLog.Info("FigureGrab",
                     $"pre-grab highlight ENGAGED ({g.Describe()}) — walk-in mode released under a "
-                    + "standing hover, so the glow returns without needing a re-hover.");
+                    + $"standing hover, so the glow returns without needing a re-hover: {overlay}.");
         }
     }
 
@@ -1425,79 +1432,155 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 }
 
 /// <summary>
-/// THE TRUSTWORTHY TOP OF A MINIATURE — one rule, shared by the two subsystems that both used to
-/// answer "how tall is this figure?" with <c>Renderer.bounds.max.y</c> and both got the boss
-/// dragon wrong for it (the health-bar anchor in <c>WorldUI.ActorBars</c> and the grab reach in
-/// <see cref="FigureGrabDriver"/>).
+/// THE REAL, ANIMATED TOP OF A MINIATURE — one rule, shared by the two subsystems that both have
+/// to answer "how tall is this figure, right now?" (the health-bar anchor in
+/// <c>WorldUI.ActorBars</c> and the grab reach in <see cref="FigureGrabDriver"/>).
 ///
-/// <para><b>WHAT THE HARDWARE LOG SETTLED (ModBuild 291).</b> A renderer AABB is NOT the figure.
-/// The boss's box read <c>y -1.29..5.55</c> against a track base at <c>y 0.00</c> — i.e. the box
-/// claims 1.29 wu of dragon BELOW THE FLOOR THE DRAGON IS STANDING ON. That part of the box is
-/// provably empty, and it is the box's own admission of how loose it is: a skinned renderer with
-/// <c>updateWhenOffscreen=false</c> reports its AUTHORED local bounds, padded by the artist and
-/// covering every pose in the clip set, not the silhouette on screen this frame. Every figure in
-/// that log admits the same slack, in proportion: Brute -0.32, Mindthief -0.20, Spitting Drake
-/// -0.04, Rending Drake Elite -0.06.</para>
+/// <para><b>WHAT THE ModBuild 293 HARDWARE LOG SETTLED, AND WHAT IT DEMOLISHED.</b> Every version
+/// of this rule up to ModBuild 293 started from <c>Renderer.bounds</c> and then tried to correct
+/// it. The 293 log ends that line of work with two readings that no correction survives:</para>
+/// <list type="bullet">
+///   <item><description><b>The box does not contain the figure.</b> <c>SpittingDrakeID</c> reported
+///   the SAME box, <c>y -0.04..1.52</c>, in every sample of the session — it never moved by a
+///   millimetre — while its own head joint travelled from <c>0.57</c> to <c>2.16</c> wu as the
+///   drake took off. A box whose top is 1.52 while the character's head is at 2.16 is not a loose
+///   box, it is a box that is measuring something else. That is why the two flying drakes' bars sat
+///   INSIDE them (health_bars_drachen.jpg): the old rule capped the head floor at the box top
+///   (<c>Mathf.Min(top, boundsMaxY)</c>) and parked the bar 0.4 wu BELOW the drake's own head.
+///   </description></item>
+///   <item><description><b>The box's underhang and its top are one baked number.</b> ModBuild 292
+///   subtracted "the slack the box admits below the base" from the top, and ModBuild 293 shipped
+///   the <c>LOWEST</c> field expressly to falsify that. It fired: on all three drakes the lowest
+///   and the tallest renderer are the SAME object (<c>MO_ElderDrake_MESH</c>,
+///   <c>MO_Spitting_Drake_Mesh</c>, <c>MO_Rending_Drake_Elite</c>), so the underhang and the
+///   overhang are two corners of ONE authored box, and subtracting one from the other is arithmetic
+///   on a single stale number, not a correction. The subtraction is gone.</description></item>
+/// </list>
 ///
-/// <para><b>THE RULE.</b> The box's measurable error is how far it reaches below the figure's own
-/// base. Subtract that same distance from the top. It is one assumption — that the padding is
-/// roughly symmetric — and it is the only correction available that is itself MEASURED rather than
-/// tuned: it is large exactly where the box is loose and vanishes where the box is tight. On the
-/// five figures in the log it moves the boss's top from 5.55 to 4.26 (its head joint is at 3.41,
-/// its wing tips are the 5.55) and moves the small drakes by 0.04 and 0.06.</para>
+/// <para><b>THE MECHANISM, STATED EXACTLY.</b> A <c>SkinnedMeshRenderer</c> with
+/// <c>updateWhenOffscreen = false</c> — which is every character in the log — does not report the
+/// silhouette on screen. It reports its AUTHORED <c>localBounds</c> carried by the ROOT BONE's
+/// transform. Two consequences, and the log shows both: a figure whose root bone does not move
+/// (the small drakes — their flight is driven by bones below the root) reports a box frozen on the
+/// ground however high it flies; and a figure whose root bone bobs (the boss: <c>y -1.29..5.57</c>,
+/// <c>-1.07..5.65</c>, <c>-1.20..5.50</c>, <c>-1.16..5.67</c>, ... in one session) reports a box
+/// that jitters ±0.35 wu without its silhouette changing at all. Neither number is the dragon, and
+/// that jitter is the whole of the boss bar's visible bobbing.</para>
 ///
-/// <para><b>WHY NOT THE HEAD JOINT, WHICH IS WHAT THE BRIEF ASKED FOR.</b> Because the same log
-/// refutes it. A head-anchored rule is right for a humanoid (Brute's head joint 1.70 sits just
-/// under its box top 2.23) and catastrophic for a quadruped: the Spitting Drake's head joint is at
-/// 0.57 under a box top of 1.52 — 37 % — because a drake holds its head DOWN and its back UP.
-/// Anchoring a bar at the head joint would bury the bars of the two small drakes inside their own
-/// backs, which is the very defect being fixed on the boss. The head joint therefore survives only
-/// as a FLOOR: whatever the box says, the answer is never below the head. On all five figures in
-/// the log that floor does not bind, and the caller's log line says when it does.</para>
+/// <para><b>THE RULE THAT REPLACES IT: MEASURE THINGS THAT MOVE.</b> The figure's extent is the
+/// union, over its renderers, of
+/// <list type="bullet">
+///   <item><description>for a skinned renderer, the world-space extent of its LIVE BONE TRANSFORMS
+///   (<c>SkinnedMeshRenderer.bones</c>). Bones are driven by the Animator every frame, so a wing
+///   that is up is measured up and a drake that is flying is measured in the air. It costs one
+///   <c>Transform.position</c> read per bone and touches no game state whatsoever — nothing is
+///   written, no flag is flipped, no culling behaviour changes. That last property is why this was
+///   chosen over the obvious alternative of toggling <c>updateWhenOffscreen</c> around the read:
+///   that alternative writes a culling-relevant flag on a GAME renderer, and whether Unity
+///   recomputes the bounds synchronously on the following <c>bounds</c> get is undocumented, so it
+///   is a remedy that could silently return the same stale number it was added to
+///   replace;</description></item>
+///   <item><description>for a plain <c>MeshRenderer</c> (a weapon, a prop, a shield), its own
+///   <c>bounds</c> — which for a non-skinned mesh IS live, because it is the mesh's authored box
+///   under the object's current transform, and that transform is bone-parented.</description></item>
+/// </list>
+/// The character's head joint then survives only as a FLOOR — never a cap. The old cap is exactly
+/// what buried the drakes' bars.</para>
 ///
-/// <para>Pure function, no allocation, no component lookup — both callers already hold every term.
+/// <para><b>WHAT THE BONE BOX DOES NOT COVER, STATED HONESTLY.</b> Skin extends past the bones it
+/// is weighted to: the Brute's helmet horns reach above his head joint and no bone is up there. The
+/// bone box is therefore a small under-estimate of the silhouette on humanoids, and the caller's
+/// own clearance margin (12 % of the figure's height in <c>ActorBars</c>) absorbs it. The
+/// alternative — padding by a bind-pose-derived per-mesh constant — was rejected as a second
+/// unmeasured term stacked on a first; if a hardware log ever shows a bar clipping a helmet, that
+/// is the term to add, and the anchor line now prints the bone box and the baked box side by side
+/// so the size of the miss is readable rather than inferred.</para>
+///
+/// <para>Pure functions, no allocation, no component lookup beyond the renderer already in hand.
 /// </para>
 /// </summary>
 internal static class FigureBody
 {
-    /// <param name="boundsMinY">World y of the bottom of the figure's mesh AABB.</param>
-    /// <param name="boundsMaxY">World y of the top of the same AABB.</param>
-    /// <param name="baseY">World y of the figure's own base (the game's <c>m_BasePoint</c>, or the
-    /// bottom of its authored pick collider). This is the reference the slack is measured against;
-    /// it must be the GROUND under the figure, never its head bone.</param>
-    /// <param name="baseKnown">False when no trustworthy base is available — the correction is then
-    /// skipped entirely and the raw box top is returned, i.e. exactly the pre-fix behaviour.</param>
-    /// <param name="headY">World y of the character's head joint, when it has one.</param>
-    /// <param name="headKnown">False for a figure with no head joint; the floor is then simply
-    /// absent and nothing else changes.</param>
-    /// <param name="fromSlackCorrection">True when the slack correction produced the answer, false
-    /// when the head floor or the raw box did — the field a log line must name, because a rule that
-    /// silently stops applying is a rule nobody can falsify.</param>
-    internal static float TrustedTopY(
-        float boundsMinY, float boundsMaxY, float baseY, bool baseKnown,
-        float headY, bool headKnown, out bool fromSlackCorrection)
+    /// <summary>
+    /// The LIVE vertical extent of one renderer, in world units.
+    ///
+    /// <para><paramref name="liveBones"/> is the number of bone transforms that produced the
+    /// answer: 0 means this renderer fell back to its baked <c>Renderer.bounds</c> box (a plain
+    /// <c>MeshRenderer</c>, for which that box is live anyway, or a skinned renderer with no bone
+    /// array). A caller that prints its measurement MUST print this count, because "0 live bones on
+    /// a SkinnedMeshRenderer" is the one state in which this rule silently degrades back to the
+    /// stale box it exists to replace.</para>
+    ///
+    /// <para>Returns false only for a renderer that is neither a mesh nor a skinned mesh, or one
+    /// folded into a static batch (whose <c>bounds</c> are the whole batch — documented Unity
+    /// behaviour) — both of which the callers already filter, so the guard is a belt.</para>
+    /// </summary>
+    internal static bool TryLiveExtentY(Renderer r, out float minY, out float maxY, out int liveBones)
     {
-        float top = boundsMaxY;
-        fromSlackCorrection = false;
-        if (baseKnown)
+        minY = 0f;
+        maxY = 0f;
+        liveBones = 0;
+        if (r == null || r.isPartOfStaticBatch)
+            return false;
+
+        if (r is SkinnedMeshRenderer smr)
         {
-            float underhang = Mathf.Max(0f, baseY - boundsMinY);
-            if (underhang > 0f)
+            Transform[] bones = smr.bones;
+            if (bones != null && bones.Length > 0)
             {
-                top = boundsMaxY - underhang;
-                fromSlackCorrection = true;
+                float lo = float.MaxValue;
+                float hi = float.MinValue;
+                int seen = 0;
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    Transform b = bones[i];
+                    if (b == null)
+                        continue;
+                    float y = b.position.y;
+                    if (y < lo) lo = y;
+                    if (y > hi) hi = y;
+                    seen++;
+                }
+                if (seen > 0)
+                {
+                    minY = lo;
+                    maxY = hi;
+                    liveBones = seen;
+                    return true;
+                }
             }
+            Bounds sb = smr.bounds;
+            minY = sb.min.y;
+            maxY = sb.max.y;
+            return true;
         }
+
+        if (r is MeshRenderer)
+        {
+            Bounds mb = r.bounds;
+            minY = mb.min.y;
+            maxY = mb.max.y;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The figure's top: the live extent, raised (NEVER lowered) to the character's head joint.
+    ///
+    /// <para><paramref name="fromHead"/> is true when the head joint won — the field that says the
+    /// live extent under-reported, which on a hardware log separates "the skeleton does not reach
+    /// the head" from "this renderer had no bones at all".</para>
+    /// </summary>
+    internal static float LiveTopY(float liveMaxY, float headY, bool headKnown, out bool fromHead)
+    {
+        fromHead = false;
+        float top = liveMaxY;
         if (headKnown && headY > top)
         {
             top = headY;
-            fromSlackCorrection = false;
+            fromHead = true;
         }
-        // The correction may only ever LOWER the answer: a figure whose box is honest keeps its box.
-        return Mathf.Min(top, boundsMaxY);
+        return top;
     }
-
-    /// <summary>How far the box reaches below the figure's own base — the measured slack the
-    /// correction above subtracts, printed by both callers so the number is never inferred.</summary>
-    internal static float Underhang(float boundsMinY, float baseY) => Mathf.Max(0f, baseY - boundsMinY);
 }
