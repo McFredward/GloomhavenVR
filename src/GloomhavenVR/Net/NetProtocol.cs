@@ -416,7 +416,75 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 283;
+    public const ushort ModBuild = 284;
+    // Build 284: THE WALL TOPIC IS CLOSED — documented, and the spent instruments retired.
+    // Bundle UNCHANGED at 70,938,157 — DLL-only on top of 283.
+    //   "Ich bemerke keine Ruckler mehr bei der noch genausogut vorhandenen Logik mit den
+    //   Mauern, top!" and "Schliesse das Wandthema erstmal ab. Dokumentier alles und raeum dann
+    //   den Code auf - auch entsprechende Log-Eintraege die wir jetzt nicht mehr brauchen."
+    //   PERF B BUILD 2 IS NOT BUILT. The sliced/double-buffered commit stays a plan in
+    //   .planning/perf/WALL-COMMIT-B-BUILD2.md. He is satisfied; the topic is closed.
+    //   THERE WAS NO DEAD CODE. A sweep of 506 private fields and ~400 private methods across all
+    //   22 files found ZERO unused fields, uncalled methods, unreachable branches, dead locals or
+    //   unconsumed scratch lists — all 17 are rented and read. What exists is a large DIAGNOSTIC
+    //   surface: ~58 fields whose only read is a log string. So the cleanup is about what RUNS.
+    //   TWO WRITES WERE LIVING INSIDE INSTRUMENTS, and the first one is why this round had to be
+    //   done carefully rather than with a grep:
+    //     1. LogSamplingResumed WAS THE WALK-IN SUSPENSION'S RELEASE. `_samplingSuspended = false`
+    //        happened inside a method named Log*. One grep from being retired in a "delete the
+    //        spent log lines" pass — which would have latched the wall fade OFF FOR THE REST OF
+    //        THE SESSION with nothing in the log, the exact deadlock its own doc comment
+    //        describes. Renamed ReleaseSamplingSuspension, reason recorded at the site.
+    //     2. PurgeFigureRenderers ran the ROUND-7 RESTITUTION inside its name-building loop —
+    //        RestoreProp(p) interleaved with names.Append(...). Split into two loops,
+    //        order-preserving and read-identical (_figurePurgeScratch comes from _mountedTouched,
+    //        keyed BY RENDERER, so no two entries share one).
+    //   AN INSTRUMENT WAS PRINTING A FIELD INITIALISER AS A MEASUREMENT. `_cycleCommitFrames = 1`
+    //   was NEVER ASSIGNED anywhere in the subsystem, and the BUDGET line printed
+    //   "COMMIT SPREAD: 1 frame(s)" from it, with 175 characters of standing prose explaining what
+    //   the number meant. I verified this on the pre-cleanup tree myself: declaration, one cref,
+    //   one Append, no assignment. This project already keeps a note that a default value names an
+    //   unbuilt thing; here it named a measurement that was never taken. Deleted, with a record
+    //   left where the field was saying how to bring it back as a REAL counter if PERF B lands.
+    //   WHAT ELSE STOPPED RUNNING, measured per item:
+    //     * the BUDGET line's history prose (ModBuild 226/228/271 narration) plus the COMMIT
+    //       SPREAD clause — 518 characters and 8 StringBuilder appends per line, every 5 s. That
+    //       history is in the closeout document now, where it is read once instead of printed
+    //       forever.
+    //     * BankFactCensus ran UNGATED while its only consumer was config-gated: a ~5800-entry
+    //       dictionary built on EVERY commit — ~5800 GetInstanceID() interop calls, ~5800 dict
+    //       inserts and 5800 struct constructions, ~30 commits a session — to feed a line that
+    //       might never print.
+    //     * SignatureCulpritCensus and CommitTableGate default to OFF. Both shipped ON because
+    //       each "is the whole point of the build"; both builds have landed and answered. The gate
+    //       cost a measured 0.136 ms per commit plus two ~2540-entry snapshots.
+    //     * The WALL-PATH AUDIT'S CADENCE, not the audit: it now backs off 2->4->8->16->32->60 s
+    //       while its own bucket tally does not move. 8.4 -> ~0.26 ms/s, a 32x cut, with
+    //       FIRST-ALARM LATENCY UNCHANGED AT 2 s — a moving tally never converges, so the back-off
+    //       can only happen when there is nothing to report. The re-arm predicate is the
+    //       instrument's OWN OUTPUT, so there is no scene predicate to be wrong about.
+    //   ~0.73 log lines/s removed of ~4-4.5 steady state.
+    //   WHAT WAS KEPT, AND WHAT EACH WOULD CATCH — because a diagnostic deleted is a blind spot
+    //   bought: the path audit is the only thing that can raise UNCLAIMED > 0 (a new tileset's
+    //   asset family falling through every delivery path); 'diag:' is the only line reading
+    //   coverage, EMA, Schmitt state, live fade and four tripwires side by side; PER-WALL is his
+    //   own 2026-08-24 ruling made into a number; GATE-LIFT and PEER-SYNC edges are the ONLY
+    //   evidence either mechanism fired, because neither flips seg.State.
+    //   TWO OF MY BRIEF'S PREMISES DID NOT HOLD, both reported instead of quietly worked around:
+    //   there is no "drift probe chatter" (it builds a string only when it refuses, and it refused
+    //   0 times in the whole 277 log — and it is a DECISION predicate, so it was never a
+    //   candidate); and docs/PATCH-NOTES.md has no wall-fade section and should not get one, being
+    //   the hand-written companion to the generated Harmony inventory.
+    //   THE DOCUMENT: .planning/perf/WALL-FADE-CLOSEOUT.md, 641 lines, 9 sections — the pipeline
+    //   and the skip, both cadences with the WallFade.Late inclusive-vs-exclusive correction
+    //   (~2.4x, real ceiling ~0.39 ms/frame), every dial, where the milliseconds are, the NINE
+    //   non-negotiable rulings each with its source, what was tried and rejected, FOURTEEN
+    //   instruments that lied, and the two findings that outlive the subsystem: the decodable
+    //   signature delta, and WE WERE THE CHURN (the mod's own laser and reticle triggering 32% of
+    //   refusals — sound, provable, NOT IMPLEMENTED, written up as the first thing to do if the
+    //   topic reopens, with its failure mode named). .planning/STATE.md's position line refreshed
+    //   from ModBuild 243 to 283.
+    //   NO GATE NUMBER MOVED — wire tests stay 148002 with no vectors lost.
     // Build 283: THE BOARD SIDES. *** NEW BUNDLE: 70,938,157 bytes (was 70,877,279). NOT
     // a DLL-only install. ***
     //   "Ich will auch die Seiten, Aufgabe daher noch nicht fertig. Mach damit weiter"

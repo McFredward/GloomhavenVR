@@ -946,9 +946,34 @@ internal static partial class WallSegmentFade
         private const int CulpritTopGroups = 10;
 
         /// <summary>Bank the census this commit consumed, so the next scene-signature refusal
-        /// can say WHICH renderers moved rather than only that some did.</summary>
+        /// can say WHICH renderers moved rather than only that some did.
+        ///
+        /// <para>ModBuild 284 — GATED ON ITS OWN CONSUMER, which it never was. This method is
+        /// the ONLY producer of <c>_bankedFacts</c> and <see cref="LogSignatureCulprits"/> is
+        /// its ONLY reader — and the reader has been config-gated since ModBuild 278 while the
+        /// producer ran unconditionally on every commit: ~5800 <c>GetInstanceID()</c> interop
+        /// calls plus ~5800 dictionary inserts, on the commit frame, feeding an instrument that
+        /// might be switched off. An ungated cost behind a gated instrument is the inverse of
+        /// this project's "gated remedy never ran" entry and it is the same mistake.</para>
+        ///
+        /// <para>WHY THE BANK IS ALSO INVALIDATED AND NOT MERELY LEFT STANDING: a stale bank is
+        /// worse than none. Switch the census off, play for ten minutes, switch it back on, and
+        /// a bank left standing would be diffed against a scene ten minutes older and report a
+        /// scene's worth of spurious culprits. Dropping <c>_bankedFactsValid</c> makes the first
+        /// refusal after a flip-on print the census's own designed third state
+        /// (<c>tableBanked: false</c>), which says in its own words that it has no baseline
+        /// yet.</para></summary>
         private void BankFactCensus()
         {
+            if (!WallFadeTuning.SignatureCulpritCensusOn)
+            {
+                if (_bankedFactsValid || _bankedFacts.Count > 0)
+                {
+                    _bankedFacts.Clear();
+                    _bankedFactsValid = false;
+                }
+                return;
+            }
             _bankedFacts.Clear();
             for (int i = 0; i < _factCount; i++)
             {

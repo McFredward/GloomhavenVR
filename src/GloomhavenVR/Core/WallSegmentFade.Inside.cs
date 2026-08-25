@@ -1841,7 +1841,7 @@ internal static partial class WallSegmentFade
             }
             else
             {
-                LogSamplingResumed(now, "the walk-in stand-down released");
+                ReleaseSamplingSuspension(now, "the walk-in stand-down released");
             }
             return _samplingSuspended;
         }
@@ -1863,8 +1863,19 @@ internal static partial class WallSegmentFade
         /// latch whose only release path is gated by the latch. Every site that force-releases
         /// the walk-in latch therefore force-releases this too, at the same instant, and the
         /// resume line names which one did it.</para>
+        ///
+        /// <para>ModBuild 284 — RENAMED FROM <c>LogSamplingResumed</c>, AND THAT IS THE WHOLE
+        /// POINT OF THE RENAME. This method IS the release: <c>_samplingSuspended = false</c>
+        /// happens here, and the log line is a passenger. Under its old name it sat in a file
+        /// full of <c>Log*</c> methods that really are log-only, one grep away from being
+        /// retired in a diagnostics cleanup — and retiring it would have latched the wall fade
+        /// off for the rest of the session with nothing in the log, which is exactly the
+        /// deadlock the paragraph above describes. This project's ledger already has an entry
+        /// for a fix that lived inside the instrument meant to test it. DO NOT put the write
+        /// back behind a <c>Log</c> name, and do not gate this call on
+        /// <c>PerfConfig.Quiet</c>.</para>
         /// </summary>
-        private void LogSamplingResumed(float now, string cause)
+        private void ReleaseSamplingSuspension(float now, string cause)
         {
             if (!_samplingSuspended)
                 return;
@@ -1907,9 +1918,9 @@ internal static partial class WallSegmentFade
             _walkInsidePending = false;
             _walkInsidePendingSince = 0f;
             // ModBuild 278 — the suspension goes with the latch it belongs to, at the same
-            // instant and never one tick later. See LogSamplingResumed for the deadlock this
+            // instant and never one tick later. See ReleaseSamplingSuspension for the deadlock this
             // closes; it is a no-op whenever the suspension was not engaged.
-            LogSamplingResumed(Time.unscaledTime,
+            ReleaseSamplingSuspension(Time.unscaledTime,
                 "the walk-in latch was force-released (dial off, board volume gone, or scenario "
                 + "teardown) — not the player stepping out");
         }

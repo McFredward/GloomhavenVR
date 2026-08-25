@@ -196,7 +196,15 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Edge log for peer-driven fades (a purely remote fade never flips
-        /// seg.State, so LogStateFlip stays silent — this line is its counterpart).</summary>
+        /// seg.State, so LogStateFlip stays silent — this line is its counterpart).
+        ///
+        /// <para>ModBuild 284, audited and CLEARED, same as <c>LogGateLiftEdge</c>:
+        /// <c>seg.RemoteFadeActive</c> is written here and read NOWHERE else in the subsystem —
+        /// it is this line's own edge latch, not a decision input. KEPT because it is the only
+        /// per-wall evidence that record 17 arrived and was applied; a peer sync that quietly
+        /// stopped delivering would otherwise look identical to a teammate whose walls happen
+        /// not to be faded, and that distinction cannot be made from a hardware log without
+        /// this line.</para></summary>
         private void LogRemoteFadeEdge(Segment seg, bool remote, int peerId)
         {
             if (remote == seg.RemoteFadeActive)

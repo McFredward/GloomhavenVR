@@ -675,13 +675,16 @@ internal static partial class Loc
                 + "aufzubauen, weil 'sich die Szene geändert hat', dann protokollieren, WELCHE "
                 + "Renderer sich geändert haben — nach Namen gruppiert, mit der vollständigen "
                 + "Gruppenzahl und einer ausdrücklichen Angabe, wie viel in der Zeile keinen "
-                + "Platz mehr hatte. Das ist die offene Frage der laufenden "
-                + "Leistungsuntersuchung: 28 der 33 Neuaufbauten im Log von ModBuild 277 gingen "
-                + "auf genau diesen einen Grund zurück, und nichts im Mod konnte sagen, was ihn "
-                + "ausgelöst hat. Läuft nur auf einem Durchlauf, der ohnehin neu aufbaut, "
-                + "höchstens alle paar Sekunden, und meldet seine eigenen Kosten als Schritt "
-                + "'WallFade.SigDiag' — es kann also nie zu einer ungemessenen Dauerlast werden. "
-                + "Wieder ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
+                + "Platz mehr hatte. DIE FRAGE, FÜR DIE ES GEBAUT WURDE, IST BEANTWORTET — "
+                + "DESHALB IST ES JETZT STANDARDMÄSSIG AUS: 28 der 33 Neuaufbauten im Log von "
+                + "ModBuild 277 gingen auf genau diesen einen Grund zurück, und diese Zeile hat "
+                + "die Ursache benannt — ein Drittel davon wurde von nichts anderem als den "
+                + "EIGENEN Objekten des Mods ausgelöst, dem Handlaser und dem Zeiger, die je "
+                + "einen vollständigen Neuaufbau kosten, den sie gar nicht beeinflussen können. "
+                + "Wieder einschalten, wenn du daran arbeitest. Läuft nur auf einem Durchlauf, "
+                + "der ohnehin neu aufbaut, höchstens alle paar Sekunden, und meldet seine "
+                + "eigenen Kosten als Schritt 'WallFade.SigDiag' — es kann also nie zu einer "
+                + "ungemessenen Dauerlast werden. Live änderbar.",
             // ModBuild 281 (PERF B Schritt 3) — die Churn-Messung vor dem Slicing.
             ["WallFade/CommitTableGate"] =
                 "DIAGNOSE, keine Verhaltensänderung — es liest die Wandtabelle und schreibt "
@@ -692,14 +695,15 @@ internal static partial class Loc
                 + "die von einer Wand zu einer anderen gewandert sind. Genau das sind die "
                 + "Fälle, die schiefgehen würden, wenn der Neuaufbau über sechzig Bilder "
                 + "verteilt statt in einem einzigen stattfände — also bei der Änderung, die die "
-                + "kurzen Hänger endgültig beseitigen würde. Diese Änderung wird NICHT gemacht, "
-                + "bevor diese Zeile aus einer echten Sitzung zurückkommt und sagt, wie oft "
-                + "jeder Fall tatsächlich eintritt. Es ist ausdrücklich KEIN Vergleich des "
-                + "heutigen Neuaufbaus mit einem verteilten: nichts in diesem Build baut "
-                + "verteilt auf, und die Logzeile sagt das selbst. Läuft nur auf einem "
-                + "Durchlauf, der ohnehin neu aufbaut, schreibt höchstens alle 20 Sekunden und "
-                + "meldet seine eigenen Kosten als Schritt 'WallFade.TableGate'. Wieder "
-                + "ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
+                + "kurzen Hänger endgültig beseitigen würde. DIESE MESSUNG IST GEMACHT UND DIESE "
+                + "ÄNDERUNG WIRD NICHT DURCHGEFÜHRT — du hast gemeldet, dass die Hänger weg "
+                + "sind, deshalb ist das hier jetzt standardmäßig AUS und nur noch interessant, "
+                + "falls der verteilte Neuaufbau je wieder aufgegriffen wird. Es ist "
+                + "ausdrücklich KEIN Vergleich des heutigen Neuaufbaus mit einem verteilten: "
+                + "nichts in diesem Build baut verteilt auf, und die Logzeile sagt das selbst. "
+                + "Läuft nur auf einem Durchlauf, der ohnehin neu aufbaut, schreibt höchstens "
+                + "alle 20 Sekunden und meldet seine eigenen Kosten als Schritt "
+                + "'WallFade.TableGate'. Live änderbar.",
             ["WallFade/SliceBudgetMillis"] =
                 "Wie viele Millisekunden pro Bild der Mod für den VERTEILTEN Teil seiner "
                 + "Wandarbeit verwenden darf — das Einsortieren der Renderer der Szene, deren "

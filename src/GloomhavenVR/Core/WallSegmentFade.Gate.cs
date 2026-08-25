@@ -587,7 +587,16 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Edge log for gate-lift fades (a lifted wall never flips its own State,
-        /// so LogStateFlip stays silent — this line is its counterpart).</summary>
+        /// so LogStateFlip stays silent — this line is its counterpart).
+        ///
+        /// <para>ModBuild 284, audited and CLEARED: the <c>seg.GateLiftActive</c> write below IS
+        /// the only write in here and it is this line's OWN edge latch — nothing else in the
+        /// subsystem reads that field (grep it: declaration, this compare, this assignment,
+        /// nothing more). So unlike <c>ReleaseSamplingSuspension</c> and the round-7 restitution
+        /// sweep, this method really is log-only and could be deleted whole. It is KEPT because
+        /// it is the only evidence a gate-lift ever fired: the wall it lifts never flips
+        /// <c>seg.State</c>, so a gate-lift that silently stopped working would leave no trace
+        /// in any other line.</para></summary>
         private void LogGateLiftEdge(Segment seg, bool lifted)
         {
             if (lifted == seg.GateLiftActive)

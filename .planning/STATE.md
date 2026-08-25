@@ -2,11 +2,19 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 243` shipped, bundle 70,009,303 bytes — awaiting its hardware run.** Rounds are run as parallel agents on
-  disjoint file sets; every diff reviewed before merge, cross-file changes applied by the integrator.
-- **Last update:** 2026-08-24
+  **`NetProtocol.ModBuild = 283` shipped and tested, bundle 70,938,157 bytes.** Rounds are run as
+  parallel agents on disjoint file sets; every diff reviewed before merge, cross-file changes
+  applied by the integrator.
+- **Last update:** 2026-08-25
+- **The wall fade is CLOSED** (ModBuild 283, his own report: *"Ich bemerke keine Ruckler mehr bei
+  der noch genausogut vorhandenen Logik mit den Mauern, top!"*). Worst commit 94.8 ms → 72.84 ms,
+  the PERF S5 skip taking ~71 % of cycles. The closing account — what the subsystem does, every
+  dial, every non-negotiable ruling, what was tried and rejected, the instruments that lied, and
+  the two findings that outlive it — is **`.planning/perf/WALL-FADE-CLOSEOUT.md`**. Read that
+  before touching `WallSegmentFade*`. PERF B build 2 (`.planning/perf/WALL-COMMIT-B-BUILD2.md`)
+  is designed and deliberately **not built**.
 - **Caveat:** this file's §0 briefing is prose from the ModBuild 148 era and has not been
-  re-audited since. Trust the line above and the build notes in `src/GloomhavenVR/Net/NetProtocol.cs`
+  re-audited since. Trust the lines above and the build notes in `src/GloomhavenVR/Net/NetProtocol.cs`
   (newest first) over anything further down; an audit is a snapshot, and this one is old.
 
 ---

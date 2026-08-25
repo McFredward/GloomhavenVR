@@ -289,12 +289,14 @@ internal static class WallFadeTuning
             "DIAGNOSTIC, not a behaviour. When the mod decides it has to rebuild its wall table "
             + "because 'the scene changed', print WHICH renderers changed — grouped by name, "
             + "with the full group count and an explicit count of anything the line did not "
-            + "have room for. This is the open question of the current performance round: 28 of "
-            + "the 33 rebuilds in the ModBuild 277 log fired on that one term and nothing in "
-            + "the mod could say what moved. It runs only on a cycle that is already going to "
-            + "rebuild, at most once every few seconds, and reports its own cost as the step "
-            + "'WallFade.SigDiag' so it can never become an unmeasured tax. Turn it off once "
-            + "the question is answered. Live.");
+            + "have room for. THE QUESTION IT WAS BUILT FOR HAS BEEN ANSWERED, WHICH IS WHY IT "
+            + "IS NOW OFF BY DEFAULT: 28 of the 33 rebuilds in the ModBuild 277 log fired on "
+            + "that one term, and this line named the cause — a third of them were triggered by "
+            + "nothing but the mod's OWN objects, the hand laser and the pointer, each of which "
+            + "costs a full rebuild it could never affect. Switch it back on if you are working "
+            + "on that. It runs only on a cycle that is already going to rebuild, at most once "
+            + "every few seconds, and reports its own cost as the step 'WallFade.SigDiag' so it "
+            + "can never become an unmeasured tax. Live.");
         FigureExemptSkip = config.Bind("WallFade", "FigureExemptSkip",
             Defaults.FigureExemptSkip,
             "EXPERIMENTAL, OFF BY DEFAULT, AND MEASURED EITHER WAY. Heroes, monsters and their "
@@ -319,13 +321,14 @@ internal static class WallFadeTuning
             + "walls whose set of meshes changed, and meshes that moved from one wall to "
             + "another. That is the exact list of things that would go wrong if the rebuild were "
             + "spread over sixty frames instead of happening in one — which is the change that "
-            + "would remove the short stutters for good, and which is not being made until this "
-            + "line has come back from a real session saying how often each case actually "
-            + "happens. It is NOT a comparison of the current rebuild against a spread-out one; "
-            + "nothing in this build performs a spread-out rebuild, and the log line says so "
-            + "itself. Runs only on a cycle that is already rebuilding, prints at most every 20 "
-            + "seconds, and reports its own cost as the step 'WallFade.TableGate'. Turn it off "
-            + "once the question is answered. Live.");
+            + "would remove the short stutters for good. THAT MEASUREMENT HAS BEEN TAKEN AND "
+            + "THAT CHANGE IS NOT BEING MADE — you reported the stutters gone, so this is OFF "
+            + "by default now and only worth switching on if the spread-out rebuild is ever "
+            + "picked up again. It is NOT a comparison of the current rebuild against a "
+            + "spread-out one; nothing in this build performs a spread-out rebuild, and the log "
+            + "line says so itself. Runs only on a cycle that is already rebuilding, prints at "
+            + "most every 20 seconds, and reports its own cost as the step "
+            + "'WallFade.TableGate'. Live.");
         SliceBudgetMillis = config.Bind("WallFade", "SliceBudgetMillis",
             Defaults.SliceBudgetMillis,
             "How many milliseconds per frame the mod may spend on the SPREAD-OUT half of its "
@@ -1789,13 +1792,19 @@ internal static partial class WallSegmentFade
         private float _nextBudgetLogTime;
         private bool _budgetLoggedOnce;
 
-        /// <summary>PERF S4 — the commit's own frame accounting, so the budget line can tell
+        /// <summary>PERF S4 — the commit's own phase accounting, so the budget line can tell
         /// "sliced and now costs 1.5 ms/frame" from "sliced and one phase still costs 60 ms"
-        /// without another round. <see cref="_cycleCommitFrames"/> is the number of FRAMES the
-        /// worst commit was spread over (1 while the commit is atomic, which it still is — see
-        /// WallSegmentFade.Prepare.cs for why that is a decision and not an omission), and the
-        /// phase fields name the single most expensive phase inside that same commit.</summary>
-        private int _cycleCommitFrames = 1;
+        /// without another round. These name the single most expensive phase inside the worst
+        /// commit of the window.
+        ///
+        /// <para>ModBuild 284 — <c>_cycleCommitFrames</c> WAS HERE AND IS GONE, and the reason
+        /// is a record rather than a tidy-up. It was a field initialised to 1 and never assigned
+        /// anywhere, printed as <c>COMMIT SPREAD: {n} frame(s)</c> — a literal wearing a
+        /// counter's clothes, which is this project's "an instrument shipped and lying" shape in
+        /// miniature. The clause beside it already states the same fact honestly
+        /// ("N of N phase(s) still run ATOMICALLY"). If PERF B build 2 ever lands and the commit
+        /// really is spread, the counter comes back as a counter — incremented at the slice
+        /// boundary — and not as an initialiser. See .planning/perf/WALL-COMMIT-B-BUILD2.md.</para></summary>
         private int _cycleWorstCommitPhase = -1;
         private float _cycleWorstCommitPhaseMillis;
 
@@ -1949,12 +1958,25 @@ internal static partial class WallSegmentFade
                     _pathAuditRunning = false;
                     _pathAuditWalls.Clear();
                     _nextPathAudit = 0f;
+                    // ModBuild 284: and the BACKOFF goes with it. A converged audit from the
+                    // previous scenario must not decide the cadence of the next one's first
+                    // pass — that is the same "a gate outliving its edge" shape the rest of
+                    // this block exists to close.
+                    _pathAuditStableRuns = 0;
+                    // NOT _pathAuditTallySig = 0 — a hash of 0 is a hash a real tally could
+                    // legitimately produce, and an accidental match would hand the next
+                    // scenario's first pass a stable run it never earned. The VALIDITY flag is
+                    // what is dropped. _pathAuditPasses is deliberately NOT reset either: its
+                    // line says "Pass N of this SESSION", and resetting it would quietly change
+                    // what a printed number means.
+                    _pathAuditTallyValid = false;
+                    _pathAuditInterval = InsideLogIntervalSeconds;
                     // ModBuild 278: the walk-in latch is already dropped by ResetInsideBoardState
                     // above; the suspension it authorises must go with it, or the rescan-cadence
                     // gate would still be closed when the next scenario's very first tick asks
-                    // for a table. See LogSamplingResumed — the flag is read EARLY in the tick
+                    // for a table. See ReleaseSamplingSuspension — the flag is read EARLY in the tick
                     // and written LATE, so it cannot be left to unwind itself.
-                    LogSamplingResumed(Time.unscaledTime,
+                    ReleaseSamplingSuspension(Time.unscaledTime,
                         "the subsystem went inactive (toggle off, no scenario, or no head)");
                 }
                 _wasActive = false;
@@ -2378,11 +2400,19 @@ internal static partial class WallSegmentFade
             if (_walkEdgePending)
                 LogWalkInsideEdge(headPos);
 
-            // [Optimize] QuietDiagnostics: the 2 Hz 'diag:' sweep is by far the mod's longest
-            // log line (it names every tracked wall with eight numbers each) and it was the single
-            // biggest contributor to the hardware log's size. It measured well under one line per
-            // second, so it is NOT a frame-time problem and stays ON by default — but a clean
-            // performance capture wants only the [Perf] lines, and this is the switch for that.
+            // [Optimize] QuietDiagnostics: the 'diag:' sweep (every DiagIntervalSeconds = 2 s,
+            // i.e. 0.5 Hz — the "2 Hz" this comment claimed until ModBuild 284 was wrong by 4x)
+            // was once the mod's longest log line and the single biggest contributor to the
+            // hardware log's size, because it named EVERY tracked wall. It has named only the
+            // three widest-covering segments since PERF S1, reusing one shared StringBuilder, so
+            // it costs three Object.name reads and ~30 ToString allocations twice a second.
+            //
+            // IT STAYS ON BY DEFAULT AND IT IS THE ONE TO KEEP. It is the only line that reads a
+            // wall's coverage, its EMA, its Schmitt state, its live fade and its four tripwires
+            // (!ABOVE-WALL / !UNANCHORED / !NOGRID / !FAT+!ENGULF) side by side — i.e. the only
+            // thing that separates "stuck faded", "never fades", "coverage has gone constant"
+            // and "this room has no sample grid" without another build. A clean performance
+            // capture that wants only the [Perf] lines is what this switch is for.
             if (now >= _nextDiagTime && !PerfConfig.Quiet)
             {
                 _nextDiagTime = now + DiagIntervalSeconds;
@@ -4081,8 +4111,17 @@ internal static partial class WallSegmentFade
                 if (names.Length > 0)
                     names.Append(", ");
                 names.Append('\'').Append(p.Renderer.name).Append('\'');
-                RestoreProp(p);
             }
+            // ***THE RESTITUTION ITSELF. NOT A DIAGNOSTIC. DO NOT FOLD IT BACK INTO THE LOOP
+            // ABOVE.*** Until ModBuild 284 this RestoreProp call sat inside the name-building
+            // loop, so a pass that trimmed the WARN's string building would have deleted the
+            // round-7 restitution with it — this project's ledger has an entry for exactly that
+            // (a fix living inside the instrument meant to test it) and this file has another
+            // one at ReleaseSamplingSuspension. The split is order-preserving and read-identical:
+            // _figurePurgeScratch comes from _mountedTouched, which is keyed BY RENDERER, so no
+            // two entries share a renderer and restoring one cannot change another's name.
+            foreach (MountedProp p in _figurePurgeScratch)
+                RestoreProp(p);
             VRLog.Warn(Name,
                 $"FIGURE RESTITUTION: restored {_figurePurgeScratch.Count} previously-adopted "
                 + $"FIGURE renderer(s) ({names}) — figures are NEVER touched by any wall "
@@ -4704,13 +4743,17 @@ internal static partial class WallSegmentFade
         /// any stage of the pipeline cost in the window. That last number is the one the
         /// integrator reads against [Perf] STEPS' 'WallFade.Rescan' worst field.
         ///
-        /// <para>PERF S3 (2026-08-23): the line now also carries the COMMIT's phase breakdown.
-        /// The ModBuild 228 log proved the sweep (4.19 ms, rare) and the census (1.5 ms/frame
-        /// over 12–18 frames) are both fine and that the whole remaining 82–97 ms stall is the
-        /// commit — but it could not say WHICH of the commit's twenty-three phases, because
-        /// there was one number for all of them. That is the instrument blind spot this project
-        /// keeps paying for, so the breakdown is part of the same line rather than a separate
-        /// one that a capture might not have on. See WallSegmentFade.CommitPhases.cs.</para>
+        /// <para>PERF S3 (2026-08-23): the line also carries the COMMIT's per-phase breakdown,
+        /// and that is deliberately part of the SAME line rather than a separate one a capture
+        /// might not have switched on. It exists because the whole stall was once reported as
+        /// ONE number for twenty-three phases — the instrument blind spot this project keeps
+        /// paying for. See WallSegmentFade.CommitPhases.cs.</para>
+        ///
+        /// <para>THE HISTORY THIS LINE USED TO NARRATE — ModBuild 226's 118 ms frame, 228's
+        /// 96.81 ms, 271's 123.78 ms, and the phase split each of them showed — is
+        /// .planning/perf/WALL-FADE-CLOSEOUT.md §3 as of ModBuild 284. It was constant prose
+        /// printed every five seconds; the numbers below are the only part of this line that
+        /// measures anything.</para>
         /// </summary>
         private void LogRescanBudget(float now)
         {
@@ -4729,29 +4772,27 @@ internal static partial class WallSegmentFade
               .Append($"room-reveal edge); {_factWallFade.Count} fade-capable + {_factWater.Count} ")
               .Append($"water renderer(s) indexed; WORST COMMIT {_cycleWorstCommitMillis:F2}ms, ")
               .Append($"WORST SINGLE FRAME across all stages {_cycleWorstFrameMillis:F2}ms.");
-            // PERF S4 — HOW THE COMMIT WAS SPREAD, AND WHAT OWNED ITS WORST FRAME. A reader has
-            // to be able to tell "sliced and now costs 1.5 ms/frame" from "sliced and one phase
-            // still costs 60 ms" without another round, so the line states the frame count, the
-            // worst phase inside that frame with its number, and how many phases are still
-            // atomic. It is 24 of 24 today and that is a DECISION, not an omission — see
-            // WallSegmentFade.Prepare.cs for why the commit is left whole and the read half
-            // moved off it instead.
-            sb.Append($" COMMIT SPREAD: {_cycleCommitFrames} frame(s); the worst commit frame's ")
-              .Append($"most expensive phase was {WorstCommitPhaseName} at ")
-              .Append($"{_cycleWorstCommitPhaseMillis:F2}ms; {CommitPhaseCount} of ")
-              .Append($"{CommitPhaseCount} phase(s) still run ATOMICALLY (the commit is one ")
-              .Append("frame by design — the appliers read the segment table every frame and a ")
-              .Append("commit spread across frames is a table they can see mid-rebuild); the ")
-              .Append($"standing-prop scope was opened by the commit itself on ")
+            // PERF S4 — WHAT OWNED THE WORST COMMIT FRAME. A reader has to be able to tell
+            // "sliced and now costs 1.5 ms/frame" from "sliced and one phase still costs 60 ms"
+            // without another round, so the line names the worst phase with its number and says
+            // how many phases are still atomic. It is 24 of 24 today and that is a DECISION, not
+            // an omission — WallSegmentFade.Prepare.cs holds the argument.
+            sb.Append($" COMMIT: the worst commit frame's most expensive phase was ")
+              .Append($"{WorstCommitPhaseName} at {_cycleWorstCommitPhaseMillis:F2}ms; ")
+              .Append($"{CommitPhaseCount} of {CommitPhaseCount} phase(s) still run ATOMICALLY; ")
+              .Append($"the standing-prop scope was opened by the commit itself on ")
               .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run).");
             AppendSkipClause(sb);
             AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
-            sb.Append(" Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: ")
-              .Append("WallFade.Rescan 118.174ms avg, worst 141.18ms, 15 stalls per 30s window); ")
-              .Append("ModBuild 228 still measured WORST COMMIT 96.81ms, and ModBuild 271 — the ")
-              .Append("build PERF S4 is measured against — WORST COMMIT 123.78ms with WallCache ")
-              .Append("61.89ms, PropUnits 29.94ms and Mounted 25.14ms worst.");
+            // ModBuild 284 — THE HISTORY CLAUSE IS GONE FROM HERE AND LIVES IN
+            // .planning/perf/WALL-FADE-CLOSEOUT.md §3, WHICH IS WHERE IT WAS ALWAYS BEING READ
+            // FROM. Four constant appends (~310 characters) narrating the ModBuild 226 / 228 /
+            // 271 numbers were printed every BudgetLogIntervalSeconds for the life of the
+            // subsystem so that a reader could compare TODAY's numbers against them — but a
+            // reader who has this line in front of him has a log, and the comparison baseline
+            // belongs in the document he reads the log against. What stays here is only what
+            // this window actually measured.
             VRLog.Info(Name, sb.ToString());
             _cycleCount = 0;
             _cycleSweeps = 0;
@@ -6954,6 +6995,31 @@ internal static partial class WallSegmentFade
         /// the split-run sweep cannot reach them, and the mounted sweep only sees the ones that
         /// are airborne AND within <c>MountedNearMissXZ</c> of a faded wall. They get the same
         /// three classes and the same two threshold-free definitions as everything else.</para>
+        ///
+        /// <para>ModBuild 284 — CONVERGENCE, AND WHY THIS PASS WAS NOT SIMPLY RETIRED. It was the
+        /// second-largest per-frame cost in the whole subsystem — 2.29 ms avg / 8.4 ms per second
+        /// in the ModBuild 277 log — and it is pure diagnostic, on a topic the user closed at
+        /// ModBuild 283. That is the shape of this project's "a probe that answered is spent"
+        /// entry, where a readiness probe kept blitting for 44,200 ticks after it had answered.
+        /// It is NOT retired anyway, because it is the ONLY instrument that can raise
+        /// <c>UNCLAIMED &gt; 0</c> — the alarm that a new tileset's asset family fell through
+        /// every delivery path — and it is the line a reader greps to decide a tileset is
+        /// covered. Deleting it would trade a measured 0.75 % of wall-clock for a blind spot,
+        /// and this subsystem's own history is a list of blind spots that cost builds.
+        ///
+        /// <para>So the pass BACKS OFF INSTEAD: 2 s, then 4, 8, 16, 32, 60 s while its own bucket
+        /// tally does not move, and straight back to 2 s the moment it does. At convergence that
+        /// is ~0.26 ms/s. The re-arm predicate is the audit's OWN OUTPUT and says nothing about
+        /// the scene, which is deliberate — there is no scene predicate here to be wrong about,
+        /// and a new scenario moves the wall count, which moves the tally, which re-arms the
+        /// cadence without anything having to notice the scenario. The failure mode if the idea
+        /// is wrong is that a diagnostic goes quiet; it can never change a pixel, because nothing
+        /// in this pass writes.</para>
+        ///
+        /// <para>Its falsifier ships with it: the line states the interval it is ACTUALLY running
+        /// at and how many consecutive passes agreed, so "this converged 40 s ago" and "this is
+        /// broken and stopped" are different readings rather than the same silence. The scenario
+        /// teardown at <c>SetActive(false)</c> resets the backoff along with the pass.</para>
         /// </summary>
         private void StepWallPathAudit(float now)
         {
@@ -7006,8 +7072,63 @@ internal static partial class WallSegmentFade
             }
             _pathAuditRunning = false;
             _pathAuditPasses++;
-            _nextPathAudit = now + InsideLogIntervalSeconds;
+            // ModBuild 284 — THE PASS BACKS OFF WHILE ITS OWN VERDICT IS NOT MOVING, and does so
+            // on nothing but its own output. See the CONVERGENCE paragraph on the doc block above.
+            int tally = PathAuditTallySignature();
+            if (_pathAuditTallyValid && tally == _pathAuditTallySig)
+            {
+                if (_pathAuditStableRuns < PathAuditMaxBackoffShift)
+                    _pathAuditStableRuns++;
+            }
+            else
+            {
+                _pathAuditStableRuns = 0;
+            }
+            _pathAuditTallySig = tally;
+            _pathAuditTallyValid = true;
+            _pathAuditInterval = Mathf.Min(
+                InsideLogIntervalSeconds * (1 << _pathAuditStableRuns),
+                PathAuditMaxIntervalSeconds);
+            _nextPathAudit = now + _pathAuditInterval;
             LogWallPathAudit();
+        }
+
+        /// <summary>Every bucket this pass counted, folded into one int — the audit's OWN
+        /// VERDICT and nothing about the scene. Two passes with the same signature classified
+        /// the same populations into the same paths, which is the only question this instrument
+        /// exists to answer.
+        ///
+        /// <para>THE THREE UNCLAIMED CLASSES ARE IN IT ON PURPOSE, and they are the reason this
+        /// cannot converge on a scene that is actually broken: <c>ClassifyLeftover</c> reads LIVE
+        /// blocked/visible sample counts, so a genuinely floating or obstructing renderer moves
+        /// this signature as the player moves and holds the pass at its base cadence. A clean
+        /// scene has all three at zero and settles. That asymmetry is the design.</para></summary>
+        private int PathAuditTallySignature()
+        {
+            _paUnclaimedByClass.TryGetValue("FLOATING", out int uFloating);
+            _paUnclaimedByClass.TryGetValue("OBSTRUCTING", out int uObstructing);
+            _paUnclaimedByClass.TryGetValue("ALLOWED", out int uAllowed);
+            int h = 17;
+            unchecked
+            {
+                h = h * 31 + _pathAuditWalls.Count;
+                h = h * 31 + _paName;
+                h = h * 31 + _paToggle;
+                h = h * 31 + _paAttach;
+                h = h * 31 + _paFoliage;
+                h = h * 31 + _paGround;
+                h = h * 31 + _paFigures;
+                h = h * 31 + _paStanding;
+                h = h * 31 + _paGatedOff;
+                h = h * 31 + _paWater;
+                h = h * 31 + _paArch;
+                h = h * 31 + _paNoRoom;
+                h = h * 31 + _paUnclaimed;
+                h = h * 31 + uFloating;
+                h = h * 31 + uObstructing;
+                h = h * 31 + uAllowed;
+            }
+            return h;
         }
 
         /// <summary>One cache wall's subtree, classified into the audit's buckets. Split out of
@@ -7189,10 +7310,17 @@ internal static partial class WallSegmentFade
                         : $" — all {classified} classified wall renderer(s) are owned by a "
                           + "path.")
                 + $" Pass {_pathAuditPasses} of this session, sliced at "
-                + $"{ClassifyBudgetMillis:0.0} ms/frame and repeated every "
-                + $"{InsideLogIntervalSeconds:0.0} s — the ModBuild 260 log got THREE of these, "
-                + "all in the first quarter of the session, so there was no steady-state reading "
-                + "at all. See the WallFade.PathAudit [Perf] scope for what this cost.");
+                + $"{ClassifyBudgetMillis:0.0} ms/frame. NEXT PASS IN {_pathAuditInterval:0.0} s"
+                + (_pathAuditStableRuns > 0
+                    ? $" — this verdict has now come out IDENTICAL {_pathAuditStableRuns + 1} "
+                      + $"passes running, so the cadence has backed off from "
+                      + $"{InsideLogIntervalSeconds:0.0} s (ceiling "
+                      + $"{PathAuditMaxIntervalSeconds:0.0} s). A LONG interval here means "
+                      + "CONVERGED, not stopped; any bucket moving puts it straight back to "
+                      + $"{InsideLogIntervalSeconds:0.0} s, and a scenario change resets it."
+                    : $" — the base cadence, because this pass's buckets DIFFER from the "
+                      + "previous one's (or it is the first pass of the scenario).")
+                + " See the WallFade.PathAudit [Perf] scope for what this cost.");
         }
 
         // ---- WALL-PATH AUDIT slicing state ---------------------------------------------------
@@ -7203,6 +7331,23 @@ internal static partial class WallSegmentFade
         private bool _pathAuditRunning;
         private float _nextPathAudit;
         private int _pathAuditPasses;
+        /// <summary>The previous pass's bucket tally (see <see cref="PathAuditTallySignature"/>),
+        /// and how many consecutive passes have now agreed with it.</summary>
+        private int _pathAuditTallySig;
+        private bool _pathAuditTallyValid;
+        private int _pathAuditStableRuns;
+        /// <summary>The interval the pass that just finished scheduled the next one with. Printed
+        /// on the line, because a line that quotes a CONSTANT cadence while running on a backed-off
+        /// one is an instrument describing a build it is not part of.</summary>
+        private float _pathAuditInterval = InsideLogIntervalSeconds;
+        /// <summary>Backoff ceiling as a shift of <see cref="InsideLogIntervalSeconds"/>: 2 s
+        /// doubling to 4, 8, 16, 32, 64 — clamped by
+        /// <see cref="PathAuditMaxIntervalSeconds"/>.</summary>
+        private const int PathAuditMaxBackoffShift = 5;
+        /// <summary>Hard ceiling on the backed-off cadence. A converged audit still re-measures
+        /// once a minute, so a defect that appears in a scene nothing else disturbs is still
+        /// found — it is a backoff, never a latch.</summary>
+        private const float PathAuditMaxIntervalSeconds = 60f;
         private int _paName, _paToggle, _paAttach, _paFoliage;
         private int _paGround, _paFigures, _paStanding, _paGatedOff;
         private int _paWater, _paArch, _paUnclaimed;

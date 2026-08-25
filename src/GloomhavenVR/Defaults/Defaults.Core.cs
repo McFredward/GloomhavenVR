@@ -284,24 +284,39 @@ internal static partial class Defaults
     // by decree, so the decision, the coverage sampling and the rescan cadence are all computing
     // an answer the segment loop throws away one branch later.
     internal const bool WalkInSuspendSampling = true;        // => [WallFade] WalkInSuspendSampling
-    // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). Shipped ON
-    // because it is the whole point of the build: 28 of 33 commits in the ModBuild 277 log fired
-    // on "the SCENE signature moved" and nothing shipped can say what moved it. It runs ONLY on
-    // a cycle that is already refusing to skip, at most once per throttle window, and reports
-    // its own measured cost under the 'WallFade.SigDiag' step so it can never become an
-    // unmeasured tax the way an always-on probe has in this project before.
-    internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
-    // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). Shipped
-    // ON for the same reason SignatureCulpritCensus above it is: it is the whole point of the
-    // build. PERF B removes the ~95 ms commit frame by spreading it over ~63 frames, and the one
-    // thing that can go wrong when it does is the old table — which is the UNDO LOG for every
-    // MaterialPropertyBlock this subsystem has written — being dropped while a wall is still
-    // half-faded. This line counts how often a commit actually does that, on his hardware, in his
-    // scenarios, read-only. Shipping it OFF would hand the tester a build that measures nothing,
-    // which is the "three behaviour-free builds is three wasted rounds" entry in the ledger.
-    // It runs only on a cycle that is already committing, prints at most every 20 s, and reports
-    // its own cost as 'WallFade.TableGate'.
-    internal const bool CommitTableGate = true;              // => [WallFade] CommitTableGate
+    // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). It shipped ON
+    // "because it is the whole point of the build": 28 of 33 commits in the ModBuild 277 log
+    // fired on "the SCENE signature moved" and nothing shipped could say what moved it.
+    //
+    // ModBuild 284 — OFF, BECAUSE IT ANSWERED. The ModBuild 281 log gave the answer and it is
+    // written down: of 38 refusals carrying named groups, 12 were triggered by nothing but the
+    // MOD'S OWN OBJECTS — 'GloomhavenVR.Reticle_Right' (24), 'GloomhavenVR.Laser_Right' (11),
+    // the loading indicator (2). The mod's own hand laser appearing costs a ~73-90 ms wall-table
+    // rebuild, that is 32% of refusals, and the narrowing that removes it is derived in
+    // .planning/perf/WALL-FADE-CLOSEOUT.md §7.2. The question this census exists to ask has been
+    // asked and answered; leaving it on is the "a probe that answered is spent" entry, where a
+    // readiness probe blitted every frame for 44,200 ticks after it had answered.
+    //
+    // THE INSTRUMENT AND ITS FOUR CI-VALIDATED CONTROLS ARE KEPT INTACT — this is a default, not
+    // a deletion. Turn the key back on the day §7.2 is implemented: that is precisely the run
+    // where it has to name, renderer by renderer, what the narrowing dropped.
+    internal const bool SignatureCulpritCensus = false;      // => [WallFade] SignatureCulpritCensus
+    // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). It
+    // shipped ON for the same reason SignatureCulpritCensus above it did: PERF B removes the
+    // ~95 ms commit frame by spreading it over ~63 frames, and the one thing that can go wrong
+    // when it does is the old table — which is the UNDO LOG for every MaterialPropertyBlock this
+    // subsystem has written — being dropped while a wall is still half-faded. This line counts
+    // how often a commit actually does that, on his hardware, in his scenarios, read-only.
+    // "Shipping it OFF would hand the tester a build that measures nothing."
+    //
+    // ModBuild 284 — OFF, BECAUSE THE BUILD IT MEASURES FOR IS NOT BEING BUILT. It measured: the
+    // churn population is in .planning/perf/WALL-COMMIT-B-BUILD2.md with its cost (0.136 ms per
+    // gate run at 127 segments / 2540 owned renderers, 0.346 ms at 4x), and PERF B build 2 stays
+    // a PLAN — the wall topic is closed on the user's own report against ModBuild 283. The
+    // sentence above is still true and is still the reason to flip this key back on: the day
+    // anyone starts build 2, this is the first thing they turn on, and it is why the gate and
+    // its controls are kept rather than deleted.
+    internal const bool CommitTableGate = false;             // => [WallFade] CommitTableGate
     // ModBuild 281 (PERF B) — the per-frame budget of every SLICED rescan stage.
     //
     // 1.5 IS THE CONSTANT THAT SHIPPED, THREE TIMES OVER. It was `ClassifyBudgetMillis` in
