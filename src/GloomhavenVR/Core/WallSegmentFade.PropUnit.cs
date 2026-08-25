@@ -202,12 +202,6 @@ internal static partial class WallSegmentFade
         /// it decorates; four levels is slack, not licence.</summary>
         private const int PropUnitMaxDepth = 4;
 
-        /// <summary>Segment anchors this rescan — the walk stops AT one rather than climbing
-        /// through it, so a wall can never be swallowed into a "prop unit". Refreshed by
-        /// <see cref="RefreshPropUnitAnchors"/> from BOTH scopes that need it: this pass's, and —
-        /// since the standing rule's FLOOR arm started using the same walk — the standing-prop
-        /// scope, which opens at the very top of the rescan.</summary>
-        private readonly HashSet<Transform> _propUnitAnchors = new(64);
 
         /// <summary>Scratch for <see cref="PropUnitRootOf"/> alone. Deliberately NOT
         /// <c>_subtreeScratch</c>: that list is iterated by the asset-sibling collection while it
@@ -224,11 +218,6 @@ internal static partial class WallSegmentFade
         /// that merely has no owner from one that has a different owner.</summary>
         private readonly HashSet<MeshRenderer> _propUnitClaimed = new(256);
 
-        /// <summary>Unit-root memo, keyed by the renderer's PARENT (siblings share an answer).
-        /// Per-rescan only — Apparance rebirths these subtrees constantly, and a transform cached
-        /// across rescans is a dangling reference within a couple of seconds
-        /// (<c>WallSegmentFade.Standing.cs</c> pays for that lesson already).</summary>
-        private readonly Dictionary<Transform, Transform?> _propUnitRootMemo = new(128);
 
         /// <summary>
         /// PERF S3 (2026-08-23) — THE THREE PER-NODE FACTS <see cref="PropUnitRootOf"/> ASKS,
@@ -238,7 +227,7 @@ internal static partial class WallSegmentFade
         /// <see cref="PropUnitMaxDepth"/> (4) ancestors and asks each one three questions, two of
         /// which are FULL SUBTREE WALKS: <c>GetComponentsInChildren&lt;MeshRenderer&gt;</c> and
         /// <c>GetComponentInChildren&lt;ProceduralWall&gt;(includeInactive: true)</c>. The
-        /// existing memos (<see cref="_propUnitRootMemo"/> and <c>_standingRootMemo</c>) cache
+        /// existing memos (<see cref="CommittedTable.PropUnitRootMemo"/> and <c>_standingRootMemo</c>) cache
         /// the ROOT by the renderer's own parent, so two renderers under two DIFFERENT parents
         /// that share a grandparent each walk that grandparent's whole subtree — and the walk
         /// only stops climbing AFTER the count comes back over the cap, so the most expensive
@@ -267,7 +256,7 @@ internal static partial class WallSegmentFade
         /// FIRST scope of the rescan, opened before any wall is refreshed — and deliberately NOT
         /// re-cleared in <see cref="BeginPropUnitScope"/>: sharing them across the standing pass
         /// and the prop-unit pass is where most of the saving is, and unlike the root memos these
-        /// facts do not depend on <see cref="_propUnitAnchors"/> (which IS re-read between the
+        /// facts do not depend on <see cref="CommittedTable.PropUnitAnchors"/> (which IS re-read between the
         /// two scopes, and is exactly why those two memos must stay separate). Transform keys
         /// therefore live no longer than the existing memos' do.</para>
         /// </summary>
@@ -498,7 +487,7 @@ internal static partial class WallSegmentFade
             // PHASE 1 — who holds what. Every (segment, renderer) pair contributes one claim, so a
             // renderer that somehow sits in TWO segments' lists produces two claims and is healed
             // by the same arithmetic as a torn-apart prop.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 foreach (MeshRenderer r in seg.Renderers)
                 {
@@ -506,7 +495,7 @@ internal static partial class WallSegmentFade
                         _propUnitClaimed.Add(r);
                 }
             }
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!SplitPieceMayClaim(seg))
                     continue;
@@ -560,7 +549,7 @@ internal static partial class WallSegmentFade
             _propUnits.Clear();
             _propUnitByRoot.Clear();
             _propUnitByStem.Clear();
-            _propUnitRootMemo.Clear();
+            _live.PropUnitRootMemo.Clear();
             _propUnitClaimed.Clear();
             _propUnitOwnerNow.Clear();
             _propUnitCensus.Clear();
@@ -591,7 +580,7 @@ internal static partial class WallSegmentFade
             // the body, so a piece that stops being dressing this rescan is RESTORED rather than
             // left hidden with no owner (the foliage-orphan lesson).
             _unitDressingOwned.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.PrevUnitDressing.Clear();
                 seg.PrevUnitDressing.AddRange(seg.UnitDressing);
@@ -601,7 +590,7 @@ internal static partial class WallSegmentFade
             RefreshPropUnitAnchors();
 
             // PERF S4 — ADOPT THE PREPARE STAGE'S ROOT PREWARM, BUT ONLY AGAINST THE SET IT WAS
-            // DERIVED FROM. PropUnitRootOf's answer depends on _propUnitAnchors (the climb stops
+            // DERIVED FROM. PropUnitRootOf's answer depends on _live.PropUnitAnchors (the climb stops
             // AT a segment anchor), and that set is re-read one line above from the FINAL table —
             // which is precisely why the memo is dropped wholesale each rescan. The prepare stage
             // cannot know the final table, so it derived its answers against the LAST COMMITTED
@@ -614,10 +603,10 @@ internal static partial class WallSegmentFade
             // rescan, and still holds transform keys for no longer than one cycle.
             if (_propUnitRootPrewarm.Count > 0)
             {
-                if (_propUnitAnchors.SetEquals(_prepAnchors))
+                if (_live.PropUnitAnchors.SetEquals(_prepAnchors))
                 {
                     foreach (KeyValuePair<Transform, Transform?> kv in _propUnitRootPrewarm)
-                        _propUnitRootMemo[kv.Key] = kv.Value;
+                        _live.PropUnitRootMemo[kv.Key] = kv.Value;
                 }
                 else
                 {
@@ -687,7 +676,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void FinishPropUnitDressing()
         {
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.UnitDressingState != 0)
                 {
@@ -796,11 +785,11 @@ internal static partial class WallSegmentFade
         /// on the table.</summary>
         private void RefreshPropUnitAnchors()
         {
-            _propUnitAnchors.Clear();
-            foreach (Segment seg in _segments.Values)
+            _live.PropUnitAnchors.Clear();
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.Anchor != null)
-                    _propUnitAnchors.Add(seg.Anchor.transform);
+                    _live.PropUnitAnchors.Add(seg.Anchor.transform);
             }
         }
 
@@ -943,7 +932,7 @@ internal static partial class WallSegmentFade
                 // per-PARENT root memos do not already cover this (they re-walk every shared
                 // ancestor once per distinct parent, and the priciest walk of the climb is the
                 // one that decides to stop).
-                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
+                if (_live.PropUnitAnchors.Contains(node) || NodeIsWallEntity(node))
                     break;
                 int count = NodeRendererCount(node);
                 if (count > PropUnitMaxRenderers)
@@ -995,7 +984,7 @@ internal static partial class WallSegmentFade
             Transform? node = parent;
             for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++)
             {
-                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node)
+                if (_live.PropUnitAnchors.Contains(node) || NodeIsWallEntity(node)
                     || NodeContainsWallEntity(node))
                 {
                     return true;
@@ -1027,16 +1016,16 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>The unit root of a parent, out of (and into) the per-rescan memo. The ONLY
-        /// writer of <see cref="_propUnitRootMemo"/>: everything that reads the memo without
+        /// writer of <see cref="CommittedTable.PropUnitRootMemo"/>: everything that reads the memo without
         /// filling it — <see cref="FadeDriver.StaggerRootOf"/>, which runs per frame and may not
         /// walk — depends on this having been called for that parent during the commit. See
         /// <see cref="WarmStaggerKeys"/>.</summary>
         private Transform? PropUnitRootMemoized(Transform parent)
         {
-            if (!_propUnitRootMemo.TryGetValue(parent, out Transform? root))
+            if (!_live.PropUnitRootMemo.TryGetValue(parent, out Transform? root))
             {
                 root = PropUnitRootOf(parent);
-                _propUnitRootMemo[parent] = root;
+                _live.PropUnitRootMemo[parent] = root;
             }
             return root;
         }
@@ -1050,7 +1039,7 @@ internal static partial class WallSegmentFade
         /// frame, so neither may resolve the root itself (<see cref="PropUnitRootOf"/> is a
         /// hierarchy climb with two subtree walks per level — the per-frame scene-walk defect this
         /// subsystem has shipped three times). They therefore read
-        /// <see cref="_propUnitRootMemo"/> read-only, and a parent MISSING from it makes them fall
+        /// <see cref="CommittedTable.PropUnitRootMemo"/> read-only, and a parent MISSING from it makes them fall
         /// back to the renderer's own id. Before this pass the memo held only the parents
         /// <see cref="UnitOf"/> happened to touch — i.e. parents of renderers in
         /// <c>seg.Renderers</c> — so a conifer whose needle cards sit in <c>seg.Foliage</c> under a
@@ -1079,7 +1068,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void WarmStaggerKeys()
         {
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 foreach (MeshRenderer f in seg.Foliage)
                 {
@@ -1153,7 +1142,7 @@ internal static partial class WallSegmentFade
         private bool SplitPieceMayClaim(Segment seg)
             => !IsPerRendererSplit(seg)
                || (seg.FromSplitRun && seg.RunOwner != null
-                   && _splitAnchors.Contains(seg.RunOwner));
+                   && _live.SplitAnchors.Contains(seg.RunOwner));
 
         /// <summary>The underscore-delimited stem of a piece name
         /// (<c>CR_OS_Skeleton_Statue_Skull</c> → <c>CR_OS_Skeleton_Statue</c>), or null when the
@@ -1337,7 +1326,7 @@ internal static partial class WallSegmentFade
                 // FinishRefresh only clears leavers during a refresh, and this is not one, so a
                 // renderer dropped from a currently-faded segment would keep that fade forever —
                 // the exact restitution StripGroundRenderers performs for the ground band.
-                foreach (Segment seg in _segments.Values)
+                foreach (Segment seg in _live.Segments.Values)
                 {
                     if (ReferenceEquals(seg, owner) || IsPerRendererSplit(seg))
                         continue;
@@ -1649,8 +1638,8 @@ internal static partial class WallSegmentFade
                       + "family nor a live _WallFade_On toggle)");
                 return false;
             }
-            if (RoomDecisionValid(owner.RoomIndex) && owner.RoomIndex < _roomFloorY.Count
-                && m.bounds.max.y <= _roomFloorY[owner.RoomIndex] + GroundExclusionHeightWU)
+            if (RoomDecisionValid(owner.RoomIndex) && owner.RoomIndex < _live.RoomFloorY.Count
+                && m.bounds.max.y <= _live.RoomFloorY[owner.RoomIndex] + GroundExclusionHeightWU)
             {
                 // Recruited THROUGH the ground band — the ModBuild-258 lift. Counted separately
                 // so the next log states how many pieces the rule actually recovered, and from

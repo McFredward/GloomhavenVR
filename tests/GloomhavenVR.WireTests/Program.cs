@@ -72,6 +72,11 @@ internal static class Program
             // becomes permanently solid — which reads as wall see-through being switched off.
             WallStandingPropVectors.Run(t);
             WallSignatureCulpritVectors.Run(t);
+            // WHETHER THE SLICED TABLE AND THE ATOMIC ONE ARE THE SAME TABLE. The gate that
+            // decides whether PERF B may ship, on a subsystem whose behaviour the user has just
+            // called perfect — and its whole value is that it can FAIL, so it is driven here on
+            // a null input and on a known positive of each of its four snap cases first.
+            WallCommitDiffVectors.Run(t);
             // WHERE THE CONTROLS AND THE BOARD MESH END UP once the user's own tuned dials meet
             // the re-authored assets. The failure this pins is not a corrupted peer, it is a
             // board standing on edge with its keycaps in mid-air on the OWNER's screen — and the

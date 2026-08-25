@@ -275,6 +275,24 @@
     <Compile Include="WallSignatureCulpritVectors.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the WallSegmentFadeCulprits reason at its sharpest. This one
+       decides whether it is SAFE to slice the ~95 ms wall-table commit over sixty frames — the
+       change the user asked for in as many words ("Ich will aber eigentlich gar keine spürbaren
+       Ruckler - nicht nur seltenere") against a fade behaviour he has, in the same breath, just
+       called perfect. The way slicing fails is not an exception: it is a segment table rebuilt
+       from scratch while the OLD one was still the undo log for every MaterialPropertyBlock this
+       subsystem had written, i.e. a wall left permanently half-transparent with nothing thrown,
+       nothing logged and nothing in this repository able to notice. WallCommitDiff.cs is the gate
+       that has to catch that, and a gate that cannot fail is not a gate — so it was written free
+       of Unity's object model (instance ids and Bounds, nothing else) precisely so its NULL input
+       (two identical tables => it must find nothing AND say that finding nothing is a statement
+       about itself) and a known positive of each of its FOUR snap cases could be driven here, in
+       CI, before a single number it prints on hardware is believed. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallCommitDiff.cs" Link="core\WallCommitDiff.cs" />
+    <Compile Include="WallCommitDiffVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

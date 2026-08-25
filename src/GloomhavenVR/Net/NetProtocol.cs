@@ -416,7 +416,94 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 281;
+    public const ushort ModBuild = 282;
+    // Build 282: THE COMMITTED STATE BECOMES ONE OBJECT, AND THE CHURN B MUST SURVIVE IS
+    // MEASURED INSTEAD OF ASSUMED. Bundle UNCHANGED at 70,877,279 — DLL-only on top of 281.
+    //   "Ich will aber eigentlich gar keine spuerbaren Ruckler - nicht nur seltenere."
+    //   HIS FIRST 281 RUN, AND IT IS GOOD NEWS TWICE OVER: "Ich nehme es jetzt schon als viel
+    //   besser wahr! Ich bemerke keine Ruckler mehr bei der noch genausogut vorhandenen Logik
+    //   mit den Mauern." Measured in the same log: WORST COMMIT 94.8ms -> 72.84ms, and the
+    //   leading phase is no longer WallCache (10.4ms now) but PropUnits at 25.5ms. That is E
+    //   from ModBuild 280 landing, on his hardware, with no millisecond ever claimed for it here.
+    //   AND THE CULPRIT CENSUS NAMED SOMETHING BETTER THAN THE FIGURE EXEMPTION. Of 38 refusals
+    //   carrying named groups, 12 were triggered by NOTHING BUT THE MOD'S OWN OBJECTS —
+    //   'GloomhavenVR.Reticle_Right' (24), 'GloomhavenVR.Laser_Right' (11), the loading
+    //   indicator (2). The mod's own hand laser appearing costs a ~90ms wall-table rebuild.
+    //   Those provably cannot change a fade verdict: IsModObject is ALREADY one of the eight
+    //   classified verdict bits, and CountsTowardFadeUnit excludes mod objects by construction.
+    //   That is a sound narrowing where the figure one was not, and it is 32% of refusals.
+    //   FigureExemptSkip's own shadow read 0 in this window — A bought nothing here, stated.
+    //   THE LANE REFUSED TO BUILD WHAT I ASKED FOR, AND IT WAS RIGHT. My plan was a sliced
+    //   SHADOW table built beside the live one and discarded, with an equality gate against the
+    //   still-authoritative atomic commit — "changes nothing on screen". THE PHASES ARE NOT PURE
+    //   FUNCTIONS OF THE SCENE: they mutate >=15 driver-level ledgers outside the table, six do
+    //   Unity writes, and CollectWallMountedProps DRAINS AND CLEARS _mountedTouched,
+    //   _mountedAnchorLedger and _mountedMobile at the top of its pass. Run it twice per cycle
+    //   and the undo log is drained twice — the second run restores props the first is still
+    //   holding, or fails to restore props nothing else will. A safe shadow needs write
+    //   suppression through every phase plus save/restore of ~15 collections, AND it needs the
+    //   slicing to already exist, or running the commit twice DOUBLES the hitch. Fifteen chances
+    //   to corrupt the live ledger, in a build advertised as safe, on behaviour he has just
+    //   called perfect.
+    //   WHAT SHIPPED INSTEAD IS A CHURN GATE: the table BEFORE the commit against the table
+    //   AFTER it, read-only, incapable of changing a pixel. That is exactly the population the
+    //   carry-forward cases are defined over — case 1 = segments dropped MID-FADE (each one a
+    //   permanently half-transparent wall under B without a carry-forward), case 3 = renderer-set
+    //   changes, case 4 = owner changes. IT IS NOT THE SAME QUESTION as fresh-vs-incremental and
+    //   the shipped log line says so IN ITS OWN WORDS rather than letting a number stand in for
+    //   an answer nobody measured.
+    //   THE EXTRACTION IS A VERIFIED NO-OP, AND NOT BY "THE BUILD PASSES".
+    //   .planning/perf/verify-committedtable-noop.py mechanically UNDOES the rename across every
+    //   wall-fade file and diffs against the parent, classifying each surviving line. 0 UNEXPECTED
+    //   DIFFERENCES over 14 files and 436 renamed references; 5 of 14 normalise back
+    //   byte-identical. The only survivors are moved declarations and five private->internal
+    //   keywords CS0052 forces once nested types are named by a field of a nested class — all
+    //   still inside a private FadeDriver. I RAN THAT PROVER MYSELF at the extraction commit: 0.
+    //   MY DESIGN'S FIELD LIST MISSED ELEVEN, and one miss the lane INTRODUCED AND CAUGHT is the
+    //   sharpest evidence for why this step existed: after moving _allSamples but not its
+    //   indices, RoomBlockedFraction read start = _roomSampleStart[room] (driver field) bounded
+    //   by _live.AllSamples.Count (table) — an old start index against a new sample list, IN THE
+    //   FUNCTION THAT DECIDES WHICH WALLS FADE. That is ModBuild 258's hexagonal-room denominator,
+    //   re-armed by the refactor meant to make the table safe. Also missed: _roomSampleCount (the
+    //   coverage denominator), the four board-volume fields the WALK-IN stand-down's Schmitt bars
+    //   are fractions of, _cornerPieces (read by ApplyCornerPieces AND appended by
+    //   FastReclaimSweep), the two prop-unit memos, and the two board-probe fields that are gate
+    //   3 of the commit skip.
+    //   A FOURTH SNAP CASE THE DESIGN DOES NOT NAME: a renderer owned in BOTH tables by DIFFERENT
+    //   segments. Invisible to a union-of-owned-renderers diff (owned throughout, neither leaver
+    //   nor joiner) and invisible to a per-segment carry (HasBlock lives on the segment, and it
+    //   just changed segment). EnforcePropUnitCohesion re-adjudicates a statue between two walls
+    //   every rescan — the skelet.jpg class, reported four times. And the design's own gate walked
+    //   FOUR OF SEVEN ownership classes; a gate blind to three of seven agrees with a torn table.
+    //   THE GATE'S CONTROLS, BEFORE ANYTHING BELIEVED IT: two null controls (identical tables find
+    //   nothing AND say the finding depends entirely on the denominators; two EMPTY tables must
+    //   NOT borrow the agreement wording), one known positive per snap case, one per ownership
+    //   class, a class crossing, structural bounds, a ONE-ULP bounds difference compared bitwise
+    //   (a tolerance here would be a hidden dial deciding how wrong the slice may be), gate-lift
+    //   re-point, order-freedom, and elision on both sides of the cap. Cost 0.136ms at 127
+    //   segments / 2540 owned renderers, 0.346ms at 4x. Its first draft timed 13,335 renderers —
+    //   15 in EVERY class — and reported headroom from a population that does not exist.
+    //   Three defects found while wiring it: .name on a destroyed anchor throws (and the BEFORE
+    //   snapshot sees destroyed anchors as the NORMAL case); the gate now DISARMS FOR THE SESSION
+    //   on a throw, warning that a session ending without a gate line reported NOTHING, not
+    //   agreement; and the END half runs in a finally so a throwing commit cannot leave a BEFORE
+    //   standing and double the next report. The gate sits DELIBERATELY OUTSIDE WallFade.Rescan
+    //   and _cycleWorstCommitMillis — inside, it would fold the instrument into the very number
+    //   this round is judged against.
+    //   [WallFade] SliceBudgetMillis (1.5, 0.25..8.0) IS NOT SHIPPED INERT. It REPLACES three
+    //   private consts — ClassifyBudgetMillis, PrepareBudgetMillis, SurveyBudgetMillis — all 1.5f,
+    //   whose own doc comments each said they were deliberately the same number for the same
+    //   reason. One dial is that statement made enforceable, it has an observable effect the day
+    //   it ships, and the sliced commit joins it in build 2. Value unmoved, so a fresh install
+    //   behaves exactly as 281 did. [WallFade] CommitTableGate ships ON: off would hand the tester
+    //   a build that measures nothing.
+    //   WIRE TESTS 147883 -> 148002: +118 gate vectors, +1 because ConfigStepVectors sweeps every
+    //   dial and there is now one more. No other gate moved; frame order still 7, because the gate
+    //   is outside the commit's timing scope and _live is never reassigned.
+    //   BUILD 2's ordered plan is .planning/perf/WALL-COMMIT-B-BUILD2.md, including the five that
+    //   will bite and one OPEN QUESTION the lane refused to resolve by assertion: _sampleVisible
+    //   is tick-owned but index-aligned to AllSamples with no invalidation path, so it is stale by
+    //   construction on the swap frame, and whether that matters is recorded as unsettled.
     // Build 281: THE BOARD BUTTONS GET SYMBOLS, PER-BOARD MATERIALS AND ENGRAVED CAPTIONS.
     // *** NEW BUNDLE: 70,877,279 bytes (was 68,577,168). NOT a DLL-only install. ***
     //   "Statt einfach nur Text, moechte ich ein Symbol (und Text dazu), aber der Text soll sich

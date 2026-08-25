@@ -682,6 +682,36 @@ internal static partial class Loc
                 + "höchstens alle paar Sekunden, und meldet seine eigenen Kosten als Schritt "
                 + "'WallFade.SigDiag' — es kann also nie zu einer ungemessenen Dauerlast werden. "
                 + "Wieder ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
+            // ModBuild 281 (PERF B Schritt 3) — die Churn-Messung vor dem Slicing.
+            ["WallFade/CommitTableGate"] =
+                "DIAGNOSE, keine Verhaltensänderung — es liest die Wandtabelle und schreibt "
+                + "nichts. Jedes Mal, wenn der Mod seine Wandtabelle neu aufbaut, wird sie "
+                + "vorher und nachher kopiert und verglichen. Gemeldet wird, WAS SICH GEÄNDERT "
+                + "HAT: Wände, die aus der Tabelle verschwunden sind, WÄHREND sie noch halb "
+                + "ausgeblendet waren, Wände, deren Mesh-Liste sich geändert hat, und Meshes, "
+                + "die von einer Wand zu einer anderen gewandert sind. Genau das sind die "
+                + "Fälle, die schiefgehen würden, wenn der Neuaufbau über sechzig Bilder "
+                + "verteilt statt in einem einzigen stattfände — also bei der Änderung, die die "
+                + "kurzen Hänger endgültig beseitigen würde. Diese Änderung wird NICHT gemacht, "
+                + "bevor diese Zeile aus einer echten Sitzung zurückkommt und sagt, wie oft "
+                + "jeder Fall tatsächlich eintritt. Es ist ausdrücklich KEIN Vergleich des "
+                + "heutigen Neuaufbaus mit einem verteilten: nichts in diesem Build baut "
+                + "verteilt auf, und die Logzeile sagt das selbst. Läuft nur auf einem "
+                + "Durchlauf, der ohnehin neu aufbaut, schreibt höchstens alle 20 Sekunden und "
+                + "meldet seine eigenen Kosten als Schritt 'WallFade.TableGate'. Wieder "
+                + "ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
+            ["WallFade/SliceBudgetMillis"] =
+                "Wie viele Millisekunden pro Bild der Mod für den VERTEILTEN Teil seiner "
+                + "Wandarbeit verwenden darf — das Einsortieren der Renderer der Szene, deren "
+                + "Vermessung und das Vorwärmen der Tabelle. Bei 90 Hz dauert ein Bild 11,11 ms; "
+                + "die ausgelieferten 1,5 lassen das Bild also intakt, und die Arbeit braucht "
+                + "einfach mehr Bilder (etwa 12 bis 18). Höher = ein Neuaufbau ist früher "
+                + "fertig, das einzelne Bild wird aber voller. Niedriger, falls der Mod selbst "
+                + "in einer Bildzeit-Messung auffällt. ACHTUNG, DAS IST NICHT DER RUCKLER: der "
+                + "eine große Neuaufbau-Schritt, der die kurzen Hänger verursacht, läuft "
+                + "weiterhin in EINEM Bild und hört auf diese Zahl noch nicht. Ihn dazu zu "
+                + "bringen ist der nächste Arbeitsschritt. Live änderbar; begrenzt auf "
+                + "0,25-8,0.",
             // ModBuild 279 (Option A) — die Figuren-Ausnahme auf der Wechsel-Erkennung.
             ["WallFade/FigureExemptSkip"] =
                 "EXPERIMENTELL, STANDARDMÄSSIG AUS — UND SO ODER SO GEMESSEN. Helden, Monster "

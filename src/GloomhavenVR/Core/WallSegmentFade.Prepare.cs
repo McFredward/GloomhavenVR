@@ -41,7 +41,7 @@ namespace GloomhavenVR.Core;
 /// (<c>_standingUnitMemo</c>) is per-rescan, so every one of those walks is paid inside the
 /// commit frame. The unit-root climb underneath it (<c>PropUnitRootOf</c>) is two subtree walks
 /// PER LEVEL, and it is the same climb <c>PropUnits</c> pays for a second time through
-/// <c>_propUnitRootMemo</c>.</para>
+/// <c>_live.PropUnitRootMemo</c>.</para>
 ///
 /// <para>THE PREPARE INVARIANT — <b>PREPARE MAY WRITE NOTHING BUT MEMOS.</b> The stage below
 /// calls the SAME predicates the commit calls, with the SAME arguments, and throws every answer
@@ -70,7 +70,7 @@ namespace GloomhavenVR.Core;
 /// frames must not be let through by a capability test taken before the world moved.</para>
 /// <list type="number">
 /// <item>THE STANDING WARM SEES THE SAME RECTS THE COMMIT WOULD. <c>MeasureStandingUnit</c>
-///   consults <c>_waterRects</c> (rebuilt in phase 9, <c>Water</c>) and <c>_archRects</c> (phase
+///   consults <c>_live.WaterRects</c> (rebuilt in phase 9, <c>Water</c>) and <c>_live.ArchRects</c> (phase
 ///   7, <c>GateSeed</c>) — both AFTER <c>WallCache</c> (phase 5). So a unit first measured by
 ///   the wall-cache pass already reads the PREVIOUS cycle's rects today, and a prepare-stage
 ///   measurement reads the same previous cycle's rects. The warm is deliberately restricted to
@@ -78,10 +78,10 @@ namespace GloomhavenVR.Core;
 ///   sweep's candidates as well would move units that are first measured in phase 8 from fresh
 ///   rects to stale ones, which is a look change and is refused.</item>
 /// <item>THE FLOOR PLANES MUST NOT HAVE MOVED. <c>MeasureStandingUnit</c> also reads
-///   <c>_roomFloorY</c>, which <c>CommitTileAnchors</c>/<c>CommitRoomRegistry</c> (phases 2–3)
+///   <c>_live.RoomFloorY</c>, which <c>CommitTileAnchors</c>/<c>CommitRoomRegistry</c> (phases 2–3)
 ///   rebuild BEFORE <c>WallCache</c> — so here the commit does see fresh planes and a prepare
 ///   stage would not. The planes only move when a room is revealed, and a reveal shows up as
-///   <c>m_RoomRenderers.Count != _builtRoomCount</c>. <see cref="FadeDriver.BeginPrepareStage"/>
+///   <c>m_RoomRenderers.Count != _live.BuiltRoomCount</c>. <see cref="FadeDriver.BeginPrepareStage"/>
 ///   therefore refuses to warm at all while that inequality holds, and the budget line COUNTS
 ///   the refusals. A refused cycle costs one slow commit, which is what every cycle costs
 ///   today.</item>
@@ -91,9 +91,9 @@ namespace GloomhavenVR.Core;
 /// </list>
 ///
 /// <para>THE PROP-UNIT PREWARM IS SEPARATELY GATED. <c>PropUnitRootOf</c>'s answer depends on
-/// <c>_propUnitAnchors</c> — the walk stops AT a segment anchor — and that set is re-read from
+/// <c>_live.PropUnitAnchors</c> — the walk stops AT a segment anchor — and that set is re-read from
 /// the FINAL table at the top of the prop-unit pass, which is why
-/// <c>BeginPropUnitScope</c> drops <c>_propUnitRootMemo</c> wholesale. Prepare cannot know the
+/// <c>BeginPropUnitScope</c> drops <c>_live.PropUnitRootMemo</c> wholesale. Prepare cannot know the
 /// final table, so it warms into a SEPARATE dictionary against the last committed table's
 /// anchors and records that set. <c>BeginPropUnitScope</c> adopts the prewarm only when the two
 /// anchor sets are equal — the steady-state case — and drops it otherwise, again counted. The
@@ -125,7 +125,15 @@ internal static partial class WallSegmentFade
         /// it. A budget is used rather than an item count because the population is not fixed
         /// across scenarios (this one classifies 5803 renderers and 1888 fade-capable), and a
         /// count tuned on one scenario is a stall on the next.</summary>
-        private const float PrepareBudgetMillis = 1.5f;
+        /// <para>ModBuild 281 (PERF B): this was a <c>private const float … = 1.5f</c>. It is now
+        /// the live <c>[WallFade] SliceBudgetMillis</c> dial, shipped at the same 1.5 — a tuning
+        /// surface, not a retune, so a fresh install and an install that never opens the menu
+        /// behave exactly as ModBuild 280 did. The three budgets this replaced were three
+        /// separate constants whose own doc comments said they were deliberately the same number
+        /// for the same reason; one dial is that statement made enforceable. It will also be the
+        /// budget of the SLICED COMMIT when that lands, which is why it is named for the slice
+        /// and not for any one stage.</para>
+        private static float PrepareBudgetMillis => WallFadeTuning.SliceBudget;
 
         /// <summary>Budget on a ROOM-REVEAL cycle, mirroring
         /// <see cref="ClassifyUrgentBudgetMillis"/> — a reveal already coincides with the game's
@@ -166,7 +174,7 @@ internal static partial class WallSegmentFade
         private bool _prepWarmArmed;
 
         /// <summary>The prop-unit root answers this cycle's prepare stage derived, against
-        /// <see cref="_prepAnchors"/>. Adopted into <c>_propUnitRootMemo</c> by
+        /// <see cref="_prepAnchors"/>. Adopted into <c>_live.PropUnitRootMemo</c> by
         /// <c>BeginPropUnitScope</c> only if the final table's anchor set is equal to it — see
         /// the class header. Separate from the memo so an unequal set costs a discard rather
         /// than a wrong answer.</summary>
@@ -201,11 +209,6 @@ internal static partial class WallSegmentFade
         private int _cyclePrepRefusedBoard;    // gate 3 — the board moved under the planes
         private int _cyclePrepDroppedAnchors;  // the prewarm was discarded: anchor set changed
 
-        /// <summary>Where the first live room renderer stood when <c>CommitRoomRegistry</c> last
-        /// built <c>_roomFloorY</c> — gate 3's reference. See
-        /// <see cref="BoardStillWhereTheFloorPlanesSayItIs"/>.</summary>
-        private Vector3 _prepBoardProbePos;
-        private bool _prepBoardProbeValid;
 
         /// <summary>
         /// GATE 3 — HAS THE BOARD MOVED SINCE THE FLOOR PLANES WERE MEASURED?
@@ -229,13 +232,13 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool BoardStillWhereTheFloorPlanesSayItIs(TilesOcclusionGenerator gen)
         {
-            if (!_prepBoardProbeValid)
+            if (!_live.PrepBoardProbeValid)
                 return false;
             foreach (MeshRenderer probe in gen.m_RoomRenderers)
             {
                 if (probe == null)
                     continue;
-                return (probe.transform.position - _prepBoardProbePos).sqrMagnitude <= 0.0001f;
+                return (probe.transform.position - _live.PrepBoardProbePos).sqrMagnitude <= 0.0001f;
             }
             return false;
         }
@@ -258,7 +261,7 @@ internal static partial class WallSegmentFade
             // than warm against a plane the commit will not agree with: a mis-measured standing
             // unit is a statue the wall system may claim as masonry, which is the single most
             // expensive defect class this subsystem has.
-            if (gen.m_RoomRenderers.Count != _builtRoomCount)
+            if (gen.m_RoomRenderers.Count != _live.BuiltRoomCount)
             {
                 _prepWarmArmed = false;
                 _cyclePrepRefusedReveal++;
@@ -276,15 +279,15 @@ internal static partial class WallSegmentFade
             // The MEMO half of the standing-prop scope opens HERE rather than at the top of the
             // commit, because the memos it clears are the ones this stage fills. It is a pure
             // state reset — no renderer, material or segment is touched by it — and the table it
-            // reads (RefreshPropUnitAnchors, over _segments) is the last COMMITTED one, which is
+            // reads (RefreshPropUnitAnchors, over _live.Segments) is the last COMMITTED one, which is
             // bit-identically what it read at the top of the commit, since every writer of
-            // _segments is a commit phase. Two things deliberately do NOT move with it: the
+            // _live.Segments is a commit phase. Two things deliberately do NOT move with it: the
             // CENSUS half (it would leave the heartbeat's rolls empty for the length of the
             // stage — see BeginStandingMemoScope) and the per-node fact window (see StepPrepare
             // for the per-frame one it opens instead).
             BeginStandingMemoScope();
             _standingScopeOpen = true;
-            foreach (Transform t in _propUnitAnchors)
+            foreach (Transform t in _live.PropUnitAnchors)
                 _prepAnchors.Add(t);
 
             for (int i = 0; i < ProceduralWall.m_WallCache.Count; i++)
@@ -372,7 +375,7 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Derive and cache one parent's unit root against
-        /// <see cref="_propUnitAnchors"/>, into the prewarm rather than into the live memo.
+        /// <see cref="CommittedTable.PropUnitAnchors"/>, into the prewarm rather than into the live memo.
         /// The ONE writer of <see cref="_propUnitRootPrewarm"/>.</summary>
         private void WarmPropUnitRoot(Transform parent)
         {
@@ -505,7 +508,7 @@ internal static partial class WallSegmentFade
         //
         // WHY NOT DOUBLE-BUFFER THE COMMIT INSTEAD, said once, here. Building the new table in
         // a second structure and swapping it atomically requires all twenty-four phases to
-        // write into that structure rather than into _segments. Two of them —
+        // write into that structure rather than into _live.Segments. Two of them —
         // EnforcePropUnitCohesion (30ms) and CollectWallMountedProps (24ms), i.e. 54 of the
         // 95ms — live in WallSegmentFade.PropUnit.cs and WallSegmentFade.Mounted.cs, and both
         // mutate segments in place (moving renderers between owners, hiding and restoring
@@ -522,7 +525,15 @@ internal static partial class WallSegmentFade
         /// and for the same reason: it is the same shape of work (a per-renderer read over a
         /// fixed population with no externally visible effect) at the value this project has
         /// already validated on hardware for that shape.</summary>
-        private const float SurveyBudgetMillis = 1.5f;
+        /// <para>ModBuild 281 (PERF B): this was a <c>private const float … = 1.5f</c>. It is now
+        /// the live <c>[WallFade] SliceBudgetMillis</c> dial, shipped at the same 1.5 — a tuning
+        /// surface, not a retune, so a fresh install and an install that never opens the menu
+        /// behave exactly as ModBuild 280 did. The three budgets this replaced were three
+        /// separate constants whose own doc comments said they were deliberately the same number
+        /// for the same reason; one dial is that statement made enforceable. It will also be the
+        /// budget of the SLICED COMMIT when that lands, which is why it is named for the slice
+        /// and not for any one stage.</para>
+        private static float SurveyBudgetMillis => WallFadeTuning.SliceBudget;
 
         /// <summary>Renderers folded between two clock reads. Much larger than
         /// <see cref="PrepareChunk"/> because a survey item is an instance-ID read and two
@@ -702,7 +713,7 @@ internal static partial class WallSegmentFade
         private bool _cycleMaterialsDirty;
 
         /// <summary>Round-robin ring for the drift probe, rebuilt at every commit. Every writer
-        /// of <c>_segments</c> is a commit phase (grep: the five Remove sites are all inside one,
+        /// of <c>_live.Segments</c> is a commit phase (grep: the five Remove sites are all inside one,
         /// and Clear is teardown), so between two commits this list cannot go stale.</summary>
         private readonly List<Segment> _driftRing = new(128);
         private int _driftCursor;
@@ -789,7 +800,7 @@ internal static partial class WallSegmentFade
                 _surveySig = FoldSig(_surveySig, w.GetInstanceID());
                 // A wall that became a split anchor is refreshed down a different path
                 // (RefreshSplitWall) and produces a different table from the same subtree.
-                _surveySig = FoldSig(_surveySig, _splitAnchors.Contains(w) ? 1 : 0);
+                _surveySig = FoldSig(_surveySig, _live.SplitAnchors.Contains(w) ? 1 : 0);
             }
             _surveySig = FoldSig(_surveySig, _surveyWalls.Count);
         }
@@ -1028,7 +1039,7 @@ internal static partial class WallSegmentFade
             _lastCommitAt = now;
             _cycleCommitted++;
             _driftRing.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.ProbeBoundsValid = false;
                 _driftRing.Add(seg);
@@ -1175,21 +1186,21 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool CommitWouldChangeNothing(TilesOcclusionGenerator gen, float now)
         {
-            if (!_committedSigValid || _segments.Count == 0)
+            if (!_committedSigValid || _live.Segments.Count == 0)
             {
                 _noSkipNoTable++;
                 _lastNoSkipDetail =
-                    $"there was no table in force to compare against ({_segments.Count} "
+                    $"there was no table in force to compare against ({_live.Segments.Count} "
                     + "segment(s), signature banked: "
                     + (_committedSigValid ? "yes" : "no") + ")";
                 return false;
             }
-            if (_rescanUrgent || gen.m_RoomRenderers.Count != _builtRoomCount)
+            if (_rescanUrgent || gen.m_RoomRenderers.Count != _live.BuiltRoomCount)
             {
                 _noSkipReveal++;
                 _lastNoSkipDetail =
                     $"a room reveal — {gen.m_RoomRenderers.Count} room renderer(s) against the "
-                    + $"{_builtRoomCount} the table was built from";
+                    + $"{_live.BuiltRoomCount} the table was built from";
                 return false;
             }
             if (_cycleOpenedEarly)
@@ -1219,7 +1230,7 @@ internal static partial class WallSegmentFade
                 _lastNoSkipDetail =
                     "the board had moved out from under the floor planes the standing and "
                     + "ground rules measure against (the PERF S4 probe, "
-                    + (_prepBoardProbeValid ? "live" : "NOT ARMED — no probe was taken") + ")";
+                    + (_live.PrepBoardProbeValid ? "live" : "NOT ARMED — no probe was taken") + ")";
                 return false;
             }
             // ================================================================================

@@ -334,7 +334,7 @@ internal static partial class WallSegmentFade
             _nextFadeCensus = now + FadeCensusIntervalSeconds;
 
             _fadeWrites.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.Fade <= 0f)
                     continue;
@@ -363,7 +363,7 @@ internal static partial class WallSegmentFade
                 foreach (MountedProp p in seg.UnitDressing)
                     NoteFadeWrite(p.Renderer, "prop-unit dressing", owner, seg.Fade);
             }
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 float fade = cp.B == null ? cp.A.Fade : Mathf.Min(cp.A.Fade, cp.B.Fade);
                 if (fade <= 0f)
@@ -747,7 +747,7 @@ internal static partial class WallSegmentFade
             Transform? node = cand.parent;
             for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++, node = node.parent)
             {
-                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
+                if (_live.PropUnitAnchors.Contains(node) || NodeIsWallEntity(node))
                     break;
                 if (_fadeUnitCandidateSet.Contains(node))
                     best = node;
@@ -1076,7 +1076,7 @@ internal static partial class WallSegmentFade
         private float _nextShowEdgeAudit;
 
         /// <summary>Stagger lookups since the last SHOW EDGE line that found NO entry for the
-        /// renderer's parent in <c>_propUnitRootMemo</c>. See
+        /// renderer's parent in <c>_live.PropUnitRootMemo</c>. See
         /// <see cref="FadeDriver.StaggerThresholdFor"/>: that is the only remaining state in which
         /// two members of one prop can key differently, and it can only arise if an applier
         /// stagger-keys a list <c>WarmStaggerKeys</c> does not walk. This counter is the

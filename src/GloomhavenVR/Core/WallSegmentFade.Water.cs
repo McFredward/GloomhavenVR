@@ -87,13 +87,12 @@ internal static partial class WallSegmentFade
         /// every few seconds, and a protection that blinks with the prop would let one rescan
         /// adopt the basin into a wall — after which the fade owns it until the NEXT rescan
         /// drops it, i.e. a visible flash of exactly the bug this file exists to remove.</summary>
-        private struct WaterRect
+        internal struct WaterRect
         {
             public float MinX, MaxX, MinZ, MaxZ, TopY;
             public float LastSeen;
         }
 
-        private readonly List<WaterRect> _waterRects = new();
 
         /// <summary>Unseen for this long → the water feature is really gone (scene change,
         /// room torn down), not merely mid-churn. Same value/reasoning as the arch rects.</summary>
@@ -196,10 +195,10 @@ internal static partial class WallSegmentFade
         {
             float now = Time.unscaledTime;
             // Prune first: rects whose water has not been seen for a while (scene torn down).
-            for (int i = _waterRects.Count - 1; i >= 0; i--)
+            for (int i = _live.WaterRects.Count - 1; i >= 0; i--)
             {
-                if (now - _waterRects[i].LastSeen > WaterRectRetainSeconds)
-                    _waterRects.RemoveAt(i);
+                if (now - _live.WaterRects[i].LastSeen > WaterRectRetainSeconds)
+                    _live.WaterRects.RemoveAt(i);
             }
 
             // Height gate baseline: the LOWEST tile-anchored floor plane in the scene, the same
@@ -207,10 +206,10 @@ internal static partial class WallSegmentFade
             // trusted plane at all — and every wall is fail-safe solid then anyway, so leaving
             // the rects as they are costs nothing.
             float minFloorY = float.PositiveInfinity;
-            for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count && i < _live.RoomFloorAnchored.Count; i++)
             {
-                if (_roomFloorAnchored[i] && _roomFloorY[i] < minFloorY)
-                    minFloorY = _roomFloorY[i];
+                if (_live.RoomFloorAnchored[i] && _live.RoomFloorY[i] < minFloorY)
+                    minFloorY = _live.RoomFloorY[i];
             }
             if (float.IsInfinity(minFloorY))
                 return;
@@ -247,7 +246,7 @@ internal static partial class WallSegmentFade
 
             // Change-triggered census only (the arch-rect lesson: a per-rescan line here would
             // dwarf the hardware log).
-            int sig = found * 131 + tooTall * 7 + _waterRects.Count;
+            int sig = found * 131 + tooTall * 7 + _live.WaterRects.Count;
             if (sig == _waterCensusSig)
                 return;
             _waterCensusSig = sig;
@@ -262,7 +261,7 @@ internal static partial class WallSegmentFade
                 + $"emitters stay with the water instead of fading out from under it. "
                 + $"{tooTall} water surface(s) stand higher than {WaterFeatureMaxHeightWU:0.0} wu "
                 + $"over the floor and get NO exemption (a waterfall on a wall face DOES block "
-                + $"the view). {_waterRects.Count} live rect(s).");
+                + $"the view). {_live.WaterRects.Count} live rect(s).");
         }
 
         /// <summary>Upsert one rect (merging with a rect already covering the same spot — a
@@ -274,9 +273,9 @@ internal static partial class WallSegmentFade
             float minZ = water.min.z - WaterMarginXZ;
             float maxZ = water.max.z + WaterMarginXZ;
             float topY = water.max.y + WaterHeadroomWU;
-            for (int i = 0; i < _waterRects.Count; i++)
+            for (int i = 0; i < _live.WaterRects.Count; i++)
             {
-                WaterRect a = _waterRects[i];
+                WaterRect a = _live.WaterRects[i];
                 // Same feature = overlapping rects. Merging keeps a multi-quad pond ONE
                 // protection instead of a ragged set of them.
                 if (a.MinX > maxX || a.MaxX < minX || a.MinZ > maxZ || a.MaxZ < minZ)
@@ -287,10 +286,10 @@ internal static partial class WallSegmentFade
                 a.MaxZ = Mathf.Max(a.MaxZ, maxZ);
                 a.TopY = Mathf.Max(a.TopY, topY);
                 a.LastSeen = now;
-                _waterRects[i] = a;
+                _live.WaterRects[i] = a;
                 return;
             }
-            _waterRects.Add(new WaterRect
+            _live.WaterRects.Add(new WaterRect
             {
                 MinX = minX, MaxX = maxX, MinZ = minZ, MaxZ = maxZ,
                 TopY = topY, LastSeen = now,
@@ -309,12 +308,12 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool IsWaterProtected(Bounds b)
         {
-            if (_waterRects.Count == 0)
+            if (_live.WaterRects.Count == 0)
                 return false;
             Vector3 c = b.center;
-            for (int i = 0; i < _waterRects.Count; i++)
+            for (int i = 0; i < _live.WaterRects.Count; i++)
             {
-                WaterRect a = _waterRects[i];
+                WaterRect a = _live.WaterRects[i];
                 if (b.max.y > a.TopY)
                     continue; // rises out of the feature — masonry behind it, not fountain
                 if (c.x >= a.MinX && c.x <= a.MaxX && c.z >= a.MinZ && c.z <= a.MaxZ)

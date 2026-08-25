@@ -665,7 +665,7 @@ internal static partial class WallSegmentFade
         /// <summary>One foreign segment overlapping a dressing renderer, with the measure that
         /// decided it: the SMALLEST axis of the AABB intersection box (wu), i.e. how deep the
         /// prop reaches into that wall's slab.</summary>
-        private readonly struct UnionHit
+        internal readonly struct UnionHit
         {
             public readonly Segment Seg;
             public readonly float Depth;
@@ -675,24 +675,15 @@ internal static partial class WallSegmentFade
         /// <summary>The per-renderer overlap record: who OWNS it, and every OTHER fade-eligible
         /// segment its own AABB reaches into. Pooled — one instance per overlapping renderer,
         /// reused across rescans.</summary>
-        private sealed class UnionEntry
+        internal sealed class UnionEntry
         {
             public Segment Owner = null!;
             public string Lane = string.Empty;
             public readonly List<UnionHit> Hits = new(2);
         }
 
-        private readonly Dictionary<Renderer, UnionEntry> _mountedUnion = new(64);
         private readonly Stack<UnionEntry> _unionPool = new();
         private readonly HashSet<Renderer> _unionCornerExempt = new();
-        /// <summary>Segments that OWN at least one renderer in the map — the per-frame
-        /// short-circuit. Without it every applier would pay a dictionary probe per prop per
-        /// frame just to learn that almost nothing overlaps anything; with it a segment none of
-        /// whose dressing reaches into a foreign wall costs ONE hash lookup for the whole lane.
-        /// A renderer is entered under the FIRST lane that offers it (one owner per renderer is
-        /// already the subsystem's invariant), so a second owner would simply not see it — which
-        /// is the status quo, never a wrong fade.</summary>
-        private readonly HashSet<Segment> _unionOwners = new();
         /// <summary>Renderers with at least one foreign overlapping segment — the DENOMINATOR, so
         /// a zero on the census is distinguishable from an instrument that never ran.</summary>
         private int _censusUnionEligible;
@@ -994,7 +985,7 @@ internal static partial class WallSegmentFade
             // MODBUILD 271 — THE UNION RULE'S ENTRY POINT, and it has to be HERE rather than at
             // the ramp below. The early-out is a whole-SEGMENT decision, and defect (2) is
             // precisely a piece whose own wall is the one that has NOT faded: returning here
-            // would mean no piece of this lane is ever looked at. See _mountedUnion.
+            // would mean no piece of this lane is ever looked at. See _live.MountedUnion.
             if (segWant == 0 && !LaneHasUnionFade(seg.Mounted, seg))
             {
                 RestoreSegmentMounted(seg);
@@ -1085,7 +1076,7 @@ internal static partial class WallSegmentFade
             // Transforms, and a destroyed one must never be compared against a new prop that
             // happens to reuse the slot.
             _showEdgeUnitReturn.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.MountedState = 0;
                 seg.StackedState = 0; // stacked pieces share the ledger just emptied
@@ -1137,7 +1128,7 @@ internal static partial class WallSegmentFade
             float nearest = float.PositiveInfinity;
             _leftoverFadedNear = null;
             _leftoverFadedGap = float.PositiveInfinity;
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.HasBounds)
                     continue;
@@ -1371,7 +1362,7 @@ internal static partial class WallSegmentFade
             // — "an owner that never fades" — was wrong about this piece: both owners can fade,
             // they simply disagree about when. That is a one-prop-two-owners problem, and the
             // ModBuild-258 unit-affinity rule (see _mountedUnitHome) is what settles it.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 bool inertDoorway = seg.DoorRoot != null && seg.Fade <= 0f
                     && seg.StackedState == 0 && seg.BodyState == 0;
@@ -1415,7 +1406,7 @@ internal static partial class WallSegmentFade
             // segment's Mounted list, and a segment that had not been reached yet would clear the
             // handover back out again on its own iteration. Two loops, so every list is empty
             // before anything is put in one.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.PrevMounted.Clear();
                 seg.PrevMounted.AddRange(seg.Mounted);
@@ -1425,7 +1416,7 @@ internal static partial class WallSegmentFade
             // STICKY OWNERSHIP: a segment that is mid-fade or held faded keeps every prop it
             // already owns — releasing one while its wall is gone is exactly the blink the first
             // hardware round produced.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 bool sticky = SegmentStillHiding(seg, seg.MountedState);
                 if (sticky)
@@ -1535,10 +1526,10 @@ internal static partial class WallSegmentFade
             // Cheap pre-filter for "airborne": the LOWEST tile-anchored floor plane in the scene.
             // Rooms without an anchor are fail-safe solid anyway (their walls never fade).
             float minFloorY = float.PositiveInfinity;
-            for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count && i < _live.RoomFloorAnchored.Count; i++)
             {
-                if (_roomFloorAnchored[i] && _roomFloorY[i] < minFloorY)
-                    minFloorY = _roomFloorY[i];
+                if (_live.RoomFloorAnchored[i] && _live.RoomFloorY[i] < minFloorY)
+                    minFloorY = _live.RoomFloorY[i];
             }
 
             _mountedAirborneBar = minFloorY + MountedClearanceWU;
@@ -1575,7 +1566,7 @@ internal static partial class WallSegmentFade
             // survivor is re-measured against its LIVE bounds below, exactly as before.
             float reachMinX = float.PositiveInfinity, reachMaxX = float.NegativeInfinity;
             float reachMinZ = float.PositiveInfinity, reachMaxZ = float.NegativeInfinity;
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.HasBounds)
                     continue;
@@ -1736,7 +1727,7 @@ internal static partial class WallSegmentFade
                         : b;
                     // PERF E (ModBuild 279) — THE NAME IS ALREADY IN HAND, so it is not read
                     // again. `c.name` is an interop call that allocates, it was built as an
-                    // ARGUMENT (so it allocated even when _archRects is empty and the callee's
+                    // ARGUMENT (so it allocated even when _live.ArchRects is empty and the callee's
                     // loop never runs), and it was paid once per surviving sweep candidate per
                     // commit. `f.Name` is the very string ClassifyMaterialsAndName already
                     // allocated for this renderer this cycle (RendererFact.Name, ModBuild 278) —
@@ -1823,7 +1814,7 @@ internal static partial class WallSegmentFade
                     // the segment was eligible to own it.
                     _leftoverFadedNear = null;
                     _leftoverFadedGap = float.PositiveInfinity;
-                    foreach (Segment seg in _segments.Values)
+                    foreach (Segment seg in _live.Segments.Values)
                     {
                         if (!seg.HasBounds)
                             continue;
@@ -1847,7 +1838,7 @@ internal static partial class WallSegmentFade
                         // — it has to consult the hoisted provenance bool itself or a wall-built
                         // hanging is discarded here, silently, in the segment loop.
                         if (!wallGenBelowBar
-                            && anchorY < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
+                            && anchorY < _live.RoomFloorY[seg.RoomIndex] + MountedClearanceWU)
                             continue; // airborne against THIS room's plane, not just the lowest
                         if (anchorY > seg.Bounds.max.y + MountedLinkMaxAboveTopWU)
                             continue; // floats above the wall, not in it
@@ -2081,7 +2072,7 @@ internal static partial class WallSegmentFade
             }
 
             // Leavers: restore anything this segment held that it no longer owns.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.MountedState != 0)
                 {
@@ -2178,7 +2169,7 @@ internal static partial class WallSegmentFade
             // released), which is the whole reason it is at the end of the rescan rather than
             // inside the sweep: the sweep's per-candidate segment walk skips every prop that is
             // already adopted or carried sticky, i.e. almost all of them in the steady state.
-            // GEOMETRY here, FADES live at the applier — see _mountedUnion.
+            // GEOMETRY here, FADES live at the applier — see _live.MountedUnion.
             BuildMountedUnionOverlaps();
 
             // Apparance streams the dressing in over several rescans, so the scenario's first
@@ -2231,7 +2222,7 @@ internal static partial class WallSegmentFade
         {
             _mountedUnitHome.Clear();
             _mountedUnitHomeVotes.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.HasBounds || seg.Anchor == null)
                     continue;
@@ -2353,20 +2344,20 @@ internal static partial class WallSegmentFade
         // ---- ModBuild 271: the union map ------------------------------------------------------
 
         /// <summary>
-        /// Build the per-renderer overlap map ONCE per rescan — see <see cref="_mountedUnion"/>
+        /// Build the per-renderer overlap map ONCE per rescan — see <see cref="CommittedTable.MountedUnion"/>
         /// for the rule, the constraint and the falsifier. Called at the very end of
         /// <see cref="CollectWallMountedProps"/>, where every lane list is final.
         /// </summary>
         private void BuildMountedUnionOverlaps()
         {
-            foreach (UnionEntry e in _mountedUnion.Values)
+            foreach (UnionEntry e in _live.MountedUnion.Values)
             {
                 e.Hits.Clear();
                 e.Owner = null!;
                 _unionPool.Push(e);
             }
-            _mountedUnion.Clear();
-            _unionOwners.Clear();
+            _live.MountedUnion.Clear();
+            _live.UnionOwners.Clear();
             _censusUnionEligible = 0;
             _censusUnionOversize = 0;
             _censusUnionNoOverlap = 0;
@@ -2377,13 +2368,13 @@ internal static partial class WallSegmentFade
             // neighbour stands), which is the exact opposite of this rule — so it is named here
             // and skipped, and ApplyCornerPieces never reads the map at all.
             _unionCornerExempt.Clear();
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 if (cp.Prop.Renderer != null)
                     _unionCornerExempt.Add(cp.Prop.Renderer);
             }
 
-            foreach (Segment owner in _segments.Values)
+            foreach (Segment owner in _live.Segments.Values)
             {
                 foreach (MountedProp p in owner.Mounted)
                     RegisterUnionOverlaps(p.Renderer, owner, "mounted dressing");
@@ -2422,7 +2413,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void RegisterUnionOverlaps(Renderer? r, Segment owner, string lane)
         {
-            if (r == null || _mountedUnion.ContainsKey(r) || _unionCornerExempt.Contains(r))
+            if (r == null || _live.MountedUnion.ContainsKey(r) || _unionCornerExempt.Contains(r))
                 return;
             bool particles = r is ParticleSystemRenderer;
             Bounds b = particles
@@ -2441,7 +2432,7 @@ internal static partial class WallSegmentFade
                 }
             }
             UnionEntry? entry = null;
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (ReferenceEquals(seg, owner) || !seg.HasBounds || seg.Anchor == null)
                     continue;
@@ -2461,8 +2452,8 @@ internal static partial class WallSegmentFade
                 _censusUnionNoOverlap++;
                 return;
             }
-            _mountedUnion[r] = entry;
-            _unionOwners.Add(owner);
+            _live.MountedUnion[r] = entry;
+            _live.UnionOwners.Add(owner);
             _censusUnionEligible++;
         }
 
@@ -2507,8 +2498,8 @@ internal static partial class WallSegmentFade
         private float UnionFade(Renderer? r, Segment owner)
         {
             float own = owner.Fade;
-            if (r == null || _mountedUnion.Count == 0 || !_unionOwners.Contains(owner)
-                || !_mountedUnion.TryGetValue(r, out UnionEntry? e))
+            if (r == null || _live.MountedUnion.Count == 0 || !_live.UnionOwners.Contains(owner)
+                || !_live.MountedUnion.TryGetValue(r, out UnionEntry? e))
                 return own;
             float best = own;
             foreach (UnionHit h in e.Hits)
@@ -2527,7 +2518,7 @@ internal static partial class WallSegmentFade
         /// pole's OWN wall is the one that has not faded.</summary>
         private bool LaneHasUnionFade(List<MountedProp> lane, Segment owner)
         {
-            if (_mountedUnion.Count == 0 || !_unionOwners.Contains(owner))
+            if (_live.MountedUnion.Count == 0 || !_live.UnionOwners.Contains(owner))
                 return false;
             foreach (MountedProp p in lane)
             {
@@ -2542,7 +2533,7 @@ internal static partial class WallSegmentFade
         /// before any piece is driven.</summary>
         private float ForeignFade(Renderer r)
         {
-            if (!_mountedUnion.TryGetValue(r, out UnionEntry? e))
+            if (!_live.MountedUnion.TryGetValue(r, out UnionEntry? e))
                 return 0f;
             float best = 0f;
             foreach (UnionHit h in e.Hits)
@@ -2560,7 +2551,7 @@ internal static partial class WallSegmentFade
         {
             fade = 0f;
             depth = 0f;
-            if (_mountedUnion.Count == 0 || !_mountedUnion.TryGetValue(r, out UnionEntry? e))
+            if (_live.MountedUnion.Count == 0 || !_live.MountedUnion.TryGetValue(r, out UnionEntry? e))
                 return null;
             Segment? best = null;
             foreach (UnionHit h in e.Hits)
@@ -2586,7 +2577,7 @@ internal static partial class WallSegmentFade
         {
             int applied = 0, noDiff = 0;
             _unionCensus.Clear();
-            foreach (KeyValuePair<Renderer, UnionEntry> kv in _mountedUnion)
+            foreach (KeyValuePair<Renderer, UnionEntry> kv in _live.MountedUnion)
             {
                 Renderer r = kv.Key;
                 UnionEntry e = kv.Value;

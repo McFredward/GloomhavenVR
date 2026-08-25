@@ -81,7 +81,7 @@ namespace GloomhavenVR.Core;
 ///   <see cref="WallFadeTuning.InsideExitDepthFraction"/> at ModBuild 272, shipped at exactly
 ///   the constants they replaced, so this term is unchanged unless the user moves it;</item>
 /// <item>the board's wall crest at <see cref="WallFadeTuning.WalkInMinCrestMetres"/> or more IN
-///   REAL METRES (<c>_boardCrestWU / rigScale</c>), default 1.20 m, with its own release band at
+///   REAL METRES (<c>_live.BoardCrestWU / rigScale</c>), default 1.20 m, with its own release band at
 ///   <see cref="WallFadeTuning.WalkInCrestReleaseFraction"/> (0.85) of the bar. THIS is the term
 ///   the two failures lacked, and it is the one that refuses a 0.61 m tabletop outright — the
 ///   user can switch it off by setting the bar to 0, which hands the 251 behaviour back and is
@@ -170,17 +170,6 @@ internal static partial class WallSegmentFade
         // of it moves with it instead of silently inverting when the bar is lowered past it.
 
         // --- cached board volume (rebuilt once per rescan, read O(1) per frame) --------------
-        /// <summary>The board's own volume: union XZ footprint of every decision-valid room and
-        /// its walls, Y from the board floor plane to the wall crest. Valid only when
-        /// <see cref="_boardVolumeValid"/>.</summary>
-        private Bounds _boardVolume;
-        private bool _boardVolumeValid;
-        /// <summary>Crest height above the floor plane (world units) — the yardstick both
-        /// boundary bars are expressed in.</summary>
-        private float _boardCrestWU;
-        /// <summary>Board floor plane (world units), the minimum over decision-valid rooms.</summary>
-        private float _boardFloorY;
-        private int _boardVolumeRooms;
         private int _boardVolumeWalls;
         /// <summary>Per-segment crest samples; a field so the commit phase allocates nothing.</summary>
         private readonly List<float> _crestScratch = new();
@@ -271,7 +260,7 @@ internal static partial class WallSegmentFade
         /// <summary>
         /// MODBUILD 269 — HOW MANY split-run pieces were decision-eligible this pass, as opposed
         /// to how many the line could name. This counter exists because the ModBuild-267 log's
-        /// split-run clause named FOUR pieces out of 253, in <c>_segments</c> insertion order,
+        /// split-run clause named FOUR pieces out of 253, in <c>_live.Segments</c> insertion order,
         /// with NO truncation marker of any kind — while the very same line ends its per-wall
         /// clause with an honest <c>+28 more</c>. A reader who greps that log therefore sees a
         /// complete-looking two-to-four-entry list and reasons from it as if it were the
@@ -499,7 +488,7 @@ internal static partial class WallSegmentFade
             _runLeftoverByReason.Clear();
             _runLeftoverByClass.Clear();
             _runLeftoverAllowed.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
                 seg.RunDriven = false;
         }
 
@@ -520,15 +509,15 @@ internal static partial class WallSegmentFade
             _runMembersPassenger = 0;
 
             // ---- pass 1: measure each piece, union its cells into its run ------------------
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.RunDriven = false;
                 if (!seg.FromSplitRun)
                     continue;
-                // The run must still BE a split run right now — `_splitAnchors` is the live
+                // The run must still BE a split run right now — `_live.SplitAnchors` is the live
                 // register and it is cleared on a scene load. A stale RunOwner from a group that
                 // has since been re-merged must not keep driving anything.
-                if (seg.RunOwner == null || !_splitAnchors.Contains(seg.RunOwner))
+                if (seg.RunOwner == null || !_live.SplitAnchors.Contains(seg.RunOwner))
                 {
                     // ORPHAN: the run this piece was carved from is destroyed. Keep its own
                     // decision (the pre-259 behaviour) rather than holding it solid — a piece
@@ -662,9 +651,9 @@ internal static partial class WallSegmentFade
                 run.Room = -1;
                 foreach (KeyValuePair<int, int> hit in run.RoomHits)
                 {
-                    if (hit.Key < 0 || hit.Key >= _roomSampleCount.Count)
+                    if (hit.Key < 0 || hit.Key >= _live.RoomSampleCount.Count)
                         continue;
-                    int total = _roomSampleCount[hit.Key];
+                    int total = _live.RoomSampleCount[hit.Key];
                     if (total <= 0)
                         continue;
                     float f = hit.Value / (float)total;
@@ -823,13 +812,13 @@ internal static partial class WallSegmentFade
             // leftover audit already uses for "this wall is gone".
             foreach (WallRun r in _runs.Values)
                 r.MaxFade = 0f;
-            foreach (Segment s in _segments.Values)
+            foreach (Segment s in _live.Segments.Values)
             {
                 if (s.FromSplitRun && s.RunOwner != null
                     && _runs.TryGetValue(s.RunOwner, out WallRun? owner) && s.Fade > owner.MaxFade)
                     owner.MaxFade = s.Fade;
             }
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.FromSplitRun || seg.RunOwner == null)
                     continue;
@@ -1073,12 +1062,12 @@ internal static partial class WallSegmentFade
         /// samples, and neither mentions a tileset, a shader family or a room size. The INPUTS are
         /// not guaranteed, and every one of them fails toward a confident wrong ALLOWED:
         /// <list type="number">
-        /// <item>a room with no ANCHORED floor plane — <c>_roomFloorY</c> holds a number for every
+        /// <item>a room with no ANCHORED floor plane — <c>_live.RoomFloorY</c> holds a number for every
         ///   room, anchored or not, so reading it blind produces a foot height measured against a
         ///   guess. Asked with <see cref="RoomDecisionValid"/>, the same predicate the fade
         ///   decision itself runs on.</item>
         /// <item>a room with NO sample grid at all — a scenario with more revealed rooms than the
-        ///   <c>MaxTotalSamples</c> budget covers hands late rooms <c>_roomSampleCount = 0</c> and
+        ///   <c>MaxTotalSamples</c> budget covers hands late rooms <c>_live.RoomSampleCount = 0</c> and
         ///   holds their walls solid. Zero samples means zero blocked, which would have read as
         ///   ALLOWED for every piece in the room.</item>
         /// <item>no sample of the room FRUSTUM-VISIBLE this tick — "it hides nothing from him"
@@ -1102,9 +1091,9 @@ internal static partial class WallSegmentFade
             visibleSamples = 0;
             foot = 0f;
             top = 0f;
-            if (room < 0 || room >= _roomFloorY.Count || !RoomDecisionValid(room))
+            if (room < 0 || room >= _live.RoomFloorY.Count || !RoomDecisionValid(room))
                 return "UNJUDGED (no anchored floor plane for this room)";
-            float floorY = _roomFloorY[room];
+            float floorY = _live.RoomFloorY[room];
             foot = b.min.y - floorY;
             top = b.max.y - floorY;
             if (foot > WallStandingProp.FootBandWU)
@@ -1230,24 +1219,24 @@ internal static partial class WallSegmentFade
         private int PieceBlockedSamples(Renderer r, int room, out int blocked)
         {
             blocked = 0;
-            if (room < 0 || room >= _roomSampleCount.Count)
+            if (room < 0 || room >= _live.RoomSampleCount.Count)
                 return -1;
-            int total = _roomSampleCount[room];
+            int total = _live.RoomSampleCount[room];
             if (total <= 0)
                 return -1;
             Bounds b = r.bounds;
             float thicknessEps = Mathf.Clamp(0.5f * Mathf.Min(b.size.x, b.size.z),
                                              BlockEpsMinWorld, BlockEpsMaxWorld);
-            int start = _roomSampleStart[room];
+            int start = _live.RoomSampleStart[room];
             int end = Mathf.Min(start + total,
-                                Mathf.Min(_allSamples.Count, _sampleVisible.Length));
+                                Mathf.Min(_live.AllSamples.Count, _sampleVisible.Length));
             Vector3 headPos = _lastHeadPos;
             int visible = 0;
             for (int i = start; i < end; i++)
             {
                 if (!_sampleVisible[i])
                     continue; // out of view direction — it cannot be hiding this from him
-                Vector3 sample = _allSamples[i];
+                Vector3 sample = _live.AllSamples[i];
                 Vector3 to = sample - headPos;
                 float dist = to.magnitude;
                 if (dist < 0.001f)
@@ -1397,28 +1386,28 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void CommitBoardVolume()
         {
-            _boardVolumeValid = false;
-            _boardVolumeRooms = 0;
+            _live.BoardVolumeValid = false;
+            _live.BoardVolumeRooms = 0;
             _boardVolumeWalls = 0;
 
             float minX = float.MaxValue, maxX = float.MinValue;
             float minZ = float.MaxValue, maxZ = float.MinValue;
             float floorY = float.MaxValue;
-            for (int i = 0; i < _roomBounds.Count; i++)
+            for (int i = 0; i < _live.RoomBounds.Count; i++)
             {
                 // Only rooms the coverage decision itself trusts (tile-anchored plane, non-empty
                 // grid). A guessed frame must not define where the player is standing either.
                 if (!RoomDecisionValid(i))
                     continue;
-                Bounds b = _roomBounds[i];
+                Bounds b = _live.RoomBounds[i];
                 if (b.min.x < minX) minX = b.min.x;
                 if (b.max.x > maxX) maxX = b.max.x;
                 if (b.min.z < minZ) minZ = b.min.z;
                 if (b.max.z > maxZ) maxZ = b.max.z;
-                if (i < _roomFloorY.Count && _roomFloorY[i] < floorY) floorY = _roomFloorY[i];
-                _boardVolumeRooms++;
+                if (i < _live.RoomFloorY.Count && _live.RoomFloorY[i] < floorY) floorY = _live.RoomFloorY[i];
+                _live.BoardVolumeRooms++;
             }
-            if (_boardVolumeRooms == 0 || floorY == float.MaxValue)
+            if (_live.BoardVolumeRooms == 0 || floorY == float.MaxValue)
             {
                 // No decision-valid room: the 3D map room and every pre-generation frame. The
                 // volume stays invalid and the INSIDE rule can never fire.
@@ -1430,7 +1419,7 @@ internal static partial class WallSegmentFade
             // so a player standing inside a perimeter wall would otherwise read as outside the
             // board, which is the one place the head-in-stone escape hatch has to work.
             _crestScratch.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.HasBounds || !RoomDecisionValid(seg.RoomIndex))
                     continue;
@@ -1458,12 +1447,12 @@ internal static partial class WallSegmentFade
             // looking down at the board from outside.
             _crestScratch.Sort();
             float crest = Mathf.Max(_crestScratch[_crestScratch.Count / 2], BoardCrestMinWU);
-            _boardCrestWU = crest;
-            _boardFloorY = floorY;
-            _boardVolume = new Bounds(
+            _live.BoardCrestWU = crest;
+            _live.BoardFloorY = floorY;
+            _live.BoardVolume = new Bounds(
                 new Vector3((minX + maxX) * 0.5f, floorY + crest * 0.5f, (minZ + maxZ) * 0.5f),
                 new Vector3(Mathf.Max(maxX - minX, 0f), crest, Mathf.Max(maxZ - minZ, 0f)));
-            _boardVolumeValid = true;
+            _live.BoardVolumeValid = true;
             AnnounceBoardVolume();
         }
 
@@ -1475,37 +1464,37 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void AnnounceBoardVolume()
         {
-            int sigCrest = Mathf.RoundToInt(_boardCrestWU * 10f);
-            int sigX = _boardVolumeValid ? Mathf.RoundToInt(_boardVolume.size.x * 10f) : 0;
-            int sigZ = _boardVolumeValid ? Mathf.RoundToInt(_boardVolume.size.z * 10f) : 0;
-            if (_boardVolumeRooms == _bvSigRooms && _boardVolumeWalls == _bvSigWalls
+            int sigCrest = Mathf.RoundToInt(_live.BoardCrestWU * 10f);
+            int sigX = _live.BoardVolumeValid ? Mathf.RoundToInt(_live.BoardVolume.size.x * 10f) : 0;
+            int sigZ = _live.BoardVolumeValid ? Mathf.RoundToInt(_live.BoardVolume.size.z * 10f) : 0;
+            if (_live.BoardVolumeRooms == _bvSigRooms && _boardVolumeWalls == _bvSigWalls
                 && sigCrest == _bvSigCrest && sigX == _bvSigX && sigZ == _bvSigZ)
                 return;
-            _bvSigRooms = _boardVolumeRooms;
+            _bvSigRooms = _live.BoardVolumeRooms;
             _bvSigWalls = _boardVolumeWalls;
             _bvSigCrest = sigCrest;
             _bvSigX = sigX;
             _bvSigZ = sigZ;
-            if (!_boardVolumeValid)
+            if (!_live.BoardVolumeValid)
             {
                 VRLog.Info(Name,
                     "BOARD VOLUME: none — "
-                    + $"{_boardVolumeRooms} decision-valid room(s), {_boardVolumeWalls} wall(s) "
+                    + $"{_live.BoardVolumeRooms} decision-valid room(s), {_boardVolumeWalls} wall(s) "
                     + "with a decision AABB. The WALK-IN stand-down cannot fire until a room is "
                     + "tile-anchored with a non-empty floor grid; this is also the steady state "
                     + "of the 3D map room, which has no occlusion volumes at all, so the mode "
                     + "can never engage there.");
                 return;
             }
-            Vector3 mn = _boardVolume.min, mx = _boardVolume.max;
+            Vector3 mn = _live.BoardVolume.min, mx = _live.BoardVolume.max;
             VRLog.Info(Name,
                 $"BOARD VOLUME: x {mn.x:F1}..{mx.x:F1}, y {mn.y:F2}..{mx.y:F2}, "
                 + $"z {mn.z:F1}..{mx.z:F1} world units — union footprint of "
-                + $"{_boardVolumeRooms} decision-valid room(s) and {_boardVolumeWalls} wall(s), "
-                + $"floor plane {_boardFloorY:F2}, MEDIAN wall crest {_boardCrestWU:F2} wu over "
+                + $"{_live.BoardVolumeRooms} decision-valid room(s) and {_boardVolumeWalls} wall(s), "
+                + $"floor plane {_live.BoardFloorY:F2}, MEDIAN wall crest {_live.BoardCrestWU:F2} wu over "
                 + $"{_crestScratch.Count} wall(s). INSIDE bars: enter at signed distance "
-                + $"<= {-WallFadeTuning.InsideEnterDepthFraction * _boardCrestWU:F2} wu, leave at "
-                + $">= {WallFadeTuning.InsideExitDepthFraction * _boardCrestWU:F2} wu (live "
+                + $"<= {-WallFadeTuning.InsideEnterDepthFraction * _live.BoardCrestWU:F2} wu, leave at "
+                + $">= {WallFadeTuning.InsideExitDepthFraction * _live.BoardCrestWU:F2} wu (live "
                 + $"[WallFade] InsideEnterDepthFraction "
                 + $"{WallFadeTuning.InsideEnterDepthFraction:F2} / InsideExitDepthFraction "
                 + $"{WallFadeTuning.InsideExitDepthFraction:F2} x this crest; dwell "
@@ -1517,7 +1506,7 @@ internal static partial class WallSegmentFade
                 + $"{WallFadeTuning.WalkInExitDwellSeconds:F2}s out, and it additionally needs "
                 + "the HEIGHT slab at least "
                 + $"{WallFadeTuning.WalkInHeadBelowCrestFraction:F2} x crest "
-                + $"({-WallFadeTuning.WalkInHeadBelowCrestFraction * _boardCrestWU:F2} wu) below "
+                + $"({-WallFadeTuning.WalkInHeadBelowCrestFraction * _live.BoardCrestWU:F2} wu) below "
                 + "the crest plane AND this board's crest to measure "
                 + (WallFadeTuning.WalkInMinCrestMetres > 0f
                     ? $"at least {WallFadeTuning.WalkInMinCrestMetres:F2} m in REAL METRES — the "
@@ -1539,14 +1528,14 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool UpdateInsideBoard(Vector3 headPos, float now, float rigScale)
         {
-            if (!_boardVolumeValid)
+            if (!_live.BoardVolumeValid)
             {
                 if (_insideBoard || _insidePending)
                     ResetInsideBoardState();
                 return false;
             }
 
-            Vector3 c = _boardVolume.center, e = _boardVolume.extents;
+            Vector3 c = _live.BoardVolume.center, e = _live.BoardVolume.extents;
             float qx = Mathf.Abs(headPos.x - c.x) - e.x;
             float qy = Mathf.Abs(headPos.y - c.y) - e.y;
             float qz = Mathf.Abs(headPos.z - c.z) - e.z;
@@ -1562,8 +1551,8 @@ internal static partial class WallSegmentFade
             // LIVE, not cached: both bars are [WallFade] dials since ModBuild 272 and are read
             // per evaluation, so a value typed in the in-VR menu decides the very next frame.
             bool want = _insideBoard
-                ? sd < WallFadeTuning.InsideExitDepthFraction * _boardCrestWU
-                : sd <= -WallFadeTuning.InsideEnterDepthFraction * _boardCrestWU;
+                ? sd < WallFadeTuning.InsideExitDepthFraction * _live.BoardCrestWU
+                : sd <= -WallFadeTuning.InsideEnterDepthFraction * _live.BoardCrestWU;
             if (want != _insidePending)
             {
                 _insidePending = want;
@@ -1638,7 +1627,7 @@ internal static partial class WallSegmentFade
             // GROUND GONE, not a boundary crossing. The 3D map room is the standing case for the
             // second arm: it owns no occlusion volumes at all, so CommitBoardVolume never marks
             // the volume valid there and this mode can never engage in it.
-            if (!WallFadeTuning.WalkInStandDown || !_boardVolumeValid)
+            if (!WallFadeTuning.WalkInStandDown || !_live.BoardVolumeValid)
             {
                 _walkTermScale = rigScale > 1e-4f;
                 _walkTermCrest = false;
@@ -1651,7 +1640,7 @@ internal static partial class WallSegmentFade
                 _walkHeightNeed = 0f;
                 _walkRefusal = !WallFadeTuning.WalkInStandDown
                     ? "CONFIG — [WallFade] WalkInStandDown is OFF"
-                    : $"BOARD — the board volume is invalid ({_boardVolumeRooms} decision-valid "
+                    : $"BOARD — the board volume is invalid ({_live.BoardVolumeRooms} decision-valid "
                       + "room(s)); the 3D map room has no occlusion volumes at all, so the mode "
                       + "can never engage there";
                 if (_walkInside || _walkInsidePending)
@@ -1660,7 +1649,7 @@ internal static partial class WallSegmentFade
             }
 
             _walkTermScale = rigScale > 1e-4f;
-            _walkCrestMetres = _walkTermScale ? _boardCrestWU / rigScale : -1f;
+            _walkCrestMetres = _walkTermScale ? _live.BoardCrestWU / rigScale : -1f;
             // THE CREST TERM CAN BE SWITCHED OFF, by setting its metre bar to 0. That is the one
             // dial that decides "standing in a room" against "leaning over a 61 cm diorama", so
             // switching it off restores exactly the ModBuild 251 behaviour the user rejected in
@@ -1676,7 +1665,7 @@ internal static partial class WallSegmentFade
                              && (_walkCrestDisabled || _walkCrestMetres >= _walkCrestNeed);
             // HEIGHT, with a live depth requirement. At the shipped 0 this is `margin < 0` —
             // the ModBuild 271 test, unchanged to the bit.
-            _walkHeightNeed = -WallFadeTuning.WalkInHeadBelowCrestFraction * _boardCrestWU;
+            _walkHeightNeed = -WallFadeTuning.WalkInHeadBelowCrestFraction * _live.BoardCrestWU;
             _walkTermHeight = _lastInsideMarginY < _walkHeightNeed;
 
             bool want = _insideBoard && _walkTermScale && _walkTermCrest && _walkTermHeight;
@@ -1689,10 +1678,10 @@ internal static partial class WallSegmentFade
                 : !_insideBoard
                     ? "INSIDE — the head is not inside the board volume (signed distance "
                       + $"{_lastInsideSigned:F2} wu, needs <= "
-                      + $"{-WallFadeTuning.InsideEnterDepthFraction * _boardCrestWU:F2}, i.e. "
+                      + $"{-WallFadeTuning.InsideEnterDepthFraction * _live.BoardCrestWU:F2}, i.e. "
                       + $"[WallFade] InsideEnterDepthFraction "
                       + $"{WallFadeTuning.InsideEnterDepthFraction:F2} x crest "
-                      + $"{_boardCrestWU:F2} wu)"
+                      + $"{_live.BoardCrestWU:F2} wu)"
                     : !_walkTermScale
                         ? $"SCALE — the rig scale is unreadable ({rigScale:G4} wu per metre)"
                         : !_walkTermCrest
@@ -1710,7 +1699,7 @@ internal static partial class WallSegmentFade
                               + $"{_lastInsideMarginY:F2} wu, needs < {_walkHeightNeed:F2} = "
                               + "-[WallFade] WalkInHeadBelowCrestFraction "
                               + $"{WallFadeTuning.WalkInHeadBelowCrestFraction:F2} x crest "
-                              + $"{_boardCrestWU:F2} wu); being merely OVER the board is the "
+                              + $"{_live.BoardCrestWU:F2} wu); being merely OVER the board is the "
                               + "FOOTPRINT term, and that is never enough";
 
             if (want != _walkInsidePending)
@@ -1827,12 +1816,12 @@ internal static partial class WallSegmentFade
                 _suspendedCycles = 0;
                 _suspendedNextTick = Mathf.Max(_nextRescan, now);
                 // See THE SPLIT RUNS ARE RE-SEEDED above. Done on the EDGE and not per frame:
-                // the table is rebuilt lazily by EvaluateSplitRuns from _segments, so one clear
+                // the table is rebuilt lazily by EvaluateSplitRuns from _live.Segments, so one clear
                 // is enough and repeating it would be a per-frame dictionary clear for nothing.
                 ClearSplitRunDrive();
                 VRLog.Info(Name,
                     $"SAMPLING SUSPENDED [EDGE #{_suspendEdges}] — the walk-in stand-down holds "
-                    + $"all {_segments.Count} tracked wall segment(s) fully solid by decree "
+                    + $"all {_live.Segments.Count} tracked wall segment(s) fully solid by decree "
                     + "(the WALK-IN STAND-DOWN line beside this one carries the held/hidden "
                     + "split for the pass it landed on; _walkHeld is written by the decision "
                     + "loop LATER in this same tick, so quoting it here would print the "
@@ -1862,7 +1851,7 @@ internal static partial class WallSegmentFade
         ///
         /// <para>WHY THIS EXISTS AND WHY IT IS NOT PARANOIA. <c>UpdateSamplingSuspension</c> runs
         /// LATE in the tick — after <c>UpdateWalkInside</c>, which is after the early return
-        /// <c>if (_segments.Count == 0 || _roomBounds.Count == 0) return;</c> — while the flag it
+        /// <c>if (_live.Segments.Count == 0 || _live.RoomBounds.Count == 0) return;</c> — while the flag it
         /// sets is read EARLY, at the rescan-cadence gate. That asymmetry is a latch that can
         /// never let go, and it is reachable: suspend inside a scenario, load a new one, and the
         /// segment table is empty while the flag is still true. The gate then refuses to open a
@@ -1943,7 +1932,7 @@ internal static partial class WallSegmentFade
                 + $"{(_walkInside ? "reappear" : "may fade again")}, through the ordinary "
                 + "animated ramp — nothing snaps). Head "
                 + $"({headPos.x:F1}, {headPos.y:F2}, {headPos.z:F1}); board crest "
-                + $"{_boardCrestWU:F2} wu = {_walkCrestMetres:F2} m at rig scale "
+                + $"{_live.BoardCrestWU:F2} wu = {_walkCrestMetres:F2} m at rig scale "
                 + $"{_walkRigScale:F2} wu/m, bar "
                 + (_walkCrestDisabled
                     ? "OFF ([WallFade] WalkInMinCrestMetres is 0 — the diorama safeguard is "
@@ -1969,10 +1958,10 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void InvalidateBoardVolume()
         {
-            _boardVolumeValid = false;
-            _boardVolumeRooms = 0;
+            _live.BoardVolumeValid = false;
+            _live.BoardVolumeRooms = 0;
             _boardVolumeWalls = 0;
-            _boardCrestWU = 0f;
+            _live.BoardCrestWU = 0f;
             _bvSigRooms = -1;
             _bvSigWalls = -1;
             ResetInsideBoardState();
@@ -2513,9 +2502,9 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogInsideState(Vector3 headPos, float rigScale, bool edge)
         {
-            if (!_boardVolumeValid)
+            if (!_live.BoardVolumeValid)
                 return;
-            Vector3 mn = _boardVolume.min, mx = _boardVolume.max;
+            Vector3 mn = _live.BoardVolume.min, mx = _live.BoardVolume.max;
             bool byY = _lastInsideMarginY >= _lastInsideMarginXZ;
             string term = _insideBoard
                 ? (byY ? "HEIGHT (the eye is below the wall crest, and that is the tighter of "
@@ -2525,8 +2514,8 @@ internal static partial class WallSegmentFade
                 : (byY ? "HEIGHT (the eye is at or above the wall crest)"
                        : "FOOTPRINT (the head is beyond the board edge)");
             string metres = rigScale > 1e-4f
-                ? $"{(headPos.y - _boardFloorY) / rigScale:F2} m above the floor plane, walls "
-                  + $"{_boardCrestWU / rigScale:F2} m tall, signed distance "
+                ? $"{(headPos.y - _live.BoardFloorY) / rigScale:F2} m above the floor plane, walls "
+                  + $"{_live.BoardCrestWU / rigScale:F2} m tall, signed distance "
                   + $"{_lastInsideSigned / rigScale:F2} m"
                 : "n/a (rig scale unreadable)";
             VRLog.Info(Name,
@@ -2536,9 +2525,9 @@ internal static partial class WallSegmentFade
                 + $"[x {mn.x:F1}..{mx.x:F1}, y {mn.y:F2}..{mx.y:F2}, z {mn.z:F1}..{mx.z:F1}] "
                 + $"world units, signed distance {_lastInsideSigned:F2} wu "
                 + $"(slabs: Y {_lastInsideMarginY:F2}, XZ {_lastInsideMarginXZ:F2}); "
-                + $"deciding term {term}. Crest {_boardCrestWU:F2} wu, bars enter "
-                + $"<= {-WallFadeTuning.InsideEnterDepthFraction * _boardCrestWU:F2} / leave "
-                + $">= {WallFadeTuning.InsideExitDepthFraction * _boardCrestWU:F2} wu (live "
+                + $"deciding term {term}. Crest {_live.BoardCrestWU:F2} wu, bars enter "
+                + $"<= {-WallFadeTuning.InsideEnterDepthFraction * _live.BoardCrestWU:F2} / leave "
+                + $">= {WallFadeTuning.InsideExitDepthFraction * _live.BoardCrestWU:F2} wu (live "
                 + $"[WallFade] InsideEnterDepthFraction "
                 + $"{WallFadeTuning.InsideEnterDepthFraction:F2} / InsideExitDepthFraction "
                 + $"{WallFadeTuning.InsideExitDepthFraction:F2}). In real metres at rig "
