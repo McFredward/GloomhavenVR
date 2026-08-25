@@ -1,0 +1,102 @@
+# BOARD ASSET CONTRACT (ModBuild 271 rebuild, 2026-08-25)
+
+One contract, three boards. Every lane reads THIS file; nothing here may be changed by a lane
+without saying so in its report.
+
+## Why the rebuild — measured, not asserted
+
+| asset | tris | boundary edges | HOLE LOOPS | loose verts |
+|---|---|---|---|---|
+| hands `VRHandArcane_L` (the reference) | 20654 | **0** | **0** | **0** |
+| Oak `PlayTray_prepped` | 20000 | 20268 | **1288** | 0 |
+| Steel `PlayTray_9capjqp6` | 20000 | 21674 | **1639** | 4098 |
+| Bronze `PlayTray_16vm268h` | 20000 | 22110 | **1628** | 4559 |
+
+More boundary edges than faces: these are shattered decimations of an AI photogrammetry mesh, not
+authored geometry. They are not repairable — they are replaced by authored geometry.
+
+## Identity
+
+| style | FBX today | prefab today | code const |
+|---|---|---|---|
+| Oak | `PlayTray_prepped.fbx` | `Assets/Bundle/Table/PlayTray.prefab` | (default path) |
+| Steel | `PlayTray_9capjqp6.fbx` | `…/PlayTray_9capjqp6.prefab` | `VRCardFactory.SteelTrayPath` |
+| Bronze | `PlayTray_16vm268h.fbx` | `…/PlayTray_16vm268h.prefab` | `VRCardFactory.BronzeTrayPath` |
+
+**File names and prefab paths DO NOT CHANGE.** The mod resolves boards by these exact paths.
+
+## Geometry contract (unchanged from the shipped boards)
+
+- Long edge exactly **0.640 m**; short edge **0.320 m** (2:1). Thickness 0.030–0.040 m.
+- Authored in Blender lying in the **XY plane, decorated face toward −Z**, body z ≥ 0, pivot centred.
+  `BuildBoard.cs` re-derives orientation from the anchor frame, so anchors must be correct.
+- Quad-dominant, **watertight: 0 hole loops, 0 non-manifold edges, 0 loose verts.**
+- Budget **≤ 24 000 tris** per board (the hands are 20 654 — same league, this is the bar).
+- One material, one UV layer, **no overlapping UV islands**, ≥ 8 px padding at 2048².
+
+## Anchors — SEVEN now, not six
+
+Empties parented under the board root, exact names:
+
+    Slot1  Slot2  ShortRestToken  LongRestToken  ButtonSeat1  ButtonSeat2  ButtonSeat3
+
+`ButtonSeat1/2/3` replace the old `ConfirmButton` / `UndoButton` pair (the user: three buttons can
+be live at once, so the board needs three physical seats on the right). **The old two names must
+still resolve** — `BuildBoard.cs` and the mod both look them up by name, so ship an alias or keep
+`ConfirmButton`/`UndoButton` as secondary empties at Seat1/Seat2 until the code lane lands. Lane C
+owns that decision; state which you did.
+
+Seat layout: right-hand zone, three seats evenly spaced on the short axis, in-style recesses that
+read as part of the board, not as three holes punched into it.
+
+## UV atlas region map — the shared contract between the mesh lane and the texture lane
+
+The mesh lane writes `unity/board-prep/out/<style>_uv.json`; the texture lane composites against it.
+Schema (normalised 0..1, origin bottom-left, y up — Blender/Unity UV convention):
+
+```json
+{
+  "style": "oak",
+  "atlas": 2048,
+  "regions": {
+    "face":        {"u0":0.0,"v0":0.0,"u1":1.0,"v1":0.5,"kind":"decorated top face"},
+    "frame":       {"u0":0.0,"v0":0.5,"u1":0.5,"v1":0.75,"kind":"outer frame + corner brackets"},
+    "slot_floor":  {"u0":0.5,"v0":0.5,"u1":0.75,"v1":0.75,"kind":"card recess floors"},
+    "rest_pads":   {"u0":0.75,"v0":0.5,"u1":1.0,"v1":0.75,"kind":"the two round rest pads"},
+    "button_seats":{"u0":0.0,"v0":0.75,"u1":0.5,"v1":1.0,"kind":"the THREE button recesses"},
+    "sides":       {"u0":0.5,"v0":0.75,"u1":1.0,"v1":1.0,"kind":"edges + back"}
+  },
+  "symbols": [
+    {"name":"centre_rose","u":0.5,"v":0.25,"size_uv":0.18,"region":"face"}
+  ]
+}
+```
+The region rectangles above are the DEFAULT layout; the mesh lane may change them, but it must
+write what it actually produced and keep the six region names. `symbols[]` lists every place a
+generated decorative image is stamped, in UV space, so the texture lane never guesses.
+
+## Textures
+
+Three 2048² maps per board, names unchanged: `<base>_albedo.png`, `<base>_normal.png`, and
+`PlayTray_mr.png`-style packed metallic/roughness where a board has one.
+
+- Bases are PROCEDURAL (wood grain / brushed steel / patinated bronze). No AI for material bases.
+- AI (`gpt-image-2`) is for **decorative symbols only**, generated on a flat neutral field, stamped
+  by us into the atlas. Every generated image costs money: batch the whole symbol set into as few
+  calls as possible and reuse across styles where the motif is shared.
+- Seams: dilate/pad every island by ≥ 8 px after compositing; verify no island bleeds into another.
+
+## Verification — every lane runs these, no exceptions
+
+    /home/claw/blender-4.2/blender --background --factory-startup \
+        --python unity/board-prep/gen_stats.py -- <fbx>          # 0 holes / 0 loose / tris ≤ 24000
+    /home/claw/blender-4.2/blender --background --factory-startup \
+        --python unity/board-prep/gen_render.py -- <fbx> <albedo> <normal> <out.png> [front|quarter]
+
+A render is not optional and not a formality: LOOK at it and say what you see. This project has a
+standing lesson that a preview station aimed at nothing renders happily.
+
+## What is NOT in scope
+The bundle rebuild changes `gloomhavenvr.bundle`, which has been byte-identical since ModBuild 250
+(every test since then was a DLL-only install). The integrator handles the rebuild and tells the
+user he must copy the bundle this time.
