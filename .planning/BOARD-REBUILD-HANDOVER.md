@@ -3,6 +3,13 @@
 You own this task end to end. The integrator has handed it over so the main session can work on
 other topics in parallel. Read this file first; it is the state of the world, not a summary.
 
+**Branch:** work on `boards-rebuild`, push there as often as you like, and never touch `dev` — the
+integrator is committing to `dev` in parallel and will merge your branch when the task is finished.
+Creating and pushing that branch is additive and allowed; force-pushing anything is not, ever.
+
+**You may spawn your own workers.** Give each one explicit file ownership so two never edit the same
+file, and pass on the rules below — they are the ones this project has already paid for.
+
 ## THE USER'S TASK, verbatim
 
 > "Ich möchte, dass du das Mesh und die Textur von allen 3 Controllboards überarbeitest. Aktuell hat
@@ -91,8 +98,32 @@ Reference: the hands are 20 654 tris, 0 boundary edges. UV islands went 1046 →
 sheet B's covers it. **Do not use the `rest_alt` cell from either sheet** — both are a crescent
 enclosing a six-pointed star, i.e. two real-world religious symbols combined. It is a spare cell.
 
-If you genuinely need another generation, ASK THE INTEGRATOR FIRST — every image costs the user
-money and he asked for it to be rare.
+### You MAY generate more images — and you carry the same responsibility for them
+
+The user has granted this explicitly (2026-08-25): *"Er DARF und muss auch Bilder erstellen können.
+Er muss damit aber genauso verantwortungsvoll umgehen wie du."* So you do not need permission. You
+do need the discipline that came with it:
+
+- **Every image costs real money.** His standing instruction is *"mache das eher selten wenn du viel
+  Vorbereitung getroffen hast"* — generate only after the surrounding pipeline is finished and
+  proven, never to explore.
+- **Never generate what a procedure can produce better.** Material bases, anything that must tile,
+  and anything built from exact geometry (rings, evenly spaced rivets, right angles) stay
+  procedural. Diffusion cannot close a seam.
+- **Batch.** One sheet carrying nine motifs beat nine calls, and two sheets in two different
+  ornamental hands beat one sheet plus a re-roll. Think in sheets, not in motifs.
+- **Prove the consumer before you feed it.** The last round spent two calls into a processor whose
+  self-test passed 9/9 and which then shattered every motif. Point the acceptance at a REAL input
+  before spending.
+- **A generated image never becomes albedo.** It is a binary stencil; the bevel is rebuilt from an
+  exact distance transform and the motif is carved into a procedural material. This is the whole
+  reason the result stops reading as AI, and it is not negotiable.
+- **Look at what came back** and say what you see, per cell, before using it.
+
+How to reach the tool: it is an MCP tool, so load its schema first with
+`ToolSearch` for `create_asset`, then call it with `model: "gpt-image-2"`. Output lands in
+`unity/board-prep/out/` (gitignored). If it returns a 401 the plugin's key is stale — that costs
+nothing, but stop and tell the integrator rather than retrying.
 
 ## RULES YOU INHERIT (non-negotiable)
 
