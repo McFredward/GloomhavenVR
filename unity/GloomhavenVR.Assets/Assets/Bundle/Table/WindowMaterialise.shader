@@ -1,16 +1,17 @@
 // THE DEBRIS a floating window breaks into while it materialises or dematerialises.
 //
 // WHAT DRAWS THIS. Two MeshRenderers per animating window, parented to the window's world-space
-// host rect and carrying the SAME vertex buffer with two different index lists: the shards that
-// were launched toward the player and the shards that were launched away from it. They are seated
-// on the panel's own distance ladder at +1 and -1, so the window is drawn between them
-// (WorldUI/WindowMaterialiseDebris.cs explains why a single renderer cannot work: converted panels
-// write no depth, ever, so sortingOrder is the only thing that can put geometry behind one).
+// host rect, one carrying the shards launched TOWARD the player and one the shards launched AWAY
+// from it. They are seated on the panel's own distance ladder at +1 and -1, so the window is drawn
+// between them (WorldUI/WindowMaterialiseDebris.cs explains why a single renderer cannot work:
+// converted panels write no depth, ever, so sortingOrder is the only thing that can put geometry
+// behind one). The split is baked per shard on the CPU, so it is identical in both eyes and never
+// flips with head motion.
 //
-// EVERY VERTEX IS A WHOLE PARTICLE'S STATE. The mesh is built once per effect; nothing on the CPU
-// touches it again. The trajectory below is a closed function of ONE uniform, _Front, so a frame of
-// this effect costs two SetFloats and one SetPropertyBlock no matter how many shards are in the
-// air.
+// EVERY VERTEX IS A WHOLE PARTICLE'S STATE. The meshes are built once per effect; nothing on the
+// CPU touches them again. The trajectory below is a closed function of ONE uniform, _Front, so a
+// frame of this effect costs two SetFloats and two SetPropertyBlocks no matter how many shards are
+// in the air - measured at 0.4 us, unchanged between 90 and 420 shards.
 //
 // ---------------------------------------------------------------------------------------------
 // WHY THERE IS NO CAMERA, NO HEAD POSE AND NO CLOCK IN THIS FILE
@@ -77,9 +78,9 @@ Shader "GloomhavenVR/WindowMaterialise"
 
         // The field, mirrored from WorldUI/WindowMaterialiseField.cs. The values here are only what
         // an editor preview would show; C# pushes the live ones through a MaterialPropertyBlock.
-        _LifeSpan ("Shard lifetime (threshold units)", Float) = 1.15
+        _LifeSpan ("Shard lifetime (threshold units)", Float) = 1.85
         _Wind ("Downwind direction, CANVAS-local xy (unit)", Vector) = (0.92, 0.39, 0, 0)
-        _Drift ("Downwind travel at age 1 (host-local units)", Float) = 460
+        _Drift ("Downwind travel at age 1 (host-local units)", Float) = 720
         _Fall ("Fall at age 1 (host-local units)", Float) = 100
         _SpinTurns ("Spin scale", Float) = 1.0
 

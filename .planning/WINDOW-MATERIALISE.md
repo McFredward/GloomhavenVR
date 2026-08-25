@@ -1,9 +1,12 @@
 # Window materialise — a window breaks into real debris in the room
 
 **Lane:** `agent-a4dbc57e3f126b7b1`, branched from `origin/dev` at `e82ee8f2` (ModBuild 293).
-**Status:** redesigned, committed on the lane branch. The four call sites were already wired in 293
-and are **untouched**. The two durations live in `Defaults/Defaults.WorldUI.cs`, which this lane may
-not edit — they are delivered as an exact hunk in §9.
+**Status:** redesigned, committed on the lane branch. The call sites were already wired in 293 and are
+**untouched** — note there are **five** lines across three files, not four: `PlayIn`, `PlayOut`,
+`IsVanishing`, and `CancelAll` **twice** (`ReleaseAllWindows` and `ReleaseMapRoomFloats`). The public
+surface of this feature did not change, so none of them needed to. The two durations live in
+`Defaults/Defaults.WorldUI.cs`, which this lane may not edit — they are delivered as an exact hunk
+in §9.
 
 > User, 2026-08-26, on what shipped in ModBuild 292/293:
 > *"Ich mag die Fenster ein- und ausblend-Animation nicht. Ich will eher, dass es wirkliche
@@ -192,6 +195,7 @@ The invariant: **no path ends with a window that is alive, listed, clickable and
 | Effect dial OFF | `PlayIn` returns having written nothing; `PlayOut` runs the callback inline | `Enabled` guards |
 | Duration below 0.05 s | treated as OFF, not as a fast animation | `Clamp()` returns 0 |
 | **Intensity 0** | no mesh, no renderers, no `GameObject` beyond the runner's own carrier; the element dissolve runs alone as a clean directional wipe | `TryBuildDebris` → false |
+| **Third+ window opening on ONE frame** | logged at Info, no debris for that window, element dissolve at full speed. See §5 | `MaxDebrisBuildsPerFrame` |
 | Shader unresolved (bundle not loaded yet) | no debris; the element dissolve still runs. Only *successes* are cached, so the next window retries | `TryBuildDebris` → false |
 | Host rect degenerate | `Begin` returns false → `PlayOut` runs the callback inline | `Begin` |
 | **No visible element to tear a shard from** | logged at Info, no debris, element dissolve runs | `BuildEmissionTable` → false |
@@ -299,7 +303,26 @@ largest window this feature will ever build cannot grow them, and `Mesh` comes f
 one exception was measured rather than assumed: the **cold first build of a session costs 8.07 ms and
 12,288 B** — JIT plus two `Mesh` constructions, once, ever.
 
-### The worst plausible simultaneous case
+### The worst plausible simultaneous case, and the budget that bounds it
+
+**Can seven windows really open on one frame? Yes — I checked the source rather than assuming.** The
+convert loop in `ModalFallback.4.Tick.cs` walks every entry of `OpenWindows` with **no per-tick
+budget**, and `CanvasConversion`'s reveal loop completes every armed reveal in one LateUpdate with no
+budget either. Nothing anywhere staggers them, and the map room opens several windows at once.
+
+So this feature staggers itself: **`MaxDebrisBuildsPerFrame = 2`**. The third and later window to
+want debris on one frame gets the element dissolve with no shards — the same graceful degradation as
+an unresolved shader or an intensity of zero, bounded by construction, invisible on any frame where
+fewer than three windows open at once. **Nothing is delayed and no window is refused**; only the
+decoration is skipped. The check sits before the emission table, the first stage that costs anything,
+so a skipped window costs nothing rather than most of a build.
+
+**And the honest scale of that frame:** seven simultaneous opens cost `CollectElements` 7 × 1.75 ms =
+**12.3 ms all by itself**, which is over budget before this feature adds anything, and which 292/293
+paid too — it is required by the element dissolve. The budget above caps this lane's contribution to
+that frame at 2 × 1.80 ms. It does not fix the larger, older problem, which is not this lane's.
+
+
 
 The map room's arc holds five windows and `PanelSupersample`'s effective cap is seven. Seven windows
 at 400 elements each, all animating on one frame:
@@ -372,9 +395,101 @@ frequency, because no frequency exists.
 
 ---
 
-## 7. The renders
+## 7. The renders — look at these before anything ships
 
-> **FILLED FROM THE BLENDER STAGE.**
+Three stages, all reproducible in about five minutes:
+
+```sh
+WM_APPEAR_S=0.35 WM_VANISH_S=0.90 python3 unity/asset-preview/windowmaterialise_preview.py
+xvfb-run -a /home/claw/blender-4.2/blender --background \
+    --python unity/asset-preview/windowmaterialise_room.py -- render/windowmaterialise
+python3 unity/asset-preview/windowmaterialise_compose.py render/windowmaterialise
+```
+
+Everything lands in `render/windowmaterialise/`, which `.gitignore:87` already covers, so it is on
+this worktree's disk at
+`/home/claw/gloomhaven_vr/.claude/worktrees/agent-a4dbc57e3f126b7b1/render/windowmaterialise/`.
+
+| Path | What |
+|---|---|
+| `front_{appear,vanish}_strip.png` | 12 frames evenly across the full duration, dead-on, occluders hidden — the animation itself. Each cell labelled with elapsed time, k, element progress and frame index |
+| `oblique_{appear,vanish}_strip.png` | **the depth proof.** Orbited 52° right, 14° up, occluders visible |
+| `front_{appear,vanish}.mp4`, `oblique_{appear,vanish}.mp4` | 60 fps at the real durations |
+| `stereo_pair.png` | parallel pair, IPD 63 mm, no toe-in, at the mid-vanish instant |
+| `parallax_pair.png` | the same instant from two head positions 0.56 m apart — the "lean sideways" view |
+| `camera_clock_audit.txt` | the 28-identifier mechanical audit |
+| `measured_cpu_cost.txt` | the harness output behind §5 |
+| `frames/` | all 158 raw renders, plus `pairs.json` |
+
+**The shards in these are the shipped arithmetic, not an artist's impression.** Every position comes
+out of `windowmaterialise_field.py`, which reads its constants from the C# and mirrors the shader's
+vertex stage line for line, and the shading node graph reproduces the shipped unlit shader's fixed
+world key rather than lighting them with the room's lamps — so a facet's brightness in these pictures
+is the brightness the headset will draw. The room's own geometry *is* lit, which is what makes it
+read as a room.
+
+### What the depth proof actually shows
+
+Not asserted — the render script ray-tests every shard centroid against each occluder from the
+oblique camera and counts. **The column occludes 7,054 shard-frames** across the vanish. Shards are
+also drawn *over* it, and the crate behind the window plane is progressively revealed as the window
+dissolves, which is only possible if it is behind the plane. In the strip: watch cells f15 → f44 of
+`oblique_vanish_strip.png`.
+
+### What I changed because the renders said to — three rounds
+
+1. **The last 0.20 s of the vanish and 0.10 s of the appear were EMPTY.** Three of twelve strip
+   columns showed nothing at all. The same defect, in the same place, that the previous round's first
+   strip caught. Cause: `DebrisLifeSpan` 1.15 meant the debris front reached 2.09 by the end of a
+   vanish, so everything except the last-eroded shards was past age 1 and dead — ageing, not the tail
+   fade, was doing the removal. Fixed at **1.85**, which spreads the deaths across the ramp and
+   leaves the final removal to the tail fade, which is exact at k=1 by construction.
+2. **That fix flattened the wind.** Travel goes as `drift · age^1.35`, so a longer lifetime lowers
+   every age and roughly halves how far a shard has got: the cloud dispersed in place instead of
+   blowing anywhere, which loses the user's own word for the effect. `DebrisDriftMetres` 0.46 →
+   **0.72**. The two constants are coupled through the exponent and have to be tuned together.
+3. **Two instrument faults, both of which would have shipped a wrong picture rather than a wrong
+   effect.** The room script's dead-on camera at 30 mm framed 1.08 m of the window plane while the
+   debris reaches x = +0.88 m, so the clean strip was clipping the flight at its right border — now
+   22 mm at the same real 0.90 m distance. And the stereo/parallax pairs were specified at
+   `t = 0.45 × vanish`, where the window's own dissolve is already 77 % done, so they proved
+   debris-against-the-room rather than debris-against-the-window; now `t = 0.30`, where the window is
+   half dissolved and the same shard cluster visibly sits over different parts of its content between
+   the two head positions.
+
+Two more the render agent caught and fixed inside the Blender scene, worth recording because both
+looked like effect failures: its hand-rolled key-light euler was inverted and lit the ceiling, so
+every occluder rendered as a black silhouette and the first oblique frames looked like debris in a
+void — the exact "flat sheet" failure it had been told to watch for, caused by the instrument. And
+EEVEE Next's blended transparency writes no depth, so a `BLEND` window composited over the whole
+opaque pass and would have drawn the window on top of every shard *in front of* it, destroying the
+one thing these renders exist to prove; the material uses `DITHERED` instead.
+
+### My honest verdict
+
+**The oblique view answers the complaint, unambiguously.** Shards vanish behind the column and
+re-emerge, are drawn over it, hide the crate and are hidden by it, and are visibly larger near the
+camera than far. Nothing in it reads as a sheet stuck to the window. If the previous effect was "eher
+ein 2D-Effekt", this is not that.
+
+**The parallax pair is the second-strongest picture** and the one I would send with it: the same
+shard cluster sits over different parts of the window's own content from two head positions 0.56 m
+apart, which a decal in the window's plane could not do.
+
+**Where it still falls short, and I would rather say it than have it come back:**
+
+* **The large background plate still cross-fades rather than eroding.** Between roughly k = 0.19 and
+  k = 0.46 of the vanish the window reads as *dimming* while debris flies off it, not as *tearing*.
+  This is inherent to element granularity: uGUI gives one alpha per `CanvasRenderer` and the plate is
+  one `CanvasRenderer`. It is **shorter than it was** (the element ramp now finishes in 58 % of the
+  duration) and it is **much better disguised** (there is now real debris in front of it instead of a
+  flat speckle), but it is the same limitation the previous round named and I have not removed it.
+  The only real fix is an RT dissolve per animating window, which would make a decoration depend on
+  `PanelSupersample` — a subsystem capped at seven private layers that legitimately refuses windows.
+  I judged that the wrong trade; it is a real option and I am not hiding it.
+* **Small elements snap after the plate has gone**, so for two or three frames the text floats on
+  nothing. Visible in `front_vanish_strip.png` at k = 0.28.
+* **The panel is a SYNTHETIC stand-in** (§8.11).
 
 ---
 

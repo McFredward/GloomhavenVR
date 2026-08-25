@@ -36,7 +36,13 @@ FRAMES = os.path.join(OUT, "frames")
 
 RES_X, RES_Y = 1100, 740
 SAMPLES = 24
-LENS_MM = 30.0
+# 22 mm, NOT the 30 mm this script was first specified with, and the reason is a measurement rather
+# than taste: 30 mm at 0.90 m frames 1.08 m of the window plane, and the debris reaches x = +0.88 m,
+# so from about vanish f30 the cloud was clipped at the right border of the clean front strip. A
+# strip that cannot show where the debris went is not a strip of this effect. 22 mm frames ~1.47 m
+# and holds the whole flight. The DISTANCE stays at the real 0.90 m reading distance; widening the
+# lens rather than backing the camera off keeps the window at its true angular size.
+LENS_MM = 22.0
 # Smoke-test knob only: WM_ROOM_STRIDE=8 renders every 8th animation frame so the whole pipeline
 # (including the stereo/parallax pairs at the end) can be exercised in seconds. Default 1 = all.
 STRIDE = max(1, int(os.environ.get("WM_ROOM_STRIDE", "1")))
@@ -63,11 +69,15 @@ IPD_M = 0.063
 PARALLAX_AZ = 17.5      # +-0.28 m laterally at 0.95 m => 0.56 m apart
 PARALLAX = dict(el=10.0, dist=0.95, target=(0.0, 0.0, 0.0))
 # The stereo and parallax pairs are one instant of the vanish, as a fraction of its duration.
-# 0.45 is the spec'd default. BEWARE: with the shipped 0.90 s vanish the window's own dissolve is
-# already complete by 0.45 (mean alpha 0.09 at t=0.40, 0.00 by t=0.45), so at the default the pairs
-# show debris against the ROOM, not against the window. WM_PAIR_T=0.30 puts a half-dissolved window
-# back in shot if you want the window itself as the static reference.
-PAIR_T = float(os.environ.get("WM_PAIR_T", "0.45"))
+#
+# 0.30, NOT the 0.45 this script was first specified with, and the measurement is the reason: the
+# ELEMENT front now completes in the first ElementSpan = 0.58 of the duration, so by k = 0.45 the
+# window's own dissolve is 77 % done (mean texture alpha 0.09) and by 0.50 it is gone entirely. A
+# pair shot there proves debris-against-the-ROOM, which is a real depth proof but a different
+# sentence from the one these pairs exist to say. At 0.30 the window is present and half dissolved,
+# and the same shard cluster sits over visibly different parts of its content between A and B --
+# which is the picture that makes the point. Override with WM_PAIR_T.
+PAIR_T = float(os.environ.get("WM_PAIR_T", "0.30"))
 
 
 def fail(msg):
@@ -125,6 +135,13 @@ def new_scene():
     # off the edge of frame instead.
     if hasattr(sc.eevee, "light_threshold"):
         sc.eevee.light_threshold = 0.0005
+    # More shadow rays, fewer TAA samples spent resolving speckle in the crate's shadow.
+    if hasattr(sc.eevee, "shadow_ray_count"):
+        sc.eevee.shadow_ray_count = 4
+    if hasattr(sc.eevee, "shadow_step_count"):
+        sc.eevee.shadow_step_count = 8
+    if hasattr(sc.eevee, "shadow_resolution_scale"):
+        sc.eevee.shadow_resolution_scale = 1.0
     world = bpy.data.worlds.new("w")
     sc.world = world
     world.use_nodes = True
@@ -338,7 +355,7 @@ def make_room():
     lt = bpy.context.object
     lt.name = "key"
     lt.data.energy = 70.0
-    lt.data.size = 0.9
+    lt.data.size = 0.35   # small: a 0.9 m source at 1.7 m is all penumbra, and penumbra is noise at 24 samples
     # An area light emits along its local -Z. Hand-rolled euler angles for this got the sign of the
     # tilt wrong on the first pass and lit the ceiling instead of the room - every occluder came
     # out a black silhouette and the depth proof read as nothing at all. to_track_quat cannot make
@@ -464,6 +481,21 @@ def main():
         n_render += 1
     lat = 2.0 * PARALLAX["dist"] * math.cos(math.radians(PARALLAX["el"])) * \
         math.sin(math.radians(PARALLAX_AZ))
+
+    # The captions on the composed pairs have to state the real rig, and windowmaterialise_compose
+    # has no way to know it. Hand it over rather than duplicating the constants in two files.
+    pairs_path = os.path.join(FRAMES, "pairs.json")
+    json.dump({
+        "instant": {"direction": "vanish", "frame": pick["f"], "t": pick["t"],
+                    "fraction_of_vanish": PAIR_T, "vanish_s": vanish_s,
+                    "k": pick["k"], "element_progress": pick["element_progress"]},
+        "stereo": {"ipd_m": IPD_M, "parallel": True, "az_deg": STEREO["az"],
+                   "el_deg": STEREO["el"], "dist_m": STEREO["dist"]},
+        "parallax": {"lateral_separation_m": lat, "half_offset_m": lat / 2.0,
+                     "az_deg": PARALLAX_AZ, "el_deg": PARALLAX["el"],
+                     "dist_m": PARALLAX["dist"]},
+    }, open(pairs_path, "w"), indent=1)
+    written.append(pairs_path)
 
     dt = time.time() - t0
     print("")

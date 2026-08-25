@@ -139,9 +139,19 @@ internal static class WindowMaterialiseField
     /// like.</summary>
     internal const float DebrisSizePower = 2.2f;
 
-    /// <summary>How far a shard travels DOWNWIND (in the window's plane, along <see cref="Wind"/>)
-    /// by the end of its life, in apparent metres.</summary>
-    internal const float DebrisDriftMetres = 0.46f;
+    /// <summary>
+    /// How far a shard travels DOWNWIND (in the window's plane, along <see cref="Wind"/>) by the end
+    /// of its life, in apparent metres.
+    ///
+    /// <para><b>Raised from 0.46 with <see cref="DebrisLifeSpan"/>, and it had to be.</b> Travel goes
+    /// as <c>drift · age^1.35</c>, so lengthening the lifetime lowers every shard's age at a given
+    /// moment and roughly HALVES how far it has got — the strip after that change showed the debris
+    /// dispersing in place rather than blowing anywhere, which loses the user's own word for the
+    /// effect (<i>"in Partikel von Wind verweht"</i>). The two constants are coupled through the
+    /// exponent and should be tuned together; this is the pair that keeps the cloud on screen AND
+    /// visibly going somewhere.</para>
+    /// </summary>
+    internal const float DebrisDriftMetres = 0.72f;
 
     /// <summary>How far a shard travels OUT OF THE WINDOW'S PLANE by the end of its life, in
     /// apparent metres. <b>This one number is the redesign.</b> The previous effect had no such term
@@ -171,10 +181,23 @@ internal static class WindowMaterialiseField
     /// which a camera-facing billboard is not.</summary>
     internal const float DebrisSpinTurns = 1.7f;
 
-    /// <summary>Shard lifetime in THRESHOLD units, the same units the front travels in. Longer than
-    /// one sweep on purpose: the debris has to outlive the window or the last third of a vanish is
-    /// empty frames — the defect the previous round's first preview strip caught.</summary>
-    internal const float DebrisLifeSpan = 1.15f;
+    /// <summary>
+    /// Shard lifetime in THRESHOLD units, the same units the front travels in. Longer than one sweep
+    /// on purpose: the debris has to outlive the window, or the end of a vanish is empty frames.
+    ///
+    /// <para><b>1.15 was wrong and the first preview strip of this round caught it — the same defect,
+    /// in the same place, as the previous round's first strip.</b> At 1.15 the debris front reaches
+    /// 2.09 by the end of a vanish, so every shard except the very last-eroded ones is past age 1 and
+    /// dead: three of the twelve strip columns (k = 0.81, 0.91, 1.00, i.e. the last 0.20 s) were
+    /// completely empty, and the appear's last 0.10 s was a static window. At <b>1.85</b> the deaths
+    /// are spread across the whole ramp and the final removal is done by the TAIL FADE, which is what
+    /// should be doing it: the tail fade is exact at k = 1 by construction, whereas ageing only
+    /// happens to be. A shorter lifetime also made shards travel FURTHER per unit of k (travel goes
+    /// as age^1.35), which is why they were leaving the frame as well as dying in it.</para>
+    ///
+    /// <para>Mirrors <c>_LifeSpan</c>.</para>
+    /// </summary>
+    internal const float DebrisLifeSpan = 1.85f;
 
     // ---- the field ------------------------------------------------------------------------
 

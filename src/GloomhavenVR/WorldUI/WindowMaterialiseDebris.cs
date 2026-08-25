@@ -178,6 +178,34 @@ internal static partial class WindowMaterialise
     private static readonly List<float> EmitCumulative = new(256);
     private static readonly List<int> EmitIndex = new(256);
 
+    /// <summary>
+    /// <b>HOW MANY SHARD CLOUDS MAY BE BUILT IN ONE FRAME.</b> Two, and the number is a measurement
+    /// rather than a feeling.
+    ///
+    /// <para>The build is a genuine one-off cost — 1.80 ms at 290 shards on the harness box — and the
+    /// question is whether several windows can pay it on the SAME frame. They can: the convert loop
+    /// in <c>ModalFallback.4.Tick.cs</c> walks every open window with no per-tick budget, and
+    /// <c>CanvasConversion</c>'s reveal loop completes every armed reveal in one LateUpdate with no
+    /// budget either. The map room opens several windows at once. Nothing anywhere staggers them.
+    /// </para>
+    ///
+    /// <para>So this feature staggers itself. The third and later window to want debris on one frame
+    /// gets the element-by-element dissolve with no shards — which is the same graceful degradation
+    /// as an unresolved shader or an intensity of zero, is bounded by construction, and is invisible
+    /// on every frame where fewer than three windows open at once (i.e. essentially all of them).
+    /// <b>Nothing is delayed and no window is refused</b>; only the decoration is skipped.</para>
+    ///
+    /// <para>Worth stating for scale: on that same seven-window frame the PRE-EXISTING
+    /// <c>CollectElements</c> walk costs 7 × 1.75 ms = 12.3 ms all by itself, and it is required by
+    /// the element dissolve, which 292/293 also ran. That frame was already over budget before this
+    /// feature added anything. This cap keeps the debris from making it worse; it does not fix the
+    /// larger, older problem, which is not this lane's to fix.</para>
+    /// </summary>
+    internal const int MaxDebrisBuildsPerFrame = 2;
+
+    private static int _buildFrame = -1;
+    private static int _buildsThisFrame;
+
     /// <summary>The scale chain the geometry line was last logged for. CHANGE-GATED rather than
     /// once-per-process, and the map-room table is why: it runs at 198 world units per metre against
     /// a scenario's 9.57, so a once-per-process line would report the first window ever animated and
@@ -264,6 +292,25 @@ internal static partial class WindowMaterialise
         Material? mat = SharedMaterial();
         if (mat == null)
             return false;
+
+        // THE PER-FRAME BUILD BUDGET. Checked here, before the emission table — the first stage that
+        // costs anything — so a skipped window costs nothing at all rather than most of a build.
+        int frame = Time.frameCount;
+        if (frame != _buildFrame)
+        {
+            _buildFrame = frame;
+            _buildsThisFrame = 0;
+        }
+        if (_buildsThisFrame >= MaxDebrisBuildsPerFrame)
+        {
+            VRLog.Info(Scope, $"WINDOW MATERIALISE: no debris for '{Name(panel)}' — "
+                              + $"{MaxDebrisBuildsPerFrame} shard cloud(s) have already been built "
+                              + "on this frame and a third would put a one-off cost on a frame that "
+                              + "is already opening several windows. It still dissolves element by "
+                              + "element, at full speed. See MaxDebrisBuildsPerFrame.");
+            return false;
+        }
+        _buildsThisFrame++;
 
         // ---- THE SCALE CONVERSION, ONCE, FROM MEASUREMENT --------------------------------------
         // lossyScale is world units per canvas unit. PanelLayout.WorldScale is world units per real
