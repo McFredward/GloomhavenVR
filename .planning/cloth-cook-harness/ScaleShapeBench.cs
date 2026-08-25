@@ -21,9 +21,15 @@ public sealed class ScaleShapeBench : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
     {
+        // STAND DOWN FOR *ANY* --bench= FLAG, not for a named list of them. This was an allow-list
+        // through ModBuild 290, and the failure mode an allow-list produces is the worst one an
+        // instrument has: a run that exits 0, prints a full bench's worth of output, and contains
+        // not one line of the bench that was asked for — because the new flag was not on the list.
+        // A bench that boots by default must abdicate to every explicit request, including the ones
+        // written after it. (ClothBench has done it this way since ModBuild 289; this one had not
+        // caught up, and three new benches this round would each have had to remember to edit it.)
         foreach (string a in Environment.GetCommandLineArgs())
-            if (a == "--bench=cost" || a == "--bench=sync" || a == "--bench=cook"
-                || a == "--bench=dir" || a == "--bench=drivers" || a == "--bench=gesture") return;
+            if (a != null && a.StartsWith("--bench=")) return;
         var go = new GameObject("ScaleShapeBench");
         DontDestroyOnLoad(go);
         go.AddComponent<ScaleShapeBench>();
