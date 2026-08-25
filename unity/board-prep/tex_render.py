@@ -91,7 +91,63 @@ def slab(name, w, h, uv_box, z=0.0, x=0.0):
 
 
 BOARD_W, BOARD_H = 0.640, 0.320
-board = slab("Board", BOARD_W, BOARD_H, REGIONS.get(REGION, REGIONS["face"]))
+FBX = arg("--fbx")
+
+if FBX:
+    # Render the atlas onto the REAL BOARD, at the same calibrated exposure.
+    #
+    # gen_render.py already draws the board, but it is about two stops over
+    # (measured: the finished oak atlas comes back with its lit surface at
+    # median 0.87) and every material looks like white plastic through it, so it
+    # cannot answer "is this albedo clean?". This mode is the same station as
+    # the slab -- same lights, same grey card, same auto-exposure loop -- with
+    # the mesh swapped in, so the two are directly comparable and the card in
+    # the corner still proves the exposure landed.
+    bpy.ops.import_scene.fbx(filepath=FBX)
+    meshes = [o for o in sc.objects if o.type == "MESH"]
+    if not meshes:
+        raise SystemExit(f"{FBX} imported no mesh -- the station would be aimed at nothing")
+    pts = [o.matrix_world @ Vector(c) for o in meshes for c in o.bound_box]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts)))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts)))
+    ctr = (lo + hi) / 2
+    ext = hi - lo
+    for o in meshes:
+        o.location = (o.location.x - ctr.x, o.location.y - ctr.y, o.location.z - ctr.z)
+    board = meshes[0]
+    BOARD_W, BOARD_H = float(ext.x), float(ext.y)
+
+    # WHICH SIDE ARE WE LOOKING AT -- measured, and it says so, because the
+    # first version of this mode got it wrong in a way that was very easy to
+    # explain away. It tried to "put the decorated face toward +Z" by flipping
+    # the object's LOCAL z scale when the bounding box looked lopsided. Two
+    # things were wrong with that. The test was (hi.z - ctr.z) < (ctr.z - lo.z),
+    # which is the same quantity on both sides algebraically and therefore
+    # decided by float rounding; and the FBX comes in with a 90-degree rotation
+    # about X, so the object's local z is world MINUS Y and scaling it by -1
+    # mirrored the whole board top to bottom. The board then rendered with the
+    # short-rest glyph on the long-rest pad, which is exactly the kind of wrong
+    # a render gets talked out of. There is no flip now: the station looks from
+    # +Z and reports how much of what it can see is actually the decorated side.
+    up = down = 0.0
+    for o in meshes:
+        mw = o.matrix_world
+        rot = mw.to_quaternion()
+        me = o.data
+        me.calc_loop_triangles()
+        for p in me.polygons:
+            nz = (rot @ p.normal).z
+            if nz > 0.7:
+                up += p.area
+            elif nz < -0.7:
+                down += p.area
+    print(f"PREVIEW mesh {os.path.basename(FBX)}: {len(meshes)} object(s), extents "
+          f"{ext.x:.3f} x {ext.y:.3f} x {ext.z:.3f} m; looking from +Z at "
+          f"{up / max(up + down, 1e-9) * 100:.0f}% up-facing area "
+          f"({up * 1e4:.0f} vs {down * 1e4:.0f} cm2)")
+else:
+    board = slab("Board", BOARD_W, BOARD_H, REGIONS.get(REGION, REGIONS["face"]))
+    meshes = [board]
 
 # the 18% grey card, same plane, to the side. It is what calibrates the exposure
 # AND what proves in the output that the calibration held.
@@ -149,7 +205,9 @@ if mr is not None:
 else:
     bsdf.inputs["Roughness"].default_value = 0.55
 
-board.data.materials.append(mat)
+for o in meshes:
+    o.data.materials.clear()
+    o.data.materials.append(mat)
 
 cmat = bpy.data.materials.new("GreyCard")
 cmat.use_nodes = True

@@ -52,59 +52,98 @@ SS = 4  # supersample factor for all vector drawing
 #   uses        where it appears and how many times per board
 #   why         why it is on this side of the ai/proc line
 #
+# `px` is the size the motif is STORED at. It is not the size it is composited
+# at: the compositor asks for an exact pixel size per placement, measured
+# against the room the mesh actually leaves (tex_atlas.fit_placements), and
+# get_symbol resamples the stored binary through one SDF resize to get there.
+# The stored size only has to be at least as large as the largest request, so
+# that resample is never an upscale of an upscale.
+#
+# The numbers below were set from the REBUILT boards, not from the old default
+# layout. Measured room on the three meshes, at a 2048 atlas: slot-floor
+# rosette 220-272 px, rest pad glyph 196-212 px, button seat 92-104 px, the
+# widest spot anywhere on the face web 92-98 px, the frame band 40-53 px.
 SYMBOL_SPEC = [
-    dict(name="centre_rose", px=560, source="ai", shared=True, cell="A1",
-         uses="face, 1x, at the symbols[] centre_rose entry",
+    dict(name="centre_rose", px=320, source="ai", shared=True, cell="A1",
+         uses="slot_floor, 2x, one on each card recess floor (the roomiest "
+              "decorated surface the board has); face, 2x, on the wide spot at "
+              "the middle of the top and bottom field margin",
          why="the one large hero ornament; hand-vectoring a 12-fold rosette with "
              "interior filigree is hours of work and is exactly what diffusion is "
              "good at once you only keep its silhouette"),
-    dict(name="corner_bracket", px=340, source="ai", shared=True, cell="A2",
-         uses="frame, 4x, mirrored into each corner",
+    dict(name="corner_bracket", px=224, source="ai", shared=True, cell="A2",
+         uses="face, 4x, mirrored into the four corners of the field web",
          why="an L-shaped scrollwork corner; asymmetric organic curve, tedious by "
              "hand, and it is used mirrored so only one is needed"),
-    dict(name="rest_short", px=210, source="ai", shared=True, cell="A3",
+    dict(name="rest_short", px=224, source="ai", shared=True, cell="A3",
          uses="rest_pads, 1x, the ShortRestToken pad",
          why="must read instantly as 'short rest' at 25 mm; a crescent-and-ember "
              "device is iconographic work, not geometry"),
-    dict(name="rest_long", px=210, source="ai", shared=True, cell="B1",
+    dict(name="rest_long", px=224, source="ai", shared=True, cell="B1",
          uses="rest_pads, 1x, the LongRestToken pad",
          why="its pair; must be distinguishable from rest_short at a glance"),
-    dict(name="maker_mark", px=240, source="ai", shared=True, cell="B2",
-         uses="frame, 1x, centred on the lower frame run",
+    dict(name="maker_mark", px=224, source="ai", shared=True, cell="B2",
+         uses="face, 1x, on the wide spot at the middle of the bottom field margin",
          why="a small heraldic cartouche that gives the board an author; pure "
              "ornament, no functional meaning, so a generated silhouette is safe"),
-    dict(name="rose_alt", px=560, source="ai", shared=True, cell="B3",
-         uses="face, alternate for centre_rose (denser variant)",
+    dict(name="rose_alt", px=320, source="ai", shared=True, cell="B3",
+         uses="slot_floor / face, alternate for centre_rose (denser variant)",
          why="a second rosette on the SAME sheet costs nothing and gives a choice "
              "without a second call"),
-    dict(name="bracket_alt", px=340, source="ai", shared=True, cell="C1",
-         uses="frame, alternate for corner_bracket (plainer variant)",
+    dict(name="bracket_alt", px=224, source="ai", shared=True, cell="C1",
+         uses="face, alternate for corner_bracket (plainer variant)",
          why="same argument; a plainer bracket suits Steel where the ornate one "
              "suits Oak, and both come out of one call"),
-    dict(name="rest_alt", px=210, source="ai", shared=True, cell="C2",
-         uses="rest_pads, alternate",
-         why="spare cell, free"),
-    dict(name="pip", px=96, source="ai", shared=True, cell="C3",
-         uses="face, small separators between zones",
+    dict(name="pip", px=128, source="ai", shared=True, cell="C3",
+         uses="face, 1x on the centre bridge between the two card recesses, "
+              "which is 12 mm wide and fits nothing larger",
          why="spare cell, free; a tiny lozenge used as punctuation"),
 
-    dict(name="seat_bezel", px=300, source="proc", shared=True, cell=None,
+    dict(name="seat_bezel", px=224, source="proc", shared=True, cell=None,
          uses="button_seats, 3x, one ring per seat",
          why="a concentric annulus with evenly spaced rivets. Perfect circles and "
              "exact angular spacing; generating this would be strictly worse and "
              "would cost money"),
-    dict(name="slot_corner", px=140, source="proc", shared=True, cell=None,
-         uses="face, 8x, the four corners of each card recess",
-         why="a right-angle tick. Pure geometry"),
+    dict(name="slot_corner", px=112, source="proc", shared=True, cell=None,
+         uses="NOT PLACED on the rebuilt boards -- kept because it is free and "
+              "the next layout may want it",
+         why="a right-angle tick. Pure geometry. It was going to sit in the four "
+             "corners of each card recess floor, and it is not there: a recess "
+             "floor is under a card for most of the game, and what shows when it "
+             "is empty should be one clean ornament rather than one ornament plus "
+             "eight ticks fighting it at 24 mm"),
     dict(name="border_run", px=(1024, 128), source="proc", shared=True, cell=None,
-         uses="frame, tiled along all four runs",
+         uses="SUPERSEDED by tex_atlas.frame_relief, which is the same ornament "
+              "evaluated per texel from the board coordinate instead of stamped "
+              "as a strip",
          why="MUST TILE. Diffusion cannot close a seam; this is the single "
              "hardest constraint in the whole texture job and it is trivial "
-             "procedurally"),
+             "procedurally. Stamping a strip solved the seam along the run but "
+             "not at the four corners, and it had to be told where the frame "
+             "was; a function of board position closes both and cannot be "
+             "aimed at the wrong island"),
     dict(name="edge_dentil", px=(1024, 96), source="proc", shared=True, cell=None,
-         uses="sides, tiled along the board edge",
+         uses="SUPERSEDED by tex_atlas.side_relief, same argument",
          why="MUST TILE, same argument"),
 ]
+
+# ---------------------------------------------------------------------------
+# EDITORIAL BLOCK -- a cell that came back fine and is deliberately not used.
+#
+# `rest_alt` (cell C2) came back on BOTH sheets as a crescent enclosing a
+# six-pointed star. Each of those two devices is a real-world religious symbol
+# and the combination reads as a deliberate juxtaposition of two faiths. It was
+# a spare cell asked for because it was free; the board does not need it,
+# `rest_short` and `rest_long` are the two rest glyphs that matter and both came
+# back good on both sheets. So the cell is extracted for verification -- it is
+# part of what was paid for and the acceptance test still measures it -- and
+# then dropped: it is not in SYMBOL_SPEC, no motif file is written for it, and
+# there is no procedural stand-in for it either, so no placement can reach it by
+# any path.
+BLOCKED_CELLS = {
+    "rest_alt": "crescent enclosing a six-pointed star -- reads as a combination "
+                "of two real-world religious symbols; spare cell, not needed",
+}
 
 SYMBOLS = {s["name"]: s for s in SYMBOL_SPEC}
 AI_NAMES = [s["name"] for s in SYMBOL_SPEC if s["source"] == "ai"]
@@ -244,21 +283,71 @@ Why the tiling ornament is not on the sheet:
 # post-processing a generated sheet
 # ==========================================================================
 
-def _otsu(gray):
+def _otsu(gray, detail=False):
     """Otsu threshold, numpy only. Used because the sheet's black may come back
-    at 0.04 rather than 0.00 and a fixed 0.5 would then be a guess."""
-    hist, edges = np.histogram(gray, bins=256, range=(0.0, 1.0))
-    total = hist.sum()
-    if total == 0:
-        return 0.5
-    w = np.cumsum(hist).astype(np.float64)
-    centres = (edges[:-1] + edges[1:]) * 0.5
-    m = np.cumsum(hist * centres).astype(np.float64)
-    mt = m[-1]
-    with np.errstate(invalid="ignore", divide="ignore"):
+    at 0.04 rather than 0.00 and a fixed 0.5 would then be a guess.
+
+    THE BUG THIS REPLACES -- it shipped, and it destroyed both delivered sheets.
+    ---------------------------------------------------------------------------
+    The previous implementation computed the between-class variance as
+
+        w  = np.cumsum(hist)                 # a cumulative COUNT
+        m  = np.cumsum(hist * centres)       # count * intensity, UNNORMALISED
+        mt = m[-1]
         between = (mt * w - m) ** 2 / (w * (total - w))
+
+    Otsu's numerator is (mu_T * omega(t) - mu(t)) with omega and mu both
+    NORMALISED by the pixel count. Here the first term carries an extra factor
+    of `total` that the second does not, so with omega = w/total the expression
+    reduces to
+
+        total^2 * mu_T^2 * omega / (1 - omega)   + lower-order terms
+
+    which is MONOTONICALLY INCREASING in omega. Its argmax is therefore the top
+    of the occupied histogram no matter what the picture is; the function was
+    not measuring anything. Measured on the two delivered sheets it returned
+    0.99414 for all nine cells of BOTH sheets -- a constant wearing the clothes
+    of a measurement -- and at that threshold the slice falls INSIDE the white
+    lobe, cutting the anti-aliased rim off every stroke and shattering the
+    motifs into dots and dashes.
+
+    It survived --selftest because the synthetic sheet is near-binary: slicing a
+    0/1 image at 0.994 still separates ink from ground perfectly. Only a sheet
+    whose white sits at 250-255 rather than exactly 255 exposes it.
+
+    The corrected form normalises both terms, and where the between-class
+    variance has a flat plateau (a genuinely empty valley between two lobes) it
+    returns the MIDDLE of the plateau rather than np.argmax's first index --
+    otherwise a perfectly bimodal image gets a threshold pinned to the bottom of
+    its valley, which is the same failure mirrored.
+
+    With detail=True also returns (t, mu_below, mu_above, valley_fraction) so a
+    caller can refuse a threshold that is not sitting in a valley.
+    """
+    hist, edges = np.histogram(gray, bins=256, range=(0.0, 1.0))
+    total = float(hist.sum())
+    if total == 0:
+        return (0.5, 0.0, 1.0, 1.0) if detail else 0.5
+    p = hist / total
+    centres = (edges[:-1] + edges[1:]) * 0.5
+    omega = np.cumsum(p)
+    mu = np.cumsum(p * centres)
+    mu_t = mu[-1]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        between = (mu_t * omega - mu) ** 2 / (omega * (1.0 - omega))
     between = np.nan_to_num(between, nan=-1.0, posinf=-1.0, neginf=-1.0)
-    return float(centres[int(np.argmax(between))])
+    top = between.max()
+    plateau = np.flatnonzero(between >= top - 1e-12)
+    k = int(round(float(plateau.mean())))
+    t = float(centres[k])
+    if not detail:
+        return t
+    below = omega[k]
+    mu_lo = float(mu[k] / below) if below > 1e-12 else 0.0
+    mu_hi = float((mu_t - mu[k]) / (1.0 - below)) if below < 1.0 - 1e-12 else 1.0
+    g = np.asarray(gray)
+    valley = float(np.mean(np.abs(g - t) < 0.06))
+    return t, mu_lo, mu_hi, valley
 
 
 def erode(mask, r):
@@ -271,14 +360,70 @@ def dilate(mask, r):
     return T.edt(np.asarray(mask, dtype=bool)) <= r
 
 
-def clean_mask(mask, open_r=2.0, close_r=2.0):
-    """Open then close: removes diffusion speckle and closes pinholes without
-    the edge-softening a blur would cost."""
+def morph_clean(mask, open_r=1.0, close_r=1.0):
+    """Morphological open then close. KEPT, but no longer the default -- see
+    clean_mask below for the measurement that demoted it."""
     m = np.asarray(mask, dtype=bool)
     if open_r > 0:
         m = dilate(erode(m, open_r), open_r)
     if close_r > 0:
         m = erode(dilate(m, close_r), close_r)
+    return m
+
+
+def clean_mask(mask, min_area=None, frac=0.012):
+    """Remove speckle and fill pinholes WITHOUT moving a single boundary texel.
+
+    Foreground components smaller than `min_area` are deleted; enclosed
+    background components smaller than `min_area` are filled. Nothing else is
+    touched, so every edge of every surviving stroke is exactly where the
+    threshold put it.
+
+    WHY THIS REPLACED THE MORPHOLOGICAL OPEN/CLOSE, measured on the two
+    delivered sheets (18 cells) against the same cells thresholded at 0.5, plus
+    a cell deliberately damaged with 2% salt-and-pepper:
+
+      cleanup                worst IoU   worst hole area kept   2% s+p IoU
+      area, min_area=17          0.9919              97.6%          0.9886
+      area 17 then open r=1      0.9863              97.9%          0.9779
+      morphological r=1.0        0.9348              92.3%          0.9782
+      morphological r=1.71       0.9154              80.7%          0.9625   <- shipped
+
+    The last column is the point: the area filter is not a trade of robustness
+    for fidelity. It is BETTER at removing salt-and-pepper than the morphology
+    that was there to remove it.
+
+    The shipped radius was r = cell/200 = 1.71 texels, which is a stroke-fattening
+    operation, not a despeckle: on the Norse interlace sheet it ate a fifth of
+    the area of the plait's own openings, welding strands that the eye can still
+    see are separate. And it was WORSE at the job it was there for -- deleting
+    a component by its area removes speckle exactly, while eroding by a radius
+    removes speckle and one texel of everything else.
+
+    min_area defaults to (frac * min(side))^2, i.e. anything smaller than a
+    ~4x4 blob at a 341 px cell. That is below the smallest deliberate feature on
+    either sheet (the pip's corner dots are ~90 texels) and above the largest
+    accidental one."""
+    m = np.asarray(mask, dtype=bool)
+    if min_area is None:
+        min_area = max(4, int(round((frac * min(m.shape)) ** 2)))
+    lab, n = _label(m, conn=8)
+    if n:
+        sz = np.bincount(lab.ravel(), minlength=n + 1)
+        drop = sz < min_area
+        drop[0] = False
+        m = m & ~drop[lab]
+    bg, nb = _label(~m, conn=4)
+    if nb:
+        sz = np.bincount(bg.ravel(), minlength=nb + 1)
+        border = set(np.unique(np.concatenate(
+            [bg[0], bg[-1], bg[:, 0], bg[:, -1]])).tolist())
+        fill = (sz < min_area)
+        fill[0] = False
+        for b in border:
+            if b:
+                fill[b] = False
+        m = m | fill[bg]
     return m
 
 
@@ -298,15 +443,43 @@ def bevel_from_mask(cov, bevel_px=6.0, plateau=0.85):
     return h * cov
 
 
+def signed_distance(mask):
+    """Signed distance to the mask boundary, in source texels: positive inside,
+    negative outside, zero on the boundary halfway between the last inside texel
+    centre and the first outside one. Exact Euclidean, both directions."""
+    m = np.asarray(mask, dtype=bool)
+    return T.edt(~m) - T.edt(m) - 0.5
+
+
 def _resize_mask(mask, size):
     """Resize a binary mask to `size` and return ANTIALIASED coverage in [0,1].
-    Done by area-averaging a supersampled binary, never by blurring, so the edge
-    stays where it was instead of spreading."""
+
+    The edge is reconstructed from the mask's SIGNED DISTANCE FIELD rather than
+    from its pixels, then supersampled and area-averaged down. Why: the previous
+    version upsampled the binary with NEAREST, so every motif that is composited
+    LARGER than its source cell -- which is most of them, a 341 px cell going to
+    a 560 px rosette -- inherited the source's pixel staircase along every curve
+    and then hardened it. An SDF is smooth across the boundary, so bilinear
+    interpolation of it recovers a sub-texel-accurate edge, and the boundary
+    lands where the shape's boundary actually is instead of on the nearest
+    source texel edge.
+
+    This is still OUR edge, not the model's: the SDF is computed from the binary
+    stencil after thresholding, so none of the generator's own greys, shading or
+    halo survive into it. It is the same argument the bevel already makes.
+    Downsampling is unaffected -- the supersample-then-area-average is what
+    gives the antialiasing, and it is untouched."""
     w, h = (size, size) if isinstance(size, int) else size
-    img = Image.fromarray((np.asarray(mask, dtype=bool) * 255).astype(np.uint8), "L")
-    big = img.resize((w * SS, h * SS), Image.Resampling.NEAREST)
-    big = np.asarray(big, dtype=np.float64) / 255.0
-    big = (big >= 0.5)
+    m = np.asarray(mask, dtype=bool)
+    if not m.any():
+        return np.zeros((h, w), dtype=np.float64)
+    sh, sw = m.shape
+    sdf = signed_distance(m)
+    bw, bh = w * SS, h * SS
+    big = np.asarray(
+        Image.fromarray(sdf.astype(np.float32), "F").resize((bw, bh), Image.Resampling.BILINEAR),
+        dtype=np.float64)
+    big = big > 0.0
     small = np.asarray(
         Image.fromarray((big * 255).astype(np.uint8), "L").resize((w, h), Image.Resampling.BOX),
         dtype=np.float64) / 255.0
@@ -314,11 +487,39 @@ def _resize_mask(mask, size):
 
 
 def cell_box(sheet_size, cell, margin=0.06):
-    """Pixel box of a grid cell. Cells are lettered by COLUMN (A,B,C) and
-    numbered by ROW (1,2,3): A1 is top-left, C3 is bottom-right."""
+    """Pixel box of a grid cell.
+
+    A CELL LETTER IS A ROW AND A CELL NUMBER IS A COLUMN. A1 is top-left, A3 is
+    top-RIGHT, C1 is bottom-left. That is dictated by the prompts, which are the
+    only thing the image generator ever saw: they enumerate the nine motifs as
+    "Top row, left to right: 1, 2, 3 / Middle row, left to right: 4, 5, 6 /
+    Bottom row, left to right: 7, 8, 9", and SHEETS[*]["cells"] maps A1, A2, A3,
+    B1 ... to motifs 1, 2, 3, 4 ... in that order. Row-major, letter = row.
+
+    THE BUG THIS REPLACES: the previous version read the letter as a COLUMN and
+    the number as a ROW, i.e. the transpose of what was asked for and delivered.
+    Six of the nine cells then resolved to the wrong motif -- most visibly
+    `corner_bracket`, which was written out containing sheet A's eight-spoke
+    wheel. The docstring said "A=column" and the code agreed with the docstring;
+    both disagreed with the prompt one screen above them in this same file.
+
+    The transpose is confirmed by measurement, not by reading: per-cell ink
+    coverage at a 0.5 threshold on sheet_a is
+
+            col1    col2    col3
+      row A 21.9%   14.0%   19.1%
+      row B 16.5%   33.8%   20.0%
+      row C  6.4%   18.3%   10.8%
+
+    and the shipped `--process` reported 3.5% for `corner_bracket` (the wheel at
+    B1=16.5%, most of it then eaten by the threshold bug) and 22.4% for
+    `bracket_alt` (the wheel-and-dots at A3=19.1%). Under the corrected mapping
+    corner_bracket is A2 = 14.0% and bracket_alt is C1 = 6.4%, which is what the
+    eye sees: an L-shaped scroll and a thin plain L.
+    """
     cols, rows = SHEET_GRID
-    ci = "ABC".index(cell[0].upper())
-    ri = int(cell[1]) - 1
+    ri = "ABC".index(cell[0].upper())
+    ci = int(cell[1]) - 1
     cw = sheet_size / cols
     ch = sheet_size / rows
     mx, my = cw * margin, ch * margin
@@ -326,64 +527,470 @@ def cell_box(sheet_size, cell, margin=0.06):
             int((ci + 1) * cw - mx), int((ri + 1) * ch - my))
 
 
+# The trimmed square binary a motif is really made of, kept beside the RGBA the
+# compositor reads. The compositor asks for an exact pixel size per placement,
+# so it resamples; resampling the STENCIL once from its native grid is one
+# resample, while resampling an already-resampled coverage map is two and the
+# second one softens what the first one just made crisp.
+MASK_SUFFIX = "_mask.png"
+
+
+def _cell_binary(src, cell, level=True):
+    """One cell of a sheet -> (binary stencil at native cell resolution, notes).
+
+    Chain, in order, and every step is here for a named reason:
+      crop        -- cell_box; the letter is the ROW (see cell_box)
+      auto-level  -- the returned black is rarely 0 and the white rarely 255,
+                     GUARDED: a cell whose ink is so sparse that p98 lands in
+                     the black lobe would otherwise be divided by ~0 and come
+                     back solid white. Measured on the two delivered sheets the
+                     level is very nearly a no-op (lo = 0.0000, hi = 1.0000 on 7
+                     of 9 cells of sheet_a) -- it was NOT the cause of the
+                     shattered motifs, the Otsu units bug was.
+      Otsu        -- a measured threshold, now actually measuring (see _otsu)
+      invert test -- a cell that came back white-on-black
+      clean       -- deletes speckle by AREA and fills pinholes by AREA, so no
+                     boundary texel moves at all (see clean_mask)
+      trim + square
+    """
+    n = src.shape[0]
+    x0, y0, x1, y1 = cell_box(n, cell)
+    g0 = src[y0:y1, x0:x1]
+    lo, hi = float(np.percentile(g0, 2.0)), float(np.percentile(g0, 98.0))
+    levelled = level and (hi - lo) >= 0.20
+    g = np.clip((g0 - lo) / (hi - lo), 0.0, 1.0) if levelled else g0
+    thr, mu_lo, mu_hi, valley = _otsu(g, detail=True)
+    m = g > thr
+    inverted = m.mean() > 0.6
+    if inverted:
+        m = ~m
+    min_area = max(4, int(round((0.012 * min(g.shape)) ** 2)))
+    m = clean_mask(m, min_area=min_area)
+    note = dict(cell=cell, box=(x0, y0, x1, y1), lo=lo, hi=hi, levelled=levelled,
+                thr=thr, mu_lo=mu_lo, mu_hi=mu_hi, valley=valley,
+                inverted=inverted, min_area=min_area, raw=g0, full=m)
+    if not m.any():
+        return None, note
+    ys, xs = np.nonzero(m)
+    m = m[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    return _squarify(m), note
+
+
+def _squarify(m):
+    """Pad a trimmed mask back to square so the motif keeps its aspect ratio
+    inside a square file."""
+    hgt, wid = m.shape
+    side = max(hgt, wid)
+    sq = np.zeros((side, side), dtype=bool)
+    sq[(side - hgt) // 2:(side - hgt) // 2 + hgt,
+       (side - wid) // 2:(side - wid) // 2 + wid] = m
+    return sq
+
+
 def process_sheet(sheet_path, out_dir, sheet_id=None, bevel_px=6.0, report=True):
     """Slice one generated sheet into the motif files the compositor consumes.
 
-    Chain, in order, and every step is here for a named reason:
-      auto-level  -- the returned black is rarely 0 and the white rarely 255
-      Otsu        -- a measured threshold, not a guessed one
-      open/close  -- kills diffusion speckle and pinholes; exact Euclidean
-                     morphology, so the edge does not creep
-      trim        -- crop to the motif so `px` means the motif, not its margin
-      resize      -- supersampled binary -> area average; crisp, not blurred
-      bevel       -- our chamfer, not the model's shading
+    Returns a list of records, one per cell of the sheet, so a caller can verify
+    what happened instead of re-deriving it. Blocked cells (BLOCKED_CELLS) are
+    processed and reported but never written.
     """
     sheet = SHEETS[0] if sheet_id is None else next(s for s in SHEETS if s["id"] == sheet_id)
     src = np.asarray(Image.open(sheet_path).convert("L"), dtype=np.float64) / 255.0
-    n = src.shape[0]
     os.makedirs(out_dir, exist_ok=True)
-    written = []
-    for cell, name in sheet["cells"].items():
-        x0, y0, x1, y1 = cell_box(n, cell)
-        g = src[y0:y1, x0:x1]
-        lo, hi = np.percentile(g, 2.0), np.percentile(g, 98.0)
-        g = np.clip((g - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-        thr = _otsu(g)
-        m = g > thr
-        if m.mean() > 0.6:            # the sheet came back inverted
-            m = ~m
-        rel = max(1.0, min(g.shape) / 200.0)
-        m = clean_mask(m, open_r=rel, close_r=rel)
-        if not m.any():
+    recs = []
+    for cell, name in sorted(sheet["cells"].items()):
+        mask, note = _cell_binary(src, cell)
+        rec = dict(note)
+        rec.update(name=name, sheet=sheet["id"], mask=mask, path=None,
+                   blocked=name in BLOCKED_CELLS)
+        rec["full"] = note.get("full")
+        if mask is None:
             print(f"  {cell} -> {name}: EMPTY after cleanup, skipped")
+            recs.append(rec)
             continue
-        ys, xs = np.nonzero(m)
-        m = m[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-        # pad back to square so the motif keeps its aspect inside a square file
-        hgt, wid = m.shape
-        side = max(hgt, wid)
-        sq = np.zeros((side, side), dtype=bool)
-        sq[(side - hgt) // 2:(side - hgt) // 2 + hgt,
-           (side - wid) // 2:(side - wid) // 2 + wid] = m
+        if rec["blocked"]:
+            if report:
+                print(f"  {cell} -> {name}: BLOCKED, not written "
+                      f"({BLOCKED_CELLS[name]})")
+            recs.append(rec)
+            continue
         px = SYMBOLS[name]["px"]
-        cov = _resize_mask(sq, px)
+        cov = _resize_mask(mask, px)
         h = bevel_from_mask(cov, bevel_px=bevel_px)
-        p = _write_symbol(out_dir, name, h, cov)
-        written.append(p)
+        rec["path"] = _write_symbol(out_dir, name, h, cov, native=mask)
+        rec["cov"] = float(cov.mean())
+        recs.append(rec)
         if report:
             print(f"  {cell} -> {name}: coverage {cov.mean() * 100:5.1f}%  "
-                  f"threshold {thr:.3f}  {px}px  {p}")
-    return written
+                  f"threshold {rec['thr']:.3f} (class means {rec['mu_lo']:.3f}/"
+                  f"{rec['mu_hi']:.3f}, {rec['valley'] * 100:.2f}% of texels "
+                  f"within +/-0.06 of it)  {px}px  {rec['path']}")
+    return recs
 
 
-def _write_symbol(out_dir, name, height, cov):
+def _write_symbol(out_dir, name, height, cov, native=None):
     a = np.zeros(height.shape + (4,), dtype=np.float64)
     a[..., 0] = a[..., 1] = a[..., 2] = np.clip(height, 0.0, 1.0)
     a[..., 3] = np.clip(cov, 0.0, 1.0)
     p = os.path.join(out_dir, f"{name}.png")
     os.makedirs(out_dir, exist_ok=True)
     Image.fromarray((a * 255.0 + 0.5).astype(np.uint8), "RGBA").save(p, optimize=True)
+    if native is not None:
+        Image.fromarray((np.asarray(native, dtype=bool) * 255).astype(np.uint8), "L").save(
+            os.path.join(out_dir, name + MASK_SUFFIX), optimize=True)
     return p
+
+
+# ==========================================================================
+# ACCEPTANCE -- against the REAL sheets, not against a sheet we drew ourselves
+# ==========================================================================
+#
+# The old --selftest built its input out of the same procedural motifs the
+# reader then recovered, on a perfectly aligned grid, with near-binary pixels.
+# Neither of the two defects that shipped could appear in it: a transposed cell
+# map still recovers *a* motif from *a* cell and the coverage still looks sane,
+# and a threshold pinned to 0.994 still separates ink from ground when the ink
+# is exactly 1.0. It passed 9/9 while writing an eight-spoke wheel into
+# corner_bracket.png. A test that agrees with itself is not evidence.
+#
+# So the gate is now this, and it is pointed at the delivered PNGs:
+#
+#   REFERENCE  -- the same cell of the same source image, thresholded at 0.5,
+#                 trimmed to its bounding box and padded to square, with NO
+#                 levelling and NO morphology. 0.5 is the right reference
+#                 threshold because these sheets are genuinely bimodal: measured
+#                 over both whole sheets, 17.8% / 17.9% of texels are above 0.5
+#                 and the corrected Otsu lands at 0.479-0.494 on every one of
+#                 the eighteen cells, i.e. the valley is wide and empty and the
+#                 answer does not depend on where in it you cut.
+#
+#   COVERAGE   -- the alpha of the written motif must match the reference's ink
+#                 fraction. Same denominator on both sides (the squared bbox),
+#                 so this compares like with like.
+#
+#   SHAPE      -- intersection-over-union of the two stencils. Both live on the
+#                 SAME grid (the untrimmed cell), so there is no resampling and
+#                 no alignment question in this number at all.
+#
+#   TOPOLOGY   -- of the reference's enclosed background AREA (its holes: the
+#                 ring inside a rosette, the counter of a volute, the openings
+#                 of a plait), how much is still background in the pipeline's
+#                 stencil. This is the "loses its interior detail" check, and it
+#                 is measured in AREA rather than in a count of holes on
+#                 purpose: a COUNT of components or holes is worthless on this
+#                 kind of ornament. Measured on sheet_b's rosette the reference
+#                 has 55 components and 4 holes while the correctly processed
+#                 stencil has 3 components and 41 holes -- the two images are
+#                 visually identical and the difference is entirely hairline
+#                 contacts between plait strands. An instrument whose number
+#                 swings by an order of magnitude on a change no one can see is
+#                 not measuring the thing.
+#                 Fragmentation is checked separately, as a count of components
+#                 above 25 texels, because that IS what a shattered stencil
+#                 looks like and it is not a hairline effect.
+#
+#   END TO END -- the alpha actually written to disk, against the reference
+#                 trimmed and squared the same way. This one does pass through
+#                 the trim and the resize, so it is the check that the file the
+#                 compositor opens is the motif and not something upstream of it.
+#
+# Tolerances. Every one is set from a measurement, and both sides of the margin
+# are stated so a later reader can see it rather than take a number on trust.
+# Over the eighteen real cells of the two delivered sheets:
+#
+#   metric                      corrected        SHIPPED (both defects)    gate
+#   worst relative cov error        0.89%               95.7%              10%
+#   worst IoU                       0.9911              0.0201             0.95
+#   worst hole area kept           98.28%              81.6%               90%
+#   worst fragmentation           62 -> 62 comps      2 -> 36 comps       +50%+5
+#
+# Read the SHIPPED column honestly: coverage and IoU are what catch the defect
+# that actually shipped, and they catch it by two orders of magnitude. The hole
+# term does NOT catch it -- when a stencil shatters, the reference's holes are
+# trivially still background, so 81.6% is very nearly a pass. The hole term is
+# there for the OPPOSITE failure, an over-aggressive cleanup welding a motif
+# shut, and it earned its place: it is what caught the shipped morphological
+# close eating a fifth of the plait openings on sheet_b (80.65% -> 98.28% once
+# the cleanup was fixed). Two failure modes, two instruments, and neither one
+# can see the other's.
+# THE REFERENCE MUST NOT ASK THE CODE UNDER TEST WHERE TO LOOK.
+#
+# The first version of this gate located a motif's source cell by calling
+# cell_box() -- the same function whose transposition IS defect 2. Falsified by
+# reintroducing the transpose on its own: the gate returned PASS on 8 of 8
+# cells, worst IoU 0.9951, because the reference moved to exactly the same wrong
+# cell as the pipeline. That is the identical failure the old --selftest had,
+# rebuilt one layer up, and it is this project's standing lesson that a claim
+# must not measure itself.
+#
+# The independent ground truth is the PROMPT, because the prompt is the only
+# thing the image generator ever saw. Both prompts enumerate the nine motifs as
+# "Top row, left to right: 1, 2, 3 / Middle row ... 4, 5, 6 / Bottom row ...
+# 7, 8, 9". PROMPT_ORDER is that enumeration, written out, and prompt_cell_box
+# does its own arithmetic. Nothing in the acceptance path calls cell_box.
+PROMPT_ORDER = ["centre_rose", "corner_bracket", "rest_short",
+                "rest_long", "maker_mark", "rose_alt",
+                "bracket_alt", "rest_alt", "pip"]
+
+
+def prompt_cell_box(sheet_size, name, margin=0.06):
+    """Where the PROMPT put this motif, row-major from the top-left. Deliberately
+    duplicated arithmetic rather than a call into cell_box."""
+    i = PROMPT_ORDER.index(name)
+    row, col = divmod(i, 3)
+    side = sheet_size / 3.0
+    m = side * margin
+    return (int(col * side + m), int(row * side + m),
+            int((col + 1) * side - m), int((row + 1) * side - m))
+
+
+def _check_prompt_order():
+    """The two descriptions of the sheet must at least name the same nine
+    motifs. If a sheet's cells[] gains or loses one, this says so instead of
+    letting PROMPT_ORDER.index() raise somewhere less obvious."""
+    want = set(PROMPT_ORDER)
+    for sh in SHEETS:
+        got = set(sh["cells"].values())
+        if got != want:
+            raise ValueError(f"{sh['id']}: cells{sorted(got)} does not name the same "
+                             f"nine motifs as PROMPT_ORDER {sorted(want)}")
+
+
+COVERAGE_TOL_REL = 0.10       # observed worst 0.89%; shipped build 95.7%
+COVERAGE_TOL_ABS = 0.004
+IOU_MIN = 0.95                # observed worst 0.9911; shipped build 0.0201
+HOLE_AREA_MIN = 0.90          # observed worst 98.28%; shipped morph close 80.65%
+FRAGMENT_SLACK_REL = 0.50     # components >= 25 texels may grow by 50% + 5
+FRAGMENT_SLACK_ABS = 5        # shipped build: 2 -> 36 on sheet_a corner_bracket
+MIN_HOLE_PX = 16
+MIN_COMP_PX = 25
+
+# FALSIFICATION RECORD. A gate that has never been observed to fail is not known
+# to be a gate. Each defect was reintroduced ALONE, against both real sheets:
+#
+#   what was broken                     sheet_a          sheet_b
+#   nothing (control)                   PASS 0/8         PASS 0/8
+#   cell_box transposed (defect 2)      FAIL 5/8         FAIL 5/8
+#                                       IoU 0.059        IoU 0.116
+#   _otsu unnormalised (defect 1)       FAIL 8/8         FAIL 8/8
+#                                       IoU 0.173        IoU 0.081
+#   morphological cleanup at r=1.71     PASS 0/8         FAIL 5/8, holes 80.7%
+#
+# Two things to read off it. The transpose fails exactly FIVE of the eight used
+# cells, not eight, and that is correct rather than a weakness: A1, B2 and C3 are
+# on the diagonal of a 3x3 grid and a transpose does not move them. And the old
+# morphological cleanup passes on sheet_a and only fails on sheet_b -- the guild
+# hand has no plait for it to weld shut. One sheet was never going to be enough
+# to see it.
+
+
+def _label(mask, conn=8):
+    """Run-length + union-find labelling, numpy only. conn is 4 or 8.
+    Returns (labels, count)."""
+    mask = np.asarray(mask, dtype=bool)
+    h, w = mask.shape
+    parent = [0]
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    lab = np.zeros((h, w), dtype=np.int32)
+    prev = []
+    for y in range(h):
+        row = mask[y]
+        if not row.any():
+            prev = []
+            continue
+        d = np.diff(np.concatenate(([False], row, [False])).astype(np.int8))
+        starts = np.nonzero(d == 1)[0]
+        ends = np.nonzero(d == -1)[0]
+        runs = []
+        for st, en in zip(starts, ends):
+            if conn == 8:
+                hits = [pl for ps, pe, pl in prev if ps <= en and st <= pe]
+            else:
+                hits = [pl for ps, pe, pl in prev if ps < en and st < pe]
+            if hits:
+                l = min(find(x) for x in hits)
+                for x in hits:
+                    union(l, x)
+            else:
+                parent.append(len(parent))
+                l = len(parent) - 1
+            lab[y, st:en] = l
+            runs.append((st, en, l))
+        prev = runs
+
+    if len(parent) <= 1:
+        return lab, 0
+    roots, remap = {}, np.zeros(len(parent), dtype=np.int32)
+    for i in range(1, len(parent)):
+        r = find(i)
+        if r not in roots:
+            roots[r] = len(roots) + 1
+        remap[i] = roots[r]
+    return remap[lab], len(roots)
+
+
+def hole_map(mask, min_px=MIN_HOLE_PX):
+    """(background labels, keep flags) for the ENCLOSED background of a shape:
+    4-connected background components that do not touch the image border and are
+    at least `min_px` texels. 8-connected foreground against 4-connected
+    background on purpose -- using the same connectivity for both double-counts
+    across a diagonal pinch."""
+    m = np.asarray(mask, dtype=bool)
+    bg, n = _label(~m, conn=4)
+    keep = np.zeros(n + 1, dtype=bool)
+    if n:
+        sz = np.bincount(bg.ravel(), minlength=n + 1)
+        keep[1:] = sz[1:] >= min_px
+        for b in np.unique(np.concatenate([bg[0], bg[-1], bg[:, 0], bg[:, -1]])):
+            keep[int(b)] = False
+        keep[0] = False
+    return bg, keep
+
+
+def n_components(mask, min_px=MIN_COMP_PX):
+    """How many pieces of real size the shape is in. The shattered-stencil
+    signature, and immune to hairline welds because those change the count of
+    TINY components, not of big ones."""
+    lab, n = _label(np.asarray(mask, dtype=bool), conn=8)
+    if not n:
+        return 0
+    return int((np.bincount(lab.ravel(), minlength=n + 1)[1:] >= min_px).sum())
+
+
+def compare_stencils(ref, got):
+    """Reference vs pipeline on the SAME grid. Returns
+    (iou, hole_area_kept, n_holes, ref_comps, got_comps)."""
+    ref = np.asarray(ref, dtype=bool)
+    got = np.asarray(got, dtype=bool)
+    if ref.shape != got.shape:
+        # The two grids should be the same cell of the same image. If they are
+        # not, something has moved the pipeline's cell relative to the prompt's
+        # -- which is defect 2's signature -- so compare what overlaps rather
+        # than raising, and let the IoU say how bad it is.
+        h = min(ref.shape[0], got.shape[0])
+        w = min(ref.shape[1], got.shape[1])
+        ref, got = ref[:h, :w], got[:h, :w]
+    inter = float((ref & got).sum())
+    union = float((ref | got).sum())
+    iou = inter / union if union else 1.0
+    bg, keep = hole_map(ref)
+    total = kept = 0.0
+    nh = 0
+    for i in np.flatnonzero(keep):
+        a = bg == i
+        nh += 1
+        total += float(a.sum())
+        kept += float((a & ~got).sum())
+    return iou, (kept / total if total else 1.0), nh, n_components(ref), n_components(got)
+
+
+def reference_cell(src, name, thr=0.5):
+    """The reference stencil for one motif: find its cell from the PROMPT, then
+    threshold at `thr`, trim, squarify. No levelling, no morphology, no
+    resampling, and no call into cell_box -- deliberately the simplest thing
+    that could be right, so it cannot share a bug with the pipeline."""
+    n = src.shape[0]
+    x0, y0, x1, y1 = prompt_cell_box(n, name)
+    m = src[y0:y1, x0:x1] > thr
+    if not m.any():
+        return None
+    ys, xs = np.nonzero(m)
+    return _squarify(m[ys.min():ys.max() + 1, xs.min():xs.max() + 1])
+
+
+def verify_sheet(sheet_path, out_dir, sheet_id, ref_thr=0.5, report=True):
+    """Run --process on a real sheet and hold the result against the source.
+    Returns (ok, rows)."""
+    _check_prompt_order()
+    sheet = next(x for x in SHEETS if x["id"] == sheet_id)
+    src = np.asarray(Image.open(sheet_path).convert("L"), dtype=np.float64) / 255.0
+    print(f"\n--- {sheet_id}: {sheet_path} ---")
+    whole = _otsu(src, detail=True)
+    print(f"  whole sheet: ink above {ref_thr:.2f} = {(src > ref_thr).mean() * 100:.2f}%, "
+          f"corrected Otsu = {whole[0]:.4f} (class means {whole[1]:.3f}/{whole[2]:.3f})")
+    recs = process_sheet(sheet_path, out_dir, sheet_id, report=report)
+
+    n = src.shape[0]
+    rows, ok = [], True
+    for rec in recs:
+        name, cell = rec["name"], rec["cell"]
+        x0, y0, x1, y1 = prompt_cell_box(n, name)
+        ref_full = src[y0:y1, x0:x1] > ref_thr
+        got_full = rec.get("full")
+        if got_full is None or not ref_full.any():
+            rows.append(dict(cell=cell, name=name, verdict="EMPTY"))
+            ok = False
+            continue
+        iou, hole_keep, nh, rcomp, gcomp = compare_stencils(ref_full, got_full)
+        ref_cov = float(ref_full.mean())
+        got_cov = float(got_full.mean())
+        dcov = abs(got_cov - ref_cov)
+        tol = max(COVERAGE_TOL_ABS, COVERAGE_TOL_REL * ref_cov)
+
+        # end to end: the alpha actually on disk, against the reference trimmed
+        # and squared the same way the pipeline trims and squares
+        ref_sq = reference_cell(src, name, ref_thr)
+        e2e_ref = float(ref_sq.mean()) if ref_sq is not None else 0.0
+        e2e_got = float("nan")
+        if rec["path"] and os.path.exists(rec["path"]):
+            e2e_got = float(T.load_rgba(rec["path"])[..., 3].mean())
+        e2e_ok = (not rec["path"]) or (
+            abs(e2e_got - e2e_ref) <= max(COVERAGE_TOL_ABS, COVERAGE_TOL_REL * e2e_ref))
+
+        cov_ok = dcov <= tol
+        iou_ok = iou >= IOU_MIN
+        hole_ok = hole_keep >= HOLE_AREA_MIN
+        frag_ok = gcomp <= rcomp * (1.0 + FRAGMENT_SLACK_REL) + FRAGMENT_SLACK_ABS
+        good = cov_ok and iou_ok and hole_ok and frag_ok and e2e_ok
+        if not rec["blocked"]:
+            ok &= good
+        why = "".join(c for c, f in (("c", cov_ok), ("i", iou_ok), ("h", hole_ok),
+                                     ("f", frag_ok), ("e", e2e_ok)) if not f)
+        pr = PROMPT_ORDER.index(name)
+        rows.append(dict(cell=cell, name=name, blocked=rec["blocked"],
+                         prompt_cell="ABC"[pr // 3] + str(pr % 3 + 1),
+                         ref_cov=ref_cov, got_cov=got_cov, rel=dcov / max(ref_cov, 1e-9),
+                         tol=tol, iou=iou, hole=hole_keep, nh=nh,
+                         rcomp=rcomp, gcomp=gcomp, thr=rec["thr"],
+                         e2e_ref=e2e_ref, e2e_got=e2e_got,
+                         verdict="pass" if good else "FAIL " + why))
+
+    if report:
+        print(f"  {'cell':5s} {'prompt':6s} {'motif':15s} {'ref cov':>8s} {'got cov':>8s} "
+              f"{'relerr':>7s} {'IoU':>7s} {'holes kept':>12s} {'comps':>10s} "
+              f"{'end2end':>16s}  verdict")
+        for r in rows:
+            if r["verdict"] == "EMPTY":
+                print(f"  {r['cell']:5s} {r['name']:15s}  EMPTY")
+                continue
+            e2 = ("--" if r["e2e_got"] != r["e2e_got"]
+                  else f"{r['e2e_ref'] * 100:5.2f}->{r['e2e_got'] * 100:5.2f}%")
+            print(f"  {r['cell']:5s} {r['prompt_cell']:6s} {r['name']:15s} "
+                  f"{r['ref_cov'] * 100:7.2f}% "
+                  f"{r['got_cov'] * 100:7.2f}% {r['rel'] * 100:6.2f}% "
+                  f"{r['iou']:7.4f} {r['hole'] * 100:9.2f}% /{r['nh']:2d} "
+                  f"{r['rcomp']:4d}->{r['gcomp']:<4d} {e2:>16s}  "
+                  f"{r['verdict']}{'  (blocked, not written)' if r['blocked'] else ''}")
+        live = [r for r in rows if r["verdict"] != "EMPTY" and not r["blocked"]]
+        if live:
+            print(f"  worst over the {len(live)} used cells: relative coverage error "
+                  f"{max(r['rel'] for r in live) * 100:.2f}% (gate {COVERAGE_TOL_REL * 100:.0f}%), "
+                  f"IoU {min(r['iou'] for r in live):.4f} (gate {IOU_MIN:.2f}), "
+                  f"hole area kept {min(r['hole'] for r in live) * 100:.2f}% "
+                  f"(gate {HOLE_AREA_MIN * 100:.0f}%)")
+    print(f"  SHEET ACCEPTANCE {sheet_id}: {'PASS' if ok else 'FAIL'}")
+    return ok, rows
 
 
 # ==========================================================================
@@ -504,16 +1111,6 @@ def proc_rest_long(px, seed=0):
     return _reduce(img, px, px)
 
 
-def proc_rest_alt(px, seed=0):
-    img, dr = _canvas(px, px)
-    s = px * SS
-    c = s / 2.0
-    dr.ellipse([c - s * 0.44, c - s * 0.44, c + s * 0.44, c + s * 0.44], fill=255)
-    dr.ellipse([c - s * 0.24, c - s * 0.40, c + s * 0.52, c + s * 0.36], fill=0)
-    _star(dr, c - s * 0.10, c, s * 0.20, s * 0.085, 6, rot=-math.pi / 2)
-    return _reduce(img, px, px)
-
-
 def proc_maker_mark(px, seed=0):
     img, dr = _canvas(px, px)
     s = px * SS
@@ -601,7 +1198,7 @@ PROC = {
     "centre_rose": proc_centre_rose, "rose_alt": proc_rose_alt,
     "corner_bracket": proc_corner_bracket, "bracket_alt": proc_bracket_alt,
     "rest_short": proc_rest_short, "rest_long": proc_rest_long,
-    "rest_alt": proc_rest_alt, "maker_mark": proc_maker_mark, "pip": proc_pip,
+    "maker_mark": proc_maker_mark, "pip": proc_pip,
     "seat_bezel": proc_seat_bezel, "slot_corner": proc_slot_corner,
     "border_run": proc_border_run, "edge_dentil": proc_edge_dentil,
 }
@@ -631,11 +1228,21 @@ def get_symbol(name, symbols_dir=None, px=None, bevel_px=None, seed=0):
 
     got = None
     if symbols_dir and spec and spec["source"] == "ai":
+        # Prefer the NATIVE stencil: rebuild coverage and bevel at the exact
+        # size asked for, from the binary, through one SDF resize. Resampling
+        # the already-resized RGBA instead would resample twice and would also
+        # rescale the bevel, so a motif composited at half its stored size would
+        # come out with a chamfer twice as wide relative to its strokes.
+        mp = os.path.join(symbols_dir, name + MASK_SUFFIX)
         p = os.path.join(symbols_dir, f"{name}.png")
-        if os.path.exists(p):
+        if os.path.exists(mp):
+            native = T.load_gray(mp) > 0.5
+            cov = _resize_mask(native, size)
+            b = bevel_px if bevel_px is not None else max(2.0, _minside(size) * 0.030)
+            got = (bevel_from_mask(cov, bevel_px=b), cov)
+        elif os.path.exists(p):
             rgba = T.load_rgba(p)
-            got = (rgba[..., 0], rgba[..., 3])
-            got = (_fit(got[0], size), _fit(got[1], size))
+            got = (_fit(rgba[..., 0], size), _fit(rgba[..., 3], size))
 
     if got is None:
         cov = PROC[name](size if not isinstance(size, tuple) else size, seed=seed)
@@ -689,7 +1296,7 @@ def print_spec():
     for s in SYMBOL_SPEC:
         print(f"- **{s['name']}** ({s['source']}): {s['why']}")
     print("\n## Post-processing applied to every generated motif\n")
-    print("auto-level (p2/p98) -> Otsu threshold (measured, not guessed) -> exact\n"
+    print("auto-level (p2/p98, guarded) -> Otsu threshold (measured, not guessed) -> exact\n"
           "Euclidean open+close (despeckle, close pinholes; no blur, so the edge\n"
           "does not creep) -> trim to content bbox -> supersampled binary resize to\n"
           "target px, area-averaged for antialiasing -> OUR bevel from the exact\n"
@@ -702,7 +1309,7 @@ def print_spec():
     print(CALL_RATIONALE)
     for sh in SHEETS:
         print(f"\n### {sh['id']} -- {sh['size']}x{sh['size']}, one call\n")
-        print("Cell map (A=column, 1=row; A1 top-left):")
+        print("Cell map (A=ROW, 1=COLUMN; A1 top-left, A3 top-RIGHT, C1 bottom-left):")
         for cell in sorted(sh["cells"]):
             print(f"  {cell} -> {sh['cells'][cell]}")
         print("\nPROMPT (send verbatim):\n")
@@ -742,17 +1349,28 @@ def _contact_sheet(out_dir, seed=0):
 
 
 def selftest_sheet(work_dir, sheet_id="sheet_a"):
-    """Prove the AI-sheet post-processing works BEFORE anyone pays for a sheet.
+    """Damage-recovery test on a SYNTHETIC sheet. Not the acceptance gate.
 
     Builds a synthetic 1024^2 nine-cell sheet from the procedural motifs and
     deliberately damages it with the failure modes a real generation actually
     shows: a cell returned with grey shading instead of flat white, a cell
     returned inverted, a cell peppered with speckle, and a whole-sheet lift of
-    the black point. Then runs process_sheet over it and checks every motif
-    came back with sane coverage.
+    the black point. Then runs process_sheet over it and checks every motif came
+    back with sane coverage.
 
-    A pipeline stage that has never executed is a stage that does not work, and
-    this one is the stage that would otherwise first execute on paid input."""
+    WHAT THIS TEST CANNOT SEE, stated plainly because it passed 9/9 while the
+    pipeline was writing an eight-spoke wheel into corner_bracket.png:
+      * it draws its own input with the same code that reads it back, so a
+        TRANSPOSED cell map still finds a motif in every cell and still gets a
+        plausible coverage out of it. Nothing here knows which motif was
+        supposed to be in which cell.
+      * its cells are near-binary (0.07 and 0.95 after the deliberate lift), so
+        a threshold pinned to the top of the histogram still separates ink from
+        ground perfectly. Only a real sheet, whose white sits at 250-255 with an
+        anti-aliased rim below that, exposes it.
+    It is kept because the damage-recovery path is real and worth exercising.
+    The GATE is verify_sheet(), which measures the delivered PNGs against
+    themselves at a sane threshold. Run --verify before trusting any motif."""
     os.makedirs(work_dir, exist_ok=True)
     sheet = next(s for s in SHEETS if s["id"] == sheet_id)
     n = sheet["size"]
@@ -761,6 +1379,8 @@ def selftest_sheet(work_dir, sheet_id="sheet_a"):
 
     damaged = {}
     for cell, name in sheet["cells"].items():
+        if name in BLOCKED_CELLS:
+            continue
         x0, y0, x1, y1 = cell_box(n, cell, margin=0.02)
         side = min(x1 - x0, y1 - y0)
         cov = PROC[name](side if not isinstance(SYMBOLS[name]["px"], tuple) else (side, side))
@@ -790,10 +1410,13 @@ def selftest_sheet(work_dir, sheet_id="sheet_a"):
     print(f"  black point lifted to {canvas.min():.3f}, white pulled to {canvas.max():.3f}")
 
     out = os.path.join(work_dir, "processed")
-    written = process_sheet(sheet_png, out, sheet_id)
+    recs = process_sheet(sheet_png, out, sheet_id)
+    written = [r["path"] for r in recs if r["path"]]
 
     ok = True
     for cell, name in sheet["cells"].items():
+        if name in BLOCKED_CELLS:
+            continue
         p = os.path.join(out, f"{name}.png")
         if not os.path.exists(p):
             print(f"  MISSING {name} -- process_sheet dropped it")
@@ -808,8 +1431,11 @@ def selftest_sheet(work_dir, sheet_id="sheet_a"):
         ok &= good
         if not good:
             print(f"  {name}: coverage {cov * 100:.1f}%, shape {rgba.shape[:2]} -- SUSPECT")
+    live = len(sheet["cells"]) - sum(1 for v in sheet["cells"].values() if v in BLOCKED_CELLS)
     print(f"  SHEET SELFTEST {'PASS' if ok else 'FAIL'} "
-          f"({len(written)}/{len(sheet['cells'])} motifs recovered, damage included)")
+          f"({len(written)}/{live} motifs recovered, damage included)")
+    print("  NOTE this test cannot detect a transposed cell map or a threshold "
+          "pinned to the\n       top of the histogram. --verify is the gate.")
     return ok
 
 
@@ -821,8 +1447,13 @@ if __name__ == "__main__":
     ap.add_argument("--contact", metavar="DIR", help="render a contact sheet of every motif")
     ap.add_argument("--bake", metavar="DIR", help="bake placeholder motif files")
     ap.add_argument("--process", metavar="SHEET_PNG", help="post-process a generated sheet")
+    ap.add_argument("--verify", metavar="SHEET_PNG", nargs="*",
+                    help="process a REAL sheet and hold every cell against the "
+                         "source; with no argument, verifies both delivered sheets")
     ap.add_argument("--sheet-id", default="sheet_a")
     ap.add_argument("--out", default="unity/board-prep/out/symbols")
+    ap.add_argument("--sheet-dir", default="unity/board-prep/out",
+                    help="where sheet_a.png / sheet_b.png live")
     a = ap.parse_args()
     if a.spec:
         print_spec()
@@ -833,6 +1464,23 @@ if __name__ == "__main__":
             print("WROTE", p, os.path.getsize(p))
     if a.process:
         process_sheet(a.process, a.out, a.sheet_id)
+    if a.verify is not None:
+        jobs = []
+        if a.verify:
+            jobs = [(a.sheet_id, p) for p in a.verify]
+        else:
+            jobs = [(sh["id"], os.path.join(a.sheet_dir, sh["id"] + ".png")) for sh in SHEETS]
+        allok = True
+        for sid, path in jobs:
+            if not os.path.exists(path):
+                print(f"  {path} does not exist -- nothing to verify")
+                allok = False
+                continue
+            ok, _ = verify_sheet(path, os.path.join(a.out, sid.replace("sheet_", "motifs_")),
+                                 sid)
+            allok &= ok
+        print(f"\nACCEPTANCE OVER ALL SHEETS: {'PASS' if allok else 'FAIL'}")
+        raise SystemExit(0 if allok else 1)
     if a.selftest:
         raise SystemExit(0 if selftest_sheet(a.selftest, a.sheet_id) else 1)
     if not any((a.spec, a.contact, a.bake, a.process, a.selftest)):

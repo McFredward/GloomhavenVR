@@ -20,6 +20,38 @@ The inner rect is the island. The mesh lane must keep its UV shells inside it --
 that requirement is in the report, and tex_seams.py --fbx measures whether it
 held.
 
+WHERE THE ORNAMENT GOES, AND WHY IT IS NOT DERIVED FROM THE REGION RECTANGLES
+-----------------------------------------------------------------------------
+The first version of this file placed ornament at fractions of the six region
+RECTANGLES -- a rosette at the centre of `face`, brackets at the corners of
+`frame`. On the rebuilt boards that is wrong, and wrong in the silent direction.
+Measured on the shipped meshes at a 2048 atlas:
+
+    region         rect covered by real triangles     widest inscribed circle
+    face                       16.6%                   46 px  (~27 mm)
+    frame                      38.0%                   20 px  (~13 mm)
+    slot_floor                 59.8%                  106 px  (~74 mm)
+    rest_pads                  26.0%                   65 px  (~40 mm)
+    button_seats               22.0%                   66 px  (~33 mm)
+
+The face is not a field. It is a web of 8-26 mm strips running between four
+large pockets -- two card recesses, a rest-token pocket and a button pocket --
+and the centre of the `face` rectangle is the middle of a 12 mm bridge. A
+560 px hero rosette placed there would have been carved into texels no triangle
+samples, and would have rendered as nothing while every check reported success.
+
+So placement is done in BOARD METRES. `<style>_uv.json` carries a `maps[]` block
+with the affine `u_of_x` / `v_of_y` and `px_per_m` for every island, and a
+`symbols[]` block naming the anchors the mesh lane authored; between them a
+position in millimetres on the board converts to an exact texel. Every placement
+is then FITTED against the surface the mesh actually has there (tex_seams.
+surface_attrs gives per-texel board x/y/z and normal), and one that cannot be
+made legible is DROPPED and said so, rather than stamped into a wall.
+
+The roomiest decorated surface on these boards is a card recess floor, so that
+is where the hero rosette went. That is a consequence of the geometry, not a
+preference.
+
 THE ALBEDO RULE
 ---------------
 Motifs are carved, not painted. A motif contributes to HEIGHT; the height drives
@@ -32,6 +64,7 @@ textures implies a light direction that the game's lighting then contradicts.
 import argparse
 import copy
 import os
+import shutil
 
 import numpy as np
 from PIL import Image
@@ -61,6 +94,42 @@ ORNAMENT_NORMAL_STRENGTH = 11.0
 # belongs in ROUGHNESS, which is why these two are scaled down hard rather
 # than removed.
 STYLE_HEIGHT = {"oak": 1.00, "steel": 0.30, "bronze": 0.38}
+
+# A motif smaller than this at a 2048 atlas is not ornament, it is a smudge:
+# the AI stencils carry interior filigree that needs 3-4 texels a stroke, and
+# below ~34 px a rosette's inner ring closes up into a disc. A placement that
+# cannot be fitted at least this large is dropped and reported.
+MIN_MOTIF_PX = 34          # at a 2048 atlas; scaled by min_motif_px(n)
+
+# How much of a motif's ink is allowed to fall outside the top-facing surface it
+# is being carved into. Not zero: an antialiased rim overlapping the last texel
+# of a fillet is invisible. One percent is about one texel of a 100 px motif's
+# perimeter.
+SPILL_MAX = 0.01
+
+# Which of the two delivered sheets each style takes each motif from, and why.
+# Both sheets came back good; they are in deliberately different ornamental
+# hands, so the choice is editorial and is stated rather than defaulted.
+#
+#   oak    -- the medieval guild woodcut (sheet_a). Carved oak furniture in this
+#             idiom is European joinery ornament; the scrollwork corner bracket
+#             with its volute and leaf curls is exactly a chisel-cut motif.
+#   bronze -- the Norse/Celtic interlace (sheet_b). Interlace is a METALWORK
+#             idiom before it is anything else -- it comes off cast and chased
+#             bronze and silver -- and the plaited bands read as raised chasing
+#             when they are carved rather than drawn.
+#   steel  -- the plainer variants. A brushed steel plate is a machined object;
+#             it gets the guild hand's simplest motifs and takes `bracket_alt`
+#             from sheet_b for its corner, because that is the one severe,
+#             untooled L on either sheet: two tapered arms and a square stud.
+#             (sheet_a's own bracket_alt cell came back as a hammer instead of a
+#             bracket -- the one cell of eighteen that missed its brief -- so
+#             sheet_b covers it, which is the two-sheet argument being cashed.)
+STYLE_MOTIFS = {
+    "oak": dict(sheet="a", roles={}),
+    "steel": dict(sheet="a", roles={"corner_bracket": ("bracket_alt", "b")}),
+    "bronze": dict(sheet="b", roles={}),
+}
 
 # The Identity table of BOARD-CONTRACT.md. These names are load-bearing: the mod
 # resolves boards by them. Nothing here may be renamed by this lane.
@@ -132,121 +201,364 @@ class Placement:
         self.rot, self.flip, self.derived = rot, flip, derived
 
 
-def derived_placements(uv, n, pad):
-    """The ornament the LAYOUT implies, computed from the region rectangles
-    themselves so it is correct for whatever the mesh lane writes.
+# --------------------------------------------------------------------------
+# board-metre placement
+#
+# `<style>_uv.json` gives, per UV island, an affine from board metres to UV:
+#     u = u_of_x[0] * x + u_of_x[1]
+#     v = v_of_y[0] * y + v_of_y[1]
+# with u_of_x[0] == v_of_y[0] == px_per_m / atlas. Everything below works in
+# metres and converts once, at the end.
+# --------------------------------------------------------------------------
 
-    Anything the mesh lane names in symbols[] overrides the derived placement of
-    the same motif in the same region -- the json is authoritative where it
-    speaks, and this fills in where it is silent."""
-    out = []
-    R = {k: T.region_rect_px(v, n) for k, v in uv["regions"].items()}
-
-    def inner(box):
-        x0, y0, x1, y1 = box
-        return x0 + pad, y0 + pad, x1 - pad, y1 - pad
-
-    # ---- face: hero rosette, punctuation, and a tick at each card-recess corner
-    if "face" in R:
-        x0, y0, x1, y1 = inner(R["face"])
-        w, h = x1 - x0, y1 - y0
-        s = int(min(w, h) * 0.42)
-        out.append(Placement("centre_rose", (x0 + x1) / 2, (y0 + y1) / 2, s, s, -0.55, "face"))
-        pip = int(min(w, h) * 0.075)
-        for fx in (0.16, 0.84):
-            out.append(Placement("pip", x0 + w * fx, (y0 + y1) / 2, pip, pip, -0.35, "face"))
-        tick = int(min(w, h) * 0.11)
-        for sx0, sx1 in ((0.055, 0.335), (0.665, 0.945)):
-            for i, (fx, fy) in enumerate(((sx0, 0.14), (sx1, 0.14), (sx0, 0.86), (sx1, 0.86))):
-                out.append(Placement("slot_corner", x0 + w * fx, y0 + h * fy,
-                                     tick, tick, -0.40, "face", rot=[0, 3, 1, 2][i]))
-
-    # ---- frame: tiled border runs top and bottom, four corner brackets, maker mark
-    if "frame" in R:
-        x0, y0, x1, y1 = inner(R["frame"])
-        w, h = x1 - x0, y1 - y0
-        run_h = max(8, int(h * 0.155))
-        out.append(Placement("border_run", (x0 + x1) / 2, y0 + run_h / 2, w, run_h, +0.34, "frame"))
-        out.append(Placement("border_run", (x0 + x1) / 2, y1 - run_h / 2, w, run_h, +0.34, "frame"))
-        br = int(min(w, h) * 0.30)
-        for i, (fx, fy) in enumerate(((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))):
-            out.append(Placement("corner_bracket",
-                                 x0 + w * fx + br / 2 * (1 if fx < 0.5 else -1),
-                                 y0 + h * fy + br / 2 * (1 if fy < 0.5 else -1),
-                                 br, br, +0.40, "frame", rot=[0, 3, 1, 2][i]))
-        mm = int(min(w, h) * 0.34)
-        out.append(Placement("maker_mark", (x0 + x1) / 2, (y0 + y1) / 2, mm, mm, -0.45, "frame"))
-
-    # ---- slot floors: a tick in each corner, nothing else; cards cover this
-    if "slot_floor" in R:
-        x0, y0, x1, y1 = inner(R["slot_floor"])
-        w, h = x1 - x0, y1 - y0
-        tick = int(min(w, h) * 0.16)
-        for i, (fx, fy) in enumerate(((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))):
-            out.append(Placement("slot_corner",
-                                 x0 + w * fx + tick / 2 * (1 if fx < 0.5 else -1),
-                                 y0 + h * fy + tick / 2 * (1 if fy < 0.5 else -1),
-                                 tick, tick, -0.30, "slot_floor", rot=[0, 3, 1, 2][i]))
-
-    # ---- rest pads: the two glyphs, one per pad, side by side on the long axis
-    if "rest_pads" in R:
-        x0, y0, x1, y1 = inner(R["rest_pads"])
-        w, h = x1 - x0, y1 - y0
-        horiz = w >= h
-        s = int((min(w / 2, h) if horiz else min(w, h / 2)) * 0.68)
-        for k, nm in enumerate(("rest_short", "rest_long")):
-            cx = x0 + w * (0.25 + 0.5 * k) if horiz else (x0 + x1) / 2
-            cy = (y0 + y1) / 2 if horiz else y0 + h * (0.25 + 0.5 * k)
-            out.append(Placement(nm, cx, cy, s, s, -0.60, "rest_pads"))
-
-    # ---- button seats: THREE bezels (the contract's seven-anchor change)
-    if "button_seats" in R:
-        x0, y0, x1, y1 = inner(R["button_seats"])
-        w, h = x1 - x0, y1 - y0
-        horiz = w >= h
-        s = int((min(w / 3, h) if horiz else min(w, h / 3)) * 0.80)
-        for k in range(3):
-            f = (2 * k + 1) / 6.0
-            cx = x0 + w * f if horiz else (x0 + x1) / 2
-            cy = (y0 + y1) / 2 if horiz else y0 + h * f
-            out.append(Placement("seat_bezel", cx, cy, s, s, -0.50, "button_seats"))
-
-    # ---- sides: a tiled dentil strip
-    if "sides" in R:
-        x0, y0, x1, y1 = inner(R["sides"])
-        w, h = x1 - x0, y1 - y0
-        run_h = max(8, int(h * 0.22))
-        out.append(Placement("edge_dentil", (x0 + x1) / 2, y0 + run_h / 2, w, run_h, +0.28, "sides"))
-        out.append(Placement("edge_dentil", (x0 + x1) / 2, y1 - run_h / 2, w, run_h, +0.28, "sides"))
-
-    return out
+HALF_LONG = 0.320          # the contract's board half-extents, in metres
+HALF_SHORT = 0.160
+RUN_PITCH = 0.020          # 32 repeats along the long edge, 16 along the short:
+                           # an exact divisor of both, so a running ornament
+                           # closes at every corner by construction
 
 
-def json_placements(uv, n, derived):
-    """Turn symbols[] into placements, replacing the derived entry of the same
-    motif in the same region where one exists."""
-    out = list(derived)
-    for e in uv.get("symbols", []):
-        name = e["name"]
-        if name not in SY.SYMBOLS:
-            print(f"  NOTE symbols[] names {name!r}, which is not in the symbol spec; "
-                  f"skipped")
+def uv_of_board(mp, x, y):
+    su, ou = mp["u_of_x"]
+    sv, ov = mp["v_of_y"]
+    return su * x + ou, sv * y + ov
+
+
+def board_of_uv(mp, u, v):
+    su, ou = mp["u_of_x"]
+    sv, ov = mp["v_of_y"]
+    return (u - ou) / su, (v - ov) / sv
+
+
+def map_at(uv, region, u, v):
+    """The island map whose UV bbox contains (u, v). Islands of one region do
+    not overlap, so at most one answers; None means the point is in the region
+    rectangle but on no island, which is itself the answer to a placement
+    question."""
+    for mp in uv.get("maps", []):
+        if mp.get("region") != region:
             continue
+        b = mp["uv_bbox"]
+        if b[0] - 1e-6 <= u <= b[2] + 1e-6 and b[1] - 1e-6 <= v <= b[3] + 1e-6:
+            return mp
+    return None
+
+
+# What to do with each name the mesh lane writes into symbols[]. The json is
+# authoritative about WHERE; this table is the texture lane's half of the
+# contract -- which motif goes to that anchor, how deep, and where a stated
+# anchor is deliberately not used as one.
+JSON_SYMBOL_PLAN = {
+    "slot_rose_1":      dict(motif="centre_rose", depth=-0.55, rot=0),
+    "slot_rose_2":      dict(motif="centre_rose", depth=-0.55, rot=0),
+    "rest_glyph_short": dict(motif="rest_short", depth=-0.60, rot=0),
+    "rest_glyph_long":  dict(motif="rest_long", depth=-0.60, rot=0),
+    "seat_glyph_1":     dict(motif="seat_bezel", depth=-0.50, rot=0),
+    "seat_glyph_2":     dict(motif="seat_bezel", depth=-0.50, rot=0),
+    "seat_glyph_3":     dict(motif="seat_bezel", depth=-0.50, rot=0),
+    # The mesh lane names this anchor `centre_rose` and it is exactly the board
+    # centre, but the board centre is the middle of the 12 mm bridge between the
+    # two card recesses: the anchor's own size_uv is 14.4 mm and the largest
+    # circle that fits there is 28 px at a 2048 atlas. A rosette at 28 px is a
+    # disc. The POSITION is honoured and the motif is the one that survives it.
+    "centre_rose":      dict(motif="pip", depth=-0.40, rot=0,
+                             why="board centre is a 12 mm bridge; a rosette "
+                                 "cannot be legible there, a lozenge can"),
+    # A reference marker, not a placement: it names the corner of the top field
+    # with a nominal 20 mm size, but the field web is 8 mm wide at that corner.
+    # Used below as a reference for where the field corner IS.
+    "field_corner_ref": dict(motif=None,
+                             why="reference marker; the web is 8 mm wide there"),
+}
+
+
+def min_motif_px(n):
+    return max(8, int(round(MIN_MOTIF_PX * n / 2048.0)))
+
+
+def px_per_m(mp, n):
+    """The island's texels per metre AT THIS ATLAS SIZE. maps[] states it for
+    2048, which is the contract's size; a --size 1024 preview must not report
+    millimetres that are twice what they are."""
+    return mp["px_per_m"] * n / 2048.0
+
+
+def _band(v, lo, hi, w):
+    """A raised band for lo <= v <= hi with a w-wide smooth shoulder."""
+    return T.smoothstep(lo, lo + w, v) * (1.0 - T.smoothstep(hi - w, hi, v))
+
+
+class Surface:
+    """The mesh's real UV footprint, per texel, plus the derived room fields the
+    planner needs. Everything here is measured off the shipped FBX."""
+
+    def __init__(self, attrs, uv, n, pad):
+        self.n = n
+        self.cov = attrs["cov"]
+        self.nz = attrs["nz"]
+        self.x = np.nan_to_num(attrs["x"])
+        self.y = np.nan_to_num(attrs["y"])
+        self.z = np.nan_to_num(attrs["z"])
+        self.rects = {k: T.region_rect_px(v, n) for k, v in uv["regions"].items()}
+        self.top = {}
+        self.room = {}
+        for name, (x0, y0, x1, y1) in self.rects.items():
+            box = np.zeros((n, n), dtype=bool)
+            box[y0 + pad:y1 - pad, x0 + pad:x1 - pad] = True
+            m = box & self.cov & (self.nz > 0.9)
+            self.top[name] = m
+            self.room[name] = T.edt(~m) if m.any() else np.zeros((n, n))
+
+    def fits(self, region, cx, cy):
+        """Radius in texels of the largest circle centred there that stays on
+        the region's top-facing surface. 0 means the point is not on it."""
+        n = self.n
+        px, py = int(round(cx)), int(round(cy))
+        if not (0 <= px < n and 0 <= py < n):
+            return 0.0
+        if not self.top[region][py, px]:
+            return 0.0
+        return float(self.room[region][py, px])
+
+    def roomiest(self, region, pred, taken=None, sep=2.2):
+        """The point of the region's top face with the most room, restricted to
+        `pred` (a boolean array in board terms) and at least `sep` * radius away
+        from anything already taken."""
+        work = np.where(self.top[region] & pred, self.room[region], 0.0)
+        if taken is not None:
+            work = np.where(taken, 0.0, work)
+        i = int(np.argmax(work))
+        py, px = divmod(i, self.n)
+        return px, py, float(work[py, px])
+
+
+def _suppress(taken, n, px, py, r):
+    yy, xx = np.mgrid[max(0, py - int(r)):min(n, py + int(r) + 1),
+                      max(0, px - int(r)):min(n, px + int(r) + 1)]
+    taken[max(0, py - int(r)):min(n, py + int(r) + 1),
+          max(0, px - int(r)):min(n, px + int(r) + 1)] |= (
+              (xx - px) ** 2 + (yy - py) ** 2 <= r * r)
+
+
+def fit_size(surf, region, name, cx, cy, want, symbols_dir, seed, rot=0):
+    """Shrink a placement until at most SPILL_MAX of its ink falls off the
+    surface it is being carved into. Returns (size, spill) or (0, 1.0) if it
+    cannot be made to fit at MIN_MOTIF_PX."""
+    mask = surf.top[region]
+    size = int(want)
+    floor = min_motif_px(surf.n)
+    for _ in range(10):
+        if size < floor:
+            return 0, 1.0
+        h, cov = SY.get_symbol(name, symbols_dir, px=size, seed=seed)
+        cov, _dummy = (np.rot90(cov, rot), None) if rot else (cov, None)
+        sh, sw = cov.shape
+        x0 = int(round(cx - sw / 2.0))
+        y0 = int(round(cy - sh / 2.0))
+        n = surf.n
+        dx0, dy0 = max(x0, 0), max(y0, 0)
+        dx1, dy1 = min(x0 + sw, n), min(y0 + sh, n)
+        if dx1 <= dx0 or dy1 <= dy0:
+            return 0, 1.0
+        sub = cov[dy0 - y0:dy1 - y0, dx0 - x0:dx1 - x0]
+        on = mask[dy0:dy1, dx0:dx1]
+        total = float(cov.sum())
+        spill = 1.0 - float((sub * on).sum()) / max(total, 1e-9)
+        if spill <= SPILL_MAX:
+            return size, spill
+        size = int(size * 0.88)
+    return 0, 1.0
+
+
+def plan_placements(style, uv, surf, n, pad, symbols_dir, seed, notes):
+    """The ornament plan, in board metres, fitted to the surface that is there.
+
+    Two sources, in this order:
+      1. every entry of the json `symbols[]` block, through JSON_SYMBOL_PLAN;
+         the mesh lane owns WHERE, this file owns WHAT and HOW DEEP.
+      2. derived placements for the surfaces the json is silent about, found by
+         asking the surface itself where there is room -- not by taking
+         fractions of a region rectangle, which is what put a 560 px rosette in
+         a hole on the first pass.
+    """
+    out = []
+    used = {}
+
+    # ---- 1. the json anchors
+    for e in uv.get("symbols", []):
+        nm = e["name"]
+        plan = JSON_SYMBOL_PLAN.get(nm)
+        if plan is None:
+            notes.append(f"    symbols[] names {nm!r}, which this lane has no plan "
+                         f"for; skipped")
+            continue
+        motif = plan["motif"]
         region = e.get("region")
-        cx, cy = T.uv_to_px(float(e["u"]), float(e["v"]), n)
-        size = e.get("size_uv")
-        if size is None:
-            w = h = SY.SYMBOLS[name]["px"]
-        else:
-            if isinstance(size, (list, tuple)):
-                w, h = float(size[0]) * n, float(size[1]) * n
-            else:
-                w = h = float(size) * n
-        depth = float(e.get("depth", -0.55))
-        out = [p for p in out if not (p.derived and p.name == name and p.region == region)]
-        out.append(Placement(name, cx, cy, w, h, depth, region,
-                             rot=int(e.get("rot", 0)), derived=False))
+        u, v = float(e["u"]), float(e["v"])
+        mp = map_at(uv, region, u, v)
+        cx, cy = T.uv_to_px(u, v, n)
+        if motif is None:
+            bx, by = board_of_uv(mp, u, v) if mp else (float("nan"),) * 2
+            notes.append(f"    {nm} at ({bx * 1000:+.0f},{by * 1000:+.0f}) mm: not a "
+                         f"placement -- {plan['why']}")
+            continue
+        want = int(round(float(e.get("size_uv", 0.05)) * n))
+        size, spill = fit_size(surf, region, motif, cx, cy, want, symbols_dir, seed,
+                               rot=plan.get("rot", 0))
+        bx, by = board_of_uv(mp, u, v) if mp else (float("nan"),) * 2
+        mm = (size / px_per_m(mp, n) * 1000.0) if (mp and size) else 0.0
+        if not size:
+            notes.append(f"    {nm} -> {motif}: DROPPED, cannot be fitted at "
+                         f"{min_motif_px(n)}px on the surface at "
+                         f"({bx * 1000:+.0f},{by * 1000:+.0f}) mm")
+            continue
+        out.append(Placement(motif, cx, cy, size, size, plan["depth"], region,
+                             rot=plan.get("rot", 0), derived=False))
+        used.setdefault(region, []).append((int(cx), int(cy), size))
+        notes.append(f"    {nm} -> {motif}: ({bx * 1000:+.0f},{by * 1000:+.0f}) mm, "
+                     f"{size}px = {mm:.1f} mm"
+                     f"{'' if size == want else f' (asked {want}px, fitted down)'}"
+                     f", spill {spill * 100:.2f}%")
+
+    # ---- 2. the face web, found by measurement
+    #
+    # The json is silent about the top field because there is no single anchor
+    # to name: the web is what is left over between four pockets. So ask the
+    # surface. `roomiest` returns the point of the face with the largest
+    # inscribed circle inside a predicate; the predicates below are board-space
+    # descriptions of the three places worth decorating, and each one is
+    # verified to have found something before anything is stamped.
+    if "face" in surf.top and surf.top["face"].any():
+        X, Y = surf.x, surf.y
+        taken = np.zeros((n, n), dtype=bool)
+        for px, py, sz in used.get("face", []):
+            _suppress(taken, n, px, py, sz * 0.75)
+
+        def place(motif, pred, depth, rot=0, label="", over=1.0):
+            cx, cy, r = surf.roomiest("face", pred, taken)
+            if r < min_motif_px(n) / 2.0:
+                notes.append(f"    face/{label or motif}: no spot with room for "
+                             f"{min_motif_px(n)}px (best {2 * r:.0f}px), dropped")
+                return
+            size, spill = fit_size(surf, "face", motif, cx, cy, int(2 * r * over),
+                                   symbols_dir, seed, rot=rot)
+            if not size:
+                notes.append(f"    face/{label or motif}: fit failed at "
+                             f"({X[cy, cx] * 1000:+.0f},{Y[cy, cx] * 1000:+.0f}) mm, dropped")
+                return
+            out.append(Placement(motif, cx, cy, size, size, depth, "face",
+                                 rot=rot, derived=True))
+            _suppress(taken, n, cx, cy, size * 0.75)
+            notes.append(f"    face/{label or motif} -> {motif}: "
+                         f"({X[cy, cx] * 1000:+.0f},{Y[cy, cx] * 1000:+.0f}) mm, "
+                         f"{size}px, spill {spill * 100:.2f}%")
+
+        mid = np.abs(X) < 0.060
+        place("centre_rose", mid & (Y > 0.030), -0.50, label="top margin rose")
+        place("maker_mark", mid & (Y < -0.030), -0.45, label="bottom margin mark")
+        # the four re-entrant corners of the web, where the outer margin meets a
+        # bridge between two pockets: an L bracket has a corner to sit in there
+        for i, (sx, sy) in enumerate(((-1, 1), (1, 1), (-1, -1), (1, -1))):
+            q = ((X * sx) > 0.100) & ((X * sx) < 0.250) & ((Y * sy) > 0.050)
+            # a corner bracket fills its square corner to corner rather than
+            # inscribing a circle in it, so it starts from the inscribed
+            # diameter times sqrt(2) and shrinks from there
+            place("corner_bracket", q, +0.38, rot=[0, 3, 1, 2][i], over=1.41,
+                  label=f"corner {'LR'[sx > 0]}{'BT'[sy > 0]}")
+
+    # ---- 3. the card recess floors get the rosette and NOTHING else.
+    # A corner tick in each recess was in the first plan and is not here: the
+    # recess floor is under a card for most of the game, and what shows when it
+    # is empty should be one clean ornament, not one ornament plus eight ticks
+    # fighting it at 24 mm.
     return out
+
+
+# --------------------------------------------------------------------------
+# board-space ornament -- authored as a function of position on the BOARD
+#
+# A running border is a tiling problem, and the pipeline's standing answer to a
+# tiling problem is "procedural, and never AI". These two go one better than a
+# tiled strip: they are evaluated per texel from the board coordinate the mesh
+# actually has there, so they follow the real outline, close at every corner,
+# and cannot be stamped into the wrong island because they never leave the
+# island's own texels.
+# --------------------------------------------------------------------------
+
+def board_projection(surf, n, span=2 * HALF_LONG):
+    """Index arrays that sample a BOARD-SPACE material field per atlas texel,
+    plus the weight with which that sample should be trusted.
+
+    WHY THE MATERIAL IS NOT GENERATED IN ATLAS SPACE ANY MORE
+    --------------------------------------------------------
+    It used to be: each of the six region rectangles got its own build of the
+    material at its own `detail` setting, filling the rectangle. That is right
+    for six unrelated surfaces and wrong for six views of one object. The
+    islands are unwrapped at wildly different scales -- on Oak the face runs at
+    3455 texels per metre, the frame at 1517 and a card recess floor at 1437 --
+    so the same "10 growth rings across the field" came out at 2.4x the
+    frequency on the face as on the recess floor next to it, with a hard change
+    of grain at every island boundary. The first lit render of the rebuilt oak
+    board showed it plainly: the button pocket read as a separate, finer plank
+    glued into the board, and the recess floors as two more.
+
+    A plank does not do that. Cut a recess into oak and the grain carries
+    straight on, one scale, one direction, only lower. So the material is now
+    built once over a square metre-space domain covering the whole board and
+    sampled by each texel's real board position -- which tex_seams.surface_attrs
+    already measures. Islands stop existing as far as the material is concerned.
+
+    The weight falls off on surfaces that are not facing up, because a top-down
+    projection says nothing useful about a vertical wall: it smears one line of
+    the field down the whole wall. Those texels keep the atlas-space build,
+    which is what the projection is blended against."""
+    x = np.nan_to_num(surf.x)
+    y = np.nan_to_num(surf.y)
+    gx = np.clip(((x + span * 0.5) / span * n).astype(np.int64), 0, n - 1)
+    gy = np.clip(((span * 0.5 - y) / span * n).astype(np.int64), 0, n - 1)
+    w = T.smoothstep(0.35, 0.78, np.abs(surf.nz)) * surf.cov
+    return gy, gx, w
+
+
+def scatter_to_board(field, gy, gx, mask, n):
+    """Atlas-space scalar -> board space, keeping the largest contributor where
+    several atlas texels land on the same board texel (the top face and the
+    back of the board project to exactly the same x,y). Used to carry the
+    carvings' cavity into the board-space material build, which is what lets
+    bronze's patina know where the carvings are."""
+    out = np.zeros((n, n), dtype=np.float64)
+    np.maximum.at(out, (gy[mask], gx[mask]), np.asarray(field)[mask])
+    return out
+
+
+def frame_relief(surf, n):
+    """A moulding on the frame ring: two fillets running parallel to the board
+    outline with a bead row between them."""
+    ax, ay = np.abs(surf.x), np.abs(surf.y)
+    d = np.minimum(HALF_LONG - ax, HALF_SHORT - ay)      # metres in from the edge
+    along_y = (HALF_LONG - ax) < (HALF_SHORT - ay)
+    t = np.where(along_y, surf.y, surf.x)
+    w = 0.0012
+    h = (_band(d, 0.0035, 0.0070, w) * 1.00
+         + _band(d, 0.0180, 0.0215, w) * 0.75)
+    ph = T.frac(t / RUN_PITCH + 0.5)
+    bead = T.smoothstep(0.20, 0.30, ph) * (1.0 - T.smoothstep(0.70, 0.80, ph))
+    h = h + 0.85 * bead * _band(d, 0.0095, 0.0155, w)
+    return h * T.smoothstep(0.50, 0.88, surf.nz)
+
+
+def side_relief(surf, n):
+    """A dentil strip on the board's outer wall, on the same pitch as the frame
+    moulding so the two read as one object seen from two sides."""
+    wall = 1.0 - T.smoothstep(0.35, 0.70, np.abs(surf.nz))   # 1 on a vertical wall
+    along_y = np.abs(surf.x) > np.abs(surf.y) * 1.6
+    t = np.where(along_y, surf.y, surf.x)
+    ph = T.frac(t / RUN_PITCH + 0.5)
+    tooth = T.smoothstep(0.24, 0.32, ph) * (1.0 - T.smoothstep(0.68, 0.76, ph))
+    zb = _band(surf.z, -0.0215, -0.0090, 0.0012)
+    rail = (_band(surf.z, -0.0060, -0.0035, 0.0008) * 0.8
+            + _band(surf.z, -0.0265, -0.0240, 0.0008) * 0.8)
+    return (tooth * zb + rail) * wall
 
 
 # --------------------------------------------------------------------------
@@ -302,8 +614,34 @@ def stamp(height, place, clip_box, symbols_dir, seed, report):
     return lost
 
 
+def style_motifs(style, motif_root, out_root):
+    """Assemble the per-style motif directory from the two sheets.
+
+    Copies the chosen hand's file for every motif into out_root/motifs_<style>/,
+    applying STYLE_MOTIFS' per-role substitutions, so the compositor downstream
+    only ever sees one directory and does not have to know a sheet exists."""
+    spec = STYLE_MOTIFS[style]
+    src = {"a": os.path.join(motif_root, "motifs_a"),
+           "b": os.path.join(motif_root, "motifs_b")}
+    dst = os.path.join(out_root, f"motifs_{style}")
+    os.makedirs(dst, exist_ok=True)
+    chosen = {}
+    for nm in SY.AI_NAMES:
+        want, sheet = spec["roles"].get(nm, (nm, spec["sheet"]))
+        ok = False
+        for suffix in (".png", SY.MASK_SUFFIX):
+            p = os.path.join(src[sheet], want + suffix)
+            if os.path.exists(p):
+                shutil.copyfile(p, os.path.join(dst, nm + suffix))
+                ok = True
+        if ok:
+            chosen[nm] = f"{want}@sheet_{sheet}"
+    return dst, chosen
+
+
 def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
-                pad=PAD, normal_strength=ORNAMENT_NORMAL_STRENGTH):
+                pad=PAD, normal_strength=ORNAMENT_NORMAL_STRENGTH, surf=None,
+                fbx=None):
     """Composite one board. Returns (albedo, normal, mr, island_labels, notes)."""
     notes = []
     rects = {k: T.region_rect_px(v, n) for k, v in uv["regions"].items()}
@@ -327,18 +665,44 @@ def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
     rough = np.zeros((n, n), dtype=np.float64)
     metal = np.zeros((n, n), dtype=np.float64)
 
-    def paint(cavity_bias=None):
+    def paint(cavity_bias=None, surf=None):
+        """The base material.
+
+        Two builds, blended per texel: one projected from BOARD space, which is
+        the one that matters and is what makes the grain continuous across every
+        island (see board_projection), and one in atlas space per region, which
+        the projection falls back to on walls the top-down projection cannot
+        describe. The per-region tone/roughness/height offsets still apply to
+        both -- a recess floor really is a little darker and a little rougher
+        than the face above it, because it is shaded and unhandled -- but the
+        GRAIN no longer changes scale or direction at a region boundary."""
+        proj = None
+        if surf is not None:
+            gy, gx, w = board_projection(surf, n)
+            cb = None
+            if cavity_bias is not None:
+                cb = scatter_to_board(cavity_bias, gy, gx,
+                                      surf.cov & (np.abs(surf.nz) > 0.35), n)
+            fb = B.build(style, n, seed, orient="along", detail=1.0, cavity_bias=cb)
+            proj = (fb, gy, gx, w[..., None], w)
         for name in region_order:
             tr = B.REGION_TREATMENT.get(name, B.REGION_TREATMENT["sides"])
             f = B.build(style, n, seed, orient=tr["orient"], detail=tr["detail"],
                         cavity_bias=cavity_bias)
             ix0, iy0, ix1, iy1 = inner[name]
             sl = (slice(iy0, iy1), slice(ix0, ix1))
-            albedo[sl] = f.albedo[sl]
-            height[sl] = (f.height[sl] * tr["height"] * BASE_HEIGHT
-                          * STYLE_HEIGHT.get(style, 1.0))
-            rough[sl] = np.clip(f.rough[sl] + tr["rough"], 0.05, 0.98)
-            metal[sl] = f.metal[sl]
+            a, h, r, m = f.albedo[sl], f.height[sl], f.rough[sl], f.metal[sl]
+            if proj is not None:
+                fb, gy, gx, w3, w1 = proj
+                sy, sx = gy[sl], gx[sl]
+                a = T.lerp(a, fb.albedo[sy, sx], w3[sl])
+                h = T.lerp(h, fb.height[sy, sx], w1[sl])
+                r = T.lerp(r, fb.rough[sy, sx], w1[sl])
+                m = T.lerp(m, fb.metal[sy, sx], w1[sl])
+            albedo[sl] = a
+            height[sl] = h * tr["height"] * BASE_HEIGHT * STYLE_HEIGHT.get(style, 1.0)
+            rough[sl] = np.clip(r + tr["rough"], 0.05, 0.98)
+            metal[sl] = m
             if tr["tone"]:
                 # tone offsets stay INSIDE the palette: darken toward the ramp's
                 # own dark end rather than multiplying toward black
@@ -347,30 +711,79 @@ def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
                 albedo[sl] = albedo[sl] * (1.0 - k) + dark[None, None, :] * k
         return None
 
-    paint()
+    # ---- the mesh's real surface. Without it there is neither an honest
+    # placement (a region rectangle does not say which of its texels a triangle
+    # samples) nor a continuous material (an island does not say where on the
+    # board it is).
+    if surf is None:
+        if fbx is None or not os.path.exists(fbx or ""):
+            raise ValueError(
+                f"{style}: no FBX to measure the surface from. Placement in board "
+                f"metres needs the mesh's real UV footprint; compositing against "
+                f"region rectangles alone put a 560 px rosette in a hole last time. "
+                f"Pass --fbx-dir at a directory holding {STYLE_FILES[style]['fbx']}.")
+        surf = Surface(S.surface_attrs(fbx, n), uv, n, pad)
+    paint(surf=surf)
+    for rn in region_order:
+        m = surf.top.get(rn)
+        if m is None:
+            continue
+        rx = rects[rn]
+        area = max(1, (rx[3] - rx[1]) * (rx[2] - rx[0]))
+        notes.append(f"    surface {rn:13s}: {int(m.sum()):7d} top-facing texels "
+                     f"({100.0 * m.sum() / area:5.1f}% of its rectangle), widest "
+                     f"inscribed circle {2 * surf.room[rn].max():.0f}px")
 
-    # ---- carve the ornament
-    places = json_placements(uv, n, derived_placements(uv, n, pad))
-    clip_report = []
-    for p in sorted(places, key=lambda q: q.region or ""):
-        box = inner.get(p.region)
-        if box is None:
-            box = (0, 0, n, n)
-        stamp(height, p, box, symbols_dir, seed, clip_report)
-    notes.extend(clip_report)
+    # ---- the ornament plan, once
+    places = plan_placements(style, uv, surf, n, pad, symbols_dir, seed, notes)
+
+    def carve(report=None):
+        """Everything that is added to the base material's height, in one place.
+
+        It has to be one place because bronze paints TWICE -- the second time
+        with the carvings' own cavity feeding the patina -- and paint() ASSIGNS
+        height rather than adding to it. The first version of this had the
+        board-space running ornament applied before the bronze re-paint and the
+        stamps applied after, so bronze silently lost its frame moulding and its
+        edge dentils: 513 kB of normal map against steel's 5.5 MB, which is what
+        a flat map compresses to."""
+        for rn, fn, amp in (("frame", frame_relief, 0.42), ("sides", side_relief, 0.30)):
+            if rn not in inner:
+                continue
+            ix0, iy0, ix1, iy1 = inner[rn]
+            sl = (slice(iy0, iy1), slice(ix0, ix1))
+            r = fn(surf, n)[sl] * surf.cov[sl]
+            height[sl] = height[sl] + amp * r
+            if report is not None:
+                report.append(
+                    f"    {rn}: board-space running ornament, pitch "
+                    f"{RUN_PITCH * 1000:.0f} mm ({2 * HALF_LONG / RUN_PITCH:.0f} "
+                    f"repeats on the long edge, {2 * HALF_SHORT / RUN_PITCH:.0f} on "
+                    f"the short), covering {100.0 * (r > 0.02).mean():.1f}% of the "
+                    f"region rectangle")
+        for p in sorted(places, key=lambda q: q.region or ""):
+            stamp(height, p, inner.get(p.region, (0, 0, n, n)), symbols_dir, seed,
+                  report if report is not None else [])
+
+    carve(notes)
     notes.append(f"    {len(places)} motifs placed "
-                 f"({sum(1 for p in places if not p.derived)} from symbols[], "
-                 f"{sum(1 for p in places if p.derived)} derived from the region rects)")
+                 f"({sum(1 for p in places if not p.derived)} at json symbols[] "
+                 f"anchors, {sum(1 for p in places if p.derived)} found by measuring "
+                 f"the surface)")
 
     # ---- bronze only: let the verdigris find the carvings, which is where it
     # actually collects. This is a real mechanism, not a look, and it is why the
-    # bronze board's ornament will not read as a decal sitting on top.
+    # bronze board's ornament does not read as a decal sitting on top.
     cav = _cav(height, n)
     if style == "bronze":
-        paint(cavity_bias=cav * 0.55)
-        for p in sorted(places, key=lambda q: q.region or ""):
-            stamp(height, p, inner.get(p.region, (0, 0, n, n)), symbols_dir, seed, [])
+        paint(cavity_bias=cav, surf=surf)
+        carve()
         cav = _cav(height, n)
+        pat = B.last_patina_coverage(style)
+        if pat is not None:
+            notes.append(f"    bronze: patina covers {pat * 100:.1f}% of the atlas; "
+                         f"cavity enrichment under it {B.last_patina_in_cavity():.2f}x "
+                         f"(1.00x would mean the patina ignores the relief)")
 
     # ---- the ONLY height-derived term allowed into albedo: light-independent
     # cavity, applied as a palette-locked darkening.
@@ -412,9 +825,15 @@ def main():
     ap.add_argument("--styles", default="oak,steel,bronze")
     ap.add_argument("--out", default="unity/board-prep/out/tex")
     ap.add_argument("--uv-dir", default="unity/board-prep/out")
-    ap.add_argument("--symbols", default="unity/board-prep/out/symbols",
-                    help="processed motif files; missing motifs fall back to the "
-                         "procedural stand-in, so the pipeline runs today")
+    ap.add_argument("--motifs", default="unity/board-prep/out",
+                    help="directory holding motifs_a/ and motifs_b/, the two "
+                         "processed sheets; the per-style set is assembled from "
+                         "them by STYLE_MOTIFS")
+    ap.add_argument("--symbols", default=None,
+                    help="override: use ONE motif directory for every style "
+                         "instead of assembling per style")
+    ap.add_argument("--fbx-dir", default=BUNDLE_DIR,
+                    help="where the boards are, for measuring the real UV surface")
     ap.add_argument("--size", type=int, default=T.N_DEFAULT)
     ap.add_argument("--seed", type=int, default=20260825)
     ap.add_argument("--pad", type=int, default=PAD)
@@ -432,8 +851,17 @@ def main():
         print(f"\n=== {style} ===")
         uv, src = load_uv(style, out_dir=a.uv_dir)
         print(f"  region map: {src}")
+        if a.symbols:
+            sym, chosen = a.symbols, {}
+        else:
+            sym, chosen = style_motifs(style, a.motifs, a.motifs)
+        if chosen:
+            print(f"  motifs: {sym}")
+            for k in sorted(chosen):
+                print(f"    {k:16s} <- {chosen[k]}")
+        fbx = os.path.join(a.fbx_dir, STYLE_FILES[style]["fbx"])
         alb, nrm, mr, labels, names, notes = build_style(
-            style, uv, n=a.size, seed=a.seed, symbols_dir=a.symbols, pad=a.pad)
+            style, uv, n=a.size, seed=a.seed, symbols_dir=sym, pad=a.pad, fbx=fbx)
         for ln in notes:
             print(ln)
         for p in write_style(style, a.out, alb, nrm, mr):

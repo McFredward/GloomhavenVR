@@ -101,6 +101,93 @@ def islands_from_fbx(fbx, n, blender="/home/claw/blender-4.2/blender", cache=Tru
     return lab, [f"island{i}" for i in range(1, count + 1)]
 
 
+def surface_attrs(fbx, n, blender="/home/claw/blender-4.2/blender", cache=True,
+                  cache_dir=None):
+    """Rasterise the mesh's UV shells and carry the GEOMETRY along with them.
+
+    Returns a dict of (n,n) arrays:
+        cov  bool   -- this texel is sampled by at least one triangle
+        nz   float  -- z of the surface normal there (+1 = decorated top face)
+        x,y,z float -- the board-space position of the surface there, in metres,
+                       NaN outside cov
+
+    Why the texture lane needs this and cannot work from the region map alone:
+    a contract region is an ALLOCATION and a UV island is a shell, and neither
+    one says where on the physical board a given texel lands or which way that
+    surface points. The rebuilt boards are mostly recess -- on Oak the `face`
+    region rectangle is only 16.6% covered, because the top field is a web of
+    8 to 26 mm strips running between four large pockets. Ornament placed at the
+    centre of the face RECTANGLE lands in a hole that no triangle samples, and
+    renders as nothing at all while every instrument reports success.
+
+    Cached next to the UV dump, never next to the source mesh."""
+    cache_dir = cache_dir or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "out", "uvdump")
+    os.makedirs(cache_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(fbx))[0]
+    surf = os.path.join(cache_dir, f"{base}.surf{n}.npz")
+    if cache and os.path.exists(surf):
+        d = np.load(surf)
+        return {k: d[k] for k in ("cov", "nz", "x", "y", "z")}
+
+    npz = os.path.join(cache_dir, base + ".uvdump.npz")
+    if not (cache and os.path.exists(npz)):
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tex_uv_dump.py")
+        r = subprocess.run([blender, "--background", "--factory-startup", "--python",
+                            script, "--", fbx, npz], capture_output=True, text=True)
+        if not os.path.exists(npz):
+            sys.stderr.write(r.stdout[-3000:] + "\n" + r.stderr[-3000:] + "\n")
+            raise RuntimeError("UV dump failed")
+    d = np.load(npz)
+    if "pos" not in d:
+        raise RuntimeError(f"{npz} predates the geometry dump; delete it and re-run")
+    tris, pos, nrm = d["tris"], d["pos"], d["nrm"]
+
+    cov = np.zeros((n, n), dtype=bool)
+    nz = np.zeros((n, n), dtype=np.float64)
+    X = np.full((n, n), np.nan)
+    Y = np.full((n, n), np.nan)
+    Z = np.full((n, n), np.nan)
+    px = tris[..., 0] * n
+    py = (1.0 - tris[..., 1]) * n
+    for i in range(px.shape[0]):
+        x0, x1, x2 = px[i]
+        y0, y1, y2 = py[i]
+        xmin = max(0, int(np.floor(min(x0, x1, x2))))
+        xmax = min(n, int(np.ceil(max(x0, x1, x2))) + 1)
+        ymin = max(0, int(np.floor(min(y0, y1, y2))))
+        ymax = min(n, int(np.ceil(max(y0, y1, y2))) + 1)
+        if xmax <= xmin or ymax <= ymin:
+            continue
+        yy, xx = np.mgrid[ymin:ymax, xmin:xmax]
+        xx = xx + 0.5
+        yy = yy + 0.5
+        det = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if abs(det) < 1e-12:
+            continue
+        a = ((y1 - y2) * (xx - x2) + (x2 - x1) * (yy - y2)) / det
+        b = ((y2 - y0) * (xx - x2) + (x0 - x2) * (yy - y2)) / det
+        c = 1.0 - a - b
+        ins = (a >= -1e-6) & (b >= -1e-6) & (c >= -1e-6)
+        if not ins.any():
+            continue
+        P = pos[i]
+        sub = (slice(ymin, ymax), slice(xmin, xmax))
+        cov[sub] |= ins
+        for arr, col in ((X, 0), (Y, 1), (Z, 2)):
+            v = a * P[0, col] + b * P[1, col] + c * P[2, col]
+            t = arr[sub]
+            t[ins] = v[ins]
+            arr[sub] = t
+        t = nz[sub]
+        t[ins] = nrm[i, 2]
+        nz[sub] = t
+
+    out = dict(cov=cov, nz=nz, x=X, y=Y, z=Z)
+    np.savez_compressed(surf, **out)
+    return out
+
+
 def rasterise_uv(tris, n):
     """Fill every UV triangle into an n x n boolean coverage map.
     UV origin is bottom-left; the row axis is flipped exactly once, here."""

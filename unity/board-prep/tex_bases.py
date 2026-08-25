@@ -198,7 +198,15 @@ def _scratch_mask(n, seed, count=26, detail=1.0):
 def build_steel(n, seed, orient="along", detail=1.0):
     s = int(seed)
     brush = _swap(T.spectral_noise(n, s + 1, beta=0.55, aniso=120.0, lowcut=6 * detail), orient)
-    micro = _swap(T.spectral_noise(n, s + 2, beta=0.30, aniso=45.0, lowcut=140 * detail), orient)
+    # HIGHCUT, and it matters more than its size suggests. beta=0.30 is very
+    # nearly white noise, so without an upper limit this term carries full
+    # energy right up to Nyquist -- per-texel roughness variation on a mirror.
+    # In a headset that is not texture, it is sparkle: the two eyes sample the
+    # same texel grid at slightly different sub-texel offsets and the highlight
+    # boils. Capping at 420 cycles keeps the finest feature about 5 texels
+    # across, which survives a mip chain and cannot alias per eye.
+    micro = _swap(T.spectral_noise(n, s + 2, beta=0.30, aniso=45.0,
+                                   lowcut=140 * detail, highcut=420 * detail), orient)
     mottle = _swap(T.spectral_noise(n, s + 3, beta=2.9, aniso=2.0, highcut=7), orient)
     scr = _swap(_scratch_mask(n, s + 4, detail=detail), orient)
 
@@ -211,8 +219,15 @@ def build_steel(n, seed, orient="along", detail=1.0):
     # frequency turned the board into sandpaper in the first lit render.
     height = brush * 0.055 + micro * 0.016 - scr * 0.30 + mottle * 0.05
 
-    rough = np.clip(0.265 + brush * 0.095 + micro * 0.055 + mottle * 0.045 - scr * 0.10,
-                    0.12, 0.60)
+    # Brushed stainless measures around 0.30-0.45 in this parameterisation, not
+    # 0.12-0.27. The previous floor made the plate a near-mirror, and a mirror
+    # in a dim room is black: the calibrated station rendered the steel board at
+    # median luminance 0.09 against oak's 0.26, from an albedo whose mean
+    # luminance is 0.637 -- the LIGHTEST of the three. A metal shows what it
+    # reflects, so the way to make brushed steel read as brushed steel is to
+    # widen its specular lobe, not to lighten its albedo.
+    rough = np.clip(0.340 + brush * 0.085 + micro * 0.045 + mottle * 0.040 - scr * 0.09,
+                    0.18, 0.62)
     metal = np.clip(1.0 - T.smoothstep(0.6, 1.9, -mottle) * 0.10, 0.0, 1.0)
     return Fields(albedo, height, rough, metal, "steel", s)
 
@@ -224,47 +239,152 @@ def build_steel(n, seed, orient="along", detail=1.0):
 # roughness climbs there. That contrast is what makes it read as real metal.
 # --------------------------------------------------------------------------
 
+_PATINA_STAT = {}
+
+
+def last_patina_coverage(style="bronze"):
+    """What fraction of the last bronze build came out patinated. Reported by
+    the compositor rather than asserted, because 'an accent' is a number."""
+    return _PATINA_STAT.get(style, (None, None))[0]
+
+
+def last_patina_in_cavity(style="bronze"):
+    """Cavity ENRICHMENT under the patina: mean cavity where the patina is,
+    over mean cavity everywhere. A patina uncorrelated with the relief scores
+    1.0 by construction, whatever it looks like; a patina that is genuinely
+    collecting in the low spots scores well above it."""
+    return _PATINA_STAT.get(style, (None, None))[1]
+
+
 def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None):
+    """Cast and patinated bronze.
+
+    WHAT WAS WRONG WITH THE PREVIOUS PASS, and it is worth being precise because
+    the fix is a change of MECHANISM, not of numbers:
+
+      patina was driven by   crust*0.82 + grain*0.18 (+ cavity*2.4 if supplied)
+
+    `crust` was spectral_noise(beta=2.5, highcut=15). A highcut of 15 keeps only
+    the lowest fifteen frequency rings, i.e. nothing with a wavelength shorter
+    than n/15 -- 137 texels at 2048, about 40 mm on the board. So the patina's
+    shape was, by construction, a field of 40 mm soft clouds, and it carried
+    82% of the drive. That is exactly the reported symptom: "cyan blobs sitting
+    ON the surface", "does not correlate with the relief", "a soft
+    low-frequency cloudiness". The cavity term existed but was a minority
+    shareholder in its own mechanism, and it was only non-zero on the ~2% of the
+    atlas within reach of a carving.
+
+    The drive is now, in order of weight:
+      1. CAVITY of the finished relief -- the compositor carves the board, takes
+         a light-independent multi-scale cavity of the result, and hands it back.
+         Verdigris forms where water sits and where a hand does not wipe: the
+         insides of carvings, the bottoms of the cast pebbling, the inside
+         corners of a moulding. This is the term that makes it corrosion rather
+         than paint.
+      2. the cast surface's own PITS, at 11-45 texels (3-13 mm), so the bare
+         field is not uniformly clean either.
+      3. a fine FLECK at 5-19 texels (1.5-6 mm) that breaks the shoreline up at
+         the scale a real shoreline is broken up.
+    The old low-frequency crust is gone, and so is every term that could make a
+    patch larger than about 13 mm on the flat. What is left that CAN make a
+    large connected green area is the cavity term, and a large connected cavity
+    is a carving -- which is the point.
+
+    The threshold is then solved for a target coverage rather than fixed, so the
+    accent stays an accent whatever the relief underneath happens to be."""
     s = int(seed)
     cast = _swap(T.spectral_noise(n, s + 1, beta=1.7, aniso=1.15,
                                   lowcut=9 * detail, highcut=40 * detail), orient)
-    crust = _swap(T.spectral_noise(n, s + 2, beta=2.5, aniso=1.25, highcut=15), orient)
     grain = _swap(T.spectral_noise(n, s + 3, beta=1.9, aniso=1.0,
                                    lowcut=22 * detail, highcut=70 * detail), orient)
     speck = _swap(T.spectral_noise(n, s + 5, beta=1.3, aniso=1.0,
                                    lowcut=60 * detail, highcut=300 * detail), orient)
-    sheen = _swap(T.spectral_noise(n, s + 4, beta=2.2, aniso=1.6, highcut=22), orient)
+    # The field's own patina drive. BOTH terms have a hard floor on their
+    # wavelength, and that floor is the whole fix. The previous pass drove the
+    # patina from `crust` (highcut 15 -> nothing shorter than 137 texels) and
+    # the first attempt at this fix still used `cast` (lowcut 9 -> up to 227
+    # texels), so both produced 30-70 mm amoebas: flat patches with no relation
+    # to anything on the board, which is what "cyan blobs sitting ON the
+    # surface" describes. `pit` runs 11-45 texels (3-13 mm) and `fleck` 5-19
+    # texels (1.5-6 mm), so the largest patch the field can make is smaller than
+    # one card slot's corner radius.
+    pit = _swap(T.spectral_noise(n, s + 2, beta=1.5, aniso=1.0,
+                                 lowcut=45 * detail, highcut=190 * detail), orient)
+    fleck = _swap(T.spectral_noise(n, s + 6, beta=1.2, aniso=1.0,
+                                   lowcut=110 * detail, highcut=420 * detail), orient)
+    # The FIELD, settled. `sheen` used to be highcut=22 at amplitude 0.040, i.e.
+    # a 93-texel cloud on the tone; it is now the very lowest frequencies only,
+    # at half the amplitude, which reads as one plate catching the room rather
+    # than as weather.
+    sheen = _swap(T.spectral_noise(n, s + 4, beta=3.0, aniso=1.6, highcut=5), orient)
 
-    raw = crust * 0.82 + grain * 0.18
-    if cavity_bias is not None:
-        # verdigris collects in the low spots; the compositor feeds the carvings
-        # in here so the patina follows the ornament instead of ignoring it
-        raw = raw + np.asarray(cavity_bias, dtype=np.float64) * 2.4
-    # A crisp shoreline at ~10% coverage. The first pass ran at ~35% with a
-    # per-texel speckle inside it and read as dirty pixels rather than metal;
-    # the second still read as teal cauliflower. The patina is an ACCENT.
-    patina = T.smoothstep(0.95, 1.45, raw)
+    cav = (np.zeros((n, n)) if cavity_bias is None
+           else np.asarray(cavity_bias, dtype=np.float64))
+    field = 0.62 * pit + 0.38 * fleck
+    # The weights are the whole design and they are lopsided on purpose. `cav`
+    # peaks around 0.5 inside a carving and is exactly zero across the open
+    # plate, so 5.0*cav puts every recessed texel above any threshold the field
+    # term can set, and the field is left competing only for what is not already
+    # spoken for. A 10% target with those weights spends most of its budget on
+    # the carvings and the moulding grooves and leaves the open plate nearly
+    # clean -- which is what a board that gets handled looks like: hands wipe
+    # the flat and cannot reach into a 0.5 mm groove.
+    #
+    # The pass before this one ran the field at 0.85 with a 14% target and the
+    # open plate came back evenly spattered -- the "dirty pixels" failure the
+    # first version of this material already had once, in a finer grain.
+    drive = 5.00 * cav + 0.42 * field
+    target = 0.085
+    lo = float(np.quantile(drive, 1.0 - target))
+    band = float(np.std(field)) * 0.42 * 0.26 + 1e-6  # a crisp but not aliased edge
+    patina = T.smoothstep(lo - band * 0.5, lo + band * 0.5, drive)
 
-    # A cast bronze plaque is fairly EVEN in colour; the patina is the only
-    # strong variation on it. Measured against steel, the previous values gave
-    # bronze 2.3x steel's mid-scale (41px) albedo contrast, and the lit render
-    # read as a corroded sponge rather than metal.
-    bare_t = np.clip(0.64 + sheen * 0.040 + cast * 0.022, 0.0, 1.0)
-    pat_t = np.clip(0.50 + grain * 0.070 + speck * 0.030, 0.0, 1.0)
-    albedo = T.lerp(PAL_BRONZE_BARE.map(bare_t), PAL_BRONZE_PATINA.map(pat_t), patina[..., None])
+    # A groove holds a CRUST; an open face holds a TARNISH. They are not the
+    # same thickness and should not be the same material, so the blend is
+    # weighted by how much of this texel's drive came from the cavity term.
+    # Without this the open plate came back measled: dark teal dots at full
+    # strength scattered evenly over gold, which is a pattern, not corrosion.
+    # With it the same dots are a partial discolouration and the only places
+    # that go fully green are the places that are actually recessed.
+    cav_share = np.clip(5.00 * cav / np.maximum(np.abs(drive), 1e-6), 0.0, 1.0)
+    patina = patina * T.lerp(0.55, 1.0, cav_share)
 
-    # Sand-cast bronze is a gentle pebbling, not a crust. The first lit render
-    # of this read as hammered gold leaf because these three terms carried
-    # per-texel gradients that the Sobel then amplified.
+    bare_t = np.clip(0.645 + sheen * 0.022 + cast * 0.016, 0.0, 1.0)
+    # DARKER than the bare metal, and darker the deeper the drive. The previous
+    # tone sat at 0.50 of the patina ramp, which renders BRIGHTER than the bare
+    # bronze around it. That is not a small mistake: the patina is dielectric
+    # with roughness 0.72 and the bare metal is metallic, so the patina takes
+    # its value from the diffuse fill while the metal only shows what it
+    # reflects, and a mid-tone patina therefore comes out as the LIGHTEST thing
+    # on the plate. A corrosion product lighter than the metal it grew out of
+    # reads as paint, and that was half of why it looked applied rather than
+    # grown. Verdigris in a groove is dark; only a thick efflorescence on a
+    # weathered exposed face goes pale, and a board on a table has none.
+    depth_t = T.smoothstep(lo, lo + band * 6.0, drive)
+    pat_t = np.clip(0.28 - depth_t * 0.20 + grain * 0.050 + speck * 0.022, 0.0, 1.0)
+    albedo = T.lerp(PAL_BRONZE_BARE.map(bare_t), PAL_BRONZE_PATINA.map(pat_t),
+                    patina[..., None])
+
+    # Sand-cast bronze is a gentle pebbling, not a crust. The patina crust
+    # stands slightly PROUD of the bare metal, which is what a corrosion product
+    # does -- it is a deposit, and it is the one place a positive height term is
+    # physically right on this material.
     height = cast * 0.028 + patina * 0.045 + grain * 0.012
 
-    # A +/-0.09 roughness swing across a METAL is a blotchy specular mottle,
-    # and it survived two passes of albedo tuning because it was never in the
-    # albedo: the lit board looked like a corroded sponge while the albedo's
-    # mid-scale contrast already matched steel's. Roughness on a finished
-    # bronze plaque is nearly uniform; the patina is what changes it.
     rough = np.clip(T.lerp(0.30, 0.72, patina) + cast * 0.010, 0.16, 0.80)
     metal = np.clip(1.0 - patina * 0.94, 0.0, 1.0)
+
+    # The two numbers the report quotes, measured here rather than claimed.
+    # The second one is an ENRICHMENT: the mean cavity under the patina divided
+    # by the mean cavity over the whole map. A patina that ignores the relief
+    # scores 1.0 by construction, whatever it looks like. Anything well above 1
+    # is the patina actually sitting in the low spots.
+    solid = patina > 0.5
+    if solid.any() and cav.max() > 1e-9:
+        enrich = float(cav[solid].mean() / max(cav.mean(), 1e-12))
+    else:
+        enrich = float("nan")
+    _PATINA_STAT["bronze"] = (float(solid.mean()), enrich)
     return Fields(albedo, height, rough, metal, "bronze", s)
 
 
@@ -333,9 +453,24 @@ def _preview(out_dir, n=768, seed=20260825):
               f"metallic {f.metal.min():.2f}..{f.metal.max():.2f}")
         # Tileability proof. NOT "seam mean < interior mean" -- that instrument
         # is too weak: a seam row that happens to cross a crisp growth band
-        # scores high while being perfectly continuous. The honest test is where
-        # the seam step falls in the DISTRIBUTION of interior steps. A real seam
-        # is an outlier (>99.5th percentile); an in-family value is continuity.
+        # scores high while being perfectly continuous.
+        #
+        # The verdict is "the wrap step is bigger than every step INSIDE the
+        # field", not "it is above the 99.5th percentile of them". The
+        # percentile rule was the previous test and it cried wolf: bronze's
+        # patina shoreline is deliberately crisp, so the handful of largest
+        # steps in the whole field are all shoreline crossings, and whether the
+        # wrap column happens to cross one is a coin toss. It did, scored the
+        # 99.7th percentile, and was reported as SEAM VISIBLE on a field that is
+        # tileable by construction -- every input is FFT-synthesised on a
+        # periodic basis and every operation after that is pointwise, so a seam
+        # is arithmetically impossible. A false alarm on a correct build is not
+        # a conservative instrument, it is a broken one.
+        #
+        # A real seam joins two uncorrelated samples, so its step is on the
+        # order of the field's whole range rather than of a neighbour
+        # difference, and exceeding the interior maximum catches that with
+        # room to spare. Both numbers are printed either way.
         for axis, name in ((0, "v"), (1, "u")):
             a = f.albedo
             seam = float(np.mean(np.abs(np.take(a, 0, axis) - np.take(a, -1, axis))))
@@ -345,7 +480,7 @@ def _preview(out_dir, n=768, seed=20260825):
             print(f"        wrap seam {name}: step {seam:.4f} sits at the "
                   f"{pct:.1f}th percentile of interior steps "
                   f"(max {steps.max():.4f})  "
-                  f"{'tileable' if pct < 99.5 else 'SEAM VISIBLE'}")
+                  f"{'tileable' if seam <= steps.max() else 'SEAM VISIBLE'}")
     for p in written:
         print("WROTE", p, os.path.getsize(p))
 
