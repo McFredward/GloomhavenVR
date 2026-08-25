@@ -1,3 +1,297 @@
+# ROUND 4 (2026-08-25): THE GENERATOR HAD NEVER BEEN SHOWN THE BOARD
+
+ModBuild 289 was rejected. That is three rejections, twice with the same word.
+
+**The user, verbatim:**
+
+> "Ich bin immer noch überhaupt nicht damit zufrieden wie die buttons aussehen. Ich mag die
+> Textur gar nicht. **Sie passt überhaupt nicht zu dem jeweiligen board.** Bitte gehe das anders
+> an: **Gib gpt-image-2 die boards** und lass die Optionen für eckige und runde Knöpfe generieren
+> die zum Design des Boards passen. **Baue die dann nach.** Verwirf deine aktuellen — das führt
+> zu nichts."
+
+---
+
+## THE ONE THING ROUNDS 1, 2 AND 3 ALL HAD IN COMMON
+
+Every previous round showed the generator a picture of a **material** or a picture of a **shape**,
+and never once a picture of **the board**.
+
+| round | what the model was shown | what that is |
+|---|---|---|
+| 1 | `gen_capref.py` → `ref_face_<style>.png` | a 1024² band cropped out of the board's own albedo — a swatch of its SURFACE |
+| 2 | the same swatch, ask re-worded for feature SIZE | the same swatch |
+| 3 | `cap_object.py --init` | a bare grey render of the signet profile — a picture of the mesh we already had |
+
+A swatch carries a board's palette and its grain and none of its construction: no border, no
+corner, no hardware, no edge, no proportion. **The complaint was relational and the input never
+was.** The proof is in `cap_object.PROMPTS`: read all four and notice that the word *board* does
+not appear in any of them. They ask for an oak plate, a steel plate and a bronze plate — three
+materials, vividly and correctly described, with no reference to the three objects those plates
+have to sit in.
+
+**And the mesh was never in question either.** Round 3's prompt opens with *"The supplied grey
+image is the exact GEOMETRY of these two plates and must be followed band for band."* So all three
+rounds poured a different material into ONE profile, identical on all three boards. That is,
+accurately, the same mesh with a different texture on it — which is what
+*"wie zusammengewürfelte assets mit standard meshs draufgeklatscht"* describes.
+
+---
+
+## WHAT WAS GENERATED
+
+`unity/board-prep/buttons/cap_options.py`. The input is
+`unity/asset-preview/build_asset_strips.sh`'s own board block at 1536 px in two views (yaw 35 /
+pitch 50, and yaw 12 / pitch 72 for the border profile and the seat pockets), flags inherited
+unchanged — the normal map is bound, there is no `--cull` because every tray material is
+`_Cull: 0`, and all three are pinned to one ortho width. Board identity from the source, not the
+look: oak = `PlayTray_prepped.fbx`, steel = `PlayTray_9capjqp6*`, bronze = `PlayTray_16vm268h*`.
+
+**Three sheets, eighteen options**, each a 3 × 2 grid — three ROUND on the top row, three SQUARE
+on the bottom — asked to differ in **construction** (edge profile, mounting hardware, face
+treatment) rather than in colour, faces completely empty, no text anywhere in the frame. All three
+delivered exactly 1536 × 1024 and read back with PIL. All three landed first try; none was
+re-rolled.
+
+The grid is not assumed. `cap_sheet_options.verify()` measures it: the gutters between cells must
+be flatter than the cells themselves (gutter σ 0.9 / 0.9 / 3.0 against weakest cell σ 12.3 / 14.4 /
+12.8 — confirmed).
+
+**Contact sheet:** `.planning/debug/round4/options_contact_sheet.png` — each board rendered beside
+its own six options, because a sheet of buttons on grey cannot be judged against *"passt nicht zu
+dem jeweiligen board"*.
+
+### Kept — six of eighteen, one round and one square per board
+
+Both shapes are the user's *Vorgabe* ("Rund und Viereckig sind Vorgabe"), so every board keeps one
+of each. The criterion is not which button is nicest; it is which one is a claim about **that
+board**.
+
+| board | kept | why, against the board |
+|---|---|---|
+| oak | **S3** | the board's square dentil border, at cap scale. The oak board's one unmistakable signature is a run of small raised blocks around its frame. Nothing else on the oak sheet is a claim about the oak board rather than about oak. |
+| oak | **R2** | the round sibling of a stepped, blocked border; keeps the clipped-corner joinery family so the two shapes read as one set. |
+| steel | **S1** | four **dome rivet heads**. The steel board's border is dentils with small round rivet heads among them. |
+| steel | **R2** | plate stacked on plate with visible corner hardware — how the steel board's own seats are built. |
+| bronze | **S2** | a raised inner plateau ringed by four dome bosses, every corner rounded: the bronze board's seat pocket, feature for feature. |
+| bronze | **R2** | the cast stepped terrace. Concentric raised rings are the bronze board's own language. |
+
+### Discarded — twelve, each with its reason
+
+Recorded machine-readably in `cap_options.DISCARDED_OPTIONS`; `_check_manifest()` runs at import
+and RAISES if any option is unaccounted for, if a board keeps fewer than one of each shape, or if
+a sheet on disk is not in the record. Driven negative on all three failure modes before it was
+believed.
+
+The reasons fall into three groups, and the largest is the point of the round:
+
+* **Not of this board** (oak R1, steel R1, steel R3, bronze R1) — correct for the material and
+  true of any button made of it. This is rounds 1–3's failure shape exactly.
+* **Wrong hardware for this board** (oak S2, steel S3) — oak S2 puts metal-shaped pegs on the one
+  board whose whole story is that its face carries no fittings; steel S3's slotted screws are the
+  better-looking cap and the worse match, because there is not one screw slot anywhere on that
+  board.
+* **Fouls the field** (oak R3, bronze R3, steel S2) — a dished or domed face bends the caption,
+  which is solved on a flat viewer-facing plane; steel S2's retaining ring is a large circle in
+  exactly the 25 % of the cap the carved role symbol occupies.
+
+### The second ask: the FACE MATERIAL, flat
+
+`cap_options.MATERIAL_PROMPTS`, one image per board, 1024², referencing **the chosen square option
+and the board**. Since the bezel is geometry now, the texture must not paint one again — a painted
+rim on top of a real one is the doubled-edge defect this pipeline already recorded once. What is
+left for the atlas is material, wear and engraving, which is a flat sample.
+
+**This is not a return to rounds 1 and 2.** Those asked for a flat sample and put it on a mesh with
+no structure, so the cap had structure nowhere. This asks for a flat sample of a **named button
+that was designed against this board**, to put on a mesh that now carries the structure.
+
+The atlases are built through the existing chain unchanged — `cap_atlas.py --plates … --no-objects`
+— so the symbol carving, the level re-basing, the mip guard and the `.meta` writing are the same
+code as ModBuild 289. Level re-based at gain 2.5–2.7 to the shipped `KeycapGrain` mean of 0.837,
+because a keycap texture MODULATES the state colour.
+
+---
+
+## WHAT THE MESH GAINED
+
+`Cards/CapFaceLayout.CapConstruction`, derived from `ControlBoard`, built by `Cards/CardMesh`.
+
+| | oak | steel | bronze |
+|---|---|---|---|
+| corner | **clipped** 45° (joinery) 0.100 | **filleted** 0.100 | **filleted** 0.160 |
+| outer zone | square-edged **flat land** | stepped **terrace** | stepped **terrace** |
+| hardware | **7 dentil blocks per edge**, 0.034 proud | 4 **dome rivets** r 0.030 | 4 **dome bosses** r 0.034 |
+| base | **undercut skirt** 0.085 | undercut 0.070 | undercut 0.095 |
+
+All fractions are of the cap's SHORT side. `PlainConstruction` — a cap with no board, i.e. the map
+room's keycap-skinned furniture — is byte for byte the ModBuild 289 mesh, and the plain path in
+`BuildBeveledKeycap` is the untouched original code.
+
+**Vertex counts** (the real shipped meshes, exported by reflection into the built DLL):
+
+    oak    square  72 →  738 verts,  36 →  376 tris     round  642 → 2130,  640 → 1512
+    steel  square  72 → 1674,        36 →  850          round  642 → 1746,  640 → 1360
+    bronze square  72 → 2090,        36 → 1056          round  642 → 1746,  640 → 1360
+
+### THREE CONSTRAINTS THAT SHAPED IT
+
+1. **Everything inside the bezel band, d ∈ [0, `BezelTotal`], or on the WALL — never in the
+   field.** `FieldLo` does not move, so the caption solver's asserted cases, `CapCellMath`, the
+   atlas's `TEXT_*` mirrors and `BoardCapSymbolVectors` are all still true without one of them
+   being touched, and the guarantee the user actually stated — *"Der Text muss immer voll lesbar
+   sein"* — is untouched. Widening the bezel would have bought a nicer rim by shrinking the caption
+   box, which is how "AUSWAHL BEEN" happened.
+2. **Derived from `ControlBoard`, so it is not a new wire field.** The construction is a property
+   of the board exactly as its atlas is, and both sides already agree on the board
+   (`RemoteBoardFurniture._style` is handed to every cap it builds). Wire coverage is unchanged at
+   172 / 85 / 257: no dial added, nothing new to sync, no way for a peer's mirror to disagree
+   without already having the wrong board.
+3. **The wall is where the area is, and the first cut of this round put everything in the wrong
+   place.** The bezel is 0.135 of the short side — 5.9 mm on bronze — while the cap is
+   `[BoardButtons] Depth` thick, shipped at **36 mm**. The first on-board render showed exactly
+   what that implies: a tall plain slab with a hairline of detail along its top edge. Every option
+   on all three sheets is a LOW WIDE button whose edge profile is most of what you see. The
+   undercut skirt spends the wall, which costs nothing, because the crown keeps the full footprint
+   and the cap only ever gets narrower below the shoulder.
+
+---
+
+## TWO REAL BUGS FOUND, BOTH PRE-EXISTING, BOTH SHIPPED
+
+### 1. The round cap's entire bezel has been invisible since round 2
+
+`BuildRoundKeycap.AddBand` asserted a fixed winding with the comment *"taken from
+BuildRoundCap's side wall, which is the one this project has already proved outward-facing on
+hardware"*. That is true of the WALL — the one band with no radial step — and false of every band
+that steps inward. On the outer chamfer, the **rim land** and the inner chamfer the same order
+gives a right-hand normal of +Z, pointing away from the viewer, against a shading normal pointing
+toward them.
+
+Every cap material is `new Material(BoardLit)` and keeps the shader's default `_Cull = Back`, so
+all three bezel bands were back-face culled.
+
+* **Measured:** 384 of the round cap's 640 triangles wound against their own normals — exactly
+  64 segments × 6.
+* **Seen:** `.planning/debug/round4/station/Oak_ShortRest_after_rake.png` shows the recessed
+  field, a crescent of the far wall, and no bezel ring at all, while `Oak_Confirm_after_rake.png`
+  beside it shows the square cap's full bright frame.
+
+The round rest pads are Round on all three boards by default, so this affected every board.
+`AddBand` now derives its winding from the band's own normal, which is what the square cap does
+and why the square cap never had this bug.
+
+### 2. A one-quad seam at every rounded corner
+
+The rounded ring closed with a duplicate vertex (the last arc point equals the first), giving one
+zero-length segment that `AddRingBand`'s degeneracy guard then skipped in every band — a small but
+genuine hole in the outer chamfer, the rim land and the inner chamfer alike. Caught as the only
+two non-flat open edges on the bronze cap, on the inner chamfer, exactly at (−cx, Y).
+
+---
+
+## THE INSTRUMENTS
+
+### A new one: the mesh audit
+
+`Assets/Editor/ExportCapMeshes.cs` reflects into the **built GloomhavenVR.dll** and calls the real
+`CardMesh`, so there is no port to drift — `PreviewKeycaps.cs` carries a hand port guarded by a
+vertex-COUNT check, and round 4 makes the counts differ per board, so that guard had nothing fixed
+left to compare against. While it holds real geometry it audits it: every triangle's winding
+against its own normals, and every edge against the shell.
+
+**All twelve meshes: winding OK. `_before` closed shell, `_after` open only at hardware
+footprints.**
+
+Two of its own first outputs were wrong and both were fixed rather than explained away:
+
+* the edge test keyed on **index**, so it reported 72 of 90 edges "open" on the known-good
+  ModBuild 289 square cap. Both builders emit four fresh vertices per quad — they must, the
+  normals are flat per face — so it was measuring vertex reuse and calling it watertightness. It
+  keys on welded **position** now, and the ModBuild 289 caps read as closed shells.
+* counting open edges without **classifying** them reported "112 open edges" on a mesh with no
+  holes. Raised hardware omits its base face; that footprint is not a hole, and the number that
+  means something is how many open edges are off the flat.
+
+### The old one, and the number that FELL
+
+`plate_forensics.py` REG on the **atlas cell**:
+
+    round 3 shipped     28.3 / 35.3 / 23.7
+    round 4 shipped     13.0 / 10.5 /  2.2
+
+**That fall is correct and is the point.** REG asks "does this picture have an inside-outside
+order", the cell no longer carries one because the bezel is geometry, and reading the drop as a
+regression is the instrument pointed one stage too early. `cap_regmove.py` therefore applies the
+same function to the thing a player sees — the cap RENDERED, square-on, alone, cropped to its own
+alpha silhouette so the frame is the cap's footprint exactly as the cell is, with the same atlas
+under both constructions:
+
+    board    BEFORE (289 slab)   AFTER (round 4)   change
+    oak                   23.6              23.6     +0.0
+    steel                 17.9              23.9     +6.0
+    bronze                23.3              28.1     +4.8
+
+    controls: null noise swatch ~17-20,  accepted board backs 57-107
+
+**Reported as it stands rather than dressed up.** Its own first version measured the FRAME and not
+the cap — with black around the cap the d≈0 bins were pure background, and it produced 133 / 124 /
+196, authoritative-looking and meaningless.
+
+`cap_check.py --selfcheck` still passes on all three legs: null refuses to measure, uncarved plate
+reads −0.21 % (below the floor), the carved disc fires at 33.91 %.
+
+---
+
+## WHAT THE INSTRUMENTS CANNOT SEE
+
+* **Whether the button belongs to the board.** Nothing here measures it. REG scores a rim in the
+  wrong place exactly as it scores a rim in the right place; that is why round 3 improved REG by
+  7× and was rejected. The only evidence for the actual question is the two sheets, and they are
+  pictures for a person to judge.
+* **The undercut and the terrace, at the angle REG is taken.** REG on the rendered cap is measured
+  **square-on**, and `CapFaceLayout` already records why that is nearly blind here: on `BoardLit` a
+  45° chamfer and a flat face are two FIXED values, not a highlight that moves. The undercut reads
+  by its silhouette and its shadow line at a RAKE; the terrace reads by its steps at a rake. Seen
+  from directly above, most of what round 4 added contributes almost no luminance variation. So
+  the +0.0 / +6.0 / +4.8 above is a floor on the improvement and not a measure of it — and equally,
+  nobody should quote it as proof the change worked.
+* **Colour, at the level the atlas is re-based to.** Oak's caps render distinctly yellow-olive
+  against a warm brown board. This is the documented cost of `normalise_plate`: reaching the
+  0.837 modulator mean needs gain ≈ 2.5–2.7, the knee and the clip are most of what happens at
+  that gain, and a warm plate loses its red channel first. It is **not** a regression — round 3's
+  plates needed the same gain — and the lever that would fix it properly is named and unchanged:
+  lower the target and raise `[ButtonColors] BoardCapTint` by the reciprocal so the product is
+  unchanged. That is a config round across four tint families and their wire defaults.
+* **The wall's UV.** `CardMesh` has always documented that a vertical wall spans a constant y (or
+  x) and varies only in z, so it samples a thin stretched strip of the cell. The undercut makes the
+  wall a much larger share of the cap, so that stretch is now a much larger share of the picture.
+  Visible in every close render as vertical streaking on the skirt. Nothing measures it.
+* **Anything at the across-the-table 32 px view.** The dentil blocks are 1.9 mm on a 63 mm cap.
+  At arm's length they read; at 32 px across the whole cap they cannot, and the same is true of the
+  dome rivets. No sheet here is rendered at that size.
+* **Hardware.** None of this has been in a headset. Every picture is Blender EEVEE reproducing
+  `BoardLit`'s two baked directions, which is the same replica `render_asset.py` uses and is not
+  the shader.
+
+---
+
+## WHAT IS STILL OPEN
+
+* **The user has not chosen.** He asked for OPTIONS; six of eighteen were taken on a reading of
+  each board, and that reading is stated above so it can be disagreed with. Switching any board to
+  a different option from the sheet is a row of `CapFaceLayout._byBoard` plus a re-crop, not a
+  rewrite — the construction is data.
+* **`PreviewKeycaps.cs` still hand-ports the mesh builders** and its `MeshInvariant()` still
+  asserts the ModBuild 289 counts, so its pictures are of the PLAIN construction on every board.
+  `ExportCapMeshes.cs` is the path that cannot drift; the station should be moved onto it.
+* **The 36 mm cap depth** is `[BoardButtons] Depth`, the user's own tuning, and it is the single
+  biggest reason the construction reads less strongly than the option sheets do. Not changed here.
+* **`cap_object.py` and round 3's registration chain are still in the tree**, unused by the
+  shipped atlas. Kept, not deleted: `plate_forensics.py`'s comparison of the two is the record of
+  why the cell stopped being a picture of a button.
+
+---
 # ROUND 3 (2026-08-25): THE SWATCH THAT WAS NEVER AN OBJECT
 
 ModBuild 286 went to hardware. The mesh was accepted; the textures were rejected for the third

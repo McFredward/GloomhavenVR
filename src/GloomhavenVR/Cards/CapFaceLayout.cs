@@ -175,6 +175,202 @@ internal static class CapFaceLayout
     internal static readonly Vector2 CaptionBoxNoSymbol = new(FieldHi - FieldLo, FieldHi - FieldLo);
 
     // =====================================================================================
+    // PART 1b — THE PER-BOARD CONSTRUCTION (ModBuild 290, round 4).
+    // =====================================================================================
+
+    /// <summary>How a square cap's corner is cut. The board tells you which: look at its frame.</summary>
+    internal enum CapCorner
+    {
+        /// <summary>A plain right angle — what every cap on every board wore up to ModBuild 289,
+        /// and what a cap with NO board (the map room's keycap-skinned furniture) still wears.</summary>
+        Sharp = 0,
+        /// <summary>Cut off at 45°, the way a joiner relieves a corner. The oak board.</summary>
+        Clip = 1,
+        /// <summary>Filleted. The steel plate's pressed corner and the bronze board's cast one.</summary>
+        Round = 2,
+    }
+
+    /// <summary>The hardware at a cap's corners, if any.</summary>
+    internal enum CapStud
+    {
+        None = 0,
+        /// <summary>A round dome head. Both metal boards carry these on their own frames.</summary>
+        Dome = 1,
+    }
+
+    /// <summary>
+    /// WHAT THE BOARD'S OWN CONSTRUCTION IS, AS GEOMETRY — the round-4 answer to three rejections.
+    ///
+    /// <para><b>The complaint, verbatim, twice:</b> <i>"Die sind einheitlich und so sieht das aus
+    /// wie aus den 90'igern"</i>, <i>"wie zusammengewürfelte assets mit standard meshs
+    /// draufgeklatscht"</i>. Rounds 1, 2 and 3 all answered it with TEXTURE, and round 3's own
+    /// generator prompt opens by telling the model that the supplied grey template "is the exact
+    /// GEOMETRY of these two plates and must be followed band for band". So all three rounds poured
+    /// a different material into ONE profile, identical on all three boards. That is, accurately,
+    /// the same mesh with a different texture on it.</para>
+    ///
+    /// <para><b>Twice this user has volunteered praise, and both times the move was the same one:
+    /// the mesh was adapted to the art.</b> <i>"Auf den Texturen sind Schrauben und Halzplatten etc
+    /// zu sehen, also eigentlich 3-dimensionale Objekte. Sie werden aber flach nur auf der Textur
+    /// dargestellt. Ich möchte, dass du das Mesh an die Textur anpasst."</i> — and, of round 2's
+    /// caps, <i>"Mir gefällt dass du die buttons etwas anders vom Mesh her designt hast"</i>. So the
+    /// three-dimensional features of the chosen design are built HERE, and the atlas carries only
+    /// what is genuinely surface: material, wear, engraving.</para>
+    ///
+    /// <para><b>EVERY FIELD BELOW LIVES INSIDE THE BEZEL, d ∈ [0, <see cref="BezelTotal"/>], AND
+    /// THAT IS THE LOAD-BEARING CONSTRAINT.</b> Nothing here moves <see cref="FieldLo"/>, so the
+    /// recessed field is the same size and the same flat viewer-facing plane it has always been.
+    /// That is what keeps the caption solver's asserted cases, <c>CapCellMath</c>, the atlas's
+    /// <c>TEXT_*</c> mirrors and <c>BoardCapSymbolVectors</c> all true without touching one of them
+    /// — and it is what keeps the guarantee the user actually stated, that the TEXT IS ALWAYS FULLY
+    /// READABLE. A construction that ate into the field would have bought a nicer rim by shrinking
+    /// the caption box, which is how "AUSWAHL BEEN" happened in the first place.</para>
+    ///
+    /// <para><b>IT IS DERIVED FROM <c>ControlBoard</c> AND IS THEREFORE NOT A NEW WIRE FIELD.</b>
+    /// The obvious alternative was a new synced tuning record, and it would have been wrong twice
+    /// over: the construction is a property of the BOARD, exactly as its atlas is, and both sides
+    /// already agree on the board (<c>RemoteBoardFurniture._style</c> is handed to every cap it
+    /// builds, and <c>PlayTray.NewKeycapMaterial</c> is the one call both sides mint materials
+    /// through). Deriving it adds no field to sync, no version to mismatch and no way for a peer's
+    /// mirror to disagree — the mirror cannot get this wrong without already having the wrong
+    /// board.</para>
+    /// </summary>
+    internal readonly struct CapConstruction
+    {
+        internal readonly CapCorner Corner;
+        /// <summary>Corner clip or fillet, as a fraction of the cap's SHORT side.</summary>
+        internal readonly float CornerFrac;
+        internal readonly CapStud Stud;
+        /// <summary>Stud RADIUS as a fraction of the short side. Sized to sit on the rim land.</summary>
+        internal readonly float StudFrac;
+        /// <summary>Dentil blocks per straight edge, 0 for none. The oak board's own border.</summary>
+        internal readonly int Dentils;
+        /// <summary>How far a dentil block stands proud of the rim land, fraction of short side.</summary>
+        internal readonly float DentilRise;
+        /// <summary>Split the outer chamfer into two stepped terraces. Every board's option R2 has
+        /// this; it is the one cue all three sheets agreed on.</summary>
+        internal readonly bool Terrace;
+
+        /// <summary>
+        /// HOW FAR THE CAP'S BASE STEPS IN BEHIND ITS CROWN, as a fraction of the short side —
+        /// an undercut skirt. 0 keeps the plain slab-sided cap.
+        ///
+        /// <para><b>THIS IS WHERE THE AREA IS, and the first cut of round 4 put everything in the
+        /// wrong place.</b> The construction was confined to the bezel, d ∈ [0, 0.135], to protect
+        /// the field. That is the right constraint and it had a consequence nobody had measured:
+        /// the bezel is 0.135 of the SHORT side — 5.9 mm on bronze — while the cap is
+        /// <c>[BoardButtons] Depth</c> THICK, shipped at 36 mm. So the biggest surface on a board
+        /// cap by a wide margin is its bare vertical WALL, and the on-board render at the angle a
+        /// player actually uses showed exactly that: a tall plain slab with a hairline of detail
+        /// along its top edge. Every option on all three sheets is a LOW WIDE button whose edge
+        /// profile is most of what you see; ours is a tall block.</para>
+        ///
+        /// <para>The wall costs nothing to spend, because it is not the field: stepping the base IN
+        /// leaves the crown at full footprint, so the bezel bands, <see cref="FieldLo"/> and the
+        /// caption box are all untouched. It also cannot foul the seat — the cap only ever gets
+        /// NARROWER below the shoulder.</para>
+        ///
+        /// <para>Widening the bezel instead was the obvious alternative and it is the one thing
+        /// this file must not do: the bezel is paid for out of the field, the field is the caption
+        /// box, and a smaller caption box is how "AUSWAHL BEEN" happened.</para>
+        /// </summary>
+        internal readonly float UndercutFrac;
+
+        internal CapConstruction(CapCorner corner, float cornerFrac, CapStud stud, float studFrac,
+                                 int dentils, float dentilRise, bool terrace, float undercutFrac)
+        {
+            UndercutFrac = undercutFrac;
+            Corner = corner;
+            CornerFrac = cornerFrac;
+            Stud = stud;
+            StudFrac = studFrac;
+            Dentils = dentils;
+            DentilRise = dentilRise;
+            Terrace = terrace;
+        }
+
+        /// <summary>True when this is the plain ModBuild 289 profile and the fast path applies.</summary>
+        internal bool IsPlain =>
+            Corner == CapCorner.Sharp && Stud == CapStud.None && Dentils <= 0 && !Terrace
+            && UndercutFrac <= 0f;
+
+        /// <summary>A cap whose OUTER ZONE is one flat land at the frontmost plane instead of a 45°
+        /// chamfer — the square-edged plate the oak board's joinery implies, and the only way its
+        /// dentil ring gets a band wide enough to read (0.105 of the short side rather than 0.045).</summary>
+        internal bool FlatLand => Dentils > 0;
+    }
+
+    /// <summary>
+    /// The ModBuild 289 profile, unchanged: a plain right-angled signet plate. This is what a cap
+    /// with NO board gets — <c>MapButtonRail</c> and <c>MapTableLegs</c> want the keycap SURFACE and
+    /// are not one of the three boards, exactly as <c>PlayTray.NewKeycapMaterial(shader, color)</c>
+    /// hands them the shared grain rather than a per-board atlas cell. Their mesh is byte for byte
+    /// the one they had before this existed.
+    /// </summary>
+    internal static readonly CapConstruction PlainConstruction =
+        new(CapCorner.Sharp, 0f, CapStud.None, 0f, 0, 0f, terrace: false, undercutFrac: 0f);
+
+    /// <summary>
+    /// THE THREE BOARDS' CONSTRUCTIONS, and each number is a claim about the board that can be
+    /// checked against <c>.planning/debug/round4/options_contact_sheet.png</c> and against the board
+    /// renders beside it on that sheet.
+    ///
+    /// <list type="bullet">
+    /// <item><b>Oak — clipped corners, no hardware, a dentil ring.</b> The oak board's frame is a run
+    /// of small raised rectangular blocks, its corners are square and unrelieved on the outline but
+    /// its carved recesses are all clipped, and there is NO METAL anywhere on its face: no rivet, no
+    /// strap, no boss. So the oak cap gets the joiner's 45° corner relief and the board's own
+    /// dentil border at cap scale (option OA-S3, the strongest image on any of the three sheets),
+    /// and it gets no studs — the one board whose whole story is that it has no fittings.</item>
+    /// <item><b>Steel — rounded corners, four dome RIVETS.</b> Its border is dentils with small round
+    /// rivet heads set among them. Rivets, not screws: option ST-S3's slotted screws were the
+    /// better-looking cap and the worse match, because there is not one screw slot anywhere on that
+    /// board.</item>
+    /// <item><b>Bronze — heavily rounded corners, four dome BOSSES, the deepest terrace.</b> Every
+    /// corner and every outline on that board is rounded, and its border carries both square beads
+    /// and large dome-headed bosses. Its corner fraction is the largest of the three because the
+    /// board's own radius is.</item>
+    /// </list>
+    ///
+    /// <para>Indexed by <c>(int)ControlBoard</c>. <c>ControlBoard</c> itself is not visible from this
+    /// file (it lives beside Unity types); the caller does the cast, and
+    /// <see cref="ConstructionFor"/> clamps.</para>
+    /// </summary>
+    private static readonly CapConstruction[] _byBoard =
+    {
+        // corner            frac    stud             frac    dentils  rise    terrace  undercut
+        // Oak's DentilRise was 0.016 first and that was measured wrong rather than chosen wrong:
+        // 0.016 of a 56.3 mm short side is a 0.9 mm block on a 4.1 mm footprint, and the on-board
+        // render at the angle a player actually uses showed it as a row of hairline ticks with no
+        // body — the block's own front face is coplanar-looking against the rim land it stands on,
+        // so all it contributed was two thin side slivers. 0.034 is 1.9 mm, which reads as a
+        // crenellation instead of a scratch. Judged on the picture, not on the number.
+        // Oak drops the TERRACE, and that is a choice about the board rather than a saving. Its
+        // signature is a run of square blocks, not a stepped moulding, and a terrace would have
+        // eaten the same 0.060 band the dentil ring needs. FlatLand (from Dentils > 0) squares off
+        // the outer edge, which is what a joiner's plate does and what OA-S3 shows.
+        new(CapCorner.Clip,  0.100f, CapStud.None,    0f,     7,       0.034f, false, 0.085f),  // Oak
+        new(CapCorner.Round, 0.100f, CapStud.Dome,    0.030f, 0,       0f,    true,  0.070f),  // Steel
+        new(CapCorner.Round, 0.160f, CapStud.Dome,    0.034f, 0,       0f,    true,  0.095f),  // Bronze
+    };
+
+    /// <summary>The construction for a board index, or <see cref="PlainConstruction"/> for a cap
+    /// with no board. Out-of-range clamps rather than throwing: a cap drawn with the wrong bezel is
+    /// a cosmetic defect and an exception here would take the whole board's build down with it.</summary>
+    internal static CapConstruction ConstructionFor(int? boardIndex)
+    {
+        if (boardIndex is not int i)
+            return PlainConstruction;
+        if (i < 0 || i >= _byBoard.Length)
+            return PlainConstruction;
+        return _byBoard[i];
+    }
+
+    /// <summary>Board count this table covers — pinned by the wire suite against
+    /// <c>ControlBoardStyles.Count</c> so a fourth board cannot be added without a construction.</summary>
+    internal static int ConstructionCount => _byBoard.Length;
+
+    // =====================================================================================
     // PART 2 — THE CAPTION SOLVER.
     // =====================================================================================
 

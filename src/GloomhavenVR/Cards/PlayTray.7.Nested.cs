@@ -743,7 +743,7 @@ internal sealed partial class PlayTray
                 // CardMesh.BuildRoundKeycap, NOT BuildRoundCap: that plain disc still has three
                 // other callers (this cap's own backing ring, its mirror's, and the map room's
                 // button rail) and every one of them assigns a single sharedMaterial.
-                capDisc.AddComponent<MeshFilter>().sharedMesh = CardMesh.GetRoundKeycap(size.x, capThickR);
+                capDisc.AddComponent<MeshFilter>().sharedMesh = CardMesh.GetRoundKeycap(size.x, capThickR, capStyle);
                 capDisc.AddComponent<MeshRenderer>();
                 capFrontZ = CapRestZ - capThickR * 0.5f; // disc protrudes half its thickness toward the viewer
                 // The caption floats just proud of the RECESSED FIELD, not of the rim land — the
@@ -829,7 +829,7 @@ internal sealed partial class PlayTray
                 // repaired in place, because the heal would have had to re-author the mesh too.
                 var mf = capCube.GetComponent<MeshFilter>();
                 if (mf != null)
-                    mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick);
+                    mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, capStyle);
                 Shader? shader = BoxCapShader();
                 capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)

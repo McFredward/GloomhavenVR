@@ -749,7 +749,185 @@ internal static class CardMesh
     /// shows as parallax between the two the moment the player looks along the board.</summary>
     internal const float LabelProudOfField = 0.0015f;
 
+    /// <summary>
+    /// THE CAP'S OUTLINE, INSET BY <paramref name="t"/> — one function for all three corner
+    /// treatments, and it is an EXACT inward offset rather than a scale.
+    ///
+    /// <para>A convex outline is the intersection of half-planes <c>n·p ≤ d</c>, and offsetting it
+    /// inward by t is subtracting t from every d. That is the whole derivation, and it is why each
+    /// case below is a closed form rather than a fit:</para>
+    /// <list type="bullet">
+    /// <item><b>Sharp</b> — half-extents shrink by t. Four points, in the same order and at the same
+    /// places the pre-round-4 <c>AddBand</c> put them.</item>
+    /// <item><b>Clip</b> — an octagon. The 45° face's own offset moves it inward by t along a normal
+    /// of (1,1)/√2, so the clip's length along each EDGE shrinks by t(√2−1), not by t. Getting that
+    /// factor wrong is invisible on the outer band and opens a visible wedge at the field.</item>
+    /// <item><b>Round</b> — the four arc CENTRES are invariant under inward offset (c = hw − r, and
+    /// (hw − t) − (r − t) = hw − r), so only the radius moves. The radius CLAMPS at zero rather than
+    /// going negative: offsetting a fillet inward past its own radius genuinely does produce a sharp
+    /// corner, and steel's fillet (0.100 of the short side) is smaller than the bezel (0.135), so
+    /// its field corner is square on purpose and not by accident.</item>
+    /// </list>
+    ///
+    /// <para><b>The point COUNT and ORDER do not depend on t</b>, which is the property the bands
+    /// rely on: two rings at different insets are bridged vertex to vertex, so every fold is a
+    /// shared edge and the solid is watertight exactly as the rectangle version was.</para>
+    /// </summary>
+    private static Vector2[] CapRing(float hw, float hh, float t,
+                                     CapFaceLayout.CapCorner corner, float cornerSize, int arcSegs)
+    {
+        float X = Mathf.Max(1e-5f, hw - t), Y = Mathf.Max(1e-5f, hh - t);
+        switch (corner)
+        {
+            case CapFaceLayout.CapCorner.Clip:
+            {
+                // k is what is left of the clip at this inset. Clamped to the half-extent so a
+                // deep inset degenerates to a diamond rather than folding through itself.
+                float k = Mathf.Clamp(cornerSize - t * (Mathf.Sqrt(2f) - 1f), 0f, Mathf.Min(X, Y));
+                return new[]
+                {
+                    new Vector2(-(X - k), Y), new Vector2(X - k, Y),
+                    new Vector2(X, Y - k),    new Vector2(X, -(Y - k)),
+                    new Vector2(X - k, -Y),   new Vector2(-(X - k), -Y),
+                    new Vector2(-X, -(Y - k)), new Vector2(-X, Y - k),
+                };
+            }
+            case CapFaceLayout.CapCorner.Round:
+            {
+                float r0 = Mathf.Min(cornerSize, Mathf.Min(hw, hh));
+                float cx = Mathf.Max(0f, hw - r0), cy = Mathf.Max(0f, hh - r0);
+                float R = Mathf.Max(0f, r0 - t);
+                cx = Mathf.Min(cx, X); cy = Mathf.Min(cy, Y);
+                int n = arcSegs;
+                var pts = new System.Collections.Generic.List<Vector2>(4 + 4 * n);
+                // Clockwise from the top-left, matching the Sharp order below.
+                void Arc(float sx, float sy, float a0, float a1)
+                {
+                    for (int i = 1; i <= n; i++)
+                    {
+                        float a = Mathf.Lerp(a0, a1, i / (float)n);
+                        pts.Add(new Vector2(sx + R * Mathf.Cos(a), sy + R * Mathf.Sin(a)));
+                    }
+                }
+                pts.Add(new Vector2(-cx, Y));
+                pts.Add(new Vector2(cx, Y));
+                Arc(cx, cy, Mathf.PI * 0.5f, 0f);                    // top-right
+                pts.Add(new Vector2(X, -cy));
+                Arc(cx, -cy, 0f, -Mathf.PI * 0.5f);                  // bottom-right
+                pts.Add(new Vector2(-cx, -Y));
+                Arc(-cx, -cy, -Mathf.PI * 0.5f, -Mathf.PI);          // bottom-left
+                pts.Add(new Vector2(-X, cy));
+                Arc(-cx, cy, Mathf.PI, Mathf.PI * 0.5f);             // top-left
+                // THE LAST ARC ENDS WHERE THE FIRST POINT STARTS. Arc() includes its end angle, and
+                // the top-left arc's end (90°) is (−cx, cy + R) = (−cx, Y), which is pts[0]. Leaving
+                // the duplicate in gives the ring one zero-length segment, which AddRingBand's
+                // degeneracy guard then skips in EVERY band — a one-quad gap at the top-left corner
+                // of the outer chamfer, the rim land and the inner chamfer alike. It is small and it
+                // is a genuine hole: the mesh audit caught it as the only two non-flat open edges on
+                // the bronze cap, on the inner chamfer, exactly at (−cx, Y).
+                if ((pts[pts.Count - 1] - pts[0]).sqrMagnitude < 1e-12f)
+                    pts.RemoveAt(pts.Count - 1);
+                return pts.ToArray();
+            }
+            default:
+                return new[]
+                {
+                    new Vector2(-X, Y), new Vector2(X, Y), new Vector2(X, -Y), new Vector2(-X, -Y),
+                };
+        }
+    }
+
+    /// <summary>Arc segments per rounded corner. Eight puts a facet every 11°, which is smooth at a
+    /// 40-63 mm cap; the round CAP itself uses 64 around a full circle, i.e. 16 per quadrant, and is
+    /// a much larger arc.</summary>
+    private const int CapCornerArcSegments = 8;
+
+    /// <summary>
+    /// A DOME HEAD — the rivet on the steel board's frame, the boss on the bronze one. An ellipsoid
+    /// cap of radius <paramref name="rs"/> standing <paramref name="hs"/> proud of
+    /// <paramref name="zPlane"/> toward the viewer (−Z).
+    ///
+    /// <para>SHARED BY BOTH CAP SHAPES on purpose. It was written twice first, once in each builder,
+    /// and the two copies are exactly the kind of pair this repository has already been bitten by —
+    /// the square cap and the round cap must read as one set, and two implementations of the same
+    /// rivet is the cheapest possible way to make them not.</para>
+    ///
+    /// <para>The normal is the ELLIPSOID's own gradient, not a sphere's. At hs = 0.55·rs a sphere
+    /// normal is up to 12° wrong on the flank, and on <c>BoardLit</c> — which shades against baked
+    /// key directions and never reads a scene light — that is a fixed shading error, not one that
+    /// moves and forgives itself.</para>
+    /// </summary>
+    private static void AddDomeHead(System.Collections.Generic.List<Vector3> verts,
+                                    System.Collections.Generic.List<Vector3> norms,
+                                    System.Collections.Generic.List<Vector2> uvs,
+                                    System.Collections.Generic.List<int> sm,
+                                    System.Func<Vector3, Vector2> uv,
+                                    float px, float py, float zPlane, float rs, float hs)
+    {
+        const int Lat = 4, Seg = 12;
+        Vector3 P(int k, int s)
+        {
+            float phi = (k / (float)Lat) * Mathf.PI * 0.5f;
+            float th = (s % Seg) * 2f * Mathf.PI / Seg;
+            float rr = rs * Mathf.Cos(phi);
+            return new Vector3(px + rr * Mathf.Cos(th), py + rr * Mathf.Sin(th),
+                               zPlane - hs * Mathf.Sin(phi));
+        }
+        Vector3 N(Vector3 p)
+        {
+            float X = p.x - px, Y = p.y - py, Z = zPlane - p.z;
+            var g = new Vector3(X / (rs * rs), Y / (rs * rs), -Z / Mathf.Max(1e-6f, hs * hs));
+            return g.sqrMagnitude < 1e-12f ? Vector3.back : g.normalized;
+        }
+        // THE POLE IS A TRIANGLE FAN, NOT A ROW OF COLLAPSED QUADS. Emitting the top row as quads
+        // whose far edge has zero length costs Seg fully degenerate triangles per dome and — the
+        // reason it was found rather than tolerated — leaves each apex edge referenced three times,
+        // which reads to any watertightness check as a hole that is not there. Twelve phantom open
+        // edges per rivet, times four rivets, on every metal cap.
+        var apex = new Vector3(px, py, zPlane - hs);
+        for (int k = 0; k < Lat; k++)
+            for (int s = 0; s < Seg; s++)
+            {
+                Vector3 a = P(k, s), b = P(k, s + 1);
+                bool pole = k == Lat - 1;
+                Vector3 c2 = pole ? apex : P(k + 1, s + 1);
+                Vector3 d2 = pole ? apex : P(k + 1, s);
+                int b0 = verts.Count;
+                if (pole)
+                {
+                    foreach (Vector3 p in new[] { a, b, apex })
+                    {
+                        verts.Add(p); norms.Add(p == apex ? Vector3.back : N(p)); uvs.Add(uv(p));
+                    }
+                    if (Vector3.Dot(Vector3.Cross(b - a, apex - a), N(a)) > 0f)
+                    { sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2); }
+                    else
+                    { sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1); }
+                    continue;
+                }
+                foreach (Vector3 p in new[] { a, b, c2, d2 })
+                {
+                    verts.Add(p); norms.Add(N(p)); uvs.Add(uv(p));
+                }
+                if (Vector3.Dot(Vector3.Cross(b - a, c2 - a), N(a)) > 0f)
+                {
+                    sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
+                    sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 3);
+                }
+                else
+                {
+                    sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1);
+                    sm.Add(b0); sm.Add(b0 + 3); sm.Add(b0 + 2);
+                }
+            }
+    }
+
+    /// <summary>The ModBuild 289 cap: a plain right-angled signet plate, for a cap with no board.</summary>
     internal static Mesh BuildBeveledKeycap(float width, float height, float thickness)
+        => BuildBeveledKeycap(width, height, thickness, CapFaceLayout.PlainConstruction);
+
+    internal static Mesh BuildBeveledKeycap(float width, float height, float thickness,
+                                            CapFaceLayout.CapConstruction con)
     {
         float hw = width * 0.5f, hh = height * 0.5f;
         CapProfile(Mathf.Min(width, height), Mathf.Min(hw, hh), thickness,
@@ -837,9 +1015,221 @@ internal static class CardMesh
                     new Vector3(-o, 0f, z));   // −X
         }
 
+        // A BAND between two RINGS, for the per-board constructions. Same contract as AddBand
+        // above and the same reason the sign is passed rather than derived: the four bands do not
+        // share one rule — the inner chamfer faces INWARD and the wall faces along no z at all —
+        // so `outSign` (+1 outward, −1 inward) is stated and only the MAGNITUDES are derived from
+        // the band's own geometry. Checked against all four of the rectangle version's bands
+        // before it was used: outer chamfer (1,−1), rim land (0,−1), inner chamfer (−1,−1) and
+        // wall (1,0) all come out exactly as AddBand is called with them today.
+        // `zSign` is −1 for a surface facing the VIEWER and +1 for one facing away — the undercut's
+        // shoulder is the underside of an overhang and is the only band in either cap that faces
+        // backwards. It is passed for exactly the reason `outSign` is: the bands do not share one
+        // rule, and deriving this one from the geometry is impossible because a flat annulus has
+        // the same geometry whichever way it faces.
+        void AddRingBand(System.Collections.Generic.List<int> sm,
+                         Vector2[] A, float zA, Vector2[] B, float zB, float outSign,
+                         float zSign = -1f)
+        {
+            int n = A.Length;
+            float dz = Mathf.Abs(zB - zA);
+            for (int i = 0; i < n; i++)
+            {
+                int j = (i + 1) % n;
+                Vector2 a = A[i], b = A[j], bi = B[j], ai = B[i];
+                Vector2 e = b - a;
+                if (e.sqrMagnitude < 1e-12f)
+                    continue;                       // a collapsed arc segment (fillet clamped to 0)
+                var outw = new Vector2(e.y, -e.x).normalized;
+                if (Vector2.Dot(outw, (a + b) * 0.5f) < 0f)
+                    outw = -outw;
+                float dt = ((a - ai).magnitude + (b - bi).magnitude) * 0.5f;
+                var nrm = new Vector3(outw.x * dz * outSign, outw.y * dz * outSign, dt * zSign);
+                if (nrm.sqrMagnitude < 1e-12f)
+                    nrm = new Vector3(outw.x * outSign, outw.y * outSign, 0f);
+                AddQuad(sm, new Vector3(a.x, a.y, zA), new Vector3(b.x, b.y, zA),
+                            new Vector3(bi.x, bi.y, zB), new Vector3(ai.x, ai.y, zB), nrm.normalized);
+            }
+        }
+
+        // A filled RING as a triangle fan about the cap's centre.
+        void AddRingFan(System.Collections.Generic.List<int> sm, Vector2[] R, float z, bool front)
+        {
+            int b0 = verts.Count;
+            Vector3 n = front ? Vector3.back : Vector3.forward;
+            for (int i = 0; i < R.Length; i++)
+            {
+                verts.Add(new Vector3(R[i].x, R[i].y, z));
+                norms.Add(n);
+                uvs.Add(Uv(new Vector3(R[i].x, R[i].y, z)));
+            }
+            int centre = verts.Count;
+            verts.Add(new Vector3(0f, 0f, z));
+            norms.Add(n);
+            uvs.Add(new Vector2(0.5f, 0.5f));
+            for (int i = 0; i < R.Length; i++)
+            {
+                int nx = (i + 1) % R.Length;
+                // Rings run clockwise seen from the viewer (−Z). A front face must have its
+                // right-hand normal pointing −Z, which is the (centre, i, next) order; the back
+                // face is the reverse. Taken from BuildRoundKeycap.AddFan, which is the winding
+                // this project has already proved outward-facing on hardware.
+                if (front) { sm.Add(centre); sm.Add(b0 + i); sm.Add(b0 + nx); }
+                else { sm.Add(centre); sm.Add(b0 + nx); sm.Add(b0 + i); }
+            }
+        }
+
+        void AddDome(System.Collections.Generic.List<int> sm, float px, float py, float zPlane,
+                     float rs, float hs)
+            => AddDomeHead(verts, norms, uvs, sm, Uv, px, py, zPlane, rs, hs);
+
+        // A DENTIL BLOCK — one of the small raised rectangles of the oak board's own border, sitting
+        // on the rim land and standing `rise` proud of it. Five visible faces; the sixth is the
+        // rim land it stands on.
+        void AddBlock(System.Collections.Generic.List<int> sm,
+                      float x0, float x1, float y0, float y1, float zBase, float rise)
+        {
+            float zf = zBase - rise;
+            AddQuad(sm, new(x0, y1, zf), new(x1, y1, zf), new(x1, y0, zf), new(x0, y0, zf), Vector3.back);
+            AddQuad(sm, new(x0, y1, zBase), new(x1, y1, zBase), new(x1, y1, zf), new(x0, y1, zf), Vector3.up);
+            AddQuad(sm, new(x0, y0, zBase), new(x1, y0, zBase), new(x1, y0, zf), new(x0, y0, zf), Vector3.down);
+            AddQuad(sm, new(x1, y1, zBase), new(x1, y0, zBase), new(x1, y0, zf), new(x1, y1, zf), Vector3.right);
+            AddQuad(sm, new(x0, y1, zBase), new(x0, y0, zBase), new(x0, y0, zf), new(x0, y1, zf), Vector3.left);
+        }
+
         float r1x = hw - c, r1y = hh - c;                    // inner edge of the outer chamfer
         float r2x = r1x - rim, r2y = r1y - rim;              // inner edge of the rim land
         float r3x = r2x - step, r3y = r2y - step;            // the recessed FIELD
+
+        if (!con.IsPlain)
+        {
+            // ---------------------------------------------------------------------------------
+            // THE PER-BOARD CONSTRUCTION. Every band below lives in d ∈ [0, BezelTotal]; the FIELD
+            // ring is taken at exactly BezelTotal, so CapFaceLayout.FieldLo, the caption solve and
+            // the atlas's cell arithmetic are untouched by any of it. See CapFaceLayout.
+            // ---------------------------------------------------------------------------------
+            float shortSide = Mathf.Min(width, height);
+            float cs = con.CornerFrac * shortSide;
+            Vector2[] Ring(float t) => CapRing(hw, hh, t, con.Corner, cs, CapCornerArcSegments);
+
+            // [1] THE OUTER ZONE — one 45° chamfer, or the stepped double TERRACE that every
+            // board's chosen round option (OA-R2 / ST-R2 / BR-R2) shows. The fractions are of the
+            // chamfer's own width and depth, so a terrace never eats into the rim land.
+            float outerTop = con.FlatLand ? zTop : zWallTop;
+            if (con.FlatLand)
+            {
+                // A SQUARE-EDGED PLATE: the outer zone is one flat land at the frontmost plane,
+                // and the wall runs straight up to it. That is the joiner's edge the oak board's
+                // own recesses have, and it is what gives the dentil ring a band 0.105 of the
+                // short side wide to stand on instead of 0.045.
+                AddRingBand(ring, Ring(0f), zTop, Ring(c + rim), zTop, 1f);
+            }
+            else if (con.Terrace)
+            {
+                float zMid = Mathf.Lerp(zWallTop, zTop, 0.55f);
+                AddRingBand(ring, Ring(0f), zWallTop, Ring(0.18f * c), zMid, 1f);   // riser
+                AddRingBand(ring, Ring(0.18f * c), zMid, Ring(0.58f * c), zMid, 1f); // tread
+                AddRingBand(ring, Ring(0.58f * c), zMid, Ring(0.76f * c), zTop, 1f); // riser
+                AddRingBand(ring, Ring(0.76f * c), zTop, Ring(c), zTop, 1f);         // tread
+                AddRingBand(ring, Ring(c), zTop, Ring(c + rim), zTop, 1f);           // rim land
+            }
+            else
+            {
+                AddRingBand(ring, Ring(0f), zWallTop, Ring(c), zTop, 1f);
+                AddRingBand(ring, Ring(c), zTop, Ring(c + rim), zTop, 1f);           // rim land
+            }
+
+            AddRingBand(ring, Ring(c + rim), zTop, Ring(c + rim + step), zField, -1f); // inner chamfer
+
+            // [0] THE RECESSED FIELD — unmoved, unchanged, and flat.
+            AddRingFan(top, Ring(c + rim + step), zField, front: true);
+
+            // [2] THE WALLS, with the UNDERCUT SKIRT. The crown keeps the full footprint; only the
+            // base steps IN, so nothing here can touch the bezel, the field or the caption box —
+            // and the cap can only get narrower below the shoulder, so it cannot foul its seat.
+            float uc = con.UndercutFrac * shortSide;
+            if (uc > 0f)
+            {
+                float zShoulder = Mathf.Lerp(outerTop, zBack, 0.38f);
+                AddRingBand(walls, Ring(0f), outerTop, Ring(0f), zShoulder, 1f);   // crown wall
+                AddRingBand(walls, Ring(0f), zShoulder, Ring(uc), zShoulder, 1f, zSign: 1f); // shoulder
+                AddRingBand(walls, Ring(uc), zShoulder, Ring(uc), zBack, 1f);     // skirt
+                AddRingFan(walls, Ring(uc), zBack, front: false);
+            }
+            else
+            {
+                AddRingBand(walls, Ring(0f), outerTop, Ring(0f), zBack, 1f);
+                AddRingFan(walls, Ring(0f), zBack, front: false);
+            }
+
+            // THE HARDWARE, on the rim land, in the BEZEL submesh so it takes the bright bevel
+            // tint and reads as fitted metal rather than as part of the face.
+            if (con.Stud == CapFaceLayout.CapStud.Dome && con.StudFrac > 0f)
+            {
+                float rs = Mathf.Min(con.StudFrac * shortSide, rim * 0.95f);
+                Vector2[] seat = Ring(c + rim * 0.5f);
+                // The four CORNER-most points of the rim-land ring, found by projection rather
+                // than by index: the ring's point count and ordering differ between Clip (8) and
+                // Round (4 + 4·segments), and an index that is right for one is silently wrong
+                // for the other.
+                foreach (Vector2 dir in new[] { new Vector2(1, 1), new Vector2(1, -1),
+                                                new Vector2(-1, -1), new Vector2(-1, 1) })
+                {
+                    Vector2 best = seat[0];
+                    float bestDot = float.NegativeInfinity;
+                    foreach (Vector2 p in seat)
+                    {
+                        float dp = Vector2.Dot(p, dir.normalized);
+                        if (dp > bestDot) { bestDot = dp; best = p; }
+                    }
+                    AddDome(ring, best.x, best.y, zTop, rs, rs * 0.55f);
+                }
+            }
+
+            // THE DENTIL RING — the oak board's own border, at cap scale. Blocks sit on the rim
+            // land along the four STRAIGHT runs; the corners are left clear, which is what the
+            // board does at its own corners too.
+            if (con.Dentils > 0 && con.DentilRise > 0f)
+            {
+                float rise = con.DentilRise * shortSide;
+                float yOut = hh - c, yIn = hh - c - rim;
+                float xOut = hw - c, xIn = hw - c - rim;
+                // The straight run of the rim land, taken from the ring's own inner edge so a clip
+                // or a fillet shortens it correctly instead of running blocks off the corner.
+                Vector2[] inner = Ring(c + rim);
+                float runX = 0f, runY = 0f;
+                foreach (Vector2 p in inner)
+                {
+                    if (Mathf.Abs(Mathf.Abs(p.y) - yIn) < rim * 0.25f) runX = Mathf.Max(runX, Mathf.Abs(p.x));
+                    if (Mathf.Abs(Mathf.Abs(p.x) - xIn) < rim * 0.25f) runY = Mathf.Max(runY, Mathf.Abs(p.y));
+                }
+                void Row(bool horizontal, float sign)
+                {
+                    float run = horizontal ? runX : runY;
+                    if (run <= 0f)
+                        return;
+                    int n = con.Dentils;
+                    float pitch = 2f * run / n;
+                    float half = pitch * 0.32f;          // 64 % block, 36 % gap — the board's ratio
+                    for (int i = 0; i < n; i++)
+                    {
+                        float ctr = -run + pitch * (i + 0.5f);
+                        if (horizontal)
+                            AddBlock(ring, ctr - half, ctr + half,
+                                     sign > 0 ? yIn : -yOut, sign > 0 ? yOut : -yIn, zTop, rise);
+                        else
+                            AddBlock(ring, sign > 0 ? xIn : -xOut, sign > 0 ? xOut : -xIn,
+                                     ctr - half, ctr + half, zTop, rise);
+                    }
+                }
+                Row(horizontal: true, sign: 1f);
+                Row(horizontal: true, sign: -1f);
+                Row(horizontal: false, sign: 1f);
+                Row(horizontal: false, sign: -1f);
+            }
+        }
+        else
+        {
 
         // [0] THE RECESSED FIELD — the state colour, the carved symbol, and the caption above it.
         AddQuad(top, new(-r3x, r3y, zField), new(r3x, r3y, zField),
@@ -859,6 +1249,8 @@ internal static class CardMesh
         AddBand(walls, hw, hh, zWallTop, hw, hh, zBack, 1f, 0f);
         AddQuad(walls, new(-hw, hh, zBack), new(hw, hh, zBack), new(hw, -hh, zBack), new(-hw, -hh, zBack),
                 Vector3.forward);
+
+        }
 
         var mesh = new Mesh { name = "GloomhavenVR.SignetKeycap" };
         mesh.SetVertices(verts);
@@ -895,6 +1287,10 @@ internal static class CardMesh
     /// own and is unchanged.</para>
     /// </summary>
     internal static Mesh BuildRoundKeycap(float diameter, float thickness, int segments)
+        => BuildRoundKeycap(diameter, thickness, segments, CapFaceLayout.PlainConstruction);
+
+    internal static Mesh BuildRoundKeycap(float diameter, float thickness, int segments,
+                                          CapFaceLayout.CapConstruction con)
     {
         segments = Mathf.Clamp(segments, 12, 128);
         int seg = segments;
@@ -951,10 +1347,66 @@ internal static class CardMesh
                 int next = (i + 1) % seg;
                 int a0 = b0 + i * 2, b1 = b0 + i * 2 + 1;
                 int c0 = b0 + next * 2, d1 = b0 + next * 2 + 1;
-                // Winding taken from BuildRoundCap's side wall (a, c, b / c, d, b), which is the
-                // one this project has already proved outward-facing on hardware.
-                sm.Add(a0); sm.Add(c0); sm.Add(b1);
-                sm.Add(c0); sm.Add(d1); sm.Add(b1);
+                // WINDING IS CHOSEN FROM THE BAND'S OWN NORMAL, exactly as the square cap's AddQuad
+                // chooses it — and this line is a FIX, not a tidy-up.
+                //
+                // It used to be the fixed order (a, c, b / c, d, b), with the comment "taken from
+                // BuildRoundCap's side wall, which is the one this project has already proved
+                // outward-facing on hardware". That is true of the WALL and false of everything
+                // else. The wall is the one band with no radial step (ra == rb), and for it the
+                // right-hand normal of (a, c, b) does come out radially outward. On a band that
+                // steps inward — the outer chamfer, the RIM LAND and the inner chamfer, i.e. the
+                // entire bezel — the same order gives a right-hand normal of +Z, pointing AWAY from
+                // the viewer, against a shading normal that points toward them.
+                //
+                // Every cap material is `new Material(BoardLit)` and keeps the shader's default
+                // _Cull = Back, so all three bezel bands were being back-face culled. Measured:
+                // 384 of the round cap's 640 triangles wound against their own normals (exactly
+                // 64 segments x 6), and the station's own picture of an Oak rest cap
+                // (.planning/debug/round4/station/Oak_ShortRest_after_rake.png) shows the recessed
+                // field, a crescent of the far WALL and NO BEZEL RING AT ALL — while the square
+                // cap beside it shows its full bright frame. The round rest pads on all three
+                // boards have had no bezel since round 2 gave the disc the signet profile.
+                //
+                // This is the winding bug class this repository has already shipped seven times.
+                // Deriving the order instead of asserting it is what the square cap does, and it is
+                // why the square cap does not have this bug.
+                Vector3 pa = verts[a0], pc = verts[c0], pb = verts[b1];
+                var want = new Vector3(cs[i] * nr, sn[i] * nr, nz);
+                if (Vector3.Dot(Vector3.Cross(pc - pa, pb - pa), want) > 0f)
+                {
+                    sm.Add(a0); sm.Add(c0); sm.Add(b1);
+                    sm.Add(c0); sm.Add(d1); sm.Add(b1);
+                }
+                else
+                {
+                    sm.Add(a0); sm.Add(b1); sm.Add(c0);
+                    sm.Add(c0); sm.Add(b1); sm.Add(d1);
+                }
+            }
+        }
+
+        // An arbitrary quad with a stated normal, wound so it is visible from its +n side. Same
+        // right-hand rule and the same argument as the square cap's AddQuad; the round builder had
+        // no need of one until the dentil blocks, which are neither bands nor fans.
+        void AddQuadN(System.Collections.Generic.List<int> sm,
+                      Vector3 a, Vector3 b, Vector3 c2, Vector3 d2, Vector3 n)
+        {
+            n = n.normalized;
+            int b0 = verts.Count;
+            foreach (Vector3 p in new[] { a, b, c2, d2 })
+            {
+                verts.Add(p); norms.Add(n); uvs.Add(Uv(p.x, p.y));
+            }
+            if (Vector3.Dot(Vector3.Cross(b - a, c2 - a), n) > 0f)
+            {
+                sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
+                sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 3);
+            }
+            else
+            {
+                sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1);
+                sm.Add(b0); sm.Add(b0 + 3); sm.Add(b0 + 2);
             }
         }
 
@@ -981,11 +1433,95 @@ internal static class CardMesh
         }
 
         AddFan(top, r3, zField, front: true);                      // [0] the recessed field
-        AddBand(ring, rOut, zWallTop, r1, zFront, 1f, -1f);        // [1] outer chamfer
+
+        // [1] THE OUTER ZONE. A disc has no corner to cut, so the round cap carries its board's
+        // construction in the two cues that DO survive being circular: the stepped TERRACE (every
+        // board's chosen round option is a terrace — OA-R2, ST-R2, BR-R2) and the HARDWARE. That
+        // is what makes the two mandatory shapes read as one set rather than as two assets.
+        if (con.Terrace)
+        {
+            float zMid = Mathf.Lerp(zWallTop, zFront, 0.55f);
+            AddBand(ring, rOut, zWallTop, rOut - 0.18f * c, zMid, 1f, -1f);
+            AddBand(ring, rOut - 0.18f * c, zMid, rOut - 0.58f * c, zMid, 0f, -1f);
+            AddBand(ring, rOut - 0.58f * c, zMid, rOut - 0.76f * c, zFront, 1f, -1f);
+            AddBand(ring, rOut - 0.76f * c, zFront, r1, zFront, 0f, -1f);
+        }
+        else
+        {
+            AddBand(ring, rOut, zWallTop, r1, zFront, 1f, -1f);    //     outer chamfer
+        }
+
         AddBand(ring, r1, zFront, r2, zFront, 0f, -1f);            //     rim land
         AddBand(ring, r2, zFront, r3, zField, -1f, -1f);           //     inner chamfer
-        AddBand(walls, rOut, zWallTop, rOut, zBack, 1f, 0f);       // [2] side wall
-        AddFan(walls, rOut, zBack, front: false);                  //     hidden back
+        // [2] THE SIDE WALL, with the same UNDERCUT SKIRT the square cap gets — see
+        // CapFaceLayout.CapConstruction.UndercutFrac for why the wall is where the area is. The
+        // crown keeps the full diameter; only the base steps in.
+        float ucR = con.UndercutFrac * diameter;
+        if (ucR > 0f)
+        {
+            float zSh = Mathf.Lerp(zWallTop, zBack, 0.38f);
+            AddBand(walls, rOut, zWallTop, rOut, zSh, 1f, 0f);         // crown wall
+            AddBand(walls, rOut, zSh, rOut - ucR, zSh, 0f, 1f);        // the shoulder, facing BACK
+            AddBand(walls, rOut - ucR, zSh, rOut - ucR, zBack, 1f, 0f); // skirt
+            AddFan(walls, rOut - ucR, zBack, front: false);            //     hidden back
+        }
+        else
+        {
+            AddBand(walls, rOut, zWallTop, rOut, zBack, 1f, 0f);
+            AddFan(walls, rOut, zBack, front: false);
+        }
+
+        // THE HARDWARE, on the rim land, at the same four DIAGONAL positions the square cap puts
+        // its studs — so a player looking at a board's round cap and its square cap sees the rivets
+        // in the same places on both.
+        if (con.Stud == CapFaceLayout.CapStud.Dome && con.StudFrac > 0f)
+        {
+            float rs = Mathf.Min(con.StudFrac * diameter, rim * 0.95f);
+            float seatR = (r1 + r2) * 0.5f;
+            for (int q = 0; q < 4; q++)
+            {
+                float a = Mathf.PI * 0.25f + q * Mathf.PI * 0.5f;
+                AddDomeHead(verts, norms, uvs, ring, p => Uv(p.x, p.y),
+                            seatR * Mathf.Cos(a), seatR * Mathf.Sin(a), zFront, rs, rs * 0.55f);
+            }
+        }
+
+        // THE DENTIL RING on a disc: the rim-land annulus CRENELLATED, alternate sectors standing
+        // proud. The square cap's blocks are boxes on four straight runs; a circle has no straight
+        // run, so the same border becomes raised sectors of the annulus — the same count of blocks
+        // around the same band, which is what the oak board's own border does where it turns a
+        // corner.
+        if (con.Dentils > 0 && con.DentilRise > 0f)
+        {
+            float rise = con.DentilRise * diameter;
+            int m = con.Dentils * 4;
+            float zBlk = zFront - rise;
+            for (int i = 0; i < m; i++)
+            {
+                float a0 = (i + 0.18f) * 2f * Mathf.PI / m;
+                float a1 = (i + 0.82f) * 2f * Mathf.PI / m;   // 64 % block, 36 % gap
+                const int SubSeg = 3;
+                Vector3 In(float a, float z) => new(r2 * Mathf.Cos(a), r2 * Mathf.Sin(a), z);
+                Vector3 Ou(float a, float z) => new(r1 * Mathf.Cos(a), r1 * Mathf.Sin(a), z);
+                for (int s = 0; s < SubSeg; s++)
+                {
+                    float b0 = Mathf.Lerp(a0, a1, s / (float)SubSeg);
+                    float b1 = Mathf.Lerp(a0, a1, (s + 1) / (float)SubSeg);
+                    AddQuadN(ring, Ou(b0, zBlk), Ou(b1, zBlk), In(b1, zBlk), In(b0, zBlk),
+                             Vector3.back);                                        // block face
+                    AddQuadN(ring, Ou(b0, zFront), Ou(b1, zFront), Ou(b1, zBlk), Ou(b0, zBlk),
+                             new Vector3(Mathf.Cos((b0 + b1) * 0.5f), Mathf.Sin((b0 + b1) * 0.5f), 0f));
+                    AddQuadN(ring, In(b0, zFront), In(b1, zFront), In(b1, zBlk), In(b0, zBlk),
+                             new Vector3(-Mathf.Cos((b0 + b1) * 0.5f), -Mathf.Sin((b0 + b1) * 0.5f), 0f));
+                }
+                // The two radial ENDS of the block.
+                foreach ((float a, float sgn) in new[] { (a0, -1f), (a1, 1f) })
+                {
+                    var tang = new Vector3(-Mathf.Sin(a) * sgn, Mathf.Cos(a) * sgn, 0f);
+                    AddQuadN(ring, Ou(a, zFront), In(a, zFront), In(a, zBlk), Ou(a, zBlk), tang);
+                }
+            }
+        }
 
         var mesh = new Mesh { name = "GloomhavenVR.SignetRoundKeycap" };
         mesh.SetVertices(verts);
@@ -1001,20 +1537,39 @@ internal static class CardMesh
         return mesh;
     }
 
-    private static readonly System.Collections.Generic.Dictionary<(int, int, int), Mesh> _roundKeycapCache = new();
+    private static readonly System.Collections.Generic.Dictionary<(int, int, int, int), Mesh> _roundKeycapCache = new();
 
     /// <summary>Cached <see cref="BuildRoundKeycap"/>, keyed exactly as <see cref="GetRoundCap"/> is
-    /// and for the same reason: every rest disc on a board is the same size.</summary>
-    internal static Mesh GetRoundKeycap(float diameter, float thickness, int segments = RoundCapSegments)
+    /// and for the same reason: every rest disc on a board is the same size.
+    ///
+    /// <para><b>THE BOARD IS PART OF THE KEY, and leaving it out would have been a silent
+    /// cross-board bug rather than a slow cache.</b> Since ModBuild 290 the mesh depends on the
+    /// board (<see cref="CapFaceLayout.ConstructionFor"/>), and all three boards fit their rest
+    /// discs to very nearly the same diameter — so a size-only key would have handed the second
+    /// board whichever board happened to build first, on a mesh that is shared and never rebuilt.
+    /// In multiplayer that is a peer's mirror wearing the wrong board's rivets with nothing in the
+    /// build, the mirrors gate or the wire suite able to see it.</para></summary>
+    internal static Mesh GetRoundKeycap(float diameter, float thickness, ControlBoard? style = null,
+                                        int segments = RoundCapSegments)
     {
         segments = Mathf.Clamp(segments, 12, 128);
-        var key = (Mathf.RoundToInt(diameter * 10000f), Mathf.RoundToInt(thickness * 10000f), segments);
+        var key = (Mathf.RoundToInt(diameter * 10000f), Mathf.RoundToInt(thickness * 10000f),
+                   segments, style is ControlBoard b ? (int)b : -1);
         if (_roundKeycapCache.TryGetValue(key, out Mesh cached) && cached != null)
             return cached;
-        Mesh built = BuildRoundKeycap(diameter, thickness, segments);
+        Mesh built = BuildRoundKeycap(diameter, thickness, segments,
+                                      CapFaceLayout.ConstructionFor(style is ControlBoard s ? (int)s : null));
         _roundKeycapCache[key] = built;
         return built;
     }
+
+    /// <summary>The square cap in a board's own construction. The board is the only thing that
+    /// selects it — see <see cref="CapFaceLayout.CapConstruction"/> for why this is derived from
+    /// <see cref="ControlBoard"/> rather than synced as a tuning field.</summary>
+    internal static Mesh BuildBeveledKeycap(float width, float height, float thickness,
+                                            ControlBoard? style)
+        => BuildBeveledKeycap(width, height, thickness,
+                              CapFaceLayout.ConstructionFor(style is ControlBoard s ? (int)s : null));
 
     /// <summary>
     /// Segment count for the generated round board caps (user: "you can see the CORNERS in

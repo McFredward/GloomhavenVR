@@ -222,6 +222,65 @@ domed boss are this board's signature and the square options must not have sharp
 
 
 # =========================================================================================
+# THE SECOND ASK: THE FACE MATERIAL, FLAT.
+#
+# WHY THIS IS A DIFFERENT ASK FROM EVERY PREVIOUS ROUND'S, AND WHY IT IS ALLOWED TO BE FLAT.
+#
+# Round 3's plates are pictures of a BUTTON — a rim, two chamfers and a field, painted. They had
+# to be, because the mesh was the same plain signet profile on all three boards and the only place
+# a bezel could exist was in the texture. `cap_object.register_square` then spent a whole stage
+# warping that painted bezel onto the mesh's real bands so the two would not disagree.
+#
+# Since ModBuild 290 the bezel, the terrace, the corner treatment and the hardware are GEOMETRY
+# (`CapFaceLayout.CapConstruction`). So the texture must NOT paint them again: a painted rim on top
+# of a real one is the "doubled edge" defect this pipeline already recorded once, authored by us
+# rather than by the model. What is left for the atlas is exactly what the brief says is left —
+# material, wear, engraving — and that is a FLAT SAMPLE.
+#
+# **This is not a return to rounds 1 and 2.** Those asked for a flat material sample and put it on a
+# mesh with no structure, so the cap had structure nowhere. This asks for a flat material sample to
+# put on a mesh that now carries the structure, and it asks for the material of a NAMED BUTTON that
+# was designed against this board — not for "some oak".
+# =========================================================================================
+_MATERIAL = """A single flat sample of one material, photographed square-on from directly above,
+filling the whole frame edge to edge with no border, no object, no shape, no backdrop and no
+background: just the surface itself.
+
+The material is the one the button in the supplied image is made of. Match its colour, its age, its
+finish and its wear exactly. {story}
+
+The surface is FLAT. There is no rim, no bezel, no chamfer, no step, no raised edge, no groove and
+no border anywhere in the frame — nothing that reads as the edge of an object. Light it evenly from
+above with one soft key so the frame has no bright side and no dark side and no vignette; the
+variation in the picture must come from the MATERIAL, never from the lighting.
+
+No letter, no digit, no word, no rune, no icon, no symbol, no engraving, no logo, no maker's mark,
+no ornament and no text of any kind.
+
+The marks that belong here are the ones that happen to a surface: {marks} Each of them should be
+big enough to survive being seen small — about a sixth of the frame across."""
+
+MATERIAL_PROMPTS = {
+    "oak": _MATERIAL.format(
+        story="Quarter-sawn oak, cut and finished the way the board it belongs to is.",
+        marks="long straight grain running one way, a band of pale silver ray fleck crossing it "
+              "off-centre, a patch rubbed pale and glassy where a thumb has pressed for years, "
+              "dark wax and dirt gathered in the grain, and one fine split."),
+    "steel": _MATERIAL.format(
+        story="Blued sheet steel, draw-filed, exactly as weathered as the board it belongs to.",
+        marks="straight parallel file marks all running one way, two or three soft temper-bloom "
+              "clouds in straw-gold and faint violet, an area worn back to bright bare metal with "
+              "a ragged edge to it, red-brown oxide creeping in from one side, and one shallow "
+              "peening dent."),
+    "bronze": _MATERIAL.format(
+        story="Sand-cast bronze gone green, exactly as weathered as the board it belongs to.",
+        marks="a subtly dimpled cast surface, green-blue verdigris pooled across part of it, an "
+              "area burnished back to bright warm gold where it is handled, two or three broad "
+              "shallow planishing dishes catching the light, and a faint casting seam."),
+}
+
+
+# =========================================================================================
 # THE CALL
 # =========================================================================================
 def _multipart(fields, files):
@@ -246,7 +305,40 @@ def _multipart(fields, files):
     return b"".join(out), boundary
 
 
-def generate(style, dst, refs=None, prompt=None, retries=3, say=print):
+def crop_cell(style, cell, dst, pad=0.06):
+    """Cut one option out of its design sheet, for use as a reference image.
+
+    The grid is 3 x 2 and `cap_sheet_options.verify()` MEASURES that it is (the gutters between
+    cells must be flatter than the cells) rather than trusting the ask. `pad` trims a little off
+    each side so the neighbouring option cannot creep into the frame.
+    """
+    from PIL import Image
+    idx = ("R1", "R2", "R3", "S1", "S2", "S3").index(cell)
+    with Image.open(os.path.join(OUT, GENERATED[style])) as im:
+        w, h = im.size
+        cw, ch = w // 3, h // 2
+        x0, y0 = (idx % 3) * cw, (idx // 3) * ch
+        px, py = int(cw * pad), int(ch * pad)
+        im.crop((x0 + px, y0 + py, x0 + cw - px, y0 + ch - py)).save(dst)
+    return dst
+
+
+def material(style, dst, say=print):
+    """The flat FACE MATERIAL of this board's chosen square option.
+
+    Two references, and both are load-bearing: the CHOSEN BUTTON (so the material is that
+    button's, not a generic one) and the BOARD (so it is that board's age and cast). Round 3 sent
+    the board's albedo swatch and round 1 sent nothing but a swatch; neither ever showed the model
+    an object it had itself designed for this board.
+    """
+    tmp = os.path.join(OUT, f"_ref_{style}_chosen.png")
+    crop_cell(style, CHOSEN[style][1], tmp)          # the SQUARE option — the larger flat face
+    return generate(style, dst,
+                    refs=[tmp, os.path.join(BOARDS, f"board_{style}_flat.png")],
+                    prompt=MATERIAL_PROMPTS[style], size="1024x1024", say=say)
+
+
+def generate(style, dst, refs=None, prompt=None, retries=3, size=None, say=print):
     """One design sheet for one board. Returns the delivered (w, h), READ BACK from the file.
 
     The reference images are the board renders themselves. `/v1/images/edits` with several
@@ -261,8 +353,9 @@ def generate(style, dst, refs=None, prompt=None, retries=3, say=print):
         if not os.path.isfile(r):
             raise SystemExit(f"missing board render {r} -- run the board block of "
                              "unity/asset-preview/build_asset_strips.sh first")
+    want = size or SIZE
     body, boundary = _multipart(
-        [("model", MODEL), ("prompt", prompt or PROMPTS[style]), ("size", SIZE), ("n", "1")],
+        [("model", MODEL), ("prompt", prompt or PROMPTS[style]), ("size", want), ("n", "1")],
         [("image[]", r) for r in refs])
     req = urllib.request.Request(
         "https://api.openai.com/v1/images/edits", data=body,
@@ -294,8 +387,8 @@ def generate(style, dst, refs=None, prompt=None, retries=3, say=print):
         fh.write(base64.b64decode(payload["data"][0]["b64_json"]))
     with Image.open(dst) as im:
         got = im.size
-    say(f"  [{style}] {os.path.basename(dst)}  asked {SIZE}  DELIVERED {got[0]}x{got[1]}"
-        + ("" if f"{got[0]}x{got[1]}" == SIZE else "   <-- SIZE DIFFERS FROM THE ASK"))
+    say(f"  [{style}] {os.path.basename(dst)}  asked {want}  DELIVERED {got[0]}x{got[1]}"
+        + ("" if f"{got[0]}x{got[1]}" == want else "   <-- SIZE DIFFERS FROM THE ASK"))
     return got
 
 
@@ -451,14 +544,18 @@ def main():
     ap.add_argument("--out", default=OUT)
     ap.add_argument("--suffix", default="", help="write to keycap4_options_<style><suffix>.png")
     ap.add_argument("--print-prompts", action="store_true")
+    ap.add_argument("--material", action="store_true",
+                    help="the FLAT FACE MATERIAL of each board's chosen square option")
     a = ap.parse_args()
     if a.print_prompts:
         for k, v in PROMPTS.items():
             print(f"===== {k} =====\n{v}\n")
         return
     for s in [x for x in a.styles.split(",") if x]:
-        dst = os.path.join(a.out, f"keycap4_options_{s}{a.suffix}.png")
-        generate(s, dst)
+        if a.material:
+            material(s, os.path.join(a.out, f"keycap4_material_{s}{a.suffix}.png"))
+        else:
+            generate(s, os.path.join(a.out, f"keycap4_options_{s}{a.suffix}.png"))
 
 
 if __name__ == "__main__":

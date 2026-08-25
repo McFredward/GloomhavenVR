@@ -3457,7 +3457,7 @@ internal sealed class RemoteBoardFurniture
             Shader? shader = CapShader();
             Material? top = null, bevel = null, wall = null;
             capMesh.AddComponent<MeshFilter>().sharedMesh =
-                Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick);
+                Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, style);
             MeshRenderer mr = capMesh.AddComponent<MeshRenderer>();
             if (shader != null)
             {
@@ -3539,7 +3539,7 @@ internal sealed class RemoteBoardFurniture
             // submeshes as the square cap. GetRoundKeycap, not GetRoundCap: the plain disc is still
             // what the BASE plate above (and the map room's rail) wants, and it has one submesh.
             capDisc.AddComponent<MeshFilter>().sharedMesh =
-                Cards.CardMesh.GetRoundKeycap(diameter, capThick);
+                Cards.CardMesh.GetRoundKeycap(diameter, capThick, style);
             var capMr = capDisc.AddComponent<MeshRenderer>();
 
             Shader? shader = CapShader();
