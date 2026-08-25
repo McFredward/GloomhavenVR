@@ -1249,19 +1249,53 @@ internal static partial class WallSegmentFade
         private static bool SegmentStillHiding(Segment seg, int laneState)
             => laneState != 0 || seg.Fade > 0f;
 
-        /// <summary>Horizontal (XZ) gap between two AABBs; 0 when their footprints overlap.</summary>
+        /// <summary>
+        /// Horizontal (XZ) gap between two AABBs; 0 when their footprints overlap.
+        ///
+        /// <para>PERF E (ModBuild 279) — THE DEGENERATE AXES SKIP THE SQUARE ROOT, AND NOTHING
+        /// ELSE CHANGES. This is the innermost expression of three separate
+        /// O(candidates x segments) walks in the mounted and stacked passes, so the root is paid
+        /// per pair. On a board of axis-aligned wall runs and axis-aligned prop boxes, one of the
+        /// two separations is EXACTLY zero for most pairs — <c>Mathf.Max(0f, …)</c> returns a
+        /// hard zero the moment the footprints overlap on that axis — and
+        /// <c>sqrt(fl(d*d) + 0)</c> is <c>d</c> bit for bit under IEEE-754 round-to-nearest for
+        /// every d this board can produce. So the two early returns give the identical float,
+        /// not a near one, and every comparison and every printed <c>F2</c> downstream reads the
+        /// same value it read before.</para>
+        ///
+        /// <para>WHAT WAS DELIBERATELY NOT DONE, and it was on the round's list: replacing the
+        /// gap with its SQUARE and comparing against squared reach constants. Two reasons, both
+        /// of them "this changes a decision". First, the gap is not only compared — it escapes
+        /// into <c>NoteMountedReject</c>, <c>NoteStackReject</c> and the leftover census as a
+        /// printed distance, so a root has to come back at the end anyway. Second and
+        /// disqualifying: the adoption loops pick an owner with <c>gap &gt;= bestGap</c>, and
+        /// <c>sqrt</c> is monotonic but not injective in floating point — two distinct squared
+        /// distances can round to the SAME root. Under the squared form the later candidate wins
+        /// such a tie; under the shipped form the earlier one keeps it. That is a different wall
+        /// owning a prop, which is a picture change, and this round's invariant is that not one
+        /// decision predicate moves.</para>
+        /// </summary>
         private static float HorizontalGap(Bounds a, Bounds b)
         {
             float dx = Mathf.Max(0f, Mathf.Max(a.min.x - b.max.x, b.min.x - a.max.x));
             float dz = Mathf.Max(0f, Mathf.Max(a.min.z - b.max.z, b.min.z - a.max.z));
+            if (dz == 0f)
+                return dx;
+            if (dx == 0f)
+                return dz;
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
-        /// <summary>Horizontal (XZ) gap between an AABB and a point.</summary>
+        /// <summary>Horizontal (XZ) gap between an AABB and a point. Same degenerate-axis skip as
+        /// the AABB pair above, and the same argument for why it is exact.</summary>
         private static float HorizontalGap(Bounds a, Vector3 p)
         {
             float dx = Mathf.Max(0f, Mathf.Max(a.min.x - p.x, p.x - a.max.x));
             float dz = Mathf.Max(0f, Mathf.Max(a.min.z - p.z, p.z - a.max.z));
+            if (dz == 0f)
+                return dx;
+            if (dx == 0f)
+                return dz;
             return Mathf.Sqrt(dx * dx + dz * dz);
         }
 
@@ -1700,7 +1734,18 @@ internal static partial class WallSegmentFade
                     Bounds archProbe = particles
                         ? new Bounds(c.transform.position, Vector3.zero)
                         : b;
-                    if (IsArchProtected(archProbe, c.name))
+                    // PERF E (ModBuild 279) — THE NAME IS ALREADY IN HAND, so it is not read
+                    // again. `c.name` is an interop call that allocates, it was built as an
+                    // ARGUMENT (so it allocated even when _archRects is empty and the callee's
+                    // loop never runs), and it was paid once per surviving sweep candidate per
+                    // commit. `f.Name` is the very string ClassifyMaterialsAndName already
+                    // allocated for this renderer this cycle (RendererFact.Name, ModBuild 278) —
+                    // the same value, not an equivalent one. It is re-read on a COLD classify
+                    // like every other fact, so a renderer RENAMED between two cold classifies
+                    // would be tested under its old name for at most one cycle; nothing in this
+                    // tileset renames a GameObject at runtime, and the arch rect's own name test
+                    // is a "Door" substring on a prefab name.
+                    if (IsArchProtected(archProbe, f.Name ?? c.name))
                         continue; // the doorway's arch stays solid (user ruling 2026-08-07)
                     // WATER FEATURE (user ruling 2026-08-09, brunnen.png): the fountain's own
                     // waterfall/spark emitters sit inside its basin — they must not be mounted
@@ -1851,26 +1896,38 @@ internal static partial class WallSegmentFade
                         // no unit is refused here on the second half of the conjunction, and the
                         // reject has to say which half — otherwise the crystal ruling and a
                         // genuinely missed hanging produce the same sentence.
-                        string barWhy = barProvenance
-                            ? " — the wall generator DID build it, but the four-level prop-unit "
-                              + "walk found no unit root (or an actor component vetoes it), so "
-                              + "the ModBuild-271 exemption does not reach it: this is the term "
-                              + "that keeps 'CV_Ice_Crystal_Form_02/03' and "
-                              + "'LightShaft_Prefab (1)' standing (user ruling 2026-08-24)"
-                            : " — no ProceduralWall provenance either";
+                        // PERF E: the sentence is built only for a candidate the reject list can
+                        // actually record — see MountedRejectReasonWanted. This is the hottest
+                        // of the eight sites: everything resting on the floor leaves here.
                         NoteMountedReject(c, anchorY, nearestAny,
-                            $"anchor {anchorY:F2} under the airborne bar {airborneBar:F2} — "
-                            + "reads as floor-supported, so it would NOT float" + barWhy);
+                            MountedRejectReasonWanted(nearestAny)
+                                ? $"anchor {anchorY:F2} under the airborne bar {airborneBar:F2} — "
+                                  + "reads as floor-supported, so it would NOT float"
+                                  + (barProvenance
+                                      ? " — the wall generator DID build it, but the four-level "
+                                        + "prop-unit walk found no unit root (or an actor "
+                                        + "component vetoes it), so the ModBuild-271 exemption "
+                                        + "does not reach it: this is the term that keeps "
+                                        + "'CV_Ice_Crystal_Form_02/03' and 'LightShaft_Prefab (1)' "
+                                        + "standing (user ruling 2026-08-24)"
+                                      : " — no ProceduralWall provenance either")
+                                : MountedRejectReasonNotBuilt);
                         continue;
                     }
                     if (best == null)
                     {
-                        NoteMountedReject(c, anchorY, nearestAny, cappedBy != null
-                            ? $"'{(cappedBy.Anchor != null ? cappedBy.Anchor.name : "<dead>")}' "
-                              + $"is SATURATED at {MountedMaxPerSegment} mounted props and no "
-                              + "other wall is in reach — this candidate is lost to the runaway "
-                              + "cap, not to geometry"
-                            : "no wall within reach / outside its span");
+                        // PERF E: `cappedBy.Anchor.name` is an interop read that allocates, and
+                        // the sentence around it a string.Format — both were paid for every
+                        // candidate with no wall in reach, which is most of the scene.
+                        NoteMountedReject(c, anchorY, nearestAny,
+                            cappedBy == null
+                            ? "no wall within reach / outside its span"
+                            : MountedRejectReasonWanted(nearestAny)
+                              ? $"'{(cappedBy.Anchor != null ? cappedBy.Anchor.name : "<dead>")}' "
+                                + $"is SATURATED at {MountedMaxPerSegment} mounted props and no "
+                                + "other wall is in reach — this candidate is lost to the runaway "
+                                + "cap, not to geometry"
+                              : MountedRejectReasonNotBuilt);
                         continue;
                     }
                     // Size cap for MESHES only — a particle system's bounds are a smoke plume, not
@@ -1891,9 +1948,11 @@ internal static partial class WallSegmentFade
                     if (!particles && volume > MountedMaxMeshVolumeWU3)
                     {
                         NoteMountedReject(c, anchorY, bestGap,
-                            $"architecture-scale (AABB volume {volume:F1} wu³ > "
-                            + $"{MountedMaxMeshVolumeWU3:F1}) — stacked-shell territory, "
-                            + "never sconce dressing");
+                            MountedRejectReasonWanted(bestGap) // PERF E — see the helper
+                            ? $"architecture-scale (AABB volume {volume:F1} wu³ > "
+                              + $"{MountedMaxMeshVolumeWU3:F1}) — stacked-shell territory, "
+                              + "never sconce dressing"
+                            : MountedRejectReasonNotBuilt);
                         continue;
                     }
                     // MODBUILD 266 — "GetComponentInParent<Animator>() != null" ANSWERS "is
@@ -1973,10 +2032,12 @@ internal static partial class WallSegmentFade
                     if (IsMobileProp(c, best, out float candidateDrift))
                     {
                         NoteMountedReject(c, anchorY, bestGap,
-                            $"MOBILE — {DriftText(candidateDrift)} against "
-                            + $"'{(best.Anchor != null ? best.Anchor.name : "<dead>")}' since the "
-                            + "last rescan, so it follows something rather than hanging on that "
-                            + "wall (figure VFX / carried prop) — never wall dressing");
+                            MountedRejectReasonWanted(bestGap) // PERF E — see the helper
+                            ? $"MOBILE — {DriftText(candidateDrift)} against "
+                              + $"'{(best.Anchor != null ? best.Anchor.name : "<dead>")}' since the "
+                              + "last rescan, so it follows something rather than hanging on that "
+                              + "wall (figure VFX / carried prop) — never wall dressing"
+                            : MountedRejectReasonNotBuilt);
                         continue;
                     }
                     // Reuse the existing record when we already know this prop (keeps the authored
@@ -2610,6 +2671,14 @@ internal static partial class WallSegmentFade
         /// <see cref="MountedMaxPerSegment"/>) — once per segment per rescan.</summary>
         private void NoteMountedSaturated(Segment seg)
         {
+            // PERF E (ModBuild 279) — THE CAP FIRST. This is called from inside the adoption
+            // loop, once per (candidate x saturated segment), and it read `seg.Anchor.name` — an
+            // interop call that allocates a managed string — and then walked the list linearly,
+            // BEFORE asking whether the list could take another entry. Once the list holds 8 the
+            // rest of the method cannot write: the dedupe `return` and the capped `Add` are both
+            // no-ops, so returning here records exactly what returning below recorded.
+            if (_mountedSaturated.Count >= 8)
+                return;
             string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             foreach (string s in _mountedSaturated)
             {
@@ -2768,6 +2837,38 @@ internal static partial class WallSegmentFade
             return $", prop unit '{root.name}' is owned by wall '{home.Anchor.name}' "
                    + $"(fade {home.Fade:F2})";
         }
+
+        /// <summary>
+        /// PERF E (ModBuild 279) — <see cref="NoteMountedReject"/>'s OWN FIRST TEST, hoisted so a
+        /// call site can decide whether to BUILD its reason string at all.
+        ///
+        /// <para>When this is false <see cref="NoteMountedReject"/> returns on its first line
+        /// without touching a counter, a list or a renderer, so the <c>why</c> it was handed is
+        /// read by nothing. Four of the eight reject sites in the mounted sweep build an
+        /// INTERPOLATED reason — on net472 that is a <c>string.Format(string, object[])</c>, an
+        /// array plus a box per float — and the sweep walks every candidate in the scene, so
+        /// those four were formatting and discarding strings for every renderer that is simply
+        /// not standing near a wall. Same shape and same argument as
+        /// <see cref="StructuralSkipArmed"/> two hundred lines above, which PERF S2 applied to
+        /// the structural skips and not to these.</para>
+        ///
+        /// <para>THIS IS NOT A CAP TEST AND MUST NOT BECOME ONE. It is the NEAR-MISS WINDOW: a
+        /// candidate outside it is not counted anywhere, which is why eliding its sentence is a
+        /// no-op. <c>_mountedRejects</c>' own 24-entry cap is deliberately NOT hoisted here —
+        /// <c>_censusMountedRejected</c>, <c>_censusMountedLeftover</c> and the leftover CLASS
+        /// histogram keep counting past it, and a population count truncated at a presentation
+        /// cap is the "a truncated list is not absence" defect this file already carries a
+        /// ledger entry for.</para>
+        /// </summary>
+        private static bool MountedRejectReasonWanted(float gap) => gap <= MountedNearMissXZ;
+
+        /// <summary>The placeholder handed to <see cref="NoteMountedReject"/> when
+        /// <see cref="MountedRejectReasonWanted"/> is false. It can never be printed — the callee
+        /// returns before reading it — and it says so rather than being an empty string, so a
+        /// copy of it appearing in a log is immediately legible as an instrument bug.</summary>
+        private const string MountedRejectReasonNotBuilt =
+            "<no reason was built: this candidate is outside the near-miss window, where the "
+            + "reject is not recorded at all>";
 
         private void NoteMountedReject(Renderer c, float anchorY, float gap, string why)
         {

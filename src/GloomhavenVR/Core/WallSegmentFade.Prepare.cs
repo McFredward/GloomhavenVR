@@ -604,6 +604,30 @@ internal static partial class WallSegmentFade
         private ulong _sceneFactSigSum;
         private ulong _sceneFactSigXor;
 
+        /// <summary>ModBuild 279 (Option A) — THE NARROWED SCENE HALF, always computed, used
+        /// only while <see cref="WallFadeTuning.FigureExemptSkipOn"/> is set.
+        ///
+        /// <para>Identical to the full half except for one class of renderer: for a
+        /// <see cref="RendererFact.Figure"/> the <c>activeInHierarchy</c> bit is replaced by a
+        /// FIGURE bit. See the fold site in <c>ClassifySlice</c> for the term, for what it
+        /// deliberately does NOT drop, and for the honest limits of the exemption.</para>
+        ///
+        /// <para>COST, so it is a number rather than a claim: two 64-bit multiplies and two
+        /// accumulator updates per renderer, inside the CLASSIFY stage, which is resumable and
+        /// budgeted at a millisecond and a half a frame. It is not on the commit frame. The
+        /// Figure predicate itself is the real cost and it is measured by the existing
+        /// <c>WallFade.Classify</c> step — no headset was available to this lane, so that number
+        /// comes from the next hardware run and is not estimated here.</para></summary>
+        private ulong _narrowSceneSigSum;
+        private ulong _narrowSceneSigXor;
+
+        /// <summary>ModBuild 279 — identity plus the FIGURE verdict alone, for one question:
+        /// when the narrowed signature moves and the full one does not, did a renderer's figure
+        /// verdict CROSS (legitimate) or is the instrument wrong (loud)? See the scene term in
+        /// <see cref="CommitWouldChangeNothing"/>.</summary>
+        private ulong _figureSetSigSum;
+        private ulong _figureSetSigXor;
+
         /// <summary>The per-hole term for a snapshot entry whose renderer has died. An
         /// arbitrary odd constant — it only has to be distinct from any real renderer's hash and
         /// to accumulate like one.</summary>
@@ -613,6 +637,10 @@ internal static partial class WallSegmentFade
         {
             _sceneFactSigSum = FnvOffset;
             _sceneFactSigXor = FnvOffset;
+            _narrowSceneSigSum = FnvOffset;
+            _narrowSceneSigXor = FnvOffset;
+            _figureSetSigSum = FnvOffset;
+            _figureSetSigXor = FnvOffset;
         }
 
         /// <summary>Accumulate one renderer's self-contained hash into the scene half.</summary>
@@ -625,11 +653,40 @@ internal static partial class WallSegmentFade
             }
         }
 
+        /// <summary>ModBuild 279: the same fold into the NARROWED half.</summary>
+        private void FoldNarrowSceneFact(ulong h)
+        {
+            unchecked
+            {
+                _narrowSceneSigSum += h;
+                _narrowSceneSigXor ^= h;
+            }
+        }
+
+        /// <summary>ModBuild 279: the same fold into the FIGURE-SET half.</summary>
+        private void FoldFigureSetFact(ulong h)
+        {
+            unchecked
+            {
+                _figureSetSigSum += h;
+                _figureSetSigXor ^= h;
+            }
+        }
+
         /// <summary>The signatures the table IN FORCE was built from, and whether one has ever
         /// been banked. Compared, never trusted — see THE SKIP INVARIANT above.</summary>
         private ulong _committedWallSig;
         private ulong _committedSceneSum;
         private ulong _committedSceneXor;
+        /// <summary>ModBuild 279 — the NARROWED and FIGURE-SET halves the table in force was
+        /// built from. Banked together with the full pair, from the same instant and the same
+        /// array, for the reason AdoptCommittedSignature already gives: a pair split across two
+        /// cycles compares two different populations and produces a confident wrong answer.
+        /// </summary>
+        private ulong _committedNarrowSum;
+        private ulong _committedNarrowXor;
+        private ulong _committedFigureSum;
+        private ulong _committedFigureXor;
         private bool _committedSigValid;
 
         /// <summary>Consecutive skipped cycles, and the clock the table has stood on.</summary>
@@ -680,6 +737,33 @@ internal static partial class WallSegmentFade
         private int _noSkipCeiling;
         private int _noSkipDrift;
         private int _noSkipMaterials;
+
+        /// <summary>ModBuild 279 (Option A) — THE NARROWING'S OWN THREE COUNTERS, taken on every
+        /// cycle that reaches the scene term, whatever the dial says.
+        ///
+        /// <list type="bullet">
+        /// <item><c>_narrowWouldSkip</c>: the full half moved and the narrowed half did not. With
+        ///   the dial OFF this is the YIELD the narrowing would have delivered, measured on his
+        ///   hardware instead of projected from a 17-sample decode; with the dial ON it is the
+        ///   yield it did deliver. Either way the culprit census names the renderers behind it,
+        ///   which is the list that decides whether the dial may be turned on.</item>
+        /// <item><c>_narrowOnlyFigureCrossing</c>: the narrowed half moved and the full one did
+        ///   not, with a figure verdict having crossed. Legitimate and conservative — see the
+        ///   scene term.</item>
+        /// <item><c>_narrowOnlyUnexplained</c>: the same, with NO figure verdict crossing. An
+        ///   instrument bug; it is also warned about at the moment it happens.</item>
+        /// </list></summary>
+        private int _narrowWouldSkip;
+        private int _narrowOnlyFigureCrossing;
+        private int _narrowOnlyUnexplained;
+
+        /// <summary>How many "inconsistent with itself" WARNINGS this session has printed, and the
+        /// ceiling on them. The ceiling bounds the LINE, never the COUNT: the FIGURE EXEMPTION
+        /// clause reports every occurrence, so a reader can still tell four occurrences from four
+        /// hundred. NOT a window counter — a per-window reset would make the cap meaningless.
+        /// </summary>
+        private int _narrowWarnsIssued;
+        private const int NarrowWarnCap = 4;
 
         /// <summary>The last refusal, WITH ITS NUMBERS. Never a constant: a change-gated line
         /// carrying a fixed reason string prints once and then reads as a dead instrument, and
@@ -871,7 +955,9 @@ internal static partial class WallSegmentFade
             _bankedFactsValid = true;
         }
 
-        /// <summary>The eight verdict bits of one fact, exactly as the scene half folds them.</summary>
+        /// <summary>The eight verdict bits of one fact, exactly as the scene half folds them,
+        /// plus (ModBuild 279) the FIGURE bit, which the scene half deliberately does NOT fold —
+        /// see the ninth term.</summary>
         private static int FactBits(ref RendererFact f)
         {
             Renderer? r = f.R;
@@ -883,7 +969,13 @@ internal static partial class WallSegmentFade
                  | (f.FoliageShader ? WallSegmentFadeCulprits.BitFoliage : 0)
                  | (f.WaterSurface ? WallSegmentFadeCulprits.BitWater : 0)
                  | (r != null && r.gameObject.activeInHierarchy
-                        ? WallSegmentFadeCulprits.BitActive : 0);
+                        ? WallSegmentFadeCulprits.BitActive : 0)
+                 // ModBuild 279 (Option A) — the NINTH bit, which the SIGNATURE does not fold
+                 // and the CENSUS must carry. The narrowing's whole safety argument is "these
+                 // renderers are figures", and the only way to check it rather than assert it is
+                 // for the culprit line to say, renderer by renderer, whether the thing that
+                 // moved the full signature was one.
+                 | (f.Figure ? WallSegmentFadeCulprits.BitFigure : 0);
         }
 
         /// <summary>Name the renderers that moved the scene half, throttled and measured.</summary>
@@ -925,6 +1017,10 @@ internal static partial class WallSegmentFade
         {
             _committedSceneSum = _sceneFactSigSum;
             _committedSceneXor = _sceneFactSigXor;
+            _committedNarrowSum = _narrowSceneSigSum;   // ModBuild 279 — same instant, same array
+            _committedNarrowXor = _narrowSceneSigXor;
+            _committedFigureSum = _figureSetSigSum;
+            _committedFigureXor = _figureSetSigXor;
             _committedWallSig = _surveySig;
             _committedSigValid = true;
             BankFactCensus();
@@ -1126,7 +1222,88 @@ internal static partial class WallSegmentFade
                     + (_prepBoardProbeValid ? "live" : "NOT ARMED — no probe was taken") + ")";
                 return false;
             }
-            if (_sceneFactSigSum != _committedSceneSum || _sceneFactSigXor != _committedSceneXor)
+            // ================================================================================
+            // THE SCENE TERM, AND ModBuild 279's SELF-ACCUSING FALSIFIER UNDER IT.
+            // ================================================================================
+            //
+            // BOTH signatures are compared on EVERY cycle that reaches this term, whatever the
+            // dial says. The dial decides only WHICH ONE REFUSES; the other one is still read,
+            // still compared and still counted, so the log states what the narrowing did — with
+            // names — instead of reassuring anyone that it was safe.
+            //
+            // WHY THE COUNTING LIVES HERE AND NOT EARLIER. A cycle that already refused on a
+            // reveal, an asked-for cadence, a material swap or a board move is going to commit
+            // whatever the scene half says, so the narrowing buys nothing on it and must not be
+            // credited for it. Counting at this term counts exactly the cycles the narrowing can
+            // act on.
+            bool fullMoved = _sceneFactSigSum != _committedSceneSum
+                             || _sceneFactSigXor != _committedSceneXor;
+            bool narrowMoved = _narrowSceneSigSum != _committedNarrowSum
+                               || _narrowSceneSigXor != _committedNarrowXor;
+            if (fullMoved && !narrowMoved)
+            {
+                // THE YIELD, measured rather than projected: this cycle would have rebuilt the
+                // whole table under the shipped signature and does not need to under the narrowed
+                // one. The culprit census names WHICH renderers moved the full half — that is the
+                // list a reader has to look at before this dial is ever turned on, because it is
+                // exactly the list the narrowing is dropping.
+                _narrowWouldSkip++;
+                LogSignatureCulprits(now);
+            }
+            else if (narrowMoved && !fullMoved)
+            {
+                // THE DESIGN DOCUMENT CALLS THIS IMPOSSIBLE. IT IS NOT, AND THE THIRD
+                // ACCUMULATOR IS HERE TO SEPARATE THE TWO CASES RATHER THAN SHOUT AT BOTH.
+                //
+                // The narrowed term differs from the full term ONLY through f.Figure. So if a
+                // renderer's FIGURE VERDICT crosses — the game reparents it under an actor, or
+                // out from under one — while none of the eight full bits move, the narrowed half
+                // moves and the full half does not. That is the narrowing WORKING: the crossing
+                // is exactly what the FIGURE bit exists to catch, and committing on it is the
+                // conservative answer. It is counted, not alarmed about.
+                //
+                // With the figure-set half unchanged as well, no figure verdict crossed, and
+                // there is no mechanism left that can move one accumulator and not the other.
+                // That is an instrument bug — a fold that disagrees with itself — and it is
+                // counted separately and printed as a WARNING, because a signature nobody can
+                // trust must never be allowed to quietly gate a remedy.
+                bool figureCrossed = _figureSetSigSum != _committedFigureSum
+                                     || _figureSetSigXor != _committedFigureXor;
+                if (figureCrossed)
+                {
+                    _narrowOnlyFigureCrossing++;
+                }
+                else
+                {
+                    // THE COUNT IS UNBOUNDED, THE LINE IS NOT. A per-cycle warning that fires
+                    // forever is a log nobody can read past; a capped COUNT is a number nobody
+                    // can trust. So the counter rises on every occurrence and the WARNING stops
+                    // after four, saying so.
+                    _narrowOnlyUnexplained++;
+                    if (_narrowWarnsIssued < NarrowWarnCap)
+                    {
+                        _narrowWarnsIssued++;
+                        VRLog.Warn(Name,
+                            "SIGNATURE NARROWING IS INCONSISTENT WITH ITSELF: the NARROWED scene "
+                            + "half moved while the FULL half did not, and no renderer's FIGURE "
+                            + "verdict changed either — which the fold makes impossible, because "
+                            + "the narrowed term differs from the full term only through that "
+                            + $"verdict. banked full {_committedSceneSum:X16}/"
+                            + $"{_committedSceneXor:X16}, narrowed {_committedNarrowSum:X16}/"
+                            + $"{_committedNarrowXor:X16}, figure-set {_committedFigureSum:X16}/"
+                            + $"{_committedFigureXor:X16}; live full {_sceneFactSigSum:X16}/"
+                            + $"{_sceneFactSigXor:X16}, narrowed {_narrowSceneSigSum:X16}/"
+                            + $"{_narrowSceneSigXor:X16}, figure-set {_figureSetSigSum:X16}/"
+                            + $"{_figureSetSigXor:X16} over {_factCount} classified renderer(s). "
+                            + "THE NARROWING MUST NOT BE TRUSTED WHILE THIS COUNT IS NON-ZERO — "
+                            + "leave [WallFade] FigureExemptSkip off and read this line, not the "
+                            + $"yield figure beside it. (Warning {_narrowWarnsIssued} of "
+                            + $"{NarrowWarnCap} per session; the COUNT keeps rising in the BUDGET "
+                            + "line's FIGURE EXEMPTION clause after this stops printing.)");
+                    }
+                }
+            }
+            if (WallFadeTuning.FigureExemptSkipOn ? narrowMoved : fullMoved)
             {
                 _noSkipScene++;
                 _lastNoSkipDetail =
@@ -1135,7 +1312,20 @@ internal static partial class WallSegmentFade
                     + $"{_sceneFactSigSum:X16}/{_sceneFactSigXor:X16}) — a renderer appeared, "
                     + "died, was deactivated by the game or changed shader family. IF THIS IS "
                     + "THE COUNT THAT DOMINATES, the scene is churning under the snapshot and "
-                    + "the next round's question is WHICH renderers, not whether to skip";
+                    + "the next round's question is WHICH renderers, not whether to skip"
+                    // ModBuild 279: which half actually refused, and the OTHER half's numbers
+                    // beside it — plus _factCount, which the design asked for by name so the
+                    // ModBuild-277 log's one unattributable 'sum unchanged, xor moved' line is
+                    // attributable the next time it happens.
+                    + $". ModBuild 279: the term that refused was the "
+                    + (WallFadeTuning.FigureExemptSkipOn ? "NARROWED" : "FULL")
+                    + $" half ([WallFade] FigureExemptSkip is "
+                    + (WallFadeTuning.FigureExemptSkipOn ? "ON" : "OFF")
+                    + $"); the narrowed half reads banked {_committedNarrowSum:X16}/"
+                    + $"{_committedNarrowXor:X16} against live {_narrowSceneSigSum:X16}/"
+                    + $"{_narrowSceneSigXor:X16}, and the figure-set half banked "
+                    + $"{_committedFigureSum:X16}/{_committedFigureXor:X16} against live "
+                    + $"{_figureSetSigSum:X16}/{_figureSetSigXor:X16}";
                 // ModBuild 278: it dominates (28 of 33 in the ModBuild 277 log), so the question
                 // is answered here rather than deferred to another round. Throttled and measured
                 // — see LogSignatureCulprits.
@@ -1224,7 +1414,33 @@ internal static partial class WallSegmentFade
               .Append(_noSkipScene).Append(" scene signature moved, ")
               .Append(_noSkipWalls).Append(" wall signature moved, ")
               .Append(_noSkipCeiling).Append(" STALENESS CEILING, ")
-              .Append(_noSkipDrift).Append(" segment AABB drift. LAST REFUSAL: ")
+              .Append(_noSkipDrift).Append(" segment AABB drift. ")
+              // ModBuild 279 (Option A) — THE NARROWING, AND ITS OWN FALSIFIER. Printed whether
+              // the dial is on or off and whether the counts are zero or not: a clause that
+              // disappears when it has nothing to say is a clause a reader cannot tell from a
+              // stage that never ran.
+              .Append("FIGURE EXEMPTION ([WallFade] FigureExemptSkip is ")
+              .Append(WallFadeTuning.FigureExemptSkipOn ? "ON — the NARROWED half decides"
+                                                        : "OFF — the FULL half decides, the "
+                                                          + "narrowed one is measured only")
+              .Append("): ").Append(_narrowWouldSkip)
+              .Append(" cycle(s) this window moved the FULL scene signature but NOT the narrowed "
+                    + "one — with the dial off that is the number of ~95ms rebuilds this "
+                    + "narrowing WOULD have removed, and the SIGNATURE CULPRITS line names the "
+                    + "renderers it would have stopped listening to; with it on, the number it "
+                    + "did remove. ")
+              .Append(_narrowOnlyFigureCrossing)
+              .Append(" cycle(s) moved the narrowed half while the full half stood still WITH a "
+                    + "figure verdict crossing — that is the FIGURE bit doing its job (a renderer "
+                    + "was reparented into or out of the round-7 class) and it commits, which is "
+                    + "the conservative answer. ")
+              .Append(_narrowOnlyUnexplained)
+              .Append(" cycle(s) did the same with NO figure verdict crossing, WHICH THE FOLD "
+                    + "MAKES IMPOSSIBLE: the narrowed term differs from the full term only "
+                    + "through that verdict. A NON-ZERO COUNT HERE INDICTS THIS INSTRUMENT AND "
+                    + "NOT THE SCENE — do not read the yield figure above it, and do not turn "
+                    + "the dial on. Each occurrence also prints a WARNING with all six "
+                    + "accumulators. LAST REFUSAL: ")
               .Append(_lastNoSkipDetail)
               .Append(". READ THIS AGAINST 'WORST SINGLE FRAME' ABOVE: the ModBuild 274 log "
                     + "measured ~95ms of commit on EVERY cycle (WallCache 31.5, PropUnits 30.0, "

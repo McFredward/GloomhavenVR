@@ -596,6 +596,13 @@ internal static partial class Loc
             ["WallFade/EvalIntervalSeconds"] = Pair("Occlusion check every (s)", "Verdeckung prüfen alle (s)"),
             ["WallFade/WalkInSuspendSampling"] = Pair("Inside: stop measuring", "Im Spielfeld: Messung pausieren"),
             ["WallFade/SignatureCulpritCensus"] = Pair("Log what changed the scene", "Szenen-Änderungen protokollieren"),
+            // ModBuild 279 (Option A). The row has to name the THING IGNORED and not the
+            // mechanism: "Signatur verschmälern" is true and tells a reader nothing, while
+            // "Figuren ignorieren" is what he can decide about. "beim Neuaufbau-Test" pins it to
+            // the REBUILD cadence rather than to the per-frame occlusion check — the same
+            // distinction the two cadence rows four lines up are worded to keep apart.
+            ["WallFade/FigureExemptSkip"] = Pair("Ignore figures when checking for changes",
+                                                 "Figuren beim Neuaufbau-Test ignorieren"),
 
             // ---- [PeerBoardFade] — a peer's board yields when it hides the play field --------
             ["PeerBoardFade/Mode"] = Pair("Boards blocking the view", "Boards vor dem Spielfeld"),

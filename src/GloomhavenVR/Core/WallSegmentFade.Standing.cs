@@ -490,6 +490,10 @@ internal static partial class WallSegmentFade
             // not in the census half — see this method's doc for why the two may not move
             // together.
             _wallSectionGeomMemo.Clear();
+            // PERF E (ModBuild 279): the Describe() sentence cache. Also a DERIVATION cache —
+            // it holds no outcome, only the text of one, and every operand in it is measured
+            // geometry that this scope is dropping on the line above.
+            _standingWhyMemo.Clear();
             // PERF S3 dropped the per-node subtree facts here too. PERF S4 moved that single
             // line to the top of CommitWallCache: this scope now opens one stage earlier, and
             // the node-fact WINDOW may not move with it, because its constancy argument is about
@@ -617,16 +621,30 @@ internal static partial class WallSegmentFade
                 return false;
             }
 
-            bool verdict = WallStandingProp.StandsOnFloor(unit, floorY, figure, vegetation,
-                                                          wallCut, out string why);
+            // PERF E (ModBuild 279) — THE VERDICT IS TAKEN, THE SENTENCE IS NOT.
+            // WallStandingProp.Judge is the five ifs of StandsOnFloor with nothing else in them;
+            // WallStandingProp.Describe holds the five sentences verbatim. This method is called
+            // once per child renderer of every cache wall — thousands of times per commit — and
+            // used to build a `shape` column plus one of those sentences on EVERY call, on
+            // net472 where each `$"…"` is a string.Format(string, object[]): an array plus a box
+            // per float. Below, `Why()` builds it at the four sites that actually consume it and
+            // memoises the result per UNIT ROOT (see _standingWhyMemo) — which is exact, not
+            // approximate: unit / floorY / vegetation / wallCut all come out of
+            // _standingUnitMemo keyed by that same root, so the only per-RENDERER term in the
+            // sentence is the arm, and the memo carries the arm with it.
+            WallStandingProp.FloorVerdict judged =
+                WallStandingProp.Judge(unit, floorY, figure, wallCut);
+            bool verdict = judged == WallStandingProp.FloorVerdict.StandsOnFloor;
+            string? sectionOverride = null;
             // MODBUILD 266 — how many UNITS the new term is the one that refused. Read off the
-            // refusal SENTENCE's own tag rather than a second copy of the term's arithmetic:
-            // one definition, no drift.
-            if (!verdict && why.StartsWith(WallStandingProp.WallFragmentTag,
-                                           System.StringComparison.Ordinal))
+            // verdict ENUM rather than the refusal sentence's leading tag: one definition, no
+            // drift, and no sentence built to be tested for a prefix. (PERF E: this is the same
+            // question — WallFragmentTag is the first thing Describe writes for exactly this
+            // verdict and for no other.)
+            if (judged == WallStandingProp.FloorVerdict.WallFeatureFragment)
             {
                 _standingWallCutRoots.Add(root!);
-                string named = $"'{root!.name}' {why}";
+                string named = $"'{root!.name}' {Why()}";
                 if (_standingWallCutNames.TryGetValue(named, out int seen))
                     _standingWallCutNames[named] = seen + 1;
                 else if (_standingWallCutNames.Count < StandingWallCutNameCap)
@@ -663,9 +681,9 @@ internal static partial class WallSegmentFade
                 {
                     verdict = false;
                     wallSection = true;
-                    why = sectionWhy;
+                    sectionOverride = sectionWhy; // Why() returns this from here on, as before
                     _wallSectionRoots.Add(root!);
-                    string sentence = $"'{root!.name}' {why}";
+                    string sentence = $"'{root!.name}' {sectionWhy}";
                     _wallSectionSeen.Add(sentence);
                     if (_wallSectionNames.TryGetValue(sentence, out int seen))
                         _wallSectionNames[sentence] = seen + 1;
@@ -701,7 +719,7 @@ internal static partial class WallSegmentFade
 
             if (armed)
             {
-                _standingPropDesc[root!] = $"'{root!.name}' {why}";
+                _standingPropDesc[root!] = $"'{root!.name}' {Why()}";
             }
             else if (!verdict && unit.MinY - floorY <= WallStandingProp.FootBandWU
                      && _standingNearMiss.Count < StandingNearMissCap)
@@ -712,10 +730,56 @@ internal static partial class WallSegmentFade
                 // ALSO the roster of units the ModBuild-258 whole-unit rule applies to (a near
                 // miss IS a unit the mod has called architecture), so a truncated list hides the
                 // very units whose bases should have been recruited.
-                _standingNearMiss[root!] = $"'{root!.name}' {why}";
+                _standingNearMiss[root!] = $"'{root!.name}' {Why()}";
             }
             return armed;
+
+            // PERF E — the refusal/verdict SENTENCE, built at most once per unit root per arm
+            // per rescan instead of once per renderer. The wall-section override short-circuits
+            // it because that branch has its own sentence and always had.
+            string Why()
+            {
+                if (sectionOverride != null)
+                    return sectionOverride;
+                if (_standingWhyMemo.TryGetValue(root!, out StandingWhy cached)
+                    && cached.Figure == figure)
+                {
+                    return cached.Why;
+                }
+                string built = WallStandingProp.Describe(unit, floorY, figure, vegetation,
+                                                         wallCut, judged);
+                _standingWhyMemo[root!] = new StandingWhy(figure, built);
+                return built;
+            }
         }
+
+        /// <summary>PERF E (ModBuild 279) — one unit root's <see cref="WallStandingProp.Describe"/>
+        /// sentence, WITH the arm it was written for.
+        ///
+        /// <para>WHY IT IS EXACT AND NOT MERELY CHEAPER. Every operand of that sentence except
+        /// the arm is a per-UNIT fact out of <see cref="_standingUnitMemo"/> (unit, floorY,
+        /// vegetation, wallCut) or the verdict those facts produce, so two renderers under one
+        /// root on the same arm get character-for-character the same string. The arm IS
+        /// per-renderer — <c>IsFigureOrActorRenderer</c> is asked of the renderer, not of the
+        /// root — so it is stored and compared, and a mismatch rebuilds. Every consumer still
+        /// writes on every call, so LAST WRITE STILL WINS exactly as before; the memo removes
+        /// the rebuild, never a write.</para>
+        ///
+        /// <para>Per-rescan, cleared with the other standing memos: Apparance rebirths these
+        /// props constantly and the sentence carries measured geometry.</para></summary>
+        private readonly struct StandingWhy
+        {
+            internal StandingWhy(bool figure, string why)
+            {
+                Figure = figure;
+                Why = why;
+            }
+
+            internal readonly bool Figure;
+            internal readonly string Why;
+        }
+
+        private readonly Dictionary<Transform, StandingWhy> _standingWhyMemo = new(128);
 
         /// <summary>
         /// PERF S4 — THE PROLOGUE OF <see cref="IsStandingProp"/>, EXTRACTED SO THERE IS ONE
@@ -898,7 +962,11 @@ internal static partial class WallSegmentFade
             {
                 if (m == null || m.shader == null)
                     continue;
-                if (m.shader.name.Contains("WallFade") || HasLiveWallFadeToggle(m))
+                // PERF E (ModBuild 279) — the cached per-Shader verdict, not a fresh interop
+                // name read. See the twin site in WallSegmentFade.PropUnit.cs
+                // (RendererHasWallFadeChannel) for the argument; FadeNameOf's ByName IS
+                // `shader.name.Contains("WallFade")` on the same Shader object.
+                if (FadeNameOf(m.shader).ByName || HasLiveWallFadeToggle(m))
                 {
                     any = true;
                     break;
@@ -923,8 +991,31 @@ internal static partial class WallSegmentFade
         private void NoteStandingSubject(Renderer r, bool figure, bool wallCut, bool fadeChannel,
                                          bool verdict, bool wallSection)
         {
-            if (_standingSubjectRoll.ContainsKey(r.name)
-                || _standingSubjectBaseline.ContainsKey(r.name))
+            // PERF E (ModBuild 279) — THE CAP IS ASKED BEFORE THE NAME, and the name is read
+            // ONCE.
+            //
+            // `Object.name` is an interop call that allocates a managed string on EVERY read,
+            // and this method is called once per renderer of every cache wall — the ModBuild-277
+            // scenario runs it over a 734-renderer population per commit. It read r.name TWICE
+            // unconditionally (the two ContainsKey operands, with no local) and a third time on
+            // a new name, to feed two rolls capped at 64 + 16 entries.
+            //
+            // WHY THE HOIST CANNOT CHANGE WHAT IS RECORDED. When BOTH rolls are full every path
+            // through the rest of this method returns without writing: the priority branch
+            // returns at `_standingSubjectRoll.Count >= StandingSubjectRollCap`, the baseline
+            // branch at `_standingSubjectBaseline.Count >= StandingSubjectBaselineCap`, and the
+            // two ContainsKey probes above only ever caused an EARLIER return. So on a full pair
+            // of rolls this is a pure no-op either way, and in the steady state — which is what
+            // the 94.8 ms commit is made of — the rolls are full. This is the same argument
+            // StructuralSkipArmed makes for the mounted reject list, one file over.
+            if (_standingSubjectRoll.Count >= StandingSubjectRollCap
+                && _standingSubjectBaseline.Count >= StandingSubjectBaselineCap)
+            {
+                return;
+            }
+            string subject = r.name;
+            if (_standingSubjectRoll.ContainsKey(subject)
+                || _standingSubjectBaseline.ContainsKey(subject))
             {
                 return;
             }
@@ -945,16 +1036,16 @@ internal static partial class WallSegmentFade
             {
                 if (_standingSubjectRoll.Count >= StandingSubjectRollCap)
                     return;
-                _standingSubjectRoll[r.name] = Row(withPath: true);
+                _standingSubjectRoll[subject] = Row(withPath: true);
                 return;
             }
             if (_standingSubjectBaseline.Count >= StandingSubjectBaselineCap)
                 return;
-            _standingSubjectBaseline[r.name] = Row(withPath: false);
+            _standingSubjectBaseline[subject] = Row(withPath: false);
 
             string Row(bool withPath)
             {
-                string row = $"'{r.name}' {(figure ? "FIGURE arm" : "FLOOR arm")}, "
+                string row = $"'{subject}' {(figure ? "FIGURE arm" : "FLOOR arm")}, "
                     + (wallCut ? "under a wall" : "no wall above") + ", "
                     + (fadeChannel
                         ? "HAS a fade channel"

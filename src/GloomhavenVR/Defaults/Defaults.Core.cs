@@ -291,4 +291,15 @@ internal static partial class Defaults
     // its own measured cost under the 'WallFade.SigDiag' step so it can never become an
     // unmeasured tax the way an always-on probe has in this project before.
     internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
+    // ModBuild 279 (Option A) — the FIGURE EXEMPTION on the skip signature. Shipped OFF, and the
+    // OFF is the finding rather than caution: the design this came from rests on
+    // PurgeFigureRenderers guaranteeing that no figure survives the commit, and read against the
+    // source that guarantee has a hole — WallSegmentFade.PropUnit.cs:1212 reads a prop-unit
+    // MEMBER's activeInHierarchy five lines before the figure refusal at :1267, so a figure
+    // member's liveness really can decide whether a whole unit is refused. The narrowed
+    // signature, its shadow comparison against the full one, its three counters and the
+    // per-renderer culprit naming are ALL ON regardless: this build measures the narrowing's
+    // yield and its safety on his hardware, and the dial is flipped in the build after, from the
+    // log. See WallFadeTuning.FigureExemptSkipOn for the full argument.
+    internal const bool FigureExemptSkip = false;            // => [WallFade] FigureExemptSkip
 }

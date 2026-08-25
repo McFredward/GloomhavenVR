@@ -400,38 +400,51 @@ internal static class WallStandingProp
     internal static bool StandsOnFloor(in Unit unit, float floorY, bool figureAncestry,
                                        bool vegetation, bool wallCut, out string why)
     {
-        // SHAPE, printed on EVERY line this method produces — verdict and refusal alike. This is
-        // the column that killed the ModBuild-257 TREE arm in one grep (h/w 0.23…2.11 across the
-        // session, the single value over 2.0 belonging to a WALL). It decides nothing and stays
-        // printed for exactly that reason: reading the mode instead of the distribution has cost
-        // this project a round before.
-        string shape = $"h {unit.Height:0.0} wu / w {unit.WidestSpanXZ:0.0} wu = "
-                       + $"{unit.SlendernessHW:0.00} h/w"
-                       // PROVENANCE goes BEFORE the vegetation flag deliberately: the shipped
-                       // wire vectors pin this column to END in ", vegetation]" / ", no
-                       // vegetation]" (that suffix is the TREE arm's tombstone), so a new column
-                       // may be inserted here but never appended.
-                       + (wallCut ? ", under a wall" : ", no wall above")
-                       + (vegetation ? ", vegetation" : ", no vegetation");
+        FloorVerdict verdict = Judge(unit, floorY, figureAncestry, wallCut);
+        why = Describe(unit, floorY, figureAncestry, vegetation, wallCut, verdict);
+        return verdict == FloorVerdict.StandsOnFloor;
+    }
+
+    /// <summary>
+    /// WHICH TERM DECIDED — the verdict of <see cref="StandsOnFloor"/> without its sentence.
+    ///
+    /// <para><b>PERF E (ModBuild 279). WHY THIS SPLIT EXISTS AND WHAT IT MAY NOT DO.</b> The
+    /// user's escalation is <i>"Ich will aber eigentlich gar keine spürbaren Ruckler - nicht nur
+    /// seltenere"</i>, and the wall-fade commit measures 94.8 ms with a coefficient of variation
+    /// under 1 % — a fixed amount of work over a fixed population. Part of that fixed amount is
+    /// diagnostic: <see cref="StandsOnFloor"/> was called once per child renderer of every cache
+    /// wall (thousands of times per commit) and built a <c>shape</c> column plus one of five
+    /// sentences on EVERY call, on net472 where every <c>$"…"</c> is a
+    /// <c>string.Format(string, object[])</c> — an array allocation plus a box per float. The
+    /// memo above the call site caches the MEASUREMENT (the unit), never the verdict, so the
+    /// sentence was rebuilt for every renderer of every unit and then, for all but a handful,
+    /// dropped on the floor.</para>
+    ///
+    /// <para><b>NOT ONE DECISION PREDICATE MOVES.</b> The five terms below are the five
+    /// <c>if</c>s of the ModBuild-266/258 body, in the same order, with the same constants and
+    /// the same operands; <see cref="Describe"/> holds the five sentences verbatim, character
+    /// for character, including the <c>shape</c> column and its ", vegetation]" suffix that the
+    /// shipped wire vectors pin. <see cref="StandsOnFloor"/> is now those two calls and nothing
+    /// else, so every existing caller — and every wire vector — is bit-identical. What a caller
+    /// gains is the ability to ask for the verdict alone and to build the sentence only for the
+    /// rows a capped census will actually print.</para>
+    ///
+    /// <para><paramref name="vegetation"/> is deliberately absent here: it is REPORTED ONLY
+    /// (ModBuild 258) and decides nothing, which is exactly why it belongs to
+    /// <see cref="Describe"/> and not to this method. If it ever acquires a term, it must be
+    /// added HERE and the two halves re-joined — a fact that decides something and lives only in
+    /// the description is the "a default value names an unbuilt thing" failure wearing new
+    /// clothes.</para>
+    /// </summary>
+    internal static FloorVerdict Judge(in Unit unit, float floorY, bool figureAncestry,
+                                       bool wallCut)
+    {
         if (unit.RendererCount <= 0 || unit.RendererCount > MaxRenderers)
-        {
-            why = $"{unit.RendererCount} renderer(s) — not prop-sized (cap {MaxRenderers}) "
-                  + $"[{shape}]";
-            return false;
-        }
+            return FloorVerdict.NotPropSizedByCount;
         if (unit.WidestSpanXZ > MaxSpanWU)
-        {
-            why = $"span {unit.SpanX:0.0}x{unit.SpanZ:0.0} wu — not prop-sized "
-                  + $"(cap {MaxSpanWU:0.0} wu) [{shape}]";
-            return false;
-        }
-        float foot = unit.MinY - floorY;
-        if (foot > FootBandWU)
-        {
-            why = $"foot {foot:0.0} wu over floor {floorY:0.0} — wall-MOUNTED dressing, keeps "
-                  + $"fading with its masonry (band {FootBandWU:0.0} wu) [{shape}]";
-            return false;
-        }
+            return FloorVerdict.NotPropSizedBySpan;
+        if (unit.MinY - floorY > FootBandWU)
+            return FloorVerdict.WallMountedDressing;
         // WALL-FEATURE FRAGMENT, the FLOOR arm only — ModBuild 266, bücherregale1/2.jpg and
         // regal_brett.jpg. See the file header for the two log lines this is read off. In short:
         // the identical shelf prefab measures 3.4 wu as the wall feature it belongs to (and is
@@ -471,30 +484,95 @@ internal static class WallStandingProp
         // the four-level window is NOT narrower than the unbounded climb in this tileset and this
         // term must be withdrawn — not retuned.
         if (!figureAncestry && wallCut && unit.MaxY - floorY > FootBandWU)
-        {
-            why = $"{WallFragmentTag}: foot {foot:0.0} wu over floor {floorY:0.0}, top "
-                  + $"{unit.MaxY - floorY:0.0} wu, height {unit.Height:0.0} wu over "
-                  + $"{unit.RendererCount} renderer(s) — a WALL sits immediately above this unit "
-                  + $"inside the unit walk's own window, so this is a FRAGMENT of that wall's "
-                  + $"feature and not a prop standing in the room; it rises out of the ground "
-                  + $"band ({FootBandWU:0.0} wu), so the whole unit fades with the wall "
-                  + $"[{shape}]";
-            return false;
-        }
+            return FloorVerdict.WallFeatureFragment;
         // HEIGHT, the FLOOR arm only. No escape hatch since ModBuild 258: the TREE arm that used
         // to lift this cap fired once in a whole hardware session and lifted it for a WALL.
         if (!figureAncestry && unit.Height > MaxHeightWU)
+            return FloorVerdict.Architecture;
+        return FloorVerdict.StandsOnFloor;
+    }
+
+    /// <summary>Which term of <see cref="Judge"/> decided. <see cref="StandsOnFloor"/> is
+    /// <c>== StandsOnFloor</c> and nothing else, so the enum cannot drift from the verdict.
+    /// The names are the refusal sentences' own subjects, so a reader of a census line and a
+    /// reader of a counter are looking at the same word.</summary>
+    internal enum FloorVerdict
+    {
+        /// <summary>Every term passed: a floor prop (FLOOR arm) or a figure/actor prop
+        /// (FIGURE arm). This is the only value <see cref="StandsOnFloor"/> returns true for.
+        /// </summary>
+        StandsOnFloor = 0,
+        /// <summary>0 renderers, or more than <see cref="MaxRenderers"/>.</summary>
+        NotPropSizedByCount,
+        /// <summary>Wider than <see cref="MaxSpanWU"/> in XZ.</summary>
+        NotPropSizedBySpan,
+        /// <summary>Its foot hangs more than <see cref="FootBandWU"/> over the floor.</summary>
+        WallMountedDressing,
+        /// <summary>ModBuild 266, FLOOR arm only: a wall sits immediately above it inside the
+        /// unit walk's own window — see <see cref="WallFragmentTag"/>.</summary>
+        WallFeatureFragment,
+        /// <summary>FLOOR arm only: taller than <see cref="MaxHeightWU"/>.</summary>
+        Architecture,
+    }
+
+    /// <summary>
+    /// THE SENTENCE for a verdict — the five strings that used to be built inline in
+    /// <see cref="StandsOnFloor"/>, moved here unchanged so a caller can decide whether the
+    /// census will print this row BEFORE paying for it.
+    ///
+    /// <para>Every character is the ModBuild-266 text: the same operands, the same format
+    /// specifiers, the same <c>shape</c> column with PROVENANCE before the vegetation flag (the
+    /// shipped wire vectors pin that column to END in ", vegetation]" / ", no vegetation]", so a
+    /// new column may be inserted there but never appended). Two wire vectors assert on
+    /// <c>why.Contains("MOUNTED")</c> and <c>why.Contains("architecture")</c> and both still
+    /// read the same sentence.</para>
+    /// </summary>
+    internal static string Describe(in Unit unit, float floorY, bool figureAncestry,
+                                    bool vegetation, bool wallCut, FloorVerdict verdict)
+    {
+        // SHAPE, printed on EVERY line this method produces — verdict and refusal alike. This is
+        // the column that killed the ModBuild-257 TREE arm in one grep (h/w 0.23…2.11 across the
+        // session, the single value over 2.0 belonging to a WALL). It decides nothing and stays
+        // printed for exactly that reason: reading the mode instead of the distribution has cost
+        // this project a round before.
+        string shape = $"h {unit.Height:0.0} wu / w {unit.WidestSpanXZ:0.0} wu = "
+                       + $"{unit.SlendernessHW:0.00} h/w"
+                       // PROVENANCE goes BEFORE the vegetation flag deliberately: the shipped
+                       // wire vectors pin this column to END in ", vegetation]" / ", no
+                       // vegetation]" (that suffix is the TREE arm's tombstone), so a new column
+                       // may be inserted here but never appended.
+                       + (wallCut ? ", under a wall" : ", no wall above")
+                       + (vegetation ? ", vegetation" : ", no vegetation");
+        float foot = unit.MinY - floorY;
+        switch (verdict)
         {
-            why = $"height {unit.Height:0.0} wu — architecture, not a floor prop "
-                  + $"(cap {MaxHeightWU:0.0} wu), so the WHOLE unit fades with its wall, base "
-                  + $"included [{shape}]";
-            return false;
+            case FloorVerdict.NotPropSizedByCount:
+                return $"{unit.RendererCount} renderer(s) — not prop-sized (cap {MaxRenderers}) "
+                       + $"[{shape}]";
+            case FloorVerdict.NotPropSizedBySpan:
+                return $"span {unit.SpanX:0.0}x{unit.SpanZ:0.0} wu — not prop-sized "
+                       + $"(cap {MaxSpanWU:0.0} wu) [{shape}]";
+            case FloorVerdict.WallMountedDressing:
+                return $"foot {foot:0.0} wu over floor {floorY:0.0} — wall-MOUNTED dressing, keeps "
+                       + $"fading with its masonry (band {FootBandWU:0.0} wu) [{shape}]";
+            case FloorVerdict.WallFeatureFragment:
+                return $"{WallFragmentTag}: foot {foot:0.0} wu over floor {floorY:0.0}, top "
+                       + $"{unit.MaxY - floorY:0.0} wu, height {unit.Height:0.0} wu over "
+                       + $"{unit.RendererCount} renderer(s) — a WALL sits immediately above this unit "
+                       + $"inside the unit walk's own window, so this is a FRAGMENT of that wall's "
+                       + $"feature and not a prop standing in the room; it rises out of the ground "
+                       + $"band ({FootBandWU:0.0} wu), so the whole unit fades with the wall "
+                       + $"[{shape}]";
+            case FloorVerdict.Architecture:
+                return $"height {unit.Height:0.0} wu — architecture, not a floor prop "
+                       + $"(cap {MaxHeightWU:0.0} wu), so the WHOLE unit fades with its wall, base "
+                       + $"included [{shape}]";
+            default:
+                return $"foot {foot:0.0} wu over floor {floorY:0.0}, height {unit.Height:0.0} wu, span "
+                       + $"{unit.SpanX:0.0}x{unit.SpanZ:0.0} wu, {unit.RendererCount} renderer(s) — "
+                       + (figureAncestry ? "figure/actor prop" : "floor prop")
+                       + $" [{shape}]";
         }
-        why = $"foot {foot:0.0} wu over floor {floorY:0.0}, height {unit.Height:0.0} wu, span "
-              + $"{unit.SpanX:0.0}x{unit.SpanZ:0.0} wu, {unit.RendererCount} renderer(s) — "
-              + (figureAncestry ? "figure/actor prop" : "floor prop")
-              + $" [{shape}]";
-        return true;
     }
 
     /// <summary>

@@ -818,12 +818,12 @@ internal static partial class WallSegmentFade
             if (root != null)
             {
                 if (_propUnitByRoot.TryGetValue(root, out int existing))
-                    return _propUnits[existing];
+                    return existing == UnitRefused ? null : _propUnits[existing];
                 _propUnitScratch.Clear();
                 root.GetComponentsInChildren(includeInactive: false, _propUnitScratch);
                 PropUnit? made = MakeUnit(root.name, byStem: false, _propUnitScratch);
-                if (made != null)
-                    _propUnitByRoot[root] = _propUnits.Count - 1;
+                // PERF E (ModBuild 279): the REFUSAL is memoised too — see UnitRefused.
+                _propUnitByRoot[root] = made != null ? _propUnits.Count - 1 : UnitRefused;
                 return made;
             }
 
@@ -836,7 +836,7 @@ internal static partial class WallSegmentFade
             string stemKey = parent.GetInstanceID().ToString(System.Globalization.CultureInfo.InvariantCulture)
                              + "|" + stem;
             if (_propUnitByStem.TryGetValue(stemKey, out int have))
-                return _propUnits[have];
+                return have == UnitRefused ? null : _propUnits[have];
             _propUnitScratch.Clear();
             _subtreeScratch.Clear();
             parent.GetComponentsInChildren(includeInactive: false, _subtreeScratch);
@@ -847,13 +847,35 @@ internal static partial class WallSegmentFade
             }
             _subtreeScratch.Clear();
             PropUnit? stemUnit = MakeUnit(stem + "_*", byStem: true, _propUnitScratch);
-            // Only successes are memoised — a refusal has no index to store, and recomputing one
-            // is a handful of bounds reads on a path that is rare by construction (it needs a
-            // multi-piece prop parented flat, with no shared ancestor to find).
-            if (stemUnit != null)
-                _propUnitByStem[stemKey] = _propUnits.Count - 1;
+            // PERF E (ModBuild 279) — THE REFUSAL IS MEMOISED TOO. The note that stood here said
+            // recomputing a refusal is "a handful of bounds reads on a path that is rare by
+            // construction". The RARITY claim is about the ROOT case (a prop with no shared
+            // ancestor); the COST claim is what is wrong. When a group IS refused — by the
+            // 2-renderer floor, the PropUnitMaxRenderers ceiling or either size cap — nothing was
+            // stored, so the NEXT renderer under the same parent with the same stem re-walked the
+            // whole parent subtree and re-read NameStemOf(sib.name) for every renderer in it.
+            // `Object.name` allocates a managed string per read, so a flat-parented masonry
+            // parent holding K renderers paid O(K^2) name allocations per commit — and
+            // flat-parented masonry is precisely the tileset shape this fallback exists for.
+            _propUnitByStem[stemKey] = stemUnit != null ? _propUnits.Count - 1 : UnitRefused;
             return stemUnit;
         }
+
+        /// <summary>PERF E (ModBuild 279) — the <see cref="_propUnitByRoot"/> /
+        /// <see cref="_propUnitByStem"/> entry meaning "this group was examined this rescan and
+        /// REFUSED", as opposed to "never examined".
+        ///
+        /// <para>WHY MEMOISING A REFUSAL IS NO WEAKER THAN MEMOISING A SUCCESS, which is the only
+        /// question here. <see cref="MakeUnit"/>'s verdict is a function of the subtree membership
+        /// and the members' live bounds. Both memos are cleared once per rescan
+        /// (<c>BeginPropUnitScope</c>), and inside one commit nothing this subsystem does can move
+        /// either: it writes <c>renderer.enabled</c> and property blocks, never
+        /// <c>SetActive</c> (grep the file set — there is no SetActive in it), so the
+        /// <c>includeInactive: false</c> walk returns the same members, and scenery does not move
+        /// within a frame. The SUCCESS memo beside it has always made exactly this assumption and
+        /// hands back a unit built from the first sighting's geometry; the refusal memo makes the
+        /// same one and no more.</para></summary>
+        private const int UnitRefused = -1;
 
         /// <summary>Build a unit from a candidate member list, or refuse it against the two size
         /// caps. A single-renderer group is refused outright: it cannot be torn apart, so it has
@@ -1159,7 +1181,13 @@ internal static partial class WallSegmentFade
                     seg.Fade > 0f));
             }
             _propUnitOwnerLast.TryGetValue(unit.Id, out string? sticky);
-            int pick = WallPropUnit.ChooseOwner(_propUnitClaimScratch, sticky, out string rule);
+            // PERF E (ModBuild 279): the rule SENTENCE is built only while the census that
+            // prints it can still take a row. NotePropUnitCensus is its one and only consumer
+            // and its first statement is that same cap test; the list only ever grows, and the
+            // only site that grows it is that method, which runs once at the END of this one —
+            // so a cap that is not reached here cannot be reached before the row is written.
+            int pick = WallPropUnit.ChooseOwner(_propUnitClaimScratch, sticky, out string rule,
+                                                _propUnitCensus.Count < PropUnitCensusCap);
             if (pick == WallPropUnit.NoOwner)
                 return;
             Segment owner = unit.ClaimSegs[pick];
@@ -1510,7 +1538,14 @@ internal static partial class WallSegmentFade
             {
                 if (m == null || m.shader == null)
                     continue;
-                if (m.shader.name.Contains("WallFade") || HasLiveWallFadeToggle(m))
+                // PERF E (ModBuild 279) — THE CACHED VERDICT, NOT A FRESH INTEROP NAME READ.
+                // `Shader.name` allocates a managed string on every read and this loop runs per
+                // material per member of every prop unit, every commit. FadeNameOf caches
+                // `name.Contains("WallFade")` per Shader object under the name ByName — the
+                // IDENTICAL expression on the IDENTICAL object, not an equivalent (see
+                // ShaderFadeName's ctor). PERF S4 built that cache for CollectWallFadeInfo and
+                // this site and one in WallSegmentFade.Standing.cs were missed.
+                if (FadeNameOf(m.shader).ByName || HasLiveWallFadeToggle(m))
                     return true;
             }
             return false;

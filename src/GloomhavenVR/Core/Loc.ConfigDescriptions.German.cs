@@ -682,6 +682,26 @@ internal static partial class Loc
                 + "höchstens alle paar Sekunden, und meldet seine eigenen Kosten als Schritt "
                 + "'WallFade.SigDiag' — es kann also nie zu einer ungemessenen Dauerlast werden. "
                 + "Wieder ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
+            // ModBuild 279 (Option A) — die Figuren-Ausnahme auf der Wechsel-Erkennung.
+            ["WallFade/FigureExemptSkip"] =
+                "EXPERIMENTELL, STANDARDMÄSSIG AUS — UND SO ODER SO GEMESSEN. Helden, Monster "
+                + "und ihre Effekte bewegen sich ständig, und jedes Mal, wenn eines davon "
+                + "auftaucht, stirbt oder eingeschaltet wird, entscheidet der Mod, seine "
+                + "Wandtabelle könnte sich geändert haben, und baut sie komplett neu auf — ein "
+                + "Neuaufbau, der gemessen rund 95 Millisekunden dauert, also genau das, woraus "
+                + "ein kurzer Ruckler besteht. Dieser Schalter lässt den Mod Figuren "
+                + "übergehen, wenn er fragt 'hat sich etwas geändert', denn kein Wandsystem darf "
+                + "eine Figur ohnehin jemals anfassen. ER MACHT KEINEN NEUAUFBAU SCHNELLER — er "
+                + "macht Neuaufbauten SELTENER, was nicht dasselbe ist und nicht das, worum "
+                + "gebeten wurde. ER IST AUS, WEIL EIN PFAD IM MOD WEITERHIN DEN EIN/AUS-ZUSTAND "
+                + "EINER FIGUR LIEST, während er über das Schicksal einer ganzen Prop-Gruppe "
+                + "entscheidet; feuert dieser Pfad jemals, könnte der Mod eine echte Änderung "
+                + "übersehen und eine Wand bis zu dreißig Durchläufe lang massiv stehen lassen. "
+                + "AUCH AUSGESCHALTET MISST DIESER BUILD IHN: Der Abschnitt FIGURE EXEMPTION im "
+                + "Log meldet, wie viele Neuaufbauten er eingespart HÄTTE, und benennt die "
+                + "Renderer, auf die er nicht mehr hören würde — die Entscheidung, ihn "
+                + "einzuschalten, fällt damit aus einer echten Sitzung und nicht aus einem "
+                + "Argument. Live änderbar.",
             // ---- [PeerBoardFade] ----
             // Sechs Nachträge des Einstellungs-Audits vom 2026-08-22: Die Sektion kam mit
             // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.

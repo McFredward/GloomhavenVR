@@ -139,8 +139,22 @@ internal static class WallPropUnit
     /// rescan, or null/empty when the unit is new. Only honoured while that owner is still a
     /// claimant AND still faded (rule 1).</param>
     /// <param name="rule">Human-readable reason the winner won.</param>
+    /// <param name="describe">PERF E (ModBuild 279) — build <paramref name="rule"/> at all.
+    ///
+    /// <para>The ONLY consumer of that string is <c>NotePropUnitCensus</c>, whose very first
+    /// statement is <c>if (_propUnitCensus.Count &gt;= PropUnitCensusCap) return;</c>. Past that
+    /// cap the sentence was formatted — three of its five forms are interpolations, and on
+    /// net472 each is a <c>string.Format(string, object[])</c> with an array and a box per value
+    /// — and then dropped. This method runs once per prop unit per commit and the ModBuild-277
+    /// scenario carries 3,105 unit roots.</para>
+    ///
+    /// <para>IT DECIDES NOTHING. The returned index is computed by the identical four rules in
+    /// the identical order on both paths; only the sentence differs, and when it is not built
+    /// the caller has already established that nothing will read it. Default true, so every
+    /// existing caller — including all fourteen wire vectors, which assert on the sentence — is
+    /// unchanged.</para></param>
     internal static int ChooseOwner(IReadOnlyList<Claim> claims, string? stickyOwnerKey,
-                                    out string rule)
+                                    out string rule, bool describe = true)
     {
         if (claims == null || claims.Count == 0)
         {
@@ -185,7 +199,7 @@ internal static class WallPropUnit
             {
                 if (claims[i].RendererCount == bestCount)
                 {
-                    rule = $"majority {bestCount}/{TotalHeld(claims)}";
+                    rule = describe ? $"majority {bestCount}/{TotalHeld(claims)}" : NoDescription;
                     return i;
                 }
             }
@@ -213,8 +227,10 @@ internal static class WallPropUnit
                 if (claims[i].RendererCount == bestCount
                     && claims[i].CentroidGapXZ <= bestGap + CentroidTieWU)
                 {
-                    rule = $"nearest centroid {bestGap:0.00} wu (tied {bestCount}/"
-                           + $"{TotalHeld(claims)})";
+                    rule = describe
+                        ? $"nearest centroid {bestGap:0.00} wu (tied {bestCount}/"
+                          + $"{TotalHeld(claims)})"
+                        : NoDescription;
                     return i;
                 }
             }
@@ -239,10 +255,20 @@ internal static class WallPropUnit
         if (winner == NoOwner)
             winner = 0; // unreachable by construction (the claim that SET bestGap always passes);
                         // pinned anyway, because "unreachable" is what an index crash is made of
-        rule = $"key order '{claims[winner].Key}' (tied {bestCount}/{TotalHeld(claims)} at "
-               + $"{bestGap:0.00} wu)";
+        rule = describe
+            ? $"key order '{claims[winner].Key}' (tied {bestCount}/{TotalHeld(claims)} at "
+              + $"{bestGap:0.00} wu)"
+            : NoDescription;
         return winner;
     }
+
+    /// <summary>What <see cref="ChooseOwner"/> reports when its caller has said it will not print
+    /// the sentence (PERF E). It can never reach a log — the census that would print it returns
+    /// on its cap before reading — and it says so rather than being empty, so a copy of it
+    /// appearing in a hardware log is immediately legible as an instrument bug rather than as a
+    /// rule nobody named.</summary>
+    internal const string NoDescription =
+        "<no rule sentence was built: the prop-unit census was already at its cap>";
 
     /// <summary>How many of the unit's renderers are held by SOME claimant — the denominator the
     /// census prints next to the winning count, so "majority 2/3" reads as "two of the three
