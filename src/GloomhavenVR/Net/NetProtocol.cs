@@ -416,7 +416,46 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 273;
+    public const ushort ModBuild = 274;
+    // Build 274: *** A NEW BUNDLE — 67,234,683 BYTES (was 65,626,956). A DLL-ONLY INSTALL SHOWS
+    // NONE OF THE BOARD WORK. *** Test 274; it carries 272 and 273 whole.
+    //   THE BOARDS GET A MATERIAL. ModBuild 271's boards were rejected on hardware: "Die
+    //   Controllboards sehen aus, als haetten sie keine Textur ... Es soll immersiv sein!" He was
+    //   right and the measurement says why: the steel albedo held mean 127 with p1 77 / p99 179 —
+    //   std 21.4, a 100-value grey band with no hue, over a 2048 atlas. That is procedural noise,
+    //   not a surface. Bronze was worse at 9.1.
+    //   AND MY PREVIEW STATION FLATTERED IT, which is why it shipped. On the same flat metal panel:
+    //   render mean 88.4 / std 33.6 against the in-game screenshot's 97.0 / 17.5 — the game showed
+    //   HALF the contrast the render promised. The previous round had cross-checked the Unity
+    //   renderer against a Blender one to within 0.006 and called that strong verification; it
+    //   proved the two agreed with EACH OTHER, and neither had ever been checked against the game.
+    //   So the station was calibrated against the screenshot BEFORE a texel was authored.
+    //   HIS OWN PRESCRIPTION, AND IT WAS THE RIGHT ONE: "gpt-image-2 kann sehr gut immersive
+    //   texturen erstellen, wenn du die texture-map als initiales frame uebergibst" — img2img on
+    //   the real atlas, so the layout survives and the MATERIAL comes out of the model, then seam
+    //   repair by hand. The previous round had used the model only to cut stencils and hand-built
+    //   the material procedurally; that is exactly what produced the rejected atlas. He had to say
+    //   it twice: "Verantwortungsvoll umgehen heisst nicht, gar nicht benutzten."
+    //   FOUR generated images, nothing regenerated on a hunch. Face-region results, shipped -> new:
+    //   steel std 21.4 -> 48.5 (2.27x), oak 21.9 -> 39.4, bronze 9.1 -> 29.0 (3.20x); steel STORY
+    //   1.91 -> 15.38 (8.07x), chroma 1.79 -> 5.66. Normal and MRS are re-derived from the NEW art,
+    //   not from the old procedural field. Mesh, UVs, seat and pad measurements all UNCHANGED —
+    //   that is what passing the real atlas as the init frame buys.
+    //   TWO TRAPS IN THE NEW STATION, both recorded rather than quietly fixed. (a) A published
+    //   comparison sheet divided the screenshot by the very atlas it was previewing, because the
+    //   new maps had been installed to the same paths the "before" picture read. Its round-trip
+    //   test PASSED — the round trip is exact by construction and structurally blind to this. What
+    //   caught it was scoring nine candidate atlases: the working-tree file read r = -0.055, the
+    //   git HEAD blob r = +0.334. Sheet rebuilt against HEAD blobs. (b) The oak and bronze in-scene
+    //   panels REUSE STEEL'S relief shading (there is no oak/bronze screenshot), so 20% of oak and
+    //   34% of bronze pixels carry a doubled edge at rims and bevels — an artefact of the preview,
+    //   not of the atlas, mapped in boards_reuse_error_{oak,bronze}.png. And the station is
+    //   ALBEDO-ONLY: the re-authored normal and MRS maps are invisible in every in-scene picture,
+    //   so boards_shader_rake.png (real prefabs, real shader, rebuilt bundle) is the one that
+    //   shows what actually changed.
+    //   STILL OPEN, unchanged from 271: seat 3 has no occupant. The three recesses exist; the mod
+    //   fills two, and the turn-flow SKIP is still drawn by WorldUI.ButtonCluster from its own
+    //   column. Moving it changes what record 28's ids 81..88 MEAN, so it waits on his word.
     // Build 273: PERF S4 — THE COMMIT'S READ HALF, TAKEN OFF THE COMMIT FRAME. Test 273 instead of
     // 272: it carries everything 272 did, plus this.
     //   THE DEFECT. WallFade.Rescan (the COMMIT alone since PERF S2) is ONE ~107ms main-thread
