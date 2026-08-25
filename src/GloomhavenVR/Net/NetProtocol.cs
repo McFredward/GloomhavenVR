@@ -416,7 +416,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 270;
+    public const ushort ModBuild = 271;
+    // Build 271: THREE USER REPORTS OF 2026-08-25, and the first two turned out to be one defect.
+    //  (1)+(2) THE UNION RULE. "Manche Kerzen ... schweben dann an der Wand" and "wenn eine
+    //      benachbarte Wand nicht gefaded hat und dort eine Stange in die Wand rausguckt die
+    //      gefaded ist ... die Stange voll sichtbar auf der unsichtbaren Wand". ONE OWNER PER
+    //      RENDERER was the whole cause: `_mountedOwned` is a HashSet, the election keeps a
+    //      single `best`, and a prop belonging to two segments is judged by one of them. The
+    //      census had been saying so all along -- `49 unit(s) have TWO OR MORE OWNERS on
+    //      independent fades` on 24 of 114 prints, beside a comment claiming ModBuild 258 holds
+    //      it at zero. A wall attachment now reads the MAX over its owner and every fade-eligible
+    //      segment its AABB actually INTERSECTS (0.10 wu slack, ~6% of a hex step -- not the
+    //      0.90 wu ownership reach: near a hole is not over it). No segment field is written, so
+    //      the neighbouring wall is untouched, which was the user's explicit constraint. The
+    //      shared corner keeps its round-7 MIN and is now NAMED and skipped, not merely absent.
+    //  (1b) THE AIRBORNE BAR MEETS PROVENANCE. `EN_CR_Curtain_Mesh` (383 leftover rows) and
+    //      `EN_CR_Hanging_01_Mesh` (1079) are refused with "anchor 0.33 under the airborne bar
+    //      1.00 -- reads as floor-supported". They hang on the wall and reach near the floor.
+    //      ModBuild 266/268 lifted the FIGURE refusal on wall-generator provenance at five sites
+    //      and never touched this one. Lifted at all FOUR gating sites at once -- lifting only
+    //      the refusal drops the candidate into "no wall within reach" instead. The trap:
+    //      provenance ALONE also adopts CV_Ice_Crystal_Form_02/03 and LightShaft_Prefab, which
+    //      carry a standing ruling to STAY. Depth, foot, top, type and gap are all interleaved;
+    //      the ONE field that separates them is whether the walk resolves a PROP UNIT (383/383
+    //      curtain rows do, 146/146 + 146/146 + 145/145 crystal/shaft rows read "no prop unit at
+    //      all"). The lift is that conjunction, with its own adoption tag.
+    //  (3) THE WALK-IN STAND-DOWN. "Wenn ein Spieler IN das Spielfeld geht ... ausnahmslos alle
+    //      Waende sichtbar und nichts mehr faded. Das soll in Erweitert deaktivierbar sein."
+    //      THIS WAS BUILT AND REJECTED ONCE (ModBuild 251, "alle auf einmal"). The retirement
+    //      record says the mechanism "worked exactly as designed" -- the TRIGGER was the defect,
+    //      and its own log proves it: deciding term FOOTPRINT 27 times against HEIGHT 26, on a
+    //      board whose walls measured 0.61 m in REAL METRES with the head 0.34 m up. It fired
+    //      when he leaned over his tabletop. The 270 log, zoomed in for real, reads 1.62 m and
+    //      1.88 m. The term neither retired attempt had is the crest height in real metres at the
+    //      live rig scale; the latch is that AND the INSIDE verdict AND the HEIGHT slab AND a
+    //      readable scale, and the INSIDE THE MAP line names which term refused, with its value.
+    //      Delivered by the same two assignments every other forced-solid arm uses, so the
+    //      ordinary ANIMATED un-fade carries it. An unsplit wall's SmoothInit is dropped so the
+    //      walls leave the mode re-seeded from their own live coverage -- otherwise "alle auf
+    //      einmal" returns on RELEASE, merely delayed. Peer fades and the 4 s gate-lift linger
+    //      are gated too, because "ausnahmslos" admits no exception. Receiver-side only: own
+    //      fades are still broadcast and the wire format is unchanged.
+    //  (4) THE CENSUS THAT SENT ME TO A WRONG CAUSE, fixed. `TORN 'X' N/M written` counted writes
+    //      on ONE node against renderers in the whole SUBTREE, so ANY unit-of-one whose
+    //      descendants were also written reported torn -- the top five "defects" (166x, 54x, 31x,
+    //      26x, 18x) were all fine, and the same census carried the disproof two rows apart. The
+    //      `LEFT SOLID` clause was additionally suppressed for exactly those rows, and the cap of
+    //      6 of 199-308 ranked artifacts above the real class. Numerator and denominator now
+    //      count the same set, every torn unit names its solid members, split-owner units rank
+    //      first and are named, every capped list states "named K of N, dropped M".
+    //      NO RENDERER-TYPE FILTER MAY EVER BE ADDED: a draft excluded SkinnedMeshRenderer on
+    //      the premise that no fade path writes one; 124 accepted rows say otherwise
+    //      (`'EN_CR_Hanging_01_Cloth_Post'[skinned->cutoff] ... [WALL-BUILT ... ModBuild 266]`),
+    //      and because the NUMERATOR never went through that filter it would have produced
+    //      written > total and SILENCED the tear -- on the very prop family (1b) repairs.
     // Build 270: SAME BEHAVIOUR AS 269 — instrumentation only, and it exists because THREE of my
     // own briefs this round were built on truncated or misread census output. Test 270 instead of
     // 269: identical behaviour, and its log answers the shelf question in one grep.

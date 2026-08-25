@@ -502,9 +502,21 @@ internal static class WallStandingProp
         return m > spanZ ? m : spanZ;
     }
 
-    /// <summary>A prop is TORN when a fade path wrote SOME of its renderers and left the rest
-    /// solid. That is the exact shape of skelet.jpg — skull gone, ribcage and legs still there —
-    /// and it is the comparison no previous census printed. One definition, here, so the census
-    /// and any future guard cannot drift apart on what "torn" means.</summary>
+    /// <summary>
+    /// A prop is TORN when a fade path wrote SOME of its renderers and left the rest solid. That
+    /// is the exact shape of skelet.jpg — skull gone, ribcage and legs still there — and it is the
+    /// comparison no previous census printed. One definition, here, so the census and any future
+    /// guard cannot drift apart on what "torn" means.
+    ///
+    /// <para><b>THE PRECONDITION, and it is not optional (ModBuild 271).</b>
+    /// <paramref name="written"/> and <paramref name="total"/> MUST be counted over the SAME
+    /// population of renderers, and <paramref name="written"/> must be DISTINCT renderers. This
+    /// predicate cannot check that and will happily file a fully-written prop as a defect if the
+    /// caller does not: ModBuild 270's census passed a numerator counted on one transform and a
+    /// denominator counted over that transform's whole subtree, and the result was that the five
+    /// most frequently reported torn props of an entire hardware session — 166, 54, 31, 26 and 18
+    /// occurrences — were all intact. See <c>WallSegmentFade.FadeCensus.cs</c>,
+    /// <c>BuildFadeUnits</c>, which is where the invariant is established and documented.</para>
+    /// </summary>
     internal static bool IsTorn(int written, int total) => written > 0 && written < total;
 }

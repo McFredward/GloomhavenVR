@@ -34,13 +34,22 @@ namespace GloomhavenVR.Core;
 /// sibling, wall body mesh, stacked shell, mounted dressing, shared corner piece, and whether the
 /// prop-unit pass is what put it there — and the fade its owning segment is carrying.</para>
 ///
-/// <para>SORTED SMALLEST FIRST, because a skull is small. The cap is a real cap and the line says
-/// how many rows it dropped; what it must never do is silently truncate the one interesting case,
-/// which is exactly what a "first N in dictionary order" census does. TORN UNITS COME FIRST
-/// regardless of size: a unit is torn when a fade path wrote SOME of a prop's renderers and left
-/// the rest solid, and that is precisely the shape of the photograph — skull gone, ribcage and legs
-/// still there. No previous census printed that comparison, which is why four rounds of logs could
-/// not settle the question.</para>
+/// <para>RANKED BY DEFECT CLASS, then SMALLEST FIRST because a skull is small. SPLIT-OWNER units
+/// come first, then TORN units, then everything else by size. Every capped list in the line states
+/// its own truncation as <c>named K of N, dropped M</c>, BEFORE the list — a truncated list is not
+/// absence, and this project has three wrong diagnoses that came from reading one as if it were.
+/// A unit is torn when a fade path wrote SOME of a prop's renderers and left the rest solid, and
+/// that is precisely the shape of the photograph — skull gone, ribcage and legs still there.</para>
+///
+/// <para>ONE POPULATION, NUMERATOR AND DENOMINATOR (ModBuild 271, and the reason this file was
+/// reopened). Until ModBuild 270 the numerator counted writes keyed on ONE transform while the
+/// denominator counted that transform's whole SUBTREE, so a child renderer's own write became a
+/// SEPARATE unit and the parent reported TORN even though both halves had been written. It made
+/// every flat-parented prop with a written descendant a guaranteed false positive: 166, 54, 31, 26
+/// and 18 occurrences of five such props are the top five "torn" offenders of the whole
+/// ModBuild-270 session, and all five are fine. Both terms are now counted over the countable
+/// renderers of the unit's root — see <see cref="FadeDriver.BuildFadeUnits"/> for the invariant,
+/// the merge that enforces it, and the two populations the denominator must not count.</para>
 ///
 /// <para>SO DO SPLIT-OWNER UNITS, since ModBuild 258 — the SECOND shape a prop tears in, and one
 /// this line could state only by accident before. <c>'CA_ICY_WallLight'</c> put its ice meshes on
@@ -54,8 +63,14 @@ namespace GloomhavenVR.Core;
 ///
 /// <para>HOW A PROP IS GROUPED: ModBuild 167's walk, <see cref="FadeDriver.PropUnitRootOf"/> — the
 /// highest still prop-sized ancestor, stopping dead at a segment anchor, at anything carrying or
-/// containing a <c>ProceduralWall</c>, and at the first container-scale subtree. A renderer with no
-/// such unit is reported as a unit of one, which cannot be torn and says so.</para>
+/// containing a <c>ProceduralWall</c>, and at the first container-scale subtree — and then, since
+/// ModBuild 271, the census's own MERGE of descendant writes into that same unit key, under the
+/// same bound and the same stopping rules. Every row says which of the two grouped it, because
+/// "1 of 2 written" means something different in each case: no marker = the fade code's own walk;
+/// <c>[no prop unit — subtree grouped by the census]</c> = only the census, which is the signal
+/// that the tileset parented the prop flat; <c>[no prop unit — a unit of one]</c> = one renderer
+/// and nothing else under it, which cannot be torn; <c>[node-scoped]</c> = the root's subtree is
+/// container-scale, so it is not one prop and the denominator is the root node alone.</para>
 ///
 /// <para>LOG HYGIENE. Rate-limited AND change-triggered on a signature over the written set and
 /// their quantised fades: while nothing changes it prints nothing, and the expensive half (the
@@ -79,10 +94,21 @@ internal static partial class WallSegmentFade
         /// scrolled past.</summary>
         private const float FadeCensusIntervalSeconds = 2f;
 
-        /// <summary>How many UNITS one line names. Six is what the standing-prop, mounted and
-        /// prop-unit lines settled on — enough to name the offender, short of a wall of text. The
-        /// line always states how many units it dropped.</summary>
-        private const int FadeCensusUnitCap = 6;
+        /// <summary>How many UNITS one line names. SIX until ModBuild 271, and six was the whole
+        /// reason the ModBuild-270 log could not be read: 61-89 units per pass were reported TORN,
+        /// nearly all of them the population artifact fixed in <see cref="BuildFadeUnits"/>, and
+        /// the six slots went to them while the <c>49 unit(s) have TWO OR MORE OWNERS</c> clause
+        /// named none of the 49. Twelve now, and the two genuine defect classes are ranked ahead
+        /// of everything else (see <see cref="FadeUnitOrder"/>). The line always states how many
+        /// units it dropped, in the same <c>named K of N, dropped M</c> form every other capped
+        /// list in this census uses.</summary>
+        private const int FadeCensusUnitCap = 12;
+
+        /// <summary>How many SPLIT-OWNER units the header clause names. That clause used to be a
+        /// bare number — <c>49 unit(s) have TWO OR MORE OWNERS on independent fades</c> — and a
+        /// number without names is not evidence of anything. It now names them, each with its
+        /// owners, their fades and how many renderers each owner holds.</summary>
+        private const int FadeCensusOwnerSplitNameCap = 8;
 
         /// <summary>How many written renderers one unit names before it says "+N more".</summary>
         private const int FadeCensusMembersPerUnit = 4;
@@ -128,14 +154,35 @@ internal static partial class WallSegmentFade
             public Transform? Root;
             public readonly List<FadeWrite> Written = new(8);
             /// <summary>Names of the unit's renderers that NO fade path wrote — the comparison
-            /// that makes a torn prop visible.</summary>
+            /// that makes a torn prop visible. Capped at
+            /// <see cref="FadeCensusSolidNamesPerUnit"/>; <see cref="SolidTotal"/> is how many
+            /// there actually are, so the line can state its own truncation.</summary>
             public readonly List<string> Solid = new(8);
+            /// <summary>How many of the unit's renderers NO fade path wrote — the full count,
+            /// not the named subset.</summary>
+            public int SolidTotal;
+            /// <summary>DISTINCT renderers written, which is the numerator TORN is judged on.
+            /// <see cref="Written"/> can hold the same renderer twice — a renderer reachable from
+            /// two segments, or from two of one segment's lists, is noted once per list — and
+            /// counting those duplicates could push <c>Written.Count</c> up to or past
+            /// <see cref="TotalRenderers"/> and hide a real tear.</summary>
+            public int DistinctWritten;
             public int TotalRenderers;
             public float SizeRank;
             public float MinY;
             public float MaxY;
             public float FloorY;
-            public bool SingleRenderer;
+            /// <summary>The fade code's OWN grouping walk (<see cref="PropUnitRootOf"/>, via
+            /// <see cref="StandingFloorUnitRootOf"/>) returned this exact root for at least one of
+            /// the unit's writes. False means the census grouped it and the fade code did not —
+            /// which is itself the finding the header calls out: the tileset parented it flat and
+            /// the grouping, not the geometry, is what needs widening.</summary>
+            public bool FadeGrouped;
+            /// <summary>The unit is judged NODE-SCOPED: its root's subtree is container-scale, so
+            /// the subtree is not one prop and the denominator is the renderers ON the root node
+            /// only. Such a unit is 1/1 by construction and can never be torn — which is the
+            /// honest answer, not a manufactured one.</summary>
+            public bool NodeScoped;
             /// <summary>Computed ONCE per census (see <see cref="OwnerSplit"/>), because the sort
             /// below reads it and a comparator that allocates a StringBuilder per comparison is a
             /// diagnostic that costs more than the thing it diagnoses.</summary>
@@ -147,16 +194,37 @@ internal static partial class WallSegmentFade
                 Root = null;
                 Written.Clear();
                 Solid.Clear();
+                SolidTotal = 0;
+                DistinctWritten = 0;
                 TotalRenderers = 0;
                 SizeRank = 0f;
                 MinY = 0f;
                 MaxY = 0f;
                 FloorY = 0f;
-                SingleRenderer = false;
+                FadeGrouped = false;
+                NodeScoped = false;
                 Owners = string.Empty;
             }
 
-            public bool Torn => WallStandingProp.IsTorn(Written.Count, TotalRenderers);
+            /// <summary>
+            /// TORN, over ONE population. Both terms are now counted over the same set of
+            /// renderers — the countable renderers of this unit's root (see
+            /// <see cref="CountsTowardFadeUnit"/> and <see cref="MeasureFadeUnit"/>) — which is
+            /// the whole of the ModBuild-271 fix and the thing that must not silently regress.
+            ///
+            /// <para>WHAT IT USED TO DO, and why it sent a round to a wrong root cause. The
+            /// numerator counted writes keyed on ONE transform; the denominator counted the whole
+            /// SUBTREE of that transform. A child renderer's own write was keyed on the CHILD and
+            /// became a separate unit, so a prop whose every renderer was written still reported
+            /// <c>1/2</c> and was filed as a defect. In the ModBuild-270 log the same census print
+            /// carried both <c>TORN 'CR_GE_Candle_04'[a unit of one] 1/2 written</c> and
+            /// <c>'Candle_Fire_FX_02 (3)' 1/1 written … under
+            /// 'Walls/Wall 3/Generated Content/CR_GE_Candle_04'</c>: same wall, same fade,
+            /// parent and child, both halves written, and the line said TORN. The top five torn
+            /// offenders of that whole session (166x, 54x, 31x, 26x, 18x) were that artifact and
+            /// nothing else.</para>
+            /// </summary>
+            public bool Torn => WallStandingProp.IsTorn(DistinctWritten, TotalRenderers);
 
             /// <summary>
             /// THE OTHER WAY A PROP TEARS, and the ModBuild-257 log could not state it: not
@@ -197,6 +265,23 @@ internal static partial class WallSegmentFade
                     {
                         if (!string.Equals(Written[j].Owner, owner, System.StringComparison.Ordinal))
                             continue;
+                        // RENDERERS this owner holds, not WRITES. The same renderer can be noted
+                        // twice under one owner (two of a segment's lists reach it), and an
+                        // inflated x-count is the same lie in miniature that DistinctWritten
+                        // fixes for the numerator.
+                        bool already = false;
+                        for (int k = 0; k < j; k++)
+                        {
+                            if (ReferenceEquals(Written[k].R, Written[j].R)
+                                && string.Equals(Written[k].Owner, owner,
+                                                 System.StringComparison.Ordinal))
+                            {
+                                already = true;
+                                break;
+                            }
+                        }
+                        if (already)
+                            continue;
                         n++;
                         fade = Written[j].Fade;
                     }
@@ -215,6 +300,24 @@ internal static partial class WallSegmentFade
         private readonly List<FadeUnit> _fadeUnitPool = new(32);
         private readonly Dictionary<Transform, int> _fadeUnitByRoot = new(32);
         private readonly List<Renderer> _fadeCensusScratch = new(32);
+        /// <summary>The solid-half enumeration's own list. Deliberately NOT
+        /// <see cref="_fadeCensusScratch"/>: that one is walked while this one is being read, and
+        /// a scratch list shared between two live iterations is how one gets cleared underneath
+        /// the other.</summary>
+        private readonly List<Renderer> _fadeSolidScratch = new(32);
+        /// <summary>Countable renderers under a node, memoised for the duration of ONE census
+        /// call — see <see cref="CensusRendererCount"/>. Cleared at the end of every call:
+        /// Apparance rebirths these subtrees constantly and a transform kept across calls is a
+        /// dangling reference within a couple of seconds.</summary>
+        private readonly Dictionary<Transform, int> _fadeUnitSubtreeCount = new(64);
+        /// <summary>Candidate root -> the highest candidate root ABOVE it, or null. The merge
+        /// map of <see cref="BuildFadeUnits"/> pass 2.</summary>
+        private readonly Dictionary<Transform, Transform?> _fadeUnitMerge = new(64);
+        private readonly List<Transform> _fadeUnitCandidates = new(64);
+        private readonly HashSet<Transform> _fadeUnitCandidateSet = new(64);
+        /// <summary>Index-aligned with <see cref="_fadeWrites"/>: the candidate root of each
+        /// write, computed in pass 1 and re-read in pass 4 rather than recomputed.</summary>
+        private readonly List<Transform> _fadeWriteCandidate = new(128);
         private float _nextFadeCensus;
         private int _fadeCensusSig = -1;
 
@@ -302,8 +405,73 @@ internal static partial class WallSegmentFade
             _fadeWrites.Add(new FadeWrite(r, path, owner, fade));
         }
 
-        /// <summary>Group the writes into prop units, measure each one, and find the renderers of
-        /// those units that NOTHING wrote — the torn-prop comparison.</summary>
+        /// <summary>How many merge hops <see cref="ResolveFadeUnitRoot"/> will follow. Each hop is
+        /// strictly upward in the hierarchy so the chain cannot cycle; the bound is here so a
+        /// diagnostic can never become an infinite loop on a hierarchy nobody on the build machine
+        /// can open.</summary>
+        private const int FadeUnitMergeMaxHops = 8;
+
+        /// <summary>
+        /// GROUP THE WRITES INTO PROP UNITS — over ONE population, which is the ModBuild-271
+        /// correction and the invariant every future edit of this method has to preserve.
+        ///
+        /// <para><b>THE INVARIANT.</b> For every unit, the numerator
+        /// (<see cref="FadeUnit.DistinctWritten"/>) and the denominator
+        /// (<see cref="FadeUnit.TotalRenderers"/>) count renderers drawn from the SAME set: the
+        /// countable renderers of the unit's root — its whole subtree, or, when that subtree is
+        /// container-scale, the root node alone. If a renderer can appear in the denominator whose
+        /// write is filed against a DIFFERENT unit, this method is broken and every <c>TORN</c> it
+        /// prints is a manufactured tear.</para>
+        ///
+        /// <para><b>WHAT WAS BROKEN.</b> The unit key was
+        /// <c>StandingFloorUnitRootOf(w.R) ?? w.R.transform</c> and the denominator was
+        /// <c>root.GetComponentsInChildren&lt;Renderer&gt;()</c>. For a prop parented flat under
+        /// <c>Wall N/Generated Content</c> the walk breaks at the wall entity immediately, so the
+        /// key became the renderer's OWN transform while the denominator stayed the whole subtree
+        /// — and a child renderer's own write was keyed on the CHILD and filed as a separate unit.
+        /// Any such unit whose descendants were also written was GUARANTEED to report torn.
+        /// ModBuild 270's log carries the proof inside a single census print: <c>TORN
+        /// 'CR_GE_Candle_04'[a unit of one] 1/2 written … wall renderer of 'Wall 3' fade 1.00</c>
+        /// and, five rows later, <c>'Candle_Fire_FX_02 (3)' 1/1 written … under
+        /// 'Walls/Wall 3/Generated Content/CR_GE_Candle_04' … mounted dressing of 'Wall 3' fade
+        /// 1.00</c>. Same XZ, same wall, same fade, parent and child, both halves written — and
+        /// the line filed it as the defect. That artifact is the top five torn offenders of the
+        /// whole session (166x, 54x, 31x, 26x, 18x), and it pushed the genuine
+        /// <c>TWO OR MORE OWNERS</c> units out of every one of the six printed slots.</para>
+        ///
+        /// <para><b>WHICH POPULATION IS CANONICAL: THE SUBTREE.</b> A unit is what the eye sees as
+        /// one prop, and the question the line exists to answer — <i>which of its renderers was
+        /// left solid</i> — has no answer at all if the unit is one node: a node-only unit is 1/1
+        /// by construction and can never name a solid sibling. So the subtree stays the
+        /// denominator and the NUMERATOR is made to match, by collecting descendant writes into
+        /// the same unit key (passes 1-3 below).</para>
+        ///
+        /// <para><b>HOW.</b> Pass 1 gives every write a CANDIDATE root — the fade code's own
+        /// grouping walk when it returns one, the renderer's transform otherwise. Pass 2 asks, for
+        /// every distinct candidate, whether a HIGHER candidate root sits above it within the same
+        /// bounded window the grouping walk uses (<see cref="PropUnitMaxDepth"/> levels, stopping
+        /// dead at a segment anchor or a wall entity, so a wall can never be swallowed into a
+        /// "prop"). Pass 3 follows those links to their top. The result: every write anywhere in a
+        /// written-rooted subtree lands in ONE unit, and the candle above becomes
+        /// <c>'CR_GE_Candle_04' 2/2</c>.</para>
+        ///
+        /// <para><b>WHAT THE DENOMINATOR MUST NOT COUNT — one thing, and it is a COUNT, not a
+        /// renderer type.</b> See <see cref="CountsTowardFadeUnit"/> for why no type test may ever
+        /// be added here: the numerator is whatever the fade paths wrote, so any filter the
+        /// numerator does not share pulls the two terms apart again — and since ModBuild 266 the
+        /// fade paths write skinned renderers on provenance.</para>
+        /// <list type="number">
+        /// <item>A CONTAINER-SCALE subtree. <see cref="PropUnitRootOf"/> already breaks at
+        ///   <c>count &gt; PropUnitMaxRenderers</c> — "this node and everything above it are
+        ///   architecture" — but it counts <c>MeshRenderer</c> while this census counts every
+        ///   <c>Renderer</c>, so a node holding 158 renderers of which few are mesh passed that
+        ///   test and was reported as one prop. In the ModBuild-270 log that node is
+        ///   <c>Board</c>: <c>TORN 'Board' 6/158 written … LEFT SOLID: Ribbon, WP_Berserker_Axe,
+        ///   … +146 more</c> — the entire game board with every figure standing on it, filed as a
+        ///   half-faded prop. The same threshold is now applied in the census's own currency, both
+        ///   when accepting a candidate root and when measuring the unit.</item>
+        /// </list>
+        /// </summary>
         private void BuildFadeUnits()
         {
             foreach (FadeUnit u in _fadeUnits)
@@ -313,60 +481,116 @@ internal static partial class WallSegmentFade
             }
             _fadeUnits.Clear();
             _fadeUnitByRoot.Clear();
+            _fadeUnitSubtreeCount.Clear();
+            _fadeUnitMerge.Clear();
+            _fadeUnitCandidates.Clear();
+            _fadeUnitCandidateSet.Clear();
+            _fadeWriteCandidate.Clear();
 
+            // PASS 1 - the candidate root of every write, index-aligned with _fadeWrites.
+            // _fadeUnitMerge doubles as the "already seen this candidate" set; pass 2 overwrites
+            // every placeholder it puts here.
             foreach (FadeWrite w in _fadeWrites)
             {
-                Transform? root = StandingFloorUnitRootOf(w.R);
-                bool single = root == null;
-                if (single)
-                    root = w.R.transform;
-                if (!_fadeUnitByRoot.TryGetValue(root!, out int at))
-                {
-                    FadeUnit made = RentFadeUnit();
-                    made.Label = root!.name;
-                    made.Root = root;
-                    made.SingleRenderer = single;
-                    MeasureFadeUnit(root!, made);
-                    at = _fadeUnits.Count;
-                    _fadeUnits.Add(made);
-                    _fadeUnitByRoot[root!] = at;
-                }
-                _fadeUnits[at].Written.Add(w);
+                Transform cand = FadeUnitCandidateOf(w.R);
+                _fadeWriteCandidate.Add(cand);
+                if (_fadeUnitMerge.ContainsKey(cand))
+                    continue;
+                _fadeUnitMerge[cand] = null;
+                _fadeUnitCandidates.Add(cand);
+                // ELIGIBLE AS A MERGE TARGET only if it is prop-scale. A renderer can sit
+                // directly ON a container node - 'Generated Content' carries wall meshes - and
+                // that node then becomes its own candidate. Merging every write beneath it into
+                // that node would rebuild, in one step, exactly the 'Board' 6/158 artifact this
+                // rewrite exists to remove. Such a candidate still gets its own unit (node-scoped,
+                // see below); what it may not be is somebody else's root.
+                if (CensusRendererCount(cand) <= PropUnitMaxRenderers)
+                    _fadeUnitCandidateSet.Add(cand);
             }
 
-            // The still-solid half. A renderer under the unit's root that nothing wrote is what
-            // makes the unit TORN; the names are what make it readable.
+            // PASS 2 - the merge map: candidate -> the highest candidate root above it, if any.
+            foreach (Transform cand in _fadeUnitCandidates)
+                _fadeUnitMerge[cand] = HighestCandidateRootAbove(cand);
+
+            // PASS 3 - resolve each candidate to the top of its chain and file the write there.
+            for (int i = 0; i < _fadeWrites.Count; i++)
+            {
+                FadeWrite w = _fadeWrites[i];
+                Transform root = ResolveFadeUnitRoot(_fadeWriteCandidate[i]);
+                if (!_fadeUnitByRoot.TryGetValue(root, out int at))
+                {
+                    FadeUnit made = RentFadeUnit();
+                    made.Label = root.name;
+                    made.Root = root;
+                    // The container-scale test in the census's own currency - see the doc above.
+                    made.NodeScoped = CensusRendererCount(root) > PropUnitMaxRenderers;
+                    MeasureFadeUnit(root, made);
+                    at = _fadeUnits.Count;
+                    _fadeUnits.Add(made);
+                    _fadeUnitByRoot[root] = at;
+                }
+                FadeUnit unit = _fadeUnits[at];
+                unit.Written.Add(w);
+                // Did the FADE CODE's own walk group this write here, or did only the census? The
+                // header reports the difference; it is the "the tileset parented it flat" signal.
+                if (ReferenceEquals(StandingFloorUnitRootOf(w.R), root))
+                    unit.FadeGrouped = true;
+            }
+
+            // DISTINCT renderers written - the numerator TORN is judged on. A renderer reachable
+            // from two segments, or from two of one segment's lists, is noted once per list, and
+            // those duplicates could push the count up to TotalRenderers and HIDE a real tear.
             foreach (FadeUnit u in _fadeUnits)
             {
-                if (u.Written.Count >= u.TotalRenderers || u.SingleRenderer || u.Root == null)
-                    continue;
-                // The subtree is re-read into a LOCAL array rather than the shared scratch list:
-                // the loop below walks it while reading u.Written, and a scratch list shared
-                // between two live iterations is how one gets cleared underneath the other.
-                foreach (Renderer piece in u.Root.GetComponentsInChildren<Renderer>(false))
+                int distinct = 0;
+                for (int i = 0; i < u.Written.Count; i++)
                 {
-                    if (piece == null || IsModObject(piece)
-                        || u.Solid.Count >= FadeCensusSolidNamesPerUnit)
+                    bool seen = false;
+                    for (int j = 0; j < i; j++)
                     {
-                        continue;
+                        if (ReferenceEquals(u.Written[j].R, u.Written[i].R)) { seen = true; break; }
                     }
+                    if (!seen)
+                        distinct++;
+                }
+                u.DistinctWritten = distinct;
+            }
+
+            // The still-solid half. A renderer of the unit that nothing wrote is what makes the
+            // unit TORN; the names are what make it readable. There is NO exemption here any more:
+            // ModBuild 270 skipped this enumeration for every unit the grouping walk had not
+            // grouped, so exactly the units that printed "1 of 2 written" then refused to name the
+            // missing one - which is the whole point of the clause.
+            foreach (FadeUnit u in _fadeUnits)
+            {
+                if (u.Root == null || u.DistinctWritten >= u.TotalRenderers)
+                    continue;
+                CollectFadeUnitRenderers(u.Root, u.NodeScoped, _fadeSolidScratch);
+                foreach (Renderer piece in _fadeSolidScratch)
+                {
+                    if (!CountsTowardFadeUnit(piece))
+                        continue;
                     bool written = false;
                     foreach (FadeWrite w in u.Written)
                     {
                         if (ReferenceEquals(w.R, piece)) { written = true; break; }
                     }
-                    if (!written)
+                    if (written)
+                        continue;
+                    u.SolidTotal++;
+                    if (u.Solid.Count < FadeCensusSolidNamesPerUnit)
                         u.Solid.Add(piece.name);
                 }
+                _fadeSolidScratch.Clear();
             }
 
-            // The owner split, once per unit — the sort below reads it. See FadeUnit.Owners.
+            // The owner split, once per unit - the sort below reads it. See FadeUnit.Owners.
             foreach (FadeUnit u in _fadeUnits)
                 u.Owners = u.OwnerSplit();
 
-            // TORN OR SPLIT first (those are the two shapes of the report), then SMALLEST first
-            // (a skull is small). Insertion sort: the list is tens of entries and this runs at
-            // most once every two seconds, on a frame where something actually changed.
+            // SPLIT first, then TORN, then SMALLEST first (a skull is small) - see FadeUnitOrder.
+            // Insertion sort: the list is tens of entries and this runs at most once every two
+            // seconds, on a frame where something actually changed.
             for (int i = 1; i < _fadeUnits.Count; i++)
             {
                 FadeUnit key = _fadeUnits[i];
@@ -378,20 +602,174 @@ internal static partial class WallSegmentFade
                 }
                 _fadeUnits[j + 1] = key;
             }
+
+            // The grouping scratch holds TRANSFORMS and is dead the moment the units are built.
+            // Apparance rebirths these subtrees constantly, so it is dropped here rather than at
+            // the start of the next call - the same discipline FadeUnit.Root keeps, and the same
+            // one WallSegmentFade.Standing.cs already pays for having learned.
+            _fadeUnitSubtreeCount.Clear();
+            _fadeUnitMerge.Clear();
+            _fadeUnitCandidates.Clear();
+            _fadeUnitCandidateSet.Clear();
+            _fadeWriteCandidate.Clear();
         }
 
-        /// <summary>Negative when <paramref name="a"/> must be printed before
-        /// <paramref name="b"/>.</summary>
+        /// <summary>
+        /// Negative when <paramref name="a"/> must be printed before <paramref name="b"/> —
+        /// RANKED BY DEFECT CLASS, most-broken first, since ModBuild 271.
+        ///
+        /// <para>Until ModBuild 271 the two classes shared one rank and the tie broke on size, so
+        /// the six slots went to whatever was smallest — which, with 61-89 units per pass reported
+        /// torn by the population artifact <see cref="BuildFadeUnits"/> now fixes, meant the
+        /// slots went to false positives while the <c>49 unit(s) have TWO OR MORE OWNERS</c>
+        /// clause named none of the 49.</para>
+        ///
+        /// <list type="number">
+        /// <item>TWO OR MORE OWNERS. A unit with two owners can be 9/9 written and therefore NOT
+        ///   torn, and it is still the defect (CA_ICY_WallLight — see FadeUnit.OwnerSplit); it is
+        ///   also the class the ModBuild-258 unit-affinity rule is meant to hold at ZERO, so any
+        ///   member of it is a live falsification of a shipped rule. It goes first.</item>
+        /// <item>TORN. Now that both terms are counted over one population it means what the line
+        ///   says it means.</item>
+        /// <item>Everything else, SMALLEST FIRST, because a skull is small.</item>
+        /// </list>
+        /// </summary>
         private static int FadeUnitOrder(FadeUnit a, FadeUnit b)
         {
-            // A unit with two owners can be 9/9 written and therefore NOT torn, and it is still
-            // the defect (CA_ICY_WallLight — see FadeUnit.OwnerSplit). Without this term the
-            // six-unit cap drops it by size and the line answers a question nobody asked.
-            bool ab = a.Torn || a.Owners.Length > 0;
-            bool bb = b.Torn || b.Owners.Length > 0;
-            if (ab != bb)
-                return ab ? -1 : 1;
+            bool asplit = a.Owners.Length > 0;
+            bool bsplit = b.Owners.Length > 0;
+            if (asplit != bsplit)
+                return asplit ? -1 : 1;
+            if (a.Torn != b.Torn)
+                return a.Torn ? -1 : 1;
             return a.SizeRank < b.SizeRank ? -1 : a.SizeRank > b.SizeRank ? 1 : 0;
+        }
+
+        /// <summary>
+        /// May this renderer be counted as a member of a fade unit? The denominator, the unit
+        /// bounds and the solid enumeration all go through here.
+        ///
+        /// <para><b>THE RULE, and it is the reason this predicate is two clauses and not three.</b>
+        /// The NUMERATOR does not go through here — it is whatever the fade paths actually wrote,
+        /// collected by <see cref="NoteFadeWrite"/>. So this filter may only ever exclude a
+        /// renderer the numerator CANNOT contain. Exclude anything the numerator can hold and the
+        /// two terms come apart again, in the direction that is worse: <c>written</c> then exceeds
+        /// <c>total</c>, <see cref="WallStandingProp.IsTorn"/> returns FALSE, and a REAL tear is
+        /// hidden. Both surviving clauses satisfy the rule structurally: <c>NoteFadeWrite</c>
+        /// drops a null and drops <see cref="IsModObject"/>, so neither can ever be in the
+        /// numerator.</para>
+        ///
+        /// <para><b>WHY THERE IS NO RENDERER-TYPE CLAUSE HERE, and why one must never be added.</b>
+        /// A draft of this rewrite excluded <c>SkinnedMeshRenderer</c>, reasoning that no fade path
+        /// may write a figure. That premise was TRUE when it was written and has been false since
+        /// ModBuild 266, which lifted the figure-renderer refusal for wall-generator content on
+        /// provenance ("Ich möchte, dass die Flagge inklusive der Stange vollständig mit faded");
+        /// ModBuild 268 added a fifth site for the same reason. The ModBuild-270 log falsifies the
+        /// premise 124 times over, in the ACCEPTED list:
+        /// <c>'EN_CR_Hanging_01_Cloth_Post'[skinned→cutoff] anchor 2.3 gap 0.00 → 'Wall 2'
+        /// [WALL-BUILT: adopted on provenance, ModBuild 266]</c>. Its sibling
+        /// <c>'EN_CR_Hanging_01_Mesh'[skinned]</c> is REFUSED in the same log
+        /// (<c>anchor 0.44 under the airborne bar 1.00 — reads as floor-supported</c>) — so that
+        /// prop is a real half-faded banner right now, and the type test would have printed it
+        /// <c>1/0 written</c> and NOT torn. Which types may be written is a POLICY, owned by
+        /// another file, and it has already moved twice; an instrument that encodes it drifts
+        /// silently the next time it moves. The census asks structural questions only.</para>
+        ///
+        /// <para>The figure population this clause was meant to remove — the whole game board with
+        /// every actor on it — is removed by the CONTAINER-SCALE rejection in
+        /// <see cref="BuildFadeUnits"/> instead, which is a count and not a policy. And its own
+        /// motivating examples did not need it: <c>left_clavicle01</c> and <c>left_thigh01</c>,
+        /// the two "figure rig bones" of the ModBuild-270 split-owner list, are
+        /// <c>[mesh]</c> renderers of a SCENERY skeleton
+        /// (<c>Generated Content/PCG_Test_Feature_Medium_1/skeleton_Standing 1/chest01</c>) — the
+        /// skelet.jpg subject itself, which no type test may drop.</para>
+        /// </summary>
+        private static bool CountsTowardFadeUnit(Renderer? piece)
+            => piece != null && !IsModObject(piece);
+
+        /// <summary>The renderers of one unit, into <paramref name="into"/> — the ONE place that
+        /// decides what a unit's renderers are, so the count, the solid enumeration and the bounds
+        /// cannot disagree. A node-scoped unit (container-scale subtree) is the root node's own
+        /// renderers; every other unit is the subtree.</summary>
+        private static void CollectFadeUnitRenderers(Transform root, bool nodeScoped,
+                                                     List<Renderer> into)
+        {
+            into.Clear();
+            if (nodeScoped)
+                root.GetComponents(into);
+            else
+                root.GetComponentsInChildren(includeInactive: false, into);
+        }
+
+        /// <summary>Countable renderers under a node, memoised for the duration of one census
+        /// call. Same predicate as the measurement, so "is this container-scale" and "how big is
+        /// this unit" are answered in the same currency.</summary>
+        private int CensusRendererCount(Transform node)
+        {
+            if (_fadeUnitSubtreeCount.TryGetValue(node, out int cached))
+                return cached;
+            _fadeCensusScratch.Clear();
+            node.GetComponentsInChildren(includeInactive: false, _fadeCensusScratch);
+            int kept = 0;
+            foreach (Renderer piece in _fadeCensusScratch)
+            {
+                if (CountsTowardFadeUnit(piece))
+                    kept++;
+            }
+            _fadeCensusScratch.Clear();
+            _fadeUnitSubtreeCount[node] = kept;
+            return kept;
+        }
+
+        /// <summary>PASS 1 of <see cref="BuildFadeUnits"/>: the fade code's own grouping when it
+        /// returns one and that group is prop-scale BY THE CENSUS'S OWN COUNT, the renderer's
+        /// transform otherwise. Rejecting a container-scale group here is what stops the whole
+        /// game board being reported as one half-faded prop — see the doc on
+        /// <see cref="BuildFadeUnits"/>.</summary>
+        private Transform FadeUnitCandidateOf(Renderer r)
+        {
+            Transform? root = StandingFloorUnitRootOf(r);
+            if (root != null && CensusRendererCount(root) <= PropUnitMaxRenderers)
+                return root;
+            return r.transform;
+        }
+
+        /// <summary>PASS 2 of <see cref="BuildFadeUnits"/>: the HIGHEST candidate root above
+        /// <paramref name="cand"/>, or null. Bounded and guarded exactly as
+        /// <see cref="PropUnitRootOf"/> is — <see cref="PropUnitMaxDepth"/> levels, stopping dead
+        /// at a segment anchor and at a wall entity — so no amount of merging can ever pull a wall
+        /// into a prop unit. Only nodes that are ALREADY candidate roots are merge targets, and
+        /// those have passed the container-scale test in pass 1, so the merged unit cannot be
+        /// container-scale either.</summary>
+        private Transform? HighestCandidateRootAbove(Transform cand)
+        {
+            Transform? best = null;
+            Transform? node = cand.parent;
+            for (int depth = 0; node != null && depth < PropUnitMaxDepth; depth++, node = node.parent)
+            {
+                if (_propUnitAnchors.Contains(node) || NodeIsWallEntity(node))
+                    break;
+                if (_fadeUnitCandidateSet.Contains(node))
+                    best = node;
+            }
+            return best;
+        }
+
+        /// <summary>PASS 3 of <see cref="BuildFadeUnits"/>: follow the merge links to the top.
+        /// Composing the per-hop window is what lets a chain deeper than
+        /// <see cref="PropUnitMaxDepth"/> still resolve to ONE unit — the wall torch is
+        /// <c>distort</c> under <c>p_fire_torch (8)</c> under <c>CR_St_WallTorch_Fire_Orange</c>,
+        /// three candidate roots and one prop.</summary>
+        private Transform ResolveFadeUnitRoot(Transform cand)
+        {
+            Transform node = cand;
+            for (int hops = 0; hops < FadeUnitMergeMaxHops; hops++)
+            {
+                if (!_fadeUnitMerge.TryGetValue(node, out Transform? up) || up == null)
+                    break;
+                node = up;
+            }
+            return node;
         }
 
         private FadeUnit RentFadeUnit()
@@ -409,14 +787,17 @@ internal static partial class WallSegmentFade
         /// size or its foot.</summary>
         private void MeasureFadeUnit(Transform root, FadeUnit unit)
         {
-            _fadeCensusScratch.Clear();
-            root.GetComponentsInChildren(includeInactive: false, _fadeCensusScratch);
+            // ONE selector for the unit's renderers (CollectFadeUnitRenderers) and ONE predicate
+            // for which of them count (CountsTowardFadeUnit) — the same two the numerator and the
+            // solid enumeration go through. A denominator built from a different population than
+            // the numerator is the ModBuild-270 defect; see BuildFadeUnits.
+            CollectFadeUnitRenderers(root, unit.NodeScoped, _fadeCensusScratch);
             Bounds union = default;
             bool have = false;
             int kept = 0;
             foreach (Renderer piece in _fadeCensusScratch)
             {
-                if (piece == null || IsModObject(piece))
+                if (!CountsTowardFadeUnit(piece))
                     continue;
                 kept++;
                 if (!have) { union = piece.bounds; have = true; }
@@ -434,18 +815,30 @@ internal static partial class WallSegmentFade
             unit.FloorY = floorY;
         }
 
-        /// <summary>Build and emit the line.</summary>
+        /// <summary>
+        /// Build and emit the line.
+        ///
+        /// <para>EVERY CAPPED LIST IN HERE STATES ITS OWN TRUNCATION, in the form
+        /// <c>named K of N, dropped M</c>, and states it BEFORE the list rather than as a trailing
+        /// ellipsis. Three wrong diagnoses in this project came from reading an ellipsis-capped
+        /// list as evidence of absence — a truncated list is not absence, and a summary stat is
+        /// not the field. There are four such lists: the units shown, the written members of a
+        /// unit, the still-solid renderers of a unit, and the split-owner units named in the
+        /// header.</para>
+        /// </summary>
         private void EmitFadeWriteCensus()
         {
-            int torn = 0, lone = 0, split = 0;
+            int torn = 0, ungrouped = 0, split = 0, nodeScoped = 0;
             foreach (FadeUnit u in _fadeUnits)
             {
                 if (u.Torn)
                     torn++;
-                if (u.SingleRenderer)
-                    lone++;
+                if (!u.FadeGrouped)
+                    ungrouped++;
                 if (u.Owners.Length > 0)
                     split++;
+                if (u.NodeScoped)
+                    nodeScoped++;
             }
             int shown = Mathf.Min(FadeCensusUnitCap, _fadeUnits.Count);
             var rows = new System.Text.StringBuilder();
@@ -456,28 +849,28 @@ internal static partial class WallSegmentFade
                     rows.Append(" | ");
                 rows.Append(u.Torn ? "TORN " : string.Empty)
                     .Append('\'').Append(u.Label).Append('\'')
-                    .Append(u.SingleRenderer ? "[no prop unit — a unit of one]" : string.Empty)
-                    .Append(' ').Append(u.Written.Count).Append('/').Append(u.TotalRenderers)
+                    .Append(FadeUnitGroupingMark(u))
+                    .Append(' ').Append(u.DistinctWritten).Append('/').Append(u.TotalRenderers)
                     .Append(" written, unit y[").Append(u.MinY.ToString("0.0")).Append("..")
                     .Append(u.MaxY.ToString("0.0")).Append("] over floor ")
                     .Append(u.FloorY.ToString("0.0")).Append(", widest ")
-                    .Append(u.SizeRank.ToString("0.0")).Append(" wu: ");
+                    .Append(u.SizeRank.ToString("0.0")).Append(" wu");
                 int members = Mathf.Min(FadeCensusMembersPerUnit, u.Written.Count);
+                rows.Append(" — WRITTEN named ").Append(members).Append(" of ")
+                    .Append(u.Written.Count).Append(", dropped ")
+                    .Append(u.Written.Count - members).Append(": ");
                 for (int m = 0; m < members; m++)
                 {
                     if (m > 0)
                         rows.Append(", ");
                     AppendWrittenRow(rows, u.Written[m], u.FloorY);
                 }
-                if (u.Written.Count > members)
-                    rows.Append(", +").Append(u.Written.Count - members).Append(" more written");
-                if (u.Solid.Count > 0)
+                if (u.SolidTotal > 0)
                 {
-                    rows.Append(" — LEFT SOLID under the same root: ")
+                    rows.Append(" — LEFT SOLID under the same root, named ").Append(u.Solid.Count)
+                        .Append(" of ").Append(u.SolidTotal).Append(", dropped ")
+                        .Append(u.SolidTotal - u.Solid.Count).Append(": ")
                         .Append(string.Join(", ", u.Solid));
-                    int rest = u.TotalRenderers - u.Written.Count - u.Solid.Count;
-                    if (rest > 0)
-                        rows.Append(", +").Append(rest).Append(" more");
                 }
                 if (u.Owners.Length > 0)
                 {
@@ -486,37 +879,87 @@ internal static partial class WallSegmentFade
                 }
             }
 
+            // The split-owner units BY NAME. Until ModBuild 271 this clause was a bare count —
+            // it read 49 on 24 of the 114 prints of the ModBuild-270 log and named none of them,
+            // because torn artifacts outranked them in the sort and took every printed slot. A
+            // number without names is not evidence of anything.
+            var splits = new System.Text.StringBuilder();
+            int splitNamed = 0;
+            foreach (FadeUnit u in _fadeUnits)
+            {
+                if (u.Owners.Length == 0)
+                    continue;
+                if (splitNamed >= FadeCensusOwnerSplitNameCap)
+                    break;
+                if (splits.Length > 0)
+                    splits.Append("; ");
+                splits.Append('\'').Append(u.Label).Append('\'').Append(FadeUnitGroupingMark(u))
+                      .Append(' ').Append(u.DistinctWritten).Append('/').Append(u.TotalRenderers)
+                      .Append(" written, owners: ").Append(u.Owners);
+                splitNamed++;
+            }
+            if (splitNamed == 0)
+                splits.Append("none");
+
             VRLog.Info(Name,
                 $"FADE WRITE: {_fadeWrites.Count} renderer(s) carry a non-zero wall fade right "
                 + $"now, grouped into {_fadeUnits.Count} prop unit(s), {torn} of them TORN — a "
                 + $"fade path wrote part of a prop and left the rest solid, which is the shape of "
                 + $"the report (user 2026-08-19, skelet.jpg: 'Der Schädel ist immer noch nicht "
                 + $"sichtbar' — a skeleton on a deck with its ribcage, arms and legs drawn and its "
-                + $"skull gone, against a wall mid-dissolve). Torn units first, then SMALLEST "
-                + $"first because a skull is small; {shown} of {_fadeUnits.Count} unit(s) shown, "
-                + $"{_fadeUnits.Count - shown} dropped. Grouping: highest still prop-sized "
-                + $"ancestor (the ModBuild-167 walk, stops at any wall entity or segment anchor); "
-                + $"{lone} of these unit(s) have NO prop unit at all and are judged as a unit of "
-                + $"one — a torn prop cannot be detected there and the standing-prop FLOOR arm "
-                + $"cannot fire on it, so a missing piece that shows up in THAT bucket means the "
-                + $"tileset parented it flat and the grouping, not the geometry, is what needs "
-                + $"widening next. "
+                + $"skull gone, against a wall mid-dissolve). "
+                + $"RANKED BY DEFECT CLASS since ModBuild 271: split-owner units first, then torn, "
+                + $"then SMALLEST first because a skull is small; units named {shown} of "
+                + $"{_fadeUnits.Count}, dropped {_fadeUnits.Count - shown}. "
+                + $"BOTH TERMS OF EVERY x/y HERE ARE COUNTED OVER ONE POPULATION (ModBuild 271), "
+                + $"AND THAT IS THE INVARIANT TO CHECK FIRST IF A NUMBER HERE LOOKS WRONG: every "
+                + $"denominator is the renderers of that unit's root — its whole subtree, or the "
+                + $"root node alone when the subtree is container-scale — and every numerator is "
+                + $"DISTINCT renderers of that same set. No renderer-type filter is applied to "
+                + $"either: since ModBuild 266 the fade paths write skinned renderers on "
+                + $"provenance ('EN_CR_Hanging_01_Cloth_Post'[skinned→cutoff], 124 accepted rows "
+                + $"in the ModBuild-270 log), so a type test would drop from the denominator what "
+                + $"the numerator still holds and HIDE a real tear. Expect x/y to satisfy "
+                + $"0 <= x <= y; an x > y here means that invariant has been broken again. Until "
+                + $"ModBuild 270 the numerator counted writes keyed on ONE node while the "
+                + $"denominator counted the whole SUBTREE, so a prop whose every renderer was "
+                + $"written still printed TORN: 'CR_GE_Candle_04' 1/2 and 'Candle_Fire_FX_02 (3)' "
+                + $"1/1 were the two halves of one candle, on one wall, at one fade, in one print. "
+                + $"That artifact was the top five torn offenders of that whole session. "
+                + $"Grouping: the fade code's own walk (highest still prop-sized ancestor, stops "
+                + $"at any wall entity or segment anchor), plus the census's own merge of "
+                + $"descendant writes into the same unit key; {ungrouped} unit(s) were NOT grouped "
+                + $"by the fade code's walk and {nodeScoped} were judged node-scoped "
+                + $"(container-scale subtree, denominator is the root node only). A missing piece "
+                + $"in the NOT-grouped bucket means the tileset parented it flat and the grouping, "
+                + $"not the geometry, is what needs widening next — the standing-prop FLOOR arm "
+                + $"cannot fire there. "
                 + $"{split} unit(s) have TWO OR MORE OWNERS on independent fades — the second way "
                 + $"a prop tears, and the one this census could not state until ModBuild 258: "
                 + $"'CA_ICY_WallLight' put its ice meshes on 'Wall 4' as wall renderers and its "
                 + $"blue torch emitters on 'Wall 1' as mounted dressing, so half of it survived "
                 + $"every fade either wall made (wandproblem3.jpg, 'die blaue Flamme ist nun "
                 + $"wieder sichtbar ohne dass sie gefaded ist'). The unit-affinity rule in "
-                + $"WallSegmentFade.Mounted.cs is meant to hold this at ZERO; any non-zero value "
-                + $"here names the units it missed. "
+                + $"WallSegmentFade.Mounted.cs is meant to hold this at ZERO; here they are, "
+                + $"named {splitNamed} of {split}, dropped {split - splitNamed}: {splits}. "
                 + $"A write on the 'prop-unit dressing' path is the ModBuild-259 arm: a member "
                 + $"with no wall-fade channel that the prop-unit pass gave one to rather than "
-                + $"leaving it standing (the ModBuild-258 line's '106 left visible'). TORN is the "
-                + $"number this build moves: 24 of 72, 22 of 42 and 28 of 90 per pass in the "
-                + $"ModBuild-258 log, and a torn unit whose solid half is Foliage-family is the "
-                + $"one shape that must now be gone. "
+                + $"leaving it standing (the ModBuild-258 line's '106 left visible'). "
                 + $"Anchor = AABB min.y over the nearest anchored room floor, the same anchor the "
                 + $"mounted census prints. {rows}");
+        }
+
+        /// <summary>How this unit came to be one unit — printed on every row, because "1 of 2
+        /// written" means three different things depending on it.</summary>
+        private static string FadeUnitGroupingMark(FadeUnit u)
+        {
+            if (u.NodeScoped)
+                return "[node-scoped — container-scale subtree, denominator is the root node]";
+            if (u.FadeGrouped)
+                return string.Empty;
+            return u.TotalRenderers > 1
+                ? "[no prop unit — subtree grouped by the census]"
+                : "[no prop unit — a unit of one]";
         }
 
         /// <summary>One written renderer, with everything needed to identify it in a scene nobody
