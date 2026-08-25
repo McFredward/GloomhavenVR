@@ -56,6 +56,10 @@ internal static class BundleShaders
     /// <item><c>HexDecalStable</c> — NO, runtime C# only.</item>
     /// <item><c>HeadUnlit</c> — only via the head-avatar mask MATERIALS, which exist only while a
     ///   head avatar is up; that is a subsystem, not a guarantee (ModBuild 153).</item>
+    /// <item><c>WindowMaterialise</c> — NO, runtime C# only. Nothing in the bundle references it;
+    ///   the material is built at runtime by <c>WorldUI/WindowMaterialise.cs</c>, so step 1 can
+    ///   never succeed for it either. A miss costs the flakes and nothing else: the window still
+    ///   dissolves element by element, because that half is pure C#.</item>
     /// <item><c>WaterVR</c> — NO, runtime C# only, and it is the entry with the most to lose by it:
     ///   nothing in the bundle's own prefabs references it (it is put on the GAME's water quads),
     ///   so step 1 can never succeed for it and step 2 is the only mechanism that will ever
@@ -69,6 +73,7 @@ internal static class BundleShaders
         { "GloomhavenVR/Overlay",        "Assets/Bundle/Table/Overlay.shader" },
         { "GloomhavenVR/MapUnlit",       "Assets/Bundle/Table/MapUnlit.shader" },
         { "GloomhavenVR/HexDecalStable", "Assets/Bundle/Table/HexDecalStable.shader" },
+        { "GloomhavenVR/WindowMaterialise", "Assets/Bundle/Table/WindowMaterialise.shader" },
         { "GloomhavenVR/HeadUnlit",      "Assets/Bundle/Head/HeadUnlit.shader" },
         { "GloomhavenVR/WaterVR",        "Assets/Bundle/Environments/WaterVR.shader" },
     };
