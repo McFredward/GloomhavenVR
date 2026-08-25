@@ -416,7 +416,52 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 275;
+    public const ushort ModBuild = 276;
+    // Build 276: *** A NEW BUNDLE — 68,522,833 BYTES (was 67,234,683). NOT A DLL-ONLY INSTALL. ***
+    // THE BACK AND THE SIDES OF THE BOARDS GET A MATERIAL. "Die Seiten und die Rückseite die
+    // Textur ist kaputt … Auch dort soll eine entsprechende Textur sein" (kaputte_rueckseite.jpg).
+    //   MY BRIEF'S PREMISE WAS FALSIFIED, and the measurement is the useful part. I assumed the rim
+    //   smear meant a degenerate unwrap. Rasterising every mesh's own UV islands into its atlas per
+    //   face group says otherwise: ZERO overlapped texels anywhere, and the RIM sits at 77-84% of
+    //   the FRONT's texel density. The rim was never mis-unwrapped — it was never PAINTED. The back
+    //   was both: 41.7% of the surface on 0.97% of the atlas, 0.45 tex/mm against the front's 1.99.
+    //   THE CAUSE: tex_composite generates art from a flat-on view and scatters it back through a UV
+    //   pass taken from THAT SAME view, so everything a front camera cannot reach fell through to
+    //   pushpull_fill — right for a recess wall two texels from its floor, wrong for a back plate
+    //   hundreds of texels away. Measured against each style's own front, the back carried 6.7%
+    //   (steel), 11.7% (bronze), 26.0% (oak) of its relief.
+    //   3 IMAGES, one per style, all accepted first try: oak planks with battens and nails, riveted
+    //   steel plate, sand-cast bronze reverse. Steel ignored the 3:2 pad and filled the frame, so
+    //   its resample stretches 1.324x and its ~8 mm rivets ship as ~11x8 mm ellipses. Measured,
+    //   accepted, NOT re-rolled.
+    //   A NEAR MISS WORTH THE WHOLE ROUND. The first repack exported with apply_unit_scale=True and
+    //   EVERY BLENDER-SIDE CHECK PASSED — because Blender normalises unit scale on import, so no
+    //   Blender-side comparison can see it. Unity could: UnitScaleFactor 100 -> 1.0, and
+    //   BoardBuilder rewrote every anchor override in all three prefabs by 100x
+    //   (-0.23360015 -> -0.0023359999) plus a quaternion sign flip, from a UV-ONLY EDIT. Fixed with
+    //   apply_scale_options='FBX_SCALE_UNITS', and the check now reads UnitScaleFactor FROM THE FILE
+    //   BYTES rather than through Blender, with a positive control: on the FBX that caused it,
+    //   checks 1-7 PASS and only 8 fires.
+    //   BIT-IDENTITY PROVED THE OTHER WAY ROUND, by rebuilding what the OTHER tool produces: the
+    //   rebuilt prefabs keep the same 13 modification targets, worst numeric change anywhere
+    //   2.0e-7 m (0.2 um); BoardBuilder re-measures the locked table unchanged; PreviewBoard over
+    //   the built bundle before and after gives identical anchors, extents, bounds and colliders;
+    //   and the atlases' FRONT/INTERIOR/unmapped texels are BYTE-IDENTICAL on all nine maps.
+    //   THE RIM FIX WAS WRONG FIRST, and its own instrument caught it: the first blend sampled both
+    //   faces at the rim texel's own (long, short) position — but every texel on an edge HAS the
+    //   same short coordinate, so the band drew from one row of art and streaked exactly like the
+    //   defect it replaced. It now unrolls the rim inward by the board's own thickness.
+    //   THE STRIPING IS DROPPED, on his word: "Ich hab es nun im Spiel geprüft und da sehe ich diese
+    //   Streifen nicht! Es war also ein Renderfehler vom Vergleichsbild." He is right in effect —
+    //   the anisotropy is real in the data, but boards_shader_rake.png uses deliberately RAKING
+    //   light, which is exactly the condition that maximises directional relief, so I judged a real
+    //   property under a viewing condition the player never occupies. No images were spent on it and
+    //   nothing was traded away. tex_aniso.py ships as a REPORT-ONLY guard with that caveat in its
+    //   own docstring.
+    //   AND MY 2.0x ACCEPTANCE BAR WAS BELOW ITS OWN INSTRUMENT'S FLOOR: measuring a normal map's
+    //   greyscale measures the GRADIENT OPERATOR, which reads 2.14-2.38x on perfectly isotropic
+    //   relief. No relief could ever have met the bar I set. Four such traps are now --selftest
+    //   cases.
     // Build 275: THE COMMIT STOPS RUNNING WHEN NOTHING CHANGED, AND THE WALL-SECTION BOOKSHELF
     // FADES. Bundle UNCHANGED at 67,234,683 — this one is a DLL-only install.
     //   (1) HIS A/B SETTLED THE HITCH. "Die kurzen 'Haenger' sind noch da - und es liegt definitiv

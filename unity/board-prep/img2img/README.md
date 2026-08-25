@@ -136,3 +136,188 @@ to the mouldings on the same board. `--x-convention opengl` exists for when this
 * The station in the round's scratch predicts **albedo only**. It is blind to `_normal` and `_mrs`
   changes, and the two card slots are green in the screenshot because of a game-state tint that the
   measured shade field absorbs — they stay green whatever atlas is passed.
+
+---
+
+# ROUND 3 (ModBuild 275): THE BACK AND THE RIM
+
+Round 2 shipped and the striping complaint that opened this round was **withdrawn** after a
+hardware check: *"Ich hab es nun im Spiel geprüft und da sehe ich diese Streifen nicht! Es
+war also ein Renderfehler vom Vergleichsbild."* The picture that showed the stripes,
+`boards_shader_rake.png`, is lit from a deliberately RAKING angle to make relief legible,
+and raking light is exactly the condition that maximises directional relief. **The
+anisotropy is real in the data and it does not read where the player stands.**
+`tex_aniso.py` keeps measuring it as a regression guard and deliberately enforces nothing —
+see its docstring for the four ways earlier drafts of that test were wrong.
+
+What he reported instead: *"Die Seiten und die Rückseite die Textur ist kaputt … Auch dort
+soll eine entsprechende Textur sein. Generier dir auch dafür etwas, nicht nur für die
+Vorderseite."*
+
+## The UV finding — and the premise it falsified
+
+The obvious reading of the screenshot is a broken unwrap: a flat grey back and a smeared
+edge look exactly like faces sampling a degenerate sliver. **They are not.** Rasterising
+each mesh's own UV islands into its atlas, per face group:
+
+| board | group | tris | surface | atlas coverage | texel density | overlaps |
+|---|---|---|---|---|---|---|
+| oak | FRONT | 6500 | 2015.2 cm² (41.8 %) | 18.96 % | 1.99 tex/mm | 0 |
+| oak | BACK | 108 | 2010.6 cm² (41.7 %) | 0.97 % | **0.45 tex/mm** | 0 |
+| oak | RIM | 2012 | 581.2 cm² (12.1 %) | 3.33 % | 1.53 tex/mm | 0 |
+| steel | FRONT | 5392 | 2059.2 cm² | 17.53 % | 1.89 tex/mm | 0 |
+| steel | BACK | 304 | 2060.8 cm² | 1.10 % | **0.47 tex/mm** | 0 |
+| steel | RIM | 1544 | 546.1 cm² | 2.90 % | 1.49 tex/mm | 0 |
+| bronze | FRONT | 10476 | 1888.5 cm² | 18.92 % | 2.04 tex/mm | 0 |
+| bronze | BACK | 124 | 2006.7 cm² | 1.02 % | **0.46 tex/mm** | 0 |
+| bronze | RIM | 2092 | 540.8 cm² | 3.82 % | 1.72 tex/mm | 0 |
+
+**Zero overlapped texels on any board in any group**, and the RIM's density is 77–84 % of
+the front's — not a sliver, and nothing a repack would improve. So the rim was never
+mis-unwrapped; it was never **painted**. The back was both: its island is real, and at
+0.45 tex/mm it carried ~42 % of the board's surface on ~1 % of the atlas.
+
+**A UV rectangle is not a surface, and neither is a UV island.** These numbers are triangle
+coverage rasterised at atlas resolution, not island extents.
+
+## Why nothing was painted there
+
+`tex_composite` renders the board flat-on, generates art at that view and scatters it back
+through a UV pass taken from **the same view**. Everything a front camera cannot reach was
+then left to `pushpull_fill`. That is right for a recess wall — one or two texels from its
+own floor, and made of the same metal — and wrong for a back plate hundreds of texels from
+the nearest authored texel, where the fill converges to a flat average. Measured in the
+shipped 274 atlas, per island, against that style's own FRONT:
+
+| board | BACK relief (\|slope\| mean) | BACK albedo high-pass rms |
+|---|---|---|
+| oak | 26.0 % | 34.2 % |
+| steel | **6.7 %** | 45.0 % |
+| bronze | 11.7 % | 36.5 % |
+
+6.7 % of the front's relief is not "a little soft". It is the flat grey slab in the
+screenshot.
+
+## The chain
+
+    tex_uv_dump.py    (existing) triangulated UVs + object-space corners + face normals
+    gen_geobuf.py     rasterise the mesh into ATLAS SPACE: pos.npy, nrm.npy, grp.npy.
+                      Every texel carries the object-space POSITION and NORMAL of the
+                      surface point that samples it, so art placed through it CANNOT DRIFT
+                      -- it is addressed by where the surface is, not by where a picture
+                      thinks it is. No camera is involved, which is the point: no camera
+                      reaches these faces.
+    gen_backinit.py   the back plate's init frame -- the mesh's own silhouette, the style's
+                      own median FRONT plate colour, 2:1, padded to 3:2.
+    <gpt-image-2>      one image per style. referenceImages = [back init frame, the
+                      composited FRONT board-space albedo], so the back cannot come back a
+                      different material from the front of the same object.
+    tex_backfill.py   BACK <- the generated plate at each texel's own board coordinates.
+                      RIM  <- a smoothstep blend from the FRONT material to the BACK
+                              material across the board's own thickness, which is what a
+                              rim physically IS. Both edges then match their neighbour by
+                              construction, and there is no fill direction to smear along.
+                      INTERIOR untouched: it already measures 90-127 % of the front's
+                              high-pass energy, because there push-pull travels two texels
+                              and does the physically correct thing.
+
+## Two things worth not repeating
+
+* **The back's relief may be derived from its own art, and the front's may not.** The front
+  face is covered in mesh geometry the model redrew 3–9 mm off, so a normal map taken from
+  that art embosses a second, displaced copy of every feature. The back plate is
+  geometrically FLAT: the plank seams and rivets *are* the relief, and there is no
+  mesh-registered version of them to double.
+* **A colour round trip is not a no-op.** The first version of `tex_backfill` converted the
+  whole atlas to linear and back to write two regions, and the round trip alone moved 1029
+  FRONT, 570 INTERIOR and 12680 unmapped texels by ±1. Invisible — and still a lie in any
+  diff that claims the front face is untouched. It now keeps the uint8 array whole and
+  assigns only BACK and RIM texels; FRONT, INTERIOR and unmapped come out byte-identical on
+  all three maps, and that is checked rather than asserted.
+
+## The 3:2 trap, and what it cost this time
+
+The tool's aspect enum still has no 2:1. Oak and bronze came back inside their padded
+frames at 1.839:1 and 1.813:1 and are resampled to 2:1 — a 1.09× stretch. **Steel ignored
+the pad entirely** and filled the whole 3:2 frame, so its resample is 1.324×: its ~8 mm
+dome rivets ship as ~11 × 8 mm ellipses. That is a real, measured distortion, and it is
+accepted rather than regenerated. It is a back face, and a blind regeneration on a nudged
+prompt is not how this pipeline spends images.
+
+## The station now points at the defect
+
+`PreviewBoard` gained `_back`, `_backrake`, `_edge` and `_corner`; `gen_render.py` gained
+`back`, `backquarter` and `edge` modes. A station that points only at the front cannot show
+a defect on the faces it does not point at, and this one shipped — the first person to see
+it was the user, from behind, in a dark forest. `gen_render.py` is still ~2 stops
+overexposed and is an iteration loop, not a verdict; `PreviewBoard.cs` is the calibrated
+station.
+
+## THE GENERATED BACK PLATES — the money is spent, do not spend more
+
+    unity/board-prep/out/board_back_oak.png
+    unity/board-prep/out/board_back_steel.png
+    unity/board-prep/out/board_back_bronze.png
+
+Three images, one per style, all accepted first time. `out/` is gitignored, so they are NOT
+in any diff — if they are ever lost, the prompts are in the commit that added
+`tex_backfill.py` and reproducing them costs three more generations. Nothing here was
+regenerated on a hunch, and the one measured flaw (steel's 1.324x rivet stretch) was
+accepted rather than re-rolled.
+
+## The back island was repacked, and the trap that nearly shipped with it
+
+`../gen_backuv.py` rewrites **only** the back plate's UV loops into a free rectangle of the
+atlas. The back plate is exactly one whole UV island on all three boards, so moving it
+creates no seam and destroys none; the script asserts that and aborts rather than shear a
+shared island.
+
+| board | before | after | gain |
+|---|---|---|---|
+| oak | 0.450 tex/mm, 0.97 % of atlas | **1.213 tex/mm, 7.06 %** | 2.69× linear |
+| steel | 0.419 tex/mm, 0.84 % | **1.246 tex/mm, 7.45 %** | 2.97× linear |
+| bronze | 0.462 tex/mm, 1.02 % | **1.186 tex/mm, 6.73 %** | 2.57× linear |
+
+1.6 tex/mm — front parity — is **not reachable** and was not faked. An exact free-rectangle
+search at an 8-texel gutter finds no 1024×512 hole in any of the three atlases: the unused
+74–78 % is fragmented, and the wide holes are shallow (landscape placement scores
+0.84–0.94 tex/mm, worse than portrait). Front parity needs a full repack of front + rim,
+which is not worth moving locked UVs for.
+
+### A BLENDER-LEVEL BIT-IDENTITY PROOF CANNOT SEE A UNIT-SCALE CHANGE
+
+The first version of the repack exported with `apply_unit_scale=True`. Every Blender-side
+check passed — vertices, loop indices, polygon sizes, split normals, UVs outside the back
+face, anchor `matrix_world`, island overlap. The harness said ALL PASS.
+
+It was wrong, and Unity said so. The shipped FBXes carry `UnitScaleFactor = 100`; that
+export writes `1.0`. Blender normalises the unit on import, so it reads both files back
+identically and **no Blender-side comparison can distinguish them**. Unity, with the
+unchanged `.meta`, re-imported at a different scale, and `BoardBuilder` rewrote every
+anchor override in all three prefabs by a factor of 100 — `-0.23360015` became
+`-0.0023359999` — plus a quaternion sign flip from the changed transform decomposition.
+That is precisely what a UV-only edit must never do.
+
+The fix is `apply_unit_scale=False, apply_scale_options='FBX_SCALE_UNITS'`, which leaves
+the unit scale where it started. Verified after the fix:
+
+* `UnitScaleFactor` 100 → 100 on all three;
+* rebuilt prefabs: the **same 13 modification targets**, and the worst numeric change
+  anywhere is **2.0 × 10⁻⁷ m — 0.2 micrometres**, the float32 quantisation of a 0.22 m
+  coordinate. Six oak overrides disappear only because they now equal the model's own
+  value exactly, so Unity stops storing them;
+* `BoardBuilder` re-measures the locked table exactly: seat floors 74.6 × 64.3 / 81.0 ×
+  70.1 / 61.2 × 51.9 mm, rest pads 81.6 / 81.7 / 68.1 mm, 7 of 7 anchors, one MeshCollider,
+  bounds 0.640 × 0.320;
+* `PreviewBoard` run over the built bundle before and after the repack: **every anchor,
+  every extent, every bound, every collider count and every bound texture identical**, the
+  only differences being single-pixel anti-aliasing counts in the stereo statistics.
+
+**The lesson generalises past FBX: a round-trip proof taken inside one tool cannot see what
+that tool normalises on the way in.** What caught it was rebuilding the artefact the OTHER
+tool produces and diffing that.
+
+`gen_uvdiff.py` check 8 now reads `UnitScaleFactor` **from the file bytes**, deliberately
+not through Blender — a check that goes through the same importer as the thing it is
+checking cannot see what that importer normalises. Its positive control is the FBX that
+caused this: checks 1–7 all report PASS on it and only check 8 fires.
