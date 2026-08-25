@@ -16365,6 +16365,25 @@ internal static class NetProtocol
     /// board's own third recess: its seat is id 9 with Confirm's and Undo's.
     /// </summary>
     public const byte TuneClusterOffset = 16;
+    /// <summary>[Cards] ShortRestCaptionOffset_{board} — where the ENGRAVED "KURZE RAST" sits in the
+    /// board's top margin, above the short-rest pad. First id past the cluster tombstone; ids 1..16
+    /// were the whole Vector3 block until this, and 17..47 are the room it leaves.</summary>
+    public const byte TuneShortRestCaptionOffset = 17;
+    // TWO IDS AND NOT ONE, because there are two dials and they are not each other's mirror: the two
+    // captions go into opposite margins of the board, and those margins differ in size, in what is
+    // carved into them and in how deep they sit. Sampling one and negating it on the receiving side
+    // would put the long caption wherever the short one's correction happened to land.
+    //
+    // WHY THEY ARE ON THE WIRE AT ALL. scripts/check-wire-coverage.py asks one question — "would a
+    // peer LOOKING AT THAT PLAYER'S BOARD see a difference?" — and the answer here is plainly yes: a
+    // caption nudged 2 cm on the owner's board and left at the default on the mirror is a word
+    // sitting off the disc it names. The round readout's precedent for staying local does not
+    // transfer: that one is a NUMBER whose value is already synced, while this is a POSITION with no
+    // other carrier. The SEAT is not on the wire and must not be — it is derived on both sides from
+    // the board's own anchors and Cards.BoardEngraving's shared constants.
+    /// <summary>[Cards] LongRestCaptionOffset_{board} — the same for the engraved "LANGE RAST"
+    /// below the long-rest pad.</summary>
+    public const byte TuneLongRestCaptionOffset = 18;
 
     // COLOUR (3 B, uint8 R / G / B): THE [ButtonColors] FAMILY — what a player's keycaps are
     // lettered and tinted in.

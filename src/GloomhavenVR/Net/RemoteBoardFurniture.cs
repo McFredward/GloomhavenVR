@@ -1026,18 +1026,33 @@ internal sealed class RemoteBoardFurniture
             // alone and the board never accumulates a stack of identical carvings.
             if (Cards.CapSymbols.TryAtlas(_style, out _, out _))
             {
+                // THE DEPTH IS THE OWNER'S TOO, and it is the half of this that was wrong on BOTH
+                // boards until now: the anchor these hang from is the rest pad's RECESS FLOOR, and
+                // the caption is carried out of that recess onto a panel 3.6-4.0 mm prouder, so at
+                // the shared 0.8 mm it was seated inside the wood and drew nothing anywhere. See
+                // Cards.BoardEngraving.RestCaptionProudLocalZ.
+                //
+                // The owner's per-caption NUDGE rides ids 17/18 (BoardTuning) — a caption he pushed
+                // into his board's top margin has to be in the mirror's top margin too, or a
+                // teammate reads a word sitting off its own disc.
+                Vector3 shortNudge = tuning.ShortRestCaptionOffset;
+                Vector3 longNudge = tuning.LongRestCaptionOffset;
                 _shortRestEngraving = Cards.BoardEngraving.Create(tray.ShortRestAnchor,
                     "ShortRestEngraving",
-                    new Vector3(shortPose.x,
-                                shortPose.y + Cards.BoardEngraving.RestCaptionOffsetY(restSize.y), 0f),
-                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
+                    new Vector3(shortPose.x + shortNudge.x,
+                                shortPose.y + Cards.BoardEngraving.RestCaptionOffsetY(restSize.y)
+                                    + shortNudge.y, 0f),
+                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style,
+                    proudZ: Cards.BoardEngraving.RestCaptionProudLocalZ + shortNudge.z);
                 Cards.BoardEngraving.SetText(_shortRestEngraving,
                     Loc.Mod("short_rest").ToUpperInvariant());
                 _longRestEngraving = Cards.BoardEngraving.Create(tray.LongRestAnchor,
                     "LongRestEngraving",
-                    new Vector3(longPose.x,
-                                longPose.y - Cards.BoardEngraving.RestCaptionOffsetY(restSize.y), 0f),
-                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
+                    new Vector3(longPose.x + longNudge.x,
+                                longPose.y - Cards.BoardEngraving.RestCaptionOffsetY(restSize.y)
+                                    + longNudge.y, 0f),
+                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style,
+                    proudZ: Cards.BoardEngraving.RestCaptionProudLocalZ + longNudge.z);
                 Cards.BoardEngraving.SetText(_longRestEngraving,
                     Loc.Game("GUI_LONG_REST", "Long rest").ToUpperInvariant());
             }
@@ -1056,10 +1071,18 @@ internal sealed class RemoteBoardFurniture
         // cap is (PinMount + the owner's tuned PinOffset) and lifted by the shared
         // BoardEngraving.PinCaptionLiftY, so it tracks the owner's dial the way the cap does.
         // SetPinned writes its text on the first refresh, from the owner's synced pinned bit.
+        //
+        // AND ITS DEPTH IS THE OWNER'S ARITHMETIC, WRITTEN OUT. This caption hangs off the board
+        // ROOT rather than off an anchor, and BoardEngraving.Create overwrites Z in its PARENT's
+        // frame — so passing the bare seat constant here would put the mirror's caption at that
+        // constant while the owner's sits at (anchor Z + the constant), 5 mm apart on boards nobody
+        // tuned. The mount's own Z, the owner's tuned PinOffset.z and the seat constant are all
+        // three of them terms of the owner's depth, so all three are added here.
         if (Cards.CapSymbols.TryAtlas(_style, out _, out _))
             _pinEngraving = Cards.BoardEngraving.Create(_root, "FollowEngraving",
                 PinMount + tuning.PinOffset + new Vector3(0f, Cards.BoardEngraving.PinCaptionLiftY, 0f),
-                Cards.BoardEngraving.PinCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
+                Cards.BoardEngraving.PinCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style,
+                proudZ: PinMount.z + tuning.PinOffset.z + Cards.BoardEngraving.PinCaptionProudLocalZ);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
@@ -3436,6 +3459,11 @@ internal sealed class RemoteBoardFurniture
             // same atlas, with no wire field for either.
             bool hasSymbol = style != null && role != Cards.CapRole.Plain
                              && Cards.CapSymbols.TryAtlas(style.Value, out _, out _);
+            // The bezel/wall cell, through the SAME resolver the owner's BoardButton.Create uses.
+            // This is the square branch, so it resolves to the square band — but it is not written
+            // as a literal, because round and square are one decision and this mirror is the half
+            // of it that no compiler ties to the other.
+            Cards.CapRole plainCell = Cards.CapCellMath.PlainCell(round: false);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
@@ -3467,8 +3495,8 @@ internal sealed class RemoteBoardFurniture
                 // TOP plateau only; the bevel ring and the walls take the plain cell of the same
                 // atlas, exactly as BoardButton.Create does it.
                 top = Cards.PlayTray.NewKeycapMaterial(shader, face, role, style);                                 // [0] top plateau
-                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), Cards.CapRole.Plain, style);      // [1] bright bevel
-                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), Cards.CapRole.Plain, style);        // [2] dark warm wall
+                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), plainCell, style);                // [1] bright bevel
+                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), plainCell, style);                  // [2] dark warm wall
                 mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
@@ -3519,6 +3547,13 @@ internal sealed class RemoteBoardFurniture
             GameObject go = NewRoot(parent, name, localPos);
             bool hasSymbol = style != null && role != Cards.CapRole.Plain
                              && Cards.CapSymbols.TryAtlas(style.Value, out _, out _);
+            // THE BEZEL/WALL CELL, AND WHY IT IS NOT CapRole.Plain HERE. Cell 0's gold band is
+            // registered against a SQUARE, so a disc sampling it drew a mitred rectangle inside a
+            // round cap — the square-looking texture the user reported on his own board, which
+            // this mirror reproduced faithfully because it had copied the literal. Resolved through
+            // the same CapCellMath.PlainCell the owner's BoardButton.Create calls, so the owner's
+            // rest disc and every peer's copy of it cannot end up on different cells.
+            Cards.CapRole plainCell = Cards.CapCellMath.PlainCell(round: true);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
@@ -3548,8 +3583,8 @@ internal sealed class RemoteBoardFurniture
             {
                 baseMr.sharedMaterial = new Material(shader) { color = WorldUI.ButtonTuning.CapWellColor };
                 disc = Cards.PlayTray.NewKeycapMaterial(shader, face, role, style);                            // [0] field
-                discBevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), Cards.CapRole.Plain, style); // [1] bezel
-                discWall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), Cards.CapRole.Plain, style);   // [2] wall
+                discBevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), plainCell, style);          // [1] bezel — ROUND-registered band
+                discWall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), plainCell, style);            // [2] wall — ROUND-registered band
                 capMr.sharedMaterials = new[] { disc, discBevel, discWall };
             }
 

@@ -139,6 +139,44 @@ internal static class BoardEngraving
     // against when the value can simply be shared. Nothing here is tunable and nothing is on the
     // wire: both sides derive the same number from the same board.
 
+    /// <summary>
+    /// HOW FAR PROUD OF ITS OWN ANCHOR A REST CAPTION IS SEATED — and the whole of the
+    /// invisible-caption defect, as one number.
+    ///
+    /// <para><b>WHAT WENT WRONG.</b> Every engraving used to be seated <see cref="ProudLocalZ"/> —
+    /// 0.8 mm — in front of its PARENT, and that is only the right answer when the parent stands on
+    /// the same surface the caption lands on. The rest captions' parents are the board's own
+    /// <c>ShortRestToken</c> / <c>LongRestToken</c> empties, and those sit on the RECESS FLOOR of
+    /// the rest pad: measured off the shipped meshes, the pad floor triangle and the anchor agree to
+    /// the micron (Oak −0.00940, Steel −0.01090, Bronze −0.01100 on the boards' own thickness axis),
+    /// which is what a seat anchor is FOR — the disc stands in the recess. The caption does not: it
+    /// is moved 46–53 mm along the short axis, OUT of the recess, onto the panel surface around it,
+    /// and that panel stands 3.6 mm (Oak) / 3.8 mm (Steel) / 4.0 mm (Bronze) PROUDER than the floor
+    /// the caption's depth was measured from. Seated 0.8 mm in front of the floor, the caption ended
+    /// up 2.8–3.2 mm INSIDE the opaque board. A TMP mesh draws in the transparent queue with ZWrite
+    /// off and ZTest LEqual, so it is decided by one comparison against the board's own depth and
+    /// loses it completely: not dim, not clipped — not drawn at all, which is exactly what the user
+    /// saw and what no state probe could have shown.</para>
+    ///
+    /// <para><b>WHY IT IS ONE NUMBER AND NOT THREE.</b> 4.8 mm clears the deepest of the three
+    /// recesses and leaves 0.8–1.2 mm of flush proudness on every board — the same span
+    /// <see cref="ProudLocalZ"/> was chosen for. A per-board constant would buy 0.4 mm of nothing and
+    /// would be a third place the owner's board and every peer's mirror of it could disagree.</para>
+    /// </summary>
+    internal const float RestCaptionProudLocalZ = -0.0048f;
+
+    /// <summary>
+    /// The same correction for the FOLLOW/PIN caption, which had the same defect from the other end.
+    ///
+    /// <para>Its anchor is mod-built (<c>PlayTray.NewAnchor</c>) and seated on the nominal proud
+    /// plane at −5 mm, which would be in front of the board's FACE — but the caption is lifted
+    /// <see cref="PinCaptionLiftY"/> back up onto the board's bottom margin, and that margin is the
+    /// raised DECORATIVE BORDER, which stands 5.6 mm (Oak) / 8.0 mm (Steel) / 2.8 mm (Bronze) proud
+    /// of the face. The caption was therefore 4.7–7.4 mm inside the border frame. 9.0 mm clears the
+    /// worst of them with the same flush margin.</para>
+    /// </summary>
+    internal const float PinCaptionProudLocalZ = -0.0090f;
+
     /// <summary>Clearance from a rest disc's CENTRE to its caption's centre, board-local metres:
     /// half the disc plus a little. Taken from the disc that was actually built, so a board whose
     /// pads force a smaller disc gets its caption closer in rather than stranded out on the plate.</summary>
@@ -185,11 +223,22 @@ internal static class BoardEngraving
     /// </summary>
     internal static TextMeshPro Create(Transform parent, string name, Vector3 localPos, Vector2 box,
                                        float maxFontSize, ControlBoard style,
-                                       TextAlignmentOptions align = TextAlignmentOptions.Center)
+                                       TextAlignmentOptions align = TextAlignmentOptions.Center,
+                                       float proudZ = ProudLocalZ)
     {
         var go = new GameObject(name);
         go.transform.SetParent(parent, worldPositionStays: false);
-        go.transform.localPosition = new Vector3(localPos.x, localPos.y, ProudLocalZ);
+        go.transform.localPosition = new Vector3(localPos.x, localPos.y, proudZ);
+        // A FRESH GameObject IS ON LAYER 0 AND REPARENTING DOES NOT CHANGE THAT. PlayTray runs
+        // Core.VRLayers.Apply over the tray root exactly once, at board build, so an engraving built
+        // by a later rebuild — RestControls.EnsureBuilt and RebuildDashboardButtons both destroy and
+        // re-create theirs — sat on the Default layer while every cap beside it sat on the mod
+        // layer. BoardButton.Create carries the same line for the same reason. It is NOT what made
+        // these captions invisible (the head camera's mask is 0xFFFFFFFF in scenario, and the wall
+        // fade's own census reports them "stays visible"), but a board part on the world's layer is
+        // offered to every sweep that classifies world geometry, and that is not a property to leave
+        // to luck.
+        Core.VRLayers.Apply(go);
         var tmp = go.AddComponent<TextMeshPro>();
         tmp.text = string.Empty;
         tmp.alignment = align;
@@ -262,6 +311,76 @@ internal static class BoardEngraving
                 $"{-ProudLocalZ * 1000f:F1} mm proud of the board face in board-local units — enough " +
                 "that it is never coplanar, small enough that it reads as flush.");
         }
+    }
+
+    /// <summary>
+    /// EVERY NUMBER THAT DECIDES WHETHER A CAPTION IS ON THE BOARD OR IN IT — once per engraving,
+    /// per board build, and LOUDLY when the answer is "in it".
+    ///
+    /// <para><b>WHY THIS EXISTS.</b> Three engravings shipped completely invisible and every
+    /// instrument in the mod agreed they were fine: they were <c>SetActive(true)</c>, their material
+    /// recipe had run, the atlas gate that creates them had passed, their facing diagnostic said
+    /// "FACES the player", and the wall-fade census listed them as drawing. Not one of those
+    /// measured the only thing that was wrong — how deep they sat against the surface they were cut
+    /// into. A depth-rejected transparent mesh is not dim and not clipped, it is ABSENT, so there is
+    /// nothing for a state probe to find. This line states the depth in the same frame the seat
+    /// constants are written in, beside the board's own proudest surface, so the comparison is on
+    /// the page instead of in somebody's head.</para>
+    ///
+    /// <para><b>THE VERDICT IS HONEST ABOUT WHAT IT CANNOT SEE.</b> <paramref name="boardFrontZ"/>
+    /// is the PROUDEST point of the whole board mesh — its raised border — not the surface under
+    /// this particular caption, which the mod cannot sample without a readable mesh. A caption over
+    /// a RECESSED field legitimately sits behind it. So the warning fires on the margin actually
+    /// being negative, and says which of the two readings applies rather than asserting one.</para>
+    /// </summary>
+    /// <param name="boardLocalZ">The caption's depth in the BOARD's own face frame — negative is
+    /// toward the player. Board-root local metres.</param>
+    /// <param name="anchorLocalZ">The same for the anchor it hangs from, so a caption that inherited
+    /// a recess floor says so.</param>
+    /// <param name="boardFrontZ">The board visual's proudest surface in the same frame, measured
+    /// from its own mesh bounds, or NaN when no board mesh could be measured.</param>
+    internal static void LogSeat(TMP_Text? label, string what, ControlBoard style,
+                                 float boardLocalZ, float anchorLocalZ, float boardFrontZ)
+    {
+        if (label == null)
+        {
+            VRLog.Warn("Cards", $"BOARD ENGRAVING SEAT — {what} ({style}): the caption does not " +
+                "exist. Either its board supplies no anchor for it, or the keycap-atlas gate that " +
+                "creates it was false at build time and nothing re-runs that gate.");
+            return;
+        }
+        var mr = label.GetComponent<MeshRenderer>();
+        Material? mat = mr != null ? mr.sharedMaterial : null;
+        float margin = boardFrontZ - boardLocalZ; // negative when the board's front is prouder
+        string depth = float.IsNaN(boardFrontZ)
+            ? "board front NOT MEASURED (no readable board mesh) — the depth verdict is unavailable"
+            : $"board front {boardFrontZ * 1000f:F2} mm ⇒ margin {margin * 1000f:+0.00;-0.00} mm " +
+              (margin >= 0f
+                  ? "(in front of the board's PROUDEST surface — it cannot be buried anywhere)"
+                  : "(BEHIND the board's proudest surface; over a RECESSED field that is legitimate, " +
+                    "past the board's own relief it is buried and draws nothing)");
+        string line = $"BOARD ENGRAVING SEAT — {what} ({style}): text '{label.text}' at world " +
+            $"{label.transform.position}, layer {label.gameObject.layer}, " +
+            $"depth {boardLocalZ * 1000f:F2} mm (anchor {anchorLocalZ * 1000f:F2} mm, so this " +
+            $"caption is {(anchorLocalZ - boardLocalZ) * 1000f:F2} mm prouder than the thing it " +
+            $"hangs from), {depth}. Renderer " +
+            (mr == null
+                ? "MISSING — nothing can draw this caption"
+                : $"enabled={mr.enabled} sortingOrder={mr.sortingOrder} " +
+                  $"queue={(mat != null ? mat.renderQueue.ToString() : "<no material>")} " +
+                  $"shader='{(mat != null && mat.shader != null ? mat.shader.name : "<none>")}'") +
+            $", solved font {label.fontSize:F4} (auto {label.enableAutoSizing}, band " +
+            $"{label.fontSizeMin:F3}..{label.fontSizeMax:F3}), rect {label.rectTransform.sizeDelta}.";
+        // THE FAILURE CASE IS THE ONE THAT HAS TO BE FINDABLE. A seat that is fine is an Info line
+        // nobody needs to grep for; a seat behind the board, a missing renderer or a collapsed font
+        // is the thing the next report will be about, so it is a Warn.
+        bool bad = mr == null || !mr.enabled || mat == null
+                   || (!float.IsNaN(boardFrontZ) && margin < 0f)
+                   || label.fontSize <= 0f;
+        if (bad)
+            VRLog.Warn("Cards", line);
+        else
+            VRLog.Info("Cards", line);
     }
 
     /// <summary>Change-gated text write. TMP rewrites re-trigger auto-size layout (the badge

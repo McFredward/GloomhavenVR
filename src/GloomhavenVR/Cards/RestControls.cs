@@ -171,14 +171,22 @@ internal sealed class RestControls
         // (CapSymbols.SymbolOnly is false there), and engraving the same word into the board as
         // well would be the caption twice.
         bool engrave = CapSymbols.TryAtlas(active, out _, out _);
+        // …AND SEATED AGAINST THE BOARD, NOT AGAINST THE PAD. The anchor these hang from IS the
+        // rest pad's recess floor — the disc stands in the recess, which is what the anchor is for —
+        // but the caption is carried 46-53 mm out of that recess onto the panel around it, and that
+        // panel is 3.6-4.0 mm prouder than the floor. At the shared 0.8 mm every one of these
+        // captions was seated INSIDE the wood and drew nothing at all. See
+        // BoardEngraving.RestCaptionProudLocalZ for the measurement.
         if (engrave && _shortCaption == null && tray.ShortRestAnchor != null)
             _shortCaption = BoardEngraving.Create(tray.ShortRestAnchor, "ShortRestEngraving",
                 Vector3.zero, BoardEngraving.RestCaptionBox,
-                BoardEngraving.CaptionMaxFontSize, active);
+                BoardEngraving.CaptionMaxFontSize, active,
+                proudZ: BoardEngraving.RestCaptionProudLocalZ);
         if (engrave && _longCaption == null && tray.LongRestAnchor != null)
             _longCaption = BoardEngraving.Create(tray.LongRestAnchor, "LongRestEngraving",
                 Vector3.zero, BoardEngraving.RestCaptionBox,
-                BoardEngraving.CaptionMaxFontSize, active);
+                BoardEngraving.CaptionMaxFontSize, active,
+                proudZ: BoardEngraving.RestCaptionProudLocalZ);
         // Into the board's furniture draw-order group, like every other depthless transparent
         // renderer the board carries — see BoardEngraving.Create for why a carving needs it too.
         if (_shortCaption != null) PlayTray.AdoptFurniture(_shortCaption.gameObject);
@@ -186,6 +194,33 @@ internal sealed class RestControls
         RefreshLabels();
 
         SetOffset(offset, spacing); // shared X/Y nudge in plane, Z proud, ± the scaled pad pitch along Y
+
+        // WHAT THE CAPTION ACTUALLY GOT — the line whose absence cost this defect five rounds of
+        // "the caption is invisible" with every other instrument reporting fine. See
+        // BoardEngraving.LogSeat: it names the depth, the anchor it inherited, and the board's own
+        // proudest surface, and it WARNS when the margin goes negative.
+        //
+        // ONCE PER CAPTION THAT WAS ACTUALLY BUILT, and that gate is not decoration: EnsureBuilt is
+        // re-entered on every board switch and every rest-geometry change — the log this defect was
+        // diagnosed from carries 734 of them in one session — so an ungated line here would be 734
+        // copies of an answer that cannot change between them. A probe that has answered is spent.
+        //
+        // AND IT RUNS WHETHER OR NOT THE CAPTION EXISTS. `built > 0` is the pass that creates the
+        // discs, which is the same pass that would have created their captions — so if `engrave`
+        // was false the captions are not merely late, they will never exist on this board (nothing
+        // re-runs that gate), and LogSeat's null branch says exactly that. Logging only the success
+        // would have left this round's real question — "is the caption there at all?" — answered by
+        // silence, which is the one answer that reads the same as everything being fine.
+        if (!_seatLogged && built > 0)
+        {
+            _seatLogged = true;
+            BoardEngraving.LogSeat(_shortCaption, "ShortRestEngraving", active,
+                tray.BoardFaceDepth(_shortCaption != null ? _shortCaption.transform : null),
+                tray.BoardFaceDepth(tray.ShortRestAnchor), tray.BoardFaceFrontZ);
+            BoardEngraving.LogSeat(_longCaption, "LongRestEngraving", active,
+                tray.BoardFaceDepth(_longCaption != null ? _longCaption.transform : null),
+                tray.BoardFaceDepth(tray.LongRestAnchor), tray.BoardFaceFrontZ);
+        }
 
         // Live language following: the rest-button captions are built once, so re-read them
         // whenever the game language changes (subscribe once; Destroy detaches).
@@ -229,12 +264,29 @@ internal sealed class RestControls
         // The captions ride their own disc's clamped pose, in the board PLANE only: they take the
         // disc's x/y and BoardEngraving's own flush depth, never the disc's proud Z — a caption is
         // cut into the board, the disc stands on it.
+        //
+        // …PLUS THE PLAYER'S OWN PER-CAPTION NUDGE. User 2026-08-25: "Den Text soll ich jeweils auch
+        // verschieben können in den Pro-Board-Einstellungen." One dial each and not one shared one:
+        // the short caption goes UP into the board's top margin and the long one DOWN into its
+        // bottom margin, and no single offset moves both outward at once. The dial is NOT clamped
+        // into the pad the way the disc is (ClampSeatPose above) — the whole point of these captions
+        // is that they live OUTSIDE the pad, in the board's margin, so a pad clamp would pin them
+        // back on top of the discs they name.
+        ControlBoard style = CardsConfig.CurrentBoard;
         if (_shortCaption != null)
+        {
+            Vector3 nudge = CardsConfig.ShortRestCaptionOffset(style).Value;
             _shortCaption.transform.localPosition = new Vector3(
-                shortPose.x, shortPose.y + CaptionOffsetY, BoardEngraving.ProudLocalZ);
+                shortPose.x + nudge.x, shortPose.y + CaptionOffsetY + nudge.y,
+                BoardEngraving.RestCaptionProudLocalZ + nudge.z);
+        }
         if (_longCaption != null)
+        {
+            Vector3 nudge = CardsConfig.LongRestCaptionOffset(style).Value;
             _longCaption.transform.localPosition = new Vector3(
-                longPose.x, longPose.y - CaptionOffsetY, BoardEngraving.ProudLocalZ);
+                longPose.x + nudge.x, longPose.y - CaptionOffsetY + nudge.y,
+                BoardEngraving.RestCaptionProudLocalZ + nudge.z);
+        }
         LogPadClamp(offset, spacing, shortPose, longPose);
     }
 
@@ -252,6 +304,13 @@ internal sealed class RestControls
 
     /// <summary>Last clamp reported, so a live re-layout only speaks up when the outcome changed.</summary>
     private Vector3 _padClampLogged = new(float.NaN, float.NaN, float.NaN);
+
+    /// <summary>The caption seat has been reported once for this RestControls. Per-instance and
+    /// deliberately not static: a board SWITCH builds a new instance, and the whole point of the
+    /// line is that the answer is a property of the board ASSET, so each board states its own —
+    /// while a rest-geometry rebuild on the SAME board, of which the diagnosing log carried 734,
+    /// says nothing new and stays quiet.</summary>
+    private bool _seatLogged;
 
     /// <summary>
     /// THE ENGRAVED CAPTIONS — "Kurze Rast" / "Lange Rast" cut into the board beside their own pads.

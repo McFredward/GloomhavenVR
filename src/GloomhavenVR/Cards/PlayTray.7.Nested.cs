@@ -313,6 +313,15 @@ internal sealed partial class PlayTray
         /// symbol it was built with rather than a plain one.</summary>
         private CapRole _capRole = CapRole.Plain;
 
+        /// <summary>WHICH NON-SYMBOL CELL THIS CAP'S BEZEL RING AND SIDE WALLS TAKE —
+        /// <see cref="CapRole.Plain"/> on a square cap, <see cref="CapRole.PlainRound"/> on a disc
+        /// (<see cref="CapCellMath.PlainCell"/>). Stored rather than re-derived because the bounded
+        /// material heal re-mints those two materials minutes after the build, from a method that
+        /// no longer knows the cap's shape; hard-coding the square cell there would have quietly
+        /// put the mitred band back on exactly the discs that were unlucky enough to be built
+        /// before the bundle was loadable.</summary>
+        private CapRole _plainCell = CapRole.Plain;
+
         /// <summary>True once this cap's face really is wearing its role's atlas cell. False on a
         /// cap built before the bundle was loadable — which is what <see cref="TryHealCapMaterial"/>
         /// repairs, and what stops it re-skinning a cap that is already correct on every tick.</summary>
@@ -652,6 +661,12 @@ internal sealed partial class PlayTray
             // exactly where it was before this existed: shared grain, centred caption, no symbol.
             bool hasSymbol = capStyle != null && capRole != CapRole.Plain
                              && CapSymbols.TryAtlas(capStyle.Value, out _, out _);
+            // WHICH NON-SYMBOL CELL THIS CAP'S BEZEL RING AND WALLS TAKE. Resolved ONCE, here, for
+            // the same reason capRole is: the build path writes it, the bounded material heal
+            // re-writes it later, and the two must not be able to disagree. The round cell exists
+            // because cell 0's gold band is registered against a SQUARE — a disc that sampled it
+            // painted a mitred rectangle inside a circular cap, which is what the user reported.
+            CapRole plainCell = CapCellMath.PlainCell(round);
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
 
@@ -767,8 +782,8 @@ internal sealed partial class PlayTray
                 if (shader != null)
                 {
                     capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);       // [0] field
-                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), CapRole.Plain, capStyle); // [1] bezel
-                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), CapRole.Plain, capStyle);   // [2] wall
+                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), plainCell, capStyle); // [1] bezel — ROUND-registered band
+                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), plainCell, capStyle);   // [2] wall — ROUND-registered band
                     capDisc.GetComponent<MeshRenderer>().sharedMaterials =
                         new[] { capMaterial, capBevelMaterial, capWallMaterial };
                     Core.VRLog.Info("Cards", $"BoardButton '{fallbackLabel}': ROUND cap skinned with the shared " +
@@ -844,8 +859,8 @@ internal sealed partial class PlayTray
                     // footprint, so a role cell there would draw the symbol's outer edge smeared
                     // around the rim.
                     capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);      // [0] top
-                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), CapRole.Plain, capStyle); // [1] bright bevel
-                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), CapRole.Plain, capStyle);   // [2] dark warm wall
+                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), plainCell, capStyle); // [1] bright bevel
+                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), plainCell, capStyle);   // [2] dark warm wall
                     capCube.GetComponent<MeshRenderer>().sharedMaterials =
                         new[] { capMaterial, capBevelMaterial, capWallMaterial };
                 }
@@ -978,6 +993,7 @@ internal sealed partial class PlayTray
             button._cap = cap.transform;
             button._accentColor = accent;
             button._capRole = capRole;
+            button._plainCell = plainCell;
             button._capStyle = capStyle;
             button._symbolApplied = hasSymbol;
             button._capSize = size;
@@ -1407,11 +1423,14 @@ internal sealed partial class PlayTray
             // would silently strip the carved symbol off exactly the caps that were unlucky enough
             // to be built before the bundle was loadable — a defect that only ever appears on a
             // slow load and only on some of the caps, which is the hardest kind to be told about.
+            // The BEZEL AND WALL cell is stored for the same reason (_plainCell): this method does
+            // not know whether the cap is a disc, and the square band inside a round cap is the
+            // very defect cell 9 was authored to remove.
             _capMaterial = NewKeycapMaterial(lit, top, _capRole, _capStyle);
             if (_capBevelMaterial != null && _capWallMaterial != null && _capMeshRenderer != null)
             {
-                _capBevelMaterial = NewKeycapMaterial(lit, BevelTint(top), CapRole.Plain, _capStyle);
-                _capWallMaterial = NewKeycapMaterial(lit, WallTint(top), CapRole.Plain, _capStyle);
+                _capBevelMaterial = NewKeycapMaterial(lit, BevelTint(top), _plainCell, _capStyle);
+                _capWallMaterial = NewKeycapMaterial(lit, WallTint(top), _plainCell, _capStyle);
                 _capMeshRenderer.sharedMaterials = new[] { _capMaterial, _capBevelMaterial, _capWallMaterial };
             }
             else if (_capMeshRenderer != null)
