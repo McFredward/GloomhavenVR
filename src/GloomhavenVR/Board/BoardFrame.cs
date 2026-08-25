@@ -68,6 +68,12 @@ namespace GloomhavenVR.Board;
 /// <item>bronze (<c>PlayTray_16vm268h</c>, 0.640 × 0.218 m): max <b>6.4 mm</b>, mean 3.7 mm.</item>
 /// <item>steel (<c>PlayTray_9capjqp6</c>, 0.640 × 0.369 m): max <b>9.5 mm</b>, mean 4.2 mm.</item>
 /// </list>
+/// THOSE THREE FOOTPRINTS ARE THE PRE-REBUILD ASSETS and are kept because the stand-off numbers
+/// beside them were measured on exactly those meshes. ModBuild 265 re-authored all three: every
+/// board is now <b>0.640 × 0.320 m</b> (thickness 35.6 / 34.3 / 35.4 mm), watertight, 0 boundary
+/// edges — so the two odd short edges above no longer exist and <c>PlayTray.BoardH = 0.32</c> is
+/// true of all three boards for the first time. The stand-off argument is unaffected: it is about
+/// a hull chording across a bowed edge, and the re-authored rims are still barrel-sided.
 /// On top of that ModBuild 83 added 6 mm of deliberate clear air, so the stroke's inner edge sat
 /// 9–16 mm off the visible rim of a 0.64 m board. That IS the "nicht wirklich am äußeren Rand"
 /// report, and no width change could have fixed it.</para>

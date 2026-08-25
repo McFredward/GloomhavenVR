@@ -212,6 +212,23 @@ internal sealed class RemoteTrayVisual
         Vector3 assetOffset = tuning.AssetOffset;
         var assetEuler = new Vector3(tuning.AssetPitchDegrees, tuning.AssetYawDegrees,
                                      tuning.AssetRollDegrees);
+        // BOUNDED THE SAME WAY THE OWNER BOUNDS IT, from the same terms: the tuned pose arrives on
+        // extension record 28 and the lever arm is read off this peer's own clone of the same
+        // prefab, so no wire field is added and the two clients cannot disagree. The gate is this
+        // board's measured recess — an old-bundle peer has none, is unbounded, and draws exactly
+        // what it drew before. Cards.BoardAnchors.ClampAssetPose carries the argument and the
+        // measurement.
+        float? assetRadius = visual.SeatMinHalf == null
+                             ? (float?)null
+                             : Cards.BoardAnchors.AnchorRadius(boardRoot, anchors);
+        Vector3 reqOffset = assetOffset, reqEuler = assetEuler;
+        Cards.BoardAnchors.ClampAssetPose(ref assetOffset, ref assetEuler, assetRadius);
+        if (Cards.BoardAnchors.AssetPoseWasClamped(reqOffset, reqEuler, assetOffset, assetEuler))
+            VRLog.Info("Net", $"Remote '{style}' board mesh pose CLAMPED: owner's offset " +
+                              $"{reqOffset:F3} / euler {reqEuler:F1}° would have walked the mesh out " +
+                              $"from under the pinned control set; applied {assetOffset:F3} / " +
+                              $"{assetEuler:F1}° — the owner clamps to the same numbers, so the two " +
+                              "pictures stay 1:1.");
         if (assetOffset != Vector3.zero || assetEuler != Vector3.zero)
         {
             Transform?[] pinned = anchors;

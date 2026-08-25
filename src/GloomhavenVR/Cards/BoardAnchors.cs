@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -350,6 +351,114 @@ internal static class BoardAnchors
     /// its own seat. Callers LOG it; nothing about the layout depends on it.</summary>
     internal static bool SeatPoseWasClamped(Vector3 requested, Vector3 clamped) =>
         Mathf.Abs(requested.x - clamped.x) > 1e-6f || Mathf.Abs(requested.y - clamped.y) > 1e-6f;
+
+    // ------------------------------------- keeping the MESH under the controls that sit on it --
+
+    /// <summary>
+    /// How far any pinned anchor may end up standing off the mesh surface behind it, in board
+    /// metres, once the asset pose has moved the mesh. 5 mm — the same order as the seat slack a
+    /// keycap already has, and a tenth of the thinnest board's 34 mm thickness, so a cap displaced
+    /// by the whole budget is still visibly seated in its well.
+    /// </summary>
+    internal const float MaxAnchorLift = 0.005f;
+
+    /// <summary>
+    /// THE ASSET POSE, BOUNDED: the per-board mesh offset and euler that
+    /// <c>PlayTray.SetAssetPose</c> applies, clamped so the board mesh cannot walk out from under
+    /// the control set that stays pinned to it.
+    ///
+    /// <para><b>THE PROBLEM THIS SOLVES, observed and not inferred.</b> The asset pose moves the
+    /// BOARD MESH while every anchor is written back to where it was, so cards, keycaps and rest
+    /// discs stay put and the art slides beneath them. It exists to correct a mesh whose decorated
+    /// face is not coplanar with its own anchor plane, and the SHIPPED Bronze board was exactly
+    /// that — a raked lectern 301 mm deep. <c>AssetOffset_Bronze</c> = (0, -0.11, +0.08) and
+    /// <c>AssetPitchDegrees_Bronze</c> = 57 are in the user's live cfg, where they beat any default
+    /// this repo can change, and they were correct for that mesh.</para>
+    ///
+    /// <para>The re-authored Bronze is a flat 0.640 x 0.320 x 0.0354 m plate whose face IS the
+    /// anchor plane. Replaying those two dials against it in the Unity assembler
+    /// (<c>Editor/PreviewBoard.ApplyAssetPose</c>, 2026-08-25) left THREE of the five seat and rest
+    /// anchors with no mesh behind them at all, and the other two standing 151.5 mm and 167.1 mm
+    /// off the surface: the board tips up like a wall and the whole control set hangs in the air in
+    /// front of it. Oak and Steel, whose dials are identity, measured 0.5 mm — which is exactly the
+    /// <c>proud</c> offset the assembler seats every anchor with, so that pair is the control.</para>
+    ///
+    /// <para><b>WHY A BOUND AND NOT "ZERO IT ON A NEW BOARD".</b> The dial is a control the user
+    /// asked for, and hard-zeroing it on the re-authored boards would delete a feature to fix a
+    /// stale value. Matching the tuned value against the historical constant and dropping it was
+    /// the other candidate: it silently ignores 57 deg if he ever dials it again on purpose, which
+    /// is worse than the defect. A bound keeps every small correction he can express and refuses
+    /// only the ones that separate the mesh from the controls — which on a flat board is the whole
+    /// point, and the arithmetic below says so rather than a constant saying so.</para>
+    ///
+    /// <para><b>THE GATE IS THE ONE <see cref="ClampSeatPose"/> ALREADY USES</b> — does this board
+    /// carry a measured recess. <paramref name="anchorRadius"/> null means an old-bundle board: no
+    /// measurement, no bound, bit-identical to today, so the raked lectern still gets laid flat on
+    /// the bundle currently installed on his machine. A re-authored board supplies the radius and
+    /// is bounded.</para>
+    ///
+    /// <para><b>THE TILT BOUND IS DERIVED, NOT PICKED.</b> Rotating the mesh by theta about the
+    /// board root lifts an anchor at radius r by at most r*sin(theta), so the angle that spends the
+    /// whole <see cref="MaxAnchorLift"/> budget is asin(lift/r) — and r is MEASURED as the furthest
+    /// pinned anchor from the root, not assumed. On these boards that is about 0.247 m, so the
+    /// bound lands near 1.2 deg: on a flat plate any real tilt separates the mesh from the pinned
+    /// set, and that is a fact about the geometry rather than a policy. The offset is bounded by
+    /// the same budget on all three axes — along the normal it lifts every anchor equally, in plane
+    /// it slides the art under a cap that has only its seat slack to give.</para>
+    ///
+    /// <para><b>DERIVED, SO IT COSTS NO WIRE FIELD.</b> The tuned pose already travels on extension
+    /// record 28 and the radius is read off the same prefab on every client, so the owner and every
+    /// peer clamp to the same numbers. <c>Net.RemoteTrayVisual</c> calls this exact method.</para>
+    /// </summary>
+    /// <param name="anchorRadius">Largest pinned-anchor distance from the board root, in board
+    /// metres, or null on a board that carries no measured recess (old bundle → unbounded).</param>
+    internal static void ClampAssetPose(ref Vector3 offset, ref Vector3 euler, float? anchorRadius)
+    {
+        if (anchorRadius == null || anchorRadius.Value <= 1e-4f)
+            return;   // unmeasured board: no bound is known, so nothing is bounded (today's layout)
+
+        // THE BUDGET IS SPLIT BECAUSE THE TWO TERMS ADD. An offset along the board normal lifts
+        // every anchor by its own magnitude and a tilt lifts the furthest one by r*sin(theta);
+        // giving each the whole budget would let a pose that spends both stand an anchor 10 mm
+        // proud, which is twenty times the 0.5 mm the assembler seats one at and would read as a
+        // keycap hovering over its well. Half each, so the guarantee in the summary is the one the
+        // arithmetic actually makes.
+        const float half = MaxAnchorLift * 0.5f;
+        offset = new Vector3(Mathf.Clamp(offset.x, -half, half),
+                             Mathf.Clamp(offset.y, -half, half),
+                             Mathf.Clamp(offset.z, -half, half));
+
+        float maxDeg = Mathf.Asin(Mathf.Clamp01(half / anchorRadius.Value)) * Mathf.Rad2Deg;
+        euler = new Vector3(Mathf.Clamp(euler.x, -maxDeg, maxDeg),
+                            Mathf.Clamp(euler.y, -maxDeg, maxDeg),
+                            Mathf.Clamp(euler.z, -maxDeg, maxDeg));
+    }
+
+    /// <summary>The largest distance from <paramref name="boardRoot"/> to any of the supplied
+    /// pinned anchors, in board-root-local metres — the lever arm the tilt bound is derived from.
+    /// Null when nothing usable was supplied, which is the same "no bound is known" state an
+    /// unmeasured board is in.</summary>
+    internal static float? AnchorRadius(Transform boardRoot, IReadOnlyList<Transform?> anchors)
+    {
+        if (boardRoot == null)
+            return null;
+        float r = 0f;
+        int n = 0;
+        for (int i = 0; i < anchors.Count; i++)
+        {
+            if (anchors[i] == null)
+                continue;
+            r = Mathf.Max(r, boardRoot.InverseTransformPoint(anchors[i]!.position).magnitude);
+            n++;
+        }
+        return n == 0 ? null : r;
+    }
+
+    /// <summary>True when <see cref="ClampAssetPose"/> actually bit. Callers LOG it; nothing about
+    /// the layout depends on it.</summary>
+    internal static bool AssetPoseWasClamped(Vector3 reqOffset, Vector3 reqEuler,
+                                             Vector3 offset, Vector3 euler) =>
+        (reqOffset - offset).sqrMagnitude > 1e-12f || (reqEuler - euler).sqrMagnitude > 1e-8f;
 
     /// <summary>Depth-first name lookup — the same one every board reader already used privately.</summary>
     internal static Transform? FindDeep(Transform root, string name)
