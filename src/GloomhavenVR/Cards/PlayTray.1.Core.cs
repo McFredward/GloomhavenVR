@@ -192,6 +192,19 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// </summary>
     private Vector2? _seatMinHalf;
 
+    /// <summary>
+    /// The tighter of the board's two REST PADS (smallest half-extent over both), in board metres, or
+    /// null when this board carries no measurement. Same mechanism, same assembler, same clamp as
+    /// <see cref="_seatMinHalf"/>: <c>RestButtonOffset_{board}</c> carries the identical mirror
+    /// compensation the button offsets do (Steel −0.44, Bronze −0.445), and the tuned disc diameters
+    /// (91 / 71 / 71 mm) overhang two of the three authored pads (81.6 / 81.7 / 68.1 mm of floor).
+    /// </summary>
+    private Vector2? _restMinHalf;
+
+    /// <summary>The tighter rest pad's measured half-extents — read by <c>RestControls</c>, which owns
+    /// the discs. Null on a board with no measurement, where nothing is fitted or clamped.</summary>
+    internal Vector2? RestMinHalf => _restMinHalf;
+
     /// <summary>Reused list for <see cref="LiveBoardAnchors"/> — the four frame anchors plus
     /// whichever button seats the live board supplies. Build-time only (EnsureBuilt), never per
     /// frame.</summary>
@@ -230,6 +243,22 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         for (int i = 0; i < BoardAnchors.ButtonSeatCount; i++)
         {
             Vector2? e = BoardAnchors.SeatExtent(visualRoot, i);
+            if (e == null)
+                continue;
+            min = min == null
+                ? e
+                : new Vector2(Mathf.Min(min.Value.x, e.Value.x), Mathf.Min(min.Value.y, e.Value.y));
+        }
+        return min;
+    }
+
+    /// <summary>The tighter of the two authored rest pads — see <see cref="_restMinHalf"/>.</summary>
+    private static Vector2? ResolveRestMinHalf(Transform visualRoot)
+    {
+        Vector2? min = null;
+        foreach (bool shortRest in new[] { true, false })
+        {
+            Vector2? e = BoardAnchors.RestExtent(visualRoot, shortRest);
             if (e == null)
                 continue;
             min = min == null
@@ -572,6 +601,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _longRestAnchor = FindDeep(visual.transform, "LongRestToken");
             int seatsFound = BoardAnchors.ResolveSeats(visual.transform, _buttonSeats);
             _seatMinHalf = ResolveSeatMinHalf(visual.transform);
+            _restMinHalf = ResolveRestMinHalf(visual.transform);
             LogSeatResolution(seatsFound);
 
             // The bundled PlayTray anchors carry a 90° twist from the FBX empty export
@@ -1214,6 +1244,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         for (int i = 0; i < _buttonSeats.Length; i++)
             _buttonSeats[i] = null; // descendants of the visual, destroyed with _root
         _seatMinHalf = null;        // re-measured from the next board's own prefab
+        _restMinHalf = null;
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
         _itemUseSlotGlow = null;

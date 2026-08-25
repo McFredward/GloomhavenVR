@@ -325,7 +325,8 @@ internal sealed partial class PlayTray
         // Category split (user: "every value applies ONLY to its own category"): the
         // Confirm/Undo keycaps read the [BoardButtons] set EXCLUSIVELY — independent
         // WIDTH/HEIGHT (rectangular keycaps), DEPTH and TRAVEL, all with the authored
-        // numeric defaults (0.073 × 0.073 × 0.036 / 4 mm — no 0=Auto sentinel any more).
+        // numeric defaults (0.063 × 0.065 × 0.036 / 4 mm — no 0=Auto sentinel any more; the 0.073
+        // quoted here before was ButtonTuning's pre-Bind fallback, not the bound default).
         // ROUND caps take [BoardButtons] Width as their DIAMETER since the 2026-08 retirement of
         // [Cards] ConfirmUndoSize_{board}: that dial fed ONLY this round branch after the category
         // split above moved the (default) square caps onto [BoardButtons] — with the shipped
@@ -333,15 +334,57 @@ internal sealed partial class PlayTray
         // Confirm/Undo in both shapes, and a [BoardButtons] edit live-rebuilds either via the
         // ButtonTuning.Version watch (ApplyButtonTuningIfChanged).
         WorldUI.ButtonTuning.Bind();
-        float side = WorldUI.ButtonTuning.BoardCapWidth; // round-cap diameter (== square cap width)
-        // Square caps ALWAYS keep the tuned [BoardButtons] W×H, whatever the member count — the item
-        // "Use" confirm is built from the very same rectSize/depth/travel below, so it is identical
-        // to Confirm and Undo by construction and follows every tuning change with them.
-        var rectSize = round
-            ? new Vector2(side, side)
-            : new Vector2(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
         float capDepth = WorldUI.ButtonTuning.BoardCapDepth;
         float capTravel = WorldUI.ButtonTuning.BoardCapTravel;
+
+        // ---- FIT THE CAP TO THIS BOARD'S SEAT RECESS -------------------------------------------
+        // (RESTORED: this block was lost in the ModBuild 272 merge while the PEER side of the very
+        // same fit — Net/RemoteBoardFurniture's FitCapSize call — landed. On dev as merged, the owner
+        // built unfitted caps and every peer drew fitted ones: a straight 1:1 divergence on the
+        // control the 1:1 ruling is about. Both sides call the one BoardAnchors.FitCapSize again.)
+        //
+        // The tuned [BoardButtons] pair is 0.063 × 0.065 m — Defaults.BoardButtons_Width/Height, which
+        // is what his cfg holds; ButtonTuning.DefaultBoardWidth's 0.073 is only the PRE-BIND fallback
+        // inside Clamped() and is never the live cap. The three re-authored boards cut their button
+        // recesses at 74.6 × 64.3 (Oak), 81.0 × 70.1 (Steel) and 61.2 × 51.9 mm (Bronze) of usable
+        // FLOOR, so the 65 mm height does not fit any of the three and Bronze's width does not fit
+        // either. The fit SHRINKS the cap to the board's own recess and never grows it, so the global
+        // stays the ceiling the user dialled in rather than a value this code rewrites — see
+        // BoardAnchors.FitCapSize for the whole argument, and _seatMinHalf for why the tightest seat
+        // is the one that decides.
+        //
+        // THE MARGIN IS THE CAP'S OWN TRAVEL, clamped into a sane band: [BoardButtons] Travel is the
+        // one LENGTH in the cap's tuning family that means clearance rather than size, and it is
+        // already how far the cap moves inside this well on every press. The clamp is what stops a
+        // Travel of 0 from producing a cap that fills the recess edge to edge (and an extreme one
+        // from eating the cap); the band's ends are the 1 mm the assembler already uses as its
+        // "a hair proud" seat clearance and the 8 mm fingertip radius the poke test works to.
+        float seatMargin = Mathf.Clamp(capTravel, 0.001f, 0.008f);
+        Vector2 tunedSize = new(WorldUI.ButtonTuning.BoardCapWidth, WorldUI.ButtonTuning.BoardCapHeight);
+        Vector2 fitted = BoardAnchors.FitCapSize(tunedSize, _seatMinHalf, seatMargin);
+        // ROUND caps take [BoardButtons] Width as their DIAMETER since the 2026-08 retirement of
+        // [Cards] ConfirmUndoSize_{board}: that dial fed ONLY this round branch after the category
+        // split above moved the (default) square caps onto [BoardButtons] — with the shipped
+        // Square shape it was a dead dial in the debug menu (user report). ONE family now sizes
+        // Confirm/Undo in both shapes, and a [BoardButtons] edit live-rebuilds either via the
+        // ButtonTuning.Version watch (ApplyButtonTuningIfChanged).
+        //
+        // A DISC MUST FIT BOTH AXES, so the fitted diameter is min(W, H) and not the fitted width:
+        // the recesses are WIDER than they are tall on all three boards (they are rounded rects on a
+        // short-axis stack of three), so taking the width would have put a disc through the top and
+        // bottom recess walls on every board. Before the fit this branch read Width alone and was
+        // correct only because nothing constrained it. RemoteBoardFurniture.GenericCap takes the same
+        // min().
+        float side = Mathf.Min(fitted.x, fitted.y); // round-cap diameter
+        // Square caps keep the tuned [BoardButtons] W×H wherever the seat allows it, whatever the
+        // member count — the item "Use" confirm is built from the very same rectSize/depth/travel
+        // below, so it is identical to Confirm and Undo by construction and follows every tuning
+        // change with them.
+        var rectSize = round ? new Vector2(side, side) : fitted;
+        // The LAYOUT needs the size too: BoardAnchors.ClampSeatPose bounds a cap's in-plane offset by
+        // the gap between THIS cap and the recess wall, so SetConfirmUndoOffset has to know what was
+        // actually built. Written before the first layout call at the end of this method.
+        _capRectSize = rectSize;
 
         // Initial labels are overwritten by the live game-widget label each TickStatus
         // (ConfirmLabel()/UndoLabel()); route the fallback literals through the game keys.
@@ -440,6 +483,18 @@ internal sealed partial class PlayTray
                             $"seat 1 '{undoParent.name}' y{GenericSeatY(1, spacing) * 1000f:+0.0;-0.0} mm, " +
                             $"seat 2 {seatTwo})" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
+        VRLog.Info("Cards", _seatMinHalf != null
+            ? $"Board: cap size FITTED to the '{active}' seat recess — tuned " +
+              $"{tunedSize.x * 1000f:F1} × {tunedSize.y * 1000f:F1} mm, recess floor " +
+              $"{_seatMinHalf.Value.x * 2000f:F1} × {_seatMinHalf.Value.y * 2000f:F1} mm, margin " +
+              $"{seatMargin * 1000f:F1} mm/side ([BoardButtons] Travel) ⇒ built " +
+              $"{rectSize.x * 1000f:F1} × {rectSize.y * 1000f:F1} mm, leaving " +
+              $"±({BoardAnchors.SeatSlack(_seatMinHalf.Value, rectSize).x * 1000f:F1}, " +
+              $"{BoardAnchors.SeatSlack(_seatMinHalf.Value, rectSize).y * 1000f:F1}) mm of in-well slack " +
+              "for the tuned offset to move it in."
+            : $"Board: cap size NOT fitted — the '{active}' board carries no SeatExtent measurement, so " +
+              $"the caps are the tuned {tunedSize.x * 1000f:F1} × {tunedSize.y * 1000f:F1} mm and their " +
+              "offsets are unclamped, exactly as before.");
         VRLog.Info("Cards", $"Board: button geometry config applied — {WorldUI.ButtonTuning.Describe()}.");
         _tuningVersion = WorldUI.ButtonTuning.Version; // fresh build reflects current config
         _capGeometryKey = CapGeometryKey(); // what these caps were BUILT from (see RebuildAttachedControls)

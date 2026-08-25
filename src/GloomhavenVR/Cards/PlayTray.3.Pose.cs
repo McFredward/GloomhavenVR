@@ -108,9 +108,17 @@ internal sealed partial class PlayTray
         // sein wie der 'Benutzen' button der erscheint wenn ein Item in dem Slot liegt und genutzt
         // werden kann. Aktuell gibt es da einen Offset auf der Y-Achse."). See GenericPrimarySlot for
         // the mechanism that produced that offset and why the CONFIRM slot is the surviving seat.
-        Vector3 primary = offset + new Vector3(0f, GenericSeatY(GenericPrimarySlot, spacing), 0f);
         _seatOffset = offset;
         _seatSpacing = spacing;
+        // …AND EVERY CAP STAYS INSIDE THE RECESS IT SITS IN. On a board that carries a measured seat
+        // (BoardAnchors.SeatExtent — i.e. one the assembler cut and measured), the in-plane part of
+        // the tuned offset and the whole stack term are bounded by the slack between this cap and the
+        // recess wall; Z is untouched. On a board with no measurement — every bundle shipped so far,
+        // and the procedural fallback — nothing is bounded and this is bit-identical to the previous
+        // build, Oak's tuned 8 mm nudge included. The whole argument, and why this is NOT a
+        // canonical/mirrored test, is on BoardAnchors.ClampSeatPose.
+        Vector3 primary = BoardAnchors.ClampSeatPose(
+            offset, GenericSeatY(GenericPrimarySlot, spacing), _seatMinHalf, _capRectSize);
         if (_confirm != null)
             _confirm.transform.localPosition = primary;
         // Written unconditionally, not only while active: the cap is built on the SAME anchor as
@@ -118,9 +126,12 @@ internal sealed partial class PlayTray
         // code had to be in for the two to agree.
         if (_itemUseConfirm != null)
             _itemUseConfirm.transform.localPosition = primary;
+        Vector3 undoPose = BoardAnchors.ClampSeatPose(
+            offset, GenericSeatY(GenericUndoSlot, spacing), _seatMinHalf, _capRectSize);
         if (_undo != null)
-            _undo.transform.localPosition = offset + new Vector3(0f, GenericSeatY(GenericUndoSlot, spacing), 0f);
+            _undo.transform.localPosition = undoPose;
         LogPrimarySeat(primary, spacing);
+        LogSeatClamp(offset, spacing, primary, undoPose);
     }
 
     /// <summary>
@@ -196,7 +207,43 @@ internal sealed partial class PlayTray
     /// transform, and the three anchors are at three different places on the board.
     /// </summary>
     internal Vector3 SeatLocalPose(int seat) =>
-        _seatOffset + new Vector3(0f, GenericSeatY(seat, _seatSpacing), 0f);
+        BoardAnchors.ClampSeatPose(_seatOffset, GenericSeatY(seat, _seatSpacing), _seatMinHalf, _capRectSize);
+
+    /// <summary>
+    /// The cap W×H the live generic keycaps were BUILT at (already seat-fitted — see
+    /// <c>BuildButtons</c>). <see cref="SetConfirmUndoOffset"/> needs it because the clamp's bound is
+    /// the gap between THIS cap and the recess wall: a smaller cap legitimately has more room to be
+    /// nudged inside the same well. Set by every build before the first layout call; the tuned
+    /// [BoardButtons] pair until then, which is what an unmeasured board would use anyway.
+    /// </summary>
+    private Vector2 _capRectSize = new(Defaults.BoardButtons_Width, Defaults.BoardButtons_Height);
+
+    /// <summary>
+    /// One line whenever the clamp actually BIT, naming the dial and both poses. Silent when the
+    /// tuned offset already sits the cap inside its seat, which is every board that has not had its
+    /// asset regenerated under it.
+    /// </summary>
+    private void LogSeatClamp(Vector3 offset, float spacing, Vector3 primary, Vector3 undoPose)
+    {
+        if (_seatMinHalf == null)
+            return;
+        Vector3 wantPrimary = offset + new Vector3(0f, GenericSeatY(GenericPrimarySlot, spacing), 0f);
+        Vector3 wantUndo = offset + new Vector3(0f, GenericSeatY(GenericUndoSlot, spacing), 0f);
+        if (!BoardAnchors.SeatPoseWasClamped(wantPrimary, primary)
+            && !BoardAnchors.SeatPoseWasClamped(wantUndo, undoPose))
+            return;
+        Vector2 slack = BoardAnchors.SeatSlack(_seatMinHalf.Value, _capRectSize);
+        ControlBoard board = CardsConfig.CurrentBoard;
+        VRLog.Info("Cards", "Board: SEAT CLAMP — the tuned in-plane offset would have put a generic cap " +
+            $"outside its own recess, so it was bounded to the ±({slack.x * 1000f:F1}, {slack.y * 1000f:F1}) mm " +
+            $"of slack this cap has in the well. [Cards] ConfirmUndoOffset_{board} = " +
+            $"({offset.x:F3}, {offset.y:F3}, {offset.z:F3}), GenericButtonSpacing_{board} = {spacing:F3} m ⇒ " +
+            $"seat 0 wanted ({wantPrimary.x:F4}, {wantPrimary.y:F4}) got ({primary.x:F4}, {primary.y:F4}), " +
+            $"seat 1 wanted ({wantUndo.x:F4}, {wantUndo.y:F4}) got ({undoPose.x:F4}, {undoPose.y:F4}) m. " +
+            "Z is untouched. Those dial values were measured against the board asset that was installed " +
+            "when they were tuned; this board's recesses are authored and measured, so the recess is " +
+            "where the cap goes.");
+    }
 
     /// <summary>How many button seats the LIVE board supplies. 2 on every board shipped so far, 3 on
     /// a board the asset lane has regenerated with the third recess.</summary>

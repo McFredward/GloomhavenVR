@@ -65,24 +65,34 @@ Authoring rules for the seats:
   `+spacing/2`, seat 2 at `−spacing/2`, seat 3 at `−3·spacing/2` from the tuned
   `[Cards] ConfirmUndoOffset_{board}` — so seat 1 and seat 2 land exactly where they
   always did and a board that gains seat 3 does not move the other two.
-- The runtime cap size is the tuned `[BoardButtons]` W×H (shipped 73 × 73 mm) **fitted
-  down to this board's own recess**. `BuildBoard.cs` measures each recess FLOOR off the
-  mesh and writes `SeatExtent1/2/3` empties into the prefab (their localPosition x/y are
-  the recess HALF-width and HALF-height in metres, not a position); the mod builds
+- The runtime cap size is the tuned `[BoardButtons]` W×H (shipped **63 × 65 mm** —
+  `Defaults.BoardButtons_Width/Height`, the bound default; `ButtonTuning.DefaultBoardWidth`'s
+  0.073 is only a pre-Bind fallback and is never the live cap) **fitted down to this
+  board's own recess**. `BuildBoard.cs` measures each recess FLOOR off the mesh and writes
+  `SeatExtent1/2/3` empties into the prefab (their localPosition x/y are the recess
+  HALF-width and HALF-height in metres, not a position); the mod builds
   `min(tuned, floor − 2 × margin)` per axis, where the margin is `[BoardButtons] Travel`
   clamped to 1–8 mm. The fit only ever SHRINKS — the global stays the ceiling the user
   dialled in. A board with no `SeatExtent` empties (any bundle built before this) gets
   the tuned size unchanged.
+- **The same measurement bounds the cap's OFFSET.** `[Cards] ConfirmUndoOffset_{board}`
+  and `GenericButtonSpacing_{board}` were tuned against whatever board asset was installed
+  at the time — on Steel and Bronze that was a MIRRORED board, so their X is a 46 cm
+  relocation, not a nudge. On a board that carries a measurement the in-plane part of the
+  offset plus the whole spacing term is clamped to the slack left between the cap and the
+  recess wall (Z, the proud depth, is untouched); on a board without one nothing is
+  clamped. Same rule, same function, for `RestButtonOffset/Spacing_{board}` against the
+  rest pads.
 - Measured on the three committed FBXes — recess **floor**, which is what a keycap rests
   on; the rim is 2–10 mm wider and is not usable room:
 
-  | board | recess floor (mm) | fitted cap at 4 mm margin (mm) |
-  |---|---|---|
-  | Oak | 74.6 × 64.3 | 66.6 × 56.3 |
-  | Steel | 81.0 × 70.1 | 73.0 × 62.1 |
-  | Bronze | 61.2 × 51.9 | 53.2 × 43.9 |
+  | board | seat floor (mm) | fitted cap @4 mm (mm) | in-well slack (± mm) | rest pad (mm) | fitted disc (mm) |
+  |---|---|---|---|---|---|
+  | Oak | 74.6 × 64.3 | 63.0 × 56.3 | 5.8 × 4.0 | 81.6 | 73.6 (tuned 91) |
+  | Steel | 81.0 × 70.1 | 63.0 × 62.1 | 9.0 × 4.0 | 81.7 | 71.0 (unchanged) |
+  | Bronze | 61.2 × 51.9 | 53.2 × 43.9 | 4.0 × 4.0 | 68.1 | 60.1 (tuned 71) |
 
-  If a rebuild's log disagrees with the middle column, the measurement code is wrong,
+  If a rebuild's log disagrees with the seat/pad columns, the measurement code is wrong,
   not the boards.
 - **Both spellings are shipped in the FBX** (`ButtonSeat1/2/3` plus `ConfirmButton` /
   `UndoButton` / `SkipButton` at bit-identical positions), so one asset works with every

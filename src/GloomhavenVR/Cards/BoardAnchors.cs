@@ -169,10 +169,12 @@ internal static class BoardAnchors
     /// no measurement (every bundle built before this, and the procedural fallback board).
     ///
     /// <para><b>WHY THE PREFAB CARRIES A MEASUREMENT AT ALL.</b> The keycaps are sized from
-    /// <c>[BoardButtons] Width/Height</c>, one global pair the user dialled in (shipped
-    /// 0.073 × 0.073 m). The three re-authored boards cut their button recesses at three different
-    /// sizes, and two of the three are SMALLER than that cap — so a cap that fits the tuning
-    /// overhangs its own seat. The size therefore has to be fitted PER BOARD, and the only honest
+    /// <c>[BoardButtons] Width/Height</c>, one global pair the user dialled in — shipped
+    /// 0.063 × 0.065 m (<c>Defaults.BoardButtons_Width/Height</c>, which is what his cfg holds;
+    /// <c>ButtonTuning.DefaultBoardWidth</c>'s 0.073 is only the PRE-BIND fallback and is never the
+    /// live cap). The three re-authored boards cut their button recesses at three different sizes,
+    /// and that 65 mm height fits none of them — so a cap that fits the tuning overhangs its own
+    /// seat. The size therefore has to be fitted PER BOARD, and the only honest
     /// source for "how big is this recess" is the board itself.</para>
     ///
     /// <para><b>WHY MEASURED AT IMPORT RATHER THAN BAKED AS CONSTANTS.</b> The alternative was three
@@ -184,14 +186,34 @@ internal static class BoardAnchors
     /// second-hand figure about geometry went stale before it was even written down; the assembler
     /// reads the geometry it is already ray-casting for the anchor projection, so it cannot.</para>
     ///
+    /// <para>The same empties bound the OFFSET, not only the size — see
+    /// <see cref="ClampSeatPose"/>. One measurement, two jobs: how big a cap may be, and how far it
+    /// may be nudged before it leaves the well.</para>
+    ///
     /// <para><b>IT COSTS NO WIRE FIELD.</b> A peer clones the SAME prefab out of the SAME bundle
     /// (<c>Net.RemoteTrayVisual</c>), so the peer measures the identical extents and
     /// <see cref="FitCapSize"/> gives the identical answer. The fitted size is derived on every
     /// client from data every client already has, exactly like the seat POSES are.</para>
     /// </summary>
-    internal static Vector2? SeatExtent(Transform visualRoot, int seat)
+    internal static Vector2? SeatExtent(Transform visualRoot, int seat) =>
+        MeasuredExtent(visualRoot, SeatExtentName(seat));
+
+    /// <summary>Names of the empties carrying the two REST PAD measurements — same mechanism, same
+    /// assembler, same clamp; <c>RestControls</c>'s discs sit in an authored pad exactly the way the
+    /// keycaps sit in an authored recess.</summary>
+    internal static string RestExtentName(bool shortRest) => shortRest ? "RestExtentShort" : "RestExtentLong";
+
+    /// <summary>The measured half-extents of a rest pad's floor, or null when unmeasured.</summary>
+    internal static Vector2? RestExtent(Transform visualRoot, bool shortRest) =>
+        MeasuredExtent(visualRoot, RestExtentName(shortRest));
+
+    /// <summary>
+    /// Read one measurement empty. Its <c>localPosition</c> x/y are HALF-extents in board metres, not
+    /// a position — see <see cref="SeatExtent"/> for why the prefab carries these at all.
+    /// </summary>
+    private static Vector2? MeasuredExtent(Transform visualRoot, string name)
     {
-        Transform? t = visualRoot != null ? FindDeep(visualRoot, SeatExtentName(seat)) : null;
+        Transform? t = visualRoot != null ? FindDeep(visualRoot, name) : null;
         if (t == null)
             return null;
         Vector3 p = t.localPosition;
@@ -204,9 +226,9 @@ internal static class BoardAnchors
         // upper clamp ButtonTuning already puts on the cap itself).
         if (hx < 0.005f || hy < 0.005f || hx > 0.100f || hy > 0.100f)
         {
-            VRLog.Warn("Cards", $"Board: '{SeatExtentName(seat)}' carries an out-of-band recess " +
-                                $"half-extent ({hx:F4}, {hy:F4}) m — ignored; the seat's cap keeps " +
-                                "the tuned [BoardButtons] size.");
+            VRLog.Warn("Cards", $"Board: '{name}' carries an out-of-band recess half-extent " +
+                                $"({hx:F4}, {hy:F4}) m — ignored; the caps that sit there keep their " +
+                                "tuned size and their tuned offset, unclamped.");
             return null;
         }
         return new Vector2(hx, hy);
@@ -250,6 +272,84 @@ internal static class BoardAnchors
         // that overhangs slightly, not one nobody can hit.
         return new Vector2(Mathf.Max(0.020f, w), Mathf.Max(0.015f, h));
     }
+
+    // ------------------------------------------------------ keeping a cap in its own seat --
+
+    /// <summary>
+    /// THE SLACK a cap has inside its seat: how far its centre may move from the seat anchor before
+    /// the cap's edge reaches the recess wall, per axis, in board metres. Zero when the cap exactly
+    /// fills the recess.
+    /// </summary>
+    internal static Vector2 SeatSlack(Vector2 minHalf, Vector2 capSize) =>
+        new(Mathf.Max(0f, minHalf.x - capSize.x * 0.5f),
+            Mathf.Max(0f, minHalf.y - capSize.y * 0.5f));
+
+    /// <summary>
+    /// THE SEAT POSE: where a cap actually sits, anchor-local. Takes the tuned per-board
+    /// <paramref name="offset"/> and the stack term <paramref name="seatY"/>, and CLAMPS the in-plane
+    /// part so the cap cannot leave the recess it is sitting in. Z passes through untouched — that is
+    /// the proud depth toward the player and has nothing to do with the recess walls.
+    ///
+    /// <para><b>THE PROBLEM THIS SOLVES.</b> <c>ConfirmUndoOffset_Steel.x</c> is +0.462 and
+    /// <c>_Bronze.x</c> is +0.447 — 46 cm on a 64 cm board. Those are not nudges: the SHIPPED Steel
+    /// and Bronze boards had their zones mirrored against Oak (buttons on -x, rest on +x), and the
+    /// user dialled the whole cluster across the board to put it back on the right-hand side. The
+    /// re-authored boards are canonical, so the same dial now pushes the cluster ~35 cm clear OFF the
+    /// board. <c>RestButtonOffset_Steel.x</c> = -0.44 and <c>_Bronze.x</c> = -0.445 do the same to the
+    /// rest discs in the other direction. And <c>GenericButtonSpacing_Bronze</c> = 0.06 was tuned as
+    /// an inter-cap gap against anchors 110 mm apart, so on a 70 mm recess pitch it lands the three
+    /// caps 41 / 19 / 79 mm off their recess centres.</para>
+    ///
+    /// <para><b>WHY A CLAMP AND NOT A CANONICAL/MIRRORED DETECTOR.</b> The obvious alternative is to
+    /// read the layout off the anchor frame (seats on +x, rest pads on -x = canonical) and apply only
+    /// the offset's Z there. It is wrong, and its own acceptance test is what kills it: <b>Oak has
+    /// always been canonical.</b> <c>ConfirmUndoOffset_Oak</c> = (-0.008, 0, +0.009) and
+    /// <c>RestButtonOffset_Oak</c> = (+0.008, 0, -0.007) are genuine 8 mm nudges tuned ON a canonical
+    /// board — so "canonical then Z only" moves Oak's caps 8 mm on the bundle he is running RIGHT
+    /// NOW. A canonical/mirrored test has no memory of WHEN a value was tuned; it cannot tell
+    /// "canonical and always was" from "canonical now, mirrored when tuned", and it discards a real
+    /// nudge in order to undo a relocation.</para>
+    ///
+    /// <para><b>WHAT THIS KEYS ON INSTEAD</b> is the board's GENERATION, observed through the one
+    /// fact the cap fit already reads: does this board carry a MEASURED recess. An old-bundle board
+    /// carries none, gets no bound, and is laid out bit-identically to today — Oak included, which is
+    /// the acceptance condition. A re-authored board carries one, and its caps cannot leave their
+    /// wells. It is not a threshold in disguise: nothing is compared against a constant, the bound IS
+    /// the geometry of the seat the cap sits in, measured off the same mesh that decides the cap's
+    /// size.</para>
+    ///
+    /// <para><b>THE SPACING FALLS OUT OF THE SAME RULE.</b> <paramref name="seatY"/> is folded in
+    /// BEFORE the clamp, so the stack term is bounded by the same wall. That is deliberate rather
+    /// than a second decision about <c>GenericButtonSpacing</c> / <c>RestButtonSpacing</c>: on a board
+    /// with authored seats the anchor pitch already IS the spacing, so any spacing on top of it is
+    /// double-counting — and the honest remedy for a double count is not to let it leave the well.
+    /// Ignoring those dials outright was the alternative; it needs a second condition (a measured
+    /// board can still supply only two seats), it throws away the DIRECTION of a tuning that this
+    /// preserves as far as the geometry allows, and it lands within the same few millimetres. The
+    /// residual is at most the slack, which is the margin <see cref="FitCapSize"/> already reserved.</para>
+    ///
+    /// <para><b>IT IS DERIVED, SO IT COSTS NO WIRE FIELD.</b> Every term — the tuned offset and
+    /// spacing (already synced through record 28), the measured recess, the fitted cap — is available
+    /// identically on every client, and this is the single implementation all three callers use
+    /// (<c>PlayTray.SetConfirmUndoOffset</c>, <c>RestControls.SetOffset</c> and
+    /// <c>Net.RemoteBoardFurniture</c>), so a peer's board cannot lay out differently from the
+    /// owner's.</para>
+    /// </summary>
+    internal static Vector3 ClampSeatPose(Vector3 offset, float seatY, Vector2? minHalf, Vector2 capSize)
+    {
+        Vector3 p = offset + new Vector3(0f, seatY, 0f);
+        if (minHalf == null)
+            return p;   // unmeasured board: no bound is known, so nothing is bounded (today's layout)
+        Vector2 slack = SeatSlack(minHalf.Value, capSize);
+        return new Vector3(Mathf.Clamp(p.x, -slack.x, slack.x),
+                           Mathf.Clamp(p.y, -slack.y, slack.y),
+                           p.z);
+    }
+
+    /// <summary>True when the clamp actually bit — the tuned offset would have put this cap outside
+    /// its own seat. Callers LOG it; nothing about the layout depends on it.</summary>
+    internal static bool SeatPoseWasClamped(Vector3 requested, Vector3 clamped) =>
+        Mathf.Abs(requested.x - clamped.x) > 1e-6f || Mathf.Abs(requested.y - clamped.y) > 1e-6f;
 
     /// <summary>Depth-first name lookup — the same one every board reader already used privately.</summary>
     internal static Transform? FindDeep(Transform root, string name)

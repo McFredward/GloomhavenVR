@@ -886,11 +886,21 @@ internal sealed class RemoteBoardFurniture
         float cuSpacing = tuning.GenericButtonSpacing;
         Transform confirmParent = tray?.ConfirmAnchor ?? _root;
         Transform undoParent = tray?.UndoAnchor ?? _root;
+        // …AND THE SEAT POSE GOES THROUGH THE ONE CLAMP, term for term with
+        // PlayTray.SetConfirmUndoOffset: on a board whose recesses the assembler measured, the
+        // in-plane part of the synced offset and the whole spacing term are bounded by the slack
+        // between this cap and the recess wall (Z untouched); on a board with no measurement nothing
+        // is bounded and this is the previous build's arithmetic exactly. It has to happen HERE and
+        // not only on the owner's side, because the owner's ConfirmUndoOffset_Steel of +0.462 is the
+        // number that rides the wire — a peer applying it raw would draw the mirrored cluster 35 cm
+        // off the board while the owner's sits in its recess. Derived, not sent: same prefab, same
+        // function, same answer.
+        var capSize = new Vector2(_boardCapW, _boardCapH);
         Vector3 confirmPos = tray?.ConfirmAnchor != null
-            ? cuOff + new Vector3(0f, cuSpacing * 0.5f, 0f)
+            ? Cards.BoardAnchors.ClampSeatPose(cuOff, cuSpacing * 0.5f, tray.SeatMinHalf, capSize)
             : ConfirmMount;
         Vector3 undoPos = tray?.UndoAnchor != null
-            ? cuOff + new Vector3(0f, -cuSpacing * 0.5f, 0f)
+            ? Cards.BoardAnchors.ClampSeatPose(cuOff, -cuSpacing * 0.5f, tray.SeatMinHalf, capSize)
             : UndoMount;
         // BUILT AT THE IDLE COLOUR, NOT THE ACCENT — half of the "every cap looks accented" gap,
         // and it costs nothing. The colour a local keycap is CREATED with is its _accentColor, the
@@ -951,10 +961,33 @@ internal sealed class RemoteBoardFurniture
             Vector3 restOff = tuning.RestButtonOffset;
             float restSpacing = tuning.RestButtonSpacing;
             float restD = tuning.RestButtonDiameter;
+            // …AND FITTED + CLAMPED TO THE AUTHORED PAD, term for term with RestControls: the tuned
+            // diameters overhang two of the three pads, and RestButtonOffset_Steel/_Bronze carry the
+            // same 44 cm mirror compensation the button offsets do. Both are solved from THIS peer's
+            // copy of the same prefab, so owner and peer land on the same disc in the same pad.
+            float restMargin = Mathf.Clamp(_restCapTravel, 0.001f, 0.008f);
+            var restSize = _restShape == Cards.ButtonShape.Round
+                ? new Vector2(restD, restD)
+                : new Vector2(_restCapW, _restCapH);
+            restSize = Cards.BoardAnchors.FitCapSize(restSize, tray.RestMinHalf, restMargin);
+            if (_restShape == Cards.ButtonShape.Round)
+            {
+                restD = Mathf.Min(restSize.x, restSize.y);
+                restSize = new Vector2(restD, restD);
+            }
+            else
+            {
+                // Only the SQUARE branch reads these; leaving them alone under a round shape keeps
+                // the fitted diameter the single thing the round path depends on.
+                _restCapW = restSize.x;
+                _restCapH = restSize.y;
+            }
             _shortRest = RestCap(tray.ShortRestAnchor, "ShortRest",
-                restOff + new Vector3(0f, restSpacing * 0.5f, 0f), restD, ShortRestColor, labels);
+                Cards.BoardAnchors.ClampSeatPose(restOff, restSpacing * 0.5f, tray.RestMinHalf, restSize),
+                restD, ShortRestColor, labels);
             _longRest = RestCap(tray.LongRestAnchor, "LongRest",
-                restOff + new Vector3(0f, -restSpacing * 0.5f, 0f), restD, LongRestColor, labels);
+                Cards.BoardAnchors.ClampSeatPose(restOff, -restSpacing * 0.5f, tray.RestMinHalf, restSize),
+                restD, LongRestColor, labels);
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced

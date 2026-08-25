@@ -17,8 +17,9 @@
 //     it is correct regardless of FBX axis quirks. Verifies the SEVEN named anchors:
 //     the four frame anchors plus the three button seats ButtonSeat1/2/3, whose legacy
 //     spelling ConfirmButton/UndoButton still resolves (see AnchorNames below). Also
-//     MEASURES each button recess off the mesh and writes SeatExtent1/2/3 into the
-//     prefab, which is what lets the mod fit its keycaps to the board they sit on.
+//     MEASURES each button recess and each rest pad off the mesh and writes
+//     SeatExtent1/2/3 + RestExtentShort/Long into the prefab, which is what lets the
+//     mod fit its keycaps to the board they sit on AND keep them inside those seats.
 //  4. Optionally renders a viewer-side preview PNG (skipped under -nographics).
 //  5. Builds gloomhavenvr.bundle via AssetsBuilder.
 using System.IO;
@@ -365,8 +366,9 @@ namespace GloomhavenVR
 
             // --- MEASURE each button recess off the mesh (for the mod's cap fit) ---
             // The mod sizes its keycaps from ONE global tuned pair ([BoardButtons] Width/Height,
-            // 0.073 x 0.073 m) that the user dialled in himself, but the three boards cut their
-            // button recesses at three different sizes and two are smaller than that cap. Lowering
+            // 0.063 x 0.065 m — the bound default, which is what his cfg holds) that the user dialled
+            // in himself, but the three boards cut their button recesses at three different sizes and
+            // the 65 mm height fits none of them. Lowering
             // the global would make every board wear the smallest board's cap and would re-seat a
             // hand-tuned value as a side effect of an asset change; so the cap is FITTED per board
             // instead, and the fit needs to know how big this board's recess actually is.
@@ -380,10 +382,17 @@ namespace GloomhavenVR
             //
             // EXPECTED OUTPUT, so this instrument can be checked rather than believed. Measured on
             // the three committed FBXes with the identical walk (Blender, 0.25 mm plateau
-            // tolerance, bisected): Oak 0.0746 x 0.0643, Steel 0.0810 x 0.0701,
-            // Bronze 0.0612 x 0.0519 m. If the log below disagrees with those, THIS CODE is wrong,
-            // not the boards.
+            // tolerance, bisected): button seats Oak 0.0746 x 0.0643, Steel 0.0810 x 0.0701,
+            // Bronze 0.0612 x 0.0519 m; rest pads Oak 0.0816, Steel 0.0817, Bronze 0.0681 m square.
+            // If the log below disagrees with those, THIS CODE is wrong, not the boards.
             var seatHalf = new Vector2[SeatAliases.Length];
+            // …AND THE TWO REST PADS, by the same walk. The rest discs sit in an authored pad exactly
+            // the way the keycaps sit in an authored recess, and RestButtonOffset_{board} carries the
+            // very same mirror compensation the button offsets do (Steel -0.44, Bronze -0.445). One
+            // measurement mechanism, one clamp, one argument. Measured floors on the three committed
+            // FBXes: Oak 81.6, Steel 81.7, Bronze 68.1 mm — against tuned disc diameters of 91 / 71 /
+            // 71 mm, so Oak's disc overhangs its pad by 4.7 mm a side and Bronze's by 1.5 mm.
+            var restHalf = new System.Collections.Generic.Dictionary<string, Vector2>();
             if (meshColliders.Count > 0 && anchors.ContainsKey("Slot1") && anchors.ContainsKey("Slot2")
                 && anchors.ContainsKey("ShortRestToken") && anchors.ContainsKey("LongRestToken"))
             {
@@ -425,6 +434,32 @@ namespace GloomhavenVR
                     seatHalf[i] = new Vector2(hx, hy);
                     Debug.Log($"[GloomhavenVR]   button seat {i} recess floor {hx * 2000f:F1} x {hy * 2000f:F1} mm.");
                 }
+
+                foreach (var pad in new[] { ("ShortRestToken", "RestExtentShort"),
+                                            ("LongRestToken", "RestExtentLong") })
+                {
+                    if (!anchors.TryGetValue(pad.Item1, out Transform pt)) continue;
+                    Vector3 pc = pt.position;
+                    float? padFloor = SurfaceDepth(meshColliders, pc, outN2, backN2);
+                    if (padFloor == null)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Rest pad '{pad.Item1}' floor did not raycast — NOT written.");
+                        continue;
+                    }
+                    float px = Mathf.Min(FloorRun(meshColliders, pc, uAxis, outN2, backN2, padFloor.Value),
+                                         FloorRun(meshColliders, pc, -uAxis, outN2, backN2, padFloor.Value));
+                    float py = Mathf.Min(FloorRun(meshColliders, pc, vAxis, outN2, backN2, padFloor.Value),
+                                         FloorRun(meshColliders, pc, -vAxis, outN2, backN2, padFloor.Value));
+                    if (px < 0.005f || py < 0.005f || px > 0.100f || py > 0.100f)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Rest pad '{pad.Item1}' measured "
+                            + $"{px * 2000f:F1} x {py * 2000f:F1} mm — out of band, NOT written. The mod will "
+                            + "keep the tuned RestButtonDiameter and leave its offset unclamped.");
+                        continue;
+                    }
+                    restHalf[pad.Item2] = new Vector2(px, py);
+                    Debug.Log($"[GloomhavenVR]   rest pad {pad.Item1} floor {px * 2000f:F1} x {py * 2000f:F1} mm.");
+                }
             }
             else
             {
@@ -459,6 +494,12 @@ namespace GloomhavenVR
                 var se = new GameObject($"SeatExtent{i + 1}").transform;
                 se.SetParent(root.transform, false);
                 se.localPosition = new Vector3(seatHalf[i].x, seatHalf[i].y, 0f);
+            }
+            foreach (var kv in restHalf)
+            {
+                var re = new GameObject(kv.Key).transform;
+                re.SetParent(root.transform, false);
+                re.localPosition = new Vector3(kv.Value.x, kv.Value.y, 0f);
             }
 
             // Log the resolved geometry so orientation is verifiable from the log alone.

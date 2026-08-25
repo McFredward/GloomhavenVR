@@ -92,6 +92,12 @@ internal sealed class RemoteTrayVisual
     /// </summary>
     public Vector2? SeatMinHalf { get; private set; }
 
+    /// <summary>The tighter of the board's two authored REST PADS (smallest half-extent over both), or
+    /// null when the prefab carries no <c>RestExtentShort/Long</c> measurement. Same mechanism and
+    /// same purpose as <see cref="SeatMinHalf"/>: the mirrored rest discs are fitted and clamped to
+    /// the pad exactly as the owner's are, derived locally, no wire field.</summary>
+    public Vector2? RestMinHalf { get; private set; }
+
     public Transform? ShortRestAnchor { get; private set; }
     public Transform? LongRestAnchor { get; private set; }
 
@@ -163,6 +169,16 @@ internal sealed class RemoteTrayVisual
                 ? e
                 : new Vector2(Mathf.Min(visual.SeatMinHalf.Value.x, e.Value.x),
                               Mathf.Min(visual.SeatMinHalf.Value.y, e.Value.y));
+        }
+        foreach (bool shortRest in new[] { true, false })
+        {
+            Vector2? e = Cards.BoardAnchors.RestExtent(go.transform, shortRest);
+            if (e == null)
+                continue;
+            visual.RestMinHalf = visual.RestMinHalf == null
+                ? e
+                : new Vector2(Mathf.Min(visual.RestMinHalf.Value.x, e.Value.x),
+                              Mathf.Min(visual.RestMinHalf.Value.y, e.Value.y));
         }
 
         if (visual._slots[0] == null || visual._slots[1] == null
