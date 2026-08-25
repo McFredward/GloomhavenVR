@@ -1,14 +1,10 @@
-# CONTROL-BOARD REBUILD — owner handover (2026-08-25)
+# CONTROL-BOARD REBUILD — state of the world (2026-08-25, owner lane)
 
-You own this task end to end. The integrator has handed it over so the main session can work on
-other topics in parallel. Read this file first; it is the state of the world, not a summary.
+This file was the owner handover. It is now the RECORD of what the owner lane did, what it
+measured, and what is still open. The task's original brief and the user's verbatim request are
+kept at the bottom; everything above is the current state.
 
-**Branch:** work on `boards-rebuild`, push there as often as you like, and never touch `dev` — the
-integrator is committing to `dev` in parallel and will merge your branch when the task is finished.
-Creating and pushing that branch is additive and allowed; force-pushing anything is not, ever.
-
-**You may spawn your own workers.** Give each one explicit file ownership so two never edit the same
-file, and pass on the rules below — they are the ones this project has already paid for.
+**Branch:** `boards-rebuild`. Never touch `dev` — the integrator merges.
 
 ## THE USER'S TASK, verbatim
 
@@ -25,118 +21,174 @@ file, and pass on the rules below — they are the ones this project has already
 > sich natlos einfügen. Mach selbständig so lange weiter bis du dein Ziel bei allen drei boards
 > erreicht hast - parallelisier deine tasks wie immer."
 
-He answers in German; you write code, comments and log strings in English. Any report that reaches
-him must be in German.
+He answers in German; code, comments and log strings are English. Any report that reaches him is
+German.
 
-## DONE AND PUSHED (do not redo)
+## THE MESH — DONE, and verified three independent ways
 
-| commit | what |
-|---|---|
-| `17c6488b` | `unity/board-prep/BOARD-CONTRACT.md` + `gen_stats.py` + `gen_render.py` |
-| `28ce64c0` | three button seats in code: `BoardAnchors`, alias table, top-anchored stack |
-| `252b9e66` | procedural texture pipeline `tex_*.py` |
-| `3682a037` | **all three boards re-authored** — watertight, three seats |
-| `bde2f72a` | keycaps fitted to the measured recess; `LogSeatOccupancy` |
-| `18fddc60` | seat-pose clamp (a cap may not leave its seat) |
+| board | tris | holes | non-manifold | loose | inward-wound faces | dims (m) |
+|---|---|---|---|---|---|---|
+| Oak | 20000 → 11896 | 1288 → **0** | **0** | **0** | **0** | 0.640 × 0.0356 × 0.320 |
+| Steel | 20000 → 9968 | 1639 → **0** | **0** | 4098 → **0** | **0** | 0.640 × 0.0343 × 0.320 |
+| Bronze | 20000 → 19580 | 1628 → **0** | **0** | 4559 → **0** | **0** | 0.640 × 0.0354 × 0.320 |
 
-Mesh result, verified independently at the shipped files:
+Signed volume 5160.5 / 4877.3 / 5511.2 cm³, all positive. Reference: the hands are 20 654 tris.
+UV islands 1046 → 121/156/107. Three button seats on every board, each with both spellings of its
+anchor at bit-identical positions.
 
-| board | tris | holes | loose | dims (m) |
-|---|---|---|---|---|
-| Oak | 20000 → 11896 | 1288 → **0** | 0 | 0.640 × 0.0356 × 0.320 |
-| Steel | 20000 → 9968 | 1639 → **0** | 4098 → **0** | 0.640 × 0.0343 × 0.320 |
-| Bronze | 20000 → 19580 | 1628 → **0** | 4559 → **0** | 0.640 × 0.0354 × 0.320 |
+Run the checks with:
 
-Reference: the hands are 20 654 tris, 0 boundary edges. UV islands went 1046 → 121/156/107.
+    /home/claw/blender-4.2/blender -b --factory-startup --python unity/board-prep/gen_stats.py -- <fbx>
+    /home/claw/blender-4.2/blender -b --factory-startup --python unity/board-prep/gen_winding.py -- <fbx>
 
-## OPEN — this is your work
+## THE PREFABS AND THE BUNDLE — BUILT, and the measurements match exactly
 
-1. **Finish the texture atlases.** A lane is running (or has just finished) fixing
-   `tex_symbols.py --process`, which was destroying the motifs two ways (threshold landing at 0.994
-   instead of ~0.5, and a cell mapping that did not match the sheet). Collect its diff, verify its
-   claims yourself, and carry it to finished atlases for all three styles.
-2. **Bronze needs another pass.** Verdigris reads as cyan blobs sitting ON the surface instead of
-   corrosion in the low spots, and does not follow the relief. Drive the patina from the
-   height/cavity term.
-3. **BUILD THE PREFABS AND THE BUNDLE.** `unity/GloomhavenVR.Assets/Assets/Editor/BuildBoard.cs` has
-   been edited three times and **has never been compiled or executed by any gate.** Unity is at
-   `/home/claw/unity-2021.3.5` (NOT `unity-2021.3`). Its expected measurements are recorded in the
-   file: seat floors `74.6×64.3 / 81.0×70.1 / 61.2×51.9` mm, rest pads `81.6 / 81.7 / 68.1` mm. **If
-   a rebuild logs anything else, the code is wrong, not the boards.**
-4. **Verify in a render that the three seats and the ornament land where they should**, on the real
-   meshes with the real atlases, and say what you see.
-5. **Report to the user in German** what he must install and what changed. The bundle has been
-   byte-identical since ModBuild 250 — every test since was a DLL-only install. **This time he must
-   copy `gloomhavenvr.bundle` as well**, and he must be told so explicitly.
+`BuildBoard.cs` had been edited four times and never compiled or executed by any gate. It compiled
+and ran first try. Every measurement it logs equals the expected table it carries:
 
-## THINGS THAT WILL BITE YOU — all measured, none hypothetical
+| board | seat floor (mm) | rest pad (mm) |
+|---|---|---|
+| Oak | 74.6 × 64.3 | 81.6 |
+| Steel | 81.0 × 70.1 | 81.7 |
+| Bronze | 61.2 × 51.9 | 68.1 |
 
-- **The user's tuned offsets are mirror compensation.** `ConfirmUndoOffset_Steel` is **+0.462 m** and
-  `RestButtonOffset_Steel` is **−0.44 m**, because shipped Steel and Bronze had their zones mirrored.
-  On the re-authored canonical boards the same dials would put the clusters ~350–380 mm off the
-  board. `18fddc60` clamps the in-plane displacement to the slack inside the recess, keyed on whether
-  the board carries a measured recess — old bundle, no measurement, no bound, bit-identical. Do not
-  "fix" his config: those values are correct for the bundle installed on his machine, and changing
-  shipped defaults cannot reach him anyway because his own cfg wins.
+7 of 7 anchors resolved per board, every anchor projected 0.5 mm (i.e. already exactly on the face
+plane), bounds 0.640 × 0.320 to five decimals, one non-convex MeshCollider each.
+
+**`check-bundle-format.sh` DOES NOT ASSERT A BYTE COUNT — the brief that said so was wrong.** It
+checks the UnityFS wrapper format (must be 7) and the writing editor (2021.3.5f1) and PRINTS the
+size. The 72,966,925 figure lives only in the ModBuild notes in `Net/NetProtocol.cs`, and the new
+build note carries the new number. Nothing in the gate needed changing.
+
+## THE INSTRUMENT — `Editor/PreviewBoard.cs`, new this round
+
+Renders and measures the BUILT BUNDLE, not the source, at the asset paths `VRCardFactory` asks for.
+
+    BOARD_PREVIEW_OUT=<dir> xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode \
+        -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+        -executeMethod GloomhavenVR.BoardPreview.RenderAll -logFile board-preview.log
+
+Read its header before trusting it. **A Win64 bundle opened in a Linux editor draws MAGENTA** — no
+compatible shader variant, `HasProperty` false for everything — and that looks exactly like the
+pink-material trap. It is a viewer artifact. The run therefore does a BUNDLE pass (structure) and a
+PROJECT pass (the picture), and they cross-check each other.
+
+## WHAT THE RENDER FOUND — three defects the earlier rounds could not have seen
+
+1. **The boards had no specular at all.** The texture pipeline authors albedo + height + roughness
+   + metallic per style and `tex_render.py` judges through a Principled BSDF that binds all four.
+   `BoardLit` bound two. Steel is 99.3 % metallic in the authored map, bronze 94.0 %, and a metal
+   drawn with a diffuse lobe and no highlight is a painted dielectric — steel rendered as white
+   plaster. Fixed: `_MRSMap` bound (R = metallic, G = roughness, LINEAR import), `_SpecStrength`
+   0.85. Opt-in is still the map: no `*_mrs.png` → 0 → bit-identical to before.
+2. **Bronze would have shipped standing on edge with its controls in mid-air.** See below.
+3. `PlayTray_mr.png` was glTF-ORM, bound by nothing, 1.4 MB of bundle. Deleted.
+
+## THE BRONZE ASSET-POSE TRAP — measured, not inferred
+
+`AssetOffset_Bronze` = (0, −0.11, +0.08) and `AssetPitchDegrees_Bronze` = 57 are in the user's live
+cfg, where they beat any shipped default. They move the board MESH while the anchors stay pinned,
+and they were correct for the shipped Bronze — a raked lectern 301 mm deep. Replayed against the
+re-authored flat plate (`PreviewBoard.ApplyAssetPose`, the mod's own algorithm):
+
+    bronze  ButtonSeat1   OFF THE MESH ENTIRELY
+            ButtonSeat2   OFF THE MESH ENTIRELY
+            ButtonSeat3   151.5 mm off the surface
+            LongRestToken 167.1 mm off the surface
+            ShortRestToken OFF THE MESH ENTIRELY
+    oak / steel (dials are identity)  0.5 mm — the assembler's own `proud` offset. The control.
+
+Fixed by `BoardAnchors.ClampAssetPose`: bounds the lift any pinned anchor takes to 5 mm, half to
+the offset and half to the tilt (the two terms add), the tilt bound derived as `asin(lift / r)` with
+`r` MEASURED as the furthest pinned anchor. Gate is the seat clamp's gate — does the board carry a
+measured recess. Old bundle: unbounded, bit-identical. **Re-measured after the clamp: 3.8 mm, every
+anchor back on the mesh.** The peer calls the same function with terms it already has, so no wire
+field and no host/peer divergence.
+
+## THE SEAT CLAMP HOLDS — arithmetic from the built prefabs
+
+Worst excursion of any cap or disc from its anchor: **9.0 mm** (Steel). Outermost drawn edge
+anywhere: **|x| = 0.2744 m against a 0.320 m half-width, 45.6 mm of clearance.** The +0.462 /
+−0.445 mirror compensations are reduced to ≤ 9 mm, which is the intended outcome. Two dials go
+quiet as a side effect and the user should be told: `RestButtonSpacing_Bronze` becomes fully inert
+(both discs clamp to the same anchor-local offset, staying distinct only because their anchors are
+105 mm apart), and `GenericButtonSpacing` is mostly absorbed by the anchor pitch.
+
+## FOOTPRINT CHANGE — his tuned `BoardScale` does not compensate, and should not be "fixed"
+
+`BoardScale` is a uniform scalar, so the change passes through 1:1. Long edge unchanged on all
+three; the short edge changes:
+
+| board | old world size (m) | new world size (m) | change |
+|---|---|---|---|
+| Oak | 0.2716 × 0.1354 | 0.2720 × 0.1360 | none meaningful |
+| Steel | 0.5647 × 0.3254 | 0.5647 × 0.2824 | −43 mm (−13.2 %) |
+| Bronze | 0.2720 × 0.0927 | 0.2720 × 0.1360 | **+43 mm (+46.7 %)** |
+
+His cfg wins over any shipped default, so this cannot be silently corrected and must not be: the
+board is now correctly proportioned and the growth is the point. Tell him, let him retune if he
+wants.
+
+## STILL OPEN
+
+- **SEAT 3 HAS NO OCCUPANT.** The boards have three recesses; the mod fills two. Confirm (or the
+  item "Use" cap) sits in seat 0, Undo in seat 1, and seat 2 is empty — the turn-flow SKIP that it
+  exists for is still drawn by `WorldUI.ButtonCluster` from its own `[RoundButtons]` column at
+  board-local (0.148, −0.124). Moving it is a PlayTray + ButtonCluster + RemoteBoardFurniture round
+  that changes what record 28's ids 81..88 MEAN (`RemoteBoardFurniture.cs:880-884` states this),
+  and it was deliberately not attempted here. **This is the half of the user's request that is not
+  finished, and he must be told so plainly.** The mesh half is done.
+- `Cull Off` is kept on all three boards although its justification is stale (the meshes are closed
+  and correctly wound). Taking the overdraw back needs a rig round; the measurement is in the
+  commit that added `gen_winding.py`.
+- Oak ships a 0.5 MB `_mrs.png` whose metallic channel is uniformly 0. It buys a dielectric varnish
+  sheen (3.45 % of the board moves by >0.02) and may or may not be worth the bytes.
+
+## TRAPS — all measured, none hypothetical
+
+- **The user's tuned offsets are mirror compensation**, and his cfg beats every shipped default.
+  Do not "fix" his config; contain it in code, keyed on a property of the ASSET.
 - **A clamp fallback is not a default.** `ButtonTuning.DefaultBoardWidth = 0.073` is the pre-Bind
-  fallback; the bound value is `Defaults.BoardButtons_Width/Height = 0.063/0.065`. This trap has cost
-  two rounds in this session alone, on two unrelated subsystems.
-- **`gen_render.py` is ~2 stops overexposed** and makes every material look like white plastic. Use
-  `tex_render.py` for material judgement — it has an 18% grey card in shot and iterates exposure
-  until the card measures correctly. Use `gen_render.py` only for FORM.
+  fallback; the bound value is `Defaults.BoardButtons_Width/Height = 0.063/0.065`.
+- **`gen_render.py` is ~2 stops overexposed**; `tex_render.py` binds a shader the game does not run.
+  For MATERIAL, only `PreviewBoard.cs` is a picture of what ships.
 - **A self-test that builds its own input proves nothing.** `tex_symbols.py --selftest` passed 9/9
-  while the real sheets came out shattered. Point acceptance at real inputs.
-- **Census/log lists in this repo truncate with an ellipsis and no marker.** "X does not appear" has
-  been wrong three times this session.
-- `unity/board-prep/out/` is **gitignored** — the UV JSONs, the generated sheets and every render
-  live there and are NOT captured by a diff. Collect them by hand.
+  while the real sheets came out shattered.
+- **A mean is the wrong statistic for a highlight.** Reporting one made this lane print "the
+  specular is doing nothing" for three boards; the p99 and max say otherwise.
+- **A pixel census cannot tell a hole from an edge-on wall.** It said "something IS showing through"
+  at three meshes with 0 inward-wound faces.
+- **Census/log lists in this repo truncate with an ellipsis and no marker.**
+- `unity/board-prep/out/` is gitignored — renders, sheets and UV JSONs are NOT in any diff.
+- **The board source was not in the repository until this round.** `3682a037` shipped three FBXes
+  and no author. `gen_board.py` and its three checkers were rescued out of a dead agent worktree
+  and verified to reproduce the shipped geometry exactly.
 
 ## THE GENERATED SHEETS — the money is spent, do not spend more
 
 `unity/board-prep/out/sheet_a.png` (medieval guild woodcut) and `sheet_b.png` (Norse interlace),
-1024² each, nine motifs per sheet. Both are good. Sheet A's `bracket_alt` cell came back as a hammer;
-sheet B's covers it. **Do not use the `rest_alt` cell from either sheet** — both are a crescent
-enclosing a six-pointed star, i.e. two real-world religious symbols combined. It is a spare cell.
+1024² each, nine motifs per sheet, both good. Sheet A's `bracket_alt` came back as a hammer; sheet
+B's covers it. **Do not use the `rest_alt` cell from either sheet** — both are a crescent enclosing
+a six-pointed star, i.e. two real-world religious symbols combined. It is a spare cell.
 
-### You MAY generate more images — and you carry the same responsibility for them
+Image generation is allowed (user, 2026-08-25) but: only after the consuming pipeline is proven,
+batched into sheets, never for anything procedural or anything that must tile, and **a generated
+image never becomes albedo** — it is a binary stencil, the bevel is rebuilt from an exact distance
+transform, and the motif is carved into a procedural material. That is the whole reason the result
+stops reading as AI.
 
-The user has granted this explicitly (2026-08-25): *"Er DARF und muss auch Bilder erstellen können.
-Er muss damit aber genauso verantwortungsvoll umgehen wie du."* So you do not need permission. You
-do need the discipline that came with it:
-
-- **Every image costs real money.** His standing instruction is *"mache das eher selten wenn du viel
-  Vorbereitung getroffen hast"* — generate only after the surrounding pipeline is finished and
-  proven, never to explore.
-- **Never generate what a procedure can produce better.** Material bases, anything that must tile,
-  and anything built from exact geometry (rings, evenly spaced rivets, right angles) stay
-  procedural. Diffusion cannot close a seam.
-- **Batch.** One sheet carrying nine motifs beat nine calls, and two sheets in two different
-  ornamental hands beat one sheet plus a re-roll. Think in sheets, not in motifs.
-- **Prove the consumer before you feed it.** The last round spent two calls into a processor whose
-  self-test passed 9/9 and which then shattered every motif. Point the acceptance at a REAL input
-  before spending.
-- **A generated image never becomes albedo.** It is a binary stencil; the bevel is rebuilt from an
-  exact distance transform and the motif is carved into a procedural material. This is the whole
-  reason the result stops reading as AI, and it is not negotiable.
-- **Look at what came back** and say what you see, per cell, before using it.
-
-How to reach the tool: it is an MCP tool, so load its schema first with
-`ToolSearch` for `create_asset`, then call it with `model: "gpt-image-2"`. Output lands in
-`unity/board-prep/out/` (gitignored). If it returns a 401 the plugin's key is stale — that costs
-nothing, but stop and tell the integrator rather than retrying.
-
-## RULES YOU INHERIT (non-negotiable)
+## RULES INHERITED (non-negotiable)
 
 - Presentation only; never write game state from presentation code. Never patch
   `ScenarioRuleLibrary`, Photon Bolt or `FFSNet.NetworkManager`. `ressources/` and `libs/` are
   read-only symlinks; `decompiled/` is read-only reference.
 - Every feature must be multiplayer-compatible; peers derive board layout locally from the same
   prefab, so anything you change must be derivable on every client or it is a picture desync.
-- Never destructive git or `gh`: no delete, rename, archive, transfer or force-push, ever.
-- Figures are never touched; lights are never written to; doorway segments never fade.
+- Never destructive git or `gh`. Never force-push.
 - Bump `NetProtocol.ModBuild` +1 on every build handed to the user.
 
 ## GATES — every one, every time
+
 ```
 ./scripts/build.sh          # 0 errors, EXACTLY 6 warnings
 ./scripts/wire-tests.sh     # 146857 assertions
@@ -146,5 +198,3 @@ python3 ./scripts/check-wire-coverage.py ; python3 ./scripts/rebase-defaults.py 
 ```
 The 6 expected warnings: CS8602 `ButtonCluster.cs:459`/`:1638`, `RemotePickBanner.cs:113`,
 `RemoteHandFan.cs:1810`; CS8604 `StatPanelSurface.cs:360`/`:362`.
-`check-bundle-format.sh` currently asserts 72 966 925 bytes — **that number changes when you rebuild
-the bundle**, which is expected and must be updated deliberately, not silenced.
