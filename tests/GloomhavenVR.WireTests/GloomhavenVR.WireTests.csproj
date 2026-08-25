@@ -209,6 +209,18 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapCellMath.cs" Link="cards\CapCellMath.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ButtonStroke.cs" Link="worldui\ButtonStroke.cs" />
     <Compile Include="BoardCapSymbolVectors.cs" />
+    <!-- WHETHER THE WORD ON THE KEY IS THE WHOLE WORD. Linked for the CapCellMath reason and for a
+         sharper one: the ModBuild 281 board keycap read "AUSWAHL BEEN" where the game had said
+         "Auswahl beenden", and NOTHING in this repository could have said so — the build compiled,
+         the mirrors agreed, the wire coverage was unchanged, and a truncated caption looks exactly
+         like a short caption. Worse, the captions are LIVE GAME TEXT and three of the keys that
+         reach these caps interpolate a card title or a class name, so no fixed corpus bounds them
+         and no "longest string" test would have held. CapFaceLayout.cs was written free of Unity
+         beyond Mathf/Vector2 precisely so the no-character-is-ever-dropped PROPERTY could be driven
+         here, string by string, at three stated font-metric models, with a null input and a
+         known-positive control. See the header of CapLabelFitVectors.cs. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapFaceLayout.cs" Link="cards\CapFaceLayout.cs" />
+    <Compile Include="CapLabelFitVectors.cs" />
     <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
          header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null

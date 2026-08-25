@@ -718,15 +718,14 @@ internal sealed partial class PlayTray
     /// </summary>
     private const float SquareCapThickness = 0.036f;
 
-    /// <summary>
-    /// Item 4: width (meters) of the lit 45° CHAMFER ring around the front edge of the square
-    /// keycaps — the bright "catch-light" bevel that makes the cap read as raised even viewed
-    /// near top-down. It consumes this much of both the front plateau inset AND the front depth
-    /// (a true 45°). Clamped in <see cref="CardMesh.BuildBeveledKeycap"/> to ≤ 90 % of the cap's
-    /// half-size and depth. One line to retune how chunky the lit edge reads (~7 mm ≈ a fat,
-    /// clearly-visible chamfer on a ~120 mm cap).
-    /// </summary>
-    private const float SquareCapBevel = 0.007f;
+    // THE FIXED 7 mm CHAMFER IS GONE (round 2, 2026-08-25). It was a length in METERS applied to
+    // caps whose fitted sizes run from 53.2 x 43.9 mm (Bronze) to 63.0 x 62.1 mm (Steel), so the
+    // same constant was 0.159 of Bronze's short side and 0.113 of Steel's — and on Bronze it left a
+    // field too small to hold two lines of caption, which is the whole of the "AUSWAHL BEEN"
+    // report. The bezel is a FRACTION of the cap's own short side now, and it is a five-zone signet
+    // profile rather than one chamfer: CapFaceLayout.Bezel{Chamfer,Rim,Step}, applied inside
+    // CardMesh.BuildBeveledKeycap. Nothing here passes it, so nothing here can disagree with the
+    // atlas generator about where the field ends.
 
     /// <summary>Base local-Z of the slot snap-glow (per-board SlotOverlayOffset.z adds on top).</summary>
     private const float SlotGlowBaseZ = -0.006f;
@@ -953,6 +952,54 @@ internal sealed partial class PlayTray
     /// dark-wall value signalling while adding surface texture. Graceful fallback: if the grain
     /// texture is absent the material is EXACTLY as before (white _MainTex, plain tint).
     /// </summary>
+    /// <summary>
+    /// THE IDLE FACE COLOUR OF AN ENABLED, UN-ACCENTED BOARD KEYCAP — PER BOARD since round 2.
+    ///
+    /// <para><b>THE USER'S COMPLAINT, and why this is the lever.</b> <i>"Die Textur die dort gewählt
+    /// ist, ist einheitlich und passt sonst nicht wirklich zum Styl."</i> ModBuild 281 measured the
+    /// three idle cap faces at CIELAB ΔE 13.8 (oak↔steel), 10.3 (steel↔bronze) and <b>3.7
+    /// (oak↔bronze)</b> — oak and bronze were, measurably, the same colour. That round found the
+    /// cause and could not act on it: <c>BoardLit</c> computes <c>alb = tex2D(_MainTex, uv) *
+    /// _Color</c>, so a per-board plate only ever MODULATES this colour, and one strong warm
+    /// parchment × the <c>[ButtonColors] BoardCapTint</c> of 0.5, applied identically on all three
+    /// boards, is a term a ±20 % material cast cannot survive. A CHROMA BOOST was tried and
+    /// rejected ON MEASUREMENT (ΔE 3.7 → 3.9 → 3.1 for k = 1.0 … 2.6, and 99.99 % of oak's texels
+    /// clipped at k = 1.6): the separation lives in the already-crushed blue channel. The one lever
+    /// that works is this colour, and it was left alone because it is the user's tuning. His report
+    /// is the authorisation.</para>
+    ///
+    /// <para><b>THE OLD VALUE WAS <c>(0.600, 0.510, 0.350)</c> ON ALL THREE BOARDS</b> — written
+    /// here so it can be put back in one edit. The three below were SOLVED, not chosen: over a
+    /// hue × chroma grid, maximising the minimum pairwise ΔE subject to (a) each cap's rendered
+    /// LUMINANCE staying within ±2 % of what it is today — so nothing gets brighter or darker, only
+    /// differently coloured — (b) under 0.5 % clipped texels, and (c) staying inside the board's own
+    /// authored palette band (oak parchment/pale honey, steel pewter, bronze brass/warm gold).
+    /// Measured result, through the shipped gamma chain and BoardLit's flat-face shade:</para>
+    /// <code>
+    ///   pair            ΔE before   ΔE after
+    ///   oak ↔ steel        12.4        20.8
+    ///   steel ↔ bronze      9.5        35.8
+    ///   oak ↔ bronze        2.8        17.2     &lt;- the pair that read as one colour
+    /// </code>
+    /// <para>Luminance moved by −0.27 % (oak), +0.05 % (steel) and −0.28 % (bronze) against the caps
+    /// that are on the board today, and no texel clips — the brightest channel any admissible face
+    /// can reach is 0.415, and <c>normalise_plate</c> clips the plate to [0, 1], so clipping is
+    /// impossible by construction rather than by luck. The full derivation, its instrument
+    /// validation (it reproduces the ModBuild 281 record's own three numbers to 0.04 ΔE) and its
+    /// null control are in <c>.planning/debug/keycaps2/plates_deltae.txt</c>.</para>
+    ///
+    /// <para>A cap with NO board (the map room's keycap-skinned furniture) keeps the original warm
+    /// parchment: it has no board to belong to, and changing it would be a change nobody asked
+    /// for.</para>
+    /// </summary>
+    internal static Color BoardIdleColor(ControlBoard? style) => style switch
+    {
+        ControlBoard.Oak => new Color(0.550f, 0.514f, 0.564f),      // pale honey parchment, C* 14.0
+        ControlBoard.Steel => new Color(0.407f, 0.541f, 0.607f),    // quiet cool pewter, C*  7.0
+        ControlBoard.Bronze => new Color(0.753f, 0.471f, 0.224f),   // warm brass,        C* 28.7
+        _ => new Color(0.600f, 0.510f, 0.350f),
+    };
+
     internal static Material NewKeycapMaterial(Shader shader, Color color) =>
         NewKeycapMaterial(shader, color, CapRole.Plain, style: null);
 

@@ -188,15 +188,29 @@ internal static class CapSymbols
     internal static bool SymbolOnly(CapRole role) =>
         role is CapRole.ShortRest or CapRole.LongRest or CapRole.FixedPinned or CapRole.FixedFollow;
 
-    /// <summary>Where the TMP caption's centre sits on a cap of this role, as a fraction of the
-    /// cap HEIGHT measured from the cap's centre. Mirrored from <c>cap_atlas.py</c>'s
-    /// <c>TEXT_LABEL_CENTRE_DY</c>: change one and the caption runs through the carved symbol.</summary>
+    /// <summary>Where the TMP caption's centre sits on a cap of this role, as a fraction of the cap
+    /// HEIGHT measured from the cap's centre. Mirrored from <c>cap_atlas.py</c>'s
+    /// <c>TEXT_LABEL_CENTRE_DY</c>: change one and the caption runs through the carved symbol.
+    ///
+    /// <para>THE NUMBERS LIVE IN <see cref="CapFaceLayout"/> AND NOT HERE since round 2, because
+    /// they stopped being only a texture-layout question: the caption band, the symbol band and the
+    /// cap's own bezel profile are ONE budget, and the third of those is geometry
+    /// (<c>CardMesh.BuildBeveledKeycap</c>). Splitting that budget across two files is precisely what
+    /// let the caption box be cut by 58 % in ModBuild 281 with nothing in the build noticing —
+    /// the "AUSWAHL BEEN" report.</para></summary>
     internal static float LabelCentreY(CapRole role, bool hasSymbol) =>
-        hasSymbol && role != CapRole.Plain ? -0.185f : 0f;
+        hasSymbol && role != CapRole.Plain ? CapFaceLayout.CaptionCentreYWithSymbol : 0f;
 
     /// <summary>The caption's fit box on a cap of this role, as fractions of the cap footprint.
-    /// Mirrored from <c>cap_atlas.py</c>'s <c>TEXT_LABEL_BOX</c>; the no-symbol values are the
-    /// literals <c>BoardButton.Create</c> has always passed to <c>Core.TmpFit.Fit</c>.</summary>
+    /// Mirrored from <c>cap_atlas.py</c>'s <c>TEXT_LABEL_BOX</c>. See <see cref="LabelCentreY"/> for
+    /// why both numbers now come from <see cref="CapFaceLayout"/>.
+    ///
+    /// <para>The no-symbol box used to be the literal <c>(0.92, 0.85)</c> that
+    /// <c>BoardButton.Create</c> had always passed. 0.92 of the cap WIDTH is wider than the plateau
+    /// it sat on, so that caption overhung the chamfer on both sides and floated past the cap's own
+    /// edge — visible in the user's screenshot. It is the recessed FIELD now, on both axes.</para></summary>
     internal static Vector2 LabelBox(CapRole role, bool hasSymbol) =>
-        hasSymbol && role != CapRole.Plain ? new Vector2(0.92f, 0.36f) : new Vector2(0.92f, 0.85f);
+        hasSymbol && role != CapRole.Plain
+            ? CapFaceLayout.CaptionBoxWithSymbol
+            : CapFaceLayout.CaptionBoxNoSymbol;
 }

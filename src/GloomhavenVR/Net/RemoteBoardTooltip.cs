@@ -207,7 +207,14 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         _label.fontSize = FallbackFontPx;
         _label.enableAutoSizing = false;    // the FRAME fits the text, never the text the frame
         _label.enableWordWrapping = true;
-        _label.overflowMode = TextOverflowModes.Truncate;
+        // NEVER Truncate (2026-08-25). This frame SIZES ITSELF TO ITS TEXT (see the line above:
+        // "the FRAME fits the text, never the text the frame"), so Truncate here could only ever
+        // fire on a tooltip the sizing had got wrong — and then it would hide that fact by dropping
+        // the tail mid-word, silently, exactly as the board keycap did in ModBuild 281
+        // ("AUSWAHL BEEN", user report: "Der Text muss immer voll lesbar sein"). Overflow draws the
+        // whole string, so a sizing defect shows as text past the frame and gets reported as one.
+        // Linted by tests/GloomhavenVR.WireTests/CapLabelFitVectors.NoTruncateModeSurvivesInTheMod.
+        _label.overflowMode = TextOverflowModes.Overflow;
         _label.richText = true;             // the sender transmits the game's own markup verbatim
         _label.raycastTarget = false;
 

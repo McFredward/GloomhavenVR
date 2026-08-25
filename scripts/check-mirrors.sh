@@ -86,7 +86,15 @@ MIRRORS=(
   # (The two Color statics of the recipe — WallWarm / BevelHighlight — cannot be linted by
   # this float/string-only extractor; they are called out as mirrors in both doc comments.)
   "keycap cap seat Z : Cards/PlayTray.7.Nested.cs:CapRestZ Net/RemoteBoardFurniture.cs:CapRestZ"
-  "keycap bevel width : Cards/PlayTray.6.Build.cs:SquareCapBevel Net/RemoteBoardFurniture.cs:CapBevel"
+  # THE "keycap bevel width" GROUP IS GONE (2026-08-25, board-button round 2), and again by
+  # DELETING BOTH COPIES rather than keeping them in step — which is the outcome this file keeps
+  # recommending. The pair was PlayTray.SquareCapBevel and RemoteBoardFurniture.CapBevel, one 7 mm
+  # chamfer width in METERS on each side. Round 2 replaced the single chamfer with a five-zone
+  # SIGNET profile whose zones are FRACTIONS of the cap's own short side (Cards/CapFaceLayout.cs:
+  # BezelChamfer/BezelRim/BezelStep), computed inside CardMesh.BuildBeveledKeycap — which both
+  # boards already call. Neither side passes a bevel any more, so there is nothing left to mirror.
+  # (The fixed 7 mm was itself the defect: it is 0.159 of the Bronze cap's short side and 0.113 of
+  # Steel's, so "one constant" was never one proportion.)
   "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
   "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
   "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"

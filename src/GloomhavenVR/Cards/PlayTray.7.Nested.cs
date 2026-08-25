@@ -191,11 +191,15 @@ internal sealed partial class PlayTray
             bool split = _capBevelMaterial != null && _capWallMaterial != null && subMeshes >= 3;
             // Item 7: prove the keycap is a CLOSED, correctly-wound SOLID (the see-through
             // "you can see the button's own underside through it" was an inside-out winding on a
-            // Cull-Back material). A closed beveled keycap = 10 quads: top(1) + bevel ring(4) +
-            // side walls(4) + BACK/bottom cap(1). The back cap lives in the WALL submesh (2) so it
-            // shades dark like the walls. Expected watertight counts: 40 verts, 20 tris, submesh
-            // index counts [6, 24, 30] (top 6 / bevel 24 / walls+back 30). Report the ACTUAL mesh
-            // so the next hardware log confirms nothing is missing and the winding is now outward.
+            // Cull-Back material). THE COUNTS MOVED IN ROUND 2 with the signet profile: the closed
+            // square keycap is 18 quads now — field(1) + outer chamfer(4) + rim land(4) + inner
+            // chamfer(4) + side walls(4) + BACK/bottom cap(1) — i.e. 72 verts, 36 tris, submesh
+            // index counts [6, 72, 30] (field 6 / bezel 72 / walls+back 30), where it used to be
+            // 40/20/[6,24,30]. The back cap still lives in the WALL submesh (2) so it shades dark
+            // like the walls. Report the ACTUAL mesh so the next hardware log confirms nothing is
+            // missing and the winding is still outward — and note that the ROUND caps are signet
+            // plates too now (CardMesh.BuildRoundKeycap, 3 submeshes), which at 64 segments is
+            // 642 verts / 640 tris and is NOT what these five numbers describe.
             int vtx = sm != null ? sm.vertexCount : -1;
             int triTotal = 0, s0 = -1, s1 = -1, s2 = -1;
             if (sm != null)
@@ -206,8 +210,9 @@ internal sealed partial class PlayTray
                 if (sm.subMeshCount > 1) s1 = (int)sm.GetIndexCount(1);
                 if (sm.subMeshCount > 2) s2 = (int)sm.GetIndexCount(2);
             }
-            bool closedSolid = vtx == 40 && triTotal == 20 && s0 == 6 && s1 == 24 && s2 == 30;
-            float bevelMm = SquareCapBevel * Mathf.Abs(lossy.z) * 1000f;
+            bool closedSolid = vtx == 72 && triTotal == 36 && s0 == 6 && s1 == 72 && s2 == 30;
+            float bevelMm = CapFaceLayout.BezelTotal * Mathf.Min(_capSize.x, _capSize.y)
+                            * Mathf.Abs(lossy.z) * 1000f;
             string tintInfo = _capWallMaterial != null
                 ? $"top {(m != null ? m.color.ToString() : "<none>")}, bevel {(_capBevelMaterial != null ? _capBevelMaterial.color.ToString() : "<none>")} (lerp {BevelLerp:F2} → parchment), " +
                   $"wall {_capWallMaterial.color} (factor {WallTintFactor:F2}, warm lerp {WallWarmLerp:F2})"
@@ -229,7 +234,8 @@ internal sealed partial class PlayTray
                 $"{(shaderName.Contains("BoardLit") ? "BoardLit (shades by normal → lit bevel)" : "NOT BoardLit — bevel/wall shading may be wrong")}. " +
                 $"Three-material bevel split: {(split ? "YES" : "NO")} (submeshes {subMeshes}); {tintInfo}. " +
                 $"CLOSED SOLID: {(closedSolid ? "YES" : "NO")} (verts {vtx}, tris {triTotal}, submesh indices " +
-                $"top/bevel/wall {s0}/{s1}/{s2}; back+bottom cap in wall submesh 2 — expect 40/20/6/24/30). " +
+                $"field/bezel/wall {s0}/{s1}/{s2}; back+bottom cap in wall submesh 2 — expect 72/36/6/72/30 for a " +
+                "SQUARE signet cap; a ROUND one is 642/640 and reads NO here by construction). " +
                 "Winding is now OUTWARD (RH normal = +n), so no interior/underside shows through under Cull Back (item 7). " +
                 "Antique palette (T4): dark-wood plaque / parchment-glow available / aged-brass bevel inlay / dark-wood walls.");
         }
@@ -336,7 +342,8 @@ internal sealed partial class PlayTray
             Vector2 box = CapSymbols.LabelBox(_capRole, hasSymbol);
             Vector3 p = _label.transform.localPosition;
             _label.transform.localPosition = new Vector3(0f, dy, p.z);
-            Core.TmpFit.Fit(_label, _capSize.x * box.x, _capSize.y * box.y, maxFontSize: 0.40f);
+            Core.TmpFit.FitCapLabel(_label, _capSize.x * box.x, _capSize.y * box.y,
+                                    maxFontSize: 0.40f, context: name);
             var mr = _label.GetComponent<MeshRenderer>();
             if (mr != null)
                 mr.enabled = !(hasSymbol && CapSymbols.SymbolOnly(_capRole));
@@ -409,12 +416,17 @@ internal sealed partial class PlayTray
         private static readonly Color DisabledColor = new(0.21f, 0.16f, 0.11f);
 
         /// <summary>
-        /// T4 antique restyle: IDLE/AVAILABLE cap TOP — a warm PARCHMENT glow over the
-        /// wood grain. The solid, opaque base every enabled key rests at ("this one you
-        /// can press"); state accents tint from here. Desaturated toward antique — no
-        /// candy saturation on the board.
+        /// IDLE/AVAILABLE cap FIELD — the solid, opaque base every enabled key rests at
+        /// ("this one you can press"); state accents tint from here.
+        ///
+        /// <para>PER BOARD SINCE ROUND 2, and it is an INSTANCE property for exactly that reason:
+        /// the value depends on <see cref="_capStyle"/>. It used to be one warm parchment
+        /// <c>(0.600, 0.510, 0.350)</c> shared by all three boards, which is what made an oak key
+        /// and a bronze key measure ΔE 3.7 apart — the same colour. See
+        /// <see cref="PlayTray.BoardIdleColor"/> for the three values, the old one, and the
+        /// measurement that chose them.</para>
         /// </summary>
-        private static readonly Color IdleColor = new(0.60f, 0.51f, 0.35f);
+        private Color IdleColor => PlayTray.BoardIdleColor(_capStyle);
 
         /// <summary>
         /// Confirmed/readied state (test #19): ACTIVE = worn BRASS (T4: desaturated from
@@ -724,9 +736,21 @@ internal sealed partial class PlayTray
                 float capThickR = Mathf.Max(0.002f, thickness);
                 var capDisc = new GameObject("CapMesh");
                 capDisc.transform.SetParent(cap.transform, worldPositionStays: false);
-                capDisc.AddComponent<MeshFilter>().sharedMesh = CardMesh.GetRoundCap(size.x, capThickR);
+                // ROUND 2: the disc is a SIGNET PLATE too — outer chamfer, flat rim land, inner
+                // chamfer, recessed field — so the round rest pads and the square generic keys read
+                // as one family of control rather than as a key beside a puck. Same three submeshes,
+                // so the field / bezel / wall materials below drive either shape unchanged.
+                // CardMesh.BuildRoundKeycap, NOT BuildRoundCap: that plain disc still has three
+                // other callers (this cap's own backing ring, its mirror's, and the map room's
+                // button rail) and every one of them assigns a single sharedMaterial.
+                capDisc.AddComponent<MeshFilter>().sharedMesh = CardMesh.GetRoundKeycap(size.x, capThickR);
                 capDisc.AddComponent<MeshRenderer>();
                 capFrontZ = CapRestZ - capThickR * 0.5f; // disc protrudes half its thickness toward the viewer
+                // The caption floats just proud of the RECESSED FIELD, not of the rim land — the
+                // field is one step BACK now, and a label seated at the old plane would hover a
+                // visible gap in front of the plate it is supposed to be cut into.
+                CardMesh.CapProfile(size.x, size.x * 0.5f, capThickR, out _, out _, out float discStep);
+                labelZ = -(capThickR * 0.5f) + discStep - CardMesh.LabelProudOfField;
                 // User (rest-cap alignment): the round rest puck now wears the SAME antique keycap
                 // SURFACE as the square Confirm/Undo/gear/Fixiert caps. Previously this branch used a
                 // bare Standard material with a flat state colour — a plain plastic puck — while the
@@ -742,8 +766,11 @@ internal sealed partial class PlayTray
                 capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)
                 {
-                    capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);
-                    capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                    capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);       // [0] field
+                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), CapRole.Plain, capStyle); // [1] bezel
+                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), CapRole.Plain, capStyle);   // [2] wall
+                    capDisc.GetComponent<MeshRenderer>().sharedMaterials =
+                        new[] { capMaterial, capBevelMaterial, capWallMaterial };
                     Core.VRLog.Info("Cards", $"BoardButton '{fallbackLabel}': ROUND cap skinned with the shared " +
                                              "carved-grain keycap material (BoardLit + KeycapGrain _MainTex) — same antique " +
                                              "wood/parchment surface as the square board keycaps; shape stays round (64-seg " +
@@ -759,7 +786,12 @@ internal sealed partial class PlayTray
                     {
                         capMaterial = new Material(fb) { color = DisabledColor };
                         CardMesh.ApplyEmissionFloor(capMaterial); // round 15: Standard is black in the dark scenes
-                        capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
+                        // ALL THREE submeshes get the same instance. sharedMaterial alone would fill
+                        // slot 0 and leave the bezel and the wall with a NULL material, which Unity
+                        // draws as nothing at all — a rim-less floating field, i.e. a worse picture
+                        // than the flat fallback this branch exists to provide.
+                        capDisc.GetComponent<MeshRenderer>().sharedMaterials =
+                            new[] { capMaterial, capMaterial, capMaterial };
                     }
                 }
                 capMeshRenderer = capDisc.GetComponent<MeshRenderer>();
@@ -797,7 +829,7 @@ internal sealed partial class PlayTray
                 // repaired in place, because the heal would have had to re-author the mesh too.
                 var mf = capCube.GetComponent<MeshFilter>();
                 if (mf != null)
-                    mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, SquareCapBevel);
+                    mf.sharedMesh = CardMesh.BuildBeveledKeycap(size.x, size.y, capThick);
                 Shader? shader = BoxCapShader();
                 capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)
@@ -818,7 +850,13 @@ internal sealed partial class PlayTray
                         new[] { capMaterial, capBevelMaterial, capWallMaterial };
                 }
                 capMeshRenderer = capCube.GetComponent<MeshRenderer>();
-                labelZ = -(capThick + 0.002f); // proud of the protruding plateau (front face sits at -capThick)
+                // The caption floats just proud of the RECESSED FIELD (at -capThick + step), not of
+                // the rim land (at -capThick). Seating it at the old plane would leave it hovering a
+                // visible step in front of the plate whose surface it is meant to be cut into, and
+                // that gap parallaxes the moment the player looks along the board.
+                CardMesh.CapProfile(Mathf.Min(size.x, size.y), Mathf.Min(size.x, size.y) * 0.5f, capThick,
+                                    out _, out _, out float capStep);
+                labelZ = -capThick + capStep - CardMesh.LabelProudOfField;
             }
             else
             {
@@ -888,7 +926,8 @@ internal sealed partial class PlayTray
             // Fit inside the cap face: localized CONFIRM/UNDO strings (SetLabel
             // mirrors the game's texts) shrink/wrap inside the button instead of
             // spilling over its edges (TmpFit, test #12).
-            Core.TmpFit.Fit(tmp, size.x * labelBox.x, size.y * labelBox.y, maxFontSize: 0.40f);
+            Core.TmpFit.FitCapLabel(tmp, size.x * labelBox.x, size.y * labelBox.y,
+                                    maxFontSize: 0.40f, context: go.name);
             // A SYMBOL-ONLY CAP DRAWS NO CAPTION AT ALL — the rest pads and the follow/pin toggle.
             // Their word is ENGRAVED INTO THE BOARD beside them (BoardEngraving), which is what
             // the user asked for ("nativ und immersiv in dem board verarbeitet, nicht einfach als
@@ -1070,8 +1109,16 @@ internal sealed partial class PlayTray
             // Same-instance fast path keeps the change gate below allocation-free; a null
             // font passes through and is re-judged on the next per-tick SetLabel.
             text = WorldUI.NativeButtonSkin.SanitizeLabel(_label, text);
-            if (_label.text != text)
-                _label.text = text;
+            if (_label.text == text)
+                return;
+            _label.text = text;
+            // RE-FIT, EVERY TIME THE STRING CHANGES. This line is the fourth link of the ModBuild
+            // 281 truncation: the caption was fitted ONCE, at build time, against whatever string
+            // the cap was born with, and every later wording — which is most of them, since these
+            // captions are live game text that changes with the dialog, the turn and the language —
+            // inherited a size and a set of line breaks solved for a different string. A fit that is
+            // not re-run is a fit for the wrong text. Cheap because it is gated on the change above.
+            ApplyLabelLayout(_symbolApplied);
         }
 
         /// <summary>The label this cap currently DISPLAYS — read by the multiplayer cap-label

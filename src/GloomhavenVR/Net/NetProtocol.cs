@@ -416,7 +416,90 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 285;
+    public const ushort ModBuild = 286;
+    // Build 286: NO CAPTION IS EVER CUT AGAIN, THE CAPS BECOME SIGNET PLATES, AND EACH BOARD
+    // GETS ITS OWN. *** NEW BUNDLE: 71,023,039 bytes (was 70,938,157). NOT a DLL-only install. ***
+    //   "Die Textur die dort gewaehlt ist, ist einheitlich und passt sonst nicht wirklich zum
+    //   Styl. Generiere eine echte unique Textur fuer die buttons mit gpt-image-2. Auch die Form
+    //   der Buttons gefaellt mir noch nicht. Rund und Viereckig sind vorgabe, aber ansonsten
+    //   darfst du gerne kreativ werden. WICHTIG: Der Text muss immer voll lesbar sein."
+    //   THE TRUNCATION WAS A REGRESSION MODBUILD 281 INTRODUCED, and the arithmetic reproduces his
+    //   screenshot exactly: the caption box on Bronze was 0.92 x 0.36 = 48.9 x 15.8 mm. Two lines
+    //   at the old 0.08 floor need 19.2 mm, so autosize could not WRAP; one line of 15 characters
+    //   needs ~74 mm in a 48.9 mm box, so it could not SHRINK either. TextOverflowModes.Truncate
+    //   then cut at the 12th character — and "AUSWAHL BEEN" is 12 characters.
+    //   A CORPUS WAS HARVESTED AND THEN REFUSED AS THE FIX. 26 fixed strings from every
+    //   readyButton.Toggle / m_UndoButton / m_SkipButton.Toggle / pick-DialogOption site in
+    //   decompiled/; longest fixed is "Waehle eine andere Karte" at 23 chars. But THREE of the keys
+    //   these caps display are FORMAT STRINGS with runtime insertions — GUI_END_TURN interpolates
+    //   the actor's CLASS NAME, GUI_LOSE_CARD/GUI_DISCARD_CARD interpolate the ABILITY-CARD TITLE,
+    //   GUI_CONFIRM_TARGETS appends a live counter — so the corpus is UNBOUNDED and a corpus-tuned
+    //   fix would break the first time he ends a turn as a long-named class.
+    //   WHAT SHIPPED IS A PROPERTY, NOT A WIDTH. Cards/CapFaceLayout.cs owns the face budget and
+    //   solves the caption; TextOverflowModes.Truncate is GONE FROM THE WHOLE MOD and a source
+    //   lint fails the build if it returns. Whole words beat a bigger size: the solve runs twice,
+    //   mid-word breaks forbidden and then allowed, because "Bewegung ueberspringen" on Oak is font
+    //   0.072 WITH breaks and 0.057 without — and the bigger one is worse, since an orphan letter
+    //   on its own line is the SHAPE of the defect being fixed. Floor 0.08 -> 0.045. SetLabel now
+    //   RE-FITS on both boards, which was link 4 of the chain. The failure is LOUD: the fitter
+    //   names the string, the box, the size needed and the overhang, and still draws every
+    //   character; a SECOND, SEPARATE line fires when the solver's predicted block disagrees with
+    //   what TMP actually drew by >15%, because "it does not fit" and "my ruler is wrong" have
+    //   different fixes. Metrics are the real font's and the rendered extent is READ BACK.
+    //   ASSERTED over 1,395 cases (31 strings x 3 boards x 3 metric models x 5 box scales down to
+    //   2%): StripWhitespace(out) == StripWhitespace(in). Plus a NULL control, a known-positive
+    //   (a 200-glyph token, and the interpolated end-turn caption under the pessimistic model —
+    //   both must raise Overflows AND keep every character), determinism, and A LINT THAT READS
+    //   cap_atlas.py AS TEXT so the carve and the caption can never again disagree about where the
+    //   field is. That last one is what would have caught 281.
+    //   "Auswahl beenden" on Bronze now renders as 2 lines at font 0.082 — 5.8 mm glyphs, 13
+    //   arcmin at 1.5 m. The 23-character worst case fits every board.
+    //   THE SHAPE IS A SIGNET PLATE: wall -> 45 deg outer chamfer -> FLAT RIM LAND at the frontmost
+    //   plane -> inner chamfer -> recessed field. The rim land is measured rather than stylistic:
+    //   BoardLit bakes its key directions, so a chamfer is a fixed value rather than a travelling
+    //   highlight, and the strongest "raised" cue available is the largest area facing the viewer
+    //   squarely that also carries the bevel tint.
+    //   AND THE OLD 7 mm CHAMFER WAS ITSELF A DEFECT — a length in METRES on caps from 53.2x43.9
+    //   to 63.0x62.1 mm, i.e. 0.159 of Bronze's short side and 0.113 of Steel's. "One constant"
+    //   was never one proportion. The bezel is a FRACTION now (0.060+0.045+0.030 = 0.135 of the
+    //   short side) and that is where the caption's millimetres came from. The caption box also
+    //   stopped being WIDER THAN THE PLATE: (0.92, 0.85) overhung the chamfer on both sides,
+    //   visible in his own screenshot.
+    //   THE TANGENT PROPERTY IS PRESERVED, NOT RECOMPUTED. Every ring is a rectangle or circle in
+    //   XY and every vertex is UV'd through one planar Uv(p), so u stays a pure function of x and
+    //   v of y and (1,0,0,-1) stays exact. The station now reports 72 of 72 tangents on the square
+    //   cap and 642 of 642 on the round, with _NormalStrength 1 vs 0 moving mean 0.049 / max 0.322
+    //   over 32,554 cap pixels. It used to report ZERO tangents and argue about what the API might
+    //   bind.
+    //   SEVEN gpt-image-2 IMAGES, FOUR DISCARDED, THREE SHIPPED — and the lever was arithmetic,
+    //   not taste. A feature f texels wide in a 1024^2 plate arrives at f x 0.151 SCREEN PIXELS.
+    //   Round 1 asked for MATERIALS and never for a FEATURE SIZE, so everything came back as
+    //   micro-mottle that averages to a flat field — which is exactly what "einheitlich" describes.
+    //   Cap-scale STORY contrast: +60% oak, +71% steel, +147% bronze. Discards named with reasons
+    //   (an oak plate FINER than round 1; a bronze that tiled hexagonally like reptile scales).
+    //   THE IDLE COLOUR IS PER-BOARD NOW, which is the lever ModBuild 281 measured and left alone
+    //   because it is HIS tuning. It was (0.600, 0.510, 0.350) on ALL THREE. Now oak
+    //   (0.550, 0.514, 0.564), steel (0.407, 0.541, 0.607), bronze (0.753, 0.471, 0.224) — solved
+    //   on a hue x chroma grid maximising min pairwise dE subject to luminance within +-2% of
+    //   today's and <0.5% clipped. dE oak-bronze 2.8 -> 17.2, oak-steel 12.4 -> 20.8,
+    //   steel-bronze 9.5 -> 35.8; luminance moved -0.27/+0.05/-0.28%, zero clipped texels. THE
+    //   OLD VALUES ARE IN THIS NOTE SO HE CAN PUT THEM BACK. One definition, and the mirror CALLS
+    //   it instead of copying it.
+    //   TWO OF MY PREMISES WERE WRONG. check-mirrors is 18, not 19: the "keycap bevel width" group
+    //   named SquareCapBevel/CapBevel and BOTH ARE DELETED, so there is nothing left to mirror —
+    //   the third group closed by deleting the second copy rather than keeping it in step. And THE
+    //   CAP IN HIS SCREENSHOT IS NOT IDLE: a card selection was pending, so it wears the Confirm
+    //   ACCENT. Predicted face (0.167, 0.186, 0.078) against measured (0.172, 0.188, 0.085) —
+    //   every channel within 0.007 on a JPEG of a headset frame, which validates the whole colour
+    //   chain harder than the dE reproduction does. CONSEQUENCE HE SHOULD KNOW: the per-board idle
+    //   colour separates the boards AT REST; the four STATE colours stay per-role and shared, so
+    //   while a cap is accented the boards are told apart by the plate alone.
+    //   WIRE TESTS 148002 -> 149982 (+1,980), all from the new cap-label fit vectors.
+    //   NOT TOUCHED, AND IT IS MY CALL NOT THE LANE'S: NetProtocol.CapLabelMaxBytes = 48 still
+    //   silently truncates a MIRRORED caption. Every fixed corpus string is under 24 bytes so it
+    //   cannot bite today, but the interpolated captions are unbounded and his requirement covers
+    //   what a TEAMMATE sees. It is a wire constant and moving it moves the golden vectors, so it
+    //   gets its own round rather than riding along unreviewed.
     // Build 285: SCALING A HELD FIGURE NO LONGER RE-COOKS ITS CAPE.
     // Bundle UNCHANGED at 70,938,157 — DLL-only on top of 284.
     //   "Wenn ich die Figuren in meiner Hand groesser skaliere hat es immer angefangen zu haengen

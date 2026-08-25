@@ -146,16 +146,29 @@ STYLE_FILES = {"oak": "KeycapOak", "steel": "KeycapSteel", "bronze": "KeycapBron
 # THE FACE BUDGET -- why the symbol boxes are where they are
 # ---------------------------------------------------------------------------
 # The cap's UVs are PLANAR over its whole footprint (`CardMesh.BuildBeveledKeycap`:
-# `Uv(p) = (p.x/width + 0.5, p.y/height + 0.5)`, applied to top, bevel ring AND walls). So
-# the flat TOP PLATEAU -- the only part a symbol may live on -- is NOT the whole cell: it is
-# inset by the 7 mm bevel on every side. On the tuned 63 x 65 mm cap that is UV
-# [0.111, 0.889]; on the BRONZE board, whose recess forces the fit down to about 59 x 48 mm,
-# it is [0.146, 0.854]. The tighter one is the one that decides, exactly as `_seatMinHalf`
-# decides the cap size, so the usable band is taken as [0.16, 0.84].
+# `Uv(p) = (p.x/width + 0.5, p.y/height + 0.5)`, applied to EVERY face). So the flat
+# RECESSED FIELD -- the only part a symbol may live on -- is not the whole cell: it is
+# inset by the cap's whole bezel on every side.
+#
+# ROUND 2 (2026-08-25) RE-CUT THE PROFILE, and these numbers moved with it. The cap is no
+# longer "flat plateau + one 7 mm chamfer": it is a SIGNET PLATE -- outer chamfer, flat rim
+# land, inner chamfer stepping DOWN, recessed field (`CardMesh.BuildBeveledKeycap`, and the
+# fractions live on `CardMesh.CapBezel*`). The whole bezel is 0.135 of the cap's SHORT side:
+#     outer chamfer 0.060 + rim land 0.045 + inner step 0.030 = 0.135
+# The short side is the HEIGHT on all three fitted caps (Oak 63.0x56.3, Steel 63.0x62.1,
+# Bronze 53.2x43.9 mm), so the vertical field band is EXACTLY [0.135, 0.865] on all three and
+# needs no "tightest board" argument at all. Horizontally the bezel is the same absolute
+# width, so as a fraction of the WIDTH it is 0.111 (Bronze), 0.121 (Oak), 0.133 (Steel) --
+# and the tightest one decides, exactly as `_seatMinHalf` decides the cap size. 0.135 covers
+# all six numbers, so ONE band is correct on both axes of every board.
+#
+# WHY THE OLD 7 mm CHAMFER HAD TO GO: it is 0.159 of Bronze's short side by itself, and the
+# field it left could not hold TWO LINES of caption at the readability floor -- which is the
+# whole of the truncation defect the user reported ("AUSWAHL BEEN").
 #
 # PIL row 0 is the TOP of the image and the cap's v = 1 is the TOP of the cap (v grows with
 # +Y), so image-top IS cap-top and no flip is needed anywhere in this file.
-PLATEAU_LO, PLATEAU_HI = 0.16, 0.84
+PLATEAU_LO, PLATEAU_HI = 0.135, 0.865
 
 # "solo" -- the symbol is the whole face.
 SOLO_SIZE = 0.56                # fraction of the cell side
@@ -166,14 +179,24 @@ SOLO_CY = 0.50                  # centre, fraction of the cell side from the TOP
 # language) and the symbol sits above it. These two numbers and the label box in
 # `Cards/CapSymbols.cs` are one layout: the symbol occupies the upper band and the TMP label
 # is moved down into the lower one.
-TEXT_SIZE = 0.32
-TEXT_CY = 0.30                  # from the TOP of the cell
+#
+# THE SPLIT OF THE FIELD (v measured up from the cap's bottom edge; field = [0.135, 0.865]):
+#     caption band  0.135 .. 0.585   (0.45 of the cap height -- 0.62 of the field)
+#     gap           0.585 .. 0.615
+#     symbol band   0.615 .. 0.865   (0.25 of the cap height)
+# The caption band GREW from 0.36 to 0.45 of the cap height and the symbol SHRANK from 0.32
+# to 0.235 of the cell, because a caption cut in half is a defect and a symbol 12 % smaller is
+# a trade. On Bronze -- the smallest cap, and the one in the user's screenshot -- 0.45 x 43.9
+# mm = 19.8 mm of caption band, which holds two lines at font size 0.083 (1.2 em line advance)
+# where the old 15.8 mm band could not hold two at the 0.080 floor. That single line-count is
+# the whole difference between "Auswahl beenden" and "AUSWAHL BEEN".
+TEXT_SIZE = 0.235
+TEXT_CY = 0.26                  # from the TOP of the cell
 # The label box `Cards/CapSymbols.cs` gives the TMP on a "text" cap, as fractions of the cap
-# footprint: it is the band BELOW the symbol, v 0.13 .. 0.50, i.e. centred 0.185 of the cap
-# height below the middle. The two must be read together -- a change here that is not made
-# there puts a caption through a carved symbol.
-TEXT_LABEL_CENTRE_DY = -0.185   # of the cap HEIGHT, from the cap centre
-TEXT_LABEL_BOX = (0.92, 0.36)   # of the cap width / height
+# footprint. The two must be read together -- a change here that is not made there puts a
+# caption through a carved symbol. The wire suite asserts the pair against these very numbers.
+TEXT_LABEL_CENTRE_DY = -0.14    # of the cap HEIGHT, from the cap centre
+TEXT_LABEL_BOX = (0.73, 0.45)   # of the cap width / height
 
 # ---------------------------------------------------------------------------
 # THE CARVE

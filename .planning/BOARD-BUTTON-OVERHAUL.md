@@ -1,3 +1,388 @@
+# ROUND 2 (2026-08-25): THE TRUNCATED CAPTION, AND THE SHAPE THAT PAID FOR IT
+
+ModBuild 281 went to hardware and came back with three rejections. This section is the record of
+what round 2 changed and what it measured. Round 1's record follows below, unedited.
+
+**The user, verbatim:**
+
+> "Die Buttons gefallen mir noch nicht wirklich. Die Textur die dort gewählt ist, ist einheitlich
+> und passt sonst nicht wirklich zum Styl. **Generiere eine echte unique Textur für die buttons mit
+> gpt-image-2.** Auch die Form der Buttons gefällt mir noch nicht. Rund und Viereckig sind vorgabe,
+> aber ansonsten darfst du gerne kreativ werden. **WICHTIG: Der Text muss immer voll lesbar sein.**
+> Beim Test hatte ich einen Text der mitten drin abgeschnitten war 'AUSWAHL BEEN' (siehe
+> abgeschnitter_text.jpg). Das darf nicht passieren. Du kannst eventuell auch mit Zeilenumbrüchen
+> arbeiten, wenn es Sinn ergibt."
+
+---
+
+## ITEM 1 — THE TRUNCATION. Root cause confirmed by arithmetic, not by inspection.
+
+The string was `"Auswahl beenden"` (`Player.log:5208`,
+`TOGGLE 0 = True = EREADYBUTTONENDSELECTION = Auswahl beenden = True`). It rendered as
+`"AUSWAHL BEEN"` — **twelve characters of fifteen.**
+
+**FOUR LINKS, AND THE THIRD IS ROUND 1'S OWN REGRESSION.**
+
+1. `Core/TmpFit.Fit` set `overflowMode = TextOverflowModes.Truncate`. Truncate DISCARDS glyphs and
+   raises no flag any caller reads. The class doc stated the policy outright — *"past the
+   readability floor the text truncates — text is always fully inside its plate"* — and the user has
+   now overruled it.
+2. The auto-size floor was `fontSizeMin = 0.08`. That was never a readability floor; it was the size
+   at which the mod stopped shrinking and started cutting.
+3. **ModBuild 281 is what made it bite.** The new carved symbol took the caption's room:
+   `CapSymbols.LabelBox` went from `(0.92, 0.85)` to `(0.92, 0.36)` of the cap — a **58 % cut in
+   height**. On BRONZE, whose seat recess forces the cap to 53.2 × 43.9 mm, that is a **15.8 mm**
+   band.
+4. `BoardButton.SetLabel` wrote `_label.text` and **never re-fitted**, so even a correct fit computed
+   at build time was the wrong fit for the next wording — and these captions change every pick.
+
+**THE ARITHMETIC THAT CLOSES IT, and it reproduces the screenshot exactly.** Two lines at the 0.08
+floor need `2 × 1.2 em × 8 mm = 19.2 mm`; the band was 15.8 mm, so auto-size could not wrap. One line
+of 15 characters at 0.08 needs ≈ 74 mm; the box was 48.9 mm, so it could not shrink either (it was
+already at the floor). Truncate then cut at the 12th character. **"AUSWAHL BEEN" is 12 characters.**
+
+### WHY THIS COULD NOT BE FIXED BY TUNING TO A CORPUS
+
+The corpus was harvested from every `readyButton.Toggle` / `m_UndoButton` / `m_SkipButton.Toggle` /
+pick-`DialogOption` call site in `decompiled/`, plus every mod `Loc` string that reaches a keycap.
+26 fixed strings; the longest is **23 characters, DE `"Wähle eine andere Karte"`**
+(`GUI_CHOOSE_OTHER_CARD`, `CardsHandUI.cs:2099`). The longest string ever *proven on the rig* is
+`"Auswahl beenden"` (15).
+
+**But three of the keys these caps display are format strings with runtime insertions, so the corpus
+is unbounded:**
+
+| key | what is interpolated | site |
+|---|---|---|
+| `GUI_END_TURN` / `GUI_END_EXTRA_TURN` | the actor's **class name** | `Choreographer.cs:12709` |
+| `GUI_LOSE_CARD` / `GUI_DISCARD_CARD` | the **ability-card title** | `CardsHandUI.cs:2034/2038` — and that pair is exactly what `PickDialogOptionLabel(cancel:false)` reads |
+| `GUI_CONFIRM_TARGETS` | a live `{1}/{2}` counter | `Choreographer.cs:4918` |
+
+**There is no longest string.** A fix measured against a list is wrong the first time somebody ends a
+turn as a long-named class. (Also worth recording: the game's own DE/EN string table is NOT on this
+build machine — the game runs on a Windows box, `Player.log:1`. Four of the German strings in the
+corpus are transcriptions living in mod comments, marked TRANSCRIBED in the test, and nothing asserts
+a width for any of them.)
+
+### WHAT SHIPPED — a property, not a patch
+
+**`Cards/CapFaceLayout.cs` (new, Unity-free, linked into the wire suite).** It owns the cap's whole
+face budget — the bezel profile, the symbol band, the caption band — and it solves the caption:
+
+* **Nothing is ever discarded.** The solver only inserts line breaks. `Truncate` is gone from the
+  entire mod, and a source lint in the wire suite fails the build if it comes back.
+* **The floor dropped 0.08 → 0.045**, roughly doubling the shrink runway before anything can overflow.
+* **Whole words first.** The size is solved TWICE — once forbidding mid-word breaks, once allowing
+  them — and the whole-word answer wins whenever it fits. Measured: `"Bewegung überspringen"` on the
+  OAK cap solves to font **0.072 with breaks** (`Bewegung / überspringe / n`) and **0.057 without**
+  (`Bewegung / überspringen`). The bigger one is worse: a line holding one orphan letter is the exact
+  SHAPE of the defect being fixed, and a player cannot tell a break from a cut.
+* **The failure is loud.** `Caption.Overflows` / `Caption.HardBroke` reach
+  `Core/TmpFit.FitCapLabel`, which names the string, the box, the size it needed and how far it
+  overhangs — and the text is still drawn in full. The next report will name the caption instead of
+  a screenshot doing it.
+* **The metrics are the real font's, and the outcome is read back.** `FitCapLabel` measures through
+  `TMP.GetPreferredValues` at font size 1, applies the layout, then forces the mesh and compares the
+  RENDERED extent against the solved block. A disagreement over 15 % logs a SEPARATE line accusing
+  the solver's own metric model — because "the caption does not fit" and "my ruler is wrong" have
+  different fixes.
+* **`SetLabel` re-fits, on both boards.** Link 4 closed on the owner (`BoardButton.SetLabel` →
+  `ApplyLabelLayout`) and on the peer mirror (`InertCap.SetLabel`, which keeps its fit box for the
+  purpose). `check-mirrors.sh` still passes.
+
+**THE ASSERTION** (`tests/GloomhavenVR.WireTests/CapLabelFitVectors.cs`, 1 395 no-drop cases):
+`StripWhitespace(out) == StripWhitespace(in)` for every corpus string × 3 boards × 3 font-metric
+models × 5 box scales down to 2 % of the real box. Plus a NULL control (empty / whitespace / a
+zero-area box), a KNOWN-POSITIVE control (a 200-glyph token, and the interpolated end-turn caption on
+Bronze under the pessimistic metric model — both must raise `Overflows` AND still contain every
+character), determinism, the one-permitted-size-drop property, the face-budget geometry, and a
+source lint reading `cap_atlas.py` as TEXT so the carve and the caption can never again disagree
+about where the field is. **That last lint is the one that would have caught ModBuild 281.**
+
+**THE METRIC MODEL IS STATED BECAUSE IT IS A MODEL.** MarcellusSC is harvested from the game at
+runtime and is not on this machine, so the tests drive a uniform-advance model at 0.50 / 0.62 / 0.75
+em. Measured against a real serif face (DejaVu Serif): mean advance **0.597 em**, line step
+**0.1168** — so the 0.62 / 0.1200 the suite asserts against is genuinely conservative. The runtime
+uses no model at all.
+
+### RESULT ON THE REPORTED CASE
+
+`"Auswahl beenden"` on the BRONZE cap: **two lines, font 0.082** — an 8.2 mm em, a 5.8 mm glyph,
+**13 arcmin at 1.5 m**. The 23-character worst case fits on all three boards (Bronze: 2 lines at
+0.058, 9 arcmin). Contact sheet: `.planning/debug/keycaps2/standin_captions.png`, drawn from the
+shipped solver's own output — a Python port of the wrap is cross-checked row by row against the wire
+suite's dump (279 rows, 0 disagreements) before the script will draw anything.
+
+---
+
+## ITEM 2 — THE SHAPE. A signet plate, and it is what paid for item 1.
+
+> "Rund und Viereckig sind Vorgabe, aber ansonsten darfst du gerne kreativ werden."
+
+Round stays round (rest pads), square stays square (generic). Everything else changed. Outward to
+inward the cap is now: vertical **WALL** → 45° outer **CHAMFER** → flat **RIM LAND** at the frontmost
+plane → 45° inner chamfer **STEPPING DOWN** → the recessed **FIELD** that carries the symbol and the
+caption. It was one flat plateau behind a single 7 mm chamfer.
+
+**WHY A RIM LAND, measured rather than chosen.** `BoardLit` shades by world normal against two baked
+studio directions and never reads a scene light. On that surface a 45° chamfer is a FIXED value, not
+a highlight that travels — so the strongest "raised" cue available is the largest area that both
+faces the viewer squarely and carries the bright bevel tint, which is exactly a flat land at the
+front plane. The two chamfers either side give the silhouette its value steps, and the field sits in
+a lit frame instead of behind a single edge.
+
+**THE OLD 7 mm CHAMFER WAS ITSELF A DEFECT.** It is a length in METRES applied to caps from
+53.2 × 43.9 mm to 63.0 × 62.1 mm — **0.159 of Bronze's short side and 0.113 of Steel's.** One
+constant was never one proportion. The bezel is a fraction now:
+`CapFaceLayout.BezelChamfer 0.060 + BezelRim 0.045 + BezelStep 0.030 = 0.135` of the cap's SHORT
+side. Because the short side is the HEIGHT on all three fitted caps, the field band is **exactly
+[0.135, 0.865] on both axes of every board** (horizontally the same absolute bezel is 0.111 / 0.121 /
+0.133 of the width — all inside 0.135). One band, six numbers, no per-board case. `SquareCapBevel`
+and its mirror `RemoteBoardFurniture.CapBevel` are both **deleted**, and `check-mirrors.sh` lost that
+group: 19 → **18**.
+
+**THE FACE BUDGET.** Caption band `v 0.135 .. 0.585` (0.45 of the cap height), gap, symbol band
+`v 0.615 .. 0.865` (0.25). The caption grew 0.36 → 0.45; the symbol shrank 0.32 → 0.235 of its cell.
+On Bronze that is 19.8 mm of caption band where 15.8 mm could not hold two lines at the old floor —
+**one line-count, and it is the whole difference between "Auswahl beenden" and "AUSWAHL BEEN".**
+The caption box also stopped being **wider than the plate it sits on**: `(0.92, 0.85)` was 0.92 of
+the cap WIDTH, so the old caption overhung the chamfer on both sides and floated past the cap's own
+edge — visible in the user's screenshot. It is the field now, on both axes.
+
+**THE COST, STATED.** Round 1's render sheet already found the square caps' symbols to be "a 3–4 px
+dark smudge — present, not identifiable" at the across-the-table 32 px view. A 12 % smaller symbol is
+12 % worse there. The requirement the user actually stated is that the TEXT is always readable, and
+it wins.
+
+### THE TANGENT PROPERTY — preserved, not recomputed
+
+`CardMesh.KeycapTangent` writes `(1, 0, 0, -1)` on every vertex and that is EXACT only while `u` is a
+pure function of object `x` and `v` of `y` on every vertex. **The signet profile keeps the property
+exactly**: every ring is a rectangle (or a circle) in XY and every vertex is UV'd through the one
+planar `Uv(p) = (p.x/width + 0.5, p.y/height + 0.5)`. Nothing needs a per-vertex basis, and
+`RecalculateTangents` remains the wrong answer for the same reason as before (the UV gradient is
+degenerate on the walls).
+
+**And the render station now proves the stream reaches the pixel.** Its normal-map A/B used to report
+`0 tangents` and argue about what the API might bind. It now reports **72 of 72 tangents** on the
+square cap and **642 of 642** on the round one, and `_NormalStrength` 1 vs 0 moves **mean 0.053, max
+0.298** over 37 755 cap pixels — the bump reaches the picture through an authored basis.
+
+### COUNTS AND THE ROUND CAP
+
+Square signet cap: **72 verts, 36 tris, submesh index counts [6, 72, 30]** (was 40/20/[6,24,30]).
+`BoardButton.LogCapDiagnostics` and the render station's ported invariant both assert the new five
+numbers, and the station reports **MATCH**.
+
+The ROUND board caps became signet plates too — `CardMesh.BuildRoundKeycap`, 642 verts / 640 tris,
+the **same three submeshes** as the square cap, so both shapes read as one family and the
+field/bezel/wall materials drive either. It is a NEW mesh rather than a change to `BuildRoundCap`,
+because the plain disc still ships three other places (the cap's own backing ring on both boards, and
+the map room's button rail) and every one of them assigns a single `sharedMaterial` — giving the
+shared disc three submeshes would have left two of them with a null material on furniture nobody was
+looking at this round.
+
+---
+
+## ONE FIX OUTSIDE THE OWNED SET, declared
+
+`Net/RemoteBoardTooltip.cs:210` also set `TextOverflowModes.Truncate`, on a frame whose own comment
+says *"the FRAME fits the text, never the text the frame"*. Truncate there could only ever fire on a
+tooltip whose sizing had gone wrong, and it would hide that by dropping the tail mid-word. Changed to
+`Overflow` (one line plus a comment) so the sizing defect shows as text past the frame and gets
+reported. `Ellipsis` is deliberately NOT linted: three labels use it, and it drops characters while
+PRINTING A MARK saying so — a screenshot of it is a report rather than a mystery. Truncate is the one
+that lies.
+
+---
+
+## ITEM 3 — A REAL, UNIQUE TEXTURE PER BOARD, and the colour that was doing the actual harm
+
+> "Die Textur die dort gewählt ist, ist einheitlich und passt sonst nicht wirklich zum Styl.
+> **Generiere eine echte unique Textur für die buttons mit gpt-image-2.**"
+
+### THE PLATES — gpt-image-2, seven images for three surfaces
+
+| board | shipped (round 1) | round 2 | what it is |
+|---|---|---|---|
+| Oak | flat sawn plank, even grain | 1 discarded, **2nd kept** | quarter-sawn oak: ray fleck, a knot, waxed sheen |
+| Steel | smooth grey mottle | **1, kept** | cold-blued steel: temper bloom, draw-file scratches |
+| Bronze | fine even patina speckle | 3 discarded, **4th kept** | hand-planished bronze: hammer facets, verdigris only in the low facets |
+
+The images are 1024² (all seven returned exactly 1024×1024 — the tool's 16:9-into-3:2 rescale trap
+did not fire, and the dimensions were read back with PIL rather than assumed), saved as
+`unity/board-prep/out/keycap2_plate_*.png`; the kept ones are copied to
+`keycap_plate_{oak,steel,bronze}.png` and the round-1 originals are preserved beside them as
+`*_r1.png`, so the "before" column of every sheet is the real shipped surface and not a memory of it.
+
+**THE PROMPT LEVER THAT MATTERED IS ARITHMETIC, NOT TASTE — and it is the reusable finding of this
+item.** `material_cell` crops 62 % of the plate into a 256-texel cell and the cap is ~96 px on the
+rig, so a feature *f* texels wide in the 1024² plate arrives at **f × 0.151 screen pixels**. Round 1's
+prompts asked for MATERIALS and never for a FEATURE SIZE; every one of them came back as micro-mottle
+that averages to a flat field at cap scale — which is exactly what "einheitlich" describes. These
+prompts size each named feature as a fraction of the frame (ray fleck at 1/5, temper bloom at 1/6,
+planishing dishes at 1/6). The prompts are now constants in `unity/board-prep/buttons/plates.py`
+rather than living only in a transcript, which round 1's were not.
+
+**AND THE PROMPT RECORD IS HONEST ABOUT ITS OWN HOLE.** `plates.py` originally claimed the shipped
+prompts were in the file; they were not — the file's narrative described an earlier iteration ("five
+images", `oak` and `bronze_b` kept) while its own `CHOSEN` dict correctly named `oak_b` and
+`bronze_d`, and `PROMPTS` held only the superseded asks. That is the "an audit is a snapshot" shape
+exactly: a record that reads perfectly and is no longer true. It is corrected — the narrative matches
+the seven files, every discard carries its reason and its measured STORY ratio, the two revised asks
+whose exact wording was NOT captured are recorded as `SHIPPED_ASK_SUBSTANCE` and labelled as
+substance rather than as prompts, and a `_check_manifest()` runs at import and RAISES if any
+generated plate is unaccounted for or is listed both ways. The guard was driven negative before it
+was believed: removing one discard from the table makes it raise by name.
+
+**THE CONTRAST THE USER IS ACTUALLY COMPLAINING ABOUT IS THE LOW-FREQUENCY ONE.** A single σ over a
+cap-sized crop mixes two different things — the fine GRAIN, which the shipped plates already had,
+and the large-scale STORY (figure, facets, blooms) whose absence is what "einheitlich" means. Split:
+
+| board | total σ before → after | **STORY** before → after | grain before → after |
+|---|---|---|---|
+| Oak | 11.89 % → **14.10 %** | 2.98 % → **4.78 %** (+60 %) | 11.11 % → 12.46 % |
+| Steel | 16.29 % → **20.12 %** | 5.82 % → **9.97 %** (+71 %) | 13.42 % → 14.58 % |
+| Bronze | 10.61 % → **16.03 %** | 3.43 % → **8.46 %** (+147 %) | 9.25 % → 12.10 % |
+
+Every plate is re-based through the EXISTING `cap_atlas.normalise_plate` (imported, not
+re-implemented) to the shipped grain's mean of 0.837 — because `BoardLit` computes
+`alb = tex2D(_MainTex, uv) * _Color` and a keycap texture is therefore a MODULATOR, not a colour.
+That is the ModBuild 281 finding and the one that produced the "invisible button" shape.
+
+### THE COLOUR — per board, because a plate alone could never have fixed it
+
+ModBuild 281 measured the three idle faces at ΔE **13.8 / 10.3 / 3.7**, reported the last as an open
+limitation, and named the lever it would not pull: the idle face colour, *"which is the user's
+tuning"*. **His report is the authorisation.**
+
+**`IdleColor` was `(0.600, 0.510, 0.350)` on all three boards. It is now:**
+
+| board | old | **new** | rendered face | L\* | C\* | h |
+|---|---|---|---|---|---|---|
+| Oak | (0.600, 0.510, 0.350) | **(0.550, 0.514, 0.564)** | (0.239, 0.211, 0.131) | 22.73 | 14.0 | 92° |
+| Steel | (0.600, 0.510, 0.350) | **(0.407, 0.541, 0.607)** | (0.149, 0.195, 0.225) | 19.93 | 7.0 | 247° |
+| Bronze | (0.600, 0.510, 0.350) | **(0.753, 0.471, 0.224)** | (0.317, 0.189, 0.060) | 23.32 | 28.7 | 66° |
+
+A cap with **no** board (the map room's keycap-skinned furniture) keeps the original parchment.
+`PlayTray.BoardIdleColor` is the single definition and the peer mirror now **calls** it instead of
+copying it — one mirrored constant fewer, on the one value that just went three ways.
+
+**The three were SOLVED, not chosen**: over a hue × chroma grid, maximising the minimum pairwise ΔE
+subject to (a) each cap's rendered LUMINANCE staying within ±2 % of today's — so nothing gets
+brighter or darker, only differently coloured — (b) under 0.5 % clipped texels, and (c) staying
+inside the board's own authored palette band.
+
+| pair | ΔE before | ΔE after |
+|---|---|---|
+| oak ↔ steel | 12.4 | **20.8** |
+| steel ↔ bronze | 9.5 | **35.8** |
+| **oak ↔ bronze** | **2.8** | **17.2** |
+
+Luminance moved −0.27 % (oak), +0.05 % (steel), −0.28 % (bronze) against the caps on the board
+today. **Zero texels clip**, and not by luck: the brightest channel an admissible face can reach is
+`IDLE_MAX × BoardCapTint × shade = 0.415`, and `normalise_plate` clips the plate to [0, 1].
+
+**A CHROMA BOOST WAS TRIED IN ROUND 1 AND REJECTED ON MEASUREMENT** (ΔE 3.7 → 3.9 → 3.1 for
+k = 1.0 … 2.6, 99.99 % of oak's texels clipped at k = 1.6). It is not re-proposed.
+
+### THE INSTRUMENT WAS VALIDATED BEFORE ANY OF THOSE NUMBERS WERE BELIEVED
+
+Fed the ROUND-1 plates and the shipped single idle colour, the ΔE model reproduces the ModBuild 281
+record's **13.8 / 10.3 / 3.7 to within 0.04 ΔE** — and in doing so identifies what those recorded
+numbers were measured on: **the ALBEDO PRODUCT, not the shaded framebuffer value.** The shaded form
+is a uniform 0.897× of it — one scalar, applied to all three styles alike, so it cannot reorder the
+pairs — and everything above gates on the shaded form, which is stricter. NULL control: each style
+against itself, ΔE 0.000000.
+
+**AND ONE NUMBER IS EXPLICITLY NOT CLAIMED.** This instrument's WELL comes out 1.19–1.29× darker
+than the 281 record's; four well definitions were tried and none reproduces that record's 1.75×. So
+the ABSOLUTE cap-to-well ratio is not asserted here. What IS gated is each new cap against the SAME
+board's current cap, where the well term cancels exactly — which is the comparison the "invisible
+button" defect actually turns on.
+
+### JUDGED AGAINST HIS SCREENSHOT, NOT AGAINST A NEUTRAL PLATE
+
+`plates_on_bronze.png` redraws ONLY the recessed field inside the real well of
+`abgeschnitter_text.jpg` — the bevel, the recess wall, the board and the game's own caption are his
+own pixels — in four panels: his original, a CONTROL (the round-1 plate through the colour the
+screenshot is in, which must be invisible and is), the new material at the old colour, and the new
+material at the new colour. `caps_on_his_bronze_board.png` puts the whole signet cap in that well.
+
+### THE CAP IN HIS SCREENSHOT IS NOT IDLE — and that changes what item 3 can promise
+
+Found while validating the composite, not assumed: a card selection was pending in that frame, so the
+Confirm cap is wearing the **accent** colour `(0.35, 0.46, 0.28)` (`PlayTray.6.Build.cs:427`), not
+`IdleColor`. That is why it reads olive-green. The model predicts the accented face at
+**(0.167, 0.186, 0.078)** against the screenshot's measured **(0.172, 0.188, 0.085)** — every channel
+within 0.007, on a JPEG of a headset frame, which is a far stronger check on the whole chain than the
+ΔE reproduction is.
+
+**The consequence is a limitation and it is stated rather than glossed:** the per-board idle colour
+separates the three boards in the RESTING state. The four STATE colours — accent, confirmed,
+disabled, dwell — are per ROLE and stay shared, because they are a state signal and a signal that
+means something different on each board is a worse control. So while a cap is accented, the three
+boards are told apart by their PLATE alone, which is the ±20 % term round 1 measured. That term is
+now much stronger (STORY contrast up 60–147 %) but it is not ΔE 17. If he reports the accented caps
+as still looking alike, the fix is a per-board accent family and it is the same one-line shape as
+`BoardIdleColor`.
+
+### WHAT THIS COSTS, stated
+
+* A high-structure plate competes with the carved symbol. On bronze the check mark is legible at
+  reading distance and quieter than it was on the flat plate; at the 32 px across-the-table view it
+  is a smudge either way (the ModBuild 281 finding, unchanged) — but the three boards are now
+  distinguishable AT 32 px, which they were not.
+* Steel's idle face is frankly COOL (hue 247°) and bronze's frankly WARM (66°). That is what buys
+  ΔE 17–36 between three keys that sat at 2.8. If either reads as too far on hardware, the three
+  values are one edit in `PlayTray.BoardIdleColor` and the old one is written beside them.
+* **The exact prompt wording for two of the three shipped plates is gone.** Their intent is
+  recorded and the arithmetic that made them work is recorded; the strings are not. Re-rolling oak
+  or bronze from scratch means re-deriving the ask, not re-running it.
+* Oak's plate carries a KNOT, and on the Confirm cell it lands near the check mark. It reads as
+  wood rather than as a defect, but it is a thing in the picture that was not there before.
+
+---
+
+## THE PICTURES
+
+All in `.planning/debug/keycaps2/`:
+
+| file | what it answers |
+|---|---|
+| `caps_on_his_bronze_board.png` | does the new cap fit HIS board — the same well, his own pixels |
+| `plates_on_bronze.png` | the material and colour change isolated, with a must-be-invisible control |
+| — | *one fitted term: `NORMAL_MIP_SIGMA = 1.25` (≈ one mip, which the ~2× minification predicts) brings the CONTROL panel's relief from 20.4 % to 10.4 % against the screenshot's own 10.8 %. The same value is used in every panel, so no comparison depends on it, but the absolute relief level rests on a fit.* |
+| `plates_before_after.png` | the six plates at the same scale, with the STORY/grain split |
+| `plates_deltae.txt` | the whole ΔE derivation, its known-positive validation and its null control |
+| `standin_captions.png` | eleven captions × three boards at real cap size, from the shipped solver |
+| `<Style>_<Role>_{before,after}_{front,rake}.png` | every role on every board, through the real `BoardLit` |
+| `<Style>_<Role>_zoom_{near96,far32}.png` | reading distance and across-the-table |
+| `preview-round2.log` | the mesh invariant, the colour calibration and the tangent A/B |
+
+**AND WHAT NO PICTURE HERE SHOWS.** TextMeshPro is not in the companion Unity project's package
+manifest, so no station in this repository can render the shipped SDF material. `standin_captions`
+is DejaVu Serif driven by the shipped solver's own output (a Python port of the wrap, cross-checked
+row by row against the wire suite's dump — 279 rows, 0 disagreements, and the script refuses to draw
+if that fails). It is evidence for LAYOUT and for TYPE SIZE; it is not evidence about glyph
+rendering, and the runtime does not use its metric model at all.
+
+## STILL OPEN
+
+* **`NetProtocol.CapLabelMaxBytes = 48` still truncates a mirrored caption silently**, on a UTF-8
+  character boundary. Every fixed corpus string is under 24 bytes, so it cannot bite today — but the
+  interpolated end-turn / discard captions are unbounded and a long class name or card title can
+  reach it. It was NOT touched: it is a wire constant, and changing it moves the golden vectors.
+  Whoever raises it should raise the TLV budget with it (`1 + 4 × (1 + N)` must stay under 255).
+* The caption box is EXACTLY the recessed field on both axes, so the longest string's glyphs can
+  touch the inner chamfer. A margin would cost the 23-character worst case a font size on Bronze;
+  it was left flush deliberately, and it is one number (`CapFaceLayout.CaptionBoxWithSymbol`).
+* The three `Ellipsis` labels (wrist HUD peer name, options rows, map-room wrist name) still drop
+  characters. They PRINT A MARK saying so, which is a different contract from Truncate, and they are
+  not board captions — but if "immer voll lesbar" is meant to cover them too, that is a next round.
+
+---
+
 # ROUND 1 (2026-08-25): WHAT WAS BUILT, AND THE TWO PREMISES THAT WERE WRONG
 
 The design below was written before the work started and is kept verbatim. This section is the

@@ -90,9 +90,33 @@ namespace GloomhavenVR
         private const string GrainNormal = "Assets/Bundle/Table/KeycapGrain_normal.png";
 
         // ---- CAP GEOMETRY --------------------------------------------------------------------
-        // Cards/PlayTray.6.Build.cs: SquareCapThickness / SquareCapBevel.
+        // Cards/PlayTray.6.Build.cs: SquareCapThickness.
         private const float SquareCapThickness = 0.036f;
-        private const float SquareCapBevel = 0.007f;
+
+        // THE SIGNET BEZEL — Cards/CapFaceLayout.cs BezelChamfer / BezelRim / BezelStep, as
+        // fractions of the cap's SHORT side. Round 2 (2026-08-25) replaced the fixed 7 mm chamfer
+        // with this five-zone profile: wall, outer chamfer, flat RIM LAND, inner chamfer, recessed
+        // FIELD. The 7 mm was 0.159 of the Bronze cap's short side by itself and left a field too
+        // small for two lines of caption, which is the whole of the "AUSWAHL BEEN" report.
+        private const float BezelChamfer = 0.060f;
+        private const float BezelRim = 0.045f;
+        private const float BezelStep = 0.030f;
+        private const float BezelTotal = BezelChamfer + BezelRim + BezelStep;
+
+        /// <summary>Ported from <c>Cards.CardMesh.CapProfile</c>.</summary>
+        private static void CapProfile(float refSide, float halfLimit, float thickness,
+                                       out float chamfer, out float rim, out float step)
+        {
+            float span = BezelTotal * refSide;
+            float scale = 1f;
+            if (span > 0f) scale = Mathf.Min(scale, halfLimit * 0.9f / span);
+            float chamferSpan = BezelChamfer * refSide;
+            if (chamferSpan > 0f) scale = Mathf.Min(scale, thickness * 0.45f / chamferSpan);
+            scale = Mathf.Clamp(scale, 0f, 1f);
+            chamfer = BezelChamfer * refSide * scale;
+            rim = BezelRim * refSide * scale;
+            step = BezelStep * refSide * scale;
+        }
         private const float DiscThickness = 0.012f;
         // Cards/PlayTray.7.Nested.cs: CapRestZ / CapTravel.
         private const float CapRestZ = -0.004f;
@@ -137,7 +161,19 @@ namespace GloomhavenVR
         };
 
         // ---- THE STATE PALETTE (Cards/PlayTray.7.Nested.cs, verbatim) --------------------------
-        private static readonly Color IdleColor = new(0.60f, 0.51f, 0.35f);
+        // THE IDLE FACE IS PER BOARD SINCE ROUND 2 — Cards/PlayTray.6.Build.BoardIdleColor. The old
+        // single (0.60, 0.51, 0.35) is what all three boards wore in ModBuild 281, which is what put
+        // an oak key and a bronze key at CIELAB dE 3.7 of each other. Kept below as the REFERENCE
+        // column so the "before" pictures are honest.
+        private static readonly Color IdleColorLegacy = new(0.60f, 0.51f, 0.35f);
+
+        private static Color IdleColorFor(string style) => style switch
+        {
+            "Oak" => new Color(0.550f, 0.514f, 0.564f),
+            "Steel" => new Color(0.407f, 0.541f, 0.607f),
+            "Bronze" => new Color(0.753f, 0.471f, 0.224f),
+            _ => IdleColorLegacy,
+        };
         private const float WallTintFactor = 0.50f;
         private static readonly Color WallWarm = new(0.17f, 0.11f, 0.06f);
         private const float WallWarmLerp = 0.42f;
@@ -379,17 +415,22 @@ namespace GloomhavenVR
                         float thick = round ? DiscThickness : SquareCapThickness;
 
                         // AFTER, at the shipped 0.5 face tint, and the untinted control beside it.
+                        // THE IDLE COLOUR IS THIS BOARD'S OWN since round 2 — using the legacy
+                        // single one here would render three caps the game no longer builds.
+                        Color idle = IdleColorFor(style);
                         ShootCap(cam, outDir, $"{style}_{name}_after", shader, atlasA, atlasN, cell,
-                                 IdleColor * ShippedCapTint, w, h, thick, round, true);
+                                 idle * ShippedCapTint, w, h, thick, round, true);
                         ShootCap(cam, outDir, $"{style}_{name}_after_untinted", shader, atlasA, atlasN, cell,
-                                 IdleColor, w, h, thick, round, false);
-                        // BEFORE: the same mesh, the same state colours, the shared grain pair and
-                        // NO texture transform — one surface for all three boards and no symbol.
+                                 idle, w, h, thick, round, false);
+                        // BEFORE: the same mesh, the same state colours, the shared grain pair, NO
+                        // texture transform and the LEGACY single idle colour — i.e. one surface and
+                        // one colour for all three boards, which is exactly what ModBuild 281 shipped
+                        // and exactly what the user rejected.
                         ShootCap(cam, outDir, $"{style}_{name}_before", shader, grainA, grainN, -1,
-                                 IdleColor * ShippedCapTint, w, h, thick, round, false);
+                                 IdleColorLegacy * ShippedCapTint, w, h, thick, round, false);
 
                         ShootZoom(cam, outDir, $"{style}_{name}", shader, atlasA, atlasN, cell,
-                                  IdleColor * ShippedCapTint, w, h, thick, round);
+                                  idle * ShippedCapTint, w, h, thick, round);
                     }
                 }
 
@@ -413,39 +454,46 @@ namespace GloomhavenVR
         // =========================================================================================
 
         /// <summary>
-        /// The five numbers Cards/PlayTray.7.Nested.LogCapDiagnostics asserts on the rig:
-        /// 40 verts, 20 tris, submesh index counts [6, 24, 30]. Printed with the actual counts, and
-        /// a loud FAIL if they disagree — but the run continues, because a wrong mesh is a finding
-        /// and the picture of it is the evidence.
+        /// The five numbers Cards/PlayTray.7.Nested.LogCapDiagnostics asserts on the rig. THEY MOVED
+        /// IN ROUND 2 with the signet profile: 72 verts, 36 tris, submesh index counts [6, 72, 30],
+        /// where the single-chamfer cap was 40/20/[6, 24, 30]. Printed with the actual counts, and a
+        /// loud FAIL if they disagree — but the run continues, because a wrong mesh is a finding and
+        /// the picture of it is the evidence.
         /// </summary>
         private static void MeshInvariant()
         {
-            Mesh m = BuildBeveledKeycap(0.063f, 0.0563f, SquareCapThickness, SquareCapBevel);
+            Mesh m = BuildBeveledKeycap(0.063f, 0.0563f, SquareCapThickness);
             int vtx = m.vertexCount;
             int tris = 0;
             for (int i = 0; i < m.subMeshCount; i++) tris += (int)(m.GetIndexCount(i) / 3);
             int s0 = m.subMeshCount > 0 ? (int)m.GetIndexCount(0) : -1;
             int s1 = m.subMeshCount > 1 ? (int)m.GetIndexCount(1) : -1;
             int s2 = m.subMeshCount > 2 ? (int)m.GetIndexCount(2) : -1;
-            bool ok = vtx == 40 && tris == 20 && s0 == 6 && s1 == 24 && s2 == 30;
+            bool ok = vtx == 72 && tris == 36 && s0 == 6 && s1 == 72 && s2 == 30;
             Log($"MESH INVARIANT (the numbers LogCapDiagnostics asserts on the rig): verts {vtx} "
-                + $"(expect 40), tris {tris} (expect 20), submesh indices top/bevel/wall {s0}/{s1}/{s2} "
-                + $"(expect 6/24/30), submeshCount {m.subMeshCount} (expect 3), bounds {m.bounds.size}. "
+                + $"(expect 72), tris {tris} (expect 36), submesh indices field/bezel/wall {s0}/{s1}/{s2} "
+                + $"(expect 6/72/30), submeshCount {m.subMeshCount} (expect 3), tangents "
+                + $"{(m.tangents != null ? m.tangents.Length : 0)} (expect {vtx}), bounds {m.bounds.size}. "
                 + (ok ? "MATCH — this station's port is the shipped mesh."
                       : "*** FAIL — THE PORTED MESH IS NOT THE SHIPPED ONE. Every picture below is of "
                         + "something the game does not build. ***"));
             if (!ok) _exit = 1;
 
-            Mesh r = BuildRoundCap(0.0736f, DiscThickness, RoundCapSegments);
-            int rTris = (int)(r.GetIndexCount(0) / 3);
-            int expectV = RoundCapSegments * 4 + 2, expectT = RoundCapSegments * 4;
-            Log($"ROUND CAP at {RoundCapSegments} segments: verts {r.vertexCount} (expect {expectV}), "
-                + $"tris {rTris} (expect {expectT}: {RoundCapSegments} front fan + {RoundCapSegments} back fan "
-                + $"+ {RoundCapSegments * 2} wall), submeshes {r.subMeshCount} (expect 1 — the disc carries ONE "
-                + "material, so the ROLE cell goes on the whole disc), bounds " + r.bounds.size);
-            if (r.vertexCount != expectV || rTris != expectT || r.subMeshCount != 1)
+            Mesh r = BuildRoundKeycap(0.0736f, DiscThickness, RoundCapSegments);
+            int rTris = 0;
+            for (int i = 0; i < r.subMeshCount; i++) rTris += (int)(r.GetIndexCount(i) / 3);
+            // seg field fan + 3 x (2 seg) bezel bands + 2 seg wall + seg back fan = 10 seg tris,
+            // and 10 seg + 2 verts (each band duplicates its two rings; each fan carries a centre).
+            int expectV = RoundCapSegments * 10 + 2, expectT = RoundCapSegments * 10;
+            Log($"ROUND SIGNET CAP at {RoundCapSegments} segments: verts {r.vertexCount} (expect {expectV}), "
+                + $"tris {rTris} (expect {expectT}: {RoundCapSegments} field fan + {RoundCapSegments * 6} bezel "
+                + $"+ {RoundCapSegments * 2} wall + {RoundCapSegments} back fan), submeshes {r.subMeshCount} "
+                + "(expect 3 — round 2 gave the disc the SAME field/bezel/wall split as the square cap), "
+                + $"tangents {(r.tangents != null ? r.tangents.Length : 0)} (expect {r.vertexCount}), "
+                + "bounds " + r.bounds.size);
+            if (r.vertexCount != expectV || rTris != expectT || r.subMeshCount != 3)
             {
-                Err("*** ROUND CAP PORT DISAGREES with BuildRoundCap's own construction. ***");
+                Err("*** ROUND CAP PORT DISAGREES with BuildRoundKeycap's own construction. ***");
                 _exit = 1;
             }
             Object.DestroyImmediate(m);
@@ -553,9 +601,10 @@ namespace GloomhavenVR
         /// DOES THE KEYCAP NORMAL MAP DO ANYTHING AT ALL? The question is not rhetorical.
         /// BoardLit builds its shading normal in TANGENT space —
         /// <c>N = normalize(wt*nt.x + wb*nt.y + wn*nt.z)</c> — and
-        /// <c>CardMesh.BuildBeveledKeycap</c> never writes tangents (no <c>RecalculateTangents</c>,
-        /// no tangent stream). With no tangent the first two terms are whatever Unity binds for a
-        /// missing vertex attribute, which is not a defensible input to a lighting equation.
+        /// the cap meshes supply that basis themselves — one explicit <c>(1, 0, 0, -1)</c> per
+        /// vertex (<c>CardMesh.KeycapTangent</c>), added in ModBuild 281 after this very check found
+        /// <c>mesh.tangents.Length == 0</c> and therefore a lighting equation fed by whatever the
+        /// graphics API binds for a missing vertex attribute.
         ///
         /// <para>So: render the same cap at _NormalStrength 1 and at 0 and diff them. If the two
         /// are identical, the atlas normal maps are bundle weight that never reaches a pixel on the
@@ -569,7 +618,7 @@ namespace GloomhavenVR
             var nrm = LoadRaw(AtlasNormal(style));
             if (alb == null || nrm == null) { Err("normal-map A/B: oak atlas pair missing."); return; }
 
-            var go = BuildCap(sh, alb, nrm, CellConfirm, IdleColor * ShippedCapTint, capW, capH,
+            var go = BuildCap(sh, alb, nrm, CellConfirm, IdleColorFor(style) * ShippedCapTint, capW, capH,
                               SquareCapThickness, false, out Mesh mesh, out Material[] mats);
             int tangents = mesh.tangents != null ? mesh.tangents.Length : 0;
 
@@ -604,50 +653,55 @@ namespace GloomhavenVR
                 sum += dch; max = Mathf.Max(max, dch); n++;
             }
             Object.DestroyImmediate(on); Object.DestroyImmediate(off);
+            bool tangentsOk = tangents == mesh.vertexCount && tangents > 0;
             Log($"NORMAL MAP A/B on a square {style} cap: the mesh carries {tangents} tangents "
-                + $"(BuildBeveledKeycap writes none, so 0 is expected). _NormalStrength 1 vs 0 over "
-                + $"{n} cap pixels: mean |diff| {(n > 0 ? sum / n : 0):F5}, max {max:F5}. "
-                + (max < 0.004f
-                   ? "*** THE NORMAL MAP MOVES NO PIXEL — with no tangent frame BoardLit's "
-                     + "N collapses to the vertex normal, so Keycap*_normal.png is bundle weight that "
-                     + "never reaches a pixel on the SQUARE caps. The round discs have no tangents "
-                     + "either. Fixing it is one RecalculateTangents call in CardMesh. ***"
-                   : "*** THE NORMAL MAP MOVES THE PICTURE ANYWAY, on a mesh with NO TANGENT STREAM. "
-                     + "BoardLit builds N in tangent space, so the shading normal here is being built "
-                     + "from whatever this graphics API binds for a missing TANGENT attribute — a "
-                     + "DEFAULT, not an authored basis. The bump is therefore applied along an "
-                     + "undefined direction, and nothing here can promise the rig's D3D11 binds the "
-                     + "same default as this editor's OpenGL. One RecalculateTangents in "
-                     + "CardMesh.BuildBeveledKeycap/BuildRoundCap would make it defined. ***"));
+                + $"(expect {mesh.vertexCount} — one per vertex; CardMesh.KeycapTangent). "
+                + $"_NormalStrength 1 vs 0 over {n} cap pixels: mean |diff| {(n > 0 ? sum / n : 0):F5}, "
+                + $"max {max:F5}. "
+                + (!tangentsOk
+                   ? "*** THE TANGENT STREAM IS MISSING OR SHORT. BoardLit builds N in tangent space, "
+                     + "so the shading normal is being built from whatever this graphics API binds for "
+                     + "an absent TANGENT attribute — a DEFAULT, not an authored basis, and nothing "
+                     + "here can promise the rig's D3D11 binds the same default as this editor's GL. ***"
+                   : max < 0.004f
+                   ? "*** THE NORMAL MAP MOVES NO PIXEL even with a correct basis — Keycap*_normal.png "
+                     + "is bundle weight that never reaches a pixel on the SQUARE caps. That is a "
+                     + "finding about the ASSET, not about the mesh. ***"
+                   : "the bump reaches the picture through an authored basis, which is what the "
+                     + "explicit tangent stream exists to guarantee."));
+            if (!tangentsOk) _exit = 1;
             Cleanup(go, mesh, mats);
         }
 
-        /// <summary>Ported verbatim from <c>Cards.CardMesh.BuildBeveledKeycap</c>.</summary>
-        private static Mesh BuildBeveledKeycap(float width, float height, float thickness, float bevel)
+        /// <summary>Ported verbatim from <c>Cards.CardMesh.BuildBeveledKeycap</c> (round 2's signet
+        /// profile), TANGENTS INCLUDED — the shipped mesh writes an explicit (1, 0, 0, -1) on every
+        /// vertex and a port that left it out would render through a basis the game does not use.</summary>
+        private static Mesh BuildBeveledKeycap(float width, float height, float thickness)
         {
             float hw = width * 0.5f, hh = height * 0.5f;
-            bevel = Mathf.Clamp(bevel, 0f, Mathf.Min(Mathf.Min(hw, hh) * 0.9f, thickness * 0.9f));
-            float iw = hw - bevel, ih = hh - bevel;
+            CapProfile(Mathf.Min(width, height), Mathf.Min(hw, hh), thickness,
+                       out float c, out float rim, out float step);
             float zTop = -thickness;
-            float zBev = -thickness + bevel;
+            float zWallTop = -thickness + c;
+            float zField = -thickness + step;
             float zBack = 0f;
 
-            var verts = new List<Vector3>(24);
-            var norms = new List<Vector3>(24);
-            var uvs = new List<Vector2>(24);
+            var verts = new List<Vector3>(72);
+            var norms = new List<Vector3>(72);
+            var uvs = new List<Vector2>(72);
             var top = new List<int>(6);
-            var ring = new List<int>(24);
+            var ring = new List<int>(72);
             var walls = new List<int>(30);
 
             Vector2 Uv(Vector3 p) => new(p.x / width + 0.5f, p.y / height + 0.5f);
 
-            void AddQuad(List<int> sm, Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n)
+            void AddQuad(List<int> sm, Vector3 a, Vector3 b, Vector3 cc, Vector3 d, Vector3 n)
             {
                 int b0 = verts.Count;
-                verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
+                verts.Add(a); verts.Add(b); verts.Add(cc); verts.Add(d);
                 norms.Add(n); norms.Add(n); norms.Add(n); norms.Add(n);
-                uvs.Add(Uv(a)); uvs.Add(Uv(b)); uvs.Add(Uv(c)); uvs.Add(Uv(d));
-                Vector3 rh = Vector3.Cross(b - a, c - a);
+                uvs.Add(Uv(a)); uvs.Add(Uv(b)); uvs.Add(Uv(cc)); uvs.Add(Uv(d));
+                Vector3 rh = Vector3.Cross(b - a, cc - a);
                 if (Vector3.Dot(rh, n) > 0f)
                 {
                     sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
@@ -660,34 +714,144 @@ namespace GloomhavenVR
                 }
             }
 
-            AddQuad(top, new(-iw, ih, zTop), new(iw, ih, zTop), new(iw, -ih, zTop), new(-iw, -ih, zTop),
-                    Vector3.back);
+            void AddBand(List<int> sm, float axh, float ayh, float az, float bxh, float byh, float bz,
+                         float nOut, float nZ)
+            {
+                float len = Mathf.Sqrt(nOut * nOut + nZ * nZ);
+                if (len <= 1e-6f) return;
+                float o = nOut / len, z = nZ / len;
+                AddQuad(sm, new(-axh, ayh, az), new(axh, ayh, az), new(bxh, byh, bz), new(-bxh, byh, bz),
+                        new Vector3(0f, o, z));
+                AddQuad(sm, new(axh, ayh, az), new(axh, -ayh, az), new(bxh, -byh, bz), new(bxh, byh, bz),
+                        new Vector3(o, 0f, z));
+                AddQuad(sm, new(axh, -ayh, az), new(-axh, -ayh, az), new(-bxh, -byh, bz), new(bxh, -byh, bz),
+                        new Vector3(0f, -o, z));
+                AddQuad(sm, new(-axh, -ayh, az), new(-axh, ayh, az), new(-bxh, byh, bz), new(-bxh, -byh, bz),
+                        new Vector3(-o, 0f, z));
+            }
 
-            const float s = 0.70710678f;
-            AddQuad(ring, new(-iw, ih, zTop), new(iw, ih, zTop), new(hw, hh, zBev), new(-hw, hh, zBev),
-                    new Vector3(0f, s, -s));
-            AddQuad(ring, new(iw, ih, zTop), new(iw, -ih, zTop), new(hw, -hh, zBev), new(hw, hh, zBev),
-                    new Vector3(s, 0f, -s));
-            AddQuad(ring, new(iw, -ih, zTop), new(-iw, -ih, zTop), new(-hw, -hh, zBev), new(hw, -hh, zBev),
-                    new Vector3(0f, -s, -s));
-            AddQuad(ring, new(-iw, -ih, zTop), new(-iw, ih, zTop), new(-hw, hh, zBev), new(-hw, -hh, zBev),
-                    new Vector3(-s, 0f, -s));
+            float r1x = hw - c, r1y = hh - c;
+            float r2x = r1x - rim, r2y = r1y - rim;
+            float r3x = r2x - step, r3y = r2y - step;
 
-            AddQuad(walls, new(-hw, hh, zBev), new(hw, hh, zBev), new(hw, hh, zBack), new(-hw, hh, zBack),
-                    Vector3.up);
-            AddQuad(walls, new(hw, hh, zBev), new(hw, -hh, zBev), new(hw, -hh, zBack), new(hw, hh, zBack),
-                    Vector3.right);
-            AddQuad(walls, new(hw, -hh, zBev), new(-hw, -hh, zBev), new(-hw, -hh, zBack), new(hw, -hh, zBack),
-                    Vector3.down);
-            AddQuad(walls, new(-hw, -hh, zBev), new(-hw, hh, zBev), new(-hw, hh, zBack), new(-hw, -hh, zBack),
-                    Vector3.left);
+            AddQuad(top, new(-r3x, r3y, zField), new(r3x, r3y, zField),
+                         new(r3x, -r3y, zField), new(-r3x, -r3y, zField), Vector3.back);
+            AddBand(ring, hw, hh, zWallTop, r1x, r1y, zTop, 1f, -1f);
+            AddBand(ring, r1x, r1y, zTop, r2x, r2y, zTop, 0f, -1f);
+            AddBand(ring, r2x, r2y, zTop, r3x, r3y, zField, -1f, -1f);
+            AddBand(walls, hw, hh, zWallTop, hw, hh, zBack, 1f, 0f);
             AddQuad(walls, new(-hw, hh, zBack), new(hw, hh, zBack), new(hw, -hh, zBack), new(-hw, -hh, zBack),
                     Vector3.forward);
 
-            var mesh = new Mesh { name = "GloomhavenVR.BeveledKeycap" };
+            var mesh = new Mesh { name = "GloomhavenVR.SignetKeycap" };
             mesh.SetVertices(verts);
             mesh.SetNormals(norms);
             mesh.SetUVs(0, uvs);
+            var tan = new List<Vector4>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tan.Add(KeycapTangent);
+            mesh.SetTangents(tan);
+            mesh.subMeshCount = 3;
+            mesh.SetTriangles(top, 0);
+            mesh.SetTriangles(ring, 1);
+            mesh.SetTriangles(walls, 2);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
+        /// <summary>Ported verbatim from <c>Cards.CardMesh.KeycapTangent</c>. It is EXACT rather
+        /// than approximate because both cap meshes map UV as a pure function of object XY on every
+        /// vertex — the signet profile keeps that property, since every ring is a rectangle (or a
+        /// circle) in XY and every vertex is UV'd through the one planar function.</summary>
+        private static readonly Vector4 KeycapTangent = new(1f, 0f, 0f, -1f);
+
+        /// <summary>Ported verbatim from <c>Cards.CardMesh.BuildRoundKeycap</c> — the round board
+        /// cap's signet profile, three submeshes, tangents included.</summary>
+        private static Mesh BuildRoundKeycap(float diameter, float thickness, int segments)
+        {
+            segments = Mathf.Clamp(segments, 12, 128);
+            int seg = segments;
+            float rOut = diameter * 0.5f;
+            float h = Mathf.Max(0.0005f, thickness * 0.5f);
+            CapProfile(diameter, rOut, thickness, out float c, out float rim, out float step);
+            float zFront = -h, zWallTop = -h + c, zField = -h + step, zBack = h;
+            float r1 = rOut - c, r2 = r1 - rim, r3 = r2 - step;
+
+            var verts = new List<Vector3>(seg * 10 + 2);
+            var norms = new List<Vector3>(seg * 10 + 2);
+            var uvs = new List<Vector2>(seg * 10 + 2);
+            var top = new List<int>(seg * 3);
+            var ring = new List<int>(seg * 18);
+            var walls = new List<int>(seg * 9);
+
+            Vector2 Uv(float x, float y) => new(x / diameter + 0.5f, y / diameter + 0.5f);
+            var cs = new float[seg];
+            var sn = new float[seg];
+            for (int i = 0; i < seg; i++)
+            {
+                float a = 2f * Mathf.PI * i / seg;
+                cs[i] = Mathf.Cos(a); sn[i] = Mathf.Sin(a);
+            }
+
+            void AddBand(List<int> sm, float ra, float za, float rb, float zb, float nR, float nZ)
+            {
+                float len = Mathf.Sqrt(nR * nR + nZ * nZ);
+                if (len <= 1e-6f) return;
+                float nr = nR / len, nz = nZ / len;
+                int b0 = verts.Count;
+                for (int i = 0; i < seg; i++)
+                {
+                    verts.Add(new Vector3(cs[i] * ra, sn[i] * ra, za));
+                    norms.Add(new Vector3(cs[i] * nr, sn[i] * nr, nz));
+                    uvs.Add(Uv(cs[i] * ra, sn[i] * ra));
+                    verts.Add(new Vector3(cs[i] * rb, sn[i] * rb, zb));
+                    norms.Add(new Vector3(cs[i] * nr, sn[i] * nr, nz));
+                    uvs.Add(Uv(cs[i] * rb, sn[i] * rb));
+                }
+                for (int i = 0; i < seg; i++)
+                {
+                    int next = (i + 1) % seg;
+                    int a0 = b0 + i * 2, b1 = b0 + i * 2 + 1;
+                    int c0 = b0 + next * 2, d1 = b0 + next * 2 + 1;
+                    sm.Add(a0); sm.Add(c0); sm.Add(b1);
+                    sm.Add(c0); sm.Add(d1); sm.Add(b1);
+                }
+            }
+
+            void AddFan(List<int> sm, float r, float z, bool front)
+            {
+                int b0 = verts.Count;
+                for (int i = 0; i < seg; i++)
+                {
+                    verts.Add(new Vector3(cs[i] * r, sn[i] * r, z));
+                    norms.Add(front ? Vector3.back : Vector3.forward);
+                    uvs.Add(Uv(cs[i] * r, sn[i] * r));
+                }
+                int centre = verts.Count;
+                verts.Add(new Vector3(0f, 0f, z));
+                norms.Add(front ? Vector3.back : Vector3.forward);
+                uvs.Add(new Vector2(0.5f, 0.5f));
+                for (int i = 0; i < seg; i++)
+                {
+                    int next = (i + 1) % seg;
+                    if (front) { sm.Add(centre); sm.Add(b0 + next); sm.Add(b0 + i); }
+                    else { sm.Add(centre); sm.Add(b0 + i); sm.Add(b0 + next); }
+                }
+            }
+
+            AddFan(top, r3, zField, true);
+            AddBand(ring, rOut, zWallTop, r1, zFront, 1f, -1f);
+            AddBand(ring, r1, zFront, r2, zFront, 0f, -1f);
+            AddBand(ring, r2, zFront, r3, zField, -1f, -1f);
+            AddBand(walls, rOut, zWallTop, rOut, zBack, 1f, 0f);
+            AddFan(walls, rOut, zBack, false);
+
+            var mesh = new Mesh { name = "GloomhavenVR.SignetRoundKeycap" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(norms);
+            mesh.SetUVs(0, uvs);
+            var tan = new List<Vector4>(verts.Count);
+            for (int i = 0; i < verts.Count; i++) tan.Add(KeycapTangent);
+            mesh.SetTangents(tan);
             mesh.subMeshCount = 3;
             mesh.SetTriangles(top, 0);
             mesh.SetTriangles(ring, 1);
@@ -697,7 +861,13 @@ namespace GloomhavenVR
         }
 
         /// <summary>Ported verbatim from <c>Cards.CardMesh.BuildRoundCap</c> (the body
-        /// <c>GetRoundCap</c> caches at 64 segments).</summary>
+        /// <c>GetRoundCap</c> caches at 64 segments).
+        ///
+        /// <para>NO KEYCAP USES THIS ANY MORE — round 2 moved the round board caps onto
+        /// <see cref="BuildRoundKeycap"/>. It is kept because the plain disc still ships: it is the
+        /// cap's own BACKING RING (<c>PlayTray.7.Nested</c> and its mirror) and the map room's
+        /// button rail, all of which assign a single material, which is exactly why the signet
+        /// profile was given a new name instead of replacing this one.</para></summary>
         private static Mesh BuildRoundCap(float diameter, float thickness, int segments)
         {
             segments = Mathf.Clamp(segments, 12, 128);
@@ -826,7 +996,8 @@ namespace GloomhavenVR
         /// A cap body: the mesh, and the one-or-three materials it carries. Square caps take
         /// [0] the ROLE cell on the top plateau, [1] and [2] the PLAIN cell on the bevel ring and
         /// on the walls+back — the exact three lines PlayTray and RemoteBoardFurniture both write.
-        /// Round discs are ONE submesh and therefore ONE material, which carries the role.
+        /// ROUND 2: the round disc is a signet plate too, so it takes the SAME three — the role
+        /// cell on its recessed field, the plain cell on its bezel and on its wall+back.
         /// </summary>
         private static GameObject BuildCap(Shader sh, Texture2D alb, Texture2D nrm, int cell,
                                            Color face, float w, float h, float thick, bool round,
@@ -836,21 +1007,14 @@ namespace GloomhavenVR
             var go = new GameObject("Cap");
             var mf = go.AddComponent<MeshFilter>();
             var mr = go.AddComponent<MeshRenderer>();
-            if (round)
+            mesh = round ? BuildRoundKeycap(w, thick, RoundCapSegments)
+                         : BuildBeveledKeycap(w, h, thick);
+            mats = new[]
             {
-                mesh = BuildRoundCap(w, thick, RoundCapSegments);
-                mats = new[] { MakeMat(sh, top, alb, nrm, cell) };
-            }
-            else
-            {
-                mesh = BuildBeveledKeycap(w, h, thick, SquareCapBevel);
-                mats = new[]
-                {
-                    MakeMat(sh, top, alb, nrm, cell),
-                    MakeMat(sh, BevelTint(top), alb, nrm, cell < 0 ? -1 : CellPlain),
-                    MakeMat(sh, WallTint(top), alb, nrm, cell < 0 ? -1 : CellPlain),
-                };
-            }
+                MakeMat(sh, top, alb, nrm, cell),
+                MakeMat(sh, BevelTint(top), alb, nrm, cell < 0 ? -1 : CellPlain),
+                MakeMat(sh, WallTint(top), alb, nrm, cell < 0 ? -1 : CellPlain),
+            };
             mf.sharedMesh = mesh;
             mr.sharedMaterials = mats;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -949,7 +1113,7 @@ namespace GloomhavenVR
             var nrm = LoadRaw(AtlasNormal(style));
             if (alb == null) { Err("press filmstrip: no oak atlas."); _exit = 1; return; }
 
-            var go = BuildCap(sh, alb, nrm, CellConfirm, IdleColor * ShippedCapTint, capW, capH,
+            var go = BuildCap(sh, alb, nrm, CellConfirm, IdleColorFor(style) * ShippedCapTint, capW, capH,
                               SquareCapThickness, false, out Mesh mesh, out Material[] mats);
 
             var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);   // Unity's Quad faces -Z

@@ -107,11 +107,16 @@ internal sealed class RemoteStatusReadouts
         // 0.06. Two separate defects fall out of that one number:
         //   • 0.182 / 0.06 = 3.03x — the mirrored "Runde N" was a third of the owner's height at
         //     every board scale, which is the "super klein";
-        //   • 0.06 is BELOW TmpFit.MinFontSize (0.08), so the auto-size band came out INVERTED
-        //     (fontSizeMax < fontSizeMin). TMP's grow and shrink branches are both gated on that
-        //     band, so the label stopped responding to its box at all and its rendered size
+        //   • 0.06 was BELOW TmpFit.MinFontSize (0.08 at the time), so the auto-size band came out
+        //     INVERTED (fontSizeMax < fontSizeMin). TMP's grow and shrink branches are both gated
+        //     on that band, so the label stopped responding to its box at all and its rendered size
         //     depended on which side of the quantiser the string landed — which is exactly the
         //     "unter Umständen" and "skalliert nicht richtig".
+        //     THAT SECOND DEFECT IS NOW STRUCTURALLY IMPOSSIBLE (2026-08-25): TmpFit clamps
+        //     fontSizeMin to fontSizeMax, so no caller can invert the band, and the floor itself
+        //     dropped from 0.08 to 0.045 with the caption-truncation fix. The FIRST defect — one
+        //     literal written twice — is still why this passes the owner's number rather than its
+        //     own, and it is the reason that matters.
         // The fix is to pass the OWNER'S literal, so there is one number rather than two agreeing.
         // There is no round-readout SIZE dial anywhere (config, record 28, BoardTunePages) — this
         // was never a tuning that failed to travel, so no wire field is needed or added.
@@ -122,10 +127,12 @@ internal sealed class RemoteStatusReadouts
         Core.VRLog.Info("Net", "ROUND MIRROR: round readout label fitted at maxFont " +
                                $"{RoundLabelMaxFont:F2} (the owner's own PlayTray.BuildRoundReadout " +
                                $"literal) into a {0.12f:F3} x {0.028f:F3} m rect — TmpFit clamps it " +
-                               $"to the height cap {0.028f * 6.5f:F3}, which is above the 0.08 " +
-                               "auto-size floor, so the band is valid and the glyphs are the same " +
-                               "size the owner reads. Was 0.06: 3.03x too small AND below the " +
-                               "floor (inverted band = the 'skalliert nicht richtig').");
+                               $"to the height cap {0.028f * 6.5f:F3}, which is above the " +
+                               $"{Core.TmpFit.MinFontSize:F3} auto-size floor, so the band is valid " +
+                               "and the glyphs are the same size the owner reads. Was 0.06: 3.03x " +
+                               "too small AND below the then-0.08 floor (inverted band = the " +
+                               "'skalliert nicht richtig'; TmpFit clamps min to max now, so that " +
+                               "half cannot recur).");
 
         // --- initiative: top-centre, in the strip between the round-card tops (y 0.104) and the
         //     board's top edge (y 0.16) — where the local board's docked initiative track sits.

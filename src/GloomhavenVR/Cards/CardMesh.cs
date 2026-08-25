@@ -638,24 +638,42 @@ internal static class CardMesh
     }
 
     /// <summary>
-    /// Item 4 (make the button side walls actually VISIBLE): build a real 3D keycap with a
-    /// CHAMFERED front edge, authored at its REAL size in meters so the owning transform can
-    /// stay unit-scaled (uniform scale keeps the 45° bevel normal a true 45° in world space,
-    /// which is what lets it catch light). Three submeshes, coloured by the caller as a bright
-    /// top / a BRIGHT parchment-lit bevel ring / a dark warm wall band, so a huge top→bevel→wall
-    /// value gradient reads the cap as unmistakably RAISED even viewed near top-down against a
-    /// dark board (the old flat-dark walls, ×0.45 of an already-dark top, vanished):
-    ///   • submesh 0 — the TOP plateau (flat, faces the viewer at local −Z), inset by
-    ///     <paramref name="bevel"/> from the outer edge;
-    ///   • submesh 1 — the BEVEL RING: four ~45° chamfer quads bridging the inset plateau edge
-    ///     (at z = −thickness) out to the full-size top edge (at z = −thickness + bevel). Angled
-    ///     halfway between top and wall, so it is always partly visible AND shades distinctly
-    ///     under BoardLit — the primary "this is 3D" cue;
-    ///   • submesh 2 — the four vertical side WALLS + the hidden back.
-    /// The cap spans local z = −<paramref name="thickness"/> (front/top, viewer side) to 0
-    /// (back), matching the old cube placement, so the label offset and press travel are
-    /// unchanged. Each face carries its own flat-shaded vertices/normal; triangle winding is
-    /// derived from the outward normal so every face is front-facing regardless of corner order.
+    /// THE BOARD KEYCAP — a SIGNET PLATE, authored at its REAL size in meters so the owning
+    /// transform can stay unit-scaled (uniform scale keeps every chamfer a true 45° in world space,
+    /// which is what lets it catch the shader's baked key).
+    ///
+    /// <para><b>ROUND 2 RE-CUT THE SHAPE. The user, verbatim:</b> <i>"Auch die Form der Buttons
+    /// gefällt mir noch nicht. Rund und Viereckig sind vorgabe, aber ansonsten darfst du gerne
+    /// kreativ werden."</i> What it was: one flat plateau behind a single 7 mm 45° chamfer, 40 verts
+    /// and 20 triangles. What it is now, outward-to-inward:</para>
+    /// <list type="bullet">
+    /// <item>the vertical side WALL (submesh 2, dark warm band) and the hidden back;</item>
+    /// <item>a 45° OUTER CHAMFER (submesh 1);</item>
+    /// <item>a flat RIM LAND at the cap's frontmost plane, facing the viewer squarely (submesh 1);</item>
+    /// <item>a 45° INNER CHAMFER stepping BACK (submesh 1) — the recess;</item>
+    /// <item>the RECESSED FIELD (submesh 0, the state colour) that carries the carved symbol and,
+    /// floating just proud of it, the caption.</item>
+    /// </list>
+    ///
+    /// <para><b>WHY A RIM LAND, measured rather than chosen.</b> <c>BoardLit</c> shades by world
+    /// normal against two baked studio directions and never reads a scene light, so on this surface
+    /// a 45° chamfer is a FIXED value, not a highlight that travels as the player moves. The
+    /// strongest "this is raised" cue it can give is therefore the largest area that both faces the
+    /// viewer and carries the bright bevel tint — which is exactly a flat land at the frontmost
+    /// plane. The two chamfers either side of it supply the silhouette's value steps.</para>
+    ///
+    /// <para><b>AND THE SHAPE PAID FOR THE CAPTION.</b> The old 7 mm chamfer is 0.159 of the Bronze
+    /// cap's short side by itself; the whole new bezel is <see cref="CapFaceLayout.BezelTotal"/> =
+    /// 0.135. That is where the millimetres came from that let "Auswahl beenden" wrap to two lines
+    /// instead of being cut to "AUSWAHL BEEN" — see <c>CapFaceLayout</c> for the report and the
+    /// arithmetic.</para>
+    ///
+    /// <para>The cap spans local z = −<paramref name="thickness"/> (front, viewer side) to 0 (back),
+    /// matching the old placement, so the press travel and the collider are unchanged. Each face
+    /// carries its own flat-shaded vertices and normal; triangle winding is derived from the outward
+    /// normal so every face is front-facing regardless of corner order. Watertight counts:
+    /// <b>72 verts, 36 tris, submesh index counts [6, 72, 30]</b> (field 6 / bezel 72 / walls+back
+    /// 30) — asserted by <c>BoardButton.LogCapDiagnostics</c> and by the companion render station.</para>
     /// </summary>
 
     /// <summary>
@@ -693,29 +711,75 @@ internal static class CardMesh
     /// </summary>
     private static readonly Vector4 KeycapTangent = new(1f, 0f, 0f, -1f);
 
-    internal static Mesh BuildBeveledKeycap(float width, float height, float thickness, float bevel)
+    /// <summary>
+    /// THE SIGNET BEZEL, SOLVED ONCE for both cap shapes and for the callers that need to know where
+    /// the recessed field ended up.
+    ///
+    /// <para>The three fractions are <see cref="CapFaceLayout"/>'s — the same numbers the atlas
+    /// generator carves against and the caption box is measured in — taken against
+    /// <paramref name="refSide"/>, the cap's SHORT side (its diameter, on a disc). The two clamps
+    /// only ever SHRINK the bezel, so a cap that is tiny or thin gets a smaller one rather than an
+    /// inverted one; on all three shipped board sizes neither clamp fires, which is the case that
+    /// matters and the reason the field band is a single pair of numbers.</para>
+    ///
+    /// <para>It is INTERNAL and not private because <c>BoardButton.Create</c> seats the caption
+    /// exactly <see cref="LabelProudOfField"/> in front of the field plane, and the field plane is
+    /// <c>−thickness + step</c>. Deriving that in the caller from the same fractions would be a
+    /// second copy of this arithmetic, and a caption floating in front of where the field USED to be
+    /// is not something any gate in this repository can see.</para>
+    /// </summary>
+    internal static void CapProfile(float refSide, float halfLimit, float thickness,
+                                    out float chamfer, out float rim, out float step)
+    {
+        float span = CapFaceLayout.BezelTotal * refSide;
+        float scale = 1f;
+        if (span > 0f)
+            scale = Mathf.Min(scale, halfLimit * 0.9f / span);
+        float chamferSpan = CapFaceLayout.BezelChamfer * refSide;
+        if (chamferSpan > 0f)
+            scale = Mathf.Min(scale, thickness * 0.45f / chamferSpan);
+        scale = Mathf.Clamp(scale, 0f, 1f);
+        chamfer = CapFaceLayout.BezelChamfer * refSide * scale;
+        rim = CapFaceLayout.BezelRim * refSide * scale;
+        step = CapFaceLayout.BezelStep * refSide * scale;
+    }
+
+    /// <summary>How far in front of the recessed FIELD the caption quad floats (meters). Small: the
+    /// caption is engraved parchment on the plate, not a sign hovering over it, and a large gap
+    /// shows as parallax between the two the moment the player looks along the board.</summary>
+    internal const float LabelProudOfField = 0.0015f;
+
+    internal static Mesh BuildBeveledKeycap(float width, float height, float thickness)
     {
         float hw = width * 0.5f, hh = height * 0.5f;
-        bevel = Mathf.Clamp(bevel, 0f, Mathf.Min(Mathf.Min(hw, hh) * 0.9f, thickness * 0.9f));
-        float iw = hw - bevel, ih = hh - bevel;   // inset plateau half-extents
-        float zTop = -thickness;                  // frontmost plane (the plateau)
-        float zBev = -thickness + bevel;          // where the bevel meets the vertical wall
-        float zBack = 0f;                          // hidden back
+        CapProfile(Mathf.Min(width, height), Mathf.Min(hw, hh), thickness,
+                   out float c, out float rim, out float step);
 
-        var verts = new System.Collections.Generic.List<Vector3>(24);
-        var norms = new System.Collections.Generic.List<Vector3>(24);
-        var uvs = new System.Collections.Generic.List<Vector2>(24);
+        float zTop = -thickness;                 // frontmost plane — the RIM LAND lives here
+        float zWallTop = -thickness + c;         // where the outer chamfer meets the vertical wall
+        float zField = -thickness + step;        // the recessed field, one step BACK from the rim
+        float zBack = 0f;                        // hidden back
+
+        var verts = new System.Collections.Generic.List<Vector3>(72);
+        var norms = new System.Collections.Generic.List<Vector3>(72);
+        var uvs = new System.Collections.Generic.List<Vector2>(72);
         var top = new System.Collections.Generic.List<int>(6);
-        var ring = new System.Collections.Generic.List<int>(24);
+        var ring = new System.Collections.Generic.List<int>(72);
         var walls = new System.Collections.Generic.List<int>(30);
 
         // Task #5a: planar UV from the cap's local XY, normalized 0..1 across the footprint —
         // the SAME convention CardMesh.Build uses for the card front (u = x/width + 0.5,
-        // v = y/height + 0.5). Applied to EVERY vertex (top, bevel ring AND walls) so the grain
-        // texture maps sensibly instead of the old single (0.5, 0.5) texel. Because the mapping
-        // is continuous in XY it is watertight at the top→bevel fold (shared XY → shared UV → no
+        // v = y/height + 0.5). Applied to EVERY vertex (field, rim, both chamfers AND walls) so the
+        // grain texture maps sensibly instead of the old single (0.5, 0.5) texel. Because the
+        // mapping is continuous in XY it is watertight at every fold (shared XY → shared UV → no
         // seam). The vertical walls share their edge's XY, so they sample a THIN grain strip along
         // that edge (a subtle stretched grain — acceptable per the task, texture set to Repeat).
+        //
+        // AND THIS IS THE PROPERTY CardMesh.KeycapTangent DEPENDS ON. That constant (1, 0, 0, -1)
+        // is EXACT only while u is a pure function of x and v a pure function of y on every vertex
+        // of the mesh. The signet profile keeps it exactly: every ring below is a rectangle in XY
+        // and every vertex is UV'd through this one function. Nothing here needs a per-vertex basis
+        // and RecalculateTangents stays the wrong answer for the same reason it was before.
         Vector2 Uv(Vector3 p) => new(p.x / width + 0.5f, p.y / height + 0.5f);
 
         // Add a quad (a,b,c,d looping the rim) to submesh <sm> with flat normal <n>. Winding is
@@ -728,60 +792,75 @@ internal static class CardMesh
         // faces survived toward the viewer, so the button read as see-through onto its own back cap /
         // inner walls. Ground truth (the shipping card front face, CardMesh.Build): a triangle is
         // front-facing/visible from the side its RIGHT-HAND normal (Cross(v1−v0, v2−v0)) points
-        // TOWARD. So to be visible from +n the EMITTED winding's RH normal must point +n — the
-        // opposite of what this method did before (it forced the RH normal to −n in BOTH branches).
+        // TOWARD. So to be visible from +n the EMITTED winding's RH normal must point +n.
         void AddQuad(System.Collections.Generic.List<int> sm,
-                     Vector3 a, Vector3 b, Vector3 c, Vector3 d, Vector3 n)
+                     Vector3 a, Vector3 b, Vector3 cc, Vector3 d, Vector3 n)
         {
             int b0 = verts.Count;
-            verts.Add(a); verts.Add(b); verts.Add(c); verts.Add(d);
+            verts.Add(a); verts.Add(b); verts.Add(cc); verts.Add(d);
             norms.Add(n); norms.Add(n); norms.Add(n); norms.Add(n);
-            uvs.Add(Uv(a)); uvs.Add(Uv(b)); uvs.Add(Uv(c)); uvs.Add(Uv(d));
-            Vector3 rh = Vector3.Cross(b - a, c - a); // RH normal of triangle (a,b,c)
+            uvs.Add(Uv(a)); uvs.Add(Uv(b)); uvs.Add(Uv(cc)); uvs.Add(Uv(d));
+            Vector3 rh = Vector3.Cross(b - a, cc - a); // RH normal of triangle (a,b,cc)
             if (Vector3.Dot(rh, n) > 0f)
             {
-                // (a,b,c)/(a,c,d) already wind so the RH normal points +n → visible from outside.
                 sm.Add(b0); sm.Add(b0 + 1); sm.Add(b0 + 2);
                 sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 3);
             }
             else
             {
-                // Reverse so the RH normal flips to +n (outward).
                 sm.Add(b0); sm.Add(b0 + 2); sm.Add(b0 + 1);
                 sm.Add(b0); sm.Add(b0 + 3); sm.Add(b0 + 2);
             }
         }
 
-        // Top plateau (faces the viewer, −Z).
-        AddQuad(top, new(-iw, ih, zTop), new(iw, ih, zTop), new(iw, -ih, zTop), new(-iw, -ih, zTop),
-                Vector3.back);
+        // One BAND of the bezel: four mitred quads bridging rectangle A (half-extents axh, ayh at
+        // depth az) out to rectangle B (bxh, byh at bz). `nOut` is the normal's component along the
+        // side's own outward direction and `nZ` its component toward the viewer (−Z); they are
+        // passed rather than derived because the four bands do not share one rule — the walls run
+        // front-to-back at a CONSTANT radius, where any "rotate the edge direction" formula gives
+        // the inward normal. Corner folds are shared edges, so every band is watertight.
+        void AddBand(System.Collections.Generic.List<int> sm,
+                     float axh, float ayh, float az, float bxh, float byh, float bz,
+                     float nOut, float nZ)
+        {
+            float len = Mathf.Sqrt(nOut * nOut + nZ * nZ);
+            if (len <= 1e-6f)
+                return;
+            float o = nOut / len, z = nZ / len;
+            AddQuad(sm, new(-axh, ayh, az), new(axh, ayh, az), new(bxh, byh, bz), new(-bxh, byh, bz),
+                    new Vector3(0f, o, z));    // +Y
+            AddQuad(sm, new(axh, ayh, az), new(axh, -ayh, az), new(bxh, -byh, bz), new(bxh, byh, bz),
+                    new Vector3(o, 0f, z));    // +X
+            AddQuad(sm, new(axh, -ayh, az), new(-axh, -ayh, az), new(-bxh, -byh, bz), new(bxh, -byh, bz),
+                    new Vector3(0f, -o, z));   // −Y
+            AddQuad(sm, new(-axh, -ayh, az), new(-axh, ayh, az), new(-bxh, byh, bz), new(-bxh, -byh, bz),
+                    new Vector3(-o, 0f, z));   // −X
+        }
 
-        // Bevel ring — four 45° chamfers (normal = outward + toward viewer). Corner folds are
-        // shared edges (plateau corner → outer corner), so the ring is watertight.
-        const float s = 0.70710678f;
-        AddQuad(ring, new(-iw, ih, zTop), new(iw, ih, zTop), new(hw, hh, zBev), new(-hw, hh, zBev),
-                new Vector3(0f, s, -s));   // +Y edge
-        AddQuad(ring, new(iw, ih, zTop), new(iw, -ih, zTop), new(hw, -hh, zBev), new(hw, hh, zBev),
-                new Vector3(s, 0f, -s));   // +X edge
-        AddQuad(ring, new(iw, -ih, zTop), new(-iw, -ih, zTop), new(-hw, -hh, zBev), new(hw, -hh, zBev),
-                new Vector3(0f, -s, -s));  // −Y edge
-        AddQuad(ring, new(-iw, -ih, zTop), new(-iw, ih, zTop), new(-hw, hh, zBev), new(-hw, -hh, zBev),
-                new Vector3(-s, 0f, -s));  // −X edge
+        float r1x = hw - c, r1y = hh - c;                    // inner edge of the outer chamfer
+        float r2x = r1x - rim, r2y = r1y - rim;              // inner edge of the rim land
+        float r3x = r2x - step, r3y = r2y - step;            // the recessed FIELD
 
-        // Vertical side walls (outward normals) from the bevel base back to z = 0.
-        AddQuad(walls, new(-hw, hh, zBev), new(hw, hh, zBev), new(hw, hh, zBack), new(-hw, hh, zBack),
-                Vector3.up);
-        AddQuad(walls, new(hw, hh, zBev), new(hw, -hh, zBev), new(hw, -hh, zBack), new(hw, hh, zBack),
-                Vector3.right);
-        AddQuad(walls, new(hw, -hh, zBev), new(-hw, -hh, zBev), new(-hw, -hh, zBack), new(hw, -hh, zBack),
-                Vector3.down);
-        AddQuad(walls, new(-hw, -hh, zBev), new(-hw, hh, zBev), new(-hw, hh, zBack), new(-hw, -hh, zBack),
-                Vector3.left);
-        // Hidden back (kept so the solid never shows a hole if seen edge-on).
+        // [0] THE RECESSED FIELD — the state colour, the carved symbol, and the caption above it.
+        AddQuad(top, new(-r3x, r3y, zField), new(r3x, r3y, zField),
+                     new(r3x, -r3y, zField), new(-r3x, -r3y, zField), Vector3.back);
+
+        // [1] THE BEZEL — outer chamfer, rim land, inner chamfer. All three take the BRIGHT bevel
+        // material, so the field sits in a lit frame rather than behind a single 45° edge. The RIM
+        // LAND is the piece that did not exist before: it is the largest area of the cap that faces
+        // the viewer squarely while carrying the bevel tint, and on a shader that bakes its key
+        // directions (BoardLit reads no scene light) a squarely-facing lit face is the strongest
+        // "raised" cue available — a chamfer is a fixed value, not a highlight that moves.
+        AddBand(ring, hw, hh, zWallTop, r1x, r1y, zTop, 1f, -1f);      // outer chamfer, 45°
+        AddBand(ring, r1x, r1y, zTop, r2x, r2y, zTop, 0f, -1f);        // rim land, flat to the viewer
+        AddBand(ring, r2x, r2y, zTop, r3x, r3y, zField, -1f, -1f);     // inner chamfer, stepping down
+
+        // [2] THE WALLS + the hidden back (kept so the solid never shows a hole if seen edge-on).
+        AddBand(walls, hw, hh, zWallTop, hw, hh, zBack, 1f, 0f);
         AddQuad(walls, new(-hw, hh, zBack), new(hw, hh, zBack), new(hw, -hh, zBack), new(-hw, -hh, zBack),
                 Vector3.forward);
 
-        var mesh = new Mesh { name = "GloomhavenVR.BeveledKeycap" };
+        var mesh = new Mesh { name = "GloomhavenVR.SignetKeycap" };
         mesh.SetVertices(verts);
         mesh.SetNormals(norms);
         mesh.SetUVs(0, uvs);
@@ -795,6 +874,146 @@ internal static class CardMesh
         mesh.SetTriangles(walls, 2);
         mesh.RecalculateBounds();
         return mesh;
+    }
+
+    /// <summary>
+    /// The SIGNET PROFILE on a disc — the round board caps (the two rest pads, and Confirm/Undo on
+    /// a board whose shape is Round). Same five zones as <see cref="BuildBeveledKeycap"/> and the
+    /// same three submeshes, so the two shapes read as one family and the caller's
+    /// field / bezel / wall materials drive either one unchanged.
+    ///
+    /// <para><b>THIS IS A NEW MESH, NOT A CHANGE TO <see cref="BuildRoundCap"/>, and deliberately.</b>
+    /// That plain disc has three other callers — the cap's own backing ring
+    /// (<c>PlayTray.7.Nested</c> and its mirror) and the map room's button rail — and every one of
+    /// them assigns a single <c>sharedMaterial</c>. Giving the shared disc three submeshes would
+    /// have left submeshes 1 and 2 with no material on furniture nobody is looking at in this round.</para>
+    ///
+    /// <para>UVs are planar XY over the disc's own footprint exactly as before
+    /// (u = x/diameter + 0.5, v = y/diameter + 0.5), so <see cref="KeycapTangent"/> is exact here
+    /// for the same reason it is on the square cap, and the atlas cell lands on the field the same
+    /// way. The rim is the one place u and v are constant along z; that degenerate case is the disc's
+    /// own and is unchanged.</para>
+    /// </summary>
+    internal static Mesh BuildRoundKeycap(float diameter, float thickness, int segments)
+    {
+        segments = Mathf.Clamp(segments, 12, 128);
+        int seg = segments;
+        float rOut = diameter * 0.5f;
+        float h = Mathf.Max(0.0005f, thickness * 0.5f);
+        CapProfile(diameter, rOut, thickness, out float c, out float rim, out float step);
+
+        float zFront = -h;                 // viewer side (−Z) — the RIM LAND plane
+        float zWallTop = -h + c;
+        float zField = -h + step;
+        float zBack = h;
+        float r1 = rOut - c, r2 = r1 - rim, r3 = r2 - step;
+
+        var verts = new System.Collections.Generic.List<Vector3>(seg * 10 + 2);
+        var norms = new System.Collections.Generic.List<Vector3>(seg * 10 + 2);
+        var uvs = new System.Collections.Generic.List<Vector2>(seg * 10 + 2);
+        var top = new System.Collections.Generic.List<int>(seg * 3);
+        var ring = new System.Collections.Generic.List<int>(seg * 18);
+        var walls = new System.Collections.Generic.List<int>(seg * 9);
+
+        Vector2 Uv(float x, float y) => new(x / diameter + 0.5f, y / diameter + 0.5f);
+
+        var cs = new float[seg];
+        var sn = new float[seg];
+        for (int i = 0; i < seg; i++)
+        {
+            float a = 2f * Mathf.PI * i / seg;
+            cs[i] = Mathf.Cos(a);
+            sn[i] = Mathf.Sin(a);
+        }
+
+        // A radial BAND: `seg` quads from radius ra at depth za out to radius rb at zb, with a hard
+        // normal whose radial component is nR and whose viewer-ward component is nZ. Same argument
+        // as the square cap's AddBand for passing the normal instead of deriving it.
+        void AddBand(System.Collections.Generic.List<int> sm,
+                     float ra, float za, float rb, float zb, float nR, float nZ)
+        {
+            float len = Mathf.Sqrt(nR * nR + nZ * nZ);
+            if (len <= 1e-6f)
+                return;
+            float nr = nR / len, nz = nZ / len;
+            int b0 = verts.Count;
+            for (int i = 0; i < seg; i++)
+            {
+                verts.Add(new Vector3(cs[i] * ra, sn[i] * ra, za));
+                norms.Add(new Vector3(cs[i] * nr, sn[i] * nr, nz));
+                uvs.Add(Uv(cs[i] * ra, sn[i] * ra));
+                verts.Add(new Vector3(cs[i] * rb, sn[i] * rb, zb));
+                norms.Add(new Vector3(cs[i] * nr, sn[i] * nr, nz));
+                uvs.Add(Uv(cs[i] * rb, sn[i] * rb));
+            }
+            for (int i = 0; i < seg; i++)
+            {
+                int next = (i + 1) % seg;
+                int a0 = b0 + i * 2, b1 = b0 + i * 2 + 1;
+                int c0 = b0 + next * 2, d1 = b0 + next * 2 + 1;
+                // Winding taken from BuildRoundCap's side wall (a, c, b / c, d, b), which is the
+                // one this project has already proved outward-facing on hardware.
+                sm.Add(a0); sm.Add(c0); sm.Add(b1);
+                sm.Add(c0); sm.Add(d1); sm.Add(b1);
+            }
+        }
+
+        // A flat disc FAN at radius r, depth z, facing `front` (−Z) or the back (+Z).
+        void AddFan(System.Collections.Generic.List<int> sm, float r, float z, bool front)
+        {
+            int b0 = verts.Count;
+            for (int i = 0; i < seg; i++)
+            {
+                verts.Add(new Vector3(cs[i] * r, sn[i] * r, z));
+                norms.Add(front ? Vector3.back : Vector3.forward);
+                uvs.Add(Uv(cs[i] * r, sn[i] * r));
+            }
+            int centre = verts.Count;
+            verts.Add(new Vector3(0f, 0f, z));
+            norms.Add(front ? Vector3.back : Vector3.forward);
+            uvs.Add(new Vector2(0.5f, 0.5f));
+            for (int i = 0; i < seg; i++)
+            {
+                int next = (i + 1) % seg;
+                if (front) { sm.Add(centre); sm.Add(b0 + next); sm.Add(b0 + i); }
+                else { sm.Add(centre); sm.Add(b0 + i); sm.Add(b0 + next); }
+            }
+        }
+
+        AddFan(top, r3, zField, front: true);                      // [0] the recessed field
+        AddBand(ring, rOut, zWallTop, r1, zFront, 1f, -1f);        // [1] outer chamfer
+        AddBand(ring, r1, zFront, r2, zFront, 0f, -1f);            //     rim land
+        AddBand(ring, r2, zFront, r3, zField, -1f, -1f);           //     inner chamfer
+        AddBand(walls, rOut, zWallTop, rOut, zBack, 1f, 0f);       // [2] side wall
+        AddFan(walls, rOut, zBack, front: false);                  //     hidden back
+
+        var mesh = new Mesh { name = "GloomhavenVR.SignetRoundKeycap" };
+        mesh.SetVertices(verts);
+        mesh.SetNormals(norms);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTangents(new System.Collections.Generic.List<Vector4>(
+            System.Linq.Enumerable.Repeat(KeycapTangent, verts.Count)));
+        mesh.subMeshCount = 3;
+        mesh.SetTriangles(top, 0);
+        mesh.SetTriangles(ring, 1);
+        mesh.SetTriangles(walls, 2);
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    private static readonly System.Collections.Generic.Dictionary<(int, int, int), Mesh> _roundKeycapCache = new();
+
+    /// <summary>Cached <see cref="BuildRoundKeycap"/>, keyed exactly as <see cref="GetRoundCap"/> is
+    /// and for the same reason: every rest disc on a board is the same size.</summary>
+    internal static Mesh GetRoundKeycap(float diameter, float thickness, int segments = RoundCapSegments)
+    {
+        segments = Mathf.Clamp(segments, 12, 128);
+        var key = (Mathf.RoundToInt(diameter * 10000f), Mathf.RoundToInt(thickness * 10000f), segments);
+        if (_roundKeycapCache.TryGetValue(key, out Mesh cached) && cached != null)
+            return cached;
+        Mesh built = BuildRoundKeycap(diameter, thickness, segments);
+        _roundKeycapCache[key] = built;
+        return built;
     }
 
     /// <summary>
