@@ -138,15 +138,39 @@ internal static partial class WindowMaterialise
 
     private static readonly Stack<Mesh> MeshPool = new(8);
 
-    private static readonly List<Vector3> BufPos = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Vector3> BufNrm = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Vector4> BufTan = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Vector4> BufUv0 = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Vector4> BufUv1 = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Vector4> BufUv2 = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<Color> BufCol = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<int> BufIdxFront = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
-    private static readonly List<int> BufIdxBehind = new(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
+    /// <summary>Front half, then behind half. See <see cref="Half"/>.</summary>
+    private const int Halves = 2;
+    private const int HalfFront = 0;
+    private const int HalfBehind = 1;
+
+    /// <summary>
+    /// <b>THE TWO HALVES GET SEPARATE VERTEX BUFFERS, AND A MEASUREMENT IS WHY.</b>
+    ///
+    /// <para>The first version of this file gave both meshes the WHOLE vertex buffer and let them
+    /// differ only in their index list, on the argument that one build pass was worth a little
+    /// duplicated memory. Then the harness measured the build and named the stage: at 420 shards the
+    /// mesh writes were <b>1.70 ms of a 3.17 ms build</b>, and about half of that was the second mesh
+    /// re-uploading a buffer identical to the first's. Splitting the buffers uploads each vertex
+    /// exactly once in total instead of twice, and gives each half a tighter culling box as a side
+    /// effect. Capacity is the whole cap on both, because the split is per-window and a window whose
+    /// shards all went one way is a legal outcome.</para>
+    /// </summary>
+    private static readonly List<Vector3>[] BufPos = MakeBuf<Vector3>();
+    private static readonly List<Vector3>[] BufNrm = MakeBuf<Vector3>();
+    private static readonly List<Vector4>[] BufTan = MakeBuf<Vector4>();
+    private static readonly List<Vector4>[] BufUv0 = MakeBuf<Vector4>();
+    private static readonly List<Vector4>[] BufUv1 = MakeBuf<Vector4>();
+    private static readonly List<Vector4>[] BufUv2 = MakeBuf<Vector4>();
+    private static readonly List<Color>[] BufCol = MakeBuf<Color>();
+    private static readonly List<int>[] BufIdx = MakeBuf<int>();
+
+    private static List<T>[] MakeBuf<T>()
+    {
+        var a = new List<T>[Halves];
+        for (int i = 0; i < Halves; i++)
+            a[i] = new List<T>(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
+        return a;
+    }
 
     /// <summary>Cumulative emission weight per candidate element, rebuilt per effect.</summary>
     private static readonly List<float> EmitCumulative = new(256);
@@ -292,9 +316,12 @@ internal static partial class WindowMaterialise
         var windCanvas = new Vector2(wind.x / Mathf.Max(aspect, 1e-3f), wind.y);
         windCanvas = windCanvas.sqrMagnitude > 1e-9f ? windCanvas.normalized : Vector2.right;
 
-        BufPos.Clear(); BufNrm.Clear(); BufTan.Clear();
-        BufUv0.Clear(); BufUv1.Clear(); BufUv2.Clear(); BufCol.Clear();
-        BufIdxFront.Clear(); BufIdxBehind.Clear();
+        for (int h = 0; h < Halves; h++)
+        {
+            BufPos[h].Clear(); BufNrm[h].Clear(); BufTan[h].Clear();
+            BufUv0[h].Clear(); BufUv1[h].Clear(); BufUv2[h].Clear();
+            BufCol[h].Clear(); BufIdx[h].Clear();
+        }
 
         int frontCount = 0, behindCount = 0;
         float minSizeM = float.MaxValue, maxSizeM = 0f;
@@ -334,8 +361,9 @@ internal static partial class WindowMaterialise
             float squash = Mathf.Lerp(0.30f, 0.72f, Rand01());
             var lift = new Vector3(1f, 1f, squash);
 
-            int baseVert = BufPos.Count;
-            List<int> idx = behind ? BufIdxBehind : BufIdxFront;
+            int half = behind ? HalfBehind : HalfFront;
+            int baseVert = BufPos[half].Count;
+            List<int> idx = BufIdx[half];
             if (behind) behindCount++; else frontCount++;
 
             for (int f = 0; f < 4; f++)
@@ -347,11 +375,11 @@ internal static partial class WindowMaterialise
                 Vector3 n = Vector3.Cross(b - a, c - a);
                 n = n.sqrMagnitude > 1e-9f ? n.normalized : Vector3.forward;
 
-                AddShardVertex(birthLocal, n, a, sizeCanvas, uv, threshold, seedA,
+                AddShardVertex(half, birthLocal, n, a, sizeCanvas, uv, threshold, seedA,
                                axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
-                AddShardVertex(birthLocal, n, b, sizeCanvas, uv, threshold, seedA,
+                AddShardVertex(half, birthLocal, n, b, sizeCanvas, uv, threshold, seedA,
                                axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
-                AddShardVertex(birthLocal, n, c, sizeCanvas, uv, threshold, seedA,
+                AddShardVertex(half, birthLocal, n, c, sizeCanvas, uv, threshold, seedA,
                                axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
 
                 idx.Add(baseVert + f * 3);
@@ -395,8 +423,8 @@ internal static partial class WindowMaterialise
                                + WindowMaterialiseField.DebrisWanderMetres * 1.733f
                                + WindowMaterialiseField.DebrisMaxMetres);
 
-        cl.MeshBehind = BuildHalf(go, mat, BufIdxBehind, "Behind", reachCanvas, out cl.Behind);
-        cl.MeshFront = BuildHalf(go, mat, BufIdxFront, "Front", reachCanvas, out cl.Front);
+        cl.MeshBehind = BuildHalf(go, mat, HalfBehind, "Behind", reachCanvas, out cl.Behind);
+        cl.MeshFront = BuildHalf(go, mat, HalfFront, "Front", reachCanvas, out cl.Front);
 
         // The two halves bracket the window in the panel's own distance ladder, which is re-derived
         // every LateUpdate from measured eye distance. Registering rather than writing a sortingOrder
@@ -414,7 +442,7 @@ internal static partial class WindowMaterialise
 
     /// <summary>One half of the cloud on its own renderer, because a panel writes no depth and
     /// <c>sortingOrder</c> is the only thing that can put geometry behind one.</summary>
-    private static Mesh BuildHalf(GameObject parent, Material mat, List<int> indices, string half,
+    private static Mesh BuildHalf(GameObject parent, Material mat, int h, string half,
                                   float reachCanvas, out MeshRenderer mr)
     {
         var go = new GameObject($"{DebrisName}.{half}") { layer = parent.layer };
@@ -431,18 +459,14 @@ internal static partial class WindowMaterialise
             mesh.MarkDynamic();
         }
         mesh.Clear();
-        // Both halves carry the WHOLE vertex buffer and differ only in their index list. Uploading
-        // the shared buffer twice costs a little memory for the duration of one animation and buys a
-        // single build pass and one shared trajectory evaluation; splitting the vertex arrays as
-        // well would mean two of everything on the CPU side for no visual difference.
-        mesh.SetVertices(BufPos);
-        mesh.SetNormals(BufNrm);
-        mesh.SetTangents(BufTan);
-        mesh.SetUVs(0, BufUv0);
-        mesh.SetUVs(1, BufUv1);
-        mesh.SetUVs(2, BufUv2);
-        mesh.SetColors(BufCol);
-        mesh.SetTriangles(indices, 0, calculateBounds: false);
+        mesh.SetVertices(BufPos[h]);
+        mesh.SetNormals(BufNrm[h]);
+        mesh.SetTangents(BufTan[h]);
+        mesh.SetUVs(0, BufUv0[h]);
+        mesh.SetUVs(1, BufUv1[h]);
+        mesh.SetUVs(2, BufUv2[h]);
+        mesh.SetColors(BufCol[h]);
+        mesh.SetTriangles(BufIdx[h], 0, calculateBounds: false);
 
         // BOUNDS ARE AUTHORED, NOT CALCULATED, AND THAT IS THE ONE UNITY TRAP IN THIS FILE.
         // Culling cannot see vertex shaders: every shard's real position is computed in the vertex
@@ -452,12 +476,13 @@ internal static partial class WindowMaterialise
         // cloud grown by the furthest any shard can possibly reach, which the caller computes from
         // the same constants the vertex stage uses. Same failure class as the displaced-geometry arc
         // sweep in this project's memory.
+        List<Vector3> pos = BufPos[h];
         Bounds b = default;
-        if (BufPos.Count > 0)
+        if (pos.Count > 0)
         {
-            b = new Bounds(BufPos[0], Vector3.zero);
-            for (int i = 1; i < BufPos.Count; i++)
-                b.Encapsulate(BufPos[i]);
+            b = new Bounds(pos[0], Vector3.zero);
+            for (int i = 1; i < pos.Count; i++)
+                b.Encapsulate(pos[i]);
         }
         // Expand() grows the TOTAL size, i.e. half of it on each side, so the argument is twice the
         // reach. The reach itself already carries a shard's own half-extent.
@@ -488,18 +513,18 @@ internal static partial class WindowMaterialise
     /// · <c>TEXCOORD2</c> out-of-plane velocity x, drift scale y, seedB z, wander amplitude w ·
     /// <c>COLOR</c> shade jitter.</para>
     /// </summary>
-    private static void AddShardVertex(Vector3 birth, Vector3 normal, Vector3 corner, float size,
-                                       Vector2 uv, float threshold, float seedA,
+    private static void AddShardVertex(int half, Vector3 birth, Vector3 normal, Vector3 corner,
+                                       float size, Vector2 uv, float threshold, float seedA,
                                        Vector3 axis, float spinTurns, float liftCanvas,
                                        float driftScale, float wanderAmp, float seedB, float shade)
     {
-        BufPos.Add(birth);
-        BufNrm.Add(normal);
-        BufTan.Add(new Vector4(corner.x, corner.y, corner.z, size));
-        BufUv0.Add(new Vector4(uv.x, uv.y, threshold, seedA));
-        BufUv1.Add(new Vector4(axis.x, axis.y, axis.z, spinTurns));
-        BufUv2.Add(new Vector4(liftCanvas, driftScale, seedB, wanderAmp));
-        BufCol.Add(new Color(shade, shade, shade, 1f));
+        BufPos[half].Add(birth);
+        BufNrm[half].Add(normal);
+        BufTan[half].Add(new Vector4(corner.x, corner.y, corner.z, size));
+        BufUv0[half].Add(new Vector4(uv.x, uv.y, threshold, seedA));
+        BufUv1[half].Add(new Vector4(axis.x, axis.y, axis.z, spinTurns));
+        BufUv2[half].Add(new Vector4(liftCanvas, driftScale, seedB, wanderAmp));
+        BufCol[half].Add(new Color(shade, shade, shade, 1f));
     }
 
     /// <summary>

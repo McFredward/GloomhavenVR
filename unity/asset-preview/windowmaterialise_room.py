@@ -26,6 +26,7 @@ import sys
 import time
 
 import bpy
+import mathutils
 import numpy
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -61,6 +62,12 @@ STEREO = dict(az=22.0, el=10.0, dist=0.95, target=(0.10, 0.0, 0.0))
 IPD_M = 0.063
 PARALLAX_AZ = 17.5      # +-0.28 m laterally at 0.95 m => 0.56 m apart
 PARALLAX = dict(el=10.0, dist=0.95, target=(0.0, 0.0, 0.0))
+# The stereo and parallax pairs are one instant of the vanish, as a fraction of its duration.
+# 0.45 is the spec'd default. BEWARE: with the shipped 0.90 s vanish the window's own dissolve is
+# already complete by 0.45 (mean alpha 0.09 at t=0.40, 0.00 by t=0.45), so at the default the pairs
+# show debris against the ROOM, not against the window. WM_PAIR_T=0.30 puts a half-dissolved window
+# back in shot if you want the window itself as the static reference.
+PAIR_T = float(os.environ.get("WM_PAIR_T", "0.45"))
 
 
 def fail(msg):
@@ -279,7 +286,7 @@ def make_room():
     bpy.ops.mesh.primitive_plane_add(size=4.0, location=(0.0, 0.30, -0.34))
     t = bpy.context.object
     t.name = "table"
-    t.data.materials.append(grey("table", (0.20, 0.165, 0.13)))
+    t.data.materials.append(grey("table", (0.30, 0.245, 0.185)))
     obs.append(t)
 
     # back wall at y = +0.60, upright, filling the frame
@@ -287,7 +294,7 @@ def make_room():
     w = bpy.context.object
     w.name = "wall"
     w.rotation_euler = (math.radians(90), 0, 0)
-    w.data.materials.append(grey("wall", (0.145, 0.145, 0.155)))
+    w.data.materials.append(grey("wall", (0.235, 0.230, 0.245)))
     obs.append(w)
 
     # stone column IN FRONT of the window plane, on the side the wind blows toward. Debris passing
@@ -296,7 +303,7 @@ def make_room():
                                         vertices=48)
     c = bpy.context.object
     c.name = "column"
-    c.data.materials.append(grey("column", (0.36, 0.35, 0.32)))
+    c.data.materials.append(grey("column", (0.46, 0.445, 0.415)))
     bpy.ops.object.shade_smooth()
     obs.append(c)
 
@@ -305,19 +312,22 @@ def make_room():
     k = bpy.context.object
     k.name = "crate"
     k.rotation_euler = (0, 0, math.radians(11))
-    k.data.materials.append(grey("crate", (0.27, 0.20, 0.135)))
+    k.data.materials.append(grey("crate", (0.38, 0.28, 0.185)))
     obs.append(k)
 
     # ONE area light. The ROOM may be lit; the shards and the window may not, and they are not -
     # both are Emission and ignore this entirely.
-    bpy.ops.object.light_add(type="AREA", location=(-0.95, -1.05, 1.35))
+    pos = mathutils.Vector((-0.95, -1.05, 1.35))
+    bpy.ops.object.light_add(type="AREA", location=pos)
     lt = bpy.context.object
     lt.name = "key"
-    lt.data.energy = 420.0
+    lt.data.energy = 260.0
     lt.data.size = 1.4
-    d = (0.95, 1.05, -1.35)
-    n = math.sqrt(sum(v * v for v in d))
-    lt.rotation_euler = (math.acos(d[2] / n), 0.0, math.atan2(d[1], d[0]) + math.radians(90))
+    # An area light emits along its local -Z. Hand-rolled euler angles for this got the sign of the
+    # tilt wrong on the first pass and lit the ceiling instead of the room - every occluder came
+    # out a black silhouette and the depth proof read as nothing at all. to_track_quat cannot make
+    # that mistake.
+    lt.rotation_euler = (mathutils.Vector((0.0, 0.0, 0.0)) - pos).to_track_quat("-Z", "Y").to_euler()
     return obs, lt
 
 
@@ -413,7 +423,7 @@ def main():
 
     # --- the one instant used for the stereo and parallax pairs --------------------------------
     vanish_s = meta["directions"]["vanish"]["seconds"]
-    want_t = 0.45 * vanish_s
+    want_t = PAIR_T * vanish_s
     vframes = meta["directions"]["vanish"]["frames"]
     pick = min(vframes, key=lambda fr: abs(fr["t"] - want_t))
     verts, shade = data["vanish"]
@@ -455,7 +465,9 @@ def main():
     print("oblique_*      az %.0f deg / el %.0f deg / %.2f m about (%.2f,0,0), occluders VISIBLE"
           % (OBLIQUE["az"], OBLIQUE["el"], OBLIQUE["dist"], OBLIQUE["target"][0]))
     print("stereo_L/R     parallel pair, IPD %.3f m, az %.0f deg / %.2f m, vanish f%d t=%.3f s"
-          % (IPD_M, STEREO["az"], STEREO["dist"], pick["f"], pick["t"]))
+          " (%.2f x vanish, window elem_progress %.2f)"
+          % (IPD_M, STEREO["az"], STEREO["dist"], pick["f"], pick["t"], PAIR_T,
+             pick["element_progress"]))
     print("parallax_A/B   %.3f m apart laterally (az %+.1f/%+.1f deg), same instant, aimed at centre"
           % (lat, -PARALLAX_AZ, PARALLAX_AZ))
     print("occluders      table z=-0.34 | wall y=+0.60 | column x=+0.40 y=-0.24 (IN FRONT) |"

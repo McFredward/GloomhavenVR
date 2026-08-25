@@ -262,6 +262,32 @@ apparent — about **0.25°** at 0.9 m, roughly ten headset pixels — with a ce
 The floor and the resulting angular sizes are printed in the shipped geometry log line, so a hardware
 run confirms them on his machine rather than on mine.
 
+### The shader has now actually been compiled — and the binary is the better proof
+
+"The shader has never been compiled" was item 1 of the previous round's own unverified list. It has
+been, in a throwaway project at `/tmp/wm-shadercheck`, and this is worth more than the grep:
+
+* **Clean.** `ShaderUtil.ShaderHasError` false, `GetShaderMessageCount` 0, after import, after
+  `ShaderUtil.CompilePass`, and after a real `BuildPipeline.BuildAssetBundles(...,
+  StandaloneWindows64)`. Zero warnings, zero errors, no fxc diagnostic anywhere in the editor log.
+* **By 2021.3.5f1**, verified from the log header and `Application.unityVersion` — the version that
+  matters, because a shader compiled by 2021.3.45 renders **pink** in this game.
+* **A real Win64 variant**, not an import parse: `1/1 variants left after stripping`, `d3d11 (total
+  internal programs: 2, unique: 2)`, `vs_4_0` and `ps_4_0` bytecode of 2890 and 726 bytes.
+* **71 vertex math ops, 11 fragment math ops, 5 and 2 temp registers, 2 interpolators** past
+  position. That is a very small shader.
+* **And the constant buffers settle §3.2 at the binary level.** The compiled program references
+  `UnityPerDraw` (`unity_ObjectToWorld`, `unity_WorldToObject` — object matrices) and `UnityPerFrame`
+  (`unity_MatrixVP` — the mandatory clip transform) **and nothing else**. No camera position, no view
+  matrix, no eye index appears in either stage. A grep proves an identifier is absent from the
+  source; this proves nothing equivalent reached the binary.
+
+Two incidental notes, neither a defect: `pow(age, 1.35)` compiles to log/mul/exp without fxc's usual
+`X3571` negative-base warning, because `age` is `saturate`d upstream; and the shader reads
+`TEXCOORD0.zw` only — the shard's birth UV in `.xy` is carried for the numpy mirror and is unused by
+the GPU. Two floats per vertex of dead bandwidth, kept deliberately so the mirror and the vertex
+layout stay the same shape.
+
 **The frequency-scrubbing trap falls out of the same property.** There is no clock in the shader at
 all. The one time-like input is `_Front`, written once per frame by C# and used only as a position
 from which each shard's age is derived. `_SizeScale` is a pure amplitude. No dial multiplies a
