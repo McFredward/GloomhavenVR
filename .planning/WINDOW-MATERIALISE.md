@@ -281,27 +281,46 @@ two renderers.)
 
 ### Per window opening — the one-off, stated separately because it behaves differently
 
-> **BENCH B is being re-measured after the vertex-buffer split; the table below is the pre-split
-> measurement and the numbers will drop. See `measured_cpu_cost.txt` for the shipped figures.**
+Measured on the SHIPPED code, i.e. after the vertex-buffer split, over two independent runs:
 
-| shards | mean ms | worst ms | µs/shard | allocation per repeat |
-|---|---|---|---|---|
-| 90 | 0.93 | 0.94 | 10.3 | **0 B** |
-| 290 | 2.28 | 2.30 | 7.9 | **0 B** |
-| 420 | 3.17 | 3.46 | 7.6 | **0 B** |
+| shards | verts | mean ms | worst ms | µs/shard | allocation per repeat |
+|---|---|---|---|---|---|
+| 90 | 1080 | 0.75–0.80 | 0.78 | 8.3 | **0 B** |
+| 290 | 3480 | 1.78–1.82 | 2.06 | 6.1 | **0 B** |
+| 420 | 5040 | 2.50–2.51 | 2.76 | 6.0 | **0 B** |
 
-The stage breakdown is why the split happened: the **emission table is flat at 0.32 ms** and is a
-function of the 400 *elements* rather than the shards; the **seeding loop is exactly linear at
-2.73 µs/shard**, constant to three digits over a 4.7× range; and the **mesh writes dominated above
-~150 shards** — 1.70 ms at 420, about half of it the second mesh re-uploading a buffer identical to
-the first's. That measurement is what produced commit *"each shard vertex is uploaded once, not
-twice"*.
+**The split is the reason those are the numbers.** The pre-split stage breakdown named the target
+directly: **mesh writes 1.70 ms of a 3.17 ms build at 420 shards**, about half of it the second mesh
+re-uploading a buffer identical to the first's. After: **mesh writes 0.90 ms, −47 % at every count**,
+and the build total −21 %. Per vertex the mesh stage went 0.34 → 0.179 µs, so the part that was
+doubled did halve; the −47 % rather than −50 % is the stage's un-duplicated remainder (`mesh.Clear`,
+the index upload, two native round trips). The pre-split rows are kept in
+`measured_cpu_cost.txt` as an explicit "before" block rather than deleted.
 
-**Allocation: steady state is zero.** Across 180 builds not one showed a positive
-`GC.GetTotalMemory(false)` delta. The buffers are constructed at full capacity (12 × 420), so the
-largest window this feature will ever build cannot grow them, and `Mesh` comes from a pool of 8. The
-one exception was measured rather than assumed: the **cold first build of a session costs 8.07 ms and
-12,288 B** — JIT plus two `Mesh` constructions, once, ever.
+Three things the re-measurement says that the first one could not:
+
+* **The mesh writes are no longer the largest stage.** At 420 shards seeding is 1.24 ms against
+  0.90 ms, and seeding itself got 3–8 % more expensive (2.73 → 2.81–2.95 µs/shard) from the
+  half-local base index and the array indirection. A fair price, now known rather than assumed.
+* **The emission table is the term to watch next.** Flat at 0.33–0.37 ms because it walks the 400
+  *elements*, not the shards — 0.85 µs/element, two `TransformPoint`/`InverseTransformPoint` round
+  trips each. It was 35 % of the total at 90 shards and is now **42 %**, because the total shrank
+  around it, and it is shard-count-independent so no amount of shard tuning touches it. If anything
+  else has to get cheaper, that is the lever.
+* **Steady-state allocation is still zero**, re-confirmed across 360 builds. `MakeBuf<T>()`
+  constructs BOTH halves at `VertsPerShard × DebrisMaxCount` = 5040 at static init, so the
+  all-shards-one-way case cannot grow them. The split costs ~0.5 MB of resident memory, not garbage.
+
+**Two pieces of honesty from the harness that are worth keeping unsmoothed.** The COLD first build's
+allocation **can no longer be measured**: it read 8.07 ms / +12,288 B before the split; after, 7.97
+and 7.26 ms with a `GC.GetTotalMemory` delta of **−4,096 B both times**, and a negative delta means a
+collection ran inside the window, so a paired reading cannot resolve it any more. What still stands
+is no net growth, and ~7.5 ms against a warm 2.51 ms is JIT plus two `Mesh` constructions, once per
+process. And one instrumented row was **thrown away and declared**: the first split run's 290-shard
+seeding read 1.1369 ms, *larger* than the same run's 420-shard seeding, which is impossible for a
+loop linear in shard count — a scheduler artefact in the instrumented pass. Run 2 was reported, the
+un-instrumented totals from both runs agree within 5 %, and the re-run recipe now says to run BENCH B
+twice.
 
 ### The worst plausible simultaneous case, and the budget that bounds it
 
@@ -330,11 +349,10 @@ at 400 elements each, all animating on one frame:
 * **mean 1.39–1.57 ms → 13–14 % of budget**; worst frame 2.14–2.72 ms → 19–24 %.
 * The debris half contributes 7 × 0.4 µs = **0.003 ms**. It does not enter.
 
-The larger figure is the one-off side and it deserves naming rather than burying: a single window
-*opening* costs `CollectElements` (400 × 4.35 µs = 1.75 ms — this is **pre-existing**, 292/293 paid
-it too) **plus** the shard build, in the frame the window opens. That frame is already doing a full
-canvas conversion. Seven simultaneous *opens* would drop a frame, but the arc does not produce that —
-windows open one at a time. If it ever did, the stage breakdown names the target directly.
+The larger figure is the one-off side: a single window *opening* costs `CollectElements`
+(400 × 4.35 µs = **1.75 ms**, which is **pre-existing** — 292/293 paid it too) **plus**
+`TryBuildDebris` (**1.80 ms** at 290 shards) = **3.55 ms**, in a frame that is already doing a full
+canvas conversion. Seven simultaneous opens would be 24.8 ms, which is why the budget above exists.
 
 **What is NOT measured, and said so rather than implied:** the canvas colour re-batch that `SetAlpha`
 provokes inside Unity (outside both this stopwatch and the shipped `Report` line), the GPU side,
