@@ -72,8 +72,14 @@ internal static partial class CanvasConversion
     /// Effective-alpha floor for the content FIT measure: anything fainter than this is
     /// treated as invisible and neither sizes nor centers the panel (historic 0.05 value —
     /// unchanged, so fit geometry is identical to the shipped builds).
+    ///
+    /// <para>ModBuild 291 — INTERNAL rather than private, and shared rather than copied. The
+    /// liveness rule's dormant WAKE test (<c>ModalFallback.DrawsAnythingScriptSide</c>) asks the same
+    /// "is this faint enough to count as invisible?" question of script-side state, and the two must
+    /// use ONE floor or the rule that hides a window and the rule that brings it back could disagree
+    /// about the same graphic. The VALUE is untouched.</para>
     /// </summary>
-    private const float FitMinAlpha = 0.05f;
+    internal const float FitMinAlpha = 0.05f;
 
     /// <summary>
     /// BREATHING ROOM the fit adds around the measured visible-content union, in uGUI px of the
@@ -4429,7 +4435,19 @@ internal static partial class CanvasConversion
         // explicit layout flush below. Treating OwnerRenderHidden as "visible" would silently
         // re-introduce the round-2 stale-measure bug for every focus-hidden row.
         bool hidden = panel.RenderHidden || panel.OwnerRenderHidden;
-        if (!hidden && Time.frameCount < panel.FitVerifyNextCheckFrame && !expired)
+        // ModBuild 291 — A DORMANT PANEL IS HIDDEN FOR THE MEASUREMENT MODE AND VISIBLE FOR THE
+        // CADENCE, AND THE SPLIT IS THE WHOLE REASON THE TWO WERE EVER ONE FLAG.
+        //
+        // The per-frame arm exists because a panel behind the REVEAL GATE is racing a 0.6 s deadline:
+        // its geometry has to be final before the window is shown, so the check is worth a forced
+        // layout pass every frame for at most that long. A panel the liveness rule made dormant is
+        // racing nothing — it is off the screen because it draws nothing, and its verify watch would
+        // otherwise spend up to 1.5 s running LayoutRebuilder.ForceRebuildLayoutImmediate over a
+        // 2115-transform party display EVERY frame for a window nobody can see. It still uses the
+        // FLUSHED measurement mode below (the canvases really are disabled, so an unflushed read
+        // really would be stale) — only the cadence drops back to the throttled one.
+        bool dormant = ModalFallback.IsDormantPanel(panel);
+        if ((!hidden || dormant) && Time.frameCount < panel.FitVerifyNextCheckFrame && !expired)
             return;
         panel.FitVerifyNextCheckFrame = Time.frameCount + FitVerifyVisibleCheckFrames;
 

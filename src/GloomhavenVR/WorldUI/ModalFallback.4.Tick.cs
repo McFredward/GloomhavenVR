@@ -2897,8 +2897,17 @@ internal static partial class ModalFallback
         //    disables all host raycasters (CanvasConversion lock mirror), but the
         //    modal window is the one surface that must accept input while modal —
         //    same exemption the DialogSurface applies.
+        //    ModBuild 291: a DORMANT float is skipped. It is render-hidden because its content draws
+        //    nothing, and this step is the one place that would put its raycaster back on every
+        //    tick — an invisible clickable window is exactly what the liveness rule exists to
+        //    prevent. (The laser and the poke already skip it: both iterate UguiPokeSurfaces and
+        //    require an isActiveAndEnabled Canvas, and the hide disables all of them. This closes
+        //    the mouse/EventSystem path as well, so the claim in the EMPTY WINDOW HIDDEN line —
+        //    "nothing clickable" — is true of every route rather than of two of three.)
         for (int i = 0; i < Converted.Count; i++)
         {
+            if (Converted[i].Dormant)
+                continue;
             GraphicRaycaster raycaster = Converted[i].Panel.HostRaycaster;
             if (raycaster != null && !raycaster.enabled)
                 raycaster.enabled = true;

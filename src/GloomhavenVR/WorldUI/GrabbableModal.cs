@@ -299,10 +299,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // Through ModBuild 242 an ink walk that found nothing simply returned: the committed rectangle
     // stayed, so the brass handle kept hanging at the full width of content that is no longer on the
     // screen, for as long as the float lived. That is not a slow reaction, it is NO reaction — the
-    // handle only went away when ModalFallback's liveness rule released the whole float, which is
-    // deliberately EmptyDwellSeconds = 2 s (ModalFallback.9.Spawn.cs, and that dwell is NOT ours to
-    // shorten: the unlock flow blanks its own popup for a ~1 s camera focus between two announcements
-    // and a shorter dwell would drop the second one).
+    // handle only went away when ModalFallback's liveness rule released the whole float, which through
+    // ModBuild 290 was deliberately a 2 s dwell (the unlock flow blanks its own popup for a ~1 s camera
+    // focus between two announcements and a shorter dwell would have dropped the second one). ModBuild
+    // 291 turned that release into a reversible HIDE and the dwell into EmptyHideDwellSeconds = 0.35 s;
+    // this block is UNCHANGED by that and still earns its place, because it takes the handle off on its
+    // own confirm run rather than waiting for any of those numbers.
     //
     // SO THE HANDLE IS TAKEN OFF THE SCREEN HERE, ON ITS OWN, AS PRESENTATION. A confirmed empty ink
     // gives up the committed rectangle, hides the bar and its laser collider, and puts the close X
