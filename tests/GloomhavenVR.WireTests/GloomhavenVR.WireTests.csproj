@@ -188,6 +188,15 @@
          that no per-eye / screen-space term ever enters that fade — the parked wall-fade rivalry
          is a source property the compiled form cannot show. See the file header. -->
     <Compile Include="PeerBoardFadeVectors.cs" />
+    <!-- WHERE THE KEYCAPS, THE REST DISCS AND THE BOARD MESH ITSELF END UP. Not a wire format,
+         and on this harness for a different reason than everything above it: the defect these
+         clamp is invisible to every other gate here. The build compiles, the wire tests pass,
+         the mirrors agree, the bundle loads, and the Bronze board stands on edge with its
+         controls hanging in the air because a dial in the user's live cfg was tuned against a
+         mesh that no longer exists. BoardAnchors.cs is LINKED rather than copied so the tests
+         cannot drift from the arithmetic; its one VRLog.Warn is shimmed (see Shims.cs). -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardAnchors.cs" Link="cards\BoardAnchors.cs" />
+    <Compile Include="BoardSeatVectors.cs" />
     <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
          header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null

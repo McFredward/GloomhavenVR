@@ -42,21 +42,26 @@ namespace GloomhavenVR
         // board-agnostic. Board A (oak) keeps its original unsuffixed asset names.
         private struct BoardDef
         {
-            public string Fbx, Mat, Prefab, Albedo, Normal;
+            public string Fbx, Mat, Prefab, Albedo, Normal, Mrs;
         }
 
         private static readonly BoardDef[] Boards =
         {
             new BoardDef { Fbx = Table + "/PlayTray_prepped.fbx",   Mat = Table + "/PlayTray.mat",
                            Prefab = Table + "/PlayTray.prefab",     Albedo = Table + "/PlayTray_albedo.png",
-                           Normal = Table + "/PlayTray_normal.png" },
+                           Normal = Table + "/PlayTray_normal.png", Mrs = Table + "/PlayTray_mrs.png" },
             new BoardDef { Fbx = Table + "/PlayTray_9capjqp6.fbx",  Mat = Table + "/PlayTray_9capjqp6.mat",
                            Prefab = Table + "/PlayTray_9capjqp6.prefab", Albedo = Table + "/PlayTray_9capjqp6_albedo.png",
-                           Normal = Table + "/PlayTray_9capjqp6_normal.png" },
+                           Normal = Table + "/PlayTray_9capjqp6_normal.png", Mrs = Table + "/PlayTray_9capjqp6_mrs.png" },
             new BoardDef { Fbx = Table + "/PlayTray_16vm268h.fbx",  Mat = Table + "/PlayTray_16vm268h.mat",
                            Prefab = Table + "/PlayTray_16vm268h.prefab", Albedo = Table + "/PlayTray_16vm268h_albedo.png",
-                           Normal = Table + "/PlayTray_16vm268h_normal.png" },
+                           Normal = Table + "/PlayTray_16vm268h_normal.png", Mrs = Table + "/PlayTray_16vm268h_mrs.png" },
         };
+
+        /// The weight the specular branch gets when a board ships a metallic/roughness pack.
+        /// Not 1.0 — see BuildMaterial. A board with no pack keeps BoardLit's 0 and renders
+        /// bit-identically to every build before ModBuild 265.
+        private const float BoardSpecStrength = 0.85f;
 
         // ---- THE ANCHOR NAME TABLE ----------------------------------------------------------
         // A DELIBERATE COPY of src/GloomhavenVR/Cards/BoardAnchors.cs. This file compiles into the
@@ -152,9 +157,55 @@ namespace GloomhavenVR
             if (albedo == null)
                 Debug.LogWarning("[GloomhavenVR] Albedo not found at " + board.Albedo + " — board will be untextured tint.");
 
+            // ---- SPECULAR (ModBuild 265) -------------------------------------------------------
+            // WHY THE BOARDS NEEDED THIS, and why the pictures did not show it for four rounds.
+            // The board texture pipeline is a PBR pipeline: unity/board-prep/tex_bases.py authors
+            // albedo + height + ROUGHNESS + METALLIC per style, and unity/board-prep/tex_render.py
+            // judges the result through a Principled BSDF that binds all four. The SHIPPED material
+            // bound two of them. Steel is 99.3 % metallic and bronze 94.0 % in the authored map,
+            // and a metal drawn with a diffuse lobe and no highlight at all is not a dull metal, it
+            // is a painted dielectric — measured on the built prefab through BoardLit, steel came
+            // out as white plaster and bronze as flat mustard. The Blender renders every earlier
+            // round was judged against had the highlight; the game never did. The renders were not
+            // wrong about the maps, they were a picture of a material that was not being built.
+            //
+            // The patina tuning makes the same assumption EXPLICITLY: tex_bases.build_bronze
+            // darkens the verdigris because "the patina is dielectric with roughness 0.72 and the
+            // bare metal is metallic, so the patina ... comes out as the LIGHTEST thing". With no
+            // specular that reasoning inverts and the dark tone it chose reads as pepper.
+            //
+            // So the pack is bound and the branch is turned on. Same shader term, same packing and
+            // the same linear-data import rule as the plate gauntlet (BuildHands, ModBuild 248):
+            // R = metallic, G = roughness. Opt-in is still THE MAP — a board that ships no
+            // *_mrs.png keeps _SpecStrength at BoardLit's 0, where the branch does not execute and
+            // the board renders bit-identically to every build before this one.
+            //
+            // 0.85, NOT the gauntlet's 1.0. The board is a 0.64 m slab held about 40 cm from the
+            // face and filling a large solid angle of both eyes, and a view-dependent highlight on
+            // a 2048² normal map is this project's recurring per-eye aliasing defect. The pack's
+            // roughness is floored well above BoardLit's own 0.08 so the lobe can never go
+            // mirror-sharp, and this weight leaves headroom to take it down from the config-free
+            // side without re-authoring a texture if the rig says it sparkles.
+            Texture2D mrs = null;
+            if (!string.IsNullOrEmpty(board.Mrs) && AssetImporter.GetAtPath(board.Mrs) != null)
+            {
+                ImportAsLinearData(board.Mrs);
+                mrs = AssetDatabase.LoadAssetAtPath<Texture2D>(board.Mrs);
+            }
+
             var mat = new Material(shader) { name = Path.GetFileNameWithoutExtension(board.Prefab) };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
             if (normal != null) mat.SetTexture("_BumpMap", normal);
+            if (mrs != null)
+            {
+                mat.SetTexture("_MRSMap", mrs);
+                mat.SetFloat("_SpecStrength", BoardSpecStrength);
+            }
+            else
+            {
+                Debug.LogWarning($"[GloomhavenVR] No metallic/roughness pack at '{board.Mrs}' — this board "
+                                 + "keeps BoardLit's zero specular and will read as a painted dielectric.");
+            }
             // WATERTIGHT FIX — render the board double-sided (Cull Off). The AI board mesh is
             // fragmented (1064 shells, 20 268 non-manifold edges), so with the default Back
             // culling its many small holes reveal the CULLED interior and, in MR passthrough,
@@ -167,8 +218,37 @@ namespace GloomhavenVR
             mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
             AssetDatabase.CreateAsset(mat, board.Mat);
             AssetDatabase.SaveAssets();
-            Debug.Log($"[GloomhavenVR] Material built: albedo={(albedo ? albedo.name : "none")}, normal={(normal ? normal.name : "none")}");
+            Debug.Log($"[GloomhavenVR] Material built: albedo={(albedo ? albedo.name : "none")}, "
+                      + $"normal={(normal ? normal.name : "none")}, "
+                      + $"specular={(mrs ? $"{mrs.name} @ {BoardSpecStrength:F2}" : "off")}");
             return mat;
+        }
+
+        /// <summary>
+        /// Force a metallic/roughness pack to import as LINEAR DATA. A deliberate copy of
+        /// <c>BuildHands.ImportAsLinearData</c> — the two builders are separate static classes in
+        /// one assembly and neither may reach into the other's private helpers, and this rule is
+        /// short enough that a shared home would cost more than it saves.
+        ///
+        /// <para>Left on the importer's sRGB default, every intermediate value in the pack is read
+        /// through the sRGB curve and is wrong — and wrong SILENTLY: the texture samples, the
+        /// highlight appears, and only 0 and 1 come out right. Forced here rather than trusted to a
+        /// committed .meta, because a .meta can be regenerated by anyone who deletes the file.</para>
+        /// </summary>
+        private static void ImportAsLinearData(string path)
+        {
+            var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (ti == null)
+            {
+                Debug.LogWarning($"[GloomhavenVR] no TextureImporter at {path} — MRS pack skipped.");
+                return;
+            }
+            if (ti.textureType == TextureImporterType.Default && !ti.sRGBTexture)
+                return;
+            ti.textureType = TextureImporterType.Default;
+            ti.sRGBTexture = false;
+            ti.SaveAndReimport();
+            Debug.Log($"[GloomhavenVR] {path} re-imported as LINEAR data (sRGB off).");
         }
 
         private static GameObject AssemblePrefab(BoardDef board, Material mat)

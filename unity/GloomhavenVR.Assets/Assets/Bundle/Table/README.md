@@ -93,7 +93,32 @@ Authoring rules for the seats:
   | Bronze | 61.2 × 51.9 | 53.2 × 43.9 | 4.0 × 4.0 | 68.1 | 60.1 (tuned 71) |
 
   If a rebuild's log disagrees with the seat/pad columns, the measurement code is wrong,
-  not the boards.
+  not the boards. **VERIFIED against a real rebuild 2026-08-25** (ModBuild 271): every one
+  of those six numbers came back exactly, read back off the built prefab at F5 by
+  `Editor/PreviewBoard.cs`, from the bundle rather than from the project.
+- **The same measurement also bounds the BOARD MESH's own pose.** `[Cards]
+  AssetOffset_{board}` and `AssetPitch/Yaw/RollDegrees_{board}` move the mesh while every
+  anchor is pinned where it was. `AssetOffset_Bronze` = (0, −0.11, +0.08) and
+  `AssetPitchDegrees_Bronze` = 57 were tuned to lay the SHIPPED Bronze — a raked lectern
+  301 mm deep — flat. Replayed against the re-authored flat plate they leave three of the
+  five seat and rest anchors with no mesh behind them at all and the other two 151.5 /
+  167.1 mm off the surface. On a board that carries a `SeatExtent` measurement the pose is
+  now clamped so no pinned anchor lifts more than 5 mm (half the budget to the offset, half
+  to the tilt, the tilt bound derived as `asin(lift / r)` with `r` the furthest pinned
+  anchor); on a board without one nothing is clamped. Re-measured after the clamp: 3.8 mm.
+
+Material:
+
+- `BoardLit` binds `_MainTex`, `_BumpMap` and `_MRSMap`, the last being `<base>_mrs.png`
+  packed **R = metallic, G = roughness** and imported as LINEAR data (sRGB off — forced by
+  `BuildBoard.ImportAsLinearData`, not trusted to the committed `.meta`). It is NOT the
+  glTF ORM packing the texture pipeline's intermediate `<base>_mr.png` uses.
+- **Specular is opt-in and the opt-in is the map.** No `_mrs.png` → `_SpecStrength` stays
+  at BoardLit's 0 → the shader's specular branch does not execute → bit-identical to the
+  build before ModBuild 265. With a map it is set to **0.85**, not the plate gauntlet's 1.0:
+  the board is a 0.64 m slab about 40 cm from both eyes, and a sharp view-dependent lobe on
+  a 2048² normal map is this project's recurring per-eye aliasing defect. That float is the
+  dial to turn first if the rig reports sparkle.
 - **Both spellings are shipped in the FBX** (`ButtonSeat1/2/3` plus `ConfirmButton` /
   `UndoButton` / `SkipButton` at bit-identical positions), so one asset works with every
   DLL. `BuildBoard.cs` projects *every* authored anchor empty onto the recess floor, not

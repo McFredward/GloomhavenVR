@@ -45,27 +45,61 @@ PAL_OAK = T.Palette("oak", [
     (1.00, (0xCC, 0xA8, 0x6E)),   # ray fleck
 ])
 
+# RE-ANCHORED, against a render through the shader that ships rather than
+# through a Principled BSDF. Two measured faults with the ramp this replaces:
+#
+#   1. IT HAD NO DARK END. Its stops ran 0x5F646B..0xC6CCD2, i.e. linear luma
+#      0.128..0.594, and the tone drive only ever visited the middle of that. The
+#      composited albedo came out linear luma p05 0.301 -> p95 0.408: a dynamic
+#      range of 1.35x, against oak's 4.71x. BoardLit renders `albedo * shade`
+#      with shade in [0.5, 1.35], so an albedo with no range is a board with no
+#      range, and the board read as cold white plaster. There is no highlight
+#      that fixes that -- measured, turning _SpecStrength from 0 to 0.85 moves
+#      the flat-on render's mean by 0.001.
+#   2. IT WAS BLUE-BIASED. Every stop had B > R by 8-12 sRGB counts, and the
+#      composited albedo came out sRGB mean R 0.604 < B 0.662. That is what made
+#      it read COLD rather than merely light.
+#
+# The new ramp spans linear luma 0.024..0.500 (a 21x span for the tone drive to
+# work in), is neutral through the mid, and goes very slightly WARM at the top --
+# a steel plate under this shader's warm key, not a slab of blue plastic.
 PAL_STEEL = T.Palette("steel", [
-    (0.00, (0x5F, 0x64, 0x6B)),
-    (0.40, (0x86, 0x8D, 0x95)),
-    (0.75, (0xA8, 0xAF, 0xB7)),
-    (1.00, (0xC6, 0xCC, 0xD2)),
+    (0.00, (0x2A, 0x2B, 0x2D)),   # scratch pit / deep shadow, faintly cool
+    (0.28, (0x4C, 0x4D, 0x4E)),   # brush trough
+    (0.58, (0x78, 0x77, 0x75)),   # the plate's own mid, neutral
+    (0.82, (0x9D, 0x9B, 0x96)),   # brush crest
+    (1.00, (0xBE, 0xBB, 0xB4)),   # polished fleck, warm
 ])
 
+# DESATURATED, because the render said mustard. The previous ramp's mid stop was
+# 0xB3843C, whose chroma is (max-min)/max = 0.66; the composited board came back
+# sRGB mean [0.624 0.460 0.212], which is a saturated school-bus gold rather than
+# a cast bronze. The new mid is 0xA5814E at chroma 0.53, and the whole ramp is
+# pulled slightly darker so the highlight stop has somewhere to be a highlight.
+# ...but not desaturated as far as the first attempt took it. Chroma
+# (max-min)/max at the mid stop: the mustard that shipped was 0.665, the first
+# correction went to 0.527 and the render came back pale and sandy -- aged brass
+# rather than bronze. 0.598 is between them, and the pale end of the ramp loses
+# the most, because that is the end the tone drive's upper tail reaches and the
+# end that was reading as sandstone.
 PAL_BRONZE_BARE = T.Palette("bronze_bare", [
-    (0.00, (0x5C, 0x3E, 0x1B)),
-    (0.38, (0x8C, 0x60, 0x28)),
-    (0.72, (0xB3, 0x84, 0x3C)),
-    (1.00, (0xDC, 0xB4, 0x69)),
+    (0.00, (0x4A, 0x36, 0x1E)),   # deep recess, unwiped
+    (0.34, (0x7C, 0x59, 0x2D)),
+    (0.66, (0xA9, 0x7F, 0x44)),   # the plate's own mid
+    (0.86, (0xC7, 0x9C, 0x5B)),
+    (1.00, (0xDC, 0xB7, 0x7F)),   # a wiped, worn crest
 ])
 
 # Desaturated on purpose: real verdigris on a handled object is a grey-green,
-# not the cyan a diffusion model reaches for.
+# not the cyan a diffusion model reaches for. The DARK END is lifted from
+# 0x22302A to 0x2C3A31 -- see the tone note in build_bronze for why the old ramp
+# was being sampled at its bottom and why that was reasoning about the wrong
+# shader.
 PAL_BRONZE_PATINA = T.Palette("bronze_patina", [
-    (0.00, (0x22, 0x30, 0x2A)),
-    (0.40, (0x3D, 0x53, 0x45)),
-    (0.75, (0x5A, 0x71, 0x5C)),
-    (1.00, (0x7C, 0x8E, 0x75)),
+    (0.00, (0x2C, 0x3A, 0x31)),
+    (0.40, (0x44, 0x59, 0x49)),
+    (0.75, (0x5F, 0x76, 0x60)),
+    (1.00, (0x82, 0x94, 0x79)),
 ])
 
 
@@ -197,7 +231,25 @@ def _scratch_mask(n, seed, count=26, detail=1.0):
 
 def build_steel(n, seed, orient="along", detail=1.0):
     s = int(seed)
-    brush = _swap(T.spectral_noise(n, s + 1, beta=0.55, aniso=120.0, lowcut=6 * detail), orient)
+    # HIGHCUT ON THE BRUSH TOO, and it was missing. beta=0.55 attenuates as
+    # rad^-0.275, i.e. barely, so an uncapped brush carries energy right up to
+    # Nyquist -- and it drives BOTH the albedo tone and the roughness. Measured
+    # on the installed maps, steel's normal field had the most energy that exists
+    # only at the single-texel scale of the three boards (mean |grad| at 1 texel
+    # against a 4x box downsample: oak 1.08x, steel 1.39x, bronze 0.67x), and
+    # steel is also the board that is 99.3% metallic and therefore takes the
+    # strongest highlight. 380 cycles keeps the finest streak about 5 texels
+    # across, which is the same floor `micro` below already had and for the same
+    # reason: below that it is not texture, it is per-eye sparkle.
+    # ANISO 60, NOT 120, and that is about stripeiness rather than amplitude.
+    # At 120 the brush term's features run essentially the whole length of the
+    # board, so flat-on the plate reads as banded rather than brushed and the
+    # long light and dark runs compete with the carved ornament for the eye. The
+    # noise is unit variance whatever the aniso is, so halving it shortens the
+    # streaks WITHOUT narrowing the albedo's dynamic range -- which is the thing
+    # that had to be widened in the first place and must not be given back.
+    brush = _swap(T.spectral_noise(n, s + 1, beta=0.55, aniso=60.0,
+                                   lowcut=6 * detail, highcut=380 * detail), orient)
     # HIGHCUT, and it matters more than its size suggests. beta=0.30 is very
     # nearly white noise, so without an upper limit this term carries full
     # energy right up to Nyquist -- per-texel roughness variation on a mirror.
@@ -210,24 +262,66 @@ def build_steel(n, seed, orient="along", detail=1.0):
     mottle = _swap(T.spectral_noise(n, s + 3, beta=2.9, aniso=2.0, highcut=7), orient)
     scr = _swap(_scratch_mask(n, s + 4, detail=detail), orient)
 
-    # deliberately narrow: a controlled, flat metal grey. Anything wider starts
-    # to look like painted-on lighting, which is the complaint.
-    tone = 0.63 + mottle * 0.060 + brush * 0.028 - scr * 0.045
+    # WIDE, and that is a reversal of the previous note, which read "deliberately
+    # narrow ... anything wider starts to look like painted-on lighting". That
+    # argument is right for a shader that has an environment to reflect. BoardLit
+    # has none: it is `albedo * (ambient + lambert)` with two baked directions,
+    # plus a Blinn-Phong whose half-vector sits about 32 degrees off the flat
+    # face's normal for any viewer in front of the board -- so the flat face
+    # receives essentially no highlight at any usable roughness. Measured:
+    # _SpecStrength 0 vs 0.85 moves the flat-on render's mean by 0.001 and its
+    # p95-p05 by 0.008.
+    #
+    # So on this board the albedo IS the picture, which is exactly what the
+    # shader's own header says it was authored for ("this albedo was authored to
+    # be READ as the surface colour by a shader with no specular at all"). A
+    # brushed plate's tonal structure has to live here or it lives nowhere. The
+    # drive's standard deviation is 0.175 against the old 0.069, and the brush --
+    # the anisotropic term, aniso 120, which is the part that says BRUSHED --
+    # now carries the largest share of it instead of the low-frequency mottle.
+    #
+    # This is NOT baked lighting: every term is a light-independent scalar noise
+    # field indexed into a locked ramp, no directional derivative of the height
+    # goes anywhere near it, and the rule at the top of this file still holds.
+    # THE LEVEL, set from the render and not from the albedo. The first attempt
+    # at this centred the tone at 0.545, which gave a composited albedo of linear
+    # luma 0.182 and a shipped-shader render of 0.140 -- the SAME as oak's 0.139.
+    # A steel plate and an oak plank under one light are not the same brightness,
+    # and the render showed it: correct brushed structure, on graphite. Centring
+    # at 0.640 puts the render at about 0.175, roughly a quarter above oak, where
+    # the old plate was at 0.295 -- 2.1x oak, which is where the white plaster
+    # came from. The brush and mottle amplitudes come down slightly with it:
+    # higher up this ramp the same tone step is a larger luminance step, so
+    # holding them fixed would have widened the contrast as well as the level.
+    tone = 0.640 + brush * 0.130 + mottle * 0.078 + micro * 0.028 - scr * 0.100
     albedo = PAL_STEEL.map(np.clip(tone, 0.0, 1.0))
 
     # Brushing belongs in ROUGHNESS. Putting it in the normal at this
     # frequency turned the board into sandpaper in the first lit render.
     height = brush * 0.055 + micro * 0.016 - scr * 0.30 + mottle * 0.05
 
-    # Brushed stainless measures around 0.30-0.45 in this parameterisation, not
-    # 0.12-0.27. The previous floor made the plate a near-mirror, and a mirror
-    # in a dim room is black: the calibrated station rendered the steel board at
-    # median luminance 0.09 against oak's 0.26, from an albedo whose mean
-    # luminance is 0.637 -- the LIGHTEST of the three. A metal shows what it
-    # reflects, so the way to make brushed steel read as brushed steel is to
-    # widen its specular lobe, not to lighten its albedo.
-    rough = np.clip(0.340 + brush * 0.085 + micro * 0.045 + mottle * 0.040 - scr * 0.09,
-                    0.18, 0.62)
+    # ROUGHNESS, read against the shader that ships rather than against a PBR
+    # intuition. BoardLit's lobe is power = exp2((1-rough)*9+1), whose half-angle
+    # (the normal tilt that halves the highlight) is 5.7 deg at 0.32 and 8.4 deg
+    # at 0.44. Steel's own normal map steps 4.68 deg between neighbouring texels
+    # on average and 10.15 deg at the 95th percentile, so a lobe under about
+    # 8 deg lets a ONE-TEXEL normal step swing the highlight through half its
+    # value -- which on a 0.64 m slab 40 cm from the face, sampled at slightly
+    # different sub-texel offsets by the two eyes, is this project's recurring
+    # stereo-rivalry defect and not texture.
+    #
+    # The lower clip is therefore 0.43, just above the pack floor
+    # (tex_atlas.MRS_ROUGH_FLOOR = 0.42), so steel's own authoring sets its lobe
+    # and the floor is only a backstop. 0.43-0.72 is also simply where brushed
+    # stainless sits; the previous 0.18-0.62 was reaching for a polish this
+    # surface does not have.
+    #
+    # The scratch term still lowers roughness (a scratch is burnished), but only
+    # by 0.05: a thin line at a much narrower lobe than its surroundings is a
+    # glint on a one-texel feature, which is the one shape most likely to boil
+    # between the eyes.
+    rough = np.clip(0.480 + brush * 0.075 + micro * 0.040 + mottle * 0.035 - scr * 0.05,
+                    0.43, 0.72)
     metal = np.clip(1.0 - T.smoothstep(0.6, 1.9, -mottle) * 0.10, 0.0, 1.0)
     return Fields(albedo, height, rough, metal, "steel", s)
 
@@ -240,6 +334,128 @@ def build_steel(n, seed, orient="along", detail=1.0):
 # --------------------------------------------------------------------------
 
 _PATINA_STAT = {}
+_PATINA_FIELD = {}
+_PATINA_SHAPE = {}
+
+
+def _patina_shape(patina, cav, n, thresh=0.5, max_r=28):
+    """WHAT THE SHAPE INSTRUMENT MEASURES, and what it cannot see.
+
+    `last_patina_coverage()` and `last_patina_in_cavity()` both PASSED while the
+    picture was bad. That is not an accident: coverage is a fraction and
+    enrichment is a ratio of means, and neither of them has any term for spatial
+    frequency or for edge hardness -- which is the entire defect. A patina made
+    of four-texel hard-edged dots scattered over the flat and a patina forming
+    soft 15 mm shorelines inside the mouldings can score the SAME 8.5% coverage
+    and the SAME 3x enrichment. Two numbers that cannot distinguish the bug from
+    the fix are not a test.
+
+    So this measures the two things that can:
+
+    FEATURE WIDTH. Erode the patina mask by a box of radius r for r = 1..max_r
+    and sum the surviving fractions. That sum is the mean Chebyshev depth of a
+    patina texel below its own shoreline, by the layer-cake identity
+    E[d] = sum_r P(d >= r). For a long strip of width W texels the mean depth is
+    W/4 - 1/4, so the width reported is 4*E[d] + 1. Pepper reads a few texels;
+    a groove's worth of crust reads tens.
+
+    EDGE FRACTION. The share of patina area lying within 3 texels of a shoreline.
+    Salt-and-pepper is ~100% edge by construction. Anything that forms real
+    patches is well under it.
+
+    SHORELINE WIDTH. The patina mask is continuous, so the mean absolute
+    texel-to-texel gradient across the transition band (0.05 < patina < 0.95)
+    gives the slope, and 0.9/slope is the number of texels the mask takes to go
+    from clean to covered. A thresholded mask reads ~1 texel -- an aliased edge.
+
+    All three are reported FLAT vs CAVITY separately, because the complaint is
+    about the flat panels specifically and a board-wide average would hide it.
+
+    WHAT IT CANNOT SEE, stated so nobody trusts it further than it goes:
+      * COLOUR. A perfectly shaped patina in the wrong tone scores identically.
+        Value and hue are judged from the --shipped render, not from here.
+      * WHERE. Whether the patina is on the RIGHT relief is what
+        last_patina_in_cavity() answers; this says nothing about it.
+      * It uses Chebyshev (box) distance, so a 45-degree strip reads about 1.4x
+        wider than an axis-aligned one of the same true width.
+      * It is measured on the board-space material field, BEFORE the compositor
+        blends it with the per-region builds, carves the ornament and pads the
+        islands. It describes the material, not the finished atlas.
+    """
+    px_per_m = n / 0.64          # the board-space projection spans the long edge
+    mm = 1000.0 / px_per_m
+    patina = np.asarray(patina, dtype=np.float64)
+    cav = np.asarray(cav, dtype=np.float64)
+    solid = patina > thresh
+    out = {"texel_mm": mm, "thresh": float(thresh)}
+    zones = (("flat", cav < 0.02), ("cavity", cav >= 0.02))
+
+    # THE EROSION RUNS ON THE WHOLE PATINA, and the zone only selects which
+    # texels are AVERAGED. The first version of this eroded (patina AND zone),
+    # which measures the width of the INTERSECTION rather than of the patina: a
+    # crust filling a 3-texel-wide groove came back as "1.1 px wide, 100% edge"
+    # purely because the zone it was being clipped to is itself thin. Same
+    # mistake in a different coat as the coverage fraction this instrument
+    # exists to replace -- a number that describes the measuring window, not the
+    # thing measured.
+    surv = [solid]
+    for r in range(1, int(max_r) + 1):
+        nxt = T.box_blur(solid.astype(np.float64), r) > 1.0 - 1e-9
+        surv.append(nxt)
+        if not nxt.any():
+            break
+    for name, zone in zones:
+        m = solid & zone
+        tot = float(m.sum())
+        out[name + "_cover"] = tot / max(float(zone.sum()), 1.0)
+        if tot < 1.0:
+            out[name + "_width_px"] = 0.0
+            out[name + "_width_mm"] = 0.0
+            out[name + "_edge_frac"] = float("nan")
+            continue
+        depth = 0.0
+        edge_frac = 1.0
+        for r in range(1, len(surv)):
+            frac = float((surv[r] & m).sum()) / tot
+            depth += frac
+            if r == 3:
+                edge_frac = 1.0 - frac
+        out[name + "_width_px"] = 4.0 * depth + 1.0
+        out[name + "_width_mm"] = (4.0 * depth + 1.0) * mm
+        out[name + "_edge_frac"] = edge_frac
+    band = (np.asarray(patina) > 0.05) & (np.asarray(patina) < 0.95)
+    if band.any():
+        g = np.abs(np.diff(np.asarray(patina), axis=0, append=np.asarray(patina)[:1]))
+        g = np.maximum(g, np.abs(np.diff(np.asarray(patina), axis=1,
+                                         append=np.asarray(patina)[:, :1])))
+        slope = float(g[band].mean())
+        out["shore_px"] = 0.9 / max(slope, 1e-9)
+        out["shore_mm"] = out["shore_px"] * mm
+    else:
+        out["shore_px"] = out["shore_mm"] = float("nan")
+    return out
+
+
+def last_patina_shape(style="bronze"):
+    """The shape stats of the last board-space bronze build, computed on demand
+    (the erosion series is ~30 box blurs and bronze is built 14 times per
+    compositor run; doing it eagerly would dominate the build)."""
+    if style in _PATINA_SHAPE:
+        return _PATINA_SHAPE[style]
+    got = _PATINA_FIELD.get(style)
+    if got is None:
+        return None
+    patina, cav, n = got
+    # TWO THRESHOLDS, because one of them has a blind spot that is exactly the
+    # complaint. 0.50 is the CRUST -- opaque corrosion. But the flat's patina is
+    # now capped at 0.30 strength by design, so at a 0.50 threshold the open
+    # plate reports 0.00% coverage whatever it looks like, and "0.00%" would read
+    # as "fixed" for a board that could still be covered in visible specks. 0.15
+    # is roughly where a tarnish stops being invisible against bronze, and it is
+    # the threshold the flat has to answer at.
+    _PATINA_SHAPE[style] = (_patina_shape(patina, cav, n, thresh=0.5),
+                            _patina_shape(patina, cav, n, thresh=0.15))
+    return _PATINA_SHAPE[style]
 
 
 def last_patina_coverage(style="bronze"):
@@ -256,7 +472,7 @@ def last_patina_in_cavity(style="bronze"):
     return _PATINA_STAT.get(style, (None, None))[1]
 
 
-def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None):
+def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None, tag=None):
     """Cast and patinated bronze.
 
     WHAT WAS WRONG WITH THE PREVIOUS PASS, and it is worth being precise because
@@ -318,50 +534,139 @@ def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None):
     # than as weather.
     sheen = _swap(T.spectral_noise(n, s + 4, beta=3.0, aniso=1.6, highcut=5), orient)
 
+    # A BROAD WIPE FIELD. This is the ONLY term allowed to put patina on the open
+    # plate, and it is deliberately low-frequency: 60-256 texels, i.e. 19-80 mm.
+    # A plate that gets handled is not uniformly clean, it is unevenly wiped, and
+    # unevenness at hand scale is what that reads as. It is a soft ramp, never a
+    # threshold, and it is capped -- see `tarnish` below.
+    bloom = _swap(T.spectral_noise(n, s + 7, beta=2.4, aniso=1.3,
+                                   lowcut=8 * detail, highcut=34 * detail), orient)
+
     cav = (np.zeros((n, n)) if cavity_bias is None
            else np.asarray(cavity_bias, dtype=np.float64))
     field = 0.62 * pit + 0.38 * fleck
-    # The weights are the whole design and they are lopsided on purpose. `cav`
-    # peaks around 0.5 inside a carving and is exactly zero across the open
-    # plate, so 5.0*cav puts every recessed texel above any threshold the field
-    # term can set, and the field is left competing only for what is not already
-    # spoken for. A 10% target with those weights spends most of its budget on
-    # the carvings and the moulding grooves and leaves the open plate nearly
-    # clean -- which is what a board that gets handled looks like: hands wipe
-    # the flat and cannot reach into a 0.5 mm groove.
+
+    # ---- TWO MECHANISMS, NOT ONE THRESHOLD ---------------------------------
     #
-    # The pass before this one ran the field at 0.85 with a 14% target and the
-    # open plate came back evenly spattered -- the "dirty pixels" failure the
-    # first version of this material already had once, in a finer grain.
-    drive = 5.00 * cav + 0.42 * field
-    target = 0.085
-    lo = float(np.quantile(drive, 1.0 - target))
-    band = float(np.std(field)) * 0.42 * 0.26 + 1e-6  # a crisp but not aliased edge
-    patina = T.smoothstep(lo - band * 0.5, lo + band * 0.5, drive)
+    # WHAT WENT WRONG, measured on the finished atlas that shipped rather than
+    # on the material field: segmenting the installed bronze albedo by hue
+    # (G - R > 0, which separates verdigris from bronze cleanly) gives patina
+    # features 2.0 texels wide -- 0.62 mm -- with 99.1% of the patina area
+    # within 3 texels of its own edge, at a bare/patina luminance ratio of
+    # 4.03x. That is the definition of hard black pepper, and BOTH of the
+    # instruments this file already had scored it as a pass: coverage 8.5%
+    # (an accent) and cavity enrichment 9.8x (well correlated with the relief).
+    # Neither has any term for spatial frequency or edge hardness.
+    #
+    # The cause was structural, not a tuning value. ONE threshold was being
+    # asked to produce two completely different things: a crust in the grooves
+    # and a tarnish on the flat. On the flat the only term that could cross the
+    # threshold was `field`, whose shortest wavelength is 5 texels -- so the
+    # flat's patina was, by construction, a binary stipple at the field's own
+    # Nyquist limit. No weighting of the two afterwards can turn a stipple into
+    # a wipe; it only makes a fainter stipple.
+    #
+    #   1. CRUST -- thresholded, and driven by the CAVITY of the real relief.
+    #      The field term is multiplied by a cavity gate, so on the open plate
+    #      the crust drive is EXACTLY ZERO and no amount of noise can raise it.
+    #      The field survives where it is useful: breaking the crust's shoreline
+    #      up at the scale a real shoreline is broken up.
+    #   2. TARNISH -- not thresholded at all. A smooth ramp of the 19-80 mm wipe
+    #      field, capped at 0.24, blended UNDER the crust. It has no edges to be
+    #      hard, because it has no edges.
+    cav_gate = T.smoothstep(0.0, 0.08, cav)
+    crust_drive = 6.00 * cav + 0.30 * field * cav_gate
+    target = 0.10
+    # THE SHORELINE IS SOFT NOW, and the old width was the aliasing. The previous
+    # band was std(field) * 0.42 * 0.26 = 0.079 over a drive whose own standard
+    # deviation on the flat was 0.305 -- a transition 0.26 sigma wide, which is a
+    # hard step. A hard step on a band-limited field is also the one thing
+    # guaranteed to alias, because the step reintroduces every frequency the
+    # noise was capped to exclude. The new band ramps over 1.30 sigma of the
+    # gated field: the mask thins out over a distance comparable to the feature
+    # size itself, which is what an edge of corrosion does.
+    band = float(np.std(field)) * 0.30 * 1.30 + 1e-6
+    # NO CAVITY MEANS NO CRUST, stated rather than left to the arithmetic.
+    # Built without a cavity_bias -- the swatch preview, and the compositor's
+    # first bronze pass before the board has been carved -- crust_drive is
+    # identically zero, so its (1 - target) quantile is zero as well and the
+    # smoothstep would then be evaluated at the CENTRE of its own band: 0.5
+    # everywhere. The swatch came back 62% patinated and reported metallic
+    # 0.42-0.53 for a bronze that is 0.94 metallic wherever it is bare.
+    #
+    # IT DOES REACH THE COMPOSITED BOARD, slightly, and that was CHECKED rather
+    # than assumed -- the first version of this note asserted the three maps were
+    # byte-identical either side of the guard and md5 said otherwise. Why the
+    # reasoning was wrong is worth keeping. The second bronze pass does ASSIGN
+    # albedo, roughness, metallic and height, so none of the first pass's OUTPUT
+    # survives; but the first pass's HEIGHT is what the compositor takes the
+    # cavity of, and that cavity is the input the second pass's patina reads. And
+    # the degenerate patina was not a constant: it was 0.5 + 0.5*tarnish where it
+    # is now 0 + 1.0*tarnish, so the varying half of the height's patina term
+    # doubled.
+    #
+    # Measured, old installed maps against the regenerated ones:
+    #   albedo  mean |diff| 0.00022, p99 0.0039, max 0.035; 1.12% of texels move
+    #           by more than 2/255
+    #   normal  mean 0.00002, max 0.0039; no texel moves by more than 2/255
+    #   mrs     mean 0.00070, p99 0.0157, max 0.176; 4.99% move by more than 2/255
+    #           (the patina's roughness/metallic shoreline, shifted by a texel)
+    # The bundle carries the regenerated maps, so what is installed matches this
+    # code. A preview station showing a material nothing will ever build is the
+    # station-aimed-at-nothing failure with the numbers to match, and it is what
+    # made the swatch report metallic 0.42-0.53 for a 0.94-metallic bronze.
+    if float(np.max(cav)) < 1e-9:
+        lo = 0.0
+        crust = np.zeros_like(field)
+    else:
+        lo = float(np.quantile(crust_drive, 1.0 - target))
+        crust = T.smoothstep(lo - band * 0.5, lo + band * 0.5, crust_drive)
+    tarnish = T.smoothstep(0.35, 1.95, bloom) * 0.24
+    patina = np.clip(crust + tarnish * (1.0 - crust), 0.0, 1.0)
 
-    # A groove holds a CRUST; an open face holds a TARNISH. They are not the
-    # same thickness and should not be the same material, so the blend is
-    # weighted by how much of this texel's drive came from the cavity term.
-    # Without this the open plate came back measled: dark teal dots at full
-    # strength scattered evenly over gold, which is a pattern, not corrosion.
-    # With it the same dots are a partial discolouration and the only places
-    # that go fully green are the places that are actually recessed.
-    cav_share = np.clip(5.00 * cav / np.maximum(np.abs(drive), 1e-6), 0.0, 1.0)
-    patina = patina * T.lerp(0.55, 1.0, cav_share)
-
-    bare_t = np.clip(0.645 + sheen * 0.022 + cast * 0.016, 0.0, 1.0)
-    # DARKER than the bare metal, and darker the deeper the drive. The previous
-    # tone sat at 0.50 of the patina ramp, which renders BRIGHTER than the bare
-    # bronze around it. That is not a small mistake: the patina is dielectric
-    # with roughness 0.72 and the bare metal is metallic, so the patina takes
-    # its value from the diffuse fill while the metal only shows what it
-    # reflects, and a mid-tone patina therefore comes out as the LIGHTEST thing
-    # on the plate. A corrosion product lighter than the metal it grew out of
-    # reads as paint, and that was half of why it looked applied rather than
-    # grown. Verdigris in a groove is dark; only a thick efflorescence on a
-    # weathered exposed face goes pale, and a board on a table has none.
-    depth_t = T.smoothstep(lo, lo + band * 6.0, drive)
-    pat_t = np.clip(0.28 - depth_t * 0.20 + grain * 0.050 + speck * 0.022, 0.0, 1.0)
+    # BARE BRONZE, widened. The previous drive was 0.645 + sheen*0.022 +
+    # cast*0.016: a standard deviation of 0.027 over a ramp, i.e. the bare metal
+    # was a single flat colour. Measured on the composited board, its linear luma
+    # ran p05 0.098 -> p50 0.220 -> p95 0.245, so half the board sat inside a
+    # 0.025 window and every bit of the visible variation was the patina pepper.
+    # That is the "flat plastic covered in dark pepper" reading, arithmetically.
+    # The drive's standard deviation is now 0.086, against 0.027.
+    #
+    # HOW MUCH, AND WHERE, judged off the render and then corrected. The first
+    # attempt at this put 0.105 into `cast` for a total sigma of 0.130, and the
+    # shipped-shader render came back with the flat panels covered in 16-71 mm
+    # blotches: the plate read as sandstone or cork, not as cast bronze. `cast`
+    # runs 51-227 texels, which is exactly hand-sized mottling, and at that
+    # amplitude its tails reach the ramp's two palest stops and go beige. The
+    # amplitude is halved and the budget is spread across all four scales
+    # instead, so the bare metal has form without a camouflage pattern on it.
+    bare_t = np.clip(0.520 + sheen * 0.050 + cast * 0.052
+                     + grain * 0.036 + speck * 0.020, 0.0, 1.0)
+    # THE TONE WAS TUNED AGAINST A SHADER THE GAME DOES NOT RUN. The note this
+    # replaces argued: "the patina is dielectric with roughness 0.72 and the bare
+    # metal is metallic, so the patina takes its value from the diffuse fill
+    # while the metal only shows what it reflects, and a mid-tone patina
+    # therefore comes out as the LIGHTEST thing on the plate." Every clause of
+    # that is about a METALLIC PBR renderer -- which is what tex_render.py's
+    # Principled path is, and it is not what ships.
+    #
+    # BoardLit computes `col = albedo * (ambient + lambert)` and then ADDS a
+    # Blinn-Phong term whose own header says the diffuse is deliberately NOT
+    # energy-conserved away under metal. There is no mechanism in it that makes a
+    # metallic texel darker than a dielectric one of the same albedo. So the
+    # premise inverted: the patina was pushed DOWN to 0.28 of its ramp to
+    # compensate for a darkening that never happens, and the finished atlas came
+    # back with the patina at linear luma 0.053 against the bare metal's 0.213 --
+    # a 4.03x value ratio, i.e. near-black dots on gold.
+    #
+    # Real verdigris is a HUE shift with barely any value shift; a corrosion
+    # product and the metal it grew out of sit within a stop of each other. The
+    # tone now sits at 0.80 of the patina ramp, and the depth term darkens it by
+    # 0.16 of the ramp rather than 0.20 of a ramp it was already at the bottom
+    # of. Only the bottom of a groove goes properly dark, and there the
+    # compositor's own cavity darkening is doing most of that anyway.
+    depth_t = T.smoothstep(lo, lo + band * 6.0, crust_drive)
+    pat_t = np.clip(0.80 - depth_t * 0.16 + grain * 0.055 + speck * 0.025, 0.0, 1.0)
     albedo = T.lerp(PAL_BRONZE_BARE.map(bare_t), PAL_BRONZE_PATINA.map(pat_t),
                     patina[..., None])
 
@@ -371,7 +676,10 @@ def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None):
     # physically right on this material.
     height = cast * 0.028 + patina * 0.045 + grain * 0.012
 
-    rough = np.clip(T.lerp(0.30, 0.72, patina) + cast * 0.010, 0.16, 0.80)
+    # Cast bronze is not polished bronze: 0.42 on the bare metal, not 0.30, which
+    # is also where tex_atlas.MRS_ROUGH_FLOOR sits so the pack's floor is a
+    # backstop rather than the author of this material's lobe.
+    rough = np.clip(T.lerp(0.42, 0.74, patina) + cast * 0.010, 0.40, 0.82)
     metal = np.clip(1.0 - patina * 0.94, 0.0, 1.0)
 
     # The two numbers the report quotes, measured here rather than claimed.
@@ -385,6 +693,13 @@ def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None):
     else:
         enrich = float("nan")
     _PATINA_STAT["bronze"] = (float(solid.mean()), enrich)
+    # Keep the BOARD-SPACE field for the shape instrument. Only that one: it is
+    # the build the compositor's projection weights toward on every top-facing
+    # texel, and the shape stats cost ~30 box blurs, which is not a thing to do
+    # fourteen times a run.
+    if tag == "board":
+        _PATINA_FIELD["bronze"] = (patina.copy(), cav.copy(), n)
+        _PATINA_SHAPE.pop("bronze", None)
     return Fields(albedo, height, rough, metal, "bronze", s)
 
 
@@ -396,19 +711,21 @@ PALETTES = {"oak": [PAL_OAK], "steel": [PAL_STEEL],
 _CACHE = {}
 
 
-def build(style, n, seed, orient="along", detail=1.0, cavity_bias=None):
+def build(style, n, seed, orient="along", detail=1.0, cavity_bias=None, tag=None):
     """Cached material build. cavity_bias is only honoured by bronze and forces
-    a cache miss, because the patina then depends on the carvings."""
-    if cavity_bias is None:
+    a cache miss, because the patina then depends on the carvings. `tag` is
+    passed through to bronze so the compositor can name the ONE build whose
+    patina field the shape instrument should keep -- see build_bronze."""
+    if cavity_bias is None and tag is None:
         key = (style, n, int(seed), orient, round(float(detail), 4))
         if key in _CACHE:
             return _CACHE[key]
     fn = BUILDERS[style]
     if style == "bronze":
-        f = fn(n, seed, orient=orient, detail=detail, cavity_bias=cavity_bias)
+        f = fn(n, seed, orient=orient, detail=detail, cavity_bias=cavity_bias, tag=tag)
     else:
         f = fn(n, seed, orient=orient, detail=detail)
-    if cavity_bias is None:
+    if cavity_bias is None and tag is None:
         _CACHE[key] = f
     return f
 

@@ -74,3 +74,5 @@ RELEASE_NOTES.md
 *.env
 # media-pipeline plugin fallback output (before IMAGE_OUTPUT_DIR takes effect)
 generated-images/
+board-build.log
+board-preview.log

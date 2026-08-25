@@ -417,7 +417,137 @@ internal static class NetProtocol
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 271;
-    // Build 271: THREE USER REPORTS OF 2026-08-25, and the first two turned out to be one defect.
+    // Build 271: *** THIS ONE SHIPS A NEW BUNDLE — THE FIRST SINCE ModBuild 250. *** All three
+    // control boards are re-authored, re-textured and carry three button seats. A DLL-ONLY INSTALL
+    // OF THIS BUILD IS WORSE THAN NOT UPDATING: the new DLL would clamp offsets against a
+    // measurement the old bundle does not carry, which is a no-op, so he would see the old boards,
+    // report "no change", and be correct. BUNDLE IS 65,626,956 BYTES (was 72,966,925).
+    // (65,621,568 was an EARLIER build of this same round, superseded before it left the
+    // branch: the texture lane's last bronze pass landed after it and the three bronze maps
+    // in the tree were newer than the bundle built from them. The drift was imperceptible —
+    // albedo mean |diff| 0.00022, 1.12 % of texels moving more than 2/255 — and rebuilt
+    // anyway, because "the source is newer than the artifact" is not a state to ship.)
+    //
+    // (1) THE MESH. 0 hole loops on all three (was 1288 / 1639 / 1628), 0 non-manifold edges, 0
+    //     loose verts (was 0 / 4098 / 4559), 0 inward-wound faces, positive signed volume (5160.5 /
+    //     4877.3 / 5511.2 cm^3). Tris 20000 -> 11896 / 9968 / 19580 against the hands' 20 654. UV
+    //     islands 1046 -> 121 / 156 / 107. Every board is now EXACTLY 0.640 x 0.320 m, so
+    //     PlayTray.BoardW/BoardH are true of all three FOR THE FIRST TIME — shipped Steel was
+    //     0.3688 on the short edge and Bronze 0.2181, and about a dozen constants derived from
+    //     BoardH have been quietly wrong on two boards for as long as they have existed (the item
+    //     slot sat 146 mm below Bronze's real rim; the handle bar sat INSIDE Steel's board).
+    //     NEW gen_winding.py, because gen_stats.py answers TOPOLOGY and is silent about
+    //     ORIENTATION: a face can sit in a closed shell facing inward, which is this project's
+    //     named winding bug class, and `Cull Off` hides exactly that.
+    //
+    // (2) BuildBoard.cs HAD NEVER BEEN COMPILED OR EXECUTED BY ANY GATE, after four edits. It
+    //     compiled and ran first try, and every figure it logs equals the expected table it
+    //     carries: seat floors 74.6x64.3 / 81.0x70.1 / 61.2x51.9 mm, rest pads 81.6 / 81.7 /
+    //     68.1 mm, 7 of 7 anchors per board, every anchor projected 0.5 mm (already on the face
+    //     plane), bounds 0.640 x 0.320 to five decimals. Read back off the BUILT BUNDLE, not the
+    //     source, by the new Editor/PreviewBoard.cs.
+    //
+    // (3) *** THE BRONZE BOARD WOULD HAVE SHIPPED STANDING ON EDGE WITH ITS CONTROLS IN MID-AIR,
+    //     and no gate in this repository could have seen it. *** AssetOffset_Bronze (0, -0.11,
+    //     +0.08) and AssetPitchDegrees_Bronze 57 are in his LIVE cfg, where they beat every shipped
+    //     default. They move the board MESH while the anchors stay pinned, and they were CORRECT
+    //     for the shipped Bronze — a raked lectern 301 mm deep. Replayed against the re-authored
+    //     flat plate by the assembler running the mod's own SetAssetPose algorithm: THREE of the
+    //     five seat and rest anchors end with NO MESH BEHIND THEM AT ALL, the other two 151.5 and
+    //     167.1 mm off the surface (board-local; x0.425 at his tuned Bronze scale). Oak and Steel,
+    //     dials at identity, measure 0.5 mm — the assembler's own `proud` seat, i.e. the control
+    //     that says the replay is honest.
+    //     BOUNDED, not zeroed and not value-matched. BoardAnchors.ClampAssetPose caps the lift any
+    //     pinned anchor takes at 5 mm, half to the offset and half to the tilt because the two
+    //     terms ADD, with the tilt bound asin(lift/r) and r MEASURED as the furthest pinned anchor
+    //     — derived, not picked. Gate is the seat clamp's own: does the board carry a measured
+    //     recess. Old bundle, no measurement, no bound, bit-identical, so the lectern still gets
+    //     laid flat on the bundle installed on his machine. Re-measured after the clamp:
+    //     167.1 mm -> 2.7 mm, every anchor back on the mesh. Hard-zeroing would have deleted a
+    //     control he asked for; matching the historical constant would silently ignore 57 deg if he
+    //     ever meant it. RemoteTrayVisual calls the same function from terms every client already
+    //     has, so no wire field and no host/peer divergence.
+    //
+    // (4) THE BOARDS ARE A PBR PIPELINE AND THE MATERIAL BOUND TWO OF FOUR MAPS. tex_bases.py
+    //     authors albedo + height + roughness + metallic per style and tex_render.py judged through
+    //     a Principled BSDF binding all four; BoardLit bound albedo and normal, _MRSMap empty and
+    //     _SpecStrength 0. Steel is 99.3 % metallic in the authored map and bronze 88.5 %, and a
+    //     metal with no highlight is a painted dielectric — measured on the built prefab, steel
+    //     rendered as WHITE PLASTER. Every metallic highlight this work was judged against for four
+    //     rounds was a term the game never evaluated.
+    //     Bound now (R = metallic, G = roughness, LINEAR import, same contract as the plate
+    //     gauntlet) at 0.85 rather than the gauntlet's 1.0, because this is a 0.64 m slab 40 cm
+    //     from both eyes. Measured per eye at 63 mm IPD: the highlight adds 0.0009 / 0.0030 /
+    //     0.0017 to a geometric L-R difference of 0.0630 / 0.0687 / 0.0498 — 1.4 to 4.4 % on top of
+    //     a difference the two eyes already have, so the stereo risk is low. Its own contribution
+    //     is p99 0.047 / 0.075 / 0.051 with 3.4-3.8 % of the board moving by >0.02. Opt-in is still
+    //     THE MAP. The stale glTF-ORM PlayTray_mr.png (bound by nothing, 1.4 MB) is deleted.
+    //     And the albedo, measured: steel had a linear-luma dynamic range of 1.38x — flat, with a
+    //     blue cast — now 3.57x and neutral. Bronze's verdigris was hard-edged posterised
+    //     salt-and-pepper ignoring the relief; it is now cavity-driven and soft. Oak is unchanged
+    //     to three decimals, which is correct: it was already right.
+    //     *** AND THE ALBEDO, NOT THE SPECULAR, IS WHAT FIXED THE WHITE PLASTER. *** Both lanes
+    //     measured this independently and it corrects the way I first wrote this entry up. The
+    //     baked key sits about 32 degrees off the flat face's normal once a viewer is in front of
+    //     the board, so the half-vector never lands on the open plate at any usable roughness:
+    //     _SpecStrength 0 against 0.85 moves the FLAT-ON mean by 0.001. The 3.4-3.8 % of board that
+    //     does move, at p99 0.047-0.075, is the BEVELS AND MOULDINGS — the recess walls, the seat
+    //     rings, the studded border. The specular is a bevel term and worth its bundle weight as
+    //     one; it is not what turned steel from plaster into metal. Binding the map was still the
+    //     right fix (the pipeline authored it and nothing read it), but the sentence "steel
+    //     rendered as white plaster because the highlight was missing" is wrong: it rendered as
+    //     white plaster because its albedo had a 1.35x dynamic range and a blue cast.
+    //     CONSEQUENCE, and it is somebody's next round: if metal should read on the open plate and
+    //     not only on its edges, that is a SHADER change — a second key nearer the view axis, or a
+    //     view-dependent term — because no texture can put a highlight where the half-vector does
+    //     not go.
+    //
+    // (5) FIVE INSTRUMENTS LIED IN ONE ROUND. All five are written down where they lied.
+    //     (a) A Win64 bundle opened in a Linux editor draws MAGENTA and HasProperty is false for
+    //         every property — a viewer artifact indistinguishable from the pink-material trap.
+    //     (b) A MEAN IS THE WRONG STATISTIC FOR A HIGHLIGHT: the per-eye A/B printed "the specular
+    //         is doing nothing" for three boards, because a 6-degree lobe covers ~2 % of the board
+    //         and a mean over every board pixel divides it by fifty. The tail is the field.
+    //     (c) THE POSITIVE CONTROL ASSUMED A LINEARITY THAT CLIPS: a 4x-strength copy does not give
+    //         4x the delta because `col` saturates, so the control cried "the A/B switch is not
+    //         wired" at a working case. An alarm that fires on a passing case is worse than none.
+    //     (d) A PIXEL CENSUS CANNOT TELL A HOLE FROM AN EDGE-ON WALL: the Cull A/B reported
+    //         "something IS showing through" at three meshes gen_winding.py then measured as 0
+    //         inward-wound faces. The differing pixels are two strokes on the left RIM.
+    //     (e) AND MY OWN CLAMP, ONE HOUR OLD, FAILED ITS FIRST SWEEP. ClampAssetPose bounded x, y
+    //         and z INDEPENDENTLY — a cube, not a ball — so a pose with all three axes dialled came
+    //         out sqrt(3) too long on both terms and the measured lift was 8.66 mm against the 5 mm
+    //         the summary promises in words. Fixed by scaling each half as a VECTOR, which also
+    //         preserves the direction of his tuning instead of squaring it off.
+    //
+    // (6) CORRECTIONS TO THE RECORD. 18fddc60's message said nine offsets "all read X = 0 on all
+    //     three boards": ItemUseSlotOffset is +0.005 / +0.015 / +0.015 and HoverHintOffset_Oak is
+    //     +0.12. The conclusion survives — only the two anchor-relative families inherited the
+    //     mirroring — the phrasing did not. AND THE BOARD SOURCE WAS NEVER COMMITTED: 3682a037
+    //     shipped three FBXes and no author. gen_board.py plus three checkers were rescued out of a
+    //     dead agent worktree and verified to reproduce the shipped geometry exactly.
+    //
+    // (7) STILL OPEN, and he is told so in the report: SEAT 3 HAS NO OCCUPANT. The boards have
+    //     three recesses and the mod fills two; the turn-flow SKIP the third exists for is still
+    //     drawn from ButtonCluster's own [RoundButtons] column at board-local (0.148, -0.124).
+    //     Moving it changes what record 28's ids 81..88 MEAN and is its own round. The MESH half of
+    //     his request is done; this half is not.
+    //
+    // TWO DIALS GO QUIET as a side effect of the seat clamp, both stated in the German report:
+    // RestButtonSpacing_Bronze is fully inert (both discs clamp to the same anchor-local offset and
+    // stay distinct only because their anchors are 105 mm apart), and GenericButtonSpacing is
+    // mostly absorbed by the anchor pitch. THE FOOTPRINT CHANGE IS NOT COMPENSATED, deliberately:
+    // BoardScale is a uniform scalar, so at his tuned dials Bronze's short edge grows 46.7 % and
+    // Steel's shrinks 13.2 %. His cfg beats any default this repo can change, and the new
+    // proportion is the point of the rebuild.
+    //
+    // NO WIRE CHANGE. Wire tests 147,378 (WAS 146,857 — +521, the two board clamps are on the
+    // harness now; no script gates that number, but several documents quote it).
+    // Patch inventory 78/130 (UNCHANGED).
+    // *** BUNDLE CHANGED to 65,626,956 bytes — NOT a DLL-only install. ***
+    //
+    // AND THE SAME BUILD CARRIES THREE USER REPORTS OF 2026-08-25 — the first two
+    // turned out to be one defect.
     //  (1)+(2) THE UNION RULE. "Manche Kerzen ... schweben dann an der Wand" and "wenn eine
     //      benachbarte Wand nicht gefaded hat und dort eine Stange in die Wand rausguckt die
     //      gefaded ist ... die Stange voll sichtbar auf der unsichtbaren Wand". ONE OWNER PER

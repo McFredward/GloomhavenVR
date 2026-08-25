@@ -70,6 +70,20 @@ internal sealed partial class PlayTray
     {
         if (_visual == null || _root == null)
             return;
+        // THE MESH MAY NOT LEAVE THE CONTROLS THAT SIT ON IT — the sibling of the seat clamp, and
+        // clamped HERE rather than at the two call sites (EnsureBuilt and CardsDriver's live
+        // apply) so neither can forget and the live menu shows the pose that is actually in force.
+        // On a board with no measured recess this is a no-op by construction. See
+        // BoardAnchors.ClampAssetPose for the measurement that made this necessary.
+        Vector3 reqOffset = offset, reqEuler = euler;
+        BoardAnchors.ClampAssetPose(ref offset, ref euler, _assetAnchorRadius);
+        if (BoardAnchors.AssetPoseWasClamped(reqOffset, reqEuler, offset, euler))
+            VRLog.Info("Cards", $"Board mesh pose CLAMPED: requested offset {reqOffset:F3} / euler " +
+                                $"{reqEuler:F1}° would have walked the mesh out from under the pinned " +
+                                $"control set; applied {offset:F3} / {euler:F1}° " +
+                                $"(anchor radius {_assetAnchorRadius:F3} m, lift budget " +
+                                $"{BoardAnchors.MaxAnchorLift * 1000f:F1} mm). These dials were tuned " +
+                                "on a board this bundle no longer carries.");
         _visual.localPosition = _visualBasePos + offset;
         _visual.localRotation = Quaternion.Euler(euler) * _visualBaseRot;
         for (int i = 0; i < _assetPinnedAnchors.Count; i++)

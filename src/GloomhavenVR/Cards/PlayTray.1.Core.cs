@@ -141,6 +141,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     private Quaternion _visualBaseRot;
     private readonly System.Collections.Generic.List<(Transform t, Vector3 lp, Quaternion lr)>
         _assetPinnedAnchors = new(6);
+    /// <summary>Lever arm the asset-pose tilt bound is derived from: the furthest pinned anchor
+    /// from the board root, board-local metres, measured at capture. Null on a board that carries
+    /// no measured recess — see <see cref="BoardAnchors.ClampAssetPose"/>, which then bounds
+    /// nothing at all.</summary>
+    private float? _assetAnchorRadius;
     private Transform? _longRestAnchor;
     private readonly VRCard?[] _occupants = new VRCard?[2];
 
@@ -652,12 +657,20 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _visualBaseRot = _visual.localRotation;
             _assetPinnedAnchors.Clear();
             List<Transform> pinned = LiveBoardAnchors();
+            float radius = 0f;
             for (int i = 0; i < pinned.Count; i++)
             {
                 Transform a = pinned[i];
-                _assetPinnedAnchors.Add((a, _root.InverseTransformPoint(a.position),
-                                         Quaternion.Inverse(_root.rotation) * a.rotation));
+                Vector3 lp = _root.InverseTransformPoint(a.position);
+                radius = Mathf.Max(radius, lp.magnitude);
+                _assetPinnedAnchors.Add((a, lp, Quaternion.Inverse(_root.rotation) * a.rotation));
             }
+            // The lever arm for the asset-pose tilt bound, and the GATE for whether there is a
+            // bound at all: a board that carries no measured recess is an old-bundle board, gets
+            // no radius and therefore no bound, and is posed bit-identically to today. Same
+            // discriminator as the seat clamp, read from the same measurement, one line above.
+            _assetAnchorRadius = _seatMinHalf == null || _assetPinnedAnchors.Count == 0
+                                 ? (float?)null : radius;
             SetAssetPose(CardsConfig.AssetOffset(CardsConfig.CurrentBoard).Value,
                          new Vector3(CardsConfig.AssetPitch(CardsConfig.CurrentBoard).Value,
                                      CardsConfig.AssetYaw(CardsConfig.CurrentBoard).Value,
