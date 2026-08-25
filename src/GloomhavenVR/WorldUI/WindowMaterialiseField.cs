@@ -5,7 +5,7 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// <b>THE ONE FIELD, WRITTEN IN C#.</b> The erosion front that decides which parts of a floating
 /// window are still there, evaluated on the CPU so the window's own uGUI elements wink out along
-/// exactly the front the flake shader paints.
+/// exactly the front the debris is torn off along.
 ///
 /// <para><b>WHY THE SAME ARITHMETIC EXISTS THREE TIMES.</b> A dissolve that is only a shader can
 /// paint flakes over a window but cannot remove the window, and uGUI gives no per-pixel handle on
@@ -35,7 +35,7 @@ namespace GloomhavenVR.WorldUI;
 /// per surface point cannot produce it.</para>
 ///
 /// <para><b>NO CLOCK.</b> <c>progress</c> is the only time-like input and it is used as a POSITION
-/// (where the front is) and as an AMPLITUDE (how far the plume drifted). No dial multiplies a
+/// (where the front is) and as an AMPLITUDE (how far the debris has travelled). No dial multiplies a
 /// frequency here, because there is no frequency.</para>
 ///
 /// <para><b>EXACT AT BOTH ENDS.</b> <see cref="Presence"/> returns exactly 1 for every UV at
@@ -69,8 +69,8 @@ internal static class WindowMaterialiseField
     internal const float FrontScale = 3.5f;
 
     // ---- the TWO FRONTS ---------------------------------------------------------------------
-    // ModBuild 294 replaced a painted plume with real world-space shards, and that forced the one
-    // front into two. The reason is arithmetic, not taste:
+    // The 2026-08-26 redesign replaced a painted plume with real world-space shards, and that forced
+    // the one front into two. The reason is arithmetic, not taste:
     //
     //   An ELEMENT is present while the front has not reached its threshold; a SHARD exists once the
     //   front HAS passed its threshold and has not yet run far enough past it for the shard to die.

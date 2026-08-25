@@ -1,6 +1,6 @@
 # Window materialise — a window breaks into real debris in the room
 
-**Lane:** `agent-a4dbc57e3f126b7b1`, branched from `origin/dev` at `e82ee8f2` (ModBuild 293).
+**Lane:** `agent-a4dbc57e3f126b7b1`, branched from `origin/dev` at `e82ee8f2` (ModBuild 293). **`origin/dev` has since advanced to `7bd4506f` (ModBuild 294 — the figure-grab box/glow round). None of its seven commits touches a file this lane owns or any of the five call sites, so the merge is clean; but 294 is TAKEN, this change is 295 or later, and the gate numbers below are against the 293 baseline the brief named, not against the new tip.**
 **Status:** redesigned, committed on the lane branch. The call sites were already wired in 293 and are
 **untouched** — note there are **five** lines across three files, not four: `PlayIn`, `PlayOut`,
 `IsVanishing`, and `CancelAll` **twice** (`ReleaseAllWindows` and `ReleaseMapRoomFloats`). The public
@@ -64,7 +64,7 @@ than its author knew:
 
 **No file outside this lane's ownership was touched.** `Defaults/`, `ConfigCatalog.cs`,
 `ConfigSteps.cs`, `ConfigStepVectors.cs`, `ActorBars.cs` and `Board/FigureGrab/**` are untouched, and
-so are the four existing call sites in `ModalFallback.4.Tick.cs`, `ModalFallback.9.Spawn.cs` and
+so are the five existing call lines in `ModalFallback.4.Tick.cs`, `ModalFallback.9.Spawn.cs` and
 `CanvasConversion.4.Lifecycle.cs`. `BundleShaders.cs` needed no change because the shader kept its
 name and its path.
 

@@ -1,7 +1,7 @@
 """WINDOW MATERIALISE, STAGE 1 -- the audits, the window textures and the shard simulation.
 
 This script does NOT render the pictures a human looks at.  It cannot: the whole point of
-ModBuild 294 is that the debris is real geometry in the room, and a numpy compositor can
+the 2026-08-26 redesign is that the debris is real geometry in the room, and a numpy compositor can
 only ever draw a decal on a pane -- which is exactly the defect being fixed.  What it does
 is produce the two things the Blender stage needs and the three things that settle the
 questions no picture can:

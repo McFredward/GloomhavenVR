@@ -53,7 +53,7 @@ namespace GloomhavenVR.WorldUI;
 /// leaves in the frame its own patch of window disappears; see <see cref="WindowMaterialiseField"/>
 /// for the arithmetic, the two fronts, and the stereo argument.</para>
 ///
-/// <para><b>WHAT ModBuild 294 CHANGED, AND WHY.</b> User, 2026-08-26, on 292/293: <i>"Ich mag die
+/// <para><b>WHAT THE 2026-08-26 REDESIGN CHANGED, AND WHY.</b> User, on 292/293: <i>"Ich mag die
 /// Fenster ein- und ausblend-Animation nicht. Ich will eher, dass es wirkliche Partikeleffekte in
 /// der 3D-Umgebung auslöst, aktuell ist es eher ein 2D-Effekt."</i> He was describing the mechanism
 /// correctly. The debris used to be painted on ONE quad parented to the window's host rect, in the
