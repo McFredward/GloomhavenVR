@@ -422,6 +422,12 @@ internal static partial class CanvasConversion
             bool enabled = !EffectiveLock;
             for (int i = 0; i < Active.Count; i++)
             {
+                // ModBuild 291: a float the liveness rule has made DORMANT is render-hidden because
+                // it draws nothing, and its raycaster was switched off with it. A lock EDGE must not
+                // hand input back to an invisible window — it is the same reasoning as
+                // ModalFallback.Tick's raycast step, at the other writer of this flag.
+                if (ModalFallback.IsDormantPanel(Active[i]))
+                    continue;
                 if (Active[i].HostRaycaster != null)
                     Active[i].HostRaycaster.enabled = enabled;
             }

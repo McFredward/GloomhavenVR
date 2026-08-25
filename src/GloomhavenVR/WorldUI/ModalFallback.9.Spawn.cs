@@ -2358,11 +2358,14 @@ internal static partial class ModalFallback
     //     clause is what makes this a bounded grace rather than a settle gate that can never open;
     //     this project has shipped one of those (the supersample settle gate) and the lesson was
     //     that a gate whose opening depends on the thing it is gating never opens.
-    //   * NOT BEFORE THE DWELL. A window must draw nothing for EmptyDwellSeconds without a break.
-    //     That is not padding: the unlock flow this report comes from hides its popup and runs a
-    //     ~1 s camera focus between two unlocked locations (UIUnlockLocationFlowManager.cs:150-158,
-    //     focusMoveDuration initialiser :22), so a shorter dwell would release the window in the
-    //     GAP between two announcements and the second one would never be seen.
+    //   * NOT BEFORE THE DWELL. A window must draw nothing for an unbroken dwell. Through ModBuild
+    //     290 that dwell was 2 s and it ended in a RELEASE, sized so the unlock flow's own blank —
+    //     it hides its popup and runs a ~1 s camera focus between two unlocked locations
+    //     (UIUnlockLocationFlowManager.cs:150-158, focusMoveDuration initialiser :22) — could not
+    //     reach it. ModBuild 291 made the DARK action reversible, so the dwell is now
+    //     EmptyHideDwellSeconds (0.35 s) and the 2 s constant is a tombstone. See the ModBuild 291
+    //     block below for why a SHORTER bar on a HIDE is the ModBuild 230 ruling being honoured
+    //     sooner rather than a guard being weakened.
     //
     // AND ONE GUARD AGAINST A LOOP. A window released for DARKness may still be reported open by
     // the game, so the convert loop would re-float it on the very next tick, into the same dark
@@ -2379,13 +2382,22 @@ internal static partial class ModalFallback
     /// </summary>
     private const float LivenessGraceSeconds = 1.5f;
 
-    /// <summary>
-    /// How long a floated window must draw NOTHING, without a break, before it is released,
-    /// seconds. See the dwell paragraph above for why this is 2 s and not a frame: the named case
-    /// legitimately blanks its own content for the duration of a ~1 s camera focus between two
-    /// announcements, and releasing in that gap would lose the second announcement.
-    /// </summary>
-    private const float EmptyDwellSeconds = 2f;
+    // TOMBSTONE — `EmptyDwellSeconds = 2f` (ModBuild 230 … 290). It was "how long a floated window
+    // must draw NOTHING, without a break, before it is RELEASED", and its 2 s was sized by a real
+    // measurement: the unlock flow blanks its own popup for a ~1 s camera focus between two
+    // announcements (UIUnlockLocationFlowManager.cs:150-158, focusMoveDuration initialiser :22), and
+    // releasing in that gap would have lost the second announcement.
+    //
+    // IT IS GONE BECAUSE THE ACTION IT GUARDED IS GONE, NOT BECAUSE THE NUMBER WAS WRONG. ModBuild
+    // 291 replaced the DARK release with a reversible hide, and the whole argument for a 2 s bar was
+    // that the action at the end of it could not be taken back. The two numbers that replaced it say
+    // so explicitly: EmptyHideDwellSeconds (0.35 s — the reversible action, and shorter on purpose,
+    // because 2 s of it is 2 s of the empty frame ModBuild 230 forbids) and DormantReleaseSeconds
+    // (45 s — the irreversible one, and far longer than 2 s for exactly the old reason).
+    //
+    // DO NOT REINTRODUCE A 2 s DWELL ON THE HIDE PATH by reading the old prose in
+    // WindowPanel.EmptySince or GrabbableModal's ink block: both of those sentences were written
+    // when the dwell ended in a teardown.
 
     /// <summary>
     /// The dwell for a window whose SCRIPTED LEVEL MESSAGE the game still considers displayed,
@@ -2404,6 +2416,105 @@ internal static partial class ModalFallback
     /// is a deadlock — which is why this number is generous rather than tight.</para>
     /// </summary>
     private const float ScriptedMessageDwellSeconds = 6f;
+
+    // ---- ModBuild 291: THE DARK VERDICT HIDES; ONLY A FINISHED WINDOW IS TORN DOWN -------------
+    //
+    // USER REPORT, verbatim (2026-08-24, map room): "Ich bin in die Karte gespawned dann ist das
+    // Fenster mit der Character-UI plötzlich einfach verschwunden, und war mehrere Sekunden lang
+    // verschwunden, bis es wieder aufgetaucht ist. Das soll nicht sein. Es darf erst gar nicht
+    // verschwinden. Was ist passiert?"
+    //
+    // WHAT HAPPENED, FROM HIS OWN LOG (.planning/debug/LogOutput.log, ModBuild 290):
+    //
+    //   :4282  'New Party display' (ID PartyPanel) opens while the map room is still LOADING.
+    //   :4469  MODAL LIVENESS ARMED after 902 ms by FIRST PAINT — it had content (the fit at :4457
+    //          measured "328x1080 px … [83 graphic(s)]", the hit rect at :4476 "85 visible").
+    //   ~+0.9s the party display stops drawing. Two independent instruments agree, so this is NOT a
+    //          measurement artefact: :4490 EMPTY GRAB BAR TAKEN OFF ("2 agreeing ink walk(s) …
+    //          ZERO drawn graphic(s)") and the fit's own verdict below.
+    //   :4480  Loading ended: backgroundLoadingPriority restored.  :4497  Loading indicator hidden.
+    //   :4502  EMPTY WINDOW RELEASED … DARK … (dwell 2.0 s) — frame 13264. THE WHOLE FLOAT GOES:
+    //          host, collider/raycaster, grab bar, arc slot, and 150.4 MB of supersample target.
+    //   :4516  SUB-VIEW REVIVAL … the hold is LIFTED because its own subtree is drawing again.
+    //   :4539+ the window is CONVERTED FROM SCRATCH — frame 13584. That is 320 frames, ~3.7 s at
+    //          the 87 fps this session's heartbeats measure (#18: frames+871 over 10 s).
+    //
+    // AND IT MOVED. The rebuild re-ran the spawn placement: :4309 "yawed 54.8° to face the head",
+    // :4545 "yawed 136.9°". The window he got back was not the window he had.
+    //
+    // THE TWO RULINGS ARE BOTH HIS AND BOTH STAND, AND THEY DO NOT CONFLICT:
+    //   ModBuild 230: "Es darf niemals leere Fenster geben - verschwindet das Objekt das in dem
+    //                  Fenster dargestellt wird, soll auch das Fenster verschwinden."
+    //   ModBuild 291: "Es darf erst gar nicht verschwinden."
+    // The first says the window must stop being ON THE SCREEN when its content goes. It does not say
+    // the float must be DESTROYED, and destroying it is the only reason the return took seconds.
+    //
+    // THE DISCRIMINATOR IS NOT A TIMER AND NOT "IS A LOAD IN FLIGHT". It is the SHAPE of the exit:
+    //
+    //   GONE      — the UIWindow or the conversion target was DESTROYED. Nothing can bring it back.
+    //               RELEASE, no dwell. This is the OTHER release in the same log (:4028,
+    //               "'<destroyed>' (ID ?) — GONE"), it was correct, and it is untouched.
+    //   DARK      — the target still exists and draws nothing. HIDE, do not release: the float is
+    //               render-hidden (invisible AND un-clickable, see GoDormant) and keeps its host,
+    //               its pose, its arc seat, its grab frame and its fit. It becomes visible again in
+    //               the SAME FRAME its content does, at the pose it had.
+    //
+    // WHY A LOAD TERM WAS CONSIDERED AND REJECTED. "Is a scene/addressable load in flight" was the
+    // obvious candidate — he had just spawned into the map. His log falsifies it as the fix: the
+    // load ENDED at :4480/:4497, five lines BEFORE the release at :4502, while the content did not
+    // come back until ~3.7 s after it. A load term would have restarted the same 2 s dwell at the
+    // load edge and torn the same window down ~2 s later, i.e. still ~1.7 s before the content
+    // returned. It is the "raise the dwell" mistake wearing a state flag's clothes: it makes the
+    // same wrong decision later instead of making it right.
+    //
+    // WHY THE HIDE DWELL IS SHORTER THAN THE RELEASE DWELL WAS, AND WHY THAT IS NOT A REGRESSION.
+    // The retired 2 s dwell was 2 s because a RELEASE is irreversible and the unlock flow legitimately
+    // blanks its popup for a ~1 s camera focus between two announcements. A HIDE costs one component
+    // walk to undo, so the argument for the long bar does not apply to it: the empty frame leaves
+    // the screen 1.65 s sooner than it does today (ModBuild 230's own requirement), and if the
+    // content returns mid-dwell nothing was lost. DormantCycles counts the flaps so a bar that is
+    // too short is visible in the census instead of being felt on the hardware.
+
+    /// <summary>
+    /// How long a floated window must draw NOTHING, without a break, before it is HIDDEN (made
+    /// dormant), seconds. Short on purpose: hiding is reversible in one frame, so the 2 s the
+    /// retired release dwell needed for an irreversible teardown buys nothing here and
+    /// costs 1.65 s of the empty frame ModBuild 230 forbids. Two liveness strides at 87 fps is
+    /// ~0.14 s, so this is still several agreeing measurements and never a single-frame twitch.
+    /// </summary>
+    private const float EmptyHideDwellSeconds = 0.35f;
+
+    /// <summary>
+    /// How long a float may stay DORMANT before it is released after all, seconds — the resource
+    /// backstop, and the one place a timer is honestly the only available discriminator.
+    ///
+    /// <para>ModBuild 226 ruled, at the reveal edge, that "hiding the bar and leaving the panel alive
+    /// would leave an invisible thing holding a map-room window slot and a draw-order rung". That
+    /// ruling was about a window BORN empty, which never had content and has no reason to be
+    /// expected back; it is untouched (<c>RefuseEmptyFloat</c> still releases outright). This is the
+    /// other case — a window that HAD content and lost it — where the invisible thing holding the
+    /// slot is precisely what makes the return instant and in-place. The backstop bounds the ruling's
+    /// concern rather than overturning it: a window whose content never comes back gives its seat,
+    /// its host and its rung up after 45 s, through the ordinary release path and its EmptyHold.
+    /// 45 s is far past any map/scenario load (the load in the report ran ~4 s) and far past the
+    /// ~1 s inter-announcement gap the 2 s dwell was sized for.</para>
+    /// </summary>
+    private const float DormantReleaseSeconds = 45f;
+
+    /// <summary>
+    /// Frames between measurements of a DORMANT float — the SAME stride as
+    /// <see cref="LivenessCheckStride"/>, and the sameness is deliberate rather than lazy.
+    ///
+    /// <para>A sparser stride was the obvious saving and it buys a defect. The hide records the set
+    /// of components it switched off (CanvasConversion part 6's "record instead of re-enable
+    /// everything" contract), so a Canvas the GAME creates or enables WHILE the float is dormant was
+    /// never recorded and draws immediately. The dormant probe therefore RE-APPLIES the hide before
+    /// it measures — idempotent, the same thing the reveal gate does every frame — and the stride is
+    /// the ceiling on how long such a late child can be on the screen. At 6 frames that is ~0.07 s
+    /// at the 87 fps this session's heartbeats measure, and it is the same number as the wake
+    /// latency, which is the honest place for both.</para>
+    /// </summary>
+    private const int DormantCheckStride = LivenessCheckStride;
 
     /// <summary>Frames between DARK measurements of one float. The walk is a
     /// GetComponentsInChildren over the window subtree; at 6 frames it runs ~12x/second per floated
@@ -2522,6 +2633,105 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// ModBuild 291 — THE WAKE TEST FOR A DORMANT FLOAT, AND THE ONE QUESTION IT IS ALLOWED TO ASK:
+    /// "has the GAME made this subtree drawable again?", asked ONLY of state a disabled Canvas
+    /// cannot freeze.
+    ///
+    /// <para>WHY IT EXISTS AND WHY IT IS NOT A THIRD COPY OF THE FIT'S VERDICT. A dormant float is
+    /// render-hidden, which means every Canvas over it is disabled — and uGUI does not service a
+    /// disabled canvas. <see cref="CanvasConversion.CountsAsFitContent"/> and
+    /// <see cref="DrawsAnythingLoose"/> both read <c>CanvasRenderer.GetInheritedAlpha()</c> and
+    /// <c>CanvasRenderer.cull</c>, which are maintained BY that servicing; the fit path says so in
+    /// its own words ("the uGUI pipeline does not service a disabled canvas, so without the flush
+    /// the measure would read stale geometry") and answers it with a
+    /// <c>LayoutRebuilder.ForceRebuildLayoutImmediate</c> + <c>Canvas.ForceUpdateCanvases</c> flush.
+    /// That flush over a 2115-transform party display, several times a second, forever, is not a
+    /// price a liveness probe may pay — and a wake test built on a value the hide itself can freeze
+    /// is exactly the settle gate that never opens this project has already shipped once.</para>
+    ///
+    /// <para>So this reads the SCRIPT side and nothing else: the GameObject is active, the Graphic
+    /// component is enabled, its own <c>color.a</c> clears the fit's own 0.05 floor, the
+    /// <c>CanvasGroup</c> chain up to the window root clears it too, and the rect is not degenerate.
+    /// Every one of those is written by the game from its own Update and is readable whether or not
+    /// anything is rendering.</para>
+    ///
+    /// <para>IT IS DELIBERATELY THE LOOSER TEST, for the same reason <see cref="DrawsAnythingLoose"/>
+    /// is: it can only ever cause a WAKE, and a wrong wake costs one visible frame of a window the
+    /// ordinary (strict, now-trustworthy) measurement then puts back to sleep after
+    /// <see cref="EmptyHideDwellSeconds"/>. A wrong "still dark" costs a stranded window, which is
+    /// the defect being fixed. The flap that a wrong wake would produce is counted, per float, by
+    /// <c>WindowPanel.DormantCycles</c> and printed by the liveness census.</para>
+    /// </summary>
+    /// <param name="root">The window's conversion target (<c>ConvertedPanel.Target</c>).</param>
+    private static bool DrawsAnythingScriptSide(Transform root)
+    {
+        if (!root.gameObject.activeInHierarchy)
+            return false;
+        LiveCheckGraphics.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckGraphics);
+        for (int i = 0; i < LiveCheckGraphics.Count; i++)
+        {
+            Graphic g = LiveCheckGraphics[i];
+            if (g == null || !g.enabled)
+                continue;
+            if (g.color.a < CanvasConversion.FitMinAlpha)
+                continue;
+            RectTransform? gr = g.rectTransform;
+            if (gr == null)
+                continue;
+            Rect r = gr.rect;
+            if (r.width < 0.5f || r.height < 0.5f)
+                continue;
+            if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                continue;
+            if (GroupChainAlpha(gr, root) < CanvasConversion.FitMinAlpha)
+                continue;
+            return true;
+        }
+        // A 3D preview (character / enemy models) carries no Graphic at all — the same arm the two
+        // other measurements have, and `enabled` on a Renderer is game state, not canvas state.
+        LiveCheckRenderers.Clear();
+        root.GetComponentsInChildren(includeInactive: false, LiveCheckRenderers);
+        for (int i = 0; i < LiveCheckRenderers.Count; i++)
+        {
+            Renderer rend = LiveCheckRenderers[i];
+            if (rend != null && rend.enabled
+                && !rend.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Product of every <c>CanvasGroup.alpha</c> from <paramref name="from"/> up to (and including)
+    /// <paramref name="stop"/>, honouring <c>ignoreParentGroups</c> exactly as uGUI does. This is
+    /// the script-side equivalent of the inherited alpha a CanvasRenderer would report if anything
+    /// were servicing it. GetComponent does not allocate and the caller early-outs on the first
+    /// graphic that passes, so a window that IS drawing pays for one chain walk.
+    /// </summary>
+    private static float GroupChainAlpha(Transform from, Transform stop)
+    {
+        float alpha = 1f;
+        Transform? t = from;
+        while (t != null)
+        {
+            var group = t.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                alpha *= group.alpha;
+                if (alpha < CanvasConversion.FitMinAlpha)
+                    return alpha;
+                if (group.ignoreParentGroups)
+                    return alpha;
+            }
+            if (ReferenceEquals(t, stop))
+                break;
+            t = t.parent;
+        }
+        return alpha;
+    }
+
+    /// <summary>
     /// Does this float's content draw anything RIGHT NOW, judged with the content fit's own
     /// visibility verdict? <paramref name="darkReason"/> carries the sub-reason when the answer is
     /// no, so the release line states what was measured rather than asserting a mechanism.
@@ -2609,7 +2819,11 @@ internal static partial class ModalFallback
         int frame = Time.frameCount;
         int armed = 0;
         int inGrace = 0;
+        int dormant = 0;
+        int flappers = 0;
+        int exempt = 0;
         float oldestGraceAge = 0f;
+        float oldestDormantAge = 0f;
 
         for (int i = 0; i < Converted.Count; i++)
         {
@@ -2642,6 +2856,102 @@ internal static partial class ModalFallback
                 continue;
             }
 
+            // ModBuild 291 — THE ESC / OPTIONS FAMILY IS NEVER JUDGED BY THIS RULE AT ALL.
+            //
+            // USER RULING, absolute: "es MUSS immer möglich sein das Optionsmenu zu öffnen." A
+            // window can report IsOpen and still be invisible through this rule — released before
+            // ModBuild 291, dormant after it — and for every other window that is the correct
+            // outcome and recoverable by the player (open it again). For the pause menu it is not:
+            // the ESC menu IS the recovery path, and there is no second one behind it.
+            //
+            // The exemption is placed here, ahead of the arm as well as ahead of the dwell, so an
+            // options window is never even ARMED and no later edit to the dwell arithmetic can put
+            // it back in scope. It costs nothing: this family floats with fitContent:false and its
+            // content is a whole screen, so it has never once been measured dark — in the report's
+            // own log 'UI Scenario Esc Menu' (:2208) and 'UI Options Window_unified' (:2277) both
+            // armed by FIRST PAINT and neither ever went dark. That is exactly why the exemption is
+            // cheap insurance rather than a behaviour change: it removes a route nobody has walked.
+            //
+            // THE GONE SHAPE ABOVE IS NOT EXEMPT and must not be: a DESTROYED options window has no
+            // content to come back to and leaving its chrome standing would strand the very menu
+            // this ruling protects.
+            if (IsMenuFamilyWindow(wp.Window.ID))
+            {
+                if (wp.Dormant)
+                    WakeDormant(wp, now, "the ESC/options exemption — this family is never judged "
+                                         + "dark, so a dormant one is put back on the screen at once");
+                wp.EmptySince = 0f;
+                exempt++;
+                continue;
+            }
+
+            // ---- DORMANT: alive, hidden, and the only question left is "is it back?" -------------
+            if (wp.Dormant)
+            {
+                dormant++;
+                float dormantAge = now - wp.DormantSince;
+                if (dormantAge > oldestDormantAge) oldestDormantAge = dormantAge;
+                if (wp.DormantCycles > 1) flappers++;
+                if (frame < wp.LivenessNextCheckFrame)
+                    continue;
+                wp.LivenessNextCheckFrame = frame + DormantCheckStride;
+
+                // RE-APPLY THE HIDE FIRST. It records only what it switched off, so a Canvas or a
+                // Renderer the GAME created or enabled since the last pass was never recorded and is
+                // drawing right now — inside a window that is supposed to be off the screen. The
+                // pass is idempotent (an already-disabled component is skipped, never double
+                // recorded), which is exactly why the reveal gate re-runs it every frame while
+                // pending. It cannot hide the wake signal below: the two tests read Graphic.enabled,
+                // GameObject.activeInHierarchy, colours and CanvasGroups, none of which a
+                // Canvas.enabled write touches.
+                CanvasConversion.SetPanelRenderVisible(wp.Panel, visible: false);
+                // Same argument for the raycaster: two writers are known and both skip a dormant
+                // panel, and this change-gated re-assert is what makes "nothing clickable" a
+                // property of the state rather than a property of the two writers I found.
+                if (wp.Panel.HostRaycaster != null && wp.Panel.HostRaycaster.enabled)
+                    wp.Panel.HostRaycaster.enabled = false;
+
+                // THE STRICT TEST IS ASKED FIRST AND ITS ANSWER IS TRUSTED WHEN IT IS YES — a panel
+                // whose CanvasRenderer state happens to be fresh should wake on the same verdict
+                // that hid it. When it says no, the SCRIPT-SIDE test gets the question, because a
+                // disabled canvas can freeze every term the strict one reads (see
+                // DrawsAnythingScriptSide for the whole argument). The log names WHICH one woke it,
+                // so the next hardware run tells us whether the strict test survives the hide or
+                // whether the script-side arm is carrying the rule on its own.
+                bool strict = MeasureDrawsSomething(wp, out _);
+                bool loose = strict || DrawsAnythingScriptSide(wp.Panel.Target);
+                if (loose)
+                {
+                    WakeDormant(wp, now, strict
+                        ? "its content passes the content fit's own visibility verdict again"
+                        : "its content passes the SCRIPT-SIDE test again (active GameObject, enabled "
+                          + "Graphic, own colour alpha and CanvasGroup chain above the fit's "
+                          + $"{CanvasConversion.FitMinAlpha:F2} floor, non-degenerate rect) while the "
+                          + "fit's own verdict — which reads CanvasRenderer state a disabled canvas "
+                          + "does not refresh — still says dark");
+                    wp.LastDrawnAt = now;
+                    wp.EmptySince = 0f;
+                    armed++;
+                    continue;
+                }
+
+                // THE BACKSTOP. Still dark after DormantReleaseSeconds: give the seat, the host and
+                // the draw-order rung back through the ONE existing teardown, exactly as before
+                // ModBuild 291. This is the only timer in the rule that is a verdict rather than a
+                // confirmation, and it is honest about it.
+                if (dormantAge >= DormantReleaseSeconds)
+                {
+                    wp.EmptyReleasePending = true;
+                    wp.EmptyReleaseShape =
+                        $"DARK — {wp.DormantReason} — and it has now been DORMANT (render-hidden, "
+                        + $"seat and pose kept) for {dormantAge:F1} s without drawing once, past the "
+                        + $"{DormantReleaseSeconds:F0} s backstop. The float is given up so its arc "
+                        + "seat, host and draw-order rung go back to the room; nothing was on the "
+                        + "screen for any of those seconds";
+                }
+                continue;
+            }
+
             if (frame < wp.LivenessNextCheckFrame)
             {
                 if (wp.LivenessArmed) armed++;
@@ -2669,7 +2979,10 @@ internal static partial class ModalFallback
                                           + $"after {(now - wp.FloatedAt) * 1000f:F0} ms — it has been "
                                           + "measured drawing content, so from here on it is watched: if "
                                           + "it stops drawing for "
-                                          + $"{EmptyDwellSeconds:F1} s the whole float is released.");
+                                          + $"{EmptyHideDwellSeconds:F2} s the float is HIDDEN (ModBuild "
+                                          + "291: hidden, not released — it keeps its host, pose, arc "
+                                          + "seat and grab frame and comes back in one frame the moment "
+                                          + "it draws again).");
                 }
                 armed++;
                 continue;
@@ -2726,19 +3039,27 @@ internal static partial class ModalFallback
             // The scripted-level-message dwell is read LIVE, not latched at the start of the run: a
             // chain whose current message ends mid-dwell must fall back to the ordinary bar rather
             // than keep the longer one for a window that is no longer protected by anything.
+            //
+            // ModBuild 291 — THE SCRIPTED BAR SURVIVES, AND IT IS THE ONE PLACE THE LONG DWELL STILL
+            // EARNS ITS LENGTH. The DurabilityPanel argument on ScriptedMessageDwellSeconds is about
+            // a tutorial box that must not lose its dismiss chain; the cheap-to-undo argument for the
+            // short bar does not reach it, because the mod's own hide is what would blank the box the
+            // player has to click. So a window whose scripted message the game still considers
+            // displayed keeps the 6 s bar; everything else takes the short one, because for
+            // everything else the action at the end of the dwell is now reversible.
             bool scripted = ScriptedLevelMessageActive(wp.Window);
-            float dwell = scripted ? ScriptedMessageDwellSeconds : EmptyDwellSeconds;
+            float dwell = scripted ? ScriptedMessageDwellSeconds : EmptyHideDwellSeconds;
             if (now - wp.EmptySince < dwell)
                 continue;
 
-            wp.EmptyReleasePending = true;
-            wp.EmptyReleaseShape = $"DARK — {darkReason}"
-                                   + $" (dwell {dwell:F1} s"
-                                   + (scripted
-                                       ? ", the longer bar: the game still considers this window's "
-                                         + "scripted level message displayed"
-                                       : string.Empty)
-                                   + ")";
+            GoDormant(wp, now, $"{darkReason} (dwell {dwell:F2} s"
+                               + (scripted
+                                   ? ", the longer bar: the game still considers this window's "
+                                     + "scripted level message displayed"
+                                   : string.Empty)
+                               + ")");
+            dormant++;
+            if (wp.DormantCycles > 1) flappers++;
         }
 
         // ---- orphan chrome, then census + self-cost ---------------------------------------------
@@ -2772,11 +3093,20 @@ internal static partial class ModalFallback
             {
                 VRLog.Info("WorldUI", $"MODAL LIVENESS CENSUS: {Converted.Count} floated window(s) — "
                                       + $"{armed} ARMED, {inGrace} still in the bounded "
-                                      + $"{LivenessGraceSeconds:F1} s grace (oldest {oldestGraceAge * 1000f:F0} ms). "
+                                      + $"{LivenessGraceSeconds:F1} s grace (oldest {oldestGraceAge * 1000f:F0} ms), "
+                                      + $"{dormant} DORMANT (render-hidden but alive, seat and pose kept; oldest "
+                                      + $"{oldestDormantAge:F1} s of the {DormantReleaseSeconds:F0} s backstop, "
+                                      + $"{flappers} of them on their second or later dormancy), "
+                                      + $"{exempt} EXEMPT (the ESC/options family, never judged by this rule "
+                                      + "at all — user ruling: \"es MUSS immer möglich sein das Optionsmenu zu "
+                                      + "öffnen\"). "
                                       + $"{EmptyHold.Count} window(s) held out of the float set for having been "
                                       + "released dark. THIS LINE IS THE FALSIFIER: the grace has a ceiling, so an "
                                       + "'in grace' age above it, or a population that is never ARMED, means the "
-                                      + "rule is not running rather than that every window is fine. COST: "
+                                      + "rule is not running rather than that every window is fine — and a rising "
+                                      + "FLAPPER count means the "
+                                      + $"{EmptyHideDwellSeconds:F2} s hide dwell is too short for some window, "
+                                      + "which is the one number ModBuild 291 shortened. COST: "
                                       + $"{usPerFrame:F1} us/frame averaged over {_livenessFrames} tick(s), of "
                                       + $"which {_livenessWalks} subtree walk(s) (stride {LivenessCheckStride} "
                                       + "frames per window; a window behind the reveal gate is not walked at "
@@ -2790,6 +3120,127 @@ internal static partial class ModalFallback
             _chromeSweeps = 0;
             _chromeOrphansSinceCensus = 0;
         }
+    }
+
+    /// <summary>
+    /// ModBuild 291 — the ESC / OPTIONS family, which this rule never judges. User ruling,
+    /// absolute: "es MUSS immer möglich sein das Optionsmenu zu öffnen."
+    ///
+    /// <para>The four IDs are the same set <c>IsFullScreenMenu</c> and
+    /// <c>WantsTransparentBackground</c> already treat as one family (ModalFallback.8.Convert.cs);
+    /// the menu-spawned CONFIRMATION boxes are deliberately NOT in it — a confirmation that has
+    /// genuinely finished should hide like anything else, and it is not the recovery path the ruling
+    /// protects.</para>
+    /// </summary>
+    private static bool IsMenuFamilyWindow(UIWindowID id) =>
+        id == UIWindowID.ESCMenu || id == UIWindowID.Options
+        || id == UIWindowID.OptionsSubmenu || id == UIWindowID.ViceOptionsSubmenu;
+
+    /// <summary>
+    /// Is this panel currently held dormant by the liveness rule? Read by
+    /// <c>ModalFallback.Tick</c>'s raycaster step and by the draw-order ladder's diagnostic label,
+    /// so neither has to know how dormancy is stored.
+    /// </summary>
+    internal static bool IsDormantPanel(ConvertedPanel? panel)
+    {
+        if (panel == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+                return Converted[i].Dormant;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// TAKE THE FLOAT OFF THE SCREEN WITHOUT TAKING IT APART (ModBuild 291).
+    ///
+    /// <para>WHAT GOES, AND WHY THIS IS AS INVISIBLE AS A RELEASE:
+    /// <see cref="CanvasConversion.SetPanelRenderVisible"/> disables every Canvas and every Renderer
+    /// under the host AND every registered extra render root — which is the grab bar's scene-root
+    /// holder, so the brass bar and its laser collider go too (that is what
+    /// <c>GrabbableModal.IPanelGrabOwner.GrabVisible</c>'s <c>!RenderHidden</c> term means). The MR
+    /// backing plate refuses to build for a render-hidden panel (MrBacking.TickPanels) and
+    /// <c>PanelSupersample.Eligible</c> refuses one too, so the private capture camera stands down
+    /// and its render target — 150.4 MB for the window in the report — is released exactly as the
+    /// old teardown released it.</para>
+    ///
+    /// <para>AND IT IS NOT CLICKABLE. Both VR input paths iterate <c>UguiPokeSurfaces.Surfaces</c>
+    /// and skip any Canvas that is not <c>isActiveAndEnabled</c> (RayUguiDriver.TickIdle,
+    /// PokeInteractor); the host raycaster is switched off here as well and
+    /// <c>ModalFallback.Tick</c>'s "keep the floating modal clickable" step skips dormant panels, so
+    /// the mouse path cannot reach it either. There is no invisible target left in the room.</para>
+    ///
+    /// <para>WHAT STAYS: the host, its pose, the arc seat, the grab frame, the committed fit and the
+    /// draw-order rung (the ladder deliberately keeps ranking hidden panels — see
+    /// CanvasConversion.8.Order.cs — precisely so a panel has its slot the instant it is visible
+    /// again). THAT is the difference the user asked for: the return is one frame at the same pose,
+    /// not a 46 ms convert, a 150 MB reallocation and a fresh spawn yaw.</para>
+    ///
+    /// <para>NOTHING IS WRITTEN TO THE GAME. No Hide, no Escape, no CanvasGroup write, nothing on the
+    /// wire — this is local presentation only, exactly like the release it replaces.</para>
+    /// </summary>
+    private static void GoDormant(WindowPanel wp, float now, string reason)
+    {
+        if (wp.Dormant || wp.Panel == null || !wp.Panel.IsAlive)
+            return;
+        wp.Dormant = true;
+        wp.DormantSince = now;
+        wp.DormantReason = reason;
+        wp.DormantCycles++;
+        wp.LivenessNextCheckFrame = Time.frameCount + DormantCheckStride;
+        CanvasConversion.SetPanelRenderVisible(wp.Panel, visible: false);
+        if (wp.Panel.HostRaycaster != null)
+            wp.Panel.HostRaycaster.enabled = false;
+        VRLog.Warn("WorldUI", $"EMPTY WINDOW HIDDEN: '{wp.Window!.name}' (ID {wp.Window.ID}) — "
+                              + $"DARK — {reason}. It had been standing for "
+                              + $"{(now - wp.FloatedAt):F1} s and was last measured drawing something "
+                              + (wp.LastDrawnAt > 0f
+                                  ? $"{(now - wp.LastDrawnAt):F1} s ago"
+                                  : "NEVER since it floated")
+                              + $" (dormancy #{wp.DormantCycles} for this float). "
+                              + "HIDDEN, NOT RELEASED (ModBuild 291): every Canvas and Renderer of "
+                              + "the float is off, the grab bar's GameObject went with it (collider "
+                              + "included), the host raycaster is off and the supersample target is "
+                              + "released — so there is nothing on the screen and nothing clickable. "
+                              + "KEPT: the world host, the pose, the arc seat, the grab frame and the "
+                              + "committed fit, so it comes back in ONE frame, where it was, the "
+                              + "moment it draws again. It is released for real only if the game "
+                              + $"closes it, if it is destroyed, or after {DormantReleaseSeconds:F0} s "
+                              + "of unbroken dormancy. USER RULINGS, both standing: (230) \"Es darf "
+                              + "niemals leere Fenster geben - verschwindet das Objekt das in dem "
+                              + "Fenster dargestellt wird, soll auch das Fenster verschwinden.\" and "
+                              + "(291) \"Es darf erst gar nicht verschwinden.\"");
+    }
+
+    /// <summary>
+    /// Put a dormant float back on the screen — the exact inverse of <see cref="GoDormant"/>, in one
+    /// frame, at the pose and seat it never gave up. <paramref name="how"/> names the term that woke
+    /// it, because "the fit's verdict came back" and "only the script-side test came back" say very
+    /// different things about whether the strict measurement survives the hide.
+    /// </summary>
+    private static void WakeDormant(WindowPanel wp, float now, string how)
+    {
+        if (!wp.Dormant)
+            return;
+        wp.Dormant = false;
+        float away = now - wp.DormantSince;
+        wp.DormantSince = 0f;
+        wp.LivenessNextCheckFrame = Time.frameCount + LivenessCheckStride;
+        if (wp.Panel != null && wp.Panel.IsAlive)
+        {
+            CanvasConversion.SetPanelRenderVisible(wp.Panel, visible: true);
+            if (wp.Panel.HostRaycaster != null)
+                wp.Panel.HostRaycaster.enabled = !CanvasConversion.IsLockedNow;
+        }
+        VRLog.Warn("WorldUI", $"EMPTY WINDOW BACK: '{(wp.Window != null ? wp.Window.name : "<destroyed>")}' "
+                              + $"(ID {(wp.Window != null ? wp.Window.ID.ToString() : "?")}) is visible "
+                              + $"again after {away:F1} s dormant — {how}. It came back in ONE frame at "
+                              + "the pose, scale, arc seat and fit it had when it went dark: no "
+                              + "conversion, no re-placement, no supersample reallocation. Before "
+                              + "ModBuild 291 this same event was a full teardown and a full rebuild, "
+                              + "which is the several seconds the user reported.");
     }
 
     /// <summary>

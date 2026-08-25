@@ -799,7 +799,37 @@ internal static partial class ModalFallback
     private static bool AncestorWillBeFloated(UIWindow above, UIWindow child, bool allowRevival)
     {
         if (IsConverted(above))
+        {
+            // ModBuild 291 — A DORMANT HOST IS A REAL HOST, BUT ONLY ONCE IT IS BACK ON THE SCREEN.
+            //
+            // Dormancy replaced the ModBuild 230 teardown, so the host is now still IN Converted
+            // while it is dark and "parent wins" keeps applying to it — which is right (the child's
+            // content is rendered inside the host's own panel, the adopted-nested-canvas path) and
+            // would be [[parent-wins-needs-a-real-parent]] all over again if the host stayed hidden.
+            // The liveness probe would wake it within one dormant stride anyway; doing it HERE makes
+            // it the same tick, for exactly the reason the ModBuild 233 note below gives for the
+            // hold: Tick runs PhaseCatchAll before PhaseRelease and PhaseConvert, so the host is
+            // visible again before anything downstream looks at it and the player never sees a frame
+            // of a sub-view inside an invisible parent.
+            //
+            // The question asked is the host's OWN subtree, which CONTAINS the child — a host whose
+            // adopted child draws IS drawing, which is SubViewRevival's argument, reused rather than
+            // re-decided.
+            if (allowRevival)
+            {
+                WindowPanel? hostPanel = FindPanel(above);
+                if (hostPanel != null && hostPanel.Dormant && hostPanel.Panel.IsAlive
+                    && DrawsAnythingScriptSide(hostPanel.Panel.Target))
+                {
+                    WakeDormant(hostPanel, Time.unscaledTime,
+                        $"its nested sub-view '{child.name}' (ID {child.ID}) was about to be floated "
+                        + "as a window of its own, and the host's own subtree — which contains that "
+                        + "sub-view — is measured drawing right now. The content is one level down, "
+                        + "so the host is not empty at all");
+                }
+            }
             return true;
+        }
         // ModBuild 232 — "IN OpenWindows" IS NOT "WILL BE FLOATED", AND THE DIFFERENCE EMPTIED THE
         // ROOM. ModBuild 184 already corrected this rule once, from "is an ancestor OPEN" to "is an
         // ancestor FLOATED", because an ancestor that is open and permanently un-floatable suppresses

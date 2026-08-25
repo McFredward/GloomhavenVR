@@ -209,9 +209,10 @@ internal static partial class ModalFallback
         public string LivenessArmReason = string.Empty;
 
         /// <summary>Unscaled time this float was first measured drawing NOTHING in an unbroken run,
-        /// or 0 while it is drawing something. The release fires only after the run reaches
-        /// <c>EmptyDwellSeconds</c>, so a window whose content is swapped (the unlock flow hides its
-        /// popup for the duration of a camera focus) is never mistaken for a stranded shell.</summary>
+        /// or 0 while it is drawing something. ModBuild 291: the run now ends in a HIDE after
+        /// <c>EmptyHideDwellSeconds</c> (0.35 s), not in a release after 2 s — the dwell got SHORTER
+        /// because what it triggers became reversible, and a window whose content is merely swapped
+        /// is protected by the wake being instant instead of by the bar being long.</summary>
         public float EmptySince;
 
         /// <summary>Last unscaled time this float was measured drawing something. Reported in the
@@ -233,6 +234,49 @@ internal static partial class ModalFallback
         /// <summary>Which shape fired (GONE / DARK) and the sub-reason, phrased for the log.
         /// Only meaningful while <see cref="EmptyReleasePending"/> is set.</summary>
         public string EmptyReleaseShape = string.Empty;
+
+        // ---- ModBuild 291: DORMANCY — THE DARK VERDICT HIDES, IT NO LONGER TEARS DOWN ----------
+        //
+        // USER REPORT (2026-08-24, map room), verbatim: "Ich bin in die Karte gespawned dann ist das
+        // Fenster mit der Character-UI plötzlich einfach verschwunden, und war mehrere Sekunden lang
+        // verschwunden, bis es wieder aufgetaucht ist. Das soll nicht sein. Es darf erst gar nicht
+        // verschwinden."
+        //
+        // The ModBuild 230 ruling ("verschwindet das Objekt das in dem Fenster dargestellt wird, soll
+        // auch das Fenster verschwinden") says the WINDOW must go when its CONTENT goes. It never
+        // said the float has to be DESTROYED to achieve that, and destroying it is what cost him the
+        // seconds: host, collider, grab bar, arc seat and 150 MB of supersample target all had to be
+        // rebuilt, and the rebuild re-ran the spawn placement, so the window came back at a different
+        // yaw as well (Player.log:4309 yawed 54.8°, :4545 yawed 136.9° — the SAME window).
+        //
+        // A render-hidden float is exactly as invisible and exactly as un-clickable as a released
+        // one: CanvasConversion part 6 disables every Canvas and every Renderer of the float, the
+        // grab bar's GameObject goes with it (it is a registered extra render root) and both VR
+        // input paths skip a Canvas that is not isActiveAndEnabled — that argument is already
+        // written out in full on <c>GrabbableModal.IPanelGrabOwner.GrabVisible</c>. And it comes back
+        // in ONE frame, at the same pose, in the same arc seat.
+        //
+        // Written ONLY by TickWindowLiveness (ModalFallback.9.Spawn.cs), which carries the rule.
+
+        /// <summary>
+        /// This float is DORMANT: alive, seated, posed and still measured, but render-hidden because
+        /// its content is drawing nothing. NOT a release — <see cref="EmptyReleasePending"/> is the
+        /// release, and a dormant float only ever reaches it through the long
+        /// <c>DormantReleaseSeconds</c> backstop or through the ordinary "the game closed it" path.
+        /// </summary>
+        public bool Dormant;
+
+        /// <summary>Unscaled time <see cref="Dormant"/> was set (0 while awake). The backstop is
+        /// measured from here and the wake line reports how long the window was away.</summary>
+        public float DormantSince;
+
+        /// <summary>What was measured when it went dormant, phrased for the log.</summary>
+        public string DormantReason = string.Empty;
+
+        /// <summary>How many times this float has gone dormant and come back. A window that FLAPS
+        /// says so in the census instead of silently costing a hide/show every couple of seconds —
+        /// this counter is the falsifier for the short hide dwell.</summary>
+        public int DormantCycles;
 
         // ---- ModBuild 230: TRANSIENT ANNOUNCEMENTS (user: no X, click to dismiss) ---------------
 

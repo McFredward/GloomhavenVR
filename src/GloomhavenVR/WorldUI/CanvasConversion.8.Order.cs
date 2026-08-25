@@ -692,7 +692,9 @@ internal static partial class CanvasConversion
             // is the reveal gate, "focus" is the surface-owned hide of a row that belongs to a
             // character the player is not looking at.
             if (p.RenderHidden)
-                sb.Append(" (hidden: reveal gate)");
+                sb.Append(ModalFallback.IsDormantPanel(p)
+                    ? " (hidden: DORMANT — drawing nothing, seat and pose kept)"
+                    : " (hidden: reveal gate)");
             else if (p.OwnerRenderHidden)
                 sb.Append(" (hidden: character focus)");
         }
