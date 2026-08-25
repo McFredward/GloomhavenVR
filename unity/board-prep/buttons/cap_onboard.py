@@ -42,9 +42,21 @@ renderer under ONE light in ONE projection — a composite of a Blender board an
 have put two different shading models in one picture and invited an argument about which half was
 lying.
 
-The caps are shaded from their GEOMETRIC normals with no normal map, and that is the point of the
-round rather than a shortcut: since ModBuild 290 the relief IS geometry, so a picture that needed a
-normal map to show the bezel would be showing something the mesh does not have.
+The caps are shaded from their GEOMETRIC normals by default: since ModBuild 290 the relief IS
+geometry, so a picture that needed a normal map to show the BEZEL would be showing something the
+mesh does not have.
+
+ROUND 6 ADDS `--capnormal`, AND NOT HAVING IT COST A ROUND. That argument is right about the
+bezel and wrong about the MATERIAL. `BoardLit` samples `_BumpMap` at the same `i.uv` as the
+albedo, and the cap's micro-grain lives there and nowhere else -- so every round-4 and round-5
+sheet was a picture of these caps with the noisy term switched off, while the user was looking
+at the term the pictures did not have ("ABER alle Buttons sind so extrem rau"). Pass
+`--capnormal` for any question about the SURFACE; leave it off for a question about the FORM.
+
+ROUND 6 ALSO ADDS THE ROUND CAP. See REST_ANCHORS: until now this renderer drew the square cap
+only, so the two rest discs -- half the caps on the board -- were in no on-board picture ever
+taken here, and neither round 4's winding fix nor the square-rim-on-a-round-cap defect could
+have appeared in one. `--restshot` frames them.
 """
 import math
 import os
@@ -109,11 +121,35 @@ AMBIENT = 0.5
 GRID_COLS = GRID_ROWS = 4
 INSET_TEXELS = 2
 CELL_PLAIN, CELL_CONFIRM, CELL_UNDO, CELL_SKIP = 0, 1, 2, 3
-CELL_SHORT_REST = 5
+CELL_SHORT_REST, CELL_LONG_REST = 5, 6
+# ROUND 6: the ROUND cap's own plain cell (cap_atlas.ROUND_BEZEL_CELL /
+# Cards.CapRole.PlainRound). `--roundbezel 0` renders the BEFORE, i.e. a round cap whose bevel
+# and walls sample the SQUARE-registered cell 0, which is the defect the user photographed.
+CELL_PLAIN_ROUND = 9
 
 # Which control sits in which seat, top to bottom — Cards/PlayTray.BuildButtons' order
 # (Confirm/Use, Undo, Skip), so seat 1 never moves.
 SEAT_ROLE = {1: CELL_CONFIRM, 2: CELL_UNDO, 3: CELL_SKIP}
+
+# ROUND 6 -- THE REST PADS, AND THE HOLE THIS FILLS.
+#
+# Until now this renderer placed the SQUARE cap only, in ButtonSeat1..3. It never drew a ROUND
+# cap at all, on any board, in any pass. So:
+#
+#   * round 4 fixed "the round cap's entire bezel has been invisible since round 2" (384 of 640
+#     triangles wound inward) and NO on-board picture in round 4 or round 5 contained a round
+#     cap to show the fix landing;
+#   * the square-registered bezel on a round cap -- the defect the user photographed in
+#     viereckige_texturen.jpg -- could not appear in any sheet either.
+#
+# Two rounds of pictures were argued over while the two rest discs, which are half the caps on
+# the board, were simply not in the frame. "The blind spot is the lead."
+#
+# The anchors are the board's own `ShortRestToken` / `LongRestToken` empties -- the same ones
+# `PlayTray.1.Core` resolves by name (`FindDeep(visual.transform, "ShortRestToken")`) and the
+# same two that define the board's short axis -- so the discs land where the mod puts them and
+# not where this script thinks they look best.
+REST_ANCHORS = {"ShortRestToken": CELL_SHORT_REST, "LongRestToken": CELL_LONG_REST}
 
 
 def log(*a):
@@ -296,8 +332,22 @@ def board_material(name, albedo_path, normal_path):
     return mat
 
 
-def flat_material(name, rgb, tex_img=None, st=None):
+def flat_material(name, rgb, tex_img=None, st=None, nrm_img=None):
     """A cap submesh: one flat state colour, optionally modulated by an atlas CELL.
+
+    ROUND 6 ADDS `nrm_img`, AND THE OMISSION IT CORRECTS COST A ROUND. Round 4 shaded the caps
+    from their geometric normals alone, on the argument that "since ModBuild 290 the relief IS
+    geometry, so a picture that needed a normal map to show the bezel would be showing something
+    the mesh does not have". That is right about the BEZEL and wrong about the MATERIAL: the real
+    `BoardLit` samples `_BumpMap` at the same `i.uv`, and the cap's micro-grain lives there and
+    nowhere else. So every round-4 and round-5 sheet was a picture of the caps with the noisy
+    term switched off -- and the user was looking at the term the pictures did not have. An
+    instrument that models a SUBSET of what the eye sees agrees with every broken build.
+
+    Bound through the SAME mapping node as the albedo, so the cell arithmetic cannot differ
+    between a cap's colour and its relief. The red-channel inversion every shipped map in this
+    project carries is left alone here exactly as `board_material` leaves the board's alone: both
+    surfaces are lit through the same convention, which is the only thing a comparison needs.
 
     BoardLit does `alb = tex2D(_MainTex, uv) * _Color`, so the texture MODULATES the state colour
     — the same order used here. A cap with no atlas is exactly the colour with no texture, which
@@ -330,16 +380,25 @@ def flat_material(name, rgb, tex_img=None, st=None):
         nt.links.new(tex.outputs["Color"], mul.inputs["Color1"])
         nt.links.new(src.outputs[0], mul.inputs["Color2"])
         col = mul.outputs["Color"]
+        if nrm_img is not None:
+            ntex = nt.nodes.new("ShaderNodeTexImage")
+            ntex.image = nrm_img
+            ntex.extension = 'CLIP'
+            nt.links.new(mapn.outputs["Vector"], ntex.inputs["Vector"])
+            _shade_chain(nt, col, None, normal_tex=ntex)
+            return mat
     _shade_chain(nt, col, None)
     return mat
 
 
-def _shade_chain(nt, base_color, normal_img):
+def _shade_chain(nt, base_color, normal_img, normal_tex=None):
     geo = nt.nodes.new("ShaderNodeNewGeometry")
     normal_src = geo.outputs["Normal"]
-    if normal_img is not None:
-        ntex = nt.nodes.new("ShaderNodeTexImage")
-        ntex.image = normal_img
+    if normal_img is not None or normal_tex is not None:
+        ntex = normal_tex
+        if ntex is None:
+            ntex = nt.nodes.new("ShaderNodeTexImage")
+            ntex.image = normal_img
         nmap = nt.nodes.new("ShaderNodeNormalMap")
         nt.links.new(ntex.outputs["Color"], nmap.inputs["Color"])
         normal_src = nmap.outputs["Normal"]
@@ -437,6 +496,15 @@ def main():
     # blame it for the other half. Both are overridden together or neither is.
     atlas_dir = opt("--atlas", BUNDLE)
     atlas_path = os.path.join(atlas_dir, f"Keycap{cs_style}_albedo.png")
+    cap_nrm = None
+    if "--capnormal" in argv:
+        cnp = os.path.join(atlas_dir, f"Keycap{cs_style}_normal.png")
+        if os.path.exists(cnp):
+            cap_nrm = bpy.data.images.load(cnp)
+            cap_nrm.colorspace_settings.name = 'Non-Color'
+            log(f"{STYLE}: cap _BumpMap {os.path.basename(cnp)} "
+                f"{cap_nrm.size[0]}x{cap_nrm.size[1]} BOUND — the micro-grain term the round-4 "
+                "and round-5 sheets did not have")
     atlas = None
     if os.path.exists(atlas_path):
         atlas = bpy.data.images.load(atlas_path)
@@ -459,6 +527,75 @@ def main():
     verts, uvs, groups = read_obj(sq_obj)
     log(f"{STYLE} {PASS}: {os.path.basename(sq_obj)} {len(verts)} verts, "
         f"{[(g[0], len(g[1])) for g in groups]}")
+
+    # ROUND 6: the round cap, and which PLAIN cell its bevel and walls take.
+    round_bezel = int(opt("--roundbezel", str(CELL_PLAIN_ROUND)))
+    rnd_obj = os.path.join(MESHDIR, f"{STYLE}_round_{PASS}.obj")
+    rverts = ruvs = rgroups = None
+    if os.path.exists(rnd_obj):
+        rverts, ruvs, rgroups = read_obj(rnd_obj)      # check_winding runs in here
+        log(f"{STYLE} {PASS}: {os.path.basename(rnd_obj)} {len(rverts)} verts, "
+            f"{[(g[0], len(g[1])) for g in rgroups]}; bevel+walls take cell {round_bezel} "
+            f"({'ROUND-registered, round 6' if round_bezel == CELL_PLAIN_ROUND else 'SQUARE-registered — the BEFORE'})")
+    else:
+        log(f"{STYLE}: NO round mesh at {rnd_obj} — the rest pads stay empty, which is exactly "
+            "what every round-4 and round-5 sheet did without saying so")
+
+    def place(name, gverts_src, guvs_src, ggroups, ex, ey, role, plain_cell, zbase):
+        for gi, (gname, faces) in enumerate(ggroups):
+            mesh = bpy.data.meshes.new(f"{name}_{gname}")
+            remap, gverts, gfaces, guvs = {}, [], [], []
+            for idx, uvi in faces:
+                tri = []
+                for vi, ui in zip(idx, uvi):
+                    if vi not in remap:
+                        remap[vi] = len(gverts)
+                        gverts.append(Vector(gverts_src[vi]))
+                    tri.append(remap[vi])
+                gfaces.append(tri)
+                guvs.append([guvs_src[u] for u in uvi])
+            mesh.from_pydata(gverts, [], gfaces)
+            mesh.validate()
+            uvl = mesh.uv_layers.new(name="UVMap")
+            for poly, tri_uv in zip(mesh.polygons, guvs):
+                for li, uv in zip(poly.loop_indices, tri_uv):
+                    uvl.data[li].uv = uv
+            ob = bpy.data.objects.new(f"{name}_{gname}", mesh)
+            scene.collection.objects.link(ob)
+            ob.location = (ex, ey, zbase)
+            if up < 0:
+                ob.rotation_euler = (math.pi, 0, 0)
+            cell = role if gname == "field" else plain_cell
+            st = cell_st(atlas.size[0], atlas.size[1], cell) if atlas else None
+            ob.data.materials.append(
+                flat_material(f"m_{name}_{gname}", tints[min(gi, 2)], atlas, st, cap_nrm))
+
+    if rgroups is not None:
+        # THE ROUND CAP IS NOT AUTHORED WITH ITS BACK AT z = 0. The square builder emits the cap
+        # spanning Unity z 0..-thickness (face at -z, i.e. Blender +thickness with the back on
+        # zero); `BuildRoundKeycap` centres its profile instead, so after the handedness flip the
+        # mesh spans Blender -0.006..+0.0085 on oak. Seating it at floor_z like the square cap
+        # would bury 6 mm of it in the plank. Measured off the mesh rather than assumed, because
+        # this is exactly the class of thing this file already records ("a cap placed 20 mm
+        # inside a plank looks a lot like a cap placed right").
+        rmin = min(v[2] for v in rverts)
+        for aname, cell in REST_ANCHORS.items():
+            e = empties.get(aname)
+            if e is None:
+                log(f"{STYLE}: no {aname} anchor")
+                continue
+            ex, ey, _ = e.matrix_world.translation
+            hits = []
+            for direction, start_z in ((Vector((0, 0, -1)), 1.0), (Vector((0, 0, 1)), -1.0)):
+                okh, loch, _n, _i, _o, _m = scene.ray_cast(
+                    dg, Vector((ex, ey, start_z)), direction)
+                if okh:
+                    hits.append(loch.z)
+            pad_z = min(hits, key=lambda z: abs(z - floor_z)) if hits else floor_z
+            place(f"rest_{aname}", rverts, ruvs, rgroups, ex, ey, cell, round_bezel,
+                  pad_z - rmin if up > 0 else pad_z - rmin)
+            log(f"{STYLE}: {aname} disc at ({ex:.4f},{ey:.4f}) pad z {pad_z:.4f}, "
+                f"mesh min z {rmin:+.4f} -> seated at {pad_z - rmin:.4f}; field cell {cell}")
 
     for seat in (1, 2, 3):
         e = empties.get(f"ButtonSeat{seat}")
@@ -503,7 +640,7 @@ def main():
             cell = role if gname == "field" else CELL_PLAIN
             st = cell_st(atlas.size[0], atlas.size[1], cell) if atlas else None
             ob.data.materials.append(
-                flat_material(f"m_cap{seat}_{gname}", tints[min(gi, 2)], atlas, st))
+                flat_material(f"m_cap{seat}_{gname}", tints[min(gi, 2)], atlas, st, cap_nrm))
 
     # ---- CAMERA: render_asset.py's board block, flags inherited (ortho, yaw 35, pitch 50, one
     #      pinned ortho width so three boards stay comparable).
@@ -544,6 +681,17 @@ def main():
         cam_data.ortho_scale = float(opt("--capshot-scale", "0.066"))
         pass   # film_transparent stays TRUE: the alpha IS the cap silhouette, and cap_regmove
                # crops to it so the measured frame is the cap FOOTPRINT and nothing else.
+    elif "--restshot" in argv:
+        # ROUND 6: frame the two REST PADS. `--closeup` centres on ButtonSeat2, which is on the
+        # far side of the board from them -- so the one control this round is about was outside
+        # every closeup ever taken here.
+        a_s = empties.get("ShortRestToken")
+        a_l = empties.get("LongRestToken")
+        if a_s is None or a_l is None:
+            raise RuntimeError(f"{STYLE}: no rest anchors to frame")
+        ctr = (Vector(a_s.matrix_world.translation)
+               + Vector(a_l.matrix_world.translation)) * 0.5
+        cam_data.ortho_scale = float(opt("--restshot-scale", "0.22"))
     elif "--closeup" in argv:
         ctr = Vector(empties["ButtonSeat2"].matrix_world.translation)
         cam_data.ortho_scale = float(opt("--closeup-scale", "0.19"))

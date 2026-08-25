@@ -470,6 +470,8 @@ internal static partial class Loc
             ["Cards/GenericButtonShape_*"] = Pair("Confirm/Undo: shape", "Bestätigen/Zurück: Form"),
             ["Cards/ItemUseSlotOffset_*"] = Pair("Item-use slot: position", "Item-Slot: Position"),
             ["Cards/ItemCardOffset_*"] = Pair("Item cards: position", "Item-Karten: Position"),
+            ["Cards/ShortRestCaptionOffset_*"] = Pair("Short rest caption: position", "Kurze-Rast-Text: Position"),
+            ["Cards/LongRestCaptionOffset_*"] = Pair("Long rest caption: position", "Lange-Rast-Text: Position"),
             ["Cards/SlotOverlayOffset_*"] = Pair("Slot glow: position", "Slot-Glühen: Position"),
             ["Cards/SlotOverlaySpacing_*"] = Pair("Slot glow: spacing (m)", "Slot-Glühen: Abstand (m)"),
             ["Cards/SlotOverlayScale_*"] = Pair("Slot glow + card: size", "Slot-Glühen + Karte: Größe"),

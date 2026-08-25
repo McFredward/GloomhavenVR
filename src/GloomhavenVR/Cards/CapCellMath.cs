@@ -33,6 +33,27 @@ internal enum CapRole : byte
     /// (<c>BoardButton.SetCapRole</c>), which is two floats on a material instance, not a
     /// rebuild.</summary>
     FixedFollow = 8,
+
+    /// <summary>
+    /// THE ROUND SIBLING OF <see cref="Plain"/> — the bezel/wall cell for a cap whose footprint is
+    /// a DISC. It is not a control: nothing is ever "the PlainRound button", no press resolves to
+    /// it, and no cap FACE ever samples it. It exists because <see cref="Plain"/> is
+    /// <b>square-registered</b> art.
+    ///
+    /// <para><b>THE DEFECT IT FIXES.</b> Cell 0 is drawn by
+    /// <c>unity/board-prep/buttons/cap_atlas.py</c> with <c>cellkind="bezel"</c>, which registers
+    /// the gold band against a SQUARE (<c>cap_object.register_square</c>) — four straight runs
+    /// meeting at mitred corners. Submeshes [1] (bezel) and [2] (wall) of every cap took that cell,
+    /// round caps included, so a round rest disc painted a square gold frame with visible mitres
+    /// inside a circular cap — reported by the user as square textures on the round buttons. Cell 9
+    /// is the same band registered against the CIRCLE, so a disc's bezel ring closes on itself
+    /// instead of turning four corners.</para>
+    ///
+    /// <para>A round cap and a square one must never be able to disagree about which of the two
+    /// they take, and the owner's board and every peer's mirror of it least of all — so neither
+    /// picks the cell inline: both go through <see cref="CapCellMath.PlainCell"/>.</para>
+    /// </summary>
+    PlainRound = 9,
 }
 
 /// <summary>
@@ -81,6 +102,26 @@ internal static class CapCellMath
     /// removes the crossing entirely.</para>
     /// </summary>
     internal const int InsetTexels = 2;
+
+    /// <summary>
+    /// WHICH NON-SYMBOL CELL THIS CAP'S BEZEL RING AND SIDE WALLS TAKE — the one decision, made in
+    /// one place.
+    ///
+    /// <para>Submeshes [1] and [2] of every cap carry no symbol, but they are not
+    /// shape-independent: <see cref="CapRole.Plain"/> is registered against a SQUARE and
+    /// <see cref="CapRole.PlainRound"/> against a CIRCLE, and a disc wearing the square band draws
+    /// a mitred rectangle inside a round cap.</para>
+    ///
+    /// <para><b>IT IS A FUNCTION RATHER THAN TWO LITERALS BECAUSE THE OWNER AND THE MIRROR MINT
+    /// THESE MATERIALS IN DIFFERENT FILES.</b> <c>Cards.PlayTray.BoardButton.Create</c> builds the
+    /// player's own rest discs and <c>Net.RemoteBoardFurniture.InertCap.Round</c> builds every
+    /// peer's copy of them, through the same <c>PlayTray.NewKeycapMaterial</c> but from two call
+    /// sites that no compiler or gate ties together. Two inline ternaries can drift; one call
+    /// cannot, and the drift would show as a peer's disc wearing a different bezel from the one its
+    /// owner is looking at — the exact class of asymmetry <see cref="CapRole"/>'s own remark about
+    /// both sides deriving the cell from the same code is there to prevent.</para>
+    /// </summary>
+    internal static CapRole PlainCell(bool round) => round ? CapRole.PlainRound : CapRole.Plain;
 
     /// <summary>
     /// The atlas sub-rectangle for cell <paramref name="cellIndex"/>, as the

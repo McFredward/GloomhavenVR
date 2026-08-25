@@ -475,7 +475,7 @@ def register_square(crop, style, n, continue_rim=False):
     return out * (1.0 - k) + wash[None, None, :] * k
 
 
-def register_round(crop, n):
+def register_round(crop, n, continue_rim=False):
     """A segmented ROUND plate into a round cap's cell.
 
     `CardMesh.BuildRoundKeycap` takes ONE diameter, so the round cap's footprint is a true
@@ -483,8 +483,46 @@ def register_round(crop, n):
     anisotropy to undo here, unlike the square caps. The generated disc's own bands are
     measured and reported by `zone_report`; this is the identity resample, and if the model's
     radii ever drift far enough to matter the correction belongs here and nowhere else.
+
+    `continue_rim` builds the ROUND BEZEL CELL -- round 6, and it is the fix for a defect the
+    user reported and this pipeline had already written down as an accepted cost.
+
+    THE DEFECT. Submeshes [1] (bezel) and [2] (wall) of EVERY cap take `CapRole.Plain`, i.e.
+    cell 0, and cell 0 is built with `register_square(..., continue_rim=True)`. On a SQUARE cap
+    that is exact. On a ROUND cap it paints a square gold band with mitred corners inside a
+    circular button -- which is precisely what the user photographed:
+
+        "Weiterhin erscheint mir bei der Textur der runden Buttons es so, als sei hier eine
+         Textur fuer eigentlich einen viereckigen Button genutzt worden."
+        -- user, 2026-08-25, viereckige_texturen.jpg
+
+    The README already said so, as a cost rather than as a bug: *"One cell cannot serve both
+    shapes' bands ... so it is exact for the square cap and fills its unused interior with
+    rim-land material for the round cap's benefit."* One cell cannot -- but the atlas has SEVEN
+    spare cells, so it never had to be one cell. `cap_atlas.ROUND_BEZEL_CELL` is the second one.
+
+    AND IT NEEDS NO ANGULAR SWEEP, which is the whole reason this is four lines and its square
+    sibling is forty. `register_square`'s continuation exists because a square cell's
+    distance-to-outline is not isotropic, so pushing interior texels outward along the NEAREST
+    edge produced four triangular sectors meeting in seams along the diagonals -- and the
+    diagonals were exactly where a round cap's bevel sampled. Here `b` IS the radius, the bands
+    ARE annuli, and a round cap's bezel reads only `b <= BezelTotal`. Nothing samples the
+    interior at all, so the interior is simply faded to the rim band's own mean, where only the
+    MIP average -- a mean, not a pattern -- can ever see it. No sweep, no seam, no vanishing
+    point.
     """
-    return _resize(crop, n)
+    out = _resize(crop, n)
+    if not continue_rim:
+        return out
+    ys = np.broadcast_to(((np.arange(n) + 0.5) / n)[:, None], (n, n))
+    xs = np.broadcast_to(((np.arange(n) + 0.5) / n)[None, :], (n, n))
+    b = 0.5 - np.sqrt((ys - 0.5) ** 2 + (xs - 0.5) ** 2)
+    rimband = (b >= BANDS[0]) & (b < BANDS[1])
+    wash = out[rimband].reshape(-1, 3).mean(axis=0) if rimband.any() else out.reshape(-1, 3).mean(0)
+    # The deepest any reader goes is the bezel's inner edge at BANDS[2] = 0.135; the fade starts
+    # a comfortable margin past it and is complete well before the centre.
+    k = np.clip((b - 0.18) / 0.14, 0.0, 1.0)[..., None]
+    return out * (1.0 - k) + wash[None, None, :] * k
 
 
 # =========================================================================================
@@ -611,19 +649,27 @@ _CACHE = {}
 
 
 def cell_art(style, kind, n, out_dir=GEN, cache=OUT):
-    """One registered cell of material. `kind` is "square", "round" or "bezel"."""
+    """One registered cell of material.
+
+    `kind` is "square" (a square cap's face), "bezel" (cell 0 -- every SQUARE cap's bevel ring
+    and side walls), "round" (a round cap's face) or "roundbezel" (round 6: cell
+    `cap_atlas.ROUND_BEZEL_CELL` -- every ROUND cap's bevel ring and side walls). The two bezel
+    kinds are the same idea applied to the two shapes' own outlines, and before round 6 there
+    was only one of them, which is why a round button wore a square rim.
+    """
     key = (style, kind, n)
     if key in _CACHE:
         return _CACHE[key]
-    src = os.path.join(cache, f"capcrop_{style}_{'round' if kind == 'round' else 'square'}.png")
+    round_kind = kind in ("round", "roundbezel")
+    src = os.path.join(cache, f"capcrop_{style}_{'round' if round_kind else 'square'}.png")
     if not os.path.isfile(src):
         crops(out_dir, cache, report=False)
     if not os.path.isfile(src):
         raise FileNotFoundError(f"no registered crop for {style}/{kind}: {src} -- run "
                                 f"cap_object.py --ingest after generating the plates")
     crop = np.asarray(Image.open(src).convert("RGB"), dtype=np.float64) / 255.0
-    if kind == "round":
-        art = register_round(crop, n)
+    if round_kind:
+        art = register_round(crop, n, continue_rim=(kind == "roundbezel"))
     else:
         art = register_square(crop, style, n, continue_rim=(kind == "bezel"))
     _CACHE[key] = art
@@ -647,19 +693,26 @@ def normalised_cells(style, n, out_dir=GEN, cache=OUT, target=None):
     """
     import cap_atlas as C                                     # noqa: E402  (imported, not copied)
     target = C.GRAIN_TARGET_LUM if target is None else target
-    raw = {k: cell_art(style, k, n, out_dir=out_dir, cache=cache)
-           for k in ("square", "bezel", "round")}
+    # ROUND 6: the material is TEMPERED before the level is solved, not after, so the gain
+    # re-hits `FIELD_TARGET_LUM` on the material that actually ships. Tempering afterwards would
+    # have moved the field's level off the target the colour round solved `BoardIdleColor`
+    # against -- a roughness fix silently spending a colour fix. `grain_temper` is a no-op on any
+    # board whose `GRAIN_TEMPER` is 1.0, which oak's is.
+    raw = {k: C.grain_temper(cell_art(style, k, n, out_dir=out_dir, cache=cache), style)
+           for k in ("square", "bezel", "round", "roundbezel")}
     su, sv = aspect(style)
     b, _ = _band_coord(n, su, sv)
     field = b >= BANDS[2]
 
     # The gain is SOLVED on the square cell's field by `cap_atlas.normalise_plate` -- imported,
     # not re-implemented, so the knee, the iteration count and the chroma-safe compression are
-    # the one definition -- and then that ONE gain is replayed on the other two kinds.
+    # the one definition -- and then that ONE gain is replayed on the other THREE kinds
+    # (round 6 added the round bezel, and it must take the SAME gain: a bezel re-levelled
+    # against its own field would put a step on the seam between two submeshes).
     sq, gain, got, clipped = C.normalise_plate(raw["square"], target, mask=field)
     base = float(raw["square"].mean(axis=2)[field].mean())
     out = {"square": sq}
-    for k in ("bezel", "round"):
+    for k in ("bezel", "round", "roundbezel"):
         out[k] = np.clip(C._knee(raw[k] * gain), 0.0, 1.0)
     return out, float(gain), float(base), float(got), float(clipped)
 
@@ -681,7 +734,7 @@ def field_jitter(n, seed, style, kind, amount=0.055):
         ((lo - lo.min()) / max(float(lo.max() - lo.min()), 1e-9) * 255.0).astype(np.uint8), "L")
         .resize((n, n), Image.Resampling.BICUBIC), dtype=np.float64) / 255.0
     blob = (blob - blob.mean()) * 2.0
-    if kind == "round":
+    if kind in ("round", "roundbezel"):
         ys = (np.arange(n) + 0.5) / n - 0.5
         xs = (np.arange(n) + 0.5) / n - 0.5
         b = 0.5 - np.sqrt(ys[:, None] ** 2 + xs[None, :] ** 2)
@@ -758,7 +811,8 @@ def report_cells(n=256, say=print, cache=OUT, out_dir=GEN):
         su, sv = aspect(style)
         say("")
         say(f"  {style}  (u-band {BANDS[2] * su:.4f}, v-band {BANDS[2] * sv:.4f} of the cell)")
-        for kind, shape in (("square", "square"), ("bezel", "square"), ("round", "round")):
+        for kind, shape in (("square", "square"), ("bezel", "square"), ("round", "round"),
+                            ("roundbezel", "round")):
             art = cell_art(style, kind, n, out_dir=out_dir, cache=cache)
             say(f"    {kind:<7}")
             au, av = (su, sv) if shape == "square" else (1.0, 1.0)

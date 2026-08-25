@@ -480,6 +480,13 @@ internal sealed partial class CardsDriver : MonoBehaviour
             {
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged += OnControlOffsetChanged;   // item-use slot = in-place move
                 CardsConfig.ItemCardOffset(b).SettingChanged += OnControlOffsetChanged;      // item fan/held pose (read live by ItemsPile)
+                // The two ENGRAVED rest captions. They are re-seated by RestControls.SetOffset, the
+                // same call the rest discs' own offset lands in, so they ride this handler rather
+                // than needing one of their own. WITHOUT THESE TWO LINES the dials would exist,
+                // persist and read back correctly and move nothing until the next board rebuild —
+                // "der Regler hat keinen Einfluss", which this project has now shipped four times.
+                CardsConfig.ShortRestCaptionOffset(b).SettingChanged += OnControlOffsetChanged;
+                CardsConfig.LongRestCaptionOffset(b).SettingChanged += OnControlOffsetChanged;
                 // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08): the Confirm/Undo cap
                 // size lives in [BoardButtons] for BOTH shapes now, and those edits already reach
                 // the caps via the ButtonTuning.Version watch (PlayTray.ApplyButtonTuningIfChanged).
@@ -521,6 +528,8 @@ internal sealed partial class CardsDriver : MonoBehaviour
             {
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ItemCardOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.ShortRestCaptionOffset(b).SettingChanged -= OnControlOffsetChanged;
+                CardsConfig.LongRestCaptionOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.RestButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.GenericButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;

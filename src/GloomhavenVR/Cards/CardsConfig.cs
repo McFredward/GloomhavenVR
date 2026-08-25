@@ -213,6 +213,10 @@ internal static class CardsConfig
     // INDEPENDENTLY of the ability-card fan (item cards are a different, near-square shape). Per-board
     // Vector3, mirrors ConfirmUndoOffset's binding/accessor/debug-menu wiring. Read live by ItemsPile.
     private static readonly ConfigEntry<Vector3>[] _itemCardOffset = new ConfigEntry<Vector3>[3];
+    // The two ENGRAVED rest captions, one dial each ("jeweils"): the short caption rides up into the
+    // board's top margin and the long one down into its bottom margin, so they cannot share a nudge.
+    private static readonly ConfigEntry<Vector3>[] _shortRestCaptionOffset = new ConfigEntry<Vector3>[3];
+    private static readonly ConfigEntry<Vector3>[] _longRestCaptionOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _slotOverlayOffset = new ConfigEntry<Vector3>[3];
     // Item 1: the two slot overlays move together as a PAIR (Overlays element); this spacing
     // spreads them apart along the inter-slot (board long) axis — slot 0 by −½, slot 1 by +½.
@@ -1136,6 +1140,20 @@ internal static class CardsConfig
                 "meters — moves the item cards INDEPENDENTLY of the ability-card fan (they are a " +
                 "different, near-square shape). X/Y in plane, Z = proud depth toward the player " +
                 "(NEGATIVE = prouder). Seeded 0 (Oak).");
+            _shortRestCaptionOffset[i] = _file.Bind("Cards", $"ShortRestCaptionOffset_{board}",
+                Defaults.ShortRestCaptionOffset_ByBoard[i],
+                $"[{board}] offset ADDED to the ENGRAVED \"KURZE RAST\" caption cut into the board " +
+                "ABOVE the short-rest pad, board-local meters. X/Y in plane, Z = proud depth toward " +
+                "the player (NEGATIVE = prouder). The caption already follows its own disc — every " +
+                "dial that moves the pad moves the word with it — so this is the nudge on top, for " +
+                "the board margin the word has to share with that board's own carving. Seeded 0.");
+            _longRestCaptionOffset[i] = _file.Bind("Cards", $"LongRestCaptionOffset_{board}",
+                Defaults.LongRestCaptionOffset_ByBoard[i],
+                $"[{board}] offset ADDED to the ENGRAVED \"LANGE RAST\" caption cut into the board " +
+                "BELOW the long-rest pad, board-local meters. X/Y in plane, Z = proud depth toward " +
+                "the player (NEGATIVE = prouder). Its own dial and not the short caption's, because " +
+                "the two go into opposite margins of the board and those margins are neither the " +
+                "same size nor at the same depth. Seeded 0.");
             _slotOverlayOffset[i] = _file.Bind("Cards", $"SlotOverlayOffset_{board}", BoardDefaults.SlotOverlayOffset[i],
                 $"[{board}] offset ADDED to the slot snap-glow / wanted-glow local position, board-local " +
                 "meters. X/Y in plane, Z = proud depth toward the player (NEGATIVE = prouder). Seeded 0 (Oak).");
@@ -1810,6 +1828,11 @@ internal static class CardsConfig
     // WorldUI.ButtonTuning.BoardCapWidth/Height ([BoardButtons]) for both shapes.
     internal static ConfigEntry<Vector3> ItemUseSlotOffset(ControlBoard b) => _itemUseSlotOffset[(int)b];
     internal static ConfigEntry<Vector3> ItemCardOffset(ControlBoard b) => _itemCardOffset[(int)b];
+    /// <summary>[Cards] ShortRestCaptionOffset_{board} — where the engraved "KURZE RAST" sits,
+    /// board-local metres, on top of the seat the board itself dictates.</summary>
+    internal static ConfigEntry<Vector3> ShortRestCaptionOffset(ControlBoard b) => _shortRestCaptionOffset[(int)b];
+    /// <summary>[Cards] LongRestCaptionOffset_{board} — the same for "LANGE RAST".</summary>
+    internal static ConfigEntry<Vector3> LongRestCaptionOffset(ControlBoard b) => _longRestCaptionOffset[(int)b];
     internal static ConfigEntry<Vector3> SlotOverlayOffset(ControlBoard b) => _slotOverlayOffset[(int)b];
     internal static ConfigEntry<float> SlotOverlaySpacing(ControlBoard b) => _slotOverlaySpacing[(int)b];
     internal static ConfigEntry<float> SlotOverlayScale(ControlBoard b) => _slotOverlayScale[(int)b];

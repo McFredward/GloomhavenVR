@@ -1,3 +1,367 @@
+# ROUND 6 (2026-08-25): THE NOISE WAS NEVER IN THE COLOUR, AND THE ROUND CAP WAS WEARING CELL 0
+
+**The first round the user has said he likes.** Verbatim:
+
+> "Zu den Buttons: Sie gefallen mir schon richtig gut! Deutlich besser als zuvor. ABER alle
+> Buttons sind so extrem rau, dass es schon fast wie Noise erscheint. Siehe noisy_buttons.jpg.
+> Das gerne etwas weniger. Weiterhin erscheint mir bei der Textur der runden Buttons es so, als
+> sei hier eine Textur für eigentlich einen viereckigen Button genutzt worden. Siehe
+> viereckige_texturen.jpg. Weiterhin braucht es noch einen Text 'Lange Rast' und 'Kurze Rast'
+> (lokalisiert und im Stil des Boards wie der Rundentext) über dem jeweiligen Button, damit der
+> User sicher weiß was das ist. Den Text soll ich jeweils auch verschieben können in den
+> Pro-Board-Einstellungen."
+
+So: three corrections to an accepted result, not a fourth restart. Nothing about the design, the
+construction or the colour was reopened.
+
+---
+
+## THE BRIEF'S HYPOTHESIS WAS WRONG, AND THE INSTRUMENT THAT SAYS SO IS NEW
+
+The round was briefed on this: ModBuild 291 bought the colour fix partly by raising field
+contrast from 4.12 % to 10.69 % on oak — a 2.6× rise — and "it is very likely also the noise".
+
+It is not. **`cap_rough.py` was built first and it falsified the brief before a line of the
+remedy was written.** Cap against the board it sits on, both resampled to a Quest 3's arm's-length
+2.4 px/mm, band-passed to the 1.5–6 screen-pixel octave that reads as speckle:
+
+| board | ALBEDO grain, cap/board | NORMAL-MAP relief, cap/board |
+|---|---|---|
+| oak | 3.08 / 3.30 = **0.93×** | 17.70 / 1.11 = **15.9×** |
+| steel | 2.84 / 2.77 = **1.03×** | 21.17 / 0.46 = **45.5×** |
+| bronze | 2.64 / 1.74 = **1.51×** | 18.22 / 0.34 = **53.7×** |
+
+**The albedo was already at its board's level. The normal map was sixteen to fifty-four times
+it.** Oak — the board in both screenshots, and the cap the brief singled out as worst — was
+*below* its bar on the term the brief named. Undoing round 5's contrast would have cost the
+colour and bought nothing.
+
+Corroborated without this instrument in the loop, straight off the files: the shipped cap map's
+field carries per-texel **nx σ 0.39 / ny σ 0.35**, against 0.06–0.11 on all three board maps and
+0.07 / 0.20 on `KeycapGrain_normal.png`, the map these replaced. (Raw σ is not comparable across
+maps at different texel densities — that is exactly why the instrument resamples first — but in
+world slope it is still ~9×, and it is the same finding.)
+
+---
+
+## THE CAUSE: A PINNED FACTOR OF A PRODUCT
+
+`GRAIN_RELIEF_STD = 0.02376` pins the micro-relief's **height** standard deviation. A normal map
+carries the height's **gradient**, and slope is amplitude × frequency.
+
+Round 3 pinned the height for a good, stated reason: the registered art carries roughly twice a
+swatch's luminance contrast, and leaving `GRAIN_RELIEF` as a gain "would have doubled the bump for
+a reason that has nothing to do with how rough the material is". Correct — and it fixed the
+amplitude while leaving the **frequency** free. Between ModBuild 286 and 289 the material stopped
+being a random crop of a swatch and became a registered photograph at the same 256-texel cell, so
+its grain moved up in spatial frequency, and the same pinned height became a much larger slope.
+Nothing in the loop was looking at the slope. **Measure the product, not one factor.**
+
+A second, smaller contribution in the same direction, recorded because it is real: `build_style`
+writes the normal at half resolution and doubles the strength "so a wall's slope in world terms is
+unchanged". Exact for the CARVE, which is a smooth low-frequency field the decimation genuinely
+halves. Not exact for the GRAIN, which is high-passed at cell/48 (~5 texels) and which a box blur
+of radius 1 barely touches — so the ×2 is very nearly a straight doubling of its slope. Pinning
+the slope absorbs that too, which is why it was not fixed separately: one knob that holds the
+measured quantity beats two that model it.
+
+### AND A TERM NOBODY HAD NAMED, WHICH IS STRUCTURAL
+
+    board face      1213 / 1246 / 1186 texels per metre
+    keycap cell     4547 / 4122 / 5831 texels per metre  (a 256-texel cell over the cap's
+                                                          short side: 56.3 / 62.1 / 43.9 mm)
+
+**The cap carries its material at 3.3–4.9× the board's texel density** (2.8–3.6× for the larger
+round caps). At equal texture contrast the cap's grain therefore lands far higher up the frequency
+axis at the same viewing distance, which is the difference between "wood" and "sandpaper". This is
+a property of the asset pipeline, not of one board — all three land within 5 % of each other — and
+no amount of colour work would ever have touched it. It is why the albedo remedy is a **low-pass
+at the board's own resolution limit** rather than a contrast reduction.
+
+---
+
+## WHAT SHIPPED FOR ASK 1
+
+Two knobs, reported separately because they are separate — the brief was right to insist.
+
+* **`GRAIN_RELIEF_SLOPE`**, per board, replaces `GRAIN_RELIEF_STD`'s role. The RMS of the
+  micro-relief's own Sobel gradient — the same operator `tex_common.normal_from_height` applies
+  downstream, so what is held fixed is what becomes nx/ny. Per board because the requirement is
+  per board: the three faces measure 1.11 / 0.46 / 0.34 % relief and one shared constant left oak
+  at 0.31× its own board (glassy, on the board he is actually looking at) while bronze still sat
+  over its bar. Each is solved for 0.9× its own board. The solve is linear — halving the constant
+  halves the measured relief to within 2 %, checked at 0.002 / 0.0005 / 0.00015 first — so each is
+  one measurement, not a search. The shipped rule produced **0.03332**; these are 0.00143 /
+  0.00056 / 0.00041.
+* **`GRAIN_TEMPER`** (1.00 / 0.94 / 0.45) with **`GRAIN_TEMPER_SIGMA`** (1.88 / 1.66 / 2.46 cell
+  texels). A mean-preserving low-pass blend, `lo + keep × (img − lo)`, applied to the material
+  **before** the level solve so the gain re-hits `FIELD_TARGET_LUM` on the material that actually
+  ships. The cut-off is that board's own resolution limit — half the period the board's face could
+  itself have recorded — so what is attenuated is exactly the band the cap has and the board does
+  not. **Oak's is 1.00, a no-op**, because oak was already below its bar.
+
+### THE NUMBERS, before → after
+
+Square caps, cap / board grain contrast at 2.4 px/mm:
+
+| board | albedo | relief | **combined** |
+|---|---|---|---|
+| oak | 0.93× → 0.93× | 15.87× → **0.88×** | 5.16× → **0.93×** |
+| steel | 1.03× → 1.00× | 45.53× → **0.91×** | 7.61× → **1.00×** |
+| bronze | 1.51× → 1.27× | 53.70× → **1.01×** | 10.36× → **1.26×** |
+
+Round caps: 4.64× → **0.84×**, 8.73× → **1.19×**, 8.26× → **0.87×**.
+
+Across the table (0.8 px/mm): 1.60 / 2.07 / 1.58 → **0.64 / 0.61 / 0.79**.
+
+**Two of twelve still sit above 1.00 and they are not hidden: bronze square at 1.26× and steel
+round at 1.19×**, both on the albedo term, both against unusually smooth boards. Pushing them
+under would have cost material character — bronze's verdigris mottle is most of what says
+"sand-cast" — on a cap that is no longer within an order of magnitude of the complaint.
+
+Per-texel nx σ in the cap field: **0.39 → 0.026** (oak), 0.33 → 0.008 (steel), 0.34 → 0.008
+(bronze). The normal maps also got **smaller**, 0.52/0.54/0.53 MB → 0.22/0.16/0.14 MB, because
+what was removed was high-entropy noise PNG could not compress.
+
+---
+
+## ASK 2: THE ROUND CAP WAS WEARING CELL 0, AND THIS FILE HAD ALREADY WRITTEN IT DOWN
+
+Submeshes [1] (bezel) and [2] (wall) of **every** cap take `CapRole.Plain` = atlas cell 0, and
+cell 0 is built by `cap_object.register_square(..., continue_rim=True)` — the **square**
+registration. On a square cap that is exact. On a round cap it paints a square gold band with
+mitred corners inside a circular button, which is precisely what the user photographed.
+
+`unity/board-prep/buttons/README.md` had recorded it as an accepted cost:
+
+> "One cell cannot serve both shapes' bands ... so it is exact for the square cap and fills its
+> unused interior with rim-land material for the round cap's benefit."
+
+One cell cannot — **and the atlas has seven spare cells, so it never had to be one cell.**
+
+**Cell 9 = `CapRole.PlainRound`**, `register_round(..., continue_rim=True)`. It needs no angular
+sweep and is four lines where its square sibling is forty: a round cell's distance-to-outline IS
+its radius, the bands ARE annuli, and a round cap's bezel reads only `b ≤ 0.135`, so the unread
+interior is simply faded to the rim band's own mean. The square version's whole complexity — the
+angular sweep that replaced a nearest-edge push, after the push produced four triangular sectors
+meeting in seams along the diagonals — exists because a square cell is anisotropic and *the
+diagonals were exactly where a round cap sampled*. That reader now has its own cell.
+
+**And the round plate's own bands land where the mesh's are**, which round 3's `register_round`
+docstring bet on and nobody had checked. `cap_object.py --cells` on the new cell: oak's brightest
+ring at d = 0.074 and darkest inner ring at 0.129, against a rim land of 0.060-0.105 and an inner
+chamfer of 0.105-0.135; bronze 0.074 / 0.152. So no radial correction is needed and none was
+added. Steel reports its brightest ring at d = 0.004, which is NOT a registration error: its band
+means are 0.986 / 0.958 / 1.050 / 1.003, i.e. a nearly flat profile on a dark weathered-iron disc,
+and the extremum of a flat profile is noise. An instrument's argmax on a flat input means nothing
+and is reported here rather than quoted as a defect.
+
+**The field/bezel seam on a round cap is now exact by construction.** Cells 5, 6 and 9 are all
+`register_round` of the SAME crop under the SAME solved gain, and the interior wash on cell 9 does
+not begin until d = 0.18 — well past the bezel's inner edge at 0.135. So the two submeshes' textures
+are literally the same texels where they meet. The square path cannot say that.
+
+### THE REPRODUCTION, AND WHY IT COULD BE TRUSTED
+
+Before changing anything, `cap_atlas.py` was re-run from its inputs and the six shipped PNGs came
+back **byte-identical (md5)**. So the defect was reproduced from source rather than inferred from
+a screenshot, and the `--no-objects` path the round-4 note describes is not what built the shipped
+atlas (see the corrections below).
+
+### AND ROUND 4'S WINDING FIX DOES REACH WHAT RENDERS
+
+`cap_onboard.check_winding` on the exported round meshes, which now go through this renderer:
+oak's three submeshes give signed volumes **+2.86e-06 / +1.24e-05 / +2.38e-05**, all positive,
+UV and geometry agreeing in sign on every one. The 384-of-640 inversion is gone from the mesh that
+actually draws. The reason the brief suspected otherwise — "the round seat at the top of the board
+looks EMPTY" in `noisy_buttons.jpg` — is a different thing entirely: that is the CONFIRM seat with
+its cap hidden, not a rest pad.
+
+---
+
+## ASK 3: THE CAPTIONS ALREADY SHIPPED, AND THEY DO NOT RENDER
+
+This is the round's largest correction to its own brief. `RestControls.EnsureBuilt` has built
+`_shortCaption` / `_longCaption` through `BoardEngraving.Create` since **ModBuild 281**;
+`RefreshLabels()` sets them to `Loc.Mod("short_rest")` / `Loc.Game("GUI_LONG_REST")` upper-cased —
+i.e. **"KURZE RAST" and "LANGE RAST" in German, already** — and `SetOffset` places each at its own
+disc's clamped pose ± `BoardEngraving.RestCaptionOffsetY`. The peer mirror builds the same two from
+the **viewer's** own `Loc`, deliberately, and they do not ride
+`NetProtocol.CapLabelMaxBytes = 48`: that record (ExtId 13) carries only Confirm / Skip / Undo /
+ItemUse. So the answer to the brief's wire question is **no, these captions do not ride that path
+and nothing is truncated peer-side**.
+
+They are simply **not on the board**. From the user's own ModBuild 291 run, the same session as
+his screenshots:
+
+* `RestControls: built 2 ROUND rest button(s) for Oak (size 0.074×0.074 m …)` — the discs exist;
+* `Rest buttons visibility: short=True … long=True` — so the captions are `SetActive(true)`;
+* `BOARD ENGRAVING (Steel): …` fires — so `BoardEngraving.Restyle` ran and the material recipe
+  was applied;
+* and a high-pass of `viereckige_texturen.jpg`, which resolves every millimetre of board relief,
+  shows **no caption anywhere near either disc**, and no `FIXIERT` beside the follow toggle
+  either. The only engraving that renders on that board is `RUNDE 1`.
+
+So the machinery is built, styled, localised, active — and invisible. `_roundLabel` renders and
+the three **anchor-parented** engravings do not, which is the shape of the lead.
+
+*(The diagnosis and the fix, plus the per-board position dials the user asked for, are the C#
+half of this round — see the commit and the report that goes with it.)*
+
+---
+
+## WHAT THE COLOUR ROUND MUST NOT HAVE LOST — and it did not
+
+`cap_belong.py --report`, all five self-checks passing first:
+
+| board | hue err vs its board | hue+chroma ΔE2000 | C\* cap / board | round 5's values |
+|---|---|---|---|---|
+| oak | **−1.3°** | **1.12** | 27.2 / 29.4 | −1.3° · 1.12 · 27.2/29.4 |
+| steel | **+7.5°** | **0.65** | 3.8 / 3.8 | +7.5° · 0.65 · 3.8/3.8 |
+| bronze | **+3.3°** | **5.48** | 12.8 / 22.5 | +3.4° · 5.40 · 13.0/22.5 |
+
+Oak and steel reproduce round 5 to the third significant figure. Bronze moves by **0.08 ΔE2000**,
+two orders of magnitude below a just-noticeable difference.
+
+Cap-to-cap separation: 14.54 / 13.68 / 7.91 against round 5's 14.54 / 13.67 / 8.01 — no collapse.
+The seat guard still holds on the darkest state: disabled luminance 0.1253 / 0.1255 / 0.1245
+against the 0.1220 bar, i.e. 1.028× / 1.029× / 1.021×.
+
+**And the strongest form of the claim, which needs no instrument at all: oak's albedo atlas is
+byte-identical to round 5 in every cell except the new cell 9.** Per-cell diff, max |Δ| = 0 on
+cells 0–8 and 10–15. Oak's colour cannot have moved, because oak's texels did not. Steel's mean
+|Δ| is 0.6/255 (0.24 %) and bronze's 5.7/255 (2.2 %), from their tempers.
+
+Symbol legibility, `cap_check.py --symbols`: every cell of every style at **33.6–46.1 %** contrast
+at 96 px, against round 4/5's 34–47 %. `--selfcheck` passes all three legs (null refuses, uncarved
+reads −0.21 %, carved fires at 33.91 %).
+
+---
+
+## WHAT THE INSTRUMENTS CANNOT SEE
+
+**Nothing in this directory measured ROUGHNESS until this round, and that is why five rounds
+missed it.** `cap_check` measures symbol contrast, `cap_deltae` and `cap_belong` measure colour,
+`plate_forensics` and `cap_regmove` measure whether a picture has an inside-outside order. A cap
+made of sandpaper and a cap made of glass score identically on all five, provided they are the
+same colour with their rims in the same place. The user was looking at a quantity no number in
+this project described.
+
+**And no picture here contained a round cap.** `cap_onboard.py` placed the SQUARE cap only, in
+`ButtonSeat1..3`. `CELL_SHORT_REST = 5` was defined in that file and never used. So the two rest
+discs — half the caps on the board — appeared in no on-board render of round 4 or round 5, which
+means (a) round 4's fix for "the round cap's entire bezel has been invisible since round 2" was
+never shown landing on a board, and (b) the square-rim-on-a-round-cap defect **could not have
+appeared in any sheet either**. Two rounds of pictures were argued over with the defective control
+outside the frame. *The blind spot is the lead.*
+
+**And every one of those pictures had the noisy term switched off.** `cap_onboard` shaded the caps
+from their geometric normals with no normal map, on the argument that "since ModBuild 290 the
+relief IS geometry, so a picture that needed a normal map to show the bezel would be showing
+something the mesh does not have". That is right about the **bezel** and wrong about the
+**material**: `BoardLit` samples `_BumpMap` at the same `i.uv`, and the micro-grain lives there and
+nowhere else. `--capnormal` now binds it and both columns of every round-6 sheet use it. *An
+instrument that models a subset of what the eye sees agrees with every broken build.*
+
+**`cap_rough`'s own first version was wrong and its own selfcheck caught it.** Leg 5 asserts that
+one physical surface stored at a keycap cell's texel density must read rougher, at the same
+viewing distance, than the same surface stored at a board's. It FAILED, reporting the denser
+storage as the *smoother* — because `resample` refused to magnify and silently returned coarse
+inputs untouched, so the two surfaces being compared were at two different pixels-per-millimetre
+while the report claimed one. Bilinear magnification is not a formality here: it is half the
+finding, because a magnified texture has nothing at the top of the eye's band and that is a real
+reason a board reads smooth. *A new instrument's first output is a hypothesis.*
+
+**The board's bar is a MEDIAN over patches and it is patch-size dependent.** The face band also
+carries the frame, the seat pockets and the carved rest motifs; a mean over it would let those set
+a bar the plain wood never asked for. The quartiles are printed beside every median for exactly
+that reason. But the window over which a band-pass and a mean are taken changes the number: the
+same board reads 3.30 % at a 98 px patch and 3.79 % at 128 px. Both columns of every comparison use
+the same patch size, so the ratio is sound — but **no board figure here should be quoted on its
+own**, and the round/square rows are not comparable to each other.
+
+**Roughness is not measured on the RENDER.** Terms A and B are measured on the textures, at a
+common px/mm, and combined in quadrature. That is invariant to `_Color` (selfcheck 3) and needs no
+renderer, but it assumes the two contributions are independent and it does not model the geometry's
+own shading, the mip chain the GPU actually selects, or MSAA. The renders are pictures for a person
+to judge; they are not where the numbers come from, and the two must not be confused.
+
+**Whether "less rough" is as much less as he meant.** "Das gerne etwas weniger" has no number in
+it. This round chose the one relational bar he did state — the cap must not read rougher than the
+board it sits on — and hit it on ten of twelve cases. If he wanted *some* grain and this reads as
+plastic, the fix is `GRAIN_RELIEF_SLOPE` and `GRAIN_TEMPER` upward, both per board, both one
+measurement each.
+
+**Hardware.** None of this has been in a headset. Every picture is Blender EEVEE reproducing
+`BoardLit`'s two baked directions, which is a replica and not the shader. And the bundle has not
+been rebuilt — six PNGs changed and the integrator owns that step.
+
+---
+
+## WHERE THE BRIEF WAS WRONG
+
+1. **"The contrast rise is very likely also the noise."** No. The albedo was at 0.93× / 1.03× /
+   1.51× of its own board; the normal map was at 15.9× / 45.5× / 53.7×. Oak, named as worst, was
+   *below* its bar on the albedo term.
+2. **"Round 4 rebuilt the atlas with `--no-objects` from `keycap4_material_<style>.png`."** It did
+   not. Re-running `cap_atlas.py` with its defaults reproduces all six shipped PNGs byte for byte,
+   which is the `objects=True` path registering `keycap3_object_<style>.png` — round **3**'s
+   plates. Round 4's four generated material images are in `buttons/out/` and **nothing reads
+   them**. The README's chain description is wrong on this point and is corrected.
+3. **"The round cap appears to be filled with the SQUARE design's registration."** Right about the
+   symptom, wrong about the location: the round cap's own FIELD cells (5 and 6) are correctly
+   round-registered and always were. It is the shared PLAIN cell 0, taken by the bezel and wall
+   submeshes of every cap, that is square.
+4. **"Check the winding fix reaches what renders, because the round seat looks EMPTY."** The
+   winding is correct on every shipped round mesh (positive volumes, UV and geometry agreeing).
+   The empty seat in `noisy_buttons.jpg` is the CONFIRM seat with its cap hidden — a different
+   control, on the other side of the board from the rest pads.
+5. **"There needs to be a 'Lange Rast' / 'Kurze Rast' text — the machinery already exists, reuse
+   it."** The machinery does not merely exist, **the captions are already built, localised in
+   German, styled and active** — and have been since ModBuild 281. They render nowhere. The work
+   was never to add them; it was to find out why five rounds of screenshots never showed them.
+6. **"`SlotOverlayOffset_*` never reached `ConfigSteps`, so make sure your new dials do."** The
+   trap is real and the hole is already closed at source: `ConfigCatalog.Classify` now guards the
+   flat `BaseStep` write with `if (t == typeof(Color))` and `ResolveSteps` admits `Components`
+   except `Color`, so Vector3 dials go through the same resolver as scalars.
+
+---
+
+## WHAT SHIPPED
+
+| file | change |
+|---|---|
+| `unity/board-prep/buttons/cap_rough.py` | **new** — the roughness instrument, six self-checks including a null, a known positive, `_Color` invariance and the texel-density leg that failed first |
+| `unity/board-prep/buttons/cap_atlas.py` | `GRAIN_RELIEF_SLOPE` (per board) replaces the height pinning; `GRAIN_TEMPER` / `GRAIN_TEMPER_SIGMA`; cell 9 `PlainRound`; `_slope_rms` |
+| `unity/board-prep/buttons/cap_object.py` | `register_round(..., continue_rim=)`; the `roundbezel` kind through `cell_art` / `normalised_cells` / `field_jitter` |
+| `unity/board-prep/buttons/cap_onboard.py` | `--capnormal` binds the cap `_BumpMap`; the ROUND cap seated at `ShortRestToken` / `LongRestToken`; `--roundbezel`; `--restshot` |
+| `unity/board-prep/buttons/cap_sheet_rough.py` | **new** — the three sheets |
+| `unity/.../Keycap{Oak,Steel,Bronze}_{albedo,normal}.png` | rebuilt |
+
+`FIELD_TARGET_LUM`, `BoardIdleColor`, `BoardCapTint`, `CapWellColor`, `CapSeatContrast` and every
+mesh are **unchanged**.
+
+## THE PICTURES
+
+* `.planning/debug/round6/round6_roughness.png` — square caps, before/after, three boards
+* `.planning/debug/round6/round6_round_caps.png` — the rest discs, before/after, three boards
+* `.planning/debug/round6/round6_boards.png` — both shapes on all three whole boards
+* `.planning/debug/round6/round6_engraving.png` — "KURZE RAST" / "LANGE RAST" as cuts, DE and EN,
+  on all three board materials (glyph body 48.6–54.6 % darker than the board around it, lit lip at
+  0.99–1.23× over 12–14 % of the area)
+
+## STILL OPEN
+
+* **Bronze square 1.26× and steel round 1.19×** on the albedo term, stated above rather than tuned
+  away.
+* **The seat guard still cannot see the modulator** — round 5's finding, unchanged, and still the
+  binding constraint on cap contrast.
+* **Round 4's four material plates are dead inputs.** Either wire them in or delete them; leaving
+  a generated asset that the README says is used and that nothing reads is how round 3's random
+  crop survived two rounds.
+* **The bundle has not been rebuilt.**
+
+---
 # ROUND 5 (2026-08-25): THE GEOMETRY SURVIVED THE PIPELINE AND THE COLOUR DID NOT
 
 Round 4 did the right thing on the generation side. It showed gpt-image-2 the **rendered board

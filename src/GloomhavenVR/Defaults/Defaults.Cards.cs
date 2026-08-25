@@ -380,6 +380,8 @@ internal static partial class Defaults
     internal const float FanGazeSmoothing = 6f;                                                       // => [Cards] FanGazeSmoothing
     internal static readonly Vector3[] ItemUseSlotOffset_ByBoard = { ItemUseSlotOffset_Oak, ItemUseSlotOffset_Steel, ItemUseSlotOffset_Bronze };
     internal static readonly Vector3[] ItemCardOffset_ByBoard = { ItemCardOffset_Oak, ItemCardOffset_Steel, ItemCardOffset_Bronze };
+    internal static readonly Vector3[] ShortRestCaptionOffset_ByBoard = { ShortRestCaptionOffset_Oak, ShortRestCaptionOffset_Steel, ShortRestCaptionOffset_Bronze };
+    internal static readonly Vector3[] LongRestCaptionOffset_ByBoard = { LongRestCaptionOffset_Oak, LongRestCaptionOffset_Steel, LongRestCaptionOffset_Bronze };
     internal static readonly float[] BoardTilt_ByBoard = { BoardTilt_Oak, BoardTilt_Steel, BoardTilt_Bronze };
     internal static readonly float[] BoardPitchMin_ByBoard = { BoardPitchMin_Oak, BoardPitchMin_Steel, BoardPitchMin_Bronze };
     internal static readonly float[] BoardPitchMax_ByBoard = { BoardPitchMax_Oak, BoardPitchMax_Steel, BoardPitchMax_Bronze };
@@ -423,6 +425,26 @@ internal static partial class Defaults
     // ROUND cap shape after the button-family split; the cap size is [BoardButtons] Width/Height
     // now, for both shapes). No lines here on purpose — a tuned cfg that still carries the keys is
     // reported as UNMAPPED by scripts/rebase-defaults.py, which is exactly right for retired keys.
+    // THE TWO ENGRAVED REST CAPTIONS — "KURZE RAST" above the short pad, "LANGE RAST" below the
+    // long one. User request 2026-08-25: "Den Text soll ich jeweils auch verschieben können in den
+    // Pro-Board-Einstellungen." TWO dials and not one shared nudge, because "jeweils" is the whole
+    // request and the geometry agrees with him: the short caption goes UP into the board's top
+    // margin and the long one DOWN into its bottom margin, and those two margins are different
+    // sizes, sit on different board features and are reached across a different amount of the
+    // board's own relief. A single offset would have to be applied with a mirrored sign to move
+    // both outward at all, and a mirrored sign is wrong for X (both captions want the SAME
+    // horizontal nudge) and for Z (the two margins are not at the same depth).
+    //
+    // SEEDED 0 ON EVERY BOARD, and that is a statement: the shipped seat is the measured one
+    // (BoardEngraving.RestCaptionProudLocalZ plus RestCaptionOffsetY off the built disc), so a
+    // player who never opens the menu gets the caption where the board says it goes. These are the
+    // correction on top of it, exactly as ItemCardOffset_{board} is for the item fan.
+    internal static readonly Vector3 ShortRestCaptionOffset_Oak = new Vector3(0f, 0f, 0f);            // => [Cards] ShortRestCaptionOffset_Oak
+    internal static readonly Vector3 ShortRestCaptionOffset_Steel = new Vector3(0f, 0f, 0f);          // => [Cards] ShortRestCaptionOffset_Steel
+    internal static readonly Vector3 ShortRestCaptionOffset_Bronze = new Vector3(0f, 0f, 0f);         // => [Cards] ShortRestCaptionOffset_Bronze
+    internal static readonly Vector3 LongRestCaptionOffset_Oak = new Vector3(0f, 0f, 0f);             // => [Cards] LongRestCaptionOffset_Oak
+    internal static readonly Vector3 LongRestCaptionOffset_Steel = new Vector3(0f, 0f, 0f);           // => [Cards] LongRestCaptionOffset_Steel
+    internal static readonly Vector3 LongRestCaptionOffset_Bronze = new Vector3(0f, 0f, 0f);          // => [Cards] LongRestCaptionOffset_Bronze
     internal static readonly Vector3 SlotOverlayOffset_Oak = new Vector3(0.002f, -0.002f, 0.004f);    // => [Cards] SlotOverlayOffset_Oak
     internal static readonly Vector3 SlotOverlayOffset_Steel = new Vector3(0.018f, -0.002f, 0.004f);  // => [Cards] SlotOverlayOffset_Steel
     internal static readonly Vector3 SlotOverlayOffset_Bronze = new Vector3(-0.002f, 0.003f, -0.001f);  // => [Cards] SlotOverlayOffset_Bronze

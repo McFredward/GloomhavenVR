@@ -162,6 +162,12 @@ internal static class BoardTuningSampler
                  CardsConfig.SlotOverlayOffset(style), CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneAssetOffset,
                  CardsConfig.AssetOffset(style), CardsConfig.BoardDefaults.AssetOffset[b]);
+        // The two ENGRAVED rest captions. Their SEAT is derived on both sides from the board's own
+        // anchors and BoardEngraving's shared constants, so only the player's own nudge travels.
+        n += Vec(payload, ref i, NetProtocol.TuneShortRestCaptionOffset,
+                 CardsConfig.ShortRestCaptionOffset(style), Defaults.ShortRestCaptionOffset_ByBoard[b]);
+        n += Vec(payload, ref i, NetProtocol.TuneLongRestCaptionOffset,
+                 CardsConfig.LongRestCaptionOffset(style), Defaults.LongRestCaptionOffset_ByBoard[b]);
         // ids 16 and 133 (the turn-flow cluster's dock seat and size) are NOT sampled any more —
         // the mount they moved went with the cluster; see their NetProtocol tombstones.
 
@@ -641,6 +647,14 @@ internal readonly struct RemoteBoardTuning
     public Vector3 DecisionOffset { get; }
     public Vector3 SlotOverlayOffset { get; }
 
+    /// <summary>The owner's nudge on the ENGRAVED "KURZE RAST" cut into the board above the
+    /// short-rest pad, and its sibling below the long one. Only the NUDGE travels: the seat itself
+    /// is derived on both sides from the board's own rest anchors and the shared constants in
+    /// <c>Cards.BoardEngraving</c>, so an untuned owner and their mirror agree by construction and
+    /// the field never leaves the packet.</summary>
+    public Vector3 ShortRestCaptionOffset { get; }
+    public Vector3 LongRestCaptionOffset { get; }
+
 
     /// <summary>The BOARD MESH's own pose offset inside the board root
     /// (<c>PlayTray.SetAssetPose</c>). The bronze board ships a non-zero default, so a peer on
@@ -901,6 +915,10 @@ internal readonly struct RemoteBoardTuning
                               CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         AssetOffset = V(payload, len, NetProtocol.TuneAssetOffset,
                         CardsConfig.BoardDefaults.AssetOffset[b]);
+        ShortRestCaptionOffset = V(payload, len, NetProtocol.TuneShortRestCaptionOffset,
+                                   Defaults.ShortRestCaptionOffset_ByBoard[b]);
+        LongRestCaptionOffset = V(payload, len, NetProtocol.TuneLongRestCaptionOffset,
+                                  Defaults.LongRestCaptionOffset_ByBoard[b]);
 
         PileSpacing = L(payload, len, NetProtocol.TunePileSpacing, Defaults.PileSpacing_ByBoard[b]);
         RestButtonDiameter = L(payload, len, NetProtocol.TuneRestButtonDiameter,

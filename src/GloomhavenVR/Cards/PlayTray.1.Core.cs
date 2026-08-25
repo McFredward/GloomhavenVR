@@ -489,6 +489,78 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// double-rotated onto the board's BACK. It is now stored in <c>_root</c>-local space.</summary>
     private Quaternion _boardFaceFrame = Quaternion.identity;
 
+    /// <summary>
+    /// THE BOARD'S PROUDEST SURFACE, as a depth in the board's own face frame (negative = toward
+    /// the player), or NaN when there is no board mesh to measure.
+    ///
+    /// <para>It exists because three board ENGRAVINGS shipped invisible for want of exactly this
+    /// number. Each was seated a fixed 0.8 mm in front of its own PARENT, and two of the three
+    /// parents stand BEHIND the surface their caption lands on — the rest-pad anchors sit on the
+    /// recess FLOOR, and the follow anchor sits in front of the board's face while its caption is
+    /// lifted onto the raised border. A TMP mesh is transparent with ZWrite off, so a caption behind
+    /// the opaque board is depth-rejected and draws nothing at all: no dimming, no clipping, nothing
+    /// for a state probe to find. <c>BoardEngraving.LogSeat</c> prints this beside each caption's own
+    /// depth so the comparison is in the log instead of in somebody's head.</para>
+    ///
+    /// <para>It is the PROUDEST point of the whole mesh, not the surface under any one caption:
+    /// sampling per-XY needs <c>Mesh.vertices</c>, and the board meshes import non-readable. That
+    /// makes it a sound upper bound and an honest one — a caption over a recessed field is allowed
+    /// to sit behind it, and the diagnostic says so rather than crying wolf.</para>
+    /// </summary>
+    internal float BoardFaceFrontZ { get; private set; } = float.NaN;
+
+    /// <summary>
+    /// Where <paramref name="t"/> sits along the board's face normal, in board-root-local metres —
+    /// the one frame in which every seat constant in this class and in <see cref="BoardEngraving"/>
+    /// is written. Negative is toward the player.
+    ///
+    /// <para>Read through the ROOT rather than off a localPosition on purpose: the bundle anchors
+    /// live inside the board VISUAL, which carries its own per-board asset pose and scale, so their
+    /// local Z is in a different frame from the mod-built anchors' and the two are not comparable
+    /// as written. That non-comparability is the defect this whole measurement exists for.</para>
+    /// </summary>
+    internal float BoardFaceDepth(Transform? t) =>
+        t == null || _root == null
+            ? float.NaN
+            : (Quaternion.Inverse(_boardFaceFrame) * _root.InverseTransformPoint(t.position)).z;
+
+    /// <summary>
+    /// Read the board visual's proudest surface off its own mesh BOUNDS — no vertices, so it works
+    /// on the non-readable meshes the bundle actually ships, and no raycast, so it cannot inherit
+    /// the "floated 5 cm off the board" failure the seat raycast was deleted for.
+    /// </summary>
+    private void MeasureBoardFront(Transform visual)
+    {
+        if (_root == null)
+            return;
+        float front = float.NaN;
+        Quaternion inv = Quaternion.Inverse(_boardFaceFrame);
+        foreach (MeshFilter mf in visual.GetComponentsInChildren<MeshFilter>(true))
+        {
+            Mesh? m = mf.sharedMesh;
+            if (m == null)
+                continue;
+            Bounds b = m.bounds;
+            for (int c = 0; c < 8; c++)
+            {
+                var corner = new Vector3((c & 1) == 0 ? b.min.x : b.max.x,
+                                         (c & 2) == 0 ? b.min.y : b.max.y,
+                                         (c & 4) == 0 ? b.min.z : b.max.z);
+                float z = (inv * _root.InverseTransformPoint(mf.transform.TransformPoint(corner))).z;
+                if (float.IsNaN(front) || z < front)
+                    front = z;
+            }
+        }
+        BoardFaceFrontZ = front;
+        VRLog.Info("Cards", float.IsNaN(front)
+            ? "Board: no mesh on the board visual — the engraving seat diagnostic cannot state a " +
+              "depth margin for this board, and every caption is seated on its authored constant alone."
+            : $"Board: proudest surface {front * 1000f:F2} mm in the board's face frame (from the " +
+              "visual's own mesh bounds, no raycast). Board engravings are seated against this — see " +
+              "BoardEngraving's seat constants for why 0.8 mm in front of an ANCHOR was the wrong " +
+              "question.");
+    }
+
     /// <summary>ITEM 2 diagnostic: the board functional-face outward (away-from-viewer, +Z)
     /// normal in WORLD space at build time (nF). −this points toward the player.</summary>
     private Vector3 _boardFaceNormalWorld = Vector3.forward;
@@ -654,6 +726,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                                      CardsConfig.AssetYaw(CardsConfig.CurrentBoard).Value,
                                      CardsConfig.AssetRoll(CardsConfig.CurrentBoard).Value));
 
+            MeasureBoardFront(visual.transform);
+
             // DEFECT 2: the bundled board now ships a MeshCollider (BuildBoard). Register
             // it as a laser target so the index-finger beam STOPS on the REAL board
             // surface instead of passing through it. Collider.Raycast is geometric and
@@ -757,6 +831,15 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // transparent renderer at order 0 — join the board's furniture order group so a panel
         // BEHIND the board can no longer paint over it (the opaque plate needs nothing).
         AdoptFurniture(readoutGo);
+        // THE ONE ENGRAVING THAT ALWAYS RENDERED, AND WHY IT IS INSTRUMENTED TOO. It is not seated
+        // any better than the three that did not — it is the only one with a per-board depth dial,
+        // and every shipped value of [Cards] ReadoutOffset_{board} has a NEGATIVE Z (−24 mm Oak,
+        // −44 mm Steel, −4 mm Bronze). Somebody already had to hand-tune it out of the wood. So
+        // "the round readout works" was never evidence that this depth is right, and a cfg that
+        // resets that dial buries it exactly like the others; this line is what would say so.
+        BoardEngraving.LogSeat(_roundLabel, "RoundText", CardsConfig.CurrentBoard,
+            BoardFaceDepth(_roundLabel != null ? _roundLabel.transform : null),
+            BoardFaceDepth(readoutGo.transform), BoardFaceFrontZ);
     }
 
     private void BuildMounts()
@@ -1133,11 +1216,20 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // that is the honest behaviour, and the same argument the rest captions make.
         if (CapSymbols.TryAtlas(CardsConfig.CurrentBoard, out _, out _))
         {
+            // …AND IT IS SEATED AGAINST THE BOARD, NOT AGAINST ITS ANCHOR. The lift above puts the
+            // caption on the board's raised decorative BORDER, which stands 2.8–8.0 mm proud of the
+            // face the anchor's own −5 mm was measured against — so at the shared 0.8 mm this
+            // caption spent every shipped build INSIDE that border, drawing nothing.
+            // BoardEngraving.PinCaptionProudLocalZ is that measurement.
             _followEngraving = BoardEngraving.Create(_followAnchor, "FollowEngraving",
                 new Vector3(0f, BoardEngraving.PinCaptionLiftY, 0f), BoardEngraving.PinCaptionBox,
-                BoardEngraving.CaptionMaxFontSize, CardsConfig.CurrentBoard);
+                BoardEngraving.CaptionMaxFontSize, CardsConfig.CurrentBoard,
+                proudZ: BoardEngraving.PinCaptionProudLocalZ);
             AdoptFurniture(_followEngraving.gameObject); // see BoardEngraving.Create
             RefreshFollowEngraving();
+            BoardEngraving.LogSeat(_followEngraving, "FollowEngraving", CardsConfig.CurrentBoard,
+                BoardFaceDepth(_followEngraving.transform), BoardFaceDepth(_followAnchor),
+                BoardFaceFrontZ);
         }
     }
 

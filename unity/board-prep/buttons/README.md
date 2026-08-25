@@ -31,7 +31,20 @@ and carried text and nothing else.
     cap_atlas.py     register the crop onto the mesh's own bands -> carve the stencil in through
                      an exact distance transform. Writes the six PNGs and their .meta files.
                      `--no-objects` rebuilds from round 2's material swatches: the A/B control.
+                     **THE SHIPPED ATLAS IS THE DEFAULT (`objects=True`) PATH, from round 3's
+                     `keycap3_object_<style>.png`.** Round 6 re-ran this file with no arguments
+                     and got all six PNGs back BYTE-IDENTICAL (md5), which settles it: the
+                     round-4 note's claim that the atlas was rebuilt `--no-objects` from
+                     `keycap4_material_<style>.png` is WRONG, and those four generated images in
+                     `out/` are read by nothing. Either wire them in or delete them -- a
+                     generated asset the docs say is used and no code reads is how round 3's
+                     random crop survived two rounds.
     cap_check.py     the acceptance instrument, with a null input and a known-positive control.
+    cap_rough.py     ROUND 6 -- how much rougher than the board does the cap read? See below.
+    cap_onboard.py   the caps in their own seats on their own board. `--capnormal` binds the cap
+                     _BumpMap (round 6); `--restshot` frames the two ROUND rest discs, which no
+                     on-board picture contained at all before round 6.
+    cap_sheet_rough.py  round 6's three before/after sheets.
     plate_forensics.py  what separates the ACCEPTED board backs from the REJECTED cap plates
     cap_round3.py    the three sheets that judge the round
     cap_sheets.py    contact sheets from the Unity render station's output (PreviewKeycaps.cs).
@@ -69,6 +82,59 @@ cap's bezel), so it is exact for the square cap and fills its unused interior wi
 material for the round cap's benefit. The cost is stated in
 `.planning/BOARD-BUTTON-OVERHAUL.md`.
 
+**ROUND 6 CLOSED THAT, AND THE USER FOUND IT FIRST.** Every word above is true and the conclusion
+drawn from it was not: one cell cannot serve both shapes, and the atlas has SEVEN SPARE CELLS, so
+it never had to be one cell. Filling a round cap's bezel with square rim-land material paints a
+square gold band with mitred corners inside a circular button, which is exactly what he
+photographed in `viereckige_texturen.jpg` -- *"als sei hier eine Textur fuer eigentlich einen
+viereckigen Button genutzt worden"*. **Cell `ROUND_BEZEL_CELL` = 9 = `Cards.CapRole.PlainRound`**
+is the round sibling of cell 0, and a ROUND cap's bezel and wall submeshes take it. It needs no
+angular sweep: a round cell's distance-to-outline IS its radius, so the unread interior is simply
+faded to the rim band's own mean, with no diagonal for a seam to run along.
+
+A cost written down as a cost is still a defect. This one sat in this file for three rounds
+describing precisely the thing the user would eventually report.
+
+## ROUND 6: ROUGHNESS -- the one thing none of these instruments measured
+
+`cap_rough.py`. The user, on caps he otherwise likes: *"ABER alle Buttons sind so extrem rau, dass
+es schon fast wie Noise erscheint."* Five instruments were already in this directory and **not one
+of them measures roughness**: `cap_check` measures symbol contrast, `cap_deltae`/`cap_belong`
+measure colour, `plate_forensics`/`cap_regmove` measure whether a picture has an inside-outside
+order. A cap made of sandpaper and a cap made of glass score identically on all five.
+
+The quantity, from his own relational bar -- the cap must not read rougher than the board it sits
+on -- is `100 * RMS(band-passed luminance) / mean`, on BOTH surfaces, resampled to the same
+pixels-per-millimetre (2.4, a Quest 3 at arm's length) and band-limited to the 1.5-6 screen-pixel
+octave. It is a RELATIVE contrast, so `alb = tex2D(...) * _Color` cancels exactly and a cap can be
+compared to a board at a different brightness.
+
+**TWO TERMS, ALWAYS REPORTED SEPARATELY**, because they are separate knobs: the ALBEDO grain
+(`cap_atlas.GRAIN_TEMPER`) and the NORMAL-MAP relief (`GRAIN_RELIEF_SLOPE`). The relief amplitude
+is pinned, so tempering the albedo does not move it.
+
+**What it found, and it falsified the round's own brief.** The brief blamed ModBuild 291's
+contrast rise. Measured: albedo **0.93x / 1.03x / 1.51x** of each cap's own board -- already at the
+bar -- and normal-map relief **15.9x / 45.5x / 53.7x**. The noise was entirely the normal map.
+
+**And the cause was a pinned factor of a product.** `GRAIN_RELIEF_STD` pins the micro-relief's
+HEIGHT standard deviation; a normal map carries its GRADIENT, and slope is amplitude x frequency.
+Round 3 pinned the amplitude for a good reason (see the next section) and left the frequency free;
+between ModBuild 286 and 289 the material became a registered photograph at the same cell size,
+its grain moved up in frequency, and the slope went with it. `GRAIN_RELIEF_SLOPE` pins the Sobel
+gradient instead -- measured with the SAME operator `normal_from_height` applies downstream, so
+what is held fixed is what becomes nx/ny.
+
+**A structural term nobody had named:** the board's face carries 1186-1246 texels/m and a keycap
+cell carries 4122-5831, so **the cap stores its material at 3.3-4.9x the board's density**. At
+equal contrast its grain lands far higher up the frequency axis at the same distance. That is why
+the albedo remedy is a low-pass at the board's own resolution limit and not a contrast reduction.
+
+Six self-checks, and **leg 5 failed first and the instrument was wrong, not the world**: it
+compared a coarse and a dense storage of one surface at two different samplings, because
+`resample` refused to magnify. Bilinear magnification is half the finding -- a magnified texture
+has nothing at the top of the eye's band, which is a real reason a board reads smooth.
+
 ## The micro-relief is where three defects lived, and they were all the same defect
 
 `carve` puts the material's own grain into the height field. Fed a REGISTERED plate it built a
@@ -78,9 +144,18 @@ because a band EDGE is a step and a step has energy at every frequency. Subtract
 RADIAL band profile came out flat to +-0.001 against a height sigma of 0.024 **and the ridges
 were still there**: the gather tilts outward at every edge, so the artefact is +y at the top and
 -y at the bottom and a radial mean cancels it exactly while leaving every ridge in place. The
-profile is taken PER SIDE now. And the relief AMOUNT is pinned to `GRAIN_RELIEF_STD = 0.02376`,
+profile is taken PER SIDE now. And the relief AMOUNT was pinned to `GRAIN_RELIEF_STD = 0.02376`,
 measured over 24 cells of the ModBuild 286 chain, rather than left as a gain that would have
 doubled the bump simply because the new art has more contrast.
+
+**ROUND 6 SUPERSEDED THAT PINNING AND THE REASONING BEHIND IT WAS STILL RIGHT.** Pinning an
+amplitude instead of a gain was the correct move against the defect round 3 faced. It pinned the
+wrong factor: a normal map carries the height's GRADIENT, the art's grain frequency then rose, and
+the slope rose with it until the caps read as sandpaper. `GRAIN_RELIEF_SLOPE` (per board, solved
+against each board's own face) replaces it. The shipped rule produced a Sobel-gradient RMS of
+0.03332; the round-6 targets are 0.00143 / 0.00056 / 0.00041, and the field's per-texel nx sigma
+falls from 0.39 to 0.026 / 0.008 / 0.008 -- with the normal maps shrinking from 0.52-0.54 MB to
+0.14-0.22 MB, because what was removed was high-entropy noise PNG could not compress.
 
 ## The engraving preview, and the picture that could not answer the question
 

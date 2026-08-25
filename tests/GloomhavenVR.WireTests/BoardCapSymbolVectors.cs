@@ -53,6 +53,7 @@ internal static class BoardCapSymbolVectors
         NonSquareAtlasSplitsUAndVSeparately(t);
         OutOfRangeFallsBackToPlain(t);
         DegenerateAtlasIsIdentityNotNaN(t);
+        TheRoundBezelIsItsOwnCell(t);
 
         StrokeStartsAndEndsAtRest(t);
         StrokeReachesTheBottomAndHoldsIt(t);
@@ -141,6 +142,10 @@ internal static class BoardCapSymbolVectors
                && (int)CapRole.FixedPinned == 7,
                "CapRole 4..7 are the second row of the atlas (ItemUse, ShortRest, LongRest, FixedPinned)");
         t.True((int)CapRole.FixedFollow == 8, "CapRole.FixedFollow is the first cell of the third row");
+        t.True((int)CapRole.PlainRound == 9,
+               "CapRole.PlainRound is the SECOND cell of the third row — the round-registered bezel "
+               + "band. It is not a control and never appears on a cap FACE; moving it re-aims every "
+               + "round cap's bezel ring and side walls at whatever cell 9 has become");
     }
 
     /// <summary>
@@ -172,6 +177,51 @@ internal static class BoardCapSymbolVectors
             Near(t, $"role {bad} -> plain scale.x", s0.x, s.x, 1e-7f);
             Near(t, $"role {bad} -> plain offset.y", o0.y, o.y, 1e-7f);
         }
+    }
+
+    /// <summary>
+    /// THE ROUND BEZEL IS A DIFFERENT CELL FROM THE SQUARE ONE, AND THE SHAPE PICKS IT — the whole
+    /// content of the fix, stated as the two properties that can regress.
+    ///
+    /// <para><b>WHY IT CAN GO WRONG SILENTLY.</b> Cells 0 and 9 are the SAME gold band drawn at the
+    /// same size in the same palette; the only difference is what it is registered against — a
+    /// square with mitred corners, or a circle. Every other gate in this repository agrees with a
+    /// round cap wearing cell 0: the material builds, the atlas loads, the mirrors agree, the wire
+    /// coverage is unchanged, and the cap renders in exactly the right colour. It shipped that way
+    /// and the user had to report it from a screenshot ("viereckige Texturen" on the round rest
+    /// buttons). So the two things a future edit could break are pinned here: that the two cells are
+    /// genuinely DIFFERENT rectangles, and that <see cref="CapCellMath.PlainCell"/> — the one
+    /// resolver the owner's <c>BoardButton.Create</c> and the peer mirror's
+    /// <c>InertCap.Round</c>/<c>Square</c> all call — maps the shape to the right one.</para>
+    /// </summary>
+    private static void TheRoundBezelIsItsOwnCell(Harness t)
+    {
+        t.True(CapCellMath.PlainCell(round: false) == CapRole.Plain,
+               "a SQUARE cap's bezel and walls take the square-registered band, cell 0");
+        t.True(CapCellMath.PlainCell(round: true) == CapRole.PlainRound,
+               "a ROUND cap's bezel and walls take the circle-registered band, cell 9 — taking cell 0 "
+               + "paints a mitred rectangle inside a circular cap, which is the defect this exists for");
+        t.True(CapCellMath.PlainCell(round: true) != CapCellMath.PlainCell(round: false),
+               "the round and the square bezel cells must not be the same cell");
+
+        // The cell itself: column 1 of the image's THIRD row, i.e. the second row counted from the
+        // bottom in V. Written out rather than derived from the function under test, because a
+        // vector that recomputes its own expectation cannot catch the row flip.
+        Cell((int)CapRole.PlainRound, out Vector2 s, out Vector2 o);
+        float band = 1f / CapCellMath.GridRows;
+        float inset = CapCellMath.InsetTexels / (float)AtlasPx;
+        Near(t, "cell 9 scale.x", 1f / CapCellMath.GridCols - 2f * inset, s.x, 1e-6f);
+        Near(t, "cell 9 scale.y", band - 2f * inset, s.y, 1e-6f);
+        Near(t, "cell 9 offset.x", 1f / CapCellMath.GridCols + inset, o.x, 1e-6f);
+        Near(t, "cell 9 offset.y", band + inset, o.y, 1e-6f);
+
+        // It sits immediately RIGHT of FixedFollow (cell 8) on the same row — the property that
+        // fails first if either the enum or the Python's CELLS list is renumbered on one side only.
+        Cell((int)CapRole.FixedFollow, out Vector2 s8, out Vector2 o8);
+        Near(t, "cell 9 shares cell 8's row", o8.y, o.y, 1e-6f);
+        t.True(o.x > o8.x, $"cell 9 must sit right of cell 8: u {o.x:F4} vs {o8.x:F4}");
+        Near(t, "cell 9 is one column further", o8.x + 1f / CapCellMath.GridCols, o.x, 1e-6f);
+        t.True(s == s8, $"every cell is the same size: cell 9 {s} vs cell 8 {s8}");
     }
 
     /// <summary>A zero-sized atlas must not divide by zero. NaN in a texture transform paints the

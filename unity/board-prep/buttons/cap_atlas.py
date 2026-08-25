@@ -69,6 +69,7 @@ The 3:2 trap does not apply here and that is checked rather than assumed: every 
 """
 import argparse
 import json
+import math
 import os
 import sys
 import zlib
@@ -119,6 +120,13 @@ CELLS = [
     dict(idx=6, role="LongRest",    src=("motif", "rest_long"),  layout="solo"),
     dict(idx=7, role="FixedPinned", src=("sheet", "B2"),   layout="solo"),
     dict(idx=8, role="FixedFollow", src=("sheet", "B3"),   layout="solo"),
+    # ROUND 6. Not a control -- the ROUND sibling of cell 0. Every cap's bevel ring and side
+    # walls sample a PLAIN cell, and before this there was exactly one, built against the SQUARE
+    # outline, so a round button wore a square gold rim with mitred corners (the user's
+    # viereckige_texturen.jpg). `Cards/CapCellMath.CapRole.PlainRound` is this index and the two
+    # move together or every round cap on every board goes wrong at once, on both sides of the
+    # wire. Seven spare cells existed the whole time; this spends one of them.
+    dict(idx=9, role="PlainRound",  src=None,              layout="plain"),
 ]
 
 # The sheet's own cell map, in the same "letter is the ROW" convention `tex_symbols.cell_box`
@@ -226,6 +234,135 @@ GRAIN_RELIEF = 0.35
 # roughly twice the luminance contrast of a swatch and the same GAIN would have doubled the
 # bump for a reason that has nothing to do with how rough the material is.
 GRAIN_RELIEF_STD = 0.02376
+# ---------------------------------------------------------------------------
+# ROUND 6: THE PINNED FACTOR WAS THE WRONG ONE, AND THAT IS THE WHOLE NOISE DEFECT
+# ---------------------------------------------------------------------------
+# The user, on caps he otherwise likes: "ABER alle Buttons sind so extrem rau, dass es schon
+# fast wie Noise erscheint." The round was briefed on the hypothesis that ModBuild 291's
+# contrast rise (oak 4.12 -> 10.69 %) bought the colour and also bought the noise.
+#
+# IT DID NOT, AND THE INSTRUMENT SAYS SO. `cap_rough.py --report` on the shipped atlas, cap
+# against the board it sits on, both resampled to a Quest 3's arm's-length 2.4 px/mm:
+#
+#     board     albedo grain        normal-map relief
+#     oak       3.08 / 3.30 = 0.93x   17.70 / 1.11 = 15.9x
+#     steel     2.84 / 2.77 = 1.03x   21.17 / 0.46 = 45.5x
+#     bronze    2.64 / 1.74 = 1.51x   18.22 / 0.34 = 53.7x
+#
+# The ALBEDO is at the board's own level. The NORMAL MAP is sixteen to fifty-four times it, and
+# it is the entire complaint. Confirmed off the files without this instrument in the loop: the
+# shipped cap map's field carries nx sigma 0.39 / ny sigma 0.35, against 0.06-0.11 on all three
+# board maps and 0.07 / 0.20 on `KeycapGrain_normal.png`, the map these replaced.
+#
+# THE CAUSE. `GRAIN_RELIEF_STD` pins the micro-relief's HEIGHT standard deviation. A normal map
+# carries the height's GRADIENT, and slope is amplitude TIMES frequency. Between ModBuild 286
+# and 289 the material stopped being a random crop of a swatch and became a registered
+# photograph at the same 256-texel cell, so its grain moved UP in spatial frequency -- and the
+# same pinned height amplitude therefore became a much larger slope. Round 3 pinned the height
+# precisely so that "the registered art carries roughly twice the luminance contrast of a
+# swatch" would not double the bump. It fixed the amplitude and left the frequency free, and the
+# product is what a normal map is. ("Measure the product, not one factor.")
+#
+# A SECOND, SMALLER CONTRIBUTION IN THE SAME DIRECTION, recorded because it is real and because
+# the comment that installed it is still true of the term it was written for. `build_style`
+# writes the normal at half resolution and doubles the strength, "so a wall's slope in world
+# terms is unchanged". That is exact for the CARVE, which is a smooth low-frequency field the
+# decimation genuinely halves. It is not exact for the GRAIN: the grain is high-passed at
+# cell/48 (~5 texels), a box blur of radius 1 barely attenuates a 5-texel feature, so the
+# decimation does not halve it and the x2 is very nearly a straight doubling of its slope.
+# Pinning the slope absorbs that too, which is why it is not fixed separately -- one knob that
+# holds the measured quantity beats two knobs that model it.
+#
+# WHAT REPLACES IT. The RMS of the micro-relief's own Sobel gradient -- the same operator
+# `tex_common.normal_from_height` applies downstream, so what is held fixed is what becomes
+# nx/ny. The shipped rule produced 0.03332 on oak; these are 20-80x smaller, which is the size
+# of the defect rather than the size of the taste.
+#
+# PER BOARD, because the requirement is per board. "The cap must not read rougher than the board
+# it sits on" names a different bar for each of the three, and they are not close: measured
+# relief on the face band is 1.11 % (oak) / 0.46 (steel) / 0.34 (bronze). One shared constant
+# would have left the oak cap at 0.31x its own board -- glassy on the one board the user is
+# actually looking at in both screenshots -- while bronze still sat over its bar. Each target is
+# solved for 0.9x its own board's relief: at the bar with a little room, and the room is on the
+# right side of it.
+#
+# SOLVED, NOT CHOSEN, and the solve is linear here (halving the constant halves the measured
+# relief to within 2 %, checked at 0.002 / 0.0005 / 0.00015 before these were fixed), so the
+# three numbers below are one measurement each and not a search.
+GRAIN_RELIEF_SLOPE = {
+    "oak": 0.00143,
+    "steel": 0.00056,
+    "bronze": 0.00041,
+}
+# THE ALBEDO IS A DIFFERENT KNOB AND MOSTLY DID NOT NEED TURNING -- which is the round's other
+# correction to its own brief. Measured against each board's own face, the shipped cap albedo is
+# 0.93x (oak), 1.03x (steel) and 1.51x (bronze). Oak -- the board he photographed and the cap he
+# singled out -- was ALREADY BELOW ITS BAR, so the contrast rise ModBuild 291 bought for the
+# colour is not the noise and undoing it would have cost the colour for nothing.
+#
+# `keep` is how much of the material's own high-frequency band survives, as a fraction. The
+# low-pass is a Gaussian at GRAIN_TEMPER_SIGMA and the blend is `lo + keep * (img - lo)`, which
+# preserves the LOCAL MEAN exactly -- so it moves no level and no hue, and the gain solve that
+# follows re-hits `FIELD_TARGET_LUM` on the tempered material rather than compensating for it.
+# 1.0 is a no-op and oak gets one.
+GRAIN_TEMPER = {
+    "oak": 1.00,
+    "steel": 0.94,
+    "bronze": 0.45,
+}
+# The cut-off, in CELL TEXELS, PER BOARD, and it is that board's own resolution limit rather
+# than a taste. The face carries 1.21 / 1.25 / 1.19 texels/mm and the SQUARE cap's cell carries
+# 4.55 / 4.12 / 5.83, so a feature finer than 3.75 / 3.31 / 4.92 cap texels is one that board's
+# own material could not have recorded at all. Sigma is half that period, so what is attenuated
+# is exactly the band the cap has and the board does not, and everything the board could itself
+# have shown passes through untouched.
+#
+# The SQUARE cap sets it on every board. It is the denser of the two shapes (one 256-texel cell
+# over a smaller cap), so a cut-off correct for it is conservative for the round one -- and it
+# is the shape in the screenshot the complaint came with.
+GRAIN_TEMPER_SIGMA = {
+    "oak": 1.88,
+    "steel": 1.66,
+    "bronze": 2.46,
+}
+
+
+def relief_slope(style):
+    """This board's micro-relief slope target. See GRAIN_RELIEF_SLOPE."""
+    return GRAIN_RELIEF_SLOPE[style] if isinstance(GRAIN_RELIEF_SLOPE, dict) \
+        else GRAIN_RELIEF_SLOPE
+
+
+def grain_temper(img, style):
+    """Attenuate the band the BOARD's own material could not have carried. See GRAIN_TEMPER.
+
+    Mean-preserving by construction: `lo + keep * (img - lo)` with `lo` a mean-preserving blur
+    is `img` wherever `img` equals its local mean, and its average over any region equals the
+    average of `img` over that region. So this changes roughness and changes neither the level
+    the normaliser solves for nor the hue the colour round bought.
+    """
+    keep = GRAIN_TEMPER.get(style, 1.0)
+    if keep >= 0.999:
+        return img
+    sigma = GRAIN_TEMPER_SIGMA[style] if isinstance(GRAIN_TEMPER_SIGMA, dict) \
+        else GRAIN_TEMPER_SIGMA
+    lo = np.empty_like(img)
+    for c in range(img.shape[2]):
+        lo[..., c] = _gauss(img[..., c], sigma)
+    return lo + keep * (img - lo)
+
+
+def _gauss(a, sigma):
+    """Separable Gaussian with edge replication -- `tex_common` has only a box blur, and a box
+    blur has a sinc frequency response with sidelobes that put energy back into the band this is
+    trying to take out."""
+    r = max(1, int(math.ceil(3.0 * sigma)))
+    x = np.arange(-r, r + 1, dtype=np.float64)
+    k = np.exp(-0.5 * (x / sigma) ** 2)
+    k /= k.sum()
+    p = np.pad(a, ((r, r), (r, r)), mode="edge")
+    out = np.apply_along_axis(lambda m: np.convolve(m, k, mode="valid"), 1, p)
+    return np.apply_along_axis(lambda m: np.convolve(m, k, mode="valid"), 0, out)
 
 # ---------------------------------------------------------------------------
 # THE LEVEL BELONGS TO THE STATE PALETTE, NOT TO THE MATERIAL
@@ -376,7 +513,26 @@ def min_feature_px(mask):
     return float(np.median(d[m]) * 2.0)
 
 
-def carve(mat, cov, cell_px, band=None):
+def _slope_rms(h):
+    """RMS gradient magnitude of a height field, through the SAME Sobel the normal map uses.
+
+    Copied in operator, not in spirit, from `tex_common.normal_from_height`: that function sets
+    `nx = gx * strength`, `ny = gy * strength` with these exact 3x3 kernels and this exact 0.25
+    scaling. Measuring the relief with a different derivative -- `np.gradient`, say -- would pin
+    a number that is only proportional to the one that ships, and a constant solved against a
+    proxy drifts the moment either definition moves.
+    """
+    def sh(dy, dx):
+        return np.roll(np.roll(h, dy, axis=0), dx, axis=1)
+
+    gx = ((sh(-1, -1) + 2 * sh(0, -1) + sh(1, -1))
+          - (sh(-1, 1) + 2 * sh(0, 1) + sh(1, 1))) * 0.25
+    gy = ((sh(-1, -1) + 2 * sh(-1, 0) + sh(-1, 1))
+          - (sh(1, -1) + 2 * sh(1, 0) + sh(1, 1))) * 0.25
+    return float(np.sqrt(np.mean(gx * gx + gy * gy)))
+
+
+def carve(mat, cov, cell_px, band=None, slope=None):
     """Cut `cov` into `mat`. Returns (albedo RGB in [0,1], height field).
 
     `band` is the per-texel distance-to-outline of a REGISTERED cell (`cap_object._band_coord`)
@@ -442,13 +598,20 @@ def carve(mat, cov, cell_px, band=None):
     else:
         flat = lum - lum.mean()
     micro = flat - T.box_blur(flat, max(1, cell_px // 48))
-    # THE RELIEF AMOUNT IS PINNED, NOT INHERITED. `GRAIN_RELIEF` was a GAIN on the plate's own
-    # luminance deviation, so a plate with more contrast automatically got more bump -- and
-    # round 3's registered art has roughly twice round 2's. Pinning the standard deviation
-    # instead means the surface's relief is the SHIPPED relief and the only thing that changed
-    # this round is the albedo, which is the one variable under test.
-    s = float(micro.std())
-    micro = micro * (GRAIN_RELIEF_STD / s) if s > 1e-9 else micro
+    # THE RELIEF IS PINNED ON ITS SLOPE, NOT ON ITS HEIGHT -- round 6, and see GRAIN_RELIEF_SLOPE
+    # for the measurement that forced it. A normal map carries a height field's GRADIENT; pinning
+    # the height's standard deviation while the material's grain moved to a higher spatial
+    # frequency pinned the wrong factor of the product, and the slope quietly rose with the
+    # frequency until the cap read as sandpaper.
+    #
+    # The gradient is measured with the SAME Sobel `tex_common.normal_from_height` will apply
+    # downstream, so the thing being held fixed is the thing that becomes nx/ny and not a proxy
+    # for it. Measured at full cell resolution; the box-decimation to the half-res normal map and
+    # the x2 strength compensation are both downstream of here and both identical for every
+    # style, so one constant is correct on all three boards.
+    want = GRAIN_RELIEF_SLOPE["oak"] if slope is None else slope
+    s = _slope_rms(micro)
+    micro = micro * (want / s) if s > 1e-9 else micro
 
     # AMBIENT OCCLUSION, at three radii, exactly as the board's own compositor does it --
     # and this is the term that makes the symbol readable at all, because the specular on a
@@ -577,6 +740,21 @@ def material_cell(plate, cell_px, rng):
 # control ever appears it belongs here and in nothing else.
 ROUND_CELLS = {5, 6}
 
+# ROUND 6 -- the round cap's own PLAIN cell, and the defect it closes.
+#
+# Submeshes [1] (bezel) and [2] (wall) of EVERY cap take `CapRole.Plain` = cell 0, and cell 0 is
+# built with the SQUARE registration. On a square cap that is exact; on a round cap it paints a
+# square rim with mitred corners inside a circular button. The user photographed it
+# (viereckige_texturen.jpg) after this file had already recorded it as an accepted cost -- "one
+# cell cannot serve both shapes' bands". True, and the atlas had seven spare cells, so it never
+# had to be one cell.
+#
+# THE CONSTRAINT THIS IS UNDER: it is a CELL INDEX and `Cards/CapCellMath.CapRole` numbering IS
+# the cell index, on the owner's board and on every peer's mirror alike. Changing it here without
+# changing `CapRole.PlainRound` (and `tests/GloomhavenVR.WireTests/BoardCapSymbolVectors.cs`) puts
+# the wrong material on every round cap on every board at once and nothing in the build says so.
+ROUND_BEZEL_CELL = 9
+
 
 def cell_band(style, cellkind, cell_px):
     """`(b, side)` for a registered cell, or None for an unregistered one.
@@ -591,7 +769,7 @@ def cell_band(style, cellkind, cell_px):
         return None
     ys = np.broadcast_to(((np.arange(cell_px) + 0.5) / cell_px)[:, None], (cell_px, cell_px))
     xs = np.broadcast_to(((np.arange(cell_px) + 0.5) / cell_px)[None, :], (cell_px, cell_px))
-    if cellkind == "round":
+    if cellkind in ("round", "roundbezel"):
         b = 0.5 - np.sqrt((ys - 0.5) ** 2 + (xs - 0.5) ** 2)
         return b, np.zeros((cell_px, cell_px), dtype=np.int64)
     su, sv = O.aspect(style)
@@ -641,8 +819,10 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
                 # gets the bezel build; cells 5 and 6 are the round rest pads; everything else
                 # is a square cap's face. `rng` is still drawn from once per cell so the seed
                 # stream -- and therefore every OTHER cell -- is unchanged by this branch.
-                cellkind = "bezel" if idx == 0 else ("round" if idx in ROUND_CELLS
-                                                    else "square")
+                cellkind = ("bezel" if idx == 0
+                            else "roundbezel" if idx == ROUND_BEZEL_CELL
+                            else "round" if idx in ROUND_CELLS
+                            else "square")
                 seed = int(rng.integers(0, 2 ** 31))
                 mat = np.clip(art[cellkind]
                               * O.field_jitter(cell_px, seed, style, cellkind)[..., None],
@@ -664,7 +844,8 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
                     cov = place(mask, cell_px, size, cy)
                     src_note = (f"{kind}:{key} minlimb {min_feature_px(mask):.1f}px src "
                                 f"-> {min_feature_px(cov >= 0.5):.1f}px cell")
-            a, h = carve(mat, cov, cell_px, band=cell_band(style, cellkind, cell_px))
+            a, h = carve(mat, cov, cell_px, band=cell_band(style, cellkind, cell_px),
+                         slope=relief_slope(style))
             y0, x0 = r * cell_px, c * cell_px
             alb[y0:y0 + cell_px, x0:x0 + cell_px] = a
             hgt[y0:y0 + cell_px, x0:x0 + cell_px] = h
@@ -703,9 +884,16 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
         print(f"\n{style}: plate {plate_img.size} -> atlas {atlas_px[0]}x{atlas_px[1]} "
               f"({cols}x{rows} cells of {cell_px})")
         if art is not None:
-            print(f"    ROUND 3 OBJECT CELLS: registered from "
-                  f"{O.GENERATED[style]} -- cell 0 bezel (every cap's bevel + walls), "
-                  f"cells {sorted(ROUND_CELLS)} round, the rest square")
+            sig = (GRAIN_TEMPER_SIGMA[style] if isinstance(GRAIN_TEMPER_SIGMA, dict)
+                   else GRAIN_TEMPER_SIGMA)
+            print(f"    REGISTERED OBJECT CELLS: from {O.GENERATED[style]} -- cell 0 bezel "
+                  f"(every SQUARE cap's bevel + walls), cell {ROUND_BEZEL_CELL} ROUND bezel "
+                  f"(every ROUND cap's, round 6), cells {sorted(ROUND_CELLS)} round faces, "
+                  f"the rest square")
+            print(f"    micro-relief SLOPE pinned at {relief_slope(style):.5f} (round 5 pinned "
+                  f"the HEIGHT at {GRAIN_RELIEF_STD:.5f}, which produced slope 0.03332 on oak); "
+                  f"grain temper keep {GRAIN_TEMPER.get(style, 1.0):.2f} at sigma {sig:.2f} "
+                  f"cell texels -- run cap_rough.py --report for the table")
             print(f"    level re-based ON THE FIELD: field mean {obj_base:.3f} x gain "
                   f"{obj_gain:.2f} -> {obj_got:.3f} (target {field_target(style):.3f}, SOLVED "
                   f"for this board -- see FIELD_TARGET_LUM); the FACE is submesh [0] and "

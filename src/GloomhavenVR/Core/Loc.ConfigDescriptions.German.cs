@@ -1610,6 +1610,18 @@ internal static partial class Loc
                 + "ADDIERT wird, board-lokale Meter — bewegt die Gegenstandskarten UNABHÄNGIG vom Fächer der "
                 + "Fähigkeitskarten (sie haben eine andere, fast quadratische Form). X/Y in der Ebene, Z = "
                 + "Herausstehen zum Spieler hin (NEGATIV = steht weiter heraus). Startwert 0 (Oak).",
+            ["Cards/ShortRestCaptionOffset_*"] =
+                "Versatz, der zur Position des in das Board GRAVIERTEN Schriftzugs \u201eKURZE RAST\u201c "
+                + "ADDIERT wird — der Text ÜBER dem Feld der kurzen Rast, board-lokale Meter. X/Y in der "
+                + "Ebene, Z = Herausstehen zum Spieler hin (NEGATIV = steht weiter heraus). Der Schriftzug "
+                + "folgt bereits seiner eigenen Taste: jeder Regler, der das Rast-Feld bewegt, nimmt das "
+                + "Wort mit. Das hier ist die Feinkorrektur für den Rand des Boards, den sich das Wort mit "
+                + "der Schnitzerei dieses Boards teilen muss. Startwert 0.",
+            ["Cards/LongRestCaptionOffset_*"] =
+                "Dasselbe für den gravierten Schriftzug \u201eLANGE RAST\u201c UNTER dem Feld der langen "
+                + "Rast, board-lokale Meter. Ein eigener Regler und nicht der der kurzen Rast, weil die "
+                + "beiden Schriftzüge in gegenüberliegende Ränder des Boards laufen und diese Ränder weder "
+                + "gleich groß sind noch gleich tief liegen. Startwert 0.",
             ["Cards/SlotOverlayOffset_*"] =
                 "Versatz, der zur lokalen Position des Einrast-Leuchtens / Wunsch-Leuchtens am Slot ADDIERT "
                 + "wird, board-lokale Meter. X/Y in der Ebene, Z = Herausstehen zum Spieler hin (NEGATIV = "

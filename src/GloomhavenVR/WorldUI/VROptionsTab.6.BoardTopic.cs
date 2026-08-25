@@ -118,6 +118,11 @@ internal static partial class VROptionsTab
                         new BoardRef("Cards", "RestButtonDiameter", perBoard: false),
                         new BoardRef("Cards", "RestStackSpacing", perBoard: false),
                         new BoardRef("Cards", "RestButtonShape"),
+                        // The two ENGRAVED captions beside the pads. They sit with the pads and not
+                        // in a block of their own because they ARE the pads' labels — the discs wear
+                        // a carved symbol and no word, so this is where the word went.
+                        new BoardRef("Cards", "ShortRestCaptionOffset"),
+                        new BoardRef("Cards", "LongRestCaptionOffset"),
                         new BoardRef("RestButtons", "Width", perBoard: false),
                         new BoardRef("RestButtons", "Height", perBoard: false),
                         new BoardRef("RestButtons", "Depth", perBoard: false),
