@@ -323,9 +323,145 @@ namespace GloomhavenVR
                 Object.DestroyImmediate(posed);
             }
 
+            StereoSpecular(cam, inst, style);
+
             Object.DestroyImmediate(inst);
             Object.DestroyImmediate(camGo);
             Object.DestroyImmediate(lightGo);
+        }
+
+        /// <summary>
+        /// HOW MUCH OF THIS BOARD'S PICTURE IS VIEW-DEPENDENT, per eye — the one question a single
+        /// static render cannot answer and the one risk turning the specular on introduces.
+        ///
+        /// <para>BoardLit's specular is Blinn-Phong against two BAKED directions, so it moves with
+        /// the camera and the two eyes SHOULD disagree a little: that disagreement is what makes a
+        /// surface read as metal rather than as paint. What must not happen is the disagreement
+        /// being large and high-frequency, which is stereo rivalry — this project's recurring
+        /// defect, and the reason the lobe is floored well above BoardLit's own 0.08.</para>
+        ///
+        /// <para>So: render the board from a left and a right eye 63 mm apart at a realistic
+        /// working distance, with the specular ON and again with it forced OFF on a throwaway
+        /// material copy, and report the mean absolute difference between the two eyes over board
+        /// pixels in both states. The SPEC-OFF number is the floor the geometry alone produces
+        /// (the two eyes see a solid object from different angles, so it is never zero); the
+        /// SPEC-ON number minus it is what the highlight added. A large gap is the alarm.</para>
+        ///
+        /// <para>It also reports how much the highlight contributes AT ALL (mean |on − off| in one
+        /// eye), because a specular that changed nothing is 4.5 MB of bundle for no pixels and
+        /// should be reported as such rather than assumed to have worked.</para>
+        /// </summary>
+        private static void StereoSpecular(Camera cam, GameObject inst, string style)
+        {
+            var rends = inst.GetComponentsInChildren<MeshRenderer>(true);
+            if (rends.Length == 0 || rends[0].sharedMaterial == null) return;
+            Material live = rends[0].sharedMaterial;
+            if (!live.HasProperty("_SpecStrength")) return;
+            float strength = live.GetFloat("_SpecStrength");
+
+            const float halfIpd = 0.0315f;   // 63 mm, the usual adult IPD
+            const float dist = 0.55f;        // a board held at a working distance
+            Vector3 look = new Vector3(0f, 0f, 0f);
+
+            // A MEAN IS THE WRONG STATISTIC FOR A HIGHLIGHT and reporting one nearly cost this
+            // round a wrong conclusion. At the shipped roughness the Blinn lobe's half-angle is
+            // about 6 degrees, so a glint covers a low single-digit percentage of the board; a
+            // mean over every board pixel divides it by fifty and prints 0.001 whether the
+            // specular is blazing or genuinely absent. The mean is kept because it is the right
+            // statistic for the OTHER question (how much of the whole picture moves between the
+            // eyes), and the tail is added because it is the right one for this question.
+            Texture2D Shoot(Material m, float x)
+            {
+                foreach (var r in rends) r.sharedMaterial = m;
+                return Capture(cam, new Vector3(x, 0.10f, -dist), look, 900, 500);
+            }
+
+            var off = new Material(live) { name = live.name + "_nospec" };
+            off.SetFloat("_SpecStrength", 0f);
+            // POSITIVE CONTROL. If the A/B below is not actually toggling anything — a copied
+            // material that did not take, a renderer this loop does not own — then this 4x
+            // material reads the same as the shipped one, and the whole measurement is void. It is
+            // here because "the specular is doing nothing" looks identical to "my switch is not
+            // wired", and this run reported the former on all three boards at once, which is
+            // exactly the shape of the latter.
+            var hot = new Material(live) { name = live.name + "_4x" };
+            hot.SetFloat("_SpecStrength", strength * 4f);
+
+            Texture2D lOn = Shoot(live, -halfIpd), rOn = Shoot(live, +halfIpd);
+            Texture2D lOff = Shoot(off, -halfIpd), rOff = Shoot(off, +halfIpd);
+            Texture2D lHot = Shoot(hot, -halfIpd);
+            foreach (var r in rends) r.sharedMaterial = live;   // put the real one back
+
+            Color[] a = lOn.GetPixels(), b = rOn.GetPixels(),
+                    c = lOff.GetPixels(), d = rOff.GetPixels(), e = lHot.GetPixels();
+            var specDelta = new System.Collections.Generic.List<float>(a.Length);
+            double eyeOn = 0, eyeOff = 0, lum = 0, hotDelta = 0;
+            int n = 0, loud = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (Mathf.Max(a[i].r, Mathf.Max(a[i].g, a[i].b)) <= 0.16f) continue;   // clear is 0.08
+                eyeOn += (Mathf.Abs(a[i].r - b[i].r) + Mathf.Abs(a[i].g - b[i].g) + Mathf.Abs(a[i].b - b[i].b)) / 3f;
+                eyeOff += (Mathf.Abs(c[i].r - d[i].r) + Mathf.Abs(c[i].g - d[i].g) + Mathf.Abs(c[i].b - d[i].b)) / 3f;
+                float sd = Mathf.Max(Mathf.Abs(a[i].r - c[i].r),
+                           Mathf.Max(Mathf.Abs(a[i].g - c[i].g), Mathf.Abs(a[i].b - c[i].b)));
+                specDelta.Add(sd);
+                if (sd > 0.02f) loud++;
+                hotDelta += Mathf.Abs(e[i].grayscale - c[i].grayscale);
+                lum += a[i].grayscale;
+                n++;
+            }
+            foreach (var t in new[] { lOn, rOn, lOff, rOff, lHot }) Object.DestroyImmediate(t);
+            Object.DestroyImmediate(off); Object.DestroyImmediate(hot);
+            if (n == 0) { Debug.LogWarning($"[BoardPreview] {style}: no board pixels in the stereo shot."); return; }
+
+            specDelta.Sort();
+            float p99 = specDelta[Mathf.Min(specDelta.Count - 1, (int)(specDelta.Count * 0.99f))];
+            float max = specDelta[specDelta.Count - 1];
+            float mean = 0f; foreach (float v in specDelta) mean += v; mean /= specDelta.Count;
+            float control = (float)(hotDelta / n);
+
+            Debug.Log($"[BoardPreview] {style} STEREO/SPECULAR at _SpecStrength {strength:F2} "
+                      + $"(board luminance {lum / n:F3}, {n} px):");
+            Debug.Log($"[BoardPreview]   specular's own contribution |on-off|: mean {mean:F4}, "
+                      + $"p99 {p99:F4}, max {max:F4}; {100f * loud / n:F2}% of the board moves by >0.02");
+            Debug.Log($"[BoardPreview]   per-eye L-R mean |diff|: {eyeOn / n:F4} with specular, "
+                      + $"{eyeOff / n:F4} without — the highlight adds {(eyeOn - eyeOff) / n:F4}");
+            // THE CONTROL ASKS ONE QUESTION AND MUST NOT PRETEND TO ASK ANOTHER: did changing
+            // _SpecStrength change the picture at all? It must NOT expect 4x the strength to give
+            // 4x the delta — `col` clips at 1.0, so a highlight already near white gains far less
+            // than four times as much, and the first version of this rule assumed linearity and
+            // cried "the A/B switch is not wired" at oak, whose delta had merely saturated (0.0042
+            // against a 0.0044 linear expectation). An alarm that fires on a working case is worse
+            // than no alarm, so the rule is now the weakest one that still catches a dead switch:
+            // the 4x material must differ from the OFF material by clearly more than the shipped
+            // one does, and by more than render noise.
+            Debug.Log($"[BoardPreview]   POSITIVE CONTROL at 4x strength: mean |4x-off| {control:F4} "
+                      + $"against the shipped {mean:F4} "
+                      + (control > mean * 1.3f && control > 0.001f
+                         ? "— the A/B switch is live, so the numbers above are real. (Not 4x: the "
+                           + "highlight clips against the diffuse it is added to, which is expected.)"
+                         : "*** THE A/B SWITCH IS NOT WIRED — every number above is void, fix the instrument. ***"));
+            if (max < 0.01f)
+                Debug.LogWarning($"[BoardPreview]   {style}: the specular never moves any pixel by 1% — "
+                                 + "this map is bundle weight for no picture. Drop it or raise the strength.");
+        }
+
+        private static Texture2D Capture(Camera cam, Vector3 eye, Vector3 look, int w, int h)
+        {
+            cam.transform.position = eye;
+            cam.transform.LookAt(look);
+            var rt = new RenderTexture(w, h, 24, RenderTextureFormat.ARGB32) { antiAliasing = 1 };
+            cam.targetTexture = rt;
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, w, h), 0, 0);
+            tex.Apply();
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            rt.Release();
+            Object.DestroyImmediate(rt);
+            return tex;
         }
 
         /// <summary>
