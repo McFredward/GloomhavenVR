@@ -599,6 +599,33 @@ internal static partial class WallSegmentFade
             }
 
             RefreshPropUnitAnchors();
+
+            // PERF S4 — ADOPT THE PREPARE STAGE'S ROOT PREWARM, BUT ONLY AGAINST THE SET IT WAS
+            // DERIVED FROM. PropUnitRootOf's answer depends on _propUnitAnchors (the climb stops
+            // AT a segment anchor), and that set is re-read one line above from the FINAL table —
+            // which is precisely why the memo is dropped wholesale each rescan. The prepare stage
+            // cannot know the final table, so it derived its answers against the LAST COMMITTED
+            // one and recorded that set in _prepAnchors. Equal sets mean equal answers, renderer
+            // for renderer, and the adoption is then a pure cost saving. Unequal means a wall was
+            // adopted or died during this cycle: drop the whole prewarm and let every climb be
+            // taken live, which is exactly what happened on every cycle before PERF S4.
+            //
+            // The memo's LIFETIME is unchanged by this: it is still emptied here, once per
+            // rescan, and still holds transform keys for no longer than one cycle.
+            if (_propUnitRootPrewarm.Count > 0)
+            {
+                if (_propUnitAnchors.SetEquals(_prepAnchors))
+                {
+                    foreach (KeyValuePair<Transform, Transform?> kv in _propUnitRootPrewarm)
+                        _propUnitRootMemo[kv.Key] = kv.Value;
+                }
+                else
+                {
+                    _cyclePrepDroppedAnchors++;
+                }
+                _propUnitRootPrewarm.Clear();
+                _prepAnchors.Clear();
+            }
         }
 
         /// <summary>

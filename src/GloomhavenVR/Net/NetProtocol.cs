@@ -416,7 +416,51 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 272;
+    public const ushort ModBuild = 273;
+    // Build 273: PERF S4 — THE COMMIT'S READ HALF, TAKEN OFF THE COMMIT FRAME. Test 273 instead of
+    // 272: it carries everything 272 did, plus this.
+    //   THE DEFECT. WallFade.Rescan (the COMMIT alone since PERF S2) is ONE ~107ms main-thread
+    //   frame every 2 seconds — 15 stalls per 30s window, moving or standing still. Two instruments
+    //   agree independently: [Perf] STEPS reads `WallFade.Rescan 107.0ms avg, worst 128.97ms,
+    //   frames 15` and [Perf] SPLIT reads `STALLS: 15 logic frame(s) over 100ms`. Three of the 24
+    //   phases own ~90% of it: WallCache 61.89ms, PropUnits 29.94ms, Mounted 25.14ms worst cycle,
+    //   against 32.2ms for the other 21 phases across a WHOLE window.
+    //   I BRIEFED THIS AS "SLICE THE COMMIT" AND THAT BRIEF WAS WRONG. Spreading work does not
+    //   shrink it, and the commit's atomicity is the only thing keeping the appliers from ever
+    //   reading a half-built segment table. Holding them off instead buys a 0.8s window in which
+    //   no wall may change its fade (107ms at 1.5ms/frame) — against a fade time constant of 0.12s
+    //   and an enter dwell of 0.20s. That is a WORSE artefact than the stall, and it is the exact
+    //   "wall gone, thing still on it" class this subsystem has spent sixteen builds on.
+    //   WHAT SHIPPED INSTEAD: a new READ-ONLY RescanStage.Prepare between Classify and Commit,
+    //   budgeted 1.5ms/frame and resumable, that pays the commit's pure DERIVATION ahead of time —
+    //   MeasureStandingUnit's subtree+material walks (WallCache's cost centre, reached per child
+    //   renderer of every cache wall through CollectWallFadeInfo -> IsStandingFigureProp), the
+    //   PropUnitRootOf climb (two subtree walks per level, dropped wholesale every rescan), and a
+    //   per-Shader cache for the m.shader.name interop. ALL 24 PHASES STILL RUN ATOMICALLY, in one
+    //   frame, exactly as before. The commit gets smaller; it does not get spread.
+    //   THE PREPARE INVARIANT — PREPARE MAY WRITE NOTHING BUT MEMOS. Named in the class header and
+    //   restated on StepPrepare. Verified mechanically: Prepare contains no write to a renderer,
+    //   material, property block or Segment field, and all 11 writers of _segments sit inside a
+    //   commit phase or Teardown — so the table is provably unchanged between prepare start and
+    //   commit start.
+    //   THREE ORDERING GATES, and two are RE-ASKED on the commit frame (VerifyPrepareStillValid),
+    //   because a stage that spans frames must not be admitted by a test taken before the world
+    //   moved. (1) structural: warm only the wall cache's own subtree, never the adoption sweep's
+    //   candidates, which would move units onto stale water/arch rects. (2) the room registry has
+    //   not changed size — phases 2-3 rebuild _roomFloorY before WallCache, so a reveal makes the
+    //   prepare-time planes disagree. (3) the BOARD ITSELF has not moved — the standing rule
+    //   COMPARES a live prop box against a cached plane, and this mod moves the board; fails closed.
+    //   THE WIN IS A PREDICTION, NOT A MEASUREMENT (~75-90ms from 123.78ms, read off the source),
+    //   and the BUDGET line ships its own falsifier: `Xms total MOVED OFF THE COMMIT FRAME`. If the
+    //   phase totals do not fall by roughly that amount, the warm is being recomputed and the
+    //   design is wrong. A WORST SINGLE FRAME still above ~110ms means the hoist captured nothing
+    //   and the next move is a sub-phase timer inside RefreshSegment, not another hoist.
+    //   Mounted (25.14ms) was left ALONE and the report says why: every input it needs is produced
+    //   by the phases immediately before it, and its sweep writes into OTHER segments' lists
+    //   mid-loop, so suspending it across a frame boundary is the prop-with-two-owners class.
+    //   One deliberate waste kept: prepare does a GetComponentsInChildren the commit repeats,
+    //   rather than handing over the array — reusing it would miss a renderer created between the
+    //   two stages for one rescan, for an estimated 3-6ms.
     // Build 272: THE WALK-IN TRIGGER BECOMES A TUNING SURFACE (user request 2026-08-25: "Bitte gebe
     // mir eine Einstellmoeglich in dem ich die parameter selber tunen kann wann der Modus aktiv
     // wird, in dem man IN einem Spielfeld ist und die Waende nicht mehr faden").

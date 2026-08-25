@@ -139,14 +139,47 @@ internal static partial class WallSegmentFade
             // from the heartbeat afterwards. See _nodeRendererCount in
             // WallSegmentFade.PropUnit.cs.
             EndNodeFactMemos();
+            // PERF S4 — WHICH PHASE OWNED THE WORST COMMIT FRAME. The three-phase breakdown
+            // below answers "what is the commit made of over a window"; this answers "what was
+            // the single frame the player felt", which is a different question whenever one
+            // cycle is unlike its neighbours (the ModBuild 271 log has WallCache worst in four
+            // windows and PropUnits worst in a fifth). Taken over THIS cycle's totals, and kept
+            // only if this cycle is the window's most expensive commit — so the phase named is
+            // always the one inside the frame whose number the line prints.
+            float cycleTotal = 0f;
+            int worstPhase = -1;
+            float worstPhaseMs = 0f;
             for (int i = 0; i < CommitPhaseCount; i++)
             {
                 float ms = _phaseCycleMillis[i];
                 _phaseTotalMillis[i] += ms;
                 if (ms > _phaseWorstMillis[i])
                     _phaseWorstMillis[i] = ms;
+                cycleTotal += ms;
+                if (ms > worstPhaseMs)
+                {
+                    worstPhaseMs = ms;
+                    worstPhase = i;
+                }
+            }
+            if (cycleTotal >= _windowWorstCommitTotalMillis)
+            {
+                _windowWorstCommitTotalMillis = cycleTotal;
+                _cycleWorstCommitPhase = worstPhase;
+                _cycleWorstCommitPhaseMillis = worstPhaseMs;
             }
         }
+
+        /// <summary>The largest per-cycle phase total seen since the last budget line — the
+        /// selector for <see cref="_cycleWorstCommitPhase"/>, and nothing else. Reset with every
+        /// other counter that line owns.</summary>
+        private float _windowWorstCommitTotalMillis;
+
+        /// <summary>Name of the phase that owned the worst commit frame this window, or a plain
+        /// statement that no commit completed. Never a constant: a change-gated reason string
+        /// prints once and then reads as a dead instrument.</summary>
+        private string WorstCommitPhaseName =>
+            _cycleWorstCommitPhase >= 0 ? CommitPhaseNames[_cycleWorstCommitPhase] : "none yet";
 
         /// <summary>Open a measured phase. Use as <c>using (Phase(CommitPhase.X))</c> — the
         /// struct is disposed by the compiler without boxing.</summary>

@@ -1291,6 +1291,45 @@ internal static partial class WallSegmentFade
         /// <see cref="IsWaterShader"/>.</summary>
         private readonly Dictionary<Shader, bool> _shaderWaterVerdict = new();
 
+        /// <summary>The two name tests <see cref="CollectWallFadeInfo"/> runs, plus the name
+        /// itself, cached per Shader.
+        ///
+        /// <para>PERF S4. That method is the choke point every wall-renderer collection path
+        /// goes through, and it read <c>m.shader.name</c> — an interop STRING ALLOCATION — for
+        /// every material of every child renderer of every cache wall, every commit, and then
+        /// ran two <c>Contains</c> over it. On the ModBuild 271 scenario that is thousands of
+        /// allocations per commit thrown away immediately. A shader's name is immutable, so one
+        /// entry per Shader answers all of them; the cache is the same shape and the same
+        /// lifetime as <see cref="_shaderVerdict"/> and <see cref="_shaderFoliageVerdict"/>
+        /// beside it, and the verdicts are the SAME two expressions, not equivalents.</para></summary>
+        private readonly Dictionary<Shader, ShaderFadeName> _shaderFadeName = new();
+
+        /// <summary>One shader's cached name facts — see <see cref="_shaderFadeName"/>.</summary>
+        private readonly struct ShaderFadeName
+        {
+            internal readonly string Name;
+            internal readonly bool ByName;
+            internal readonly bool Low;
+
+            internal ShaderFadeName(string name)
+            {
+                Name = name;
+                ByName = name.Contains("WallFade");
+                Low = name.Contains("Low");
+            }
+        }
+
+        /// <summary>The per-Shader name facts, derived on first sight.</summary>
+        private ShaderFadeName FadeNameOf(Shader sh)
+        {
+            if (!_shaderFadeName.TryGetValue(sh, out ShaderFadeName info))
+            {
+                info = new ShaderFadeName(sh.name);
+                _shaderFadeName[sh] = info;
+            }
+            return info;
+        }
+
         private enum RescanStage
         {
             /// <summary>No cycle in flight; the segment table is the last committed one.</summary>
@@ -1298,6 +1337,10 @@ internal static partial class WallSegmentFade
             /// <summary>Walking <see cref="_snapshot"/> with <see cref="_classifyCursor"/>,
             /// filling <see cref="_facts"/>. Pure reads — nothing is mutated.</summary>
             Classify,
+            /// <summary>PERF S4: warming the commit's expensive derivations off the commit
+            /// frame. Pure reads, and the ONLY thing it keeps is memo entries — see
+            /// WallSegmentFade.Prepare.cs and THE PREPARE INVARIANT stated there.</summary>
+            Prepare,
             /// <summary>Census complete; the next frame runs the (now cheap) mutation passes
             /// whole, in one frame.</summary>
             Commit,
@@ -1394,6 +1437,26 @@ internal static partial class WallSegmentFade
         private float _cycleWorstSweepMillis;
         private float _nextBudgetLogTime;
         private bool _budgetLoggedOnce;
+
+        /// <summary>PERF S4 — the commit's own frame accounting, so the budget line can tell
+        /// "sliced and now costs 1.5 ms/frame" from "sliced and one phase still costs 60 ms"
+        /// without another round. <see cref="_cycleCommitFrames"/> is the number of FRAMES the
+        /// worst commit was spread over (1 while the commit is atomic, which it still is — see
+        /// WallSegmentFade.Prepare.cs for why that is a decision and not an omission), and the
+        /// phase fields name the single most expensive phase inside that same commit.</summary>
+        private int _cycleCommitFrames = 1;
+        private int _cycleWorstCommitPhase = -1;
+        private float _cycleWorstCommitPhaseMillis;
+
+        /// <summary>True between <c>BeginPrepareStage</c>'s <c>BeginStandingPropScope</c> and
+        /// the commit that consumes it. The commit asserts it: a commit that reached the wall
+        /// cache with no scope open would be running the standing rule against the PREVIOUS
+        /// rescan's verdict memos, which is a statue the wall system may claim as masonry.</summary>
+        private bool _standingScopeOpen;
+
+        /// <summary>How many commits had to open the standing scope themselves because the
+        /// prepare stage had not — a FAILURE count, printed whatever its value.</summary>
+        private int _cycleScopeSelfOpened;
 
         /// <summary>How often the budget line prints. Deliberately NOT per cycle (that would
         /// be one line every two seconds in a 9 MB log) and deliberately NOT change-triggered:
@@ -3679,16 +3742,52 @@ internal static partial class WallSegmentFade
                     NoteCycleFrame(frameStart);
                     return;
                 }
-                _rescanStage = RescanStage.Commit;
-                // Only run the commit on the SAME frame when the census barely cost anything —
-                // otherwise the frame that finishes the census would also carry the commit and
-                // we would be back to one fat frame, just a smaller one.
+                // PERF S4: the census hands over to the PREPARE stage, never straight to the
+                // commit. Opening the stage is a list copy and one gate, so it is done on the
+                // frame that finished the census; the warming itself is budgeted below.
+                _rescanStage = RescanStage.Prepare;
+                BeginPrepareStage(gen);
                 if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget * 0.5f)
                 {
                     NoteCycleFrame(frameStart);
                     return;
                 }
             }
+
+            if (_rescanStage == RescanStage.Prepare)
+            {
+                _cyclePrepareFrames++;
+                float prepStart = (float)RescanClock.Elapsed.TotalMilliseconds;
+                bool done;
+                using (PerfMonitor.Scope("WallFade.Prepare"))
+                {
+                    float prepBudget = _rescanUrgent
+                        ? PrepareUrgentBudgetMillis : PrepareBudgetMillis;
+                    done = StepPrepare(frameStart, prepBudget);
+                }
+                float prepMs = (float)RescanClock.Elapsed.TotalMilliseconds - prepStart;
+                _cyclePrepareTotalMillis += prepMs;
+                if (prepMs > _cycleWorstPrepareMillis)
+                    _cycleWorstPrepareMillis = prepMs;
+                if (!done)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+                _rescanStage = RescanStage.Commit;
+                // Only run the commit on the SAME frame when this frame barely cost anything —
+                // otherwise the frame that finishes the warm would also carry the commit and we
+                // would be back to one fat frame, just a smaller one.
+                if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget * 0.5f)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+            }
+
+            // PERF S4: the warm was allowed by a gate taken one or more frames ago. Re-ask it
+            // here, on the frame that will consume it — see VerifyPrepareStillValid.
+            VerifyPrepareStillValid(gen);
 
             // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
             // is what the [Perf] STEPS line ranks and what the integrator greps. It now covers
@@ -3704,6 +3803,11 @@ internal static partial class WallSegmentFade
             }
             _rescanStage = RescanStage.Idle;
             _rescanUrgent = false;
+            // The warm belongs to the cycle that consumed it: holding the wall list and the
+            // prewarm past this point would keep a scene's worth of transform references alive
+            // across the two-second gap to the next cycle.
+            ClearPrepareState();
+            _standingScopeOpen = false;
             _cycleCount++;
             NoteCycleFrame(frameStart);
             LogRescanBudget(now);
@@ -3719,6 +3823,15 @@ internal static partial class WallSegmentFade
         {
             _rescanStage = RescanStage.Idle;
             _rescanUrgent = false;
+            // PERF S4: a prepare stage in flight was warming against a scene we have stopped
+            // watching, and its per-node fact window may be open on this frame. Close both —
+            // an open window outside a synchronous pass is exactly the widened-memo defect the
+            // stage's own comments refuse.
+            ClearPrepareState();
+            _propUnitRootPrewarm.Clear();
+            _prepAnchors.Clear();
+            EndNodeFactMemos();
+            _standingScopeOpen = false;
             _classifyCursor = 0;
             _factCount = 0;
             _factWallFade.Clear();
@@ -3905,10 +4018,28 @@ internal static partial class WallSegmentFade
               .Append($"room-reveal edge); {_factWallFade.Count} fade-capable + {_factWater.Count} ")
               .Append($"water renderer(s) indexed; WORST COMMIT {_cycleWorstCommitMillis:F2}ms, ")
               .Append($"WORST SINGLE FRAME across all stages {_cycleWorstFrameMillis:F2}ms.");
+            // PERF S4 — HOW THE COMMIT WAS SPREAD, AND WHAT OWNED ITS WORST FRAME. A reader has
+            // to be able to tell "sliced and now costs 1.5 ms/frame" from "sliced and one phase
+            // still costs 60 ms" without another round, so the line states the frame count, the
+            // worst phase inside that frame with its number, and how many phases are still
+            // atomic. It is 24 of 24 today and that is a DECISION, not an omission — see
+            // WallSegmentFade.Prepare.cs for why the commit is left whole and the read half
+            // moved off it instead.
+            sb.Append($" COMMIT SPREAD: {_cycleCommitFrames} frame(s); the worst commit frame's ")
+              .Append($"most expensive phase was {WorstCommitPhaseName} at ")
+              .Append($"{_cycleWorstCommitPhaseMillis:F2}ms; {CommitPhaseCount} of ")
+              .Append($"{CommitPhaseCount} phase(s) still run ATOMICALLY (the commit is one ")
+              .Append("frame by design — the appliers read the segment table every frame and a ")
+              .Append("commit spread across frames is a table they can see mid-rebuild); the ")
+              .Append($"standing-prop scope was opened by the commit itself on ")
+              .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run).");
+            AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
             sb.Append(" Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: ")
               .Append("WallFade.Rescan 118.174ms avg, worst 141.18ms, 15 stalls per 30s window); ")
-              .Append("ModBuild 228 still measured WORST COMMIT 96.81ms.");
+              .Append("ModBuild 228 still measured WORST COMMIT 96.81ms, and ModBuild 271 — the ")
+              .Append("build PERF S4 is measured against — WORST COMMIT 123.78ms with WallCache ")
+              .Append("61.89ms, PropUnits 29.94ms and Mounted 25.14ms worst.");
             VRLog.Info(Name, sb.ToString());
             _cycleCount = 0;
             _cycleSweeps = 0;
@@ -3916,6 +4047,18 @@ internal static partial class WallSegmentFade
             _cycleWorstFrameMillis = 0f;
             _cycleWorstCommitMillis = 0f;
             _cycleWorstSweepMillis = 0f;
+            _cyclePrepareFrames = 0;
+            _cycleWorstPrepareMillis = 0f;
+            _cyclePrepareTotalMillis = 0f;
+            _cyclePrepWarmedRenderers = 0;
+            _cyclePrepWarmedRoots = 0;
+            _cyclePrepRefusedReveal = 0;
+            _cyclePrepRefusedBoard = 0;
+            _cyclePrepDroppedAnchors = 0;
+            _cycleScopeSelfOpened = 0;
+            _windowWorstCommitTotalMillis = 0f;
+            _cycleWorstCommitPhase = -1;
+            _cycleWorstCommitPhaseMillis = 0f;
         }
 
         private void Rescan(TilesOcclusionGenerator gen)
@@ -4426,6 +4569,18 @@ internal static partial class WallSegmentFade
                 _roomMapKeys.Add(key);
             }
             _builtRoomCount = gen.m_RoomRenderers.Count;
+            // PERF S4, GATE 3's reference reading — taken HERE because this is the phase that
+            // builds _roomFloorY, so the probe and the planes are from the same instant. See
+            // BoardStillWhereTheFloorPlanesSayItIs.
+            _prepBoardProbeValid = false;
+            foreach (MeshRenderer probe in gen.m_RoomRenderers)
+            {
+                if (probe == null)
+                    continue;
+                _prepBoardProbePos = probe.transform.position;
+                _prepBoardProbeValid = true;
+                break;
+            }
 
             // Fallback for rooms without a volume match: median anchored height (rooms of
             // one scenario share the board plane), else the old bounds top — with the
@@ -4528,12 +4683,28 @@ internal static partial class WallSegmentFade
         /// <summary>COMMIT PHASE 5 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
         private void CommitWallCache()
         {
-            // STANDING PROPS (user report 2026-08-15, skelet.jpg): open a fresh verdict scope
-            // for this rescan. Deliberately HERE — after the room registry has its anchored
-            // floor planes (the rule measures a prop's foot against them) and before the first
-            // renderer is collected into any segment, so no path can claim a standing prop even
-            // once. See WallSegmentFade.Standing.cs.
-            BeginStandingPropScope();
+            // STANDING PROPS (user report 2026-08-15, skelet.jpg): a fresh verdict scope for
+            // this rescan, opened before the first renderer is collected into any segment so no
+            // path can claim a standing prop even once. See WallSegmentFade.Standing.cs.
+            //
+            // PERF S4: the scope now opens one stage EARLIER, in BeginPrepareStage, because the
+            // memos it clears are the ones that stage fills — and it reads exactly the same
+            // table there (nothing mutates _segments between the two points). This is the
+            // BACKSTOP, not the normal path: a commit reached with no scope open would run the
+            // standing rule against the PREVIOUS rescan's verdict memos. It is counted and
+            // printed rather than silently corrected, because a backstop that fires every cycle
+            // means the stage never ran.
+            if (!_standingScopeOpen)
+            {
+                BeginStandingMemoScope();
+                _cycleScopeSelfOpened++;
+            }
+            BeginStandingCensusScope();
+            // The per-node subtree facts PropUnitRootOf reads are opened HERE and only here, so
+            // their window is still exactly ONE commit — the constancy argument in
+            // _nodeRendererCount is about a synchronous pass and may not be widened by a frame.
+            // The prepare stage opens and closes its own window per frame for the same reason.
+            ClearNodeFactMemos();
 
             // Adopt new walls / refresh renderer lists, shader-variant info and bounds.
             _claimedRenderers.Clear();
@@ -7368,8 +7539,13 @@ internal static partial class WallSegmentFade
             {
                 if (m == null || m.shader == null)
                     continue;
-                string shaderName = m.shader.name;
-                bool byName = shaderName.Contains("WallFade");
+                // PERF S4: the name and its two Contains tests come out of the per-Shader cache
+                // (_shaderFadeName) instead of an interop allocation per material per renderer
+                // per commit. Same two expressions, same order, one entry per Shader.
+                ShaderFadeName nameInfo = FadeNameOf(m.shader);
+                string shaderName = nameInfo.Name;
+                bool byName = nameInfo.ByName;
+                bool low = nameInfo.Low;
                 bool byToggle = !byName && HasLiveWallFadeToggle(m);
                 if (!byName && !byToggle)
                     continue;
@@ -7392,7 +7568,10 @@ internal static partial class WallSegmentFade
                     seg.HeldCutoff = Mathf.Clamp(m.GetFloat(CutoffId), 0.05f, 0.95f);
                     seg.CutoffAuthored = true;
                 }
-                if (shaderName.Contains("Low"))
+                // Read off the RAW name's cached fact: the "(toggle-native)" suffix appended
+                // above carries no capital L, so this is the same answer the old
+                // shaderName.Contains("Low") gave on either branch.
+                if (low)
                     seg.VariantLow = true;
                 else
                     seg.VariantHigh = true;
@@ -7557,6 +7736,7 @@ internal static partial class WallSegmentFade
             _waterCensusSig = -1;
             AbandonRescanCycle();
             _shaderWaterVerdict.Clear();
+            _shaderFadeName.Clear();
             if (_noiseTex != null)
             {
                 try { Destroy(_noiseTex); } catch { /* already gone */ }

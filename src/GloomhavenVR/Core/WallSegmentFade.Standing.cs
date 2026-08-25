@@ -342,16 +342,49 @@ internal static partial class WallSegmentFade
         /// spam (the arch/water-rect lesson).</summary>
         private int _standingCensusSig = -1;
 
-        /// <summary>Open a fresh standing-prop scope for one rescan: drop last rescan's
-        /// measurements and roots (Apparance rebirths these props constantly) and reset the block
-        /// census. The prop-unit anchor set is refreshed HERE as well as in
-        /// <see cref="BeginPropUnitScope"/>, because the FLOOR arm's walk must stop at segment
-        /// anchors and it runs at wall-collection time, long before that later scope opens.</summary>
-        private void BeginStandingPropScope()
+        /// <summary>
+        /// Open a fresh standing-prop MEASUREMENT scope for one rescan: drop last rescan's
+        /// measurements and roots (Apparance rebirths these props constantly). The prop-unit
+        /// anchor set is refreshed HERE as well as in <see cref="BeginPropUnitScope"/>, because
+        /// the FLOOR arm's walk must stop at segment anchors and it runs at wall-collection
+        /// time, long before that later scope opens.
+        ///
+        /// <para>PERF S4 SPLIT THIS SCOPE IN TWO, AND THE REASON IS AN INSTRUMENT, NOT A COST.
+        /// </para>
+        ///
+        /// <para>The MEMO half (this method) is the three per-rescan derivation caches, and it
+        /// now opens one stage earlier — in <c>BeginPrepareStage</c> — because the prepare stage
+        /// exists to fill exactly them. The CENSUS half
+        /// (<see cref="BeginStandingCensusScope"/>) is the roll of what the rule DECIDED, and it
+        /// stays at the top of the commit where it has always been.</para>
+        ///
+        /// <para>WHY THEY MAY NOT MOVE TOGETHER. The census containers are read by the
+        /// heartbeat's WALL-PATH AUDIT and by the standing-prop census line, both of which run
+        /// between commits. Clearing them at prepare time would leave them EMPTY for the whole
+        /// length of the stage — a diagnostic that reports "0 protected units" for a scene full
+        /// of them, which is the "instrument shipped and lying" failure this project has paid
+        /// for more than once. Left where it is, the roll holds the previous rescan's outcome
+        /// until the rescan that replaces it actually begins, exactly as before.</para>
+        /// </summary>
+        private void BeginStandingMemoScope()
         {
             _standingUnitMemo.Clear();
             _standingRootMemo.Clear();
             _standingRootCutMemo.Clear();
+            // PERF S3 dropped the per-node subtree facts here too. PERF S4 moved that single
+            // line to the top of CommitWallCache: this scope now opens one stage earlier, and
+            // the node-fact WINDOW may not move with it, because its constancy argument is about
+            // one synchronous pass and a prepare stage spans frames. Two lifetimes, two call
+            // sites, neither widened. See _nodeRendererCount.
+            RefreshPropUnitAnchors();
+        }
+
+        /// <summary>The CENSUS half of the standing-prop scope — the roll of what the rule
+        /// decided this rescan. Opened at the top of the commit and nowhere else; see
+        /// <see cref="BeginStandingMemoScope"/> for why it may not move earlier with the
+        /// memos.</summary>
+        private void BeginStandingCensusScope()
+        {
             _standingPropDesc.Clear();
             _standingNearMiss.Clear();
             _standingWallCutRoots.Clear();
@@ -360,11 +393,6 @@ internal static partial class WallSegmentFade
             _standingSubjectBaseline.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
-            // PERF S3: the per-node subtree facts PropUnitRootOf reads are dropped HERE and only
-            // here — this is the first scope of the commit, and keeping them across the standing
-            // pass and the later prop-unit pass is the point of them. See _nodeRendererCount.
-            ClearNodeFactMemos();
-            RefreshPropUnitAnchors();
         }
 
         /// <summary>The PROP UNIT of a renderer for the FIGURE arm: the nearest ancestor (itself
@@ -457,39 +485,9 @@ internal static partial class WallSegmentFade
 
         private bool IsStandingProp(Renderer r, bool floorArm)
         {
-            if (r == null)
-                return false;
-            // Which arm. The FIGURE arm is ModBuild 157 unchanged; the FLOOR arm is the ModBuild
-            // 167 widening the skeleton photograph needed — a scenery skeleton on a deck has no
-            // figure ancestry at all. There is no third arm (ModBuild 258 retired it).
-            bool figure = IsFigureOrActorRenderer(r);
-            // MODBUILD 268 — THE WINDOW IS ASKED ON BOTH ARMS. ModBuild 267 initialised wallCut
-            // to false and only assigned it on the FLOOR branch, so every FIGURE row in the
-            // census printed "no wall above" out of a FIELD INITIALISER rather than a
-            // measurement — which is how the 267 log came to state
-            // 'CR_BT_BanditBanner_Wall' FIGURE arm, no wall above for a banner hanging on a wall.
-            // (The in-repo name for this is "a default value names an unbuilt thing"; it has cost
-            // a build before.) The VERDICT is unchanged either way — StandsOnFloor consults
-            // wallCut only when !figureAncestry, so the figure arm stays bit-for-bit ModBuild 157
-            // — but a column that is a constant on half its rows cannot adjudicate anything, and
-            // adjudicating is the only reason this column exists.
-            bool windowWall = r.transform.parent != null
-                              && WallInUnitWindowMemoized(r.transform.parent);
-            Transform? root = figure
-                ? FigurePropRootOf(r.transform)
-                : StandingFloorUnitRootOf(r);
-            if (root == null)
-                return false;
-            // MODBUILD 268 — AND THE VALUE THE VERDICT READS COMES BACK OUT OF THE UNIT MEMO.
-            // ModBuild 267 passed wallCut IN by value, cleared it for the water and arch rects
-            // inside, stored the cleared value in the memo — and then let the caller hand its own
-            // UNcleared local to StandsOnFloor. So the two standing rulings were dead code on this
-            // path (harmlessly, because the term never fired), and the flag the verdict read was a
-            // per-RENDERER fact on a rule whose every other term is per-UNIT. Both are fixed by
-            // making it an out-parameter: one value, measured once per unit, rects applied.
-            if (!MeasureStandingUnit(root, windowWall, out WallStandingProp.Unit unit,
-                                     out float floorY, out bool vegetation,
-                                     out bool fadeChannel, out bool wallCut))
+            if (!ResolveStandingUnit(r, out bool figure, out Transform? root,
+                                     out WallStandingProp.Unit unit, out float floorY,
+                                     out bool vegetation, out bool fadeChannel, out bool wallCut))
             {
                 return false;
             }
@@ -502,8 +500,8 @@ internal static partial class WallSegmentFade
             if (!verdict && why.StartsWith(WallStandingProp.WallFragmentTag,
                                            System.StringComparison.Ordinal))
             {
-                _standingWallCutRoots.Add(root);
-                string named = $"'{root.name}' {why}";
+                _standingWallCutRoots.Add(root!);
+                string named = $"'{root!.name}' {why}";
                 if (_standingWallCutNames.TryGetValue(named, out int seen))
                     _standingWallCutNames[named] = seen + 1;
                 else if (_standingWallCutNames.Count < StandingWallCutNameCap)
@@ -520,7 +518,7 @@ internal static partial class WallSegmentFade
 
             if (armed)
             {
-                _standingPropDesc[root] = $"'{root.name}' {why}";
+                _standingPropDesc[root!] = $"'{root!.name}' {why}";
             }
             else if (!verdict && unit.MinY - floorY <= WallStandingProp.FootBandWU
                      && _standingNearMiss.Count < StandingNearMissCap)
@@ -531,9 +529,84 @@ internal static partial class WallSegmentFade
                 // ALSO the roster of units the ModBuild-258 whole-unit rule applies to (a near
                 // miss IS a unit the mod has called architecture), so a truncated list hides the
                 // very units whose bases should have been recruited.
-                _standingNearMiss[root] = $"'{root.name}' {why}";
+                _standingNearMiss[root!] = $"'{root!.name}' {why}";
             }
             return armed;
+        }
+
+        /// <summary>
+        /// PERF S4 — THE PROLOGUE OF <see cref="IsStandingProp"/>, EXTRACTED SO THERE IS ONE
+        /// COPY OF IT.
+        ///
+        /// <para>Every statement here was the first five statements of that method and is
+        /// unchanged, line for line. It is separated only because it is the half that is a PURE
+        /// DERIVATION — four memo-backed reads and nothing else — and the prepare stage
+        /// (WallSegmentFade.Prepare.cs) needs to run exactly it, ahead of the commit, to fill
+        /// those memos. Extracting rather than copying is deliberate: this project has shipped a
+        /// second implementation wearing the same name before, and the two then drifted.</para>
+        ///
+        /// <para>WRITES NOTHING BUT MEMOS. <see cref="IsFigureOrActorRenderer"/> fills
+        /// <c>FigureAncestryMemo</c>, <see cref="WallInUnitWindowMemoized"/> fills
+        /// <c>_standingRootCutMemo</c>, <see cref="StandingFloorUnitRootOf"/> fills
+        /// <c>_standingRootMemo</c> and <see cref="MeasureStandingUnit"/> fills
+        /// <c>_standingUnitMemo</c> (plus the per-Shader verdict caches). No renderer, material,
+        /// property block or segment field is touched — which is what makes the warm safe. The
+        /// CENSUS side (<c>NoteStandingSubject</c>, <c>_standingPropDesc</c>, the near-miss and
+        /// wall-cut rolls) stays in the caller on purpose: those are outcomes, and a warm that
+        /// recorded them would double every count the census line prints.</para>
+        /// </summary>
+        private bool ResolveStandingUnit(Renderer r, out bool figure, out Transform? root,
+                                         out WallStandingProp.Unit unit, out float floorY,
+                                         out bool vegetation, out bool fadeChannel,
+                                         out bool wallCut)
+        {
+            figure = false;
+            root = null;
+            unit = default;
+            floorY = 0f;
+            vegetation = false;
+            fadeChannel = false;
+            wallCut = false;
+            if (r == null)
+                return false;
+            // Which arm. The FIGURE arm is ModBuild 157 unchanged; the FLOOR arm is the ModBuild
+            // 167 widening the skeleton photograph needed — a scenery skeleton on a deck has no
+            // figure ancestry at all. There is no third arm (ModBuild 258 retired it).
+            figure = IsFigureOrActorRenderer(r);
+            // MODBUILD 268 — THE WINDOW IS ASKED ON BOTH ARMS. ModBuild 267 initialised wallCut
+            // to false and only assigned it on the FLOOR branch, so every FIGURE row in the
+            // census printed "no wall above" out of a FIELD INITIALISER rather than a
+            // measurement — which is how the 267 log came to state
+            // 'CR_BT_BanditBanner_Wall' FIGURE arm, no wall above for a banner hanging on a wall.
+            // (The in-repo name for this is "a default value names an unbuilt thing"; it has cost
+            // a build before.) The VERDICT is unchanged either way — StandsOnFloor consults
+            // wallCut only when !figureAncestry, so the figure arm stays bit-for-bit ModBuild 157
+            // — but a column that is a constant on half its rows cannot adjudicate anything, and
+            // adjudicating is the only reason this column exists.
+            bool windowWall = r.transform.parent != null
+                              && WallInUnitWindowMemoized(r.transform.parent);
+            root = figure
+                ? FigurePropRootOf(r.transform)
+                : StandingFloorUnitRootOf(r);
+            if (root == null)
+                return false;
+            // MODBUILD 268 — AND THE VALUE THE VERDICT READS COMES BACK OUT OF THE UNIT MEMO.
+            // ModBuild 267 passed wallCut IN by value, cleared it for the water and arch rects
+            // inside, stored the cleared value in the memo — and then let the caller hand its own
+            // UNcleared local to StandsOnFloor. So the two standing rulings were dead code on this
+            // path (harmlessly, because the term never fired), and the flag the verdict read was a
+            // per-RENDERER fact on a rule whose every other term is per-UNIT. Both are fixed by
+            // making it an out-parameter: one value, measured once per unit, rects applied.
+            return MeasureStandingUnit(root, windowWall, out unit, out floorY, out vegetation,
+                                       out fadeChannel, out wallCut);
+        }
+
+        /// <summary>PERF S4 — run <see cref="ResolveStandingUnit"/> for its memo side only, and
+        /// discard every answer. The prepare stage's whole standing-prop contribution; see THE
+        /// PREPARE INVARIANT in WallSegmentFade.Prepare.cs.</summary>
+        private void WarmStandingUnit(Renderer r)
+        {
+            ResolveStandingUnit(r, out _, out _, out _, out _, out _, out _, out _);
         }
 
         /// <summary>Measure a unit once per rescan: the union AABB of every renderer under its
