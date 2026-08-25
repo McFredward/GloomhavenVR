@@ -56,8 +56,8 @@ namespace GloomhavenVR.WorldUI;
 /// window's own plane, with <c>ZWrite Off</c> — nothing it drew could ever be nearer or further than
 /// the window or be hidden by a table leg. It is now world geometry with an out-of-plane launch
 /// velocity, depth writes, and a split across two renderers that bracket the window in the panel
-/// draw ladder. See <see cref="WindowMaterialiseDebris"/>… strictly, the <c>WindowMaterialiseDebris</c>
-/// partial in <c>WindowMaterialiseDebris.cs</c>, whose class doc carries the whole argument.</para>
+/// draw ladder. The whole argument is in the class doc on the partial in
+/// <c>WindowMaterialiseDebris.cs</c>.</para>
 ///
 /// <para><b>AND NO HEAD POSE.</b> User, same message: <i>"Der Effekt soll nicht an den
 /// Kopfbewegungen gebunden sein"</i>. Camera-facing billboards are head-bound by definition, so the

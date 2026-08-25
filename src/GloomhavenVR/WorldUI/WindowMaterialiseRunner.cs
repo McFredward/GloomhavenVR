@@ -31,8 +31,9 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para><b>WHAT A FRAME COSTS, AND WHY IT IS ALL ON THE ELEMENT HALF.</b> The debris is real
 /// world-space geometry whose every trajectory is a closed function of one uniform, so driving a few
-/// hundred flying shards costs <b>two <c>SetFloat</c>s and one <c>SetPropertyBlock</c></b> — the same
-/// per frame whether there are ninety shards or four hundred and twenty. The measurable per-frame
+/// hundred flying shards costs <b>two <c>SetFloat</c>s and two <c>SetPropertyBlock</c>s</b>, one per
+/// half — the same per frame whether there are ninety shards or four hundred and twenty, which the
+/// cost harness confirmed by measuring 0.4 µs at both. The measurable per-frame
 /// cost of this effect is entirely the element half: five <c>smoothstep</c>s and one native
 /// <c>SetAlpha</c> per <c>CanvasRenderer</c>. That is what <see cref="Report"/> prints, and it is
 /// why the shard count does not appear in the per-frame figure.</para>
@@ -494,8 +495,12 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                           + "not enter the per-frame cost, because every shard's trajectory is a "
                           + "closed function of one uniform evaluated on the GPU. One-off build cost "
                           + $"{_buildMs:F3} ms (element walk + shard seeding), paid in the frame the "
-                          + $"window opens. Debris: {(shards > 0 ? "drawn" : "NOT drawn (no shader / degenerate rect / intensity 0)")}. "
-                          + "Budget is 11.11 ms.");
+                          + "window opens. Debris: "
+                          + (shards > 0
+                              ? "drawn"
+                              : "NOT drawn (no shader / degenerate rect / no visible element / "
+                                + "intensity 0)")
+                          + ". Budget is 11.11 ms.");
     }
 
     /// <summary>The host was deactivated under us. <c>LateUpdate</c> will not run again, so the

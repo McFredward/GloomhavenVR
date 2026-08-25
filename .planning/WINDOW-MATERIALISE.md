@@ -238,7 +238,84 @@ windows show and hide exactly as they do today and not a single alpha is written
 
 ## 5. Measured cost
 
-> **FILLED FROM THE HARNESS — see `render/windowmaterialise/measured_cpu_cost.txt`.**
+Measured in a real Unity 2021.3.5f1 Linux player (Mono2x, development build) under `xvfb-run`, with
+the shipped arithmetic lifted verbatim, real `CanvasRenderer`s under a real world-space `Canvas`, 300
+frames after a 20-frame warm-up, each bench alone in its own player invocation. Full output and
+method: `render/windowmaterialise/measured_cpu_cost.txt`. **This is a desktop box, not a Quest 3 and
+not his PCVR machine — the ratios are the algorithm's property, the absolute numbers are an order of
+magnitude, and the shipped `Report` line is what settles it on his hardware.**
+
+### Per frame — the element half is the whole of it
+
+| CanvasRenderers | mean ms | worst ms | % of 11.11 ms |
+|---|---|---|---|
+| 64 | 0.023 | 0.032 | 0.2 % |
+| 200 | 0.114–0.124 | 0.152–0.173 | 1.1 % |
+| 400 | 0.199–0.224 | 0.306–0.388 | 2.0 % |
+| 764 | 0.366–0.374 | 0.576–0.581 | 3.4 % |
+| 1200 | 0.555–0.622 | 1.066–1.160 | 5.3 % |
+
+Linear over two independent runs at **0.45–0.51 µs per element per frame** (R² 0.99), fixed term
+indistinguishable from zero. **This is roughly twice the 0.265 µs the previous round recorded**, and
+the honest reading is that the two numbers are not comparable: different box, and this loop now also
+evaluates `Progresses` per frame. The shape — linear, no fixed cost, no per-frame allocation — is the
+claim, and it holds.
+
+### Per frame — the debris half does not scale with the debris
+
+| shards | verts | mean ms | worst ms |
+|---|---|---|---|
+| 90 | 1080 | 0.0005 | 0.028 (first timed frame) |
+| 420 | 5040 | 0.0004 | 0.0007 |
+
+**4.7× the shards changes it by nothing** — the 420 row is fractionally *cheaper*, which is the
+signature of a quantity that is not a function of the variable. Two `SetFloat`s and two
+`SetPropertyBlock`s: **0.4 µs, 0.004 % of the budget**, however many shards are in the air. This is
+the design's central cost claim and it is now measured rather than argued. (One correction to the
+`Runner` docstring, found by the harness: it is **two** `SetPropertyBlock`s, not one — the halves are
+two renderers.)
+
+### Per window opening — the one-off, stated separately because it behaves differently
+
+> **BENCH B is being re-measured after the vertex-buffer split; the table below is the pre-split
+> measurement and the numbers will drop. See `measured_cpu_cost.txt` for the shipped figures.**
+
+| shards | mean ms | worst ms | µs/shard | allocation per repeat |
+|---|---|---|---|---|
+| 90 | 0.93 | 0.94 | 10.3 | **0 B** |
+| 290 | 2.28 | 2.30 | 7.9 | **0 B** |
+| 420 | 3.17 | 3.46 | 7.6 | **0 B** |
+
+The stage breakdown is why the split happened: the **emission table is flat at 0.32 ms** and is a
+function of the 400 *elements* rather than the shards; the **seeding loop is exactly linear at
+2.73 µs/shard**, constant to three digits over a 4.7× range; and the **mesh writes dominated above
+~150 shards** — 1.70 ms at 420, about half of it the second mesh re-uploading a buffer identical to
+the first's. That measurement is what produced commit *"each shard vertex is uploaded once, not
+twice"*.
+
+**Allocation: steady state is zero.** Across 180 builds not one showed a positive
+`GC.GetTotalMemory(false)` delta. The buffers are constructed at full capacity (12 × 420), so the
+largest window this feature will ever build cannot grow them, and `Mesh` comes from a pool of 8. The
+one exception was measured rather than assumed: the **cold first build of a session costs 8.07 ms and
+12,288 B** — JIT plus two `Mesh` constructions, once, ever.
+
+### The worst plausible simultaneous case
+
+The map room's arc holds five windows and `PanelSupersample`'s effective cap is seven. Seven windows
+at 400 elements each, all animating on one frame:
+
+* **mean 1.39–1.57 ms → 13–14 % of budget**; worst frame 2.14–2.72 ms → 19–24 %.
+* The debris half contributes 7 × 0.4 µs = **0.003 ms**. It does not enter.
+
+The larger figure is the one-off side and it deserves naming rather than burying: a single window
+*opening* costs `CollectElements` (400 × 4.35 µs = 1.75 ms — this is **pre-existing**, 292/293 paid
+it too) **plus** the shard build, in the frame the window opens. That frame is already doing a full
+canvas conversion. Seven simultaneous *opens* would drop a frame, but the arc does not produce that —
+windows open one at a time. If it ever did, the stage breakdown names the target directly.
+
+**What is NOT measured, and said so rather than implied:** the canvas colour re-batch that `SetAlpha`
+provokes inside Unity (outside both this stopwatch and the shipped `Report` line), the GPU side,
+MultiPass, IL2CPP, and the real `Image`/`TMP_SubMeshUI` element mix.
 
 ---
 
