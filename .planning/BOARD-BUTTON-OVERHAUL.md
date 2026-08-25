@@ -1,3 +1,327 @@
+# ROUND 5 (2026-08-25): THE GEOMETRY SURVIVED THE PIPELINE AND THE COLOUR DID NOT
+
+Round 4 did the right thing on the generation side. It showed gpt-image-2 the **rendered board
+itself**, got eighteen options back, and they are good — oak reads as real turned and carved wood,
+steel as dark weathered iron with rivets, bronze as green-patinated bronze. Two per board were
+taken forward and their three-dimensional features were rebuilt as actual geometry.
+
+**And the cap that shipped did not look like the option it was built from.** On the board all three
+read as a similar pale yellow-olive: the oak cap was not brown, the bronze cap was not green, and a
+yellow-tan cap against a green-patina bronze board is exactly the "does not belong" the user has now
+said three times.
+
+Measured, against the board each cap sits on, in CIELAB hue angle:
+
+| board | its own board's hue | the cap that shipped | error |
+|---|---|---|---|
+| oak | 65.6° | 91.4° | **+27.5°** |
+| steel | 58.5° | 223.8° | **+164.0°** |
+| bronze | 91.8° | 65.6° | **−26.2°** |
+
+The steel cap was **blue**. The bronze cap was **orange**, on a board that is green.
+
+---
+
+## THE CAUSE WAS TWO THINGS, AND THE ROUND WAS BRIEFED ON ONE OF THEM
+
+`BoardLit` computes `alb = tex2D(_MainTex, uv) * _Color`. A cap's colour is therefore the PRODUCT
+of the atlas and the state colour, and both terms were wrong in the same direction.
+
+### Cause 1 — `normalise_plate` clipped the hue out (this was the briefed one, and it is real)
+
+`cap_atlas.normalise_plate` re-based every plate to mean **0.837**, and reaching it took gain 3.46
+on oak. **68.5 % of oak's shipped field texels clipped in at least one channel**, so oak's modulator
+was very nearly a constant and contributed almost no colour at all. That is exactly what the round-4
+lane reported and what the ModBuild 289 note recorded from the other side.
+
+### Cause 2 — the state colour had been solved to an AUTHORED PALETTE nobody had validated
+
+This one was not in the brief and it is the larger of the two on two of the three boards.
+`Cards/PlayTray.BoardIdleColor` had three per-board colours, solved in ModBuild 286 over a hue ×
+chroma grid maximising the minimum pairwise ΔE subject to staying inside `cap_deltae.PALETTE`:
+
+    oak    -> "parchment / pale honey"  h 78-92    C* 14-20
+    steel  -> "pewter, cool and quiet"  h 220-285  C*  7-14
+    bronze -> "brass / warm gold"       h 66-80    C* 24-32
+
+Those windows were authored **before round 4 existed** — before there was any picture of what a
+button on that board should look like. The boards themselves sit at h 65.6 / 58.5 / 91.8, so the
+**steel window excludes its own board's hue by 161°** and the **bronze window excludes its own
+board's by 12–26°**.
+
+**The solver hit its target exactly and the target was wrong.** The shipped bronze cap landed at
+h 65.6 C* 27.3 — inside its authored window, on a board at h 91.8. Bronze barely clipped at all
+(0.32 %), so `normalise_plate` is not what made it orange; the palette is.
+
+That is the finding worth keeping: *a solver that maximises separation inside an unvalidated
+palette produces caps that are maximally different from each other and belong to nothing.* The
+number it was optimising — min pairwise ΔE 17.0 — went up while every cap moved away from its
+own board, and nothing in the loop could see that, because nothing in the loop was looking at
+the board.
+
+---
+
+## THE THIRD OPTION: 0.837 WAS NEVER A REQUIREMENT
+
+Two rounds were spent on a trade-off with two known horns, both bad:
+
+* the shipped normaliser clips the hue out;
+* the chroma-safe replacement collapses the boards into each other, min pairwise ΔE 17.0 → 6.8.
+
+Both horns share a premise, and **the premise is what was wrong.** 0.837 is the mean of
+`KeycapGrain_albedo.png`, the greyscale texture these plates replaced. It was copied across because
+it was there. Nothing requires the modulator to have that mean. What the mod actually requires is:
+
+1. the cap reads proud of its own well in every state — that is `SeatedCapColor`'s job;
+2. the cap face is the colour of its own board.
+
+Requirement 1 was being satisfied *by accident* through a copied constant, and satisfying it that
+way made requirement 2 impossible, because a warm plate cannot reach 0.837 without clipping its
+brightest channel flat.
+
+So the gain **stays uniform** — that property was always right, a uniform gain moves no hue ratio —
+and only the number it is solved for changes: from a copied constant to a level solved per board
+against the guarantee that actually constrains it. The colour is then bought in `BoardIdleColor`,
+which had headroom nobody had measured: the shipped values sit at 0.41–0.75 against a ceiling of 1.
+
+    board    FIELD_TARGET_LUM   field clip         rendered field contrast
+    oak      0.837 -> 0.730     68.46 % -> 32.94 %   4.12 % -> 10.69 %   (2.59x)
+    steel    0.837 -> 0.850      8.57 % ->  4.92 %   6.64 % -> 10.36 %   (1.56x)
+    bronze   0.837 -> 0.780      0.32 % ->  5.54 %   4.21 % ->  9.05 %   (2.15x)
+
+Steel's target went **up** and its contrast improved anyway; bronze's clipping went up and its
+contrast more than doubled. The level and the contrast are not the same knob once the state colour
+is free to move with the plate.
+
+### `BoardCapTint` was NOT needed, and reaching for it first would have been wrong
+
+The ModBuild 289 note names `[ButtonColors] BoardCapTint` as "the lever that would free this
+properly", at the cost of a config round across four tint families, their wire defaults and
+`KeycapGrain`. It is a real lever and it is the wrong one to reach for: it is the **user's own
+tuning surface**, a peer **clamps it to [0, 1]** on the mirror path (`RemoteBoardFurniture:837`),
+and the headroom this needed was already sitting unused in a hard-coded constant that nobody has to
+configure and no peer clamps. Four tint families were nearly changed to avoid changing three
+numbers.
+
+---
+
+## THE ARITHMETIC
+
+    rendered_face_sRGB = modulator x SeatedCapColor(IdleColor_board x BoardCapTint) x shade
+
+with `BoardCapTint` 0.5 (**unchanged**) and `shade` 0.87373 (`BoardLit`'s baked key against a flat
+front-facing plateau — derived in `cap_deltae`, not guessed). Every term is a raw sRGB number
+multiplied by another raw sRGB number, because the rig renders in **Gamma** colorspace and
+`BoardLit`'s fragment is a product of two colours; only the result is decoded to CIELAB, because
+CIELAB is defined on light and the framebuffer value is an encoding of light.
+
+**The target** is the option each cap was built from (`out/keycap4_material_<style>.png`, the flat
+face material of the chosen square option), **re-exposed to the cap's own luminance**. The cap
+cannot be the option's colour — the option is a studio product shot at L\* 36–42, the cap renders on
+a dim board at L\* 20–24 — and the re-exposure is done **in linear light**, because that is what a
+darker exposure of one material physically is. Scaling the encoded numbers instead is a fade toward
+black through the transfer curve and it desaturates: a gamma-space fade loses oak 3.1 C\* and bronze
+1.7 C\* against a true exposure. Small, free to get right, and the difference between a target that
+is a claim about the material and one that is an artefact of the encoding.
+
+**The idle colour is then exact, not optimised:**
+
+    IdleColor_board = target_colour / (field_median x shade x BoardCapTint)
+
+    oak     (0.550, 0.514, 0.564) -> (0.759, 0.539, 0.456)
+    steel   (0.407, 0.541, 0.607) -> (0.588, 0.557, 0.506)
+    bronze  (0.753, 0.471, 0.224) -> (0.549, 0.547, 0.529)
+
+Note what happened to their shape: three strongly-cast state colours became three nearly-neutral
+ones. That is the decomposition changing hands. The **material** now carries the board's colour,
+which is where a photograph of a material should carry it, and the state colour carries the level
+and the state — which is what a state colour is for.
+
+Every channel stays inside `[CapWellColor x CapSeatContrast / BoardCapTint, 1]`, so `SeatedCapColor`
+never lifts one channel and not another. **A floor that engages asymmetrically is a hue shift nobody
+solved for**, and that was checked rather than assumed.
+
+---
+
+## THE ACCEPTANCE TABLE — `cap_belong.py --report`, CIEDE2000
+
+Both columns are read off a PNG: `before` is ModBuild 290's atlas (restored from git into
+`.planning/debug/round5/atlas_before/`) under ModBuild 286's idle colours; `now` is what is in the
+bundle under the colours above.
+
+**1. The cap against the option it was built from**
+
+| board | full ΔE2000 | hue+chroma ΔE2000 | vs the RE-EXPOSED option |
+|---|---|---|---|
+| oak | 21.04 → 13.49 | 16.11 → **4.37** | 13.28 → **0.024** |
+| steel | 15.14 → 10.32 | 11.19 → **1.19** | 10.01 → **0.028** |
+| bronze | 19.91 → 16.96 | 12.25 → **4.11** | 13.23 → **0.024** |
+
+The last column is the round's headline and it is exact by construction. The full-ΔE column stays
+large because the cap is half the option's brightness — that difference is the scene, not the
+material, and is why the hue+chroma form is the one the complaint is about.
+
+**2. The cap against its own board** — the number that decides "belongs"
+
+| board | hue error vs its board | hue+chroma ΔE2000 | C\* cap / C\* board |
+|---|---|---|---|
+| oak | +27.5° → **−1.3°** | 13.57 → **1.12** | 11.8/29.4 → **27.2**/29.4 |
+| steel | +164.0° → **+7.5°** | 10.33 → **0.65** | 5.6/3.8 → **3.8**/3.8 |
+| bronze | −26.2° → **+3.4°** | 10.83 → **5.40** | 27.3/22.5 → **13.0**/22.5 |
+
+The after column is not "close to" the bar — it **is** the bar. The options' own hue errors against
+their boards are −1.4° / +7.2° / +3.4°, and the cap now is that material at a different exposure,
+so it inherits them exactly.
+
+The band being aimed for on cap-vs-board is *same hue, lower chroma* — a cap at its board's hue with
+somewhat less chroma reads as the same material, worked differently, catching less light in a
+recess. A cap identical to its board disappears; a cap unrelated to it is the defect being fixed.
+Bronze's C\* 13.0 against its board's 22.5 is the widest of the three and is why its hue+chroma ΔE
+of 5.40 is the largest number in the table.
+
+**3. Between the three boards' caps** — the collapse trap
+
+| pair | before | after | the options themselves |
+|---|---|---|---|
+| oak ↔ steel | 13.61 | **14.54** | 17.54 |
+| oak ↔ bronze | 12.96 | **13.67** | 14.93 |
+| steel ↔ bronze | 23.85 | **8.01** | 12.73 |
+
+Two pairs improved. **Steel ↔ bronze fell from 23.85 to 8.01, and that number is not the 6.8
+failure it resembles.** 6.8 was three boards converging on one hue because a neutral modulator left
+only a shared state colour to tell them apart. 8.01 is the separation pewter and patinated bronze
+genuinely have at this brightness: the caps sit at hue 64.2° / 65.7° / 95.2°, and steel is told from
+oak by chroma (C\* 3.8 vs 27.2), not by hue.
+
+The 23.85 was **manufactured**. It was steel rotated to blue and bronze rotated to orange — a
+separation invented by the state colours and present in neither material. Three caps that are far
+apart and all wrong is the defect, not the bar. This is the round's one number that got worse and
+it was not worth defending.
+
+**4. What the colour round must not have broken**
+
+| board | idle luminance | disabled vs the guard bar | confirm luminance |
+|---|---|---|---|
+| oak | 0.2175 → 0.2176 (1.001×) | 0.1398 (1.146×) → 0.1253 (1.028×) | 0.2251 → 0.2025 |
+| steel | 0.2104 → 0.2105 (1.000×) | 0.1364 (1.118×) → 0.1255 (1.029×) | 0.2186 → 0.2010 |
+| bronze | 0.2024 → 0.2023 (1.000×) | 0.1307 (1.072×) → 0.1250 (1.025×) | 0.2101 → 0.2014 |
+
+Idle luminance is held to a tenth of a per cent: **this round changes colour and nothing else.**
+
+---
+
+## WHAT THE INSTRUMENTS CANNOT SEE
+
+**REG cannot see hue, and this round's complaint is entirely hue.** `plate_forensics.REG` — mean
+luminance against distance-to-border — has a null control and a known-positive control and it is a
+good instrument for "does this picture have an inside/outside order". It moved 3.7 → 28.3 on oak in
+round 3 and the round was rejected anyway. **A cap that is the wrong colour for its board scores
+exactly like a cap that is the right one.** No REG number is quoted for this round and none should
+be.
+
+**`SeatedCapColor` promises something it cannot deliver, and it is now the binding constraint on
+this whole round.** It floors `_Color` at `CapWellColor × CapSeatContrast`, i.e. it promises a cap
+face at 1.35× the luminance of the well it sits in. `BoardLit` then multiplies that by the texture,
+which the guard never sees — the guard was written when the texture was a near-white grain, and a
+term it was calibrated against silently became a variable. Measured on the product:
+
+* the well renders at luminance **0.0903**, so the promise is a cap face at **0.1220**;
+* ModBuild 290's *disabled* caps sat at 0.1398 / 0.1364 / 0.1307 — the promise held, by 7–15 %;
+* it held **because** the modulator was near-white, not because anything checked.
+
+Every one of this round's three field targets **sits on that bar**, enforced by hand in
+`cap_belong.solve`. Lower is better on both numbers that matter — oak at target 0.62 clips 1.7 % and
+carries 14.3 % contrast against the 32.94 % / 10.69 % actually shipped — and what stops it is that
+the disabled cap would then render **darker than the well it sits in**, which is the "invisible
+button, only the text visible" defect the guard was written for after a hardware report.
+
+**So the single highest-value change available to the next round is to make that guard see the
+modulator**: floor the state colour's *luminance* so that `(state × modulator)` clears the well,
+scaling the state colour uniformly to preserve its hue. It must be per-modulator, not global —
+`KeycapGrain` (the dash and rest caps) is still near-white and a doubled floor would over-lift it —
+so it means a signature change across six call sites including the peer mirror and the preview
+station. That is why this round enforced the bar by hand instead, and said so.
+
+**The solve's first version measured the wrong artifact and was wrong by an order of magnitude.**
+It read the pre-carve cell array and predicted oak's field would clip 3.9 %; the atlas built from
+the same target clipped **40.5 %**. Two terms sit between the normalisation and the file —
+`cap_object.field_jitter`, which multiplies the field by up to 1.055 and pushes texels already at
+0.97 over the top, and the 8-bit quantisation — and neither exists in the array. `cap_belong` now
+BUILDS each candidate and reads the result back off the PNG.
+
+**The report's first version compared neither of the two things that ever shipped.** The atlas had
+already been overwritten when `--report` first ran, so its "before" column was the *new* atlas under
+the *old* idle colours. The old atlas is now restored from git and kept.
+
+**The dE2000 implementation's first selfcheck failed and the code was right.** Nine of ten Sharma
+reference pairs matched to 1e-4, including all four blue-region cases that exercise the Rt rotation
+term; the tenth was a value typed from memory that belongs to a different pair. The reference was
+corrected, not the code — and the tempting move at that moment was the other one.
+
+**The winding assertion's first version cried wolf on a correct mesh.** It demanded a positive
+signed UV area and fired on the cap's WALL submesh at −0.98. These caps UV-project planar over
+their own footprint and the wall is the vertical skirt — a surface perpendicular to the projection
+plane, whose UV "area" is the signed area of the outline traced by the ring and whose sign says
+nothing about mirroring. It now compares the UV winding against **the geometry's own winding in the
+same plane** and judges only their product. That distinction matters beyond this file: an assertion
+that cries wolf gets disabled, and a disabled assertion is how the previous eight got out.
+
+**What no instrument here can answer:** whether the option is the colour the *user* wants. Every
+number in this round measures agreement with round 4's chosen option and with the board. Both are
+pictures we produced. Only hardware answers the question behind them.
+
+---
+
+## THE WINDING GUARD
+
+Winding has now shipped wrong on **eight** meshes in this project, and the most recent was in this
+directory — 384 of the round cap's 640 triangles faced inward for two rounds, so the bezel round 3
+built was back-face culled and invisible in every picture taken to judge round 3.
+
+`cap_onboard.check_winding` now runs on **every** OBJ the sheet pipeline reads, which is every mesh
+that becomes a picture anyone argues about, and raises on:
+
+* **signed volume** < 0 per submesh, by the divergence theorem over the closed hull — a fully
+  reversed mesh gives exactly the negative of the right answer;
+* **signed UV area × signed geometric area in the same plane** < 0 — a mesh can be wound correctly
+  in space and have its UVs mirrored, and no volume test can see that.
+
+It costs microseconds and it is in the READER rather than in `Assets/Editor/ExportCapMeshes.cs`
+deliberately: the reader is the last point before a mesh becomes evidence. If the exporter is ever
+given the same assertion, keep both — they guard different steps. All six shipped caps pass:
+volumes +2.2e-05 / +2.0e-05 / +6.1e-05 on oak's three submeshes, UV and geometry agreeing in sign
+on all of them.
+
+**No geometry was changed this round.** ModBuild 290's rebuilt caps are what both columns of the
+sheet wear.
+
+---
+
+## WHAT SHIPPED
+
+| file | change |
+|---|---|
+| `unity/board-prep/buttons/cap_atlas.py` | `FIELD_TARGET_LUM` per board replaces the copied `GRAIN_TARGET_LUM` on the object path; `normalise_plate`'s docstring records how the trade was resolved rather than restating it |
+| `unity/board-prep/buttons/cap_belong.py` | **new** — the round's instrument: CIEDE2000, the re-exposed target, the solve, five self-checks |
+| `unity/board-prep/buttons/cap_onboard.py` | `--atlas` / `--idle` so a BEFORE column goes through this renderer; `check_winding` on every OBJ |
+| `unity/board-prep/buttons/cap_sheet_colour.py` | **new** — the two sheets |
+| `unity/GloomhavenVR.Assets/.../Keycap{Oak,Steel,Bronze}_{albedo,normal}.png` | rebuilt at the new targets |
+| `src/GloomhavenVR/Cards/PlayTray.6.Build.cs` | `BoardIdleColor` — three values, with the derivation and the superseded solve kept and marked |
+
+`[ButtonColors] BoardCapTint`, `CapWellColor`, `CapSeatContrast`, `ConfirmedColor`, `DisabledColor`
+and every mesh are **unchanged**.
+
+## STILL OPEN
+
+* **The seat guard cannot see the modulator** (above). It is the binding constraint on cap contrast
+  and it is a real, measured defect in a hardware-won guard. Fixing it makes every number in the
+  contrast table better at no cost to anything else.
+* **Bronze's chroma** is the weakest of the three at C\* 13.0 against its board's 22.5 — inside the
+  intended band but at its edge, and the largest cap-vs-board ΔE in the table at 5.40.
+* The **bundle has not been rebuilt** — the six PNGs changed and the integrator owns that step.
+
+---
+
 # ROUND 4 (2026-08-25): THE GENERATOR HAD NEVER BEEN SHOWN THE BOARD
 
 ModBuild 289 was rejected. That is three rejections, twice with the same word.

@@ -258,6 +258,60 @@ GRAIN_TARGET_LUM = 0.837        # measured on the shipped KeycapGrain_albedo.png
 KNEE = 0.80                     # below this the gain is linear; above it, a soft roll-off
 NORM_ITERS = 6                  # the knee moves the mean, so the gain is SOLVED, not guessed
 
+# ---------------------------------------------------------------------------
+# ROUND 5: THE TARGET IS PER BOARD NOW, AND 0.837 WAS NEVER A REQUIREMENT
+# ---------------------------------------------------------------------------
+# `GRAIN_TARGET_LUM` is the mean of the greyscale texture these plates replaced. Nothing needs
+# the modulator to have that mean; what the mod actually needs is (i) a cap that reads proud of
+# its own well in every state and (ii) a cap face that is the colour of its own board. Copying
+# the old texture's mean satisfied (i) by accident and made (ii) impossible, because a warm
+# plate cannot reach 0.837 without clipping its brightest channel flat -- 68.5 % of oak's
+# shipped field texels clip in at least one channel, so oak's modulator is very nearly a
+# CONSTANT and the rendered cap is whatever `IdleColor` says it is.
+#
+# THE DECOMPOSITION THAT REPLACES IT. The modulator's LEVEL is solved against the guarantee it
+# actually has to keep -- `SeatedCapColor`'s promise that a cap face renders at
+# `CapSeatContrast` x its well, measured ON THE PRODUCT rather than on `_Color`, in the DISABLED
+# state which is the darkest one -- and everything left over goes into CONTRAST. The cap's
+# COLOUR is then bought exactly, in `Cards/PlayTray.BoardIdleColor`, because with the plate no
+# longer clipped there is a colour that lands the product on the target and it is expressible.
+#
+# These three are solved, not chosen: `cap_belong.py --solve`. They and the three
+# `BoardIdleColor` values are ONE decision and must move together; `cap_belong.py --report`
+# asserts that the atlas on disk still renders where the C# says it does.
+#
+#   board    target          field clip           rendered field contrast
+#   oak      0.837 -> 0.730  68.46 % -> 32.94 %    4.12 % -> 10.69 %
+#   steel    0.837 -> 0.850   8.57 % ->  4.92 %    6.64 % -> 10.36 %
+#   bronze   0.837 -> 0.780   0.32 % ->  5.54 %    4.21 % ->  9.05 %
+#
+# Steel's target went UP and its contrast improved anyway, and bronze's clipping went up while
+# its contrast more than doubled: the level and the contrast are not the same knob once the
+# state colour is free to move with the plate.
+#
+# EVERY ONE OF THE THREE SITS ON THE SEAT GUARD, not on a preference. Lower is better on both
+# numbers -- oak at 0.62 clips 1.7 % and carries 14.3 % contrast -- and what stops it is that
+# the DISABLED cap then renders DARKER THAN THE WELL IT SITS IN. See WHAT THE INSTRUMENTS
+# CANNOT SEE in .planning/BOARD-BUTTON-OVERHAUL.md: that guard is applied to `_Color` and
+# cannot see this texture, so it has been enforced here by hand. Fix the guard and these three
+# targets drop and every number in the table above improves.
+#
+# MEASURED ON THE BUILT PNG, NOT ON THE ARRAY. `cap_belong._build_at` builds the atlas at each
+# candidate and reads the result back off the file. The first version of that solve measured
+# the pre-carve cell and predicted oak would clip 3.9 %; the atlas from the same target clipped
+# 40.5 %, because `cap_object.field_jitter` multiplies the field by up to 1.055 afterwards and
+# then it is quantised to 8 bits. Neither term exists in the array.
+FIELD_TARGET_LUM = {
+    "oak": 0.730,
+    "steel": 0.850,
+    "bronze": 0.780,
+}
+
+
+def field_target(style):
+    """The modulator level this board's FIELD is re-based to. See FIELD_TARGET_LUM."""
+    return FIELD_TARGET_LUM.get(style, GRAIN_TARGET_LUM)
+
 # Mip bleed guard. Neighbouring cells are the same material, so material bleed is harmless
 # and is deliberately not fought; only a SYMBOL crossing into a neighbour would be a defect,
 # and the layout above keeps every symbol at least 0.16 of a cell from its border.
@@ -451,13 +505,30 @@ def normalise_plate(plate, target=GRAIN_TARGET_LUM, mask=None):
     colour, and those were solved WITH the plates' casts in the product. The clipping is
     therefore load-bearing: it is what lets a warm plate reach 0.837 while keeping a cast.
 
-    It is left exactly as it shipped, and the numbers above are recorded so the next round does
-    not rediscover the trade. The lever that would actually free this is to lower the
-    modulator's target and raise `[ButtonColors] BoardCapTint` by the reciprocal -- the product
-    is unchanged, so nothing renders differently, and the texture gets its headroom back. That
-    is four tint families x three channels in `Defaults`, the wire defaults that mirror them,
-    and `KeycapGrain` itself for the caps that do not use a board atlas; it is a config round,
-    not a texture round, and it is out of this lane.
+    ROUND 5 RESOLVED IT, AND NEITHER OF THE TWO KNOWN OPTIONS WAS THE ANSWER. The trade above
+    is real and both horns of it are bad -- the shipped form clips the hue out, the chroma-safe
+    form collapses the boards into each other at min pairwise dE 6.8. What was wrong was the
+    premise both share: **that the modulator must reach 0.837.** It must not. 0.837 is the mean
+    of the greyscale texture these plates replaced, copied across because it was there. Lower
+    the target and the gain stops clipping, and the level that was being bought with it is then
+    bought where it was always cheaper -- in `PlayTray.BoardIdleColor`, which had headroom
+    nobody had measured (the shipped idle colours sit at 0.41-0.75 and the ceiling is 1.0).
+
+    So the gain STAYS UNIFORM -- that property was always right, a uniform gain moves no hue
+    ratio -- and only the number it is solved for changes, from a copied constant to a level
+    solved per board against the guarantee that actually constrains it. See `FIELD_TARGET_LUM`
+    above for the three targets and what they bought, and `cap_belong.py` for the solve, its
+    self-checks and the acceptance table.
+
+    THE THIRD OPTION WAS NOT A CLEVERER NORMALISER. It was noticing that the constant this
+    function was solving toward had no requirement behind it. Two rounds were spent tuning the
+    mechanism on both sides of a trade-off whose premise was never checked.
+
+    AND `BoardCapTint` WAS NOT NEEDED AFTER ALL. Round 3's note names it as "the lever that
+    would free this properly", at the cost of a config round across four tint families. It is a
+    real lever and it is the WRONG one to reach for first: it is the user's own tuning surface,
+    a peer clamps it to [0, 1] on the mirror path (`RemoteBoardFurniture` line 837), and the
+    headroom needed here was already sitting unused in a constant nobody has to configure.
     """
     m = np.ones(plate.shape[:2], dtype=bool) if mask is None else mask
     base = float(plate.mean(axis=2)[m].mean())
@@ -540,12 +611,13 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
         # THE BUTTON. See cap_object.py for the measurement that forced the change -- the
         # shipped cells carried LESS border structure than a random noise field, and half of
         # that was `material_cell` cropping the registration out of whatever the plate had.
-        art, obj_gain, obj_base, obj_got, obj_spend = O.normalised_cells(style, cell_px)
+        art, obj_gain, obj_base, obj_got, obj_spend = O.normalised_cells(
+            style, cell_px, target=field_target(style))
 
     plate_path = os.path.join(plates_dir, f"keycap_plate_{style}.png")
     plate_img = Image.open(plate_path).convert("RGB")
     raw = np.asarray(plate_img, dtype=np.float64) / 255.0
-    plate, gain, achieved, _plate_clip = normalise_plate(raw)
+    plate, gain, achieved, _plate_clip = normalise_plate(raw, field_target(style))
     # A STABLE SEED, and the first version of this line was not one. It read
     # `abs(hash(style)) % 2**31`, and Python randomises str hashing per process (PYTHONHASHSEED),
     # so every re-run drew DIFFERENT material crops -- the atlas was not reproducible from its own
@@ -635,14 +707,14 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
                   f"{O.GENERATED[style]} -- cell 0 bezel (every cap's bevel + walls), "
                   f"cells {sorted(ROUND_CELLS)} round, the rest square")
             print(f"    level re-based ON THE FIELD: field mean {obj_base:.3f} x gain "
-                  f"{obj_gain:.2f} -> {obj_got:.3f} (target {GRAIN_TARGET_LUM:.3f}); the FACE "
-                  f"is submesh [0] and samples only the field, so the field is what the "
-                  f"cap-to-well ratio turns on")
+                  f"{obj_gain:.2f} -> {obj_got:.3f} (target {field_target(style):.3f}, SOLVED "
+                  f"for this board -- see FIELD_TARGET_LUM); the FACE is submesh [0] and "
+                  f"samples only the field, so the field is what the cap-to-well ratio turns on")
             print(f"    field texels clipped in at least one channel: {obj_spend * 100:.1f} % "
-                  f"-- the price of a warm modulator at mean {GRAIN_TARGET_LUM:.3f}; see "
-                  f"normalise_plate for the measured trade and the lever that would free it")
+                  f"-- was 68.5 / 8.6 / 0.3 % (oak/steel/bronze) at the old copied target "
+                  f"{GRAIN_TARGET_LUM:.3f}; run cap_belong.py --report for the colour table")
         print(f"    level re-based: plate mean {raw.mean():.3f} x gain {gain:.2f} -> "
-              f"{achieved:.3f} (target {GRAIN_TARGET_LUM:.3f}, the shipped KeycapGrain's) — "
+              f"{achieved:.3f} (target {field_target(style):.3f}, solved per board) — "
               "a keycap texture MODULATES the state colour, so the LEVEL is not the board's to "
               "set; its colour cast and its structure are")
         for rec in rows_report:
