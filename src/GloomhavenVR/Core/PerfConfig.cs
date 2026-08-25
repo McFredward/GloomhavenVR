@@ -561,7 +561,15 @@ internal static class PerfConfig
             + "sample sweep). 0 = every frame, today's behaviour. The evaluation already feeds a "
             + "Schmitt trigger with second-scale dwell hysteresis, so sampling it at e.g. 0.05 "
             + "(20 Hz) cannot change which walls fade — it only stops re-deciding a decision that is "
-            + "deliberately slow. Inert unless [Compat] WallFade is on.",
+            + "deliberately slow. Inert unless [Compat] WallFade is on. "
+            + "ModBuild 278: THIS DIAL NOW HAS A SECOND, MORE FINDABLE DOOR — "
+            + "[WallFade] EvalIntervalSeconds in dev.gloomhavenvr.wallfade.cfg, which surfaces "
+            + "in the in-VR menu under Bild & Darstellung beside the rest of the wall "
+            + "see-through. That one WINS whenever it is non-zero; this entry is what applies "
+            + "while it is 0, which is how it ships. Nothing was moved or renamed, so a value "
+            + "already typed here keeps working exactly as before — and the description over "
+            + "there carries the derivation of how high the number may safely go (the binding "
+            + "constraint is the 0.20 s dwell before a wall may go transparent).",
             new AcceptableValueRange<float>(0f, 0.25f)));
         InitiativeDepthEvalInterval = _file.Bind("Optimize", "InitiativeDepthEvalInterval", Defaults.InitiativeDepthEvalInterval, new ConfigDescription(
             "Minimum seconds between two DEPTH NORMALISATIONS of the docked initiative row — the "

@@ -71,6 +71,7 @@ internal static class Program
             // directions in silence: too tight and the skull stays missing, too loose and masonry
             // becomes permanently solid — which reads as wall see-through being switched off.
             WallStandingPropVectors.Run(t);
+            WallSignatureCulpritVectors.Run(t);
             // WHERE THE CONTROLS AND THE BOARD MESH END UP once the user's own tuned dials meet
             // the re-authored assets. The failure this pins is not a corrupted peer, it is a
             // board standing on edge with its keycaps in mid-air on the OWNER's screen — and the

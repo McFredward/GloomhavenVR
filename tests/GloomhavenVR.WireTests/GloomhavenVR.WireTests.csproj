@@ -247,6 +247,22 @@
     <Compile Include="WallStandingPropVectors.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the reason this project's ledger states most often: a NEW
+       INSTRUMENT'S FIRST OUTPUT IS A HYPOTHESIS. This one names which renderers forced a ~90 ms
+       wall-table rebuild — 28 of 33 such rebuilds in the ModBuild 277 log fired on that single
+       term and nothing shipped could say what moved — and the next round's whole plan will be
+       read off its output. A diagnostic that is subtly wrong does not throw and does not look
+       wrong; it prints a confident sentence that a human then acts on, which is how "a truncated
+       list is not absence" and "a summary stat is not the field" both entered the ledger.
+       WallSegmentFadeCulprits.cs was written free of Unity — ints, strings and dictionaries —
+       precisely so its NULL input (nothing changed => it must find nothing AND say so in a form
+       that accuses itself) and its known-positive control could be driven here, in CI, before
+       anyone believes a line it printed on hardware. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallSegmentFadeCulprits.cs" Link="core\WallSegmentFadeCulprits.cs" />
+    <Compile Include="WallSignatureCulpritVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

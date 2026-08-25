@@ -416,7 +416,77 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 277;
+    public const ushort ModBuild = 278;
+    // Build 278: THE TWO SAMPLING RATES BEHIND THE WALL FADE BECOME DIALS, AND THE WALK-IN MODE
+    // STOPS MEASURING ALTOGETHER. Bundle UNCHANGED at 68,522,833 — DLL-only install.
+    //   "Die Ruckler sind deutlich weniger geworden, aber immer noch ein wenig vorhanden. Wuerde es
+    //   helfen hier die Abtastrate, also Frequenz in dem gecheckt wird ob eine Wand etwas verdeckt,
+    //   etwas zu verringern? Am Besten lass sie in den Einstellungen selber einstellen koennen. In
+    //   dem Modus in dem man IM dem Level ist, kann das 'Abtasten' komplett deaktiviert werden so
+    //   lange man in dem Modus ist um hier auch Performance zu sparen."
+    //   HIS SENTENCE NAMES ONE CADENCE AND HIS SYMPTOM IS CAUSED BY THE OTHER, so both ship as
+    //   dials and they are deliberately NOT both called "Abtastrate":
+    //     [WallFade] RescanIntervalSeconds  (2.0, 0.5..15)  — the TABLE REBUILD. Was a private
+    //       const since the subsystem's first build. Measured over the ModBuild 277 log: 33 commits,
+    //       mean worst 85.6 ms, max 134.0 ms, each in ONE atomic frame. THESE ARE HIS RUCKLER.
+    //       Raising it divides their NUMBER proportionally and shortens not one of them.
+    //     [WallFade] EvalIntervalSeconds    (0, 0..0.25)    — the OCCLUSION DECISION, i.e. literally
+    //       "wird gecheckt ob eine Wand etwas verdeckt". A second, findable door onto the existing
+    //       [Optimize] WallFadeEvalInterval; the older key still applies while this one is 0, by
+    //       PRECEDENCE and not max() so that "I set 0.05 and nothing happened" stays diagnosable.
+    //   BOTH DEFAULTS ARE THE SHIPPED BEHAVIOUR, ON PURPOSE. He had just called the fade behaviour
+    //   in that level perfect; the measured ceiling on the decision dial is ~0.39 ms/frame (1.7-3.5%
+    //   of an 11.11 ms budget), which does not buy the right to change when walls fade behind his
+    //   back. The recommended 0.05 and its derivation are in the dial's own description.
+    //   MY OWN BRIEF'S NUMBER WAS WRONG AND THE LANE CORRECTED IT. I read "WallFade.Late 1.121 ms
+    //   avg / 94.3 ms/s" as 9.4% of wall-clock. PerfMonitor.EndStep folds a nested scope's FULL
+    //   duration into every enclosing name, so that figure is INCLUSIVE: level-1 children come to
+    //   ~51 ms/s, leaving ~43 ms/s (~0.43 ms/frame) exclusive, of which only the decision half is
+    //   gateable. A control window with no commit at all reads "worst 8.15 ms" on an inclusive
+    //   scope, which is how the residue was confirmed real rather than assumed.
+    //   THE CADENCE TRAP, AND WHY IT IS NOT ONE. Six sites zero _nextRescan to request a prompt
+    //   cycle, and _cycleOpenedEarly detects that by comparing the gap against the cadence. With a
+    //   live dial that comparison would read a value the cycle was never scheduled with — and had
+    //   it read too small, EVERY cycle would look asked-for and the PERF S5 skip (71% of cycles,
+    //   80 of 113) would be silently DEFEATED. _scheduledRescanInterval latches the value each
+    //   cycle was scheduled with. The falsifier is shipped: the SKIP clause prints scheduled vs
+    //   live side by side and totals an "asked for" counter that read 0 across the whole 277 log.
+    //   WALK-IN SUSPENSION ([WallFade] WalkInSuspendSampling, ON). While the latch holds, the
+    //   walk-in branch already forces every segment solid two branches before any coverage number
+    //   is read, so the decision, the coverage sweep, the rescan cadence and PathAudit (8.4 ms/s,
+    //   pure diagnostic) are computing a verdict overruled by decree in the same pass. What does
+    //   NOT stop: the per-frame fade ramp and its material write, so the walls come back through
+    //   the ordinary ANIMATED un-fade — the ModBuild 271 ruling, not negotiable.
+    //     * An in-flight cycle RUNS TO COMPLETION. Abandoning it drops _committedSigValid, so the
+    //       first cycle after release would refuse on "no table yet" and pay a guaranteed ~90 ms
+    //       commit ON THE FRAME HE ZOOMS OUT — the hitch relocated to the worst possible moment.
+    //     * The release edge is immediate because the clocks are LEFT ALONE: _nextRescan,
+    //       _nextPathAudit and _nextEvalTime are never pushed forward while suspended, so all three
+    //       are already in the past when the latch drops. No forced commit, no special release path.
+    //     * A LATCH THAT COULD NEVER LET GO, found and closed before it shipped: _samplingSuspended
+    //       is read EARLY in the tick and written LATE, after the _segments.Count == 0 early return.
+    //       Suspend, load a new scenario, and the flag would still gate the only thing that could
+    //       refill the table. Release now also runs from ReleaseWalkInside and the teardown branch.
+    //     * The split-run drive is re-seeded on the engaging edge (ClearSplitRunDrive). The 271
+    //       comment excused split runs from the frozen-EMA fix BECAUSE THEIR EVALUATION KEPT
+    //       RUNNING. It does not any more, so that excuse expired with this change.
+    //     * Nothing touches the wire. Own fades broadcast from segment state, which is false by
+    //       decree = what is true locally; a receiver's local sampling is not a wire input.
+    //   THE LEAD FOR NEXT ROUND, and it is an instrument, not a fix. 28 of the 33 commits fired
+    //   because "the SCENE signature moved". [WallFade] SignatureCulpritCensus (ON) now names WHICH
+    //   renderers entered, left or changed verdict bit, grouped, with FULL group counts and explicit
+    //   elision counts on both axes — a truncated list is not absence. On a null diff it prints
+    //   "NOTHING MOVED, AND THAT IS A FINDING ABOUT THIS INSTRUMENT, NOT ABOUT THE SCENE". Validated
+    //   in CI on a null input, a known positive, order-freedom and the no-baseline third state
+    //   (+41 assertions) BEFORE being believed. No narrowing of the signature is proposed yet:
+    //   that is a correctness change to the skip invariant and there is no hardware data on it.
+    //   WIRE TESTS 147588 -> 147631: +41 culprit vectors, +2 from the ConfigSteps drift sweep
+    //   picking up the two new stepped keys. rebase-defaults stays 491 until his cfg is regenerated.
+    //   NOT DONE, DELIBERATELY: the ~90 ms commit itself. EnforcePropUnitCohesion and
+    //   CollectWallMountedProps (54 of the 91 ms) MUTATE SEGMENTS IN PLACE, so the identical-table
+    //   gate I required needs a canonical serialisation of the whole table — a new instrument whose
+    //   own first output would be a hypothesis needing its own controls. That is a round, not a task
+    //   inside one. Recorded in .planning/perf/FINDINGS.md section 8.
     // Build 277: THE SEPARATE SKIP-BUTTON GROUP IS GONE, AND THE PER-BOARD BUTTON DIALS WITH IT.
     // Bundle UNCHANGED at 68,522,833 — DLL-only. ***34 CONFIG KEYS ARE RETIRED; TUNED VALUES FOR
     // THEM ARE LOST*** (they are listed in the commit message and were reported to the user).

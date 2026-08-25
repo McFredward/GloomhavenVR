@@ -603,6 +603,85 @@ internal static partial class Loc
                 + "knapp innerhalb der Grundfläche noch über die Wände hinwegsiehst. Zu hoch, und er "
                 + "kann nie einschalten, weil dein Auge fast am Boden sein müsste. Live änderbar; "
                 + "begrenzt auf 0.00-1.00.",
+            // ---- ModBuild 278: die beiden Abtastraten ----
+            // Der Nutzer hat nach EINER "Abtastrate" gefragt und dabei die DECISION beschrieben
+            // ("Frequenz in dem gecheckt wird ob eine Wand etwas verdeckt"), während seine
+            // Ruckler vom RESCAN kommen. Beide Texte sagen darum ausdrücklich, welcher der
+            // beiden welcher ist — sonst dreht er an der falschen Schraube und der Effekt
+            // bleibt aus, was in diesem Projekt schon Runden gekostet hat.
+            ["WallFade/RescanIntervalSeconds"] =
+                "Wie oft der Mod seine Tabelle neu aufbaut, WELCHE Renderer zu welcher Wand gehören "
+                + "— die Kette aus Szenen-Durchlauf, Klassifizierung und Abgleich, deren letzter "
+                + "Schritt ein einziges, nicht teilbares Einzelbild ist. DAS IST DIE EINSTELLUNG "
+                + "HINTER DEN KURZEN HÄNGERN: Im Hardware-Log von ModBuild 277 hat dieses "
+                + "Einzelbild im Mittel 85,6 ms gedauert, im schlimmsten Fall 134,0 ms, und zwar "
+                + "33-mal in der Sitzung. Diese Zahl zu erhöhen halbiert bzw. viertelt, WIE OFT "
+                + "solche Einzelbilder auftreten — es macht kein einziges davon kürzer. WAS ES "
+                + "KOSTET: Verzögerung der Entscheidung. Jede Ausblendung wird gegen die gerade "
+                + "gültige Tabelle entschieden, also kann eine Wand, die eben erst gebaut, "
+                + "aufgedeckt oder neu erzeugt wurde, bis zu dieser Zeit lang gar nicht "
+                + "ausblenden oder zurückkehren. EIN AUFGEDECKTER RAUM IST AUSGENOMMEN — der "
+                + "löst sofort einen Neuaufbau aus, egal was hier steht, ebenso jede Wand, die "
+                + "das Spiel mitten in einer Ausblendung neu erzeugt. Die [WallSegmentFade] "
+                + "BUDGET-Zeile im Log druckt mit 'DECISION LATENCY', wie alt die Tabelle "
+                + "tatsächlich geworden ist — das ist die Zahl, gegen die man das hier liest. "
+                + "BEACHTE: Die meisten Durchläufe überspringen das teure Einzelbild ohnehin "
+                + "schon (80 von 113 im selben Log); diese Einstellung dünnt also die "
+                + "verbliebenen aus, statt feste Kosten zu entfernen. Live änderbar; begrenzt "
+                + "auf 0.50-15.00.",
+            ["WallFade/EvalIntervalSeconds"] =
+                "Wie oft der Mod PRÜFT, ob eine Wand den Boden verdeckt, auf den du gerade schaust "
+                + "— die Hälfte, die in jedem Einzelbild läuft: Sie projiziert die Bodenpunkte "
+                + "jedes Raums durch deine Kopfkamera und misst jede Wand dagegen neu. 0 = in "
+                + "jedem einzelnen Bild, so wie bisher ausgeliefert. Das ist die Abtastrate im "
+                + "wörtlichen Sinn; sie ist NICHT die Ursache der kurzen Hänger (das ist "
+                + "'Wandtabelle neu aufbauen' darüber), sondern eine kleine, dauerhafte Last in "
+                + "jedem Bild. SIE ZU ERHÖHEN IST BIS ZU EINEM PUNKT UNBEDENKLICH, UND DER PUNKT "
+                + "IST BEKANNT: Die Entscheidung dahinter ist absichtlich träge — ein "
+                + "geglätteter Mittelwert, zwei getrennte Schwellen und Wartezeiten von 0,20 s, "
+                + "bevor eine Wand durchsichtig werden darf, und 2,50-7,00 s, bevor sie "
+                + "zurückkommen darf — und der Mittelwert rechnet mit der Zeit seit der letzten "
+                + "PRÜFUNG statt pro Bild, diese Einstellung dehnt seine Glättung also nicht. "
+                + "Das Kürzeste, was sie verfälschen kann, ist jene Wartezeit von 0,20 s: Ab "
+                + "0,20 entprellt sie nichts mehr, weil eine Prüfung sie scharf macht und die "
+                + "unmittelbar nächste sie schon erfüllt. Bleib deutlich darunter — bei 0,05 "
+                + "(20 Hz) müssen immer noch vier Prüfungen hintereinander übereinstimmen, "
+                + "bevor eine Wand durchsichtig wird, und das verzögert sich um höchstens ein "
+                + "Zehntel Sekunde, was innerhalb der Ausblend-Animation selbst liegt und nicht "
+                + "zu sehen ist. STEHT HIER 0, gilt "
+                + "weiterhin das ältere [Optimize] WallFadeEvalInterval aus "
+                + "dev.gloomhavenvr.perf.cfg; jeder Wert über 0 hat hier Vorrang. Live änderbar; "
+                + "begrenzt auf 0.00-0.25.",
+            ["WallFade/WalkInSuspendSampling"] =
+                "Solange du IM Spielfeld stehst (siehe 'Im Spielfeld: alle Wände massiv'), gar "
+                + "nicht mehr messen, statt zu messen und das Ergebnis wegzuwerfen. In diesem "
+                + "Modus wird jede Wand ohnehin per Anweisung massiv gehalten — die "
+                + "Verdeckungsprüfung, die Ausblende-Entscheidung und der regelmäßige Neuaufbau "
+                + "der Wandtabelle berechnen also ein Urteil, das die nächste Programmzeile "
+                + "sofort überstimmt. Dieser Schalter hört einfach auf, dafür zu bezahlen: "
+                + "geschenkte Bildzeit, solange du unten zwischen den Wänden bist. ES GEHT DABEI "
+                + "NICHTS KAPUTT: Ein bereits laufender Neuaufbau darf zu Ende laufen statt "
+                + "mittendrin abgebrochen zu werden, ein Raum, den das Spiel währenddessen "
+                + "aufdeckt, löst weiterhin sofort einen aus, und sobald du heraustrittst oder "
+                + "herauszoomst, nimmt das allernächste Einzelbild sowohl das Messen als auch "
+                + "den Neuaufbau wieder auf — es wird keine ausgesetzte Taktung abgewartet. Der "
+                + "Mehrspieler-Betrieb ist nicht betroffen: Was deine Mitspieler sehen, "
+                + "entscheidet sich auf IHREN Rechnern, und eine Ausblendung, die du vor dem "
+                + "Hineingehen hattest, wird weiterhin gesendet. AUS = weiter messen, während "
+                + "der Modus hält, also das Verhalten von ModBuild 277. Live änderbar (greift im "
+                + "nächsten Einzelbild).",
+            ["WallFade/SignatureCulpritCensus"] =
+                "DIAGNOSE, keine Verhaltensänderung. Wenn der Mod beschließt, seine Wandtabelle neu "
+                + "aufzubauen, weil 'sich die Szene geändert hat', dann protokollieren, WELCHE "
+                + "Renderer sich geändert haben — nach Namen gruppiert, mit der vollständigen "
+                + "Gruppenzahl und einer ausdrücklichen Angabe, wie viel in der Zeile keinen "
+                + "Platz mehr hatte. Das ist die offene Frage der laufenden "
+                + "Leistungsuntersuchung: 28 der 33 Neuaufbauten im Log von ModBuild 277 gingen "
+                + "auf genau diesen einen Grund zurück, und nichts im Mod konnte sagen, was ihn "
+                + "ausgelöst hat. Läuft nur auf einem Durchlauf, der ohnehin neu aufbaut, "
+                + "höchstens alle paar Sekunden, und meldet seine eigenen Kosten als Schritt "
+                + "'WallFade.SigDiag' — es kann also nie zu einer ungemessenen Dauerlast werden. "
+                + "Wieder ausschalten, sobald die Frage beantwortet ist. Live änderbar.",
             // ---- [PeerBoardFade] ----
             // Sechs Nachträge des Einstellungs-Audits vom 2026-08-22: Die Sektion kam mit
             // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.

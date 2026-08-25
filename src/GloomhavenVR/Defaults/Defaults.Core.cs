@@ -250,4 +250,45 @@ internal static partial class Defaults
     // 0 IS LOAD-BEARING, not a placeholder: the shipped test is `_lastInsideMarginY < 0`, and
     // `margin < -0 * crest` is that same test. Any other default would be a retune.
     internal const float WalkInHeadBelowCrestFraction = 0f;  // => [WallFade] WalkInHeadBelowCrestFraction
+
+    // ModBuild 278 — THE TWO SAMPLING CADENCES, both promoted on the user's request of
+    // 2026-08-25: "Würde es helfen hier die Abtastrate, also Frequenz in dem gecheckt wird ob
+    // eine Wand etwas verdeckt, etwas zu verringern? Am Besten lass sie in den Einstellungen
+    // selber einstellen können."
+    //
+    // THERE ARE TWO OF THEM AND HIS SENTENCE NAMES ONE WHILE HIS SYMPTOM IS THE OTHER, so both
+    // are dials now and both descriptions say which is which:
+    //
+    //  * RescanIntervalSeconds is the RESCAN CYCLE — classify, survey, prepare and (when the
+    //    skip refuses) a COMMIT that is one atomic frame. ModBuild 277 measured 33 commits at
+    //    a mean worst-commit of 85.6 ms and a max of 134.0 ms. THOSE are the Ruckler. Raising
+    //    this number divides how MANY of them happen and makes not one of them shorter.
+    //  * EvalIntervalSeconds is the DECISION — UpdateSampleVisibility + BlockedFraction, i.e.
+    //    literally "wird gecheckt ob eine Wand etwas verdeckt". That is the one he named.
+    //
+    // 2.0 IS THE CONSTANT THAT SHIPPED. It was `private const float RescanIntervalSeconds = 2f`
+    // in WallSegmentFade.cs from the subsystem's first build until this one, so a fresh install
+    // and an install that never opens the menu behave exactly as ModBuild 277 did. This is a
+    // tuning surface, not a retune — the same rule the ModBuild 272 walk-in promotion followed.
+    internal const float RescanIntervalSeconds = 2f;         // => [WallFade] RescanIntervalSeconds
+    // 0 = every frame, which is what [Optimize] WallFadeEvalInterval has shipped as since the
+    // 2026-07 perf pass and therefore what this must ship as: a non-zero default here would be
+    // a silent behaviour change smuggled in on a surfacing commit, and it would also override
+    // whatever a returning tester already has in his perf.cfg. The measured recommendation and
+    // its derivation live in .planning/perf/FINDINGS.md; the number is a human's to choose.
+    internal const float EvalIntervalSeconds = 0f;           // => [WallFade] EvalIntervalSeconds
+    // ModBuild 278 — the walk-in suspension (user request 2026-08-25: "In dem Modus in dem man
+    // IM dem Level ist, kann das 'Abtasten' komplett deaktiviert werden so lange man in dem
+    // Modus ist um hier auch Performance zu sparen."). Shipped ON: it IS the requested feature,
+    // and it is safe by construction — while the walk-in latch holds, every wall is forced solid
+    // by decree, so the decision, the coverage sampling and the rescan cadence are all computing
+    // an answer the segment loop throws away one branch later.
+    internal const bool WalkInSuspendSampling = true;        // => [WallFade] WalkInSuspendSampling
+    // ModBuild 278 — the WHICH-RENDERERS census (see WallSegmentFadeCulprits.cs). Shipped ON
+    // because it is the whole point of the build: 28 of 33 commits in the ModBuild 277 log fired
+    // on "the SCENE signature moved" and nothing shipped can say what moved it. It runs ONLY on
+    // a cycle that is already refusing to skip, at most once per throttle window, and reports
+    // its own measured cost under the 'WallFade.SigDiag' step so it can never become an
+    // unmeasured tax the way an always-on probe has in this project before.
+    internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
 }

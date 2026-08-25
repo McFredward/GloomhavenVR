@@ -585,6 +585,17 @@ internal static partial class Loc
             ["WallFade/WalkInEnterDwellSeconds"] = Pair("Inside: engage delay (s)", "Im Spielfeld: Einschaltzeit (s)"),
             ["WallFade/WalkInExitDwellSeconds"] = Pair("Inside: release delay (s)", "Im Spielfeld: Abschaltzeit (s)"),
             ["WallFade/WalkInHeadBelowCrestFraction"] = Pair("Inside: depth below crest", "Im Spielfeld: Tiefe unter Krone"),
+            // ModBuild 278 — the two sampling cadences, promoted on the user's request to set
+            // them himself ("Am Besten lass sie in den Einstellungen selber einstellen
+            // können."). The names have to keep the two APART in a list, because his sentence
+            // named one cadence and his symptom is caused by the other: the REBUILD is the one
+            // that hitches, the CHECK is the one that runs every frame. So one says "Neuaufbau"
+            // and the other "Prüfung", and neither says "Abtastrate", which would be true of
+            // both and therefore useless on a row.
+            ["WallFade/RescanIntervalSeconds"] = Pair("Wall table rebuild (s)", "Wandtabelle neu aufbauen (s)"),
+            ["WallFade/EvalIntervalSeconds"] = Pair("Occlusion check every (s)", "Verdeckung prüfen alle (s)"),
+            ["WallFade/WalkInSuspendSampling"] = Pair("Inside: stop measuring", "Im Spielfeld: Messung pausieren"),
+            ["WallFade/SignatureCulpritCensus"] = Pair("Log what changed the scene", "Szenen-Änderungen protokollieren"),
 
             // ---- [PeerBoardFade] — a peer's board yields when it hides the play field --------
             ["PeerBoardFade/Mode"] = Pair("Boards blocking the view", "Boards vor dem Spielfeld"),

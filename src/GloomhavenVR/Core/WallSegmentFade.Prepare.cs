@@ -793,6 +793,132 @@ internal static partial class WallSegmentFade
             _cycleMaterialsDirty = false;
         }
 
+        // =================================================================================
+        // ModBuild 278 — WHICH RENDERERS MOVED THE SCENE SIGNATURE
+        // =================================================================================
+        //
+        // THE LEAD, taken straight out of the ModBuild 277 hardware log. Across the whole
+        // session the SKIP clause totals read:
+        //
+        //     80 of 113 judged cycles SKIPPED the commit; WHY A CYCLE COMMITTED:
+        //     2 no table yet, 1 room reveal, 0 asked for, 0 dissolve material swap,
+        //     0 board moved, 28 SCENE SIGNATURE MOVED, 2 wall signature moved,
+        //     0 STALENESS CEILING, 0 segment AABB drift.
+        //
+        // 28 of 33. The scene-signature refusal's own text ends by naming the next question —
+        // "IF THIS IS THE COUNT THAT DOMINATES … the next round's question is WHICH renderers,
+        // not whether to skip" — and this is that instrument. Everything about how it groups,
+        // ranks and elides lives in WallSegmentFadeCulprits.cs, which is free of Unity so the
+        // wire suite can drive it against a NULL input and a known-positive control; what lives
+        // here is only the banking and the gating.
+        //
+        // WHY THE BANKED TABLE IS TAKEN AT THE COMMIT AND NOWHERE ELSE. The question is "what
+        // has changed since the table in force was built", so the comparison baseline has to be
+        // the census the commit consumed — the same one AdoptCommittedSignature banks the hash
+        // from, taken at the same instant, from the same array. Any other moment would compare
+        // two different populations and produce a confident wrong answer, which is the failure
+        // mode this project's ledger calls "a ratio with two populations".
+        //
+        // WHAT IT COSTS AND HOW THAT IS KNOWN RATHER THAN ASSUMED. Banking is one dictionary
+        // write per classified renderer (~5800) on a frame that is already the ~90 ms commit,
+        // with no allocation after the first cycle — the dictionary is Cleared, never rebuilt,
+        // and the names are references the census already owns. The diagnosis is one dictionary
+        // probe per renderer plus one pass over the banked table, and it runs ONLY on a cycle
+        // that has already decided to commit, at most once per throttle window. Both report
+        // under the 'WallFade.SigDiag' step, so the next log prices this instrument instead of
+        // taking its author's word for it — an always-on probe that nobody priced has cost this
+        // project a round before.
+
+        /// <summary>Instance ID → what the last commit's census saw. Cleared and refilled at
+        /// each commit; never rebuilt, so it allocates once and then reuses its capacity.</summary>
+        private readonly Dictionary<int, WallSegmentFadeCulprits.Banked> _bankedFacts = new(8192);
+
+        /// <summary>Live scratch handed to the diff. Reused for the same reason.</summary>
+        private readonly List<WallSegmentFadeCulprits.Entry> _culpritLive = new(8192);
+
+        /// <summary>False until a commit has banked a census — see the "no banked census"
+        /// branch of <see cref="WallSegmentFadeCulprits.Format"/>, which says so rather than
+        /// printing an empty diff that would read as "nothing changed".</summary>
+        private bool _bankedFactsValid;
+
+        /// <summary>Throttle for the census. It is not free and it runs on a frame that is about
+        /// to be expensive anyway, so it prints at the same cadence as the BUDGET line rather
+        /// than on every refusal.</summary>
+        private float _nextCulpritLogTime;
+
+        /// <summary>How many name groups each of ENTERED / LEFT / CHANGED lists. The rest are
+        /// COUNTED and the line says how many — see the elision fields on the census.</summary>
+        private const int CulpritTopGroups = 10;
+
+        /// <summary>Bank the census this commit consumed, so the next scene-signature refusal
+        /// can say WHICH renderers moved rather than only that some did.</summary>
+        private void BankFactCensus()
+        {
+            _bankedFacts.Clear();
+            for (int i = 0; i < _factCount; i++)
+            {
+                ref RendererFact f = ref _facts[i];
+                if (f.R == null)
+                    continue;
+                // The same eight bits ClassifySlice folds into the scene half, in the same
+                // order. They are re-derived here rather than cached at the fold site because a
+                // second copy of the bit layout is a second thing to keep in sync; if these ever
+                // disagree the census reports "NOTHING MOVED", which is loud and self-accusing
+                // by design.
+                _bankedFacts[f.R.GetInstanceID()] =
+                    new WallSegmentFadeCulprits.Banked(f.Name, FactBits(ref f));
+            }
+            _bankedFactsValid = true;
+        }
+
+        /// <summary>The eight verdict bits of one fact, exactly as the scene half folds them.</summary>
+        private static int FactBits(ref RendererFact f)
+        {
+            Renderer? r = f.R;
+            return (f.Mesh != null ? WallSegmentFadeCulprits.BitMesh : 0)
+                 | (f.Particles ? WallSegmentFadeCulprits.BitParticles : 0)
+                 | (f.Mountable ? WallSegmentFadeCulprits.BitMountable : 0)
+                 | (f.Mod ? WallSegmentFadeCulprits.BitMod : 0)
+                 | (f.WallFadeShader ? WallSegmentFadeCulprits.BitWallFade : 0)
+                 | (f.FoliageShader ? WallSegmentFadeCulprits.BitFoliage : 0)
+                 | (f.WaterSurface ? WallSegmentFadeCulprits.BitWater : 0)
+                 | (r != null && r.gameObject.activeInHierarchy
+                        ? WallSegmentFadeCulprits.BitActive : 0);
+        }
+
+        /// <summary>Name the renderers that moved the scene half, throttled and measured.</summary>
+        private void LogSignatureCulprits(float now)
+        {
+            if (!WallFadeTuning.SignatureCulpritCensusOn)
+                return;
+            if (now < _nextCulpritLogTime)
+                return;
+            _nextCulpritLogTime = now + BudgetLogIntervalSeconds;
+            using (PerfMonitor.Scope("WallFade.SigDiag"))
+            {
+                if (!_bankedFactsValid)
+                {
+                    VRLog.Info(Name, WallSegmentFadeCulprits.Format(
+                        new WallSegmentFadeCulprits.Census(), _factCount, 0, tableBanked: false));
+                    return;
+                }
+                _culpritLive.Clear();
+                for (int i = 0; i < _factCount; i++)
+                {
+                    ref RendererFact f = ref _facts[i];
+                    if (f.R == null)
+                        continue;
+                    _culpritLive.Add(new WallSegmentFadeCulprits.Entry(
+                        f.R.GetInstanceID(), f.Name, FactBits(ref f)));
+                }
+                WallSegmentFadeCulprits.Census census = WallSegmentFadeCulprits.Diff(
+                    _bankedFacts, _culpritLive, CulpritTopGroups);
+                VRLog.Info(Name, WallSegmentFadeCulprits.Format(
+                    census, _culpritLive.Count, _bankedFacts.Count, tableBanked: true));
+                _culpritLive.Clear(); // do not hold a scene's worth of names to the next cycle
+            }
+        }
+
         /// <summary>Bank the signatures this cycle's commit was built against, and rebuild the
         /// drift ring over the table it produced.</summary>
         private void AdoptCommittedSignature(float now)
@@ -801,6 +927,7 @@ internal static partial class WallSegmentFade
             _committedSceneXor = _sceneFactSigXor;
             _committedWallSig = _surveySig;
             _committedSigValid = true;
+            BankFactCensus();
             _skipRun = 0;
             _lastCommitAt = now;
             _cycleCommitted++;
@@ -974,9 +1101,12 @@ internal static partial class WallSegmentFade
                 _noSkipEarly++;
                 _lastNoSkipDetail =
                     "the cycle was ASKED FOR: it opened "
-                    + $"{now - _lastCycleOpenedAt:F2}s after the last one against a "
-                    + $"{RescanIntervalSeconds:0.0}s cadence, which is a site zeroing "
-                    + "_nextRescan for a mid-fade regeneration";
+                    + $"{now - _lastCycleOpenedAt:F2}s after the last one against the "
+                    + $"{_scheduledRescanInterval:0.00}s cadence IT WAS SCHEDULED WITH "
+                    + $"(the live [WallFade] RescanIntervalSeconds reads "
+                    + $"{RescanIntervalSeconds:0.00}s), which is a site zeroing _nextRescan for "
+                    + "a mid-fade regeneration. If these two differ, the dial moved between the "
+                    + "two cycles and at most ONE cycle can be misread as asked-for";
                 return false;
             }
             if (_cycleMaterialsDirty)
@@ -1006,6 +1136,10 @@ internal static partial class WallSegmentFade
                     + "died, was deactivated by the game or changed shader family. IF THIS IS "
                     + "THE COUNT THAT DOMINATES, the scene is churning under the snapshot and "
                     + "the next round's question is WHICH renderers, not whether to skip";
+                // ModBuild 278: it dominates (28 of 33 in the ModBuild 277 log), so the question
+                // is answered here rather than deferred to another round. Throttled and measured
+                // — see LogSignatureCulprits.
+                LogSignatureCulprits(now);
                 return false;
             }
             if (_surveySig != _committedWallSig)
@@ -1055,8 +1189,11 @@ internal static partial class WallSegmentFade
               .Append("); DECISION LATENCY — the table in force stood at most ")
               .Append(_cycleWorstTableAgeSeconds.ToString("F1"))
               .Append("s without a rebuild in this window, against the ")
-              .Append(RescanIntervalSeconds.ToString("0.0"))
-              .Append("s cadence a committing cycle gives it. SURVEY: ")
+              .Append(RescanIntervalSeconds.ToString("0.00"))
+              .Append("s cadence a committing cycle gives it ([WallFade] "
+                    + "RescanIntervalSeconds, live — raising it divides the NUMBER of ~90ms "
+                    + "commits and shortens not one of them, at the price of exactly this "
+                    + "latency figure). SURVEY: ")
               .Append(_cycleSurveyFrames).Append(" frame(s) at ")
               .Append(SurveyBudgetMillis.ToString("0.0")).Append("ms/frame, worst ")
               .Append(_cycleWorstSurveyMillis.ToString("F2")).Append("ms, ")
@@ -1070,7 +1207,18 @@ internal static partial class WallSegmentFade
               .Append(_noSkipNoTable).Append(" no table yet, ")
               .Append(_noSkipReveal).Append(" room reveal, ")
               .Append(_noSkipEarly).Append(" asked for (a mid-fade regeneration zeroed the "
-                    + "cadence), ")
+                    + "cadence — THIS IS THE FALSIFIER FOR ModBuild 278's cadence dial: the "
+                    + "'asked for' test compares the gap since the last cycle against the "
+                    + "cadence THAT CYCLE WAS SCHEDULED WITH, currently ")
+              .Append(_scheduledRescanInterval.ToString("0.00"))
+              .Append("s against a live dial of ")
+              .Append(RescanIntervalSeconds.ToString("0.00"))
+              .Append("s. Reading the LIVE value instead would make an ordinary cycle look "
+                    + "asked-for whenever the dial had just been raised, and if it were ever "
+                    + "systematically true it would mark EVERY cycle as asked-for and switch "
+                    + "the whole skip off silently. This counter read 0 across the entire "
+                    + "ModBuild 277 log and must stay 0 in a session where nothing regenerates, "
+                    + "whatever the dial is set to), ")
               .Append(_noSkipMaterials).Append(" dissolve material swap, ")
               .Append(_noSkipBoard).Append(" board moved, ")
               .Append(_noSkipScene).Append(" scene signature moved, ")

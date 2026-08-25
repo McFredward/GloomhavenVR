@@ -1736,6 +1736,174 @@ internal static partial class WallSegmentFade
             return _walkInside;
         }
 
+        /// <summary>
+        /// ModBuild 278 — STOP MEASURING WHAT THE NEXT BRANCH OVERRULES.
+        ///
+        /// <para><b>THE REQUEST</b>, user, 2026-08-25, verbatim: <i>"In dem Modus in dem man IM
+        /// dem Level ist, kann das 'Abtasten' komplett deaktiviert werden so lange man in dem
+        /// Modus ist um hier auch Performance zu sparen."</i> It arrived in the same message as
+        /// the two cadence dials and it is the sharpest of the three, because inside this mode
+        /// the work is not merely frequent — it is provably discarded.</para>
+        ///
+        /// <para><b>WHY IT IS SAFE, STATED AS A PROPERTY OF THE CODE AND NOT AS AN INTENTION.</b>
+        /// While <c>_walkInside</c> holds, the decision loop's walk-in branch runs for EVERY
+        /// segment and its whole body is <c>State = false; PendingRaw = false;
+        /// SmoothInit = false</c>. It sits ABOVE the split-run branch and above the coverage
+        /// branch, so no segment can reach a coverage number at all. Three things therefore
+        /// compute an answer nothing reads: <c>UpdateSampleVisibility</c> (projects every room's
+        /// floor samples through the head camera), <c>BlockedFraction</c> per segment, and the
+        /// periodic rescan cycle that rebuilds the membership those two are measured over.</para>
+        ///
+        /// <para><b>WHAT IS DELIBERATELY NOT SUSPENDED.</b> The per-segment fade ramp and its
+        /// material write keep running every frame. That is the ModBuild 271 ruling — the walls
+        /// this mode holds solid come back through the ordinary ANIMATED un-fade, nothing snaps
+        /// — and it is also why the suspension cannot be implemented by simply returning early
+        /// from the tick. So is <c>UpdateWalkInside</c> itself, and <c>UpdateInsideBoard</c>
+        /// under it: they are ~15 float ops and they are what NOTICES the release, so gating
+        /// them on their own verdict would be a latch that can never let go — the "a claim must
+        /// not measure itself" failure this project has a ledger entry for.</para>
+        ///
+        /// <para><b>SUSPEND, DO NOT BREAK.</b> A rescan cycle already in flight is allowed to
+        /// RUN TO COMPLETION rather than being abandoned. The abandon path
+        /// (<c>AbandonRescanCycle</c> → <c>ClearSurveyState</c>) is correct and atomic, but it
+        /// also drops <c>_committedSigValid</c> and the drift ring — so the first cycle after
+        /// the release would find no table to compare against, refuse the skip on the "no table
+        /// yet" term, and pay a GUARANTEED ~90 ms commit on the very frame the player zooms back
+        /// out. That is the hitch this whole build exists to remove, relocated to the worst
+        /// possible moment. Letting the in-flight cycle finish costs at most one commit that was
+        /// already scheduled and leaves the banked signature intact, so the release cycle can
+        /// skip like any other. The segment table is never half-rebuilt either way: only the
+        /// COMMIT stage mutates it and the commit is atomic within one frame.</para>
+        ///
+        /// <para><b>THE RELEASE EDGE IS IMMEDIATE, BY LEAVING THE CLOCKS ALONE.</b> Neither
+        /// <c>_nextRescan</c> nor <c>_nextPathAudit</c> nor <c>_nextEvalTime</c> is pushed
+        /// forward while suspended, so all three are already in the past when the latch drops
+        /// and the first tick after the release evaluates, audits and opens a cycle without
+        /// waiting out anything. No forced commit, and no separate release path that could rot.
+        /// The suspension itself lags the latch by exactly one frame — this method runs after
+        /// <c>UpdateWalkInside</c>, which runs after the rescan block — which is 11 ms against a
+        /// 2 s cadence and a 2.5 s exit dwell. Moving the latch above the rescan block to close
+        /// that would reorder a hard-won per-frame sequence for nothing.</para>
+        ///
+        /// <para><b>THE SPLIT RUNS ARE RE-SEEDED, and this is the one non-obvious consequence.</b>
+        /// <c>EvaluateSplitRuns</c> runs on evaluation frames only, so suspending evaluation
+        /// freezes every run's EMA. The walk-in branch's own comment is explicit about why that
+        /// would be wrong — <i>"A FROZEN EMA IS THE 251 SYMPTOM WITH A DELAY … every wall would
+        /// come out of the mode holding the SAME minute-old reading and could re-fade together
+        /// on the next dwell. That is exactly the 'alle auf einmal' he rejected"</i> — and it
+        /// solved it for unsplit walls by dropping <c>SmoothInit</c>, noting that split runs
+        /// needed no equivalent because their evaluation kept running. It does not keep running
+        /// any more, so this method supplies the equivalent: <c>ClearSplitRunDrive</c> on the
+        /// engaging edge drops the whole run table, and the first evaluation after the release
+        /// rebuilds every run from its members' OWN live coverage. Same end state as the unsplit
+        /// arm, reached the same way — the walls leave the mode disagreeing, as they entered
+        /// it.</para>
+        ///
+        /// <para><b>MULTIPLAYER.</b> Nothing here touches the wire. Own fades are broadcast by
+        /// <c>WallSegmentFade.Net.cs</c> from the segment STATE, and while the mode holds every
+        /// state is false by decree — which is what a peer should be told, because it is what is
+        /// true on this machine. A peer whose own player is not walked in runs his own driver,
+        /// his own latch and his own decision; <c>PeerBoardFade</c> is a different subsystem
+        /// entirely (a teammate's control board, not the walls). Suspending a receiver's local
+        /// SAMPLING cannot desync anything, because sampling is not a wire input.</para>
+        ///
+        /// <para><b>AND IT LOGS BOTH EDGES WITH COUNTS.</b> This project has lost builds to
+        /// remedies that never ran; "the code is there" is not evidence. Grep a hardware log for
+        /// <c>SAMPLING SUSPENDED</c> / <c>SAMPLING RESUMED</c>.</para>
+        /// </summary>
+        /// <returns>True while the sampling is stood down this frame.</returns>
+        private bool UpdateSamplingSuspension(bool walkInside, float now)
+        {
+            bool want = walkInside && WallFadeTuning.WalkInSuspendSamplingOn;
+            if (want == _samplingSuspended)
+                return _samplingSuspended;
+
+            if (want)
+            {
+                _samplingSuspended = true;
+                _suspendEdges++;
+                _suspendedSince = now;
+                _suspendedEvaluations = 0;
+                _suspendedCycles = 0;
+                _suspendedNextTick = Mathf.Max(_nextRescan, now);
+                // See THE SPLIT RUNS ARE RE-SEEDED above. Done on the EDGE and not per frame:
+                // the table is rebuilt lazily by EvaluateSplitRuns from _segments, so one clear
+                // is enough and repeating it would be a per-frame dictionary clear for nothing.
+                ClearSplitRunDrive();
+                VRLog.Info(Name,
+                    $"SAMPLING SUSPENDED [EDGE #{_suspendEdges}] — the walk-in stand-down holds "
+                    + $"all {_segments.Count} tracked wall segment(s) fully solid by decree "
+                    + "(the WALK-IN STAND-DOWN line beside this one carries the held/hidden "
+                    + "split for the pass it landed on; _walkHeld is written by the decision "
+                    + "loop LATER in this same tick, so quoting it here would print the "
+                    + "previous frame's count, which was taken while the mode was still off), "
+                    + "so the coverage "
+                    + "sampling, the fade decision and the rescan cadence are all stood down "
+                    + "until it releases. STILL RUNNING: the per-segment fade ramp and its "
+                    + "material write (every frame, so nothing snaps), the walk-in latch itself "
+                    + "and the inside-the-board test that will notice the release, and a room "
+                    + "reveal — which still opens a rescan cycle immediately, whatever this "
+                    + $"says. A cycle in flight right now (stage {_rescanStage}) is allowed to "
+                    + "finish rather than being torn up: abandoning it would drop the banked "
+                    + "signature and force a guaranteed ~90ms commit on the frame you zoom back "
+                    + "out. Split-run drive dropped so every run re-seeds its coverage from a "
+                    + "LIVE reading on release instead of a stale one. Switch at [WallFade] "
+                    + "WalkInSuspendSampling.");
+            }
+            else
+            {
+                LogSamplingResumed(now, "the walk-in stand-down released");
+            }
+            return _samplingSuspended;
+        }
+
+        /// <summary>
+        /// Drop the suspension WITHOUT waiting for the ordinary edge, and say so.
+        ///
+        /// <para>WHY THIS EXISTS AND WHY IT IS NOT PARANOIA. <c>UpdateSamplingSuspension</c> runs
+        /// LATE in the tick — after <c>UpdateWalkInside</c>, which is after the early return
+        /// <c>if (_segments.Count == 0 || _roomBounds.Count == 0) return;</c> — while the flag it
+        /// sets is read EARLY, at the rescan-cadence gate. That asymmetry is a latch that can
+        /// never let go, and it is reachable: suspend inside a scenario, load a new one, and the
+        /// segment table is empty while the flag is still true. The gate then refuses to open a
+        /// cycle, the cycle is the only thing that could refill the table, and the tick returns
+        /// at the empty-table guard before ever reaching the code that would clear the flag. The
+        /// wall fade would be dead for the rest of the session with nothing in the log.
+        ///
+        /// <para>This project's ledger calls that shape "a claim must not measure itself" — a
+        /// latch whose only release path is gated by the latch. Every site that force-releases
+        /// the walk-in latch therefore force-releases this too, at the same instant, and the
+        /// resume line names which one did it.</para>
+        /// </summary>
+        private void LogSamplingResumed(float now, string cause)
+        {
+            if (!_samplingSuspended)
+                return;
+            _samplingSuspended = false;
+            _suspendEdges++;
+            float held = now - _suspendedSince;
+            VRLog.Info(Name,
+                    $"SAMPLING RESUMED [EDGE #{_suspendEdges}] — {cause}. Stood down for {held:F1}s, in "
+                    + $"which the coverage sampling was skipped on {_suspendedEvaluations} "
+                    + $"FRAME(S) and {_suspendedCycles} rescan cadence tick(s) went by unused. "
+                    + "READ BOTH FIGURES NARROWLY. The frame count is frames, not evaluations: "
+                    + "with [WallFade] EvalIntervalSeconds above 0 not every one of them would "
+                    + "have evaluated anyway, so it is an UPPER bound on the decisions removed. "
+                    + $"The cycle count is periods of the live {WallFadeTuning.RescanIntervalSeconds:0.00}s "
+                    + "cadence, i.e. the number of ~85-134ms commit OPPORTUNITIES this mode "
+                    + "removed and not the number of commits it saved — most cycles skip their "
+                    + "commit anyway, see the BUDGET line's SKIP clause. NOTHING WAITS: "
+                    + "_nextRescan, _nextPathAudit and _nextEvalTime were all left in the past, "
+                    + "so this very frame evaluates and the next tick opens a cycle. Every wall "
+                    + "is back on its own coverage against the live bars "
+                    + $"{WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}, and every split run "
+                    + "re-seeds from its own live reading."
+                    + (WallFadeTuning.WalkInSuspendSamplingOn
+                        ? string.Empty
+                        : " (This edge is [WallFade] WalkInSuspendSampling being switched OFF, "
+                          + "not the player stepping out.)"));
+        }
+
         /// <summary>Drop the walk-in latch without waiting out an exit dwell (dial off, board
         /// volume gone, scenario teardown). The edge still prints: a mode that stops holding
         /// walls must never do so silently.</summary>
@@ -1749,6 +1917,12 @@ internal static partial class WallSegmentFade
             _walkInside = false;
             _walkInsidePending = false;
             _walkInsidePendingSince = 0f;
+            // ModBuild 278 — the suspension goes with the latch it belongs to, at the same
+            // instant and never one tick later. See LogSamplingResumed for the deadlock this
+            // closes; it is a no-op whenever the suspension was not engaged.
+            LogSamplingResumed(Time.unscaledTime,
+                "the walk-in latch was force-released (dial off, board volume gone, or scenario "
+                + "teardown) — not the player stepping out");
         }
 
         /// <summary>
