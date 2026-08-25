@@ -218,6 +218,21 @@ internal static partial class WallSegmentFade
         /// frame the ModBuild-261 SHOW EDGE audit reads (WallSegmentFade.FadeCensus.cs).</summary>
         public bool WasDrawing;
 
+        /// <summary>MODBUILD 271 — is an applier currently DRIVING this piece (ramping or
+        /// holding it hidden)? Written only by the appliers and cleared by
+        /// <see cref="FadeDriver.RestoreProp(MountedProp, Segment, string)"/>.
+        ///
+        /// <para>WHY IT EXISTS. Before the union rule a lane's fade was a SEGMENT property, so
+        /// "is this piece driven" was answerable from <c>seg.MountedState</c> alone and the
+        /// restore could be done for the whole list at once. Under the union rule two pieces of
+        /// the SAME segment can disagree — one hangs over a neighbour's hole and rides that
+        /// wall's fade, the other does not — so the release edge is per PIECE. Without this
+        /// latch the per-piece restore would run every frame for every undriven piece of a
+        /// segment that has any driven one, and <see cref="FadeDriver.RestoreProp"/> ends in
+        /// <c>NoteOwnershipChange</c>: it would feed the round-11 churn tripwire a "released"
+        /// transition per prop per frame. A restore is an EDGE, and this is the edge.</para></summary>
+        public bool Driven;
+
         /// <summary>Where this piece is in its RETURN — see <see cref="ReturnPhase"/>. Written
         /// only by the appliers' hide branches, by <see cref="FadeDriver.ShowAttachmentPiece"/>
         /// and by <see cref="FadeDriver.RestoreProp(MountedProp, Segment, string)"/>; never by an
@@ -479,6 +494,17 @@ internal static partial class WallSegmentFade
         /// never carried</c> lines. Acceptance: this &gt; 0 while that grep reads 0.</summary>
         private int _censusMountedWallBuiltCarried;
 
+        /// <summary>MODBUILD 271 — THE SIXTH EXEMPTION SITE'S OWN ACCEPTANCE NUMBER, deliberately
+        /// NOT folded into <see cref="_censusMountedWallBuilt"/>. That counter answers "how many
+        /// pieces did the ModBuild-266 provenance lift rescue from a renderer-TYPE or FIGURE
+        /// refusal"; this one answers "how many did the AIRBORNE BAR lift rescue", and the two
+        /// lifts have different blast radii and different falsifiers. A later log that could not
+        /// tell them apart would make the crystal ruling unauditable — hence the separate count
+        /// and the separate <c>[WALL-BUILT BELOW THE BAR]</c> tag. See
+        /// <see cref="IsWallBuiltUnitDressing"/>.</summary>
+        private int _censusMountedWallBuiltBelowBar;
+        private int _lastLoggedMountedWallBuiltBelowBar = -1;
+
         /// <summary>Props that changed OWNER this rescan without ever being restored to visible —
         /// the leavers loop's ModBuild-265 handover. Reported so a handover that quietly loses
         /// its target is a number and not a silence.</summary>
@@ -554,6 +580,137 @@ internal static partial class WallSegmentFade
         /// faded — the exact defect shape, capped for log hygiene.</summary>
         private int _releaseOverFadedWarns;
         private const int ReleaseOverFadedWarnCap = 6;
+
+        // ---- ModBuild 271: THE UNION RULE ------------------------------------------------------
+
+        /// <summary>
+        /// THE UNION RULE (user, 2026-08-25 — two reports, one shape).
+        ///
+        /// <para><b>THE REPORTS.</b> (1) <c>schwebende_kerzen.jpg</c>: "Manche Kerzen verschwinden
+        /// noch nicht und schweben dann an der Wand … Es betrifft nicht alle Kerzen, nur manche."
+        /// (2) <c>benachbarte_stange1/2.jpg</c>: "Wenn eine benachbarte Wand nicht gefaded hat und
+        /// dort eine Stange in die Wand rausguckt die gefaded ist, dann gibt es nach wie vor die
+        /// Situation, dass die Stange voll sichtbar ist auf der unsichtbaren Wand. Kümmere dich
+        /// darum, dass auch in dieser Situation die Stange mitfaded OHNE DIE BENACHBARTE WAND ZU
+        /// BEEINFLUSSEN."</para>
+        ///
+        /// <para><b>THE ROOT CAUSE, and it is one cause.</b> A renderer's visibility is decided by
+        /// EXACTLY ONE segment — its owner — but the renderer physically belongs to more than one.
+        /// This subsystem's own log has named the class since ModBuild 258: <c>N unit(s) have TWO
+        /// OR MORE OWNERS on independent fades</c>, which reads 49 on 24 of the 114 census prints
+        /// in the ModBuild-270 hardware log and 54 on 4 more. The unit-affinity rule was supposed
+        /// to hold that at zero and does not. "Only some candles" is exactly what a rule keyed on
+        /// the nearest wall produces: a sconce in the middle of a wall run has one wall over it, a
+        /// sconce at a junction has two, and only the second kind can be orphaned by the wrong
+        /// one.</para>
+        ///
+        /// <para><b>THE RULE.</b> The fade applied to a wall-ATTACHMENT renderer is the MAXIMUM
+        /// over the fade of the segment that owns it and the fade of every OTHER fade-eligible
+        /// segment whose decision AABB its own world AABB actually INTERSECTS. Max, never min and
+        /// never a sum: a prop hanging over a hole must go with the hole, and a prop whose own
+        /// wall is going must go with its own wall.</para>
+        ///
+        /// <para><b>INTERSECTION, NOT PROXIMITY — and this is the whole safety argument.</b> The
+        /// test is a real AABB overlap widened by <see cref="MountedUnionSlackWU"/>, NOT the
+        /// <see cref="MountedLinkMaxXZ"/> = 0.90 wu reach the OWNERSHIP election uses. A prop
+        /// merely NEAR a faded wall keeps its own wall's fade; a prop whose geometry is literally
+        /// inside the faded wall's slab rides it. Two parallel wall runs are ≥ one hex (1.72 wu)
+        /// of clear floor apart, so an overlap cannot reach across a room by construction.</para>
+        ///
+        /// <para><b>WHAT IT MAY NOT DO, the user's own constraint.</b> No segment's Fade, State,
+        /// PendingRaw, Smooth, coverage or decision is written anywhere in this feature. It reads
+        /// <c>Segment.Fade</c> and <c>Segment.Bounds</c> and writes only what the PROP reads. The
+        /// neighbouring wall is not touched; it is only CONSULTED.</para>
+        ///
+        /// <para><b>THE CORNER CARVE-OUT.</b> Registered shared corner pieces are EXEMPT and keep
+        /// <c>Mathf.Min(cp.A.Fade, cp.B.Fade)</c> (round-7 ruling: a corner shared by two walls
+        /// must stay while either neighbour stands). They are never entered into the map — see
+        /// the explicit skip in <see cref="BuildMountedUnionOverlaps"/> — and
+        /// <c>ApplyCornerPieces</c> never consults it.</para>
+        ///
+        /// <para><b>WHICH LANES.</b> The four DRESSING lanes only: mounted dressing, prop-unit
+        /// dressing, foliage and asset siblings. The wall BODY meshes and the STACKED shell are
+        /// the neighbouring wall rather than something hanging on it, and raising their fade
+        /// would be precisely the "benachbarte Wand beeinflussen" the user forbade.</para>
+        ///
+        /// <para><b>COST.</b> The overlap SET is geometry and is built ONCE per rescan, at the end
+        /// of <see cref="CollectWallMountedProps"/> when every lane list is final; the FADES are
+        /// read live, so the per-frame read is one dictionary probe plus a walk of a list that is
+        /// empty for almost every prop and has one or two entries otherwise. No
+        /// <c>FindObjectsOfType</c>, no per-frame scene walk — the mistake that has shipped twice
+        /// in this project and once cost 12.6 ms of an 11.11 ms frame.</para>
+        ///
+        /// <para><b>MULTIPLAYER.</b> Receiver-side presentation only: local bounds, local fades,
+        /// local property blocks. No wire field, no <c>NetProtocol</c> change, no networked
+        /// state.</para>
+        ///
+        /// <para><b>FALSIFIED BY.</b> The UNION RULE census line. A prop named there that is NOT
+        /// standing over the named wall's hole means the slack is too large; an
+        /// <c>applied 0</c> while <c>eligible &gt; 0</c> and a wall at fade 1.00 means the map is
+        /// built but the appliers never read it.</para>
+        /// </summary>
+        /// <remarks>THE TOLERANCE. 0.10 wu ≈ 6 % of a hex step (1.72 wu) and ≈ 1/9 of the
+        /// ownership reach. It exists to absorb the fact that a segment's decision AABB is
+        /// ground-STRIPPED and rebuilt from its surviving renderers, so a prop bolted flush to
+        /// its face can measure a hair outside it. It is far too small to bridge the gap between
+        /// two parallel walls. FALSIFIER: a prop that fades while standing clear of the hole —
+        /// the census prints the overlap DEPTH that decided it, so that is a number, not an
+        /// argument.</remarks>
+        private const float MountedUnionSlackWU = 0.10f;
+        /// <summary>How many union overrides one census line NAMES. The line states its own cap
+        /// and how many it dropped — a silently truncated list has cost this project three wrong
+        /// diagnoses.</summary>
+        private const int MountedUnionListCap = 12;
+
+        /// <summary>One foreign segment overlapping a dressing renderer, with the measure that
+        /// decided it: the SMALLEST axis of the AABB intersection box (wu), i.e. how deep the
+        /// prop reaches into that wall's slab.</summary>
+        private readonly struct UnionHit
+        {
+            public readonly Segment Seg;
+            public readonly float Depth;
+            public UnionHit(Segment seg, float depth) { Seg = seg; Depth = depth; }
+        }
+
+        /// <summary>The per-renderer overlap record: who OWNS it, and every OTHER fade-eligible
+        /// segment its own AABB reaches into. Pooled — one instance per overlapping renderer,
+        /// reused across rescans.</summary>
+        private sealed class UnionEntry
+        {
+            public Segment Owner = null!;
+            public string Lane = string.Empty;
+            public readonly List<UnionHit> Hits = new(2);
+        }
+
+        private readonly Dictionary<Renderer, UnionEntry> _mountedUnion = new(64);
+        private readonly Stack<UnionEntry> _unionPool = new();
+        private readonly HashSet<Renderer> _unionCornerExempt = new();
+        /// <summary>Segments that OWN at least one renderer in the map — the per-frame
+        /// short-circuit. Without it every applier would pay a dictionary probe per prop per
+        /// frame just to learn that almost nothing overlaps anything; with it a segment none of
+        /// whose dressing reaches into a foreign wall costs ONE hash lookup for the whole lane.
+        /// A renderer is entered under the FIRST lane that offers it (one owner per renderer is
+        /// already the subsystem's invariant), so a second owner would simply not see it — which
+        /// is the status quo, never a wrong fade.</summary>
+        private readonly HashSet<Segment> _unionOwners = new();
+        /// <summary>Renderers with at least one foreign overlapping segment — the DENOMINATOR, so
+        /// a zero on the census is distinguishable from an instrument that never ran.</summary>
+        private int _censusUnionEligible;
+        /// <summary>Dressing renderers refused REGISTRATION because they are architecture-scale
+        /// (see <see cref="RegisterUnionOverlaps"/>) — logging failures, not only successes.</summary>
+        private int _censusUnionOversize;
+        /// <summary>Dressing renderers walked that overlapped no foreign segment at all.</summary>
+        private int _censusUnionNoOverlap;
+        /// <summary>Prop-FRAMES in which an applier actually raised a piece's fade above its
+        /// owner's, and the frames counted — live numbers, so a change-gated line can never look
+        /// like a stopped tick.</summary>
+        private int _unionRaisedPropFrames;
+        private int _unionRaisedPieces;
+        private int _lastLoggedUnionEligible = -1;
+        private int _lastLoggedUnionApplied = -1;
+        private int _lastLoggedUnionOversize = -1;
+        private int _lastLoggedUnionNoOverlap = -1;
+        private readonly List<string> _unionCensus = new();
 
         // ---- delivery -----------------------------------------------------------------------
 
@@ -713,6 +870,10 @@ internal static partial class WallSegmentFade
         private void RestoreProp(MountedProp p, Segment? owner, string reason)
         {
             _mountedTouched.Remove(p.Renderer);
+            // ModBuild 271: the drive latch is spent — cleared FIRST, so every restore path
+            // (unfade, drop, handover, orphan guard, teardown) leaves it false whatever it does
+            // next. See MountedProp.Driven for why the per-piece edge exists.
+            p.Driven = false;
             Renderer r = p.Renderer;
             // Did we ever write a property block on this renderer? (Read BEFORE the swap
             // restore clears NativeFade — a natively-driven piece has no colour/cutoff id of
@@ -791,15 +952,28 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void NoteReleaseOverFadedWall(Renderer r, Segment? owner, string reason)
         {
-            if (owner == null || owner.Fade <= 0f
-                || _releaseOverFadedWarns >= ReleaseOverFadedWarnCap)
+            if (owner == null || _releaseOverFadedWarns >= ReleaseOverFadedWarnCap)
+                return;
+            // MODBUILD 271 — THE SECOND HOLE THIS WARN CAN BE LET GO OVER. Until the union rule
+            // the only wall that could be missing under a released prop was its OWNER's, so a
+            // solid owner meant a safe release. It no longer does: the reported defect (2) is a
+            // pole hanging over a NEIGHBOUR's hole while its own wall stands. Log the failure,
+            // not only the success — with the foreign wall's live fade and the overlap depth, so
+            // the next log decides it without another hardware round.
+            Segment? foreign = HottestUnionSegment(r, out float foreignFade, out float depth);
+            if (owner.Fade <= 0f && foreignFade <= 0f)
                 return;
             _releaseOverFadedWarns++;
             string wall = owner.Anchor != null ? owner.Anchor.name : "<dead>";
+            string over = foreign != null && foreignFade > owner.Fade
+                ? $" It also overlaps '{(foreign.Anchor != null ? foreign.Anchor.name : "<dead>")}'"
+                  + $" whose fade is {foreignFade:F2} (AABB overlap depth {depth:F2} wu) — the"
+                  + " UNION RULE should have been holding it and did not."
+                : string.Empty;
             VRLog.Warn(Name,
                 $"RELEASED OVER A FADED WALL: '{r.name}' [{RendererKind(r)}] let go by '{wall}' "
                 + $"while that wall's fade is {owner.Fade:F2} (mounted state "
-                + $"{owner.MountedState}) — term that failed: {reason}. The restore re-enables "
+                + $"{owner.MountedState}) — term that failed: {reason}.{over} The restore re-enables "
                 + "the renderer, so unless another owner hides it THIS is a lit prop hanging in "
                 + "mid-air over a wall that is not there (user report 2026-08-24, "
                 + "wand_problem2.jpg). A release above a faded wall is never correct except for "
@@ -816,8 +990,12 @@ internal static partial class WallSegmentFade
         {
             if (seg.Mounted.Count == 0)
                 return;
-            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
-            if (want == 0)
+            int segWant = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            // MODBUILD 271 — THE UNION RULE'S ENTRY POINT, and it has to be HERE rather than at
+            // the ramp below. The early-out is a whole-SEGMENT decision, and defect (2) is
+            // precisely a piece whose own wall is the one that has NOT faded: returning here
+            // would mean no piece of this lane is ever looked at. See _mountedUnion.
+            if (segWant == 0 && !LaneHasUnionFade(seg.Mounted, seg))
             {
                 RestoreSegmentMounted(seg);
                 return;
@@ -825,8 +1003,9 @@ internal static partial class WallSegmentFade
             // No held-state early-out (round 5, the regen-churn lesson — see ApplyStacked):
             // a prop adopted or re-enabled while the segment is already held faded must be
             // hidden THIS frame. Held steady state = one enabled compare per prop.
-            float ramp = Mathf.Clamp01(seg.Fade * MountedFadeLead);
             bool lost = false;
+            int highest = 0;
+            int raisedBefore = _unionRaisedPropFrames;
             foreach (MountedProp p in seg.Mounted)
             {
                 if (p.Renderer == null)
@@ -834,6 +1013,23 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // THE ONE LINE THE UNION RULE CHANGES: the fade this PIECE reads. Never the
+                // segment's own — nothing here writes seg.Fade, seg.State or seg.PendingRaw.
+                float eff = UnionFade(p.Renderer, seg);
+                int want = eff >= FoliageHideFade ? 2 : eff > 0f ? 1 : 0;
+                if (want == 0)
+                {
+                    // Neither this piece's own wall nor any wall it hangs over is fading. The
+                    // restore is an EDGE (MountedProp.Driven) — without that latch this would
+                    // feed the churn tripwire a "released" transition per prop per frame.
+                    if (p.Driven)
+                        RestoreProp(p, seg, "wall solid again, and nothing it overlaps is fading");
+                    continue;
+                }
+                p.Driven = true;
+                if (want > highest)
+                    highest = want;
+                float ramp = Mathf.Clamp01(eff * MountedFadeLead);
                 if (want == 2)
                 {
                     // MODBUILD 261: evaluate on ADOPTION, not on the frame the piece is drawn
@@ -849,7 +1045,7 @@ internal static partial class WallSegmentFade
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
                         p.Renderer.enabled = false;
-                    ShowEdge(p, false, seg.Fade);
+                    ShowEdge(p, false, eff);
                 }
                 else
                 {
@@ -858,12 +1054,14 @@ internal static partial class WallSegmentFade
                     // ModBuild 265: the ramp, the return gate, the audit call and the enable are
                     // ONE implementation for all five appliers — the ModBuild-261 lesson about
                     // two lanes writing "the same" rule twice.
-                    ShowAttachmentPiece(p, p.Renderer, ramp, seg.Fade);
+                    ShowAttachmentPiece(p, p.Renderer, ramp, eff);
                 }
             }
+            if (_unionRaisedPropFrames != raisedBefore)
+                _unionRaisedPieces++;
             if (lost)
                 _nextRescan = 0f; // prop regenerated away mid-fade — re-collect promptly
-            seg.MountedState = want;
+            seg.MountedState = highest;
         }
 
         /// <summary>Re-authorize EVERY prop we ever touched and empty the ledger (teardown / mod
@@ -1098,6 +1296,7 @@ internal static partial class WallSegmentFade
             _censusMountedUnitHome = 0;
             _censusMountedWallBuilt = 0;
             _censusMountedWallBuiltCarried = 0;
+            _censusMountedWallBuiltBelowBar = 0; // ModBuild 271 — the sixth site's own number
             _censusMountedHandover = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
@@ -1527,6 +1726,41 @@ internal static partial class WallSegmentFade
                     if (anchorY < minFloorY + MountedClearanceWU * 0.25f)
                         continue;
                     bool belowBar = anchorY < airborneBar;
+                    // MODBUILD 271 — THE SIXTH EXEMPTION SITE: THE AIRBORNE BAR ITSELF.
+                    //
+                    // The bar is a GEOMETRIC PROXY for "was the wall holding this up?". For a
+                    // piece the wall generator built, PROVENANCE answers that question directly
+                    // and answers it better — which is the argument ModBuild 266 made at four
+                    // sites (the renderer-type skip, the FIGURE reject, the standing reject and
+                    // PurgeFigureRenderers) and ModBuild 268 at the fifth (the sticky carry).
+                    // The bar was never among them, and it is the refusal the ModBuild-270 log
+                    // actually prints for the two subjects of this round's report: 'anchor 0.44
+                    // under the airborne bar 1.00 — reads as floor-supported, so it would NOT
+                    // float' for EN_CR_Hanging_01_Mesh and 'anchor 0.33 …' for EN_CR_Curtain_Mesh.
+                    //
+                    // THE CONDITION IS A CONJUNCTION, NOT THE PROVENANCE TERM ALONE — see
+                    // IsWallBuiltUnitDressing. Provenance alone would also adopt
+                    // 'CV_Ice_Crystal_Form_02/03' (STANDING USER RULING 2026-08-24: the crystal
+                    // formation stays) and 'LightShaft_Prefab (1)', both of which read
+                    // ProceduralWall provenance at the same 3-4 levels as the targets. The term
+                    // that separates them in every one of the 4,111 leftover-audit rows of the
+                    // ModBuild-270 log is whether the four-level prop-unit walk resolves a UNIT:
+                    // 146/146 crystal rows, 146/146 for form 03 and 145/145 light-shaft rows read
+                    // 'no prop unit at all', while 383/383 curtain rows resolve
+                    // 'PCG_CR_Curtain_Red'. Depth does not separate them and neither does foot
+                    // height, renderer type or XZ gap — see WallProvenanceProbeLevels.
+                    //
+                    // ONE BOOL, FOUR GATES. The bar refuses this candidate at four places (the
+                    // nearest-wall election, the per-room floor plane, the unit-affinity override
+                    // and the refusal itself), and lifting only the last of them would drop the
+                    // piece into "no wall within reach / outside its span" instead — the earlier
+                    // sites would already have discarded every segment. `belowBar` is cleared for
+                    // the three that read it; the per-room plane reads the hoisted bool directly.
+                    bool barProvenance = false;
+                    bool wallGenBelowBar =
+                        belowBar && IsWallBuiltUnitDressing(c, out barProvenance);
+                    if (wallGenBelowBar)
+                        belowBar = false;
 
                     // Nearest eligible wall wins. Doorway segments (never fade) and segments
                     // without a trusted room plane attach nothing.
@@ -1563,7 +1797,12 @@ internal static partial class WallSegmentFade
                             nearestAny = gap;
                         if (belowBar || gap > linkMax || gap >= bestGap)
                             continue;
-                        if (anchorY < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
+                        // GATE 2 OF THE FOUR (ModBuild 271): the PER-ROOM floor plane. This one
+                        // does not read `belowBar`, so clearing that bool above does not reach it
+                        // — it has to consult the hoisted provenance bool itself or a wall-built
+                        // hanging is discarded here, silently, in the segment loop.
+                        if (!wallGenBelowBar
+                            && anchorY < _roomFloorY[seg.RoomIndex] + MountedClearanceWU)
                             continue; // airborne against THIS room's plane, not just the lowest
                         if (anchorY > seg.Bounds.max.y + MountedLinkMaxAboveTopWU)
                             continue; // floats above the wall, not in it
@@ -1607,9 +1846,21 @@ internal static partial class WallSegmentFade
                     }
                     if (belowBar)
                     {
+                        // MODBUILD 271 — LOG THE FAILURE, NOT ONLY THE SUCCESS. A below-bar
+                        // candidate the wall generator DID build but whose prop-unit walk found
+                        // no unit is refused here on the second half of the conjunction, and the
+                        // reject has to say which half — otherwise the crystal ruling and a
+                        // genuinely missed hanging produce the same sentence.
+                        string barWhy = barProvenance
+                            ? " — the wall generator DID build it, but the four-level prop-unit "
+                              + "walk found no unit root (or an actor component vetoes it), so "
+                              + "the ModBuild-271 exemption does not reach it: this is the term "
+                              + "that keeps 'CV_Ice_Crystal_Form_02/03' and "
+                              + "'LightShaft_Prefab (1)' standing (user ruling 2026-08-24)"
+                            : " — no ProceduralWall provenance either";
                         NoteMountedReject(c, anchorY, nearestAny,
                             $"anchor {anchorY:F2} under the airborne bar {airborneBar:F2} — "
-                            + "reads as floor-supported, so it would NOT float");
+                            + "reads as floor-supported, so it would NOT float" + barWhy);
                         continue;
                     }
                     if (best == null)
@@ -1739,6 +1990,13 @@ internal static partial class WallSegmentFade
                         _censusMountedUnitHome++;
                     if (wallBuilt)
                         _censusMountedWallBuilt++;
+                    // ModBuild 271: a DISTINCT counter and a DISTINCT tag for the sixth site, so
+                    // the ModBuild-266 provenance lift and this one can never be confused in a
+                    // later log. Counted at the ADOPTION like every other acceptance number in
+                    // this file — a census that counts intentions is the failure this subsystem
+                    // has paid for twice.
+                    if (wallGenBelowBar)
+                        _censusMountedWallBuiltBelowBar++;
                     NoteOwnershipChange(c,
                         $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
                         + (byUnitHome ? "(prop unit)" : string.Empty));
@@ -1751,7 +2009,12 @@ internal static partial class WallSegmentFade
                             + $"gap {bestGap:F2} → '{wall}'"
                             + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty)
                             + (wallBuilt ? " [WALL-BUILT: adopted on provenance, ModBuild 266]"
-                                         : string.Empty));
+                                         : string.Empty)
+                            + (wallGenBelowBar
+                                ? " [WALL-BUILT BELOW THE BAR: adopted on provenance + a resolved "
+                                  + $"prop unit at anchor {anchorY:F2} < {airborneBar:F2}, "
+                                  + "ModBuild 271]"
+                                : string.Empty));
                     }
                 }
             }
@@ -1849,6 +2112,14 @@ internal static partial class WallSegmentFade
                 _mountedScratch.Clear();
             }
 
+            // MODBUILD 271 — THE UNION MAP, built here and only here. Every lane list is final at
+            // this point (mounted, prop-unit dressing, foliage, siblings; leavers restored, orphans
+            // released), which is the whole reason it is at the end of the rescan rather than
+            // inside the sweep: the sweep's per-candidate segment walk skips every prop that is
+            // already adopted or carried sticky, i.e. almost all of them in the steady state.
+            // GEOMETRY here, FADES live at the applier — see _mountedUnion.
+            BuildMountedUnionOverlaps();
+
             // Apparance streams the dressing in over several rescans, so the scenario's first
             // heartbeat would report a half-built table forever: re-log whenever the attached set
             // actually changed. Steady state prints nothing.
@@ -1864,7 +2135,10 @@ internal static partial class WallSegmentFade
                 // releasing them, the adoption half settles at 0 and this one carries the
                 // signal — a trigger on the adoption half alone would print the line once and
                 // then look like a stopped tick.
-                || _censusMountedWallBuiltCarried != _lastLoggedMountedWallBuiltCarried)
+                || _censusMountedWallBuiltCarried != _lastLoggedMountedWallBuiltCarried
+                // ModBuild 271: and the AIRBORNE-BAR lift gets its own trigger for the same
+                // reason — a held instrument reads as a dead one.
+                || _censusMountedWallBuiltBelowBar != _lastLoggedMountedWallBuiltBelowBar)
                 LogMountedCensus();
             // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
@@ -1874,6 +2148,10 @@ internal static partial class WallSegmentFade
             // is the round-7 ruling being enforced against a class the ancestry test cannot see.
             LogMountedLeftovers();
             LogMountedMobile();
+            // ModBuild 271: the union rule's own line, and it stands alone for the same reason
+            // the two alarms above do — it is the whole of this round and must not be a clause
+            // inside a line about something else.
+            LogMountedUnion();
         }
 
         /// <summary>
@@ -1959,6 +2237,374 @@ internal static partial class WallSegmentFade
         private bool MountedHostEligible(Segment s) =>
             s.HasBounds && s.Anchor != null && s.DoorRoot == null
             && RoomDecisionValid(s.RoomIndex) && s.Mounted.Count < MountedMaxPerSegment;
+
+        /// <summary>
+        /// MODBUILD 271 — THE AIRBORNE-BAR EXEMPTION'S PREDICATE, and it is a CONJUNCTION of
+        /// three terms, never the provenance term on its own.
+        ///
+        /// <list type="number">
+        /// <item>THE WALL GENERATOR BUILT IT — <see cref="IsWallGeneratedDressing"/>, i.e.
+        ///   membership in a <c>ProceduralWall</c> subtree, the same discriminator ModBuild 266
+        ///   shipped at four sites and 268 at a fifth.</item>
+        /// <item>THE ACTOR VETO — carried INSIDE that predicate and never relaxed:
+        ///   <c>ActorBehaviour</c> / <c>CInteractableActor</c> anywhere above the renderer is an
+        ///   absolute refusal (round-7 ruling, Lights-rule severity).</item>
+        /// <item>AND THE FOUR-LEVEL PROP-UNIT WALK RESOLVES A UNIT ROOT. This is the term this
+        ///   build adds, and it is the ONLY field that separates the five renderer families the
+        ///   lift's measured blast radius contains. From the 4,111 leftover-audit rows of the
+        ///   ModBuild-270 log (complete — the leftover list caps at 40 and never exceeded 17):
+        ///   <c>EN_CR_Curtain_Mesh</c> resolves <c>PCG_CR_Curtain_Red</c> on 383 of 383 rows and
+        ///   <c>EN_CR_Hanging_01_Mesh</c> resolves <c>PCG_Test_Feature_Small_2</c> on its 'Wall 4'
+        ///   and 'Wall 6' instances, while <c>CV_Ice_Crystal_Form_02</c> (146/146),
+        ///   <c>CV_Ice_Crystal_Form_03</c> (146/146) and <c>LightShaft_Prefab (1)</c> (145/145)
+        ///   print <c>no prop unit at all (the four-level walk found no unit root)</c> on EVERY
+        ///   row. Ancestry DEPTH does not separate them (3–4 levels on both sides), and neither
+        ///   does foot height, top height, renderer type or XZ gap — see
+        ///   <see cref="WallProvenanceProbeLevels"/> for that whole interleaved table.</item>
+        /// </list>
+        ///
+        /// <para>WHICH DIRECTION THE UNKNOWN FAILS IN. A piece whose unit walk happens to resolve
+        /// nothing on a given rescan is simply NOT adopted that rescan, which is the status quo
+        /// and not a regression; a piece that IS adopted is then carried sticky while its wall is
+        /// faded, so the adoption does not have to be re-won every rescan. The failure mode this
+        /// arrangement cannot have is the dangerous one — the crystal formation being taken.</para>
+        ///
+        /// <para>OUT OF THE BLAST RADIUS BY EARLIER TERMS, confirmed against the same log and
+        /// unchanged by this build: rubble (<c>EN_CR_StoneBlock_*</c>) reads
+        /// <c>NO ProceduralWall anywhere above it</c> and fails term 1; ground foliage
+        /// (<c>FR_Floor_LargeBush_*</c>, <c>FR_Floor_Detail_Grass_*</c>) and <c>CR_RU_Vines</c>
+        /// are claimed as <c>seg.Foliage</c> before the bar is reached or refused earlier still
+        /// by <see cref="IsWaterProtected"/> under the 2026-08-09 water ruling.</para>
+        ///
+        /// <para>FALSIFIED BY: the <c>[WALL-BUILT BELOW THE BAR]</c> tag in the mounted census
+        /// naming <c>CV_Ice_Crystal_Form_02/03</c> or <c>LightShaft_Prefab (1)</c>. Then the unit
+        /// walk resolves for them in some scenario and this term is not the discriminator — the
+        /// rule must be withdrawn rather than retuned.</para>
+        /// </summary>
+        /// <param name="provenance">Term 1+2 alone, so the refusal below the bar can say WHICH
+        /// half of the conjunction failed instead of printing one sentence for both.</param>
+        private bool IsWallBuiltUnitDressing(Renderer r, out bool provenance)
+        {
+            provenance = IsWallGeneratedDressing(r);
+            return provenance && StandingFloorUnitRootOf(r) != null;
+        }
+
+        // ---- ModBuild 271: the union map ------------------------------------------------------
+
+        /// <summary>
+        /// Build the per-renderer overlap map ONCE per rescan — see <see cref="_mountedUnion"/>
+        /// for the rule, the constraint and the falsifier. Called at the very end of
+        /// <see cref="CollectWallMountedProps"/>, where every lane list is final.
+        /// </summary>
+        private void BuildMountedUnionOverlaps()
+        {
+            foreach (UnionEntry e in _mountedUnion.Values)
+            {
+                e.Hits.Clear();
+                e.Owner = null!;
+                _unionPool.Push(e);
+            }
+            _mountedUnion.Clear();
+            _unionOwners.Clear();
+            _censusUnionEligible = 0;
+            _censusUnionOversize = 0;
+            _censusUnionNoOverlap = 0;
+
+            // THE CORNER CARVE-OUT, made explicit rather than left to follow from the fact that a
+            // corner piece never lands in a dressing list. A shared corner keeps
+            // Mathf.Min(cp.A.Fade, cp.B.Fade) (round-7 ruling: it must stay while EITHER
+            // neighbour stands), which is the exact opposite of this rule — so it is named here
+            // and skipped, and ApplyCornerPieces never reads the map at all.
+            _unionCornerExempt.Clear();
+            foreach (CornerPiece cp in _cornerPieces)
+            {
+                if (cp.Prop.Renderer != null)
+                    _unionCornerExempt.Add(cp.Prop.Renderer);
+            }
+
+            foreach (Segment owner in _segments.Values)
+            {
+                foreach (MountedProp p in owner.Mounted)
+                    RegisterUnionOverlaps(p.Renderer, owner, "mounted dressing");
+                foreach (MountedProp p in owner.UnitDressing)
+                    RegisterUnionOverlaps(p.Renderer, owner, "prop-unit dressing");
+                foreach (MeshRenderer f in owner.Foliage)
+                    RegisterUnionOverlaps(f, owner, "foliage");
+                foreach (MeshRenderer s in owner.Siblings)
+                    RegisterUnionOverlaps(s, owner, "asset sibling");
+            }
+        }
+
+        /// <summary>
+        /// Enter one dressing renderer into the overlap map, if anything foreign overlaps it.
+        ///
+        /// <para>THE ARCHITECTURE GUARD IS NOT OPTIONAL HERE. This rule can only ever RAISE a
+        /// piece's fade, so it must only ever reach pieces that are unambiguously DRESSING — and
+        /// the foliage and sibling lanes carry things the mounted sweep would never have adopted,
+        /// including whole tree canopies whose AABB spans several wall slabs at once (the
+        /// in-repo lesson is that 113 of 172 blocked rays were trees). The two tests are the ones
+        /// the mounted sweep already uses to separate dressing from architecture, verbatim: two
+        /// fat axes, and AABB volume. Particles are exempt from both for the same reason they are
+        /// everywhere else in this file — their bounds are a smoke plume, not an object size —
+        /// and are measured at their EMITTER instead, the same anchor the mounting itself
+        /// uses.</para>
+        ///
+        /// <para>THE PARTICLE PROBE IS A POINT, and that is a KNOWN, NAMED LIMIT rather than an
+        /// oversight. A particle system's live bounds enclose its particles and drift every
+        /// frame — the "Kerzen blinken" bug of round 2 — so a union SET built from them would
+        /// flicker between rescans and take a flame off a standing wall and put it back. The
+        /// emitter point, expanded only by the slack on both boxes, is stable; the cost is that a
+        /// torch flame standing PROUD of a neighbour's slab is not raised by this rule. FALSIFIER:
+        /// a particle emitter named in the next log's LEFTOVER audit as drawing over a fully
+        /// faded wall. The remedy would be to probe the emitter's own sconce MESH, not to widen
+        /// this point into a radius.</para>
+        /// </summary>
+        private void RegisterUnionOverlaps(Renderer? r, Segment owner, string lane)
+        {
+            if (r == null || _mountedUnion.ContainsKey(r) || _unionCornerExempt.Contains(r))
+                return;
+            bool particles = r is ParticleSystemRenderer;
+            Bounds b = particles
+                ? new Bounds(r.transform.position, Vector3.zero)
+                : r.bounds;
+            if (!particles)
+            {
+                Vector3 sz = b.size;
+                int fatAxes = (sz.x > MountedMaxSpanWU ? 1 : 0)
+                    + (sz.y > MountedMaxSpanWU ? 1 : 0)
+                    + (sz.z > MountedMaxSpanWU ? 1 : 0);
+                if (fatAxes >= 2 || sz.x * sz.y * sz.z > MountedMaxMeshVolumeWU3)
+                {
+                    _censusUnionOversize++;
+                    return; // architecture-scale — never raised by a foreign wall
+                }
+            }
+            UnionEntry? entry = null;
+            foreach (Segment seg in _segments.Values)
+            {
+                if (ReferenceEquals(seg, owner) || !seg.HasBounds || seg.Anchor == null)
+                    continue;
+                // FADE-ELIGIBLE ONLY. A doorway never fades (user ruling 2026-08-02) and a
+                // segment without a trusted room plane makes no decision at all, so neither has
+                // a fade worth riding — and a doorway's arch must never drag dressing out with
+                // it (user ruling 2026-08-07).
+                if (seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                    continue;
+                if (!UnionOverlapDepth(seg.Bounds, b, out float depth))
+                    continue;
+                entry ??= RentUnionEntry(owner, lane);
+                entry.Hits.Add(new UnionHit(seg, depth));
+            }
+            if (entry == null)
+            {
+                _censusUnionNoOverlap++;
+                return;
+            }
+            _mountedUnion[r] = entry;
+            _unionOwners.Add(owner);
+            _censusUnionEligible++;
+        }
+
+        private UnionEntry RentUnionEntry(Segment owner, string lane)
+        {
+            UnionEntry e = _unionPool.Count > 0 ? _unionPool.Pop() : new UnionEntry();
+            e.Owner = owner;
+            e.Lane = lane;
+            e.Hits.Clear();
+            return e;
+        }
+
+        /// <summary>Do these two AABBs actually INTERSECT, allowing at most
+        /// <see cref="MountedUnionSlackWU"/> of SEPARATION on every axis? <paramref name="depth"/>
+        /// is the smallest signed per-axis overlap — how deep the prop reaches into the slab,
+        /// negative when it is merely within the slack — which is the number the census prints so
+        /// the tolerance can be argued with instead of trusted.</summary>
+        private static bool UnionOverlapDepth(in Bounds seg, in Bounds prop, out float depth)
+        {
+            const float s = MountedUnionSlackWU;
+            // The RAW signed overlap per axis: positive = the boxes interpenetrate by that much,
+            // negative = they are separated by that much. The slack is applied ONCE, as the
+            // acceptance threshold, and NOT folded into the reported number — a prop bolted flush
+            // to its wall face measures ≈0 or a hair negative, and the census has to print that
+            // honestly so the constant can be argued with rather than trusted.
+            float ox = Mathf.Min(seg.max.x, prop.max.x) - Mathf.Max(seg.min.x, prop.min.x);
+            if (ox <= -s) { depth = 0f; return false; }
+            float oy = Mathf.Min(seg.max.y, prop.max.y) - Mathf.Max(seg.min.y, prop.min.y);
+            if (oy <= -s) { depth = 0f; return false; }
+            float oz = Mathf.Min(seg.max.z, prop.max.z) - Mathf.Max(seg.min.z, prop.min.z);
+            if (oz <= -s) { depth = 0f; return false; }
+            depth = Mathf.Min(ox, Mathf.Min(oy, oz));
+            return true;
+        }
+
+        /// <summary>
+        /// THE ONE READ. The fade this attachment piece must actually ride: the MAX of its
+        /// owner's fade and of every fade-eligible segment its own AABB reaches into. O(1) plus a
+        /// walk of a list that is empty for almost every prop; nothing is measured here and no
+        /// segment is written.
+        /// </summary>
+        private float UnionFade(Renderer? r, Segment owner)
+        {
+            float own = owner.Fade;
+            if (r == null || _mountedUnion.Count == 0 || !_unionOwners.Contains(owner)
+                || !_mountedUnion.TryGetValue(r, out UnionEntry? e))
+                return own;
+            float best = own;
+            foreach (UnionHit h in e.Hits)
+            {
+                if (h.Seg.Fade > best)
+                    best = h.Seg.Fade;
+            }
+            if (best > own)
+                _unionRaisedPropFrames++;
+            return best;
+        }
+
+        /// <summary>Does ANY piece of this lane read a higher fade than the segment's own? The
+        /// appliers' <c>want == 0</c> early-out is a whole-segment decision and would otherwise
+        /// return before a single piece could be looked at — which is defect (2) exactly: the
+        /// pole's OWN wall is the one that has not faded.</summary>
+        private bool LaneHasUnionFade(List<MountedProp> lane, Segment owner)
+        {
+            if (_mountedUnion.Count == 0 || !_unionOwners.Contains(owner))
+                return false;
+            foreach (MountedProp p in lane)
+            {
+                if (p.Renderer != null && ForeignFade(p.Renderer) > owner.Fade)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The highest FOREIGN fade over this renderer, ignoring its owner — the term
+        /// the union rule adds. Counts nothing: it is asked by the lane pre-tests, which run
+        /// before any piece is driven.</summary>
+        private float ForeignFade(Renderer r)
+        {
+            if (!_mountedUnion.TryGetValue(r, out UnionEntry? e))
+                return 0f;
+            float best = 0f;
+            foreach (UnionHit h in e.Hits)
+            {
+                if (h.Seg.Fade > best)
+                    best = h.Seg.Fade;
+            }
+            return best;
+        }
+
+        /// <summary>The foreign segment currently holding this renderer's fade up, or null.
+        /// Used by the RELEASE warn so a piece let go over SOMEONE ELSE'S hole is named with the
+        /// same severity as one let go over its owner's.</summary>
+        private Segment? HottestUnionSegment(Renderer r, out float fade, out float depth)
+        {
+            fade = 0f;
+            depth = 0f;
+            if (_mountedUnion.Count == 0 || !_mountedUnion.TryGetValue(r, out UnionEntry? e))
+                return null;
+            Segment? best = null;
+            foreach (UnionHit h in e.Hits)
+            {
+                if (h.Seg.Fade <= fade)
+                    continue;
+                fade = h.Seg.Fade;
+                depth = h.Depth;
+                best = h.Seg;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// THE UNION RULE CENSUS — one line per rescan, and it must be able to disagree with the
+        /// rule it reports on. It carries: how many renderers are taking a fade from a segment
+        /// OTHER than their owner RIGHT NOW (named, with owner + owner's fade, the overriding
+        /// segment + its fade, and the overlap depth that decided it), how many the rule makes NO
+        /// difference to, the cap and how many names were dropped, and the two REFUSAL
+        /// populations. Every number is read live at print time from the live segment fades.
+        /// </summary>
+        private void LogMountedUnion()
+        {
+            int applied = 0, noDiff = 0;
+            _unionCensus.Clear();
+            foreach (KeyValuePair<Renderer, UnionEntry> kv in _mountedUnion)
+            {
+                Renderer r = kv.Key;
+                UnionEntry e = kv.Value;
+                if (r == null || e.Owner == null)
+                    continue;
+                Segment? hot = HottestUnionSegment(r, out float foreign, out float depth);
+                if (hot == null || foreign <= e.Owner.Fade)
+                {
+                    noDiff++;
+                    continue;
+                }
+                applied++;
+                if (_unionCensus.Count < MountedUnionListCap)
+                {
+                    string ownerName = e.Owner.Anchor != null ? e.Owner.Anchor.name : "<dead>";
+                    string hotName = hot.Anchor != null ? hot.Anchor.name : "<dead>";
+                    _unionCensus.Add(
+                        $"'{r.name}'[{RendererKind(r)}, {e.Lane}] owner '{ownerName}' fade "
+                        + $"{e.Owner.Fade:F2} → rides '{hotName}' fade {foreign:F2} "
+                        + $"(AABB overlap depth {depth:F2} wu, of {e.Hits.Count} overlapping "
+                        + "segment(s))");
+                }
+            }
+            // The gate is on LIVE NUMBERS, never on a constant reason string: Apparance streams
+            // the dressing in over several rescans, so the two refusal populations move for
+            // several seconds after a scenario opens and the line follows them. The FIRST print
+            // happens unconditionally (both watermarks start at -1), so a session in which this
+            // rule finds nothing still says so once — a zero that was never printed and an
+            // instrument that never ran look identical, and that has cost this project builds.
+            bool changed = _censusUnionEligible != _lastLoggedUnionEligible
+                || applied != _lastLoggedUnionApplied
+                || _censusUnionOversize != _lastLoggedUnionOversize
+                || _censusUnionNoOverlap != _lastLoggedUnionNoOverlap;
+            if (!changed && _unionRaisedPropFrames == 0)
+                return;
+            _lastLoggedUnionEligible = _censusUnionEligible;
+            _lastLoggedUnionApplied = applied;
+            _lastLoggedUnionOversize = _censusUnionOversize;
+            _lastLoggedUnionNoOverlap = _censusUnionNoOverlap;
+            int dropped = applied - _unionCensus.Count;
+            string named = _unionCensus.Count > 0
+                ? string.Join("; ", _unionCensus)
+                  + (dropped > 0
+                      ? $" [list CAPPED at {MountedUnionListCap} — {dropped} override(s) NOT "
+                        + "shown; the counts above are complete]"
+                      : string.Empty)
+                : "none right now";
+            VRLog.Info(Name,
+                $"UNION RULE: {applied} attachment renderer(s) are taking their fade from a "
+                + $"segment OTHER than their owner, {noDiff} where the rule makes NO difference "
+                + $"(the owner is already at or above every wall it reaches into), out of "
+                + $"{_censusUnionEligible} renderer(s) that overlap any foreign fade-eligible "
+                + $"segment at all: {named}. The overriding term is a real AABB INTERSECTION "
+                + $"(slack {MountedUnionSlackWU:0.00} wu on every axis), never the "
+                + $"{MountedLinkMaxXZ:0.00} wu ownership reach — a prop merely NEAR a hole keeps "
+                + "its own wall's fade, a prop whose geometry is INSIDE the hole rides it "
+                + "(user 2026-08-25: 'ohne die benachbarte Wand zu beeinflussen' — no segment's "
+                + "fade, state, coverage or decision is written by this rule, it only reads "
+                + $"them). REFUSED REGISTRATION: {_censusUnionOversize} dressing renderer(s) are "
+                + $"architecture-scale (2 fat axes > {MountedMaxSpanWU:0.0} wu or volume > "
+                + $"{MountedMaxMeshVolumeWU3:0.0} wu³) and may never be raised by a foreign wall, "
+                + $"{_censusUnionNoOverlap} overlap nothing foreign. LANE COVERAGE, stated so a "
+                + "gap between the two numbers below is readable: the mounted-dressing and "
+                + "prop-unit-dressing lanes carry the rule WHOLE (their whole-segment early-out "
+                + "is lifted, so a piece whose own wall is solid can still be taken by a wall it "
+                + "hangs over — defect (2)); the foliage and asset-sibling lanes apply the MAX at "
+                + "their driving call sites but keep their segment-scoped early-out, because "
+                + "their release clears the whole FoliageProps/SiblingProps record set and undoes "
+                + "the material swaps in one go. The wall BODY, the STACKED shell and the shared "
+                + "CORNER piece are EXEMPT by design — the first two are the neighbouring wall "
+                + "rather than something hanging on it, and the corner keeps its round-7 "
+                + "Min(A.Fade, B.Fade) so it stays while either neighbour stands. SINCE THE LAST LINE the "
+                + $"appliers actually RAISED a piece's fade {_unionRaisedPropFrames} prop-frame(s) "
+                + $"across {_unionRaisedPieces} applier pass(es) — this reading 0 while the count "
+                + "above is > 0 means the map is built and NO applier reads it, which is a "
+                + "different defect from the rule not matching.");
+            _unionRaisedPropFrames = 0;
+            _unionRaisedPieces = 0;
+        }
 
         /// <summary>Record a segment that has filled its dressing quota (see
         /// <see cref="MountedMaxPerSegment"/>) — once per segment per rescan.</summary>
@@ -2210,6 +2856,7 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedHandover = _censusMountedHandover;
             _lastLoggedMountedWallBuilt = _censusMountedWallBuilt;
             _lastLoggedMountedWallBuiltCarried = _censusMountedWallBuiltCarried;
+            _lastLoggedMountedWallBuiltBelowBar = _censusMountedWallBuiltBelowBar;
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
@@ -2276,7 +2923,18 @@ internal static partial class WallSegmentFade
                 + "guard rather than released (ModBuild 268 — the fifth exemption site, the "
                 + "only one that lets a piece go instead of refusing it). Read this against "
                 + "the RELEASED OVER A FADED WALL warn: this > 0 while that names no hanging "
-                + $"is the whole of this round){full}.");
+                + "is the whole of ModBuild 268; "
+                // MODBUILD 271 — THE SIXTH SITE, THE AIRBORNE BAR. Its own number, never folded
+                // into the 266 count: the two lifts have different blast radii and the crystal
+                // ruling has to stay auditable from one grep. This > 0 while the leftover line
+                // stops naming 'EN_CR_Hanging_01_Mesh'/'EN_CR_Curtain_Mesh' is the acceptance;
+                // this > 0 while the list above names 'CV_Ice_Crystal_Form_02/03' or
+                // 'LightShaft_Prefab (1)' with the same tag is the falsification, and the rule
+                // must then be withdrawn rather than retuned (user ruling 2026-08-24).
+                + $"{_censusMountedWallBuiltBelowBar} adopted BELOW the airborne bar "
+                + $"{MountedClearanceWU:0.0} wu because the wall generator built them AND the "
+                + "four-level walk resolved a prop unit for them — ModBuild 271, tagged "
+                + $"[WALL-BUILT BELOW THE BAR] above){full}.");
         }
 
         /// <summary>

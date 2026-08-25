@@ -3122,8 +3122,26 @@ internal static partial class WallSegmentFade
                 EnsureDissolveChannel(p);
                 if (!hadSwap && p.SwapCopies != null)
                     NoteSwapEdge(seg, p, installed: true);
-                DriveProp(p, seg.Fade);
-                if (want == 2)
+                // MODBUILD 271 — THE UNION RULE, at this lane's driving call site. The fade is
+                // the MAX of this segment's and of every fade-eligible segment this sibling's own
+                // AABB actually reaches into, so a door leaf standing inside a neighbour's hole
+                // can never be driven at a LOWER fade than that hole. Nothing here writes a
+                // segment; see FadeDriver._mountedUnion for the rule and its constraint.
+                //
+                // THE LANE'S OWN LIMIT, stated rather than glossed: the whole-segment early-out
+                // above is deliberately NOT lifted for siblings and foliage, unlike the two
+                // dressing lanes (ApplyMounted, ApplyUnitDressing). Their release is
+                // segment-scoped by construction — RestoreSegmentSiblings clears SiblingProps and
+                // undoes the material swaps for the whole list at once — so a PER-PIECE release
+                // would leave our dissolve copies installed on a piece nobody drives, which is
+                // exactly the SHOW EDGE line's "not as authored" fault. So on this lane the rule
+                // can raise a piece whose OWN wall is already fading and cannot rescue one whose
+                // own wall is solid. The UNION RULE census reports both numbers separately (the
+                // rule's own count, and what the appliers actually raised), so this limit shows
+                // up as a gap in the log rather than as a silence.
+                float eff = UnionFade(s, seg);
+                DriveProp(p, eff);
+                if (eff >= FoliageHideFade)
                 {
                     if (s.enabled)
                         s.enabled = false;
@@ -3191,15 +3209,25 @@ internal static partial class WallSegmentFade
                 bool ownChannel = p.System != null || p.ColorId >= 0 || p.CutoffId >= 0
                     || p.DissolveControlId >= 0;
                 NoteFoliageChannel(seg, p);
+                // MODBUILD 271 — THE UNION RULE at this lane's driving call sites: the MAX of
+                // this segment's fade and of every fade-eligible segment this leaf's own AABB
+                // actually reaches into. A bush standing inside a neighbour's hole can never be
+                // driven at a LOWER fade than that hole. Nothing here writes a segment. The
+                // whole-segment early-out above is NOT lifted on this lane — see the same note
+                // in ApplySiblings for why (RestoreSegmentFoliage is segment-scoped and undoes
+                // the material swaps for the whole list), and see the UNION RULE census, which
+                // reports the rule's own count and what the appliers actually raised separately
+                // so this limit reads as a gap rather than as a silence.
+                float eff = UnionFade(f, seg);
                 if (ownChannel)
                 {
-                    if (want == 2)
+                    if (eff >= FoliageHideFade)
                     {
-                        DriveProp(p, seg.Fade);
+                        DriveProp(p, eff);
                         p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                         if (f.enabled)
                             f.enabled = false;
-                        ShowEdge(p, false, seg.Fade);
+                        ShowEdge(p, false, eff);
                     }
                     else
                     {
@@ -3208,7 +3236,7 @@ internal static partial class WallSegmentFade
                         // population the SHOW EDGE line could not see — the same blind spot the
                         // TORN RETURN term had before ModBuild 261. Expect the line's denominator
                         // to grow; the fault terms are what must read 0.
-                        ShowAttachmentPiece(p, f, seg.Fade, seg.Fade);
+                        ShowAttachmentPiece(p, f, eff, eff);
                     }
                     continue;
                 }
@@ -3216,13 +3244,13 @@ internal static partial class WallSegmentFade
                 // — it was the renderer's own until the conifers tore, "die Blätter laden nach").
                 // The order is arbitrary but STABLE: a piece does not flicker by re-randomising
                 // between frames, and every renderer of one prop leaves at the same instant.
-                bool hide = seg.Fade >= StaggerThresholdFor(f);
+                bool hide = eff >= StaggerThresholdFor(f);
                 if (f.enabled == hide)
                     f.enabled = !hide;
                 // ModBuild 261: the TORN RETURN falsifier used to watch the unit-dressing list
                 // only — the half that was already keyed on the prop unit. The half that could
                 // disagree with it was this one, and it was invisible. Same call, same records.
-                ShowEdge(p, !hide, seg.Fade);
+                ShowEdge(p, !hide, eff);
             }
             seg.FoliageState = want;
         }

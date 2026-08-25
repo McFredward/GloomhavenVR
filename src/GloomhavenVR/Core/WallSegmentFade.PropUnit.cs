@@ -1675,14 +1675,19 @@ internal static partial class WallSegmentFade
                     RestoreSegmentUnitDressing(seg);
                 return;
             }
-            int want = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
-            if (want == 0)
+            int segWant = seg.Fade >= FoliageHideFade ? 2 : seg.Fade > 0f ? 1 : 0;
+            // MODBUILD 271 — THE UNION RULE. Same entry point, same argument as ApplyMounted: the
+            // early-out is a whole-SEGMENT decision, and the reported defect is a piece whose own
+            // wall is the one that has NOT faded. See FadeDriver._mountedUnion.
+            if (segWant == 0 && !LaneHasUnionFade(seg.UnitDressing, seg))
             {
                 RestoreSegmentUnitDressing(seg);
                 return;
             }
             bool alreadyHeld = seg.UnitDressingState == 2;
             bool lost = false;
+            int highest = 0;
+            int raisedBefore = _unionRaisedPropFrames;
             foreach (MountedProp p in seg.UnitDressing)
             {
                 Renderer r = p.Renderer;
@@ -1691,6 +1696,22 @@ internal static partial class WallSegmentFade
                     lost = true;
                     continue;
                 }
+                // The fade this PIECE reads — its owner's, or that of any fade-eligible segment
+                // its own AABB reaches into, whichever is higher. Nothing here writes a segment.
+                float eff = UnionFade(r, seg);
+                int want = eff >= FoliageHideFade ? 2 : eff > 0f ? 1 : 0;
+                if (want == 0)
+                {
+                    // Neither this piece's wall nor anything it overlaps is fading. Edge-gated —
+                    // see MountedProp.Driven for why a per-frame restore would be churn.
+                    if (p.Driven)
+                        RestoreProp(p, seg,
+                            "wall solid again, and nothing it overlaps is fading");
+                    continue;
+                }
+                p.Driven = true;
+                if (want > highest)
+                    highest = want;
                 // PICTURE-SIDE FALSIFIER — read BEFORE this frame writes the renderer.
                 if (want == 2 && alreadyHeld && IsActuallyDrawing(r))
                     NoteUnitDressingRedrawn(r);
@@ -1706,17 +1727,17 @@ internal static partial class WallSegmentFade
                     // ApplyFoliage. This lane and the foliage lane each had their own and the two
                     // resolved the KEY differently on a memo miss, which tore any prop split
                     // between seg.Foliage and seg.UnitDressing. See StaggerThresholdFor.
-                    bool hide = want == 2 || seg.Fade >= StaggerThresholdFor(r);
+                    bool hide = want == 2 || eff >= StaggerThresholdFor(r);
                     if (r.enabled == hide)
                         r.enabled = !hide;
-                    ShowEdge(p, !hide, seg.Fade);
+                    ShowEdge(p, !hide, eff);
                     continue;
                 }
                 if (want == 2)
                 {
                     DriveProp(p, 1f);
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
-                    ShowEdge(p, false, seg.Fade);
+                    ShowEdge(p, false, eff);
                     if (r.enabled)
                         r.enabled = false;
                 }
@@ -1724,12 +1745,14 @@ internal static partial class WallSegmentFade
                 {
                     // ModBuild 265: one shared show branch — the ramp, the return gate, the
                     // audit call and the enable. See FadeDriver.ShowAttachmentPiece.
-                    ShowAttachmentPiece(p, r, seg.Fade, seg.Fade);
+                    ShowAttachmentPiece(p, r, eff, eff);
                 }
             }
+            if (_unionRaisedPropFrames != raisedBefore)
+                _unionRaisedPieces++;
             if (lost)
                 _nextRescan = 0f; // Apparance regenerated a member mid-fade — re-collect promptly
-            seg.UnitDressingState = want;
+            seg.UnitDressingState = highest;
         }
 
         /// <summary>Record a dressing piece that is drawing again over a wall this segment has
