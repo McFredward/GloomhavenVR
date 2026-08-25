@@ -3827,11 +3827,44 @@ internal static partial class ModalFallback
     /// step, which is why the shipped default is 0.80 m.</para></summary>
     private const float SharedAnchorArcParchmentClearanceMeters = 0.02f;
 
-    /// <summary>How far above the board's measured TOP (far) edge a shared scenario window's centre
-    /// hangs, in board-LOCAL units (which are metres at board scale 1, the same convention
-    /// <c>WorldTooltips.BoardAnchorMarginY</c> and <c>PlayTray.BoardTopLocalY</c> use). Larger than
-    /// the tooltip's 0.03 because a story window is a window and not a hint.</summary>
-    private const float SharedAnchorBoardMarginLocal = 0.30f;
+    // ModBuild 290 TOMBSTONE — SharedAnchorBoardMarginLocal (0.30 board-LOCAL above
+    // PlayTray.MeasureBoardLocalExtents' top edge) IS DELETED, AND THE MISTAKE WAS THE FRAME AND
+    // NOT THE NUMBER. Keep the history, because the name that caused it is still in the codebase:
+    //
+    //  * WHAT IT WAS. The scenario home was seated in the frame of `Cards.PlayTray.Current.Root`,
+    //    one margin past the top edge that class MEASURES. Its own doc called that "the board",
+    //    which it is — PlayTray IS "the control board", the player's chest-height card desk. It is
+    //    NOT das Spielfeld. The user ruling the anchor was built from says both in one sentence
+    //    ("verankere es am Tisch bzw. ÜBER DEM SPIELFELD innerhalb eines Szenarios") and the
+    //    implementation took the word "board" to the wrong object.
+    //
+    //  * WHAT THAT COST, from his own log (spawn_scenario.jpg, ModBuild 289 LogOutput.log:4662).
+    //    The tray was IN HIS HAND at that moment ("FIXIERT, HELD — the hand is carrying it"), so
+    //    the anchor followed it: local (0, 0.610, 0) in a frame at world (1.17,−1.41,−1.49) put the
+    //    window at world y 2.39 wu with the play surface at 0.00 wu and the diorama at 9.57 wu/m —
+    //    i.e. its BOTTOM EDGE 0.169 m above the hexes, down among the figures, inside the room.
+    //    THE FALSIFIER LINE READ +0.300 AND WAS CORRECT: the bottom edge really was 0.300 above the
+    //    top edge OF THE CARD TRAY. A number that clears the wrong object cannot be tuned into a
+    //    number that clears the right one, which is why this is a frame change and not a bigger
+    //    margin. [[a-remedy-knows-one-writer]] — the ModBuild 244 clearance was authored against
+    //    the map table and the scenario never got the same treatment, only the same word.
+    //
+    //  * ONE MORE THING IT WAS SILENTLY DECIDING: the SIZE. worldScale came from the tray's own
+    //    lossyScale (6.32 in that log) while every other scenario window is built at
+    //    PanelLayout.WorldScale (9.57), so the shared story box shipped 34 % smaller than its
+    //    neighbours for no stated reason. The play-field frame below restores it.
+    //
+    //  * WHAT REPLACES IT: ScenarioWindowBoardClearanceMeters, a GRAB-BAR height in real metres
+    //    above the play field's own surface, in the seat-anchor frame — see
+    //    TrySharedAnchorOverBoard. Do not reintroduce a length in board-local units: the tray is a
+    //    hand-carried object and a length in its frame is a length in the player's hand.
+
+    /// <summary>The floor under the resolved scenario bar height, real metres above the play
+    /// surface. The dial's range starts here too; this constant is the guarantee. It is not zero:
+    /// the play surface is the ORBIT-FOCUS PLANE, and the board's own furniture stands
+    /// <c>BoardTopClearanceMeters</c> (0.30 m) above it, so a bar below that is a bar in the
+    /// scenery — the ModBuild 243 defect, in the other room.</summary>
+    private const float ScenarioWindowMinBarHeightMeters = BoardTopClearanceMeters;
 
     /// <summary>Which shared kinds have had a real pose and may no longer be anchored. Keyed by the
     /// KIND and not by the window, because the kind is what the pose is addressed to on the wire and
@@ -4335,9 +4368,39 @@ internal static partial class ModalFallback
         return true;
     }
 
-    /// <summary>THE SCENARIO HOME — above the play field, in the BOARD's own frame. 1:1 in
-    /// board-local, which is the only frame in which "the same place" means anything for a piece of
-    /// furniture each player has posed for himself.</summary>
+    /// <summary>
+    /// THE SCENARIO HOME — floating over the PLAY FIELD, in the SEAT-ANCHOR frame, at a grab-bar
+    /// height above the play surface.
+    ///
+    /// <para><b>ModBuild 290 — THE FRAME MOVED FROM THE CARD TRAY TO THE PLAY FIELD, AND THAT IS
+    /// THE WHOLE FIX.</b> USER REPORT (2026-08-25, verbatim, with spawn_scenario.jpg): <i>"Das
+    /// 'blaue' Multiplayer Fenster ist IN dem Spielfeld gespawned … Das darf nicht passieren, es
+    /// muss viel höher spawnen damit es über dem Spielfeld schwebt."</i> See the
+    /// <c>SharedAnchorBoardMarginLocal</c> tombstone above for what the old frame was, why its own
+    /// falsifier read <c>+0.300</c> while the window stood among the figures, and why no margin in
+    /// that frame could have fixed it.</para>
+    ///
+    /// <para><b>THE FRAME IS THE ONE RECORD 19 ALREADY TRAVELS IN, WHICH CLOSES A SEAM THIS LINE
+    /// USED TO PRINT AS A CAVEAT.</b> <c>Net.RemoteStorySync.TryToAnchor</c> expresses a dragged
+    /// pose as the offset from <c>PanelLayout.TryGetAnchor</c> — the orbit focus plus the CACHED
+    /// seat yaw — divided by <c>PanelLayout.WorldScale</c>. This anchor is built from exactly those
+    /// three terms, so for the first time the spawn pose and the dragged pose are expressed in the
+    /// same frame and in the same units: the frame-local numbers below are what a peer would
+    /// receive for the same place, to the millimetre, and the window is built at the same size
+    /// divisor the record already uses.</para>
+    ///
+    /// <para><b>WHERE "THE PLAY SURFACE" COMES FROM, honestly.</b> There is no measurement of the
+    /// scenario diorama's rendered bounds anywhere in this mod — nothing walks the dungeon's
+    /// renderers the way <c>PlayTray.MeasureBoardLocalExtents</c> walks the tray's. What the mod
+    /// DOES already use, in four places, is <c>CameraController.FocusPoint</c>: the orbit focus,
+    /// which <c>VRRigDriver</c> parks the rig at, which <c>PanelLayout</c> calls "table center" and
+    /// measures every slot height from, which <c>Comfort</c> measures eye height from, and which
+    /// <c>ModalFallback.TryGetBoardPlaneY</c> calls the board plane. Its Y is the plane the hexes
+    /// lie in — NOT the top of what stands on them — and this file makes no attempt to pretend
+    /// otherwise: the height below is measured from that plane and the falsifier prints the
+    /// residual over <see cref="BoardTopClearanceMeters"/>, which is the mod's own standing estimate
+    /// of how far the board's furniture reaches above it.</para>
+    /// </summary>
     private static bool TrySharedAnchorOverBoard(UIWindow window, SharedWindowKind kind, int home,
         string stage, Vector2 halfSize, out Vector3 worldPos, out Quaternion worldRot,
         out float worldScale, out string line)
@@ -4347,66 +4410,130 @@ internal static partial class ModalFallback
         worldScale = 1f;
         line = string.Empty;
 
-        Cards.PlayTray? tray = Cards.PlayTray.Current;
-        Transform? root = tray != null && tray.IsVisible ? tray.Root : null;
-        if (root == null)
+        // THE GUARD IS THE ROOM AND NOT THE ANCHOR CALL. PanelLayout.TryGetAnchor has a dev-preview
+        // fallback that seats things 1.5 m in front of Camera.main; requiring the rig, the camera
+        // controller and a table in front of the player is what keeps this path on the branch that
+        // returns FocusPoint + the cached seat yaw — the same three conditions TryGetBoardPlaneY
+        // tests before it will call anything a board plane.
+        Transform? rig = Rig.VRRigDriver.RigRoot;
+        CameraController controller = CameraController.s_CameraController;
+        if (rig == null || controller == null || !Core.Events.VRModeStateMachine.TableInFrontOfPlayer)
             return false;
+        if (!PanelLayout.TryGetAnchor(out Vector3 anchor, out Quaternion seatYaw))
+            return false;
+        float scale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
 
-        Cards.PlayTray.MeasureBoardLocalExtents(root, out float topLocalY, out float halfLocalX);
-        // "Über dem Spielfeld": centred on the board's X, one clearance above its MEASURED top (far)
-        // edge — the visible board including its bundled frame and decorations, not the authored
-        // plate, which is the distinction WorldTooltips already had to make. home is 0 for the only
-        // shared kind a scenario has; a second one would step laterally the same way the table does.
-        // ModBuild 244 — THE SAME CORRECTION THE TABLE GOT, for the same reason. The margin is a
-        // BOTTOM-EDGE clearance, so the centre has to carry the window's own half-height or a tall
-        // window hangs down into the board exactly as the quest window hung into the table. Board
-        // units are metres at board scale 1; halfSize is world, so it is divided by the board's own
-        // world scale to land in the frame this pose is expressed in.
-        float boardScale = Mathf.Max(root.lossyScale.x, 0.01f);
-        float halfWinY = Mathf.Max(halfSize.y / boardScale, SharedAnchorMinHalfHeightMeters);
-        float halfWinX = Mathf.Max(halfSize.x / boardScale, 0f);
-        // ModBuild 245 — the same correction the table got: each window steps by its OWN half-width
-        // plus half the gap, so a pair separates by exactly halfA + halfB + gap. 244's doubled step
-        // and its board-width floor are gone for the reason stated on the table path.
-        float step = halfWinX + SharedAnchorLateralGapMeters * 0.5f;
+        // Real metres in the seat-anchor frame, which is what record 19 speaks. halfSize is world,
+        // so it is divided by the SAME scale the record divides by — a window that is 1:1 in place
+        // and not in size is not 1:1 (the map-table path's own words). AND IT IS THE SAME SCALE THE
+        // CALLER MEASURED halfSize AT: PlaceAtHmd computes it as PanelWorldHalfSize(panel,
+        // PanelLayout.WorldScale × extraScale) and then builds the host at whatever scale THIS
+        // method returns, so the old tray-frame answer (6.32 against 9.57 in his log) was both
+        // shrinking the shared window by a third against every other window in the scenario AND
+        // feeding this arithmetic a half-height 1.51x larger than the window it would build.
+        float halfWinXm = Mathf.Max(halfSize.x / scale, 0f);
+        // THE HALF-HEIGHT FLOOR IS NARROWER HERE THAN ON THE TABLE PATH, AND ON PURPOSE. There it
+        // guards a real hazard: that path's height is a BOTTOM-EDGE sum in which a degenerate rect
+        // would seat the window ON the table. Here the bottom edge is pinned by the bar rule
+        // whatever the rect says, so a floor can only push a SHORT window's bar ABOVE the number the
+        // user tuned — 28 mm for the story box, which is exactly the kind of silent disagreement
+        // between a dial and its effect this file keeps having to apologise for. So the floor
+        // catches only a DEGENERATE rect (a panel measured before its content fit), and a real
+        // measurement, however small, is used as measured.
+        float trueHalfYm = halfSize.y / scale;
+        float halfWinYm = trueHalfYm > 0.001f ? trueHalfYm : SharedAnchorMinHalfHeightMeters;
+
+        // THE HEIGHT IS A GRAB-BAR HEIGHT, exactly as the map room's is (ModBuild 251, "die Höhe
+        // soll beim Spawn am Besten bei allen Fenster gleich sein gemessen am Greifbalken!"). It is
+        // the bar the user photographed lying among the figures, so the bar is the thing the number
+        // must be about; the body hangs from it, so a taller window reaches higher and never dips.
+        float barYm = ResolveScenarioBarHeightMeters(out string barRule);
+        float bottomYm = barYm + GrabBarDropMeters;
+        float centreYm = bottomYm + halfWinYm;
+
+        // ModBuild 245's separation rule, unchanged and re-used verbatim: each window steps by its
+        // OWN half-width plus half the gap, so a pair separates by exactly halfA + halfB + gap.
+        // home is 0 for the only shared kind a scenario has; the other two exist so a second kind
+        // never has to reinvent this.
+        float step = halfWinXm + SharedAnchorLateralGapMeters * 0.5f;
         float lateral = home switch
         {
             1 => +step,
             2 => -step,
             _ => 0f,
         };
-        var localPos = new Vector3(lateral, topLocalY + SharedAnchorBoardMarginLocal + halfWinY, 0f);
-        worldPos = root.TransformPoint(localPos);
-        // Board-local identity rotation, yaw-only in world: the board is tilted like a table and a
-        // window in its plane would lean back. Upright is applied by the caller's own guard; taking
-        // the board's yaw here is what makes the anchor board-LOCAL rather than world-absolute.
-        Vector3 flat = root.rotation * Vector3.forward;
-        flat.y = 0f;
-        if (flat.sqrMagnitude < 1e-6f)
-            flat = Vector3.forward;
-        worldRot = Quaternion.LookRotation(flat.normalized, Vector3.up);
-        worldScale = Mathf.Max(root.lossyScale.x, 0.01f);
+
+        // OVER THE FIELD'S CENTRE, at depth 0 in the seat frame: "über dem Spielfeld schwebt" read
+        // literally. A depth term would be a second invented number, and the one thing the report
+        // is about is the height.
+        var localPos = new Vector3(lateral, centreYm, 0f);
+        worldPos = anchor + seatYaw * (localPos * scale);
+        // The seat yaw IS the facing: PanelLayout's own convention is that +Z points away from the
+        // player across the table, and a uGUI canvas renders its front along −forward, so a window
+        // yawed with the seat faces the reader. The same convention PanelPlacement.Facing and
+        // ComputeHmdPose's head-facing branch use. Yaw only (ModBuild 189).
+        worldRot = seatYaw;
+        worldScale = scale;
+
+        // THE FALSIFIER IS READ BACK OFF THE RESULT, not restated from the inputs. Both heights are
+        // recomputed from worldPos and the TRUE halfSize, so if the half-height floor above changed
+        // the answer, these numbers say so instead of agreeing with the intent.
+        float bottomAboveM = (worldPos.y - halfSize.y - anchor.y) / scale;
+        float barAboveM = bottomAboveM - GrabBarDropMeters;
+        float overFurnitureM = barAboveM - BoardTopClearanceMeters;
 
         line = $"SHARED WINDOW ANCHOR APPLIED ({stage}) — '{window.name}' carries "
-               + $"SharedWindowKind.{kind}, which owns HOME {home} above the play field BY ITS "
-               + "IDENTITY and not by the order anything opened. FRAME=BOARD "
-               + $"(PlayTray.Current.Root '{root.name}', extents from "
-               + "PlayTray.MeasureBoardLocalExtents). FRAME-LOCAL POSE, IN BOARD-LOCAL UNITS — THIS "
-               + "IS THE NUMBER THAT MUST BE IDENTICAL ON TWO CLIENTS: pos "
-               + $"({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}), yaw 0.00° board-local, board "
-               + $"top edge {topLocalY:F4}, half-width {halfLocalX:F4}, margin "
-               + $"{SharedAnchorBoardMarginLocal:F2}. ABOVE THE BOARD: window half-height "
-               + $"{halfWinY:F3}, half-width {halfWinX:F3}, so the BOTTOM EDGE sits "
-               + $"{SharedAnchorBoardMarginLocal:+0.000;-0.000} board-local above the top edge and a "
-               + "NEGATIVE number there would be the ModBuild 243 in-the-furniture defect; lateral "
-               + $"step {step:F3}. WORLD POSE, WHICH MUST DIFFER BETWEEN CLIENTS "
-               + "AND IS NOT A FAULT WHEN IT DOES — every player has posed, tilted and resized his "
-               + $"OWN board: ({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu, yaw "
+               + $"SharedWindowKind.{kind}, which owns HOME {home} over the play field BY ITS "
+               + "IDENTITY and not by the order anything opened. FRAME=PLAY FIELD (the SEAT ANCHOR: "
+               + "CameraController.FocusPoint plus the cached seat yaw, PanelLayout.TryGetAnchor — "
+               + "THE SAME FRAME record 19 sends a dragged pose in, so spawn and drag finally agree "
+               + $"on what 'the same place' means). Play surface (orbit-focus plane) y {anchor.y:F2} "
+               + $"wu at {scale:F2} wu/m; seat yaw {seatYaw.eulerAngles.y:F2}°. FRAME-LOCAL POSE, IN "
+               + "REAL METRES — THIS IS THE NUMBER THAT MUST BE IDENTICAL ON TWO CLIENTS: pos "
+               + $"({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}), yaw 0.00° seat-local. "
+               + $"THE ARITHMETIC: bar {barYm:F3} + frame-to-bar drop {GrabBarDropMeters:F3} + own "
+               + $"half-height {halfWinYm:F3} = centre {centreYm:F3} m above the play surface. "
+               + "READ BACK OFF THE RESULT — IS IT ABOVE THE BOARD? bottom edge "
+               + $"{bottomAboveM:+0.000;-0.000} m, GRAB BAR {barAboveM:+0.000;-0.000} m above the "
+               + "play surface, and the bar stands "
+               + $"{overFurnitureM:+0.000;-0.000} m clear of the board's own top edge (the mod's "
+               + $"standing estimate of it, BoardTopClearanceMeters {BoardTopClearanceMeters:F2} m "
+               + "above the orbit-focus plane). A NEGATIVE number in EITHER of those two is this "
+               + "report — the bar down among the figures, spawn_scenario.jpg — and nothing else. "
+               + $"{barRule}. Lateral step {step:F3} m, half-width {halfWinXm:F3} m. WORLD POSE, "
+               + "WHICH MUST DIFFER BETWEEN CLIENTS AND IS NOT A FAULT WHEN IT DOES — every player "
+               + "sits at his own seat and at his own zoom: "
+               + $"({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu, yaw "
                + $"{worldRot.eulerAngles.y:F2}°, scale {worldScale:F2}. NO WIRE FIELD WAS NEEDED. "
-               + "THE DRAG STILL WINS — this is the initial spawn pose only. CAVEAT, STATED: this "
-               + "kind's drag travels on record 19 (Net/RemoteStorySync), whose frame is the "
-               + "per-client SEAT ANCHOR rather than the board, so the anchor and the drag do not "
-               + "share a frame; that seam is not this build's to close and no record was touched.";
+               + "THE DRAG STILL WINS — this is the initial spawn pose only.";
         return true;
+    }
+
+    /// <summary>
+    /// THE SCENARIO SPAWN HEIGHT, resolved: how far above the play field's surface this window's
+    /// GRAB BAR is seated, in real metres.
+    ///
+    /// <para>One dial, floored in code at <see cref="ScenarioWindowMinBarHeightMeters"/> so no value
+    /// a player can type can put a bar into the scenery. <paramref name="rule"/> names which of the
+    /// two branches decided, in the words the falsifier prints — a reader can always tell "the dial"
+    /// from "the floor overruled the dial" without re-deriving anything.</para>
+    /// </summary>
+    private static float ResolveScenarioBarHeightMeters(out string rule)
+    {
+        float wanted = WorldUIConfig.ScenarioWindowBoardClearanceMeters != null
+            ? WorldUIConfig.ScenarioWindowBoardClearanceMeters.Value
+            : Defaults.ScenarioWindowBoardClearanceMeters;   // a spawn before Bind: ship the default
+        if (wanted >= ScenarioWindowMinBarHeightMeters)
+        {
+            rule = "THE DIAL DECIDED IT: [WorldUI] ScenarioWindowBoardClearanceMeters = "
+                   + $"{wanted:F3} m of grab-bar height above the play surface";
+            return wanted;
+        }
+
+        rule = $"*** THE CODE FLOOR OVERRULED THE DIAL: {wanted:F3} m would put the bar at or under "
+               + $"the board's own top edge ({BoardTopClearanceMeters:F2} m above the orbit-focus "
+               + $"plane), so it is raised to {ScenarioWindowMinBarHeightMeters:F3} m. A window "
+               + "standing IN the scenery is never traded away ***";
+        return ScenarioWindowMinBarHeightMeters;
     }
 }

@@ -216,6 +216,19 @@ internal static partial class Defaults
     // at different heights until someone drags it; the MAP ROOM WINDOW BAR HEIGHT log line prints
     // the resolved number on every placement so that is one grep, not a mystery.
     internal const float MapRoomWindowBarHeightMeters = 0.60f; // => [WorldUI] MapRoomWindowBarHeightMeters
+    // ModBuild 290 — THE SAME HEIGHT, IN THE OTHER ROOM, AND DELIBERATELY THE SAME NUMBER.
+    // "Das 'blaue' Multiplayer Fenster ist IN dem Spielfeld gespawned … es muss viel höher spawnen
+    // damit es über dem Spielfeld schwebt." The scenario home used to be seated in the CARD TRAY's
+    // frame (see the SharedAnchorBoardMarginLocal tombstone in ArcSeats.cs); it is now a grab-bar
+    // height above the play field's own surface, measured exactly the way the map room measures its
+    // one bar line. 0.60 m is not a new guess: it is the height the user has already accepted in the
+    // map room ("Die neue Position von den remote-Fenster gefällt mir"), and against the mod's own
+    // standing estimate of how far the board's furniture reaches above the orbit-focus plane
+    // (BoardTopClearanceMeters, 0.30 m) it leaves 0.30 m of clear air under the bar. In his own
+    // ModBuild 289 log the bar sat 0.151 m above that plane, i.e. INSIDE the board's furniture; this
+    // is 4x that and the falsifier prints both signed numbers.
+    // MULTIPLAYER: part of a SHARED window's spawn pose, exactly like the two entries around it.
+    internal const float ScenarioWindowBoardClearanceMeters = 0.60f; // => [WorldUI] ScenarioWindowBoardClearanceMeters
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
