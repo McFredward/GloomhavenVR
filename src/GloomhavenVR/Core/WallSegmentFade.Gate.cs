@@ -179,7 +179,7 @@ internal static partial class WallSegmentFade
         // particles mounted on Wall 1 and went out with it — 51 churn WARNs) and (b) a
         // decision reset (EMA/dwell restart from zero every ≤2s, so the gate never reached
         // ON and zero GATE-LIFT lines exist). Three defenses:
-        //   1. ARCH RECTS PERSIST INDEPENDENTLY of segment liveness (_archRects, pruned only
+        //   1. ARCH RECTS PERSIST INDEPENDENTLY of segment liveness (_live.ArchRects, pruned only
         //      after ArchRectRetainSeconds unseen / scene load) — protection can never gap.
         //   2. GATE MEMORY transplants Fade/State/log-sig onto the reborn segment (keyed by
         //      the quantized door center), so the decision survives prop churn.
@@ -187,13 +187,12 @@ internal static partial class WallSegmentFade
         //      the no-prop window without unfading the embedding wall.
 
         /// <summary>A persistent arch-protection rectangle (see above).</summary>
-        private struct ArchRect
+        internal struct ArchRect
         {
             public float MinX, MaxX, MinZ, MaxZ, TopY;
             public float LastSeen;
         }
 
-        private readonly List<ArchRect> _archRects = new();
         private const float ArchRectRetainSeconds = 10f;
 
         /// <summary>Reborn-gate state memory, keyed by the quantized door center. ROUND 14: it
@@ -234,21 +233,21 @@ internal static partial class WallSegmentFade
         private void UpsertArchRect(Segment gate)
         {
             float now = Time.unscaledTime;
-            for (int i = _archRects.Count - 1; i >= 0; i--)
+            for (int i = _live.ArchRects.Count - 1; i >= 0; i--)
             {
-                ArchRect a = _archRects[i];
+                ArchRect a = _live.ArchRects[i];
                 bool same = Mathf.Abs(a.MinX - gate.ArchMinX) < 0.6f
                     && Mathf.Abs(a.MinZ - gate.ArchMinZ) < 0.6f;
                 if (same)
                 {
-                    _archRects.RemoveAt(i);
+                    _live.ArchRects.RemoveAt(i);
                 }
                 else if (now - a.LastSeen > ArchRectRetainSeconds)
                 {
-                    _archRects.RemoveAt(i);
+                    _live.ArchRects.RemoveAt(i);
                 }
             }
-            _archRects.Add(new ArchRect
+            _live.ArchRects.Add(new ArchRect
             {
                 MinX = gate.ArchMinX, MaxX = gate.ArchMaxX,
                 MinZ = gate.ArchMinZ, MaxZ = gate.ArchMaxZ,
@@ -335,11 +334,11 @@ internal static partial class WallSegmentFade
                 // seeds NO gate column at all. The DOORWAY segment ruling is unaffected.
                 if (seed.size.y < MinArchSeedHeightWU)
                 {
-                    if (_segments.TryGetValue(dp, out Segment? stale) && stale.IsGateColumn)
+                    if (_live.Segments.TryGetValue(dp, out Segment? stale) && stale.IsGateColumn)
                     {
                         RestoreSegmentStacked(stale);
                         RestoreSegmentMounted(stale);
-                        _segments.Remove(dp);
+                        _live.Segments.Remove(dp);
                     }
                     if (_gateSliverLogged.Add(dp.name))
                         VRLog.Info(Name,
@@ -349,10 +348,10 @@ internal static partial class WallSegmentFade
                             + "plausible arch; no column, no protection rect.");
                     continue;
                 }
-                if (!_segments.TryGetValue(dp, out Segment? gate))
+                if (!_live.Segments.TryGetValue(dp, out Segment? gate))
                 {
                     gate = new Segment { Anchor = dp, FromWallCache = false, IsGateColumn = true };
-                    _segments.Add(dp, gate);
+                    _live.Segments.Add(dp, gate);
                     // ROUND-13 GATE MEMORY: Apparance prop churn destroys the door prop and
                     // with it this segment (dead-anchor sweep) — the reborn gate inherits
                     // the previous incarnation's fade/decision/log state so the EMA-dwell
@@ -445,7 +444,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void EnsureGateBounds()
         {
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.IsGateColumn || seg.HasBounds || !seg.GateSeedValid)
                     continue;
@@ -567,12 +566,12 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LinkGateLifts()
         {
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.GateLift = null;
                 if (seg.IsGateColumn || seg.DoorRoot != null || !seg.HasBounds)
                     continue;
-                foreach (Segment gate in _segments.Values)
+                foreach (Segment gate in _live.Segments.Values)
                 {
                     if (!gate.IsGateColumn || !gate.HasBounds)
                         continue;
@@ -610,7 +609,7 @@ internal static partial class WallSegmentFade
         private bool HasGateColumnFor(Transform doorRoot)
         {
             UnityGameEditorDoorProp? dp = doorRoot.GetComponent<UnityGameEditorDoorProp>();
-            return dp != null && _segments.TryGetValue(dp, out Segment? g) && g.IsGateColumn;
+            return dp != null && _live.Segments.TryGetValue(dp, out Segment? g) && g.IsGateColumn;
         }
 
         /// <summary>Piece inside ANY arch — excluded from EVERY adopter (stack, corner,
@@ -626,9 +625,9 @@ internal static partial class WallSegmentFade
         private bool IsArchProtected(Bounds b, string name, out float containment)
         {
             containment = 0f;
-            for (int i = 0; i < _archRects.Count; i++)
+            for (int i = 0; i < _live.ArchRects.Count; i++)
             {
-                ArchRect a = _archRects[i];
+                ArchRect a = _live.ArchRects[i];
                 if (IsArchRectPiece(in a, b, name))
                 {
                     containment = ArchContainmentFraction(in a, b);

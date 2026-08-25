@@ -1224,7 +1224,6 @@ internal static partial class WallSegmentFade
         /// absent, MPB inert).</summary>
         private const string WallFadeOnKeyword = "_WALLFADE_ON_ON";
 
-        private readonly Dictionary<Component, Segment> _segments = new();
         private readonly List<Component> _deadKeys = new();
         /// <summary>Renderers owned by wall-cache segments this rescan — the adoption sweep must
         /// never create a second segment for them.</summary>
@@ -1274,12 +1273,6 @@ internal static partial class WallSegmentFade
         /// for five hardware rounds).</summary>
         private int _heartbeatFadeRenderers = -1;
 
-        /// <summary>Adopted-group anchors whose combined AABB was too FAT to act as a wall slab
-        /// (both horizontal extents large — e.g. a tile whose wall pieces ring the room; the AABB
-        /// would contain the room's own floor samples and read as 100% coverage forever). Their
-        /// renderers are tracked as per-renderer segments instead; membership persists across
-        /// rescans so those segments keep their smoothing state. Cleared on scene load.</summary>
-        private readonly HashSet<Component> _splitAnchors = new();
         private readonly List<KeyValuePair<Component, Segment>> _fatScratch = new();
         /// <summary>An adopted GROUP whose horizontal AABB is thicker than this (wu; a wall run's
         /// thin extent is ≤ ~2 wu, a hex tile ≈ 1.72 wu, a room ≥ ~8 wu) is split per renderer.</summary>
@@ -1320,20 +1313,13 @@ internal static partial class WallSegmentFade
         /// <summary>Room-registry census as last logged (reveal re-anchor diagnostic).</summary>
         private int _lastRoomCensusCount = -1;
         private int _lastRoomCensusAnchored = -1;
-        private readonly List<Bounds> _roomBounds = new();
-        private readonly List<float> _roomFloorY = new();       // tile-anchored floor plane per room
-        private readonly List<bool> _roomFloorAnchored = new(); // true = from a CentralTile anchor
         // LOGICAL ROOM GROUPING (round 4): per-renderer game-room identity (the CMap behind
         // the volume's CentralTile — the object whose .Revealed the game itself reveals),
         // its display label, and the merged-room tables the registry builds from them.
         private readonly Dictionary<MeshRenderer, object> _roomMapByRenderer = new();
         private readonly Dictionary<MeshRenderer, string> _roomMapLabelByRenderer = new();
         private readonly Dictionary<(object, int), int> _keyToRoomScratch = new();
-        private readonly List<string> _roomLabels = new();      // per logical room (diag/census)
         private readonly List<int> _roomRendererCounts = new(); // volume renderers merged per room
-        private readonly List<int> _roomSampleStart = new();    // first sample index per room
-        private readonly List<int> _roomSampleCount = new();    // grid size per room (denominator)
-        private readonly List<Vector3> _allSamples = new();     // per-room floor-plane grid
         // PLAYABLE-TILE DENOMINATOR (ModBuild 258 — user report 2026-08-24, wandproblem3.jpg:
         // "wenn man aber die wand gegenüber einguckt DIE NICHTS VERDECKT von den spielbaren
         // tiles sollte sie direkt unfaden"). The room's playable hexes, keyed by the game's own
@@ -1382,8 +1368,6 @@ internal static partial class WallSegmentFade
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
         private readonly List<Material> _matScratch = new();
         private readonly System.Text.StringBuilder _diagSb = new();
-        private float _sampleYMin, _sampleYMax;                 // overall sample-height range (diag)
-        private int _roomsAnchored;                             // rooms with a tile-anchored plane (diag)
         private float _nextDiagTime;
 
         // [Optimize] WallFadeEvalInterval state: when the visibility/coverage DECISION last ran and
@@ -1429,7 +1413,6 @@ internal static partial class WallSegmentFade
         /// what makes the release immediate), so it cannot double as this counter's clock.</summary>
         private float _suspendedNextTick;
 
-        private int _builtRoomCount = -1;
         /// <summary>Rescan scratch for the two registry reads that replaced the rescan's
         /// <c>FindObjectsOfType&lt;TilesOcclusionVolume&gt;</c> and
         /// <c>FindObjectsOfType&lt;UnityGameEditorDoorProp&gt;</c> walks (PERF S1 — see
@@ -1810,13 +1793,13 @@ internal static partial class WallSegmentFade
             // Scenario scenes are additive; walls/volumes stream in — rescan promptly. Old
             // renderers die with their scene, so blocks need no explicit clearing here.
             _nextRescan = 0f;
-            _builtRoomCount = -1;
+            _live.BuiltRoomCount = -1;
             _heartbeatLogged = false;
             _nextDiagTime = 0f;
             _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
             _shaderWaterVerdict.Clear(); // …and so did the water shaders (PERF S2)
             AbandonRescanCycle();   // a census of the OLD scene may never commit into the new one
-            _splitAnchors.Clear();
+            _live.SplitAnchors.Clear();
             _runs.Clear();          // …and so do the split-run verdicts keyed off those anchors
             _lastRoomCensusCount = -1; // fresh scene = fresh room registry (reveal diagnostics)
             _lastRoomCensusAnchored = -1;
@@ -1833,7 +1816,7 @@ internal static partial class WallSegmentFade
             _nextFastReclaimLog = 0f;
             _heartbeatFadeRenderers = -1;
             _lastLoggedFigureGuarded = -1;   // re-print the figure-guard proof line
-            _cornerPieces.Clear();           // corner ownership dies with the scene
+            _live.CornerPieces.Clear();           // corner ownership dies with the scene
             _lastLoggedCornerCount = -1;
             _dumpedBodyShaders.Clear();      // re-dump body shader properties per scene
             _gateSliverLogged.Clear();       // re-log sliver-skipped gates per scene
@@ -1842,9 +1825,9 @@ internal static partial class WallSegmentFade
             _swapTotal = 0;
             _nativeTotal = 0;
             _nextSwapLog = 0f;
-            _archRects.Clear();              // arch protection dies with the scene…
+            _live.ArchRects.Clear();              // arch protection dies with the scene…
             _gateMemory.Clear();             // …and so does the reborn-gate state memory
-            _waterRects.Clear();             // …and the fountain/pond protection rects
+            _live.WaterRects.Clear();             // …and the fountain/pond protection rects
             _waterCensusSig = -1;            // …so the next scenario re-prints its census
             _lastLoggedReanchorCount = -1;   // re-print the re-anchor census
             _lastLoggedSeamCount = -1;       // …and the room-seam census (2026-08-09)
@@ -1929,7 +1912,7 @@ internal static partial class WallSegmentFade
             // PERF S2: the rescan is a three-stage pipeline now (sweep → budgeted census →
             // commit), not a single 118 ms call. A cycle is only STARTED when none is in
             // flight, so the reveal edge below cannot re-trigger every frame while the census
-            // is still walking — _builtRoomCount is not updated until the commit runs.
+            // is still walking — _live.BuiltRoomCount is not updated until the commit runs.
             // ModBuild 278 — WALK-IN SUSPENSION, the cadence half. See UpdateSamplingSuspension
             // for the whole record; here it does exactly one thing: while the latch holds, no
             // NEW cycle is opened on the cadence. A REVEAL still opens one (the second clause
@@ -1946,7 +1929,7 @@ internal static partial class WallSegmentFade
             // for", so a long stand-down cannot be mistaken for a regeneration request.
             if (_rescanStage == RescanStage.Idle
                 && ((!_samplingSuspended && now >= _nextRescan)
-                    || gen!.m_RoomRenderers.Count != _builtRoomCount))
+                    || gen!.m_RoomRenderers.Count != _live.BuiltRoomCount))
             {
                 // PERF S5 — DID SOMETHING ASK FOR THIS CYCLE? Six sites across the subsystem
                 // zero _nextRescan to mean "geometry regenerated mid-fade, re-collect promptly"
@@ -1987,7 +1970,7 @@ internal static partial class WallSegmentFade
                 // on the next frame. Nothing waits on it: the segment table in force is the
                 // last committed one, exactly as it was between two old rescans.
                 sweptThisFrame =
-                    BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _builtRoomCount);
+                    BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _live.BuiltRoomCount);
             }
             // MEASURE THE OUTCOME, NOT THE READINESS OF THE MECHANISM. This counts the cadence
             // ticks the suspension actually swallowed, and the SAMPLING RESUMED line prints the
@@ -2000,7 +1983,7 @@ internal static partial class WallSegmentFade
             // on every one of the ~5400 frames a 60-second stand-down covers and would report a
             // saving 180x larger than the truth. A separate shadow clock advances at the live
             // cadence instead, so a 60-second stand-down at the shipped 2.0 s reports 30.
-            if (_samplingSuspended && gen!.m_RoomRenderers.Count == _builtRoomCount)
+            if (_samplingSuspended && gen!.m_RoomRenderers.Count == _live.BuiltRoomCount)
             {
                 float period = Mathf.Max(RescanIntervalSeconds, 0.05f);
                 // Bounded: at most one whole window's worth of catch-up per frame, so a long
@@ -2014,7 +1997,7 @@ internal static partial class WallSegmentFade
 
             if (_rescanStage != RescanStage.Idle && !sweptThisFrame)
                 StepRescanCycle(gen!, now);
-            if (_segments.Count == 0 || _roomBounds.Count == 0)
+            if (_live.Segments.Count == 0 || _live.RoomBounds.Count == 0)
                 return;
 
             Transform headT = head!.transform;
@@ -2139,7 +2122,7 @@ internal static partial class WallSegmentFade
                     reevalArmed ? exitDwellMoved : exitDwellStationary);
             else if (evaluate)
                 ClearSplitRunDrive(); // dial off: every piece decides for itself, as in 258
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
                 // des Torbogens ist nun dauerhaft ausgeblendet und kommt auch nicht wieder,
@@ -2401,7 +2384,7 @@ internal static partial class WallSegmentFade
             // several rescans as Apparance generates, and adopted tilesets appear late) — the
             // first heartbeat of a scenario otherwise reports a half-built table forever.
             if (_heartbeatLogged && _heartbeatSegCount >= 0
-                && Mathf.Abs(_segments.Count - _heartbeatSegCount) >= 5)
+                && Mathf.Abs(_live.Segments.Count - _heartbeatSegCount) >= 5)
                 _heartbeatLogged = false;
             // …and when the fade-capable renderer census changes (round 5): five hardware
             // rounds ran on a single STALE pre-generation heartbeat ("fade-capable 0") that
@@ -2425,7 +2408,7 @@ internal static partial class WallSegmentFade
             {
                 using var _censusScope = PerfMonitor.Scope("WallFade.Census");
                 _heartbeatLogged = true;
-                _heartbeatSegCount = _segments.Count;
+                _heartbeatSegCount = _live.Segments.Count;
                 _heartbeatFadeRenderers = _censusFadeRenderers;
                 LogFloorColumnCensus();
                 LogMountedCensus();
@@ -2437,7 +2420,7 @@ internal static partial class WallSegmentFade
                 int highSegs = 0, lowSegs = 0, adoptedSegs = 0, engulfSegs = 0, foliage = 0;
                 int siblings = 0, failSafeSegs = 0, doorways = 0, mounted = 0, stacked = 0;
                 int bodyWalls = 0, bodyMeshes = 0, gates = 0;
-                foreach (Segment s in _segments.Values)
+                foreach (Segment s in _live.Segments.Values)
                 {
                     if (s.VariantHigh) highSegs++;
                     if (s.VariantLow) lowSegs++;
@@ -2473,7 +2456,7 @@ internal static partial class WallSegmentFade
                 var fsSb = new System.Text.StringBuilder();
                 int fsListed = 0, fsNoBounds = 0, fsBeyondReach = 0, fsWithinReach = 0;
                 int fsRefused = 0;
-                foreach (Segment s in _segments.Values)
+                foreach (Segment s in _live.Segments.Values)
                 {
                     if (RoomDecisionValid(s.RoomIndex) || s.DoorRoot != null)
                         continue;
@@ -2497,11 +2480,11 @@ internal static partial class WallSegmentFade
                         continue;
                     }
                     float bestSq = float.PositiveInfinity;
-                    for (int ri = 0; ri < _roomBounds.Count; ri++)
+                    for (int ri = 0; ri < _live.RoomBounds.Count; ri++)
                     {
                         if (!RoomDecisionValid(ri))
                             continue;
-                        Bounds room = _roomBounds[ri];
+                        Bounds room = _live.RoomBounds[ri];
                         float gx = Mathf.Max(0f, Mathf.Max(room.min.x - s.Bounds.max.x,
                             s.Bounds.min.x - room.max.x));
                         float gz = Mathf.Max(0f, Mathf.Max(room.min.z - s.Bounds.max.z,
@@ -2553,10 +2536,10 @@ internal static partial class WallSegmentFade
                     : string.Empty;
                 VRLog.Info(Name,
                     $"heartbeat scene='{SceneManager.GetActiveScene().name}': tracking "
-                    + $"{_segments.Count} wall segments ({_segments.Count - adoptedSegs} from the "
+                    + $"{_live.Segments.Count} wall segments ({_live.Segments.Count - adoptedSegs} from the "
                     + $"wall cache + {adoptedSegs} ADOPTED by shader, grouped by tile/parent; "
                     + $"fade-capable renderers {_censusFadeRenderers} = {_censusClaimed} claimed "
-                    + $"+ {_censusAdopted} adopted; {_splitAnchors.Count} room-engulfing wall(s) "
+                    + $"+ {_censusAdopted} adopted; {_live.SplitAnchors.Count} room-engulfing wall(s) "
                     + $"split per renderer, {engulfSegs} unsplittable held solid; {foliage} foliage "
                     + $"attachment(s) + {siblings} asset-sibling(s) + {mounted} wall-mounted "
                     + $"prop(s) (torches/candles — renderer.enabled only, Lights never touched) "
@@ -2570,12 +2553,12 @@ internal static partial class WallSegmentFade
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
-                    + $"{highSegs} HIGH) against {_roomBounds.Count} LOGICAL room(s) "
-                    + $"(grouped from {_builtRoomCount} volume renderer(s) by the game's CMap "
-                    + $"room identity — round 4) / {_allSamples.Count} floor samples "
-                    + $"({_roomsAnchored}/"
-                    + $"{_roomBounds.Count} rooms tile-anchored, plane +"
-                    + $"{FloorSampleEpsilon:0.00} wu, y {_sampleYMin:F2}..{_sampleYMax:F2}; "
+                    + $"{highSegs} HIGH) against {_live.RoomBounds.Count} LOGICAL room(s) "
+                    + $"(grouped from {_live.BuiltRoomCount} volume renderer(s) by the game's CMap "
+                    + $"room identity — round 4) / {_live.AllSamples.Count} floor samples "
+                    + $"({_live.RoomsAnchored}/"
+                    + $"{_live.RoomBounds.Count} rooms tile-anchored, plane +"
+                    + $"{FloorSampleEpsilon:0.00} wu, y {_live.SampleYMin:F2}..{_live.SampleYMax:F2}; "
                     + $"ModBuild 259: every sample sits on a hex the GAME calls playable — "
                     + $"CNode.Walkable and not CNode.Blocked, i.e. neither an EDGE hex nor one "
                     + $"an obstacle prop stands on — where the game's tile registry could name "
@@ -2662,13 +2645,13 @@ internal static partial class WallSegmentFade
         private int UpdateSampleVisibility(Camera head)
         {
             int visible = 0;
-            int n = Mathf.Min(_allSamples.Count, _sampleVisible.Length);
+            int n = Mathf.Min(_live.AllSamples.Count, _sampleVisible.Length);
             for (int i = 0; i < n; i++)
             {
                 // Mono view/projection of the head camera; per-eye stereo frustums differ
                 // only by half the IPD and a slightly wider horizontal FOV — FrustumMargin
                 // (0.20 viewport-relative) generously covers that skew.
-                Vector3 vp = head.WorldToViewportPoint(_allSamples[i]);
+                Vector3 vp = head.WorldToViewportPoint(_live.AllSamples[i]);
                 bool vis = vp.z > 0f
                     && vp.x > -FrustumMargin && vp.x < 1f + FrustumMargin
                     && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin;
@@ -2689,8 +2672,8 @@ internal static partial class WallSegmentFade
         /// </summary>
         private bool RoomDecisionValid(int room) =>
             room >= 0
-            && room < _roomFloorAnchored.Count && _roomFloorAnchored[room]
-            && room < _roomSampleCount.Count && _roomSampleCount[room] > 0;
+            && room < _live.RoomFloorAnchored.Count && _live.RoomFloorAnchored[room]
+            && room < _live.RoomSampleCount.Count && _live.RoomSampleCount[room] > 0;
 
         /// <summary>
         /// Fraction of the wall's OWN room's floor grid that the wall hides from the head:
@@ -2737,9 +2720,9 @@ internal static partial class WallSegmentFade
             seg.LastBlockerByContains = false;
             seg.LastContainsCells = 0;
             int room = seg.RoomIndex;
-            if (room < 0 || room >= _roomSampleCount.Count)
+            if (room < 0 || room >= _live.RoomSampleCount.Count)
                 return 0f;
-            int total = _roomSampleCount[room];
+            int total = _live.RoomSampleCount[room];
             seg.LastRoomTotal = total;
             seg.LastDecidingRoom = room;
             if (total <= 0)
@@ -2786,7 +2769,7 @@ internal static partial class WallSegmentFade
             for (int i = 0; i < seg.BorderRooms.Count; i++)
             {
                 int alt = seg.BorderRooms[i];
-                if (alt < 0 || alt >= _roomSampleCount.Count || _roomSampleCount[alt] <= 0)
+                if (alt < 0 || alt >= _live.RoomSampleCount.Count || _live.RoomSampleCount[alt] <= 0)
                     continue;
                 // Cell attribution describes the OWN room only (see _attributeCells): a seam
                 // wall's alt-room passes must not append their cells to it, or the list would
@@ -2814,13 +2797,13 @@ internal static partial class WallSegmentFade
         {
             blockedOut = 0;
             visibleOut = 0;
-            totalOut = room >= 0 && room < _roomSampleCount.Count ? _roomSampleCount[room] : 0;
+            totalOut = room >= 0 && room < _live.RoomSampleCount.Count ? _live.RoomSampleCount[room] : 0;
             if (totalOut <= 0)
                 return 0f;
 
             Bounds b = seg.Bounds;
-            int start = _roomSampleStart[room];
-            int end = Mathf.Min(start + totalOut, Mathf.Min(_allSamples.Count, _sampleVisible.Length));
+            int start = _live.RoomSampleStart[room];
+            int end = Mathf.Min(start + totalOut, Mathf.Min(_live.AllSamples.Count, _sampleVisible.Length));
             float thicknessEps = seg.BlockEps;
             int blocked = 0, roomVisible = 0;
             for (int i = start; i < end; i++)
@@ -2828,7 +2811,7 @@ internal static partial class WallSegmentFade
                 if (!_sampleVisible[i])
                     continue; // out of view-direction — cannot be "hidden by the wall"
                 roomVisible++;
-                Vector3 sample = _allSamples[i];
+                Vector3 sample = _live.AllSamples[i];
                 Vector3 to = sample - headPos;
                 float dist = to.magnitude;
                 if (dist < 0.001f)
@@ -3133,7 +3116,7 @@ internal static partial class WallSegmentFade
         /// <see cref="Apply"/>, i.e. EVERY FRAME for every channel-less foliage piece.
         /// <c>PropUnitRootOf</c> is a hierarchy climb whose per-node facts are memoised PER
         /// COMMIT and dropped before the tick — calling it here would be a per-frame scene walk,
-        /// the defect class this subsystem has shipped three times. <c>_propUnitRootMemo</c> is
+        /// the defect class this subsystem has shipped three times. <c>_live.PropUnitRootMemo</c> is
         /// filled during the rescan and cleared by <c>BeginPropUnitScope</c>, so a lookup is O(1)
         /// and a MISS falls back to the renderer id, which is exactly the ModBuild 260 behaviour.
         /// </para>
@@ -3142,7 +3125,7 @@ internal static partial class WallSegmentFade
         /// Two lanes independently moved the key from the renderer to the prop unit and each
         /// wrote its own copy: this one, and <c>UnitStaggerThreshold</c> in
         /// WallSegmentFade.PropUnit.cs. The arithmetic agreed; the KEY RESOLUTION did not. This
-        /// one read <see cref="_propUnitRootMemo"/> and fell back to the RENDERER id on a miss;
+        /// one read <see cref="CommittedTable.PropUnitRootMemo"/> and fell back to the RENDERER id on a miss;
         /// the other called <c>PropUnitRootOf</c> live, which always finds the root. A prop whose
         /// pieces are split between <c>seg.Foliage</c> (this path) and <c>seg.UnitDressing</c>
         /// (that one) therefore got TWO different thresholds whenever the memo happened not to
@@ -3213,7 +3196,7 @@ internal static partial class WallSegmentFade
                 resolved = true; // nothing to group by — every path keys on the renderer's own id
                 return null;
             }
-            resolved = _propUnitRootMemo.TryGetValue(parent, out Transform? root);
+            resolved = _live.PropUnitRootMemo.TryGetValue(parent, out Transform? root);
             return resolved ? root : null;
         }
 
@@ -3489,10 +3472,10 @@ internal static partial class WallSegmentFade
 
         private void LogDiagnostic(Vector3 headPos, int visibleCount)
         {
-            if (_segments.Count == 0)
+            if (_live.Segments.Count == 0)
                 return;
             Segment? s1 = null, s2 = null, s3 = null;
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.HasBounds)
                     continue;
@@ -3504,10 +3487,10 @@ internal static partial class WallSegmentFade
                 return;
 
             _diagSb.Length = 0;
-            _diagSb.Append("diag: vis ").Append(visibleCount).Append('/').Append(_allSamples.Count)
+            _diagSb.Append("diag: vis ").Append(visibleCount).Append('/').Append(_live.AllSamples.Count)
                    .Append(" headY ").Append(headPos.y.ToString("F2"))
-                   .Append(" sampY[").Append(_sampleYMin.ToString("F2")).Append("..")
-                   .Append(_sampleYMax.ToString("F2")).Append(']');
+                   .Append(" sampY[").Append(_live.SampleYMin.ToString("F2")).Append("..")
+                   .Append(_live.SampleYMax.ToString("F2")).Append(']');
             AppendSegDiag(s1);
             AppendSegDiag(s2);
             AppendSegDiag(s3);
@@ -3558,16 +3541,16 @@ internal static partial class WallSegmentFade
             // the exact frame-mismatch class the round-6 hardware log caught (sampY 9.05 vs
             // wall tops ≤3.67: bounds-derived plane, occlusion-proxy meshes).
             int room = seg.RoomIndex;
-            float planeY = room >= 0 && room < _roomFloorY.Count
-                ? _roomFloorY[room] + FloorSampleEpsilon
-                : _sampleYMin;
+            float planeY = room >= 0 && room < _live.RoomFloorY.Count
+                ? _live.RoomFloorY[room] + FloorSampleEpsilon
+                : _live.SampleYMin;
             if (planeY > b.max.y)
                 _diagSb.Append(" !ABOVE-WALL");
-            if (room >= 0 && room < _roomFloorAnchored.Count && !_roomFloorAnchored[room])
+            if (room >= 0 && room < _live.RoomFloorAnchored.Count && !_live.RoomFloorAnchored[room])
                 _diagSb.Append(" !UNANCHORED");
             // Room grid empty (over the sample budget) or no room at all: the wall is held
             // solid by the reveal fail-safe — visible in the log as the reason it never fades.
-            if (room < 0 || (room < _roomSampleCount.Count && _roomSampleCount[room] <= 0))
+            if (room < 0 || (room < _live.RoomSampleCount.Count && _live.RoomSampleCount[room] <= 0))
                 _diagSb.Append(" !NOGRID");
             // A single mesh whose AABB is fat in BOTH horizontal axes (ring/corner piece) cannot
             // be split further — its coverage numbers may read permanently high. Flagged so the
@@ -4964,7 +4947,7 @@ internal static partial class WallSegmentFade
         /// <para>WHY THE LIVE TRANSFORM AND NOT <c>CMapTile.Position</c>. Both are the same
         /// number at scenario init (<c>UnityGameEditorRuntime.InitialiseScenario</c> matches
         /// them with a 0.1 wu tolerance), but <c>CMapTile.Position</c> is the AUTHORED world
-        /// position and would silently disagree with <see cref="_roomBounds"/> — which comes
+        /// position and would silently disagree with <see cref="CommittedTable.RoomBounds"/> — which comes
         /// from live <c>renderer.bounds</c> — the moment anything reparents or rescales the
         /// board. The transform cannot drift from the renderer bounds because it is the same
         /// frame.</para>
@@ -5099,7 +5082,7 @@ internal static partial class WallSegmentFade
         /// <c>CMap.OpenRoom</c>). Applied to hexes it can only ever remove ALL of a room's hexes
         /// or none, which is the denominator collapse constraint 1 forbids. The user's
         /// "undiscovered tiles must not count" is already answered one level up and by
-        /// construction: a room only enters <see cref="_roomBounds"/> when the game appends its
+        /// construction: a room only enters <see cref="CommittedTable.RoomBounds"/> when the game appends its
         /// occlusion volume renderer, and a hex only enters a room's set when its CMap is THAT
         /// room's CMap and it lies inside that room's own footprint. The ModBuild 258 log is the
         /// evidence: 184 hexes were keyed to a room while the registry held exactly ONE room,
@@ -5199,10 +5182,10 @@ internal static partial class WallSegmentFade
             // (CMap, quantized anchor height): union XZ bounds, ONE grid, one anchor state.
             // Renderers without a CMap (no volume / chain unbuilt) stay singleton rooms —
             // exactly the old behaviour, and unanchored ones stay fail-safe solid.
-            _roomBounds.Clear();
-            _roomFloorY.Clear();
-            _roomFloorAnchored.Clear();
-            _roomLabels.Clear();
+            _live.RoomBounds.Clear();
+            _live.RoomFloorY.Clear();
+            _live.RoomFloorAnchored.Clear();
+            _live.RoomLabels.Clear();
             _roomRendererCounts.Clear();
             _roomMapKeys.Clear();
             _keyToRoomScratch.Clear();
@@ -5220,18 +5203,18 @@ internal static partial class WallSegmentFade
                     (object, int) groupKey = (key, Mathf.RoundToInt(floorY * 2f));
                     if (_keyToRoomScratch.TryGetValue(groupKey, out int idx))
                     {
-                        Bounds merged = _roomBounds[idx];
+                        Bounds merged = _live.RoomBounds[idx];
                         merged.Encapsulate(r.bounds);
-                        _roomBounds[idx] = merged;
+                        _live.RoomBounds[idx] = merged;
                         _roomRendererCounts[idx]++;
                         continue;
                     }
-                    _keyToRoomScratch[groupKey] = _roomBounds.Count;
+                    _keyToRoomScratch[groupKey] = _live.RoomBounds.Count;
                 }
-                _roomBounds.Add(r.bounds);
-                _roomFloorY.Add(anchored ? floorY : float.NaN);
-                _roomFloorAnchored.Add(anchored);
-                _roomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
+                _live.RoomBounds.Add(r.bounds);
+                _live.RoomFloorY.Add(anchored ? floorY : float.NaN);
+                _live.RoomFloorAnchored.Add(anchored);
+                _live.RoomLabels.Add(key != null && _roomMapLabelByRenderer.TryGetValue(r, out string lbl)
                     ? lbl : r.name);
                 _roomRendererCounts.Add(1);
                 // ModBuild 258: the room's own CMap, kept per LOGICAL room so RebuildSamples can
@@ -5239,17 +5222,17 @@ internal static partial class WallSegmentFade
                 // volume/CMap — that room keeps the bounding-box grid, fail-safe and unchanged.
                 _roomMapKeys.Add(key);
             }
-            _builtRoomCount = gen.m_RoomRenderers.Count;
+            _live.BuiltRoomCount = gen.m_RoomRenderers.Count;
             // PERF S4, GATE 3's reference reading — taken HERE because this is the phase that
-            // builds _roomFloorY, so the probe and the planes are from the same instant. See
+            // builds _live.RoomFloorY, so the probe and the planes are from the same instant. See
             // BoardStillWhereTheFloorPlanesSayItIs.
-            _prepBoardProbeValid = false;
+            _live.PrepBoardProbeValid = false;
             foreach (MeshRenderer probe in gen.m_RoomRenderers)
             {
                 if (probe == null)
                     continue;
-                _prepBoardProbePos = probe.transform.position;
-                _prepBoardProbeValid = true;
+                _live.PrepBoardProbePos = probe.transform.position;
+                _live.PrepBoardProbeValid = true;
                 break;
             }
 
@@ -5257,23 +5240,23 @@ internal static partial class WallSegmentFade
             // one scenario share the board plane), else the old bounds top — with the
             // !ABOVE-WALL/!UNANCHORED diag tripwires flagging that degraded mode.
             _floorYScratch.Clear();
-            for (int i = 0; i < _roomFloorY.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count; i++)
             {
-                if (_roomFloorAnchored[i])
-                    _floorYScratch.Add(_roomFloorY[i]);
+                if (_live.RoomFloorAnchored[i])
+                    _floorYScratch.Add(_live.RoomFloorY[i]);
             }
-            _roomsAnchored = _floorYScratch.Count;
+            _live.RoomsAnchored = _floorYScratch.Count;
             float fallbackY = float.NaN;
             if (_floorYScratch.Count > 0)
             {
                 _floorYScratch.Sort();
                 fallbackY = _floorYScratch[_floorYScratch.Count / 2];
             }
-            for (int i = 0; i < _roomFloorY.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count; i++)
             {
-                if (_roomFloorAnchored[i])
+                if (_live.RoomFloorAnchored[i])
                     continue;
-                _roomFloorY[i] = float.IsNaN(fallbackY) ? _roomBounds[i].max.y : fallbackY;
+                _live.RoomFloorY[i] = float.IsNaN(fallbackY) ? _live.RoomBounds[i].max.y : fallbackY;
             }
 
             // ROOM-REVEAL DIAGNOSTIC (mid-scenario door open → Choreographer
@@ -5282,44 +5265,44 @@ internal static partial class WallSegmentFade
             // immediately): one unmissable line whenever the room registry or its anchor count
             // changes, plus a fresh heartbeat, so the next hardware log PROVES the registry
             // re-anchored on reveal instead of leaving it to inference.
-            if (_roomBounds.Count != _lastRoomCensusCount
-                || _roomsAnchored != _lastRoomCensusAnchored)
+            if (_live.RoomBounds.Count != _lastRoomCensusCount
+                || _live.RoomsAnchored != _lastRoomCensusAnchored)
             {
-                bool reveal = _lastRoomCensusCount >= 0 && _roomBounds.Count > _lastRoomCensusCount;
+                bool reveal = _lastRoomCensusCount >= 0 && _live.RoomBounds.Count > _lastRoomCensusCount;
                 // Grouping census: which logical rooms exist and how many volume renderers
                 // each merged ('E'×6 = the keep's six sub-volumes as ONE room — round 4).
                 var groups = new System.Text.StringBuilder();
-                for (int i = 0; i < _roomLabels.Count && i < 8; i++)
+                for (int i = 0; i < _live.RoomLabels.Count && i < 8; i++)
                 {
                     if (groups.Length > 0)
                         groups.Append(", ");
-                    groups.Append('\'').Append(_roomLabels[i]).Append('\'');
+                    groups.Append('\'').Append(_live.RoomLabels[i]).Append('\'');
                     if (i < _roomRendererCounts.Count && _roomRendererCounts[i] > 1)
                         groups.Append('×').Append(_roomRendererCounts[i]);
                 }
-                if (_roomLabels.Count > 8)
+                if (_live.RoomLabels.Count > 8)
                     groups.Append(", …");
                 VRLog.Info(Name,
                     $"room registry {(reveal ? "REVEAL re-anchor" : "refresh")}: "
-                    + $"{Mathf.Max(_lastRoomCensusCount, 0)}→{_roomBounds.Count} LOGICAL room(s) "
-                    + $"from {_builtRoomCount} volume renderer(s), grouped by the game's room "
+                    + $"{Mathf.Max(_lastRoomCensusCount, 0)}→{_live.RoomBounds.Count} LOGICAL room(s) "
+                    + $"from {_live.BuiltRoomCount} volume renderer(s), grouped by the game's room "
                     + $"identity (CMap via CentralTile.m_ClientTile.m_Tile.m_HexMap — round 4): "
                     + $"[{groups}]; "
-                    + $"{_roomsAnchored}/{_roomBounds.Count} tile-anchored — walls of unanchored "
+                    + $"{_live.RoomsAnchored}/{_live.RoomBounds.Count} tile-anchored — walls of unanchored "
                     + "rooms are held SOLID (fail-safe) until their volume anchors.");
-                _lastRoomCensusCount = _roomBounds.Count;
-                _lastRoomCensusAnchored = _roomsAnchored;
+                _lastRoomCensusCount = _live.RoomBounds.Count;
+                _lastRoomCensusAnchored = _live.RoomsAnchored;
                 _heartbeatLogged = false; // re-print the full table against the new room set
             }
 
             // Board moved/tilted or a room got revealed → the perspective onto the play area
             // changed; flag it so UpdatePerspectiveState re-arms aggressive re-evaluation.
-            if (_roomBounds.Count > 0)
+            if (_live.RoomBounds.Count > 0)
             {
                 Vector3 combined = Vector3.zero;
-                foreach (Bounds b in _roomBounds)
+                foreach (Bounds b in _live.RoomBounds)
                     combined += b.center;
-                combined /= _roomBounds.Count;
+                combined /= _live.RoomBounds.Count;
                 if (_roomCenterInit && (combined - _roomCenter).sqrMagnitude > 0.0001f)
                     _roomBoundsMoved = true;
                 _roomCenter = combined;
@@ -5335,7 +5318,7 @@ internal static partial class WallSegmentFade
             // so restore them first — a hidden door whose owner segment vanished would otherwise
             // stay invisible forever (the foliage-orphan lesson, applied to every attachment).
             _deadKeys.Clear();
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            foreach (KeyValuePair<Component, Segment> kv in _live.Segments)
             {
                 if (kv.Key == null)
                 {
@@ -5348,7 +5331,7 @@ internal static partial class WallSegmentFade
                 }
             }
             foreach (Component dead in _deadKeys)
-                _segments.Remove(dead);
+                _live.Segments.Remove(dead);
         }
 
         /// <summary>COMMIT PHASE 5 — see <see cref="RescanCore"/>. Lifted verbatim.</summary>
@@ -5360,7 +5343,7 @@ internal static partial class WallSegmentFade
             //
             // PERF S4: the scope now opens one stage EARLIER, in BeginPrepareStage, because the
             // memos it clears are the ones that stage fills — and it reads exactly the same
-            // table there (nothing mutates _segments between the two points). This is the
+            // table there (nothing mutates _live.Segments between the two points). This is the
             // BACKSTOP, not the normal path: a commit reached with no scope open would run the
             // standing rule against the PREVIOUS rescan's verdict memos. It is counted and
             // printed rather than silently corrected, because a backstop that fires every cycle
@@ -5387,15 +5370,15 @@ internal static partial class WallSegmentFade
                 ProceduralWall wall = cache[i];
                 if (wall == null)
                     continue;
-                if (_splitAnchors.Contains(wall))
+                if (_live.SplitAnchors.Contains(wall))
                 {
                     RefreshSplitWall(wall);
                     continue;
                 }
-                if (!_segments.TryGetValue(wall, out Segment? seg))
+                if (!_live.Segments.TryGetValue(wall, out Segment? seg))
                 {
                     seg = new Segment { Anchor = wall, FromWallCache = true };
-                    _segments.Add(wall, seg);
+                    _live.Segments.Add(wall, seg);
                 }
                 RefreshSegment(seg);
                 foreach (MeshRenderer r in seg.Renderers)
@@ -5441,12 +5424,12 @@ internal static partial class WallSegmentFade
         private void StripGroundRenderers()
         {
             _deadKeys.Clear();
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            foreach (KeyValuePair<Component, Segment> kv in _live.Segments)
             {
                 Segment seg = kv.Value;
-                if (!seg.HasBounds || seg.RoomIndex < 0 || seg.RoomIndex >= _roomFloorY.Count)
+                if (!seg.HasBounds || seg.RoomIndex < 0 || seg.RoomIndex >= _live.RoomFloorY.Count)
                     continue;
-                float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
+                float ceiling = _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
                 bool changed = false;
                 for (int i = seg.Renderers.Count - 1; i >= 0; i--)
                 {
@@ -5552,7 +5535,7 @@ internal static partial class WallSegmentFade
                 }
             }
             foreach (Component dead in _deadKeys)
-                _segments.Remove(dead);
+                _live.Segments.Remove(dead);
         }
 
         /// <summary>
@@ -5569,7 +5552,7 @@ internal static partial class WallSegmentFade
         /// those keep today's whole-wall behaviour. A segment whose AABB XZ-contains ≥
         /// <see cref="EngulfSampleFraction"/> of its own room's samples cannot make a meaningful
         /// occlusion decision as ONE unit: multi-renderer segments are SPLIT per renderer (each
-        /// piece is a proper slab deciding for itself; membership persists via _splitAnchors),
+        /// piece is a proper slab deciding for itself; membership persists via _live.SplitAnchors),
         /// and an unsplittable single-renderer segment is held SOLID (vanilla look — strictly
         /// better than permanently missing ground) and flagged !ENGULF in the diag.
         /// </summary>
@@ -5578,7 +5561,7 @@ internal static partial class WallSegmentFade
         private void NeutralizeEngulfingSegments()
         {
             _fatScratch.Clear();
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            foreach (KeyValuePair<Component, Segment> kv in _live.Segments)
             {
                 Segment seg = kv.Value;
                 if (!seg.HasBounds || seg.RoomIndex < 0)
@@ -5606,8 +5589,8 @@ internal static partial class WallSegmentFade
             foreach (KeyValuePair<Component, Segment> engulfing in _fatScratch)
             {
                 Segment group = engulfing.Value;
-                _splitAnchors.Add(engulfing.Key);
-                _segments.Remove(engulfing.Key);
+                _live.SplitAnchors.Add(engulfing.Key);
+                _live.Segments.Remove(engulfing.Key);
                 RestoreSegmentFoliage(group); // pieces re-adopt the bushes on the next rescan
                 RestoreSegmentSiblings(group); // ditto for asset siblings (doors/trim)
                 RestoreSegmentMounted(group);  // …and for the wall-mounted dressing (torches)
@@ -5625,10 +5608,10 @@ internal static partial class WallSegmentFade
                 {
                     if (r == null)
                         continue;
-                    if (!_segments.TryGetValue(r, out Segment? sub))
+                    if (!_live.Segments.TryGetValue(r, out Segment? sub))
                     {
                         sub = new Segment { Anchor = r, FromWallCache = group.FromWallCache };
-                        _segments.Add(r, sub);
+                        _live.Segments.Add(r, sub);
                     }
                     // ModBuild 259: the piece remembers the GROUP it was carved out of, so the
                     // run can decide once for all of them (Segment.RunOwner).
@@ -5669,17 +5652,17 @@ internal static partial class WallSegmentFade
         /// piece (a shell ringing the room must never join, or coverage reads 100% forever).</summary>
         private float InsideRoomFraction(Bounds b, int room)
         {
-            if (room < 0 || room >= _roomSampleCount.Count)
+            if (room < 0 || room >= _live.RoomSampleCount.Count)
                 return 0f;
-            int total = _roomSampleCount[room];
+            int total = _live.RoomSampleCount[room];
             if (total <= 0)
                 return 0f;
-            int start = _roomSampleStart[room];
-            int end = Mathf.Min(start + total, _allSamples.Count);
+            int start = _live.RoomSampleStart[room];
+            int end = Mathf.Min(start + total, _live.AllSamples.Count);
             int inside = 0;
             for (int i = start; i < end; i++)
             {
-                Vector3 s = _allSamples[i];
+                Vector3 s = _live.AllSamples[i];
                 if (s.x >= b.min.x && s.x <= b.max.x && s.z >= b.min.z && s.z <= b.max.z)
                     inside++;
             }
@@ -5698,7 +5681,7 @@ internal static partial class WallSegmentFade
         {
             // Reset adopted segments for re-fill; keep their smoothing/fade state (keyed by
             // anchor, so a stable group keeps its EMA and dwell across rescans).
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            foreach (KeyValuePair<Component, Segment> kv in _live.Segments)
             {
                 // Gate columns are seeded by SeedGateColumns (already refreshed this rescan)
                 // and own no wall renderers — the shader sweep must not reset them.
@@ -5752,7 +5735,7 @@ internal static partial class WallSegmentFade
                     {
                         UnityGameEditorDoorProp? gdp =
                             doorRoot.GetComponent<UnityGameEditorDoorProp>();
-                        if (gdp != null && _segments.TryGetValue(gdp, out Segment? gseg)
+                        if (gdp != null && _live.Segments.TryGetValue(gdp, out Segment? gseg)
                             && gseg.IsGateColumn && CollectWallFadeInfo(r, gseg))
                         {
                             gseg.Renderers.Add(r);
@@ -5765,17 +5748,17 @@ internal static partial class WallSegmentFade
                     anchor = doorRoot;
                 }
                 // A group that proved too fat to be a slab is tracked per renderer instead
-                // (see _splitAnchors) — route straight to the per-renderer segment so its
+                // (see _live.SplitAnchors) — route straight to the per-renderer segment so its
                 // smoothing state survives every rescan.
-                else if (_splitAnchors.Contains(anchor))
+                else if (_live.SplitAnchors.Contains(anchor))
                 {
                     splitRunOwner = anchor;
                     anchor = r;
                 }
-                if (!_segments.TryGetValue(anchor, out Segment? seg))
+                if (!_live.Segments.TryGetValue(anchor, out Segment? seg))
                 {
                     seg = new Segment { Anchor = anchor, FromWallCache = false };
-                    _segments.Add(anchor, seg);
+                    _live.Segments.Add(anchor, seg);
                     BeginRefresh(seg);
                 }
                 if (splitRunOwner != null)
@@ -5827,7 +5810,7 @@ internal static partial class WallSegmentFade
             // containment test needs the room's samples, and plain AABB fatness is not enough
             // (an L-shaped corner run is fat too and must keep whole-wall behaviour).
             _deadKeys.Clear();
-            foreach (KeyValuePair<Component, Segment> kv in _segments)
+            foreach (KeyValuePair<Component, Segment> kv in _live.Segments)
             {
                 Segment seg = kv.Value;
                 if (seg.IsGateColumn)
@@ -5853,7 +5836,7 @@ internal static partial class WallSegmentFade
                 }
             }
             foreach (Component dead in _deadKeys)
-                _segments.Remove(dead);
+                _live.Segments.Remove(dead);
         }
 
         /// <summary>
@@ -5905,10 +5888,10 @@ internal static partial class WallSegmentFade
             {
                 if (r == null || !RendererUsesWallFade(r))
                     continue;
-                if (!_segments.TryGetValue(r, out Segment? sub))
+                if (!_live.Segments.TryGetValue(r, out Segment? sub))
                 {
                     sub = new Segment { Anchor = r, FromWallCache = true };
-                    _segments.Add(r, sub);
+                    _live.Segments.Add(r, sub);
                 }
                 // ModBuild 259: re-stamped every rescan from the wall this method was CALLED
                 // with — the run membership is the game's own parenting, not a proximity guess.
@@ -6055,7 +6038,7 @@ internal static partial class WallSegmentFade
         private void CollectAdoptedSiblings()
         {
             _siblingOwned.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.FromWallCache)
                     continue;
@@ -6075,7 +6058,7 @@ internal static partial class WallSegmentFade
                 }
                 if (RoomDecisionValid(seg.RoomIndex))
                 {
-                    float ceiling = _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
+                    float ceiling = _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU;
                     foreach (MeshRenderer r in seg.Renderers)
                     {
                         if (r == null)
@@ -6137,7 +6120,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void LogFloorColumnCensus()
         {
-            if (_roomBounds.Count == 0)
+            if (_live.RoomBounds.Count == 0)
                 return;
             // includeInactive ON (fehlender_boden2.png round 2): the first census could not
             // tell "no floor renderer EXISTS" from "a floor renderer exists but something
@@ -6148,15 +6131,15 @@ internal static partial class WallSegmentFade
             // renderer's own enabled flag and the first inactive ancestor by name.
             MeshRenderer[] all = UnityEngine.Object.FindObjectsOfType<MeshRenderer>(includeInactive: true);
             var sb = new System.Text.StringBuilder();
-            int rooms = Mathf.Min(_roomBounds.Count, 8);
+            int rooms = Mathf.Min(_live.RoomBounds.Count, 8);
             for (int r = 0; r < rooms; r++)
             {
-                Vector3 center = _roomBounds[r].center;
-                float floorY = r < _roomFloorY.Count ? _roomFloorY[r] : 0f;
+                Vector3 center = _live.RoomBounds[r].center;
+                float floorY = r < _live.RoomFloorY.Count ? _live.RoomFloorY[r] : 0f;
                 sb.Length = 0;
                 sb.Append("FLOOR CENSUS room ").Append(r);
-                if (r < _roomLabels.Count)
-                    sb.Append(" '").Append(_roomLabels[r]).Append('\'');
+                if (r < _live.RoomLabels.Count)
+                    sb.Append(" '").Append(_live.RoomLabels[r]).Append('\'');
                 if (r < _roomRendererCounts.Count && _roomRendererCounts[r] > 1)
                     sb.Append('x').Append(_roomRendererCounts[r]);
                 sb.Append(" center(").Append(center.x.ToString("F1")).Append(',')
@@ -6897,7 +6880,7 @@ internal static partial class WallSegmentFade
                 if (now < _nextPathAudit)
                     return;
                 _pathAuditWalls.Clear();
-                foreach (Segment s in _segments.Values)
+                foreach (Segment s in _live.Segments.Values)
                 {
                     if (s.FromWallCache && s.Anchor != null)
                         _pathAuditWalls.Add(s);
@@ -6955,7 +6938,7 @@ internal static partial class WallSegmentFade
             // UNCLAIMED. The band is UNEVALUABLE for those, not failed, and gets its own bucket.
             bool roomKnown = RoomDecisionValid(seg.RoomIndex);
             float ceiling = roomKnown
-                ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                ? _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
                 : float.NegativeInfinity;
             // The LIST overload, not the array one (ModBuild 262). The old audit ran 3 times in a
             // whole session so an array per wall was free; at the new cadence it would be 171
@@ -7192,7 +7175,7 @@ internal static partial class WallSegmentFade
         {
             _reanchorCensus.Clear();
             _seamCensus.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.RoomIndex = -1;
                 seg.BorderRooms.Clear();
@@ -7201,9 +7184,9 @@ internal static partial class WallSegmentFade
                 Bounds w = seg.Bounds;
                 float bestGap = float.PositiveInfinity;
                 float bestCenter = float.PositiveInfinity;
-                for (int r = 0; r < _roomBounds.Count; r++)
+                for (int r = 0; r < _live.RoomBounds.Count; r++)
                 {
-                    Bounds room = _roomBounds[r];
+                    Bounds room = _live.RoomBounds[r];
                     float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
                     float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
                     float gap = gx * gx + gz * gz;
@@ -7227,11 +7210,11 @@ internal static partial class WallSegmentFade
                     float altGap = float.PositiveInfinity;
                     float altCenter = float.PositiveInfinity;
                     int alt = -1;
-                    for (int r = 0; r < _roomBounds.Count; r++)
+                    for (int r = 0; r < _live.RoomBounds.Count; r++)
                     {
                         if (!RoomDecisionValid(r))
                             continue;
-                        Bounds room = _roomBounds[r];
+                        Bounds room = _live.RoomBounds[r];
                         float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
                         float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
                         float gap = gx * gx + gz * gz;
@@ -7293,11 +7276,11 @@ internal static partial class WallSegmentFade
                 // derivation and the record are untouched.
                 if (seg.RoomIndex >= 0)
                 {
-                    for (int r = 0; r < _roomBounds.Count; r++)
+                    for (int r = 0; r < _live.RoomBounds.Count; r++)
                     {
                         if (r == seg.RoomIndex || !RoomDecisionValid(r))
                             continue;
-                        Bounds room = _roomBounds[r];
+                        Bounds room = _live.RoomBounds[r];
                         float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
                         float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
                         if (gx * gx + gz * gz > RoomBorderBandWU * RoomBorderBandWU)
@@ -7338,7 +7321,7 @@ internal static partial class WallSegmentFade
         /// <summary>
         /// Precompute the FLOOR occlusion samples: a per-room XZ grid (footprint from the
         /// room renderer bounds — XZ is the trusted axis) placed ON the tile-anchored
-        /// floor plane (<see cref="_roomFloorY"/> + <see cref="FloorSampleEpsilon"/>), as
+        /// floor plane (<see cref="CommittedTable.RoomFloorY"/> + <see cref="FloorSampleEpsilon"/>), as
         /// dense as the room budget allows under <see cref="MaxTotalSamples"/>
         /// (4×4 → 3×3 → 2×2 → center per room). Samples are room-contiguous; each room's
         /// [start,count) range doubles as the coverage-fraction denominator.
@@ -7396,14 +7379,14 @@ internal static partial class WallSegmentFade
         ///
         /// <para>COST. One <c>grid² × hexes</c> distance scan per room per rescan (~2 s):
         /// 16 × ~50 × ~6 rooms ≈ 5k squared-distance tests, all at build time. The per-wall,
-        /// per-sample ray loop is untouched — it still walks <c>_roomSampleCount[room]</c>
-        /// entries of <see cref="_allSamples"/> and never learns where they came from.</para>
+        /// per-sample ray loop is untouched — it still walks <c>_live.RoomSampleCount[room]</c>
+        /// entries of <see cref="CommittedTable.AllSamples"/> and never learns where they came from.</para>
         /// </summary>
         private void RebuildSamples()
         {
-            _allSamples.Clear();
-            _roomSampleStart.Clear();
-            _roomSampleCount.Clear();
+            _live.AllSamples.Clear();
+            _live.RoomSampleStart.Clear();
+            _live.RoomSampleCount.Clear();
             _roomTileCount.Clear();
             _roomTileTotal.Clear();
             _roomSnapMax.Clear();
@@ -7417,12 +7400,12 @@ internal static partial class WallSegmentFade
             _roomCutNodeBlocked.Clear();
             _roomCutNotWalkable.Clear();
             _roomTileUnreadable.Clear();
-            _sampleYMin = float.PositiveInfinity;
-            _sampleYMax = float.NegativeInfinity;
-            int rooms = _roomBounds.Count;
+            _live.SampleYMin = float.PositiveInfinity;
+            _live.SampleYMax = float.NegativeInfinity;
+            int rooms = _live.RoomBounds.Count;
             if (rooms == 0)
             {
-                _sampleYMin = _sampleYMax = 0f;
+                _live.SampleYMin = _live.SampleYMax = 0f;
                 _sampleGridCells = 0;
                 LogSampleGridCensus();
                 return;
@@ -7434,7 +7417,7 @@ internal static partial class WallSegmentFade
             _sampleGridCells = grid * grid;
             for (int r = 0; r < rooms; r++)
             {
-                _roomSampleStart.Add(_allSamples.Count);
+                _live.RoomSampleStart.Add(_live.AllSamples.Count);
                 // Diag rows, added for EVERY room including the ones that bail below, so their
                 // index stays the room index.
                 _roomTileCount.Add(0);
@@ -7450,15 +7433,15 @@ internal static partial class WallSegmentFade
                 _roomCutNodeBlocked.Add(0);
                 _roomCutNotWalkable.Add(0);
                 _roomTileUnreadable.Add(0);
-                if (_allSamples.Count + grid * grid > MaxTotalSamples)
+                if (_live.AllSamples.Count + grid * grid > MaxTotalSamples)
                 {
-                    _roomSampleCount.Add(0); // over budget — room gets no grid this rescan
+                    _live.RoomSampleCount.Add(0); // over budget — room gets no grid this rescan
                     continue;
                 }
-                Bounds b = _roomBounds[r];
-                float y = _roomFloorY[r] + FloorSampleEpsilon;
-                if (y < _sampleYMin) _sampleYMin = y;
-                if (y > _sampleYMax) _sampleYMax = y;
+                Bounds b = _live.RoomBounds[r];
+                float y = _live.RoomFloorY[r] + FloorSampleEpsilon;
+                if (y < _live.SampleYMin) _live.SampleYMin = y;
+                if (y > _live.SampleYMax) _live.SampleYMax = y;
 
                 // This room's playable hexes, by the game's own room object. Absent → the
                 // ModBuild 257 bounding-box grid, unchanged, and the census says so in words.
@@ -7533,10 +7516,10 @@ internal static partial class WallSegmentFade
                         for (int iz = 0; iz < grid; iz++)
                         {
                             float bz = Mathf.Lerp(b.min.z, b.max.z, (iz + 0.5f) / grid);
-                            _allSamples.Add(new Vector3(bx, y, bz));
+                            _live.AllSamples.Add(new Vector3(bx, y, bz));
                         }
                     }
-                    _roomSampleCount.Add(grid * grid);
+                    _live.RoomSampleCount.Add(grid * grid);
                     continue;
                 }
 
@@ -7571,7 +7554,7 @@ internal static partial class WallSegmentFade
                         // The hex gives XZ; Y stays the room's tile-anchored sample plane, so the
                         // round-6 frame guarantee (and the !ABOVE-WALL tripwire built on it) is
                         // exactly as it was.
-                        _allSamples.Add(new Vector3(hexes[best].x, y, hexes[best].z));
+                        _live.AllSamples.Add(new Vector3(hexes[best].x, y, hexes[best].z));
                         placed++;
                         float d = Mathf.Sqrt(bestSq);
                         moved += d;
@@ -7580,10 +7563,10 @@ internal static partial class WallSegmentFade
                 }
                 _roomSnapMax[r] = worst;
                 _roomSnapSum[r] = moved;
-                _roomSampleCount.Add(placed);
+                _live.RoomSampleCount.Add(placed);
             }
-            if (float.IsInfinity(_sampleYMin))
-                _sampleYMin = _sampleYMax = 0f;
+            if (float.IsInfinity(_live.SampleYMin))
+                _live.SampleYMin = _live.SampleYMax = 0f;
             LogSampleGridCensus();
         }
 
@@ -7770,14 +7753,14 @@ internal static partial class WallSegmentFade
             // round; this line exists so that round starts from a measurement.
             int roomsNoGrid = 0, roomsBarsCollapsed = 0, roomsBarsOneApart = 0;
             int roomsZeroRelease = 0; // ModBuild 262 lane F — see the block by the bars below
-            for (int r = 0; r < _roomSampleCount.Count; r++)
+            for (int r = 0; r < _live.RoomSampleCount.Count; r++)
             {
                 if (sb.Length > 0)
                     sb.Append("; ");
                 sb.Append("room ").Append(r);
-                if (r < _roomLabels.Count)
-                    sb.Append(" '").Append(_roomLabels[r]).Append('\'');
-                int cells = _roomSampleCount[r];
+                if (r < _live.RoomLabels.Count)
+                    sb.Append(" '").Append(_live.RoomLabels[r]).Append('\'');
+                int cells = _live.RoomSampleCount[r];
                 if (r < _roomTileGrid.Count && _roomTileGrid[r])
                 {
                     tileRooms++;
@@ -7922,7 +7905,7 @@ internal static partial class WallSegmentFade
             // samples one room out of five reads exactly like a census of a one-room scenario.
             // The 2026-08-24 log: "184 hex(es) keyed to a room" against "room 0 'Room_5': 44
             // hex(es) on this room's CMap" — 140 hexes, 76 %, sat on CMaps absent from
-            // _roomBounds and were never measured. Both numbers were already on this line;
+            // _live.RoomBounds and were never measured. Both numbers were already on this line;
             // nobody could subtract them because the second one is buried per room. The ALARM
             // text states the TWO things that can then happen to a wall bordering such a room —
             // held FAIL-SAFE SOLID, or bound to the nearest OTHER room's floor grid — which are
@@ -7932,7 +7915,7 @@ internal static partial class WallSegmentFade
             // sweep, nothing per frame.
             _censusMapsSampled.Clear();
             int hexesSampled = 0, keylessRooms = 0;
-            for (int r = 0; r < _roomSampleCount.Count; r++)
+            for (int r = 0; r < _live.RoomSampleCount.Count; r++)
             {
                 object? key = r < _roomMapKeys.Count ? _roomMapKeys[r] : null;
                 if (key == null)
@@ -7982,7 +7965,7 @@ internal static partial class WallSegmentFade
                 + "unchanged; a wall's coverage is still blocked-samples over THIS room's "
                 + "sample count. GENERICITY (ModBuild 262): the lattice is "
                 + $"{_sampleGridCells} cell(s) this scenario because it holds "
-                + $"{_roomSampleCount.Count} room(s) — grid is 4 up to 6 rooms, 3 up to 10, 2 up "
+                + $"{_live.RoomSampleCount.Count} room(s) — grid is 4 up to 6 rooms, 3 up to 10, 2 up "
                 + $"to 24 and 1 beyond, against the {MaxTotalSamples}-sample budget, so ROOM "
                 + "COUNT alone moves every room's quantum and both Schmitt bars in cell terms. "
                 + $"{roomsNoGrid} room(s) got NO grid at all (their walls are held solid and can "
@@ -7998,7 +7981,7 @@ internal static partial class WallSegmentFade
                 + "42 as 'the playable hexes' is the ModBuild 261 error this build's DENOMINATOR "
                 + "IN FORCE clause exists to stop. A non-zero here is the first measurement of "
                 + $"what a small or many-roomed scenario actually does. COMPOUNDER: {keylessRooms} "
-                + $"of the {_roomSampleCount.Count} registry room(s) carry NO CMap — the room "
+                + $"of the {_live.RoomSampleCount.Count} registry room(s) carry NO CMap — the room "
                 + "registry adds one entry per CMap and floor-height bin PLUS one singleton per "
                 + "room renderer with no CMap key (CommitRoomRegistry), so that room count is "
                 + "NOT the game's room count, and partial CMap resolution silently coarsens the "
@@ -8318,7 +8301,7 @@ internal static partial class WallSegmentFade
         private void ClearAllBlocks(string reason)
         {
             int cleared = 0;
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.State = false;
                 seg.PendingRaw = false;
@@ -8359,19 +8342,19 @@ internal static partial class WallSegmentFade
             // died on some path before it could restore it (the orphan ledger's last stop).
             try { RestoreAllMountedProps(); }
             catch { /* renderers already dying with the scene */ }
-            _segments.Clear();
+            _live.Segments.Clear();
             _runs.Clear(); // run verdicts belong to the scenario they were measured in
-            _roomBounds.Clear();
-            _roomFloorY.Clear();
-            _roomFloorAnchored.Clear();
-            _roomLabels.Clear();
+            _live.RoomBounds.Clear();
+            _live.RoomFloorY.Clear();
+            _live.RoomFloorAnchored.Clear();
+            _live.RoomLabels.Clear();
             _roomRendererCounts.Clear();
             _keyToRoomScratch.Clear();
             _roomMapByRenderer.Clear();
             _roomMapLabelByRenderer.Clear();
-            _roomSampleStart.Clear();
-            _roomSampleCount.Clear();
-            _allSamples.Clear();
+            _live.RoomSampleStart.Clear();
+            _live.RoomSampleCount.Clear();
+            _live.AllSamples.Clear();
             _roomMapKeys.Clear();
             _tilesByMap.Clear();
             _tileWhyByMap.Clear();
@@ -8395,15 +8378,15 @@ internal static partial class WallSegmentFade
             _roomCutNotWalkable.Clear();
             _roomTileUnreadable.Clear();
             _floorYByRenderer.Clear();
-            _cornerPieces.Clear();
+            _live.CornerPieces.Clear();
             _peerFades.Clear();
             // Round 14: gate lifecycle state is per-scenario — a stale arch rect or a
             // remembered fade from the previous table must never seed the next one.
-            _archRects.Clear();
+            _live.ArchRects.Clear();
             _gateMemory.Clear();
             _gateSliverLogged.Clear();
             // …and so is the water-feature protection (user ruling 2026-08-09).
-            _waterRects.Clear();
+            _live.WaterRects.Clear();
             _waterCensusSig = -1;
             AbandonRescanCycle();
             _shaderWaterVerdict.Clear();

@@ -503,7 +503,7 @@ internal static partial class WallSegmentFade
                     ? PredictDissolveClass(sp)
                     : PredictClassOfRenderer(s));
             }
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 if (ReferenceEquals(cp.A, seg))
                     Bump(PredictDissolveClass(cp.Prop));
@@ -587,7 +587,7 @@ internal static partial class WallSegmentFade
             int pieces = seg.Mounted.Count + seg.Stacked.Count + seg.Body.Count
                 + seg.Siblings.Count;
             int corners = 0;
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 if (ReferenceEquals(cp.A, seg))
                     corners++;
@@ -606,7 +606,7 @@ internal static partial class WallSegmentFade
                 TallyPiece(p, ref native, ref swapped, ref own, ref enabledOnly);
             foreach (MountedProp p in seg.SiblingProps.Values)
                 TallyPiece(p, ref native, ref swapped, ref own, ref enabledOnly);
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 if (ReferenceEquals(cp.A, seg))
                     TallyPiece(cp.Prop, ref native, ref swapped, ref own, ref enabledOnly);

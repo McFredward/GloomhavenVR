@@ -92,14 +92,14 @@ internal static partial class WallSegmentFade
         /// room association — the room label is part of the key).</summary>
         private void ComputeWireKeys()
         {
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.WireKey = 0;
                 Component? anchor = seg.Anchor;
                 if (anchor == null)
                     continue;
-                string roomLabel = seg.RoomIndex >= 0 && seg.RoomIndex < _roomLabels.Count
-                    ? _roomLabels[seg.RoomIndex]
+                string roomLabel = seg.RoomIndex >= 0 && seg.RoomIndex < _live.RoomLabels.Count
+                    ? _live.RoomLabels[seg.RoomIndex]
                     : "?";
                 Vector3 p = anchor.transform.position;
                 int qx = Mathf.RoundToInt(p.x * 2f);
@@ -129,7 +129,7 @@ internal static partial class WallSegmentFade
         internal int SampleFadedKeys(uint[] dest)
         {
             _keySampleScratch.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (!seg.State || seg.DoorRoot != null || seg.WireKey == 0)
                     continue;

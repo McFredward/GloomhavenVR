@@ -228,14 +228,13 @@ internal static partial class WallSegmentFade
         /// (it sits BETWEEN faces). It hides only when ALL its adjacent walls are faded —
         /// the tower between two open faces opens too, but stands while either neighbor
         /// stands; with a single neighbor it simply rides that wall.</summary>
-        private sealed class CornerPiece
+        internal sealed class CornerPiece
         {
             public MountedProp Prop = null!;
             public Segment A = null!;
             public Segment? B;
         }
 
-        private readonly List<CornerPiece> _cornerPieces = new();
         private readonly List<CornerPiece> _prevCorners = new();
         private int _lastLoggedCornerCount = -1;
 
@@ -451,7 +450,7 @@ internal static partial class WallSegmentFade
             // to two seconds — a look change, which this round forbids.
             using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
             _fastSegScratch.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.HasBounds && seg.Fade >= FoliageHideFade
                     && (seg.Stacked.Count > 0 || seg.Body.Count > 0)
@@ -470,7 +469,7 @@ internal static partial class WallSegmentFade
             // Snapshot every segment-listed renderer ONCE per sweep (set lookup per
             // candidate) and refuse them here exactly like the regular sweep.
             _fastOwnedScratch.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 foreach (MeshRenderer sr in seg.Renderers)
                     if (sr != null) _fastOwnedScratch.Add(sr);
@@ -507,10 +506,10 @@ internal static partial class WallSegmentFade
             foreach (Segment seg in _fastSegScratch)
             {
                 float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
-                    ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                    ? _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
                     : seg.StackOrigTop - StackMaxOverlapDownWU;
                 // The unconditional ground-band floor applies to every segment as well.
-                lower = Mathf.Max(lower, _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU);
+                lower = Mathf.Max(lower, _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU);
                 if (lower < bandFloor)
                     bandFloor = lower;
                 float ceil = seg.Bounds.max.y + StackMaxRiseWU;
@@ -575,12 +574,12 @@ internal static partial class WallSegmentFade
                     // sit anywhere in the wall column, so the band's lower bound is the
                     // ground exclusion, not the original course top.
                     float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
-                        ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                        ? _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
                         : seg.StackOrigTop - StackMaxOverlapDownWU;
                     if (b.min.y < lower
                         || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
                         continue;
-                    if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                    if (b.min.y < _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                         continue;
                     if (!InFaceDomain(seg, b))
                     {
@@ -608,7 +607,7 @@ internal static partial class WallSegmentFade
                         || r.GetComponent<TMPro.TMP_Text>() != null)
                         continue;
                     MountedProp cprop = ClassifyProp(r);
-                    _cornerPieces.Add(new CornerPiece { Prop = cprop, A = corner, B = cornerB });
+                    _live.CornerPieces.Add(new CornerPiece { Prop = cprop, A = corner, B = cornerB });
                     _stackedOwned.Add(r);
                     NoteOwnershipChange(r,
                         $"corner-fast:'{(corner.Anchor != null ? corner.Anchor.name : "?")}'");
@@ -686,7 +685,7 @@ internal static partial class WallSegmentFade
             _censusFigureGuarded = 0;
             _figureGuardNames.Clear();
 
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 seg.PrevStacked.Clear();
                 seg.PrevStacked.AddRange(seg.Stacked);
@@ -711,7 +710,7 @@ internal static partial class WallSegmentFade
             }
 
             bool enabled = WallFadeTuning.StackedShells;
-            if (enabled && _factCount > 0 && _segments.Count > 0)
+            if (enabled && _factCount > 0 && _live.Segments.Count > 0)
             {
                 // PERF S1: the membership index IsSegmentListedRenderer reads, built once
                 // here — see BuildSegmentListedIndex for why it answers identically.
@@ -721,7 +720,7 @@ internal static partial class WallSegmentFade
                 // lesson): pieces are carried over untested — and their AABBs re-extend the
                 // bounds so the coverage decision stays consistent across rescans — because
                 // releasing a piece while its wall is gone is a visible blink.
-                foreach (Segment seg in _segments.Values)
+                foreach (Segment seg in _live.Segments.Values)
                 {
                     if (seg.StackedState == 0 && seg.Fade <= 0f)
                         continue;
@@ -751,8 +750,8 @@ internal static partial class WallSegmentFade
                 // still faded, carry it — its renderer is DISABLED and would otherwise miss
                 // the candidate prefilter, get orphan-restored and flicker (the merlon bug).
                 _prevCorners.Clear();
-                _prevCorners.AddRange(_cornerPieces);
-                _cornerPieces.Clear();
+                _prevCorners.AddRange(_live.CornerPieces);
+                _live.CornerPieces.Clear();
                 foreach (CornerPiece cp in _prevCorners)
                 {
                     if (cp.Prop.Renderer == null
@@ -761,7 +760,7 @@ internal static partial class WallSegmentFade
                         || IsFigureOrActorRenderer(cp.Prop.Renderer))
                         continue;
                     if (_stackedOwned.Add(cp.Prop.Renderer))
-                        _cornerPieces.Add(cp);
+                        _live.CornerPieces.Add(cp);
                 }
                 _prevCorners.Clear();
 
@@ -773,7 +772,7 @@ internal static partial class WallSegmentFade
 
             // Leavers: restore anything a segment held that it no longer owns (config off /
             // piece no longer qualifies). Nothing may stay hidden without an owner.
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.StackedState != 0)
                 {
@@ -832,10 +831,10 @@ internal static partial class WallSegmentFade
         private void CollectStackCandidates()
         {
             float minFloorY = float.PositiveInfinity;
-            for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count && i < _live.RoomFloorAnchored.Count; i++)
             {
-                if (_roomFloorAnchored[i] && _roomFloorY[i] < minFloorY)
-                    minFloorY = _roomFloorY[i];
+                if (_live.RoomFloorAnchored[i] && _live.RoomFloorY[i] < minFloorY)
+                    minFloorY = _live.RoomFloorY[i];
             }
             if (float.IsInfinity(minFloorY))
                 return; // no anchored room — every wall is fail-safe solid anyway
@@ -908,13 +907,13 @@ internal static partial class WallSegmentFade
         /// exactly those, under exactly the same per-segment condition. It is rebuilt at the
         /// top of the stacked pass, and NONE of those five lists is written between that
         /// point and the pass's last query: the sticky/candidate/adoption/corner stages only
-        /// ever touch <c>Stacked</c>, <c>Bounds</c> and <c>_cornerPieces</c>. The mounted and
+        /// ever touch <c>Stacked</c>, <c>Bounds</c> and <c>_live.CornerPieces</c>. The mounted and
         /// sibling passes that DO rewrite those lists run strictly after this pass ends.</para>
         /// </summary>
         private void BuildSegmentListedIndex()
         {
             _segmentListedIndex.Clear();
-            foreach (Segment seg in _segments.Values)
+            foreach (Segment seg in _live.Segments.Values)
             {
                 foreach (MeshRenderer sr in seg.Renderers)
                 {
@@ -988,7 +987,7 @@ internal static partial class WallSegmentFade
 
                     Segment? best = null;
                     float bestGap = float.PositiveInfinity;
-                    foreach (Segment seg in _segments.Values)
+                    foreach (Segment seg in _live.Segments.Values)
                     {
                         if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
                             continue;
@@ -1002,7 +1001,7 @@ internal static partial class WallSegmentFade
                         if (b.min.y < seg.StackOrigTop - StackMaxOverlapDownWU
                             || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
                             continue; // not a course of THIS column
-                        if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                        if (b.min.y < _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                             continue; // ground band of the wall's own room never fades
                         if (!InFaceDomain(seg, b))
                             continue; // round 7: chain in Y, never around corners
@@ -1089,7 +1088,7 @@ internal static partial class WallSegmentFade
                     continue; // fountain/pond stays solid (user ruling 2026-08-09, brunnen.png)
                 Segment? a = null, second = null;
                 float aGap = float.PositiveInfinity, secondGap = float.PositiveInfinity;
-                foreach (Segment seg in _segments.Values)
+                foreach (Segment seg in _live.Segments.Values)
                 {
                     if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
                         continue;
@@ -1097,11 +1096,11 @@ internal static partial class WallSegmentFade
                     if (gap > StackLinkMaxXZ)
                         continue;
                     float lower = seg.Renderers.Count == 0 && seg.Body.Count > 0
-                        ? _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
+                        ? _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU
                         : seg.StackOrigTop - StackMaxOverlapDownWU;
                     if (b.min.y < lower || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
                         continue;
-                    if (b.min.y < _roomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
+                    if (b.min.y < _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                         continue;
                     if (InFaceDomain(seg, b))
                         continue; // face pieces were adoption's business, not a corner
@@ -1125,16 +1124,16 @@ internal static partial class WallSegmentFade
                     continue;
                 if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
                     prop = ClassifyProp(c);
-                _cornerPieces.Add(new CornerPiece { Prop = prop, A = a, B = second });
+                _live.CornerPieces.Add(new CornerPiece { Prop = prop, A = a, B = second });
                 _stackedOwned.Add(c);
                 NoteOwnershipChange(c,
                     $"corner:'{(a.Anchor != null ? a.Anchor.name : "?")}'");
             }
 
-            if (_cornerPieces.Count != _lastLoggedCornerCount)
+            if (_live.CornerPieces.Count != _lastLoggedCornerCount)
             {
-                _lastLoggedCornerCount = _cornerPieces.Count;
-                if (_cornerPieces.Count > 0)
+                _lastLoggedCornerCount = _live.CornerPieces.Count;
+                if (_live.CornerPieces.Count > 0)
                 {
                     // Round-11 census fix: the names come from the LIVE list at log time —
                     // the old add-at-collection buffer was empty whenever sticky carry-over
@@ -1142,7 +1141,7 @@ internal static partial class WallSegmentFade
                     // names and left round-11's tower question unanswerable from the log.
                     var sb = new System.Text.StringBuilder();
                     int listed = 0;
-                    foreach (CornerPiece cp in _cornerPieces)
+                    foreach (CornerPiece cp in _live.CornerPieces)
                     {
                         Renderer r = cp.Prop.Renderer;
                         if (r == null)
@@ -1156,7 +1155,7 @@ internal static partial class WallSegmentFade
                         sb.Append($"'{r.name}' y[{cb.min.y:F1}..{cb.max.y:F1}] ↔ '{an}'/'{bn}'");
                     }
                     VRLog.Info(Name,
-                        $"CORNER PIECES: {_cornerPieces.Count} shared corner piece(s) between "
+                        $"CORNER PIECES: {_live.CornerPieces.Count} shared corner piece(s) between "
                         + $"wall faces (hidden only while ALL adjacent walls are faded — the "
                         + $"tower between two open faces opens too; single-neighbor pieces "
                         + $"ride that wall): {sb}.");
@@ -1169,7 +1168,7 @@ internal static partial class WallSegmentFade
         /// coverage while hidden).</summary>
         private void RegisterCornerOwnership()
         {
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 if (cp.Prop.Renderer == null)
                     continue;
@@ -1185,10 +1184,10 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void ApplyCornerPieces()
         {
-            if (_cornerPieces.Count == 0)
+            if (_live.CornerPieces.Count == 0)
                 return;
             bool lost = false;
-            foreach (CornerPiece cp in _cornerPieces)
+            foreach (CornerPiece cp in _live.CornerPieces)
             {
                 Renderer r = cp.Prop.Renderer;
                 if (r == null)
@@ -1244,7 +1243,7 @@ internal static partial class WallSegmentFade
                 float nearGap = float.PositiveInfinity;
                 Segment? nearAny = null;           // nearest wall of any kind (diag anchor)
                 float nearAnyGap = float.PositiveInfinity;
-                foreach (Segment seg in _segments.Values)
+                foreach (Segment seg in _live.Segments.Values)
                 {
                     if (!seg.HasBounds)
                         continue;

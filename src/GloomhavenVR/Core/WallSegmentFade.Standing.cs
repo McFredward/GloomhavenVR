@@ -1074,15 +1074,15 @@ internal static partial class WallSegmentFade
         {
             floorY = 0f;
             float best = float.PositiveInfinity;
-            for (int i = 0; i < _roomFloorY.Count && i < _roomFloorAnchored.Count; i++)
+            for (int i = 0; i < _live.RoomFloorY.Count && i < _live.RoomFloorAnchored.Count; i++)
             {
-                if (!_roomFloorAnchored[i])
+                if (!_live.RoomFloorAnchored[i])
                     continue;
-                float d = Mathf.Abs(_roomFloorY[i] - propMinY);
+                float d = Mathf.Abs(_live.RoomFloorY[i] - propMinY);
                 if (d < best)
                 {
                     best = d;
-                    floorY = _roomFloorY[i];
+                    floorY = _live.RoomFloorY[i];
                 }
             }
             return !float.IsInfinity(best);
