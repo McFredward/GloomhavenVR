@@ -3,9 +3,23 @@
 </p>
 
 <p align="center">
-  A room-scale VR mod for <b>Gloomhaven (digital)</b> on PC.<br>
-  The scenario becomes a diorama on a table you stand at, played with tracked hands.<br>
-  Rules, saves and campaign progress stay the game's own.
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-GPL_v3-blue.svg" alt="License: GPL v3">
+  </a>
+  <a href="https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5">
+    <img src="https://img.shields.io/badge/ModLoader-BepInEx 5.4.23.5-orange.svg" alt="Mod loader: BepInEx 5.4.23.5">
+  </a>
+  <a href="https://steamdb.info/app/780290/patchnotes/">
+    <img src="https://img.shields.io/badge/Supported Game version-1.1.8323.0-yellow.svg" alt="Supported game version">
+  </a>
+  <a>
+    <img src="https://img.shields.io/badge/version-1.0.0-7c3aed.svg" alt="Mod version">
+  </a>
+</p>
+
+<p align="center">
+  A community-made VR mod for <a href="https://store.steampowered.com/app/780290/Gloomhaven/"><b>Gloomhaven (Digital)</b></a>.<br>
+  Demeo-like motion controls, fully integrated VR Multiplayer, Custom Environments, Mixed Reality …
 </p>
 
 <p align="center">
@@ -15,10 +29,6 @@
 </p>
 
 ---
-
-**Multiplayer** is supported for the whole session. Every VR player has a mask, hands and their own
-control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
-Players without a headset join the same game on a flat screen.
 
 ### Your cards and your board
 
@@ -38,7 +48,13 @@ Players without a headset join the same game on a flat screen.
 </tr>
 </table>
 
-## Assets
+### Full VR Multiplayer
+
+Every VR player has a mask, hands and their own
+control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
+Players without a headset join the same game on a flat screen.
+
+## Mod Assets
 
 Three pairs of hands, three masks, three control boards. One dropdown each, changeable mid-session,
 and the other players see the choice. All modelled for this project.
@@ -57,7 +73,12 @@ project, both with firelight, ambient sound and rare events, each with its own s
   <img src="docs/img/env-forest.jpg" width="345" alt="The night forest">
 </p>
 
-The rooms react to the scenario's element infusions, at the edges rather than over the play area.
+**Mixed reality** replaces the sky with a chroma-key colour so the board can be composited over your
+real room; the built rooms switch off while it is on.
+
+### Elemental changes
+
+<b>The rooms react to the scenario's element infusions</b>, at the edges rather than over the play area.
 Fire lights the room and sets props burning, Ice grows frost, Air moves flames and foliage, Earth
 brings up growth, Light lifts the ambient level and Dark lowers it and eclipses the moon.
 
@@ -66,12 +87,9 @@ brings up growth, Light lifts the ambient level and Dark lowers it and eclipses 
   <i>Same camera, element off left and on right.</i>
 </p>
 
-**Mixed reality** replaces the sky with a chroma-key colour so the board can be composited over your
-real room; the built rooms switch off while it is on.
-
 ## Requirements
 
-**Gloomhaven (digital)** for PC (Steam or GOG) · a Windows PC that runs it · a PC-VR headset with
+**Gloomhaven (Digital)** for PC (Steam or GOG) · a Windows PC that runs it · a PC-VR headset with
 two tracked controllers · room-scale or standing. Developed on a **Quest 3 over Virtual Desktop**.
 
 Installation is two archives into the game folder. **[→ Install guide](INSTALL.md)**
@@ -85,8 +103,6 @@ Installation is two archives into the game folder. **[→ Install guide](INSTALL
   (GPL-3.0) — the VR startup pattern, headset failover and finger curling this mod adapts.
 - **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0) — the flat-screen-in-VR pattern used
   where a world panel is not the right answer.
-- **[SteamVR Unity Plugin](https://github.com/ValveSoftware/steamvr_unity_plugin)** by Valve
-  (BSD-3-Clause) — the base hand models.
 - **Demeo** (Resolution Games) — the interaction model this mod follows. No assets or code from it
   are used.
 - The hands, the masks, the boards and the other built 3D assets were made for this project by its
