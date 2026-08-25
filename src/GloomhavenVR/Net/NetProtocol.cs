@@ -416,7 +416,69 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 278;
+    public const ushort ModBuild = 279;
+    // Build 279: THE BOARD BACKS' PAINTED IRONWORK BECOMES REAL GEOMETRY.
+    // *** NEW BUNDLE: 68,577,168 bytes (was 68,522,833). NOT a DLL-only install. ***
+    //   "Die Rueckseite der boards gefaellt mir sehr gut! Allerdings: Auf den Texturen sind
+    //   Schrauben und Halzplatten etc zu sehen, also eigentlich 3-dimensionale Objekte. Sie
+    //   werden aber flach nur auf der Textur dargstellt. Ich moechte, dass du das Mesh fuer die
+    //   Seiten und Rueckseite an die Textur anpasst, so wie du es auch fuer die Vorderseite
+    //   bereits sehr erfolgreich gemacht hast."
+    //   Oak 11896 -> 12976 tris (2 iron straps 2.0 mm proud, 8 forged square nails 1.0 mm);
+    //   steel 9968 -> 15716 (3 recessed fields 1.5 mm, 76 dome rivets 1.3 mm); bronze
+    //   19580 -> 20660 (3 cast fields, which is what makes the stiffening ribs real). Budget
+    //   24000. Steel pays for the rivets because the rivets are the feature he named.
+    //   BOTH ROUTES IN MY BRIEF WERE THE LONG WAY ROUND. tex_backfill already places the back
+    //   art at each texel's own BOARD COORDINATES, so measuring the art in plate pixels and
+    //   building there IS the registration -- no feature extraction, no re-scatter. That map
+    //   was MEASURED, not assumed: re-running tex_backfill's own BACK assignment through it
+    //   reproduces the shipped atlas's back texels exactly, mean |err| 0.00/255 and r = 1.0000,
+    //   against a +3% u-shift at 17.30/255 and a flipped v at 16.35/255. Both controls fire.
+    //   Consequence: THE ALBEDO NEEDED NO CHANGE AT ALL, verified against the new geobufs.
+    //   THE NORMAL MAPS HAD TO HAVE THE RELIEF TAKEN BACK OUT, and the reason is a sign flip:
+    //   a painted strap edge is a dark LINE, so its high-pass is a GROOVE, while the mesh there
+    //   is a chamfer RAMPING UP -- opposite signs one or two texels apart. tex_backrelief.py
+    //   removes the feature band with a mask taken from THE MESH'S OWN NORMALS, never from the
+    //   picture. Slope in band 0.113->0.032 / 0.119->0.033 / 0.149->0.047, and 0 texels outside
+    //   the mask changed on any board, by construction.
+    //   THE ATLAS WAS NOT REPACKED, and that was designed in rather than discovered: plate,
+    //   chamfer walls and caps all share the back's single top-down projection, so the island's
+    //   raw bbox is unchanged. Measured by rasterising every non-back UV triangle of shipped vs
+    //   new: 0 differing texels on all three, against a one-texel control moving ~20500.
+    //   THE PREFABS CAME OUT BYTE-IDENTICAL -- not one anchor override moved. gen_uvdiff
+    //   shipped-vs-new worst |d| = 0.000e+00 m; gen_anchorcheck 3 boards 0 FAILED; gen_winding
+    //   0 inward-wound with signed volumes 5211.4 / 4642.8 / 5289.9 cm^3; gen_uvcheck 0
+    //   overlapping texels. I re-ran anchors, winding and the bundle build myself and the
+    //   bundle reproduced to the byte.
+    //   FBX UNIT-SCALE, the ModBuild 276 near-miss: 100.0 on all three read FROM THE FILE BYTES,
+    //   and the positive control (an FBX re-exported with apply_unit_scale=True) passes checks
+    //   1-4, 6, 6b and fires only on 8, exactly as recorded.
+    //   THE GHOST-RATIO CONTROL ASKS THE WRONG QUESTION HERE and the lane said so instead of
+    //   quoting a number: on the BACK a high ghost ratio is the GOOD outcome, because geometry
+    //   was built at the art's own positions. The round-2 harness was also never committed, so
+    //   its scale is not reproducible -- stated rather than faked. The decisive statistic is
+    //   registration by cross-correlating the mesh's OWN height field against the albedo: oak
+    //   (0,+2) texels, steel (0,-3), with a planted +8 recovered exactly in both. BRONZE IS
+    //   INCONCLUSIVE AND THE INSTRUMENT SAYS SO (its argmax hits the +-12 boundary, and so does
+    //   the untouched FRONT face's); the overlay picture settled it.
+    //   OAK IS NOW 38.6 mm AGAINST THE CONTRACT'S 40 mm CEILING. That constraint is now written
+    //   into BOARD-CONTRACT.md, as the contract requires.
+    //   THE SIDES ARE NOT DONE AND THAT IS HALF OF WHAT HE ASKED FOR. Measured: the rim blend
+    //   walks a full board thickness inward and paints the back's rivets down the side --
+    //   weighted, oak 2.5%, steel 15.5%, bronze 2.0%. A one-parameter fix takes steel to 4.2%
+    //   AND THE PICTURE BARELY MOVES, so it is built and deliberately UNSHIPPED. Two findings
+    //   behind that: the prominent 3-D objects on the steel side are REAL (the front frame's
+    //   studded border seen edge-on), and split by term steel is FRONT 10.1% vs BACK 15.5%, so
+    //   the obvious follow-up is false -- the fix corrects the already-dominant term. Real side
+    //   relief means drilling a rivet row into a plate edge that has none, and the rim is a
+    //   wrapped STRIP island, so it needs new UV islands and therefore a repack: its own round,
+    //   and his call. ASK HIM.
+    //   Zero images generated: the ModBuild 276 back plates were accepted last round and
+    //   nothing measured said they failed. Two failures written up rather than hidden (steel's
+    //   back modelled wrong first -- straps as bars on a recess floor, 10 boundary edges, caught
+    //   by the mesh and not by the eye; and a rivet clamp reporting 0 moves because the overlap
+    //   hypothesis was wrong in the other axis).
+    //   NO GATE NUMBER MOVED. Pictures in .planning/debug/board278/ (gitignored).
     // Build 278: THE TWO SAMPLING RATES BEHIND THE WALL FADE BECOME DIALS, AND THE WALK-IN MODE
     // STOPS MEASURING ALTOGETHER. Bundle UNCHANGED at 68,522,833 — DLL-only install.
     //   "Die Ruckler sind deutlich weniger geworden, aber immer noch ein wenig vorhanden. Wuerde es

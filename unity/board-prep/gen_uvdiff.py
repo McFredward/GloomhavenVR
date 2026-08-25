@@ -94,11 +94,23 @@ def load(path):
             o.parent.name if o.parent else None,
         )
 
-    # geometric back face: outward-facing (-Y) polys whose every vertex is on the min-Y plane
+    # Geometric back face: -Y-facing polys in the back half of the board.
+    #
+    # This used to be "-Y facing AND every vertex on the min-Y plane", which described the
+    # back exactly while the back was one flat n-gon.  ModBuild 278 gave it relief, so the
+    # min-Y plane is now whatever stands proudest -- the nail caps on oak -- and that test
+    # returned 40 of 635 polys and reported the back plate as 480 x 263 mm of a 636 x 316 mm
+    # face.  A half-measured back face makes checks 5 and 7 measure something that is not
+    # the back face, which is worse than not measuring it.  The normal threshold is 0.5 and
+    # not 0.9 because the relief's own chamfer walls run to MAX_BACK_SLOPE_DEG = 40 deg
+    # (cos 40 = 0.766); the mid-plane test is what keeps the rim's back chamfer out, whose
+    # -Y component reaches -0.457 on oak.
     ymin = float(min(v.co.y for v in me.vertices))
+    ymax = float(max(v.co.y for v in me.vertices))
+    ymid = 0.5 * (ymin + ymax)
     back_polys = [i for i, p in enumerate(me.polygons)
-                  if p.normal.y < -0.9
-                  and all(abs(me.vertices[vi].co.y - ymin) < 1e-6 for vi in p.vertices)]
+                  if p.normal.y < -0.5
+                  and all(me.vertices[vi].co.y < ymid for vi in p.vertices)]
     back_loops = np.zeros(nl, dtype=bool)
     for i in back_polys:
         back_loops[ls[i]:ls[i] + lt[i]] = True

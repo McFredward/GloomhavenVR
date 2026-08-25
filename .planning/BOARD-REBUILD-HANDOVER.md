@@ -1,5 +1,145 @@
 # CONTROL-BOARD REBUILD — state of the world
 
+## ROUND 4 (2026-08-25): THE BACK'S SCREWS AND PLATES ARE GEOMETRY NOW
+
+He tested ModBuild 277 and accepted the art — *"Die Rückseite der boards gefällt mir sehr
+gut!"* — then named what was still wrong:
+
+> "Allerdings: Auf den Texturen sind Schrauben und Halzplatten etc zu sehen, also eigentlich
+> 3-dimensionale Objekte. Sie werden aber flach nur auf der Textur dargstellt. **Ich möchte,
+> dass du das Mesh für die Seiten und Rückseite an die Textur anpasst**, so wie du es auch
+> für die Vorderseite bereits sehr erfolgreich gemacht hast."
+
+He is right, and round 3's own record says why: it derived the back's relief FROM its own
+art because the plate was geometrically flat and there was nothing to double. A normal map
+has no silhouette, no occlusion and no stereo parallax. **Full detail in
+`unity/board-prep/img2img/README.md`, "ROUND 4".**
+
+**No registration step was needed, and that is measured rather than assumed.** `tex_backfill`
+places the back art at each texel's own BOARD COORDINATES — `x = (u-0.5)·LONG`,
+`y = (0.5-v)·SHORT` — so a feature measured in plate pixels is built in metres directly.
+Re-running that assignment reproduces the shipped atlas's BACK texels EXACTLY (mean |err|
+**0.00/255**, r = **+1.0000**) against controls at 15.6–21.7/255 that fire. `gen_board.BACK_ART`
+carries every figure at 1 px = 0.3125 mm.
+
+**What became geometry:** oak two iron straps (42.5 × 310 mm, 2.0 mm proud) with eight
+forged square nails (12.5 mm, 1.0 mm); steel three recessed fields (1.5 mm) and **76 dome
+rivets** (8.4 × 6.6 mm, 1.3 mm); bronze three cast fields (1.5 mm), which makes its
+stiffening ribs real. **What did not:** oak's three plank seams, and the reason is a number
+— the art paints them 1.6 mm wide, a wall no steeper than 40° can then carry 0.67 mm of
+depth and the two walls meet in a V with no floor, and widening the slot would put a 3 mm
+groove where the art paints 1.6 mm.
+
+**Every back wall is a straight chamfer of at most 40°**, for two measured reasons:
+`gen_geobuf` calls a triangle BACK only within 45.57° of the thickness axis (steeper lands
+in INTERIOR, which nothing paints), and a vertical wall has ZERO area under the back's
+top-down projection. INTERIOR triangle counts are unchanged on all three boards, so nothing
+leaked.
+
+| board | tris | back proud | dims | holes / non-manifold / loose / inward |
+|---|---|---|---|---|
+| Oak | 11896 → **12976** | 3.0 mm | 0.0356 → **0.0386** | 0 / 0 / 0 / 0 |
+| Steel | 9968 → **15716** | 1.6 mm | 0.0343 → **0.0356** | 0 / 0 / 0 / 0 |
+| Bronze | 19580 → **20660** | recessed | 0.0354 unchanged | 0 / 0 / 0 / 0 |
+
+Budget 24000. **Oak is now 38.6 mm against the contract's 40 mm ceiling** — 1.4 mm of
+headroom, and the next thing that stands proud of the oak back buys its height from the
+straps. Signed volumes 5211.4 / 4642.8 / 5289.9 cm³, all positive.
+
+### THE ATLAS IS NOT REPACKED — designed in, then measured
+
+Plate, chamfer walls and caps all share the back's single top-down projection, so the back
+island's raw bbox is unchanged, every category's shelf packing is unchanged, and
+`gen_backuv` lands on the identical rectangle the shipped boards already use. Rasterising
+every NON-BACK UV triangle of shipped and new into a 2048² map: **0 differing texels** on
+all three, against a one-texel control that moves 20458 / 21314 / 20616. Back density
+1.213 → 1.210, 1.246 → 1.239, 1.186 → 1.182 tex/mm — the drop is the added wall SURFACE in
+the denominator. Moving relief out of the map and into the mesh *lowers* what the back's
+density has to carry, so no repack was bought and none was needed.
+
+### The prefabs are BYTE-IDENTICAL, and the unit-scale trap was re-checked
+
+`BoardBuilder` re-measures the locked table unchanged (seat floors 74.6 × 64.3 / 81.0 × 70.1
+/ 61.2 × 51.9 mm, rest pads 81.6 / 81.7 / 68.1 mm, 7 of 7 anchors, one MeshCollider, bounds
+0.640 × 0.320) and **all three prefabs come out with no diff at all**. `gen_uvdiff`
+shipped-vs-new: checks 3a/3b PASS on every board, 0 of 10 empties differ, worst |d| =
+0.000e+00 m. Check 8 (UnitScaleFactor from the FILE BYTES) 100.0 → 100.0 on all three; its
+positive control — an FBX re-exported with `apply_unit_scale=True` — passes checks 1, 2, 3a,
+3b, 3c, 4, 6 and 6b and **fires only on 8**, exactly as recorded.
+
+`gen_backuv`'s interlock moved from the SEED to the RESULT and that strengthened it: the
+−Y-extreme polys are now the nail/rivet caps and grow to the whole back island, and the
+assertion is that the grown set is one complete island AND all back geometry — the second
+half was never checked before. `gen_uvdiff`'s back-face finder had the same flat-back
+assumption and was reporting oak's back plate as 480 × 263 mm of a 636 × 316 mm face.
+
+### The normal map had to give the relief back — `img2img/tex_backrelief.py`
+
+A painted strap edge is a dark LINE, so its high-pass is a GROOVE; the mesh there is a
+chamfer RAMPING UP. They disagree in sign one or two texels apart. The feature band is
+removed from the back's normal map with a mask taken from the MESH's own normals, never
+from the picture. Slope inside the band 0.113 → 0.032 (oak), 0.119 → 0.033 (steel),
+0.149 → 0.047 (bronze); **0 texels outside the mask changed on any board**, by construction —
+the edit is the DIFFERENCE of two slope fields from the same source. **The ALBEDO is not
+touched**: the paint is already registered to within a texel, and flat-on it is the only
+thing that draws the feature (the half-vector sits ~32° off a flat face).
+
+### THE SIDES: a fix was built, measured and DELIBERATELY NOT APPLIED
+
+The rim blend walks up to a full board thickness inward, so it paints the back's rivets down
+the side: weighted by the blend, oak 2.5 %, **steel 15.5 %**, bronze 2.0 % of rim texels.
+`img2img/tex_rimfill.py` corrects it with one parameter and takes steel to **4.2 %** —
+**and the picture barely changes** (`rim_steel_compare.png`). Not applied. Two findings kept:
+the prominent 3-D objects on the steel side are REAL (the front frame's studded border seen
+edge-on), and the obvious follow-up hypothesis is false — split by term, steel is FRONT
+10.1 % against BACK 15.5 %, so the term the fix already corrects is the dominant one.
+
+**This is the one place a literal reading of his sentence was not followed**, and he should
+be told: making those side screws real would mean drilling a rivet row into the edge of a
+plate that has none, i.e. adapting the object to a sampling artefact. The screws he is
+looking at are real and they are on the back; this round makes them real there. If he wants
+a genuinely riveted edge band, that is a different feature and a different round — the rim
+is a wrapped STRIP island, so relief on it needs new UV islands and therefore a repack.
+
+### Instruments added this round
+
+    unity/board-prep/gen_backshot.py            one-sun BACK station with a stated raking
+                                                elevation; an A/B, never a verdict
+    unity/board-prep/img2img/tex_backrelief.py  take the painted relief out of the back normal
+    unity/board-prep/img2img/tex_backghost.py   registration: the offset at which the mesh's
+                                                own height field best fits the albedo
+    unity/board-prep/img2img/tex_rimfill.py     the rim walk correction (built, not applied)
+
+Registration: oak (0, +2) texels, steel (0, −3), both with a planted +8 recovered exactly.
+**Bronze is inconclusive and the instrument says so** — its argmax hits the ±12 search
+boundary, and so does the untouched FRONT face's. The picture settled it:
+`registration_{style}.png` draws the mesh's wall band over the atlas's own back albedo and
+the band traces the paint on all three.
+
+### Pictures — `.planning/debug/board278/` (gitignored)
+
+    board278_back_rake.png / _flat.png   all three, before | after, identical lighting
+    registration_{style}.png             mesh wall band over the back albedo
+    shader/{style}_backrake.png          THE CALIBRATED ONE: real prefabs, real BoardLit,
+                                         rebuilt bundle, via Editor/PreviewBoard
+    rim_steel_compare.png                the rim fix that was not applied
+
+### Bundle
+
+Locally rebuilt at **68,577,168 bytes** (was 68,522,833). **NOT a DLL-only install.**
+`check-bundle-format.sh` asserts no byte count; it prints the size.
+`prebuilt/gloomhavenvr.bundle` is deliberately NOT in this lane's diff.
+
+### STILL OPEN after round 4
+
+* **The rim ghost is measured, fixable in one command, and unshipped.** Ask him.
+* Everything under "STILL OPEN" from rounds 1–3 below, including **SEAT 3 HAS NO OCCUPANT**
+  (superseded by the ModBuild 277 button work — check before repeating it) and the two card
+  slots' teal game-state tint.
+* Oak's 1.4 mm of remaining thickness headroom.
+
+---
+
 ## ROUND 2 (2026-08-25): THE TEXTURES WERE REJECTED AND RE-AUTHORED WITH gpt-image-2
 
 The user tested ModBuild 271 on hardware and rejected the boards: *"Die Controllboards sehen aus,

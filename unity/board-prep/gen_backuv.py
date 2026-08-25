@@ -155,8 +155,17 @@ def free_positions(ii, n, w, h, pad):
 
 # ---------------------------------------------------------------- back plate
 
-def find_back_plate(me):
-    """The flat back plate, geometrically: -Y facing polys with every vertex on the min-Y plane."""
+def find_back_seed(me):
+    """The -Y facing polys that lie wholly on the mesh's extreme -Y plane.
+
+    Until ModBuild 278 this WAS the back plate: the back was one flat n-gon, so the extreme
+    plane and the plate were the same set.  The plate now carries relief -- iron straps and
+    forged nails on oak, dome rivets on steel, cast fields on bronze -- so the extreme plane
+    is whatever stands proudest (the nail caps on oak, the rivet caps on steel, the plate
+    itself on bronze, whose relief is entirely recessed).  That set is only a SEED now; the
+    thing this script has to move is the whole back, and the thing that makes moving it safe
+    is that the whole back is one UV island.  See find_back_plate.
+    """
     ymin = float(min(v.co.y for v in me.vertices))
     polys = [i for i, p in enumerate(me.polygons)
              if p.normal.y < -0.9
@@ -230,13 +239,30 @@ def main():
           f"v={len(me.vertices)} l={len(me.loops)} p={len(me.polygons)}")
 
     # --- the back plate, and the interlock ---------------------------------------------------
-    plate, ymin = find_back_plate(me)
-    island, n_islands = uv_island_of(me, plate)
-    if island != plate:
+    #
+    # THE INTERLOCK MOVED FROM THE SEED TO THE RESULT, and that is a strengthening rather
+    # than a relaxation.  It used to be "the -Y-extreme polys are exactly one whole UV
+    # island", which was only ever true because the back was flat: on the ModBuild 278
+    # boards the seed is the nail / rivet caps and it grows, correctly, to the 635-poly back
+    # island.  What has to be true for the repack to be safe is that the set being moved is
+    # a COMPLETE island (so no seam is created or destroyed) and that it is all back
+    # geometry (so nothing on another face travels with it).  Both are now asserted on the
+    # grown set, and the second one was not checked at all before.
+    seed, ymin = find_back_seed(me)
+    plate, n_islands = uv_island_of(me, seed)
+    ymax = float(max(v.co.y for v in me.vertices))
+    ymid = 0.5 * (ymin + ymax)
+    stray = [i for i in plate
+             if me.polygons[i].normal.y > -0.5
+             or any(me.vertices[vi].co.y >= ymid for vi in me.polygons[i].vertices)]
+    if stray:
+        p = me.polygons[stray[0]]
         raise SystemExit(
-            f"ABORT: the back plate ({len(plate)} polys) is not exactly one whole UV island "
-            f"(the island(s) it belongs to hold {len(island)} polys). Moving it would shear a "
-            f"shared island; refusing.")
+            f"ABORT: the back island ({len(plate)} polys grown from a {len(seed)}-poly seed) "
+            f"holds {len(stray)} polygon(s) that are not back geometry -- first is poly "
+            f"{stray[0]}, normal.y {p.normal.y:+.3f}, max vertex y "
+            f"{max(me.vertices[vi].co.y for vi in p.vertices):+.5f} against a mid-plane at "
+            f"{ymid:+.5f}. Moving it would drag another face's UVs; refusing.")
     plate_set = set(plate)
     n_loops = sum(me.polygons[i].loop_total for i in plate)
     n_tris = sum(me.polygons[i].loop_total - 2 for i in plate)
@@ -245,7 +271,7 @@ def main():
     pz = [me.vertices[vi].co.z for i in plate for vi in me.polygons[i].vertices]
     x0, x1, z0, z1 = min(px), max(px), min(pz), max(pz)
     long_mm, short_mm = (x1 - x0) * 1000.0, (z1 - z0) * 1000.0
-    print(f"  back plate: {len(plate)} polys / {n_tris} tris / {n_loops} loops, one whole UV island "
+    print(f"  back plate: {len(plate)} polys (seed {len(seed)}) / {n_tris} tris / {n_loops} loops, one whole UV island "
           f"of {n_islands}, y = {ymin:.5f}")
     print(f"  plate bbox {long_mm:.2f} x {short_mm:.2f} mm (aspect {long_mm / short_mm:.4f}), "
           f"surface {area_m2 * 1e4:.2f} cm2")

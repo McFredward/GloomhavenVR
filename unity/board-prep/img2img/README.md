@@ -321,3 +321,266 @@ tool produces and diffing that.
 not through Blender — a check that goes through the same importer as the thing it is
 checking cannot see what that importer normalises. Its positive control is the FBX that
 caused this: checks 1–7 all report PASS on it and only check 8 fires.
+
+
+---
+
+# ROUND 4 (ModBuild 278): THE BACK'S RELIEF BECOMES GEOMETRY
+
+Round 3 shipped and he accepted the art — *"Die Rückseite der boards gefällt mir sehr
+gut!"* — and then named what was still wrong with it:
+
+> "Allerdings: Auf den Texturen sind Schrauben und Halzplatten etc zu sehen, also
+> eigentlich 3-dimensionale Objekte. Sie werden aber flach nur auf der Textur dargstellt.
+> **Ich möchte, dass du das Mesh für die Seiten und Rückseite an die Textur anpasst**, so
+> wie du es auch für die Vorderseite bereits sehr erfolgreich gemacht hast."
+
+He is right and the pipeline's own record says so: round 3 deliberately derived the back's
+relief **from its own art** (`tex_backfill`, high-pass at 4 texels, p99 tilt 18°) because
+the back plate was geometrically flat and there was nothing to double. A normal map has no
+silhouette, no occlusion and no stereo parallax, and in a headset at 40 cm that is exactly
+what "flach" looks like.
+
+## The registration problem does not exist here, and that is a measurement
+
+The front's whole difficulty was that `gpt-image-2` drew its features 3–9 mm off the mesh.
+On the back there is no such problem, for a structural reason that was checked rather than
+assumed. `tex_backfill` places the back art at each texel's own **board coordinates**:
+
+    x = (u - 0.5) * LONG        y = (0.5 - v) * SHORT
+
+with (u, v) normalised inside `plate_rect(art)` resampled to 2048 × 1024. Re-running that
+assignment reproduces the shipped atlas's BACK texels **exactly** — mean |err| **0.00 of
+255**, r = **+1.0000** — while a planted +3 % shift in u gives 17.30/255 at r = +0.18 and a
+flipped v gives 16.35/255 at r = +0.24. Both controls fire, so the null is a measurement.
+
+So a feature measured in PLATE PIXELS is built in metres with no fitting step at all. The
+route taken is therefore neither of the two the brief offered: not "extract positions and
+then register", and not "place parametrically and re-scatter the art" — **the art's own
+placement map is an exact affine in board coordinates, so measuring the art and building
+there IS the registration.** `gen_board.BACK_ART` carries every figure, at 1 px = 0.3125 mm.
+
+The dome detector for the nails and rivets is a vertical derivative-of-Gaussian matched
+filter with a lobe-midpoint centre estimator, validated on planted domes (5 of 5, residual
+**1.73 ± 0.10 px**) against a NULL that returns nothing. 1.73 px is 0.54 mm, which is 0.65
+atlas texels at the back's 1.21 tex/mm — under the resolution of the map the art lives in.
+
+**Its first version fired 12 times on the NULL and found one of five planted domes**, and
+both causes were in the instrument: it took its Gaussian through a uint8 PIL buffer, so its
+own quantisation floor sat above the signal, and it used `np.roll`, so the wrap at row 0
+produced the largest response in the picture.
+
+## What became geometry, and what deliberately did not
+
+| feature | ships as | why |
+|---|---|---|
+| oak iron straps, 42.5 × 310 mm, 2.0 mm proud | **geometry** | real silhouette, occlusion and parallax |
+| oak forged nails, 12.5 mm square, 1.0 mm | **geometry** | bevels, and the specular here is a BEVEL term |
+| oak plank seams, 3 of them | **normal map** | see below |
+| steel recessed fields, 3, 1.5 mm deep | **geometry** | makes the border band and both straps real |
+| steel dome rivets, 76, 8.4 × 6.6 mm, 1.3 mm | **geometry** | the "Schrauben" he named |
+| bronze cast fields, 3, 1.5 mm deep | **geometry** | makes the stiffening ribs real |
+
+**The oak plank seams are the one feature where the map is the better instrument, and the
+number says so.** The art paints them 1.6 mm wide. A wall no steeper than 40° — the limit
+below — can then carry at most 0.8 × tan 40° = **0.67 mm** of depth, and the two walls meet
+in a V with no floor. Widening the slot enough to carry real depth would put a 3 mm groove
+where the art paints 1.6 mm: a doubled edge by construction. A groove also has no
+silhouette and no occlusion, so both things geometry buys over a map are absent.
+
+## EVERY BACK WALL IS A STRAIGHT CHAMFER OF AT MOST 40°, and neither reason is taste
+
+1. `gen_geobuf` calls a triangle BACK when its normal is within acos(0.7) = **45.57°** of
+   the thickness axis. A steeper wall lands in INTERIOR, which `tex_backfill` never paints
+   and `pushpull_fill` would smear.
+2. The whole back is ONE island under ONE top-down projection. A vertical wall has **zero
+   area** under that projection — a degenerate UV island, which no atlas can feed.
+
+`fillet()` is the wrong profile here although it is the right one on the front: it is a
+quarter ellipse starting at the pole, so its FIRST step is nearly vertical (**69.7°** at
+n = 3, w = 2.2 mm, d = 1.6 mm). A straight chamfer has one slope by construction and
+`back_stack()` asserts it. Measured on the built meshes, the BACK group's tilt distribution
+is oak p99 40.6° / max 40.6°, bronze 32.5 / 32.5, steel p90 41.7 with 204 triangles above
+44° — **and those 204 are the rim CHAMFER the round-3 record already names**, not new
+relief. INTERIOR is 3276 / 2728 / 6888 triangles before and after on all three: nothing
+leaked out of the BACK group.
+
+## THE ATLAS IS NOT REPACKED, and that was designed in rather than discovered
+
+Every back face — plate, chamfer walls and caps — shares the back's single top-down
+projection, so the back island's RAW bounding box is unchanged, `gen_board`'s per-category
+shelf packer sees the same input for every region, and `gen_backuv`'s free-rectangle search
+sees the same coverage from everything except the back. All three land on **the identical
+rectangle the shipped boards already use** (oak 384 × 772 at y[1191:1963] x[1094:1478];
+steel 394 × 793; bronze 375 × 755).
+
+Rasterising every NON-BACK UV triangle of the shipped and the new mesh into a 2048² map and
+diffing:
+
+| board | non-back tris | non-back texels | **differing texels** | control (+1 texel) |
+|---|---|---|---|---|
+| oak | 11788 → 11788 | 1010135 → 1010135 | **0** | 20458 |
+| steel | 9664 → 9664 | 930519 → 930519 | **0** | 21314 |
+| bronze | 19456 → 19456 | 1102983 → 1102983 | **0** | 20616 |
+
+Back density goes 1.213 → 1.210, 1.246 → 1.239, 1.186 → 1.182 tex/mm — the tiny drop is the
+added wall SURFACE in the denominator, not a smaller rectangle. **Moving the features out of
+the map and into the mesh lowers what the back's texel density has to carry**, so nothing
+was bought by raising it and no repack was needed. `Island.__doc__`'s "this face is never
+seen" is still a lie and still harmless: `gen_backuv` overrides that weight, and the
+comment at the call site now says so.
+
+## The normal map had to give the relief back — `tex_backrelief.py`
+
+Leaving both in place is not "more relief". The painted feature is a dark LINE at a strap's
+edge, so its high-pass is a **groove**; the mesh at the same place is a chamfer **ramping
+up**. They disagree in sign at a separation of one or two texels. The feature band is
+therefore removed from the back's normal map, with the mask taken **from the mesh's own
+normals** (`1 - |n · n_back|`, dilated) and never from the picture.
+
+| | back texels | mask | slope in band before → after | slope outside | outside the mask |
+|---|---|---|---|---|---|
+| oak | 296136 | 14.9 % | 0.1132 → 0.0321 | 0.1281 → 0.1260 | **0 texels changed** |
+| steel | 322922 | 32.6 % | 0.1188 → 0.0327 | 0.0776 → 0.0742 | **0** |
+| bronze | 282173 | 25.3 % | 0.1490 → 0.0467 | 0.1240 → 0.1201 | **0** |
+
+The edit is written as the DIFFERENCE of two slope fields computed from the same source, so
+outside the mask it is identically zero and those texels are byte-identical **by
+construction** rather than by hope — the same discipline the round-3 colour round trip
+earned. **The ALBEDO is not touched at all**: the paint is already registered to the new
+geometry to better than one texel, and at flat-on viewing it is the only thing that draws
+the feature, because the half-vector sits ~32° off a flat face.
+
+## The sides: measured, a fix built, and DELIBERATELY NOT APPLIED
+
+`tex_backfill` builds a rim texel from `lerp(front(p - n·t·W), back(p - n·(1-t)·W),
+smoothstep(t))` with W the board's own thickness. W = 35.6 mm on steel reaches past the
+rivet row at 8.9 mm, so the rim paints the back's screws down the side of the board. Share
+of rim texels whose back-sample lands on a back feature, weighted by the blend: oak 2.5 %,
+**steel 15.5 %**, bronze 2.0 %.
+
+`tex_rimfill.py` corrects it with one parameter — a scale on the back term's walk — written
+as a difference so the front term cancels and k = 1 reproduces the input exactly. At
+k = 0.20 steel goes **15.5 % → 4.2 %**, 109 518 of 121 816 rim texels rewritten, nothing
+outside the rim moved.
+
+**And the picture barely changes** (`.planning/debug/board278/rim_steel_compare.png`). So it
+was not applied. Two things came out of chasing it:
+
+* The prominent three-dimensional objects on the steel side are **real** — the band across
+  the top of an edge shot is the FRONT frame's studded border seen edge-on, mesh geometry
+  that was always correct. What the walk ghosts is far fainter than the statistic implies.
+* Splitting the statistic by TERM killed the obvious follow-up. "It must be the FRONT term
+  then" is wrong where it matters: weighted by the blend, steel is FRONT 10.1 % against
+  BACK 15.5 %, so the term the fix already corrects is the dominant one. (oak 4.1 / 2.5;
+  bronze 23.5 / 2.0.)
+
+Changing an accepted texture to move a number the player cannot see is not an improvement.
+
+## The ghost ratio, and why the round-2 number is not the right one here
+
+The round-2 harness was never committed and its scale cannot be reproduced from the record.
+It also would not answer this question: on the BACK a HIGH ghost ratio is the GOOD outcome,
+because the geometry was built at the art's own measured positions and paint and mesh are
+SUPPOSED to share their edges. `tex_backghost.py` therefore reports the PROFILE — albedo-edge
+density against distance from the nearest geometric wall — and a decisive second statistic:
+the offset at which the mesh's own height field best correlates with the albedo.
+
+    board  registration (u, v)   r      control: planted +8 texels recovered as
+    oak    ( 0, +2)              0.065  (-8, +2)
+    steel  ( 0, -3)              0.112  (-8, -3)
+    bronze (+9, -12)             0.058  (+1, -12)     <- argmax on the search boundary
+
+u = 0 exactly on oak and steel with the control recovering the planted shift to the texel.
+**Bronze is inconclusive and the instrument says so**: its argmax runs into the ±12 search
+boundary, and so does the FRONT face's, which this round does not touch. So the picture was
+looked at instead — `registration_{oak,steel,bronze}.png` draws the mesh's wall band over
+the atlas's own back albedo, and on all three the red band traces the painted feature
+exactly: every oak nail inside its square, every steel rivet ringed, every bronze rib's
+gold crest just outside the bevel where a crest belongs.
+
+The ghost ratio itself: measured 1.542 / 4.594 / 1.271 against a +8-texel control at
+1.400 / 4.266 / 1.156 and a 43-texel null at 1.210 / 3.051 / 1.266, peaking at distance 0
+on oak and steel. The null does not reach 1.0 because a feature region simply carries more
+texture than an open plate — a confound a single ratio cannot remove, which is why the
+correlation and the picture are the load-bearing evidence and the ratio is continuity only.
+
+**Its first null control was a bad one**: a random mask of the same texel count leaves a
+mean spacing of 7 texels, so no texel is ever far from one, the far buckets emptied and the
+null "fired" at 1.325 with a peak at 13. A null control has to preserve the geometry of the
+thing it nulls.
+
+## Triangles, and what they cost
+
+| board | before | after | budget | back thickness | dims |
+|---|---|---|---|---|---|
+| oak | 11896 | **12976** (+9.1 %) | 24000 | 3.0 mm proud | 0.0356 → 0.0386 |
+| steel | 9968 | **15716** (+57.7 %) | 24000 | 1.6 mm proud | 0.0343 → 0.0356 |
+| bronze | 19580 | **20660** (+5.5 %) | 24000 | recessed only | 0.0354 unchanged |
+
+Steel pays for 76 rivets and it is the right place to spend: they are the feature he named.
+All three keep 0 boundary edges, 0 hole loops, 0 non-manifold edges, 0 loose verts and
+0 inward-wound faces; signed volumes 5211.4 / 4642.8 / 5289.9 cm³, all positive.
+
+**Oak's bbox is now 38.6 mm against the contract's 40 mm ceiling** — 1.4 mm of headroom, and
+the next feature that stands proud of the oak back has to buy its height from the straps.
+
+## Two failures worth not repeating
+
+* **The steel back was modelled wrong first, and the MESH reported it, not the eye.** The
+  first version made the two vertical straps separate raised bars on the floor of one big
+  recess. A bar inset 3 px from the recess OUTLINE still crosses the recess FLOOR, which
+  sits a further `panel_run` = 2.0 mm in, so its footprint was not a hole in the surface it
+  was welded into: 10 boundary edges, 2 hole loops, 2 non-manifold edges. Three separate
+  recessed fields is also the better reading of the art — the straps have the band's colour
+  and the band's rivets because they ARE the band.
+* **A clamp that never fired.** A `push_clear` was written for four steel corner rivets
+  whose bases looked like they crossed the panel outline in x. They do — and they are ABOVE
+  the panel in y, so there was never an overlap, and the clamp reported 0 moves while the
+  real defect was somewhere else entirely. It ships anyway, because it is cheap and the next
+  art might need it, and because a clamp that PRINTS every move it makes is honest where a
+  silent one would be a lie about where the art is.
+
+## The unit-scale trap, checked again with its positive control
+
+`gen_uvdiff` check 8 reads `UnitScaleFactor` from the FILE BYTES. All three new FBXes:
+100.0 → 100.0. The positive control is an FBX re-exported with `apply_unit_scale=True`:
+checks **1, 2, 3a, 3b, 3c, 4, 6, 6b all PASS and only 8 fires**, exactly as recorded. (Check
+5 is vacuous on this control — it expects a back-face UV edit and a pure re-export makes
+none.)
+
+And the proof was taken the other way round as well, by rebuilding what the OTHER tool
+produces: `BoardBuilder` re-measures the locked table unchanged (seat floors 74.6 × 64.3 /
+81.0 × 70.1 / 61.2 × 51.9 mm, rest pads 81.6 / 81.7 / 68.1 mm, 7 of 7 anchors, one
+MeshCollider, bounds 0.640 × 0.320) and **the three prefabs come out byte-identical** — not
+one anchor override moved. `gen_uvdiff` shipped-vs-new confirms it from the other side:
+checks 3a and 3b PASS on all three boards, 0 of 10 empties differ, worst |d| = 0.000e+00 m.
+
+## `gen_backuv`'s interlock moved from the seed to the result, and that STRENGTHENED it
+
+It used to require that the −Y-extreme polygons are exactly one whole UV island, which was
+only ever true because the back was flat. On these boards the seed is the nail / rivet caps
+(40 / 380 / 173 polys) and it grows, correctly, to the whole back island (635 / 3240 / 632).
+What the repack actually needs is that the moved set is a COMPLETE island and that it is all
+back geometry; both are now asserted on the grown set, and the second was not checked at all
+before. `gen_uvdiff`'s own back-face finder had the same flat-back assumption and was
+reporting oak's back plate as 480 × 263 mm of a 636 × 316 mm face; it now agrees.
+
+## The pictures
+
+All in `.planning/debug/board278/` (gitignored, local):
+
+    board278_back_rake.png      all three, back, before | after, raking light 11 deg
+    board278_back_flat.png      all three, back, before | after, flat-on 55 deg
+    registration_{style}.png    the mesh's wall band drawn over the atlas's back albedo
+    shader/{style}_backrake.png THE CALIBRATED ONE -- the real prefabs through the real
+    shader/{style}_back.png     BoardLit, from the rebuilt bundle, via PreviewBoard
+    rim_steel_compare.png       the rim fix that was measured and not applied
+    edge_steel_{after,rimfix}.png
+
+`gen_backshot.py` is the new A/B station and it is an ITERATION LOOP, not a verdict: one sun
+at a stated elevation above the back plane, because `gen_render.py`'s three lights are placed
+relative to the board's FRONT axis and its `back` mode lights the plate with a single 90-energy
+fill. Relief is a directional effect — under a light that does not rake it, geometry and a
+normal map and a flat plate look the same. The calibrated picture is still `PreviewBoard.cs`
+against the built bundle, and this round used both.

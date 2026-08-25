@@ -31,6 +31,14 @@ authored geometry. They are not repairable — they are replaced by authored geo
 - Authored in Blender lying in the **XY plane, decorated face toward −Z**, body z ≥ 0, pivot centred.
   `BuildBoard.cs` re-derives orientation from the anchor frame, so anchors must be correct.
 - Quad-dominant, **watertight: 0 hole loops, 0 non-manifold edges, 0 loose verts.**
+- **BACK-FACE RELIEF: no wall steeper than 40° off the back plane** (added ModBuild 278 by
+  the mesh lane, and said out loud here as this file requires). Two measured reasons, both
+  in `unity/board-prep/img2img/README.md` §ROUND 4: `gen_geobuf` classifies a triangle as
+  BACK only within acos(0.7) = 45.57° of the thickness axis, and anything steeper lands in
+  INTERIOR where `tex_backfill` never paints it; and the whole back is ONE island under ONE
+  top-down projection, in which a vertical wall has zero area. `gen_board.back_stack()`
+  asserts it. Oak's bbox is now **38.6 mm against the 40 mm ceiling above** — the next
+  feature that stands proud of the oak back must buy its height from the straps.
 - Budget **≤ 24 000 tris** per board (the hands are 20 654 — same league, this is the bar).
 - One material, one UV layer, **no overlapping UV islands**, ≥ 8 px padding at 2048².
 

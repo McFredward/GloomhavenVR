@@ -90,6 +90,157 @@ ISLAND_PAD = 0.0050     # 10.2 px at 2048
 UV_PAD = ISLAND_PAD     # historical name, used for island-to-island spacing
 INNER_FILL = 0.90     # rest pads and button seats take the same share of their panel
 
+# ---------------------------------------------- the back and side RELIEF (ModBuild 278) --
+#
+# "Auf den Texturen sind Schrauben und Halzplatten etc zu sehen, also eigentlich
+#  3-dimensionale Objekte.  Sie werden aber flach nur auf der Textur dargstellt.  Ich
+#  moechte, dass du das Mesh fuer die Seiten und Rueckseite an die Textur anpasst, so wie
+#  du es auch fuer die Vorderseite bereits sehr erfolgreich gemacht hast, um das Board noch
+#  realistischer zu machen."
+#
+# The ModBuild 276 art (unity/board-prep/out/board_back_<style>.png) paints straps, rivets,
+# nails and cast ribs onto a plate that is ONE FLAT N-GON.  Its relief lives entirely in a
+# normal map derived from that same art (img2img/tex_backfill.py), and a normal map has no
+# silhouette, no occlusion and no stereo parallax -- which is exactly the "flach" he saw
+# through a headset.  Everything below turns the features he NAMED into geometry.
+#
+# WHERE THE NUMBERS COME FROM, and why no registration step is needed.
+# tex_backfill places the back art at each texel's own BOARD COORDINATES:
+#
+#       x = (u - 0.5) * LONG        y = (0.5 - v) * SHORT
+#
+# with (u, v) normalised inside plate_rect(art) resampled to 2048 x 1024.  That map was
+# MEASURED, not assumed: re-running tex_backfill's own BACK assignment through it
+# reproduces the shipped atlas's BACK texels exactly -- mean |err| 0.00 of 255 and
+# r = +1.0000 -- while a planted +3 % shift in u gives 17.30/255 and r = +0.18, and a
+# flipped v gives 16.35/255 and r = +0.24.  Both controls fire, so the null result is a
+# measurement and not a tautology.
+#
+# So a feature measured in PLATE PIXELS is built in metres with no fitting, no homography
+# and no block matcher.  Every figure in BACK_ART below is a measurement off those three
+# images at 1 px = 0.3125 mm.  The instrument for the dome-like features (nails, rivets) is
+# a vertical derivative-of-Gaussian matched filter with a lobe-midpoint centre estimator,
+# validated on planted domes -- 5 of 5 recovered, residual 1.73 +/- 0.10 px -- against a
+# NULL input that returns nothing.  1.73 px is 0.54 mm, which is 0.65 atlas texels at the
+# back's 1.21 tex/mm: below the resolution of the map the art is written into.
+#
+# WHY EVERY BACK WALL IS A STRAIGHT CHAMFER OF AT MOST 40 DEGREES, and why that is not
+# taste.  Two independent constraints, both measured:
+#
+#   1. img2img/gen_geobuf.py calls a triangle BACK when its normal is within
+#      acos(0.7) = 45.6 deg of the thickness axis.  A steeper wall lands in INTERIOR, which
+#      tex_backfill never paints and tex_composite's pushpull_fill would smear.
+#   2. The whole back is ONE island under ONE top-down projection.  A vertical wall has
+#      ZERO area under that projection: a degenerate UV island, which no atlas can feed and
+#      gen_uvcheck cannot measure.
+#
+# fillet() is therefore the WRONG profile here even though it is the right one on the
+# front: it is a quarter ellipse starting at the pole, so its FIRST step is nearly vertical
+# (69.7 deg at n=3, w=2.2 mm, d=1.6 mm).  A straight chamfer has one slope by construction
+# and that slope is checkable, which back_stack() asserts on every ring it builds.
+MAX_BACK_SLOPE_DEG = 40.0
+BACK_PX_M = LONG / 2048.0        # 0.3125 mm; SHORT / 1024 is the same number (2:1 aspect)
+
+
+def back_x(col):
+    """Plate column -> board x in metres."""
+    return (col / 2048.0 - 0.5) * LONG
+
+
+def back_y(row):
+    """Plate row -> board y in metres.  Row 0 is the art's TOP row, which is +SHORT/2."""
+    return (0.5 - row / 1024.0) * SHORT
+
+
+def back_m(n):
+    """A length in plate pixels -> metres."""
+    return n * BACK_PX_M
+
+
+def ellipse(cx, cy, a, b, n):
+    """CCW ellipse with a fixed vertex count.  ell_gen's inset shrinks both semi-axes by
+    the same ABSOLUTE amount, which is what a chamfer of constant width does to an
+    outline -- an ellipse offset is not an ellipse, but at 1.6 mm on a 4.2 mm semi-axis the
+    difference is 0.05 mm and the vertex-count stability is worth far more than that."""
+    return [(cx + a * math.cos(2 * math.pi * i / n), cy + b * math.sin(2 * math.pi * i / n))
+            for i in range(n)]
+
+
+def ell_gen(cx, cy, a, b, n):
+    return lambda d: ellipse(cx, cy, max(a - d, 3.0e-4), max(b - d, 3.0e-4), n)
+
+
+# STEEL's back art came back filling the whole 3:2 frame instead of the 2:1 pad, so it is
+# resampled 1.324x in the long direction (img2img/README.md, "THE 3:2 TRAP").  Its rivets
+# are therefore painted as ~8.4 x 6.6 mm ELLIPSES, not circles, and the geometry matches
+# the art AS MAPPED rather than the art as generated -- the mapping is what the player sees.
+BACK_ART = {
+    "oak": {
+        # Two iron straps with four forged square nails each.  Strap edges are the dark
+        # shadow lines in the plate's own column profile; nail centres are the matched
+        # filter's.  Left strap 203..339 px, right 1701..1842 px -- NOT symmetric, and the
+        # 1.7 mm difference is kept rather than tidied away, because the art is the truth
+        # the geometry has to register to.
+        # (x0_px, x1_px, y0_px, y1_px, corner_r_m)
+        "straps": [(203.0, 339.0, 16.0, 1008.0, 0.0050),
+                   (1701.0, 1842.0, 16.0, 1008.0, 0.0050)],
+        "strap_h": 0.0020, "strap_run": 0.0026, "strap_seg": 2, "strap_seg_xy": (3, 1, 14),
+        "nails": [(271.0, 107.0), (271.0, 398.0), (271.0, 650.0), (271.0, 911.0),
+                  (1775.0, 114.0), (1775.0, 402.0), (1775.0, 653.0), (1775.0, 917.0)],
+        "nail_w": 0.0125, "nail_r": 0.0022,
+        "nail_h": 0.0010, "nail_run": 0.0012, "nail_seg": 2, "nail_seg_xy": (2, 1, 1),
+        # The three PLANK SEAMS at rows 246 / 493 / 739 stay in the normal map, on purpose.
+        # The art paints them 1.6 mm wide.  A wall no steeper than MAX_BACK_SLOPE_DEG can
+        # then carry at most 0.8 * tan(40) = 0.67 mm of depth, and the two walls meet in a
+        # V with no floor at all -- while widening the slot enough to carry real depth
+        # would put a 3 mm groove where the art paints 1.6 mm, i.e. a doubled edge by
+        # construction.  A groove has no silhouette and no occlusion either, so the two
+        # things geometry buys over a normal map are both absent.  This is the one feature
+        # where the map is the better instrument, and it already carries it.
+        "seam_rows": [246.0, 493.0, 739.0],
+    },
+    "steel": {
+        # A riveted plate: the border band and the two vertical straps are ONE continuous
+        # frame at the plate's own surface, and the three fields between them are recessed.
+        #
+        # THE FIRST VERSION MODELLED THE STRAPS AS SEPARATE RAISED BARS on the floor of one
+        # big recess, and it was wrong in a way the mesh reported rather than the eye: a bar
+        # inset 3 px from the recess OUTLINE still crosses the recess FLOOR, which sits a
+        # further panel_run = 2.0 mm in, so its footprint was not a hole in the surface it
+        # was welded into -- 10 boundary edges, 2 hole loops, 2 non-manifold edges on steel.
+        # Three fields is also the better reading of the art: the straps have the band's
+        # colour and the band's rivets, because they ARE the band.
+        # (x0_px, x1_px, y0_px, y1_px, corner_r_m)
+        "fields": [(52.0, 355.0, 38.0, 989.0, 0.0080),
+                   (459.0, 1589.0, 38.0, 989.0, 0.0080),
+                   (1693.0, 1994.0, 38.0, 989.0, 0.0080)],
+        "panel_d": 0.0015, "panel_run": 0.0020, "panel_seg": 2, "panel_seg_xy": (4, 12, 13),
+        "rivet_a": 0.0042, "rivet_b": 0.0033, "rivet_n": 10,
+        "rivet_h": 0.0013, "rivet_run": 0.0016, "rivet_seg": 2,
+        "rivets_band": (
+            [(x, 21.0) for x in (40.9, 150.8, 262.7, 363.1, 467.0, 567.0, 671.3, 772.5,
+                                 876.1, 976.7, 1078.7, 1181.8, 1285.0, 1382.6, 1488.0,
+                                 1589.0, 1688.3, 1793.8, 1895.9, 2005.6)] +
+            [(x, 1005.0) for x in (39.6, 150.3, 262.2, 363.6, 465.0, 568.8, 670.0, 773.3,
+                                   876.5, 977.5, 1079.8, 1181.7, 1284.9, 1386.8, 1486.2,
+                                   1589.7, 1692.2, 1794.2, 1897.9, 2006.9)] +
+            [(28.7, y) for y in (92.6, 168.1, 244.3, 320.2, 399.0, 476.2, 552.4, 632.5,
+                                 708.0, 787.1, 865.8, 941.9)] +
+            [(2018.3, y) for y in (92.0, 168.1, 247.5, 321.6, 399.7, 477.8, 555.6, 633.8,
+                                   708.9, 786.5, 865.3, 943.0)]),
+        "rivets_strap": ([(410.0, y) for y in (123.0, 273.5, 431.7, 584.7, 739.0, 897.2)] +
+                         [(1639.8, y) for y in (123.0, 273.5, 431.7, 584.7, 739.0, 897.2)]),
+    },
+    "bronze": {
+        # A sand-cast reverse: three recessed panels divided by cast stiffening ribs, the
+        # ribs being what is LEFT of the plate surface between them.  No rivets in the art.
+        "panels": [(89.0, 614.0, 75.0, 955.0, 0.0120),
+                   (671.0, 1375.0, 75.0, 955.0, 0.0120),
+                   (1426.0, 1956.0, 75.0, 955.0, 0.0120)],
+        "panel_d": 0.0015, "panel_run": 0.0024, "panel_seg": 2, "panel_seg_xy": (4, 10, 12),
+    },
+}
+
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TABLE = os.path.join(REPO, "unity", "GloomhavenVR.Assets", "Assets", "Bundle", "Table")
 OUT = os.path.join(REPO, "unity", "board-prep", "out")
@@ -469,6 +620,154 @@ class Board:
                                               weight=weight, strip=True, chunk=0.100)
         return loops[0], loops[-1], z
 
+    # ------------------------------------------------------------------- back relief --
+
+    def back_stack(self, gen, z0, height, run, seg, island, into=False):
+        """One STRAIGHT-chamfered feature stepped out of (or into) the back plate.
+
+        Returns (base_loop, cap_loop, cap_z).  The base loop is meant to be handed to the
+        host surface's fill() as a hole and the cap loop to be filled in turn, so the
+        feature is WELDED in: nothing interpenetrates, there is no hidden underside, and the
+        whole back stays a single closed shell whose top-down projection tiles exactly once.
+
+        `into=False` steps AWAY from the board (out the back, z decreasing); `into=True`
+        steps into it.  The slope assert is the load-bearing part -- see MAX_BACK_SLOPE_DEG.
+        """
+        slope = math.degrees(math.atan2(height, run))
+        assert slope <= MAX_BACK_SLOPE_DEG + 1e-9, (
+            "back relief wall at %.1f deg exceeds %.1f: gen_geobuf would classify it "
+            "INTERIOR instead of BACK (tex_backfill never paints INTERIOR) and its "
+            "top-down UV footprint would collapse" % (slope, MAX_BACK_SLOPE_DEG))
+        sgn = 1.0 if into else -1.0
+        d, z = 0.0, z0
+        loops = [self.ring(gen(0.0), z)]
+        for _ in range(seg):
+            d += run / seg
+            z += sgn * height / seg
+            nxt = self.ring(gen(d), z)
+            self.bridge(loops[-1], nxt, island)
+            loops.append(nxt)
+        self.back_slope_deg = max(getattr(self, "back_slope_deg", 0.0), slope)
+        return loops[0], loops[-1], z
+
+    def back_rect(self, art, z0, island, key_h, key_run, key_seg, key_xy, rect, into=False):
+        """A rounded-rect strap / panel from a (x0_px, x1_px, y0_px, y1_px, r) art figure."""
+        x0, x1, y0, y1, r = rect
+        cx = (back_x(x0) + back_x(x1)) * 0.5
+        cy = (back_y(y0) + back_y(y1)) * 0.5
+        g = rr_gen(cx, cy, back_m(x1 - x0), back_m(y1 - y0), r, *key_xy)
+        return self.back_stack(g, z0, art[key_h], art[key_run], art[key_seg], island,
+                               into=into)
+
+    def back_relief(self, plate_ring, z0, island):
+        """Build the style's back relief and CLOSE the plate with fill().
+
+        The relief and the plate share one planar top-down projection, so the back is still
+        exactly ONE UV island, its raw bounding box is unchanged, and the atlas packing of
+        every other region comes out bit-identical.  That is deliberate: it means this
+        round does not repack the atlas, and the FRONT / RIM / INTERIOR texels of the nine
+        shipped maps keep the values ModBuild 276 wrote into them.
+        """
+        art = BACK_ART.get(self.style)
+        self.back_slope_deg = 0.0
+        if art is None:
+            self.fill([plate_ring], island)
+            return
+        holes, caps, feats = [], 0, {}
+
+        if self.style == "oak":
+            for k, rect in enumerate(art["straps"]):
+                base, cap, cz = self.back_rect(art, z0, island, "strap_h", "strap_run",
+                                               "strap_seg", art["strap_seg_xy"], rect)
+                holes.append(base)
+                nail_holes = []
+                for (nx, ny) in art["nails"]:
+                    if not (rect[0] <= nx <= rect[1]):
+                        continue
+                    g = rr_gen(back_x(nx), back_y(ny), art["nail_w"], art["nail_w"],
+                               art["nail_r"], *art["nail_seg_xy"])
+                    nb, nc, ncz = self.back_stack(g, cz, art["nail_h"], art["nail_run"],
+                                                  art["nail_seg"], island)
+                    nail_holes.append(nb)
+                    self.fill([nc], island)
+                    caps += 1
+                self.fill([cap] + nail_holes, island)
+                caps += 1
+            feats = {"straps": len(art["straps"]), "nails": len(art["nails"]),
+                     "seams_in_normal_map": len(art["seam_rows"])}
+
+        elif self.style == "steel":
+            rects = []
+            for rect in art["fields"]:
+                ptop, pfloor, pz = self.back_rect(art, z0, island, "panel_d", "panel_run",
+                                                  "panel_seg", art["panel_seg_xy"], rect,
+                                                  into=True)
+                holes.append(ptop)
+                self.fill([pfloor], island)
+                caps += 1
+                x0, x1, y0, y1, _ = rect
+                rects.append((back_x(x0), back_y(y1), back_x(x1), back_y(y0)))
+            moved, worst = 0, 0.0
+            for (rx, ry) in art["rivets_band"] + art["rivets_strap"]:
+                cx, cy = back_x(rx), back_y(ry)
+                for r in rects:
+                    cx, cy, d = self.push_clear(cx, cy, art["rivet_a"], art["rivet_b"],
+                                                r, 0.0005)
+                    if d > 0:
+                        moved += 1
+                        worst = max(worst, d)
+                        print("[gen_board]        rivet at plate col %.1f row %.1f pushed "
+                              "%.2f mm clear of a recessed field" % (rx, ry, d * 1000.0))
+                holes.append(self._back_rivet(art, cx, cy, z0, island))
+            feats = {"cast_panels": len(art["fields"]),
+                     "rivets": len(art["rivets_band"]) + len(art["rivets_strap"]),
+                     "rivets_clamped": moved, "worst_clamp_mm": round(worst * 1000.0, 2)}
+
+        else:   # bronze
+            for rect in art["panels"]:
+                ptop, pfloor, pz = self.back_rect(art, z0, island, "panel_d", "panel_run",
+                                                  "panel_seg", art["panel_seg_xy"], rect,
+                                                  into=True)
+                holes.append(ptop)
+                self.fill([pfloor], island)
+                caps += 1
+            feats = {"cast_panels": len(art["panels"])}
+
+        self.fill([plate_ring] + holes, island)
+        self.back_metrics = dict(feats, caps=caps + 1,
+                                 max_wall_deg=round(self.back_slope_deg, 2))
+
+    @staticmethod
+    def push_clear(cx, cy, ax, ay, rect, gap):
+        """Push (cx, cy) until an ax x ay footprint clears `rect` (x0, y0, x1, y1) by `gap`.
+
+        The steel border rivets are measured off the art, and four of them are painted
+        straddling the line where the inner panel begins: the corner rivets at plate columns
+        40.9 / 2005.6 / 39.6 / 2006.9 overlap the panel outline by 0.17 to 0.73 mm.  A
+        footprint that crosses the boundary of the surface it is welded into is not a hole
+        in that surface, and bmesh's constrained fill produced exactly what that predicts --
+        2 hole loops, 10 boundary edges and 2 non-manifold edges on steel.
+
+        This moves the rivet along whichever axis needs the least travel, and gen_board
+        PRINTS every move it makes.  A silent clamp would be a lie about where the art is;
+        a printed one is a measurement of how far the mesh had to disagree with it.
+        """
+        x0, y0, x1, y1 = rect
+        bx0, bx1 = cx - ax - gap, cx + ax + gap
+        by0, by1 = cy - ay - gap, cy + ay + gap
+        if bx1 <= x0 or bx0 >= x1 or by1 <= y0 or by0 >= y1:
+            return cx, cy, 0.0
+        opts = [(x0 - bx1, 0.0), (x1 - bx0, 0.0), (0.0, y0 - by1), (0.0, y1 - by0)]
+        dx, dy = min(opts, key=lambda d: abs(d[0]) + abs(d[1]))
+        return cx + dx, cy + dy, math.hypot(dx, dy)
+
+    def _back_rivet(self, art, cx, cy, z0, island):
+        g = ell_gen(cx, cy, art["rivet_a"], art["rivet_b"], art["rivet_n"])
+        base, cap, cz = self.back_stack(g, z0, art["rivet_h"], art["rivet_run"],
+                                        art["rivet_seg"], island)
+        self.fill([cap], island)
+        return base
+
     # ------------------------------------------------------------------------- assemble --
 
     def build(self):
@@ -504,8 +803,13 @@ class Board:
         bot = self.ring(sil(0.0018), -T)
         self.bridge(low, bot, side_isl)
         self.strip_uv(side_isl, [widest, low, bot], chunk=0.32)
+        # The weight stays 0.30 and it no longer means what its docstring says.  The back's
+        # island is REPACKED afterwards by gen_backuv.py into a free rectangle of the atlas
+        # (1.21 tex/mm, ModBuild 276), so this number only decides how much of the `sides`
+        # region the side-wall strip gets to keep -- it is not the back's shipped density.
+        # Leaving it alone is what keeps the packing of every other region bit-identical.
         back = self.new_island("planar", "sides", 0.30, flip_y=True)
-        self.fill([bot], back)
+        self.back_relief(bot, -T, back)
 
         # --------------------------------------------------------------- the frame band --
         # Outermost is a FLAT annulus at z = 0 -- that is where the style's ornaments are
@@ -674,6 +978,7 @@ class Board:
             "button_seat_depth_m": round(c["depth_panel"] + c["depth_seat"], 4),
             "field_half_m": [round(hx, 4), round(hy, 4)],
             "frame_band_w_m": round(fw, 4),
+            "back_relief": getattr(self, "back_metrics", {}),
         }
         self.symbols.append({"name": "centre_rose", "region": "face",
                              "pt": (0.0, 0.0), "island": face_isl,
