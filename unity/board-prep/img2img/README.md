@@ -136,3 +136,119 @@ to the mouldings on the same board. `--x-convention opengl` exists for when this
 * The station in the round's scratch predicts **albedo only**. It is blind to `_normal` and `_mrs`
   changes, and the two card slots are green in the screenshot because of a game-state tint that the
   measured shade field absorbs — they stay green whatever atlas is passed.
+
+---
+
+# ROUND 3 (ModBuild 275): THE BACK AND THE RIM
+
+Round 2 shipped and the striping complaint that opened this round was **withdrawn** after a
+hardware check: *"Ich hab es nun im Spiel geprüft und da sehe ich diese Streifen nicht! Es
+war also ein Renderfehler vom Vergleichsbild."* The picture that showed the stripes,
+`boards_shader_rake.png`, is lit from a deliberately RAKING angle to make relief legible,
+and raking light is exactly the condition that maximises directional relief. **The
+anisotropy is real in the data and it does not read where the player stands.**
+`tex_aniso.py` keeps measuring it as a regression guard and deliberately enforces nothing —
+see its docstring for the four ways earlier drafts of that test were wrong.
+
+What he reported instead: *"Die Seiten und die Rückseite die Textur ist kaputt … Auch dort
+soll eine entsprechende Textur sein. Generier dir auch dafür etwas, nicht nur für die
+Vorderseite."*
+
+## The UV finding — and the premise it falsified
+
+The obvious reading of the screenshot is a broken unwrap: a flat grey back and a smeared
+edge look exactly like faces sampling a degenerate sliver. **They are not.** Rasterising
+each mesh's own UV islands into its atlas, per face group:
+
+| board | group | tris | surface | atlas coverage | texel density | overlaps |
+|---|---|---|---|---|---|---|
+| oak | FRONT | 6500 | 2015.2 cm² (41.8 %) | 18.96 % | 1.99 tex/mm | 0 |
+| oak | BACK | 108 | 2010.6 cm² (41.7 %) | 0.97 % | **0.45 tex/mm** | 0 |
+| oak | RIM | 2012 | 581.2 cm² (12.1 %) | 3.33 % | 1.53 tex/mm | 0 |
+| steel | FRONT | 5392 | 2059.2 cm² | 17.53 % | 1.89 tex/mm | 0 |
+| steel | BACK | 304 | 2060.8 cm² | 1.10 % | **0.47 tex/mm** | 0 |
+| steel | RIM | 1544 | 546.1 cm² | 2.90 % | 1.49 tex/mm | 0 |
+| bronze | FRONT | 10476 | 1888.5 cm² | 18.92 % | 2.04 tex/mm | 0 |
+| bronze | BACK | 124 | 2006.7 cm² | 1.02 % | **0.46 tex/mm** | 0 |
+| bronze | RIM | 2092 | 540.8 cm² | 3.82 % | 1.72 tex/mm | 0 |
+
+**Zero overlapped texels on any board in any group**, and the RIM's density is 77–84 % of
+the front's — not a sliver, and nothing a repack would improve. So the rim was never
+mis-unwrapped; it was never **painted**. The back was both: its island is real, and at
+0.45 tex/mm it carried ~42 % of the board's surface on ~1 % of the atlas.
+
+**A UV rectangle is not a surface, and neither is a UV island.** These numbers are triangle
+coverage rasterised at atlas resolution, not island extents.
+
+## Why nothing was painted there
+
+`tex_composite` renders the board flat-on, generates art at that view and scatters it back
+through a UV pass taken from **the same view**. Everything a front camera cannot reach was
+then left to `pushpull_fill`. That is right for a recess wall — one or two texels from its
+own floor, and made of the same metal — and wrong for a back plate hundreds of texels from
+the nearest authored texel, where the fill converges to a flat average. Measured in the
+shipped 274 atlas, per island, against that style's own FRONT:
+
+| board | BACK relief (\|slope\| mean) | BACK albedo high-pass rms |
+|---|---|---|
+| oak | 26.0 % | 34.2 % |
+| steel | **6.7 %** | 45.0 % |
+| bronze | 11.7 % | 36.5 % |
+
+6.7 % of the front's relief is not "a little soft". It is the flat grey slab in the
+screenshot.
+
+## The chain
+
+    tex_uv_dump.py    (existing) triangulated UVs + object-space corners + face normals
+    gen_geobuf.py     rasterise the mesh into ATLAS SPACE: pos.npy, nrm.npy, grp.npy.
+                      Every texel carries the object-space POSITION and NORMAL of the
+                      surface point that samples it, so art placed through it CANNOT DRIFT
+                      -- it is addressed by where the surface is, not by where a picture
+                      thinks it is. No camera is involved, which is the point: no camera
+                      reaches these faces.
+    gen_backinit.py   the back plate's init frame -- the mesh's own silhouette, the style's
+                      own median FRONT plate colour, 2:1, padded to 3:2.
+    <gpt-image-2>      one image per style. referenceImages = [back init frame, the
+                      composited FRONT board-space albedo], so the back cannot come back a
+                      different material from the front of the same object.
+    tex_backfill.py   BACK <- the generated plate at each texel's own board coordinates.
+                      RIM  <- a smoothstep blend from the FRONT material to the BACK
+                              material across the board's own thickness, which is what a
+                              rim physically IS. Both edges then match their neighbour by
+                              construction, and there is no fill direction to smear along.
+                      INTERIOR untouched: it already measures 90-127 % of the front's
+                              high-pass energy, because there push-pull travels two texels
+                              and does the physically correct thing.
+
+## Two things worth not repeating
+
+* **The back's relief may be derived from its own art, and the front's may not.** The front
+  face is covered in mesh geometry the model redrew 3–9 mm off, so a normal map taken from
+  that art embosses a second, displaced copy of every feature. The back plate is
+  geometrically FLAT: the plank seams and rivets *are* the relief, and there is no
+  mesh-registered version of them to double.
+* **A colour round trip is not a no-op.** The first version of `tex_backfill` converted the
+  whole atlas to linear and back to write two regions, and the round trip alone moved 1029
+  FRONT, 570 INTERIOR and 12680 unmapped texels by ±1. Invisible — and still a lie in any
+  diff that claims the front face is untouched. It now keeps the uint8 array whole and
+  assigns only BACK and RIM texels; FRONT, INTERIOR and unmapped come out byte-identical on
+  all three maps, and that is checked rather than asserted.
+
+## The 3:2 trap, and what it cost this time
+
+The tool's aspect enum still has no 2:1. Oak and bronze came back inside their padded
+frames at 1.839:1 and 1.813:1 and are resampled to 2:1 — a 1.09× stretch. **Steel ignored
+the pad entirely** and filled the whole 3:2 frame, so its resample is 1.324×: its ~8 mm
+dome rivets ship as ~11 × 8 mm ellipses. That is a real, measured distortion, and it is
+accepted rather than regenerated. It is a back face, and a blind regeneration on a nudged
+prompt is not how this pipeline spends images.
+
+## The station now points at the defect
+
+`PreviewBoard` gained `_back`, `_backrake`, `_edge` and `_corner`; `gen_render.py` gained
+`back`, `backquarter` and `edge` modes. A station that points only at the front cannot show
+a defect on the faces it does not point at, and this one shipped — the first person to see
+it was the user, from behind, in a dark forest. `gen_render.py` is still ~2 stops
+overexposed and is an iteration loop, not a verdict; `PreviewBoard.cs` is the calibrated
+station.

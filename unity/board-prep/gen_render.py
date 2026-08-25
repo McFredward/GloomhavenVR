@@ -46,12 +46,27 @@ cam_d = bpy.data.cameras.new("C"); cam_d.type = 'ORTHO'; cam_d.ortho_scale = big
 cam = bpy.data.objects.new("C", cam_d); bpy.context.scene.collection.objects.link(cam)
 axis = [Vector((1,0,0)), Vector((0,1,0)), Vector((0,0,1))][thin]
 d = big * 2.0
+other = [Vector((1,0,0)), Vector((0,1,0)), Vector((0,0,1))]
+o1 = other[(thin+1) % 3]; o2 = other[(thin+2) % 3]
+# The two long axes, longest first, so "edge" always looks along the short one.
+lng, srt = (o1, o2) if ext[(thin+1) % 3] >= ext[(thin+2) % 3] else (o2, o1)
 if mode == "front":
     loc = ctr + axis * d
     # aim back at centre
+elif mode == "back":
+    # BACK and EDGE exist because a front-only station cannot show a defect on the
+    # faces it never points at, and one shipped: the back plate and the rim bevel had
+    # no authored material at all until ModBuild 275.
+    loc = ctr - axis * d
+elif mode == "backquarter":
+    loc = ctr - axis*d*0.85 + lng*d*0.30 + srt*d*0.42
+    cam_d.ortho_scale = big * 1.25
+elif mode == "edge":
+    # Grazing along the board's own short axis, so the rim fills the frame. A 35 mm
+    # band on a 640 mm board is a few pixels in any other shot.
+    loc = ctr - srt*d - axis*d*0.22
+    cam_d.ortho_scale = big * 1.06
 else:  # three-quarter
-    other = [Vector((1,0,0)), Vector((0,1,0)), Vector((0,0,1))]
-    o1 = other[(thin+1) % 3]; o2 = other[(thin+2) % 3]
     loc = ctr + axis*d*0.85 + o1*d*0.30 + o2*d*0.42
     cam_d.ortho_scale = big * 1.25
 cam.location = loc
