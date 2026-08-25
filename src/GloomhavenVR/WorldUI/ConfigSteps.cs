@@ -90,6 +90,12 @@ internal static class ConfigSteps
         // cannot land near 0.10 hides the whole safe half of the range. 0.01 gives 25 presses
         // and hits every frame rate anyone would name.
         ["WallFade/EvalIntervalSeconds"] = 0.01d,
+        // ModBuild 281 — the SLICE budget, range 0.25-8.0 ms against an 11.11 ms frame at 90 Hz.
+        // 0.25 would give 31 presses but offers resolution the answer does not have: this number
+        // is "how much of a frame may the mod take", and nobody wants 1.75 rather than 1.5. It
+        // also has to be able to land on the shipped 1.5 exactly from either end, which 0.25
+        // does and 0.3 does not. 31 presses across the range, every useful value on one of them.
+        ["WallFade/SliceBudgetMillis"] = 0.25d,
 
         // ---- Komfort ▸ Drehen / Fortbewegung ----------------------------------------------
         // NOT a step any more — this row is a named-preset dropdown since 2026-08-22 (question d:

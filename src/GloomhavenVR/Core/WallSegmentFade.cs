@@ -76,6 +76,14 @@ internal static class WallFadeTuning
     /// round-7 ruling puts beyond every adoption lane's reach. Ships OFF — see
     /// <see cref="FigureExemptSkipOn"/>.</summary>
     internal static ConfigEntry<bool>? FigureExemptSkip;
+    /// <summary>ModBuild 281 (PERF B step 3): measure how much one commit CHURNS the wall table
+    /// — the population the sliced commit's carry-forward has to survive. Read-only; see
+    /// WallSegmentFade.CommitGate.cs.</summary>
+    internal static ConfigEntry<bool>? CommitTableGate;
+    /// <summary>ModBuild 281 (PERF B): the per-frame millisecond budget every SLICED stage of
+    /// the rescan pipeline spends. Was three separate <c>private const float … = 1.5f</c>
+    /// declarations that the source itself said were deliberately the same number.</summary>
+    internal static ConfigEntry<float>? SliceBudgetMillis;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -303,6 +311,31 @@ internal static class WallFadeTuning
             + "log's FIGURE EXEMPTION clause reports how many rebuilds it WOULD have saved and "
             + "names the renderers it would have stopped listening to, so the decision to switch "
             + "it on can be made from a real session instead of from an argument. Live.");
+
+        CommitTableGate = config.Bind("WallFade", "CommitTableGate", Defaults.CommitTableGate,
+            "DIAGNOSTIC, not a behaviour — it reads the wall table and writes nothing. Each time "
+            + "the mod rebuilds its wall table it takes a copy before and after and reports what "
+            + "CHANGED: walls that disappeared from the table while they were still half-faded, "
+            + "walls whose set of meshes changed, and meshes that moved from one wall to "
+            + "another. That is the exact list of things that would go wrong if the rebuild were "
+            + "spread over sixty frames instead of happening in one — which is the change that "
+            + "would remove the short stutters for good, and which is not being made until this "
+            + "line has come back from a real session saying how often each case actually "
+            + "happens. It is NOT a comparison of the current rebuild against a spread-out one; "
+            + "nothing in this build performs a spread-out rebuild, and the log line says so "
+            + "itself. Runs only on a cycle that is already rebuilding, prints at most every 20 "
+            + "seconds, and reports its own cost as the step 'WallFade.TableGate'. Turn it off "
+            + "once the question is answered. Live.");
+        SliceBudgetMillis = config.Bind("WallFade", "SliceBudgetMillis",
+            Defaults.SliceBudgetMillis,
+            "How many milliseconds per frame the mod may spend on the SPREAD-OUT half of its "
+            + "wall work — classifying the scene's renderers, surveying them and warming the "
+            + "table. At 90 Hz a frame is 11.11 ms, so the shipped 1.5 leaves the frame intact "
+            + "and the job simply takes more frames (about 12-18 of them). Raise it to finish a "
+            + "rebuild sooner at the cost of a fuller frame; lower it if you see the mod itself "
+            + "in a frame-time graph. This does NOT bound the one big rebuild frame that causes "
+            + "the short stutters — that step is still atomic, and making it obey this number is "
+            + "the next piece of work. Live; clamped 0.25-8.0.");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -649,6 +682,20 @@ internal static class WallFadeTuning
     /// </summary>
     internal static bool FigureExemptSkipOn =>
         FigureExemptSkip != null && FigureExemptSkip.Value;
+
+    /// <summary>ModBuild 281 — the churn gate. Defaults ON when unbound, exactly like
+    /// <see cref="SignatureCulpritCensus"/> beside it: the reason this build exists is to
+    /// produce that line, and an instrument that silently does not run because Bind has not
+    /// happened yet is the "gated remedy never ran" entry in this project's ledger.</summary>
+    internal static bool CommitTableGateOn => CommitTableGate == null || CommitTableGate.Value;
+
+    /// <summary>ModBuild 281 — the per-frame budget of every sliced rescan stage.
+    ///
+    /// <para>THE NUMBER INSIDE <c>Clamped()</c> IS THE PRE-BIND FALLBACK, NOT THE SHIPPED
+    /// DEFAULT. The shipped default is <c>Defaults.SliceBudgetMillis</c>, and confusing the two
+    /// has cost this project two rounds, twice. They agree at 1.5 and must be changed
+    /// together.</para></summary>
+    internal static float SliceBudget => Clamped(SliceBudgetMillis, 1.5f, 0.25f, 8f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -1672,7 +1719,15 @@ internal static partial class WallSegmentFade
         /// <summary>Millisecond budget the census may spend on ONE frame. 1.5 ms against an
         /// 11.11 ms budget leaves the frame intact; the cycle simply takes more frames. The
         /// old code spent 118 ms on one frame and dropped ten.</summary>
-        private const float ClassifyBudgetMillis = 1.5f;
+        /// <para>ModBuild 281 (PERF B): this was a <c>private const float … = 1.5f</c>. It is now
+        /// the live <c>[WallFade] SliceBudgetMillis</c> dial, shipped at the same 1.5 — a tuning
+        /// surface, not a retune, so a fresh install and an install that never opens the menu
+        /// behave exactly as ModBuild 280 did. The three budgets this replaced were three
+        /// separate constants whose own doc comments said they were deliberately the same number
+        /// for the same reason; one dial is that statement made enforceable. It will also be the
+        /// budget of the SLICED COMMIT when that lands, which is why it is named for the slice
+        /// and not for any one stage.</para>
+        private static float ClassifyBudgetMillis => WallFadeTuning.SliceBudget;
 
         /// <summary>Budget for a cycle triggered by a ROOM REVEAL rather than by the timer.
         /// A reveal invalidates the room registry outright and walls of an unanchored room are
@@ -4280,17 +4335,46 @@ internal static partial class WallSegmentFade
             // here, on the frame that will consume it — see VerifyPrepareStillValid.
             VerifyPrepareStillValid(gen);
 
-            // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
-            // is what the [Perf] STEPS line ranks and what the integrator greps. It now covers
-            // the COMMIT only — the sweep and the census report as 'WallFade.Sweep' and
-            // 'WallFade.Classify', so the three costs are separable for the first time.
-            using (PerfMonitor.Scope("WallFade.Rescan"))
+            // ('WallFade.Rescan' covers the COMMIT only since PERF S2 — the sweep and the
+            // census report as 'WallFade.Sweep' and 'WallFade.Classify', so the three costs are
+            // separable.)
+            // PERF B step 3 — the CHURN gate, and it is DELIBERATELY OUTSIDE the scope below.
+            //
+            // The gate copies the committed table before and after the commit and diffs the pair
+            // (WallSegmentFade.CommitGate.cs). It is read-only and cannot change a pixel. But
+            // 'WallFade.Rescan' is the step whose ~95 ms IS the user's Ruckler and the number
+            // this whole round is judged against, and _cycleWorstCommitMillis feeds the BUDGET
+            // line's worst-commit figure. Taking the snapshots inside either one would fold the
+            // instrument into the quantity it exists to protect, and would make the ModBuild 281
+            // log incomparable with ModBuild 280's — an instrument that becomes part of its own
+            // measurement, which is a defect class this project has a ledger entry for. Outside
+            // both, the gate reports separately as 'WallFade.TableGate' and the commit's number
+            // means in this build exactly what it meant in the last one.
+            //
+            // THE RETURN VALUE IS LOAD-BEARING: an AFTER snapshot with no BEFORE would compare a
+            // full table against an empty one and print a spectacular, entirely fictional churn
+            // figure.
+            bool tableGate = BeginCommitTableGate();
+            try
             {
-                float c0 = (float)RescanClock.Elapsed.TotalMilliseconds;
-                Rescan(gen);
-                float ms = (float)RescanClock.Elapsed.TotalMilliseconds - c0;
-                if (ms > _cycleWorstCommitMillis)
-                    _cycleWorstCommitMillis = ms;
+                // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
+                // is what the [Perf] STEPS line ranks and what the integrator greps.
+                using (PerfMonitor.Scope("WallFade.Rescan"))
+                {
+                    float c0 = (float)RescanClock.Elapsed.TotalMilliseconds;
+                    Rescan(gen);
+                    float ms = (float)RescanClock.Elapsed.TotalMilliseconds - c0;
+                    if (ms > _cycleWorstCommitMillis)
+                        _cycleWorstCommitMillis = ms;
+                }
+            }
+            finally
+            {
+                // In a finally so a commit that THROWS still closes the gate: leaving a BEFORE
+                // snapshot standing would make the next commit's report a diff across two
+                // commits, silently doubling every churn count it prints.
+                if (tableGate)
+                    EndCommitTableGate(Time.unscaledTime);
             }
             _rescanStage = RescanStage.Idle;
             _rescanUrgent = false;
@@ -6902,12 +6986,19 @@ internal static partial class WallSegmentFade
             using (PerfMonitor.Scope("WallFade.PathAudit"))
             {
                 float frameStart = (float)RescanClock.Elapsed.TotalMilliseconds;
+                // HOISTED (ModBuild 281): the budget became a live config dial in this build,
+                // and this is the one of its four read sites that sits INSIDE a loop. Reading a
+                // ConfigEntry per audited wall would put a dictionary-backed property on a hot
+                // path to save nothing; latching it per frame also means one frame's slice
+                // cannot be judged against two different budgets, which is the same reason
+                // _scheduledRescanInterval exists one screen up.
+                float auditBudget = ClassifyBudgetMillis;
                 while (_pathAuditCursor < _pathAuditWalls.Count)
                 {
                     AuditOneCacheWall(_pathAuditWalls[_pathAuditCursor]);
                     _pathAuditCursor++;
                     if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart
-                        >= ClassifyBudgetMillis)
+                        >= auditBudget)
                     {
                         return; // resume on the next idle tick — the pass is not finished
                     }

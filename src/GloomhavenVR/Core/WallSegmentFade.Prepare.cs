@@ -125,7 +125,15 @@ internal static partial class WallSegmentFade
         /// it. A budget is used rather than an item count because the population is not fixed
         /// across scenarios (this one classifies 5803 renderers and 1888 fade-capable), and a
         /// count tuned on one scenario is a stall on the next.</summary>
-        private const float PrepareBudgetMillis = 1.5f;
+        /// <para>ModBuild 281 (PERF B): this was a <c>private const float … = 1.5f</c>. It is now
+        /// the live <c>[WallFade] SliceBudgetMillis</c> dial, shipped at the same 1.5 — a tuning
+        /// surface, not a retune, so a fresh install and an install that never opens the menu
+        /// behave exactly as ModBuild 280 did. The three budgets this replaced were three
+        /// separate constants whose own doc comments said they were deliberately the same number
+        /// for the same reason; one dial is that statement made enforceable. It will also be the
+        /// budget of the SLICED COMMIT when that lands, which is why it is named for the slice
+        /// and not for any one stage.</para>
+        private static float PrepareBudgetMillis => WallFadeTuning.SliceBudget;
 
         /// <summary>Budget on a ROOM-REVEAL cycle, mirroring
         /// <see cref="ClassifyUrgentBudgetMillis"/> — a reveal already coincides with the game's
@@ -517,7 +525,15 @@ internal static partial class WallSegmentFade
         /// and for the same reason: it is the same shape of work (a per-renderer read over a
         /// fixed population with no externally visible effect) at the value this project has
         /// already validated on hardware for that shape.</summary>
-        private const float SurveyBudgetMillis = 1.5f;
+        /// <para>ModBuild 281 (PERF B): this was a <c>private const float … = 1.5f</c>. It is now
+        /// the live <c>[WallFade] SliceBudgetMillis</c> dial, shipped at the same 1.5 — a tuning
+        /// surface, not a retune, so a fresh install and an install that never opens the menu
+        /// behave exactly as ModBuild 280 did. The three budgets this replaced were three
+        /// separate constants whose own doc comments said they were deliberately the same number
+        /// for the same reason; one dial is that statement made enforceable. It will also be the
+        /// budget of the SLICED COMMIT when that lands, which is why it is named for the slice
+        /// and not for any one stage.</para>
+        private static float SurveyBudgetMillis => WallFadeTuning.SliceBudget;
 
         /// <summary>Renderers folded between two clock reads. Much larger than
         /// <see cref="PrepareChunk"/> because a survey item is an instance-ID read and two

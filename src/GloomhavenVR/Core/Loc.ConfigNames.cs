@@ -596,6 +596,17 @@ internal static partial class Loc
             ["WallFade/EvalIntervalSeconds"] = Pair("Occlusion check every (s)", "Verdeckung prüfen alle (s)"),
             ["WallFade/WalkInSuspendSampling"] = Pair("Inside: stop measuring", "Im Spielfeld: Messung pausieren"),
             ["WallFade/SignatureCulpritCensus"] = Pair("Log what changed the scene", "Szenen-Änderungen protokollieren"),
+            // ModBuild 281. The row names WHAT IS COUNTED, not the machinery: "Tabellenumbau
+            // protokollieren" would be true of the census two rows up as well. What is unique to
+            // this one is that it counts walls that LEAVE the table mid-fade, so that is the row.
+            ["WallFade/CommitTableGate"] = Pair("Log walls dropped mid-fade",
+                                                "Mitten im Faden verlorene Wände protokollieren"),
+            // ModBuild 281. "Budget" is the honest word in both languages and the unit belongs
+            // on the row, because the neighbouring cadence rows are in SECONDS and this one is in
+            // milliseconds — a reader who carries "2.0" across from the row above and types it
+            // here has asked for a fifth of the frame.
+            ["WallFade/SliceBudgetMillis"] = Pair("Spread-out work budget (ms/frame)",
+                                                  "Budget für verteilte Arbeit (ms/Bild)"),
             // ModBuild 279 (Option A). The row has to name the THING IGNORED and not the
             // mechanism: "Signatur verschmälern" is true and tells a reader nothing, while
             // "Figuren ignorieren" is what he can decide about. "beim Neuaufbau-Test" pins it to

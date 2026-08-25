@@ -291,6 +291,36 @@ internal static partial class Defaults
     // its own measured cost under the 'WallFade.SigDiag' step so it can never become an
     // unmeasured tax the way an always-on probe has in this project before.
     internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
+    // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). Shipped
+    // ON for the same reason SignatureCulpritCensus above it is: it is the whole point of the
+    // build. PERF B removes the ~95 ms commit frame by spreading it over ~63 frames, and the one
+    // thing that can go wrong when it does is the old table — which is the UNDO LOG for every
+    // MaterialPropertyBlock this subsystem has written — being dropped while a wall is still
+    // half-faded. This line counts how often a commit actually does that, on his hardware, in his
+    // scenarios, read-only. Shipping it OFF would hand the tester a build that measures nothing,
+    // which is the "three behaviour-free builds is three wasted rounds" entry in the ledger.
+    // It runs only on a cycle that is already committing, prints at most every 20 s, and reports
+    // its own cost as 'WallFade.TableGate'.
+    internal const bool CommitTableGate = true;              // => [WallFade] CommitTableGate
+    // ModBuild 281 (PERF B) — the per-frame budget of every SLICED rescan stage.
+    //
+    // 1.5 IS THE CONSTANT THAT SHIPPED, THREE TIMES OVER. It was `ClassifyBudgetMillis` in
+    // WallSegmentFade.cs and `PrepareBudgetMillis` + `SurveyBudgetMillis` in
+    // WallSegmentFade.Prepare.cs, three private consts whose own doc comments each said they
+    // were deliberately the same number for the same reason ("the same shape of work — a
+    // per-renderer derivation over a fixed population with no externally visible effect — at
+    // the value this project has already validated on hardware for that shape"). Promoting them
+    // to ONE dial is that statement made enforceable; the value does not move, so a fresh
+    // install and an install that never opens the menu behave exactly as ModBuild 280 did. This
+    // is a tuning surface, not a retune — the same rule the ModBuild 272 walk-in promotion and
+    // the ModBuild 278 cadence promotion followed.
+    //
+    // WHY IT IS NAMED FOR THE SLICE AND NOT FOR A STAGE: it is also the budget the sliced COMMIT
+    // will spend when PERF B lands, and 1.5 ms is the figure the ModBuild 228 and 271 logs show
+    // the census holding at over 8-18 frames with no stall attributed to it. At that budget the
+    // 94.8 ms commit becomes ~63 frames, about 0.70 s — well inside the 7.8 s of staleness the
+    // shipped SKIP path already tolerates.
+    internal const float SliceBudgetMillis = 1.5f;           // => [WallFade] SliceBudgetMillis
     // ModBuild 279 (Option A) — the FIGURE EXEMPTION on the skip signature. Shipped OFF, and the
     // OFF is the finding rather than caution: the design this came from rests on
     // PurgeFigureRenderers guaranteeing that no figure survives the commit, and read against the
