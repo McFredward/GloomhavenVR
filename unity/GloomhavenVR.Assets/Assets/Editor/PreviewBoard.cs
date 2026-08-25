@@ -324,6 +324,7 @@ namespace GloomhavenVR
             }
 
             StereoSpecular(cam, inst, style);
+            CullBackCheck(cam, inst, style, outDir);
 
             Object.DestroyImmediate(inst);
             Object.DestroyImmediate(camGo);
@@ -444,6 +445,125 @@ namespace GloomhavenVR
             if (max < 0.01f)
                 Debug.LogWarning($"[BoardPreview]   {style}: the specular never moves any pixel by 1% — "
                                  + "this map is bundle weight for no picture. Drop it or raise the strength.");
+        }
+
+        /// <summary>
+        /// IS `Cull Off` STILL EARNING ITS KEEP? BuildBoard sets `_Cull = 0` on every board, and
+        /// its comment says exactly why: the AI photogrammetry mesh was 1064 shells with 20 268
+        /// non-manifold edges, so back-face culling turned its many small holes into windows onto
+        /// the culled interior — and in MR passthrough, onto the bright green background.
+        ///
+        /// <para>THE MESH THAT WAS TRUE OF NO LONGER EXISTS. gen_stats.py on the three shipped
+        /// FBXes reports 0 boundary edges, 0 non-manifold edges and 0 loose verts on all three, so
+        /// there is no hole for a back face to show through. Rendering both sides of a closed solid
+        /// is pure overdraw on a 0.64 m object that fills a large part of both eyes.</para>
+        ///
+        /// <para>That is an argument, not evidence, so this renders the board with `Cull Back` and
+        /// diffs it against the shipped `Cull Off` pixel for pixel. If a closed mesh really is
+        /// closed the two images are identical and the workaround can go; any non-zero difference
+        /// is a hole the stats did not describe, and `Cull Off` stays. A `_cullback.png` is written
+        /// whenever they differ, so the disagreement can be looked at rather than argued about.</para>
+        /// </summary>
+        private static void CullBackCheck(Camera cam, GameObject inst, string style, string outDir)
+        {
+            var rends = inst.GetComponentsInChildren<MeshRenderer>(true);
+            if (rends.Length == 0 || rends[0].sharedMaterial == null) return;
+            Material live = rends[0].sharedMaterial;
+            if (!live.HasProperty("_Cull")) return;
+            float cull = live.GetFloat("_Cull");
+
+            var back = new Material(live) { name = live.name + "_cullback" };
+            back.SetFloat("_Cull", 2f);   // CullMode.Back
+
+            // Two viewpoints: flat-on, where a hole shows as a bright dot, and the raking angle,
+            // where a grazing face is most likely to flip.
+            (string Tag, Vector3 Eye, Vector3 Look)[] views =
+            {
+                ("flat", new Vector3(0f, 0f, -0.98f), Vector3.zero),
+                ("rake", new Vector3(0.20f, 0.26f, -0.55f), new Vector3(0.06f, -0.01f, 0f)),
+            };
+            int worstPx = 0, worstInterior = 0; float worstMax = 0f; string worstTag = "";
+            foreach (var (tag, eye, look) in views)
+            {
+                foreach (var r in rends) r.sharedMaterial = live;
+                Texture2D a = Capture(cam, eye, look, 1200, 700);
+                foreach (var r in rends) r.sharedMaterial = back;
+                Texture2D b = Capture(cam, eye, look, 1200, 700);
+                foreach (var r in rends) r.sharedMaterial = live;
+
+                const int W = 1200;
+                Color[] pa = a.GetPixels(), pb = b.GetPixels();
+                bool Bg(Color p) => Mathf.Max(p.r, Mathf.Max(p.g, p.b)) <= 0.16f;   // clear is 0.08
+                int diff = 0, interior = 0; float maxD = 0f;
+                for (int i = 0; i < pa.Length; i++)
+                {
+                    float d = Mathf.Max(Mathf.Abs(pa[i].r - pb[i].r),
+                              Mathf.Max(Mathf.Abs(pa[i].g - pb[i].g), Mathf.Abs(pa[i].b - pb[i].b)));
+                    if (d <= 0.004f) continue;           // 1/255 is 0.0039; below that is quantisation
+                    diff++;
+                    maxD = Mathf.Max(maxD, d);
+                    // INTERIOR OR SILHOUETTE? "Interior" is a WEAK signal, and this comment records
+                    // why, because the first version of it was written as if interior meant hole.
+                    // It does not. An 8-neighbourhood is three pixels wide, so it only excludes
+                    // pixels directly against the background; a rim WALL two or three pixels wide
+                    // is "interior" by this test while being the most edge-on surface in the shot.
+                    // Measured: oak's 84 differing pixels came back 83 "interior", and the diff map
+                    // shows them as two short strokes on the board's LEFT RIM — a wall seen exactly
+                    // edge-on by a flat-on camera, where which side wins is a sub-pixel rasteriser
+                    // tie. Independently falsified as a topology problem by gen_winding.py: 0
+                    // inward-wound faces on all three boards and positive signed volume. So read
+                    // this count as "not against the background", look at the map, and let the
+                    // winding check be the authority on closure.
+                    int x = i % W, y = i / W;
+                    bool touchesBg = false;
+                    for (int dy = -1; dy <= 1 && !touchesBg; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int nx = x + dx, ny = y + dy, j = ny * W + nx;
+                            if (nx < 0 || nx >= W || j < 0 || j >= pa.Length) { touchesBg = true; break; }
+                            if (Bg(pa[j]) || Bg(pb[j])) { touchesBg = true; break; }
+                        }
+                    if (!touchesBg) interior++;
+                }
+                if (diff > worstPx) { worstPx = diff; worstMax = maxD; worstTag = tag; }
+                worstInterior = Mathf.Max(worstInterior, interior);
+                Debug.Log($"[BoardPreview]   {style}/{tag}: Cull Back differs on {diff} px, "
+                          + $"{interior} of them INTERIOR (max channel delta {maxD:F3})");
+                // WRITE THE DIFFERENCE, NOT THE SECOND PICTURE. Seven pixels out of 840 000 cannot
+                // be found by flicking between two renders, and where they ARE is the whole answer:
+                // scattered through the recess interiors means edge-on walls, a compact blob means
+                // a hole. The board is kept at a dim grey so the marked pixels can be located on it.
+                if (diff > 0)
+                {
+                    var map = new Texture2D(a.width, a.height, TextureFormat.RGB24, false);
+                    var px = new Color[pa.Length];
+                    for (int i = 0; i < pa.Length; i++)
+                    {
+                        float d = Mathf.Max(Mathf.Abs(pa[i].r - pb[i].r),
+                                  Mathf.Max(Mathf.Abs(pa[i].g - pb[i].g), Mathf.Abs(pa[i].b - pb[i].b)));
+                        px[i] = d > 0.004f ? Color.red : new Color(pa[i].grayscale * 0.35f,
+                                                                   pa[i].grayscale * 0.35f,
+                                                                   pa[i].grayscale * 0.40f);
+                    }
+                    map.SetPixels(px); map.Apply();
+                    File.WriteAllBytes(Path.Combine(outDir, $"{style}_{tag}_culldiff.png"), map.EncodeToPNG());
+                    Object.DestroyImmediate(map);
+                }
+                Object.DestroyImmediate(a); Object.DestroyImmediate(b);
+            }
+            Object.DestroyImmediate(back);
+
+            // NO PASS/FAIL VERDICT HERE, deliberately. A pixel count cannot tell a hole from an
+            // edge-on wall — the version of this line that tried printed "something IS showing
+            // through and Cull Off is load-bearing" at three boards that gen_winding.py then
+            // measured as perfectly wound, 0 inward faces, positive signed volume. The count and
+            // the map are the output; closure is answered by gen_stats.py (0 boundary edges) and
+            // gen_winding.py (0 inward faces), and this only says how much the render moves.
+            Debug.Log($"[BoardPreview] {style} CULL A/B (shipped _Cull {cull:F0} = "
+                      + (cull == 0f ? "Off" : "Back") + $"): worst view '{worstTag}', {worstPx} px of "
+                      + $"840000 differ ({worstInterior} not against the background), max channel delta "
+                      + $"{worstMax:F3}. See {style}_*_culldiff.png for WHERE — closure itself is "
+                      + "gen_stats.py's and gen_winding.py's question, not this one's.");
         }
 
         private static Texture2D Capture(Camera cam, Vector3 eye, Vector3 look, int w, int h)
