@@ -30,7 +30,41 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private sealed class Adopted
     {
         public FigureGrabbable Grabbable = null!;
+
+        /// <summary>THE VOLUME THE ELECTION MEASURES AGAINST, and the one this figure is
+        /// registered with. Usually the game's own authored pick collider — but on a figure whose
+        /// authored collider stops well below the miniature the player can see, this is the
+        /// mod-owned capsule in <see cref="Reach"/> instead. Everything that gates a grab reads
+        /// THIS field, so extending the reach is one assignment and not a second code path.
+        /// </summary>
         public Collider Collider = null!;
+
+        /// <summary>The game's own authored pick collider, always — kept beside
+        /// <see cref="Collider"/> so the diagnostics can print BOTH and a reader can tell a figure
+        /// the mod extended from one it did not.</summary>
+        public Collider GameCollider = null!;
+
+        /// <summary>The character's head joint (<c>m_HeadBonePoint</c>), when it has one: the
+        /// FLOOR under <see cref="FigureBody.TrustedTopY"/>, never the anchor. Null is normal and
+        /// costs nothing.</summary>
+        public Transform? HeadBone;
+
+        /// <summary>The mod-owned reach extension, or null when the game's collider already
+        /// covers this figure — which is every figure in the ModBuild 291 log except the boss.
+        /// </summary>
+        public ReachVolume? Reach;
+
+        /// <summary>Remaining re-measurements of the reach volume, and when the next one is due.
+        /// Same reason and same schedule as the health bar's anchor resample: the boss's own mesh
+        /// bounds grew 2.89x in the half second after ActorBars adopted it, so ONE measurement at
+        /// adoption is a measurement of whatever the figure happened to be mid-assembly.</summary>
+        public int ReachSamplesLeft;
+
+        public float NextReachSample;
+
+        /// <summary>Set once when this figure's pick collider is a shape the extension refuses to
+        /// copy, so the refusal is stated exactly once per figure and never per sample.</summary>
+        public bool ReachShapeRefused;
 
         /// <summary>The figure's own GameObject (the controller's <c>m_ObjectToTrack</c>) — the
         /// root the reach diagnostics walk for the miniature's SURFACE geometry. Held here rather
@@ -119,6 +153,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private float _nextReachMissLeft;
     private float _nextReachMissRight;
 
+    /// <summary>Trigger pulls that elected nothing while the hand was not near any figure's DRAWN
+    /// body — counted rather than printed (see <see cref="NoteReachMiss"/>), and reported as a
+    /// field on the next line that IS a real reach miss.</summary>
+    private int _reachMissSuppressed;
+
     /// <summary>Renderer scratch for <see cref="DescribeRenderedBody"/> — the figure's own
     /// surface geometry, walked at ADOPTION and on a throttled reach miss only, never per frame.
     /// Static because the driver is a singleton behaviour and the walks never nest.</summary>
@@ -126,6 +165,115 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     /// <summary>Collider scratch for the adoption census; see <see cref="LogFigureReach"/>.</summary>
     private static readonly List<Collider> ColliderScratch = new(8);
+
+    /// <summary>The colliders inside the figure's <c>CInteractableActor</c> subtree, so the census
+    /// can say of each collider under the actor root whether the pick search can even see it.
+    /// </summary>
+    private static readonly HashSet<Collider> InteractableColliders = new();
+
+    /// <summary>How many colliders the adoption census names before it says how many it left out.
+    /// A hero carries 13; naming all of them once per figure is fine, and the cap only exists so a
+    /// pathological prefab cannot write a kilobyte line.</summary>
+    private const int ColliderRollCap = 16;
+
+    // -- REACH EXTENSION (boss-dragon round, ModBuild 292) --------------------------------
+    //
+    // WHAT THE ModBuild 291 INSTRUMENT SETTLED. FIGURE REACH printed five figures. Four of them
+    // are covered by the collider the flat game authored for a mouse click:
+    //
+    //   BruteID              capsule on 'HE_Brute'      y -0.05..2.05   covers  82 %
+    //   MindthiefID          capsule on 'HE_Mindthief'  y -0.15..1.65   covers  96 %
+    //   SpittingDrakeID      capsule on 'Actor(Clone)'  y  0.00..2.00   covers  97 %
+    //   RendingDrakeEliteID  capsule on 'Actor(Clone)'  y  0.00..2.00   covers  95 %
+    //   ElderDrakeID         capsule on 'Actor(Clone)'  y  0.00..2.00   covers  30 %
+    //
+    // The three monsters carry the IDENTICAL capsule -- 1.00 x 2.00 x 1.00 wu on the actor root.
+    // It is not authored per figure; it is the actor prefab's, and it is a hex wide and two units
+    // tall whatever is standing in it. Two of the three monsters are shorter than two units, so it
+    // fits them. The boss is 6.72 units of drawn dragon and everything above y = 2.00 is inert --
+    // which is the report, in the user's words: "muss es dann aber am unteren Bereich tun ... ueber
+    // der Healthbar geht das nicht".
+    //
+    // WHY NOT THE OTHER COLLIDERS THE FIGURE CARRIES. The brief for this round expected the fix to
+    // be "elect across all of the figure's colliders", on the strength of the instrument's line
+    // "the figure carries 1 collider(s) under its CInteractableActor and 4 under the actor root".
+    // That line prints a COUNT. It does not print what those colliders ARE, where they are, or how
+    // big they are, and nothing else in the log does either -- so "use them" would be a fix built
+    // on a number that cannot support it. They are outside the CInteractableActor subtree entirely
+    // (1 under it, 4 under the root), which is the one thing the count DOES tell us, and it makes
+    // them likelier to belong to some other system (a ground probe, a targeting volume, an aggro
+    // trigger) than to the miniature's body. Electing across an unknown trigger volume is how a
+    // figure becomes grabbable from a metre away. LogFigureReach now NAMES every one of them so
+    // the next round can decide on evidence instead; the fix below does not depend on the answer.
+    //
+    // WHAT THIS IS. A mod-owned capsule with the game capsule's OWN horizontal profile, extended
+    // upward to the figure's trusted top (FigureBody.TrustedTopY -- the mesh box corrected by the
+    // slack it admits below the figure's base). Same radius, same axis, same centre in X and Z:
+    // the volume gains height and nothing else, so no figure becomes easier to grab from the side
+    // and no figure can steal an election from its neighbour. Built ONLY for a figure whose
+    // trusted top clears the game collider by more than ReachExtensionMinGapFraction of its own
+    // height -- for the four covered figures above the gap is NEGATIVE and no volume is created,
+    // so their behaviour is not merely unchanged but untouched.
+    //
+    // WHAT IT IS NOT: it is not a wider pick radius. [FigureGrab] PickRadiusMillimeters stays
+    // where it is, for the reasons recorded in FigureGrabConfig (the accidental-grab leak fires at
+    // the palm reach, and the card fan is measured in the same number). This changes WHERE a
+    // figure is, not how far a hand may reach for one.
+
+    /// <summary>Unity's built-in "Ignore Raycast" layer -- the one layer
+    /// <c>Physics.DefaultRaycastLayers</c> excludes. Same choice, and the same reason, as
+    /// <c>FigureClothHands</c>: the volume must be invisible to every raycast in the game and in
+    /// the mod (the flat game's mouse pick, the VR laser) while still answering
+    /// <c>Collider.ClosestPoint</c>, which does not consult layers at all. It is additionally a
+    /// TRIGGER, so it can never push, block or carry anything even if some object with a
+    /// Rigidbody passes through it.</summary>
+    private const int IgnoreRaycastLayer = 2;
+
+    /// <summary>Name of the mod-owned reach volume's GameObject -- greppable in a hierarchy dump,
+    /// and the string that keeps <see cref="LogFigureReach"/>'s collider census honest about which
+    /// colliders are the game's.</summary>
+    private const string ReachVolumeName = "VR_FigureReach";
+
+    /// <summary>
+    /// How far the figure's trusted top must clear the game's pick collider, AS A FRACTION OF THE
+    /// FIGURE'S OWN HEIGHT, before a reach extension is built.
+    ///
+    /// <para>Not a tuning dial -- a floor under "is this what refused the grab?". A slab of figure
+    /// thinner than a twentieth of the figure is thinner than the pick radius bridges anyway
+    /// (40 mm real is 0.38 wu at the rig scale in the ModBuild 291 log), so extending for it would
+    /// buy nothing and cost a GameObject. On the five measured figures the gap is 2.28 wu of 6.72
+    /// for the boss (34 %) and NEGATIVE for the other four; nothing measured so far lands anywhere
+    /// near this line.</para>
+    /// </summary>
+    private const float ReachExtensionMinGapFraction = 0.05f;
+
+    /// <summary>Re-measurements of the reach volume after adoption, and the seconds between them --
+    /// the same 8 x 0.5 s budget <c>ActorBars</c> gives the health-bar anchor, for the same
+    /// measured reason: in the ModBuild 291 log the boss's mesh bounds grew from 2.37 wu to
+    /// 6.84 wu in the half second after it was first measured, with a BIT-IDENTICAL renderer
+    /// census either side. A figure adopted mid-assembly must not keep a volume sized to whatever
+    /// it briefly was.</summary>
+    private const int ReachSampleBudget = 8;
+
+    private const float ReachSampleIntervalSeconds = 0.5f;
+
+    /// <summary>
+    /// A mod-owned grab volume standing in for a game pick collider that stops below the figure.
+    /// One per extended figure; the four ordinary figures in the ModBuild 291 log have none.
+    /// </summary>
+    private sealed class ReachVolume
+    {
+        /// <summary>The mod-owned GameObject, parented to the game collider's transform so it
+        /// inherits every move, rotation and scale the figure makes -- including the held-size
+        /// scaling, which then scales the volume and the body by the same factor.</summary>
+        public GameObject Host = null!;
+
+        public CapsuleCollider Capsule = null!;
+
+        /// <summary>World y the volume currently reaches to -- the number the resample compares
+        /// against, and the one the log line prints.</summary>
+        public float TopY;
+    }
 
     // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
     private System.Action? _tickRegistry;
@@ -300,12 +448,20 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // The collider rides along for the highlight diagnostic only (FigureGrabbable.DescribeReach) —
             // the same one the election measures against, so the two readings are commensurable.
             var grabbable = new FigureGrabbable(actor, collider);
-            VRInteractables.RegisterGrabbable(grabbable, collider);
-            _adoptions[interactable] = new Adopted
-            {
-                Grabbable = grabbable, Collider = collider, Figure = figure,
-            };
+            // LOGGED BEFORE THE EXTENSION EXISTS, deliberately: the collider census in that line
+            // must count the game's colliders and not ours, or the next round reads our own volume
+            // back as evidence about the game's prefab.
             LogFigureReach(grabbable, interactable, figure, collider);
+            var adopted = new Adopted
+            {
+                Grabbable = grabbable, Collider = collider, GameCollider = collider,
+                Figure = figure, HeadBone = controller.m_HeadBonePoint,
+                ReachSamplesLeft = ReachSampleBudget,
+                NextReachSample = Time.unscaledTime + ReachSampleIntervalSeconds,
+            };
+            SizeReachVolume(adopted);
+            VRInteractables.RegisterGrabbable(grabbable, adopted.Collider);
+            _adoptions[interactable] = adopted;
         }
 
         // Prune figures whose collider/actor died (actor removed / scene unloading).
@@ -314,11 +470,20 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         _scratch.Clear();
         foreach (KeyValuePair<CInteractableActor, Adopted> pair in _adoptions)
         {
-            if (pair.Key == null || pair.Value.Collider == null)
+            // GameCollider as well as Collider: on an extended figure the two are different
+            // objects, and it is the GAME's collider dying that means the figure is gone.
+            if (pair.Key == null || pair.Value.Collider == null || pair.Value.GameCollider == null)
                 _scratch.Add(pair.Key!);
         }
         for (int i = 0; i < _scratch.Count; i++)
             Drop(_scratch[i]);
+
+        // REACH VOLUMES ride the registry tick rather than becoming an eighth step in
+        // FigureGrabDriver.Update's locked frame order: they are part of keeping the adoption set
+        // current, which is exactly this method's job, and a new locked step is a Tier 3 change
+        // that this fix does not need. Self-limiting -- 8 samples per figure over its first 4 s
+        // and then never again (see TickReachVolumes).
+        TickReachVolumes();
     }
 
     /// <summary>
@@ -572,6 +737,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             Collider collider = adopted.Collider;
             if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
                 continue;
+            // THE GAME KEEPS ITS VETO. `collider` above may be the mod's reach extension, which is
+            // ours to enable and never gets switched off by the game — so a figure whose authored
+            // pick collider the game DISABLES (its own "this cannot be clicked right now") would
+            // otherwise stay grabbable through our volume. The extension may add reach; it may not
+            // add permission. Object-active state needs no second check: the volume is parented
+            // under the game collider's transform and inherits it.
+            if (adopted.Reach != null && (adopted.GameCollider == null || !adopted.GameCollider.enabled))
+                continue;
             if (!adopted.Grabbable.CanGrab)
             {
                 if (scanRefusal && refusedBusy == null
@@ -666,6 +839,46 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// </summary>
     private void NoteReachMiss(VRHand hand, Adopted nearest, float anchorDistWorld, Vector3 pinch)
     {
+        Collider collider = nearest.Collider;
+        GameObject body = nearest.Figure;
+        if (collider == null)
+            return;
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+
+        // ── THE GATE THIS PROBE SHIPPED WITHOUT, AND WHY 192 LINES SAID NOTHING ────────────
+        //
+        // In the ModBuild 291 hardware log this probe fired 192 times and every single line was
+        // noise. Not one named the boss. The nearest figure was between 406 mm and 2 424 mm real
+        // from the pinch — ten to sixty times the 40 mm pick radius — because the probe fires on
+        // ANY trigger pull that elects nothing, and a player pressing the trigger for a card, a
+        // panel or a teleport is not reaching for a miniature. Worse, 190 of the 192 printed
+        // "ABOVE its top … a pinch above the collider can NEVER elect this figure", which is
+        // literally true and completely irrelevant about a hand two metres away: the probe was
+        // asserting the round's leading hypothesis on evidence that only supported "nothing was
+        // near the hand". An instrument that agrees with you at two metres will agree with you
+        // about anything.
+        //
+        // So the gate is the question the probe is FOR: did the hand reach into the figure the
+        // player can SEE? Measured against the figure's own drawn surface, not its collider —
+        // gating on the collider would re-import the very under-coverage being diagnosed. The
+        // bar is the palm reach, the outer gate the election itself uses. Every one of the 192
+        // would have been suppressed by it, and a genuine reach for the boss's head measures 0.
+        //
+        // The suppressed pulls are COUNTED, not discarded: "a truncated list is not absence", and
+        // the count rides the next line that does print.
+        float reachWorld = ReachMeters * hand.WorldScale;
+        float minY = 0f;
+        float maxY = 0f;
+        float nearestSurface = float.MaxValue;
+        int used = 0;
+        if (body != null)
+            used = MeasureBody(body, pinch, includePinch: true, out minY, out maxY, out nearestSurface);
+        if (used == 0 || nearestSurface > reachWorld)
+        {
+            _reachMissSuppressed++;
+            return;
+        }
+
         bool left = hand.Side == HandSide.Left;
         float next = left ? _nextReachMissLeft : _nextReachMissRight;
         float now = Time.unscaledTime;
@@ -676,49 +889,68 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         else
             _nextReachMissRight = now + BusyRefusalIntervalSeconds;
 
-        Collider collider = nearest.Collider;
-        if (collider == null)
-            return;
-        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         Bounds cb = collider.bounds;
+        // HOW FAR OFF TO THE SIDE. Without this a reader cannot tell "the player reached over the
+        // top of the mini" from "the player's hand was somewhere else entirely and happened to be
+        // higher", and the old line could not either.
+        float dx = pinch.x - cb.center.x;
+        float dz = pinch.z - cb.center.z;
+        float lateral = Mathf.Sqrt(dx * dx + dz * dz);
 
         string vertical =
             pinch.y > cb.max.y
-                ? $"ABOVE its top by {(pinch.y - cb.max.y):F2} wu{HexOf(pinch.y - cb.max.y)} — a pinch "
-                  + "above the collider can NEVER elect this figure"
+                ? $"ABOVE the top of the pick volume by {(pinch.y - cb.max.y):F2} wu"
+                  + $"{HexOf(pinch.y - cb.max.y)} — the height is what refused this pinch"
                 : pinch.y < cb.min.y
                     ? $"BELOW its bottom by {(cb.min.y - pinch.y):F2} wu{HexOf(cb.min.y - pinch.y)}"
                     : "INSIDE its vertical span, so height is not what refused this pinch";
 
-        GameObject body = nearest.Figure;
-        string rendered = body != null
-            ? DescribeRenderedBody(body, cb, scale, pinch, includePinch: true)
-            : "rendered body unavailable";
+        // WHICH VOLUME THIS IS. On a figure the mod extended, the numbers above are the MOD's
+        // capsule and not the game's — saying so is the difference between reading this line as
+        // "the fix is not in" and "the fix is in and something else refused the pinch".
+        Collider game = nearest.GameCollider;
+        string volume = nearest.Reach != null && game != null
+            ? $"a MOD-EXTENDED reach capsule (the game's own {game.GetType().Name} on "
+              + $"'{game.name}' stops at y {game.bounds.max.y:F2})"
+            : $"the game's own {collider.GetType().Name} on '{collider.name}'";
 
+        string suppressed = _reachMissSuppressed > 0
+            ? $" ({_reachMissSuppressed} earlier trigger pull(s) this session were NOT reported: "
+              + "no figure's drawn body was within the palm reach, i.e. the hand was not reaching "
+              + "for a miniature at all.)"
+            : string.Empty;
+
+        float bodyHeight = maxY - minY;
         VRLog.Info("FigureGrab",
             $"REACHED AND MISSED ({hand.Side}): the trigger went down and NO figure was elected. "
-            + $"Nearest is '{nearest.Grabbable.Label}' at {anchorDistWorld / scale * 1000f:F0} mm real "
-            + $"from the pinch point (pick radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm). "
-            + $"Its pick collider is a {collider.GetType().Name} on '{collider.name}', world y "
-            + $"{cb.min.y:F2}..{cb.max.y:F2}; the pinch was at y {pinch.y:F2} — {vertical}. {rendered}");
+            + $"Nearest is '{nearest.Grabbable.Label}', {nearestSurface / scale * 1000f:F0} mm real "
+            + $"from its DRAWN SURFACE and {anchorDistWorld / scale * 1000f:F0} mm from its pick "
+            + $"volume (pick radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm). The "
+            + $"volume is {volume}, world y {cb.min.y:F2}..{cb.max.y:F2}; the pinch was at y "
+            + $"{pinch.y:F2} and {lateral:F2} wu{HexOf(lateral)} off its axis — {vertical}. "
+            + $"RENDERED BODY ({used} mesh renderer(s)): world y {minY:F2}..{maxY:F2}, height "
+            + $"{bodyHeight:F2} wu{HexOf(bodyHeight)}.{suppressed}");
     }
 
     /// <summary>
-    /// The figure's own SURFACE geometry next to the collider that gates the pick — mesh and
-    /// skinned renderers only, for the same reason <c>ActorBars</c> excludes the rest: a particle
-    /// or trail renderer reports an effect VOLUME and says nothing about where the miniature is.
-    /// Reports the coverage as a percentage and as the gap at the top, because "the collider stops
-    /// here and the mini goes on to there" is the whole of symptom (c).
+    /// The figure's drawn extent, as NUMBERS. Mesh and skinned renderers only, for the same reason
+    /// <c>ActorBars</c> excludes the rest: a particle or trail renderer reports an effect VOLUME
+    /// and says nothing about where the miniature is.
+    ///
+    /// <para>Split out of <see cref="DescribeRenderedBody"/> because the reach volume needs the
+    /// same measurement and must not get it from a string. Returns the renderer count; 0 means
+    /// nothing usable was found and the out values are meaningless.</para>
     /// </summary>
-    private static string DescribeRenderedBody(
-        GameObject body, Bounds colliderBounds, float scale, Vector3 pinch, bool includePinch)
+    private static int MeasureBody(
+        GameObject body, Vector3 pinch, bool includePinch,
+        out float minY, out float maxY, out float nearestSurface)
     {
         BodyScratch.Clear();
         body.GetComponentsInChildren(includeInactive: false, BodyScratch);
-        float maxY = float.MinValue;
-        float minY = float.MaxValue;
+        maxY = float.MinValue;
+        minY = float.MaxValue;
+        nearestSurface = float.MaxValue;
         int used = 0;
-        float nearestSurface = float.MaxValue;
         for (int i = 0; i < BodyScratch.Count; i++)
         {
             Renderer r = BodyScratch[i];
@@ -735,6 +967,209 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             used++;
         }
         BodyScratch.Clear();
+        return used;
+    }
+
+    /// <summary>
+    /// Build, resize or leave alone this figure's mod-owned reach extension. See the REACH
+    /// EXTENSION block beside <see cref="ReachExtensionMinGapFraction"/> for the whole argument.
+    ///
+    /// <para>Strictly additive: it can only ever make a figure reachable HIGHER, never wider,
+    /// never lower, and never at all for a figure the game's own collider already covers. Every
+    /// figure in the ModBuild 291 hardware log except <c>ElderDrakeID</c> leaves this method with
+    /// <c>adopted.Collider</c> still pointing at the game's collider and no GameObject created.
+    /// </para>
+    /// </summary>
+    private void SizeReachVolume(Adopted adopted)
+    {
+        Collider game = adopted.GameCollider;
+        GameObject figure = adopted.Figure;
+        if (game == null || figure == null)
+            return;
+
+        Bounds cb = game.bounds;
+        int meshes = MeasureBody(figure, Vector3.zero, includePinch: false,
+                                 out float minY, out float maxY, out _);
+        if (meshes == 0)
+            return;
+
+        // THE BASE IS THE COLLIDER'S BOTTOM. The slack correction measures the box's padding
+        // against the GROUND under the figure, and in this subsystem the authored pick collider's
+        // own bottom is the best ground reference available: in the ModBuild 291 log it reads
+        // exactly 0.00 for all three monsters and -0.05 / -0.15 for the two heroes, i.e. the
+        // artists put it on the mini's base. (ActorBars uses the controller's m_BasePoint for the
+        // same purpose; the two agree to 0.03 wu on the boss.)
+        float top = FigureBody.TrustedTopY(
+            minY, maxY, cb.min.y, baseKnown: true,
+            adopted.HeadBone != null ? adopted.HeadBone.position.y : 0f,
+            headKnown: adopted.HeadBone != null,
+            out _);
+
+        float bodyHeight = Mathf.Max(maxY - minY, 1e-3f);
+        float gap = top - cb.max.y;
+        if (gap <= ReachExtensionMinGapFraction * bodyHeight)
+        {
+            // The game's collider already covers this figure. If we built a volume earlier (a
+            // figure that shrank, or an adoption taken mid-assembly), hand the election back to
+            // the game's collider and drop ours -- the mod owns no reach it cannot justify.
+            if (adopted.Reach != null)
+            {
+                VRLog.Info("FigureGrab",
+                    $"FIGURE REACH EXTENSION DROPPED '{adopted.Grabbable.Label}': the figure's "
+                    + $"trusted top is now {top:F2} wu against a pick collider that reaches "
+                    + $"{cb.max.y:F2} wu, so the game's own volume covers it again.");
+                DestroyReachVolume(adopted);
+                adopted.Collider = game;
+                adopted.Grabbable.SetPickVolume(game);
+                VRInteractables.RegisterGrabbable(adopted.Grabbable, game);
+            }
+            return;
+        }
+
+        // ── ONLY AN UPRIGHT CAPSULE IS EXTENDED, AND THAT IS A REFUSAL, NOT AN OVERSIGHT ──
+        // The whole safety of this fix is "same horizontal profile, taller" -- it is what makes
+        // the extension unable to widen a figure, steal a neighbour's election, or make anything
+        // easier to grab from the side. That guarantee exists only because the game's collider is
+        // a Y-axis capsule, whose world AABB is exactly 2r x h x 2r under the yaw-only rotation an
+        // upright mini has: the extension can then copy its radius EXACTLY. Every one of the five
+        // figures measured on hardware is such a capsule.
+        //
+        // For any other shape there is no radius to copy and every substitute is wrong in a way
+        // that matters: an inscribed cylinder would make the figure HARDER to grab from the side
+        // than the game made it, and a circumscribed one would make it easier and could reach into
+        // the next hex. So an unmeasured shape gets no extension and says so once. A figure that
+        // is not grabbable high up is a smaller defect than one whose reach the mod silently
+        // reshaped on a guess.
+        if (game is not CapsuleCollider gameCapsule || gameCapsule.direction != 1)
+        {
+            if (!adopted.ReachShapeRefused)
+            {
+                adopted.ReachShapeRefused = true;
+                VRLog.Info("FigureGrab",
+                    $"FIGURE REACH NOT EXTENDED '{adopted.Grabbable.Label}': its pick collider is "
+                    + $"a {game.GetType().Name} on '{game.name}', not the upright CapsuleCollider "
+                    + $"every measured figure carries, and the extension may only ever copy a "
+                    + $"radius it can read exactly. The figure is reachable to y {cb.max.y:F2} "
+                    + $"while it is drawn to y {top:F2} (trusted) / {maxY:F2} (raw box) -- "
+                    + $"{gap:F2} wu{HexOf(gap)} of it cannot be grabbed. If this line ever appears "
+                    + "on hardware, the shape it names is what the next round has to handle.");
+            }
+            return;
+        }
+
+        // Same axis, same radius, same centre in X and Z as the game's capsule -- only taller.
+        float bottomWorld = cb.min.y;
+        Transform frame = game.transform;
+        // ONE SCALE FACTOR, because a figure only ever has one. Unity scales a Y-axis capsule's
+        // radius by max(|sx|,|sz|) and its height by |sy|; taking the largest component of the
+        // lossy scale is exactly right while those agree, and figures are uniformly scaled by both
+        // the game and by FigureStretch's held-size latch. A non-uniformly scaled figure would get
+        // a volume slightly too large on the squashed axis -- generous in the direction that costs
+        // nothing here, since the extension may only add reach.
+        Vector3 lossy = frame.lossyScale;
+        float unit = Mathf.Max(Mathf.Abs(lossy.x), Mathf.Max(Mathf.Abs(lossy.y), Mathf.Abs(lossy.z)));
+        if (unit < 1e-4f)
+            return;
+
+        bool created = adopted.Reach == null;
+        if (created)
+        {
+            var host = new GameObject(ReachVolumeName) { layer = IgnoreRaycastLayer };
+            // worldPositionStays:false -- the volume is defined in the collider's own frame, so it
+            // rides every move, turn and (uniform) rescale the figure makes without a per-frame
+            // writer. That is also why a figure that finishes scaling up AFTER this runs is safe:
+            // the body and the volume scale by the same factor.
+            host.transform.SetParent(frame, worldPositionStays: false);
+            host.transform.localPosition = Vector3.zero;
+            host.transform.localRotation = Quaternion.identity;
+            host.transform.localScale = Vector3.one;
+            var capsule = host.AddComponent<CapsuleCollider>();
+            capsule.direction = 1; // Y
+            capsule.isTrigger = true;
+            adopted.Reach = new ReachVolume { Host = host, Capsule = capsule };
+        }
+
+        ReachVolume reach = adopted.Reach!;
+        if (reach.Host == null || reach.Capsule == null)
+            return;
+        Vector3 worldCenter = new(cb.center.x, 0.5f * (bottomWorld + top), cb.center.z);
+        reach.Capsule.center = frame.InverseTransformPoint(worldCenter);
+        // The game capsule's OWN radius, in the same local units -- copied, never re-derived.
+        reach.Capsule.radius = gameCapsule.radius;
+        reach.Capsule.height = (top - bottomWorld) / unit;
+        float was = reach.TopY;
+        reach.TopY = top;
+
+        if (created)
+        {
+            adopted.Collider = reach.Capsule;
+            adopted.Grabbable.SetPickVolume(reach.Capsule);
+            VRInteractables.RegisterGrabbable(adopted.Grabbable, reach.Capsule);
+            VRLog.Info("FigureGrab",
+                $"FIGURE REACH EXTENDED '{adopted.Grabbable.Label}': the game's "
+                + $"{game.GetType().Name} on '{game.name}' reaches y {cb.min.y:F2}..{cb.max.y:F2} "
+                + $"while the figure is drawn to y {maxY:F2} (box) / {top:F2} (trusted, after "
+                + $"{FigureBody.Underhang(minY, cb.min.y):F2} wu of box below the base is taken "
+                + $"off). A mod-owned trigger capsule on the Ignore Raycast layer now covers y "
+                + $"{bottomWorld:F2}..{top:F2} at the game capsule's OWN radius "
+                + $"({gameCapsule.radius * unit:F2} wu) and its own X/Z centre -- taller only, "
+                + $"never wider. Reach above the old collider top gains "
+                + $"{gap:F2} wu{HexOf(gap)}; the pick radius is unchanged at "
+                + $"{FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm real.");
+        }
+        else if (Mathf.Abs(top - was) > ReachExtensionMinGapFraction * bodyHeight)
+        {
+            VRLog.Info("FigureGrab",
+                $"FIGURE REACH RESIZED '{adopted.Grabbable.Label}': trusted top {was:F2} -> "
+                + $"{top:F2} wu (the figure was still assembling when it was first measured); the "
+                + $"volume now covers y {bottomWorld:F2}..{top:F2}.");
+        }
+    }
+
+    /// <summary>
+    /// Re-measure every extended-or-extendable figure while its budget lasts. Off the critical
+    /// path in every sense: it runs at most 8 times per figure over the 4 s after adoption, at
+    /// 0.5 s intervals, never for a HELD figure (a mini tilted in the hand has an AABB that is not
+    /// about the mini), and never again after that.
+    /// </summary>
+    private void TickReachVolumes()
+    {
+        float now = Time.unscaledTime;
+        foreach (Adopted adopted in _adoptions.Values)
+        {
+            if (adopted.ReachSamplesLeft <= 0 || now < adopted.NextReachSample)
+                continue;
+            if (adopted.Grabbable.IsHeld)
+                continue;
+            adopted.ReachSamplesLeft--;
+            adopted.NextReachSample = now + ReachSampleIntervalSeconds;
+            SizeReachVolume(adopted);
+        }
+    }
+
+    /// <summary>Destroy this figure's mod-owned reach volume, if it has one. Idempotent; safe on a
+    /// figure whose hierarchy has already gone.</summary>
+    private static void DestroyReachVolume(Adopted adopted)
+    {
+        ReachVolume? reach = adopted.Reach;
+        adopted.Reach = null;
+        if (reach == null || reach.Host == null)
+            return;
+        Destroy(reach.Host);
+    }
+
+    /// <summary>
+    /// The figure's own SURFACE geometry next to the collider that gates the pick — mesh and
+    /// skinned renderers only, for the same reason <c>ActorBars</c> excludes the rest: a particle
+    /// or trail renderer reports an effect VOLUME and says nothing about where the miniature is.
+    /// Reports the coverage as a percentage and as the gap at the top, because "the collider stops
+    /// here and the mini goes on to there" is the whole of symptom (c).
+    /// </summary>
+    private static string DescribeRenderedBody(
+        GameObject body, Bounds colliderBounds, float scale, Vector3 pinch, bool includePinch)
+    {
+        int used = MeasureBody(body, pinch, includePinch,
+                               out float minY, out float maxY, out float nearestSurface);
         if (used == 0)
             return "RENDERED BODY: no mesh renderer found on the figure.";
 
@@ -761,9 +1196,19 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// the FIRST one found under it — because that is the collider the flat game authored for a
     /// mouse click. Whether that volume covers the whole miniature has never been checked by
     /// anything, and on an ordinary humanoid mini it does not matter. On a boss it decides whether
-    /// half the figure is inert. The count of OTHER colliders is printed beside it because it
-    /// decides which fix the next round needs: if the game already ships more colliders, using all
-    /// of them is exact and free; if it ships one, a mod-side reach volume has to be derived.</para>
+    /// half the figure is inert.</para>
+    ///
+    /// <para><b>THE COUNT WAS NOT ENOUGH, AND THAT COST THIS ROUND A FIX.</b> ModBuild 291's
+    /// version of this line printed "the figure carries 1 collider(s) under its CInteractableActor
+    /// and 4 under the actor root; ONLY THE FIRST is used by the pick" — and the round that read
+    /// it was expected to decide, from those two integers, whether electing across all of a
+    /// figure's colliders was the fix. It could not: a count says nothing about what a collider
+    /// IS, where it sits, or how big it is, and "4" is equally consistent with four body volumes
+    /// and with four aggro triggers a metre wide. A summary stat is not the field. So the line now
+    /// NAMES every collider the figure carries — type, object, world y span, size, trigger flag,
+    /// and whether it is inside the CInteractableActor subtree the pick searches. The list is
+    /// capped, and when it is capped it says by how much, because a truncated list is not
+    /// absence.</para>
     /// </summary>
     private static void LogFigureReach(
         FigureGrabbable grabbable, CInteractableActor interactable, GameObject figure, Collider collider)
@@ -773,10 +1218,44 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         ColliderScratch.Clear();
         interactable.GetComponentsInChildren(includeInactive: true, ColliderScratch);
         int underInteractable = ColliderScratch.Count;
+        InteractableColliders.Clear();
+        for (int i = 0; i < ColliderScratch.Count; i++)
+            InteractableColliders.Add(ColliderScratch[i]);
         ColliderScratch.Clear();
         figure.GetComponentsInChildren(includeInactive: true, ColliderScratch);
         int underFigure = ColliderScratch.Count;
+
+        var roll = new System.Text.StringBuilder(256);
+        int listed = 0;
+        for (int i = 0; i < ColliderScratch.Count; i++)
+        {
+            Collider c = ColliderScratch[i];
+            if (c == null || c.gameObject.name == ReachVolumeName)
+                continue;   // never report our own volume back as evidence about the game's prefab
+            if (listed >= ColliderRollCap)
+                break;
+            Bounds b = c.bounds;
+            roll.Append(listed == 0 ? " THEY ARE: " : "; ");
+            roll.Append(ReferenceEquals(c, collider) ? "[USED] " : string.Empty)
+                .Append(c.GetType().Name).Append(" on '").Append(c.gameObject.name).Append("' y ")
+                .Append(b.min.y.ToString("F2")).Append("..").Append(b.max.y.ToString("F2"))
+                .Append(" size (").Append(b.size.x.ToString("F2")).Append(',')
+                .Append(b.size.y.ToString("F2")).Append(',').Append(b.size.z.ToString("F2"))
+                .Append(')');
+            if (c.isTrigger)
+                roll.Append(" TRIGGER");
+            if (!c.enabled)
+                roll.Append(" disabled");
+            roll.Append(InteractableColliders.Contains(c)
+                ? " [inside CInteractableActor]"
+                : " [OUTSIDE CInteractableActor — the pick search never reaches it]");
+            listed++;
+        }
+        if (listed >= ColliderRollCap && underFigure > listed)
+            roll.Append("; … ").Append(underFigure - listed).Append(" more NOT listed");
+        roll.Append('.');
         ColliderScratch.Clear();
+        InteractableColliders.Clear();
 
         string rendered = DescribeRenderedBody(figure, cb, 1f, cb.center, includePinch: false);
 
@@ -785,7 +1264,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"'{collider.name}' — world y {cb.min.y:F2}..{cb.max.y:F2}, size ({cb.size.x:F2}, "
             + $"{cb.size.y:F2}, {cb.size.z:F2}) wu. The figure carries {underInteractable} "
             + $"collider(s) under its CInteractableActor and {underFigure} under the actor root; "
-            + $"ONLY THE FIRST is used by the pick. {rendered} Pick radius "
+            + $"ONLY THE FIRST is used by the pick.{roll} {rendered} Pick radius "
             + $"{FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm real at the hand.");
     }
 
@@ -968,6 +1447,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         {
             adopted.Grabbable.Restore();
             VRInteractables.UnregisterGrabbable(adopted.Grabbable);
+            DestroyReachVolume(adopted);
         }
         _adoptions.Remove(key);
     }
@@ -978,6 +1458,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         {
             pair.Value.Grabbable.Restore();
             VRInteractables.UnregisterGrabbable(pair.Value.Grabbable);
+            DestroyReachVolume(pair.Value);
         }
         _adoptions.Clear();
         // [Optimize] FigureScanCache: the resolution cache is only ever a shortcut to the walk it

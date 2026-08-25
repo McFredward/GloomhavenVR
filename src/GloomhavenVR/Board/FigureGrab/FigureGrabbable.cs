@@ -60,12 +60,19 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     private readonly ActorBehaviour _actor;
 
     /// <summary>
-    /// The interactable collider this figure was adopted on — the SAME one the driver measures the
+    /// The PICK VOLUME this figure was adopted on — the SAME collider the driver measures the
     /// election with and the one the <see cref="ProximityGrabber"/> measures its palm reach with.
     /// Held for diagnostics only (the distances printed by <see cref="OnGrabHighlight"/>); nothing
     /// decides anything from it here. Unity-nullable: the figure may die under the grabbable.
+    ///
+    /// <para>NOT NECESSARILY THE GAME'S OWN COLLIDER. On a figure whose authored pick collider
+    /// stops well below the miniature the player can see (the boss dragon: a 1x2x1 capsule over a
+    /// 6.7 wu body, ModBuild 291 hardware), the driver builds a taller mod-owned volume and adopts
+    /// the figure on THAT — see <c>FigureReachVolume</c>. This field must then hold the volume the
+    /// election actually uses, or the highlight's own distance line would report a number no gate
+    /// in the system consults. <see cref="SetPickVolume"/> is how the driver swaps it in.</para>
     /// </summary>
-    private readonly Collider? _collider;
+    private Collider? _collider;
 
     private VRHand? _holder;
 
@@ -293,6 +300,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         _actor = actor;
         _collider = collider;
     }
+
+    /// <summary>
+    /// Re-point the diagnostics at the volume the driver actually elects on, after it has decided
+    /// whether this figure needs a mod-owned reach extension. Called at most once per adoption,
+    /// immediately after construction and before the figure is registered.
+    /// </summary>
+    internal void SetPickVolume(Collider volume) => _collider = volume;
 
     internal ActorBehaviour Actor => _actor;
 
@@ -1408,4 +1422,82 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <summary>The figure's class id for log lines written by the driver (same vocabulary every
     /// other FigureGrab line uses, so a hardware log reads as one story).</summary>
     internal string Label => Describe();
+}
+
+/// <summary>
+/// THE TRUSTWORTHY TOP OF A MINIATURE — one rule, shared by the two subsystems that both used to
+/// answer "how tall is this figure?" with <c>Renderer.bounds.max.y</c> and both got the boss
+/// dragon wrong for it (the health-bar anchor in <c>WorldUI.ActorBars</c> and the grab reach in
+/// <see cref="FigureGrabDriver"/>).
+///
+/// <para><b>WHAT THE HARDWARE LOG SETTLED (ModBuild 291).</b> A renderer AABB is NOT the figure.
+/// The boss's box read <c>y -1.29..5.55</c> against a track base at <c>y 0.00</c> — i.e. the box
+/// claims 1.29 wu of dragon BELOW THE FLOOR THE DRAGON IS STANDING ON. That part of the box is
+/// provably empty, and it is the box's own admission of how loose it is: a skinned renderer with
+/// <c>updateWhenOffscreen=false</c> reports its AUTHORED local bounds, padded by the artist and
+/// covering every pose in the clip set, not the silhouette on screen this frame. Every figure in
+/// that log admits the same slack, in proportion: Brute -0.32, Mindthief -0.20, Spitting Drake
+/// -0.04, Rending Drake Elite -0.06.</para>
+///
+/// <para><b>THE RULE.</b> The box's measurable error is how far it reaches below the figure's own
+/// base. Subtract that same distance from the top. It is one assumption — that the padding is
+/// roughly symmetric — and it is the only correction available that is itself MEASURED rather than
+/// tuned: it is large exactly where the box is loose and vanishes where the box is tight. On the
+/// five figures in the log it moves the boss's top from 5.55 to 4.26 (its head joint is at 3.41,
+/// its wing tips are the 5.55) and moves the small drakes by 0.04 and 0.06.</para>
+///
+/// <para><b>WHY NOT THE HEAD JOINT, WHICH IS WHAT THE BRIEF ASKED FOR.</b> Because the same log
+/// refutes it. A head-anchored rule is right for a humanoid (Brute's head joint 1.70 sits just
+/// under its box top 2.23) and catastrophic for a quadruped: the Spitting Drake's head joint is at
+/// 0.57 under a box top of 1.52 — 37 % — because a drake holds its head DOWN and its back UP.
+/// Anchoring a bar at the head joint would bury the bars of the two small drakes inside their own
+/// backs, which is the very defect being fixed on the boss. The head joint therefore survives only
+/// as a FLOOR: whatever the box says, the answer is never below the head. On all five figures in
+/// the log that floor does not bind, and the caller's log line says when it does.</para>
+///
+/// <para>Pure function, no allocation, no component lookup — both callers already hold every term.
+/// </para>
+/// </summary>
+internal static class FigureBody
+{
+    /// <param name="boundsMinY">World y of the bottom of the figure's mesh AABB.</param>
+    /// <param name="boundsMaxY">World y of the top of the same AABB.</param>
+    /// <param name="baseY">World y of the figure's own base (the game's <c>m_BasePoint</c>, or the
+    /// bottom of its authored pick collider). This is the reference the slack is measured against;
+    /// it must be the GROUND under the figure, never its head bone.</param>
+    /// <param name="baseKnown">False when no trustworthy base is available — the correction is then
+    /// skipped entirely and the raw box top is returned, i.e. exactly the pre-fix behaviour.</param>
+    /// <param name="headY">World y of the character's head joint, when it has one.</param>
+    /// <param name="headKnown">False for a figure with no head joint; the floor is then simply
+    /// absent and nothing else changes.</param>
+    /// <param name="fromSlackCorrection">True when the slack correction produced the answer, false
+    /// when the head floor or the raw box did — the field a log line must name, because a rule that
+    /// silently stops applying is a rule nobody can falsify.</param>
+    internal static float TrustedTopY(
+        float boundsMinY, float boundsMaxY, float baseY, bool baseKnown,
+        float headY, bool headKnown, out bool fromSlackCorrection)
+    {
+        float top = boundsMaxY;
+        fromSlackCorrection = false;
+        if (baseKnown)
+        {
+            float underhang = Mathf.Max(0f, baseY - boundsMinY);
+            if (underhang > 0f)
+            {
+                top = boundsMaxY - underhang;
+                fromSlackCorrection = true;
+            }
+        }
+        if (headKnown && headY > top)
+        {
+            top = headY;
+            fromSlackCorrection = false;
+        }
+        // The correction may only ever LOWER the answer: a figure whose box is honest keeps its box.
+        return Mathf.Min(top, boundsMaxY);
+    }
+
+    /// <summary>How far the box reaches below the figure's own base — the measured slack the
+    /// correction above subtracts, printed by both callers so the number is never inferred.</summary>
+    internal static float Underhang(float boundsMinY, float baseY) => Mathf.Max(0f, baseY - boundsMinY);
 }
