@@ -82,8 +82,12 @@ BOARDS = {
 
 # Cards/PlayTray.6.Build.BoardIdleColor — the per-board idle FACE colour, and
 # Defaults.WorldUI BoardCapTint* = 0.5, the tint the user's config ships at.
-IDLE = {"oak": (0.550, 0.514, 0.564), "steel": (0.407, 0.541, 0.607),
-        "bronze": (0.753, 0.471, 0.224)}
+# ROUND 5 re-solved all three (cap_belong.py --solve). If these drift from the C# the picture
+# stops being evidence about the shipped build, which is the only thing it is for.
+IDLE = {"oak": (0.759, 0.539, 0.456), "steel": (0.588, 0.557, 0.506),
+        "bronze": (0.549, 0.547, 0.529)}
+IDLE_BEFORE = {"oak": (0.550, 0.514, 0.564), "steel": (0.407, 0.541, 0.607),
+               "bronze": (0.753, 0.471, 0.224)}     # ModBuild 290, for the --idle before pass
 CAP_TINT = 0.5
 
 # Cards/PlayTray.7.Nested BevelTint / WallTint, verbatim (PreviewKeycaps.cs carries the same set).
@@ -191,7 +195,84 @@ def read_obj(path):
                 # the whole reason this comment exists rather than a shrug — three earlier pictures
                 # in this round were of the far interior and read as fine.
                 cur[1].append((idx[::-1], uvi[::-1]))
+    check_winding(path, verts, uvs, groups)
     return verts, uvs, groups
+
+
+def check_winding(path, verts, uvs, groups, tol=1e-9):
+    """RAISE if a submesh is wound against its own outside, or if its UVs are mirrored.
+
+    WINDING HAS NOW SHIPPED WRONG ON EIGHT MESHES IN THIS PROJECT, and the most recent was in
+    this very directory: 384 of the round cap's 640 triangles faced inward for two rounds, so
+    the bezel that round 3 built was back-face culled and INVISIBLE in every picture taken of
+    it -- including the pictures used to judge round 3. Nobody was looking at a bezel; everyone
+    was looking at the hole where one should have been and reading it as a design.
+
+    Two independent quantities, because either alone has a blind spot:
+
+      SIGNED VOLUME, by the divergence theorem over the closed hull. Positive means the
+      triangles' normals point OUT. A mesh with every triangle reversed gives exactly the
+      negative of the right answer, which is the defect stated as a number.
+
+      SIGNED UV AREA AGAINST THE GEOMETRY'S OWN SIGNED AREA IN THE SAME PLANE. A mesh can be
+      wound correctly in space and have its UV winding mirrored, which flips the texture and no
+      volume test can see it -- so it is checked separately rather than assumed to follow.
+
+    THE UV TEST COMPARES TWO SIGNS RATHER THAN ASKING ONE OF THEM TO BE POSITIVE, AND THE FIRST
+    VERSION DID THE LATTER AND WAS WRONG. It fired on the cap's WALL submesh at UV area -0.98
+    on a mesh that is correct. These caps UV-project PLANAR OVER THEIR OWN FOOTPRINT, and the
+    wall is the vertical skirt -- a surface perpendicular to the projection plane. Its UV
+    "area" is the signed area of the footprint OUTLINE traced by the wall ring, whose sign is
+    set by which way the ring is built and says nothing about whether a texture is mirrored.
+    Demanding a positive number there measures the ring's direction of travel and calls it a
+    defect. What a mirror actually is, is the UVs disagreeing with the geometry they are
+    projected from, so both are measured in the same plane and only their PRODUCT is judged --
+    which is scale-free, sign-convention-free, and correct for a wall and a face alike.
+
+    That distinction matters beyond this file: a winding assertion that cries wolf gets
+    disabled, and a disabled assertion is how the previous eight got out.
+
+    This runs on EVERY sheet build and costs microseconds. It is placed in the READER rather
+    than in `Assets/Editor/ExportCapMeshes.cs` deliberately: the reader is the last point
+    before a mesh becomes a picture somebody argues about, and a picture is what has cost this
+    project rounds. If the exporter is ever given the same assertion, keep this one too --
+    they guard different steps.
+    """
+    for name, faces in groups:
+        vol = 0.0
+        uva = 0.0
+        geo = 0.0
+        for idx, uvi in faces:
+            for k in range(1, len(idx) - 1):
+                a, b, c = verts[idx[0]], verts[idx[k]], verts[idx[k + 1]]
+                vol += (a[0] * (b[1] * c[2] - b[2] * c[1])
+                        - a[1] * (b[0] * c[2] - b[2] * c[0])
+                        + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6.0
+                # the same triangle's signed area in the UV PROJECTION PLANE (the cap footprint,
+                # which is XY here), so the two windings are comparable term for term
+                geo += ((b[0] - a[0]) * (c[1] - a[1])
+                        - (c[0] - a[0]) * (b[1] - a[1])) / 2.0
+                if uvi[0] < len(uvs) and uvi[k] < len(uvs) and uvi[k + 1] < len(uvs):
+                    ua, ub, uc = uvs[uvi[0]], uvs[uvi[k]], uvs[uvi[k + 1]]
+                    uva += ((ub[0] - ua[0]) * (uc[1] - ua[1])
+                            - (uc[0] - ua[0]) * (ub[1] - ua[1])) / 2.0
+        # `verts` were already z-negated and the faces already reversed, so a correctly
+        # exported submesh reads POSITIVE here. Degenerate/open groups (|vol| at the tolerance)
+        # are not judged -- an open strip has no inside for the theorem to talk about.
+        if vol < -tol:
+            raise RuntimeError(
+                f"{os.path.basename(path)}: submesh '{name}' has signed volume {vol:+.6g} -- it "
+                f"is wound AGAINST its own outside and will be back-face culled. This is the "
+                f"defect that made the round cap's bezel invisible for two rounds.")
+        if uva * geo < -tol:
+            raise RuntimeError(
+                f"{os.path.basename(path)}: submesh '{name}' has signed UV area {uva:+.6g} "
+                f"against a geometric area of {geo:+.6g} in the same plane -- the texture "
+                f"winding is MIRRORED relative to the surface it is projected from. The "
+                f"geometry may look right and the material will be flipped; no volume test can "
+                f"see this, which is why it is separate.")
+        log(f"    winding ok: {os.path.basename(path)}:{name} volume {vol:+.6g} "
+            f"uv {uva:+.6g} vs geometry {geo:+.6g}")
 
 
 def board_material(name, albedo_path, normal_path):
@@ -349,7 +430,13 @@ def main():
     log(f"{STYLE}: seat probe at ({px:.4f},{py:.4f},{pz:.4f}); hits {[round(h[0],4) for h in hits]}; "
         f"floor z {floor_z:.4f}, surface normal z {floor_n:+.2f} -> caps face {'+Z' if up > 0 else '-Z'}")
 
-    atlas_path = os.path.join(BUNDLE, f"Keycap{cs_style}_albedo.png")
+    # ROUND 5. `--atlas <dir>` and `--idle r,g,b` exist so the BEFORE column of a colour
+    # comparison goes through THIS renderer rather than through a stored old picture. The
+    # colour lives in two places at once -- the atlas modulates the state colour -- so a
+    # before/after that swapped only one of them would credit the round with half a change and
+    # blame it for the other half. Both are overridden together or neither is.
+    atlas_dir = opt("--atlas", BUNDLE)
+    atlas_path = os.path.join(atlas_dir, f"Keycap{cs_style}_albedo.png")
     atlas = None
     if os.path.exists(atlas_path):
         atlas = bpy.data.images.load(atlas_path)
@@ -359,7 +446,11 @@ def main():
         log(f"{STYLE}: NO ATLAS at {atlas_path} — caps render as the plain state tint, which is the "
             "mod's own fallback")
 
-    face = seated(tuple(c * CAP_TINT for c in IDLE[STYLE]))
+    idle = tuple(float(v) for v in opt("--idle", "").split(",")) if "--idle" in argv \
+        else IDLE[STYLE]
+    log(f"{STYLE}: atlas dir {atlas_dir}; IdleColor {tuple(round(c,4) for c in idle)}"
+        f" x BoardCapTint {CAP_TINT}")
+    face = seated(tuple(c * CAP_TINT for c in idle))
     tints = [face, bevel_tint(face), wall_tint(face)]
 
     sq_obj = os.path.join(MESHDIR, f"{STYLE}_square_{PASS}.obj")

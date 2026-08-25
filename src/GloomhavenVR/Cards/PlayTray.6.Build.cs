@@ -955,6 +955,11 @@ internal sealed partial class PlayTray
     /// <summary>
     /// THE IDLE FACE COLOUR OF AN ENABLED, UN-ACCENTED BOARD KEYCAP — PER BOARD since round 2.
     ///
+    /// <para><b>THIS SUMMARY DESCRIBES THE ModBuild 286 SOLVE, WHICH WAS SUPERSEDED IN ROUND 5.
+    /// READ THE REMARKS BELOW FIRST</b> — its numbers, its palette and its three values are all
+    /// the PREVIOUS state, kept because the reasoning that produced them is still the reasoning
+    /// a future round will be tempted to repeat, and the remarks say why it must not.</para>
+    ///
     /// <para><b>THE USER'S COMPLAINT, and why this is the lever.</b> <i>"Die Textur die dort gewählt
     /// ist, ist einheitlich und passt sonst nicht wirklich zum Styl."</i> ModBuild 281 measured the
     /// three idle cap faces at CIELAB ΔE 13.8 (oak↔steel), 10.3 (steel↔bronze) and <b>3.7
@@ -992,11 +997,83 @@ internal sealed partial class PlayTray
     /// parchment: it has no board to belong to, and changing it would be a change nobody asked
     /// for.</para>
     /// </summary>
+    /// <remarks>
+    /// <para><b>ROUND 5 REPLACED ALL THREE, AND THE REASON IS THAT THE SOLVE ABOVE HIT ITS TARGET
+    /// AND THE TARGET WAS WRONG.</b> <i>"Ich mag die Textur gar nicht. Sie passt überhaupt nicht zu
+    /// dem jeweiligen Board."</i> (user, 2026-08-25 — the fourth rejection, and the third naming
+    /// the material rather than the shape.) The three values above were solved to sit inside
+    /// <c>unity/board-prep/buttons/cap_deltae.PALETTE</c>, a hue+chroma window per board authored
+    /// as "oak parchment / steel pewter / bronze brass". Those windows were written BEFORE any
+    /// picture existed of what a button on that board should look like. Measured against the
+    /// boards themselves, which sit at CIELAB hue 65.6° / 58.5° / 91.8°, the shipped caps landed
+    /// at 91.4° / 223.8° / 65.6° — <b>+25.8°, +165.3° and −26.1° from their own boards</b>, and
+    /// bronze was inside its authored window the whole time. A solver maximising separation
+    /// inside an unvalidated palette gives three caps maximally different from each other and
+    /// belonging to nothing.</para>
+    ///
+    /// <para><b>WHY THE COLOUR COULD NOT LIVE IN THE TEXTURE BEFORE, AND CAN NOW.</b>
+    /// <c>BoardLit</c> computes <c>alb = tex2D(_MainTex, uv) * _Color</c>, so the cap's hue is the
+    /// PRODUCT of the plate and this colour. <c>cap_atlas.normalise_plate</c> re-based every plate
+    /// to mean <b>0.837</b> — the mean of the greyscale texture the plates replaced, copied across
+    /// because it was there and required by nothing. Reaching it took gain 3.46 on oak and clipped
+    /// <b>68.5 %</b> of oak's field texels in at least one channel, so oak's modulator was very
+    /// nearly a CONSTANT and the rendered cap was whatever this colour said. Round 5 solves the
+    /// plate's level against the guarantee that actually constrains it instead (see
+    /// <see cref="WorldUI.ButtonTuning.SeatedCapColor"/> and <c>cap_atlas.FIELD_TARGET_LUM</c>);
+    /// oak's clipping falls to 3.9 % and the rendered field's contrast rises 4.12 % → 11.63 %.
+    /// With the plate no longer flat there is a colour here that lands the product exactly on the
+    /// board's own material, and these are it.</para>
+    ///
+    /// <para><b>THESE THREE AND <c>cap_atlas.FIELD_TARGET_LUM</c> ARE ONE DECISION.</b> Each is
+    /// <c>target ÷ (fieldMean × shade × BoardCapTint)</c> for its board, so re-basing the atlas
+    /// without re-solving these puts the caps back off-colour and nothing in the build will say
+    /// so. <c>cap_belong.py --report</c> reads the shipped PNG and asserts the pair still agree.
+    /// Measured, through the shipped gamma chain and <c>BoardLit</c>'s flat-face shade, with
+    /// CIEDE2000 against the round-4 option each cap was built from, re-exposed to the cap's own
+    /// luminance (the option is a studio shot at L* 36–42; the cap renders at L* 20–24, and
+    /// comparing those lightnesses measures the exposure rather than the material):</para>
+    /// <code>
+    ///   board    ΔE2000 vs its option      hue error vs its own board     cap-to-cap ΔE2000
+    ///            full        hue+chroma    before      after              before   after
+    ///   oak      20.7 → 13.9  15.4 → 4.5   +25.8° →  −1.4°                oak↔st  14.1 → 14.8
+    ///   steel    15.8 → 12.0  10.5 → 1.4  +165.3° →  +7.2°                oak↔br  12.1 → 13.6
+    ///   bronze   19.9 → 17.0  12.2 → 4.1   −26.1° →  +3.4°                st↔br   23.1 →  8.2
+    /// </code>
+    /// <para>The after-hue errors are the OPTIONS' OWN errors against their boards, because the
+    /// cap now IS that material at a different exposure — this is exact, not optimised.</para>
+    ///
+    /// <para><b>THE ONE NUMBER THAT GOT WORSE, AND WHY IT WAS NOT WORTH DEFENDING.</b> Steel↔bronze
+    /// falls from 23.1 to 8.2. That is close to the 6.8 collapse a chroma-safe normaliser was
+    /// rejected for in ModBuild 289, and it is NOT the same failure. 6.8 was three boards
+    /// converging on ONE hue because a neutral modulator left only a shared state colour to tell
+    /// them apart. 8.2 is the separation pewter and patinated bronze genuinely have at this
+    /// brightness — the caps sit at hue 64.2° / 65.7° / 95.2°, and steel is told from oak by
+    /// chroma (C* 3.6 vs 26.8), not by hue. The 23.1 was manufactured: it was steel rotated to
+    /// BLUE and bronze rotated to ORANGE, a separation invented by the state colours and present
+    /// in neither material. Three caps that are far apart and all wrong is the defect, not the
+    /// bar. Cap-to-cap ΔE improves on the other two pairs.</para>
+    ///
+    /// <para>Luminance is held: each board's rendered idle face keeps the luminance it has today
+    /// to within 0.5 %, so this round changes colour and nothing else. Every channel stays inside
+    /// <c>[CapWellColor × CapSeatContrast ÷ BoardCapTint, 1]</c>, so
+    /// <see cref="WorldUI.ButtonTuning.SeatedCapColor"/> never lifts one channel and not another —
+    /// a floor that engages asymmetrically is a hue shift nobody solved for.</para>
+    ///
+    /// <para><b><c>[ButtonColors] BoardCapTint</c> WAS NOT TOUCHED</b>, though the ModBuild 289
+    /// note names it as "the lever that would free this properly". It is the user's own tuning
+    /// surface, a peer clamps it to [0, 1] on the mirror path
+    /// (<c>RemoteBoardFurniture</c>), and the headroom this needed was already sitting unused in
+    /// the constant right here. Reaching for a config round first would have been a change to
+    /// four tint families to avoid changing three numbers.</para>
+    /// </remarks>
     internal static Color BoardIdleColor(ControlBoard? style) => style switch
     {
-        ControlBoard.Oak => new Color(0.550f, 0.514f, 0.564f),      // pale honey parchment, C* 14.0
-        ControlBoard.Steel => new Color(0.407f, 0.541f, 0.607f),    // quiet cool pewter, C*  7.0
-        ControlBoard.Bronze => new Color(0.753f, 0.471f, 0.224f),   // warm brass,        C* 28.7
+        // SOLVED by unity/board-prep/buttons/cap_belong.py --solve; see the remarks above. The
+        // C* / hue quoted is of the RENDERED FACE, not of this colour, which is a modulator's
+        // partner and not a colour anything displays on its own.
+        ControlBoard.Oak => new Color(0.759f, 0.539f, 0.456f),      // renders oak, h 64.2 C* 26.8
+        ControlBoard.Steel => new Color(0.588f, 0.557f, 0.506f),    // renders pewter, h 65.7 C* 3.6
+        ControlBoard.Bronze => new Color(0.549f, 0.547f, 0.529f),   // renders patina, h 95.2 C* 13.0
         _ => new Color(0.600f, 0.510f, 0.350f),
     };
 
