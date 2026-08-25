@@ -295,6 +295,12 @@ internal static partial class Loc
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
+            ["FigureGrab/HighlightWhileWalkIn"] =
+                Pair("Figure: glow while inside", "Figur: Leuchten von innen"),
+            ["FigureGrab/ClothFollowsFreeHand"] =
+                Pair("Figure: cloth reacts to your free hand", "Figur: Stoff reagiert auf die freie Hand"),
+            ["FigureGrab/ClothHandReachMillimeters"] =
+                Pair("Figure: cloth hand range at the hand (mm)", "Figur: Stoff-Handreichweite an der Hand (mm)"),
             ["FigureGrab/PickRadiusMillimeters"] =
                 Pair("Figure: grab range at the hand (mm)", "Figur: Greifradius an der Hand (mm)"),
             // ADDED BY THE 2026-08-22 SETTINGS AUDIT (§3.4) — it was the one offered [FigureGrab]

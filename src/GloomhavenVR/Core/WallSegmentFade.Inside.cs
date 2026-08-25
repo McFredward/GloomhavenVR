@@ -143,8 +143,27 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static partial class WallSegmentFade
 {
+    /// <summary>
+    /// IS THE PLAYER STANDING INSIDE THE DIORAMA RIGHT NOW? The single read-only view of
+    /// <c>FadeDriver._walkInside</c> — the STRICTLY NARROWER latch (board volume AND a readable rig
+    /// scale AND a crest of at least <c>WalkInMinCrestMetres</c> in REAL metres AND the head
+    /// genuinely below that crest plane), not the looser <c>_insideBoard</c> observation, which is
+    /// true while merely leaning over a tabletop and by its own doc comment "still gates nothing".
+    ///
+    /// <para>Added for <c>Board/FigureGrab</c> (user, ModBuild 286: "Wenn ich mich im Modus befinde,
+    /// dass ich IN der Welt drin bin … möchte ich optional das highlighting der figuren deaktivieren
+    /// können"). The wall topic was formally closed at ModBuild 284 and this is deliberately the
+    /// whole of the change to it: one accessor, no behaviour, no new diagnostics, no new state. Read
+    /// through the driver singleton in the same shape as <c>SampleFadedWallKeys</c>, so it is false
+    /// whenever the subsystem is not standing rather than throwing or latching.</para>
+    /// </summary>
+    internal static bool WalkInsideEngaged => _driver != null && _driver.WalkInsideActive;
+
     private sealed partial class FadeDriver
     {
+        /// <summary>See <see cref="WalkInsideEngaged"/>, the only reader outside this type.</summary>
+        internal bool WalkInsideActive => _walkInside;
+
         // --- INSIDE-THE-MAP bars (see class header) ------------------------------------------
         // Both bars are FRACTIONS OF THE CREST HEIGHT C (the board's own median wall height in
         // world units), never absolute distances: the board is the yardstick, so the boundary

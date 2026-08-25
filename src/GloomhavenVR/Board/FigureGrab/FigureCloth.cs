@@ -51,6 +51,80 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// 0.41744 at +1/+2/+5/+15 frames against a flat 0.48790 for the disabled arm). See PERFORMANCE
 /// below for the harness.</para>
 ///
+/// <para>THIRD USER REPORT (hardware test, ModBuild 286, verbatim): "Regression beim Skallieren:
+/// Die Klamotten skallieren leider nicht mehr richtig mit, siehe klamotten_problem.jpg. Wie man
+/// hier sieht hängt der ursprüngliche Umhang jetzt tiefer und kann nicht mehr als Umhang bezeichnet
+/// werden. Auch die physics sollen beim skallieren (und danach) erhalten bleiben." — that is the
+/// ModBuild 285 change above, and the section THE 285 REGRESSION below is the whole account.</para>
+///
+/// <para>=== THE 285 REGRESSION: A FABRIC IS COOKED, AND 285 STOPPED COOKING IT ===</para>
+///
+/// <para>WHAT 285 VALIDATED AND WHAT IT DID NOT. It proved that a PINNED cloth is indistinguishable
+/// from a DISABLED one across a transform scale (0.48788-0.48793 against 0.48790 flat, +1 to +90
+/// frames). That is true and it still holds. It is also a measurement of the SUSPENSION and not of
+/// the RESUMPTION: the state the user is looking at in klamotten_problem.jpg is the cape SETTLED
+/// and SIMULATING at the new size, and no arm of that round ever entered it. A measurement of the
+/// wrong state looks exactly like proof.</para>
+///
+/// <para>THE MECHANISM, MEASURED. PhysX bakes a cloth's FABRIC — its edge rest lengths — in WORLD
+/// units when the component is enabled, and nothing re-derives them from a transform scale
+/// afterwards. Builds 137-283 paid for a re-cook by accident, because their resume was an enable
+/// transition; 285 removed the enable to remove the 172.93 ms frame, and removed the cook with it.
+/// A cape on a figure held at 1.345x therefore simulates against rest lengths sized for 1x. Same
+/// Unity 2021.3.5f1 Linux player, a 1681-vertex sheet pinned along one edge and draped under
+/// gravity, every arm settled for 300 frames and every position divided by the root scale before
+/// comparison, against a POSITIVE CONTROL that is a cloth BORN at 1.345 (fabric cooked at 1.345,
+/// coefficients authored x 1.345) and a NULL CONTROL that is the reference arm run twice:
+/// <list type="table">
+/// <item><term></term><description>.................... mean edge / authored edge | worst vs POSITIVE | mean vs POSITIVE</description></item>
+/// <item><term>NULL control</term><description> ....... identical to REF to five decimals, 0.00000 drift</description></item>
+/// <item><term>POSITIVE (born at 1.345)</term><description> .. 1.019 | — | —</description></item>
+/// <item><term>285 SHIPPED (no cook)</term><description> .... 0.793 | 0.271 m | 0.075 m</description></item>
+/// <item><term>OLD 137-283 (cooked)</term><description> ..... 1.017 | 0.038 m | 0.015 m</description></item>
+/// <item><term>THIS FILE (cooked on settle)</term><description> 1.021 | 0.040 m | 0.018 m</description></item>
+/// </list>
+/// 0.793 is 1/1.345 to within the reference arm's own 1.036 — i.e. the number IS the missing scale.
+/// The fabric squeezes a cape that is a third larger than the fabric believes, which is what "hängt
+/// jetzt tiefer und kann nicht mehr als Umhang bezeichnet werden" looks like as a number. The
+/// re-cook was never pure cost.</para>
+///
+/// <para>THERE IS NO THRESHOLD BELOW WHICH SKIPPING THE COOK IS FREE, which is why the trigger is
+/// the ordinary <see cref="FactorEpsilon"/> and not a coarser one. The same arms at S = 1.08 give
+/// mean edge 0.941 against the positive control's 1.025, and at S = 1.04 they give 0.974 against
+/// 1.029. The error saturates almost immediately rather than scaling with the mismatch, so a "only
+/// re-cook for big changes" rule buys frames by shipping a visibly wrong cape.</para>
+///
+/// <para>TWO NO-COOK ALTERNATIVES WERE TRIED AND BOTH FAIL. <c>stretchingStiffness = 0</c> lets the
+/// fabric stop enforcing its stale rest lengths, but the cloth then has nothing holding it together
+/// at all: mean edge 1.308 with a most-deviating edge at 5.3x authored, i.e. it tears open instead
+/// of bunching up. <c>useTethers = false</c> changes essentially nothing (0.938 against 0.941). Both
+/// are one-line, zero-cost and both are worse than the defect.</para>
+///
+/// <para>THE ORDER OF THE RE-COOK IS THE WHOLE THING, and four arms died finding it. The settled
+/// coefficients must go up BEFORE the component goes down. An enable transition performed while
+/// every <c>maxDistance</c> is 0 does not cook (1.1-3.1 ms against 14-21 ms) and leaves the cloth
+/// PERMANENTLY non-simulating — flat 0.00000 sag out to +300 frames, and no later coefficient write
+/// revives it. That is true of <c>enabled = true</c> and of <c>SetEnabledFading(true, …)</c> alike,
+/// so it is a property of the zero coefficients and not of which API is used. See
+/// <see cref="PinFloorFraction"/>, which is the same finding turned into a guard against the enable
+/// transitions this pass does NOT own.</para>
+///
+/// <para>WHAT A COOK COSTS NOW, and how often. 8 reps per cell, median, same player, with the same
+/// NULL and known-positive controls: <c>enabled = false</c> 0.021-0.025 ms, and <c>enabled = true</c>
+/// after a proper down 20.06 / 34.29 / 56.45 ms at 1681 / 3721 / 6561 vertices (the
+/// <c>AddComponent&lt;Cloth&gt;</c> positive control reads 17.09 / 24.67 / 40.24 in the same run).
+/// It is paid ONCE per settled size change per cloth, never during the gesture, and ONE CLOTH PER
+/// FRAME. That last point is the one that matters to him: his ModBuild 283 worst frame was 172.93 ms
+/// and it was three cloths cooking on the same frame; staggered, the same work is three frames of
+/// about a third that each. <see cref="SettleFrames"/> went 3 → 12 for the same reason — a settle
+/// used to cost 0.1 ms and now costs a cook, so it must not fire on a mid-gesture micro-pause.</para>
+///
+/// <para>HIS CONSTRAINT OUTRANKS THE HITCH AND IS WHY THIS TRADE IS MADE: "Auch die physics sollen
+/// beim skallieren (und danach) erhalten bleiben." A cape that is cheap and wrong is a worse build
+/// than a cape that is right and costs one frame at the end of a deliberate action. What 285 bought
+/// is kept in full — nothing cooks while the size is MOVING, which is the window his "Hänger"
+/// complaint was actually about.</para>
+///
 /// <para>THE FIX. While the mod is CHANGING a figure's size the cloth simulation is PINNED: every
 /// managed cloth's per-vertex <c>maxDistance</c> is driven to 0, which forces each particle onto
 /// its skinned position, so the cape is a plain skinned mesh again — and a skinned mesh scales with
@@ -232,11 +306,16 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// </summary>
 internal static class FigureCloth
 {
-    /// <summary>Quiet frames a size must hold before the simulation is released back to full. Three
-    /// frames is ~33 ms at 90 Hz — under the perception threshold, and long enough that neither the
-    /// stretch gesture's exponential smoothing nor the remote slot's Lerp can be mistaken for
-    /// "settled" while it is still visibly moving.</summary>
-    private const int SettleFrames = 3;
+    /// <summary>Quiet frames a size must hold before the simulation is released back to full.
+    ///
+    /// <para>Was 3 through ModBuild 285, when a release was a coefficient upload and cost 0.1 ms. A
+    /// release now ends in a FABRIC RE-COOK (see THE 285 REGRESSION), which costs 20-56 ms per
+    /// cloth, so a settle that fires on a mid-gesture micro-pause is no longer free. 12 frames is
+    /// ~0.13 s at 90 Hz: still well under the pause a player makes between two deliberate stretches,
+    /// and long enough that the exponential smoothing here and the remote slot's Lerp cannot be
+    /// mistaken for "settled". Nothing is visibly wrong while it waits — the cape is PINNED, which
+    /// is exactly the state that scales with the root perfectly.</para></summary>
+    private const int SettleFrames = 12;
 
     /// <summary>Frames without a <see cref="Note"/> before a figure is forgotten. Well past
     /// <see cref="SettleFrames"/>, so a figure always finishes its release before it is pruned.</summary>
@@ -251,6 +330,30 @@ internal static class FigureCloth
     /// <c>Cloth.SetEnabledFading</c>; kept at the same 0.12 s so the timing the player sees is
     /// unchanged even though the mechanism underneath is not.</summary>
     private const float FadeSeconds = 0.12f;
+
+    /// <summary>
+    /// The pin's FLOOR, as a fraction of a cloth's own bounding extent — the smallest
+    /// <c>maxDistance</c> this pass will ever write. It is not zero, and that is a bug fix.
+    ///
+    /// <para>MEASURED: a <see cref="Cloth"/> that goes through an ENABLE TRANSITION while every one
+    /// of its <c>maxDistance</c> coefficients is exactly 0 never simulates again — it renders the
+    /// skinned pose for the rest of the figure's life, and no later coefficient write revives it
+    /// (settle trace flat at 0.00000 out to +300 frames; the enable itself costs 1.5-3 ms instead of
+    /// the 14-21 ms a real cook costs, i.e. it does not even cook). The same run with the floor
+    /// below at 1e-3 comes back alive and lands 0.0355 from the born-at-scale reference, which is
+    /// better than the 137-283 path's own 0.0378.</para>
+    ///
+    /// <para>WE DO NOT OWN EVERY ENABLE TRANSITION, which is why this matters. The game's
+    /// <c>ActorBehaviour.ForceSetLocoIntermediateTarget</c> (ActorBehaviour.cs:245-252) disables
+    /// every <c>m_Clothes</c> entry and its <c>LateUpdate</c> (ActorBehaviour.cs:551-562) re-enables
+    /// them two frames later. A figure being carried is exactly the figure that gets its locomotion
+    /// target forced, so that pair lands INSIDE our pin window. With a zero pin that killed the
+    /// cape permanently; with this floor the game's own re-enable cooks the fabric for us, correctly
+    /// and for free.</para>
+    ///
+    /// <para>1e-3 of the cape's extent is sub-millimetre on a board figure, so the pin's fidelity is
+    /// unchanged for every purpose the pin exists for.</para></summary>
+    private const float PinFloorFraction = 1e-3f;
 
     /// <summary>Unity's "unconstrained" sentinel in a <see cref="ClothSkinningCoefficient"/> is
     /// <c>float.MaxValue</c> — MEASURED, see the class comment; the pre-284 <c>IsInfinity</c> guard
@@ -292,9 +395,15 @@ internal static class FigureCloth
         /// figure mid-gesture keeps ramping against the size it last held still at.</summary>
         public float SeededFactor = 1f;
 
-        /// <summary>0 = pinned to the skinned pose (<c>maxDistance = 0</c>, the cape is a plain
-        /// skinned mesh), 1 = simulating at <see cref="SeededFactor"/>.</summary>
+        /// <summary>0 = pinned to the skinned pose (<c>maxDistance</c> at its floor, the cape is a
+        /// plain skinned mesh), 1 = simulating at <see cref="SeededFactor"/>.</summary>
         public float Weight = 1f;
+
+        /// <summary>The size the FABRIC was last cooked at — a different thing from
+        /// <see cref="SeededFactor"/>, which is the size the COEFFICIENTS express. PhysX bakes a
+        /// cloth's edge rest lengths in world units when the component is enabled and never
+        /// afterwards, so this is the number that decides whether a re-cook is owed.</summary>
+        public float CookedFactor = 1f;
 
         public int QuietFrames;
         public int IdleFrames;
@@ -305,11 +414,33 @@ internal static class FigureCloth
         /// <summary>The arrays on the cloths no longer match <see cref="Weight"/> /
         /// <see cref="SeededFactor"/> and must be re-uploaded this frame.</summary>
         public bool Dirty;
+
+        /// <summary>True while the re-cook sequence is running. It owns every cloth write for as
+        /// long as it lasts, so the ramp in <see cref="Advance"/> stands down.</summary>
+        public bool Cooking;
+
+        /// <summary>Which cloth the re-cook sequence is on. ONE cloth per frame, deliberately: his
+        /// ModBuild 283 worst frame was 172.93 ms, which is three cloths cooking together. Staggered,
+        /// the same work is three ordinary-sized frames instead of one triple-sized one.</summary>
+        public int CookIndex;
+
+        /// <summary>True once the current cloth's coefficients are up and the component is down, so
+        /// the NEXT frame performs the enable that cooks. Two frames per cloth, because a
+        /// <c>false</c>/<c>true</c> pair inside ONE frame does not cook at all — measured at 2.6-3.1
+        /// ms against 14-21 ms, and it leaves the cloth in the permanently-dead state described on
+        /// <see cref="PinFloorFraction"/>.</summary>
+        public bool CookDown;
+
+        /// <summary>How many cloths the sequence was started for. Frozen at the start so a cloth
+        /// that appears mid-sequence (the subtree is asynchronous — see LATE AND RESPAWNED PARTS)
+        /// is not cooked: it was born at the current size and its fabric is already right.</summary>
+        public int CookCount;
     }
 
     private static readonly Dictionary<int, Tracked> _tracked = new();
     private static readonly List<int> _scratch = new(4);
     private static bool _logged;
+    private static bool _loggedEmpty;
     private static bool _countersRegistered;
 
     /// <summary>
@@ -377,11 +508,12 @@ internal static class FigureCloth
                 if (t.QuietFrames >= SettleFrames)
                     Release(t);
             }
-            else if (++t.IdleFrames > PruneFrames && t.Weight >= 1f)
+            else if (++t.IdleFrames > PruneFrames && t.Weight >= 1f && !t.Cooking)
             {
-                // Nobody is authoring this figure's size any more AND the ramp has finished, so the
-                // cloths are sitting at their settled coefficients. Pruning mid-ramp would strand a
-                // cape pinned to its skin for the life of the figure.
+                // Nobody is authoring this figure's size any more AND the ramp has finished AND no
+                // re-cook is in flight, so the cloths are sitting at their settled coefficients with
+                // a fabric that matches them. Pruning mid-ramp would strand a cape pinned to its
+                // skin for the life of the figure; pruning mid-cook would strand one DISABLED.
                 _scratch.Add(kv.Key);
             }
 
@@ -432,16 +564,27 @@ internal static class FigureCloth
         if (!_countersRegistered && t.Cloths.Count > 0)
         {
             _countersRegistered = true;
-            // Declared so it PRINTS AT ZERO. The whole ModBuild 284 claim is that this pass no
-            // longer buys a PhysX fabric cook, and the counter that proves it is the one that says
-            // how many coefficient uploads it does instead. A row that is omitted when the number
-            // is zero is indistinguishable from an instrument that was never wired up.
+            // Declared so they PRINT AT ZERO. A row that is omitted when the number is zero is
+            // indistinguishable from an instrument that was never wired up, and both of these
+            // exist to prove a bound rather than to report an amount: ClothSeeds says how many
+            // coefficient uploads replaced the per-gesture cook, and ClothCooks says how many
+            // fabric cooks are left and — in its `worst frame` field — that no two of them ever
+            // land on the same frame.
             PerfMonitor.Register("FigureGrab.ClothSeeds");
+            PerfMonitor.Register("FigureGrab.ClothCooks");
         }
     }
 
-    /// <summary>Release the pin at the size the figure has settled at. The ramp back to full
-    /// simulation is <see cref="Advance"/>'s job; this only names the target.</summary>
+    /// <summary>
+    /// Release the pin at the size the figure has settled at.
+    ///
+    /// <para>If the fabric was cooked at a DIFFERENT size, this starts the re-cook sequence and
+    /// <see cref="StepCook"/> owns the cloths until it finishes — there is no ramp in that case,
+    /// because a cook re-anchors every particle on its skinned position and the cape drapes out
+    /// from there on its own (measured: lowest y walks -0.013 → -0.242 over the settle, i.e. the
+    /// cook IS the ramp). If the fabric already matches, the cheap ModBuild 285 ramp runs and
+    /// nothing is cooked at all.</para>
+    /// </summary>
     private static void Release(Tracked t)
     {
         float factor = t.Factor;
@@ -452,8 +595,82 @@ internal static class FigureCloth
 
         t.SeededFactor = factor;
         t.Suspended = false;
-        t.Dirty = true;
+
+        if (t.Cloths.Count > 0 && Mathf.Abs(factor - t.CookedFactor) > t.CookedFactor * FactorEpsilon)
+        {
+            t.Cooking = true;
+            t.CookIndex = 0;
+            t.CookDown = false;
+            t.CookCount = t.Cloths.Count;
+            t.Dirty = false;
+        }
+        else
+        {
+            t.Dirty = true;
+        }
+
         LogOnce(t, factor);
+    }
+
+    /// <summary>
+    /// Re-cook ONE cloth's fabric at the size the figure settled at, two frames per cloth, one
+    /// cloth per frame.
+    ///
+    /// <para>WHY A COOK IS OWED AT ALL — the ModBuild 285 regression, measured. PhysX bakes a
+    /// cloth's edge rest lengths in WORLD units when the component is enabled, and nothing
+    /// re-derives them from a transform scale afterwards. Builds 137-283 paid for a cook by
+    /// accident (their resume was an enable transition); ModBuild 285 removed the enable to remove
+    /// the 172.93 ms frame and removed the cook with it, so a figure held at 1.345× simulated
+    /// against rest lengths sized for 1×. In the harness that reads as a settled cape whose edges
+    /// are 0.793 of their authored length — the fabric squeezing a cape that is now a third larger
+    /// than the fabric believes, which is "hängt jetzt tiefer und kann nicht mehr als Umhang
+    /// bezeichnet werden".</para>
+    ///
+    /// <para>THE ORDER IS THE WHOLE THING, and it cost this lane four dead arms to find. The
+    /// settled coefficients go up BEFORE the component goes down. An enable transition performed
+    /// while <c>maxDistance</c> is 0 everywhere does not cook and leaves the cloth permanently
+    /// non-simulating — see <see cref="PinFloorFraction"/>. Uploading first also means that if the
+    /// game's own re-enable (ActorBehaviour.cs:551-562) lands between our two frames it cooks the
+    /// RIGHT fabric, and our <c>enabled = true</c> is then a harmless no-op on an already-enabled
+    /// component rather than a second cook.</para>
+    /// </summary>
+    private static void StepCook(Tracked t)
+    {
+        if (t.CookIndex >= t.CookCount || t.CookIndex >= t.Cloths.Count)
+        {
+            t.Cooking = false;
+            t.CookedFactor = t.SeededFactor;
+            t.Weight = 1f;      // a cook releases the pin outright; there is nothing left to ramp
+            t.Dirty = false;
+            return;
+        }
+
+        Cloth c = t.Cloths[t.CookIndex];
+        if (c == null)
+        {
+            t.CookIndex++;
+            t.CookDown = false;
+            return;
+        }
+
+        if (!t.CookDown)
+        {
+            if (BuildInto(t, t.CookIndex, 1f, t.SeededFactor))
+            {
+                c.coefficients = t.Scratch[t.CookIndex];
+                PerfMonitor.Count("FigureGrab.ClothSeeds");
+            }
+            c.enabled = false;
+            t.CookDown = true;
+            return;
+        }
+
+        using (PerfMonitor.Scope("FigureGrab.Cloth.Cook"))
+            c.enabled = true;   // THE RE-COOK — 20.1 / 34.3 / 56.4 ms at 1681 / 3721 / 6561 vertices
+        PerfMonitor.Count("FigureGrab.ClothCooks");
+        c.ClearTransformMotion();
+        t.CookDown = false;
+        t.CookIndex++;
     }
 
     /// <summary>
@@ -465,6 +682,14 @@ internal static class FigureCloth
     /// </summary>
     private static void Advance(Tracked t)
     {
+        if (t.Cooking)
+        {
+            // The re-cook sequence owns every cloth write while it runs, including the coefficient
+            // upload, so the ramp stands down rather than fighting it for the same array.
+            StepCook(t);
+            return;
+        }
+
         float target = t.Suspended ? 0f : 1f;
         if (t.Weight != target)
         {
@@ -490,81 +715,10 @@ internal static class FigureCloth
             for (int i = 0; i < t.Cloths.Count; i++)
             {
                 Cloth c = t.Cloths[i];
-                if (c == null)
+                if (c == null || !BuildInto(t, i, t.Weight, t.SeededFactor))
                     continue;
 
-                ClothSkinningCoefficient[] pristine = t.Pristine[i];
-                ClothSkinningCoefficient[] next = t.Scratch[i];
-                if (pristine == null || next == null || pristine.Length == 0
-                    || next.Length != pristine.Length)
-                    continue; // no painted constraints, or a capture that did not take
-
-                float factor = t.SeededFactor;
-                float weight = t.Weight;
-                float bound = t.RampBound[i];
-
-                // ONE COEFFICIENT AT ONE RAMP WEIGHT — the three cases, written as three loops.
-                //
-                // At weight 1 the authored value is written back verbatim when the vertex is
-                // unconstrained, and as `authored × factor` otherwise. That is the ModBuild 137
-                // correction, unchanged: maxDistance and collisionSphereDistance are absolute
-                // distances against the authored body, so they must follow the figure's size.
-                //
-                // At weight 0 everything is 0, which pins every vertex to its skinned position and
-                // makes the cape a plain skinned mesh — the ModBuild 137 guarantee, at the cost of
-                // an upload instead of a fabric cook.
-                //
-                // In between, the value ramps linearly. An UNCONSTRAINED vertex (Unity writes
-                // float.MaxValue — see the class comment) cannot ramp from its own value:
-                // float.MaxValue × weight is still unconstrained for any weight above ~1e-30, and
-                // multiplying it by the factor overflows to a real infinity. It ramps from `bound`
-                // instead. The single discontinuity that leaves — `bound` just below weight 1
-                // against float.MaxValue at weight 1 — is between two values that are both
-                // physically unconstrained for a cape.
-                //
-                // TWO THINGS ARE HAND-FLATTENED HERE AND BOTH WERE MEASURED, not assumed.
-                // (1) The weight branch is LOOP-INVARIANT, so it is taken once and not 2N times.
-                // (2) The unconstrained test is written INLINE rather than through
-                //     <see cref="IsUnconstrained"/>: Mono does not inline it, and at 3721 vertices
-                //     that is 7442 calls per upload. Same gesture, same cloth, same harness:
-                //     a per-vertex helper call for the whole value ... 0.49 ms per upload
-                //     the weight branch hoisted, helper kept for the test ... 0.10 ms p50 / 1.98 ms worst
-                //     both flattened (this code) ................. 0.101 ms p50, 0.119 ms p90, 0.97 ms cold
-                //     against 29.1 ms for ONE SetEnabledFading(true) in the same run.
-                // `>= float.MaxValue` is exactly the positive half of IsUnconstrained — positive
-                // infinity satisfies it, and a NaN falls through to the multiply in both forms.
-                if (weight >= 1f)
-                {
-                    for (int v = 0; v < pristine.Length; v++)
-                    {
-                        float m = pristine[v].maxDistance;
-                        float s = pristine[v].collisionSphereDistance;
-                        next[v].maxDistance = m >= float.MaxValue ? m : m * factor;
-                        next[v].collisionSphereDistance = s >= float.MaxValue ? s : s * factor;
-                    }
-                }
-                else if (weight <= 0f)
-                {
-                    for (int v = 0; v < pristine.Length; v++)
-                    {
-                        next[v].maxDistance = 0f;
-                        next[v].collisionSphereDistance = 0f;
-                    }
-                }
-                else
-                {
-                    float k = factor * weight;
-                    float ramped = bound * weight;
-                    for (int v = 0; v < pristine.Length; v++)
-                    {
-                        float m = pristine[v].maxDistance;
-                        float s = pristine[v].collisionSphereDistance;
-                        next[v].maxDistance = m >= float.MaxValue ? ramped : m * k;
-                        next[v].collisionSphereDistance = s >= float.MaxValue ? ramped : s * k;
-                    }
-                }
-
-                c.coefficients = next;
+                c.coefficients = t.Scratch[i];
                 PerfMonitor.Count("FigureGrab.ClothSeeds");
 
                 if (settled)
@@ -576,6 +730,93 @@ internal static class FigureCloth
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Rebuild cloth <paramref name="i"/>'s coefficient array into its own scratch buffer at one
+    /// ramp <paramref name="weight"/> and one size <paramref name="factor"/>. Returns false when
+    /// there is nothing to write (no painted constraints, or a capture that did not take), in which
+    /// case the buffer is untouched and the caller must not upload it.
+    ///
+    /// <para>ONE COEFFICIENT AT ONE RAMP WEIGHT — the three cases, written as three loops.</para>
+    ///
+    /// <para>At weight 1 the authored value is written back verbatim when the vertex is
+    /// unconstrained, and as <c>authored × factor</c> otherwise. That is the ModBuild 137
+    /// correction, unchanged: <c>maxDistance</c> and <c>collisionSphereDistance</c> are absolute
+    /// distances against the authored body, so they must follow the figure's size.</para>
+    ///
+    /// <para>At weight 0 everything goes to the PIN FLOOR, which pins every vertex onto its skinned
+    /// position and makes the cape a plain skinned mesh — the ModBuild 137 guarantee, at the cost of
+    /// an upload instead of a fabric cook. The floor is <see cref="PinFloorFraction"/> of the cape's
+    /// extent and NOT zero; that distinction is a bug fix and its evidence is on the constant.</para>
+    ///
+    /// <para>In between, the value ramps linearly. An UNCONSTRAINED vertex (Unity writes
+    /// <c>float.MaxValue</c> — see the class comment) cannot ramp from its own value:
+    /// <c>float.MaxValue × weight</c> is still unconstrained for any weight above ~1e-30, and
+    /// multiplying it by the factor overflows to a real infinity. It ramps from <c>bound</c>
+    /// instead. The single discontinuity that leaves — <c>bound</c> just below weight 1 against
+    /// <c>float.MaxValue</c> at weight 1 — is between two values that are both physically
+    /// unconstrained for a cape.</para>
+    ///
+    /// <para>TWO THINGS ARE HAND-FLATTENED HERE AND BOTH WERE MEASURED, not assumed.
+    /// (1) The weight branch is LOOP-INVARIANT, so it is taken once and not 2N times.
+    /// (2) The unconstrained test is written INLINE rather than through
+    /// <see cref="IsUnconstrained"/>: Mono does not inline it, and at 3721 vertices that is 7442
+    /// calls per upload. Same gesture, same cloth, same harness: a per-vertex helper call for the
+    /// whole value 0.49 ms per upload; the weight branch hoisted with the helper kept for the test
+    /// 0.10 ms p50 / 1.98 ms worst; both flattened (this code) 0.101 ms p50, 0.119 ms p90, 0.97 ms
+    /// cold — against 29.1 ms for ONE <c>SetEnabledFading(true)</c> in the same run.
+    /// <c>&gt;= float.MaxValue</c> is exactly the positive half of <see cref="IsUnconstrained"/> —
+    /// positive infinity satisfies it, and a NaN falls through to the multiply in both forms. The
+    /// floor is applied with a compare-and-select for the same reason, not a <c>Mathf.Max</c>
+    /// call.</para>
+    /// </summary>
+    private static bool BuildInto(Tracked t, int i, float weight, float factor)
+    {
+        ClothSkinningCoefficient[] pristine = t.Pristine[i];
+        ClothSkinningCoefficient[] next = t.Scratch[i];
+        if (pristine == null || next == null || pristine.Length == 0
+            || next.Length != pristine.Length)
+            return false;
+
+        float bound = t.RampBound[i];
+        float floor = bound * PinFloorFraction;
+
+        if (weight >= 1f)
+        {
+            for (int v = 0; v < pristine.Length; v++)
+            {
+                float m = pristine[v].maxDistance;
+                float s = pristine[v].collisionSphereDistance;
+                next[v].maxDistance = m >= float.MaxValue ? m : m * factor;
+                next[v].collisionSphereDistance = s >= float.MaxValue ? s : s * factor;
+            }
+        }
+        else if (weight <= 0f)
+        {
+            for (int v = 0; v < pristine.Length; v++)
+            {
+                next[v].maxDistance = floor;
+                next[v].collisionSphereDistance = floor;
+            }
+        }
+        else
+        {
+            float k = factor * weight;
+            float ramped = bound * weight;
+            if (ramped < floor) ramped = floor;
+            for (int v = 0; v < pristine.Length; v++)
+            {
+                float m = pristine[v].maxDistance;
+                float s = pristine[v].collisionSphereDistance;
+                float mv = m >= float.MaxValue ? ramped : m * k;
+                float sv = s >= float.MaxValue ? ramped : s * k;
+                next[v].maxDistance = mv > floor ? mv : floor;
+                next[v].collisionSphereDistance = sv > floor ? sv : floor;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>The finite metre bound an unconstrained vertex ramps against: the cape's own
@@ -605,9 +846,22 @@ internal static class FigureCloth
     /// </summary>
     private static void LogOnce(Tracked t, float factor)
     {
-        if (_logged || Mathf.Abs(factor - 1f) <= FactorEpsilon || t.Root == null)
+        if (Mathf.Abs(factor - 1f) <= FactorEpsilon || t.Root == null)
             return;
-        _logged = true;
+
+        // ONE LATCH PER POPULATION, NOT ONE PER SESSION. This was a single `_logged` flag through
+        // ModBuild 286, and in his ModBuild 286 log it fired on the FIRST figure resized in the
+        // session — which had zero enabled Cloths — and then never printed again. The line read
+        // "0 simulated, 0 constrained vertices" on a session where FigureGrab.ClothSeeds counted
+        // 984 uploads with a worst frame of 3, i.e. cloths were being managed the whole time on
+        // OTHER figures. A census that latches on the first sample it sees is not a census; the
+        // cloth-less case and the cloth-bearing case are different populations and each gets one
+        // line. (See MEMORY: "a held instrument reads as dead", "a summary stat is not the field".)
+        bool hasCloths = t.Cloths.Count > 0;
+        if (hasCloths ? _logged : _loggedEmpty)
+            return;
+        if (hasCloths) _logged = true;
+        else _loggedEmpty = true;
 
         Transform[] transforms = t.Root.GetComponentsInChildren<Transform>(true);
         Renderer[] renderers = t.Root.GetComponentsInChildren<Renderer>(true);
@@ -648,11 +902,16 @@ internal static class FigureCloth
             + "(float.MaxValue — those are ramped against the cape's own extent, never multiplied); "
             + $"{empty} cloth(s) have no painted constraints to rescale. The per-vertex "
             + "maxDistance/collisionSphereDistance are rescaled from the authored metres and the "
-            + "simulation is PINNED to the skinned pose while the size moves — ModBuild 284 replaced "
-            + "Cloth.SetEnabledFading with that pin because the fade back IN is an enable transition "
-            + "and PhysX re-cooks the fabric on the main thread (measured 19.37 ms at 3721 vertices; "
-            + "his 283 log's worst FigureGrab.HeldSize frame was 172.93 ms). Watch [Perf] STEPS "
-            + "FigureGrab.Cloth.Seed and [Perf] COUNTS FigureGrab.ClothSeeds for what it costs now. "
+            + "simulation is PINNED to the skinned pose while the size MOVES; when it SETTLES each "
+            + "cloth's fabric is re-cooked once, ONE CLOTH PER FRAME, because PhysX bakes edge rest "
+            + "lengths in world units at enable time and never re-derives them from a transform "
+            + "scale — without that cook a cape at 1.345x simulates against rest lengths sized for "
+            + "1x and its edges settle at 0.793 of their authored length (ModBuild 285's regression: "
+            + "\"hängt jetzt tiefer und kann nicht mehr als Umhang bezeichnet werden\"). Watch "
+            + "[Perf] STEPS FigureGrab.Cloth.Seed / FigureGrab.Cloth.Cook and [Perf] COUNTS "
+            + "FigureGrab.ClothSeeds / FigureGrab.ClothCooks — ClothCooks' `worst frame` must be 1, "
+            + "which is the whole claim of the stagger; his ModBuild 283 worst frame was 172.93 ms "
+            + "and that was three cloths cooking together. "
             + $"NOT HANDLED: {localScaled} of {particles.Length} ParticleSystem(s) use "
             + "ParticleSystemScalingMode.Local and therefore ignore the root scale by design "
             + "(reported, not changed — see FigureCloth); the figure's worldspace health/condition "

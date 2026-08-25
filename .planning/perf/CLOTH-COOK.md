@@ -146,3 +146,189 @@ replaced it — `[Perf] STEPS FigureGrab.Cloth.Seed` (the upload cost) and `[Per
 FigureGrab.ClothSeeds` (how many uploads, and how many landed on the worst single frame), the
 latter registered to **print even at zero** so an absent row cannot be mistaken for a silent
 instrument.
+
+---
+
+# ModBuild 285 broke the cape. This is the measurement that says why (ModBuild 286 report)
+
+> "Regression beim Skallieren: **Die Klamotten skallieren leider nicht mehr richtig mit**, siehe
+> klamotten_problem.jpg. Wie man hier sieht hängt der ursprüngliche Umhang jetzt tiefer und kann
+> nicht mehr als Umhang bezeichnet werden. **Auch die physics sollen beim skallieren (und danach)
+> erhalten bleiben.**"
+
+## The instrument was blind, and not for the reason anyone guessed
+
+The whole ModBuild 286 log holds **one** `FIGURE SCALE` line and it reads `0 simulated, 0
+constrained vertices`. That is not "FigureCloth never saw a cloth". `LogOnce` was a single
+session-wide `_logged` latch and it fired on the FIRST figure resized in the session — which
+happened to have no enabled `Cloth`. The same log's counters say what was really happening:
+
+```
+[Perf] COUNTS … FigureGrab.ClothSeeds  1/s (total  36, worst frame 3)
+[Perf] COUNTS … FigureGrab.ClothSeeds 33/s (total 984, worst frame 3)
+```
+
+`Advance` returns before `PerfMonitor.Count` when `Cloths.Count == 0`, so **984 uploads is 984
+proofs that cloths were captured and pinned** — on figures that one census line never described,
+with three cloths landing on its worst frame. The latch is now per-population: one line for the
+cloth-bearing case, one for the cloth-less case.
+
+## The fabric is cooked in WORLD units, and 285 stopped cooking it
+
+PhysX bakes a cloth's edge rest lengths when the component is enabled and never re-derives them
+from a transform scale. Builds 137-283 paid for a re-cook by accident — their resume was an enable
+transition. 285 removed the enable to remove the 172.93 ms frame, and removed the cook with it.
+
+New arms, same Unity 2021.3.5f1 Linux player, a 1681-vertex sheet pinned along one edge and draped
+under gravity, 300 settle frames per arm, **every position divided by the root scale before
+comparison**:
+
+| arm | mean edge / authored edge | worst vs POSITIVE | mean vs POSITIVE |
+|---|---|---|---|
+| NULL control (REF run twice) | identical to REF | 0.00000 | 0.00000 |
+| REF, scale 1, settled | 1.036 | — | — |
+| **POSITIVE: cloth BORN at 1.345** | **1.019** | — | — |
+| **285 SHIPPED (no cook)** | **0.793** | **0.271 m** | **0.075 m** |
+| OLD 137-283 (cooked) | 1.017 | 0.038 m | 0.015 m |
+| **THIS FIX (cook on settle)** | **1.021** | **0.040 m** | **0.018 m** |
+
+`0.793` is `1.036 / 1.345` — **the number IS the missing scale.** The fabric squeezes a cape a third
+larger than the fabric believes it is, which is "hängt jetzt tiefer und kann nicht mehr als Umhang
+bezeichnet werden" written as a number.
+
+**There is no threshold below which skipping the cook is free.** At S = 1.08 the shipped arm reads
+mean edge 0.941 against the positive control's 1.025; at S = 1.04, 0.974 against 1.029. The error
+saturates almost immediately instead of scaling with the mismatch, so "only re-cook for big changes"
+buys frames by shipping a visibly wrong cape.
+
+**Two no-cook alternatives were tried and both are worse than the defect.** `stretchingStiffness = 0`
+gives mean edge 1.308 with a most-deviating edge at 5.3x authored — it tears open instead of
+bunching up. `useTethers = false` changes essentially nothing (0.938 against 0.941).
+
+## The ORDER of the re-cook is the whole thing, and four arms died finding it
+
+The settled coefficients must go up **before** the component goes down.
+
+| sequence | enable cost | outcome |
+|---|---|---|
+| `enabled=false; enabled=true` in ONE frame | 2.6-3.1 ms | **dead** — flat 0.00000 sag to +300f |
+| `enabled=false`, 1 frame, `enabled=true`, coefficients after | 0.8-2.7 ms | **dead** |
+| `SetEnabledFading(false,0)` … `SetEnabledFading(true,0)`, coefficients after | 1.1-2.2 ms | **dead** |
+| `SetEnabledFading(true)` with no disable at all | 0.002 ms | no cook, unchanged |
+| **coefficients FIRST, then down, then up** | **14.6-21.1 ms** | **correct** |
+
+An enable transition performed while every `maxDistance` is 0 **does not cook** — the cost says so —
+and leaves the cloth permanently non-simulating. No later coefficient write revives it. This is a
+property of the zero coefficients, not of which API is used.
+
+## That same finding is a live hazard, which is why the pin no longer writes zero
+
+The game disables every `m_Clothes` entry in `ActorBehaviour.ForceSetLocoIntermediateTarget`
+(ActorBehaviour.cs:245-252) and re-enables them two frames later in `LateUpdate`
+(ActorBehaviour.cs:551-562). **A figure being carried is exactly the figure whose locomotion target
+gets forced**, so that pair lands inside the pin window — an enable transition this mod does not own.
+
+| arm | outcome |
+|---|---|
+| foreign disable+enable mid-gesture, pin at **exactly 0** | **cape permanently dead**, 0.00000 sag to +300f |
+| the same, pin floored at **1e-3 x the cape extent** | alive, and lands **0.0355** from POSITIVE — better than the OLD path's 0.0378 |
+
+With the floor, the game's own re-enable cooks the fabric for us, correctly and for free.
+
+## What a cook costs, and how often it is paid
+
+8 reps per cell, median. NULL control 0.0000-0.0001 ms; known-positive `AddComponent<Cloth>` in the
+same run:
+
+| | 1681 verts | 3721 verts | 6561 verts |
+|---|---|---|---|
+| `enabled = false` | 0.025 ms | 0.021 ms | 0.023 ms |
+| **`enabled = true` after a proper down** | **20.06 ms** | **34.29 ms** | **56.45 ms** |
+| positive control: first cook | 17.09 ms | 24.67 ms | 40.24 ms |
+
+Paid **once per settled size change per cloth, never during the gesture, and ONE CLOTH PER FRAME.**
+His ModBuild 283 worst frame was 172.93 ms and that was three cloths cooking together; staggered,
+the same work is three frames of about a third that each. `SettleFrames` went 3 → 12 for the same
+reason: a settle used to cost 0.1 ms and now costs a cook.
+
+## Assigning the collider arrays does NOT cook (the free-hand feature)
+
+| call | 1681 | 3721 | 6561 |
+|---|---|---|---|
+| `sphereColliders = pairs` (first) | 0.1355 ms | 0.0165 ms | 0.0165 ms |
+| `sphereColliders = pairs` (re-assign) | 0.0100 ms | 0.0089 ms | 0.0083 ms |
+| `capsuleColliders = one capsule` | 0.0086 ms | 0.0103 ms | 0.0100 ms |
+| `sphereColliders = empty` | 0.0047 ms | 0.0099 ms | 0.0080 ms |
+| moving an assigned collider's transform | 0.0044 ms | 0.0041 ms | 0.0041 ms |
+
+Three orders of magnitude under a cook and — the part that settles it — **flat in vertex count**,
+while a cook is linear in it. The arrays could be written every frame. They are written once per
+attach anyway.
+
+## `Physics.autoSyncTransforms = false` does NOT break a cloth collider — measured
+
+`PhysicsController.Setup` (PhysicsController.cs:18-31) writes `Physics.autoSyncTransforms = false`
+when `PlatformLayer.Setting.SimplifyPhysics` is on AND the scene is `"Game_gamepad"`
+(`SceneController.cs:1069` passes exactly that predicate; `SceneController.cs:211` picks that scene
+name when `InputManager.GamePadInUse`). **His ModBuild 286 log contains `Added scene: Game_gamepad`,
+so the scene half of the predicate IS met on his rig.** The `SimplifyPhysics` half is a serialized
+platform setting and cannot be read from a log — it is NOT checked and is NOT assumed either way.
+
+It does not matter for `Cloth`. A sphere-pair collider swept through a settled cloth, moved in
+`Update` exactly as `FigureClothHands` moves it, at `fixedDeltaTime = 1/30` against a 90 Hz render
+loop — the shape that makes a missed sync visible rather than theoretical:
+
+| arm | worst cloth displacement from rest |
+|---|---|
+| NULL control (same sweep, NO collider assigned) | 0.01923 m |
+| POSITIVE (`autoSyncTransforms = true`, Unity's default) | 0.08774 m |
+| **HAZARD (`autoSyncTransforms = false`, nothing else done)** | **0.08585 m** |
+| REMEDY (`= false` + `Physics.SyncTransforms()` after the move) | 0.08805 m |
+
+If the collider were not reaching the solver, HAZARD would read the NULL control's 0.019. It reads
+0.086 — within 2 % of POSITIVE, against a 0.019 noise floor. **Unity's `Cloth` takes its collider
+poses from the managed transform, not from the PhysX scene pose, so no `Physics.SyncTransforms()` is
+added and none is needed.** `Physics.SyncTransforms()` measured 0.0380 ms median in a three-object
+scene, which is a floor, not the number it would cost in a scenario.
+
+**This result does NOT transfer to particle-system collision**, which goes through
+`OnParticleCollision` and the PhysX scene. Anything built on that must re-run this arm for itself.
+
+## Re-running the three new benches
+
+`ScaleShapeBench.cs` (settled shape), `CookCostBench.cs` (costs) and `ColliderSyncBench.cs`
+(autoSyncTransforms) drop into the same project as `ClothBench.cs`:
+
+```
+mkdir -p /tmp/clothscale/Assets/Scripts /tmp/clothscale/Assets/Editor
+cp .planning/perf/cloth-cook-harness/*Bench.cs /tmp/clothscale/Assets/Scripts/
+cp .planning/perf/cloth-cook-harness/Builder.cs /tmp/clothscale/Assets/Editor/
+/home/claw/unity-2021.3.5/Editor/Unity -batchmode -nographics -quit \
+    -projectPath /tmp/clothscale -executeMethod Builder.BuildLinux -logFile /tmp/clothscale/build.log
+cd /tmp/clothscale
+xvfb-run -a ./Build/clothbench -batchmode                     -logFile ./shape.log
+xvfb-run -a ./Build/clothbench -batchmode --S=1.08            -logFile ./s108.log
+xvfb-run -a ./Build/clothbench -batchmode --arms=min --S=1.04 -logFile ./s104.log
+xvfb-run -a ./Build/clothbench -batchmode --bench=cost        -logFile ./cost.log
+xvfb-run -a ./Build/clothbench -batchmode --bench=sync        -logFile ./sync.log
+```
+
+The `-nographics` segfault and the `Cloth.vertices` scaled-frame trap recorded above both still
+apply. **A third trap:** every bench auto-boots, so they gate on `--bench=` — `--bench=cook` selects
+the old round-6 harness, `--bench=cost` the cost sweep, `--bench=sync` the collider sync arms, and
+no flag at all runs the shape bench.
+
+**A fourth:** the shape metrics are not all equally robust. `worst per-vertex` compares WRINKLE
+PATTERNS of a large sheet and a drape has many metastable folds, so it is noisy between arms that
+are physically equivalent. **`mean edge / authored edge` is the discriminator** — it is the fabric's
+own rest length read back, it has no basin dependence, and it is what separates 0.793 from 1.021.
+
+## What still needs his hardware
+
+* Whether one 20-56 ms frame per cloth at the END of a resize reads as acceptable where nine of
+  them during it did not. The numbers to read are the two new rows: `[Perf] COUNTS
+  FigureGrab.ClothCooks` — whose **`worst frame` must be 1**, which is the entire claim of the
+  stagger — and `[Perf] STEPS FigureGrab.Cloth.Cook`.
+* Whether `SettleFrames = 12` (0.13 s) reads as "it waits" or as nothing at all.
+* The free hand's two radii, and whether the free-hand collider fights the two-hand stretch gesture,
+  which arms in the same place. Dial: `[FigureGrab] ClothFollowsFreeHand`.

@@ -394,11 +394,39 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         if (root == null)
             return;
 
+        // THE HOVER IS RECORDED SEPARATELY FROM THE GLOW, and that separation is the whole of the
+        // walk-in edge handling. The grab system is EDGE-DRIVEN — ProximityGrabber.SetHighlighted
+        // raises this on the hover change and never polls — so if the suppression below simply
+        // returned, entering walk-in mid-hover would leave a glow standing until the hand moved
+        // away, and leaving walk-in would need a re-hover to get it back. Knowing WHO is hovered
+        // even while suppressed is what lets TickHighlightMode drive both edges.
+        _hovered[(int)hand.Side] = highlighted ? this : null;
+
         if (highlighted)
         {
             // MP lock: never highlight a figure a REMOTE player is holding (it is grab-locked here).
             if (_highlight.Active || NetHeldFigures.Owns(_actor))
                 return;
+
+            // WALK-IN SUPPRESSION (user, ModBuild 286: "möchte ich optional das highlighting der
+            // figuren deaktivieren können … Grabbing soll noch ganz normal möglich sein"). Only the
+            // glow is skipped: the election that chose this figure, the hover haptic and every grab
+            // path already ran and are untouched.
+            if (!FigureGrabConfig.HighlightAllowedHere)
+            {
+                if (!_loggedWalkInSuppress)
+                {
+                    _loggedWalkInSuppress = true;
+                    VRLog.Info("FigureGrab",
+                        $"pre-grab highlight SUPPRESSED IN WALK-IN ({hand.Side} near {Describe()}) — "
+                        + "the player is standing inside the board, where a proximity glow answers a "
+                        + "question nobody is asking. The hover, its haptic and grabbing itself are "
+                        + "unchanged; only the glow is skipped, and it returns the moment he steps "
+                        + "back out WITHOUT needing a re-hover. Dial: [FigureGrab] "
+                        + "HighlightWhileWalkIn (default off). Logged once per session.");
+                }
+                return;
+            }
             // Overlay the figure's OWN meshes with an animated additive glow — NO scale change,
             // occlusion-correct, riding the live animation (see FigureHighlight / FigureOverlay).
             GameObject animated = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
@@ -449,10 +477,82 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// </summary>
     private void ClearHighlight()
     {
+        // The hover record goes even when there was no glow to clear: this is also the path a grab
+        // and a release-glide take (Restore / TryBeginGlide), and a stale entry there would have
+        // TickHighlightMode re-light a figure that is no longer under anybody's hand.
+        for (int i = 0; i < _hovered.Length; i++)
+            if (ReferenceEquals(_hovered[i], this))
+                _hovered[i] = null;
+
         if (!_highlight.Active)
             return;
         _highlight.Clear();
         VRLog.Info("FigureGrab", $"pre-grab highlight CLEARED ({Describe()}).");
+    }
+
+    /// <summary>
+    /// The figure each hand is currently hovering, indexed by <see cref="HandSide"/> — recorded
+    /// whether or not the glow was actually applied. See <see cref="OnGrabHighlight"/> for why the
+    /// two are separate, and <see cref="TickHighlightMode"/> for what reads it.
+    /// </summary>
+    private static readonly FigureGrabbable?[] _hovered = new FigureGrabbable?[2];
+
+    /// <summary>The walk-in verdict this pass last acted on, so only the EDGES do work.</summary>
+    private static bool _highlightAllowedLast = true;
+
+    private static bool _loggedWalkInSuppress;
+
+    /// <summary>
+    /// Drive the pre-grab glow across a WALK-IN EDGE, in both directions.
+    ///
+    /// <para>The grab system raises <see cref="OnGrabHighlight"/> on hover changes only and never
+    /// polls, so nothing else in the pipeline would notice the player stepping into or out of the
+    /// board while a figure is already under their hand. Both directions matter and both are the
+    /// part that is easy to get wrong: entering walk-in must CLEAR a glow that is already standing,
+    /// and leaving it must bring the glow back WITHOUT requiring a re-hover.</para>
+    ///
+    /// <para>Edge-gated, so the steady state is one bool compare — this runs every frame. It reads
+    /// the same narrow latch the wall fade uses (<c>WallSegmentFade.WalkInsideEngaged</c>), which
+    /// each client evaluates from its own head, so there is nothing here to synchronise: the
+    /// pre-grab glow has never been a wire field and no peer has ever seen it (a remote hold is a
+    /// local VETO on it, via <c>NetHeldFigures.Owns</c>, and that is the only net term involved).</para>
+    /// </summary>
+    private static void TickHighlightMode()
+    {
+        bool allowed = FigureGrabConfig.HighlightAllowedHere;
+        if (allowed == _highlightAllowedLast)
+            return;
+        _highlightAllowedLast = allowed;
+
+        for (int i = 0; i < _hovered.Length; i++)
+        {
+            FigureGrabbable? g = _hovered[i];
+            if (g == null)
+                continue;
+
+            if (!allowed)
+            {
+                // ClearHighlight would drop the hover record with it, and the hand has NOT stopped
+                // hovering — it is the mode that changed. Clear the visual only.
+                if (g._highlight.Active)
+                {
+                    g._highlight.Clear();
+                    VRLog.Info("FigureGrab",
+                        $"pre-grab highlight CLEARED ({g.Describe()}) — walk-in mode engaged under a "
+                        + "standing hover; the hover itself is untouched and grabbing still works.");
+                }
+                continue;
+            }
+
+            GameObject? root = g.Root;
+            if (root == null || g._highlight.Active || NetHeldFigures.Owns(g._actor))
+                continue;
+            GameObject animated = g._actor.m_AnimatedGameObject != null ? g._actor.m_AnimatedGameObject : root;
+            if (g._highlight.Apply(root, animated))
+                VRLog.Info("FigureGrab",
+                    $"pre-grab highlight ENGAGED ({g.Describe()}) — walk-in mode released under a "
+                    + "standing hover, so the glow returns without needing a re-hover.");
+        }
     }
 
     public void OnGrab(VRHand hand)
@@ -902,7 +1002,23 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // still gets its cloth back), and a new step would edit the locked frame order. Strict
         // no-op unless something is being resized. See FigureCloth for the whole account.
         FigureCloth.Tick();
+
+        // THE FREE HAND DISTURBS THE CLOTH (user, ModBuild 286: "sie sollen auch auf meine andere
+        // Hand reagieren, wenn ich mit der freien VR hand diese elemente berühre"). Rides here for
+        // the same three reasons the line above does: it belongs to the per-frame job that owns
+        // held figures, it must run above the config gate, and a new step would edit the locked
+        // frame order. Strict no-op with nothing held. See FigureClothHands.
+        FigureClothHands.Tick();
+
+        // WALK-IN HIGHLIGHT EDGES. Rides here for the same reason as the two above, and because it
+        // must run above the config gate: a figure hovered on the frame the gate releases every
+        // grabbable must still have its glow taken off it. One bool compare in the steady state.
+        TickHighlightMode();
     }
+
+    /// <summary>The figure's root GameObject, for the sibling passes that need the subtree
+    /// (<see cref="FigureClothHands"/>). Null once the actor is gone.</summary>
+    internal GameObject? RootObject => Root;
 
     private void ReassertHeldScale()
     {

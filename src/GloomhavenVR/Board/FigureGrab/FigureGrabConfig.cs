@@ -85,6 +85,76 @@ internal static class FigureGrabConfig
     /// come to the mini in the OTHER hand before trigger starts the resize, real mm at the hand.</summary>
     public static ConfigEntry<float> StretchReachMillimeters = null!;
 
+    /// <summary>
+    /// Let the hand that is NOT holding a figure push that figure's cape around by touching it.
+    /// User request, ModBuild 286: "sie sollen auch auf meine andere Hand reagieren, wenn ich mit
+    /// der freien VR hand diese elemente berühre." See <see cref="FigureClothHands"/> for the
+    /// mechanism and for why it is measured to be free. Default ON, because he asked for it; a dial
+    /// because the free hand approaching a held figure is ALSO how the stretch gesture is armed, and
+    /// only his hands can say whether the two fight.
+    /// </summary>
+    public static ConfigEntry<bool> ClothFollowsFreeHand = null!;
+
+    /// <summary>
+    /// Show the pre-grab proximity glow on figures WHILE THE PLAYER IS STANDING INSIDE THE BOARD
+    /// (<see cref="Core.WallSegmentFade.WalkInsideEngaged"/> — the narrow walk-in latch, not the
+    /// loose "leaning over the table" one).
+    ///
+    /// <para>USER REQUEST, ModBuild 286: "Wenn ich mich im Modus befinde, dass ich IN der Welt drin
+    /// bin (das hast du für Wände schon gebaut) möchte ich optional das highlighting der figuren
+    /// deaktivieren können wenn man mit der Hand über ihnen fährt. Grabbing soll noch ganz normal
+    /// möglich sein."</para>
+    ///
+    /// <para>DEFAULT OFF — i.e. the glow IS suppressed in walk-in mode — and here is the argument,
+    /// because a default is a behaviour change and he only literally asked for the switch. (1) He
+    /// described the current behaviour as the problem; nobody asks for a switch to keep what they
+    /// already have. (2) The cue's JOB is gone in that mode. The glow answers "which of these minis
+    /// would my hand pluck from across the table" — standing among them at figure scale the answer
+    /// is whichever one you are reaching into, and a glow that answers a question you are not asking
+    /// is a light show. (3) The cost of being wrong is one toggle, and the toggle is in the same
+    /// menu section as the feature it belongs to. If he wanted it kept, this is the line to flip and
+    /// nothing else changes.</para>
+    ///
+    /// <para>GRABBING IS UNTOUCHED. This suppresses one visual only: the hover election, the haptic
+    /// hover tick, the offset-anchor winner and every grab path run exactly as before.</para>
+    /// </summary>
+    public static ConfigEntry<bool> HighlightWhileWalkIn = null!;
+
+    /// <summary>Pre-grab glow allowed right now? False only while the player is standing inside the
+    /// board AND <see cref="HighlightWhileWalkIn"/> is off. Null-guarded; pre-Bind → default.</summary>
+    internal static bool HighlightAllowedHere
+        => (HighlightWhileWalkIn == null ? Defaults.HighlightWhileWalkIn : HighlightWhileWalkIn.Value)
+           || !Core.WallSegmentFade.WalkInsideEngaged;
+
+    /// <summary>
+    /// How close the free hand must come to a held figure before its cape starts colliding with
+    /// that hand, in REAL MILLIMETRES AT THE HAND. Outside it the collider is detached entirely and
+    /// costs nothing.
+    /// </summary>
+    public static ConfigEntry<float> ClothHandReachMillimeters = null!;
+
+    /// <summary>The free-hand cloth reach as REAL METRES AT THE HAND — the same unit and the same
+    /// reasoning as <see cref="PickRadiusRealMeters"/>. Clamped rather than trusted; the number
+    /// inside <c>Clamp</c> is the PRE-BIND fallback and the shipped default lives in
+    /// <c>Defaults.ClothHandReachMillimeters</c>.</summary>
+    internal static float ClothHandReachRealMeters
+    {
+        get
+        {
+            float mm = ClothHandReachMillimeters != null
+                ? ClothHandReachMillimeters.Value
+                : Defaults.ClothHandReachMillimeters;
+            return Mathf.Clamp(mm, ClothHandReachMinMm, ClothHandReachMaxMm) * 0.001f;
+        }
+    }
+
+    /// <summary>Below this the probe would attach only when the hand is already inside the cape.</summary>
+    internal const float ClothHandReachMinMm = 30f;
+
+    /// <summary>Above this the probe is attached essentially whenever a figure is held, which
+    /// defeats the "costs nothing when the hand is away" half of the design.</summary>
+    internal const float ClothHandReachMaxMm = 600f;
+
     /// <summary>Smallest TOTAL held size a figure may have in the hand, relative to its own
     /// board-home size as it appears at the DEFAULT diorama zoom (see the semantics note on
     /// <see cref="StretchLimits"/>).</summary>
@@ -423,6 +493,31 @@ internal static class FigureGrabConfig
                 "disambiguate from. Inside this zone the trigger belongs to the gesture; a hovered " +
                 "card still wins its own grab.",
                 new AcceptableValueRange<float>(PickRadiusMinMm, 300f)));
+        HighlightWhileWalkIn = config.Bind(
+            "FigureGrab", "HighlightWhileWalkIn", Defaults.HighlightWhileWalkIn,
+            "Keep the pre-grab glow on figures while you are STANDING INSIDE the board (the same " +
+            "walk-in mode that holds the walls solid). Off = no glow down there; across the table " +
+            "it still lights up exactly as before. Grabbing is unaffected either way — this is the " +
+            "visual cue only, not the interaction. Off by default because the cue answers 'which " +
+            "of those minis would I pluck from here', and standing among them at their own scale " +
+            "the answer is whichever one you are reaching into.");
+        ClothFollowsFreeHand = config.Bind(
+            "FigureGrab", "ClothFollowsFreeHand", Defaults.ClothFollowsFreeHand,
+            "While one hand HOLDS a figure, let your OTHER hand push that figure's cloth around — " +
+            "capes, cloaks and tabards bend away from your fingers when you reach into them. The " +
+            "holding hand already swings them by moving the mini; this adds the free hand as " +
+            "something they can actually be touched by. Costs nothing while no figure is held or " +
+            "while the free hand is away from the one you are holding. Turn it off if it fights " +
+            "the two-hand resize gesture, which arms in the same place.");
+        ClothHandReachMillimeters = config.Bind(
+            "FigureGrab", "ClothHandReachMillimeters", Defaults.ClothHandReachMillimeters,
+            new ConfigDescription(
+                "How close your free hand has to come to the figure you are holding before its " +
+                "cloth starts reacting to that hand, in REAL MILLIMETRES AT YOUR HAND — the same " +
+                "unit as the pick radius, so zooming the table never changes the feel. Beyond it " +
+                "the hand is detached from the simulation entirely and costs nothing. Ignored " +
+                "while ClothFollowsFreeHand is off.",
+                new AcceptableValueRange<float>(ClothHandReachMinMm, ClothHandReachMaxMm)));
         StretchScaleMin = config.Bind(
             "FigureGrab", "StretchScaleMin", Defaults.StretchScaleMin,
             new ConfigDescription(

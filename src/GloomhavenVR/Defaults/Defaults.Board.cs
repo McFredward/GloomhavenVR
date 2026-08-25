@@ -31,6 +31,9 @@ internal static partial class Defaults
     internal const float StretchScaleMax = 3f;              // => [FigureGrab] StretchScaleMax
     internal const bool StretchLimits = true;               // => [FigureGrab] StretchLimits
     internal const bool HeldFigureInfo = true;              // => [FigureGrab] HeldFigureInfo
+    internal const bool HighlightWhileWalkIn = false;       // => [FigureGrab] HighlightWhileWalkIn
+    internal const bool ClothFollowsFreeHand = true;        // => [FigureGrab] ClothFollowsFreeHand
+    internal const float ClothHandReachMillimeters = 250f;  // => [FigureGrab] ClothHandReachMillimeters
     internal const float HeldOffsetForward = 0.05f;         // => [FigureGrab] HeldOffsetForward  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetUp = 0.01f;              // => [FigureGrab] HeldOffsetUp  (legacy: read once as the seed for its successor)
     internal const float HeldOffsetSide = 0.03f;            // => [FigureGrab] HeldOffsetSide  (legacy: read once as the seed for its successor)

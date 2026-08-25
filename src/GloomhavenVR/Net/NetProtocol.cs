@@ -416,7 +416,99 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 287;
+    public const ushort ModBuild = 288;
+    // Build 288: THE CAPE IS A CAPE AGAIN, THE FREE HAND DISTURBS IT, AND THE GLOW STANDS DOWN
+    // INSIDE THE DIORAMA. Bundle UNCHANGED at 71,023,039 — DLL-only on top of 287.
+    //   "Die Klamotten skallieren leider nicht mehr richtig mit … der urspruengliche Umhang haengt
+    //   jetzt tiefer und kann nicht mehr als Umhang bezeichnet werden. Auch die physics sollen
+    //   beim skallieren (und danach) erhalten bleiben."
+    //   MODBUILD 285 WAS MINE AND THIS IS ITS REPAIR. My fabric hypothesis held; my explanation
+    //   for WHY the census showed nothing did not.
+    //   THE CENSUS LIED, AND NOT FOR THE REASON I GUESSED. I read "0 simulated, 0 constrained
+    //   vertices" and theorised that Suspend's `if (!c.enabled) continue` was skipping them.
+    //   Wrong: LogOnce was a SINGLE SESSION-WIDE LATCH and it fired on the first figure resized in
+    //   the session, which happened to have no cloths at all. The proof was in the same log two
+    //   lines away — FigureGrab.ClothSeeds totals 36 and then 984, and Advance returns BEFORE
+    //   PerfMonitor.Count when Cloths.Count == 0, so 984 uploads are 984 proofs that cloths were
+    //   captured and pinned on figures that one census line never described. The latch is now
+    //   per-population: one line for the cloth-bearing case, one for the cloth-less case.
+    //   THE FABRIC HYPOTHESIS HOLDS, AND THE NUMBER IS THE MISSING SCALE. 1681-vertex sheet, 300
+    //   settle frames, positions divided by root scale, NULL control (REF twice) = 0.00000,
+    //   POSITIVE control = a cloth BORN at 1.345x. Mean edge / authored edge:
+    //       POSITIVE (born at 1.345)   1.019
+    //       285 AS SHIPPED             0.793     <- 1.036 / 1.345, exactly the missing scale
+    //       OLD (137-283)              1.017
+    //       THIS FIX                   1.021
+    //   The fabric was squeezing a cape a third larger than the fabric believed it was. AND THERE
+    //   IS NO THRESHOLD BELOW WHICH SKIPPING THE COOK IS FREE: at S=1.08 it reads 0.941 against
+    //   1.025, at S=1.04, 0.974 against 1.029 — the error SATURATES rather than scaling. Two
+    //   no-cook alternatives are worse than the defect: stretchingStiffness = 0 gives mean edge
+    //   1.308 with a worst edge 5.3x authored (it tears open), and useTethers = false changes
+    //   nothing. So the re-cook was doing real work, and HIS CONSTRAINT OUTRANKS THE HITCH.
+    //   Metric note: "worst per-vertex" compares wrinkle patterns and a drape has many metastable
+    //   folds, so it is noisy between physically equivalent arms. Mean edge / authored edge is the
+    //   discriminator — it reads the rest length straight back.
+    //   THE ORDER IS EVERYTHING, and four arms died before it was found. The settled coefficients
+    //   must go up BEFORE the component goes down. An enable transition taken while every
+    //   maxDistance is 0 DOES NOT COOK (1.1-3.1 ms against 14-21) and leaves the cloth PERMANENTLY
+    //   NON-SIMULATING — flat 0.00000 sag to +300 frames, unrevivable. True of enabled = true and
+    //   SetEnabledFading(true) alike.
+    //   AND THAT IS A LIVE HAZARD IN THE SHIPPED 285 BUILD, which is very likely what he
+    //   photographed: ActorBehaviour.ForceSetLocoIntermediateTarget disables every m_Clothes entry
+    //   and LateUpdate re-enables them two frames later — and A CARRIED FIGURE IS EXACTLY THE ONE
+    //   WHOSE LOCOMOTION TARGET GETS FORCED, so that pair lands INSIDE 285's pin window. Measured:
+    //   pin at exactly 0 -> cape permanently dead; pin floored at 1e-3 of the cape's extent ->
+    //   alive, and lands 0.0355 from POSITIVE against OLD's 0.0378, because the game's own
+    //   re-enable cooks it for us, free. Hence PinFloorFraction.
+    //   COST AND CADENCE: enabled = false is 0.021-0.025 ms; enabled = true after a proper down is
+    //   20.06 / 34.29 / 56.45 ms at 1681 / 3721 / 6561 vertices (positive control 17.09 / 24.67 /
+    //   40.24). Paid ONCE per settled size change per cloth, NEVER during the gesture, ONE CLOTH
+    //   PER FRAME. His 172.93 ms worst frame was three cloths together; staggered it is three
+    //   frames of about a third each. SettleFrames 3 -> 12 (0.13 s), because a settle used to cost
+    //   0.1 ms and now costs a cook. What 285 bought is kept in full: nothing cooks while the size
+    //   is moving.
+    //   ITEM 2 — THE FREE HAND. Measured answer to the question I told the lane to measure:
+    //   ASSIGNING THE COLLIDER ARRAYS DOES NOT COOK — 0.0083-0.0165 ms, and FLAT IN VERTEX COUNT
+    //   (0.0165 at both 3721 and 6561) where a cook is linear. Two spheres (palm + index tip) as a
+    //   ClothSphereColliderPair, which is a CONIC CAPSULE — the shape of a hand, not a ball.
+    //   Attached only while exactly one hand holds a figure and the free hand is inside 250 real
+    //   millimetres (x1.5 hysteresis). Authored body colliders are APPENDED TO, never assigned
+    //   over, and restored verbatim. Zero wire bytes: HeldBy only ever returns a locally-attached
+    //   grabbable, so a peer's cape reacts to THEIR hand on THEIR client.
+    //   MY autoSyncTransforms HAZARD — CHECKED AND FALSIFIED FOR THIS CONSUMER, by outcome rather
+    //   than by predicate. His 286 log does contain "Added scene: Game_gamepad", so the scene half
+    //   of the condition IS met on his rig; the SimplifyPhysics half is a serialized platform
+    //   setting the lane refused to assume either way. It measured instead — sphere pair swept
+    //   through a settled cloth, moved in Update, fixedDeltaTime 1/30 against 90 Hz:
+    //       NULL (same sweep, no collider assigned)      0.01923 m
+    //       POSITIVE (auto-sync on)                      0.08774 m
+    //       HAZARD (auto-sync OFF, nothing done)         0.08585 m
+    //       REMEDY (off + SyncTransforms())              0.08805 m
+    //   If the collider were not reaching the solver, HAZARD would read the null control's 0.019.
+    //   UNITY'S Cloth TAKES COLLIDER POSES FROM THE MANAGED TRANSFORM, NOT THE PhysX SCENE POSE.
+    //   No SyncTransforms added, none needed — and recorded so a scene rename cannot arm it
+    //   silently. THIS RESULT DOES NOT TRANSFER TO PARTICLE COLLISION, which does go through
+    //   OnParticleCollision and the PhysX scene; item 4 must re-run that arm for itself.
+    //   ITEM 3 — THE GLOW STANDS DOWN INSIDE THE DIORAMA. [FigureGrab] HighlightWhileWalkIn ships
+    //   FALSE, i.e. suppressed: he described the current behaviour as the problem, and nobody asks
+    //   for a switch to keep what they have. The cue answers "which of those would I pluck from
+    //   across the table", and standing among them the answer is whichever you are reaching into.
+    //   BOTH EDGES NEEDED A STRUCTURAL CHANGE: the grab system is edge-driven and never polls, so
+    //   the HOVER is now recorded separately from the GLOW. Entering walk-in clears a standing glow
+    //   WITHOUT dropping the hover record; leaving re-applies it with no re-hover. Grabbing, the
+    //   election and the hover haptic are untouched.
+    //   THE WALL SUBSYSTEM WAS TOUCHED ONCE AND I REVIEWED THAT HUNK MYSELF: one accessor,
+    //   WalkInsideEngaged, reading the NARROW latch through the driver singleton in the same shape
+    //   as SampleFadedWallKeys. No behaviour, no state, no diagnostics. The topic stays closed.
+    //   WIRE TESTS 150833 -> 150835 (+2), from ConfigStepVectors reading three new Defaults lines.
+    //   No other gate moved. ITEM 4 (particle collision on the same hand collider) WAS HANDED BACK
+    //   rather than rushed, on my own instruction, and two things come with it: the
+    //   autoSyncTransforms question is GENUINELY OPEN for particles, and the hand collider sits on
+    //   layer 2 (Ignore Raycast), which is almost certainly NOT in those systems' collidesWith
+    //   masks — whoever takes it needs a deliberate layer decision rather than inheriting this one.
+    //   NEEDS HIS HARDWARE: whether one 20-56 ms frame per cloth at the END of a resize reads as
+    //   acceptable where nine during it did not. The number to read is
+    //   [Perf] COUNTS FigureGrab.ClothCooks, WHOSE worst frame MUST BE 1.
     // Build 287: THE CENTIMETRE WAS NEVER THIS PROJECT'S UNIT.
     // Bundle UNCHANGED at 71,023,039 — DLL-only on top of 286.
     //   "In den VR Einstellungen pro board die Slider mach sie zu diesen hybriden slidern …

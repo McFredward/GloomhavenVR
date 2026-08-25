@@ -121,6 +121,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         FigureRingSuppressor.Clear();
         FigureStallWatchdog.Reset();
         FigureCloth.Clear(); // no stale per-figure cloth bookkeeping across a scene change
+        FigureClothHands.Clear(); // and the free-hand probe is restored off its cloths and destroyed
     }
 
     private void Update()

@@ -2874,6 +2874,29 @@ internal static partial class Loc
                 "Greife eine Figur vom Spielbrett (Held ODER Monster) mit dem TRIGGER in die Hand, um sie aus "
                 + "der Nähe zu betrachten — reine Immersion, keine Auswirkung auf das Spiel. Loslassen setzt "
                 + "sie zurück auf ihr Feld auf dem Spielbrett.",
+            ["FigureGrab/HighlightWhileWalkIn"] =
+                "Behält das Vorab-Leuchten auf Figuren bei, während du IN der Welt STEHST (derselbe "
+                + "Modus, der auch die Wände solide hält). Aus = kein Leuchten dort unten; über dem "
+                + "Tisch leuchtet es weiterhin genau wie bisher. Das Greifen bleibt in beiden "
+                + "Fällen unverändert — es geht nur um den optischen Hinweis, nicht um die "
+                + "Interaktion. Standardmäßig aus, weil der Hinweis die Frage \"welche dieser "
+                + "Figuren würde ich von hier aus greifen\" beantwortet — und wenn du zwischen "
+                + "ihnen in ihrer eigenen Größe stehst, ist die Antwort ohnehin die, nach der du "
+                + "gerade greifst.",
+            ["FigureGrab/ClothFollowsFreeHand"] =
+                "Während eine Hand eine Figur HÄLT: lass deine ANDERE Hand den Stoff dieser Figur "
+                + "bewegen — Umhänge, Mäntel und Wappenröcke weichen deinen Fingern aus, wenn du "
+                + "hineingreifst. Die haltende Hand schwingt sie ohnehin schon mit, indem sie die "
+                + "Figur bewegt; das hier macht die freie Hand zu etwas, das sie tatsächlich "
+                + "berühren kann. Kostet nichts, solange keine Figur gehalten wird oder die freie "
+                + "Hand von ihr entfernt ist. Schalte es aus, falls es mit der Zwei-Hand-Größenänderung "
+                + "kollidiert, die an derselben Stelle ausgelöst wird.",
+            ["FigureGrab/ClothHandReachMillimeters"] =
+                "Wie nah deine freie Hand an die gehaltene Figur heran muss, damit deren Stoff auf "
+                + "diese Hand reagiert — in echten MILLIMETERN AN DEINER HAND, dieselbe Einheit wie "
+                + "der Greifradius, sodass Zoomen das Gefühl nie verändert. Weiter entfernt wird die "
+                + "Hand vollständig aus der Simulation gelöst und kostet nichts. Wird ignoriert, "
+                + "solange ClothFollowsFreeHand aus ist.",
             // Nachgetragen beim Einstellungs-Audit vom 2026-08-22 (§3.4) — die einzige angebotene
             // [FigureGrab]-Zeile ohne deutschen Namen UND ohne deutschen Hilfetext.
             ["FigureGrab/StretchReachMillimeters"] =
