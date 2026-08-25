@@ -416,7 +416,100 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 293;
+    public const ushort ModBuild = 294;
+    // Build 294: THE BOX BELONGED TO THE ROOT BONE, THE GLOW WAS DRAWN ON A DART, AND AN EXPLICIT
+    // ZERO WAS WRITTEN AS AN EPSILON.
+    // *** DLL-ONLY INSTALL. No bundle change: 69,536,022 bytes, unchanged from 293. ***
+    //
+    //   1. HIS TUNED SETUP IS NOW THE SHIPPED DEFAULT ("Uebernehm die neuen configs als defaults").
+    //   rebase-defaults adopted 54 values verbatim, including [Cards] Board Steel -> Bronze.
+    //   AND IT WOULD HAVE SHIPPED A REGRESSION HE HAS ALREADY REPORTED ONCE. With the rebase
+    //   applied, 22 wire assertions failed: he has tuned ten offset families to ZERO, and
+    //   ConfigCatalog.OwnScale takes a dial's scale from THE MAGNITUDE OF ITS OWN CURRENT DEFAULT.
+    //   Zero the value, collapse the scale, collapse the step — on the very dials he uses to nudge
+    //   card overlays, which is the complaint that started the whole step-size round ("die
+    //   Schrittweite ist zu hoch, ich ueberspringe den optimalen Punkt immer").
+    //       one press on [Cards] SlotOverlayOffset_*   293: 1 mm
+    //                                                  rebase alone: 0.001 mm (18,000 presses to
+    //                                                                cross the 18 mm the family had)
+    //                                                  rebase + fix: 1 mm
+    //   THE CODE ALREADY KNEW THE RULE. "A scale of zero bounds nothing" is an existing branch and
+    //   72 dials take it correctly. This config spells an explicit zero as 1.1175871e-10, and an
+    //   epsilon is > 0. ConfigSteps.ZeroMagnitude = 1e-6 — measured, not guessed: the largest
+    //   zero-marker in the drop is 2e-09 and the smallest genuinely tuned magnitude is 0.004, six
+    //   orders of magnitude of empty space, and 1e-6 is the number NiceStep's floor and the
+    //   reachability guard already use for the same judgement.
+    //   MY OWN PROPOSED FIX WAS DANGEROUS: giving those families a declared range would have
+    //   CLAMPED HIS LIVE VALUES to a bound I picked. Rejected. OwnScale and the wire test's
+    //   FamilyScale now CALL one shared ConfigSteps.OwnScale instead of being hand-kept copies.
+    //   PROOF THE CODE CHANGE IS OTHERWISE INERT: the new resolver against the PRE-rebase Defaults
+    //   gives 150861, bit-identical to the baseline. Exactly one dial steps differently from 293
+    //   and it is his own doing — [Cards] TrayRight 5 mm -> 1 mm, because he moved the tray from
+    //   0.555 m to 0.113 m off centre and the scale/250 floor stops coarsening the millimetre away.
+    //   TWO VALUES WERE NOT ADOPTED, and they are PINNED with the reason: [WallFade]
+    //   SignatureCulpritCensus and CommitTableGate both read true in the drop and were turned OFF
+    //   DELIBERATELY in ModBuild 284 — the census is literally the "a probe that answered is spent"
+    //   entry and the churn gate measures for a build that stays a plan. A cfg carries whatever
+    //   BepInEx last round-tripped; a value older than the decision that changed it is not a choice.
+    //
+    //   2. THE HEALTH BARS: THE BOX IS THE ROOT BONE'S, AND MY DESCRIPTION OF THE MECHANISM WAS
+    //   WRONG IN A WAY THAT MATTERED. I said "the bind-pose box, so folded wings read as folded".
+    //   It is the authored localBounds carried by the ROOT BONE, which gives two distinct failure
+    //   modes and this log has one of each: SpittingDrakeID's box is BIT-IDENTICAL in every sample
+    //   of the session (y -0.04..1.52) while its head joint climbs 0.57 -> 2.10 -> 2.16, because
+    //   its flight is driven BELOW the root; ElderDrakeID's box JITTERS +-0.35 wu because its root
+    //   bobs — and that jitter is the whole of the 4.79/4.81/4.88/5.05/5.09/5.10/5.14 oscillation.
+    //   AND THE DRAKES' BARS WERE NOT INSIDE THEM BECAUSE THE BOX WAS SMALL. TrustedTopY ended with
+    //   Mathf.Min(top, boundsMaxY), so the head floor could never exceed the box top: the drake's
+    //   head was at 2.10 and the rule CLAMPED IT TO 1.52, putting the bar 0.4 wu BELOW the drake's
+    //   own head joint. A second, separate defect in the same function.
+    //   THE STRONGEST READING WAS HIDING IN THE THING CALLED "FALLBACK". m_WorldspaceOffsetY is
+    //   authored PER CHARACTER by the game's artists, and on all five figures it lands within
+    //   0.15 wu of that character's LIVE head joint (Brute 1.87/1.84, Mindthief 1.10/1.03,
+    //   SpittingDrake 2.10/2.10 in flight, RendingDrakeElite 1.00/0.74, ElderDrake 3.50/3.28-3.43).
+    //   Two independent sources agreeing five for five. Promoted from fallback to FLOOR.
+    //   New rule: max(live bone extent, live head joint) x 1.12, floored at the authored offset.
+    //   Anchors: Brute 2.14 -> >=2.06 (-8 cm of board), Mindthief 1.16 -> >=1.15 (-1 cm),
+    //   SpittingDrake grounded 1.65 -> 2.10 and FLYING 1.70 -> >=2.35 (the reported defect),
+    //   RendingDrakeElite 1.26 -> 1.00 (the game's own number), ElderDrake 4.79-5.14 jittering ->
+    //   >=3.67-3.84 and steady. TrustedTopY/Underhang deleted — the previous round's slack
+    //   subtraction was arithmetic on one baked number, as its own falsifier had said.
+    //   updateWhenOffscreen was REJECTED as the measurement route: it writes a culling flag on a
+    //   game renderer and whether Unity recomputes synchronously on the next bounds get is
+    //   undocumented — a gated remedy that might never run. Bone transforms instead, sampled
+    //   frames only, nothing written to any game object.
+    //
+    //   3. THE BOSS HIGHLIGHT: IT WAS BEING DRAWN THE WHOLE TIME, ON THE WRONG OBJECT.
+    //   I reported "ENGAGED never names ElderDrakeID, yet CLEARED names it six times" and called
+    //   that asymmetry the defect's fingerprint. THERE IS NO ASYMMETRY: ElderDrake 6/6, Spitting
+    //   7/7, Mindthief 6/6, Rending 4/4, Brute 1/1. My extraction had matched only
+    //   "ENGAGED (Left near", and the boss is grabbed right-handed in all six. It is also NOT a
+    //   regression from ModBuild 293's capsule — that capsule works and the boss elects as often as
+    //   anything else.
+    //   WORSE, AND THIS IS THE FINDING: each of those six lines ends "overlaid on the figure's own
+    //   meshes", the branch taken when Apply returned TRUE. A material was made, renderers were
+    //   cloned, a pulse was attached. THE GLOW IS BEING DRAWN AND HE CANNOT SEE IT. A boolean
+    //   return value can never separate "the glow covers the dragon" from "the glow covers a dart
+    //   hanging off the dragon", which is why two rounds got nowhere.
+    //   LEADING HYPOTHESIS, INSTRUMENTED RATHER THAN ASSUMED: MF.GetGameObjectAnimator returns the
+    //   FIRST Animator carrying a controller, and the boss is the one figure with foreign animated
+    //   content — a WP_Scoundrel_Dart, two WP_Dummy, and 31 of its 36 renderers non-mesh. The clone
+    //   walk now starts at the ACTOR ROOT and returns a REPORT naming the clone count, its world
+    //   box, and how much of it lies under m_AnimatedGameObject. One hardware line settles or kills
+    //   it.
+    //   TWO REAL DEFECTS FOUND ON THE WAY, both affecting EVERY figure: the clone walk used
+    //   includeInactive: true and never checked Renderer.enabled, so every switched-off prop got a
+    //   visible amber ghost floating in mid-air; and cloned MeshRenderer props ignored their own
+    //   local scale.
+    //   THE EXTRA-COLLIDER QUESTION IS CLOSED: they are trigger volumes and weapon dummies, two of
+    //   them disabled zero-size points. Never body volumes. The refusal to elect across them was
+    //   right.
+    //
+    //   WHAT HARDWARE MUST CHECK: no build has ever printed a figure's BONE EXTENT, so every "new"
+    //   anchor above is a LOWER BOUND from the head joint. If the boss's wing bones reach far above
+    //   its head its anchor could land back near 5 wu or hit the 6.0 ceiling. BAR ANCHOR now prints
+    //   `LIVE extent y a..b`, the tallest renderer, its bone count and the baked box beside it.
+    //
     // Build 293: THE NOISE WAS A SLOPE, THE CAPTIONS WERE INSIDE THE BOARD, AND THE BOX ADMITS ITS
     // OWN ERROR.
     // *** NEW BUNDLE: 69,536,022 bytes (was 69,614,726). NOT DLL-only. ***
