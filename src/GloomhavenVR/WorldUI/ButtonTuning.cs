@@ -161,6 +161,18 @@ internal static class ButtonTuning
     /// </summary>
     internal const float PokePressCooldownSeconds = 0.4f;
 
+    // ---- THE PRESS STROKE ---------------------------------------------------------------------
+    // It LIVES IN WorldUI/ButtonStroke.cs, not here, and the move is not tidying. The stroke is a
+    // pure function of one float that both the owner's cap and every peer's mirror of it call, and
+    // it had to be free of BepInEx's ConfigEntry and of everything else in this file so that
+    // tests/GloomhavenVR.WireTests could LINK it and drive the real curve. The first version of its
+    // release leg was arithmetically incapable of the overshoot its own comment claimed, and the
+    // vectors exist because of that. See that file's header for what the stroke replaced (an
+    // instantaneous drop with a linear 6/s decay), why the mirrored decay CONSTANT is gone with it,
+    // and why the wire contract does not move.
+    //
+    // Nothing about it is config: it is authored feel, like the bevel width and the assembly ramp.
+
     // ---- keycap appear/disappear animation ([ButtonAnim] — user: "APPEAR animation instead of
     // popping in; the disappear should apply to ALL vanishing buttons"). Small live config: an
     // enable toggle + the two durations, defaults matching the prior fast, subtle constants so the

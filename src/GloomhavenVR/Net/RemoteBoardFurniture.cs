@@ -246,6 +246,18 @@ internal sealed class RemoteBoardFurniture
     private readonly float _restCapW = Defaults.RestButtons_Width;
     private readonly float _restCapH = Defaults.RestButtons_Height;
 
+    /// <summary>
+    /// THE PEER'S OWN BOARD STYLE — which of the three keycap atlases their caps are cut from, and
+    /// which board's rest motifs those caps echo (<c>Cards.CapSymbols</c>).
+    ///
+    /// <para>It is NOT a new wire field. The style already rides record 28 (<c>RemoteBoardTuning
+    /// .Style</c>) because a peer's board PREFAB is chosen from it, and this peer clones the same
+    /// prefab out of the same bundle — so resolving the atlas from it is the same derivation the
+    /// owner's own client makes, from the same inputs. A bronze player is seen with bronze keys
+    /// carrying the bronze board's own plaited crescent, and nothing had to be sent to say so.</para>
+    /// </summary>
+    private readonly Cards.ControlBoard _style;
+
     // ---- CAP SHAPES: which of the two meshes each family is built from (record 28, ids 228/231/232)
     // Two of these three were HARDWIRED, not frozen — the mirror had no Square branch for the rest
     // pair and no Round branch for the Confirm/Undo column at all, which is why their wire fields
@@ -794,6 +806,7 @@ internal sealed class RemoteBoardFurniture
         _restCapH = Mathf.Max(0.002f, tuning.RestCapHeight);
         _restShape = tuning.RestCapShape;
         _genericShape = tuning.GenericCapShape;
+        _style = tuning.Style;
 
         // ---- …and the owner's CAP COLOURS, before the first material is minted ------------------
         // Record 28 ids 48..53 / 170 / 229..230 (see the field block above for the defect these
@@ -905,8 +918,10 @@ internal sealed class RemoteBoardFurniture
         // somebody turned the dial, and then only they could see it. The local builder's round
         // branch takes [BoardButtons] WIDTH as its diameter and the same depth/travel
         // (PlayTray.BuildButtons), so that is term for term what the round branch here does.
-        _confirm = GenericCap(confirmParent, "Confirm", confirmPos, CapIdleColor, ConfirmColor, labels);
-        _undo = GenericCap(undoParent, "Undo", undoPos, CapIdleColor, UndoColor, labels);
+        _confirm = GenericCap(confirmParent, "Confirm", confirmPos, CapIdleColor, ConfirmColor, labels,
+                              Cards.CapRole.Confirm);
+        _undo = GenericCap(undoParent, "Undo", undoPos, CapIdleColor, UndoColor, labels,
+                           Cards.CapRole.Undo);
 
         // The item "USE" confirm SHARES THE CONFIRM SEAT — the same seat, term for term, that
         // PlayTray.SetConfirmUndoOffset now writes to both of the owner's caps
@@ -922,7 +937,8 @@ internal sealed class RemoteBoardFurniture
         // (enabled: true, accent: true) — "always pressable while shown (no game gate)" — so its
         // look is a BUILD fact, not a state fact, and it costs no wire bit (see
         // NetProtocol.BoardUiCapConfirmAccentBit's "what is not here" note).
-        _use = GenericCap(confirmParent, "ItemUse", confirmPos, ConfirmColor, ConfirmColor, labels);
+        _use = GenericCap(confirmParent, "ItemUse", confirmPos, ConfirmColor, ConfirmColor, labels,
+                          Cards.CapRole.ItemUse);
         // Starts hidden and in step with the _shownArmed seed below: the local cluster only holds
         // this member while an item decision is pending, and Refresh() early-outs while nothing
         // changed — so a board that never sees an item fan must not be left showing a USE cap.
@@ -974,23 +990,67 @@ internal sealed class RemoteBoardFurniture
                 _restCapW = restSize.x;
                 _restCapH = restSize.y;
             }
-            _shortRest = RestCap(tray.ShortRestAnchor, "ShortRest",
-                Cards.BoardAnchors.ClampSeatPose(
-                    restOff, Cards.BoardAnchors.StackDelta(0, 2, restPitch, restSpacing),
-                    tray.RestMinHalf, restSize),
-                restD, ShortRestColor, labels);
-            _longRest = RestCap(tray.LongRestAnchor, "LongRest",
-                Cards.BoardAnchors.ClampSeatPose(
-                    restOff, Cards.BoardAnchors.StackDelta(1, 2, restPitch, restSpacing),
-                    tray.RestMinHalf, restSize),
-                restD, LongRestColor, labels);
+            // The two clamped poses are named rather than inlined because the ENGRAVED CAPTIONS
+            // below have to sit off the same numbers: a caption placed from an unclamped pose would
+            // drift away from the disc it names on exactly the boards whose tuned offsets the clamp
+            // exists to bound.
+            Vector3 shortPose = Cards.BoardAnchors.ClampSeatPose(
+                restOff, Cards.BoardAnchors.StackDelta(0, 2, restPitch, restSpacing),
+                tray.RestMinHalf, restSize);
+            Vector3 longPose = Cards.BoardAnchors.ClampSeatPose(
+                restOff, Cards.BoardAnchors.StackDelta(1, 2, restPitch, restSpacing),
+                tray.RestMinHalf, restSize);
+            _shortRest = RestCap(tray.ShortRestAnchor, "ShortRest", shortPose,
+                restD, ShortRestColor, labels, Cards.CapRole.ShortRest);
+            _longRest = RestCap(tray.LongRestAnchor, "LongRest", longPose,
+                restD, LongRestColor, labels, Cards.CapRole.LongRest);
+
+            // THE ENGRAVED REST CAPTIONS, on the peer's board exactly as on the owner's. With the
+            // pad's own motif carved into the disc the disc carries no word, so the word is cut
+            // into the board beside it — and if it were cut on one board and not the other, a
+            // teammate would be looking at two unlabelled discs while their owner reads "KURZE
+            // RAST" under theirs. Same anchors, same offsets from BoardEngraving, same strings,
+            // and the SAME clamped disc pose (below), so every dial the owner turns moves both
+            // copies together.
+            //
+            // The caption is a child of the ANCHOR, not of the cap, so a cap teardown leaves it
+            // alone and the board never accumulates a stack of identical carvings.
+            if (Cards.CapSymbols.TryAtlas(_style, out _, out _))
+            {
+                _shortRestEngraving = Cards.BoardEngraving.Create(tray.ShortRestAnchor,
+                    "ShortRestEngraving",
+                    new Vector3(shortPose.x,
+                                shortPose.y + Cards.BoardEngraving.RestCaptionOffsetY(restSize.y), 0f),
+                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
+                Cards.BoardEngraving.SetText(_shortRestEngraving,
+                    Loc.Mod("short_rest").ToUpperInvariant());
+                _longRestEngraving = Cards.BoardEngraving.Create(tray.LongRestAnchor,
+                    "LongRestEngraving",
+                    new Vector3(longPose.x,
+                                longPose.y - Cards.BoardEngraving.RestCaptionOffsetY(restSize.y), 0f),
+                    Cards.BoardEngraving.RestCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
+                Cards.BoardEngraving.SetText(_longRestEngraving,
+                    Loc.Game("GUI_LONG_REST", "Long rest").ToUpperInvariant());
+            }
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
         // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
+        // Built in the FOLLOW look, which is also the FOLGEN symbol (two footprints); SetPinned
+        // swaps BOTH the colour and the symbol to the anchor the moment the owner's pinned bit
+        // arrives, from the one read, exactly as the owner's own toggle does.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
             new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor, DashCapTint, labels,
-            travel: _dashCapTravel, accent: PinAccentColor);
+            travel: _dashCapTravel, accent: PinAccentColor,
+            role: Cards.CapRole.FixedFollow, style: _style);
+        // …and the word for it, cut into the board above the toggle. Seated off the SAME mount the
+        // cap is (PinMount + the owner's tuned PinOffset) and lifted by the shared
+        // BoardEngraving.PinCaptionLiftY, so it tracks the owner's dial the way the cap does.
+        // SetPinned writes its text on the first refresh, from the owner's synced pinned bit.
+        if (Cards.CapSymbols.TryAtlas(_style, out _, out _))
+            _pinEngraving = Cards.BoardEngraving.Create(_root, "FollowEngraving",
+                PinMount + tuning.PinOffset + new Vector3(0f, Cards.BoardEngraving.PinCaptionLiftY, 0f),
+                Cards.BoardEngraving.PinCaptionBox, Cards.BoardEngraving.CaptionMaxFontSize, _style);
 
         // ---- grab-handle bar -------------------------------------------------------------------
         // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
@@ -1016,7 +1076,8 @@ internal sealed class RemoteBoardFurniture
         // PlayTray.BuildButtons now hands the local cap. So the one thing a player recognises the
         // control by survives the move, on both screens, from the same triple. Its state arrives on
         // the board-UI record's cap-state byte exactly as before.
-        _skip = GenericCap(skipParent, "TurnFlowSkip", skipPos, CapIdleColor, SkipColor, labels);
+        _skip = GenericCap(skipParent, "TurnFlowSkip", skipPos, CapIdleColor, SkipColor, labels,
+                           Cards.CapRole.Skip);
         Core.VRLog.Info("Net", "SKIP CAP: mirrored on the board's own ButtonSeat3 recess as an " +
             $"ordinary generic keycap ({_genericShape}, {_boardCapW * 1000f:F1} x " +
             $"{_boardCapH * 1000f:F1} mm before the seat fit) — the owner builds it from the same " +
@@ -1196,13 +1257,16 @@ internal sealed class RemoteBoardFurniture
     /// min() now.)
     /// </summary>
     private InertCap GenericCap(Transform parent, string name, Vector3 localPos,
-                                Color rest, Color accent, in CapLabelStyle labels) =>
+                                Color rest, Color accent, in CapLabelStyle labels,
+                                Cards.CapRole role) =>
         _genericShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, Mathf.Min(_boardCapW, _boardCapH), _boardCapD, rest,
-                             BoardCapTint, labels, travel: _boardCapTravel, accent: accent)
+                             BoardCapTint, labels, travel: _boardCapTravel, accent: accent,
+                             role: role, style: _style)
             : InertCap.Square(parent, name, localPos, new Vector2(_boardCapW, _boardCapH),
                               _boardCapD, rest, BoardCapTint, labels,
-                              travel: _boardCapTravel, accent: accent);
+                              travel: _boardCapTravel, accent: accent,
+                              role: role, style: _style);
 
     /// <summary>
     /// One of the short/long rest keycaps, in the OWNER's [Cards] RestButtonShape_{board}.
@@ -1212,13 +1276,15 @@ internal sealed class RemoteBoardFurniture
     /// were parked behind this very branch until it existed.
     /// </summary>
     private InertCap RestCap(Transform parent, string name, Vector3 localPos, float diameter,
-                             Color accent, in CapLabelStyle labels) =>
+                             Color accent, in CapLabelStyle labels, Cards.CapRole role) =>
         _restShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, diameter, _restCapD, CapIdleColor,
-                             RestCapTint, labels, travel: _restCapTravel, accent: accent)
+                             RestCapTint, labels, travel: _restCapTravel, accent: accent,
+                             role: role, style: _style)
             : InertCap.Square(parent, name, localPos, new Vector2(_restCapW, _restCapH),
                               _restCapD, CapIdleColor, RestCapTint, labels,
-                              travel: _restCapTravel, accent: accent);
+                              travel: _restCapTravel, accent: accent,
+                              role: role, style: _style);
 
     // ---------------------------------------------------------------- refresh --
 
@@ -1284,6 +1350,13 @@ internal sealed class RemoteBoardFurniture
                 _undo.SetShown((buttons & NetProtocol.BoardUiUndoBit) != 0, animate);
                 _shortRest?.SetShown((buttons & NetProtocol.BoardUiShortRestBit) != 0, animate);
                 _longRest?.SetShown((buttons & NetProtocol.BoardUiLongRestBit) != 0, animate);
+                // The rest ENGRAVINGS go with their discs. A caption for a control that is not
+                // there is a word on an empty patch of board, and the owner's board hides the pair
+                // together for exactly that reason. Plain SetActive rather than the dust dissolve:
+                // the caps crumble because they are objects standing ON the board, and a cut IN the
+                // board is not an object — while there is nothing to name, it is simply not carved.
+                SetShown(_shortRestEngraving, (buttons & NetProtocol.BoardUiShortRestBit) != 0);
+                SetShown(_longRestEngraving, (buttons & NetProtocol.BoardUiLongRestBit) != 0);
                 _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0, animate);
                 SetItemUseShown((buttons & NetProtocol.BoardUiItemRecessBit) != 0, animate);
                 // The decision drawer: drawn only while a prompt is actually docked on the
@@ -1297,6 +1370,8 @@ internal sealed class RemoteBoardFurniture
                 _undo.SetShown(true, animate);
                 _shortRest?.SetShown(true, animate);
                 _longRest?.SetShown(true, animate);
+                SetShown(_shortRestEngraving, true);
+                SetShown(_longRestEngraving, true);
                 _skip.SetShown(true, animate);
                 SetItemUseShown(true, animate);
                 SetShown(_decision, true);
@@ -1501,6 +1576,19 @@ internal sealed class RemoteBoardFurniture
                     $", useBars={(owner.UseBarsMask == 0 ? "none" : "0x" + owner.UseBarsMask.ToString("X2") + " (" + _useBarRows.Count + " row(s))")}";
     }
 
+    /// <summary>
+    /// THE ENGRAVED BOARD CAPTIONS on a peer's board — the words for the three controls whose caps
+    /// carry a symbol and no text. Null on a bundle with no keycap atlas, where those caps keep
+    /// their own labels and there is nothing to engrave.
+    ///
+    /// <para>They are cut, positioned and lettered by the OWNER'S OWN builder
+    /// (<c>Cards.BoardEngraving</c>) from the OWNER'S OWN strings, at offsets that live in that one
+    /// class. There is no second recipe and no mirrored constant to drift — which matters here more
+    /// than anywhere, because the failure mode is silent: an engraving 4 mm out of place looks fine
+    /// until somebody puts the two boards side by side.</para>
+    /// </summary>
+    private readonly TMPro.TextMeshPro? _shortRestEngraving, _longRestEngraving, _pinEngraving;
+
     /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first refresh
     /// always states it). Change-gated because both writes it drives — a TMP label and three
     /// material colours — are exactly the per-tick churn the 4 Hz cadence exists to avoid.</summary>
@@ -1514,7 +1602,19 @@ internal sealed class RemoteBoardFurniture
         if (_shownPinned == pinned)
             return;
         _shownPinned = pinned;
+        // BOTH HALVES OF THE STATE, FROM ONE READ, exactly as the owner's RefreshFollowEngraving
+        // does it: the SYMBOL on the cap (an anchor while pinned, two footprints while following)
+        // and the WORD cut into the board beside it. The cap's own string is still written even
+        // when its renderer is off — it is what a bundle without the keycap atlas falls back to,
+        // and it is what this board's diagnostic line reports.
         _pin.SetLabel(pinned ? Loc.Mod("pinned") : Loc.Mod("follow"));
+        _pin.SetCapRole(pinned ? Cards.CapRole.FixedPinned : Cards.CapRole.FixedFollow);
+        if (_pinEngraving != null)
+        {
+            Cards.BoardEngraving.SetText(_pinEngraving,
+                (pinned ? Loc.Mod("pinned") : Loc.Mod("follow")).ToUpperInvariant());
+            Cards.BoardEngraving.Restyle(_pinEngraving, _style);
+        }
         _pin.SetTint(pinned ? PinAccentColor : PinIdleColor);
     }
 
@@ -1668,6 +1768,15 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
+    /// <summary>Show/hide one engraved caption. Change-gated: this runs on the 4 Hz content
+    /// cadence and a SetActive that is already right is exactly the churn that cadence exists to
+    /// avoid.</summary>
+    private static void SetShown(TMPro.TextMeshPro? label, bool shown)
+    {
+        if (label != null && label.gameObject.activeSelf != shown)
+            label.gameObject.SetActive(shown);
+    }
+
     private static void SetShown(Transform root, bool shown)
     {
         if (root != null && root.gameObject.activeSelf != shown)
@@ -1797,6 +1906,18 @@ internal sealed class RemoteBoardFurniture
         // Same strings the local RestControls caps wear (no game key exists for the short rest).
         _shortRest?.SetLabel(Loc.Mod("short_rest"));
         _longRest?.SetLabel(Loc.Game("GUI_LONG_REST", "Long rest"));
+        // …AND THE ENGRAVINGS, in the same two strings and the same casing the owner's board cuts
+        // them in. This is the half a texture could never have: a peer switching to English has to
+        // see "SHORT REST" carved into their own copy of a team-mate's board, in the VIEWER's
+        // language, because the engraving is a teaching aid for whoever is looking at it. (The cap
+        // LABELS above are the opposite case and stay as they are: those carry the OWNER's live
+        // wording off wire record 13, because they say what that player's press will do.)
+        Cards.BoardEngraving.SetText(_shortRestEngraving, Loc.Mod("short_rest").ToUpperInvariant());
+        Cards.BoardEngraving.SetText(_longRestEngraving,
+            Loc.Game("GUI_LONG_REST", "Long rest").ToUpperInvariant());
+        if (_shortRestEngraving != null) Cards.BoardEngraving.Restyle(_shortRestEngraving, _style);
+        if (_longRestEngraving != null) Cards.BoardEngraving.Restyle(_longRestEngraving, _style);
+        if (_pinEngraving != null) Cards.BoardEngraving.Restyle(_pinEngraving, _style);
     }
 
     // ---------------------------------------------------------------- sub-builders --
@@ -3214,6 +3335,25 @@ internal sealed class RemoteBoardFurniture
         /// round discs (one material) and whenever no cap shader resolved.</summary>
         private Material? _topMat, _bevelMat, _wallMat;
 
+        /// <summary>WHICH control this mirrored cap is, and whose board it belongs to — the cell of
+        /// the peer's own keycap atlas its face samples. Kept so the follow/pin toggle can swap its
+        /// symbol in place when the owner's pinned bit changes, which is the one mirrored cap whose
+        /// meaning is not fixed.</summary>
+        private Cards.CapRole _capRole = Cards.CapRole.Plain;
+        private Cards.ControlBoard? _capStyle;
+
+        /// <summary>Point this mirrored cap's face at a different role, through the owner's own
+        /// helper (<c>PlayTray.SetKeycapRole</c>) so the two boards resolve the cell identically.
+        /// Two floats on a material instance — no rebuild, so the mirrored dust dissolve never
+        /// fires for a state change the owner did not dissolve for either.</summary>
+        public void SetCapRole(Cards.CapRole role)
+        {
+            if (_capRole == role || _capStyle == null)
+                return;
+            if (Cards.PlayTray.SetKeycapRole(_topMat, role, _capStyle.Value))
+                _capRole = role;
+        }
+
         /// <summary>Change gate for <see cref="SetTint"/> — a material write per 4 Hz refresh is
         /// exactly the churn the cadence exists to avoid. Holds the APPLIED colour, i.e. after
         /// <see cref="_capTint"/>, so the gate compares what was actually written.</summary>
@@ -3257,9 +3397,16 @@ internal sealed class RemoteBoardFurniture
         /// </summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
             float depth, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null)
+            float travel = 0f, Color? accent = null,
+            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
         {
             GameObject go = NewRoot(parent, name, localPos);
+            // WHICH CONTROL, AND WHOSE BOARD. The style is the PEER's synced board style, so a peer
+            // on the bronze board is drawn with bronze keys carrying the bronze board's own rest
+            // motifs — the same resolution their own client makes, from the same prefab and the
+            // same atlas, with no wire field for either.
+            bool hasSymbol = style != null && role != Cards.CapRole.Plain
+                             && Cards.CapSymbols.TryAtlas(style.Value, out _, out _);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
@@ -3285,9 +3432,14 @@ internal sealed class RemoteBoardFurniture
             MeshRenderer mr = capMesh.AddComponent<MeshRenderer>();
             if (shader != null)
             {
-                top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
-                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
-                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
+                // ONE CALL, TWO BOARDS. This is PlayTray.NewKeycapMaterial — the owner's own
+                // builder — so the per-board atlas, the role cell and the fallback to the shared
+                // grain are all resolved by the same code on both sides. The symbol goes on the
+                // TOP plateau only; the bevel ring and the walls take the plain cell of the same
+                // atlas, exactly as BoardButton.Create does it.
+                top = Cards.PlayTray.NewKeycapMaterial(shader, face, role, style);                                 // [0] top plateau
+                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), Cards.CapRole.Plain, style);      // [1] bright bevel
+                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), Cards.CapRole.Plain, style);        // [2] dark warm wall
                 mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
@@ -3295,7 +3447,7 @@ internal sealed class RemoteBoardFurniture
             // the cap on a press ("it used to hang off the static root while only the cap sank,
             // reading as detached"). Same parenting here, so the mirrored dip moves the same parts.
             TextMeshPro label = BuildLabel(capMesh.transform, size,
-                new Vector3(0f, 0f, -capThick - 0.001f), in labels);
+                new Vector3(0f, 0f, -capThick - 0.001f), in labels, role, hasSymbol);
             var cap = new InertCap(go, label)
             {
                 _topMat = top,
@@ -3306,6 +3458,8 @@ internal sealed class RemoteBoardFurniture
                 _capMesh = capMesh.transform,
                 _accentColor = accent ?? color,
                 _labelBase = label.color,
+                _capRole = role,
+                _capStyle = style,
             };
             cap.AttachFx(travel, Mathf.Max(size.x, size.y));
             return cap;
@@ -3322,9 +3476,12 @@ internal sealed class RemoteBoardFurniture
         /// now, so the honest mirror is this method's ordinary thickness.</para></summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
             float thickness, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null)
+            float travel = 0f, Color? accent = null,
+            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
         {
             GameObject go = NewRoot(parent, name, localPos);
+            bool hasSymbol = style != null && role != Cards.CapRole.Plain
+                             && Cards.CapSymbols.TryAtlas(style.Value, out _, out _);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
@@ -3350,12 +3507,12 @@ internal sealed class RemoteBoardFurniture
             if (shader != null)
             {
                 baseMr.sharedMaterial = new Material(shader) { color = WorldUI.ButtonTuning.CapWellColor };
-                disc = Cards.PlayTray.NewKeycapMaterial(shader, face);
+                disc = Cards.PlayTray.NewKeycapMaterial(shader, face, role, style);
                 capMr.sharedMaterial = disc;
             }
 
             TextMeshPro label = BuildLabel(capDisc.transform, new Vector2(diameter, diameter),
-                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f), in labels);
+                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f), in labels, role, hasSymbol);
             var cap = new InertCap(go, label)
             {
                 // A disc has ONE cap material (no bevel/wall submeshes) — exactly like the local
@@ -3366,6 +3523,8 @@ internal sealed class RemoteBoardFurniture
                 _capMesh = capDisc.transform,
                 _accentColor = accent ?? color,
                 _labelBase = label.color,
+                _capRole = role,
+                _capStyle = style,
             };
             cap.AttachFx(travel, diameter);
             return cap;
@@ -3422,11 +3581,19 @@ internal sealed class RemoteBoardFurniture
         /// now, so there is one fit box and it is the right one for all of them.</para>
         /// </summary>
         private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos,
-                                              in CapLabelStyle labels)
+                                              in CapLabelStyle labels,
+                                              Cards.CapRole role = Cards.CapRole.Plain,
+                                              bool hasSymbol = false)
         {
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(parent, worldPositionStays: false);
-            labelGo.transform.localPosition = localPos;
+            // THE SYMBOL AND THE CAPTION SHARE ONE FACE, resolved through the same CapSymbols the
+            // owner's BoardButton.Create resolves it through — not through a copy of its numbers.
+            // That is what makes the mirrored cap's caption land in the same band as the owner's,
+            // under the same carved symbol, with nothing left to drift.
+            float labelDy = Cards.CapSymbols.LabelCentreY(role, hasSymbol) * size.y;
+            Vector2 labelBox = Cards.CapSymbols.LabelBox(role, hasSymbol);
+            labelGo.transform.localPosition = localPos + new Vector3(0f, labelDy, 0f);
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.alignment = TextAlignmentOptions.Center;
             // The local cap falls back to white when no HUD font has been harvested yet, because
@@ -3443,7 +3610,14 @@ internal sealed class RemoteBoardFurniture
             var labelRenderer = tmp.GetComponent<MeshRenderer>();
             if (labelRenderer != null)
                 labelRenderer.sortingOrder = 3; // the originals' own order, above the cap face
-            TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
+            TmpFit.Fit(tmp, size.x * labelBox.x, size.y * labelBox.y, maxFontSize: 0.40f);
+            // A SYMBOL-ONLY CAP DRAWS NO CAPTION, exactly as on the owner's board: the rest discs
+            // and the follow/pin toggle carry their symbol alone and their WORD is engraved into
+            // the board beside them. The renderer is disabled rather than the object destroyed, so
+            // the mirrored string is still there to come back if this peer's bundle turns out to
+            // have no keycap atlas.
+            if (hasSymbol && Cards.CapSymbols.SymbolOnly(role) && labelRenderer != null)
+                labelRenderer.enabled = false;
             return tmp;
         }
 
@@ -3689,10 +3863,11 @@ internal sealed class RemoteBoardFurniture
 /// Only the PRESS is an event with no state behind it, and that is the one field that was added
 /// (record 14 byte 0 bits 3..7).</para>
 ///
-/// <para>THE PRESS SHAPE is copied term for term from the original: the local <c>_press</c> impulse
-/// is set to 1 at the moment of the press and decays linearly at <see cref="PressDecayPerSecond"/>,
-/// while the cap sits at <c>CapRestZ + Travel × depth</c>. So the cap drops to the bottom of its
-/// travel instantly and rises back over about 170 ms. The FINGER-FOLLOW half of the local motion
+/// <para>THE PRESS SHAPE is not copied from the original any more, it IS the original: both sides
+/// advance a phase in seconds from the press edge and read
+/// <c>WorldUI.ButtonStroke.Depth01</c>, which is one attack, one detent and one spring-back
+/// past rest. The cap sits at <c>CapRestZ + Travel × depth</c> on both boards, and the depth is
+/// the same number. The FINGER-FOLLOW half of the local motion
 /// (the cap tracking penetration depth continuously while a fingertip hovers) is deliberately NOT
 /// reproduced: it is a per-frame function of the owner's fingertip position, it would cost a
 /// per-frame stream to sync, and what it exists to telegraph — the commit — is exactly what the
@@ -3711,10 +3886,16 @@ internal sealed class RemoteBoardFurniture
 /// </summary>
 internal sealed class RemoteCapFx : MonoBehaviour
 {
-    /// <summary>Mirror of the local press spring's decay rate (<c>BoardButton.Update</c>:
-    /// <c>Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f)</c>) — linted against drift by
-    /// scripts/check-mirrors.sh.</summary>
-    private const float PressDecayPerSecond = 6f;
+    // THE PRESS SHAPE IS NO LONGER MIRRORED — IT IS SHARED, and deleting the second copy is the
+    // resolution scripts/check-mirrors.sh's own header keeps recommending. This class used to
+    // carry `PressDecayPerSecond = 6f`, a hand-kept copy of the owner's inline
+    // `Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f)`, and that pair was one of the lint's
+    // nineteen groups. Both sides now advance a PHASE IN SECONDS and ask
+    // WorldUI.ButtonStroke.Depth01 what depth that phase is, so the mirrored press IS the
+    // owner's press rather than a number that has to agree with it — the same fix AssemblyColor
+    // and DecisionDockSurface.BarClearanceMeters already got, and the group is deleted from the
+    // lint rather than re-pointed. The stroke itself is new (attack, detent, spring-back past
+    // rest); see that function for what it replaced and why it runs on the UNSCALED clock.
 
     // THE APPEAR/DISSOLVE SURFACE RAMP IS NO LONGER MIRRORED — IT IS SHARED. This class used to
     // carry `AppearFadeFloor = 0.15f`, a hand-kept copy of the local `Mathf.SmoothStep(0.15f, 1f, k)`
@@ -3740,7 +3921,9 @@ internal sealed class RemoteCapFx : MonoBehaviour
     /// so the bevel/wall derivation stays with the cap that owns those materials.</summary>
     private System.Action<Color, float>? _paint;
 
-    private float _press;
+    /// <summary>Seconds since the mirrored press EDGE arrived, or negative when no stroke is
+    /// running — the same field, meaning and clock as the owner's <c>BoardButton._pressPhase</c>.</summary>
+    private float _pressPhase = -1f;
     private float _hideLeft;
     private float _showLeft;
     private Vector3 _shownScale = Vector3.one;
@@ -3756,9 +3939,15 @@ internal sealed class RemoteCapFx : MonoBehaviour
     // reported on their own board. The countdowns run on the UNSCALED clock (every other animation
     // in this mod does, because the game stops simulation time behind menus/dialogs and during card
     // phases) and carry a wall-clock deadline that force-completes them through the same completion
-    // path. NONE of the mirrored CONSTANTS move: DissolveSeconds / AppearSeconds / AppearFadeFloor /
-    // PressDecayPerSecond are untouched, and the press spring deliberately keeps its Time.deltaTime
-    // so it stays byte-identical to the local `Time.deltaTime * 6f` that check-mirrors.sh names.
+    // path. The mirrored DURATIONS are untouched: DissolveSeconds / AppearSeconds are still the
+    // frozen Defaults-backed constants machine-checked by scripts/check-remote-defaults.py.
+    //
+    // (This paragraph used to end "and the press spring deliberately keeps its Time.deltaTime so it
+    // stays byte-identical to the local `Time.deltaTime * 6f` that check-mirrors.sh names". That is
+    // no longer true in EITHER half and the correction is worth keeping: the press stroke is now a
+    // shared function of an UNSCALED phase, so the scaled clock the sentence was defending is gone
+    // and so is the constant it was defending it for. Byte-identity to the owner is now structural
+    // rather than numerical.)
     private float _hideDeadline = float.PositiveInfinity;
     private float _showDeadline = float.PositiveInfinity;
 
@@ -3809,7 +3998,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
     {
         if (_travel <= 0f || _capMesh == null)
             return;
-        _press = 1f;
+        _pressPhase = 0f;
     }
 
     /// <summary>Crumble the cap away, then deactivate it. Sized and coloured exactly like the local
@@ -3854,7 +4043,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
         _showLeft = 0f;
         _hideDeadline = float.PositiveInfinity;
         _showDeadline = float.PositiveInfinity;
-        _press = 0f;
+        _pressPhase = -1f;
         transform.localScale = _shownScale;
         _paint?.Invoke(Current(), 1f); // 1 = fully settled material, no dust
         SeatCap(0f);
@@ -3881,7 +4070,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
         // An IDLE cap does no per-frame work — this is one branch on three floats, and it is the
         // common case by a wide margin (a board's caps are mid-animation for a fraction of a second
         // at a time). Nothing in here logs, per frame or otherwise.
-        if (_hideLeft <= 0f && _showLeft <= 0f && _press <= 0f)
+        if (_hideLeft <= 0f && _showLeft <= 0f && _pressPhase < 0f)
             return;
 
         // Dust dissolve: the cap shrinks out under the burst, then really goes away.
@@ -3920,11 +4109,23 @@ internal sealed class RemoteCapFx : MonoBehaviour
             }
         }
 
-        // Press spring-back — the local impulse, decay rate and seat formula, unchanged.
-        if (_press > 0f)
+        // THE PRESS STROKE, off the owner's own function. Nothing here shapes anything: the
+        // phase advances on the unscaled clock and WorldUI.ButtonStroke.Depth01 says where the
+        // cap is, exactly as it does on the owner's board. SeatCap takes the signed value so the
+        // rebound past rest survives — clamping it at 0 here would drop the one part of the stroke
+        // that makes a mirrored press read as a key rather than a slide.
+        if (_pressPhase >= 0f)
         {
-            _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * PressDecayPerSecond);
-            SeatCap(_press);
+            _pressPhase += Time.unscaledDeltaTime;
+            if (_pressPhase >= WorldUI.ButtonStroke.StrokeSeconds)
+            {
+                _pressPhase = -1f;
+                SeatCap(0f);
+            }
+            else
+            {
+                SeatCap(WorldUI.ButtonStroke.Depth01(_pressPhase));
+            }
         }
     }
 }

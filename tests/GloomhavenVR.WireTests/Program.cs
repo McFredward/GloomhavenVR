@@ -78,6 +78,7 @@ internal static class Program
             // inert path matters just as much, because a clamp that fired on the bundle he
             // already has would move Oak's caps 8 mm and be blamed on anything but the clamp.
             BoardSeatVectors.Run(t);
+            BoardCapSymbolVectors.Run(t);
         }
         catch (Exception e)
         {

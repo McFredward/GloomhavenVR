@@ -416,7 +416,114 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 280;
+    public const ushort ModBuild = 281;
+    // Build 281: THE BOARD BUTTONS GET SYMBOLS, PER-BOARD MATERIALS AND ENGRAVED CAPTIONS.
+    // *** NEW BUNDLE: 70,877,279 bytes (was 68,577,168). NOT a DLL-only install. ***
+    //   "Statt einfach nur Text, moechte ich ein Symbol (und Text dazu), aber der Text soll sich
+    //   in den button nativ einfinden. Pro Board soll es auch ein anderes passendes Aussehen der
+    //   buttons sein … Die Rast buttons sollen weiterhin Rund sein … Auch Drueck-Animation …
+    //   soll gut funktionieren." Plus: "Versetze dich in einen Spieler der die Symbolik und
+    //   eventuell auch das Spiel noch nicht kennt … es soll nativ und immersiv in dem board
+    //   verarbeitet sein, nicht einfach als schwebender Text darueber."
+    //   THE DESIGN'S TECHNICAL CRUX WAS IMPOSSIBLE, NOT MERELY HARD. It specified engraved text
+    //   as a TMP mesh drawn with BoardLit. A TMP glyph is a SIGNED DISTANCE FIELD decoded by the
+    //   TMP shader's own smoothstep; any shader sampling that atlas as an ordinary texture draws
+    //   a grey blur, not a letter. BoardLit is also strictly opaque (Queue=Geometry, returns
+    //   alpha 1, no blend, no cutout), so it cannot leave the board showing between strokes. And
+    //   the design's own fallback -- shallow recesses in gen_board.py -- was closed by the lane
+    //   split. What shipped instead: the carve is done by the TMP distance-field material with
+    //   the recipe INVERTED from the one the cap labels wear. A cap label sits PROUD, so it is
+    //   lit on top and drops its shadow down-right. A board label is CUT IN, so the stroke's
+    //   inside is shadowed and the far lip catches light -- dark fill, darker keyline, and a
+    //   LIGHT underlay offset down-LEFT. Same machinery, opposite physics. THE LIGHT DIRECTION
+    //   WAS READ OFF THE SHADER, NOT ASSUMED: BoardLit's baked key is normalize(0.35, 0.85,
+    //   -0.45), which puts the lit lips on the bottom and left of every incision.
+    //   ONE ATLAS PER BOARD, ONE CELL PER ROLE. A 4x4 grid of 256-texel cells; BoardLit already
+    //   runs TRANSFORM_TEX and samples _BumpMap/_MRSMap with the same uv, so mainTextureScale/
+    //   Offset picks the cell for every map at once. A role is TWO FLOATS, not a texture -- which
+    //   is what makes the follow/pin toggle's live symbol swap free and keeps three styles times
+    //   seven roles down to six files. The symbol is CARVED, not raised, cashing the round-2
+    //   finding that on this shader the specular is a bevel term: _SpecStrength 0 vs 0.85 moves
+    //   the flat-on mean by 0.001, so a raised symbol reads by a highlight this surface cannot
+    //   deliver, while a recessed one reads by baked ambient occlusion, view-independently.
+    //   A KEYCAP TEXTURE IS A MODULATOR, NOT A COLOUR -- and the guard written for exactly this
+    //   symptom could not see it. BoardLit computes alb = tex2D(_MainTex, uv) * _Color, and the
+    //   texture being replaced was a near-white grain (mean 0.837) that passed the state colour
+    //   through untouched. The generated plates are photographs of materials, mean 0.27-0.42.
+    //   Dropped in unchanged, the cap face went from 1.75x the luminance of its own well to 0.95x
+    //   (oak), 0.85x (bronze) and 0.57x (STEEL) -- the "invisible button, only the text visible"
+    //   shape that WorldUI.ButtonTuning.SeatedCapColor exists for. That floor watches _Color, and
+    //   _Color had not moved: the darkening arrived in a term that did not exist when the guard
+    //   was written. Each plate is now re-based to the shipped grain's mean before anything is
+    //   carved, uniform RGB gain so hue ratios are exact, soft knee at 0.80. Caps come back at
+    //   1.74-1.81x their well.
+    //   THREE DEFECTS THE RENDER STATION FOUND AFTER THE LANE HAD ALREADY WRITTEN ITS REPORT:
+    //     1. THE KEYCAP MESHES WRITE NO TANGENTS AND BoardLit BUILDS ITS WHOLE BASIS FROM THEM.
+    //        mesh.tangents.Length == 0 on both cap builders while the shader reads v.tangent.
+    //        With no TANGENT stream bound that is whatever the API supplies for a missing
+    //        attribute -- undefined, with no guarantee the editor's GL and the rig's D3D11 agree.
+    //        It predates this round and survived because the only bound map was a low-contrast
+    //        shared grain; this round binds a per-board map whose carved symbol is the whole
+    //        point. Fixed with an explicit (1,0,0,-1), exact here because both meshes map UV as a
+    //        pure function of object XY. RecalculateTangents is WORSE: it solves from the UV
+    //        gradient, degenerate on 8 of the 20 triangles. THE PICTURE DOES NOT CHANGE IN THE
+    //        EDITOR, which is the point -- it worked by luck in one API and had no guarantee in
+    //        the other.
+    //     2. THE ENGRAVING PALETTE WAS DERIVED FROM THE WRONG SURFACE -- the KEYCAP plate rather
+    //        than the BOARD face, on the reasoning that a board and its keys are one material
+    //        family. True to 4-6% for oak and bronze. STEEL IS WRONG BY 0.68: its cap is dark
+    //        blued iron (0.275), its board face bright brushed silver (0.418). Cut into the real
+    //        board that gives a 70% drop where 55% was intended, and the "lit lip" at 0.372 would
+    //        have been DARKER than the 0.418 board around it -- INVERTING THE ONE CUE THAT SAYS
+    //        THE MARK IS CUT IN RATHER THAN RAISED. Palette re-derived from each board's own face
+    //        band: 49-53% drop, lip at 0.97-1.13x, all three styles, both languages.
+    //     3. THE @32 px CONTRAST NUMBER DOES NOT MEAN WHAT THE FIRST REPORT SAID. cap_check
+    //        reports a 25-44% luminance drop at table distance and that was written up as the
+    //        symbols surviving. The render says they are a 3-4 px smudge -- PRESENT, NOT
+    //        IDENTIFIABLE. Both numbers are true; the instrument measures one term of what the
+    //        eye needs. A mean drop over a footprint says "there is a mark here", never "you can
+    //        tell which mark". At 96 px everything reads, and the round rest DISCS survive the
+    //        far view better than the square caps.
+    //   AND A CORRECTION TO THE PRESS STROKE'S OWN CLAIM: measured off the frames, the full 4 mm
+    //   press moves the silhouette 6 px in a 360 px frame and the 0.4 mm rebound moves 1 px --
+    //   3.5 px and 0.35 px at 0.5 m. THE REBOUND IS SUB-PIXEL AT EVERY USABLE DISTANCE. What the
+    //   stroke buys is the attack and detent (35 ms of ramp instead of a one-frame teleport), not
+    //   an overshoot anyone will see. Its first draft could not overshoot AT ALL -- a decaying
+    //   sine added to an ease-out never crosses rest -- so the comment would have described
+    //   motion that was not there. Two explicit smoothsteps now, with the crossing count, peak
+    //   and endpoint asserted in the wire suite. It also runs on the UNSCALED clock on both
+    //   sides: the game stops simulation time behind menus and during card phases, which is
+    //   exactly when board buttons are pressed.
+    //   A MIRROR GROUP WAS DELETED, NOT ADDED, and that is the third time. Both sides now advance
+    //   a phase in seconds and call one WorldUI.ButtonStroke.Depth01, so the mirrored press IS
+    //   the owner's press. check-mirrors still reports 19: that pair lived in the script's prose
+    //   and was never machine-checked, because the local half was an inline Time.deltaTime * 6f.
+    //   Every cap material on both boards is minted by ONE call, and the peer's STYLE is already
+    //   on record 28, so a bronze player draws with bronze keys with NO NEW WIRE FIELD.
+    //   NO NEW Loc KEY WAS ADDED, DELIBERATELY. The engravings reuse Loc.Mod("short_rest"),
+    //   Loc.Game("GUI_LONG_REST"), Loc.Mod("follow") and Loc.Mod("pinned") -- the exact strings
+    //   the caps used to carry, upper-cased in the presenter. Loc.Mod has NO fallback, so every
+    //   new key is a chance to render a raw key on the board, and no wording needed one.
+    //   WHAT IS STILL OPEN, and both are honest limits rather than omissions:
+    //     * THE ENGRAVED TEXT HAS NEVER BEEN DRAWN BY THE SHIPPED TMP MATERIAL. TextMeshPro is
+    //       not in the companion Unity project's package manifest, so no station here can render
+    //       it. What was rendered is a three-layer legacy-TextMesh STAND-IN, and every such file
+    //       is named standin_* for that reason. It is evidence for LAYOUT, COLOUR and DEPTH
+    //       BEHAVIOUR, not for glyph rendering. The depth-honesty claim rests on arithmetic and
+    //       on the shader, not on that picture. The D3D11 shader variants and the tangent basis
+    //       on the rig can only be settled by hardware.
+    //     * PER-BOARD SEPARATION IS ONLY PARTLY DELIVERED, measured: idle cap faces sit at CIELAB
+    //       dE 13.8 (oak-steel), 10.3 (steel-bronze) and only 3.7 (OAK-BRONZE). Steel is clearly
+    //       a different material; oak and bronze are told apart by GRAIN STRUCTURE, not hue. The
+    //       cause is not the re-basing (a uniform gain cannot change a hue ratio) but the STATE
+    //       COLOUR -- parchment (0.60,0.51,0.35) times [ButtonColors] BoardCapTint 0.5, applied
+    //       identically on all three, and a material whose own cast is +-20% cannot survive it.
+    //       A chroma boost was tried on paper and REJECTED ON MEASUREMENT, not taste: dE 3.7 ->
+    //       3.9 -> 3.1 from k=1.0 to 2.6 because the separation lives in the already-crushed blue
+    //       channel, and it clips 99.99% of oak's texels at k=1.6. The lever that WOULD separate
+    //       them is the idle face colour, which is [ButtonColors] and is HIS tuning. Not touched.
+    //   WIRE TESTS 147644 -> 147883 (+239), all from the new cap-symbol and stroke vectors.
+    //   No other gate moved. Two spare symbol cells generated and unused; insurance, already paid.
     // Build 280: THE COMMIT STOPS BUILDING DIAGNOSTICS IT THROWS AWAY, AND THE FIGURE
     // EXEMPTION SHIPS AS A MEASUREMENT RATHER THAN A REMEDY.
     // Bundle UNCHANGED at 68,577,168 — DLL-only on top of 279.

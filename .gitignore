@@ -51,6 +51,10 @@ dist/
 !.claude/hooks/
 decompiled-demeo/
 unity/board-prep/out/
+# The keycap pipeline's own scratch: generated plates, palette reference crops and the atlases as
+# built for a local check. The SHIPPED atlases live in Assets/Bundle/Table and ARE tracked; this is
+# the working directory beside them, exactly like ../out/ above.
+unity/board-prep/buttons/out/
 unity/mask-prep/out/
 .planning/refactor/.guard/
 ressources
@@ -76,5 +80,7 @@ RELEASE_NOTES.md
 generated-images/
 board-build.log
 board-preview.log
+# …and the keycap station's, which lands beside it (Editor/PreviewKeycaps.cs).
+keycap-preview.log
 unity/board-prep/img2img/.aniso_ref/
 unity/GloomhavenVR.Assets/board-unity-preview.png

@@ -300,6 +300,74 @@ internal sealed partial class PlayTray
         private TextMeshPro? _label;
         private Transform? _cap;
         private Color _accentColor;
+
+        /// <summary>WHICH control this cap is, i.e. which cell of the board's keycap atlas its top
+        /// plateau samples (<see cref="CapSymbols"/>). Kept so the material can be re-aimed live
+        /// (<see cref="SetCapRole"/>) and so the bounded shader heal re-skins the cap with the same
+        /// symbol it was built with rather than a plain one.</summary>
+        private CapRole _capRole = CapRole.Plain;
+
+        /// <summary>True once this cap's face really is wearing its role's atlas cell. False on a
+        /// cap built before the bundle was loadable — which is what <see cref="TryHealCapMaterial"/>
+        /// repairs, and what stops it re-skinning a cap that is already correct on every tick.</summary>
+        private bool _symbolApplied;
+
+        /// <summary>The cap's built footprint in metres, kept so the caption can be re-laid when a
+        /// late atlas arrives (<see cref="ApplyLabelLayout"/>).</summary>
+        private Vector2 _capSize = Vector2.one;
+
+        /// <summary>
+        /// Put the caption where this cap's CURRENT symbol state says it belongs: centred and full
+        /// size with no symbol, dropped into the lower band under one, and not drawn at all on a
+        /// symbol-only role.
+        ///
+        /// <para>It exists as a method rather than as the inline block in <see cref="Create"/>
+        /// because the symbol can arrive LATE. A cap built before its board's keycap atlas was
+        /// loadable is re-skinned in place by <see cref="TryHealCapMaterial"/>, and re-skinning
+        /// alone would leave a rest disc showing its newly carved crescent AND the word underneath
+        /// it — the one thing the board engraving exists to avoid. Cheap and idempotent, so the
+        /// heal simply calls it.</para>
+        /// </summary>
+        private void ApplyLabelLayout(bool hasSymbol)
+        {
+            if (_label == null)
+                return;
+            float dy = CapSymbols.LabelCentreY(_capRole, hasSymbol) * _capSize.y;
+            Vector2 box = CapSymbols.LabelBox(_capRole, hasSymbol);
+            Vector3 p = _label.transform.localPosition;
+            _label.transform.localPosition = new Vector3(0f, dy, p.z);
+            Core.TmpFit.Fit(_label, _capSize.x * box.x, _capSize.y * box.y, maxFontSize: 0.40f);
+            var mr = _label.GetComponent<MeshRenderer>();
+            if (mr != null)
+                mr.enabled = !(hasSymbol && CapSymbols.SymbolOnly(_capRole));
+        }
+
+        /// <summary>WHICH BOARD this cap belongs to — the atlas its role indexes into. Null on a
+        /// cap that is deliberately not a board button (the map room's keycap-skinned furniture),
+        /// which keeps the shared grain.</summary>
+        private ControlBoard? _capStyle;
+
+        /// <summary>
+        /// Point this cap's face at a different <see cref="CapRole"/> in place.
+        ///
+        /// <para>Built for the follow/pin toggle, which is ONE control with TWO meanings — an
+        /// anchor while the board is FIXIERT, two footprints while it FOLGEN — and has to say which
+        /// one it currently is. A role is a sub-rectangle of one texture, so the swap is two float2
+        /// writes on a material instance: no rebuild, no destroy, and therefore nothing for the
+        /// dust dissolve to play over (a cap that is DESTROYED cannot crumble, which is the whole
+        /// reason the item-use cap is built once and hidden rather than created on demand).</para>
+        ///
+        /// <para>Silently does nothing when this bundle has no atlas for the style — that cap still
+        /// carries its word label, so its state is still readable.</para>
+        /// </summary>
+        internal void SetCapRole(CapRole role)
+        {
+            if (_capRole == role || _capStyle == null)
+                return;
+            if (!SetKeycapRole(_capMaterial, role, _capStyle.Value))
+                return;
+            _capRole = role;
+        }
         /// <summary>USER DEBUG OPTION: [ButtonColors] per-category cap-FACE tint (multiplier, default
         /// white = unchanged) — set once at <see cref="Create"/> from the button's category. Applied
         /// to every state colour AND the native sprite face so the user can darken this cap group.</summary>
@@ -307,7 +375,17 @@ internal sealed partial class PlayTray
         private bool _enabledState;
         private bool _accent;
         private bool _confirmed;
-        private float _press; // 0..1 press animation
+        /// <summary>
+        /// SECONDS SINCE THIS CAP'S PRESS EDGE, or negative when no stroke is running.
+        ///
+        /// <para>It replaced a 0..1 AMPLITUDE that was set to 1 on the press and decayed
+        /// linearly at 6/s — i.e. a cap that teleported to the bottom of its travel in one frame
+        /// and rose back at constant speed. A phase is what lets the stroke have an attack, a
+        /// detent and a rebound past rest (<c>WorldUI.ButtonStroke.Depth01</c>), and it is
+        /// what lets the peer's mirror of this cap run the SAME function off the same phase
+        /// instead of keeping a second copy of a decay rate.</para>
+        /// </summary>
+        private float _pressPhase = -1f;
 
         // Poke dwell state (test #19): the hand whose fingertip is charging the
         // press, hold start time, and the count of haptic ramp ticks already sent.
@@ -552,8 +630,16 @@ internal sealed partial class PlayTray
             string fallbackLabel, System.Action onClick,
             bool round = false, float diameter = 0f, float thickness = 0.01f,
             bool overlay = false, bool boxy = false, float travel = CapTravel,
-            WorldUI.ButtonTuning.CapCategory capCategory = WorldUI.ButtonTuning.CapCategory.Rest)
+            WorldUI.ButtonTuning.CapCategory capCategory = WorldUI.ButtonTuning.CapCategory.Rest,
+            CapRole capRole = CapRole.Plain, ControlBoard? capStyle = null)
         {
+            // WHICH CONTROL THIS IS, and therefore which cell of which board's keycap atlas its
+            // face wears (see CapSymbols). Resolved ONCE, here, because every downstream decision
+            // — the material, the label's box, whether the cap carries a caption at all — is the
+            // same decision. `capStyle` null (or a bundle with no atlas) leaves every one of them
+            // exactly where it was before this existed: shared grain, centred caption, no symbol.
+            bool hasSymbol = capStyle != null && capRole != CapRole.Plain
+                             && CapSymbols.TryAtlas(capStyle.Value, out _, out _);
             var go = new GameObject($"BoardButton_{fallbackLabel}");
             go.transform.SetParent(anchor, worldPositionStays: false);
 
@@ -656,7 +742,7 @@ internal sealed partial class PlayTray
                 capShaderFallback = shader == null || !shader.name.Contains("BoardLit");
                 if (shader != null)
                 {
-                    capMaterial = NewKeycapMaterial(shader, DisabledColor);
+                    capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);
                     capDisc.GetComponent<MeshRenderer>().sharedMaterial = capMaterial;
                     Core.VRLog.Info("Cards", $"BoardButton '{fallbackLabel}': ROUND cap skinned with the shared " +
                                              "carved-grain keycap material (BoardLit + KeycapGrain _MainTex) — same antique " +
@@ -719,9 +805,15 @@ internal sealed partial class PlayTray
                     // Task #5a: each submesh material carries the shared carved-grain texture on
                     // _MainTex (grayscale grain × the state/bevel/wall tint) when the bundle ships
                     // it — a real wood/parchment surface — else EXACTLY the prior plain tint.
-                    capMaterial = NewKeycapMaterial(shader, DisabledColor);                 // [0] top
-                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor)); // [1] bright bevel
-                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor));   // [2] dark warm wall
+                    // ONLY THE TOP PLATEAU TAKES THE ROLE CELL. The bevel ring and the walls take
+                    // the PLAIN cell of the same board's atlas: they are the same material as the
+                    // face and must read as one piece of it, but the symbol belongs on the face
+                    // the player looks at, and a bevel quad's UVs run OUT to the cap's full
+                    // footprint, so a role cell there would draw the symbol's outer edge smeared
+                    // around the rim.
+                    capMaterial = NewKeycapMaterial(shader, DisabledColor, capRole, capStyle);      // [0] top
+                    capBevelMaterial = NewKeycapMaterial(shader, BevelTint(DisabledColor), CapRole.Plain, capStyle); // [1] bright bevel
+                    capWallMaterial = NewKeycapMaterial(shader, WallTint(DisabledColor), CapRole.Plain, capStyle);   // [2] dark warm wall
                     capCube.GetComponent<MeshRenderer>().sharedMaterials =
                         new[] { capMaterial, capBevelMaterial, capWallMaterial };
                 }
@@ -769,7 +861,14 @@ internal sealed partial class PlayTray
             // face on the viewer side (-Z), above it by sortingOrder so it never clips.
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(cap.transform, worldPositionStays: false);
-            labelGo.transform.localPosition = new Vector3(0f, 0f, labelZ); // proud of the cap face (viewer side, -Z)
+            // THE SYMBOL AND THE CAPTION SHARE ONE FACE, and the split is authored in ONE place:
+            // CapSymbols mirrors the very numbers cap_atlas.py laid the symbol out with, so the
+            // caption drops into the band BELOW the carved symbol instead of through it. With no
+            // atlas in this bundle the offset is 0 and the box is the pair this call has always
+            // passed, i.e. dead centre and full size.
+            float labelDy = CapSymbols.LabelCentreY(capRole, hasSymbol) * size.y;
+            Vector2 labelBox = CapSymbols.LabelBox(capRole, hasSymbol);
+            labelGo.transform.localPosition = new Vector3(0f, labelDy, labelZ); // proud of the cap face (viewer side, -Z)
             var tmp = labelGo.AddComponent<TextMeshPro>();
             tmp.text = fallbackLabel;
             tmp.alignment = TextAlignmentOptions.Center;
@@ -789,7 +888,17 @@ internal sealed partial class PlayTray
             // Fit inside the cap face: localized CONFIRM/UNDO strings (SetLabel
             // mirrors the game's texts) shrink/wrap inside the button instead of
             // spilling over its edges (TmpFit, test #12).
-            Core.TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
+            Core.TmpFit.Fit(tmp, size.x * labelBox.x, size.y * labelBox.y, maxFontSize: 0.40f);
+            // A SYMBOL-ONLY CAP DRAWS NO CAPTION AT ALL — the rest pads and the follow/pin toggle.
+            // Their word is ENGRAVED INTO THE BOARD beside them (BoardEngraving), which is what
+            // the user asked for ("nativ und immersiv in dem board verarbeitet, nicht einfach als
+            // schwebender Text darüber"), so a caption here would be the same word twice. The
+            // renderer is disabled rather than the object destroyed: the string is still the one
+            // the multiplayer cap-label seam reads (PlayTray.ConfirmControlLabel and friends read
+            // CurrentLabel), and a bundle without the atlas needs the caption back with no
+            // rebuild.
+            if (hasSymbol && CapSymbols.SymbolOnly(capRole) && labelRenderer != null)
+                labelRenderer.enabled = false;
 
             // Item 3 (laser fix): the trigger collider must SPAN the full protruding cap so a
             // laser ray aimed at the visible cap FACE registers a hit. The old fixed box
@@ -829,6 +938,16 @@ internal sealed partial class PlayTray
             button._label = tmp;
             button._cap = cap.transform;
             button._accentColor = accent;
+            button._capRole = capRole;
+            button._capStyle = capStyle;
+            button._symbolApplied = hasSymbol;
+            button._capSize = size;
+            // A cap that WANTS a symbol and did not get one has to be given a heal runway, exactly
+            // as a cap that missed the shader is. Without this the budget is 0 for every cap whose
+            // shader resolved, and the atlas heal below could never run on the one case it exists
+            // for — a gated remedy that never executes, which this project has shipped before.
+            if (!button._capShaderFallback && capStyle != null && capRole != CapRole.Plain && !hasSymbol)
+                button._capHealBudget = CapHealAttempts;
             // USER DEBUG OPTION: this button's [ButtonColors] cap-face tint (default white = no
             // change). Applied to every state colour (StateColor) and the native sprite face
             // (UpdateColor). The category defaults to Rest so RestControls — which does not pass
@@ -1210,7 +1329,18 @@ internal sealed partial class PlayTray
         /// </summary>
         private void TryHealCapMaterial()
         {
-            if (!_capShaderFallback || _capHealBudget <= 0 || _capMaterial == null || _capFace != null)
+            // TWO THINGS CAN ARRIVE LATE OUT OF THE SAME BUNDLE, and until this round only one of
+            // them was healed. The shader is the documented case. The per-board KEYCAP ATLAS is the
+            // new one, and its failure is quieter: the cap renders perfectly, in the right colour,
+            // with the right walls — it just has no symbol carved into it, for the rest of the
+            // session, on a board that happened to be built a few frames before the bundle was
+            // loadable. Both are repaired by exactly the same re-skin, so the gate is widened
+            // rather than a second heal written beside it.
+            bool wantsSymbol = _capStyle != null && _capRole != CapRole.Plain
+                               && !_symbolApplied
+                               && CapSymbols.TryAtlas(_capStyle.Value, out _, out _);
+            if ((!_capShaderFallback && !wantsSymbol) || _capHealBudget <= 0
+                || _capMaterial == null || _capFace != null)
                 return;
             if (Time.unscaledTime < _nextCapHealAt)
                 return;
@@ -1226,18 +1356,37 @@ internal sealed partial class PlayTray
                 return;
             }
             Color top = StateColor();
-            _capMaterial = NewKeycapMaterial(lit, top);
+            // THE HEAL RE-SKINS WITH THE SAME ROLE IT WAS BUILT WITH. Re-skinning to CapRole.Plain
+            // would silently strip the carved symbol off exactly the caps that were unlucky enough
+            // to be built before the bundle was loadable — a defect that only ever appears on a
+            // slow load and only on some of the caps, which is the hardest kind to be told about.
+            _capMaterial = NewKeycapMaterial(lit, top, _capRole, _capStyle);
             if (_capBevelMaterial != null && _capWallMaterial != null && _capMeshRenderer != null)
             {
-                _capBevelMaterial = NewKeycapMaterial(lit, BevelTint(top));
-                _capWallMaterial = NewKeycapMaterial(lit, WallTint(top));
+                _capBevelMaterial = NewKeycapMaterial(lit, BevelTint(top), CapRole.Plain, _capStyle);
+                _capWallMaterial = NewKeycapMaterial(lit, WallTint(top), CapRole.Plain, _capStyle);
                 _capMeshRenderer.sharedMaterials = new[] { _capMaterial, _capBevelMaterial, _capWallMaterial };
             }
             else if (_capMeshRenderer != null)
             {
                 _capMeshRenderer.sharedMaterial = _capMaterial;
             }
+            bool healedShader = _capShaderFallback;
             _capShaderFallback = false;
+            _symbolApplied = _capStyle != null && _capRole != CapRole.Plain
+                             && CapSymbols.TryAtlas(_capStyle.Value, out _, out _);
+            // The CAPTION has to follow the symbol. Re-skinning alone would leave a rest disc
+            // wearing its newly carved crescent with the word still printed across it, which is
+            // exactly the doubling the board engraving exists to remove.
+            ApplyLabelLayout(_symbolApplied);
+            if (!healedShader)
+            {
+                VRLog.Info("Cards", $"KEYCAP SYMBOL HEALED: '{name}' was built before its board's " +
+                    "keycap atlas was loadable, so it wore the shared grain and no symbol; the atlas " +
+                    $"has since turned up, and the cap has been re-skinned in place with the {_capRole} " +
+                    "cell — no rebuild, no state change, and the dust dissolve never ran.");
+                return;
+            }
             VRLog.Info("Cards", $"KEYCAP MATERIAL HEALED: '{name}' was built before " +
                 "'GloomhavenVR/BoardLit' was loadable and wore the flat Standard/Sprites fallback; the " +
                 "shader has since resolved, so the cap has been re-skinned in place with the real " +
@@ -1355,15 +1504,23 @@ internal sealed partial class PlayTray
             if (_cap == null)
                 return;
 
-            // Spring the click impulse back down (framerate-independent decay).
-            if (_press > 0f)
-                _press = Mathf.MoveTowards(_press, 0f, Time.deltaTime * 6f);
+            // Advance the press STROKE (attack → detent → spring-back past rest → settle). The
+            // shape is WorldUI.ButtonStroke.Depth01 and the peer's mirror of this cap calls
+            // the same function off the same phase, so the two are one animation rather than two
+            // that agree — see the block comment at that function for what it replaced and why the
+            // clock is unscaled.
+            if (_pressPhase >= 0f)
+            {
+                _pressPhase += Time.unscaledDeltaTime;
+                if (_pressPhase >= WorldUI.ButtonStroke.StrokeSeconds)
+                    _pressPhase = -1f;
+            }
 
             // Finger-follow (feature 6a): while a fingertip hovers this button the cap
             // tracks how deep the tip has pushed past the face, so the puck sinks under
             // the finger 1:1 (up to the full travel) and rises as it retracts. When no
-            // finger is present it falls back to the _press spring. The two combine as a
-            // max so a quick laser/click still shows its dip even mid-hover.
+            // finger is present the press STROKE drives the cap on its own. The two combine
+            // as a max so a quick laser/click still shows its dip even mid-hover.
             float follow = _hoverHand != null && _enabledState ? FollowDepth01(_hoverHand) : 0f;
 
             // DEPTH-FIRE (user #6): the press fires exactly when the cap reaches ~90% of
@@ -1417,10 +1574,16 @@ internal sealed partial class PlayTray
                 _depthArmed = true;
             }
 
-            float depth01 = Mathf.Max(follow, _press);
+            // THE TWO SOURCES COMBINE AS A MAX ONLY WHILE A FINGER IS ON THE CAP, so a quick
+            // laser click still shows its dip mid-hover — and the press stroke's REBOUND survives
+            // when there is no finger. A plain Mathf.Max would clamp every negative phase of the
+            // stroke to 0 against a follow of 0 and delete the overshoot silently, which is the
+            // trap PressDepth01's own doc comment names.
+            float impulse = _pressPhase >= 0f ? WorldUI.ButtonStroke.Depth01(_pressPhase) : 0f;
+            float depth01 = follow > 0f ? Mathf.Max(follow, impulse) : impulse;
 
             // Nothing to drive and already seated → leave it (avoids per-frame churn).
-            if (depth01 <= 0f && Mathf.Approximately(_cap.localPosition.z, CapRestZ))
+            if (Mathf.Approximately(depth01, 0f) && Mathf.Approximately(_cap.localPosition.z, CapRestZ))
                 return;
 
             Vector3 pos = _cap.localPosition;
@@ -1568,7 +1731,7 @@ internal sealed partial class PlayTray
                 return;
             float held = Time.unscaledTime - _dwellStart;
             _dwellHand = null;
-            _press = 0f;
+            _pressPhase = -1f;
             if (_cap != null)
             {
                 Vector3 pos = _cap.localPosition;
@@ -1612,7 +1775,7 @@ internal sealed partial class PlayTray
                 return;
             }
             _nextPressTime = Time.unscaledTime + WorldUI.ButtonTuning.PokePressCooldownSeconds;
-            _press = 1f;
+            _pressPhase = 0f; // arm the stroke; Update rides ButtonStroke.Depth01 from here
             hand.SendHaptic(HapticPreset.ClickPulse);
             // MULTIPLAYER (1:1 ruling — "alle Interaktionen, ANIMATIONEN und Anzeigen des
             // Controllboards"): publish the press EDGE for the extras sampler, so the mirrored cap

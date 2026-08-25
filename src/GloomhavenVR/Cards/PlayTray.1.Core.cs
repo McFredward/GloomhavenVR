@@ -734,29 +734,24 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         readoutGo.transform.localPosition = ReadoutBase + CardsConfig.ReadoutOffset(CardsConfig.CurrentBoard).Value;
         readoutGo.transform.localRotation = _boardFaceFrame; // face the player like the slots ("Runde N" was on the back)
 
-        var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        plate.name = "Plate";
-        Object.Destroy(plate.GetComponent<Collider>());
-        plate.transform.SetParent(readoutGo.transform, worldPositionStays: false);
-        plate.transform.localScale = new Vector3(0.13f, 0.036f, 1f);
-        plate.transform.localPosition = new Vector3(0f, 0f, 0.006f); // behind the text, toward the board body
-        // CORE FIX: the readout now seats PROUD (NewAnchor at the fixed FixedProudZ, plus the
-        // per-board ReadoutOffset), so it is depth-correct — drop the forced draw-over-the-board.
-        // Lit (Standard) plate so it shades like a real object instead of the flat unlit Overlay.
-        // (This used to credit a "SeatOnBoardFace raycast"; that seating path never ran for the
-        // readout and has since been removed — see the "raycast seating (REMOVED)" note.)
-        Tint(plate, new Color(0.12f, 0.11f, 0.10f));
-
-        _roundLabel = readoutGo.AddComponent<TextMeshPro>();
+        // THE BACKING PLATE IS GONE, and it is the widget itself that asked for it. The mirrored
+        // copy of this readout on a peer's board was reported as sitting "auf einem grauen Kasten"
+        // (Net/RemoteStatusReadouts, defect (c) of the 1:1 round) — and the answer that round was
+        // to build the OWNER's plate faithfully, because the owner had one. The user has now ruled
+        // on the plate itself: the round text is to be "nativ und immersiv in dem board
+        // verarbeitet, nicht einfach als schwebender Text darüber … Das gilt übrigens auch für den
+        // Rundentext." A dark quad laid over the board is neither. So the plate is deleted on both
+        // boards at once and the number is CUT INTO the board instead (BoardEngraving: the board's
+        // own material in shadow, a shaded keyline, a lit lower-left lip). Nothing is drawn behind
+        // the glyphs at all any more — the board is.
+        //
+        // It stays fully localized, because it has to: the string is
+        // GUI_START_ROUND_BANNER through Core.Loc.Game, re-read on every language change
+        // (TickStatus resets _roundShown), which is the whole reason this could not be a texture.
+        _roundLabel = BoardEngraving.Create(readoutGo.transform, "RoundText", Vector3.zero,
+            new Vector2(0.12f, 0.028f), maxFontSize: 0.32f, style: CardsConfig.CurrentBoard);
         _roundLabel.text = "-";
         _roundShown = int.MinValue; // keep the change-detection key in sync after a rebuild
-        _roundLabel.alignment = TextAlignmentOptions.Center;
-        _roundLabel.color = new Color(1f, 0.9f, 0.6f);
-        // Single line fitted to the plate ("Runde 12" and longer localizations shrink).
-        Core.TmpFit.Fit(_roundLabel, 0.12f, 0.028f, maxFontSize: 0.32f, wrap: false);
-        // No RenderOnTop: the readout is depth-correct now (seated proud). The TMP text draws
-        // in the transparent queue after the opaque plate, and sits proud of it (text z 0 vs
-        // plate z +0.006 toward the board), so the label reads over its own dark backing plate.
 
         // 2026-08-04 (same defect family as the status placard): the TMP label is a depth-less
         // transparent renderer at order 0 — join the board's furniture order group so a panel
@@ -1111,18 +1106,71 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
             Core.Loc.Mod("follow"), ToggleFollow,
             thickness: capDepth, boxy: true, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard);
+            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard,
+            // ONE CONTROL, TWO MEANINGS, TWO SYMBOLS. FIXIERT is an anchor; FOLGEN is two
+            // footprints. The cap is built at whichever the board is in NOW and swaps in place on
+            // every toggle (SetCapRole — two floats on a material instance, no rebuild, so the
+            // dust dissolve never sees it). The WORD is engraved into the board beside it, and
+            // flips with the symbol.
+            capRole: CardsConfig.TrayFollow.Value ? CapRole.FixedFollow : CapRole.FixedPinned,
+            capStyle: CardsConfig.CurrentBoard);
         _followToggle.WireCap = Net.NetProtocol.CapPressFollowPin;
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
 
+        // THE WORD, CUT INTO THE BOARD ABOVE THE BUTTON. The cap carries the state SYMBOL (anchor
+        // / footprints) and nothing else, so what says "FIXIERT" or "FOLGEN" in the player's own
+        // language is an engraving — the user's rule for the whole board ("nativ und immersiv in
+        // dem board verarbeitet, nicht einfach als schwebender Text darüber").
+        //
+        // IT IS PARENTED TO THE PIN ANCHOR, so it travels with every [Cards] PinOffset the user
+        // dials. That anchor sits BELOW the board's own bottom edge (PinBase y = −BoardH/2 − 0.030,
+        // i.e. −0.19 against a −0.16 edge) because the toggle lives beside the handle bar rather
+        // than on the plate, so the caption is lifted back UP onto the board's bottom margin: at
+        // +0.042 local its centre lands near y −0.148, inside the −0.16 edge with room for its own
+        // half-height. If a tuned PinOffset ever pushes the toggle somewhere the board is not, the
+        // caption goes with it rather than being stranded on the plate away from its control —
+        // that is the honest behaviour, and the same argument the rest captions make.
+        if (CapSymbols.TryAtlas(CardsConfig.CurrentBoard, out _, out _))
+        {
+            _followEngraving = BoardEngraving.Create(_followAnchor, "FollowEngraving",
+                new Vector3(0f, BoardEngraving.PinCaptionLiftY, 0f), BoardEngraving.PinCaptionBox,
+                BoardEngraving.CaptionMaxFontSize, CardsConfig.CurrentBoard);
+            AdoptFurniture(_followEngraving.gameObject); // see BoardEngraving.Create
+            RefreshFollowEngraving();
+        }
+    }
+
+    /// <summary>The engraved FOLGEN / FIXIERT caption beside the follow-pin toggle. Null when this
+    /// bundle ships no keycap atlas, in which case the cap keeps its own word label instead.</summary>
+    private TextMeshPro? _followEngraving;
+
+    /// <summary>
+    /// Put the follow/pin control into the state it is actually in — the SYMBOL on the cap and the
+    /// WORD in the board, together, in the current language.
+    ///
+    /// <para>Both halves flip from the same read of the same config value, in one call, so the cap
+    /// can never show an anchor over the word FOLGEN. The symbol swap is two floats on a material
+    /// instance (<c>BoardButton.SetCapRole</c>), so there is no rebuild and the dust dissolve never
+    /// sees this — which matters, because a toggle the player presses repeatedly would otherwise
+    /// crumble and re-assemble on every press.</para>
+    /// </summary>
+    private void RefreshFollowEngraving()
+    {
+        bool follow = CardsConfig.TrayFollow.Value;
+        _followToggle?.SetCapRole(follow ? CapRole.FixedFollow : CapRole.FixedPinned);
+        if (_followEngraving == null)
+            return;
+        BoardEngraving.SetText(_followEngraving,
+            (follow ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned")).ToUpperInvariant());
+        BoardEngraving.Restyle(_followEngraving, CardsConfig.CurrentBoard);
     }
 
     private void ToggleFollow()
     {
         bool follow = !CardsConfig.TrayFollow.Value;
         CardsConfig.TrayFollow.Value = follow; // BepInEx persists on set
-        ApplyFollowMode();
+        ApplyFollowMode(); // …which also flips the cap's symbol and the board's engraved word
         VRLog.Info("Cards", $"Tray anchor mode → {(follow ? "FOLLOW (rig-anchored)" : "PINNED (world-anchored)")}.");
     }
 
@@ -1186,6 +1234,14 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
             _followToggle.SetLabel(CardsConfig.TrayFollow.Value ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
         }
+        // …and the two halves of the control that were added with the symbols: the cap's SYMBOL
+        // (anchor while pinned, footprints while following) and the WORD cut into the board beside
+        // it. Here rather than only in ToggleFollow, because this method is the ONE place that puts
+        // the control into the state it is actually in and it has three callers — the toggle press,
+        // the board-switch re-pin, and the initial placement. A refresh hung off the press alone
+        // would leave the symbol and the word disagreeing with the cap's own accent colour after
+        // either of the other two.
+        RefreshFollowEngraving();
     }
 
     internal void Destroy()

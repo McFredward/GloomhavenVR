@@ -62,6 +62,11 @@ internal sealed partial class PlayTray
             if (_followToggle != null)
                 _followToggle.SetLabel(CardsConfig.TrayFollow.Value
                     ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
+            // The toggle's word now lives in the BOARD, not on the cap, so the language change has
+            // to reach the engraving as well — this is the "es kann lokalisiert sein" half of the
+            // requirement, and it is the reason the caption is TMP text laid into the board rather
+            // than pixels in the board's own atlas.
+            RefreshFollowEngraving();
         }
 
         // Round readout (test #18): the PhaseBanner world conversion is GONE — the
@@ -95,6 +100,11 @@ internal sealed partial class PlayTray
                     }
                 }
                 _roundLabel.text = text;
+                // The HUD font is harvested off a live game widget and can arrive AFTER the board
+                // was built, which would leave the number's carve unstyled for the rest of the
+                // session on a board built early. Re-applying on this change-gated path is cheap
+                // and idempotent, and the peer's mirror of this readout does exactly the same.
+                BoardEngraving.Restyle(_roundLabel, CardsConfig.CurrentBoard);
                 VRLog.Info("Cards", $"Board: round readout → '{text}'.");
             }
         }

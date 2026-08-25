@@ -657,6 +657,42 @@ internal static class CardMesh
     /// unchanged. Each face carries its own flat-shaded vertices/normal; triangle winding is
     /// derived from the outward normal so every face is front-facing regardless of corner order.
     /// </summary>
+
+    /// <summary>
+    /// THE TANGENT EVERY KEYCAP VERTEX CARRIES, and why it is one constant.
+    ///
+    /// <para><b>THE DEFECT THIS CLOSES.</b> Neither keycap mesh wrote tangents at all — measured,
+    /// <c>mesh.tangents.Length == 0</c> — and <c>BoardLit</c> builds its whole tangent basis from
+    /// them: <c>o.wt = UnityObjectToWorldDir(v.tangent.xyz)</c> and
+    /// <c>o.wb = cross(o.wn, o.wt) * v.tangent.w</c>. With no TANGENT stream bound, that is
+    /// whatever the graphics API supplies for a missing vertex attribute, which is undefined and
+    /// not guaranteed to agree between the editor's GL and the rig's D3D11. The normal map was
+    /// reaching the pixel through a basis nobody had specified. It went unnoticed because the only
+    /// map bound was a low-contrast shared grain; this round binds a per-board map whose carved
+    /// symbol is the whole point, so an undefined basis stops being survivable.</para>
+    ///
+    /// <para><b>WHY A CONSTANT IS THE RIGHT ANSWER HERE, not a cop-out.</b> Both keycap meshes map
+    /// UV as a pure function of object XY — <c>u = x/width + 0.5</c>, <c>v = y/height + 0.5</c> —
+    /// on EVERY face. So the direction of increasing u is object <c>+X</c> everywhere and the
+    /// direction of increasing v is <c>+Y</c> everywhere; there is nothing per-vertex to derive.
+    /// <c>w = -1</c> is what makes <c>cross(n, t) * w</c> come out as <c>+Y</c> on the front-facing
+    /// plateau (n = <c>-Z</c>: <c>cross((0,0,-1),(1,0,0)) = (0,-1,0)</c>), which is the face the
+    /// symbol is carved into and the only one a player looks at.</para>
+    ///
+    /// <para><b>AND WHERE IT IS A CONVENTION RATHER THAN A DERIVATION, stated rather than hidden:</b>
+    /// on the vertical side WALLS the UV is degenerate — a wall spans a constant y (or x) and varies
+    /// only in z, so v (or u) does not change across it at all and no correct tangent frame exists
+    /// there. That is the same fact the UV comment above already records as "the walls sample a THIN
+    /// grain strip". Keeping the plateau's frame there is the choice that makes the grain run the
+    /// same way over the fold instead of turning at it. The hidden BACK cap gets its green channel
+    /// mirrored by the same constant; it is inside the well and is never seen.</para>
+    ///
+    /// <para><c>Mesh.RecalculateTangents</c> was the obvious alternative and is worse here: it
+    /// solves per-triangle from the UV gradient, which is exactly the quantity that is degenerate on
+    /// eight of this mesh's twenty triangles.</para>
+    /// </summary>
+    private static readonly Vector4 KeycapTangent = new(1f, 0f, 0f, -1f);
+
     internal static Mesh BuildBeveledKeycap(float width, float height, float thickness, float bevel)
     {
         float hw = width * 0.5f, hh = height * 0.5f;
@@ -749,6 +785,10 @@ internal static class CardMesh
         mesh.SetVertices(verts);
         mesh.SetNormals(norms);
         mesh.SetUVs(0, uvs);
+        // See KeycapTangent: BoardLit builds its whole TBN from this stream, and until this line
+        // existed the stream did not.
+        mesh.SetTangents(new System.Collections.Generic.List<Vector4>(
+            System.Linq.Enumerable.Repeat(KeycapTangent, verts.Count)));
         mesh.subMeshCount = 3;
         mesh.SetTriangles(top, 0);
         mesh.SetTriangles(ring, 1);
@@ -886,6 +926,12 @@ internal static class CardMesh
         mesh.SetVertices(verts);
         mesh.SetNormals(norms);
         mesh.SetUVs(0, uvs);
+        // The round disc shares the square cap's UV convention exactly (u = x/diameter + 0.5,
+        // v = y/diameter + 0.5), so it shares its tangent — see KeycapTangent for what was
+        // undefined before this line and why one constant is the right answer for both meshes.
+        // The disc's own degenerate case is its RIM, where u and v are constant along z.
+        mesh.SetTangents(new System.Collections.Generic.List<Vector4>(
+            System.Linq.Enumerable.Repeat(KeycapTangent, verts.Count)));
         mesh.subMeshCount = 1;
         mesh.SetTriangles(tris, 0);
         mesh.RecalculateBounds();

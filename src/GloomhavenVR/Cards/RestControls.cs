@@ -139,7 +139,16 @@ internal sealed class RestControls
                 // No game key exists for a short rest button (GUI_SHORT_REST is absent) — mod string.
                 Core.Loc.Mod("short_rest"),
                 () => ShortRestRequested?.Invoke(),
-                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
+                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel,
+                // THE CAP SYMBOL IS THE PAD'S OWN STENCIL. `rest_short` — the crescent-and-embers
+                // device — is the motif carved into the SHORT-rest pad this disc sits in, on this
+                // very board (`unity/board-prep/tex_atlas.py`, rest_pads), taken from the sheet
+                // that style's board took it from. The design asks the cap to "echo the pad it
+                // sits beside"; using the pad's own binary stencil is not an echo, it is the same
+                // shape, and it costs no generated image. With a symbol on the face the disc drops
+                // its word entirely and the word is ENGRAVED INTO THE BOARD above the pad instead
+                // (BoardEngraving) — the user's "nativ und immersiv in dem board verarbeitet".
+                capRole: CapRole.ShortRest, capStyle: active);
             _shortButton.WireCap = Net.NetProtocol.CapPressShortRest; // mirror the press dip to peers
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
@@ -150,11 +159,31 @@ internal sealed class RestControls
                 new Color(0.37f, 0.44f, 0.56f), // T4: antique slate-blue accent when selected
                 Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
-                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel);
+                round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel,
+                capRole: CapRole.LongRest, capStyle: active);
             _longButton.WireCap = Net.NetProtocol.CapPressLongRest;
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
         }
+
+        // The engraved board captions, built once beside their pads. Only when the cap actually
+        // WEARS a symbol: on a bundle with no keycap atlas the discs keep their own word labels
+        // (CapSymbols.SymbolOnly is false there), and engraving the same word into the board as
+        // well would be the caption twice.
+        bool engrave = CapSymbols.TryAtlas(active, out _, out _);
+        if (engrave && _shortCaption == null && tray.ShortRestAnchor != null)
+            _shortCaption = BoardEngraving.Create(tray.ShortRestAnchor, "ShortRestEngraving",
+                Vector3.zero, BoardEngraving.RestCaptionBox,
+                BoardEngraving.CaptionMaxFontSize, active);
+        if (engrave && _longCaption == null && tray.LongRestAnchor != null)
+            _longCaption = BoardEngraving.Create(tray.LongRestAnchor, "LongRestEngraving",
+                Vector3.zero, BoardEngraving.RestCaptionBox,
+                BoardEngraving.CaptionMaxFontSize, active);
+        // Into the board's furniture draw-order group, like every other depthless transparent
+        // renderer the board carries — see BoardEngraving.Create for why a carving needs it too.
+        if (_shortCaption != null) PlayTray.AdoptFurniture(_shortCaption.gameObject);
+        if (_longCaption != null) PlayTray.AdoptFurniture(_longCaption.gameObject);
+        RefreshLabels();
 
         SetOffset(offset, spacing); // shared X/Y nudge in plane, Z proud, ± the scaled pad pitch along Y
 
@@ -197,6 +226,15 @@ internal sealed class RestControls
             _shortButton.transform.localPosition = shortPose;
         if (_longButton != null)
             _longButton.transform.localPosition = longPose;
+        // The captions ride their own disc's clamped pose, in the board PLANE only: they take the
+        // disc's x/y and BoardEngraving's own flush depth, never the disc's proud Z — a caption is
+        // cut into the board, the disc stands on it.
+        if (_shortCaption != null)
+            _shortCaption.transform.localPosition = new Vector3(
+                shortPose.x, shortPose.y + CaptionOffsetY, BoardEngraving.ProudLocalZ);
+        if (_longCaption != null)
+            _longCaption.transform.localPosition = new Vector3(
+                longPose.x, longPose.y - CaptionOffsetY, BoardEngraving.ProudLocalZ);
         LogPadClamp(offset, spacing, shortPose, longPose);
     }
 
@@ -214,6 +252,35 @@ internal sealed class RestControls
 
     /// <summary>Last clamp reported, so a live re-layout only speaks up when the outcome changed.</summary>
     private Vector3 _padClampLogged = new(float.NaN, float.NaN, float.NaN);
+
+    /// <summary>
+    /// THE ENGRAVED CAPTIONS — "Kurze Rast" / "Lange Rast" cut into the board beside their own pads.
+    ///
+    /// <para>They exist because the discs no longer carry a word: with the pad's own crescent-and-
+    /// embers / spoked-wheel device carved into the cap face (CapRole.ShortRest / LongRest), a
+    /// caption on the cap would be the same statement twice and would crowd out the symbol. The
+    /// user's rule for that trade is explicit — decide per case, and put yourself in a player who
+    /// knows neither the symbols nor the game. So the word survives, it just moves into the board,
+    /// where it teaches once and then stops competing for attention. His own example was this
+    /// control: "Eventuell kannst du auch Text dynamisch in das board mit einarbeiten? Zb über dem
+    /// long-rest button."</para>
+    ///
+    /// <para>They are PARENTED TO THE SAME ANCHORS as the discs and positioned from the same
+    /// clamped pose, so every tuning dial that moves a disc moves its caption with it. That is not
+    /// tidiness: RestButtonOffset carries 44 cm mirror-compensation values on two of the three
+    /// shipped boards, and a caption at a fixed board position would be left behind on the far side
+    /// of the board from the control it names.</para>
+    ///
+    /// <para>SHORT ABOVE, LONG BELOW — the two pads are only ~105-120 mm apart and each is ~80 mm
+    /// across, so the gap between them is about 25 mm and cannot hold two captions. The upper pad's
+    /// caption goes up into the board's top margin and the lower pad's goes down into its bottom
+    /// margin, which is where the room actually is.</para>
+    /// </summary>
+    private TMPro.TextMeshPro? _shortCaption, _longCaption;
+
+    /// <summary>Clearance from this board's built disc to its caption, from the ONE definition both
+    /// this board and every peer's mirror of it use (<see cref="BoardEngraving.RestCaptionOffsetY"/>).</summary>
+    private float CaptionOffsetY => BoardEngraving.RestCaptionOffsetY(_capSize.y);
 
     /// <summary>One line whenever the pad clamp actually BIT, naming the dial. Silent otherwise.</summary>
     private void LogPadClamp(Vector3 offset, float spacing, Vector3 shortPose, Vector3 longPose)
@@ -243,8 +310,31 @@ internal sealed class RestControls
     /// <summary>Re-read the rest-button captions in the current language (live-follow, Loc.OnChanged).</summary>
     internal void RefreshLabels()
     {
+        // The cap's own string is kept up to date whether or not it is drawn: it is what the
+        // multiplayer cap-label seam publishes, and it is what comes back if a bundle without the
+        // keycap atlas is installed.
         _shortButton?.SetLabel(Core.Loc.Mod("short_rest"));
         _longButton?.SetLabel(Core.Loc.Game("GUI_LONG_REST", "Long rest"));
+        // THE ENGRAVED CAPTIONS FOLLOW THE LANGUAGE, which is the entire reason they are TMP text
+        // laid into the board rather than pixels baked into the board's atlas. Loc.OnChanged is
+        // already subscribed for the caps; the captions ride the same notification.
+        //
+        // THE ENGRAVING SAYS EXACTLY WHAT THE CAP USED TO SAY, through the same two keys, and that
+        // is deliberate rather than lazy. New Loc keys would be two more strings that can drift
+        // from the caps they replaced — and Loc.Mod has NO fallback, so a key that is added on one
+        // side and missed on the other renders as the raw key on the board. Upper-cased here
+        // because a cut plaque is lettered in caps, which is a presentation decision and belongs
+        // in the presenter, not in a second pair of translations. The German is the longer of each
+        // pair ("KURZE RAST" vs "SHORT REST" is a wash; "LANGE RAST" vs "LONG REST" is one glyph
+        // wider) and CaptionBox is sized so both fit at the same size.
+        BoardEngraving.SetText(_shortCaption, Core.Loc.Mod("short_rest").ToUpperInvariant());
+        BoardEngraving.SetText(_longCaption,
+            Core.Loc.Game("GUI_LONG_REST", "Long rest").ToUpperInvariant());
+        // A late-arriving HUD font (NativeButtonSkin harvests it off a live widget) leaves the
+        // engraving unstyled at build time; re-apply here, where it is cheap and idempotent.
+        ControlBoard style = CardsConfig.CurrentBoard;
+        if (_shortCaption != null) BoardEngraving.Restyle(_shortCaption, style);
+        if (_longCaption != null) BoardEngraving.Restyle(_longCaption, style);
     }
 
     internal void Destroy()
@@ -258,8 +348,14 @@ internal sealed class RestControls
             Object.DestroyImmediate(_shortButton.gameObject);
         if (_longButton != null)
             Object.DestroyImmediate(_longButton.gameObject);
+        if (_shortCaption != null)
+            Object.DestroyImmediate(_shortCaption.gameObject);
+        if (_longCaption != null)
+            Object.DestroyImmediate(_longCaption.gameObject);
         _shortButton = null;
         _longButton = null;
+        _shortCaption = null;
+        _longCaption = null;
         ShortRestShown = false; // never advertise rest discs off a torn-down board
         LongRestShown = false;
         ShortRestEnabled = ShortRestAccent = false;
@@ -391,6 +487,16 @@ internal sealed class RestControls
 
         _shortButton?.SetVisible(shortVisible);
         _longButton?.SetVisible(longVisible);
+        // A CAPTION FOR A CONTROL THAT IS NOT THERE IS A LABEL ON AN EMPTY PATCH OF BOARD. The
+        // discs vanish whenever the game is not offering a rest (action phase, enemy turns, every
+        // start-of-round prompt after selection), so their engravings go with them. Straight
+        // SetActive rather than the dust dissolve: the caps CRUMBLE because they are objects
+        // standing on the board, and a cut in the board is not an object — it is simply not
+        // carved while there is nothing to name. The change gate keeps this off the per-frame path.
+        if (_shortCaption != null && _shortCaption.gameObject.activeSelf != shortVisible)
+            _shortCaption.gameObject.SetActive(shortVisible);
+        if (_longCaption != null && _longCaption.gameObject.activeSelf != longVisible)
+            _longCaption.gameObject.SetActive(longVisible);
         _shortButton?.SetState(canShort, accent: shortSelected);
         _longButton?.SetState(canLong, accent: longSelected);
 

@@ -90,13 +90,18 @@ MIRRORS=(
   "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
   "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
   "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"
-  # The mirrored keycap PRESS SPRING (2026-08-08 1:1 round) adds one more pair this extractor
-  # cannot reach, for the opposite reason to the colours: the LOCAL half is not a named constant
-  # at all. BoardButton.Update springs its press back with an inline `Time.deltaTime * 6f`;
-  # Net/RemoteCapFx names it (PressDecayPerSecond) precisely so the remote side is readable, and
-  # both doc comments call the other side out by file and method. The AUTHORED travels and the
-  # ButtonAnim durations the same round mirrored ARE machine-checked — by
-  # scripts/check-remote-defaults.py, which is the right lint for a Defaults-backed pair.
+  # THE MIRRORED KEYCAP PRESS SPRING IS GONE (2026-08-25, the board-button overhaul), and this is
+  # the third time a group has been closed by DELETING the second copy rather than by keeping it
+  # in step. It was one pair this extractor could not reach anyway, for the opposite reason to the
+  # colours below: the LOCAL half was not a named constant at all, just an inline
+  # `Time.deltaTime * 6f` in BoardButton.Update, with Net/RemoteCapFx.PressDecayPerSecond naming
+  # it on the other side so that the remote code was at least readable. The user asked for the
+  # press animation to be made good ("Auch Drück-Animation … soll gut funktionieren"), and a
+  # linear decay from an instantaneous drop has no shape to improve — so the shape became a
+  # function, WorldUI.ButtonTuning.PressDepth01, which BOTH sides now call off a phase in seconds.
+  # One recipe, two consumers, nothing to drift. The AUTHORED travels and the ButtonAnim durations
+  # the same 2026-08-08 round mirrored ARE machine-checked — by scripts/check-remote-defaults.py,
+  # which is the right lint for a Defaults-backed pair.
   #
   # RemoteCapFx.AppearFadeFloor USED TO BE the second such pair (the local half being an inline
   # `Mathf.SmoothStep(0.15f, 1f, k)`). It is GONE — and deleted rather than linted, which is what

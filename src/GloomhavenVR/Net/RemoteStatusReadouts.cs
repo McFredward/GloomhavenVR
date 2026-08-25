@@ -52,6 +52,12 @@ internal sealed class RemoteStatusReadouts
     private int _roundShown = int.MinValue;
     private string _langShown = string.Empty;
 
+    /// <summary>The peer's synced board style — which board's material the round number is cut
+    /// into. Off <c>RemoteBoardLayout.Style</c>, i.e. record 28, which already carries it because
+    /// the board PREFAB is chosen from it. No new wire field, and no possibility of an oak number
+    /// on a bronze board.</summary>
+    private readonly ControlBoard _style;
+
     /// <summary>The round label's preferred font size — VERBATIM the owner's own literal
     /// (<c>Cards.PlayTray.BuildRoundReadout</c> passes 0.32f to the same <c>Core.TmpFit.Fit</c>).
     /// Named rather than repeated so the next person who changes one changes both, and so the
@@ -73,21 +79,22 @@ internal sealed class RemoteStatusReadouts
         var roundRoot = new GameObject("RoundReadout").transform;
         roundRoot.SetParent(boardRoot, worldPositionStays: false);
         roundRoot.localPosition = layout.ReadoutMount;
-        // THE BACKING PLATE — defect (c) of this round ("die Runden-Anzeige sitzt auf einem grauen
-        // Kasten, den der Besitzer nicht hat").
+        // THE BACKING PLATE IS GONE ON BOTH BOARDS — and how that happened is worth keeping,
+        // because it is the second correction to the same widget and the first one was right at
+        // the time.
         //
-        // The owner HAS a plate here (PlayTray.BuildRoundReadout builds one at the same 0.13 x
-        // 0.036 m) — but theirs is LIT (Tint → Standard) and seated 6 mm INTO the board behind the
-        // label, so under the scenario's own lighting it reads as a shadow on the board and the
-        // gold text simply floats on the wood. This copy was an UNLIT Sprites/Default quad at the
-        // same dark RGB, and an unlit quad ignores the scene entirely: it renders that colour at
-        // full brightness, flat and matte, next to a lit and shadowed board — the "grey box" in
-        // the screenshot. Parity here is not "remove the plate", it is "build the owner's plate":
-        // the same lit shader ladder the board's own furniture uses and the same 6 mm seat, so
-        // whatever the owner sees at their round readout is exactly what a peer sees at theirs.
-        BoardVisual.Quad(roundRoot, "Plate", new Vector2(0.13f, 0.036f),
-            RemoteBoardContent.BoardLit(new Color(0.12f, 0.11f, 0.10f, 1f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.006f);
+        // Defect (c) of the 1:1 round was "die Runden-Anzeige sitzt auf einem grauen Kasten, den
+        // der Besitzer nicht hat". The owner DID have a plate; theirs was LIT and seated 6 mm into
+        // the board, so it read as a shadow, while this copy was an UNLIT quad at the same RGB,
+        // which renders that colour flat and at full brightness beside a lit board. Parity then
+        // was not "remove the plate", it was "build the owner's plate", and that is what shipped.
+        //
+        // The user has now ruled on the plate itself, naming the round text: "es nativ und
+        // immersiv in dem board verarbeitet ist, nicht einfach als schwebender Text darüber … Das
+        // gilt übrigens auch für den Rundentext." So the plate is deleted from the OWNER's board
+        // (PlayTray.BuildRoundReadout) and from this mirror of it in one change, and the number is
+        // CUT INTO the board instead. Nothing is drawn behind the glyphs any more on either board,
+        // so the two can no longer disagree about what that something looks like.
         // THE GLYPH SIZE IS THE OWNER'S OWN NUMBER, NOT A SECOND ONE. User report 2026-08-13,
         // verbatim: "Die Rundenanzeige beim remote board ist unter Umständen super klein und
         // skalliert nicht richtig. Auf dem eigenen board ist alles ok."
@@ -108,9 +115,9 @@ internal sealed class RemoteStatusReadouts
         // The fix is to pass the OWNER'S literal, so there is one number rather than two agreeing.
         // There is no round-readout SIZE dial anywhere (config, record 28, BoardTunePages) — this
         // was never a tuning that failed to travel, so no wire field is needed or added.
-        _round = RemoteBoardContent.Label(roundRoot, "Text", Vector3.zero,
-            new Vector2(0.12f, 0.028f), RoundLabelMaxFont,
-            new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center);
+        _style = layout.Style;
+        _round = Cards.BoardEngraving.Create(roundRoot, "RoundText", Vector3.zero,
+            new Vector2(0.12f, 0.028f), RoundLabelMaxFont, _style);
         RemoteBoardContent.SetText(_round, "-");
         Core.VRLog.Info("Net", "ROUND MIRROR: round readout label fitted at maxFont " +
                                $"{RoundLabelMaxFont:F2} (the owner's own PlayTray.BuildRoundReadout " +
@@ -198,6 +205,11 @@ internal sealed class RemoteStatusReadouts
             }
             RoundText = text;
             RemoteBoardContent.SetText(_round, text);
+            // The HUD font is harvested off a live game widget and can arrive AFTER this label was
+            // built, which would leave the carve unstyled on a board built early in a session.
+            // Re-applying on the change-gated path is cheap and idempotent, and it is the same
+            // late-font ladder the keycap labels already ride.
+            Cards.BoardEngraving.Restyle(_round, _style);
         }
 
         // Initiative — vanilla's own rule, verbatim (see the class note).

@@ -197,6 +197,18 @@
          cannot drift from the arithmetic; its one VRLog.Warn is shimmed (see Shims.cs). -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardAnchors.cs" Link="cards\BoardAnchors.cs" />
     <Compile Include="BoardSeatVectors.cs" />
+    <!-- WHICH SYMBOL IS ON WHICH KEY, and how far a pressed key has actually moved. Two pure
+         functions added by the 2026-08-25 board-button overhaul, both LINKED rather than copied,
+         and both here for the reason the seat clamps above them are: every other gate in this
+         repository agrees with them when they are wrong. CapCellMath.cs and ButtonStroke.cs were
+         each split out of a larger class specifically so they could be linked with nothing but
+         UnityEngine.CoreModule — no AssetBundle, no BepInEx ConfigEntry — which is the same reason
+         Core/WallStandingProp.cs is written the way it is. See the header of
+         BoardCapSymbolVectors.cs for the two defects they pin, one of which this repository has
+         already shipped once in the board's own motif reader. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapCellMath.cs" Link="cards\CapCellMath.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ButtonStroke.cs" Link="worldui\ButtonStroke.cs" />
+    <Compile Include="BoardCapSymbolVectors.cs" />
     <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
          header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null

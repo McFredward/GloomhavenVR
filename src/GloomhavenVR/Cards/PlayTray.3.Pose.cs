@@ -463,11 +463,22 @@ internal sealed partial class PlayTray
         }
     }
 
-    /// <summary>Items 4/6 live-apply: move the round readout ('Runde N') to a new per-board offset (instant).</summary>
+    /// <summary>
+    /// Items 4/6 live-apply: move the round readout ('Runde N') to a new per-board offset (instant).
+    ///
+    /// <para>IT MOVES THE READOUT ROOT, NOT THE LABEL, and the distinction became load-bearing when
+    /// the backing plate was deleted. The label used to BE the readout root — <c>BuildRoundReadout</c>
+    /// added the <c>TextMeshPro</c> to the same GameObject the plate hung off — so writing
+    /// <c>ReadoutBase + offset</c> onto its transform was correct. The engraved number is a CHILD
+    /// of that root instead (<c>BoardEngraving.Create</c> owns its own flush depth, which no caller
+    /// may overwrite), so the same write would have added the base a second time and put "Runde N"
+    /// a quarter of a board away the first time anyone touched the dial.</para>
+    /// </summary>
     internal void SetReadoutOffset(Vector3 offset)
     {
-        if (_roundLabel != null)
-            _roundLabel.transform.localPosition = ReadoutBase + offset;
+        Transform? root = _roundLabel != null ? _roundLabel.transform.parent : null;
+        if (root != null)
+            root.localPosition = ReadoutBase + offset;
     }
 
     /// <summary>Items 4/6 live-apply: move the FOLLOW/PIN toggle button to a new per-board offset (instant).</summary>
@@ -731,6 +742,16 @@ internal sealed partial class PlayTray
         {
             Object.DestroyImmediate(_followToggle.gameObject);
             _followToggle = null;
+        }
+        // The toggle's ENGRAVED caption is a sibling under the same anchor, not a child of the cap
+        // — it is cut into the board, not standing on the key — so tearing the cap down does not
+        // take it with it. Without this it would be re-created on every [BoardButtons] edit and the
+        // board would slowly acquire a stack of identical carvings, each a fraction of a millimetre
+        // in front of the last.
+        if (_followEngraving != null)
+        {
+            Object.DestroyImmediate(_followEngraving.gameObject);
+            _followEngraving = null;
         }
         LaserTargets.RemoveAll(static t => t.Collider == null);
         CreateDashboardButtons();

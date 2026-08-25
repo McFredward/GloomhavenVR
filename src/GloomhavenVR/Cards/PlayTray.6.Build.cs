@@ -428,7 +428,13 @@ internal sealed partial class PlayTray
             Core.Loc.Game("GUI_CONFIRM", "Confirm"),
             () => ConfirmRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board,
+            // The SYMBOL carved into this cap's face, and the board whose material carries it.
+            // The four generic caps KEEP their live text as well (user, explicitly: "Die
+            // generischen Buttons haben immer unterschiedlichen Text darauf, d.h. auf denen sollte
+            // der Text auch erhalten bleiben") — CapSymbols moves the caption into the band below
+            // the symbol rather than replacing it.
+            capRole: CapRole.Confirm, capStyle: active);
         _confirm.WireCap = Net.NetProtocol.CapPressConfirm; // mirror this cap's press dip to peers
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
@@ -439,7 +445,8 @@ internal sealed partial class PlayTray
             Core.Loc.Game("GUI_UNDO", "Undo"),
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board,
+            capRole: CapRole.Undo, capStyle: active);
         _undo.WireCap = Net.NetProtocol.CapPressUndo;
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
@@ -457,7 +464,8 @@ internal sealed partial class PlayTray
             Core.Loc.Game("GUI_SKIP_MOVEMENT", "Skip"),
             () => SkipRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board,
+            capRole: CapRole.Skip, capStyle: active);
         _skip.WireCap = Net.NetProtocol.CapPressSkip;
         _skip.DisabledReason = CardsGameApi.DescribeSkipGate;
         RegisterLaserTarget(_skip.Collider!, _skip);
@@ -491,7 +499,8 @@ internal sealed partial class PlayTray
             _itemUseConfirmLabel ?? Core.Loc.Mod("item_use_area"),
             () => _itemUseConfirmAction?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board,
+            capRole: CapRole.ItemUse, capStyle: active);
         _itemUseConfirm.WireCap = Net.NetProtocol.CapPressItemUse;
         _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
         RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);
@@ -944,9 +953,51 @@ internal sealed partial class PlayTray
     /// dark-wall value signalling while adding surface texture. Graceful fallback: if the grain
     /// texture is absent the material is EXACTLY as before (white _MainTex, plain tint).
     /// </summary>
-    internal static Material NewKeycapMaterial(Shader shader, Color color)
+    internal static Material NewKeycapMaterial(Shader shader, Color color) =>
+        NewKeycapMaterial(shader, color, CapRole.Plain, style: null);
+
+    /// <summary>
+    /// THE ONE PLACE A BOARD KEYCAP GETS ITS SURFACE — the owner's caps and every peer's mirror of
+    /// them both come through here, which is what makes the two identical BY CONSTRUCTION rather
+    /// than by two rules that agree.
+    ///
+    /// <para><paramref name="style"/> non-null selects that board's own keycap ATLAS
+    /// (<see cref="CapSymbols"/>: carved oak / forged iron / cast bronze, one texture per board)
+    /// and <paramref name="role"/> selects the CELL inside it, i.e. which symbol is carved into
+    /// the face. Both are pushed onto the material's texture transform, which is all BoardLit
+    /// needs: it runs <c>o.uv = TRANSFORM_TEX(v.uv, _MainTex)</c> and samples <c>_BumpMap</c> and
+    /// <c>_MRSMap</c> with that same <c>i.uv</c>, so one ST write re-aims every map at once. The
+    /// _BumpMap transform is written too, because the STANDARD fallback shader (bundle without
+    /// BoardLit) gives the normal map its own ST and would otherwise sample the whole atlas
+    /// through a cell-sized albedo.</para>
+    ///
+    /// <para><paramref name="style"/> null — or a bundle with no atlas for that style — keeps the
+    /// shared <c>KeycapGrain</c> pair and writes NO transform, so the material is exactly what it
+    /// was before this existed. That is the path the map-room's own keycap-skinned furniture takes
+    /// (<c>MapButtonRail</c>, <c>MapTableLegs</c>): they want the keycap SURFACE, they are not
+    /// board buttons, and they must not start wearing a board's symbols.</para>
+    /// </summary>
+    internal static Material NewKeycapMaterial(Shader shader, Color color, CapRole role, ControlBoard? style)
     {
         var m = new Material(shader) { color = color };
+        if (style != null && CapSymbols.TryAtlas(style.Value, out Texture2D atlas, out Texture2D? atlasNormal))
+        {
+            CapSymbols.CellTransform(atlas, role, out Vector2 scale, out Vector2 offset);
+            if (m.HasProperty("_MainTex"))
+            {
+                m.SetTexture("_MainTex", atlas);
+                m.SetTextureScale("_MainTex", scale);
+                m.SetTextureOffset("_MainTex", offset);
+            }
+            if (atlasNormal != null && m.HasProperty("_BumpMap"))
+            {
+                m.SetTexture("_BumpMap", atlasNormal);
+                m.SetTextureScale("_BumpMap", scale);
+                m.SetTextureOffset("_BumpMap", offset);
+            }
+            CardMesh.ApplyEmissionFloor(m);
+            return m;
+        }
         EnsureGrainLoaded();
         if (_grainAlbedo != null)
         {
@@ -958,6 +1009,36 @@ internal sealed partial class PlayTray
         // floor as the card slab (no-op on BoardLit itself; see CardMesh.EmissionFloorFactor).
         CardMesh.ApplyEmissionFloor(m);
         return m;
+    }
+
+    /// <summary>
+    /// Re-aim a LIVE keycap material at a different <see cref="CapRole"/>'s cell, in place.
+    ///
+    /// <para>The follow/pin toggle is the reason this exists: it means two different things
+    /// ("FIXIERT" — an anchor; "FOLGEN" — two footprints) and it flips between them at a press.
+    /// A role is a sub-rectangle of one texture, so the flip is two float2 writes on a material
+    /// instance — no rebuild, no second texture, and nothing for the dust dissolve to play over.
+    /// A no-op when the bundle has no atlas for this style, so the toggle keeps its word label.</para>
+    ///
+    /// <para>Returns true when the material really was re-aimed, so a caller can keep its own
+    /// state in step with what is drawn rather than assuming.</para>
+    /// </summary>
+    internal static bool SetKeycapRole(Material? m, CapRole role, ControlBoard style)
+    {
+        if (m == null || !CapSymbols.TryAtlas(style, out Texture2D atlas, out Texture2D? atlasNormal))
+            return false;
+        CapSymbols.CellTransform(atlas, role, out Vector2 scale, out Vector2 offset);
+        if (m.HasProperty("_MainTex"))
+        {
+            m.SetTextureScale("_MainTex", scale);
+            m.SetTextureOffset("_MainTex", offset);
+        }
+        if (atlasNormal != null && m.HasProperty("_BumpMap"))
+        {
+            m.SetTextureScale("_BumpMap", scale);
+            m.SetTextureOffset("_BumpMap", offset);
+        }
+        return true;
     }
 
     /// <summary>
