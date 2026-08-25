@@ -1,0 +1,23 @@
+{
+ "fields": {
+  "bronze/albedo.chroma": 1.582,
+  "bronze/albedo.lum": 1.545,
+  "bronze/mrs.metallic": 1.705,
+  "bronze/mrs.roughness": 1.628,
+  "bronze/normal.grey*": 2.101,
+  "bronze/normal.slope": 1.504,
+  "oak/albedo.chroma": 4.229,
+  "oak/albedo.lum": 5.003,
+  "oak/mrs.roughness": 3.545,
+  "oak/normal.grey*": 3.22,
+  "oak/normal.slope": 2.381,
+  "steel/albedo.chroma": 1.533,
+  "steel/albedo.lum": 1.358,
+  "steel/mrs.metallic": 1.695,
+  "steel/mrs.roughness": 1.462,
+  "steel/normal.grey*": 2.372,
+  "steel/normal.slope": 2.137
+ },
+ "note": "Measured on the build the user accepted on hardware. Values are the MEDIAN over the patch set. Report only: a rise here is a regression to look at, never a bar to tune to.",
+ "tolerance": 1.5
+}

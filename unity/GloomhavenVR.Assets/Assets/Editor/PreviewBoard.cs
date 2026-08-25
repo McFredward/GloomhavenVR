@@ -310,6 +310,25 @@ namespace GloomhavenVR
             Shot(cam, inst, outDir, $"{style}_seats.png",
                  new Vector3(0.225f, 0.0f, -0.30f), new Vector3(0.225f, 0f, 0f), 1000, 1200);
 
+            // THE BACK AND THE RIM. A front-on station cannot show a defect that lives on
+            // the faces it does not point at, and one shipped: the back plate and the edge
+            // bevel had no authored material at all, and the first person to see it was the
+            // user, from behind, in a dark forest ("Die Seiten und die Rückseite die Textur
+            // ist kaputt"). The decorated face points -Z by the bundle contract, so the back
+            // is +Z and these four shots are the ones that can fail.
+            Shot(cam, inst, outDir, $"{style}_back.png",
+                 new Vector3(0f, 0f, 0.98f), new Vector3(0f, 0f, 0f), 1800, 1000);
+            Shot(cam, inst, outDir, $"{style}_backrake.png",
+                 new Vector3(-0.20f, 0.26f, 0.55f), new Vector3(-0.06f, -0.01f, 0f), 1600, 1000);
+            // Grazing along the bottom long edge: the rim fills the frame, which is the only
+            // way a 35 mm band on a 640 mm board is more than a few pixels.
+            Shot(cam, inst, outDir, $"{style}_edge.png",
+                 new Vector3(0f, -0.34f, 0.10f), new Vector3(0f, -0.15f, 0f), 1600, 900);
+            // …and a corner, where the rim turns and the front, the bevel and the back are
+            // all in one picture and must agree with each other.
+            Shot(cam, inst, outDir, $"{style}_corner.png",
+                 new Vector3(-0.30f, -0.26f, -0.12f), new Vector3(-0.28f, -0.14f, 0f), 1200, 900);
+
             // …and the same board again with the user's live asset-pose dials applied the way
             // SetAssetPose applies them. Markers stand in for the pinned control set: they are
             // parented to the ROOT, not to the mesh, exactly as the anchors are re-pinned, so the
