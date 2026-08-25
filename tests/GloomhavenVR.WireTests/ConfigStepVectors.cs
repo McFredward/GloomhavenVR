@@ -537,19 +537,31 @@ internal static class ConfigStepVectors
         // moved 5 mm — 25 of the 63 were values his own arrows could not produce. That is the
         // report ("ich überspringe den optimalen Punkt immer") as an arithmetic fact, so it is
         // asserted as one. Epsilon seeds are excluded: this config writes 1e-10 / 2e-09 to mark an
-        // explicit zero, and a marker is not tuning.
+        // explicit zero, and a marker is not tuning (ConfigSteps.ZeroMagnitude is that threshold,
+        // and the resolver now agrees with it — see the note on the canary below).
+        //
+        // TWO COUNTS, BECAUSE THEY MEASURE DIFFERENT THINGS. `tuned` is what the assertion is
+        // about. `parsed` is the canary — "is this guard still reading the Defaults at all?" — and
+        // until 2026-08-26 the canary WAS the tuned count, floored at 55. That made a guard about
+        // the PARSER a function of HOW MUCH THE USER HAS TUNED: when his cfg drop legitimately
+        // zeroed five offset families the tuned count fell 63 -> 44 and the canary reported a
+        // parser failure that had not happened. A count of non-zero values cannot answer "did the
+        // parse work"; the number of components the parser PRODUCED can, whatever they are, so
+        // that is what is floored now. Zeroing every vector in the mod would leave `parsed` at 180
+        // and simply give the assertion nothing to say, which is the correct outcome.
         t.Case("configsteps/rule-vector-defaults-are-reachable");
-        int comps = 0;
+        int parsed = 0, tuned = 0;
         foreach (Dial d in dials)
         {
-            if (!d.IsVector || d.Magnitude <= 1e-6d)
+            if (!d.IsVector)
                 continue;
             double step = StepOf(d);
             foreach (double v in VectorComponents(repoRoot, d))
             {
-                if (Math.Abs(v) <= 1e-6d)
+                parsed++;
+                if (Math.Abs(v) <= ConfigSteps.ZeroMagnitude)
                     continue;
-                comps++;
+                tuned++;
                 double n = Math.Abs(v) / step;
                 t.True(Math.Abs(n - Math.Round(n)) <= 1e-6d,
                        $"[{d.Sec}] {d.Key} ships a component of {v} that its own {step} arrows "
@@ -557,9 +569,10 @@ internal static class ConfigStepVectors
                        + "let alone stop on the one he wants");
             }
         }
-        t.True(comps >= 55,
-               $"only {comps} tuned vector components found (63 on 2026-08-25); either the Vector "
-               + "defaults moved or this guard has stopped parsing them");
+        t.True(parsed >= 150,
+               $"only {parsed} Vector components parsed out of the shipped defaults (180 on "
+               + "2026-08-26, across 61 Vector2/Vector3 dials); the Vector literals have changed "
+               + $"shape and this guard is no longer reading them — it saw {tuned} tuned ones");
 
         // ---- (d) THE DIALS IN THE REPORT -------------------------------------------------------
         // Pinned by name, against the real resolver, because a property test can be satisfied by a
@@ -612,6 +625,14 @@ internal static class ConfigStepVectors
     /// scales, where a member's own scale is its declared range's width or — with no range — its
     /// shipped magnitude. The mirror of <c>ConfigCatalog.OwnScale</c>, and it must stay the mirror,
     /// or this guard checks a different question from the one the menu answers.
+    ///
+    /// <para>SINCE 2026-08-26 IT IS THE MIRROR BY CONSTRUCTION and no longer by hand: the
+    /// per-entry arithmetic is <see cref="ConfigSteps.OwnScale"/>, which the catalog calls too.
+    /// The two copies WERE faithful — that is why this guard caught the epsilon-zero collapse the
+    /// day the user's cfg drop landed — but a mirror kept by hand is one that eventually is not,
+    /// and the failure mode is silent: the guard goes green while the menu misbehaves. All this
+    /// still owns is the loop, because only the two callers know what a "member" is (a ConfigItem
+    /// there, a parsed Defaults line here).</para>
     /// </summary>
     private static Dictionary<string, double> FamilyScale(
         List<Dial> dials, Dictionary<string, (double Min, double Max)> ranges)
@@ -619,9 +640,8 @@ internal static class ConfigStepVectors
         var scale = new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (Dial d in dials)
         {
-            double own = ranges.TryGetValue(d.Id, out (double Min, double Max) r) && r.Max > r.Min
-                ? r.Max - r.Min
-                : d.Magnitude;
+            bool hasRange = ranges.TryGetValue(d.Id, out (double Min, double Max) r);
+            double own = ConfigSteps.OwnScale(hasRange, r.Min, r.Max, d.Magnitude);
             string f = ConfigSteps.FamilyOf(d.Sec, d.Key);
             if (!scale.TryGetValue(f, out double best) || own > best)
                 scale[f] = own;

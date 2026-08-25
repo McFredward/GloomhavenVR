@@ -565,6 +565,64 @@ internal static class ConfigSteps
     internal const double FinestPresses = 250d;
 
     /// <summary>
+    /// The magnitude at or below which a shipped default is a ZERO — a place somebody put an
+    /// origin — and not a statement about how finely the dial wants to move.
+    ///
+    /// <para>WHY A THRESHOLD AND NOT <c>== 0</c>. <see cref="Resolve"/> has always said that a
+    /// scale of zero bounds nothing ("Zero where the whole family ships at 0, which is not a
+    /// statement about resolution"), and 72 dials ship at exactly 0 and take that branch today.
+    /// But this config does not spell an explicit zero as <c>0</c>. The in-VR sliders and BepInEx's
+    /// float32 round-trip write it as an EPSILON — <c>1.1175871e-10</c>, <c>1.974e-09</c>,
+    /// <c>4.74975e-11</c> — and an epsilon is greater than zero, so the <c>&gt; 0</c> test passed
+    /// and the entry was taken at its word. On 2026-08-26 the user's tuned cfg drop zeroed five
+    /// whole offset families that way ([Cards] SlotOverlayOffset_*, SlotOverlaySpacing_*,
+    /// ActiveOffset_*, PinOffset_*, ElementsOffset_*), the family scale collapsed to ~1e-10, and
+    /// the cap <c>scale / CoarsestPresses</c> crushed their step from ONE MILLIMETRE a press to
+    /// one MICRON — 18,000 presses to move a card overlay the 18 mm it used to move in 18. That is
+    /// the report this whole file exists for ("die Schrittweite zu hoch … ich überspringe den
+    /// optimalen Punkt immer") arriving from the opposite direction, on the same family.
+    ///
+    /// <para>A dial's scale is a property of WHAT IT CAN BE SET TO, never of what it happens to be
+    /// set to right now. Zero is a legitimate tuned value and must not cost the dial its
+    /// resolution — so an epsilon-zero takes the same branch its exact-zero siblings already
+    /// take, and nothing else changes.</para>
+    ///
+    /// <para>WHY 1e-6, MEASURED. Across the 403 stepped defaults the two populations do not
+    /// overlap by anything like a factor: the largest epsilon-zero in the config is 2e-09 and the
+    /// SMALLEST genuinely tuned magnitude is 0.004 ([Cards] SlotCardInset, [Cards]
+    /// FanFollowDeadzone, [BoardButtons] Travel) — six orders of magnitude of empty space between
+    /// them. 1e-6 sits 500x above the largest marker and 4,000x below the smallest real value, and
+    /// it is the number this code already uses for the same judgement in two other places:
+    /// <see cref="NiceStep"/> floors there ("nothing a player meets is anywhere near this small")
+    /// and the reachability guard filters there ("a marker is not tuning"). The finest real dial
+    /// in the mod, [HexHighlight] StableDepthBias at 0.0002, is 200x clear of it.</para>
+    /// </summary>
+    internal const double ZeroMagnitude = 1e-6d;
+
+    /// <summary>
+    /// What ONE entry says about its OWN scale: its declared range's width, or — with no declared
+    /// range — its shipped magnitude, and 0 when that magnitude is only a marker for zero.
+    ///
+    /// <para>THE ONE DEFINITION, called by both sides on purpose. <c>ConfigCatalog.OwnScale</c>
+    /// (what the in-VR menu resolves a step from) and <c>ConfigStepVectors.FamilyScale</c> (what
+    /// the wire guard checks that step against) used to be two hand-kept copies of this
+    /// expression, with a comment on the test asking that they stay mirrors. They were mirrors,
+    /// which is why the guard caught this defect — but a mirror maintained by hand is a mirror
+    /// that eventually is not one, and then the guard checks a different question from the one the
+    /// menu answers. Both now call this. It is Unity-free for exactly that reason.</para>
+    ///
+    /// <para>A declared range is a real statement of scale; a single default is only the best
+    /// available stand-in, and a default of zero is no statement at all — see
+    /// <see cref="ZeroMagnitude"/>.</para>
+    /// </summary>
+    internal static double OwnScale(bool hasRange, double min, double max, double magnitude)
+    {
+        if (hasRange && max > min)
+            return max - min;
+        return magnitude > ZeroMagnitude ? magnitude : 0d;
+    }
+
+    /// <summary>
     /// How far one ◀ / ▶ press moves an entry — the whole of THE RULE, in one Unity-free place.
     ///
     /// <para>It lives here rather than in <see cref="ConfigCatalog"/> so that the wire suite runs

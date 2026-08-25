@@ -182,7 +182,7 @@ internal static partial class Defaults
     // reaches nobody who is already testing. Fires only on the exact pair 252 itself wrote, so
     // anything tuned since is left alone; see the migration block in WallFadeTuning.Bind.
     internal const bool WallFadeBarsMigrated256 = false;      // => [WallFade] WallFadeBarsMigrated256  (pinned: one-shot migration marker — a fresh install must start false)
-    internal const float ExitDwellMovedSeconds = 2.5f;       // => [WallFade] ExitDwellMovedSeconds
+    internal const float ExitDwellMovedSeconds = 0.5f;       // => [WallFade] ExitDwellMovedSeconds
     internal const float ExitDwellStationarySeconds = 3.6f;  // => [WallFade] ExitDwellStationarySeconds
     internal const bool StackedShellFade = true;             // => [WallFade] StackedShellFade
     // Shipped ON so the next MP hardware test shows the peer-synced fades without cfg fiddling
@@ -300,7 +300,7 @@ internal static partial class Defaults
     // THE INSTRUMENT AND ITS FOUR CI-VALIDATED CONTROLS ARE KEPT INTACT — this is a default, not
     // a deletion. Turn the key back on the day §7.2 is implemented: that is precisely the run
     // where it has to name, renderer by renderer, what the narrowing dropped.
-    internal const bool SignatureCulpritCensus = false;      // => [WallFade] SignatureCulpritCensus
+    internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
     // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). It
     // shipped ON for the same reason SignatureCulpritCensus above it did: PERF B removes the
     // ~95 ms commit frame by spreading it over ~63 frames, and the one thing that can go wrong
@@ -316,7 +316,7 @@ internal static partial class Defaults
     // sentence above is still true and is still the reason to flip this key back on: the day
     // anyone starts build 2, this is the first thing they turn on, and it is why the gate and
     // its controls are kept rather than deleted.
-    internal const bool CommitTableGate = false;             // => [WallFade] CommitTableGate
+    internal const bool CommitTableGate = true;              // => [WallFade] CommitTableGate
     // ModBuild 281 (PERF B) — the per-frame budget of every SLICED rescan stage.
     //
     // 1.5 IS THE CONSTANT THAT SHIPPED, THREE TIMES OVER. It was `ClassifyBudgetMillis` in

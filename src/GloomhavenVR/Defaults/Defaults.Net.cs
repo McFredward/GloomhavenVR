@@ -15,7 +15,7 @@ internal static partial class Defaults
 {
     // ---- Net/NetModule.cs ----------------------------------------------------------
     internal const bool Net_Enabled = true;                                            // => [Net] Enabled
-    internal const int MaskId = 2;                                                     // => [Net] MaskId
+    internal const int MaskId = 0;                                                     // => [Net] MaskId
     internal const float MaskSize = 1.29148f;                                          // => [Net] MaskSize
     internal const bool NameTags = true;                                               // => [Net] NameTags
     internal const bool MirrorEnabled = false;                                         // => [Net] MirrorEnabled

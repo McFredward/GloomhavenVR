@@ -828,7 +828,16 @@ internal static class ConfigCatalog
     /// <summary>
     /// What ONE entry says about its own scale: its declared range's width, or its shipped
     /// default's magnitude when it declares no range. A declared range is a real statement of scale;
-    /// a single default is only the best available stand-in.
+    /// a single default is only the best available stand-in — and a default of ZERO is no statement
+    /// at all, which this reads through <see cref="ConfigSteps.OwnScale"/> so that an epsilon-zero
+    /// (<c>1.1175871e-10</c>, the shape the in-VR sliders and BepInEx's float32 round-trip give an
+    /// explicit zero) is treated as the zero it is rather than as a scale of one ten-billionth.
+    /// See <see cref="ConfigSteps.ZeroMagnitude"/> for the measurement behind the threshold, and
+    /// for the five card-overlay families whose step this collapsed from a millimetre to a micron.
+    ///
+    /// <para>THE ARITHMETIC LIVES IN <see cref="ConfigSteps"/>, not here, because the wire guard's
+    /// <c>ConfigStepVectors.FamilyScale</c> has to be the same function and not a copy of it —
+    /// otherwise the guard checks a different question from the one this menu answers.</para>
     ///
     /// <para>THE FAMILY TAKES THE LARGEST OF THESE and every member then steps by that one number.
     /// It has to be one number or the invariant collapses in a way that is invisible from inside the
@@ -840,8 +849,7 @@ internal static class ConfigCatalog
     /// max is taken over the family rather than per entry.</para>
     /// </summary>
     private static double OwnScale(ConfigItem item) =>
-        item.HasRange && item.Max > item.Min ? item.Max - item.Min
-                                             : Magnitude(item.Entry.DefaultValue);
+        ConfigSteps.OwnScale(item.HasRange, item.Min, item.Max, Magnitude(item.Entry.DefaultValue));
 
     // ==========================================================================================
     //  Topic mapping
