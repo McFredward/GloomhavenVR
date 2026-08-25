@@ -417,21 +417,27 @@ internal static class BoardAnchors
         if (anchorRadius == null || anchorRadius.Value <= 1e-4f)
             return;   // unmeasured board: no bound is known, so nothing is bounded (today's layout)
 
-        // THE BUDGET IS SPLIT BECAUSE THE TWO TERMS ADD. An offset along the board normal lifts
-        // every anchor by its own magnitude and a tilt lifts the furthest one by r*sin(theta);
-        // giving each the whole budget would let a pose that spends both stand an anchor 10 mm
-        // proud, which is twenty times the 0.5 mm the assembler seats one at and would read as a
-        // keycap hovering over its well. Half each, so the guarantee in the summary is the one the
-        // arithmetic actually makes.
+        // THE BUDGET IS SPLIT BECAUSE THE TWO TERMS ADD. An offset lifts every anchor by its own
+        // magnitude and a tilt lifts the furthest one by r*sin(theta); giving each the whole budget
+        // would let a pose that spends both stand an anchor 10 mm proud, which is twenty times the
+        // 0.5 mm the assembler seats one at and would read as a keycap hovering over its well.
+        //
+        // AND EACH HALF IS BOUNDED AS A VECTOR, NOT PER AXIS. The first version of this clamped
+        // x, y and z independently, which is a cube and not a ball: a pose with all three axes at
+        // the limit came out sqrt(3) times too long, and the sweep in BoardSeatVectors measured the
+        // resulting lift at 8.66 mm against a stated budget of 5. Scaling the vector instead keeps
+        // its DIRECTION — which is the part of his tuning worth preserving — and makes the
+        // guarantee in the summary the one the arithmetic actually makes.
         const float half = MaxAnchorLift * 0.5f;
-        offset = new Vector3(Mathf.Clamp(offset.x, -half, half),
-                             Mathf.Clamp(offset.y, -half, half),
-                             Mathf.Clamp(offset.z, -half, half));
+        if (offset.magnitude > half)
+            offset = offset.normalized * half;
 
+        // Small-angle: the composed rotation's angle is |euler| to first order, and this bound is
+        // a fraction of a degree on any real board, so treating the euler triple as a magnitude is
+        // exact enough for a bound whose job is to refuse the large ones.
         float maxDeg = Mathf.Asin(Mathf.Clamp01(half / anchorRadius.Value)) * Mathf.Rad2Deg;
-        euler = new Vector3(Mathf.Clamp(euler.x, -maxDeg, maxDeg),
-                            Mathf.Clamp(euler.y, -maxDeg, maxDeg),
-                            Mathf.Clamp(euler.z, -maxDeg, maxDeg));
+        if (euler.magnitude > maxDeg)
+            euler = euler.normalized * maxDeg;
     }
 
     /// <summary>The largest distance from <paramref name="boardRoot"/> to any of the supplied

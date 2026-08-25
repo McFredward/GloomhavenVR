@@ -105,15 +105,18 @@ namespace GloomhavenVR
         // companion project and cannot reference the mod. It is a CROSS-CHECK, not a second
         // implementation: if the mod's clamp and this hand-computation disagree, the numbers below
         // stop matching the mod's own "Board mesh pose CLAMPED" log line and one of the two is
-        // wrong. Bronze's furthest pinned anchor is 0.2323 m from the root, the lift budget is
-        // 5 mm split half to the offset and half to the tilt, so the offset clamps to 2.5 mm per
-        // axis and the tilt to asin(0.0025/0.2323) = 0.617 deg.
+        // wrong. Bronze's furthest pinned anchor is 0.2323 m from the root and the lift budget is
+        // 5 mm, split half to the offset and half to the tilt. Both halves bound a MAGNITUDE, not
+        // an axis: |(0, -0.11, +0.08)| = 0.136015 scales to 2.5 mm as (0, -0.0020218, +0.0014704),
+        // and 57 deg of pitch clamps to asin(0.0025 / 0.2323) = 0.6168 deg. An earlier version
+        // clamped each axis independently — a cube, not a ball — and let a pose with all three
+        // axes dialled come out sqrt(3) too long; the sweep in tests/BoardSeatVectors caught it.
         private static readonly (string Style, string Tag, Vector3 Offset, Vector3 Euler)[] UserAssetPose =
         {
-            ("oak",    "userpose", new Vector3(0f, 0f, 0f),          new Vector3(0f, 0f, 0f)),
-            ("steel",  "userpose", new Vector3(0f, 0f, 0f),          new Vector3(0f, 0f, 0f)),
-            ("bronze", "userpose", new Vector3(0f, -0.11f, 0.08f),   new Vector3(57f, 0f, 0f)),
-            ("bronze", "clamped",  new Vector3(0f, -0.0025f, 0.0025f), new Vector3(0.617f, 0f, 0f)),
+            ("oak",    "userpose", new Vector3(0f, 0f, 0f),        new Vector3(0f, 0f, 0f)),
+            ("steel",  "userpose", new Vector3(0f, 0f, 0f),        new Vector3(0f, 0f, 0f)),
+            ("bronze", "userpose", new Vector3(0f, -0.11f, 0.08f), new Vector3(57f, 0f, 0f)),
+            ("bronze", "clamped",  new Vector3(0f, -0.0020218f, 0.0014704f), new Vector3(0.6168f, 0f, 0f)),
         };
 
         public static void RenderAll()
@@ -592,6 +595,20 @@ namespace GloomhavenVR
         /// Then park a small marker cube at each seat and rest anchor so the separation is
         /// visible instead of having to be imagined. Returns false if the prefab is not shaped
         /// the way the mod expects, rather than rendering a picture of nothing.
+        ///
+        /// <para>ONE DELIBERATE DIFFERENCE FROM THE MOD, AND WHY IT DOES NOT CHANGE THE ANSWER.
+        /// The mod moves the instantiated PREFAB ROOT (`PlayTray.1.Core` line 601 parents the whole
+        /// prefab under `_root` and `_visual` is that root) and pins the anchors back into
+        /// `_root`-local. This moves the prefab root's MESH CHILD and pins back into prefab-root
+        /// local. Both displace the mesh by the same offset and euler in the board's own frame
+        /// while the anchors stay, so the mesh-to-anchor separation — the quantity being measured —
+        /// is identical.</para>
+        ///
+        /// <para><b>THE MILLIMETRES PRINTED BELOW ARE BOARD-LOCAL, NOT WORLD.</b> `_root` carries
+        /// `ComputeBoardScale` (TrayScale x BoardScale_{board}), which for Bronze at the user's
+        /// tuned dials is 0.425 — so a 167 mm board-local separation is about 71 mm in front of his
+        /// face, not 167. The fact that does not depend on scale, and is the damning one, is that
+        /// three of the five anchors have no mesh behind them AT ALL.</para>
         /// </summary>
         private static bool ApplyAssetPose(GameObject root, Vector3 offset, Vector3 euler, string style)
         {
