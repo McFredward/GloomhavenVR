@@ -416,7 +416,83 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 279;
+    public const ushort ModBuild = 280;
+    // Build 280: THE COMMIT STOPS BUILDING DIAGNOSTICS IT THROWS AWAY, AND THE FIGURE
+    // EXEMPTION SHIPS AS A MEASUREMENT RATHER THAN A REMEDY.
+    // Bundle UNCHANGED at 68,577,168 — DLL-only on top of 279.
+    //   "Ich will aber eigentlich gar keine spuerbaren Ruckler - nicht nur seltenere."
+    //   He chose options A and B from .planning/perf/WALL-COMMIT-ARCHITECTURE.md. This is A
+    //   plus E; B (double-buffer + slice) is the next build and is what actually removes the
+    //   hitch. E and A together only shrink it.
+    //   E — NINE SITES STOPPED RUNNING, all exact-output, each with its argument in a comment
+    //   at the site. StandsOnFloor splits into Judge() (five ifs, no strings) and Describe()
+    //   (the five sentences, character-for-character), so every caller and all fourteen wire
+    //   vectors stay bit-identical; the sentence is now built only where it is consumed,
+    //   memoised per unit root AND arm. The ModBuild-266 wall-cut counter reads a verdict enum
+    //   instead of why.StartsWith(...), so no sentence is built to be prefix-tested. Both roll
+    //   caps are asked BEFORE r.name. Four interpolated reject reasons are gated on
+    //   NoteMountedReject's own first line. PropUnit.cs:1513 and Standing.cs:901 now go through
+    //   the cached FadeNameOf — the two sites PERF S4 missed. UnitOf memoises REFUSALS as well
+    //   as successes, ending an O(K^2) name re-walk per flat-parented masonry parent.
+    //   TWO ITEMS ON MY OWN LIST WERE REFUSED, AND BOTH REFUSALS ARE BETTER THAN THE ITEMS.
+    //     * Hoisting the 40-entry cap above IsActuallyDrawing/ClassifyLeftover is NOT free:
+    //       _censusMountedLeftover, its particle counter and the leftover CLASS HISTOGRAM all
+    //       count past that cap deliberately (the ModBuild-262 note beside them says so — "the
+    //       count the name list cannot carry"). Hoisting truncates a POPULATION COUNT at a
+    //       PRESENTATION cap: precisely the defect this project already has a memory for.
+    //     * The squared-gap rewrite is a DECISION change and the design's premise for it —
+    //       "every consumer is a comparison" — is false. The gap escapes into three census
+    //       lines as a printed F2, so a root must come back anyway; and the adoption loops pick
+    //       an owner with gap >= bestGap, where sqrt is monotonic but NOT INJECTIVE in float,
+    //       so two distinct squared distances can round to one root and hand a near-tie to the
+    //       later candidate instead of the earlier one. That is a different wall owning a prop.
+    //       Shipped instead: a degenerate-axis early return (dz == 0 -> dx), exact under
+    //       IEEE-754 and hit by most pairs on an axis-aligned board.
+    //   NO MILLISECOND CLAIM IS MADE. There is no headset on this side. What is stated is WHAT
+    //   was removed per commit — several thousand string.Format(string, object[]) calls (an
+    //   array plus a box per float) and several thousand Object.name / Shader.name interop
+    //   allocations. The instrument that answers it already ships: WallFade.Commit.<name> in
+    //   [Perf] STEPS, and the BUDGET line's COMMIT PHASES clause. Read WallCache (30.8),
+    //   PropUnits (29.1), Mounted (24.5).
+    //   A — AND THE DESIGN'S CENTRAL CLAIM FOR IT IS FALSE, VERIFIED IN THE SOURCE BY ME.
+    //   "PurgeFigureRenderers is phase 1, so a figure provably cannot change the commit's
+    //   output" fails twice:
+    //     1. The purge is RESTITUTION, NOT PREVENTION — it walks _mountedTouched only, and it
+    //        EXEMPTS IsWallGeneratedDressing (cs:3950). Mounted adopts a figure-classified
+    //        renderer when that predicate holds (ModBuild 266, the cloth post under
+    //        'Wall 4/Generated Content'), so such a renderer legitimately lives in the table and
+    //        its activeInHierarchy really does decide the commit. CLOSED by defining the exempt
+    //        class as IsFigureOrActorRenderer && !IsWallGeneratedDressing — the identical
+    //        predicate the purge itself uses.
+    //     2. NOT CLOSED: PropUnit.cs:1212 asks IsActuallyDrawing (enabled AND
+    //        activeInHierarchy) of every prop-unit MEMBER, five lines before the figure refusal
+    //        at :1267. A figure inside a prop unit therefore decides by liveness alone whether
+    //        the whole unit is refused. That arm fired zero times in the ModBuild-261 session —
+    //        a reason to EXPECT safety, not a proof of it.
+    //   SO THE DIAL SHIPS OFF, AND THAT DEFAULT IS A FINDING. The asymmetry decides it: a wrong
+    //   skip costs thirty rescan cadences of a wall that should have opened and did not —
+    //   indistinguishable from the mod being off — while the upside of enabling it one build
+    //   early is a HITCH RATE he has already said is not what he asked for. This is not the
+    //   "gated remedy never ran" failure: E is the ungated remedy in the same build, and A's
+    //   deliverable here IS a measurement, stated as one.
+    //   WHAT SHIPS ON REGARDLESS: the narrowed signature, its shadow comparison, the counters
+    //   and the per-renderer naming. Against the design, the seven cold verdict bits are KEPT —
+    //   a figure-classified renderer with a water-family shader still enters _factWater and
+    //   CollectWaterFeatures has NO figure guard at all, so its rect really can protect a
+    //   fountain. Keeping them costs nothing in refusals and removes a class of arguments that
+    //   would otherwise be won by assertion.
+    //   AND A CORRECTION TO MY OWN SHIPPING CONDITION: "narrowed moved but full did not is
+    //   impossible" is FALSE. It happens legitimately whenever a figure verdict crosses with no
+    //   other bit moving — the FIGURE bit doing its job. Shouting about that would have
+    //   produced false alarms on the first run. A third accumulator separates the two, and only
+    //   the genuinely impossible case (narrowed moved, full did not, NO figure crossing) is
+    //   loud: VRLog.Warn with all six accumulators, capped at four per session with the COUNT
+    //   uncapped in the clause.
+    //   The 24% yield stays labelled a HYPOTHESIS — 5 of 17 sampled refusals, and whether the
+    //   other 11 are figure-adjacent is unmeasured. This build answers it with names.
+    //   WIRE TESTS 147631 -> 147644 (+13): 9 NarrowedBits exhaustive proofs over all 256 bit
+    //   patterns on both arms, 2 pinning Judge/Describe against StandsOnFloor, 2 pinning
+    //   ChooseOwner's describe flag not to move an owner index. No other gate moved.
     // Build 279: THE BOARD BACKS' PAINTED IRONWORK BECOMES REAL GEOMETRY.
     // *** NEW BUNDLE: 68,577,168 bytes (was 68,522,833). NOT a DLL-only install. ***
     //   "Die Rueckseite der boards gefaellt mir sehr gut! Allerdings: Auf den Texturen sind

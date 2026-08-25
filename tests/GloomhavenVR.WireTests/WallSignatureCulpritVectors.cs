@@ -195,5 +195,105 @@ internal static class WallSignatureCulpritVectors
             "with no baseline the line says so instead of printing a diff of nothing");
         t.True(!cold.Contains("NOTHING MOVED"),
             "…and does not borrow the self-accusing text, which means something else entirely");
+
+        // ================================================================================
+        // ModBuild 279 (Option A) — THE NARROWED SIGNATURE'S ARITHMETIC.
+        // ================================================================================
+        //
+        // WallSegmentFadeCulprits.NarrowedBits is the ONE copy of the bit selection the skip
+        // decision uses when the FigureExemptSkip dial is on: a wrong answer here is a wall
+        // table that never gets rebuilt, i.e. wall see-through silently stopping. It is
+        // arithmetic over 9 bits, so it is not sampled — it is driven EXHAUSTIVELY over all 256
+        // input patterns on both arms, which is a proof rather than a control.
+        t.Case("sigculprits/narrowed-non-figure-is-untouched");
+        bool nonFigureIdentical = true;
+        for (int bits = 0; bits < 256; bits++)
+        {
+            if (WallSegmentFadeCulprits.NarrowedBits(bits, figure: false) != bits)
+                nonFigureIdentical = false;
+        }
+        t.True(nonFigureIdentical,
+            "for a NON-figure the narrowed value is the full value, bit for bit, over all 256 "
+            + "patterns — the narrowing can only ever affect the class it names");
+
+        // THE SAVING ITSELF, as a property and not as an intention: for a figure the value must
+        // not depend on activeInHierarchy. That bit is the one the ModBuild-277 decode attributes
+        // 5 of 17 sampled refusals to, and it is the only one this exemption drops.
+        t.Case("sigculprits/narrowed-figure-ignores-active");
+        bool figureIgnoresActive = true;
+        for (int bits = 0; bits < 256; bits++)
+        {
+            int withActive = WallSegmentFadeCulprits.NarrowedBits(bits | Active, figure: true);
+            int without = WallSegmentFadeCulprits.NarrowedBits(bits & ~Active, figure: true);
+            if (withActive != without)
+                figureIgnoresActive = false;
+        }
+        t.True(figureIgnoresActive,
+            "for a FIGURE the narrowed value is independent of activeInHierarchy over all 256 "
+            + "patterns — which IS the saving, stated as a property of the function");
+
+        // THE CROSSING MUST STILL COMMIT. A renderer reparented INTO or OUT OF the round-7 class
+        // is the design's own named failure mode, and the FIGURE bit is what catches it. If any
+        // pattern gave the same value on both arms, that crossing would be invisible and the
+        // renderer's real changes would be dropped silently from then on.
+        t.Case("sigculprits/narrowed-crossing-always-moves");
+        bool crossingAlwaysMoves = true;
+        for (int bits = 0; bits < 256; bits++)
+        {
+            if (WallSegmentFadeCulprits.NarrowedBits(bits, figure: true)
+                == WallSegmentFadeCulprits.NarrowedBits(bits, figure: false))
+            {
+                crossingAlwaysMoves = false;
+            }
+        }
+        t.True(crossingAlwaysMoves,
+            "a figure/non-figure crossing changes the narrowed value for every one of the 256 "
+            + "patterns, so a reparent into or out of the round-7 class always commits");
+
+        // NO CROSS-CLASS COLLISION. The accumulators are commutative (SUM and XOR), so two terms
+        // that happen to be equal can cancel. A figure's value sharing a value with SOME
+        // non-figure's would let a figure's change be masked by an unrelated renderer's opposite
+        // change — the compensating-pair failure the two accumulators exist to make unlikely, and
+        // there is no reason to hand it a systematic source.
+        t.Case("sigculprits/narrowed-classes-cannot-alias");
+        var figureValues = new HashSet<int>();
+        var plainValues = new HashSet<int>();
+        for (int bits = 0; bits < 256; bits++)
+        {
+            figureValues.Add(WallSegmentFadeCulprits.NarrowedBits(bits, figure: true));
+            plainValues.Add(WallSegmentFadeCulprits.NarrowedBits(bits, figure: false));
+        }
+        figureValues.IntersectWith(plainValues);
+        t.Equal(0, figureValues.Count,
+            "no value a FIGURE can fold is a value a NON-figure can fold — the FIGURE weight sits "
+            + "above every bit the full half uses");
+
+        // ---- THE NINTH BIT IS ACTUALLY REPORTED ------------------------------------------
+        // A bit added to the census and not to its two report loops is a bit that is counted and
+        // never printed — an instrument that is silently one column short, which is the exact
+        // shape of failure this file's own header is written against.
+        t.Case("sigculprits/figure-bit-is-named");
+        t.Equal(WallSegmentFadeCulprits.BitCount, WallSegmentFadeCulprits.BitNames.Length,
+            "every bit the census carries has a human name");
+        t.Equal(WallSegmentFadeCulprits.BitCount,
+            new WallSegmentFadeCulprits.Census().BitFlips.Length,
+            "…and a slot in the per-bit tally");
+        var bankedFig = new Dictionary<int, WallSegmentFadeCulprits.Banked>
+        {
+            [1] = new("CR_BT_BanditBanner_Wall", Mesh | Active),
+        };
+        var liveFig = new List<WallSegmentFadeCulprits.Entry>
+        {
+            // Reparented under an actor since the last commit: same mesh, same liveness, but it
+            // is now a round-7 figure. Nothing but the ninth bit moved.
+            E(1, "CR_BT_BanditBanner_Wall", Mesh | Active | WallSegmentFadeCulprits.BitFigure),
+        };
+        WallSegmentFadeCulprits.Census cf = WallSegmentFadeCulprits.Diff(bankedFig, liveFig, 10);
+        t.Equal(1, cf.Changed, "the figure-verdict crossing is seen as a change");
+        t.Equal(1, cf.BitFlips[8], "…counted under bit 8");
+        t.True(WallSegmentFadeCulprits.Format(cf, liveFig.Count, bankedFig.Count, true)
+                .Contains("round-7 FIGURE"),
+            "…and the line NAMES that bit, so a reader can tell a figure crossing from a torch "
+            + "flame toggling");
     }
 }

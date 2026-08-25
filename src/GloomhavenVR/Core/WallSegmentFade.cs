@@ -72,6 +72,10 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
     /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
     internal static ConfigEntry<bool>? SignatureCulpritCensus;
+    /// <summary>ModBuild 279 (Option A): let the skip signature stop listening to renderers the
+    /// round-7 ruling puts beyond every adoption lane's reach. Ships OFF — see
+    /// <see cref="FigureExemptSkipOn"/>.</summary>
+    internal static ConfigEntry<bool>? FigureExemptSkip;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -283,6 +287,22 @@ internal static class WallFadeTuning
             + "rebuild, at most once every few seconds, and reports its own cost as the step "
             + "'WallFade.SigDiag' so it can never become an unmeasured tax. Turn it off once "
             + "the question is answered. Live.");
+        FigureExemptSkip = config.Bind("WallFade", "FigureExemptSkip",
+            Defaults.FigureExemptSkip,
+            "EXPERIMENTAL, OFF BY DEFAULT, AND MEASURED EITHER WAY. Heroes, monsters and their "
+            + "effects move constantly, and every time one of them appears, dies or is switched "
+            + "on the mod decides its wall table might have changed and rebuilds the whole thing "
+            + "— a rebuild that is measured at about 95 milliseconds, which is what a short "
+            + "stutter is made of. This switch lets the mod ignore figures when it asks 'did "
+            + "anything change', because no wall system is ever allowed to touch a figure "
+            + "anyway. IT DOES NOT MAKE A REBUILD FASTER — it makes rebuilds rarer, which is not "
+            + "the same thing and is not what was asked for. IT IS OFF BECAUSE ONE PATH IN THE "
+            + "MOD STILL READS A FIGURE'S ON/OFF STATE while deciding a whole prop group's fate, "
+            + "and if that path ever fires the mod could miss a real change and leave a wall "
+            + "solid for up to thirty rescans. WITH IT OFF, THIS BUILD STILL MEASURES IT: the "
+            + "log's FIGURE EXEMPTION clause reports how many rebuilds it WOULD have saved and "
+            + "names the renderers it would have stopped listening to, so the decision to switch "
+            + "it on can be made from a real session instead of from an argument. Live.");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -587,6 +607,48 @@ internal static class WallFadeTuning
     /// question is a wasted round, and this project has had three of those.</summary>
     internal static bool SignatureCulpritCensusOn =>
         SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
+
+    /// <summary>
+    /// ModBuild 279 (Option A) — MAY THE SKIP SIGNATURE STOP LISTENING TO FIGURES?
+    ///
+    /// <para><b>DEFAULTS OFF, AND THE DEFAULT IS THE DECISION.</b> The narrowed signature, its
+    /// shadow comparison, its three counters and the culprit naming are ALL ON regardless: this
+    /// build MEASURES the narrowing on his hardware. What the dial gates is whether the narrowed
+    /// half is allowed to DECIDE.</para>
+    ///
+    /// <para><b>WHY OFF, stated as the evidence rather than as caution.</b> The design this came
+    /// from rests on one claim: that <c>PurgeFigureRenderers</c> is phase 1 of the commit and
+    /// therefore "a figure moving, being highlighted, or being toggled provably cannot change the
+    /// commit's output". Read against the source, that claim is false twice over.
+    /// <c>PurgeFigureRenderers</c> is RESTITUTION, not prevention — it walks
+    /// <c>_mountedTouched</c> only, and it EXEMPTS <c>IsWallGeneratedDressing</c>, so a
+    /// wall-generated cloth post that the figure guard classifies as a figure legitimately stays
+    /// in the table (this predicate's own term excludes those, so that half is covered). The one
+    /// that is not covered: <c>WallSegmentFade.PropUnit.cs</c> :1212 asks
+    /// <c>IsActuallyDrawing</c> — <c>enabled</c> AND <c>activeInHierarchy</c> — of every
+    /// prop-unit MEMBER, and it asks it FIVE LINES BEFORE the figure refusal at :1267. So a
+    /// figure that is a member of a prop unit decides, by its liveness alone, whether that whole
+    /// unit is refused. That path is recorded as firing ZERO times in the ModBuild-261 session,
+    /// which is a good reason to expect the narrowing to be safe and not a reason to assert
+    /// it.</para>
+    ///
+    /// <para><b>WHAT A WRONG SKIP COSTS, which is why the asymmetry matters.</b> The backstop is
+    /// the 30-cycle staleness ceiling, so the worst case is bounded — but bounded at thirty
+    /// rescan cadences of a wall that should have opened and did not, which is
+    /// "Wanddurchsicht hört auf zu funktionieren", indistinguishable from the mod being switched
+    /// off, and a thing the user has ruled must never happen. Against that, the upside of turning
+    /// it on one build earlier is a hitch rate he has already said out loud is not what he asked
+    /// for: <i>"Ich will aber eigentlich gar keine spürbaren Ruckler - nicht nur seltenere."</i>
+    /// One observe-only build costs a hardware session that is being run anyway for PERF E's
+    /// numbers; a wrong skip costs the picture.</para>
+    ///
+    /// <para><b>WHAT TURNS IT ON.</b> The next log's FIGURE EXEMPTION clause and the SIGNATURE
+    /// CULPRITS lines beside it. If <c>_narrowOnlyUnexplained</c> is 0, and the renderers named
+    /// as moving the full signature on the counted cycles carry the FIGURE bit, the dial is a
+    /// one-line change with the evidence behind it.</para>
+    /// </summary>
+    internal static bool FigureExemptSkipOn =>
+        FigureExemptSkip != null && FigureExemptSkip.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -1486,6 +1548,27 @@ internal static partial class WallSegmentFade
             /// DESTROYED (see WallSegmentFadeCulprits: a leaver cannot be asked its own name).
             /// Re-read only on a COLD classify, exactly like every other verdict here.</summary>
             public string? Name;
+            /// <summary>ModBuild 279 (Option A) — is this renderer one the round-7 ruling puts
+            /// beyond every adoption lane's reach, i.e. <c>IsFigureOrActorRenderer</c> AND NOT
+            /// <c>IsWallGeneratedDressing</c>?
+            ///
+            /// <para>READ LIVE EVERY CYCLE, not cached on a cold classify like the seven verdict
+            /// bits above it. Those are properties of the renderer's own components and
+            /// materials; this one is a property of its ANCESTRY, which the game can change
+            /// under us by reparenting. A stale TRUE here is the one error that costs something
+            /// (see the narrowed signature) so it is the one that is never allowed to
+            /// persist.</para>
+            ///
+            /// <para>WHY THE SECOND CONJUNCT IS NOT OPTIONAL — this is a correction to the
+            /// design document, made against the source. The mounted sweep's two
+            /// <c>IsWallGeneratedDressing</c> arms (the non-mountable structural skip and the
+            /// round-7 guard itself) adopt a renderer that IS a figure when that predicate holds
+            /// (ModBuild 266, the cloth post under 'Wall 4/Generated Content'), and
+            /// <c>PurgeFigureRenderers</c> carries the identical exemption, so such a renderer
+            /// legitimately survives in the table and its liveness DOES decide the commit's
+            /// output. Exempting it from the signature would drop a real membership change.
+            /// </para></summary>
+            public bool Figure;
         }
 
         /// <summary>The scene snapshot this cycle is classifying (the array
@@ -4075,13 +4158,31 @@ internal static partial class WallSegmentFade
                 _cycleClassifyFrames++;
                 using (PerfMonitor.Scope("WallFade.Classify"))
                 {
-                    while (_classifyCursor < _factCount)
+                    // ModBuild 279 (Option A) — ONE ANCESTRY MEMO WINDOW PER CLASSIFY BATCH.
+                    // RendererFact.Figure needs IsFigureOrActorRenderer for every renderer in the
+                    // snapshot, and that predicate's fast path only exists inside an open window
+                    // (FigureAncestryMemo: valid for ONE synchronous pass, because nothing can
+                    // re-parent an actor while one is running). Classify SPANS FRAMES, so without
+                    // this the climb would be cold for every renderer of every slice. This is the
+                    // same bracket StepPrepare already opens around its own slice, and for the
+                    // same reason; both windows close at the frame boundary, so neither is
+                    // widened by a single frame and the round-7 re-parent case the "belt over the
+                    // prefilter" re-checks exist for is untouched.
+                    BeginFigureMemo();
+                    try
                     {
-                        int end = Mathf.Min(_classifyCursor + ClassifyChunk, _factCount);
-                        ClassifySlice(_classifyCursor, end);
-                        _classifyCursor = end;
-                        if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget)
-                            break;
+                        while (_classifyCursor < _factCount)
+                        {
+                            int end = Mathf.Min(_classifyCursor + ClassifyChunk, _factCount);
+                            ClassifySlice(_classifyCursor, end);
+                            _classifyCursor = end;
+                            if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget)
+                                break;
+                        }
+                    }
+                    finally
+                    {
+                        EndFigureMemo();
                     }
                 }
                 if (_classifyCursor < _factCount)
@@ -4314,11 +4415,17 @@ internal static partial class WallSegmentFade
                 {
                     f.R = null;
                     f.Mesh = null;
+                    f.Figure = false;
                     // PERF S5: a hole in the snapshot is itself a fact — a renderer that died
                     // since the sweep changes what every pass below sees, so it must move the
                     // signature. A fixed per-hole term, accumulated commutatively like every
                     // other, so N holes read as N holes whatever order they appear in.
+                    // ModBuild 279: into ALL THREE accumulators — a hole is a hole under every
+                    // reading of the signature, and a term that moved one but not another would
+                    // read as a narrowing effect when it is nothing of the kind.
                     FoldSceneFact(DeadRendererSigTerm);
+                    FoldNarrowSceneFact(DeadRendererSigTerm);
+                    FoldFigureSetFact(DeadRendererSigTerm);
                     continue;
                 }
                 bool cold = _classifyCold || !ReferenceEquals(f.R, r);
@@ -4334,6 +4441,15 @@ internal static partial class WallSegmentFade
                 f.Anchor = f.Particles
                     ? r.transform.position
                     : new Vector3(f.Bounds.center.x, f.Bounds.min.y, f.Bounds.center.z);
+                // ModBuild 279 (Option A). LIVE, on warm cycles too — see RendererFact.Figure.
+                // The ancestry climb is memoised, and the window is opened per classify BATCH by
+                // StepRescanCycle (FigureAncestryMemo's contract is one synchronous pass, and
+                // classify spans frames — without that window the climb would be cold for every
+                // renderer of every slice and the classify budget would blow).
+                // IsWallGeneratedDressing is asked ONLY of a renderer the figure guard already
+                // caught, which is the small minority, and its own ancestor walk is memoised by
+                // the same window.
+                f.Figure = IsFigureOrActorRenderer(r) && !IsWallGeneratedDressing(r);
 
                 // AdoptShaderMatchedWalls' input: `any is MeshRenderer && RendererUsesWallFade`.
                 // No enabled/mod filter — the old loop had none either.
@@ -4383,9 +4499,63 @@ internal static partial class WallSegmentFade
                          | (f.FoliageShader ? 32 : 0)
                          | (f.WaterSurface ? 64 : 0)
                          | (r.gameObject.activeInHierarchy ? 128 : 0);
-                FoldSceneFact(FoldSig(FoldSig(FnvOffset, r.GetInstanceID()), bits));
+                ulong ident = FoldSig(FnvOffset, r.GetInstanceID());
+                FoldSceneFact(FoldSig(ident, bits));
+
+                // ================================================================================
+                // ModBuild 279, OPTION A — THE NARROWED SIGNATURE, COMPUTED IN SHADOW.
+                // ================================================================================
+                //
+                // THE USER'S ESCALATION: "Ich will aber eigentlich gar keine spürbaren Ruckler -
+                // nicht nur seltenere." This does NOT answer it — it makes the ~95 ms commits
+                // rarer, which is the thing he said was not enough. It is here because it is
+                // nearly free and because it reduces how often the sliced rebuild (a later
+                // build) has to run at all.
+                //
+                // THE TERM. `f.Figure` is a renderer the round-7 ruling puts beyond every
+                // adoption lane's reach. For such a renderer the narrowed signature drops the
+                // ONE bit the game flips constantly — `activeInHierarchy`, which the ModBuild-277
+                // log's decoded refusals show as the sole mover in 5 of 17 sampled refusals — and
+                // sets a FIGURE bit in its place, so that a renderer CROSSING into or out of the
+                // figure class still moves the hash. Identity is still folded, so a figure
+                // appearing or dying still moves it too.
+                //
+                // WHAT IS DELIBERATELY *NOT* DROPPED, and this is a correction to the design
+                // document, which proposed folding "identity plus the Figure bit only". The
+                // seven COLD verdict bits stay. A figure-classified renderer with a water-family
+                // shader still enters `_factWater` (CollectWaterFeatures has no figure guard at
+                // all — WallSegmentFade.Water.cs) and its rect protects a fountain, so its
+                // WaterSurface bit really can change the commit's output. Those bits move only
+                // on a COLD classify, so keeping them costs nothing in refusals and removes a
+                // whole class of "can a figure ever be X" arguments I would otherwise have to
+                // win by assertion.
+                //
+                // AND THE HONEST LIMIT, carried here rather than in a report: the exemption is
+                // NOT the "provably cannot change the commit's output" the design claims.
+                // PurgeFigureRenderers is RESTITUTION, not prevention — it walks _mountedTouched
+                // only, and it exempts IsWallGeneratedDressing (which is why that term is in
+                // f.Figure). And WallSegmentFade.PropUnit.cs :1212 asks IsActuallyDrawing —
+                // enabled AND activeInHierarchy — of every prop-unit MEMBER, and does so BEFORE
+                // the figure refusal five lines below it, so a figure member's liveness decides
+                // whether the whole unit is refused. That path fired zero times in the
+                // ModBuild-261 session, but "zero observed" is not "cannot". This is why the
+                // narrowing ships behind a dial with the full signature always on and a census
+                // that names what the narrowing dropped.
+                bool figure = f.Figure;
+                FoldNarrowSceneFact(FoldSig(ident,
+                    WallSegmentFadeCulprits.NarrowedBits(bits, figure)));
+                // The FIGURE-SET half: identity plus the figure verdict alone. It exists for one
+                // question and one only — when the narrowed signature moves and the full one does
+                // not, was that a figure-verdict CROSSING (legitimate, and the narrowed term is
+                // supposed to catch it) or an arithmetic impossibility (an instrument bug)? See
+                // CommitWouldChangeNothing's scene term.
+                FoldFigureSetFact(FoldSig(ident, figure ? 1 : 0));
             }
         }
+
+        // ModBuild 279: the narrowed half's bit selection is WallSegmentFadeCulprits
+        // .NarrowedBits — ONE definition, in the Unity-free file, so the wire suite can drive it
+        // exhaustively over all 256 patterns on both arms before anybody trusts it.
 
         /// <summary>
         /// The four name/shader verdicts a scene renderer carries, derived from ONE
@@ -4549,6 +4719,11 @@ internal static partial class WallSegmentFade
             _noSkipCeiling = 0;
             _noSkipDrift = 0;
             _noSkipMaterials = 0;
+            // ModBuild 279 (Option A): window counters like every other one beside them, so the
+            // FIGURE EXEMPTION clause reports THIS window and not the session.
+            _narrowWouldSkip = 0;
+            _narrowOnlyFigureCrossing = 0;
+            _narrowOnlyUnexplained = 0;
             // _lastNoSkipDetail is NOT reset: a window in which nothing refused must still say
             // what the last refusal was, or the clause reads as a dead instrument on exactly
             // the windows the change is working.

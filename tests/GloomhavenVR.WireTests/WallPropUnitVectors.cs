@@ -171,5 +171,36 @@ internal static class WallPropUnitVectors
         // ways still reads honestly.
         t.Case("propunit/total-held");
         t.Equal(3, WallPropUnit.TotalHeld(statue), "1 + 2 renderers were held by some wall");
+
+        // ---- PERF E: NOT BUILDING THE SENTENCE DOES NOT CHANGE THE OWNER -----------------------
+        // ChooseOwner's `describe` flag lets the caller skip the rule sentence once the prop-unit
+        // census is at its cap. It is a diagnostic switch, and the one thing it may never do is
+        // move an index: a different owner is a different wall carrying a prop, which is a
+        // picture change. Driven over every shape above, on both settings of the flag.
+        t.Case("propunit/describe-flag-cannot-move-the-owner");
+        var shapes = new[] { statue, fading, minority, settled, split, hair, whole };
+        var stickies = new string?[] { null, Wall2, Wall6, "Wall 9|3|3" };
+        bool sameOwner = true, silentIsMarked = true;
+        foreach (List<WallPropUnit.Claim> shape in shapes)
+        {
+            foreach (string? sticky in stickies)
+            {
+                int loud = WallPropUnit.ChooseOwner(shape, sticky, out string loudRule);
+                int quiet = WallPropUnit.ChooseOwner(shape, sticky, out string quietRule,
+                                                     describe: false);
+                if (loud != quiet)
+                    sameOwner = false;
+                // A skipped sentence must be legible AS skipped if it ever reaches a log, never
+                // an empty string and never a plausible-looking rule name.
+                if (quietRule != loudRule && quietRule != WallPropUnit.NoDescription)
+                    silentIsMarked = false;
+            }
+        }
+        t.True(sameOwner,
+               "the owner index is identical with the rule sentence built and with it skipped, "
+               + "for seven claim shapes x four sticky keys");
+        t.True(silentIsMarked,
+               "and where the sentence is skipped it is replaced by the self-identifying "
+               + "placeholder, not by an empty string");
     }
 }

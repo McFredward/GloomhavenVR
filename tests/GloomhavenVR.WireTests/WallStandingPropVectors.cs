@@ -258,5 +258,52 @@ internal static class WallStandingPropVectors
         t.True(skull < wall, "a skull ranks ahead of a wall course, so the cap cannot drop it");
         t.True(WallStandingProp.SizeRank(0.1f, 0.2f, 5.0f) > wall,
                "the rank is the LARGEST extent, not a volume — a long flat sheet is not 'small'");
+
+        // ---- PERF E: THE VERDICT/SENTENCE SPLIT IS A NO-OP -------------------------------------
+        // StandsOnFloor is now Judge() + Describe(), so a caller can take the verdict without
+        // paying for a string it will drop. The split is only allowed to be cheaper, never
+        // different: the invariant of this round is that not one decision predicate moves. Every
+        // vector above already drives StandsOnFloor through both halves; these pin the two halves
+        // AGAINST EACH OTHER, over the same six subjects and both arms, so a future edit to one
+        // that does not reach the other fails here rather than in a hardware session.
+        t.Case("standing/judge-and-describe-agree-with-the-verdict");
+        var subjects = new[] { skeleton, skullOnly, wallCourse, doorSign, room, statue,
+                               grassHex, trunkUnit, degenerate };
+        bool splitAgrees = true, tagAgrees = true;
+        foreach (WallStandingProp.Unit u in subjects)
+        {
+            foreach (bool arm in new[] { false, true })
+            {
+                foreach (bool cut in new[] { false, true })
+                {
+                    WallStandingProp.FloorVerdict v =
+                        WallStandingProp.Judge(u, FloorY, arm, cut);
+                    bool viaBool = WallStandingProp.StandsOnFloor(u, FloorY, arm,
+                                                                  vegetation: false,
+                                                                  wallCut: cut, out string s);
+                    if (viaBool != (v == WallStandingProp.FloorVerdict.StandsOnFloor))
+                        splitAgrees = false;
+                    if (s != WallStandingProp.Describe(u, FloorY, arm, vegetation: false,
+                                                       wallCut: cut, v))
+                    {
+                        splitAgrees = false;
+                    }
+                    // The ModBuild-266 wall-cut counter used to read the SENTENCE's leading tag
+                    // and now reads the enum. The two must name the same rows, or that counter
+                    // silently changes meaning.
+                    bool byTag = s.StartsWith(WallStandingProp.WallFragmentTag,
+                                              System.StringComparison.Ordinal);
+                    if (byTag != (v == WallStandingProp.FloorVerdict.WallFeatureFragment))
+                        tagAgrees = false;
+                }
+            }
+        }
+        t.True(splitAgrees,
+               "Judge() and Describe() reproduce StandsOnFloor's bool AND its sentence exactly, "
+               + "for nine subjects x both arms x both wall-cut states");
+        t.True(tagAgrees,
+               "and FloorVerdict.WallFeatureFragment names exactly the rows whose sentence starts "
+               + "with WallFragmentTag — the ModBuild-266 counter reads the same population it "
+               + "always did");
     }
 }

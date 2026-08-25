@@ -61,13 +61,54 @@ internal static class WallSegmentFadeCulprits
     internal const int BitWater = 64;
     internal const int BitActive = 128;
 
-    /// <summary>Human names for the eight bits, index = bit position.</summary>
+    /// <summary>ModBuild 279 (Option A) — the ROUND-7 EXEMPTION verdict:
+    /// <c>IsFigureOrActorRenderer &amp;&amp; !IsWallGeneratedDressing</c>. It is NOT one of the
+    /// eight the shipped signature folds; it is carried by this census because the narrowing's
+    /// falsifier has to be able to say "the renderers the narrowing stopped listening to were
+    /// these, and they were figures" — or, much more usefully, that they were not.</summary>
+    internal const int BitFigure = 256;
+
+    /// <summary>How many bits the census carries. Named so the two report loops cannot drift
+    /// from the array beside them, which is how a ninth bit would otherwise have been added and
+    /// silently never printed.</summary>
+    internal const int BitCount = 9;
+
+    /// <summary>Human names for the nine bits, index = bit position.</summary>
     internal static readonly string[] BitNames =
     {
         "is a MeshRenderer", "is a particle system", "is mountable", "is a mod object",
         "carries a wall-fade shader", "carries a foliage shader", "is a water surface",
         "activeInHierarchy",
+        "is a round-7 FIGURE the narrowing exempts",
     };
+
+    /// <summary>
+    /// ModBuild 279 (Option A) — THE NARROWED SIGNATURE'S BIT SELECTION, and the only copy of it.
+    ///
+    /// <para>The scene half of the skip signature folds identity plus these bits, once per
+    /// renderer. The NARROWED half folds identity plus THIS function of them: for a renderer the
+    /// round-7 ruling puts beyond every adoption lane's reach, the <c>activeInHierarchy</c> bit —
+    /// which the game flips constantly and which the ModBuild-277 log's decoded refusals show as
+    /// the sole mover in 5 of 17 sampled refusals — is replaced by a FIGURE bit.</para>
+    ///
+    /// <para><b>WHY IT LIVES IN THE UNITY-FREE FILE.</b> Because it is arithmetic that decides
+    /// whether a 95 ms rebuild happens, and this project's ledger says a new instrument's first
+    /// output is a hypothesis. Here it can be driven exhaustively over all 256 bit patterns on
+    /// both arms, in CI, with no headset — see <c>WallSignatureCulpritVectors</c>, which pins the
+    /// four properties the narrowing's safety argument actually rests on:</para>
+    /// <list type="number">
+    /// <item>a NON-figure is folded exactly as before, bit for bit, so the narrowing can only
+    ///   ever affect the class it names;</item>
+    /// <item>a FIGURE's value does not depend on <c>activeInHierarchy</c> — that is the whole
+    ///   saving, and it is a property rather than an intention;</item>
+    /// <item>a figure/non-figure CROSSING always changes the value, whatever the other bits are,
+    ///   so a renderer reparented into or out of the round-7 class still commits;</item>
+    /// <item>no figure's value can collide with any non-figure's, so the two classes cannot
+    ///   cancel inside the commutative accumulators.</item>
+    /// </list>
+    /// </summary>
+    internal static int NarrowedBits(int bits, bool figure) =>
+        figure ? (bits & ~BitActive) | BitFigure : bits;
 
     /// <summary>One live snapshot entry, as the census sees it. Deliberately not a Unity type:
     /// the id is <c>GetInstanceID</c>, the name is the one <c>ClassifyMaterialsAndName</c>
@@ -135,7 +176,7 @@ internal static class WallSegmentFadeCulprits
         /// <c>BitFlips[7]</c> is the <c>activeInHierarchy</c> count. A renderer that moved two
         /// bits is counted under both — this is a per-BIT tally, not a partition, and the sum
         /// is therefore ≥ <see cref="Changed"/> by construction.</summary>
-        internal readonly int[] BitFlips = new int[8];
+        internal readonly int[] BitFlips = new int[BitCount];
 
         internal readonly List<Group> EnteredGroups = new();
         internal readonly List<Group> LeftGroups = new();
@@ -227,7 +268,7 @@ internal static class WallSegmentFadeCulprits
             census.Changed++;
             Tally(changedBy, GroupKey(e.Name));
             int moved = was.Bits ^ e.Bits;
-            for (int b = 0; b < 8; b++)
+            for (int b = 0; b < BitCount; b++)
             {
                 if ((moved & (1 << b)) != 0)
                     census.BitFlips[b]++;
@@ -334,7 +375,7 @@ internal static class WallSegmentFadeCulprits
                     + "that moved two bits counts under both, so these sum to at least the "
                     + "CHANGED count):");
             bool any = false;
-            for (int b = 0; b < 8; b++)
+            for (int b = 0; b < BitCount; b++)
             {
                 if (c.BitFlips[b] == 0)
                     continue;
