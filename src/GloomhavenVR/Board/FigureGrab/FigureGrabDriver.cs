@@ -45,7 +45,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         public Collider GameCollider = null!;
 
         /// <summary>The character's head joint (<c>m_HeadBonePoint</c>), when it has one: the
-        /// FLOOR under <see cref="FigureBody.TrustedTopY"/>, never the anchor. Null is normal and
+        /// FLOOR under <see cref="FigureBody.LiveTopY"/>, never the anchor. Null is normal and
         /// costs nothing.</summary>
         public Transform? HeadBone;
 
@@ -207,8 +207,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // the next round can decide on evidence instead; the fix below does not depend on the answer.
     //
     // WHAT THIS IS. A mod-owned capsule with the game capsule's OWN horizontal profile, extended
-    // upward to the figure's trusted top (FigureBody.TrustedTopY -- the mesh box corrected by the
-    // slack it admits below the figure's base). Same radius, same axis, same centre in X and Z:
+    // upward to the figure's LIVE top (FigureBody.LiveTopY -- the world extent of its bone
+    // transforms, raised to the head joint where the skeleton falls short; the ModBuild 292 slack
+    // correction it replaced is retired, see FigureBody). Same radius, same axis, same centre:
     // the volume gains height and nothing else, so no figure becomes easier to grab from the side
     // and no figure can steal an election from its neighbour. Built ONLY for a figure whose
     // trusted top clears the game collider by more than ReachExtensionMinGapFraction of its own
@@ -872,7 +873,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         float nearestSurface = float.MaxValue;
         int used = 0;
         if (body != null)
-            used = MeasureBody(body, pinch, includePinch: true, out minY, out maxY, out nearestSurface);
+            used = MeasureBody(body, pinch, includePinch: true, out minY, out maxY,
+                               out nearestSurface, out _, out _, out _);
         if (used == 0 || nearestSurface > reachWorld)
         {
             _reachMissSuppressed++;
@@ -940,16 +942,33 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// <para>Split out of <see cref="DescribeRenderedBody"/> because the reach volume needs the
     /// same measurement and must not get it from a string. Returns the renderer count; 0 means
     /// nothing usable was found and the out values are meaningless.</para>
+    ///
+    /// <para><b>THE VERTICAL EXTENT IS LIVE SINCE ModBuild 294</b> — bone transforms for skinned
+    /// meshes, own transform for props (<see cref="FigureBody.TryLiveExtentY"/>). <paramref
+    /// name="boxMinY"/>/<paramref name="boxMaxY"/> carry the BAKED <c>Renderer.bounds</c> union
+    /// beside it, for the log line only: it is what this subsystem used to decide with, and the
+    /// ModBuild 293 log showed it is not the figure (a drake whose baked box never moved while it
+    /// flew 1.5 wu into the air). <paramref name="liveBones"/> is the number of bone transforms
+    /// that produced the live answer — 0 on a figure whose skinned renderers have no bone array,
+    /// the one state in which this degrades back to the stale box.</para>
+    ///
+    /// <para>The nearest-SURFACE distance still comes from the baked box, and deliberately: it is a
+    /// diagnostic distance to a volume, <c>Bounds.ClosestPoint</c> is the only cheap way to get
+    /// one, and a bone cloud has no surface to close on.</para>
     /// </summary>
     private static int MeasureBody(
         GameObject body, Vector3 pinch, bool includePinch,
-        out float minY, out float maxY, out float nearestSurface)
+        out float minY, out float maxY, out float nearestSurface,
+        out float boxMinY, out float boxMaxY, out int liveBones)
     {
         BodyScratch.Clear();
         body.GetComponentsInChildren(includeInactive: false, BodyScratch);
         maxY = float.MinValue;
         minY = float.MaxValue;
+        boxMaxY = float.MinValue;
+        boxMinY = float.MaxValue;
         nearestSurface = float.MaxValue;
+        liveBones = 0;
         int used = 0;
         for (int i = 0; i < BodyScratch.Count; i++)
         {
@@ -957,16 +976,29 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (r.isPartOfStaticBatch || (r is not MeshRenderer && r is not SkinnedMeshRenderer))
                 continue;
             Bounds b = r.bounds;
-            if (b.max.y > maxY) maxY = b.max.y;
-            if (b.min.y < minY) minY = b.min.y;
+            if (b.max.y > boxMaxY) boxMaxY = b.max.y;
+            if (b.min.y < boxMinY) boxMinY = b.min.y;
             if (includePinch)
             {
                 float d = Vector3.Distance(pinch, b.ClosestPoint(pinch));
                 if (d < nearestSurface) nearestSurface = d;
             }
+            if (!FigureBody.TryLiveExtentY(r, out float rMinY, out float rMaxY, out int bones))
+                continue;
+            liveBones += bones;
+            if (rMaxY > maxY) maxY = rMaxY;
+            if (rMinY < minY) minY = rMinY;
             used++;
         }
         BodyScratch.Clear();
+        // A degenerate live extent (one bone, or every bone at one height) leaves the caller with
+        // nothing to reason about; hand back the baked box in that case and let the count stand, so
+        // the failure is a number the log prints rather than a silent zero-height figure.
+        if (used > 0 && maxY - minY <= 1e-3f && boxMaxY - boxMinY > 1e-3f)
+        {
+            minY = boxMinY;
+            maxY = boxMaxY;
+        }
         return used;
     }
 
@@ -989,18 +1021,18 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
         Bounds cb = game.bounds;
         int meshes = MeasureBody(figure, Vector3.zero, includePinch: false,
-                                 out float minY, out float maxY, out _);
+                                 out float minY, out float maxY, out _,
+                                 out float boxMinY, out float boxMaxY, out int liveBones);
         if (meshes == 0)
             return;
 
-        // THE BASE IS THE COLLIDER'S BOTTOM. The slack correction measures the box's padding
-        // against the GROUND under the figure, and in this subsystem the authored pick collider's
-        // own bottom is the best ground reference available: in the ModBuild 291 log it reads
-        // exactly 0.00 for all three monsters and -0.05 / -0.15 for the two heroes, i.e. the
-        // artists put it on the mini's base. (ActorBars uses the controller's m_BasePoint for the
-        // same purpose; the two agree to 0.03 wu on the boss.)
-        float top = FigureBody.TrustedTopY(
-            minY, maxY, cb.min.y, baseKnown: true,
+        // THE FIGURE'S LIVE TOP, raised to the head joint if the skeleton did not reach it. The
+        // ModBuild 292 slack correction that used to stand here — "subtract however far the baked
+        // box reaches below the figure's own base" — is GONE: ModBuild 293's own falsifier field
+        // showed that on all three drakes the lowest and the tallest renderer are the same object,
+        // so the underhang and the top are two corners of ONE authored box. See FigureBody.
+        float top = FigureBody.LiveTopY(
+            maxY,
             adopted.HeadBone != null ? adopted.HeadBone.position.y : 0f,
             headKnown: adopted.HeadBone != null,
             out _);
@@ -1108,9 +1140,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             VRLog.Info("FigureGrab",
                 $"FIGURE REACH EXTENDED '{adopted.Grabbable.Label}': the game's "
                 + $"{game.GetType().Name} on '{game.name}' reaches y {cb.min.y:F2}..{cb.max.y:F2} "
-                + $"while the figure is drawn to y {maxY:F2} (box) / {top:F2} (trusted, after "
-                + $"{FigureBody.Underhang(minY, cb.min.y):F2} wu of box below the base is taken "
-                + $"off). A mod-owned trigger capsule on the Ignore Raycast layer now covers y "
+                + $"while the figure's LIVE extent ({liveBones} bone(s)) is y {minY:F2}..{maxY:F2} "
+                + $"and its top, raised to the head joint where the skeleton falls short, is "
+                + $"{top:F2}. Its BAKED Renderer.bounds box — which decides nothing since "
+                + $"ModBuild 294 and is printed only for comparison — is y {boxMinY:F2}.."
+                + $"{boxMaxY:F2}. A mod-owned trigger capsule on the Ignore Raycast layer now covers y "
                 + $"{bottomWorld:F2}..{top:F2} at the game capsule's OWN radius "
                 + $"({gameCapsule.radius * unit:F2} wu) and its own X/Z centre -- taller only, "
                 + $"never wider. Reach above the old collider top gains "
@@ -1169,7 +1203,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         GameObject body, Bounds colliderBounds, float scale, Vector3 pinch, bool includePinch)
     {
         int used = MeasureBody(body, pinch, includePinch,
-                               out float minY, out float maxY, out float nearestSurface);
+                               out float minY, out float maxY, out float nearestSurface,
+                               out float boxMinY, out float boxMaxY, out int liveBones);
         if (used == 0)
             return "RENDERED BODY: no mesh renderer found on the figure.";
 
@@ -1182,10 +1217,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         string surface = includePinch
             ? $", nearest surface {nearestSurface / scale * 1000f:F0} mm real from the pinch"
             : string.Empty;
-        return $"RENDERED BODY ({used} mesh renderer(s)): world y {minY:F2}..{maxY:F2}, height "
-               + $"{bodyHeight:F2} wu{HexOf(bodyHeight)}{surface}. COVERAGE: the pick collider "
-               + $"spans {coverage:F0}% of that height and its top sits {gap:F2} wu"
-               + $"{HexOf(gap)} below the rendered top.";
+        return $"RENDERED BODY ({used} mesh renderer(s), {liveBones} live bone(s)): world y "
+               + $"{minY:F2}..{maxY:F2}, height {bodyHeight:F2} wu{HexOf(bodyHeight)}{surface} "
+               + $"— measured LIVE; its BAKED Renderer.bounds box, which decides nothing and is "
+               + $"printed only so the two can be compared, is y {boxMinY:F2}..{boxMaxY:F2}. "
+               + $"COVERAGE: the pick collider spans {coverage:F0}% of that height and its top "
+               + $"sits {gap:F2} wu{HexOf(gap)} below the rendered top.";
     }
 
     /// <summary>
