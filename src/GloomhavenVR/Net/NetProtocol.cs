@@ -416,7 +416,105 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 294;
+    public const ushort ModBuild = 295;
+    // Build 295: THE DEBRIS IS SHARDS IN THE ROOM, AND NOTHING IN IT CAN READ THE CAMERA.
+    // *** NEW BUNDLE: 69,529,860 bytes (was 69,536,022). NOT DLL-only — the shader changed. ***
+    //
+    //   "Ich mag die Fenster ein- und ausblend-Animation nicht. Ich will eher, dass es wirkliche
+    //   Partikeleffekte in der 3D-Umgebung ausloest, aktuell ist es eher ein 2D-Effekt."
+    //   And then, on my own description of the remedy: "bitte ohne 'beim Kopfneigen mitwandern'.
+    //   Der Effekt soll nicht an den Kopfbewegungen gebunden sein."
+    //
+    //   HIS "EHER 2D" WAS AN ACCURATE READING OF THE BUILD. ModBuild 292's flakes were painted on
+    //   ONE mod-owned quad in the window's own plane; nothing ever left that plane. The debris is
+    //   now a few hundred CLOSED TETRAHEDRAL SHARDS, each torn out of a real currently-visible
+    //   CanvasRenderer in proportion to its area and carrying that point's erosion threshold — so a
+    //   shard leaves in the frame its own patch of window goes dark. Each has an OUT-OF-PLANE
+    //   LAUNCH VELOCITY (the whole redesign in one term), its own size and its own tumble; they are
+    //   flown in the vertex stage, they WRITE DEPTH, and two renderers seated at +1/-1 on the
+    //   panel's own distance ladder draw the window BETWEEN them.
+    //
+    //   THE HEAD-BINDING RULING IS PROVED AT THE BINARY, NOT BY GREP — and my own brief asked for
+    //   the weaker thing. Cold re-compile of the shipping bytes (md5 6f0ae5d0…), Unity 2021.3.5f1,
+    //   real Win64 variant, zero messages. Constant buffers:
+    //       VERTEX binds unity_ObjectToWorld, unity_WorldToObject, unity_MatrixVP — and nothing else
+    //       FRAGMENT binds NO Unity built-in buffer at all
+    //   No _WorldSpaceCameraPos, no unity_CameraToWorld/WorldToCamera, no UNITY_MATRIX_V, no
+    //   unity_StereoEyeIndex. The one view-dependent quantity is unity_MatrixVP, used only at vertex
+    //   instructions 55-58 to take an ALREADY-COMPUTED WORLD POSITION to clip space. The program
+    //   cannot read the camera because nothing binds it. CAVEAT CARRIED UNSMOOTHED: this is the
+    //   non-stereo variant; Single-Pass-Instanced would add unity_StereoMatrixVP and this dump would
+    //   not have caught it — closed here only because the rig runs MultiPass (every EYE-TARGET DIAG
+    //   line says so). The per-eye argument rests on the GEOMETRY: every vertex position is a
+    //   function of vertex attributes and per-draw uniforms only, which the dump does confirm.
+    //   NO CAMERA-FACING BILLBOARDS ANYWHERE. Unity's default Billboard mode orients every quad
+    //   toward the rendering camera, which is head-bound by construction and is computed PER EYE
+    //   under MultiPass — this project's known route to stereo rivalry, and the reason the water
+    //   surface was replaced outright ("NO VIEW DIRECTION ANYWHERE IN IT").
+    //   AND TWO SHIPPED MOD SYSTEMS ALREADY VIOLATE THAT RULING, found while checking:
+    //   RemoteControlBoard.cs:1953-1954 sets ParticleSystemRenderMode.Billboard +
+    //   ParticleSystemRenderSpace.View EXPLICITLY, and ButtonTuning takes the Billboard default.
+    //   Outside this lane, recorded rather than silently fixed.
+    //
+    //   THE DEPTH IS PROVED BY RAY TEST, NOT BY EYE. The oblique render script ray-tests every shard
+    //   centroid against the scene and counts 7,054 SHARD-FRAMES OCCLUDED BY THE COLUMN; shards also
+    //   draw over it, and the crate behind the plane is progressively revealed as the window
+    //   dissolves. A strip shot dead-on could not have settled this and was not offered as if it had.
+    //
+    //   THREE RENDER-DRIVEN CHANGES, each from a defect the preview showed:
+    //   (1) the vanish's last 0.20 s and the appear's last 0.10 s were EMPTY — the same defect as
+    //   the previous round's first strip. DebrisLifeSpan 1.15 -> 1.85: AGEING was doing the removal,
+    //   and the tail fade should, because it is exact at k=1 by construction. (2) that fix FLATTENED
+    //   THE WIND (travel goes as age^1.35) -> DebrisDriftMetres 0.46 -> 0.72. (3) two INSTRUMENT
+    //   faults that would have shipped a wrong picture: the front camera at 30 mm clipped the flight
+    //   at the border (-> 22 mm), and the stereo/parallax pairs were shot at 0.45 of the vanish
+    //   where the window is 77 % gone, so they proved debris-vs-room rather than debris-vs-window
+    //   (-> 0.30).
+    //
+    //   TIMING — HIS COMPLAINT WAS NOT ABOUT THE NUMBERS. Both shipped values were already inside
+    //   the bounds he stated (0.50 s and 1.00 s against "unter einer Sekunde" and "nicht mehr als
+    //   2 Sekunden"). What was wrong is that the window was NEITHER PROPERLY THERE NOR PROPERLY GONE
+    //   for a large part of the ramp. Fixed structurally with ElementSpan = 0.58, and the numbers
+    //   moved too:
+    //       appear 0.50 -> 0.35 s, and the window is SOLID AND LEGIBLE at 0.20 s (was 0.50)
+    //       vanish 1.00 -> 0.90 s, and the window is FULLY GONE at 0.52 s (was 1.00)
+    //   2.0 s code ceiling unchanged.
+    //
+    //   COST. Per frame, debris: 0.4 us, FLAT between 90 and 420 shards — 4.7x the particles for no
+    //   cost, which is the design's central claim and is now measured. Per frame, elements:
+    //   0.45-0.51 us each, linear; seven 400-element windows 1.4 ms mean / 2.2 ms worst.
+    //   Build 1.80 ms at 290 shards, steady-state allocation 0 B across 360 builds.
+    //   THE MEASUREMENT NAMED A DEFECT AND IT WAS ACTED ON: the two halves shared one vertex buffer,
+    //   so mesh writes were 1.70 ms of a 3.17 ms build. Split -> -47 % on that stage, -21 % on the
+    //   build, and 0 B still holds because both halves are allocated at full capacity at static init.
+    //   THE 24.8 ms SEVEN-SIMULTANEOUS-OPENS CASE CAN ARISE — the convert loop and the reveal loop
+    //   both have NO per-tick budget. MaxDebrisBuildsPerFrame = 2: the third and later window on one
+    //   frame gets the element dissolve with no shards. Nothing is delayed and no window is refused.
+    //   SCALE NOTE, NOT SWEPT UP: on that frame the pre-existing CollectElements costs 12.3 ms by
+    //   itself, and 292/293 paid that too. This budget caps THIS lane's contribution; it does not
+    //   fix the older problem.
+    //
+    //   WHAT STILL FALLS SHORT, stated rather than hidden: the large background plate still
+    //   CROSS-FADES rather than erodes between k~0.19 and 0.46. Inherent to element granularity —
+    //   one alpha per CanvasRenderer. Shorter and better disguised than in 292, but the same
+    //   limitation. The only real fix is an RT dissolve per window, which would make a decoration
+    //   depend on PanelSupersample.
+    //
+    //   TWO DEFECTS IN THE OLD QUAD, both making it MORE of a decal than its author knew: it took
+    //   panel.HostGo.layer, which for a supersampled panel is that panel's PRIVATE CAPTURE LAYER, so
+    //   the flakes were rendered into the window's own RenderTexture; and its geometry log multiplied
+    //   by lossyScale and called the product METRES — that is world units, 9.57x out in a scenario
+    //   and 198x on the map-room table.
+    //   ALSO CORRECTED: the previous round's stereo audit was 17 real entries, not 18 — SV_Position
+    //   is case-sensitively absent from every shader that declares SV_POSITION, so it could never
+    //   fire. Replaced by VPOS; the list is now 28 with a headline camera/head-pose group. And the
+    //   claim that wire-tests "cannot run in a worktree, environmental" is FALSE: the missing step is
+    //   scripts/worktree-setup.sh. One command, not an environment limit.
+    //   A UV-AREA WINDING GATE WAS NOT FAKED: a shard carries no texture coordinates and the shader
+    //   samples no texture. The gate is positive signed volume AND every face normal pointing away
+    //   from the shard's own centroid, plus a proof that the per-shard squash+rotation cannot flip
+    //   winding.
+    //
     // Build 294: THE BOX BELONGED TO THE ROOT BONE, THE GLOW WAS DRAWN ON A DART, AND AN EXPLICIT
     // ZERO WAS WRITTEN AS AN EPSILON.
     // *** DLL-ONLY INSTALL. No bundle change: 69,536,022 bytes, unchanged from 293. ***

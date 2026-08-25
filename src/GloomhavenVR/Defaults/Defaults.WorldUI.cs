@@ -298,8 +298,8 @@ internal static partial class Defaults
     // to WindowMaterialise.HardCeilingSeconds = 2.0 IN CODE on every read, so a hand-edited cfg
     // cannot make a window slow to appear -- which is the one thing this feature may never do.
     internal const bool WindowMaterialise = true;                    // => [WorldUI] WindowMaterialise
-    internal const float WindowMaterialiseAppearSeconds = 0.5f;      // => [WorldUI] WindowMaterialiseAppearSeconds
-    internal const float WindowMaterialiseVanishSeconds = 1f;        // => [WorldUI] WindowMaterialiseVanishSeconds
+    internal const float WindowMaterialiseAppearSeconds = 0.35f;      // => [WorldUI] WindowMaterialiseAppearSeconds
+    internal const float WindowMaterialiseVanishSeconds = 0.9f;        // => [WorldUI] WindowMaterialiseVanishSeconds
     internal const float WindowMaterialiseIntensity = 1f;            // => [WorldUI] WindowMaterialiseIntensity
 
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
