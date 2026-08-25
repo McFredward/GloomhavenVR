@@ -2934,6 +2934,12 @@ internal static partial class ModalFallback
             // world map; MapRoomDriver reads that config live). Change-gated inside: a standing
             // window costs one Color comparison and writes nothing. See GrabbableModal's
             // SHARED-WINDOW BAR COLOUR block for the user request and the whole design.
+            // ModBuild 290 — AND BECAUSE THE SESSION ITSELF CAN COME UP OR DROP under a standing
+            // window. "Wechselt der Spieler von Singleplayer zum Multiplayer werden diese
+            // entsprechenden betroffenen Fenster 'blau' und verhalten sich entsprechend." This loop
+            // is what makes that live: SharedWindows.ParticipatesHere now tests
+            // FFSNetwork.IsOnline first, so a window standing open when a session starts turns blue
+            // on the next tick and starts behaving as shared without being reopened.
             //
             // THIS CALL NOW CARRIES A SECOND LOAD (2026-08-22, requests 7a/7b), and it must stay
             // AHEAD of the Tick() below rather than beside it: the same predicate answer is cached

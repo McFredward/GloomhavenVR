@@ -2362,6 +2362,20 @@ internal static partial class Loc
                 + "Platzierung — alle Spieler einer Sitzung sollten dieselbe Zahl stehen lassen. Ein "
                 + "abweichender Wert hängt die eigene Kopie eines gemeinsamen Fensters auf eine andere "
                 + "Höhe, bis es jemand verschiebt. Bereich 0.05-1.2.",
+            ["WorldUI/ScenarioWindowBoardClearanceMeters"] =
+                "Wie hoch über dem SPIELFELD ein gemeinsames (blau beleistetes) Szenario-Fenster — das "
+                + "Story-Fenster — beim Öffnen hängt, in echten Metern, GEMESSEN AM GREIFBALKEN. Der "
+                + "Fensterkörper hängt am Balken, ein höheres Fenster ragt also weiter hinauf. Größer = "
+                + "es schwebt weiter über dem Brett (weiter weg von den Feldern, näher an Augenhöhe); "
+                + "kleiner = es rückt zu ihnen hinunter — hinein kann es nie: 0,30 m ist die eigene "
+                + "Schätzung des Mods, wie weit Wände und Figuren über die Spielfläche ragen, und der "
+                + "Code begrenzt diesen Regler dort. Der Standard 0,60 m ist dieselbe Balkenhöhe, die "
+                + "der Kartenraum verwendet — ein Fenster schwebt also in beiden Räumen gleich. NUR DIE "
+                + "ANFANGSHÖHE: das Fenster bleibt frei verschiebbar und voll synchronisiert, und ein "
+                + "bereits stehendes bewegt sich nicht, wenn du das hier änderst. MEHRSPIELER: Dieser "
+                + "Wert gehört zur gemeinsamen Platzierung — alle Spieler einer Sitzung sollten "
+                + "dieselbe Zahl stehen lassen. Ein abweichender Wert hängt die eigene Kopie auf eine "
+                + "andere Höhe, bis es jemand verschiebt. Bereich 0.3-1.5.",
             ["WorldUI/DesktopMirrorLeftEye"] =
                 "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "

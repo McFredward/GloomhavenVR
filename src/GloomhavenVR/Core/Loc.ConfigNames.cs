@@ -688,6 +688,8 @@ internal static partial class Loc
             ["WorldUI/EnemyRevealBoardClearance"] = Pair("Enemy cards: clearance", "Gegnerkarte: Abstand (m)"),
             ["WorldUI/MapRoomWindowBarHeightMeters"] = Pair("Map room: window height (m)",
                                                            "Kartenraum: Fensterhöhe (m)"),
+            ["WorldUI/ScenarioWindowBoardClearanceMeters"] = Pair("Scenario: window height (m)",
+                                                                 "Szenario: Fensterhöhe (m)"),
             ["WorldUI/DesktopMirrorLeftEye"] = Pair("Monitor shows left eye", "Monitor: linkes Auge"),
             ["WorldUI/ShowIntro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
             ["WorldUI/ScreenWidth"] = Pair("2D screen: width (m)", "2D-Schirm: Breite (m)"),

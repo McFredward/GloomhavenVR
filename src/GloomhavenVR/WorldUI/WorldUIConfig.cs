@@ -358,6 +358,29 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<float> MapRoomWindowBarHeightMeters = null!;
 
+    /// <summary>
+    /// ModBuild 290 — THE SCENARIO'S ANSWER TO THE SAME QUESTION, measured the same way: how far
+    /// above the PLAY FIELD's surface a shared (blue-barred) scenario window's GRAB BAR is hung when
+    /// it opens, in real metres. User report, verbatim (spawn_scenario.jpg): "Das 'blaue'
+    /// Multiplayer Fenster ist IN dem Spielfeld gespawned … es muss viel höher spawnen damit es über
+    /// dem Spielfeld schwebt."
+    ///
+    /// <para>"The play field's surface" is the ORBIT-FOCUS PLANE (<c>CameraController.FocusPoint</c>
+    /// — the plane the hexes lie in), which is the only thing this mod has ever used to know where
+    /// the scenario board is; the board's own furniture stands about
+    /// <c>ModalFallback.BoardTopClearanceMeters</c> = 0.30 m above it, so
+    /// <c>ArcSeats.ScenarioWindowMinBarHeightMeters</c> floors this dial there in code and no value
+    /// typed here can put a bar into the scenery.</para>
+    ///
+    /// <para>MULTIPLAYER, STATED: for a SHARED window this number is part of a spawn pose that is
+    /// otherwise expressed in the same seat-anchor frame and the same real metres record 19 already
+    /// carries, so it is the one term two clients can disagree about — the same divergence surface
+    /// <see cref="MapRoomWindowBarHeightMeters"/> has. Different values seat the window at different
+    /// heights until somebody drags it; the SHARED WINDOW ANCHOR line prints the resolved number and
+    /// the resulting bar height on every placement.</para>
+    /// </summary>
+    internal static ConfigEntry<float> ScenarioWindowBoardClearanceMeters = null!;
+
     /// <summary>Item 9: flat monitor mirrors ONLY the HMD left eye (no 2D-menu composite).</summary>
     internal static ConfigEntry<bool> DesktopMirrorLeftEye = null!;
 
@@ -801,6 +824,24 @@ internal static class WorldUIConfig
                 "same number — a different value on one client hangs that client's copy of a " +
                 "shared window at a different height until somebody drags it. Range 0.05-1.2.",
                 new AcceptableValueRange<float>(0.05f, 1.2f)));
+        ScenarioWindowBoardClearanceMeters = _file.Bind("WorldUI",
+            "ScenarioWindowBoardClearanceMeters",
+            Defaults.ScenarioWindowBoardClearanceMeters,
+            new ConfigDescription(
+                "How high above the PLAY FIELD a shared (blue-barred) scenario window — the story " +
+                "dialog — is hung when it opens, in real metres, MEASURED AT ITS GRAB BAR. The " +
+                "window's body hangs from the bar, so a taller window reaches higher. Larger = it " +
+                "floats further above the board (further from the hexes, closer to eye level); " +
+                "smaller = it comes down toward them, and it can never come down INTO them: 0.30 m " +
+                "is the mod's own estimate of how far the board's walls and figures reach above " +
+                "the play surface and the code floors this dial there. The default 0.60 m is the " +
+                "same bar height the map room uses, so a window hovers the same way in both rooms. " +
+                "THIS IS THE INITIAL SPAWN HEIGHT ONLY: the window stays freely movable and fully " +
+                "synchronised, and one that is already standing does not move when this changes. " +
+                "MULTIPLAYER: this value is part of the shared placement, so all players in a " +
+                "session should leave it at the same number — a different value on one client hangs " +
+                "that client's copy at a different height until somebody drags it. Range 0.3-1.5.",
+                new AcceptableValueRange<float>(0.3f, 1.5f)));
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
             "LeftEye and skips the desktop 2D-menu composite blit, so the desktop is a clean " +

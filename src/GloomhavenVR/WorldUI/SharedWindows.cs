@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using GloomhavenVR.WorldUI.MapRoom;
 using UnityEngine;
 using UnityEngine.UI;
@@ -32,15 +33,33 @@ namespace GloomhavenVR.WorldUI;
 /// describes the window CLASS. Rejected — it makes the colour un-actionable, and the same window
 /// really is private for that player.</para>
 ///
-/// <para><b>PARTICIPATION CAN FLIP WHILE A WINDOW STANDS</b> (the player toggles the 3D map mid
-/// life; <c>MapRoomDriver</c> reads its config live). So a caller must re-evaluate the tint per
-/// tick and change-gate the write — one <see cref="Color"/> comparison per floated window per
-/// frame — rather than deciding once at build time.</para>
+/// <para><b>PARTICIPATION CAN FLIP WHILE A WINDOW STANDS</b> — the player toggles the 3D map mid
+/// life (<c>MapRoomDriver</c> reads its config live), and since ModBuild 290 the SESSION itself can
+/// come up or drop under a standing window. So a caller must re-evaluate the tint per tick and
+/// change-gate the write — one <see cref="Color"/> comparison per floated window per frame — rather
+/// than deciding once at build time. The three BEHAVIOURS this predicate gates follow the same way
+/// and by the same route: <c>GrabbableModal._shared</c> is refreshed from
+/// <see cref="SharedWindows.ParticipatesHere"/> once per tick in <c>SyncSharedBarTint</c>, and the
+/// release re-face, the remote pose easing and the bar colour all read THAT — so a window that was
+/// open when the session came up starts behaving as shared without being reopened, and one that was
+/// blue and GRABBED when the session dropped simply finishes its carry as a private window (it
+/// re-faces on release, which is correct: there is no room left to disagree with).</para>
 ///
-/// <para><b>THE SCENARIO STORY WINDOW IS SHARED FOR EVERYBODY</b> and must never acquire an opt-in
-/// gate: wire record 19 has none, it ships, and the user has already accepted that behaviour ("Im
-/// Szenario selber gilt das Selbe für die Dialogfenster, das sollte bereits implementiert worden
-/// sein").</para>
+/// <para><b>THE SCENARIO STORY WINDOW IS SHARED FOR EVERY PLAYER IN A SESSION</b> and must never
+/// acquire an opt-in gate OF ITS OWN — no 3D-map switch, no per-window preference: wire record 19
+/// has none, it ships, and the user has already accepted that behaviour ("Im Szenario selber gilt
+/// das Selbe für die Dialogfenster, das sollte bereits implementiert worden sein").
+/// <b>ModBuild 290 — WHAT THAT SENTENCE DOES NOT SAY, and used to be read as saying.</b> It says
+/// nothing about a client with no session at all. Until this build the kind answered
+/// <c>true</c> unconditionally, so a SINGLE-PLAYER scenario grew a blue bar on a window whose pose
+/// nobody could ever receive or publish — the exact false statement the definition above forbids.
+/// USER RULING (2026-08-25, verbatim): <i>"Weiterhin bin ich im Singleplayer, ich möchte dass es
+/// keine 'blauen' Fenster im Singleplayer gibt. Wechselt der Spieler von Singleplayer zum
+/// Multiplayer werden diese entsprechenden betroffenen Fenster 'blau' und verhalten sich
+/// entsprechend. Solange der Singleplayer aktiv ist sollen alle Fenster Singleplayer-Fenster sein
+/// und sich auch entsprechend verhalten."</i> The SESSION gate in
+/// <see cref="SharedWindows.ParticipatesHere"/> is that ruling and applies to every kind; the
+/// "no gate" above survives as what it always meant — <b>no gate BELOW the session</b>.</para>
 ///
 /// <para><b>WHAT IS DELIBERATELY NOT IN THE SET</b>, each for a stated reason — this list is the
 /// most useful part of the file, because every entry is a mistake somebody would otherwise make:
@@ -252,24 +271,121 @@ internal static class SharedWindows
     /// <summary>
     /// Is THIS client a participant in that kind's sync right now?
     ///
-    /// <para>Both map-phase kinds require the 3D map room to be standing, which is the user's
-    /// scoping read literally. <see cref="SharedWindowKind.ScenarioStory"/> has no gate and must
-    /// never grow one.</para>
+    /// <para><b>THE SESSION GATE COMES FIRST AND IT COVERS EVERY KIND (ModBuild 290).</b> With no
+    /// networked session there is no room, no peer, no record and nothing to participate IN, so no
+    /// window is shared — see <see cref="SessionIsOnline"/> for the predicate, the reading of
+    /// "singleplayer" it commits to, and the falsifier it prints on the transition.</para>
+    ///
+    /// <para>Under it, both map-phase kinds require the 3D map room to be standing, which is the
+    /// user's scoping read literally. <see cref="SharedWindowKind.ScenarioStory"/> has no gate
+    /// BELOW the session and must never grow one: the scenario dialog is shared for every player in
+    /// a session, unconditionally, and the map-room switch has nothing to say about it.</para>
     /// </summary>
-    internal static bool ParticipatesHere(SharedWindowKind kind) => kind switch
+    internal static bool ParticipatesHere(SharedWindowKind kind)
     {
-        SharedWindowKind.ScenarioStory => true,
-        // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from the
-        // game rather than assumed: a road/city event is raised from MapChoreographer on the
-        // campaign map and its record travels in the map room's parchment frame like the other two.
-        // A player with the 3D map switched off gets no pose from anybody and publishes none — the
-        // same scoping the user set for kinds 1 and 2 ("das soll hier nur für die Spieler gelten
-        // die die 3D-Worldmap ausgeschaltet haben"). Note that this gate is about the POSE only:
-        // that player's encounter CONTENT is still synced, by the game, exactly as it always was.
-        SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter
-            => MapRoomDriver.Active,
-        _ => false,
-    };
+        if (kind == SharedWindowKind.None)
+            return false;               // cheapest first: the answer for almost every window asked
+        if (!SessionIsOnline())
+            return false;               // singleplayer: every window is a private window
+        return kind switch
+        {
+            SharedWindowKind.ScenarioStory => true,
+            // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from
+            // the game rather than assumed: a road/city event is raised from MapChoreographer on
+            // the campaign map and its record travels in the map room's parchment frame like the
+            // other two. A player with the 3D map switched off gets no pose from anybody and
+            // publishes none — the same scoping the user set for kinds 1 and 2 ("das soll hier nur
+            // für die Spieler gelten die die 3D-Worldmap ausgeschaltet haben"). Note that this gate
+            // is about the POSE only: that player's encounter CONTENT is still synced, by the game,
+            // exactly as it always was.
+            SharedWindowKind.MapStory or SharedWindowKind.QuestConfirm or SharedWindowKind.Encounter
+                => MapRoomDriver.Active,
+            _ => false,
+        };
+    }
+
+    /// <summary>The last answer <see cref="SessionIsOnline"/> gave, so the falsifier prints on the
+    /// EDGE and not per frame. −1 = never asked, which is why it is an int and not a bool: the very
+    /// first answer is worth a line whichever way it goes.</summary>
+    private static int _lastOnline = -1;
+
+    /// <summary>
+    /// IS A NETWORKED SESSION LIVE ON THIS CLIENT RIGHT NOW?
+    ///
+    /// <para><b>THE SOURCE OF TRUTH IS THE GAME'S OWN, NOT A SECOND ONE.</b>
+    /// <c>FFSNetwork.IsOnline</c> is <c>BoltNetwork.IsRunning &amp;&amp; !IsShuttingDown</c>
+    /// (decompiled FFSNetwork.cs:25-33) and it is what the rest of this mod already asks —
+    /// <c>Net.RevealGate</c>, <c>Net.InitiativeHoverSampler</c>, <c>Board.EnemyInfoPhaseSkip</c> and
+    /// <see cref="WristHud"/> all read it directly and unguarded, and <c>VROptionsTab.Cheats</c>
+    /// reads it behind a fail-closed try/catch. Deliberately NOT the mod's own
+    /// <c>Net.INetTransport.IsOnline</c>: that one resolves the same property through cached
+    /// REFLECTION on every call, and this predicate is asked per floated window per frame. It is
+    /// also what keeps <c>WorldUI</c> from taking a dependency on <c>Net</c>, which is the rule
+    /// stated at the top of this file — <c>FFSNetwork</c> is a GAME type, like the two story
+    /// singletons above it.</para>
+    ///
+    /// <para><b>THE READING OF "SINGLEPLAYER" THIS COMMITS TO, and it is a choice.</b> Singleplayer
+    /// means NOT CONNECTED TO A SESSION — not "connected but currently alone". Two reasons.
+    /// (1) The user's own words are a session-state change ("Wechselt der Spieler von Singleplayer
+    /// zum Multiplayer"), and Bolt running is exactly that change. (2) The alternative fails on its
+    /// own terms: while hosting alone this client's records really are being published, and the
+    /// moment somebody joins mid-scenario the bar would have to be right ALREADY — a bar that turns
+    /// blue on a stranger's join is a second, later surprise, and the pose he receives would be
+    /// against a window this client had been re-facing on release. The one-player online session is
+    /// therefore MULTIPLAYER by this predicate, and the log line below prints the player count so a
+    /// single hardware session settles it if the user disagrees, with no code change needed.</para>
+    ///
+    /// <para><b>COST.</b> One static property read resolving to a static bool, i.e. the same order
+    /// as the <c>Singleton&lt;T&gt;.IsInitialized</c> test it joins in
+    /// <see cref="KindOf"/>. Unguarded on purpose: if <c>FFSNetwork</c> could throw here it would
+    /// already be throwing in <c>RevealGate</c>, which runs on the card path every frame
+    /// ([[grep-for-throws-first]] — a swallowed per-frame throw is worse than a loud one).</para>
+    /// </summary>
+    internal static bool SessionIsOnline()
+    {
+        bool online = FFSNetwork.IsOnline;
+        int now = online ? 1 : 0;
+        if (now == _lastOnline)
+            return online;              // the common case: one int compare, no allocation, no log
+
+        _lastOnline = now;
+        VRLog.Info("WorldUI",
+            $"SHARED WINDOW SESSION GATE: this client is now {(online ? "ONLINE" : "OFFLINE")} "
+            + $"(FFSNetwork.IsOnline={online}, IsHost={FFSNetwork.IsHost}, "
+            + $"IsClient={FFSNetwork.IsClient}, players in the registry="
+            + $"{PlayerCountForLog()}). "
+            + (online
+                ? "Every SHARED KIND may now participate, so the affected windows turn BLUE on the "
+                  + "next tick and start behaving as shared — no release re-face, no facing dial, "
+                  + "pose published and applied. Nothing was reopened and nothing was restarted: "
+                  + "the bar tint, the re-face gate and the pose easing all read this predicate "
+                  + "once per tick through GrabbableModal._shared, so a window standing open when "
+                  + "the session came up changes behaviour in place."
+                : "NO WINDOW IS SHARED. Every floated window is a private window and behaves like "
+                  + "one — brass bar, release re-face under [WorldUI] WindowFacing, and the "
+                  + "ordinary head-relative spawn placement instead of the shared board anchor. "
+                  + "This is the singleplayer ruling of 2026-08-25 and NOT a fault.")
+            + " READ THE PLAYER COUNT IF THE QUESTION IS 'connected but alone': this gate counts a "
+            + "one-player session as MULTIPLAYER on purpose (see SessionIsOnline), and a count of 1 "
+            + "beside ONLINE is that case observed rather than assumed.");
+        return online;
+    }
+
+    /// <summary>How many players the game's registry holds, for the transition line only. Never on
+    /// the hot path: it is read on the session EDGE, which happens twice per session.</summary>
+    private static string PlayerCountForLog()
+    {
+        try
+        {
+            return FFSNet.PlayerRegistry.AllPlayers != null
+                ? FFSNet.PlayerRegistry.AllPlayers.Count.ToString()
+                : "no registry";
+        }
+        catch (System.Exception e)
+        {
+            return $"unreadable ({e.GetType().Name})";
+        }
+    }
 
     /// <summary>THE PREDICATE every lane calls: is this window shared FOR THIS CLIENT right now?
     ///
@@ -281,7 +397,12 @@ internal static class SharedWindows
     /// on the SENDER too, so the pose that was supposed to be 1:1 is silently corrected on one
     /// client after it was published. So this predicate also gates the release re-face, on every
     /// client, and that gate is NOT configurable (request 8's three modes are for LOCAL windows
-    /// only: "Remote-Fenster (blau) sollen das gar nicht haben").</para>
+    /// only: "Remote-Fenster (blau) sollen das gar nicht haben").
+    /// <b>IN SINGLEPLAYER THIS PREDICATE IS FALSE FOR EVERY WINDOW</b> (ModBuild 290,
+    /// <see cref="SessionIsOnline"/>), so the release re-face runs and request 8's three modes apply
+    /// to the story box exactly as they do to the merchant's — "sollen alle Fenster
+    /// Singleplayer-Fenster sein und sich auch entsprechend verhalten", which is the same sentence
+    /// read from the behaviour side.</para>
     ///
     /// <para><b>WHAT IS DELIBERATELY NOT GATED BY IT: the SPAWN facing</b>
     /// (<c>PanelPlacement.Spawn</c> / <c>ClampIntoView</c>, logged as "one-shot facing applied" by
@@ -294,6 +415,12 @@ internal static class SharedWindows
     /// </summary>
     internal static bool IsShared(UIWindow? window)
     {
+        // THE SESSION FIRST, and it is a reorder rather than a new gate: ParticipatesHere asks the
+        // same question and would refuse anyway. Asking it here means a SINGLE-PLAYER client does
+        // not run KindOf's singleton compares once per floated window per frame for an answer that
+        // is already decided. Identical result, strictly less work.
+        if (!SessionIsOnline())
+            return false;
         SharedWindowKind kind = KindOf(window);
         return kind != SharedWindowKind.None && ParticipatesHere(kind);
     }
@@ -322,10 +449,12 @@ internal static class SharedWindows
     /// window (nothing else touches the bar), and it costs the same. The cadence therefore rises
     /// exactly while somebody is dragging and falls back the moment they let go.</para>
     ///
-    /// <para><b>COST ON A CLIENT WITH NOTHING SHARED OPEN:</b> one <c>Singleton.IsInitialized</c>
-    /// test for the scenario story box, and for the two map kinds not even that — they are behind
-    /// <see cref="ParticipatesHere"/>, i.e. behind <c>MapRoomDriver.Active</c>, which is false for
-    /// every scenario session and for every player with the 3D map switched off.</para>
+    /// <para><b>COST ON A CLIENT WITH NOTHING SHARED OPEN:</b> since ModBuild 290, on a
+    /// SINGLE-PLAYER client it is four <see cref="SessionIsOnline"/> reads and nothing else — every
+    /// kind is refused before any window is looked for. In a session it is one
+    /// <c>Singleton.IsInitialized</c> test for the scenario story box, and for the two map kinds not
+    /// even that — they are behind <c>MapRoomDriver.Active</c>, which is false for every scenario
+    /// session and for every player with the 3D map switched off.</para>
     /// </summary>
     internal static bool AnyGrabbedHere() =>
         GrabbedHere(SharedWindowKind.ScenarioStory)
