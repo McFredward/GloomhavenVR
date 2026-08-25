@@ -3,6 +3,7 @@ using BepInEx.Configuration;
 using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
 using HarmonyLib;
+using ScenarioRuleLibrary;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.UI;
@@ -147,6 +148,16 @@ internal static class ActorBars
         /// the table larger and sank the bars into the miniatures.
         /// </summary>
         public float AnchorOffsetWU;
+
+        /// <summary>
+        /// How many more times <see cref="ResampleAnchor"/> may re-measure this bar's anchor
+        /// before latching it forever, and when the next of those samples is due. See
+        /// <see cref="AnchorSampleBudget"/> for why one measurement at adopt is not enough.
+        /// </summary>
+        public int AnchorSamplesLeft;
+
+        /// <summary>Unscaled time of this bar's next anchor resample.</summary>
+        public float NextAnchorSample;
 
         /// <summary>
         /// The <see cref="ActorBehaviour"/> this bar tracks, resolved from the controller's
@@ -316,6 +327,10 @@ internal static class ActorBars
     private static readonly List<WorldspacePanelUIController> Scratch = new(32);
     private static readonly List<Renderer> RendererScratch = new(16);
 
+    /// <summary>Second renderer scratch, used ONLY by <see cref="CountAllRenderers"/> so the
+    /// census walk can never clobber the measurement walk it is describing.</summary>
+    private static readonly List<Renderer> RendererScratchAll = new(16);
+
     /// <summary>Patch gate: true when the game must NOT drive this panel's transform.</summary>
     internal static bool Owns(WorldspaceDisplayPanelBase panel) => Owned.Contains(panel);
 
@@ -468,9 +483,13 @@ internal static class ActorBars
 
             // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
             // scales with the diorama by construction — zooming the table keeps the
-            // bar exactly above the miniature instead of inside it.
+            // bar exactly above the miniature instead of inside it. The cache is no longer
+            // written once and trusted forever: ResampleAnchor re-measures it a bounded number
+            // of times after adopt, because the game finishes assembling a character (child
+            // prefab + streamed materials) AFTER its bar controller registers itself.
+            ResampleAnchor(adopted, controller, now);
             bool haveTrack = TryGetTrackPoint(controller, out Vector3 track);
-            Vector3 pos = track + Vector3.up * pair.Value.AnchorOffsetWU;
+            Vector3 pos = track + Vector3.up * adopted.AnchorOffsetWU;
 
             // ---- bars TAKE PART in the perspective compose like every other panel ----------------
             //
@@ -749,30 +768,97 @@ internal static class ActorBars
     }
 
     /// <summary>
+    /// THE HARD CEILING on a bar's anchor offset, world units.
+    ///
+    /// <para>Its original comment read "the tallest boss mini is ~5 wu, so any larger figure
+    /// height is a mismeasured bound, not a figure". That is an ASSUMPTION ABOUT THE GAME'S
+    /// CONTENT, and the boss-dragon report (Drachen.jpg, ModBuild 290) is the first case that
+    /// could falsify it — so the number is now named, and <see cref="MeasureAnchorOffsetWU"/>
+    /// says in its log line WHEN this arm is the one that bound the result. Nobody should move
+    /// it again without a hardware line naming it as the binding arm.</para>
+    /// </summary>
+    private const float AnchorHardCeilingWU = 6f;
+
+    /// <summary>The clamp's lower arm — a bar may never sit ON the track point.</summary>
+    private const float AnchorFloorWU = 0.05f;
+
+    /// <summary>
+    /// How many times an adopted bar RE-MEASURES its anchor after adopt before latching.
+    ///
+    /// <para>WHY THIS EXISTS. The measurement below used to run exactly once, at adopt, and the
+    /// comment asserted that was enough ("a rare, per-actor-spawn event"). An actor is adopted the
+    /// frame its <c>WorldspacePanelUIController</c> registers itself, which is inside
+    /// <c>ActorBehaviour.SetActor</c> — and the game loads a character's child prefab and its
+    /// MATERIALS asynchronously through Addressables
+    /// (<c>CharacterManager.InitialiseCharacterAsync</c>, <c>MaterialLoaderData.LoadMaterials</c>,
+    /// which sets <c>Renderer.enabled = false</c> until the load completes). A measurement taken on
+    /// that frame can see a hierarchy that is not yet the figure the player will look at, and the
+    /// one value it produced was then kept forever.</para>
+    ///
+    /// <para>The resample is self-cancelling and self-reporting: as soon as two consecutive samples
+    /// agree AND the later one is a real measurement (not the vanilla fallback), the budget drops
+    /// to zero and the figure's renderers are never walked again. A bar whose adopt-time reading
+    /// was already right pays exactly ONE extra walk and changes by exactly nothing — and a bar
+    /// that DOES change writes the line that proves it.</para>
+    /// </summary>
+    private const int AnchorSampleBudget = 8;
+
+    /// <summary>Seconds between anchor resamples; see <see cref="AnchorSampleBudget"/>.</summary>
+    private const float AnchorSampleIntervalSeconds = 0.5f;
+
+    /// <summary>
     /// Board-space anchor height above the track point, from the miniature's renderer
     /// bounds (world-space AABB — already in board units). Vanilla equivalent: the game
     /// adds <c>m_WorldspaceOffsetY</c> (world units, from <c>Init(..., float height =
     /// 1.8f)</c>) before projecting to the screen (decompiled WorldspaceDisplayPanel
     /// Base.cs:186, WorldspacePanelUIController.cs:94); we anchor at the actual bounds
     /// top (tighter than the fixed 1.8) with the vanilla offset as the fallback.
-    /// Called once per adoption — the GetComponentsInChildren allocation is a rare,
-    /// per-actor-spawn event, not per-frame.
+    ///
+    /// <para><paramref name="report"/> is the ONE LINE that makes a misplaced bar answerable —
+    /// see <see cref="LogAnchor"/> for why this function had no instrument at all until the boss
+    /// dragon arrived. <paramref name="measured"/> is false exactly when the vanilla fallback was
+    /// returned, i.e. when the bounds rule never ran at all.</para>
     /// </summary>
-    private static float ComputeAnchorOffsetWU(WorldspacePanelUIController controller)
+    private static float MeasureAnchorOffsetWU(
+        WorldspacePanelUIController controller, out string report, out bool measured)
     {
+        measured = false;
         float fallback = Mathf.Max(controller.m_WorldspaceOffsetY, 0.2f);
 
         GameObject tracked = controller.m_ObjectToTrack;
-        if (tracked == null || !TryGetTrackPoint(controller, out Vector3 track))
+        if (tracked == null)
+        {
+            report = "MEASUREMENT NEVER RAN — the controller has no object to track; "
+                     + $"vanilla fallback {fallback:F2} wu{Hex(fallback)}";
             return fallback;
+        }
+        if (!TryGetTrackPoint(controller, out Vector3 track))
+        {
+            report = "MEASUREMENT NEVER RAN — no track point (head bone AND base are both "
+                     + $"missing); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            return fallback;
+        }
+
+        string trackMode =
+            controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.HeadBone
+            && controller.m_HeadBonePoint != null
+                ? "HeadBone"
+                : controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.Base
+                    ? "Base"
+                    : "HeadBoneStatic (base + the head offset captured at Init)";
 
         RendererScratch.Clear();
         tracked.GetComponentsInChildren(includeInactive: false, RendererScratch);
-        if (RendererScratch.Count == 0)
-            return fallback;
+        int onActiveObjects = RendererScratch.Count;
 
+        int batched = 0;
+        int notMesh = 0;
+        int used = 0;
+        int componentDisabled = 0;
         float maxY = float.MinValue;
         float minY = float.MaxValue;
+        string tallest = "?";
+        string tallestKind = "?";
         for (int i = 0; i < RendererScratch.Count; i++)
         {
             Renderer r = RendererScratch[i];
@@ -781,29 +867,184 @@ internal static class ActorBars
             // batch would read as tall as the whole map chunk. Skip; the vanilla fixed offset
             // below is the fallback, exactly the height the flat game uses.
             if (r.isPartOfStaticBatch)
+            {
+                batched++;
                 continue;
+            }
             // Only the miniature's SURFACE geometry may define "the top of the figure".
             // Particle, trail and line renderers report their effect VOLUME: the Elementalist's
             // infusion VFX measured sky-high and parked the health bar far above the figure
             // (ground_and_healthbar.jpg). VFX say nothing about where the mini's head is.
             if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
+            {
+                notMesh++;
                 continue;
+            }
+            // COUNTED, NOT SKIPPED. `includeInactive: false` filters by GAMEOBJECT active state,
+            // never by Renderer.enabled, and the game's async material loader disables the
+            // COMPONENT while its materials stream in (MaterialLoaderData.LoadMaterials). Such a
+            // renderer still reports valid bounds, so it is measured — but the count is printed,
+            // because "this figure was measured mid-stream" is precisely the state that would
+            // otherwise be invisible.
+            if (!r.enabled)
+                componentDisabled++;
             Bounds b = r.bounds;
-            if (b.max.y > maxY) maxY = b.max.y;
+            if (b.max.y > maxY)
+            {
+                maxY = b.max.y;
+                tallest = r.name;
+                // updateWhenOffscreen decides whether this bound MOVES with the animation or
+                // is the authored localBounds covering the whole clip — the difference between
+                // "the wings were up when we measured" and "the wings are always in the box".
+                tallestKind = r is SkinnedMeshRenderer smr
+                    ? $"SkinnedMeshRenderer, updateWhenOffscreen={smr.updateWhenOffscreen}"
+                    : "MeshRenderer";
+            }
             if (b.min.y < minY) minY = b.min.y;
+            used++;
         }
         RendererScratch.Clear();
 
+        string census = $"{used} mesh renderer(s) measured of {onActiveObjects} on ACTIVE objects "
+                        + $"({CountAllRenderers(tracked)} incl. inactive), {batched} static-batched "
+                        + $"and {notMesh} non-mesh skipped, {componentDisabled} measured with "
+                        + "Renderer.enabled=false (materials still streaming)";
+
+        if (used == 0)
+        {
+            report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — no usable renderer: "
+                     + $"{census}; vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            return fallback;
+        }
+
         float height = maxY - minY;
         if (height <= 0.01f)
-            return fallback; // degenerate bounds (still spawning) — vanilla height
+        {
+            report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — degenerate height "
+                     + $"{height:F3} wu ({census}); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            return fallback;
+        }
 
         // Clear the top of the mini by ~12% of its own height, everything in board units.
-        // Hard ceiling 6 wu on top of everything else: the tallest boss mini is ~5 wu, so any
-        // larger figure "height" is a mismeasured bound, not a figure — better a bar slightly
-        // low on a giant than one floating in the sky.
-        float offset = (maxY - track.y) + 0.12f * height;
-        return Mathf.Clamp(offset, 0.05f, Mathf.Min(fallback + height, 6f));
+        float clearance = 0.12f * height;
+        float raw = (maxY - track.y) + clearance;
+        float softCeiling = fallback + height;
+        float hi = Mathf.Min(softCeiling, AnchorHardCeilingWU);
+        float clamped = Mathf.Clamp(raw, AnchorFloorWU, hi);
+
+        string arm =
+            raw < AnchorFloorWU
+                ? $"the {AnchorFloorWU:F2} wu FLOOR"
+                : raw > hi
+                    ? (softCeiling <= AnchorHardCeilingWU
+                        ? $"the fallback+height CEILING ({fallback:F2}+{height:F2}={softCeiling:F2} wu)"
+                        : $"the {AnchorHardCeilingWU:F1} wu HARD CEILING (fallback+height would have "
+                          + $"allowed {softCeiling:F2})")
+                    : "NOTHING — the raw offset stands";
+
+        measured = true;
+        // WHERE THE HEAD IS. The rule above anchors on the BOUNDING BOX top, which on a humanoid
+        // mini IS the head and on a winged one is a wing tip several figure-heights higher. The
+        // game hands us the head joint itself (C_headSkel01_JNT, WorldspaceDisplayPanelBase.Init),
+        // so the line reports it beside the box: "box top 9.3, head joint 3.1" is the whole
+        // argument for or against a head-anchored rule, and it must not cost another build to get.
+        Transform? headBone = controller.m_HeadBonePoint;
+        string head = headBone != null
+            ? $"head joint at {headBone.position.y - track.y:F2} wu above the track point"
+            : "no head joint on this character";
+
+        report = $"track {trackMode} y={track.y:F2}; {census}; {head}; bounds y {minY:F2}..{maxY:F2} => "
+                 + $"height {height:F2} wu{Hex(height)}; TALLEST '{tallest}' ({tallestKind}); "
+                 + $"raw offset = (top-track) {maxY - track.y:F2} + 12% clearance {clearance:F2} "
+                 + $"= {raw:F2} wu; BOUND BY {arm} => {clamped:F2} wu{Hex(clamped)}; vanilla "
+                 + $"fallback would have been {fallback:F2} wu";
+        return clamped;
+    }
+
+    /// <summary>
+    /// Renderer count INCLUDING inactive GameObjects, for the census in the anchor line. Walked
+    /// only on a frame that is about to LOG (adopt, or a resample that changed the answer), never
+    /// on the silent samples — the difference between this number and the active-object count is
+    /// the whole "was the figure finished when we measured it?" question, and it is worth one
+    /// extra walk on the rare frames that print.
+    /// </summary>
+    private static int CountAllRenderers(GameObject tracked)
+    {
+        RendererScratchAll.Clear();
+        tracked.GetComponentsInChildren(includeInactive: true, RendererScratchAll);
+        int n = RendererScratchAll.Count;
+        RendererScratchAll.Clear();
+        return n;
+    }
+
+    /// <summary>
+    /// A world-unit length re-stated in HEX WIDTHS — the only unit a reader of this log has any
+    /// intuition for. Empty when the game's tile size is not resolvable, so the line never invents
+    /// a number.
+    /// </summary>
+    private static string Hex(float worldUnits)
+    {
+        float hex = UnityGameEditorRuntime.s_TileSize.x;
+        return hex > 1e-4f ? $" ({worldUnits / hex:F2} hex)" : string.Empty;
+    }
+
+    /// <summary>
+    /// ONE LINE PER ADOPTION saying where this bar was parked and WHY.
+    ///
+    /// <para>WRITTEN BECAUSE THERE WAS NOTHING. Every <c>ActorBar</c> line this class has ever
+    /// produced is about DRAW ORDER or SIZE; not one of them names a height. So the boss-dragon
+    /// report ("die Health-Bar von allen Drachen ist falsch … mitten in ihm statt darüber",
+    /// Drachen.jpg) arrived with a hardware log that could not distinguish a clamp that BIT from a
+    /// measurement that never RAN — two causes with two different fixes. The line therefore names
+    /// the ARM, not just the number: a clamp that bound the result must be visible without doing
+    /// arithmetic on the other fields.</para>
+    /// </summary>
+    private static void LogAnchor(string what, string label, float offset, string report)
+    {
+        VRLog.Info("WorldUI",
+            $"BAR ANCHOR {what} '{label}': {offset:F2} wu{Hex(offset)} above the track point — {report}");
+    }
+
+    /// <summary>
+    /// The figure's class id (the same vocabulary <c>FigureGrab</c> writes, so a hardware log
+    /// reads as one story), falling back to the tracked object's name.
+    /// </summary>
+    private static string LabelOf(WorldspacePanelUIController controller, ActorBehaviour? actor)
+    {
+        CActor? ca = actor != null ? actor.Actor : null;
+        if (ca != null && ca.Class != null)
+            return ca.Class.ID;
+        GameObject tracked = controller.m_ObjectToTrack;
+        return tracked != null ? tracked.name : "?";
+    }
+
+    /// <summary>
+    /// Re-measure this bar's anchor while its sample budget lasts (see
+    /// <see cref="AnchorSampleBudget"/>), and adopt the new value if it differs. Silent unless the
+    /// answer CHANGES — a resample that agrees with the shipped value is not news, and the budget
+    /// is dropped the moment a real measurement repeats itself, so the steady state is zero work.
+    /// </summary>
+    private static void ResampleAnchor(Adopted adopted, WorldspacePanelUIController controller, float now)
+    {
+        if (adopted.AnchorSamplesLeft <= 0 || now < adopted.NextAnchorSample)
+            return;
+        adopted.AnchorSamplesLeft--;
+        adopted.NextAnchorSample = now + AnchorSampleIntervalSeconds;
+
+        float offset = MeasureAnchorOffsetWU(controller, out string report, out bool measured);
+        if (Mathf.Approximately(offset, adopted.AnchorOffsetWU))
+        {
+            // Two agreeing readings and the later one is a REAL measurement => the figure has
+            // finished arriving. Stop walking it. (Two agreeing FALLBACKS prove nothing — the
+            // bounds rule still has not run — so those keep their remaining budget.)
+            if (measured)
+                adopted.AnchorSamplesLeft = 0;
+            return;
+        }
+
+        LogAnchor($"RESAMPLED (was {adopted.AnchorOffsetWU:F2} wu)",
+                  LabelOf(controller, adopted.Actor), offset, report);
+        adopted.AnchorOffsetWU = offset;
     }
 
     private static void Adopt(WorldspacePanelUIController controller)
@@ -832,17 +1073,22 @@ internal static class ActorBars
                       * (s_depthScanPhaseSeq++ & (DepthScanPhaseBuckets - 1))
                       / DepthScanPhaseBuckets;
 
+        float anchorOffset = MeasureAnchorOffsetWU(controller, out string anchorReport, out _);
+
         Adoptions[controller] = new Adopted
         {
             Controller = controller,
             Panel = panel,
             ScanPhase = phase,
-            AnchorOffsetWU = ComputeAnchorOffsetWU(controller),
+            AnchorOffsetWU = anchorOffset,
+            AnchorSamplesLeft = AnchorSampleBudget,
+            NextAnchorSample = Time.unscaledTime + AnchorSampleIntervalSeconds,
             Actor = controller.m_ObjectToTrack != null
                 ? ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)
                 : null,
         };
         Owned.Add(controller);
+        LogAnchor("at ADOPT", LabelOf(controller, Adoptions[controller].Actor), anchorOffset, anchorReport);
 
         // Item 5a part 1 — segment the HealthBar per max-HP. Push a valid zoom exactly
         // once at adopt: the RTS-camera UnityEvent that normally does this never fires in

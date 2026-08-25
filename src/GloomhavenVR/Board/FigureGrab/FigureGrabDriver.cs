@@ -31,6 +31,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     {
         public FigureGrabbable Grabbable = null!;
         public Collider Collider = null!;
+
+        /// <summary>The figure's own GameObject (the controller's <c>m_ObjectToTrack</c>) — the
+        /// root the reach diagnostics walk for the miniature's SURFACE geometry. Held here rather
+        /// than re-resolved so the miss probe describes exactly the object the adoption measured.
+        /// </summary>
+        public GameObject Figure = null!;
     }
 
     // Keyed by the figure's interactable collider component (Unity-nullable key, like
@@ -106,6 +112,20 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private static readonly string[] BusyRefusalFallbacks = new string[1];
     private float _nextBusyRefusalLeft;
     private float _nextBusyRefusalRight;
+
+    // REACH-MISS probe (see NoteReachMiss): the same one-per-second-per-hand throttle the busy
+    // refusal uses, so a player mashing the trigger at a spot that cannot be grabbed gets one
+    // legible line and not a rattle.
+    private float _nextReachMissLeft;
+    private float _nextReachMissRight;
+
+    /// <summary>Renderer scratch for <see cref="DescribeRenderedBody"/> — the figure's own
+    /// surface geometry, walked at ADOPTION and on a throttled reach miss only, never per frame.
+    /// Static because the driver is a singleton behaviour and the walks never nest.</summary>
+    private static readonly List<Renderer> BodyScratch = new(32);
+
+    /// <summary>Collider scratch for the adoption census; see <see cref="LogFigureReach"/>.</summary>
+    private static readonly List<Collider> ColliderScratch = new(8);
 
     // Cached per-frame tick delegates ([Optimize] CacheTickDelegates — see Update).
     private System.Action? _tickRegistry;
@@ -281,7 +301,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // the same one the election measures against, so the two readings are commensurable.
             var grabbable = new FigureGrabbable(actor, collider);
             VRInteractables.RegisterGrabbable(grabbable, collider);
-            _adoptions[interactable] = new Adopted { Grabbable = grabbable, Collider = collider };
+            _adoptions[interactable] = new Adopted
+            {
+                Grabbable = grabbable, Collider = collider, Figure = figure,
+            };
+            LogFigureReach(grabbable, interactable, figure, collider);
         }
 
         // Prune figures whose collider/actor died (actor removed / scene unloading).
@@ -535,6 +559,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         FigureGrabbable? refusedBusy = null;
         string refusedWhy = string.Empty;
 
+        // REACH MISS (boss-dragon round, ModBuild 291). The report that produced this was "wenn ich
+        // den Drachen nehmen will kommt kein Overlay/Highlight … ich muss es am unteren Bereich tun"
+        // — a trigger pull that elected NOTHING, which until now left no trace whatsoever: the
+        // election line only ever printed a WINNER, so "I reached for it and nothing happened" was
+        // the one outcome this subsystem could not describe. Tracked on trigger frames only.
+        Adopted? nearestMiss = null;
+        float nearestMissDist = float.MaxValue;
+
         foreach (Adopted adopted in _adoptions.Values)
         {
             Collider collider = adopted.Collider;
@@ -550,6 +582,18 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                     refusedWhy = busyWhy;
                 }
                 continue;
+            }
+            if (scanRefusal)
+            {
+                // BEFORE the palm gate on purpose: the miss probe must be able to name a figure
+                // the palm reach itself excluded, which is exactly the case a player reaching for
+                // a boss's head is in.
+                float missDist = Vector3.Distance(offsetAnchor, collider.ClosestPoint(offsetAnchor));
+                if (missDist < nearestMissDist)
+                {
+                    nearestMissDist = missDist;
+                    nearestMiss = adopted;
+                }
             }
             if (Vector3.Distance(palm, collider.ClosestPoint(palm)) > reach)
                 continue; // not a proximity candidate this frame
@@ -599,6 +643,158 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
         if (refusedBusy != null && winner == null)
             NoteBusyRefusal(hand, refusedBusy, refusedWhy);
+        else if (scanRefusal && winner == null && nearestMiss != null)
+            NoteReachMiss(hand, nearestMiss, nearestMissDist, offsetAnchor);
+    }
+
+    /// <summary>
+    /// WHY THAT PINCH GRABBED NOTHING — written on a trigger edge that elected no figure, once per
+    /// second per hand.
+    ///
+    /// <para>This is the instrument the boss-dragon report needed and did not have. The user's (b)
+    /// and (c) are one sentence apart — "no highlight appears" and "it only works on the lower
+    /// part" — and the hardware log for ModBuild 290 contains a dozen SUCCESSFUL highlights and
+    /// grabs on the very same <c>ElderDrakeID</c>, so "the boss cannot be highlighted" was already
+    /// false. What no line could say is where the hand WAS on the pulls that did nothing.</para>
+    ///
+    /// <para>So the line states the geometry that decides it: the distance from the pinch to the
+    /// nearest figure's PICK COLLIDER against the same radius the election gates on, the distance
+    /// to that figure's RENDERED body for comparison, and — the field the report is actually about
+    /// — whether the pinch was ABOVE the top of that collider. A pinch above the collider can never
+    /// elect the figure however close it looks to the miniature, and that is a property of the
+    /// game's authored collider, not of the pick radius.</para>
+    /// </summary>
+    private void NoteReachMiss(VRHand hand, Adopted nearest, float anchorDistWorld, Vector3 pinch)
+    {
+        bool left = hand.Side == HandSide.Left;
+        float next = left ? _nextReachMissLeft : _nextReachMissRight;
+        float now = Time.unscaledTime;
+        if (now < next)
+            return;
+        if (left)
+            _nextReachMissLeft = now + BusyRefusalIntervalSeconds;
+        else
+            _nextReachMissRight = now + BusyRefusalIntervalSeconds;
+
+        Collider collider = nearest.Collider;
+        if (collider == null)
+            return;
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        Bounds cb = collider.bounds;
+
+        string vertical =
+            pinch.y > cb.max.y
+                ? $"ABOVE its top by {(pinch.y - cb.max.y):F2} wu{HexOf(pinch.y - cb.max.y)} — a pinch "
+                  + "above the collider can NEVER elect this figure"
+                : pinch.y < cb.min.y
+                    ? $"BELOW its bottom by {(cb.min.y - pinch.y):F2} wu{HexOf(cb.min.y - pinch.y)}"
+                    : "INSIDE its vertical span, so height is not what refused this pinch";
+
+        GameObject body = nearest.Figure;
+        string rendered = body != null
+            ? DescribeRenderedBody(body, cb, scale, pinch, includePinch: true)
+            : "rendered body unavailable";
+
+        VRLog.Info("FigureGrab",
+            $"REACHED AND MISSED ({hand.Side}): the trigger went down and NO figure was elected. "
+            + $"Nearest is '{nearest.Grabbable.Label}' at {anchorDistWorld / scale * 1000f:F0} mm real "
+            + $"from the pinch point (pick radius {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm). "
+            + $"Its pick collider is a {collider.GetType().Name} on '{collider.name}', world y "
+            + $"{cb.min.y:F2}..{cb.max.y:F2}; the pinch was at y {pinch.y:F2} — {vertical}. {rendered}");
+    }
+
+    /// <summary>
+    /// The figure's own SURFACE geometry next to the collider that gates the pick — mesh and
+    /// skinned renderers only, for the same reason <c>ActorBars</c> excludes the rest: a particle
+    /// or trail renderer reports an effect VOLUME and says nothing about where the miniature is.
+    /// Reports the coverage as a percentage and as the gap at the top, because "the collider stops
+    /// here and the mini goes on to there" is the whole of symptom (c).
+    /// </summary>
+    private static string DescribeRenderedBody(
+        GameObject body, Bounds colliderBounds, float scale, Vector3 pinch, bool includePinch)
+    {
+        BodyScratch.Clear();
+        body.GetComponentsInChildren(includeInactive: false, BodyScratch);
+        float maxY = float.MinValue;
+        float minY = float.MaxValue;
+        int used = 0;
+        float nearestSurface = float.MaxValue;
+        for (int i = 0; i < BodyScratch.Count; i++)
+        {
+            Renderer r = BodyScratch[i];
+            if (r.isPartOfStaticBatch || (r is not MeshRenderer && r is not SkinnedMeshRenderer))
+                continue;
+            Bounds b = r.bounds;
+            if (b.max.y > maxY) maxY = b.max.y;
+            if (b.min.y < minY) minY = b.min.y;
+            if (includePinch)
+            {
+                float d = Vector3.Distance(pinch, b.ClosestPoint(pinch));
+                if (d < nearestSurface) nearestSurface = d;
+            }
+            used++;
+        }
+        BodyScratch.Clear();
+        if (used == 0)
+            return "RENDERED BODY: no mesh renderer found on the figure.";
+
+        float bodyHeight = maxY - minY;
+        float coverage = bodyHeight > 1e-4f
+            ? Mathf.Clamp01((Mathf.Min(colliderBounds.max.y, maxY) - Mathf.Max(colliderBounds.min.y, minY))
+                            / bodyHeight) * 100f
+            : 0f;
+        float gap = maxY - colliderBounds.max.y;
+        string surface = includePinch
+            ? $", nearest surface {nearestSurface / scale * 1000f:F0} mm real from the pinch"
+            : string.Empty;
+        return $"RENDERED BODY ({used} mesh renderer(s)): world y {minY:F2}..{maxY:F2}, height "
+               + $"{bodyHeight:F2} wu{HexOf(bodyHeight)}{surface}. COVERAGE: the pick collider "
+               + $"spans {coverage:F0}% of that height and its top sits {gap:F2} wu"
+               + $"{HexOf(gap)} below the rendered top.";
+    }
+
+    /// <summary>
+    /// ONE LINE PER FIGURE ADOPTION: the volume the player may actually reach into, next to the
+    /// figure they can see.
+    ///
+    /// <para>The pick election measures against ONE collider — <c>CInteractableActor</c>'s own, or
+    /// the FIRST one found under it — because that is the collider the flat game authored for a
+    /// mouse click. Whether that volume covers the whole miniature has never been checked by
+    /// anything, and on an ordinary humanoid mini it does not matter. On a boss it decides whether
+    /// half the figure is inert. The count of OTHER colliders is printed beside it because it
+    /// decides which fix the next round needs: if the game already ships more colliders, using all
+    /// of them is exact and free; if it ships one, a mod-side reach volume has to be derived.</para>
+    /// </summary>
+    private static void LogFigureReach(
+        FigureGrabbable grabbable, CInteractableActor interactable, GameObject figure, Collider collider)
+    {
+        Bounds cb = collider.bounds;
+
+        ColliderScratch.Clear();
+        interactable.GetComponentsInChildren(includeInactive: true, ColliderScratch);
+        int underInteractable = ColliderScratch.Count;
+        ColliderScratch.Clear();
+        figure.GetComponentsInChildren(includeInactive: true, ColliderScratch);
+        int underFigure = ColliderScratch.Count;
+        ColliderScratch.Clear();
+
+        string rendered = DescribeRenderedBody(figure, cb, 1f, cb.center, includePinch: false);
+
+        VRLog.Info("FigureGrab",
+            $"FIGURE REACH '{grabbable.Label}': pick collider is a {collider.GetType().Name} on "
+            + $"'{collider.name}' — world y {cb.min.y:F2}..{cb.max.y:F2}, size ({cb.size.x:F2}, "
+            + $"{cb.size.y:F2}, {cb.size.z:F2}) wu. The figure carries {underInteractable} "
+            + $"collider(s) under its CInteractableActor and {underFigure} under the actor root; "
+            + $"ONLY THE FIRST is used by the pick. {rendered} Pick radius "
+            + $"{FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm real at the hand.");
+    }
+
+    /// <summary>A world-unit length re-stated in HEX WIDTHS, or nothing when the game's tile size
+    /// is not resolvable — the line never invents a number.</summary>
+    private static string HexOf(float worldUnits)
+    {
+        float hex = UnityGameEditorRuntime.s_TileSize.x;
+        return hex > 1e-4f ? $" ({worldUnits / hex:F2} hex)" : string.Empty;
     }
 
     /// <summary>
