@@ -60,6 +60,18 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 272: how far BELOW the crest plane the head must be, as a fraction of the
     /// crest height. 0 = the shipped rule, "anywhere under the crest plane".</summary>
     internal static ConfigEntry<float>? WalkInsideHeadBelowCrestFraction;
+    /// <summary>ModBuild 278: seconds between two RESCAN CYCLES — the pipeline whose commit is
+    /// the ~90 ms atomic frame. Was <c>FadeDriver.RescanIntervalSeconds</c>, a private const.</summary>
+    internal static ConfigEntry<float>? RescanIntervalSecondsEntry;
+    /// <summary>ModBuild 278: seconds between two fade DECISIONS (sample visibility + blocked
+    /// fraction). The [WallFade] door onto what [Optimize] WallFadeEvalInterval already did.</summary>
+    internal static ConfigEntry<float>? EvalIntervalSecondsEntry;
+    /// <summary>ModBuild 278: suspend the decision, the coverage sampling and the rescan cadence
+    /// while the walk-in stand-down holds every wall solid anyway.</summary>
+    internal static ConfigEntry<bool>? WalkInSuspendSampling;
+    /// <summary>ModBuild 278: name WHICH renderers moved the scene half of the skip signature on
+    /// a cycle that refused to skip (see WallSegmentFadeCulprits.cs).</summary>
+    internal static ConfigEntry<bool>? SignatureCulpritCensus;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -205,6 +217,72 @@ internal static class WallFadeTuning
             "crest, 0.50 = half way down. Useful if the mode engages while you are still looking " +
             "over the walls from just inside the footprint. Too high and it can never engage at " +
             "all, because your eye would have to be near the floor. Live; clamped 0.00-1.00.");
+
+        RescanIntervalSecondsEntry = config.Bind("WallFade", "RescanIntervalSeconds",
+            Defaults.RescanIntervalSeconds,
+            "How often the mod REBUILDS its table of which renderers belong to which wall — the "
+            + "sweep/classify/survey pipeline whose last step is one atomic frame. THIS IS THE "
+            + "SETTING BEHIND THE SHORT HITCHES: on the ModBuild 277 hardware log that final "
+            + "frame measured 85.6 ms on average and 134.0 ms at worst, 33 times in the "
+            + "session. Raising this number divides HOW MANY of those frames happen and makes "
+            + "not one of them shorter — at 4.0 you get half as many, at 8.0 a quarter. WHAT IT "
+            + "COSTS: decision latency. The table in force is what every fade is decided "
+            + "against, so a wall that has just been built, revealed or regenerated waits up to "
+            + "this long before it can fade or reappear at all. A ROOM REVEAL IS NOT AFFECTED — "
+            + "that opens a cycle immediately whatever this says, as does any wall the game "
+            + "regenerates mid-fade. The [WallSegmentFade] BUDGET line prints 'DECISION LATENCY "
+            + "— the table in force stood at most X s without a rebuild', which is the real "
+            + "number to read this against. NOTE that most cycles already SKIP the expensive "
+            + "frame entirely (80 of 113 in that same log), so raising this thins out the ones "
+            + "that are left rather than removing a fixed cost. Live; clamped 0.50-15.00.");
+        EvalIntervalSecondsEntry = config.Bind("WallFade", "EvalIntervalSeconds",
+            Defaults.EvalIntervalSeconds,
+            "How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
+            + "the per-frame half: it projects every room's floor samples through your head "
+            + "camera and re-measures every wall against them. 0 = every single frame, which is "
+            + "what has shipped so far. This is the cadence 'wie oft gecheckt wird ob eine Wand "
+            + "etwas verdeckt' in the literal sense; it is NOT what causes the short hitches "
+            + "(that is RescanIntervalSeconds above), it is a small steady cost paid on every "
+            + "frame forever. RAISING IT IS SAFE UP TO A POINT AND THE POINT IS KNOWN: the "
+            + "decision this feeds is already deliberately slow — an EMA over the coverage, a "
+            + "Schmitt trigger with two separate bars, and dwell timers of 0.20 s before a "
+            + "wall may go transparent and 2.50-7.00 s before it may come back — and the "
+            + "smoothing advances by the time since the last CHECK rather than per frame, so "
+            + "this dial does not stretch it. The shortest thing it can distort is that 0.20 s "
+            + "dwell: at or above 0.20 the dwell stops debouncing anything, because one check "
+            + "arms it and the very next check already satisfies it. Stay well under that — "
+            + "0.05 (20 Hz) still needs four checks in a row to agree before a wall goes "
+            + "transparent and delays that by at most a tenth of a second, which is inside the "
+            + "fade animation's own smear and cannot be seen. IF THIS IS 0, the older "
+            + "[Optimize] WallFadeEvalInterval in dev.gloomhavenvr.perf.cfg still applies; any "
+            + "non-zero value here overrides it. Live; clamped 0.00-0.25.");
+        WalkInSuspendSampling = config.Bind("WallFade", "WalkInSuspendSampling",
+            Defaults.WalkInSuspendSampling,
+            "While you are standing INSIDE the play field (see 'Im Spielfeld: alle Wände "
+            + "massiv'), stop measuring the walls altogether instead of measuring them and "
+            + "throwing the answer away. In that mode every wall is held fully solid by decree, "
+            + "so the coverage check, the fade decision and the periodic table rebuild are all "
+            + "computing a verdict that the very next line of code overrules — this switch just "
+            + "stops paying for it, which is the frame time back for free while you are down "
+            + "among the walls. NOTHING IS BROKEN BY IT: a rebuild already in flight is allowed "
+            + "to finish rather than being torn up mid-way, a room the game reveals while you "
+            + "are in there still triggers one immediately, and the moment you step or zoom out "
+            + "the very next frame resumes both the measuring and the rebuild — no waiting out "
+            + "a skipped cadence. Multiplayer is unaffected: what your teammates see is decided "
+            + "on THEIR machines, and a fade you had before you walked in is still broadcast. "
+            + "OFF = keep measuring while the mode holds, which is the ModBuild 277 behaviour. "
+            + "Live (the very next frame).");
+        SignatureCulpritCensus = config.Bind("WallFade", "SignatureCulpritCensus",
+            Defaults.SignatureCulpritCensus,
+            "DIAGNOSTIC, not a behaviour. When the mod decides it has to rebuild its wall table "
+            + "because 'the scene changed', print WHICH renderers changed — grouped by name, "
+            + "with the full group count and an explicit count of anything the line did not "
+            + "have room for. This is the open question of the current performance round: 28 of "
+            + "the 33 rebuilds in the ModBuild 277 log fired on that one term and nothing in "
+            + "the mod could say what moved. It runs only on a cycle that is already going to "
+            + "rebuild, at most once every few seconds, and reports its own cost as the step "
+            + "'WallFade.SigDiag' so it can never become an unmeasured tax. Turn it off once "
+            + "the question is answered. Live.");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -432,6 +510,83 @@ internal static class WallFadeTuning
     /// stays the shipped <c>margin &lt; 0</c>. The two must stay equal.</summary>
     internal static float WalkInHeadBelowCrestFraction =>
         Clamped(WalkInsideHeadBelowCrestFraction, 0f, 0f, 1f);
+
+    /// <summary>
+    /// ModBuild 278 — seconds between two RESCAN CYCLES. The number inside Clamped() is only the
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.RescanIntervalSeconds</c>, and the
+    /// two must stay equal (this project has lost two rounds to reading the fallback as the
+    /// shipped default — see the ledger entry "A clamp fallback is not a default").
+    ///
+    /// <para>THE LOWER CLAMP IS 0.5 AND IT IS A SAFETY BAR, not taste. The cycle's own stages are
+    /// budgeted per frame (census 1.5 ms, survey 1.5 ms, prepare 1.5 ms) and a scene of ~5800
+    /// renderers needs on the order of 45-50 frames to walk them all. Below about half a second
+    /// at 90 Hz the next cycle would be due before the previous one finished, so the pipeline
+    /// would never be idle and <c>_rescanStage</c> would never return to Idle — which also
+    /// starves the wall-path audit, whose whole gate is "only while the pipeline is idle". 0.5 s
+    /// is 45 frames, i.e. exactly at that boundary with the budgets as they ship.</para>
+    ///
+    /// <para>THE UPPER CLAMP IS 15 s because that is where the STALENESS CEILING starts to be
+    /// the binding term instead of this one: the ceiling forces one commit after 30 skipped
+    /// cycles, so at 15 s the fail-safe is 7.5 minutes away and the table's own decision latency
+    /// (a newly generated wall cannot fade for up to 15 s) is already far past what anyone would
+    /// accept. A number beyond that is not a tuning, it is switching the rebuild off.</para>
+    /// </summary>
+    internal static float RescanIntervalSeconds =>
+        Clamped(RescanIntervalSecondsEntry, 2f, 0.5f, 15f);
+
+    /// <summary>
+    /// ModBuild 278 — seconds between two fade DECISIONS. The number inside Clamped() is only the
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.EvalIntervalSeconds</c>.
+    ///
+    /// <para>0 HERE MEANS "NOT SET HERE", NOT "EVERY FRAME" — see
+    /// <see cref="EffectiveEvalIntervalSeconds"/>. The distinction exists so that surfacing this
+    /// dial cannot silently discard a value a tester already typed into
+    /// <c>[Optimize] WallFadeEvalInterval</c>, which is the only door this cadence had before
+    /// today and which several perf captures were taken with.</para>
+    ///
+    /// <para>THE UPPER CLAMP IS 0.25 s, matching the [Optimize] entry it fronts. It is above the
+    /// 0.20 s fade-in dwell on purpose: past that bar the dwell stops debouncing (one evaluation
+    /// arms it, the next satisfies it) and the description says so in as many words. Forbidding
+    /// it would be a clamp pretending to be advice; the honest arrangement is a bound that stops
+    /// where the [Optimize] twin stops, plus a description that names the number at which the
+    /// behaviour changes and why.</para>
+    /// </summary>
+    internal static float EvalIntervalSeconds =>
+        Clamped(EvalIntervalSecondsEntry, 0f, 0f, 0.25f);
+
+    /// <summary>
+    /// The decision cadence actually in force: this section's dial when it is set, and the older
+    /// <c>[Optimize] WallFadeEvalInterval</c> otherwise.
+    ///
+    /// <para>WHY NOT SIMPLY MOVE THE ENTRY. BepInEx keeps whatever is already written in a cfg,
+    /// so deleting the [Optimize] key would strand every value typed into it and moving the
+    /// default across would strand it silently — the reader would keep working and quietly read
+    /// 0. WHY NOT max() OR min() OF THE TWO: both make two independent dials interact in a way
+    /// neither description can state, and "I set it to 0.05 and nothing happened because another
+    /// file said 0.10" is a bug report nobody can diagnose from a headset. A precedence with one
+    /// sentinel is the only shape whose behaviour fits in a sentence, and that sentence is in
+    /// both descriptions.</para>
+    /// </summary>
+    internal static float EffectiveEvalIntervalSeconds
+    {
+        get
+        {
+            float own = EvalIntervalSeconds;
+            return own > 0f ? own : PerfConfig.WallFadeInterval;
+        }
+    }
+
+    /// <summary>ModBuild 278 kill switch for the walk-in suspension. Read live every frame and
+    /// printed live on the suspension's own edge line, because a remedy that silently did not
+    /// run has cost this project a whole build before.</summary>
+    internal static bool WalkInSuspendSamplingOn =>
+        WalkInSuspendSampling == null || WalkInSuspendSampling.Value;
+
+    /// <summary>ModBuild 278 — the WHICH-RENDERERS census (WallSegmentFadeCulprits). Defaults ON
+    /// while unbound: an instrument that is off in the capture that was supposed to answer the
+    /// question is a wasted round, and this project has had three of those.</summary>
+    internal static bool SignatureCulpritCensusOn =>
+        SignatureCulpritCensus == null || SignatureCulpritCensus.Value;
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -968,7 +1123,21 @@ internal static partial class WallSegmentFade
         private const float BlockEpsDistFraction = 0.05f; // blocked eps = max(thicknessEps, 5% of dist)
         private const float FrustumMargin = 0.20f;     // viewport slack (also covers per-eye vs mono skew)
         private const int MaxTotalSamples = 96;        // precomputed floor samples (all rooms)
-        private const float RescanIntervalSeconds = 2f;
+        /// <summary>
+        /// Seconds between two rescan cycles. A LIVE CONFIG VALUE since ModBuild 278 (user
+        /// request 2026-08-25: <i>"Würde es helfen hier die Abtastrate … etwas zu verringern?
+        /// Am Besten lass sie in den Einstellungen selber einstellen können."</i>) — it was
+        /// <c>private const float RescanIntervalSeconds = 2f</c> from the subsystem's first
+        /// build until then, and <c>Defaults.RescanIntervalSeconds</c> holds that same 2.0 so
+        /// nothing moves at the shipped value.
+        ///
+        /// <para>READ IT FOR DISPLAY AND FOR SCHEDULING, NEVER FOR JUDGING A CYCLE THAT IS
+        /// ALREADY OPEN. The value can change between the frame a cycle was scheduled on and
+        /// the frame it opens, and one term of the skip decision is a comparison against the
+        /// cadence — see <see cref="_scheduledRescanInterval"/>, which is what that comparison
+        /// must use and why.</para>
+        /// </summary>
+        private static float RescanIntervalSeconds => WallFadeTuning.RescanIntervalSeconds;
         private const float DiagIntervalSeconds = 2f;  // throttled hardware diagnostic cadence
 
         private static readonly int TilesOcclusionMapId = Shader.PropertyToID("_TilesOcclusionMap");
@@ -1166,6 +1335,38 @@ internal static partial class WallSegmentFade
         private Texture2D? _occludedTex; // held-faded constant (r=1, a=0 → map term m = 0)
 
         private float _nextRescan;
+
+        /// <summary>
+        /// The cadence value the cycle in flight (or the last one) was SCHEDULED with — the
+        /// number <c>_cycleOpenedEarly</c> must be judged against, never the live dial. See the
+        /// long note at the scheduling site for the two ways reading the live value goes wrong
+        /// and which of them silently defeats the PERF S5 skip outright.
+        ///
+        /// <para>Starts at 0 on purpose. The first cycle of a session is judged against
+        /// <c>_lastCycleOpenedAt = float.NegativeInfinity</c>, so its gap is +Infinity and the
+        /// comparison is false whatever this holds; there is no value that could make a
+        /// first-of-session cycle read as asked-for, and 0 states that rather than pretending
+        /// to a cadence no cycle was ever scheduled with.</para>
+        /// </summary>
+        private float _scheduledRescanInterval;
+
+        /// <summary>
+        /// ModBuild 278 — the walk-in suspension latch, as it stood at the END of the last tick.
+        /// See <see cref="UpdateSamplingSuspension"/>.
+        /// </summary>
+        private bool _samplingSuspended;
+
+        /// <summary>Counters carried across the suspension so its two edge lines can state what
+        /// was actually stood down and what it saved, rather than what it intended to.</summary>
+        private int _suspendEdges;
+        private float _suspendedSince;
+        private int _suspendedEvaluations;
+        private int _suspendedCycles;
+        /// <summary>Shadow cadence clock used ONLY to count the rescan ticks a stand-down
+        /// swallowed. The real <c>_nextRescan</c> must stay in the past while suspended (that is
+        /// what makes the release immediate), so it cannot double as this counter's clock.</summary>
+        private float _suspendedNextTick;
+
         private int _builtRoomCount = -1;
         /// <summary>Rescan scratch for the two registry reads that replaced the rescan's
         /// <c>FindObjectsOfType&lt;TilesOcclusionVolume&gt;</c> and
@@ -1278,6 +1479,13 @@ internal static partial class WallSegmentFade
             public bool WaterSurface;
             public bool Particles;
             public bool Mountable;
+            /// <summary>ModBuild 278 — the renderer's name, kept as a REFERENCE to the string
+            /// <see cref="ClassifyMaterialsAndName"/> has already allocated for the mod-object
+            /// and water-family tests. It costs a field and no interop call, and it is the only
+            /// way the signature-culprit census can name a renderer that has since been
+            /// DESTROYED (see WallSegmentFadeCulprits: a leaver cannot be asked its own name).
+            /// Re-read only on a COLD classify, exactly like every other verdict here.</summary>
+            public string? Name;
         }
 
         /// <summary>The scene snapshot this cycle is classifying (the array
@@ -1620,6 +1828,13 @@ internal static partial class WallSegmentFade
                     _pathAuditRunning = false;
                     _pathAuditWalls.Clear();
                     _nextPathAudit = 0f;
+                    // ModBuild 278: the walk-in latch is already dropped by ResetInsideBoardState
+                    // above; the suspension it authorises must go with it, or the rescan-cadence
+                    // gate would still be closed when the next scenario's very first tick asks
+                    // for a table. See LogSamplingResumed — the flag is read EARLY in the tick
+                    // and written LATE, so it cannot be left to unwind itself.
+                    LogSamplingResumed(Time.unscaledTime,
+                        "the subsystem went inactive (toggle off, no scenario, or no head)");
                 }
                 _wasActive = false;
                 return;
@@ -1632,8 +1847,23 @@ internal static partial class WallSegmentFade
             // commit), not a single 118 ms call. A cycle is only STARTED when none is in
             // flight, so the reveal edge below cannot re-trigger every frame while the census
             // is still walking — _builtRoomCount is not updated until the commit runs.
+            // ModBuild 278 — WALK-IN SUSPENSION, the cadence half. See UpdateSamplingSuspension
+            // for the whole record; here it does exactly one thing: while the latch holds, no
+            // NEW cycle is opened on the cadence. A REVEAL still opens one (the second clause
+            // below is untouched by the gate) because a room the game has just revealed is a
+            // table the mod does not have, and a stand-down that shipped a missing room would
+            // be a correctness bug wearing a performance fix's clothes.
+            //
+            // WHY _nextRescan IS DELIBERATELY LEFT IN THE PAST while suspended, rather than
+            // being pushed forward: that is what makes the RELEASE EDGE IMMEDIATE for free. On
+            // the first frame after the latch drops, `now >= _nextRescan` is already true by a
+            // wide margin, so the cycle opens that frame with no forced commit and no special
+            // release path to get wrong. It also keeps _cycleOpenedEarly honest — the gap since
+            // the last cycle is then LARGER than the cadence, which is the opposite of "asked
+            // for", so a long stand-down cannot be mistaken for a regeneration request.
             if (_rescanStage == RescanStage.Idle
-                && (now >= _nextRescan || gen!.m_RoomRenderers.Count != _builtRoomCount))
+                && ((!_samplingSuspended && now >= _nextRescan)
+                    || gen!.m_RoomRenderers.Count != _builtRoomCount))
             {
                 // PERF S5 — DID SOMETHING ASK FOR THIS CYCLE? Six sites across the subsystem
                 // zero _nextRescan to mean "geometry regenerated mid-fade, re-collect promptly"
@@ -1643,9 +1873,32 @@ internal static partial class WallSegmentFade
                 // sooner than the cadence allows was asked for, and an asked-for cycle always
                 // commits. Four of those six sites live in files this lane does not own, which
                 // is exactly why the detector is on this side of the call.
-                _cycleOpenedEarly = now - _lastCycleOpenedAt < RescanIntervalSeconds - 0.05f;
+                //
+                // ModBuild 278 — THE COMPARISON READS THE INTERVAL THIS CYCLE WAS SCHEDULED
+                // WITH, NOT THE LIVE ONE, and that distinction is the whole reason
+                // _scheduledRescanInterval exists. The cadence became a live config dial in
+                // this build, so the two can differ by any amount at the instant the player
+                // moves the stepper. Comparing the gap against the LIVE value gets it wrong in
+                // both directions and one of them is catastrophic:
+                //   * dial RAISED (2 -> 8) — the cycle was scheduled 2 s ago, the gap is 2 s,
+                //     and 2 < 7.95 reads TRUE. One ordinary cycle is misread as asked-for and
+                //     commits. Harmless: one extra ~90 ms frame, once, on the frame the player
+                //     changed the setting.
+                //   * dial LOWERED (8 -> 2) — the gap is 8 s, 8 < 1.95 is false. Also harmless.
+                // But the shape that would be catastrophic is the same bug written the other
+                // way round: if the gap were ever routinely BELOW the value it is compared
+                // against, _cycleOpenedEarly would be true on EVERY cycle, every cycle would be
+                // "asked for", and the PERF S5 skip — 80 of 113 cycles in the ModBuild 277 log
+                // — would fire exactly never. That is a 71 % regression that logs nothing and
+                // looks like "the perf work did not help". Latching the scheduling value makes
+                // the comparison exact by construction instead of approximately right, and the
+                // BUDGET line's "asked for" counter is the shipped falsifier: it read 0 across
+                // the whole ModBuild 277 log and must still read 0 in a session where nothing
+                // regenerates, whatever the dial is set to.
+                _cycleOpenedEarly = now - _lastCycleOpenedAt < _scheduledRescanInterval - 0.05f;
                 _lastCycleOpenedAt = now;
-                _nextRescan = now + RescanIntervalSeconds;
+                _scheduledRescanInterval = RescanIntervalSeconds;
+                _nextRescan = now + _scheduledRescanInterval;
                 // A frame that had to take the FindObjectsOfType sweep has already spent more
                 // than the budget allows, so it does no census work on top — the census starts
                 // on the next frame. Nothing waits on it: the segment table in force is the
@@ -1653,6 +1906,29 @@ internal static partial class WallSegmentFade
                 sweptThisFrame =
                     BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _builtRoomCount);
             }
+            // MEASURE THE OUTCOME, NOT THE READINESS OF THE MECHANISM. This counts the cadence
+            // ticks the suspension actually swallowed, and the SAMPLING RESUMED line prints the
+            // number — so "the suspension ran" is a figure in a hardware log rather than a claim
+            // about a branch that may or may not have been reached.
+            //
+            // IT COUNTS CADENCE PERIODS, NOT FRAMES, and the difference is the whole value of
+            // the number: _nextRescan is deliberately NOT advanced while suspended (that is what
+            // makes the release edge immediate), so a naive "is a cycle due?" test would be true
+            // on every one of the ~5400 frames a 60-second stand-down covers and would report a
+            // saving 180x larger than the truth. A separate shadow clock advances at the live
+            // cadence instead, so a 60-second stand-down at the shipped 2.0 s reports 30.
+            if (_samplingSuspended && gen!.m_RoomRenderers.Count == _builtRoomCount)
+            {
+                float period = Mathf.Max(RescanIntervalSeconds, 0.05f);
+                // Bounded: at most one whole window's worth of catch-up per frame, so a long
+                // editor pause or a load-screen stall cannot spin here.
+                for (int guard = 0; guard < 64 && now >= _suspendedNextTick; guard++)
+                {
+                    _suspendedCycles++;
+                    _suspendedNextTick += period;
+                }
+            }
+
             if (_rescanStage != RescanStage.Idle && !sweptThisFrame)
                 StepRescanCycle(gen!, now);
             if (_segments.Count == 0 || _roomBounds.Count == 0)
@@ -1681,6 +1957,9 @@ internal static partial class WallSegmentFade
             // WallSegmentFade.Inside.cs. Same frequency as the verdict it refines: it reads two
             // dials and four cached numbers, and its edge must not wait out a skipped evaluation.
             bool walkInside = UpdateWalkInside(now, rigScale);
+            // ModBuild 278 — and the very next thing, so the latch and the suspension can never
+            // be more than this one statement apart. See UpdateSamplingSuspension.
+            bool suspended = UpdateSamplingSuspension(walkInside, now);
 
             // [Optimize] WallFadeEvalInterval (2026-07 perf pass). The expensive half of this tick
             // is the DECISION: UpdateSampleVisibility projects every room's floor samples through
@@ -1697,15 +1976,38 @@ internal static partial class WallSegmentFade
             //
             // DEFAULT 0 = every frame = today's behaviour; the [Perf] STEPS line's "WallFade.Late"
             // entry is what decides whether raising it is worth anything on real hardware.
+            //
+            // ModBuild 278 — THE DIAL MOVED HOUSE AND KEPT ITS OLD DOOR. The cadence now also
+            // reads [WallFade] EvalIntervalSeconds, which is where a player will actually look
+            // for it ("Bild & Darstellung", beside the rest of the wall see-through); the older
+            // [Optimize] WallFadeEvalInterval still works and is what applies while the new one
+            // is 0. See WallFadeTuning.EffectiveEvalIntervalSeconds for why a precedence and not
+            // a max().
             bool evaluate = true;
-            float evalInterval = PerfConfig.WallFadeInterval;
-            if (evalInterval > 0f)
+            float evalInterval = WallFadeTuning.EffectiveEvalIntervalSeconds;
+            // ModBuild 278 — WALK-IN SUSPENSION, the decision half (user request 2026-08-25:
+            // "In dem Modus in dem man IM dem Level ist, kann das 'Abtasten' komplett
+            // deaktiviert werden so lange man in dem Modus ist um hier auch Performance zu
+            // sparen."). While the latch holds, the walk-in branch of the loop below forces
+            // EVERY segment solid two branches before any coverage number is consulted, so
+            // UpdateSampleVisibility and BlockedFraction are computing a verdict that is
+            // overruled by decree in the same pass. Skipping them changes no pixel.
+            //
+            // WHAT IT DOES *NOT* SKIP, and this is the part that keeps the mode correct: the
+            // per-segment fade ramp and its material write still run every frame, so the walls
+            // the mode holds solid still come back through the ordinary ANIMATED un-fade rather
+            // than snapping — which was the ModBuild 271 ruling and is not negotiable.
+            if (suspended)
+                evaluate = false;
+            else if (evalInterval > 0f)
             {
                 if (now < _nextEvalTime)
                     evaluate = false;
                 else
                     _nextEvalTime = now + evalInterval;
             }
+            if (suspended)
+                _suspendedEvaluations++;
             int visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
             _lastVisibleCount = visibleCount;
             bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
@@ -2001,7 +2303,15 @@ internal static partial class WallSegmentFade
             // WALL-PATH AUDIT, sliced (ModBuild 262). Stepped ONLY while the rescan pipeline is
             // idle, so this budget and the census budget can never land on the same frame.
             // Diagnostics only — it reads renderers and writes nothing.
-            if (_rescanStage == RescanStage.Idle)
+            //
+            // ModBuild 278: …and not at all while the walk-in suspension holds. This audit
+            // explains WHY a given wall did or did not take the fade path; inside the mode no
+            // wall takes any path, every verdict it would print is "held solid by decree", and
+            // it measured 2.29 ms avg / 8.4 ms per second in the ModBuild 277 log — the second
+            // largest per-frame cost in the subsystem after the decision itself. It resumes on
+            // the same edge everything else does, and _nextPathAudit is likewise left in the
+            // past so the first pass after the release runs immediately.
+            if (_rescanStage == RescanStage.Idle && !suspended)
                 StepWallPathAudit(now);
 
             // Re-log the heartbeat when the tracked set changes materially (walls stream in over
@@ -3939,6 +4249,12 @@ internal static partial class WallSegmentFade
             // one skip its commit, which is a table that never gets built at all.
             ClearSurveyState();
             _committedSigValid = false;
+            // ModBuild 278: the culprit baseline describes a scene we have stopped watching, and
+            // it holds a scene's worth of name references. It goes with the signature it
+            // explains — a stale baseline would make the first refusal of the NEXT scenario
+            // report every renderer in it as ENTERED, which is true and useless.
+            _bankedFacts.Clear();
+            _bankedFactsValid = false;
             _skipRun = 0;
             _driftRing.Clear();
             _driftCursor = 0;
@@ -4132,6 +4448,7 @@ internal static partial class WallSegmentFade
             f.FoliageShader = foliage && f.Mesh != null;
 
             string n = r.name;
+            f.Name = n; // ModBuild 278 — see RendererFact.Name; the string is already allocated
             // IsModObject, verbatim: the mod layer OR the repo-convention name prefix (hardware
             // round 3 — the MR sky backing 'GloomhavenVR.MrBacking' leaked into the near-miss
             // census through the layer-only test).

@@ -72,6 +72,25 @@ internal static class ConfigSteps
         // the ModBuild 271 hardware log offers as candidates (0.94 m refused, 1.42 m passed).
         ["WallFade/WalkInMinCrestMetres"] = 0.05d,
 
+        // ---- Erweitert ▸ the two sampling cadences (ModBuild 278) --------------------------
+        // BOTH END IN "Seconds", SO BOTH RESOLVE TO 0.05, AND THAT IS WRONG IN OPPOSITE
+        // DIRECTIONS. The unit rule is right that these are times; it cannot know that one of
+        // them lives on a 0.50-15.00 range and the other on 0.00-0.25.
+        //
+        // The REBUILD cadence at 0.05 needs 290 presses to walk its range, and there is no
+        // resolution in the answer to justify one of them: the number is "how many ~90 ms
+        // frames per minute do I accept", and 2 / 3 / 4 / 6 / 8 are the answers anyone wants.
+        // Half a second per press puts 29 presses across the range and lands exactly on every
+        // one of them.
+        ["WallFade/RescanIntervalSeconds"] = 0.5d,
+        // The CHECK cadence is the opposite case: 0.05 is a QUARTER of its whole range, so the
+        // dial would offer five positions and the useful ones (0.02 = 50 Hz, 0.05 = 20 Hz,
+        // 0.10 = 10 Hz) are not among them beyond the middle. It also matters where the useful
+        // band ends — the 0.20 s fade-in dwell stops debouncing at 0.20 — and a step that
+        // cannot land near 0.10 hides the whole safe half of the range. 0.01 gives 25 presses
+        // and hits every frame rate anyone would name.
+        ["WallFade/EvalIntervalSeconds"] = 0.01d,
+
         // ---- Komfort ▸ Drehen / Fortbewegung ----------------------------------------------
         // NOT a step any more — this row is a named-preset dropdown since 2026-08-22 (question d:
         // a six-position bar is a dropdown drawn badly). The 15 stays because it is where the five
