@@ -2028,9 +2028,17 @@ internal static partial class WallSegmentFade
         ///   <c>GetComponentInParent&lt;ProceduralWall&gt;() != null</c>, so the unbounded
         ///   provenance climb answers YES for every one of them;</item>
         /// <item>the ModBuild-266/267 <c>wallCut</c> term ("a WALL sits immediately above this
-        ///   unit inside the unit walk's four-level window"): the 267 log reads
-        ///   <c>under a wall</c> ZERO times and <c>no wall above</c> 1010 times — it does not
-        ///   fire at all in this scenario, for the shelf and the curtain either.</item>
+        ///   unit inside the unit walk's four-level window"). <b>CORRECTED IN ModBuild 269 —
+        ///   the claim written here was read off a truncated list.</b> It said the 267 log
+        ///   reads <c>under a wall</c> ZERO times and therefore "does not fire at all in this
+        ///   scenario". The phrase is indeed absent, but only from the SUBJECT ROLL-CALL, which
+        ///   <c>LogStandingPropCensus</c> cuts at a 2200-character budget and ends with an
+        ///   ellipsis — 26 of its ≤48 names survive. The census's own COUNTER on the same line
+        ///   says otherwise: <c>6 unit(s) refused by this term this rescan</c> in 20 of the 23
+        ///   STANDING PROP prints (2 and 4 in the other three). So the term fires; what is
+        ///   unknown is whether it fires on any of the six subjects, because none of them
+        ///   survives the truncation. Absence from a list that ends in "…" is not evidence, and
+        ///   this is the third clause in this subsystem to have been read that way.</item>
         /// </list>
         /// A BOUNDED provenance window is the one term left untried, and the only evidence for
         /// or against it is the DEPTH of the ProceduralWall above each subject — which no log
@@ -2062,6 +2070,57 @@ internal static partial class WallSegmentFade
             return t == null
                 ? ", NO ProceduralWall anywhere above it"
                 : $", no ProceduralWall within {WallProvenanceProbeLevels} levels";
+        }
+
+        /// <summary>
+        /// MODBUILD 269 — THE SECOND BOUNDED-PROVENANCE CANDIDATE, MEASURED IN THE SAME BREATH.
+        ///
+        /// <para>ModBuild 268 added the ProceduralWall DEPTH above a named leftover because a
+        /// BOUNDED provenance window was "the one term left untried". It is not the only one: a
+        /// bounded window keyed on DEPTH needs a constant nobody can choose yet, whereas the
+        /// unit-affinity map this file already builds every rescan
+        /// (<see cref="BuildMountedUnitHomes"/>, ModBuild 258) answers a strictly stronger
+        /// question with no constant at all — <i>does a wall segment already own OTHER renderers
+        /// of this renderer's own prop unit?</i> The unit root comes from the prop-unit walk's
+        /// own four-level window, never from
+        /// <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>, so it is subject to the same
+        /// bound the 267 round argued for and to none of that probe's scene-root reach.</para>
+        ///
+        /// <para><b>WHY BOTH COLUMNS, AND WHY NEITHER IS ACTED ON YET.</b> The ModBuild-267 log
+        /// prints a hierarchy path for exactly ONE of the six subjects (the shelf,
+        /// <c>Wall 4/Generated Content/PCG_Test_Feature_Small_2/CR_ST_Shelves_Stone_Wood</c>,
+        /// depth 3). It prints none for the ice crystal, the light shaft or the skeleton limbs,
+        /// so neither term is decidable from it and no threshold may be chosen from it — four
+        /// shape terms have already been shipped and falsified in this subsystem. Printing both
+        /// columns on the same entries means ONE hardware log now separates them:</para>
+        /// <list type="bullet">
+        /// <item>if the must-FADE subjects read a small depth AND a unit home while the must-STAY
+        ///   ones read neither, either term works and the cheaper one wins;</item>
+        /// <item>if the crystal reads a small depth but NO unit home, the depth window is the
+        ///   wrong lever and unit affinity is the right one — which is the outcome the shelf's
+        ///   own hierarchy predicts, since its unit root
+        ///   (<c>PCG_Test_Feature_Small_2</c>) is shared with <c>Blocks (1)</c> and
+        ///   <c>Pillar</c>, both logged as <c>wall renderer of 'Wall 4'</c>;</item>
+        /// <item>if the crystal reads a unit home, unit affinity is refuted outright and must be
+        ///   withdrawn rather than retuned.</item>
+        /// </list>
+        ///
+        /// <para>COST: one dictionary probe plus the memoised unit walk, for NAMED leftovers only
+        /// (capped at <see cref="MountedLeftoverCap"/> = 40), at rescan cadence. Reads nothing
+        /// the sweep has not already computed this rescan. MULTIPLAYER: a log string; decides
+        /// nothing and touches no wire field.</para>
+        /// </summary>
+        private string PropUnitHomeNote(Renderer r)
+        {
+            Transform? root = StandingFloorUnitRootOf(r);
+            if (root == null)
+                return ", no prop unit at all (the four-level walk found no unit root)";
+            if (!_mountedUnitHome.TryGetValue(root, out Segment? home) || home.Anchor == null)
+            {
+                return $", prop unit '{root.name}' — NO wall segment owns any renderer of it";
+            }
+            return $", prop unit '{root.name}' is owned by wall '{home.Anchor.name}' "
+                   + $"(fade {home.Fade:F2})";
         }
 
         private void NoteMountedReject(Renderer c, float anchorY, float gap, string why)
@@ -2120,6 +2179,9 @@ internal static partial class WallSegmentFade
                 // every other term on this line was measured against the six named subjects
                 // and all of them are interleaved. See WallProvenanceNote for the table.
                 + (allowed ? string.Empty : WallProvenanceNote(c))
+                // ModBuild 269: and the SECOND bounded-provenance candidate beside it, so one
+                // log separates the two instead of measuring one and inferring the other.
+                + (allowed ? string.Empty : PropUnitHomeNote(c))
                 + ", "
                 + $"DRAWING {_leftoverFadedGap:F2} wu from "
                 + $"'{wall}' whose fade is {faded.Fade:F2} — not adopted because: {why}");

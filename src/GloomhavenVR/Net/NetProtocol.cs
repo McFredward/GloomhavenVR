@@ -416,7 +416,43 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 269;
+    public const ushort ModBuild = 270;
+    // Build 270: SAME BEHAVIOUR AS 269 — instrumentation only, and it exists because THREE of my
+    // own briefs this round were built on truncated or misread census output. Test 270 instead of
+    // 269: identical behaviour, and its log answers the shelf question in one grep.
+    //  (a) "r3" WAS NEVER A RUN ID. The split-run clause printed `'X' of run 'Wall 1' r3 …` where
+    //      r{N} is seg.RoomIndex (Inside.cs). I read it as "run 3" and briefed a lane to fix "a
+    //      run out-voting its own wall". There is no such thing: RefreshSplitWall stamps one run
+    //      per ProceduralWall, both quoted pieces are in the SAME run, and that run FADES —
+    //      `RUN FADE ON 'Wall 1' … Run coverage 16/16 cell(s) of room 3 = 1.00`. The entry now
+    //      reads `PIECE room 3 (a room index, NOT a run id) … verdict from the run, which reads
+    //      RUN 16/16 …`, so the piece's number and the run's number can never be confused again.
+    //  (b) THE LIST WAS TRUNCATED AT 4 OF 253 WITH NO MARKER, while the per-wall clause on the
+    //      SAME line honestly printed "+28 more". I reasoned from two names out of 253, taken in
+    //      dictionary order. Cap raised to 12 and the clause now ends in either
+    //      "+K more NOT NAMED — this list is TRUNCATED" or "complete — nothing omitted".
+    //  (c) ModBuild 268's doc asserted wallCut "does not fire at all in this scenario". FALSE:
+    //      the counter reads 6 refusals per rescan in 20 of 23 prints. "under a wall" is absent
+    //      only from the SUBJECT ROLL-CALL, which truncates at 2200 chars (26 of 48 names). Same
+    //      ellipsis trap, one census over, third sighting this round. Comment corrected in place.
+    //  (d) THE DECIDER FOR THE AIRBORNE BAR. Every geometric term at that gate is measured and
+    //      interleaved, and the 266/267 logs print a hierarchy path for only ONE of the six
+    //      subjects, so depth cannot be decided from them either. PropUnitHomeNote adds the
+    //      second bounded-provenance candidate with NO new constant: does a wall segment already
+    //      own another renderer of this renderer's own PROP UNIT (the ModBuild-258 map, whose
+    //      roots come from the four-level unit window — never GetComponentInParent<ProceduralWall>)?
+    //      ONE GREP SETTLES IT: if CV_Ice_Crystal_Form_02 reads "NO wall segment owns any renderer
+    //      of it" while the shelf, the curtain and the flag cloth each name a wall, unit affinity
+    //      is the lever. If the crystal names a wall, it is refuted and must be WITHDRAWN, not
+    //      retuned. Baseline to beat: 122 leftovers = 61 FLOATING / 9 OBSTRUCTING / 28 WALL
+    //      MEMBER / 24 ALLOWED; the 28 is the class that must read zero.
+    //  ALSO CORRECTED: WallStandingProp's claim that the skeleton thighs are "things no wall
+    //  built" is contradicted by this scenario's own path — the 16-bone scenery skeleton sits at
+    //  Walls/Wall 2/Generated Content/PCG_Test_Feature_Medium_Necro/…, the whole of it is
+    //  classified DEFECT, and sibling instances already fade. Only the ice crystal and the light
+    //  shaft are confirmed must-STAYs.
+    // NO WIRE CHANGE. Wire tests 146,857 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).
+    // BUNDLE UNCHANGED at 72,966,925 bytes — DLL-only install.
     // Build 269: *** THIS ONE CHANGES BEHAVIOUR *** THE BOARD'S SIZE WINDOW NOW RIDES THE PLAYER,
     // AND A RULE THAT SHIPPED INERT.
     //  (a) BOARD SIZE LIMITS FOLLOW THE PLAYER'S SCALE (user, 2026-08-25, reversing his own

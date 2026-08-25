@@ -149,7 +149,26 @@ internal static partial class WallSegmentFade
         /// (ModBuild 259). Their own coverage is still measured and still printed; what they no
         /// longer do is count as independent walls in "faded X of Y".</summary>
         private readonly List<string> _pwRunPieceNames = new();
-        private const int PerWallRunPieceCap = 4;
+        /// <summary>
+        /// MODBUILD 269 — HOW MANY split-run pieces were decision-eligible this pass, as opposed
+        /// to how many the line could name. This counter exists because the ModBuild-267 log's
+        /// split-run clause named FOUR pieces out of 253, in <c>_segments</c> insertion order,
+        /// with NO truncation marker of any kind — while the very same line ends its per-wall
+        /// clause with an honest <c>+28 more</c>. A reader who greps that log therefore sees a
+        /// complete-looking two-to-four-entry list and reasons from it as if it were the
+        /// population; that is exactly what happened this round, and the conclusion drawn from it
+        /// ("the shelf's run votes solid while the rest of its wall fades") was false in three
+        /// separate ways that the missing marker hid. Same lesson as
+        /// <c>a-summary-stat-is-not-the-field</c> and <c>read-the-whole-distribution</c>, one
+        /// clause later.
+        /// </summary>
+        private int _pwRunPieceTotal;
+        /// <summary>Raised from 4 in ModBuild 269. Four names of 253 pieces is a sample of 1.6 %
+        /// taken in dictionary order, i.e. always the same four pieces, and it is not a sample of
+        /// anything the reader chose. Twelve still fits the line's budget and — with
+        /// <see cref="_pwRunPieceTotal"/> printed beside it — can no longer be mistaken for the
+        /// whole set.</summary>
+        private const int PerWallRunPieceCap = 12;
 
         // --- R1 ANIMATION-PATH CENSUS ------------------------------------------------------
         /// <summary>Wall renderers mid-DISSOLVE on the noise map — the only path that produces
@@ -1478,6 +1497,7 @@ internal static partial class WallSegmentFade
             _folNoChannelNames.Clear();
             _admitNames.Clear();
             _pwRunPieceNames.Clear();
+            _pwRunPieceTotal = 0;
             // NB: the STEP counters are deliberately NOT reset here. An edge is a rare event —
             // seven fade-ON events in the whole ModBuild 254 session — and this census resets
             // every frame while the falsifier prints every two seconds, so per-frame counters
@@ -1654,13 +1674,38 @@ internal static partial class WallSegmentFade
             // on — but under the run that owns it, and the SPLIT RUN line carries the verdict.
             if (seg.RunDriven)
             {
+                _pwRunPieceTotal++;
                 if (_pwRunPieceNames.Count < PerWallRunPieceCap)
                 {
                     string piece = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                     string owner = seg.RunOwner != null ? seg.RunOwner.name : "<orphan>";
-                    _pwRunPieceNames.Add($"'{piece}' of run '{owner}' r{seg.RoomIndex} ema "
-                        + $"{seg.Smooth:F2} blk {seg.LastBlocked}/{seg.LastRoomTotal} "
-                        + (seg.State ? "FADED" : "solid") + " (verdict from the run)");
+                    // MODBUILD 269 — TWO FIELDS THAT WERE READ AS SOMETHING ELSE ENTIRELY.
+                    //
+                    // (a) `r{RoomIndex}` was an unlabelled letter-and-number, and the ModBuild-267
+                    //     log's two shelf entries read 'Wall 1' r3 and 'Wall 1' r0. That was taken
+                    //     for two RUNS of one wall — "why is r3 a separate run from the run that
+                    //     fades" — and a whole round's remedy was designed against a split that
+                    //     does not exist. There is exactly ONE run per ProceduralWall
+                    //     (RefreshSplitWall stamps `sub.RunOwner = wall`); r is the piece's ROOM,
+                    //     and a run legitimately spans several. Spelled out here, once.
+                    //
+                    // (b) `blk X/Y` is the PIECE's own reading, and the same log's shelf entry
+                    //     reads blk 0/16 — which was then quoted as the RUN's vote ("its run votes
+                    //     'I hide nothing'"). The clause already said "(verdict from the run)" and
+                    //     that was not enough, because the only number on the line was the
+                    //     piece's. The run's own coverage, ema and state now stand beside it, so
+                    //     the two can never be read as one again.
+                    string runNote = "<no live run>";
+                    if (seg.RunOwner != null && _runs.TryGetValue(seg.RunOwner, out WallRun? run))
+                    {
+                        runNote = $"RUN {run.Blocked}/{run.Total} of room {run.Room} ema "
+                            + $"{run.Smooth:F2} " + (run.State ? "FADED" : "solid");
+                    }
+                    _pwRunPieceNames.Add($"'{piece}' of run '{owner}' PIECE room {seg.RoomIndex} "
+                        + $"(a room index, NOT a run id) ema {seg.Smooth:F2} blk "
+                        + $"{seg.LastBlocked}/{seg.LastRoomTotal} "
+                        + (seg.State ? "FADED" : "solid")
+                        + $" — verdict from the run, which reads {runNote}");
                 }
                 return;
             }
@@ -1850,9 +1895,24 @@ internal static partial class WallSegmentFade
                 + "excluded real capstones). 'flat' here is a WARNING, not an exclusion: it "
                 + "means something under 0.5 height-per-width survived the ground strip and can "
                 + "claim samples through Contains(): " + string.Join(" | ", _admitNames)
+                // MODBUILD 269 — THE MISSING TRUNCATION MARKER. The per-wall clause directly
+                // above has carried "+N more" since it was written; this clause never did, and in
+                // the ModBuild-267 log it printed FOUR names while `_pwRunPieceTotal` was 253. A
+                // list that stops without saying so is not a sample, it is a wrong answer with a
+                // confident shape — and it is the whole reason this round opened on a premise
+                // that the same log's SPLIT RUN line contradicts in one grep.
                 + (_pwRunPieceNames.Count > 0
-                    ? ". Split-run pieces (measured individually, DECIDED by their run — "
-                      + "ModBuild 259): " + string.Join(" | ", _pwRunPieceNames)
+                    ? $". Split-run pieces — {_pwRunPieceTotal} decision-eligible this pass, "
+                      + $"{_pwRunPieceNames.Count} named below in dictionary order (measured "
+                      + "individually, DECIDED by their run — ModBuild 259; each entry now "
+                      + "carries its RUN's own coverage as well as its own, because those two "
+                      + "numbers were read as one in the 267 log): "
+                      + string.Join(" | ", _pwRunPieceNames)
+                      + (_pwRunPieceTotal > _pwRunPieceNames.Count
+                          ? $" | +{_pwRunPieceTotal - _pwRunPieceNames.Count} more NOT NAMED — "
+                            + "this list is TRUNCATED and the pieces it omits are not a random "
+                            + "sample; read the SPLIT RUN and RUN FADE lines for the population"
+                          : " | complete — nothing omitted")
                     : ". No split-run piece was decision-eligible this pass.")
                 + ".");
         }
