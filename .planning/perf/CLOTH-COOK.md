@@ -1,5 +1,15 @@
 # FigureGrab.HeldSize — the 172.93 ms frame (ModBuild 283 report, fixed in 284)
 
+> **SUPERSEDED — READ THIS BEFORE COPYING ANY COMMAND BELOW.** The harness this document drives,
+> `.planning/perf/cloth-cook-harness/`, is the ModBuild 283-288 cut and is kept only because the
+> build notes point at it. The current one is `.planning/cloth-cook-harness/`, which adds the
+> gesture, direction and cook-driver arms.
+>
+> **THE TRAP:** the old `ClothBench` boots by DEFAULT and calls `Application.Quit`, so a `--bench=`
+> run against this copy **exits 0 with none of the requested output**. A silent, successful-looking
+> nothing. That cost a lane one run; do not rediscover it.
+
+
 > "Ich habe in meinem neusten Test einen weiteres Performanceproblem festgestellt: **Wenn ich die
 > Figuren in meiner Hand größer skaliere hat es immer angefangen zu hängen bzw. hatte ich kleinere
 > Hänger.** Versuch das nachzuvollziehen. Logs liegen ab."

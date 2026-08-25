@@ -416,7 +416,137 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 289;
+    public const ushort ModBuild = 290;
+    // Build 290: FOUR DEFECTS, AND THREE OF THEM WERE A CORRECT REMEDY POINTED AT THE WRONG THING.
+    // *** DLL-ONLY INSTALL. No bundle change: 69,615,927 bytes, unchanged from 289. ***
+    //
+    //   1. THE OPTIONS MENU COULD NOT BE OPENED. CRITICAL, and it broke a standing ruling
+    //   ("es MUSS immer moeglich sein das Optionsmenu zu oeffnen", and the 2026-08-02 ruling
+    //   already in the code). ~20 X-taps, 20 identical stacks, nothing opened.
+    //   THE MAP'S PAUSE MENU WAS BEING SHOWN INSIDE A DUNGEON. UIMapEscMenu.OnShow reaches
+    //   Singleton<MapChoreographer>.Instance.PartyAtHQ (IL 0x00010, the callvirt right after the
+    //   bare `=> _instance` getter); inside a scenario there is no choreographer.
+    //   THE CAUSE WAS OUR CACHE, NOT THE GAME'S SINGLETON, and the proof is in a census that has
+    //   nothing to do with menus: a [MenuLogo] SCENE SWEEP running inside the MAIN MENU scene's
+    //   Awake lists `UI Map Esc Menu` as a scene ROOT. Under LoadSceneMode.Single the outgoing
+    //   scene is destroyed first, so that object SURVIVES SCENE LOADS. OptionsToggle._menu tested
+    //   for Unity-null, i.e. for DESTROYED, so it never invalidated. The singleton was right the
+    //   whole time: UIScenarioEscMenu.Awake is the last ESCMenu Awake in the session, and
+    //   scenario #1 - before the map had ever been visited - opened cleanly.
+    //   THE THROW DOES NOT HALF-OPEN THE WINDOW, IT CLOSES IT FOREVER.
+    //   UIWindow.EvaluateAndTransitionToVisualState invokes onTransitionBegin at :545 and assigns
+    //   m_CurrentVisualState at :548. The unwind skips the assignment, so IsOpen stays false and
+    //   every later tap repeats it. UnityEvent.Invoke has no per-listener catch, so wrapping our
+    //   OWN call could never have helped.
+    //   FIXED IN BOTH HALVES. (a) The menu is resolved per ACTIVE SCENE with a ranked scan, plus a
+    //   same-tap fallback to the other ESCMenu when the first demonstrably fails. (b) Two Harmony
+    //   FINALIZERS. A void finalizer that returns normally suppresses NOTHING - the suppression is
+    //   returning null from an Exception-returning finalizer, and that is the mechanism.
+    //   GUARDING THE THROWING METHOD ALONE WOULD NOT HAVE BEEN ENOUGH: four more unguarded
+    //   singleton reads sit in the same show path (UIMapEscMenu.OnShow's own PartyAtHQ and
+    //   NewPartyDisplayUI.PartyDisplay.TabInput, ESCMenu.OnShow's trailing UIReadyToggle, and
+    //   UIScenarioEscMenu.OnShow's opening UINavigation). The load-bearing seam is the shared
+    //   ESCMenu.OnTransitionBegin, which covers both subclasses; CheckMultiplayerButton is guarded
+    //   too and returns false + a null tooltip, which is safe by construction.
+    //   DELIBERATELY NOT DONE: restoring the game's own UI_PAUSE opener as redundancy. Both menus
+    //   register it in Awake and the map menu is never destroyed, so UI_PAUSE in a scenario would
+    //   open BOTH. Patch inventory 78/130 -> 80/132.
+    //
+    //   2. THE BLUE WINDOW SPAWNED IN THE PLAY FIELD - AND THE CLEARANCE WAS NOT MISSING.
+    //   "Das 'blaue' Multiplayer Fenster ist IN dem Spielfeld gespawned … es muss viel hoeher
+    //   spawnen." ArcSeats.TrySharedAnchorOverBoard ALREADY did bottom-edge clearance plus the
+    //   window's own half-height, exactly the ModBuild 244 lesson. ITS FRAME WAS
+    //   Cards.PlayTray.Current.Root - THE PLAYER'S CARD TRAY, which the same log records as
+    //   FIXIERT, HELD, i.e. in his hand. The falsifier printed +0.300 and was TELLING THE TRUTH:
+    //   0.300 above the top edge of the TRAY. No larger margin could ever have fixed it. The
+    //   missing writer was a FRAME, not a number, and the log had already named it
+    //   (FRAME=BOARD (PlayTray.Current.Root ...)).
+    //   NOW 0.60 m at the grab bar above the PLAY SURFACE - the height he already accepted in the
+    //   map room, 4x the 0.151 m his screenshot measured. Dial [WorldUI]
+    //   ScenarioWindowBoardClearanceMeters, 0.60, range 0.3-1.5, code-floored at 0.30.
+    //   A SILENT SECOND DEFECT IN THE SAME FUNCTION: it returned the TRAY's lossyScale (6.32) as
+    //   the window's world scale while every other scenario window is built at
+    //   PanelLayout.WorldScale (9.57). The shared story box shipped 34% SMALLER than its
+    //   neighbours, and the placement was fed a half-height measured at a different scale than the
+    //   window was built at. Both fixed - it will look ~1.5x bigger than in his screenshot, which
+    //   he did not ask for and may comment on. Spawn and drag now share a frame for the first
+    //   time, so RemoteStorySync.TryToAnchor's permanent caveat is deleted rather than reprinted.
+    //
+    //   3. NO BLUE WINDOWS IN SINGLEPLAYER. "Solange der Singleplayer aktiv ist sollen alle
+    //   Fenster singleplay-fenster sein und sich auch entsprechend verhalten." The session gate
+    //   sits above the whole kind switch, so the map room's kinds 2/3/4 are covered by the same
+    //   line - they were blue in singleplayer too. SharedWindowKind.ScenarioStory's doc said it
+    //   "has no gate and must never grow one"; that sentence was written against the MAP-ROOM gate
+    //   and is corrected rather than left contradicting the code.
+    //   SINGLEPLAYER = NOT CONNECTED (FFSNetwork.IsOnline, the accessor RevealGate,
+    //   InitiativeHoverSampler, EnemyInfoPhaseSkip and WristHud already read). A one-player online
+    //   session counts as multiplayer; the new edge-triggered SHARED WINDOW SESSION GATE line
+    //   prints IsOnline/IsHost/IsClient AND the player count so that reading can be settled from a
+    //   hardware log with no code change.
+    //   THE BEHAVIOURAL HALVES WERE NOT LATCHED: bar tint, release re-face, the three facing
+    //   modes, remote easing and PanelPoseWatch.peerOwned all read GrabbableModal._shared, which
+    //   SyncSharedBarTint rewrites every tick from the same predicate. One frame of staleness,
+    //   both directions, no reopen needed.
+    //
+    //   4. THE CAPES: THE PIN WAS THE MUSH. "Beim groesser machen werden sie steif und beim
+    //   kleiner machen wird da ein Polygon matsch draus … Ist das moeglich?"
+    //   MY PREMISE WAS WRONG AND PRODUCTIVELY SO. I asserted a fully pinned cloth cannot mush.
+    //   maxDistance is a SOFT constraint the solver satisfies ALONGSIDE the fabric's stretching
+    //   constraint, not instead of it - so a stale fabric drags vertices straight through the pin.
+    //   ONE MECHANISM, OPPOSITE SIGNS, BOTH HALVES OF HIS REPORT: growing, rest lengths are too
+    //   SHORT and the sheet is taut and flat ("steif"); shrinking, they are too LONG and the
+    //   surplus buckles through the surface ("Polygon matsch").
+    //   SHRINK 1.345 -> 1, 841 vertices, NULL control 0.00000, POSITIVE born at target. Mean
+    //   1 - dot between neighbouring quad normals:
+    //       POSITIVE (born at 1) ............ 0.027      stale fabric, simulating ... 0.377
+    //       re-cooked (the settle) .......... 0.027      PINNED (ModBuild 289) ...... 0.459
+    //       PINNED + bendingStiffness 0 ..... 0.458      PINNED + useTethers false .. 0.459
+    //       PINNED + stretchingStiffness 0 .. 0.037
+    //   THE PIN WAS THE WORST ARM ON THE WAY DOWN, WORSE THAN NOT PINNING AT ALL. Bending and
+    //   tethers are inert to three decimals, so it is the STRETCHING constraint specifically.
+    //   End to end over 3 cloths and every frame of each moving window: shrink mean 9.4x better,
+    //   worst frame 6.9x better, GROW UNCHANGED, SETTLED BIT-IDENTICAL in all four arms, and 42
+    //   coefficient uploads instead of 72. Costs 0.004 ms and does NOT cook.
+    //   THE ANSWER TO "IST DAS MOEGLICH" IS A MEASURED NO. A typical cook is 25-43 ms (each
+    //   window's worst frame subtracted from its four Cloth.Cook rows), 2.3-3.9x the 11.11 ms
+    //   budget PER COOK. Mid-gesture re-cooking cannot be afforded, so the REACTION cannot be kept
+    //   live. And the arm I most wanted - stretchingStiffness 0 with a rescaled small maxDistance,
+    //   never tested together before - is DEAD: tidy-but-wrong on the grow (half the correct drape
+    //   depth) and catastrophic on the shrink (mean edge 3.74, worst 12.5, 24 self-intersecting
+    //   pairs). A grow-only table would have shipped it.
+    //   TWO MORE DEFECTS FOUND BY READING AND CONFIRMED BY MEASURING. (a) Advance handed every
+    //   frame to StepCook while Cooking was set and Note could set Suspended underneath it, so THE
+    //   PIN NEVER RE-ENGAGED DURING A STAGGER and Release restarted at CookIndex 0 - at 25-165 ms
+    //   per cook frame that is a third of a second unpinned. (b) Fixing (a) EXPOSED a third:
+    //   CookedFactor was one number per figure, so a shrink begun mid-stagger left cloth 0 cooked
+    //   at 1.345 while the figure finished at 1, the release decided no cook was owed, and the
+    //   SETTLED cape regressed to 0.278 against 0.047. Caught by the harness, not by reasoning.
+    //   THE 167 ms COOK IS STILL UNEXPLAINED AND IS A SEPARATE SHIPPING PROBLEM (19 cooks in one
+    //   30 s window ~= 600 ms of stall per 30 s of resizing). Not folded in here. What was ruled
+    //   OUT: no Cloth property multiplies a cook by more than 1.5x, which is the instrument's own
+    //   reproducibility floor; and coefficients.Length, not mesh vertex count, is the cost driver
+    //   (841 particles cost the same at 841, 1682 and 3364 mesh vertices), so the census figure is
+    //   the right one. Best remaining explanation is ~11,000 particles on a cape the session-wide
+    //   LogOnce never printed - hence the new FigureGrab.ClothCookVerts counter, which closes it
+    //   in one line next round.
+    //
+    //   5. A BOARD SWITCH CARRIED THE POSE ACROSS BUT NOT THE FRAME IT WAS MEASURED IN.
+    //   "Wenn man das Board wechselt, soll das neue Board an der exakt selben Stelle in der exakt
+    //   selben Groesse auftauchen." localScale was preserved EXACTLY (0.223 -> 0.223); the PARENT
+    //   frame was not (x30.85 -> x9.57, ratio 3.224 = 6.865/2.129 = 206.39/64.00). The pin holder
+    //   is destroyed with the tray and ApplyFollowMode re-seeded it from the CURRENT rig zoom,
+    //   while SyncPinHolder's whole point is that the holder scale is baked ONCE at pin time so a
+    //   pinned board does not ride a world-grab zoom. The 14.2 -> 18.0 push was the size push
+    //   correctly reacting to a shrink that had already shipped, not a transient.
+    //   THE HOLDER IS RESTORED, NOT THE NUMBER SOLVED. Solving localScale against a rig-seeded
+    //   holder gives the right WORLD size and localScale 0.717 instead of 0.223 - and localScale
+    //   is CONFIG STATE: PlaceAtHead writes ClampedTrayScale x BoardScale into it and
+    //   PersistPoseToConfig reads it straight back out on grab release, so the next release would
+    //   have persisted a board 3.22x too large into his hand-tuned config. The two shapes are not
+    //   equivalent.
+    //   New BOARD SWITCH POSE line, once per switch: captured world scale, restored world scale,
+    //   delta in per cent (bar 0.1%), and which frame clause ran.
+    //
     // Build 289: THE CAP CELL BECOMES A REGISTERED OBJECT INSTEAD OF A CROP OF A SWATCH.
     // *** NEW BUNDLE: 69,615,927 bytes (was 71,023,039). IT SHRANK BY 1.4 MB. NOT DLL-only. ***
     //   "Aber mir gefallen diese texturen ueberhaupt nicht. Die sind einheitlich und so sieht das
