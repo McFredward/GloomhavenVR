@@ -72,3 +72,5 @@ RELEASE_NOTES.md
 
 #env file
 *.env
+# media-pipeline plugin fallback output (before IMAGE_OUTPUT_DIR takes effect)
+generated-images/
