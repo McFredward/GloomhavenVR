@@ -161,7 +161,11 @@ internal static class ConfigCatalog
         internal double Min;
         internal double Max;
 
-        /// <summary>Step at multiplier 1 — from the range when there is one, else a type default.</summary>
+        /// <summary>
+        /// Step at multiplier 1. Filled in a SECOND PASS over the whole catalog, not in
+        /// <see cref="Classify"/> — see <see cref="ResolveStep"/>: the step depends on the largest
+        /// magnitude in the entry's FAMILY, which is not knowable until every entry has been read.
+        /// </summary>
         internal double BaseStep = 1d;
 
         /// <summary>Integer-valued setting type (step never goes fractional).</summary>
@@ -367,6 +371,7 @@ internal static class ConfigCatalog
                 ReadOnlyEntries++;
         }
 
+        ResolveSteps(items);
         GroupAll(items);
 
         VRLog.Info("Config", $"In-VR config browser catalogued {TotalEntries} entries from "
@@ -663,9 +668,19 @@ internal static class ConfigCatalog
         {
             item.Kind = ConfigKind.Components;
             item.Components = t == typeof(Vector2) ? 2 : t == typeof(Vector3) ? 3 : 4;
-            // Vectors are board-local METERS everywhere in this mod, colours are 0-1 channels.
-            item.BaseStep = t == typeof(Color) ? 0.05d : 0.005d;
             item.Integral = false;
+            // A COLOUR IS 0-1 CHANNELS and nothing about a length applies to it, so it keeps the
+            // flat twentieth it always had. A VECTOR NO LONGER DOES: "vectors are board-local
+            // METERS everywhere in this mod" was true and the conclusion drawn from it — one flat
+            // 0.005 for all of them — was the largest hole in this file. It meant the 52 Vector2 /
+            // Vector3 dials, which are ALL of the per-board furniture geometry, never reached
+            // ResolveStep at all: not the unit table, not the range, not the magnitude. The user's
+            // report is one of them ([Cards] SlotOverlayOffset_{board}, a 5 mm press on a value of
+            // 2 mm), and 25 of the 63 components he has hand-tuned are not multiples of 0.005 —
+            // values his own arrows could not produce. They go through the same resolver as every
+            // scalar now; the step falls out in the second pass with everything else.
+            if (t == typeof(Color))
+                item.BaseStep = 0.05d;
             return;
         }
 
@@ -673,7 +688,6 @@ internal static class ConfigCatalog
         {
             item.Kind = ConfigKind.Number;
             item.Integral = IsIntegral(t);
-            item.BaseStep = ResolveStep(item);
             return;
         }
 
@@ -739,10 +753,26 @@ internal static class ConfigCatalog
         t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte)
         || t == typeof(uint) || t == typeof(ulong) || t == typeof(ushort) || t == typeof(sbyte);
 
-    /// <summary>|value| as a double, or 0 for anything that is not a number (never throws).</summary>
+    /// <summary>
+    /// |value| as a double, taking the LARGEST component of a vector or colour, or 0 for anything
+    /// that is not a number at all (never throws).
+    ///
+    /// <para>The largest component and not the euclidean length, because the question this answers
+    /// is "how big is the biggest thing this family is tuned to", one axis at a time — a length
+    /// would make a diagonal offset read as larger than either of its axes.</para>
+    /// </summary>
     private static double Magnitude(object? boxed)
     {
-        if (boxed == null || !IsNumeric(boxed.GetType()))
+        if (boxed == null)
+            return 0d;
+        if (boxed is Vector2 v2)
+            return Math.Max(Math.Abs(v2.x), Math.Abs(v2.y));
+        if (boxed is Vector3 v3)
+            return Math.Max(Math.Abs(v3.x), Math.Max(Math.Abs(v3.y), Math.Abs(v3.z)));
+        if (boxed is Vector4 v4)
+            return Math.Max(Math.Max(Math.Abs(v4.x), Math.Abs(v4.y)),
+                            Math.Max(Math.Abs(v4.z), Math.Abs(v4.w)));
+        if (!IsNumeric(boxed.GetType()))
             return 0d;
         try
         {
@@ -755,104 +785,63 @@ internal static class ConfigCatalog
     }
 
     /// <summary>
-    /// How far one ◀ / ▶ press moves this entry, in four falling steps.
+    /// Fill in every entry's <see cref="ConfigItem.BaseStep"/>, once the whole catalog is known.
     ///
-    /// <list type="number">
-    /// <item><description>A step WRITTEN DOWN for this entry (<see cref="ConfigSteps"/>) — every
-    /// curated everyday row, where the right step is a judgement about the setting.</description></item>
-    /// <item><description>The unit named in the key — degrees step in degrees, metres in
-    /// centimetres — bounded by the value's own scale ONLY where that scale means something (a lone
-    /// scalar; never a coordinate, see <see cref="ConfigSteps.UnitScope"/>). This is what replaced
-    /// "a hundredth of the default's magnitude", which had no answer at all for the twenty-eight
-    /// entries whose default is 0 and gave the WORLD TILT a step of 0.01°.</description></item>
-    /// <item><description>A fiftieth of the declared range, or of the DEFAULT's magnitude when
-    /// there is no range (the default, not the current value, so the step never drifts as you
-    /// tune) — the last resort, and the only one that can serve a depth-buffer epsilon of
-    /// 0.0002.</description></item>
-    /// </list>
+    /// <para>WHY THIS IS A SECOND PASS and not part of <see cref="Classify"/>. The step depends on
+    /// the largest magnitude in the entry's FAMILY (<see cref="ConfigSteps.FamilyOf"/>) — every
+    /// component of a vector, every board of a per-board family, every axis of a pose — and no
+    /// entry can know that while the catalog is still being read. Reading it from the entry's own
+    /// value instead is the defect three separate user reports were about; the argument is written
+    /// out at <c>ConfigSteps.FamilyOf</c>.</para>
     ///
-    /// <para>Then two guards. A step is snapped to a 1/2/5 grid so the readout lands on round
-    /// numbers, and it is capped at a quarter of the declared range — a step that crosses its own
-    /// range in three presses is a choice list wearing a stepper's clothes.</para>
+    /// <para>THE DEFAULT AND NOT THE CURRENT VALUE, throughout: the shipped value is a statement
+    /// about the dial's scale, the tuned one is where this player happens to have left it, and a
+    /// step that drifted as you turned the dial would be its own kind of unusable. A colour keeps
+    /// the flat step <see cref="Classify"/> gave it (0-1 channels, no family, no unit).</para>
     /// </summary>
-    private static double ResolveStep(ConfigItem item)
+    private static void ResolveSteps(List<ConfigItem> items)
     {
-        // A WRITTEN-DOWN STEP IS RETURNED AS WRITTEN. It is neither snapped nor capped: snap-turn's
-        // 15° is deliberately off the 1/2/5 grid, and NiceStep rounded it to 20° — turning the one
-        // value in the table chosen for what players actually want into one nobody asked for.
-        if (ConfigSteps.TryExplicit(item.Section, item.Key, out double step))
-            return step;
-
-        // A fiftieth of the value's own scale: whatever the entry is, about fifty presses should
-        // cross the span it is plausibly tuned over.
-        double own = item.HasRange
-            ? (item.Max - item.Min) / 50d
-            : Magnitude(item.Entry.DefaultValue) / 50d;
-
-        if (ConfigSteps.TryUnit(item.Key, out step, out ConfigSteps.UnitScope scope))
+        var scale = new Dictionary<string, double>(StringComparer.Ordinal);
+        for (int i = 0; i < items.Count; i++)
         {
-            // THE UNIT GIVES THE RESOLUTION AND NOTHING ELSE, so the value's own magnitude bounds
-            // it from both sides — the rule failed in both directions when it did not. Too fine:
-            // [Perf] SummaryIntervalSeconds sits at 30 s and stepped in twentieths of a second, six
-            // hundred presses to double it. Too coarse: [Cards] FanFollowDeadzone is 0.004 and
-            // "Deadzone" would have stepped it by 0.05, twelve times the whole value, so one press
-            // could only overshoot.
-            //
-            // …BUT ONLY WHERE THE MAGNITUDE MEANS ANYTHING. Both of those are lone scalars, where
-            // "how big it is" really is the best guide to "how finely it wants to move". A
-            // COORDINATE is not: [WristHud] GloveOffsetX ships -0.003 and GloveOffsetY -0.053, the
-            // same offset of the same HUD, and the only reason they differ by an order of magnitude
-            // is that X sits near its origin. Bounding by that made X step 0.05 mm and Y 1 mm —
-            // reported, correctly, as "der X-Offset hat keinen Einfluss". Two dials of one vector
-            // must move together, so a Component takes the unit's answer untouched and a Variant
-            // (one board of a per-board family) lets its own magnitude only COARSEN it, never
-            // sharpen it. See ConfigSteps.UnitScope.
-            //
-            // A Component is still capped at a quarter of a DECLARED range further down, which is
-            // the one thing that keeps a wide unit step honest on a narrow dial. A declared range is
-            // a real statement of the dial's scale; a single shipped default is not.
-            double magnitude = Magnitude(item.Entry.DefaultValue);
-            if (scope == ConfigSteps.UnitScope.Variant)
-                step = Math.Max(step, own);
-            else if (scope == ConfigSteps.UnitScope.Value && magnitude > 0d)
-                // The bounds apply only when there IS a magnitude. A default of 0 is precisely the
-                // case the unit rule exists for — it is what the world tilt has — and zero must not
-                // bound anything.
-                step = Math.Min(Math.Max(step, own), magnitude / 4d);
-        }
-        else
-        {
-            step = own > 0d ? own : (item.Integral ? 1d : 0.01d);
+            ConfigItem item = items[i];
+            if (item.Kind != ConfigKind.Number && item.Kind != ConfigKind.Components)
+                continue;
+            double own = OwnScale(item);
+            string family = ConfigSteps.FamilyOf(item.Section, item.Key);
+            if (!scale.TryGetValue(family, out double best) || own > best)
+                scale[family] = own;
         }
 
-        step = NiceStep(step, item.Integral);
-
-        if (item.HasRange)
+        for (int i = 0; i < items.Count; i++)
         {
-            double quarter = (item.Max - item.Min) / 4d;
-            if (quarter > 0d && step > quarter)
-                step = NiceStep(quarter, item.Integral);
+            ConfigItem item = items[i];
+            if (item.Kind == ConfigKind.Number
+                || (item.Kind == ConfigKind.Components && item.Entry.SettingType != typeof(Color)))
+            {
+                scale.TryGetValue(ConfigSteps.FamilyOf(item.Section, item.Key), out double family);
+                item.BaseStep = ConfigSteps.Resolve(item.Section, item.Key, family, item.Integral);
+            }
         }
-
-        return step;
     }
 
-    /// <summary>Round a raw step to 1/2/5 x 10^k so the readout lands on round numbers.</summary>
-    private static double NiceStep(double raw, bool integral)
-    {
-        if (integral)
-            return Math.Max(1d, Math.Round(raw));
-        if (raw <= 0d || double.IsNaN(raw) || double.IsInfinity(raw))
-            return 0.01d;
-        double exp = Math.Floor(Math.Log10(raw));
-        double pow = Math.Pow(10d, exp);
-        double m = raw / pow;
-        double snapped = m < 1.5d ? 1d : m < 3.5d ? 2d : m < 7.5d ? 5d : 10d;
-        // Floor at a millionth, not a thousandth: the old floor was five times LARGER than
-        // [HexHighlight] StableDepthBias's whole value (0.0002), so its stepper could only ever
-        // overshoot. Nothing a player meets is anywhere near this small.
-        return Math.Max(0.000001d, snapped * pow);
-    }
+    /// <summary>
+    /// What ONE entry says about its own scale: its declared range's width, or its shipped
+    /// default's magnitude when it declares no range. A declared range is a real statement of scale;
+    /// a single default is only the best available stand-in.
+    ///
+    /// <para>THE FAMILY TAKES THE LARGEST OF THESE and every member then steps by that one number.
+    /// It has to be one number or the invariant collapses in a way that is invisible from inside the
+    /// headset: <c>[Cards] SpawnSideMeters</c> declares 0.00…1.20 while its two siblings
+    /// <c>SpawnDownMeters</c> and <c>SpawnForwardMeters</c> declare −0.50…1.50, so deriving each
+    /// axis from its OWN range gave the side axis a 0.005 press beside their 0.01 — three dials of
+    /// one spawn pose, two of which feel like the ones that work. That is the same defect as
+    /// GloveOffsetX arriving through the range instead of through the magnitude, and it is why the
+    /// max is taken over the family rather than per entry.</para>
+    /// </summary>
+    private static double OwnScale(ConfigItem item) =>
+        item.HasRange && item.Max > item.Min ? item.Max - item.Min
+                                             : Magnitude(item.Entry.DefaultValue);
 
     // ==========================================================================================
     //  Topic mapping
