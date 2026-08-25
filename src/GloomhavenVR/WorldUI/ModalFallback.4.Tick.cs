@@ -13,6 +13,32 @@ internal static partial class ModalFallback
     private static readonly List<WindowPanel> Converted = new(4);
 
     /// <summary>
+    /// Is this converted panel one of the FLOATED WINDOWS — i.e. a thing the user would call
+    /// "ein Fenster" — rather than one of the many other surfaces
+    /// <see cref="CanvasConversion"/> converts (actor bars, the initiative track, the element
+    /// board, tooltips)?
+    ///
+    /// <para>Added for the window-materialise effect, which must not fire on a health bar. It is a
+    /// membership test against the float set and nothing else: no component lookup, no hierarchy
+    /// walk, no name match — <see cref="Converted"/> holds at most a handful of entries and IS the
+    /// definition of "floated", so asking it directly cannot disagree with the float set the way a
+    /// derived predicate could. See the containment-is-not-identity note in
+    /// <see cref="WorldSurface"/>: "has a floated ancestor" would answer TRUE for every widget
+    /// inside a window, which is not the question.</para>
+    /// </summary>
+    internal static bool IsFloated(ConvertedPanel? panel)
+    {
+        if (panel == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The world-space host of the floated FULL-SCREEN MENU (pause / options family), or null when
     /// no such menu is floating.
     ///
@@ -2777,7 +2803,24 @@ internal static partial class ModalFallback
             bool hadClose = wp.Panel != null && wp.Panel.HostRect != null
                             && wp.Panel.HostRect.Find("GloomhavenVR.ModalCloseX") != null;
             wp.Grab?.Destroy(); // drop the mod-owned grab holder (sub-item B) before releasing the host
-            CanvasConversion.Release(wp.Panel); // restores the exact 2D home
+            // WINDOW MATERIALISE. The float has ALREADY left Converted, the grab bar and its
+            // collider have ALREADY gone, and PlayOut disables the host's GraphicRaycaster as its
+            // first act — so from this statement on nothing about this window is clickable and only
+            // its pixels linger. The one thing deferred is Release, which is what re-parents the
+            // GAME's window back to its 2D home.
+            //
+            // PlayOut is a TOTAL function: the callback runs exactly once on every path, and
+            // SYNCHRONOUSLY when the effect is off, unavailable or refuses — so with the dial off
+            // this is byte-for-byte the previous behaviour with a call in front of it.
+            //
+            // AN EMPTY RELEASE IS NOT ANIMATED. A window this rule is releasing is by definition
+            // drawing nothing, so there is nothing to blow away; animating it would only delay the
+            // release of a window that is already dark.
+            ConvertedPanel? dying = wp.Panel;
+            if (wp.EmptyReleasePending)
+                CanvasConversion.Release(dying); // restores the exact 2D home
+            else
+                WindowMaterialise.PlayOut(dying, () => CanvasConversion.Release(dying));
             if (wp.EmptyReleasePending)
             {
                 // HOLD IT OUT OF THE FLOAT SET UNTIL ITS CONTENT COMES BACK. The game may still
@@ -2866,6 +2909,15 @@ internal static partial class ModalFallback
             // ModBuild 226 EmptyRefused set is consulted by the catch-all alone, which is why an
             // enrolled ID could never have been held by it.
             if (EmptyHeldNow(window))
+                continue;
+            // ITS FLOAT IS STILL DISSOLVING. A vanishing float leaves Converted at once, but its
+            // Release — the call that re-parents the game's window back to its 2D home — is
+            // deferred behind the animation. Re-floating the window inside that gap would record
+            // the DYING HOST as its original parent, and the pending release would then re-parent
+            // it into a destroyed object. The gap is bounded by the effect's hard code ceiling
+            // (2.0 s), so this can never hold a window out indefinitely, and it is asked about the
+            // WINDOW's own transform rather than about any ancestor.
+            if (WindowMaterialise.IsVanishing(window.transform))
                 continue;
             // ModBuild 232 — A TWO-TICK BRIDGE, NOT A SUPPRESSION. StoryComposite's point-of-no-
             // return gate is a ONE-SHOT at the rising edge: it closes a NAMED set of windows through

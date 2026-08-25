@@ -600,6 +600,24 @@ internal static partial class CanvasConversion
         string phase = CurrentFramePhase;
 
         SetPanelRenderVisible(panel, visible: true, out int shownCanvases, out int shownRenderers);
+        // WINDOW MATERIALISE (user request 2026-08-25: "ich möchte nicht mehr, dass die Fenster
+        // einfach aufploppen"). Here and not at float creation, because THIS is the frame the eye
+        // first sees the panel — and this is a LateUpdate, so the alphas PlayIn writes land before
+        // MultiPass renders either eye. Called AFTER the reveal on purpose: the panel is already
+        // visible, already raycastable and already a laser target when this runs, so the animation
+        // is decoration over a window that works rather than a gate in front of one. It cannot fail
+        // in a way this caller has to handle — with the effect off, the shader unresolved, or
+        // anything thrown, the panel simply stays as the line above left it: fully shown.
+        //
+        // SCOPED TO FLOATED WINDOWS, and that is the integrator's call rather than the author's.
+        // CompleteReveal fires for EVERY ConvertedPanel, and most of them are not "Fenster" in the
+        // sense of the request: the actor health bars, the initiative track, the element board, the
+        // objectives strip and every hover tooltip are converted panels too, and they appear and
+        // disappear constantly. Blowing a health bar in on a cloud of particles every time an enemy
+        // is revealed is noise the user did not ask for, and it would put the effect's per-element
+        // cost on the busiest surfaces in the scene. A window with a grab bar is what he means.
+        if (ModalFallback.IsFloated(panel))
+            WindowMaterialise.PlayIn(panel);
         panel.RevealPending = false;
         panel.RevealArmed = false;
         float waitedMs = (now - panel.RevealRequestedAt) * 1000f;

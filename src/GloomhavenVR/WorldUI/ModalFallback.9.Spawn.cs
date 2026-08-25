@@ -1991,6 +1991,11 @@ internal static partial class ModalFallback
 
     private static void ReleaseAllWindows(string reason)
     {
+        // WINDOW MATERIALISE. Scenario exit / VR off. Five windows dissolving into a scene that is
+        // being torn down is not a nicer teardown, it is a slower one — and this path does not run
+        // through the prune loop, so it never STARTS an effect itself. This only ENDS effects that
+        // were already running, restoring every alpha they wrote and running every pending release.
+        WindowMaterialise.CancelAll(reason);
         // ModBuild 231: hand the parked quest picture back and unlock the guildmaster destinations
         // BEFORE any host is destroyed, for the reason spelled out at the StoryComposite.Tick call
         // site — a subtree parked under a destroyed host has nowhere to go home to, and a merchant
@@ -2090,6 +2095,10 @@ internal static partial class ModalFallback
     /// </summary>
     internal static void ReleaseMapRoomFloats(string reason)
     {
+        // WINDOW MATERIALISE — same reasoning as ReleaseAllWindows: a map-room stand-down must not
+        // wait on decoration, and this path does not run through the prune loop either, so this
+        // only ENDS running effects and restores what they wrote.
+        WindowMaterialise.CancelAll(reason);
         // Every shared window in this room is about to stop existing, so every pose that spent a
         // shared anchor is about to stop existing with it. A latch that outlived the room would
         // refuse the anchor on the next entry for a drag nobody in that session made — the same

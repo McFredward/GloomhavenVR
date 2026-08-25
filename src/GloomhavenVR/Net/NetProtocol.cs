@@ -416,7 +416,91 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 291;
+    public const ushort ModBuild = 292;
+    // Build 292: WINDOWS BLOW AWAY INTO PARTICLES AND REASSEMBLE.
+    // *** NEW BUNDLE: 69,614,726 bytes (was 69,613,225). NOT DLL-only — it carries a new shader. ***
+    //   "Ich moechte nicht mehr, dass die Fenster einfach aufploppen und urploetzlich wieder von
+    //   einem Frame auf den anderen verschwinden ... ein verschwindendes Fenster, das in Partikel
+    //   von Wind verweht ... Aber wichtig: das Ganze soll 1s hoechstens 2s gehen, es soll niemanden
+    //   aufhalten, nur cool aussehen. Die Auftauch-Animation eventuell etwas schneller."
+    //   Appear 0.50 s, vanish 1.00 s, HARD CODE CEILING 2.0 s so no config value can ever make a
+    //   window slow to appear. Dials under [WindowAnim]; off restores today's behaviour exactly.
+    //
+    //   IT IS TWO HALVES SHARING ONE FIELD, because a shader can paint debris OVER a window but
+    //   cannot remove it, and uGUI has no per-pixel handle on a canvas without a material on every
+    //   Graphic. C# removes the window at ELEMENT granularity — every CanvasRenderer under the host
+    //   gets SetAlpha driven by an erosion front sampled at its four corners and centre, so the
+    //   window disintegrates in a wave along the wind. The shader paints the flakes on one
+    //   mod-owned quad: a crumbling edge layer plus a plume that streaks along the wind, shears and
+    //   thins as it blows away. Appear is vanish reversed with ONE deliberate asymmetry
+    //   (_TailFade per direction): a vanish must END at nothing, an appear must BEGIN at a cloud.
+    //
+    //   "ES SOLL NIEMANDEN AUFHALTEN" IS THE ACCEPTANCE CRITERION, NOT A PREFERENCE, and it is one
+    //   step from the ruling a build was already lost to ("es MUSS immer moeglich sein das
+    //   Optionsmenu zu oeffnen"). PlayIn is called AFTER CompleteReveal — the ONE place a panel's
+    //   visibility is ever switched on — so the window is already visible, already raycastable and
+    //   already a laser target when the animation starts: decoration over a window that works, not
+    //   a gate in front of one. PlayOut disables the host's GraphicRaycaster as its FIRST act,
+    //   before any decision about whether the effect can run, so a dismissed window is never
+    //   clickable while its pixels linger. PlayOut is a TOTAL function: the release callback runs
+    //   exactly once on every path and SYNCHRONOUSLY when the effect is off, unavailable or
+    //   refuses.
+    //
+    //   SCOPED TO FLOATED WINDOWS — the integrator's call, against the author's recommendation.
+    //   CompleteReveal fires for EVERY ConvertedPanel, and most are not "Fenster": the actor health
+    //   bars, the initiative track, the element board, the objectives strip and every hover tooltip
+    //   are converted panels too and appear constantly. New ModalFallback.IsFloated is a MEMBERSHIP
+    //   test against the float set itself, not a hierarchy walk — "has a floated ancestor" answers
+    //   TRUE for every widget inside a window, which is not the question.
+    //
+    //   THE PREVIEWS CHANGED THE EFFECT THREE TIMES, which is the whole reason they exist.
+    //   Round 1 had DEAD FRAMES AT BOTH ENDS — the 1.00 s vanish was over by 0.63 s and the 0.50 s
+    //   appear showed literally nothing for its first 0.13 s, i.e. a live clickable window over
+    //   empty space. Round 2's tail read as a rectangle of TV snow with a ruler-flat bottom edge.
+    //   Round 3's full-rect background plate cross-faded as ONE BLOCK, which made the element wave
+    //   read as detail on top of a plain cross-fade — the "aufploppen" replaced, just slower.
+    //   KNOWN AND NOT FIXED: the large background plate still cross-fades rather than erodes.
+    //   Between p=0.25 and p=0.55 the window reads washed-out-and-speckled rather than torn. That
+    //   is inherent to element granularity — one alpha per CanvasRenderer. The only real fix is
+    //   capturing the panel into an RT and dissolving per-pixel: one camera and one RT per
+    //   animating window, on machinery capped at seven private layers with 90 MB targets. Judged
+    //   the wrong trade for decoration; the option is recorded rather than hidden.
+    //
+    //   COST, MEASURED IN UNITY (real CanvasRenderers under a real Canvas, 2021.3.5 runtime, 300
+    //   frames after warm-up): 64 elements 0.0157 ms, 400 0.1047 ms, 764 0.2025 ms, 1200 0.3192 ms
+    //   — linear at 0.265 us per element per frame. 764 elements is 1.8 % of 11.11 ms; seven
+    //   windows at 400 each is 0.73 ms, and only while animating. Nothing allocates per frame;
+    //   lists and meshes are pooled, one shared material with per-effect property blocks. No render
+    //   target: it works supersampled or not, because a supersampled canvas re-captures every frame.
+    //   The GPU half is still unmeasured and is not guessed at.
+    //
+    //   STEREO. A dissolve driven by SCREEN-SPACE noise gives each eye a different threshold and
+    //   reads as rivalry in a headset — and two rendered eye images cannot settle it, because a
+    //   screen-space dissolve passes that test in each eye separately. What settles it is that no
+    //   per-eye input reaches the field: 18 per-eye-unstable identifiers were grepped out of the
+    //   shipped shader (comments stripped) and ALL ARE ABSENT. The same property kills frequency
+    //   scrubbing — there is no clock in the shader at all.
+    //
+    //   THE SHADER NOW COMPILES, which was the author's own chief unverified item. The bundle build
+    //   log carries "Compiling shader GloomhavenVR/WindowMaterialise pass (vp)/(fp)" and
+    //   "Serialized binary data for shader" with no shader error. It resolves through
+    //   Core/BundleShaders (Shader.Find only sees shaders already loaded — that trap has cost two
+    //   builds); only successes are cached, so a window that opens before the bundle is loaded
+    //   still dissolves at element granularity, just without flakes.
+    //
+    //   FOUR INTEGRATION SEAMS, not the two the brief asked for. Deferring CanvasConversion.Release
+    //   leaves the game's window parented under a host nothing lists any more, so the convert loop
+    //   would re-float it and record the DYING HOST as its original parent — hence the IsVanishing
+    //   guard in the convert loop, and CancelAll at the top of both bulk releases (scenario exit,
+    //   map-room stand-down), which do not run through the prune loop and so only ever END effects.
+    //   AN EMPTY RELEASE IS NOT ANIMATED: a window the liveness rule is releasing is by definition
+    //   drawing nothing, so there is nothing to blow away and animating it would only delay it.
+    //
+    //   NOTE FOR THE NEXT ROUND: [ButtonAnim] already exists — a crumble/assemble for the board
+    //   button caps (Enable / AppearParticles / AppearSeconds 0.15 / DisappearSeconds 0.16), same
+    //   vocabulary, same "assemble = crumble reversed" philosophy, colour only. The two families
+    //   should be named consistently.
+    //
     // Build 291: THE FABRIC FOLLOWS THE SIZE, AND FOUR CAUSES THAT WERE NOT WHERE I LOOKED.
     // *** NEW BUNDLE: 69,613,225 bytes (was 69,615,927). NOT DLL-only. ***
     //
