@@ -1,4 +1,84 @@
-# CONTROL-BOARD REBUILD — state of the world (2026-08-25, owner lane)
+# CONTROL-BOARD REBUILD — state of the world
+
+## ROUND 2 (2026-08-25): THE TEXTURES WERE REJECTED AND RE-AUTHORED WITH gpt-image-2
+
+The user tested ModBuild 271 on hardware and rejected the boards: *"Die Controllboards sehen aus,
+als hätten sie keine Textur (siehe no_texture.jpg) … Es soll immersiv sein! Am Besten auch mit
+normal map etc. gpt-image-2 kann sehr gut immersive texturen erstellen, wenn du die texture-map
+als initiales frame übergibst."* And, when the cost rule was read too conservatively: *"Nutze
+gpt-image-2 für die texturen! … Verantwortungsvoll umgehen heißt nicht, gar nicht benutzten."*
+
+**The pipeline was fine. The art was the defect, and it was measured against his own screenshot.**
+Six flat-metal patches, located by a homography from the board's silhouette quad, give
+`screenshot_linear / atlas_linear = 0.675 ± 0.051` — ONE global scalar fits every patch. The
+shipped steel atlas had STORY 1.91 and chroma 1.79 over the face region: a 100-value grey band.
+
+**Why it passed four rounds:** `out/renders/steel_board.png` is a Blender/Principled render, not
+the shipped shader, and it overstates the board's relative contrast by **1.35x**.
+
+**A claim from this round that was RETRACTED before anything was built on it.** An early pass said
+the game shows the albedo faithfully because `game CV / atlas CV = 1.02`. Wrong. Equal CV means
+*similar* contrast, not the *same* contrast; measured, the albedo accounts for at most ~50 % of
+the screenshot's high-pass energy and the rest is relief.
+
+**Four generated images, and what each bought.** Steel v1 proved the model preserves the macro
+layout and transforms the material, and failed two stated targets; it also proved the tool
+silently rescales a 16:9 init frame into 3:2 (the board came back at 1.809:1, exactly 16/9 ÷ 3/2).
+Steel v2 on a 3:2 init frame came back at 2.0000:1 and hit 3 of 5 targets. Oak and bronze took the
+corrected prompt first time. Nothing was regenerated on a hunch.
+
+**The art does not drop in.** The model kept the macro layout but redrew every feature outline
+3–9 mm off the mesh's real geometry and at different radii. The pipeline, the measurements and the
+traps are documented in **`unity/board-prep/img2img/README.md`** — read that before touching the
+textures again. Highlights:
+
+* The composite keeps the generated MATERIAL everywhere and takes edges from the mesh only where
+  the mesh has edges. **The layout cannot drift**: art is scattered into the atlas through the
+  mesh's own UV pass, so every texel gets the colour of the board point that samples it.
+* Normal and MRS come from the new art, but only the MATERIAL band; feature relief stays with the
+  shipped mesh-registered map.
+* **The shipped normal maps are RED-INVERTED** relative to `UnpackNormal`. The new maps match that
+  convention deliberately.
+* Only **23.3–27.3 %** of each atlas is covered by triangles at all. A UV rectangle is not a
+  surface, quantified.
+
+**Results, face region, shipped → new:** steel std 21.4→48.5 (2.27x), STORY 1.91→15.38 (8.07x),
+chroma 1.79→5.66; oak std 21.9→39.4, STORY 3.32→11.85; bronze std 9.1→29.0 (3.20x),
+STORY 1.96→8.82. In his own framing the steel board's contrast CV goes 0.156→0.296 and the
+BETWEEN-patch spread of the mean goes **9.4 → 26.1 levels**.
+
+**Mean chroma FALLS for oak and bronze (33.3→25.7, 34.8→20.5) and that is the improvement** — the
+shipped ones score high because they are uniformly saturated. `huevar` is the right statistic.
+
+**The doubled-edge falsifier, with a working positive control.** Ghost ratio (albedo-edge density
+peak near a geometric edge over the plate background): raw generated art 1.67 / 3.14 / 4.12
+(oak/steel/bronze) — the control fires. After the composite: 1.10 / 1.30 / 0.62 against the
+shipped boards' own 1.04 / 1.26 / 4.63.
+
+**Pictures** (gitignored, local): `.planning/debug/boards_before_after.png` (flat-on, identical
+lighting), `boards_ingame_before_after.png` (all three in the screenshot's own scene),
+`boards_shader_rake.png` (real prefabs through the real shader from the rebuilt bundle).
+
+**Bundle 65,626,956 → 67,234,683 bytes.** NOT a DLL-only install. `check-bundle-format.sh` asserts
+NO byte count — only wrapper format 7 and the writing editor; it prints the size.
+**Wire tests are 147379, not 147378.**
+
+### STILL OPEN after round 2
+
+* **The two card slots render bright teal in game.** That is a game-state tint drawn over the
+  recess, not the board texture, and it now clashes badly with three restrained materials. It was
+  not touched here and it is the most likely next complaint.
+* **The specular is a bevel term, not a surface term** — the half-vector sits ~32° off a flat face,
+  so the roughness split reads on mouldings and recess walls and much less on the open plate. Not
+  buyable with more roughness contrast; it needs a shader change (a second key nearer the view
+  axis, or a view-dependent term).
+* `BoardLit.shader`'s ModBuild-248 comment is stale (it says the boards do not opt into specular;
+  all three now do). `_Cull: 0` on all three board materials though the comment says Back(2).
+* Everything under "STILL OPEN" from round 1 below, including **SEAT 3 HAS NO OCCUPANT**.
+
+---
+
+# ROUND 1 RECORD (mesh + first texture lane)
 
 This file was the owner handover. It is now the RECORD of what the owner lane did, what it
 measured, and what is still open. The task's original brief and the user's verbatim request are
