@@ -1,84 +1,150 @@
-# windowmaterialise_field.py - the THIRD copy of the window-materialise field, in numpy.
-#
-# WHY A THIRD COPY EXISTS. The effect has two halves that must agree: a shader
-# (unity/GloomhavenVR.Assets/Assets/Bundle/Table/WindowMaterialise.shader) paints the wind-borne
-# flakes, and C# (src/GloomhavenVR/WorldUI/WindowMaterialiseField.cs) decides which of the window's
-# own uGUI elements are still drawn. They only agree - the element vanishing exactly where the
-# flakes peel off it - if they compute the same number. Neither of those two can be run on this
-# machine (no game install, no headset), and this project has three rejected art rounds behind it
-# because a preview was explained away instead of believed. So the frame strips a human reviews are
-# rendered from arithmetic that is transcribed line by line from the shader, in float32, and the
-# constants are read out of the C# file at import time rather than retyped - see CONSTANTS below.
-#
-# EVERYTHING IS float32 ON PURPOSE. The hash folds a large product through frac(); in float64 it
-# produces a visibly different noise field than the GPU does. A preview in the wrong precision is a
-# preview of a different effect.
-#
-#   from windowmaterialise_field import Field
-#   f = Field(aspect=1.55)
-#   rgba = f.flakes(uv_u, uv_v, progress)      # premultiplied, exactly the shader's frag()
-#   a    = f.presence_of(sample_thresholds, progress)   # exactly C# PresenceOf()
-import pathlib
+"""THE WINDOW-MATERIALISE FIELD AND ITS DEBRIS, IN NUMPY -- the third copy.
+
+The effect exists three times on purpose, and this is the copy the reviewed renders are
+driven from:
+
+  1. src/GloomhavenVR/WorldUI/WindowMaterialiseField.cs   the erosion field + the two fronts
+     src/GloomhavenVR/WorldUI/WindowMaterialiseDebris.cs  the shard seeding and the mesh gate
+  2. unity/GloomhavenVR.Assets/Assets/Bundle/Table/WindowMaterialise.shader   the trajectory
+  3. this file
+
+CHANGE ONE, CHANGE ALL THREE.  Nothing here carries its own constants: every number is
+regex-read out of the C# at import time and the module refuses to load if one is missing,
+so a tuning pass cannot silently make the strips stale.
+
+WHY float32 EVERYWHERE.  The value-noise hash folds through frac(); in float64 the same
+expression gives a visibly different field.  F32 is not tidiness, it is the shader.
+
+NO CAMERA, NO HEAD POSE, NO CLOCK.  Every function below takes a panel UV or a per-shard
+constant plus one progress scalar.  That is the property the whole design rests on, and it
+is checked mechanically against the shipped shader by windowmaterialise_preview.py.
+"""
+
+from __future__ import annotations
+
+import os
 import re
 
 import numpy as np
 
 F32 = np.float32
 
-_CS = (pathlib.Path(__file__).resolve().parents[2]
-       / "src" / "GloomhavenVR" / "WorldUI" / "WindowMaterialiseField.cs")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
+_FIELD_CS = os.path.join(_ROOT, "src", "GloomhavenVR", "WorldUI", "WindowMaterialiseField.cs")
+_DEFAULTS_CS = os.path.join(_ROOT, "src", "GloomhavenVR", "Defaults", "Defaults.WorldUI.cs")
 
 
-def _read_cs_constants():
-    """Read Softness/Ragged/FrontScale/AgeSpan/Drift/Wind straight out of the C# file.
+# ---------------------------------------------------------------------------------------
+# the constants, read out of the C# rather than duplicated
+# ---------------------------------------------------------------------------------------
 
-    A preview that carries its own copy of the numbers is a preview that silently goes stale the
-    first time one of them is tuned. Parsing the source is ugly and is exactly the point: if the C#
-    changes and this file cannot find the constant any more, the preview FAILS instead of lying.
-    """
-    src = _CS.read_text(encoding="utf-8")
-    out = {}
-    for name in ("Softness", "Ragged", "FrontScale", "AgeSpan", "Drift", "PlumeSpan", "Spread", "Streak", "Thin"):
-        m = re.search(r"internal const float %s = ([0-9.]+)f;" % name, src)
+_FLOATS = (
+    "Softness", "Ragged", "FrontScale",
+    "ElementSpan", "DebrisOverrun", "TailStart",
+    "DebrisPerSquareMetre", "DebrisMinMetres", "DebrisMaxMetres", "DebrisSizePower",
+    "DebrisDriftMetres", "DebrisLiftMetres", "DebrisBehindFraction", "DebrisFallMetres",
+    "DebrisWanderMetres", "DebrisSpinTurns", "DebrisLifeSpan",
+)
+_INTS = ("Samples", "DebrisMaxCount", "DebrisMinCount")
+
+
+def _read_cs_constants() -> dict:
+    try:
+        src = open(_FIELD_CS, encoding="utf-8").read()
+    except OSError as exc:  # pragma: no cover - environmental
+        raise SystemExit(f"cannot read {_FIELD_CS}: {exc}")
+
+    out: dict = {}
+    for name in _FLOATS:
+        m = re.search(r"internal const float %s\s*=\s*([-0-9.eE]+)f?\s*;" % name, src)
         if not m:
             raise SystemExit(
-                "windowmaterialise_field.py: could not find 'internal const float %s' in %s. "
-                "The C# field was changed and this preview would now render a DIFFERENT effect "
-                "than the one that ships. Fix the parse (or the constant) before rendering "
-                "anything a human is going to look at." % (name, _CS))
-        out[name] = float(m.group(1))
-    m = re.search(r"Wind = new Vector2\(([0-9.\-]+)f, ([0-9.\-]+)f\)\.normalized", src)
+                f"windowmaterialise_field.py: could not find 'internal const float {name}' in "
+                f"{_FIELD_CS}. The mirror refuses to render a stale effect -- if the constant was "
+                f"renamed, rename it here too."
+            )
+        out[name] = F32(m.group(1))
+    for name in _INTS:
+        m = re.search(r"internal const int %s\s*=\s*([0-9]+)\s*;" % name, src)
+        if not m:
+            raise SystemExit(
+                f"windowmaterialise_field.py: could not find 'internal const int {name}' in "
+                f"{_FIELD_CS}."
+            )
+        out[name] = int(m.group(1))
+
+    m = re.search(r"Wind\s*=\s*new Vector2\(\s*([-0-9.]+)f?\s*,\s*([-0-9.]+)f?\s*\)\.normalized", src)
     if not m:
-        raise SystemExit("windowmaterialise_field.py: could not find the Wind vector in %s." % _CS)
-    wx, wy = float(m.group(1)), float(m.group(2))
-    n = (wx * wx + wy * wy) ** 0.5
-    out["Wind"] = (wx / n, wy / n)
-    m = re.search(r"internal const int Samples = (\d+);", src)
-    out["Samples"] = int(m.group(1)) if m else 5
+        raise SystemExit("windowmaterialise_field.py: could not find the Wind vector in " + _FIELD_CS)
+    w = np.array([float(m.group(1)), float(m.group(2))], dtype=F32)
+    out["Wind"] = w / F32(np.sqrt(float(w[0]) ** 2 + float(w[1]) ** 2))
     return out
 
 
-CONSTANTS = _read_cs_constants()
+C = _read_cs_constants()
+
+SOFTNESS = C["Softness"]
+RAGGED = C["Ragged"]
+FRONT_SCALE = C["FrontScale"]
+WIND = C["Wind"]
+SAMPLES = C["Samples"]
+
+ELEMENT_SPAN = C["ElementSpan"]
+DEBRIS_OVERRUN = C["DebrisOverrun"]
+TAIL_START = C["TailStart"]
+
+D_PER_M2 = C["DebrisPerSquareMetre"]
+D_MAX_COUNT = C["DebrisMaxCount"]
+D_MIN_COUNT = C["DebrisMinCount"]
+D_MIN_M = C["DebrisMinMetres"]
+D_MAX_M = C["DebrisMaxMetres"]
+D_SIZE_POW = C["DebrisSizePower"]
+D_DRIFT_M = C["DebrisDriftMetres"]
+D_LIFT_M = C["DebrisLiftMetres"]
+D_BEHIND_FRAC = C["DebrisBehindFraction"]
+D_FALL_M = C["DebrisFallMetres"]
+D_WANDER_M = C["DebrisWanderMetres"]
+D_SPIN_TURNS = C["DebrisSpinTurns"]
+D_LIFE = C["DebrisLifeSpan"]
 
 
-def frac(x):
-    return x - np.floor(x)
+def read_durations() -> tuple[float, float]:
+    """The two shipped durations, out of Defaults.WorldUI.cs. Read rather than repeated, so a
+    strip is always labelled with the numbers that actually ship."""
+    try:
+        src = open(_DEFAULTS_CS, encoding="utf-8").read()
+    except OSError as exc:  # pragma: no cover - environmental
+        raise SystemExit(f"cannot read {_DEFAULTS_CS}: {exc}")
+    out = []
+    for key in ("WindowMaterialiseAppearSeconds", "WindowMaterialiseVanishSeconds"):
+        m = re.search(r"internal const float %s\s*=\s*([-0-9.]+)f?\s*;" % key, src)
+        if not m:
+            raise SystemExit(f"could not find {key} in {_DEFAULTS_CS}")
+        out.append(float(m.group(1)))
+    return out[0], out[1]
 
 
-def hash21(vx, vy):
-    """The shader's hash21, verbatim."""
-    px = frac(vx * F32(123.34))
-    py = frac(vy * F32(456.21))
-    d = px * (px + F32(45.32)) + py * (py + F32(45.32))   # dot(p, p + 45.32)
-    px = px + d
-    py = py + d
-    return frac(px * py)
+# ---------------------------------------------------------------------------------------
+# the erosion field. Byte-for-byte the shader's and the C#'s
+# ---------------------------------------------------------------------------------------
+
+def _frac(x):
+    return np.asarray(x, dtype=F32) - np.floor(np.asarray(x, dtype=F32))
 
 
-def vnoise(vx, vy):
-    """The shader's vnoise, verbatim."""
-    ix, iy = np.floor(vx), np.floor(vy)
-    fx, fy = vx - ix, vy - iy
+def hash21(x, y):
+    px = _frac(np.asarray(x, dtype=F32) * F32(123.34))
+    py = _frac(np.asarray(y, dtype=F32) * F32(456.21))
+    d = px * (px + F32(45.32)) + py * (py + F32(45.32))
+    return _frac((px + d) * (py + d))
+
+
+def vnoise(x, y):
+    x = np.asarray(x, dtype=F32)
+    y = np.asarray(y, dtype=F32)
+    ix, iy = np.floor(x), np.floor(y)
+    fx, fy = x - ix, y - iy
     ux = fx * fx * (F32(3.0) - F32(2.0) * fx)
     uy = fy * fy * (F32(3.0) - F32(2.0) * fy)
     a = hash21(ix, iy)
@@ -88,139 +154,307 @@ def vnoise(vx, vy):
     return (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy
 
 
-def smoothstep(e0, e1, x):
-    """HLSL smoothstep(edge0, edge1, x). The edges are always scalars here; x may be an array."""
-    denom = max(float(e1) - float(e0), 1e-6)
-    t = np.clip((x - F32(e0)) / F32(denom), F32(0.0), F32(1.0))
+def sweep(u, v):
+    n = F32(max(abs(float(WIND[0])) + abs(float(WIND[1])), 1e-4))
+    return ((np.asarray(u, dtype=F32) - F32(0.5)) * WIND[0]
+            + (np.asarray(v, dtype=F32) - F32(0.5)) * WIND[1] + F32(0.5) * n) / n
+
+
+def threshold(u, v, aspect):
+    n = vnoise(np.asarray(u, dtype=F32) * F32(aspect) * FRONT_SCALE,
+               np.asarray(v, dtype=F32) * FRONT_SCALE)
+    s = sweep(u, v)
+    return s + (n - s) * RAGGED
+
+
+def front(progress):
+    return F32(progress) * (F32(1.0) + F32(2.0) * SOFTNESS) - SOFTNESS
+
+
+def smoothstep01(e0, e1, x):
+    t = np.clip((np.asarray(x, dtype=F32) - F32(e0)) / F32(max(float(e1) - float(e0), 1e-6)),
+                F32(0.0), F32(1.0))
     return t * t * (F32(3.0) - F32(2.0) * t)
 
 
-class Field:
-    """One panel's worth of the field. `aspect` is width / height of the host rect."""
+def progresses(k, materialising):
+    """WindowMaterialiseField.Progresses. Returns (element_progress, debris_front)."""
+    e = float(np.clip(k, 0.0, 1.0))
+    pe = float(np.clip(e / float(ELEMENT_SPAN), 0.0, 1.0))
+    if materialising:
+        return 1.0 - pe, float(front(1.0 - e))
+    return pe, float(front(e * (1.0 + float(DEBRIS_OVERRUN))))
 
-    def __init__(self, aspect, tail_fade=1.0,
-                 tint=(0.86, 0.80, 0.66), glow=1.0, intensity=1.0,
-                 flake_density=34.0, flake_cut=0.52, flake_sharp=2.0,
-                 edge_gain=1.55, plume_gain=0.85):
-        self.aspect = F32(aspect)
-        self.wind = (F32(CONSTANTS["Wind"][0]), F32(CONSTANTS["Wind"][1]))
-        self.softness = F32(CONSTANTS["Softness"])
-        self.ragged = F32(CONSTANTS["Ragged"])
-        self.front_scale = F32(CONSTANTS["FrontScale"])
-        self.age_span = F32(CONSTANTS["AgeSpan"])
-        self.drift = F32(CONSTANTS["Drift"])
-        self.plume_span = F32(CONSTANTS["PlumeSpan"])
-        self.spread = F32(CONSTANTS["Spread"])
-        self.streak = F32(CONSTANTS["Streak"])
-        self.thin = F32(CONSTANTS["Thin"])
-        self.tail_fade = F32(tail_fade)
-        self.samples = CONSTANTS["Samples"]
-        self.tint = tuple(F32(c) for c in tint)
-        self.glow = F32(glow)
-        self.intensity = F32(intensity)
-        self.flake_density = F32(flake_density)
-        self.flake_cut = F32(flake_cut)
-        self.flake_sharp = F32(flake_sharp)
-        self.edge_gain = F32(edge_gain)
-        self.plume_gain = F32(plume_gain)
 
-    # ---- the field, shared by both halves -------------------------------------------------
+def debris_size_scale(k, materialising, intensity=1.0):
+    """WindowMaterialiseField.DebrisSizeScale."""
+    if materialising:
+        return float(intensity)
+    return float(intensity) * (1.0 - float(smoothstep01(TAIL_START, 1.0, float(np.clip(k, 0, 1)))))
 
-    def sweep(self, u, v):
-        wx, wy = self.wind
-        n = max(abs(float(wx)) + abs(float(wy)), 1e-4)
-        return ((u - F32(0.5)) * wx + (v - F32(0.5)) * wy + F32(0.5 * n)) / F32(n)
 
-    def q_of(self, u, v):
-        return u * self.aspect, v
+def age(thr, debris_front):
+    return np.clip((F32(debris_front) - np.asarray(thr, dtype=F32)) / D_LIFE, F32(0.0), F32(1.0))
 
-    def threshold(self, u, v):
-        qx, qy = self.q_of(u, v)
-        n = vnoise(qx * self.front_scale, qy * self.front_scale)
-        s = self.sweep(u, v)
-        return s + (n - s) * self.ragged
 
-    def front(self, progress):
-        return F32(progress) * (F32(1.0) + F32(2.0) * self.softness) - self.softness
+def size_envelope(a):
+    return smoothstep01(0.0, 0.06, a) * (F32(1.0) - smoothstep01(0.72, 1.0, a))
 
-    # ---- half one: how much of a uGUI ELEMENT is left (mirrors C# PresenceOf) ---------------
 
-    def presence(self, threshold, progress):
-        f = self.front(progress)
-        return smoothstep(f - self.softness, f + self.softness, threshold)
+def presence_of(thresholds, element_progress):
+    """WindowMaterialiseField.PresenceOf -- the mean presence over an element's SAMPLES points.
 
-    def presence_of(self, thresholds, progress):
-        """`thresholds` is the element's `Samples` corner+centre thresholds. Mean of exact terms,
-        so it is exactly 1 at progress 0 and exactly 0 at progress 1."""
-        return float(np.mean([self.presence(F32(t), progress) for t in thresholds]))
+    `thresholds` is (..., SAMPLES)."""
+    f = front(element_progress)
+    lo = f - SOFTNESS
+    inv = F32(1.0) / F32(max(2.0 * float(SOFTNESS), 1e-6))
+    t = np.clip((np.asarray(thresholds, dtype=F32) - lo) * inv, F32(0.0), F32(1.0))
+    return (t * t * (F32(3.0) - F32(2.0) * t)).mean(axis=-1)
 
-    def element_thresholds(self, u0, v0, u1, v1):
-        """The five sample points C# uses: the four corners and the centre, clamped into 0..1."""
-        pts = [(u0, v0), (u1, v0), (u0, v1), (u1, v1), (0.5 * (u0 + u1), 0.5 * (v0 + v1))]
-        return [float(self.threshold(F32(min(max(u, 0.0), 1.0)), F32(min(max(v, 0.0), 1.0))))
-                for u, v in pts]
 
-    # ---- half two: the flakes (mirrors the shader's frag(), premultiplied) ------------------
+def element_thresholds(u0, v0, u1, v1, aspect):
+    """The five points WindowMaterialiseRunner samples: four corners and the centre."""
+    us = np.array([u0, u1, u0, u1, 0.5 * (u0 + u1)], dtype=F32)
+    vs = np.array([v0, v0, v1, v1, 0.5 * (v0 + v1)], dtype=F32)
+    return threshold(us, vs, aspect)
 
-    def _speck(self, n, cut):
-        t = np.clip((n - cut) / np.maximum(F32(1.0) - cut, F32(1e-3)), F32(0.0), F32(1.0))
-        return np.power(t, self.flake_sharp)
 
-    def _in_rect(self, u, v, w):
-        e_u = smoothstep(F32(0.0), F32(w), u) * smoothstep(F32(0.0), F32(w), F32(1.0) - u)
-        e_v = smoothstep(F32(0.0), F32(w), v) * smoothstep(F32(0.0), F32(w), F32(1.0) - v)
-        return e_u * e_v
+# ---------------------------------------------------------------------------------------
+# the RNG. Bit-for-bit WindowMaterialiseDebris' xorshift, and the draws are consumed in the
+# identical order, so a rerun of a preview is the same cloud rather than a fresh sample.
+# ---------------------------------------------------------------------------------------
 
-    def flakes(self, u, v, progress):
-        """Returns (rgb_premultiplied, alpha) for a grid of panel UVs. Verbatim frag()."""
-        p = F32(progress)
-        front = self.front(p)
+class Xorshift:
+    __slots__ = ("s",)
 
-        # A - the crumbling edge
-        qx, qy = self.q_of(u, v)
-        n_a = vnoise(qx * self.front_scale, qy * self.front_scale)
-        s_a = self.sweep(u, v)
-        t_a = s_a + (n_a - s_a) * self.ragged
-        age_a = np.clip((front - t_a) / F32(max(float(self.age_span), 1e-3)), F32(0.0), F32(1.0))
-        env_a = (smoothstep(F32(0.0), F32(0.12), age_a)
-                 * (F32(1.0) - smoothstep(F32(0.28), F32(0.80), age_a)))
-        a_layer = (self._speck(vnoise(qx * self.flake_density, qy * self.flake_density),
-                               self.flake_cut)
-                   * env_a * self.edge_gain * self._in_rect(u, v, 0.03))
+    def __init__(self, seed: int):
+        s = seed & 0xFFFFFFFF
+        self.s = s if s else 0x9E3779B9
 
-        # B - the plume
-        travel = float(self.drift) * (float(p) ** 1.5)
-        inv_a = 1.0 / max(float(self.aspect), 1e-3)
-        wu, wv = float(self.wind[0]) * inv_a, float(self.wind[1])
-        pu, pv = -float(self.wind[1]) * inv_a, float(self.wind[0])
-        ub = u - F32(wu * travel)
-        vb = v - F32(wv * travel)
-        qb0x, qb0y = self.q_of(ub, vb)
-        n_b = vnoise(qb0x * self.front_scale, qb0y * self.front_scale)
-        shear = (n_b - F32(0.5)) * self.spread * F32(travel)
-        ub = ub - F32(pu) * shear
-        vb = vb - F32(pv) * shear
-        qbx, qby = self.q_of(ub, vb)
-        s_b = self.sweep(ub, vb)
-        t_b = s_b + (n_b - s_b) * self.ragged
-        age_b = np.clip((front - t_b) / F32(max(float(self.plume_span), 1e-3)), F32(0.0), F32(1.0))
-        env_b = (smoothstep(F32(0.03), F32(0.22), age_b)
-                 * (F32(1.0) - smoothstep(F32(0.55), F32(1.0), age_b)))
-        wn = (float(self.wind[0]) ** 2 + float(self.wind[1]) ** 2) ** 0.5
-        wqx, wqy = float(self.wind[0]) / wn, float(self.wind[1]) / wn
-        pqx, pqy = -wqy, wqx
-        stretch = F32(1.0) + self.streak * age_b
-        along = (qbx * F32(wqx) + qby * F32(wqy)) / stretch
-        across = qbx * F32(pqx) + qby * F32(pqy)
-        qsx = F32(wqx) * along + F32(pqx) * across
-        qsy = F32(wqy) * along + F32(pqy) * across
-        tail = F32(1.0) - self.tail_fade * smoothstep(F32(0.68), F32(1.0), p)
-        edge_b = self._in_rect(ub, vb, 0.13) * (F32(0.45) + F32(0.55) * n_b)
-        b_layer = (self._speck(vnoise(qsx * self.flake_density * F32(1.83) + F32(7.3),
-                                      qsy * self.flake_density * F32(1.83) + F32(7.3)),
-                               self.flake_cut + self.thin * age_b)
-                   * env_b * self.plume_gain * edge_b * tail)
+    def r01(self) -> float:
+        s = self.s
+        s ^= (s << 13) & 0xFFFFFFFF
+        s ^= s >> 17
+        s ^= (s << 5) & 0xFFFFFFFF
+        self.s = s
+        return (s & 0xFFFFFF) / 16777216.0
 
-        alpha = np.clip(a_layer + b_layer, F32(0.0), F32(1.0)) * self.intensity
-        rgb = np.stack([self.tint[i] * alpha * self.glow for i in range(3)], axis=-1)
-        return rgb, alpha
+    def signed(self) -> float:
+        return self.r01() * 2.0 - 1.0
+
+
+# ---------------------------------------------------------------------------------------
+# the shard solid. Mirrors WindowMaterialiseDebris.TetraCorner / TetraFace, and re-derives
+# the winding gate rather than trusting the table -- nine meshes have shipped in this
+# project wound against the side they are seen from.
+# ---------------------------------------------------------------------------------------
+
+TETRA_CORNER = np.array(
+    [[1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]],
+    dtype=np.float64) * 0.5773503
+TETRA_FACE = np.array([[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]], dtype=np.int32)
+
+
+def shard_winding_gate():
+    """(signed_volume, worst_outwardness). Both must be > 0.
+
+    UV signed area is deliberately absent: a shard carries no texture coordinates and the
+    shader samples no texture, so a UV area here would be a number with no referent."""
+    centroid = TETRA_CORNER.mean(axis=0)
+    vol = 0.0
+    worst = float("inf")
+    for f in TETRA_FACE:
+        a, b, c = TETRA_CORNER[f[0]], TETRA_CORNER[f[1]], TETRA_CORNER[f[2]]
+        vol += float(np.dot(a, np.cross(b, c)))
+        n = np.cross(b - a, c - a)
+        n = n / np.linalg.norm(n)
+        worst = min(worst, float(np.dot(n, (a + b + c) / 3.0 - centroid)))
+    return vol / 6.0, worst
+
+
+# ---------------------------------------------------------------------------------------
+# the cloud
+# ---------------------------------------------------------------------------------------
+
+class Cloud:
+    """A built shard cloud: the per-shard constants, in APPARENT METRES, in a frame whose
+    origin is the window's centre.
+
+    Axes are already Blender's, so the room script does no conversion and cannot get it
+    wrong:  +x right across the window, +y AWAY from the viewer (the host canvas's +Z),
+    +z up the window (the host canvas's +Y).  The viewer sits at negative y.
+    """
+
+    __slots__ = ("birth", "size", "axis", "spin_turns", "lift", "drift_scale",
+                 "wander", "seed_a", "seed_b", "shade", "thr", "behind", "squash",
+                 "panel_w", "panel_h", "n")
+
+    def __init__(self, **kw):
+        for k, v in kw.items():
+            setattr(self, k, v)
+
+
+def build_cloud(elements, panel_w_m, panel_h_m, aspect, seed=0x5EED1234, count=None):
+    """Mirror of WindowMaterialiseDebris.TryBuildDebris, in apparent metres.
+
+    `elements` is a list of (u0, v0, u1, v1, alpha) in panel UV -- the stand-in for the
+    window's CanvasRenderers.  Shards are drawn from it in proportion to visible area,
+    which is what makes the debris come from where the window actually broke up rather
+    than from a rectangle.
+    """
+    area = max(panel_w_m * panel_h_m, 1e-5)
+    if count is None:
+        count = int(round(area * float(D_PER_M2)))
+    count = int(np.clip(count, D_MIN_COUNT, D_MAX_COUNT))
+
+    weights, keep = [], []
+    total = 0.0
+    for i, el in enumerate(elements):
+        u0, v0, u1, v1, a = el[0], el[1], el[2], el[3], el[-1]
+        if a <= 0.02:
+            continue
+        w, h = abs(u1 - u0), abs(v1 - v0)
+        if w <= 0 or h <= 0:
+            continue
+        total += float(np.clip(w * h, 0.0004, 1.0))
+        weights.append(total)
+        keep.append(i)
+    if not keep:
+        raise SystemExit("build_cloud: no visible element to tear a shard out of")
+    weights = np.array(weights, dtype=np.float64)
+
+    rng = Xorshift(seed)
+    birth = np.zeros((count, 3), dtype=np.float64)
+    thr = np.zeros(count, dtype=np.float64)
+    size = np.zeros(count, dtype=np.float64)
+    lift = np.zeros(count, dtype=np.float64)
+    axis = np.zeros((count, 3), dtype=np.float64)
+    spin = np.zeros(count, dtype=np.float64)
+    dscale = np.zeros(count, dtype=np.float64)
+    wander = np.zeros(count, dtype=np.float64)
+    sa = np.zeros(count, dtype=np.float64)
+    sb = np.zeros(count, dtype=np.float64)
+    shade = np.zeros(count, dtype=np.float64)
+    squash = np.zeros(count, dtype=np.float64)
+    behind = np.zeros(count, dtype=bool)
+
+    for s in range(count):
+        # --- birth point: an element by area, then a uniform point inside it -------------
+        pick = rng.r01() * float(weights[-1])
+        idx = int(np.searchsorted(weights, pick, side="left"))
+        idx = min(idx, len(keep) - 1)
+        el = elements[keep[idx]]
+        u0, v0, u1, v1 = el[0], el[1], el[2], el[3]
+        u = u0 + (u1 - u0) * rng.r01()
+        v = v0 + (v1 - v0) * rng.r01()
+        u = float(np.clip(u, 0.0, 1.0))
+        v = float(np.clip(v, 0.0, 1.0))
+        thr[s] = float(threshold(u, v, aspect))
+        birth[s] = ((u - 0.5) * panel_w_m, 0.0, (v - 0.5) * panel_h_m)
+
+        # --- size, skewed small ----------------------------------------------------------
+        size[s] = float(D_MIN_M) + (float(D_MAX_M) - float(D_MIN_M)) * (rng.r01() ** float(D_SIZE_POW))
+
+        # --- out of the plane. The viewer is at -y, so "toward the head" is -y ------------
+        beh = rng.r01() < float(D_BEHIND_FRAC)
+        behind[s] = beh
+        lift[s] = float(D_LIFT_M) * (0.35 + 0.65 * rng.r01()) * (1.0 if beh else -1.0)
+
+        # --- tumble ----------------------------------------------------------------------
+        # THE AXIS PERMUTATION IS NOT COSMETIC. Unity is left-handed (+x right, +y up,
+        # +z away); Blender is right-handed (+x right, +y away, +z up). Swapping two axes
+        # flips handedness exactly once, so (x, y, z)_unity -> (x, z, y)_blender is the
+        # handedness-PRESERVING map between them -- which means a rotation about the mapped
+        # axis by the same angle is the same rotation, not its mirror. Drawing the three
+        # components in the C# order and then mapping them is what keeps the RNG stream
+        # aligned with the shipped one.
+        ax, ay, az = rng.signed(), rng.signed(), rng.signed()
+        a = np.array([ax, az, ay], dtype=np.float64)
+        n = float(np.linalg.norm(a))
+        axis[s] = a / n if n > 1e-3 else np.array([0.0, 0.0, 1.0])
+        spin[s] = float(D_SPIN_TURNS) * (-1.0 + 2.0 * rng.r01())
+
+        dscale[s] = 0.6 + 0.8 * rng.r01()
+        wander[s] = float(D_WANDER_M) * rng.r01()
+        sa[s] = rng.r01()
+        sb[s] = rng.r01()
+        shade[s] = 0.72 + 0.43 * rng.r01()
+        squash[s] = 0.30 + 0.42 * rng.r01()
+
+    return Cloud(birth=birth, size=size, axis=axis, spin_turns=spin, lift=lift,
+                 drift_scale=dscale, wander=wander, seed_a=sa, seed_b=sb, shade=shade,
+                 thr=thr, behind=behind, squash=squash,
+                 panel_w=panel_w_m, panel_h=panel_h_m, n=count)
+
+
+def wind_in_plane(aspect):
+    """The downwind direction in CANVAS units, renormalised -- exactly what C# pushes into
+    the shader's _Wind, so 'drift metres' means the same distance whatever the panel's
+    shape."""
+    w = np.array([float(WIND[0]) / max(aspect, 1e-3), float(WIND[1])], dtype=np.float64)
+    return w / max(float(np.linalg.norm(w)), 1e-9)
+
+
+def shard_transforms(cloud: Cloud, debris_front: float, size_scale: float, aspect: float):
+    """THE VERTEX SHADER, in numpy. Returns (pos[N,3], rotvec_axis[N,3], angle[N], size[N]).
+
+    Every term is a function of the shard's own baked constants and of `debris_front`.
+    Nothing here reads a camera, a head pose or a clock -- which is the whole point, and is
+    what makes a preview evidence about the shipped effect rather than about an idea of it.
+    """
+    a = np.clip((debris_front - cloud.thr) / float(D_LIFE), 0.0, 1.0)
+    env = (np.asarray(smoothstep01(0.0, 0.06, a), dtype=np.float64)
+           * (1.0 - np.asarray(smoothstep01(0.72, 1.0, a), dtype=np.float64)))
+    size = cloud.size * env * size_scale
+
+    w = wind_in_plane(aspect)
+    p = cloud.birth.copy()
+    trav = np.power(a, 1.35) * cloud.drift_scale * float(D_DRIFT_M)
+    p[:, 0] += w[0] * trav          # downwind, in the window's plane (x = across)
+    p[:, 2] += w[1] * trav          # ... and up it (z = up the window)
+    p[:, 1] += cloud.lift * a       # OUT OF THE PLANE. The entire redesign is this line.
+    p[:, 2] -= float(D_FALL_M) * a * a
+
+    wa = cloud.wander * a
+    tau = 2.0 * np.pi
+    p[:, 0] += wa * np.sin(tau * (cloud.seed_a + 1.7 * a))
+    p[:, 2] += wa * np.sin(tau * (cloud.seed_b + 2.3 * a))
+    p[:, 1] += wa * np.sin(tau * (cloud.seed_a + cloud.seed_b + 1.3 * a))
+
+    angle = tau * cloud.spin_turns * a
+    return p, cloud.axis, angle, size
+
+
+def shard_mesh(cloud: Cloud, debris_front: float, size_scale: float, aspect: float):
+    """One frame of the cloud as a flat triangle soup: (verts[N*12,3], faces[N*4,3]).
+
+    Faces are constant across frames, so a caller emitting a sequence needs them once.
+    """
+    pos, axis, angle, size = shard_transforms(cloud, debris_front, size_scale, aspect)
+    n = cloud.n
+
+    # Rodrigues, vectorised over shards.
+    c = np.cos(angle)[:, None]
+    s = np.sin(angle)[:, None]
+    k = axis
+
+    verts = np.zeros((n * 12, 3), dtype=np.float64)
+    faces = np.zeros((n * 4, 3), dtype=np.int32)
+    for f in range(4):
+        for j in range(3):
+            # The squash is on the shard's own local z in C# -- which is local y here, by
+            # the same handedness-preserving axis map the tumble axis uses.
+            corner = TETRA_CORNER[TETRA_FACE[f][j]][None, :] * np.stack(
+                [np.ones(n), cloud.squash, np.ones(n)], axis=1)
+            rot = (corner * c
+                   + np.cross(k, corner) * s
+                   + k * (np.sum(k * corner, axis=1)[:, None]) * (1.0 - c))
+            verts[np.arange(n) * 12 + f * 3 + j] = pos + rot * size[:, None]
+        base = np.arange(n) * 12 + f * 3
+        faces[np.arange(n) * 4 + f] = np.stack([base, base + 1, base + 2], axis=1)
+    return verts, faces
+
+
+def shard_vertex_shade(cloud: Cloud):
+    """Per-vertex copy of the per-shard shade jitter, constant over a whole animation."""
+    return np.repeat(cloud.shade, 12).astype(np.float32)

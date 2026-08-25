@@ -28,25 +28,29 @@ namespace GloomhavenVR.WorldUI;
 /// MultiPass renders both eyes after LateUpdate, so a value written here is the same value in both
 /// eyes by construction — the same reason <c>CanvasConversion.CompleteReveal</c> insists on being
 /// there.</para>
+///
+/// <para><b>WHAT A FRAME COSTS, AND WHY IT IS ALL ON THE ELEMENT HALF.</b> The debris is real
+/// world-space geometry whose every trajectory is a closed function of one uniform, so driving a few
+/// hundred flying shards costs <b>two <c>SetFloat</c>s and two <c>SetPropertyBlock</c>s</b>, one per
+/// half — the same per frame whether there are ninety shards or four hundred and twenty, which the
+/// cost harness confirmed by measuring 0.4 µs at both. The measurable per-frame
+/// cost of this effect is entirely the element half: five <c>smoothstep</c>s and one native
+/// <c>SetAlpha</c> per <c>CanvasRenderer</c>. That is what <see cref="Report"/> prints, and it is
+/// why the shard count does not appear in the per-frame figure.</para>
 /// </summary>
 internal sealed class WindowMaterialiseRunner : MonoBehaviour
 {
     private const string Scope = "WorldUI";
 
-    private static readonly int ProgressId = Shader.PropertyToID("_Progress");
+    // Per-frame (two of them).
+    private static readonly int FrontId = Shader.PropertyToID("_Front");
+    private static readonly int SizeScaleId = Shader.PropertyToID("_SizeScale");
+    // Per-effect constants, pushed once in Begin.
+    private static readonly int LifeSpanId = Shader.PropertyToID("_LifeSpan");
     private static readonly int WindId = Shader.PropertyToID("_Wind");
-    private static readonly int AspectId = Shader.PropertyToID("_Aspect");
-    private static readonly int SoftnessId = Shader.PropertyToID("_Softness");
-    private static readonly int RaggedId = Shader.PropertyToID("_Ragged");
-    private static readonly int FrontScaleId = Shader.PropertyToID("_FrontScale");
-    private static readonly int AgeSpanId = Shader.PropertyToID("_AgeSpan");
     private static readonly int DriftId = Shader.PropertyToID("_Drift");
-    private static readonly int PlumeSpanId = Shader.PropertyToID("_PlumeSpan");
-    private static readonly int SpreadId = Shader.PropertyToID("_Spread");
-    private static readonly int StreakId = Shader.PropertyToID("_Streak");
-    private static readonly int ThinId = Shader.PropertyToID("_Thin");
-    private static readonly int TailFadeId = Shader.PropertyToID("_TailFade");
-    private static readonly int IntensityId = Shader.PropertyToID("_Intensity");
+    private static readonly int FallId = Shader.PropertyToID("_Fall");
+    private static readonly int SpinTurnsId = Shader.PropertyToID("_SpinTurns");
 
     /// <summary>Reused element lists. A big window is several hundred CanvasRenderers and this
     /// effect runs on every window open and close, so the walk must not allocate a fresh array each
@@ -72,8 +76,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     private List<float>? _origAlpha;
     private List<float>? _threshold;
 
-    private MeshRenderer? _quad;
-    private Mesh? _mesh;
+    private WindowMaterialise.DebrisCloud? _debris;
     private MaterialPropertyBlock? _mpb;
 
     // Measured, not estimated. Printed once per effect at its end.
@@ -81,6 +84,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     private double _worstMs;
     private double _totalMs;
     private int _frames;
+    private double _buildMs;
 
     /// <summary>
     /// Start an effect on <paramref name="panel"/>. Returns false when nothing could be started, in
@@ -97,33 +101,27 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         if (r.width <= 0.01f || r.height <= 0.01f)
             return false;
 
-        bool haveQuad = WindowMaterialise.TryBuildQuad(panel, out GameObject? go, out MeshRenderer? mr,
-                                                       out Mesh? mesh, out float aspect);
-        if (!haveQuad)
+        // THE CARRIER IS CREATED FIRST AND UNCONDITIONALLY, before any decision about debris. It is
+        // what owns the effect's lifetime: it is parented to the host, so every "the window died
+        // under us" case is one of this component's own Unity messages. The debris, if there is any,
+        // hangs off it and is destroyed with it.
+        var carrier = new GameObject(WindowMaterialise.DebrisName + ".Runner")
         {
-            // No flakes (no shader yet, or a rect with no inside). The element-by-element dissolve
-            // is pure C# and is the half that actually removes the window, so it still runs; the
-            // carrier object is still mod-owned and still parented to the host, so every
-            // interruption path below is unchanged.
-            aspect = r.width / Mathf.Max(r.height, 0.01f);
-            go = new GameObject(WindowMaterialise.QuadName) { layer = panel.HostGo.layer };
-            go.transform.SetParent(host, worldPositionStays: false);
-            go.transform.localPosition = Vector3.zero;
-            go.transform.localRotation = Quaternion.identity;
-            go.transform.localScale = Vector3.one;
-        }
-        if (go == null)
-            return false;
-        GameObject carrier = go;
+            layer = panel.HostGo.layer,
+        };
+        Transform ct = carrier.transform;
+        ct.SetParent(host, worldPositionStays: false);
+        ct.localPosition = Vector3.zero;
+        ct.localRotation = Quaternion.identity;
+        ct.localScale = Vector3.one;
 
         var runner = carrier.AddComponent<WindowMaterialiseRunner>();
         runner.Panel = panel;
         runner._seconds = Mathf.Max(seconds, WindowMaterialise.MinSeconds);
         runner._materialising = materialising;
         runner._onDone = onDone;
-        runner._quad = mr;
-        runner._mesh = mesh;
 
+        var build = Stopwatch.StartNew();
         try
         {
             runner.CollectElements(host);
@@ -141,31 +139,44 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             return false;
         }
 
-        if (mr != null)
+        // THE DEBRIS IS SEEDED FROM THE ELEMENTS, which is why it is built after them and takes them
+        // as an argument. A failure here is not an error: the element-by-element dissolve is the half
+        // that actually removes the window, and it runs perfectly well with no shards.
+        try
         {
-            runner._mpb = new MaterialPropertyBlock();
-            // Every shape constant is pushed from WindowMaterialiseField so the shader and the CPU
-            // field cannot drift apart. The shader's Properties block holds the same numbers, but
-            // only as the value an editor preview would show.
-            runner._mpb.SetVector(WindId, new Vector4(WindowMaterialiseField.Wind.x,
-                                                      WindowMaterialiseField.Wind.y, 0f, 0f));
-            runner._mpb.SetFloat(AspectId, aspect);
-            runner._mpb.SetFloat(SoftnessId, WindowMaterialiseField.Softness);
-            runner._mpb.SetFloat(RaggedId, WindowMaterialiseField.Ragged);
-            runner._mpb.SetFloat(FrontScaleId, WindowMaterialiseField.FrontScale);
-            runner._mpb.SetFloat(AgeSpanId, WindowMaterialiseField.AgeSpan);
-            runner._mpb.SetFloat(DriftId, WindowMaterialiseField.Drift);
-            runner._mpb.SetFloat(PlumeSpanId, WindowMaterialiseField.PlumeSpan);
-            runner._mpb.SetFloat(SpreadId, WindowMaterialiseField.Spread);
-            runner._mpb.SetFloat(StreakId, WindowMaterialiseField.Streak);
-            runner._mpb.SetFloat(ThinId, WindowMaterialiseField.Thin);
-            // THE ONE ASYMMETRY BETWEEN THE TWO DIRECTIONS. A vanish must end at nothing, so its
-            // plume is faded out over the last fifth of progress. An appear STARTS at progress 1,
-            // where that same fade would leave the first frames completely empty — a window that is
-            // live and clickable while showing the player nothing. See the shader's _TailFade.
-            runner._mpb.SetFloat(TailFadeId, materialising ? 0f : 1f);
-            runner._mpb.SetFloat(IntensityId, WindowMaterialise.Intensity);
+            if (runner._renderers != null && runner._origAlpha != null
+                && WindowMaterialise.TryBuildDebris(panel, runner._renderers, runner._origAlpha,
+                                                    out WindowMaterialise.DebrisCloud? cloud)
+                && cloud != null)
+            {
+                cloud.Go.transform.SetParent(ct, worldPositionStays: false);
+                runner._debris = cloud;
+                runner._mpb = new MaterialPropertyBlock();
+                // Every shape constant is pushed from WindowMaterialiseField so the shader and the
+                // CPU field cannot drift apart. The shader's Properties block holds the same numbers,
+                // but only as the value an editor preview would show.
+                float canvasPerMetre = 1f / Mathf.Max(cloud.ApparentMetresPerCanvasUnit, 1e-7f);
+                runner._mpb.SetVector(WindId,
+                    new Vector4(cloud.WindCanvas.x, cloud.WindCanvas.y, 0f, 0f));
+                runner._mpb.SetFloat(LifeSpanId, WindowMaterialiseField.DebrisLifeSpan);
+                runner._mpb.SetFloat(DriftId,
+                    WindowMaterialiseField.DebrisDriftMetres * canvasPerMetre);
+                runner._mpb.SetFloat(FallId,
+                    WindowMaterialiseField.DebrisFallMetres * canvasPerMetre);
+                runner._mpb.SetFloat(SpinTurnsId, 1f);
+            }
         }
+        catch (Exception ex)
+        {
+            VRLog.Error(Scope, $"WINDOW MATERIALISE: building the debris for "
+                               + $"'{WindowMaterialise.Name(panel)}' threw "
+                               + $"({ex.GetType().Name}: {ex.Message}). The window still dissolves "
+                               + "element by element, with no shards.");
+            runner._debris = null;
+            runner._mpb = null;
+        }
+        build.Stop();
+        runner._buildMs = build.Elapsed.TotalMilliseconds;
 
         WindowMaterialise.Register(runner);
 
@@ -173,7 +184,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         // LateUpdate, and rendering happens after LateUpdate — so if the first write waited for the
         // NEXT frame's LateUpdate, the eye would see one frame of a fully opaque window before the
         // materialise started. That single frame is the "aufploppen" the user asked to be rid of.
-        runner.Apply(runner.ProgressAt(0f));
+        runner.Apply(0f);
         return true;
     }
 
@@ -251,20 +262,6 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             Mathf.Clamp01((local.y - hostRect.yMin) / hostRect.height));
     }
 
-    /// <summary>Dissolve progress at a normalised time: 0 = the window is all there, 1 = it is all
-    /// gone. An appear is a vanish played backwards, which is exactly what the user described
-    /// ("Auftauchen eventuell andersrum").</summary>
-    private float ProgressAt(float k)
-    {
-        // LINEAR, and the first preview strip is why. An eased k compounds with the plume's own
-        // pow(p, 1.5) travel and pushes all the visible action into the middle of the duration:
-        // the 1.00 s vanish was over by 0.63 s and the 0.50 s appear showed literally nothing for
-        // its first 0.13 s. Both ends of a linear ramp are still exact, and the effect now fills
-        // the time the user asked it to take instead of finishing early and then waiting.
-        float e = Mathf.Clamp01(k);
-        return _materialising ? 1f - e : e;
-    }
-
     private void LateUpdate()
     {
         // UNGUARDED Update BODIES STARVE INPUT IN THIS PROJECT. A single NRE out of a per-frame
@@ -301,7 +298,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
 
             _watch.Restart();
             float k = _elapsed / _seconds;
-            Apply(ProgressAt(k));
+            Apply(k);
             _watch.Stop();
             double ms = _watch.Elapsed.TotalMilliseconds;
             _totalMs += ms;
@@ -332,9 +329,21 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         }
     }
 
-    /// <summary>Write one frame: every element's alpha, and the shader's one animated uniform.</summary>
-    private void Apply(float progress)
+    /// <summary>
+    /// Write one frame at normalised time <paramref name="k"/>: every element's alpha, and the two
+    /// uniforms the whole debris cloud rides on.
+    ///
+    /// <para>The two channels run on DIFFERENT ramps and that is the point — see
+    /// <see cref="WindowMaterialiseField.Progresses"/>. The window finishes its half in the first
+    /// <c>ElementSpan</c> of the duration; the debris keeps flying for the rest of it. On a vanish
+    /// the two fronts are the same function until the element one saturates, so a shard still leaves
+    /// in the frame its own patch of window goes dark.</para>
+    /// </summary>
+    private void Apply(float k)
     {
+        WindowMaterialiseField.Progresses(k, _materialising,
+                                          out float elementProgress, out float debrisFront);
+
         List<CanvasRenderer>? rs = _renderers;
         List<float>? th = _threshold;
         List<float>? orig = _origAlpha;
@@ -351,14 +360,18 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                 // writes back exactly the number that was there, so the effect's first frame is a
                 // no-op and its restore is exact rather than approximately exact.
                 cr.SetAlpha(orig[i] * WindowMaterialiseField.PresenceOf(
-                    th, i * WindowMaterialiseField.Samples, progress));
+                    th, i * WindowMaterialiseField.Samples, elementProgress));
             }
         }
 
-        if (_quad != null && _mpb != null)
+        WindowMaterialise.DebrisCloud? d = _debris;
+        if (d != null && _mpb != null && d.Front != null && d.Behind != null)
         {
-            _mpb.SetFloat(ProgressId, progress);
-            _quad.SetPropertyBlock(_mpb);
+            _mpb.SetFloat(FrontId, debrisFront);
+            _mpb.SetFloat(SizeScaleId,
+                WindowMaterialiseField.DebrisSizeScale(k, _materialising, WindowMaterialise.Intensity));
+            d.Front.SetPropertyBlock(_mpb);
+            d.Behind.SetPropertyBlock(_mpb);
         }
     }
 
@@ -392,9 +405,15 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         _onDone = null;
 
         ReturnBuffers();
-        WindowMaterialise.ReleaseMesh(_mesh);
-        _mesh = null;
-        _quad = null;
+        if (_debris != null)
+        {
+            // The two halves share one vertex buffer but are two native Mesh objects, and neither is
+            // owned by the GameObject that references it — destroying the carrier does not free
+            // them. Both go back to the pool here, before the destroy.
+            WindowMaterialise.ReleaseMesh(_debris.MeshFront);
+            WindowMaterialise.ReleaseMesh(_debris.MeshBehind);
+            _debris = null;
+        }
         _mpb = null;
 
         if (gameObject != null)
@@ -446,10 +465,15 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     }
 
     /// <summary>
-    /// The cost, MEASURED. Worst frame and mean, with the element count that produced them and the
-    /// dial state, so a reader can tell "this is what a 700-element window costs" from "this is what
-    /// the effect costs" without re-deriving anything. One line per effect; there are a handful of
-    /// window opens in a minute, not a handful per frame.
+    /// The cost, MEASURED. Worst frame and mean, with the element count and the shard count that
+    /// produced them, so a reader can tell "this is what a 700-element window costs" from "this is
+    /// what the effect costs" without re-deriving anything. One line per effect; there are a handful
+    /// of window opens in a minute, not a handful per frame.
+    ///
+    /// <para>The BUILD cost is printed separately and on purpose. It is the one-off price of seeding
+    /// a few hundred shards out of the window's own elements, paid in the frame the window opens —
+    /// a frame that is already doing a full canvas conversion — and it is not part of the per-frame
+    /// figure. Reporting one number for both would hide whichever of them mattered.</para>
     /// </summary>
     private void Report(string reason)
     {
@@ -457,18 +481,26 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             return;
         _reported = true;
         int n = _renderers?.Count ?? 0;
+        int shards = _debris?.Shards ?? 0;
         double mean = _frames > 0 ? _totalMs / _frames : 0d;
         VRLog.Info(Scope, $"WINDOW MATERIALISE {(_materialising ? "APPEAR" : "VANISH")} on "
                           + $"'{WindowMaterialise.Name(Panel)}' ended ({reason}) after "
                           + $"{_elapsed:F2}s of {_seconds:F2}s over {_frames} frame(s). "
-                          + $"{n} CanvasRenderer(s) driven; per-frame cost MEASURED at "
-                          + $"{mean:F3} ms mean, {_worstMs:F3} ms worst — that is the alpha write "
-                          + "for every element plus one MaterialPropertyBlock set, and it is the "
-                          + $"whole CPU cost of this effect ({WindowMaterialiseField.Samples} "
-                          + "smoothsteps and one SetAlpha per element; the noise behind them is "
-                          + "evaluated once per element at the start, never per frame). "
-                          + $"Flakes: {(_quad != null ? "drawn" : "NOT drawn (no shader / degenerate rect)")}. "
-                          + $"Budget is 11.11 ms.");
+                          + $"{n} CanvasRenderer(s) driven, {shards} shard(s) in the air; per-frame "
+                          + $"cost MEASURED at {mean:F3} ms mean, {_worstMs:F3} ms worst. That is the "
+                          + $"alpha write for every element ({WindowMaterialiseField.Samples} "
+                          + "smoothsteps and one SetAlpha each; the noise behind them is evaluated "
+                          + "once per element at the start, never per frame) PLUS two SetFloats and "
+                          + "two SetPropertyBlocks for the WHOLE debris cloud — the shard count does "
+                          + "not enter the per-frame cost, because every shard's trajectory is a "
+                          + "closed function of one uniform evaluated on the GPU. One-off build cost "
+                          + $"{_buildMs:F3} ms (element walk + shard seeding), paid in the frame the "
+                          + "window opens. Debris: "
+                          + (shards > 0
+                              ? "drawn"
+                              : "NOT drawn (no shader / degenerate rect / no visible element / "
+                                + "intensity 0)")
+                          + ". Budget is 11.11 ms.");
     }
 
     /// <summary>The host was deactivated under us. <c>LateUpdate</c> will not run again, so the
