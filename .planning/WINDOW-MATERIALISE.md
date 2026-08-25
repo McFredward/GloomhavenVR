@@ -394,17 +394,51 @@ been, in a throwaway project at `/tmp/wm-shadercheck`, and this is worth more th
   internal programs: 2, unique: 2)`, `vs_4_0` and `ps_4_0` bytecode of 2890 and 726 bytes.
 * **71 vertex math ops, 11 fragment math ops, 5 and 2 temp registers, 2 interpolators** past
   position. That is a very small shader.
-* **And the constant buffers settle §3.2 at the binary level.** The compiled program references
-  `UnityPerDraw` (`unity_ObjectToWorld`, `unity_WorldToObject` — object matrices) and `UnityPerFrame`
-  (`unity_MatrixVP` — the mandatory clip transform) **and nothing else**. No camera position, no view
-  matrix, no eye index appears in either stage. A grep proves an identifier is absent from the
-  source; this proves nothing equivalent reached the binary.
+* **Verified twice, the second time cold** against the exact shipping bytes (`Library/`, `Temp/` and
+  `Build/` deleted first, so the log reads `Local cache hits 0`). MD5 of the compiled file:
+  **`6f0ae5d078f983d5c98f6049fbc258bf`**, checked against the repo *after* the run. The property
+  defaults print in the dump (`_LifeSpan = 1.850000`, `_Drift = 720.000000`), which is what proves it
+  compiled the current file and not a stale artifact.
 
-Two incidental notes, neither a defect: `pow(age, 1.35)` compiles to log/mul/exp without fxc's usual
-`X3571` negative-base warning, because `age` is `saturate`d upstream; and the shader reads
-`TEXCOORD0.zw` only — the shard's birth UV in `.xy` is carried for the numpy mirror and is unused by
-the GPU. Two floats per vertex of dead bandwidth, kept deliberately so the mirror and the vertex
-layout stay the same shape.
+### THE HEAD-INDEPENDENCE PROOF, at the constant-buffer level
+
+This is stronger than the identifier grep and it should be the thing quoted. A grep says *these words
+are absent from the source*. This says *the program cannot read the camera, because nothing binds
+it*:
+
+```
+Vertex   $Globals      : _Front, _SizeScale, _LifeSpan, _Drift, _Fall, _SpinTurns, _Wind
+Vertex   UnityPerDraw  : unity_ObjectToWorld, unity_WorldToObject
+Vertex   UnityPerFrame : unity_MatrixVP
+Fragment $Globals      : _Tint, _Ambient, _Key, _Fill, _KeyDir
+Fragment                — binds NO Unity built-in buffer at all
+```
+
+No `_WorldSpaceCameraPos`. No `unity_CameraToWorld` / `unity_WorldToCamera`. No `UNITY_MATRIX_V`. No
+`unity_StereoEyeIndex` / `unity_StereoMatrixVP` / `unity_StereoWorldSpaceCameraPos`. The **only**
+view-dependent quantity anywhere is `unity_MatrixVP`, used at vertex instructions 55–58 to take an
+**already-computed world position** to clip space; `unity_WorldToObject` is consumed only at 66–68 by
+`UnityObjectToWorldNormal`. Both are mandatory transforms, neither carries eye or head state into the
+effect's own arithmetic.
+
+**The caveat, unsmoothed.** This is the non-stereo variant (`Keywords: <none>`, one variant total).
+Under **MultiPass** the per-eye VP arrives through that same `unity_MatrixVP` slot, so the set above
+is what ships — but a **Single-Pass-Instanced** setup would add `unity_StereoMatrixVP` and this dump
+would not have caught it. This mod runs MultiPass (the rig's own `EYE-TARGET DIAG` line in every
+hardware log reads `stereo=MultiPass`), so the caveat is closed here. And the per-eye-correctness
+argument does not rest on the dump anyway: it rests on the **geometry** — every vertex position is a
+function of that vertex's own attributes and per-draw uniforms only, which is exactly what the dump
+confirms.
+
+Three incidental notes, none a defect. `pow(age, 1.35)` compiles to log/mul/exp without fxc's usual
+`X3571` negative-base warning, because `age` is `saturate`d upstream. And two channels are dead
+weight: the input signature marks `TEXCOORD0` as `Used: zw`, so the shard's **birth UV in `.xy` is
+read by nothing**, and `o.col.w` reaches the fragment stage unused. That is ~8 % of the vertex buffer.
+**The earlier claim that the birth UV was "carried for the numpy mirror" was wrong** — the mirror
+keeps its own arrays and never reads the mesh. It is simply left over, and it is left in place
+deliberately: repacking it means editing the shader and re-verifying a compile that is currently
+green, for a saving worth a few percent of one build stage. Named here so a later round can take it
+cheaply.
 
 **The frequency-scrubbing trap falls out of the same property.** There is no clock in the shader at
 all. The one time-like input is `_Front`, written once per frame by C# and used only as a position
@@ -507,6 +541,12 @@ apart, which a decal in the window's plane could not do.
   I judged that the wrong trade; it is a real option and I am not hiding it.
 * **Small elements snap after the plate has gone**, so for two or three frames the text floats on
   nothing. Visible in `front_vanish_strip.png` at k = 0.28.
+* **The appear's last ~0.13 s is a finished window with only a few stragglers in it.** The window is
+  solid and legible at 0.13 s and complete at 0.20 s of the 0.35 s, so the final third is quiet. That
+  is the requested behaviour taken to its conclusion rather than a defect — nothing is blocked, and
+  he asked for the window to be there fast — but it does mean **0.30 s would lose nothing**, and I am
+  flagging that rather than quietly shipping a number outside the 0.30–0.40 range I was given. The
+  dial covers it either way.
 * **The panel is a SYNTHETIC stand-in** (§8.11).
 
 ---

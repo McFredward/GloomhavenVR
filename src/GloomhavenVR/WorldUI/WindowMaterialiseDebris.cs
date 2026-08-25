@@ -561,6 +561,14 @@ internal static partial class WindowMaterialise
     /// <c>TEXCOORD0</c> birth uv xy, threshold z, seedA w · <c>TEXCOORD1</c> tumble axis xyz, turns w
     /// · <c>TEXCOORD2</c> out-of-plane velocity x, drift scale y, seedB z, wander amplitude w ·
     /// <c>COLOR</c> shade jitter.</para>
+    ///
+    /// <para><b>TWO CHANNELS ARE DEAD WEIGHT, AND THE COMPILED SIGNATURE SAYS SO.</b> The shipping
+    /// bytecode marks <c>TEXCOORD0</c> as <c>Used: zw</c> and the fragment stage as <c>Used: xyz</c>
+    /// of the colour — so the birth UV in <c>TEXCOORD0.xy</c> is read by nothing and
+    /// <c>COLOR.w</c> never leaves the interpolator. That is about 8 % of the vertex buffer. It is
+    /// left in place on purpose: repacking means editing the shader and re-verifying a compile that
+    /// is currently green, for a few percent of one build stage. Named here so a later round can take
+    /// it cheaply rather than rediscover it.</para>
     /// </summary>
     private static void AddShardVertex(int half, Vector3 birth, Vector3 normal, Vector3 corner,
                                        float size, Vector2 uv, float threshold, float seedA,
