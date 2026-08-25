@@ -1,39 +1,67 @@
-// The WIND-BORNE FLAKES a floating window sheds while it materialises or dematerialises.
+// THE DEBRIS a floating window breaks into while it materialises or dematerialises.
 //
-// WHAT DRAWS THIS. One quad per animating window, parented to the window's world-space host rect,
-// slightly in front of it (-Z is toward the head — LoadingIndicator.cs:715). The quad is BIGGER
-// than the window: its UVs run past 0..1 on the downwind side so the plume can leave the rect.
-// Everything else the effect does happens in C# (WorldUI/WindowMaterialise*.cs) by writing
-// CanvasRenderer alphas; this shader only paints the flakes.
+// WHAT DRAWS THIS. Two MeshRenderers per animating window, parented to the window's world-space
+// host rect and carrying the SAME vertex buffer with two different index lists: the shards that
+// were launched toward the player and the shards that were launched away from it. They are seated
+// on the panel's own distance ladder at +1 and -1, so the window is drawn between them
+// (WorldUI/WindowMaterialiseDebris.cs explains why a single renderer cannot work: converted panels
+// write no depth, ever, so sortingOrder is the only thing that can put geometry behind one).
+//
+// EVERY VERTEX IS A WHOLE PARTICLE'S STATE. The mesh is built once per effect; nothing on the CPU
+// touches it again. The trajectory below is a closed function of ONE uniform, _Front, so a frame of
+// this effect costs two SetFloats and one SetPropertyBlock no matter how many shards are in the
+// air.
 //
 // ---------------------------------------------------------------------------------------------
-// WHY THERE IS NO _Time IN THIS FILE, AND WHY THAT IS THE WHOLE DESIGN
+// WHY THERE IS NO CAMERA, NO HEAD POSE AND NO CLOCK IN THIS FILE
 // ---------------------------------------------------------------------------------------------
-// TRAP 1 - STEREO RIVALRY. A dissolve driven by SCREEN-SPACE noise gives the left and the right
-// eye a different threshold for the same surface point, and the headset reads that as flicker
-// rather than as texture. This project has already paid for that lesson (memory:
-// "aliasing-is-per-eye", "flicker-is-elements-toggling"). EVERY quantity below is a function of
-// `i.uv` alone - the interpolated PANEL UV - plus per-draw uniforms. There is no screen-space
-// derivative, no depth-texture read, no `unity_CameraInvProjection`, no `_ScreenParams`, no
-// `VPOS`. Both eyes rasterise the same triangle and interpolate the same UV to the same surface
-// point, so both eyes compute a bit-identical value. That is the same argument
-// HexDecalStable.shader makes at its head, and the same reason neither file uses an instancing
-// macro: multipass is per-eye-correct by construction as long as nothing stale is read.
+// THE USER'S RULING, 2026-08-26: "Der Effekt soll nicht an den Kopfbewegungen gebunden sein."
+// A camera-facing billboard is head-bound BY DEFINITION - Unity's default particle render mode
+// orients every quad toward the rendering camera, so the debris would silently rotate as he turned
+// his head. That is why these are SOLIDS: four-faced closed tetrahedra with their own randomised
+// orientation and their own tumble axis, whose appearance from any direction is a consequence of
+// where they are and not of where he is looking. The same ruling already cost this project four
+// rounds on the water surface, which was rebuilt with "NO VIEW DIRECTION ANYWHERE IN IT - no cube
+// sample, no reflect(), no Fresnel, not even a half-vector specular".
+//
+// TRAP 1 - STEREO RIVALRY. Under MultiPass a billboard's orientation is recomputed per eye, and a
+// screen-space threshold gives each eye a different value for the same surface point. The headset
+// reads either as flicker rather than as texture. This project has paid for that lesson twice
+// (memory: "aliasing-is-per-eye", "flicker-is-elements-toggling"). Here BOTH eyes rasterise the
+// same triangles at the same world positions, because every vertex position is a function of the
+// vertex's own attributes and per-draw uniforms and of nothing else. Genuine world-space geometry
+// is per-eye correct BY CONSTRUCTION, which is a real argument in favour of this redesign over the
+// painted plume it replaces - that one was correct for the same reason, but only because it never
+// left the window's plane, which is exactly what the user objected to.
+//
+// The one remaining per-eye risk is spatial: sub-pixel geometry aliases differently in each eye
+// whatever the shader does. That is answered in C# rather than here, by a 4 mm floor on shard size
+// (~0.25 deg at 0.9 m, roughly ten headset pixels) which WindowMaterialiseDebris logs.
 //
 // TRAP 4 - FREQUENCY SCRUBBING. A strength dial that multiplies a FREQUENCY riding the shared
-// clock is correct only at t=0. There is no clock here at all: the ONE time-like input is
-// `_Progress`, written once per frame by C# and used only as a POSITION (the erosion front) and
-// as an AMPLITUDE (how far the plume has travelled). No dial multiplies a frequency, because no
-// frequency exists to multiply. `_FlakeDensity` scales a spatial rate that is constant in time.
+// clock is correct only at t=0. There is no clock here at all. The one time-like input is _Front,
+// written once per frame by C#, and it is used only as a POSITION (where the erosion front stands)
+// from which each shard's age is derived. _SizeScale is a pure amplitude. No dial multiplies a
+// frequency, because no frequency exists.
 //
-// TRAP 5 - WINDING. `Cull Off`. The quad is a flat two-triangle sheet whose signed volume is zero
-// and whose "correct" side is therefore undecidable from geometry; eight meshes have shipped in
-// this project wound against the side they are seen from. Drawing both sides costs nothing here
-// (no lighting, no depth write) and removes the failure mode entirely.
+// TRAP 5 - WINDING. A shard is a CLOSED solid, so unlike the flat quad this file used to draw its
+// signed volume is meaningful and is the strong form of the gate. It is checked in C#
+// (WindowMaterialiseDebris.GateShardWinding: positive signed volume AND every face normal pointing
+// away from the shard's own centroid) and logged once per process, because nine meshes have now
+// shipped in this project wound against the side they are seen from. Cull Back is therefore load
+// bearing here, not a default - a shard that fails the gate disappears rather than looking odd,
+// which is what makes the gate worth having.
 //
-// PREMULTIPLIED ALPHA (`Blend One OneMinusSrcAlpha`), not additive. Additive flakes bloom to white
-// over the pale parchment windows this game uses; premultiplied behaves like ordinary alpha at
-// _Glow 1 and can still be pushed to a glow by raising _Glow, without ever blowing out.
+// TRAP 6 - CULLING CANNOT SEE VERTEX SHADERS. Every shard's real position is computed below, so
+// Unity's bounds would measure the undisplaced birth cloud - a box the size of the window - and
+// pop the debris away as it travelled. The bounds are authored in C#, grown by the furthest any
+// shard can reach. Same failure class as the displaced-geometry arc sweep in this project's memory.
+//
+// OPAQUE, WITH ZWRITE. Not a transparent blend: the shards are chips of a solid thing, they must
+// occlude each other correctly in a cloud, and they must punch into the depth buffer so that room
+// geometry drawn before them (walls at queue 2000, the MR backing plate at 2998) occludes them and
+// they occlude anything depth-testing drawn after. Alpha blending would have needed per-shard
+// depth sorting on the CPU every frame, which is the cost this design exists to avoid.
 //
 // MUST BE COMPILED BY 2021.3.5f1 (`/home/claw/unity-2021.3.5`). A shader compiled by 2021.3.45
 // renders PINK in game - see MapUnlit.shader's header.
@@ -41,185 +69,138 @@ Shader "GloomhavenVR/WindowMaterialise"
 {
     Properties
     {
-        _Tint ("Flake tint", Color) = (0.86, 0.80, 0.66, 1)
-        _Glow ("Glow (1 = plain alpha)", Float) = 1.0
+        _Tint ("Shard tint", Color) = (0.80, 0.74, 0.62, 1)
 
-        // The animation state. C# owns all of these; nothing here reads a clock.
-        _Progress ("Dissolve progress (0 present, 1 gone)", Range(0,1)) = 0
-        _Wind ("Wind direction xy (unit, ISOTROPIC q-space)", Vector) = (0.92, 0.39, 0, 0)
-        _Aspect ("Panel width / height", Float) = 1.0
+        // The animation state. C# owns both of these; nothing here reads a clock or a camera.
+        _Front ("Debris front position (threshold units)", Float) = -0.15
+        _SizeScale ("Master size multiplier (intensity x tail fade)", Float) = 1.0
 
-        // Shape of the erosion front.
-        _Softness ("Front softness", Float) = 0.15
-        _Ragged ("Front raggedness (0 straight .. 1 pure noise)", Range(0,1)) = 0.55
-        _FrontScale ("Front noise cells across the short side", Float) = 3.5
-        _AgeSpan ("How long a crumbling EDGE point keeps flaking", Float) = 0.30
-        _PlumeSpan ("How long a blown-away flake stays alive", Float) = 1.50
-        _Spread ("How far the plume disperses sideways", Float) = 0.60
-        _Streak ("How much a travelling flake stretches along the wind", Float) = 2.60
-        _Thin ("How much sparser the plume gets as it blows away", Float) = 0.34
-        _TailFade ("1 = the plume must die at progress 1 (a VANISH ends at nothing)", Float) = 1
+        // The field, mirrored from WorldUI/WindowMaterialiseField.cs. The values here are only what
+        // an editor preview would show; C# pushes the live ones through a MaterialPropertyBlock.
+        _LifeSpan ("Shard lifetime (threshold units)", Float) = 1.15
+        _Wind ("Downwind direction, CANVAS-local xy (unit)", Vector) = (0.92, 0.39, 0, 0)
+        _Drift ("Downwind travel at age 1 (host-local units)", Float) = 460
+        _Fall ("Fall at age 1 (host-local units)", Float) = 100
+        _SpinTurns ("Spin scale", Float) = 1.0
 
-        // Shape of the flakes.
-        _FlakeDensity ("Flake noise cells across the short side", Float) = 34
-        _FlakeCut ("Flake threshold", Range(0,0.95)) = 0.52
-        _FlakeSharp ("Flake edge sharpness", Float) = 2.0
-        _EdgeGain ("Crumbling-edge gain", Float) = 1.55
-        _PlumeGain ("Blown-away plume gain", Float) = 0.85
-        _Drift ("Plume travel at full progress (q-space units)", Float) = 0.80
-        _Intensity ("Master amplitude", Range(0,2)) = 1.0
+        // Shading. A FIXED WORLD direction - not a light, not a view vector, not a half vector.
+        _KeyDir ("Key light direction (world, unit)", Vector) = (0.42, 0.78, -0.46, 0)
+        _Ambient ("Ambient term", Range(0,1)) = 0.34
+        _Key ("Key term", Range(0,2)) = 0.78
+        _Fill ("Back-fill term", Range(0,1)) = 0.20
     }
     SubShader
     {
-        Tags { "RenderType"="Transparent" "Queue"="Transparent+550" "IgnoreProjector"="True" }
+        Tags { "RenderType"="Opaque" "Queue"="Geometry+250" "IgnoreProjector"="True" }
         Pass
         {
-            Cull Off
-            ZWrite Off
+            // See TRAP 5. The shard is a closed solid whose winding is gated in C#.
+            Cull Back
+            ZWrite On
             ZTest LEqual
-            Blend One OneMinusSrcAlpha
+            Blend Off
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0
             #include "UnityCG.cginc"
 
-            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+            struct appdata
+            {
+                float4 vertex : POSITION;   // birth point, host-local
+                float3 normal : NORMAL;     // face normal, shard-local
+                float4 tangent : TANGENT;   // corner offset xyz (shard-local, unit), size w
+                float4 uv0 : TEXCOORD0;     // birth uv xy, erosion threshold z, seedA w
+                float4 uv1 : TEXCOORD1;     // tumble axis xyz, turns w
+                float4 uv2 : TEXCOORD2;     // out-of-plane velocity x, drift scale y, seedB z, wander w
+                float4 color : COLOR;       // per-shard shade jitter
+            };
+
+            struct v2f
+            {
+                float4 pos : SV_POSITION;
+                float3 nrm : TEXCOORD0;     // WORLD normal. Derived from unity_ObjectToWorld only.
+                float4 col : TEXCOORD1;
+            };
 
             fixed4 _Tint;
-            float _Glow, _Progress, _Aspect, _Softness, _Ragged, _FrontScale, _AgeSpan;
-            float _PlumeSpan, _Spread, _TailFade, _Streak, _Thin;
-            float _FlakeDensity, _FlakeCut, _FlakeSharp, _EdgeGain, _PlumeGain, _Drift, _Intensity;
-            float4 _Wind;
+            float _Front, _SizeScale, _LifeSpan, _Drift, _Fall, _SpinTurns;
+            float _Ambient, _Key, _Fill;
+            float4 _Wind, _KeyDir;
 
-            // ---- the field. Mirrored EXACTLY three times, on purpose --------------------------
-            // (1) here, (2) in C# WindowMaterialiseField.cs - which decides each CanvasRenderer's
-            // alpha, so the window's own elements wink out along the SAME front these flakes ride,
-            // and (3) in unity/asset-preview/windowmaterialise_field.py, which is what the frame
-            // strips are rendered from. If you change one, change all three; the Python file
-            // carries a table of the constants for the diff.
-
-            float hash21(float2 v)
+            // Rodrigues. The tumble is a function of the shard's own age, so it is head-independent
+            // and identical in both eyes; a shard presents whatever face its own history gives it.
+            float3 spin(float3 v, float3 k, float th)
             {
-                float2 p = frac(v * float2(123.34, 456.21));
-                p += dot(p, p + 45.32);
-                return frac(p.x * p.y);
-            }
-
-            float vnoise(float2 v)
-            {
-                float2 i = floor(v);
-                float2 f = v - i;
-                float2 u = f * f * (3.0 - 2.0 * f);
-                float a = hash21(i);
-                float b = hash21(i + float2(1, 0));
-                float c = hash21(i + float2(0, 1));
-                float d = hash21(i + float2(1, 1));
-                return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
-            }
-
-            // 0 at the upwind edge of the rect, 1 at the downwind edge, linear in between.
-            float sweep(float2 uv)
-            {
-                float2 aw = abs(_Wind.xy);
-                float n = max(aw.x + aw.y, 1e-4);
-                return (dot(uv - 0.5, _Wind.xy) + 0.5 * n) / n;
-            }
-
-            // ISOTROPIC space: a panel 3x wider than tall must not get 3x-stretched flakes.
-            float2 qOf(float2 uv) { return float2(uv.x * _Aspect, uv.y); }
-
-            // (The per-point threshold is `lerp(sweep(uv), vnoise(qOf(uv) * _FrontScale),
-            // _Ragged)` - it is inlined in frag() so the noise term can be reused for the plume's
-            // sideways dispersal instead of being sampled twice. C# has it as a function,
-            // WindowMaterialiseField.Threshold, because the element half needs it on its own.)
-
-            // `cut` is passed in rather than read from _FlakeCut, because the plume RAISES it as
-            // it ages: fewer and fewer cells clear the bar, so the debris gets sparser the further
-            // it blows. That thinning is most of the difference between "blown away" and "a
-            // rectangle of static".
-            float speck(float n, float cut)
-            {
-                return pow(saturate((n - cut) / max(1e-3, 1.0 - cut)), _FlakeSharp);
-            }
-
-            // Soft 0..1 window on "is this UV inside the panel rect". The quad overhangs the rect,
-            // and flakes may only be BORN inside it.
-            float inRect(float2 uv, float w)
-            {
-                float2 e = smoothstep(0.0, w, uv) * smoothstep(0.0, w, 1.0 - uv);
-                return e.x * e.y;
+                float c = cos(th), s = sin(th);
+                return v * c + cross(k, v) * s + k * dot(k, v) * (1.0 - c);
             }
 
             v2f vert (appdata v)
             {
                 v2f o;
-                o.pos = UnityObjectToClipPos(v.vertex);
-                o.uv = v.uv;
+
+                // ---- AGE. Mirrors WindowMaterialiseField.Age exactly ---------------------------
+                // The threshold rode in on the vertex; it is the value of the SAME erosion field the
+                // window's own CanvasRenderer alphas are driven by, sampled at the point this shard
+                // was torn from. That is what makes a shard leave in the frame its own patch of
+                // window goes dark.
+                float age = saturate((_Front - v.uv0.z) / max(_LifeSpan, 1e-3));
+
+                // ---- SIZE. Mirrors WindowMaterialiseField.SizeEnvelope exactly ------------------
+                // Exactly 0 at age 0 and at age 1, which is what leaves a completed appear with no
+                // debris sitting on the finished window and a completed vanish with none in the air.
+                float env = smoothstep(0.0, 0.06, age) * (1.0 - smoothstep(0.72, 1.0, age));
+                float size = v.tangent.w * env * _SizeScale;
+
+                // ---- THE TRAJECTORY, in the host canvas's own local units ----------------------
+                float a2 = age * age;
+                float3 p = v.vertex.xyz;
+
+                // Downwind, IN the window's plane.
+                p.xy += _Wind.xy * (_Drift * v.uv2.y * pow(age, 1.35));
+
+                // OUT OF THE PLANE. This term is the entire redesign: the effect it replaces had no
+                // such term, every flake it drew stayed in the window's plane, and the user called
+                // the result "eher ein 2D-Effekt". The sign is a per-shard constant baked on the
+                // CPU, so which shards go behind the window never depends on where the head is.
+                p.z += v.uv2.x * age;
+
+                // A little fall, and a per-shard wander so the cloud does not read as a rigid field
+                // being translated. Three sines of the shard's OWN seeds against its OWN age - a
+                // function of _Front, never of a clock.
+                p.y -= _Fall * a2;
+                float wa = v.uv2.w * age;
+                p += wa * float3(sin(6.28318 * (v.uv0.w + 1.7 * age)),
+                                 sin(6.28318 * (v.uv2.z + 2.3 * age)),
+                                 sin(6.28318 * (v.uv0.w + v.uv2.z + 1.3 * age)));
+
+                // ---- TUMBLE ---------------------------------------------------------------------
+                float th = 6.28318 * v.uv1.w * _SpinTurns * age;
+                float3 axis = v.uv1.xyz;
+                float3 corner = spin(v.tangent.xyz, axis, th);
+                float3 nrm = spin(v.normal, axis, th);
+
+                float3 obj = p + corner * size;
+                o.pos = UnityObjectToClipPos(float4(obj, 1.0));
+                // UnityObjectToWorldNormal reads unity_WorldToObject. No camera matrix is involved.
+                o.nrm = UnityObjectToWorldNormal(nrm);
+                o.col = v.color;
                 return o;
             }
 
             fixed4 frag (v2f i) : SV_Target
             {
-                // The front sweeps from just before the upwind edge to just past the downwind one,
-                // so presence is EXACTLY 1 at _Progress 0 and EXACTLY 0 at _Progress 1 for every
-                // UV. That exactness is what lets C# hand the window back at full alpha with no
-                // epsilon and no "close enough" branch.
-                float front = _Progress * (1.0 + 2.0 * _Softness) - _Softness;
-
-                // A - THE CRUMBLING EDGE, still sitting on the window where it is being eaten. Its
-                // life is short (_AgeSpan) because it is the band, not the debris.
-                float2 q  = qOf(i.uv);
-                float nA   = vnoise(q * _FrontScale);
-                float tA   = lerp(sweep(i.uv), nA, _Ragged);
-                float ageA = saturate((front - tA) / max(_AgeSpan, 1e-3));
-                float envA = smoothstep(0.0, 0.12, ageA) * (1.0 - smoothstep(0.28, 0.80, ageA));
-                float A = speck(vnoise(q * _FlakeDensity), _FlakeCut) * envA * _EdgeGain
-                          * inRect(i.uv, 0.03);
-
-                // B - THE PLUME. The same field sampled UPWIND of this fragment: a flake out here
-                // is the one that was born back there. The offset depends only on _Progress, so it
-                // is an AMPLITUDE and never a frequency; pow 1.5 gets it moving early instead of
-                // sitting still for the first third.
-                float travel = _Drift * pow(_Progress, 1.5);
-                float invA   = 1.0 / max(_Aspect, 1e-3);
-                float2 wuv = float2(_Wind.x * invA, _Wind.y);            // downwind, in UV
-                float2 puv = float2(-_Wind.y * invA, _Wind.x);           // across the wind, in UV
-                float2 uvB = i.uv - wuv * travel;
-                float2 qB0 = qOf(uvB);
-                float nB   = vnoise(qB0 * _FrontScale);
-                // DISPERSE. A plume that only translates reads as a sliding texture; shearing the
-                // source point sideways by a noise that grows with travel is what turns it into
-                // something blowing apart. Same noise as the ragged front, so it costs nothing.
-                uvB -= puv * ((nB - 0.5) * _Spread * travel);
-                float2 qB  = qOf(uvB);
-                float tB   = lerp(sweep(uvB), nB, _Ragged);
-                float ageB = saturate((front - tB) / max(_PlumeSpan, 1e-3));
-                float envB = smoothstep(0.03, 0.22, ageB) * (1.0 - smoothstep(0.55, 1.0, ageB));
-                // STREAK ALONG THE WIND. A flake that has been travelling is a streak, not a dot,
-                // and a field of dots at any density reads as static rather than as motion. The
-                // noise coordinate is compressed ALONG the wind by a factor that grows with age, in
-                // the wind-aligned frame — so the same cheap value noise draws round specks at the
-                // crumbling edge and long streaks out in the plume.
-                float2 wq = normalize(_Wind.xy);
-                float2 pq = float2(-wq.y, wq.x);
-                float stretch = 1.0 + _Streak * ageB;
-                float2 qS = wq * (dot(qB, wq) / stretch) + pq * dot(qB, pq);
-                // _TailFade IS THE ONE PLACE THE TWO DIRECTIONS ARE NOT MIRROR IMAGES, and they
-                // must not be. A VANISH has to END at nothing, so its plume is faded out over the
-                // last third of progress. An APPEAR STARTS at progress 1 - so the same fade would
-                // make its first frames completely empty, i.e. a window that is live and clickable
-                // while showing the player nothing at all. C# passes 1 for a vanish and 0 for an
-                // appear.
-                float tail = 1.0 - _TailFade * smoothstep(0.68, 1.0, _Progress);
-                // The plume's rect edge is soft AND ragged: a hard `inRect` drew a straight-sided
-                // rectangle of debris with a ruler-flat bottom, which no wind has ever done.
-                float edgeB = inRect(uvB, 0.13) * (0.45 + 0.55 * nB);
-                float B = speck(vnoise(qS * _FlakeDensity * 1.83 + 7.3), _FlakeCut + _Thin * ageB)
-                          * envB * _PlumeGain * edgeB * tail;
-
-                float a = saturate(A + B) * _Intensity * _Tint.a;
-                return fixed4(_Tint.rgb * a * _Glow, a);
+                // A FIXED WORLD KEY, and deliberately not a real light: the game's lighting is a
+                // deferred rig the mod does not own, and a Fresnel or half-vector term would put the
+                // head back into the effect through the shading instead of through the geometry.
+                // Two opposed lambert terms so a face turned away from the key is dim rather than
+                // black, which is what makes the four facets of a shard read as a solid.
+                float3 n = normalize(i.nrm);
+                float3 L = normalize(_KeyDir.xyz);
+                float d = dot(n, L);
+                float shade = _Ambient + _Key * saturate(d) + _Fill * saturate(-d);
+                return fixed4(_Tint.rgb * shade * i.col.rgb, 1.0);
             }
             ENDCG
         }

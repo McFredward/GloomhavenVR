@@ -43,10 +43,27 @@ namespace GloomhavenVR.WorldUI;
 /// <para><b>HOW IT LOOKS, IN TWO HALVES THAT SHARE ONE FIELD.</b> The window's own uGUI elements
 /// are removed at ELEMENT granularity — each <c>CanvasRenderer</c> under the host gets its
 /// <c>SetAlpha</c> driven by <see cref="WindowMaterialiseField.PresenceOf"/> over its own extent — so
-/// the window disintegrates in a wave along the wind instead of dimming uniformly. At the same
-/// wave front, one quad running <c>GloomhavenVR/WindowMaterialise</c> paints the flakes peeling off
-/// and streaming downwind. Both halves evaluate the SAME field, which is why they agree; see
-/// <see cref="WindowMaterialiseField"/> for the arithmetic and for the stereo argument.</para>
+/// the window disintegrates in a wave along the wind instead of dimming uniformly. At the same wave
+/// front, a few hundred <b>real tetrahedral shards</b> are torn out of the elements that are going
+/// dark and fly off through the room. Both halves evaluate the SAME field, which is why a shard
+/// leaves in the frame its own patch of window disappears; see <see cref="WindowMaterialiseField"/>
+/// for the arithmetic, the two fronts, and the stereo argument.</para>
+///
+/// <para><b>WHAT ModBuild 294 CHANGED, AND WHY.</b> User, 2026-08-26, on 292/293: <i>"Ich mag die
+/// Fenster ein- und ausblend-Animation nicht. Ich will eher, dass es wirkliche Partikeleffekte in
+/// der 3D-Umgebung auslöst, aktuell ist es eher ein 2D-Effekt."</i> He was describing the mechanism
+/// correctly. The debris used to be painted on ONE quad parented to the window's host rect, in the
+/// window's own plane, with <c>ZWrite Off</c> — nothing it drew could ever be nearer or further than
+/// the window or be hidden by a table leg. It is now world geometry with an out-of-plane launch
+/// velocity, depth writes, and a split across two renderers that bracket the window in the panel
+/// draw ladder. See <see cref="WindowMaterialiseDebris"/>… strictly, the <c>WindowMaterialiseDebris</c>
+/// partial in <c>WindowMaterialiseDebris.cs</c>, whose class doc carries the whole argument.</para>
+///
+/// <para><b>AND NO HEAD POSE.</b> User, same message: <i>"Der Effekt soll nicht an den
+/// Kopfbewegungen gebunden sein"</i>. Camera-facing billboards are head-bound by definition, so the
+/// debris is solids with their own tumble instead. Nothing in this feature reads a camera position,
+/// a view matrix, a screen position or a depth texture, and that is checked mechanically by the
+/// preview's identifier audit rather than asserted.</para>
 ///
 /// <para><b>WHY ELEMENT GRANULARITY AND NOT A PER-PIXEL DISSOLVE.</b> A per-pixel dissolve of a
 /// canvas means putting a material on every <c>Graphic</c>. That is invasive, it is silently wrong
@@ -56,17 +73,21 @@ namespace GloomhavenVR.WorldUI;
 /// that uGUI itself does not write, needs no rebuild, no layout and no material, and is restored by
 /// writing the recorded number back.</para>
 ///
-/// <para><b>NO PARTICLE SYSTEM.</b> Deliberately. The rig runs at roughly 9.57x world scale and 37
-/// of 43 of the game's own particle systems use <c>ParticleSystemScalingMode.Local</c>, which
-/// ignores hierarchy scale by design — a burst sized in local units is invisible or absurd. The
-/// flakes here are a procedural field on ONE quad that is sized from the panel's own rect, so
-/// scaling is not a parameter that can be got wrong. The quad's world size is logged at start.</para>
+/// <para><b>REAL PARTICLES, BUT NO <c>ParticleSystem</c> COMPONENT.</b> The rig runs at roughly
+/// 9.57 world units per metre (198 on the map-room table) and 37 of 43 of the game's own particle
+/// systems use <c>ParticleSystemScalingMode.Local</c>, which ignores hierarchy scale by design — a
+/// burst sized in local units is invisible or absurd. Every size in this feature is authored in
+/// APPARENT METRES and converted once, from the panel's own measured <c>lossyScale</c> and the live
+/// rig scale, with every link of that chain logged. There is also no per-frame CPU simulation to
+/// pay for: a shard's whole trajectory is a closed function of one uniform, so N flying shards cost
+/// two <c>SetFloat</c>s. The four reasons in full are in the <c>WindowMaterialiseDebris.cs</c> class
+/// doc.</para>
 ///
 /// <para><b>LOCAL PRESENTATION ONLY.</b> Nothing here touches the wire. No field is added to any
 /// packet, no <c>NetProtocol.ModBuild</c> change is implied, and a window's pose sync is untouched
-/// — this class writes element alphas and one mod-owned quad, both of which are per-client
-/// decoration. A peer sees their own animation, on their own client, at their own configured
-/// duration.</para>
+/// — this class writes element alphas and two mod-owned mesh renderers, both of which are
+/// per-client decoration. A peer sees their own animation, on their own client, at their own
+/// configured duration.</para>
 /// </summary>
 internal static partial class WindowMaterialise
 {
@@ -118,8 +139,11 @@ internal static partial class WindowMaterialise
         _bound = true;
 
         _enabled = file.Bind("WorldUI", "WindowMaterialise", Defaults.WindowMaterialise,
-            "Floating windows MATERIALISE out of wind-blown flakes when they appear and blow away "
-            + "into them when they close, instead of popping in and out from one frame to the next. "
+            "Floating windows MATERIALISE out of flying debris when they appear and break apart into "
+            + "it when they close, instead of popping in and out from one frame to the next. The "
+            + "debris is real geometry in the room: it passes in front of and behind the window, it "
+            + "is hidden by furniture it goes behind, and it separates from the window with real "
+            + "parallax when you lean. Nothing about it is attached to your head. "
             + "OFF restores exactly today's behaviour: the window is shown in one frame and released "
             + "in one frame, and not a single alpha is written by this feature. The animation NEVER "
             + "delays a window: it is fully interactive from its first frame, and a closing window "
@@ -149,9 +173,10 @@ internal static partial class WindowMaterialise
         _intensity = file.Bind("WorldUI", "WindowMaterialiseIntensity",
             Defaults.WindowMaterialiseIntensity,
             new ConfigDescription(
-                "How strongly the wind-blown flakes are drawn. 0 leaves the element-by-element "
-                + "dissolve with no flakes at all (a clean directional wipe); 1 is the shipped look; "
-                + "2 is a heavy ash storm. This scales an AMPLITUDE only — it cannot change how "
+                "How large the flying debris is. 0 leaves the element-by-element dissolve with no "
+                + "debris at all (a clean directional wipe, and no extra geometry is built at all); "
+                + "1 is the shipped look; 2 is heavy rubble. This scales an AMPLITUDE only — it "
+                + "cannot change how "
                 + "fast anything moves, because the effect has no clock: every position in it is a "
                 + "function of progress. Range 0-2.",
                 new AcceptableValueRange<float>(0f, 2f)));
@@ -230,9 +255,9 @@ internal static partial class WindowMaterialise
             return _material;
         Shader? sh = BundleShaders.Resolve(
             ShaderName, Scope,
-            "windows materialise out of wind-blown flakes and blow away into them.",
+            "windows materialise out of flying debris and break apart into it.",
             "Windows will still appear and close ELEMENT BY ELEMENT along the wind (that half is "
-            + "pure C# and needs no shader) but with no flakes drawn. Nothing is delayed or lost.");
+            + "pure C# and needs no shader) but with no debris drawn. Nothing is delayed or lost.");
         if (sh == null)
             return null;
         _material = new Material(sh) { name = "GloomhavenVR.WindowMaterialise" };
