@@ -87,6 +87,53 @@ internal static class EscMenuInputBlock
         {
             Degrade($"registration threw: {e.Message}");
         }
+
+        RegisterShowSafety(harmony);
+    }
+
+    /// <summary>
+    /// Second, INDEPENDENT registration: the never-blocked guard
+    /// (<see cref="EscMenuShowSafety"/>). Deliberately in its own try/catch and its own resolve
+    /// step, because it must survive the input-block patches failing — the input block is a
+    /// convenience (who owns the X button), the show safety is the user's absolute ruling that
+    /// the options menu is ALWAYS openable, and one must not be able to take the other down.
+    ///
+    /// <para>Targets are resolved BEFORE <c>PatchAll</c>: Harmony throws when a
+    /// <c>TargetMethod</c>/<c>TargetMethods</c> yields nothing, and a game update that renames
+    /// one of these has to degrade to a strict no-op, not to an exception during registration
+    /// (SettingsClickExemption pattern).</para>
+    /// </summary>
+    private static void RegisterShowSafety(Harmony harmony)
+    {
+        try
+        {
+            bool transition = EscMenuTransitionFinalizer.Resolve() != null;
+            int checks = EscMenuMultiplayerCheckFinalizer.Resolve().Count;
+
+            if (transition)
+                harmony.PatchAll(typeof(EscMenuTransitionFinalizer));
+            if (checks > 0)
+                harmony.PatchAll(typeof(EscMenuMultiplayerCheckFinalizer));
+
+            if (!transition && checks == 0)
+            {
+                EscMenuShowSafety.Degrade("no ESC-menu show-safety target could be resolved");
+                return;
+            }
+
+            VRLog.Info("WorldUI",
+                $"EscMenuShowSafety: registered — {(transition ? "1" : "0")} transition finalizer " +
+                $"(ESCMenu.OnTransitionBegin) + {checks} multiplayer-predicate finalizer(s). " +
+                "UnityEvent.Invoke has no per-listener try/catch, so a throw inside the pause " +
+                "menu's own OnShow escapes UIWindow.EvaluateAndTransitionToVisualState BEFORE " +
+                "'m_CurrentVisualState = state' and the window never opens at all. These " +
+                "finalizers return null (= suppress), Invoke returns, the state is assigned, and " +
+                "the options menu opens — always. Desktop play is untouched.");
+        }
+        catch (Exception e)
+        {
+            EscMenuShowSafety.Degrade($"registration threw: {e.Message}");
+        }
     }
 
     /// <summary>Log the first failure and thereafter stay silent.</summary>

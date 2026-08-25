@@ -1,5 +1,9 @@
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -58,10 +62,33 @@ internal sealed class OptionsToggle
     /// it until a scenario reload re-created the singleton — exactly the reported symptom. A
     /// deactivated (not destroyed) MonoBehaviour is still a live C# reference, so we cache it the
     /// first time the singleton is valid and keep using it: reopen re-activates its GameObject and
-    /// calls Show(). The cache self-invalidates on scene unload (the object is destroyed →
-    /// Unity-null), where it is re-acquired from the fresh singleton.
+    /// calls Show().
+    ///
+    /// <para>STALENESS — ModBuild 289's defect, and why this cache is no longer trusted on its
+    /// own. The paragraph above claimed the cache "self-invalidates on scene unload (the object
+    /// is destroyed → Unity-null)". That premise is FALSE for one of the two ESC menus.
+    /// <c>UIMapEscMenu</c> survives a scene load: the ModBuild 289 log has the campaign map's
+    /// <c>UI Map Esc Menu</c> still present, as a scene ROOT with <c>active=True</c>, in the
+    /// MenuLogo "SCENE SWEEP (at Awake)" census taken during the MAIN MENU scene's Awake phase,
+    /// after the map had been left. It is never destroyed, so a Unity fake-null test never clears
+    /// it, so the mod kept calling <c>Show()</c> on the MAP's pause menu inside a SCENARIO — where
+    /// its <c>CheckMultiplayerButton</c> dereferences a <c>MapChoreographer</c> that does not
+    /// exist. See <see cref="ResolveMenu"/>, which no longer lets this field answer on its own.</para>
     /// </summary>
     private ESCMenu? _menu;
+
+    /// <summary>
+    /// The handle of the scene that was ACTIVE when <see cref="_menu"/> was resolved. A cached
+    /// menu that outlived a scene change is not usable even though Unity still says it is alive,
+    /// so the cache may only answer while this still matches the live active scene. Handle 0 is
+    /// no scene, which matches nothing.
+    /// </summary>
+    private int _menuSceneHandle;
+
+    /// <summary>Where <see cref="_menu"/> came from, verbatim in every open/close log line, so a
+    /// future log says WHICH menu was shown and HOW it was chosen without needing a crash to
+    /// reveal it (ModBuild 289's log could only name the map menu because the game threw).</summary>
+    private string _menuSource = "unresolved";
 
     /// <summary>
     /// BELT reconcile state (Issue 1). After the mod acts on a tap it records the INTENDED
@@ -84,33 +111,10 @@ internal sealed class OptionsToggle
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
             return;
 
-        // Cheap re-acquire every frame: cached ref (survives deactivation) or the singleton.
-        if (_menu == null && Singleton<ESCMenu>.IsInitialized)
-            _menu = Singleton<ESCMenu>.Instance;
-        // EXPENSIVE recovery + diagnostic ONLY on an actual tap (never per-frame): if the cache
-        // and singleton are both empty when the user presses to (re)open, scan the scene INCLUDING
-        // inactive objects. The game's Singleton clears its ref only in OnDestroy, so this recovers
-        // an ESCMenu that is alive but lost to the singleton (deactivated / reparented by the modal
-        // float). If this ALSO finds nothing, the object was genuinely DESTROYED on close — the log
-        // line then says so unambiguously (build 08600b7's log proved every post-close tap produced
-        // a perfect shortTap yet OptionsToggle still hit menu==null: this pins destroyed-vs-lost).
-        if (_menu == null && NonDominantHold.ShortTapThisFrame)
-        {
-            ESCMenu[] found = UnityEngine.Object.FindObjectsOfType<ESCMenu>(includeInactive: true);
-            if (found.Length > 0)
-            {
-                _menu = found[0];
-                VRLog.Info("WorldUI", $"OptionsToggle: ESCMenu recovered by scene scan (incl-inactive, " +
-                                      $"active={found[0].gameObject.activeInHierarchy}) — singleton had lost it.");
-            }
-            else
-            {
-                VRLog.Info("WorldUI", $"OPTIONS TAP: no ESCMenu object exists (Singleton.IsInitialized=" +
-                                      $"{Singleton<ESCMenu>.IsInitialized}, scene-scan incl-inactive found none) — " +
-                                      "the game DESTROYED the pause menu on close; a reload currently re-creates it.");
-            }
-        }
-        ESCMenu? menu = _menu;
+        // WHICH MENU. Resolve the ESC menu that belongs to the CURRENT context rather than
+        // whatever was cached first — see ResolveMenu. Cheap every frame (a static field read and
+        // one reference compare); the expensive scene scan inside it still runs on a tap only.
+        ESCMenu? menu = ResolveMenu();
         if (menu == null)
         {
             _open = false; // no pause menu (wrong scene / destroyed) — drop the state
@@ -137,16 +141,19 @@ internal sealed class OptionsToggle
                 OpenState live = Probe(menu);
                 if (live.Any != _intendedOpen)
                 {
+                    string reassertWhy = string.Empty;
+                    bool reasserted = true;
                     if (_intendedOpen)
-                        OpenMenu(menu);
+                        reasserted = OpenMenu(menu, out reassertWhy);
                     else
                         CloseAll(menu, live);
-                    _open = _intendedOpen;
+                    _open = _intendedOpen && reasserted; // record what happened, not what was asked for
                     _spentPressId = _intendPressId; // press stays spent; its release must not re-toggle
                     escOpen = menu.IsOpen;          // re-read so the external-resync below stays consistent
                     VRLog.Info("WorldUI", $"[OptionsToggle] reconcile: live state ({live.Any}) disagreed with " +
                                           $"intent ({_intendedOpen}) on the same press — re-asserted " +
-                                          $"{(_intendedOpen ? "OPEN" : "CLOSED")}.");
+                                          $"{(_intendedOpen ? "OPEN" : "CLOSED")} on {menu.GetType().Name}" +
+                                          $"{(reasserted ? "." : $" but the window STILL reports closed: {reassertWhy}.")}");
                 }
             }
         }
@@ -189,12 +196,22 @@ internal sealed class OptionsToggle
         // re-showing the parent) can desync. A sub-menu that is focused/open while the ESC
         // menu is closed still forces a CLOSE, so X while any sub-menu shows always closes
         // everything rather than "reopening". These probes run ONLY on the tap frame (never
-        // per-frame), so the singleton lookups and the one compendium scene scan are cheap
-        // at human tap cadence; the owners are reused by the close branch below.
+        // per-frame); the owners are reused by the close branch below.
+        //
+        // COST. The old comment here asserted these probes were "cheap at human tap cadence".
+        // ModBuild 289 falsified that: [Perf] SPIKE frames 8957 / 13406 / 14908 each attributed
+        // 10.5-11.2 ms of an 11.11 ms budget to OptionsToggle — one dropped frame per tap, and on
+        // the throwing taps that whole budget bought nothing. So the tap frame is now MEASURED
+        // rather than asserted (see LogTapCost), and the compendium probe no longer sweeps the
+        // scene (see FindOpenCompendiumWindow).
+        long tProbe0 = Stopwatch.GetTimestamp();
         OpenState st = Probe(menu);
+        long tProbe1 = Stopwatch.GetTimestamp();
         bool actuallyOpen = st.Any;
 
-        VRLog.Info("WorldUI", $"[OptionsToggle] X tap: actuallyOpen={actuallyOpen} (esc={st.Esc} opt={st.Opt} " +
+        string menuName = menu.GetType().Name;
+        VRLog.Info("WorldUI", $"[OptionsToggle] X tap on {menuName} (source: {_menuSource}): " +
+                              $"actuallyOpen={actuallyOpen} (esc={st.Esc} opt={st.Opt} " +
                               $"mp={st.Mp} comp={st.Comp}) -> {(actuallyOpen ? "CLOSE" : "OPEN")}");
 
         int pressId = NonDominantHold.PressId;
@@ -205,18 +222,42 @@ internal sealed class OptionsToggle
             _spentPressId = pressId; // this press did the close — it must not reopen
             ArmReconcile(intendedOpen: false, pressId);
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu + all sub-menus CLOSED (X tap) — back to the game.");
+            VRLog.Info("WorldUI", $"OPTIONS TAP: {menuName} + all sub-menus CLOSED (X tap) — back to the game.");
         }
         else
         {
-            OpenMenu(menu);
-            _open = true;
+            // VERIFY THE OUTCOME, do not assert it. The old success line said "pause menu OPENED"
+            // unconditionally and printed activeInHierarchy, which is not the same question:
+            // UIWindow.Show() can return with the window still Hidden (it early-returns when the
+            // window is inactive or disabled, and before ModBuild 290 a throwing onTransitionBegin
+            // listener abandoned the transition before 'm_CurrentVisualState = state'). So ask the
+            // window afterwards and, when the answer is no, say WHY.
+            bool opened = OpenMenu(menu, out string why);
+            if (!opened && TryFallbackMenu(menu, out ESCMenu other, out why))
+            {
+                opened = true;
+                menuName = other.GetType().Name;
+            }
+            // The latch records what HAPPENED, not what was asked for. Recording `true` after a
+            // failed open used to produce a phantom "pause menu closed externally" line on the very
+            // next tick and left the user alternating between a dead open and a dead close; with
+            // the truth in here, a hammered button retries the OPEN every time, which is what the
+            // player is asking for.
+            _open = opened;
             _spentPressId = pressId; // this press did the open — it must not re-close
             ArmReconcile(intendedOpen: true, pressId);
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("WorldUI", "OPTIONS TAP: pause menu OPENED (X tap) — floats in front of the player " +
-                                  $"in VR (activeInHierarchy={menu.GetComponent<UIWindow>().gameObject.activeInHierarchy}).");
+            if (opened)
+                VRLog.Info("WorldUI", $"OPTIONS TAP: {menuName} OPENED (X tap) — floats in front of the " +
+                                      "player in VR. VERIFIED: the window reports IsOpen after Show().");
+            else
+                VRLog.Error("WorldUI", $"OPTIONS TAP: {menuName} DID NOT OPEN (X tap) — Show() returned and " +
+                                       $"the window still reports IsOpen=false. REASON: {why}. This violates " +
+                                       "the standing user ruling that the options menu must ALWAYS be openable; " +
+                                       "treat this line as the lead, not the tap that produced it.");
         }
+
+        LogTapCost(tProbe0, tProbe1, Stopwatch.GetTimestamp(), st, actuallyOpen);
     }
 
     /// <summary>Record the intent the mod just asserted so the next tick can belt-reconcile it once.</summary>
@@ -225,6 +266,248 @@ internal sealed class OptionsToggle
         _intendedOpen = intendedOpen;
         _intendPressId = pressId;
         _reconcilePending = true;
+    }
+
+    /// <summary>
+    /// WHICH ESC MENU — the ModBuild 290 fix for "the X button did nothing, twenty taps in a row".
+    ///
+    /// <para>THE SHAPE OF THE BUG. The game has exactly two ESC menus, <c>UIMapEscMenu</c> (the
+    /// campaign map's) and <c>UIScenarioEscMenu</c> (the dungeon's), and they are BOTH
+    /// <c>ESCMenu : Singleton&lt;ESCMenu&gt;</c> — one static slot, last <c>Awake</c> wins. The
+    /// map's menu additionally survives scene loads. ModBuild 289: scenario #1 opened the scenario
+    /// menu correctly (the map menu did not exist yet); the player then visited the map, where
+    /// <see cref="_menu"/> was filled with <c>UIMapEscMenu</c>; entering scenario #2 destroyed
+    /// nothing the cache pointed at, so every subsequent tap called <c>Show()</c> on the MAP's
+    /// pause menu inside a dungeon, where <c>UIMapEscMenu.CheckMultiplayerButton</c> reads
+    /// <c>Singleton&lt;MapChoreographer&gt;.Instance.PartyAtHQ</c> on a null instance.</para>
+    ///
+    /// <para>THE POLICY, in priority order:</para>
+    /// <list type="number">
+    /// <item><description>THE GAME'S OWN REGISTRATION WINS. <c>Singleton&lt;ESCMenu&gt;.Instance</c>
+    /// is whichever menu awoke last, which inside a scenario is always the scenario menu and on
+    /// the map is always the map menu. This alone answers the ModBuild 289 case: the singleton was
+    /// never wrong — only the mod's cache was. It is a static field read, so it is free every
+    /// frame.</description></item>
+    /// <item><description>THE CACHE ANSWERS ONLY WITHIN ITS OWN SCENE. It exists for one reason
+    /// (a menu the mod hid is deactivated and can drop out of the singleton, which is what used to
+    /// break REOPEN), and that reason never spans a scene change. A cached menu that outlived the
+    /// scene it was resolved in is dropped, which is precisely the invalidation the old
+    /// "self-invalidates on scene unload" premise assumed Unity would do for free and does
+    /// not.</description></item>
+    /// <item><description>THE SCAN IS RANKED, NOT <c>found[0]</c>. With both menus alive at once
+    /// the old fallback picked whichever the engine listed first, i.e. a coin flip between the
+    /// right menu and a crash. Candidates are now scored on scene membership, live-ness, and
+    /// whether their own prerequisite exists — a <c>UIMapEscMenu</c> without a
+    /// <c>MapChoreographer</c> is the exact object that threw, so it is ranked last rather than
+    /// merely hoped against.</description></item>
+    /// </list>
+    /// </summary>
+    private ESCMenu? ResolveMenu()
+    {
+        // 1. The game's live registration.
+        ESCMenu? live = Singleton<ESCMenu>.IsInitialized ? Singleton<ESCMenu>.Instance : null;
+        if (live != null)
+        {
+            if (!ReferenceEquals(live, _menu))
+                Adopt(live, "Singleton<ESCMenu> (the game's own live registration)");
+            return _menu;
+        }
+
+        // 2. The cache, scoped to the scene it was taken in.
+        if (_menu != null)
+        {
+            if (SceneManager.GetActiveScene().handle == _menuSceneHandle)
+                return _menu;
+
+            VRLog.Info("WorldUI",
+                $"[OptionsToggle] cache DROPPED: the cached {_menu.GetType().Name} was resolved while a " +
+                "DIFFERENT scene was active and the game's Singleton<ESCMenu> is now empty, so it can no " +
+                "longer be trusted to be this context's pause menu. UIMapEscMenu survives scene loads, so " +
+                "a Unity fake-null test would never have cleared it — this is the invalidation that " +
+                "ModBuild 289's twenty dead taps were missing.");
+            _menu = null;
+            _menuSource = "unresolved";
+            _open = false;
+            // Deliberately NOT spending the in-flight press. The tap that reached this line is the
+            // player asking for the menu; spending it would make the FIRST tap after every context
+            // change do nothing, which is the same complaint under a different cause. The toggle
+            // decision below re-reads the newly resolved window's live state anyway, so a stale
+            // `_open` cannot survive to mis-toggle.
+        }
+
+        // 3. EXPENSIVE recovery ONLY on an actual tap (never per-frame).
+        if (!NonDominantHold.ShortTapThisFrame)
+            return null;
+
+        List<ESCMenu> ranked = RankedCandidates(out string census);
+        if (ranked.Count == 0)
+        {
+            VRLog.Info("WorldUI",
+                "OPTIONS TAP: no ESCMenu object exists (Singleton<ESCMenu>.IsInitialized=false, " +
+                "scene-scan incl-inactive found none) — the game DESTROYED the pause menu on close; " +
+                "a reload currently re-creates it.");
+            return null;
+        }
+
+        VRLog.Info("WorldUI",
+            $"[OptionsToggle] ESCMenu RANKED SCAN picked {ranked[0].GetType().Name} out of " +
+            $"{ranked.Count} candidate(s): {census}. The scan runs only when the game's own singleton " +
+            "is empty AND the cache has expired.");
+        Adopt(ranked[0], $"ranked scene scan ({ranked.Count} candidate(s))");
+        return _menu;
+    }
+
+    /// <summary>
+    /// Every live <c>ESCMenu</c> in the scene, best-first. The scoring is the whole point: the
+    /// pre-ModBuild-290 fallback took <c>found[0]</c>, and once BOTH menus are alive at once —
+    /// which is the state the campaign map leaves behind, because <c>UIMapEscMenu</c> is never
+    /// destroyed — that was a coin flip between the right menu and a guaranteed crash.
+    ///
+    /// <para>Three terms, in the order they matter:</para>
+    /// <list type="bullet">
+    /// <item><description><b>+4 in the active scene</b> — the strongest available signal that a
+    /// menu belongs to what the player is currently looking at.</description></item>
+    /// <item><description><b>+2 active in the hierarchy</b> — a live menu beats a parked one, but
+    /// only as a tie-break: the mod's own close path DEACTIVATES the menu it hid, so
+    /// "inactive" must never disqualify a candidate outright (that was the original reopen bug).
+    /// </description></item>
+    /// <item><description><b>-8 needs a MapChoreographer and there is none</b> — the exact object
+    /// that threw in ModBuild 289. <c>UIMapEscMenu.CheckMultiplayerButton</c> and its
+    /// <c>OnShow</c> both dereference <c>Singleton&lt;MapChoreographer&gt;.Instance</c> with no
+    /// null check, so off the campaign map that menu is not merely a worse choice, it is a broken
+    /// one. The weight is larger than the other two combined so it always loses to any
+    /// alternative, and it is still only a RANKING — with no other candidate it is picked anyway,
+    /// because a partially-working menu beats no menu at all (the ruling).</description></item>
+    /// </list>
+    /// </summary>
+    private static List<ESCMenu> RankedCandidates(out string census)
+    {
+        ESCMenu[] found = UnityEngine.Object.FindObjectsOfType<ESCMenu>(includeInactive: true);
+        Scene activeScene = SceneManager.GetActiveScene();
+        bool choreographer = Singleton<MapChoreographer>.IsInitialized;
+
+        var kept = new List<ESCMenu>(found.Length);
+        var scores = new List<int>(found.Length);
+        var text = new StringBuilder();
+        for (int i = 0; i < found.Length; i++)
+        {
+            ESCMenu c = found[i];
+            if (c == null)
+                continue;
+
+            bool inActiveScene = c.gameObject.scene == activeScene;
+            bool liveInHierarchy = c.gameObject.activeInHierarchy;
+            bool wantsChoreographer = c is UIMapEscMenu;
+            int score = (inActiveScene ? 4 : 0) + (liveInHierarchy ? 2 : 0)
+                        + (wantsChoreographer && !choreographer ? -8 : 0);
+
+            // Insertion sort, best-first. There are two ESCMenu subclasses in the whole game, so
+            // the list is never longer than a handful and the O(n^2) is free.
+            int at = 0;
+            while (at < scores.Count && scores[at] >= score)
+                at++;
+            kept.Insert(at, c);
+            scores.Insert(at, score);
+
+            if (text.Length > 0)
+                text.Append("; ");
+            text.Append($"{c.GetType().Name} score={score} (activeScene={inActiveScene} " +
+                        $"activeInHierarchy={liveInHierarchy} needsMapChoreographer={wantsChoreographer})");
+        }
+
+        census = $"{text} [MapChoreographer alive={choreographer}]";
+        return kept;
+    }
+
+    /// <summary>
+    /// SECOND CHANCE. The first-choice menu returned from <c>Show()</c> still reporting closed, so
+    /// try every OTHER ESCMenu in the scene before giving up on the tap. This can never produce two
+    /// open menus, because it only runs when the first one demonstrably did not open.
+    ///
+    /// <para>It exists because the mod removed the game's own redundancy: while VR runs,
+    /// <see cref="Patches.ShowUIWindowSuppressor"/> blocks the game's <c>UI_PAUSE</c> auto-show so
+    /// that one X press cannot toggle the menu twice. That is correct — both menus register that
+    /// handler in <c>Awake</c> and only unregister in <c>OnDestroy</c>, so with the never-destroyed
+    /// map menu still subscribed, un-suppressing it would open BOTH menus at once inside a
+    /// scenario. The redundancy therefore has to come from here instead.</para>
+    /// </summary>
+    private bool TryFallbackMenu(ESCMenu failed, out ESCMenu opened, out string why)
+    {
+        opened = failed;
+        why = "no other ESCMenu exists to fall back to";
+        List<ESCMenu> ranked = RankedCandidates(out string census);
+        for (int i = 0; i < ranked.Count; i++)
+        {
+            ESCMenu c = ranked[i];
+            if (ReferenceEquals(c, failed))
+                continue;
+            if (!OpenMenu(c, out why))
+            {
+                VRLog.Warn("WorldUI",
+                    $"[OptionsToggle] second-chance {c.GetType().Name} ALSO refused to open: {why}");
+                continue;
+            }
+
+            opened = c;
+            Adopt(c, "second chance after the first-choice menu refused to open");
+            VRLog.Warn("WorldUI",
+                $"[OptionsToggle] SECOND CHANCE TOOK: {failed.GetType().Name} refused to open, so " +
+                $"{c.GetType().Name} was opened instead and is now the menu this mod drives. " +
+                $"Candidates: {census}. The options menu is never allowed to be unopenable, so a " +
+                "first-choice failure falls through rather than ending the tap.");
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Take <paramref name="menu"/> as the working ESC menu and re-base every piece of state that
+    /// was keyed to the previous one. The open-latch is re-read from the NEW window rather than
+    /// carried over, so switching menus can never present as a phantom "opened/closed externally"
+    /// edge. The in-flight press is deliberately NOT spent: adoption can land on the very tap the
+    /// player made, and spending it would trade "the menu never opens" for "the first tap after
+    /// every context change never opens it".
+    /// </summary>
+    private void Adopt(ESCMenu menu, string source)
+    {
+        string previous = _menu != null ? _menu.GetType().Name : "<none>";
+        _menu = menu;
+        _menuSource = source;
+        _menuSceneHandle = SceneManager.GetActiveScene().handle;
+        _open = menu.IsOpen;
+        VRLog.Info("WorldUI",
+            $"[OptionsToggle] ESC MENU RESOLVED: now driving {menu.GetType().Name} " +
+            $"(was {previous}), from {source}; window IsOpen={_open}, " +
+            $"activeInHierarchy={menu.gameObject.activeInHierarchy}. The runtime TYPE is logged on " +
+            "every open from here on, so a future log names the menu without needing a crash to do it.");
+    }
+
+    /// <summary>
+    /// MEASURE the tap frame instead of asserting it is cheap. ModBuild 289 attributed 10.5-11.2 ms
+    /// to OptionsToggle on three separate tap frames against an 11.11 ms budget, while the doc
+    /// comment above the probes claimed they were "cheap at human tap cadence" — a comment is not
+    /// a measurement, and two of those three frames were spent opening nothing at all.
+    ///
+    /// <para>The split is deliberately only two terms, because that is all it takes to settle the
+    /// question: everything the MOD does before touching the game is the probe, and everything
+    /// after is the game's own <c>Show()</c>/<c>Hide()</c> cascade running on our call stack. If
+    /// ACTION dominates, the 10 ms is the game's window machinery and the mod cannot make it
+    /// cheaper by tuning its own probes; if PROBE dominates, it is ours to fix. Tap-frequency
+    /// only, so this instrument costs nothing between taps.</para>
+    /// </summary>
+    private void LogTapCost(long t0, long t1, long t2, OpenState st, bool closed)
+    {
+        double toMs = 1000.0 / Stopwatch.Frequency;
+        double probeMs = (t1 - t0) * toMs;
+        double actionMs = (t2 - t1) * toMs;
+        VRLog.Info("WorldUI",
+            $"[OptionsToggle] TAP COST {(probeMs + actionMs):F2} ms = PROBE {probeMs:F2} ms " +
+            $"(open-state of the whole ESC family; {st.Scanned} registered UIWindow(s) walked via " +
+            $"UIWindow.GetWindows(), NOT a FindObjectsOfType sweep) + ACTION {actionMs:F2} ms " +
+            $"(the game's own {(closed ? "Hide" : "Show")} cascade plus the mod's float bookkeeping, " +
+            "running on our call stack). READ IT AGAINST THE 11.11 ms BUDGET: ModBuild 289's SPIKE " +
+            "lines put 10.5-11.2 ms here with no split, so whichever of these two terms is large is " +
+            "the answer, and only one of them is the mod's to fix.");
     }
 
     /// <summary>
@@ -240,11 +523,11 @@ internal sealed class OptionsToggle
         UIMultiplayerEscSubmenu? mpOwner = Singleton<UIMultiplayerEscSubmenu>.IsInitialized ? Singleton<UIMultiplayerEscSubmenu>.Instance : null;
         UIWindow? optWin = optOwner != null ? optOwner.GetComponent<UIWindow>() : null;
         UIWindow? mpWin = mpOwner != null ? mpOwner.Window : null;
-        UIWindow? compWin = FindOpenCompendiumWindow(); // side-effect-free; only ever an OPEN instance
+        UIWindow? compWin = FindOpenCompendiumWindow(out int scanned); // side-effect-free; only ever an OPEN instance
         bool optOpen = optWin != null && optWin.IsOpen;
         bool mpOpen = mpWin != null && mpWin.IsOpen;
         bool compOpen = compWin != null;
-        return new OpenState(escOpen, optOpen, mpOpen, compOpen, optWin, mpWin, compWin);
+        return new OpenState(escOpen, optOpen, mpOpen, compOpen, optWin, mpWin, compWin, scanned);
     }
 
     /// <summary>
@@ -291,13 +574,63 @@ internal sealed class OptionsToggle
     /// fires ESCMenu.OnShow via its onTransitionBegin listener. Belt-and-suspenders re-openability:
     /// re-activate the window GameObject if a previous close left it inactive, so Show() never
     /// depends on the window having stayed active since the last open.
+    ///
+    /// <para>RETURNS THE OUTCOME rather than assuming it. <c>UIWindow.Show(bool)</c> silently
+    /// early-returns when <c>IsActive()</c> is false (<c>enabled &amp;&amp; activeInHierarchy</c>,
+    /// UIWindow.cs:417) and, before the ModBuild 290 show-safety finalizers, a throwing
+    /// <c>onTransitionBegin</c> listener abandoned the transition before
+    /// <c>m_CurrentVisualState = state</c>. <c>m_CurrentVisualState</c> is assigned SYNCHRONOUSLY
+    /// inside <c>EvaluateAndTransitionToVisualState</c> (the alpha tween that follows is the only
+    /// asynchronous part), so reading <c>IsOpen</c> straight after <c>Show()</c> is a verdict, not
+    /// a race. <paramref name="why"/> names the blocker when the verdict is false.</para>
     /// </summary>
-    private static void OpenMenu(ESCMenu menu)
+    private static bool OpenMenu(ESCMenu menu, out string why)
     {
         var w = menu.GetComponent<UIWindow>();
+        if (w == null)
+        {
+            why = $"{menu.GetType().Name} has no UIWindow component to show";
+            return false;
+        }
+
+        // activeSelf only clears the object's OWN switch; an inactive ANCESTOR still blocks
+        // UIWindow.IsActive(), and Show() would then return having done nothing at all.
         if (!w.gameObject.activeSelf)
             w.gameObject.SetActive(true);
+
         w.Show();
+        if (w.IsOpen)
+        {
+            why = string.Empty;
+            return true;
+        }
+
+        why = DescribeShowBlocker(w);
+        return false;
+    }
+
+    /// <summary>
+    /// Name the concrete reason a <c>UIWindow.Show()</c> left the window closed. Cold path only
+    /// (a failed open), so the ancestor walk and the string work cost nothing in normal play.
+    /// </summary>
+    private static string DescribeShowBlocker(UIWindow w)
+    {
+        if (!w.enabled)
+            return "the UIWindow component itself is disabled, so UIWindow.IsActive() is false and Show() " +
+                   "returned immediately";
+        if (!w.gameObject.activeInHierarchy)
+        {
+            UnityEngine.Transform? t = w.transform;
+            while (t != null && t.gameObject.activeSelf)
+                t = t.parent;
+            string blocker = t != null ? t.name : "<unknown>";
+            return $"an ANCESTOR is inactive ('{blocker}'), so UIWindow.IsActive() is false and Show() " +
+                   "returned immediately — re-activating the window's own GameObject cannot reach it";
+        }
+        return "the window was active and Show() ran, but m_CurrentVisualState is still Hidden — " +
+               "something threw inside UIWindow.EvaluateAndTransitionToVisualState (onShown / " +
+               "onTransitionBegin) before the state was assigned. Look for an [ESC MENU SHOW SAFETY] " +
+               "line: if there is none, the throw came from a listener the finalizers do not cover";
     }
 
     /// <summary>Immutable snapshot of the ESC-menu family's live open-state plus the resolved
@@ -313,10 +646,14 @@ internal sealed class OptionsToggle
         internal readonly UIWindow? MpWin;
         internal readonly UIWindow? CompWin;
 
+        /// <summary>How many registered <c>UIWindow</c>s the compendium probe walked, for the
+        /// tap-cost line — so the next log states the probe's size instead of implying it.</summary>
+        internal readonly int Scanned;
+
         internal bool Any => Esc || Opt || Mp || Comp;
 
         internal OpenState(bool esc, bool opt, bool mp, bool comp,
-            UIWindow? optWin, UIWindow? mpWin, UIWindow? compWin)
+            UIWindow? optWin, UIWindow? mpWin, UIWindow? compWin, int scanned)
         {
             Esc = esc;
             Opt = opt;
@@ -325,26 +662,34 @@ internal sealed class OptionsToggle
             OptWin = optWin;
             MpWin = mpWin;
             CompWin = compWin;
+            Scanned = scanned;
         }
     }
 
     /// <summary>
-    /// The compendium sub-window IF it is currently OPEN, else null. Deliberately a scene
-    /// scan rather than <c>Singleton&lt;SpecialUIProvider&gt;.Instance.CompendiumUIObject</c>:
-    /// that getter INSTANTIATES the compendium prefab on first access (a synchronous
-    /// Addressables load — SpecialUIProvider.GetCompendiumUI), so probing it merely to test
-    /// open-state would create the window and hitch the frame. An OPEN compendium window is
-    /// always an active object, so <c>FindObjectsOfType</c> (active-only) reaches it; this
-    /// runs ONLY on an X tap (never per-frame), and the returned instance is reused for the
-    /// close-branch Hide() so no second lookup is needed. Compendium window ID verified as
+    /// The compendium sub-window IF it is currently OPEN, else null. Deliberately NOT
+    /// <c>Singleton&lt;SpecialUIProvider&gt;.Instance.CompendiumUIObject</c>: that getter
+    /// INSTANTIATES the compendium prefab on first access (a synchronous Addressables load —
+    /// SpecialUIProvider.GetCompendiumUI), so probing it merely to test open-state would create
+    /// the window and hitch the frame. Compendium window ID verified as
     /// <c>UIWindowID.CompendiumPanel</c> (ModalFallback FallbackIds / SyncEscMenuTabHighlights).
+    ///
+    /// <para>PERF (ModBuild 290): this used to be <c>FindObjectsOfType&lt;UIWindow&gt;()</c> — a
+    /// full scene sweep, on the frame the player is already paying for the game's own
+    /// <c>Show()</c>. <c>UIWindow</c> keeps its own static registry, <c>_uiWindows</c>, added to
+    /// in <c>OnEnable</c> and removed from in <c>OnDisable</c> (UIWindow.cs:69/398/404), exposed
+    /// as <c>UIWindow.GetWindows()</c> and used by the game itself in
+    /// <c>UIWindowManager.HideOrShowWindows</c>. It holds exactly the ENABLED windows, which is a
+    /// superset of the open ones, so it answers this question with strictly the same result and
+    /// no sweep. <c>FindObjectsOfType</c> is this codebase's most-repeated performance defect and
+    /// has twice shipped described as "near-free"; the registry removes the argument entirely.</para>
     /// </summary>
-    private static UIWindow? FindOpenCompendiumWindow()
+    private static UIWindow? FindOpenCompendiumWindow(out int scanned)
     {
-        UIWindow[] all = UnityEngine.Object.FindObjectsOfType<UIWindow>();
-        for (int i = 0; i < all.Length; i++)
+        scanned = 0;
+        foreach (UIWindow w in UIWindow.GetWindows())
         {
-            UIWindow w = all[i];
+            scanned++;
             if (w != null && w.ID == UIWindowID.CompendiumPanel && w.IsOpen)
                 return w;
         }
