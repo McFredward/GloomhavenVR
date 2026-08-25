@@ -52,7 +52,9 @@ namespace GloomhavenVR.Net;
 /// <see cref="GenericCap"/>) had to exist before ids 231/232 could honestly claim to cover them.
 ///
 /// SEATING. When the REAL tray asset is up (<see cref="RemoteTrayVisual"/>), the caps sit on the
-/// prefab's own anchors (<c>ConfirmButton/UndoButton/ShortRestToken/LongRestToken</c>) plus the
+/// prefab's own anchors (the button seats <c>ButtonSeat1/2</c> — legacy spelling
+/// <c>ConfirmButton/UndoButton</c>, both resolve through <c>Cards.BoardAnchors</c> — plus
+/// <c>ShortRestToken/LongRestToken</c>) plus the
 /// OWNER's own per-board offsets, resolved through <see cref="RemoteBoardTuning"/>: the value they
 /// set where they have moved a dial (extension record 28) and the authored
 /// <c>Defaults.ConfirmUndoOffset_*</c> / <c>RestButtonOffset_*</c> / … for their synced style where
@@ -855,9 +857,18 @@ internal sealed class RemoteBoardFurniture
                                        _labelOutlineOn, _labelUnderlayOn);
 
         // ---- right-hand control column: CONFIRM / [USE] / UNDO -------------------------------
-        // Real tray: on the prefab's own ConfirmButton/UndoButton anchors + the authored per-style
-        // offset + the authored generic spacing (± spacing/2 — GenericClusterY's 2-member layout),
-        // exactly the seat PlayTray.BuildButtons gives the live keycaps. Fallback: the Oak mounts.
+        // Real tray: on the prefab's own BUTTON SEATS 0 and 1 (RemoteTrayVisual resolves them through
+        // Cards.BoardAnchors, so ButtonSeat1/2 and the legacy ConfirmButton/UndoButton both land here)
+        // + the authored per-style offset + the authored generic spacing (± spacing/2 — exactly
+        // PlayTray.GenericSeatY at seats 0 and 1, which is TOP-ANCHORED and therefore unchanged by the
+        // boards gaining a third recess), i.e. exactly the seat PlayTray.BuildButtons gives the live
+        // keycaps. Fallback: the Oak mounts.
+        //
+        // SEAT 2 IS NOT DRAWN HERE, and that is correct rather than a gap: the owner's board puts no
+        // cap in it either. The control the third recess exists for is the turn-flow SKIP, which is
+        // still mirrored below from the [RoundButtons] geometry through its own skipSeat solve. Moving
+        // it into the cluster is a PlayTray + ButtonCluster + RemoteBoardFurniture round that changes
+        // what record 28's ids 81..88 MEAN — until then owner and peer agree by both not drawing it.
         Vector3 cuOff = tuning.ConfirmUndoOffset;
         float cuSpacing = tuning.GenericButtonSpacing;
         Transform confirmParent = tray?.ConfirmAnchor ?? _root;

@@ -261,11 +261,16 @@ internal sealed class BoardFrame
     /// clone exactly this, which is why one builder serves both sides.</summary>
     private const string VisualChildName = "TrayVisual";
 
-    /// <summary>The six FBX anchor empties. Everything the MOD parks on the board — cards, slot
-    /// frames and highlights, the Confirm/Undo/rest keycaps — hangs under one of these. A card in a
-    /// slot is not part of the board's contour and must not push the stroke outward.</summary>
-    private static readonly string[] AnchorNames =
-        { "Slot1", "Slot2", "ShortRestToken", "LongRestToken", "ConfirmButton", "UndoButton" };
+    /// <summary>The FBX anchor empties. Everything the MOD parks on the board — cards, slot frames
+    /// and highlights, the rest discs and every generic-cluster keycap — hangs under one of these. A
+    /// card in a slot is not part of the board's contour and must not push the stroke outward.
+    ///
+    /// <para>IT IS THE SHARED TABLE, not a fourth private copy, and it lists EVERY ACCEPTED SPELLING
+    /// of every button seat. This used to be a hand-written six-name array ending in
+    /// <c>ConfirmButton, UndoButton</c>: a board regenerated with the new <c>ButtonSeat1/2/3</c>
+    /// names would have had its keycaps traced as BOARD GEOMETRY, pushing the outline stroke out
+    /// past the real rim on the one board where the third recess is the point.</para></summary>
+    private static readonly string[] AnchorNames = BoardAnchors.AllAnchorNames;
 
     /// <summary>Name prefix of every mod-built GameObject — a second, cheap exclusion for anything
     /// the mod adds under the visual that is not below an anchor.</summary>

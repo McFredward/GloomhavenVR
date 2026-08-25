@@ -16,14 +16,17 @@ namespace GloomhavenVR.Net;
 ///   1. the prefab is instantiated with an IDENTITY local pose under the board root — the wire
 ///      pose IS <c>PlayTray.Current.Root</c>'s world pose (<c>NetAvatarDriver</c> samples exactly
 ///      that transform), so the clone lands where the owner's board physically is;
-///   2. the six bundle anchors (<c>Slot1/Slot2/ShortRestToken/LongRestToken/ConfirmButton/
-///      UndoButton</c>) carry the FBX export's 90° twist and are re-aligned to the ONE board face
+///   2. the bundle anchors — the four frame ones (<c>Slot1/Slot2/ShortRestToken/LongRestToken</c>)
+///      plus the board's BUTTON SEATS, resolved through <c>Cards.BoardAnchors</c> so that both the
+///      new <c>ButtonSeat1/2/3</c> spelling and the legacy <c>ConfirmButton/UndoButton</c> one
+///      resolve here EXACTLY as they do on the owner's own board — carry the FBX export's 90°
+///      twist and are re-aligned to the ONE board face
 ///      frame derived from their own positions — verbatim the anchor math in
 ///      <c>PlayTray.EnsureBuilt</c> (−Z out of the decorated face, +Y up the short axis) — so
 ///      cards and caps parented on them face the viewer exactly like the owner's do;
 ///   3. the peer's own per-board MESH POSE (AssetOffset / AssetPitch / Yaw / Roll) IS applied,
 ///      through the same algorithm the local board uses: the offset + euler move the MESH inside
-///      the board root while the six anchors are pinned back to the root-local poses they held
+///      the board root while every anchor is pinned back to the root-local pose it held
 ///      before, so slots, rest tokens and Confirm/Undo — and everything docked on them — stay
 ///      exactly where they were and only the slab moves. Their values ride extension record 28
 ///      when the owner has moved a dial and are this client's shipped constant when they have
@@ -55,8 +58,26 @@ internal sealed class RemoteTrayVisual
     private readonly Transform[] _slots = new Transform[2];
     private readonly Vector3[] _slotLocal = new Vector3[2];
 
-    public Transform? ConfirmAnchor { get; private set; }
-    public Transform? UndoAnchor { get; private set; }
+    /// <summary>The board's BUTTON SEATS by index, resolved through <c>Cards.BoardAnchors</c> —
+    /// the same table, the same alias order and therefore the same answer the owner's
+    /// <c>PlayTray.EnsureBuilt</c> got. A null entry means this board has no such recess (seat 2 on
+    /// every board shipped so far), and the furniture builder falls back to its authored mount
+    /// exactly as it always has for an anchor-less board.</summary>
+    private readonly Transform?[] _buttonSeats = new Transform?[Cards.BoardAnchors.ButtonSeatCount];
+
+    /// <summary>The re-aligned anchor of button seat <paramref name="seat"/>, or null when this
+    /// board has no such recess.</summary>
+    public Transform? SeatAnchor(int seat) =>
+        seat >= 0 && seat < _buttonSeats.Length ? _buttonSeats[seat] : null;
+
+    /// <summary>Seat 0 — the commit seat (CONFIRM and the item "Use" cap share it, as on the
+    /// owner's board). Named view onto <see cref="SeatAnchor"/> so the furniture builder reads the
+    /// same word it always did.</summary>
+    public Transform? ConfirmAnchor => SeatAnchor(0);
+
+    /// <summary>Seat 1 — the UNDO seat.</summary>
+    public Transform? UndoAnchor => SeatAnchor(1);
+
     public Transform? ShortRestAnchor { get; private set; }
     public Transform? LongRestAnchor { get; private set; }
 
@@ -111,8 +132,14 @@ internal sealed class RemoteTrayVisual
         visual._slots[1] = FindDeep(go.transform, "Slot2")!;
         visual.ShortRestAnchor = FindDeep(go.transform, "ShortRestToken");
         visual.LongRestAnchor = FindDeep(go.transform, "LongRestToken");
-        visual.ConfirmAnchor = FindDeep(go.transform, "ConfirmButton");
-        visual.UndoAnchor = FindDeep(go.transform, "UndoButton");
+        // THE SEATS GO THROUGH THE SHARED TABLE, and that is what keeps the mirror 1:1 across an
+        // asset regeneration. These two lines used to read "ConfirmButton"/"UndoButton" literally.
+        // The instant the asset lane emitted a board with the new ButtonSeat1/2/3 spelling, the
+        // OWNER's board would have seated its keycaps in the new recesses (PlayTray resolves both)
+        // while every PEER resolved null here and fell back to the hardcoded Oak ConfirmMount /
+        // UndoMount — a divergence in the picture on the exact control the 1:1 rule is about, and
+        // one no wire field could have repaired because the seat is DERIVED on each client.
+        int seatsFound = Cards.BoardAnchors.ResolveSeats(go.transform, visual._buttonSeats);
 
         if (visual._slots[0] == null || visual._slots[1] == null
             || visual.ShortRestAnchor == null || visual.LongRestAnchor == null)
@@ -130,8 +157,8 @@ internal sealed class RemoteTrayVisual
         Vector3 nF = Vector3.Cross(uF, sF).normalized;
         Vector3 vF = Vector3.Cross(nF, uF).normalized;
         Quaternion faceWorld = Quaternion.LookRotation(nF, vF);
-        foreach (Transform? a in new[] { visual._slots[0], visual._slots[1], visual.ShortRestAnchor,
-                                         visual.LongRestAnchor, visual.ConfirmAnchor, visual.UndoAnchor })
+        Transform?[] anchors = visual.AllAnchors();
+        foreach (Transform? a in anchors)
         {
             if (a != null)
                 a.rotation = faceWorld;
@@ -147,16 +174,15 @@ internal sealed class RemoteTrayVisual
                                      tuning.AssetRollDegrees);
         if (assetOffset != Vector3.zero || assetEuler != Vector3.zero)
         {
-            Transform[] pinned = { visual._slots[0], visual._slots[1], visual.ShortRestAnchor!,
-                                   visual.LongRestAnchor!, visual.ConfirmAnchor!, visual.UndoAnchor! };
+            Transform?[] pinned = anchors;
             var pinPos = new Vector3[pinned.Length];
             var pinRot = new Quaternion[pinned.Length];
             for (int i = 0; i < pinned.Length; i++)
             {
                 if (pinned[i] == null)
                     continue;
-                pinPos[i] = boardRoot.InverseTransformPoint(pinned[i].position);
-                pinRot[i] = Quaternion.Inverse(boardRoot.rotation) * pinned[i].rotation;
+                pinPos[i] = boardRoot.InverseTransformPoint(pinned[i]!.position);
+                pinRot[i] = Quaternion.Inverse(boardRoot.rotation) * pinned[i]!.rotation;
             }
             go.transform.localPosition += assetOffset;
             go.transform.localRotation = Quaternion.Euler(assetEuler) * go.transform.localRotation;
@@ -164,8 +190,8 @@ internal sealed class RemoteTrayVisual
             {
                 if (pinned[i] == null)
                     continue;
-                pinned[i].position = boardRoot.TransformPoint(pinPos[i]);
-                pinned[i].rotation = boardRoot.rotation * pinRot[i];
+                pinned[i]!.position = boardRoot.TransformPoint(pinPos[i]);
+                pinned[i]!.rotation = boardRoot.rotation * pinRot[i];
             }
         }
 
@@ -177,20 +203,32 @@ internal sealed class RemoteTrayVisual
                           $"{visual._slotLocal[0]} / {visual._slotLocal[1]}, mesh pose offset " +
                           $"{assetOffset:F3} / euler {assetEuler:F1}° (the owner's own, extension " +
                           "record 28 where they tuned it), anchors pinned back so nothing docked " +
-                          "moved, all colliders stripped (pure display).");
+                          $"moved, {seatsFound} of {Cards.BoardAnchors.ButtonSeatCount} button seats " +
+                          "supplied by the asset, all colliders stripped (pure display).");
         return visual;
     }
 
-    private static Transform? FindDeep(Transform root, string name)
+    /// <summary>
+    /// EVERY anchor of this clone — the four frame anchors plus whichever button seats the board
+    /// supplies — as one array. The face-frame re-alignment and the mesh-pose pin both walk it, so
+    /// they cannot disagree about the set: an anchor that is rotated but not pinned drifts with the
+    /// mesh the moment the owner touches an AssetOffset dial, and a seat that is pinned but not
+    /// rotated seats its cap edge-on.
+    /// </summary>
+    private Transform?[] AllAnchors()
     {
-        if (root.name == name)
-            return root;
-        for (int i = 0; i < root.childCount; i++)
-        {
-            Transform? found = FindDeep(root.GetChild(i), name);
-            if (found != null)
-                return found;
-        }
-        return null;
+        var all = new Transform?[4 + _buttonSeats.Length];
+        all[0] = _slots[0];
+        all[1] = _slots[1];
+        all[2] = ShortRestAnchor;
+        all[3] = LongRestAnchor;
+        for (int i = 0; i < _buttonSeats.Length; i++)
+            all[4 + i] = _buttonSeats[i];
+        return all;
     }
+
+    /// <summary>Depth-first name lookup — the shared one, so the peer's copy of a board walks it
+    /// exactly as the owner's does.</summary>
+    private static Transform? FindDeep(Transform root, string name) =>
+        Cards.BoardAnchors.FindDeep(root, name);
 }

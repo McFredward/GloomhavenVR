@@ -71,8 +71,9 @@ namespace GloomhavenVR.Cards;
 /// <see cref="SyncFromGameState"/> mirrors
 /// <c>CCharacterClass.RoundAbilityCards/InitiativeAbilityCard</c> into the slots.
 /// Bundle asset <c>PlayTray.prefab</c> (children <c>Slot1/Slot2/ShortRestToken/
-/// LongRestToken/ConfirmButton/UndoButton</c>, see unity/.../Table/README.md) with a
-/// full procedural fallback.
+/// LongRestToken</c> plus the button seats <c>ButtonSeat1/2/3</c> — legacy spelling
+/// <c>ConfirmButton/UndoButton</c>, both resolve, see <see cref="BoardAnchors"/> and
+/// unity/.../Table/README.md) with a full procedural fallback.
 /// </summary>
 internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurnitureOrderAnchor
 {
@@ -158,6 +159,70 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     private string? _pickUndoLabel;
     private Transform? _confirmAnchor;
     private Transform? _undoAnchor;
+
+    /// <summary>
+    /// THE BUNDLED BOARD'S BUTTON RECESSES, by seat index — the anchors <c>BuildButtons</c> parents
+    /// the generic cluster's keycaps to. Resolved once per board build from
+    /// <see cref="BoardAnchors.ResolveSeats"/>, which accepts the new <c>ButtonSeat1/2/3</c> spelling
+    /// AND the legacy <c>ConfirmButton</c>/<c>UndoButton</c> one.
+    ///
+    /// <para>A NULL ENTRY IS NORMAL, NOT A FAULT. Every board shipped up to and including the
+    /// current bundle has exactly TWO recesses, so seat 2 is null there and the cluster runs as the
+    /// two-seat one it always was. Seats 0/1 are null only on the procedural fallback board (no
+    /// bundle at all), where <c>BuildButtons</c> synthesises them at the authored
+    /// <c>ButtonZoneX</c> offsets exactly as before.</para>
+    ///
+    /// <para>These are DESCENDANTS OF THE VISUAL, so they die with <c>_root</c> and are cleared in
+    /// the teardown next to <see cref="_confirmAnchor"/>.</para>
+    /// </summary>
+    private readonly Transform?[] _buttonSeats = new Transform?[BoardAnchors.ButtonSeatCount];
+
+    /// <summary>Reused list for <see cref="LiveBoardAnchors"/> — the four frame anchors plus
+    /// whichever button seats the live board supplies. Build-time only (EnsureBuilt), never per
+    /// frame.</summary>
+    private readonly List<Transform> _anchorScratch = new(4 + BoardAnchors.ButtonSeatCount);
+
+    /// <summary>
+    /// EVERY anchor of the live bundled board as one list: the four frame anchors plus the button
+    /// seats that resolved. Both build-time passes that walk "all the anchors" — the face-frame
+    /// re-alignment and the asset-pose pin capture — read THIS, so they can never disagree about
+    /// the set. They used to carry two hand-written six-element arrays, which is precisely the shape
+    /// of bug a third recess introduces: one list updated, the other not, and a seat that rotates
+    /// with the board but does not stay pinned when the mesh pose moves underneath it.
+    /// </summary>
+    private List<Transform> LiveBoardAnchors()
+    {
+        _anchorScratch.Clear();
+        if (_slots[0] != null) _anchorScratch.Add(_slots[0]!);
+        if (_slots[1] != null) _anchorScratch.Add(_slots[1]!);
+        if (_shortRestAnchor != null) _anchorScratch.Add(_shortRestAnchor!);
+        if (_longRestAnchor != null) _anchorScratch.Add(_longRestAnchor!);
+        for (int i = 0; i < _buttonSeats.Length; i++)
+            if (_buttonSeats[i] != null)
+                _anchorScratch.Add(_buttonSeats[i]!);
+        return _anchorScratch;
+    }
+
+    /// <summary>
+    /// One line per board build naming WHICH seat resolved under WHICH spelling — the field the
+    /// "name the blocker, not the number" lesson asks for. "2 of 3" alone cannot tell a board that
+    /// legitimately has two recesses from one whose third anchor was misspelled by the asset lane;
+    /// the per-seat name does.
+    /// </summary>
+    private void LogSeatResolution(int seatsFound)
+    {
+        for (int i = 0; i < _buttonSeats.Length; i++)
+        {
+            Transform? t = _buttonSeats[i];
+            VRLog.Info("Cards", t != null
+                ? $"Board: button seat {i} resolved to anchor '{t.name}' (accepted: {BoardAnchors.SeatNamesJoined(i)})."
+                : $"Board: button seat {i} ABSENT — this board carries none of {BoardAnchors.SeatNamesJoined(i)}" +
+                  (i < 2 ? "; BuildButtons will synthesise a procedural anchor."
+                         : "; the cluster runs as a two-seat one (every board shipped so far)."));
+        }
+        VRLog.Info("Cards", $"Board: {seatsFound} of {BoardAnchors.ButtonSeatCount} button seats " +
+                            $"supplied by the '{CardsConfig.CurrentBoard}' asset.");
+    }
 
     // Items rework (requirement 3): the ITEM-USE clip-in slot — a card-sized recess UNDER the
     // board next to the Confirm/Undo decision buttons. Built once (hidden), shown live by
@@ -451,8 +516,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         CardBackingPrefab = factory.GetBackingPrefab();
         _boardDiagLogged = false; // re-log the board-facing ground truth for this fresh board
 
-        Transform? confirmAnchor = null;
-        Transform? undoAnchor = null;
+        // THE BUTTON SEATS the bundled board supplies, by index (0 = the commit seat). Resolved
+        // through BoardAnchors, which accepts BOTH the new ButtonSeat1/2/3 spelling and the legacy
+        // ConfirmButton/UndoButton one — see that class's note. A null entry is a seat this board
+        // does not have; BuildButtons synthesises a procedural anchor for the ones it needs.
+        for (int i = 0; i < _buttonSeats.Length; i++)
+            _buttonSeats[i] = null;
         GameObject? prefab = factory.GetTrayPrefab();
         if (prefab != null)
         {
@@ -462,8 +531,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _slots[1] = FindDeep(visual.transform, "Slot2");
             _shortRestAnchor = FindDeep(visual.transform, "ShortRestToken");
             _longRestAnchor = FindDeep(visual.transform, "LongRestToken");
-            confirmAnchor = FindDeep(visual.transform, "ConfirmButton");
-            undoAnchor = FindDeep(visual.transform, "UndoButton");
+            int seatsFound = BoardAnchors.ResolveSeats(visual.transform, _buttonSeats);
+            LogSeatResolution(seatsFound);
 
             // The bundled PlayTray anchors carry a 90° twist from the FBX empty export
             // (their local -Z ends up along the board's in-plane axis instead of out of
@@ -497,13 +566,14 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 Quaternion faceWorld = Quaternion.LookRotation(nF, vF);
                 _boardFaceNormalWorld = nF;
                 _boardFaceFrame = Quaternion.Inverse(_root.rotation) * faceWorld;
-                foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
-                    if (a != null)
-                        a.rotation = faceWorld;
+                List<Transform> live = LiveBoardAnchors();
+                for (int i = 0; i < live.Count; i++)
+                    live[i].rotation = faceWorld;
             }
 
             // Asset-only pose (user request): the visual mesh can be offset/tilted PER BOARD
-            // without moving anything that docks to it. The six anchors are DESCENDANTS of the
+            // without moving anything that docks to it. The anchors (four frame + the board's
+            // button seats, LiveBoardAnchors) are DESCENDANTS of the
             // visual, so posing the mesh would drag every element along — capture their
             // root-local poses NOW, while the visual is untouched, so SetAssetPose can move the
             // mesh underneath them and pin them back exactly where they were.
@@ -511,10 +581,13 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _visualBasePos = _visual.localPosition;
             _visualBaseRot = _visual.localRotation;
             _assetPinnedAnchors.Clear();
-            foreach (Transform? a in new[] { _slots[0], _slots[1], _shortRestAnchor, _longRestAnchor, confirmAnchor, undoAnchor })
-                if (a != null)
-                    _assetPinnedAnchors.Add((a, _root.InverseTransformPoint(a.position),
-                                             Quaternion.Inverse(_root.rotation) * a.rotation));
+            List<Transform> pinned = LiveBoardAnchors();
+            for (int i = 0; i < pinned.Count; i++)
+            {
+                Transform a = pinned[i];
+                _assetPinnedAnchors.Add((a, _root.InverseTransformPoint(a.position),
+                                         Quaternion.Inverse(_root.rotation) * a.rotation));
+            }
             SetAssetPose(CardsConfig.AssetOffset(CardsConfig.CurrentBoard).Value,
                          new Vector3(CardsConfig.AssetPitch(CardsConfig.CurrentBoard).Value,
                                      CardsConfig.AssetYaw(CardsConfig.CurrentBoard).Value,
@@ -558,7 +631,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // see the retirement note above BuildSlotHighlights in PlayTray.4.Slots.cs.)
         BuildSlotHighlights();
         BuildWantedHighlights();
-        BuildButtons(confirmAnchor, undoAnchor);
+        BuildButtons(_buttonSeats);
         BuildItemUseSlot();
         BuildHandle();
         BuildDashboardControls();
@@ -1098,6 +1171,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _pickConfirmLabel = null;
         _pickUndoLabel = null;
         _confirmAnchor = null; // child of _root, destroyed with it
+        for (int i = 0; i < _buttonSeats.Length; i++)
+            _buttonSeats[i] = null; // descendants of the visual, destroyed with _root
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
         _itemUseSlotGlow = null;

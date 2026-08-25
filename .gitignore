@@ -69,3 +69,6 @@ env-preview*.log
 
 # release notes rendered by .github/workflows/release.yml
 RELEASE_NOTES.md
+
+#env file
+*.env

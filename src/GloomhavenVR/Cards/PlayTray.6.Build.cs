@@ -251,13 +251,41 @@ internal sealed partial class PlayTray
     // pick field's SELECT caption, so nothing goes unused" — the pick field has since gone too,
     // and AddCaption with it.
 
-    private void BuildButtons(Transform? confirmAnchor, Transform? undoAnchor)
+    /// <summary>
+    /// Build the generic cluster's keycaps onto the board's BUTTON SEATS.
+    ///
+    /// <para><paramref name="seats"/> is indexed by seat (0 = commit, 1 = undo, 2 = the third
+    /// recess), each entry the bundled anchor resolved by <see cref="BoardAnchors.ResolveSeats"/> or
+    /// null when this board has no such recess.</para>
+    ///
+    /// <para><b>THE TWO-ANCHOR FALLBACK, STATED.</b> A board that supplies only seats 0 and 1 — every
+    /// board in the shipped bundle, and any board the asset lane has not regenerated — is built
+    /// EXACTLY as it was before this change: Confirm on seat 0, the item "Use" cap sharing it, Undo
+    /// on seat 1, at the same offsets from the same dials. Seat 2 simply has no anchor and no
+    /// occupant, and <see cref="SeatAnchor"/> answers null for it, so nothing is built there and
+    /// nothing is synthesised there either. A procedural anchor is created ONLY for seats 0 and 1
+    /// and ONLY when they are missing (the no-bundle procedural board), at the same
+    /// <see cref="ButtonZoneX"/> positions the two hardcoded fallbacks always used — an invented
+    /// third anchor would be a keycap floating on a board with no recess under it, which is worse
+    /// than not having the seat.</para>
+    /// </summary>
+    private void BuildButtons(Transform?[] seats)
     {
         if (_root == null)
             return;
 
-        Transform confirmParent = confirmAnchor != null ? confirmAnchor : NewAnchor("ConfirmButton", new Vector3(ButtonZoneX, 0.045f, -0.006f));
-        Transform undoParent = undoAnchor != null ? undoAnchor : NewAnchor("UndoButton", new Vector3(ButtonZoneX, -0.06f, -0.006f));
+        // Seats 0/1 must exist for the cluster to work at all, so they fall back to the authored
+        // procedural anchors. Seat 2 does NOT: absent means absent (see the summary).
+        Transform confirmParent = seats.Length > 0 && seats[0] != null
+            ? seats[0]!
+            : NewAnchor(BoardAnchors.SeatName(0), new Vector3(ButtonZoneX, 0.045f, -0.006f));
+        Transform undoParent = seats.Length > 1 && seats[1] != null
+            ? seats[1]!
+            : NewAnchor(BoardAnchors.SeatName(1), new Vector3(ButtonZoneX, -0.06f, -0.006f));
+        // Remember what the cluster actually got, so SetConfirmUndoOffset and the seat accessors
+        // read the SAME transforms the caps were parented to — including the synthesised ones.
+        if (seats.Length > 0) seats[0] = confirmParent;
+        if (seats.Length > 1) seats[1] = undoParent;
 
         // PART B + C: Confirm/Undo are real 3D keycaps, sized and positioned from the ACTIVE
         // board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the player)
@@ -265,15 +293,21 @@ internal sealed partial class PlayTray
         // board (debug-menu tunable). Round-2: the cap SHAPE is per-board (Square boxy keycap by
         // default, or Round disc), and a per-board SPACING spreads Confirm/Undo apart.
         ControlBoard active = CardsConfig.CurrentBoard;
-        // Item D: the generic-button area is now a COUNT-DRIVEN cluster. The game can show up to
-        // FOUR turn-flow buttons at once (decompiled: Choreographer toggles readyButton + m_SkipButton
-        // + m_UndoButton, and occasionally m_selectButton, as independent GameObjects — see
-        // e.g. Choreographer.cs:6305-6309), so this consolidated area lays them out auto-fit
-        // (SetConfirmUndoOffset). It does NOT auto-scale the caps from the live count — this
-        // paragraph used to say it did, and the paragraph six lines below explains why that was
-        // taken out. Believe the lower one.
-        // Today the mod owns Confirm + Undo here (GenericButtonCount); the real Skip/Select turn-flow
-        // buttons still dock via the WorldUI ButtonCluster mount (not one of these files). The item
+        // Item D: the generic-button area is a SEATED cluster of BoardAnchors.ButtonSeatCount = 3
+        // seats, one per physical button recess the boards now carry (user, 2026-08: "3 statt 2 Slots
+        // fuer die buttons"). THREE, not four: the "FOUR turn-flow buttons at once" this paragraph
+        // used to claim was corrected by the enumeration in WorldUI/ButtonCluster.cs — every
+        // readyButton/m_SkipButton/m_UndoButton toggle site in the decompiled Choreographer was read,
+        // six states reach three, and none reaches four for the caps this board draws
+        // (m_selectButton is mutually exclusive with the ready button at every site that raises it,
+        // and the mod mirrors no cap for it). Believe the ButtonCluster table.
+        // The layout is SetConfirmUndoOffset's; it does NOT auto-scale the caps from the live count —
+        // see the paragraph below for why that was taken out.
+        // Today the mod owns Confirm + Undo here, on seats 0 and 1; SEAT 2 IS RESOLVED BUT UNOCCUPIED
+        // — the real Skip/Select turn-flow buttons still dock via the WorldUI ButtonCluster mount (not
+        // one of these files), and moving Skip onto seat 2 changes the meaning of wire fields a peer
+        // already derives its copy of that cap from (Net/RemoteBoardFurniture's skipSeat solve, ids
+        // 81..88). That is a cross-lane round, not this one. The item
         // "Use" confirm built below is a fourth cap but NOT a fourth seat — it shares Confirm's
         // (PlayTray.GenericPrimarySlot), which is what makes "Auswahl beenden" and "Benutzen" land in
         // the same place. Nothing here reads the count: SetConfirmUndoOffset owns the layout.
@@ -397,8 +431,14 @@ internal sealed partial class PlayTray
             _itemUseConfirm?.SetVisible(false);
 
         SetConfirmUndoOffset(off, spacing); // Confirm+Use share the top seat, Undo the bottom one, Z proud
+        string seatTwo = seats.Length > 2 && seats[2] != null
+            ? $"'{seats[2]!.name}' y{GenericSeatY(2, spacing) * 1000f:+0.0;-0.0} mm (no occupant yet)"
+            : "ABSENT on this board";
         VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
-                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m)" +
+                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m; " +
+                            $"seat 0 '{confirmParent.name}' y{GenericSeatY(0, spacing) * 1000f:+0.0;-0.0} mm, " +
+                            $"seat 1 '{undoParent.name}' y{GenericSeatY(1, spacing) * 1000f:+0.0;-0.0} mm, " +
+                            $"seat 2 {seatTwo})" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
         VRLog.Info("Cards", $"Board: button geometry config applied — {WorldUI.ButtonTuning.Describe()}.");
         _tuningVersion = WorldUI.ButtonTuning.Version; // fresh build reflects current config
@@ -755,16 +795,8 @@ internal sealed partial class PlayTray
     //    earlier version set only `_ZTest` under a guard and was therefore a SILENT NO-OP on
     //    every non-TMP widget (cb62991, corrected in d56e4c8).
 
-    private static Transform? FindDeep(Transform root, string name)
-    {
-        if (root.name == name)
-            return root;
-        for (int i = 0; i < root.childCount; i++)
-        {
-            Transform? found = FindDeep(root.GetChild(i), name);
-            if (found != null)
-                return found;
-        }
-        return null;
-    }
+    /// <summary>Depth-first name lookup. Delegates to <see cref="BoardAnchors.FindDeep"/> — the
+    /// board's anchor names and the walk that finds them belong together, and this was one of three
+    /// identical private copies.</summary>
+    private static Transform? FindDeep(Transform root, string name) => BoardAnchors.FindDeep(root, name);
 }

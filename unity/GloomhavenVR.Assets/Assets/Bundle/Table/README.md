@@ -5,7 +5,7 @@ Intended assets (Phases 3b `feat/cards` and 3c `feat/world-ui` consume these):
 | Asset | Description |
 |---|---|
 | `CardBacking.prefab` | 3D card body — rounded rectangle, poker-card size (63.5 × 88 mm at 1 unit = 1 m), REAL thickness ~1.5 mm, corner radius ~3 mm. The game's live per-card uGUI Canvas gets re-parented onto its face at runtime (ARCHITECTURE.md §5); front face is a flat area the canvas covers almost edge-to-edge (thin dark edge only), back face carries an opaque decorative card-back material. Candidate source assets + licenses: `unity/CARD-ASSETS.md` |
-| `PlayTray.prefab` | Control board (desk-like tray, ~0.64 × 0.32 m board): 2 card slots (first slot = initiative) marked with empty child transforms `Slot1`, `Slot2`; `ShortRestToken` / `LongRestToken` anchor transforms in a visually separated rest zone; optional `ConfirmButton` / `UndoButton` anchor transforms (the mod builds its pokeable buttons onto them — right-hand zone recommended, confirm ~11 × 6 cm, undo ~9 × 4 cm) |
+| `PlayTray.prefab` | Control board (desk-like tray, ~0.64 × 0.32 m board): 2 card slots (first slot = initiative) marked with empty child transforms `Slot1`, `Slot2`; `ShortRestToken` / `LongRestToken` anchor transforms in a visually separated rest zone; **three** button-seat anchor transforms `ButtonSeat1` / `ButtonSeat2` / `ButtonSeat3` in the right-hand zone, one per physical button recess (the mod builds its pokeable keycaps onto them). The legacy spelling `ConfirmButton` / `UndoButton` still resolves as seats 1 and 2 |
 | `ReadyButton.prefab` | Physical push button: `Base` + `Cap` child (cap travels ~8 mm on press, animated from code via transform, no Animator). A `LabelAnchor` child positions the world-space TMP label the mod adds at runtime |
 | `Button_Ready.prefab` / `Button_Undo.prefab` / `Button_Skip.prefab` | Phase-3c button-cluster variants (probed first; `ReadyButton.prefab` is the shared fallback for all three). Same conventions as `ReadyButton.prefab`: `Base`, travelling `Cap` (put a **BoxCollider** on the Cap — the poke test needs a primitive/convex collider), optional `LabelAnchor`. Suggested cap diameters: Ready ~10 cm, Undo/Skip ~7.6 cm. The mod tints the Cap material at runtime (state accent / disabled dimming), so give the Cap its own material instance |
 | `PanelFrame.prefab` (optional) | Decorative frame/backboard for converted world panels (initiative track, element board, combat log, objectives, stat panel). Child `PanelAnchor` marks where the mod parents the panel host canvas; frame should fit a ~1 mm/px canvas (e.g. initiative track ≈ 1.2 × 0.2 m). Purely cosmetic — panels work frameless |
@@ -21,7 +21,7 @@ kicks in when missing, so these are optional but strongly preferred):
 | Bundle path | Consumed by |
 |---|---|
 | `Assets/Bundle/Table/CardBacking.prefab` | instantiated under every `VRCard`'s `Visual` child (procedural fallback: `CardMesh.cs` rounded slab, 1.5 mm thick, procedural back pattern) |
-| `Assets/Bundle/Table/PlayTray.prefab` | control-board visual; children looked up by name: `Slot1`, `Slot2`, `ShortRestToken`, `LongRestToken`, `ConfirmButton`, `UndoButton` (empty transforms; the last two are optional — procedural anchors are created when missing) |
+| `Assets/Bundle/Table/PlayTray.prefab` | control-board visual; children looked up by name through `Cards/BoardAnchors.cs`: the four frame anchors `Slot1`, `Slot2`, `ShortRestToken`, `LongRestToken` plus the button seats `ButtonSeat1`, `ButtonSeat2`, `ButtonSeat3` (empty transforms). Seat aliases, tried in this order: seat 1 = `ButtonSeat1` → `ConfirmButton`, seat 2 = `ButtonSeat2` → `UndoButton`, seat 3 = `ButtonSeat3` → `SkipButton`. Every seat is optional: seats 1/2 fall back to procedural anchors, and a board with no `ButtonSeat3` simply runs as the two-seat board it always was |
 
 Orientation convention used by the whole Cards module (must match in the prefabs):
 
@@ -43,9 +43,36 @@ Orientation convention used by the whole Cards module (must match in the prefabs
   slot transforms mark the card CENTER at the card's resting `z = 0` plane.
   `ShortRestToken` / `LongRestToken` anchors get pokeable token widgets attached at
   runtime (keep ~5 cm clearance); place them in a visually separated rest zone
-  (left edge recommended). `ConfirmButton` / `UndoButton` anchors get the physical
-  confirm/undo buttons (right edge recommended); the mod builds base + travelling
-  cap + label itself, so the anchors are plain empties.
+  (left edge recommended). The `ButtonSeat1..3` anchors get the physical keycaps
+  (right edge recommended); the mod builds base + travelling cap + label itself,
+  so the anchors are plain empties.
+
+### Why THREE button seats (2026-08)
+
+User request, verbatim: *"Wie du mir selbst gesagt hast, ist 3 das Maximum an
+gleichzeitigen Knöpfen. Daher möchte alle 3 Boards so umgebaut haben, dass sie auf der
+rechten Seite wo die Knöpfe hinkommen 3 statt 2 Slots für die buttons haben."*
+
+Three is a ceiling read off the game, not a round number: `WorldUI/ButtonCluster.cs`
+enumerated every `readyButton` / `m_UndoButton` / `m_SkipButton` toggle site in the
+decompiled `Choreographer` and found six states where all three are live at once, and
+none where a fourth cap the mod draws could join.
+
+Authoring rules for the seats:
+
+- Order them **top to bottom** along the board's short axis: seat 1 is the topmost
+  recess, seat 3 the bottom one. The runtime stack is *top-anchored* — seat 1 sits at
+  `+spacing/2`, seat 2 at `−spacing/2`, seat 3 at `−3·spacing/2` from the tuned
+  `[Cards] ConfirmUndoOffset_{board}` — so seat 1 and seat 2 land exactly where they
+  always did and a board that gains seat 3 does not move the other two.
+- The runtime cap size is the tuned `[BoardButtons]` W×H (shipped 63 × 65 mm), the same
+  at every seat; nothing auto-shrinks. Size the recesses for that, not for a smaller
+  three-up fit.
+- Seat 3 has **no occupant yet**: the mod resolves and poses it, and the turn-flow Skip
+  cap moves into it in a later round (it is currently drawn from its own
+  `[RoundButtons]` geometry, and a peer's copy of it is derived from wire fields whose
+  meaning that move changes). A regenerated board is correct and complete before that
+  round lands; the third recess simply reads as empty until then.
 
 Conventions:
 - 1 Unity unit = 1 m, real-world sizes; the diorama scaling happens on the rig,

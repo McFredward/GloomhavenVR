@@ -14,7 +14,9 @@
 //     oriented to the bundle contract — board in local XY, decorated face toward -Z,
 //     body z>0 — computed FROM THE ANCHOR AXES (Slot1/Slot2 span the long axis, the
 //     rest pads span the short axis, their cross product is the decorated normal), so
-//     it is correct regardless of FBX axis quirks. Verifies the six named anchors.
+//     it is correct regardless of FBX axis quirks. Verifies the SEVEN named anchors:
+//     the four frame anchors plus the three button seats ButtonSeat1/2/3, whose legacy
+//     spelling ConfirmButton/UndoButton still resolves (see AnchorNames below).
 //  4. Optionally renders a viewer-side preview PNG (skipped under -nographics).
 //  5. Builds gloomhavenvr.bundle via AssetsBuilder.
 using System.IO;
@@ -33,7 +35,7 @@ namespace GloomhavenVR
         // One entry per switchable control board. The runtime picks a prefab by name
         // (CardsConfig.ControlBoard: Oak/Steel/Bronze -> these prefab paths). Each board
         // ships its own prepped FBX + loose albedo/normal PNGs (extracted from the source
-        // GLB). All three carry the SAME six named anchors, so the assembly below is
+        // GLB). All three carry the SAME named anchor set, so the assembly below is
         // board-agnostic. Board A (oak) keeps its original unsuffixed asset names.
         private struct BoardDef
         {
@@ -53,8 +55,34 @@ namespace GloomhavenVR
                            Normal = Table + "/PlayTray_16vm268h_normal.png" },
         };
 
+        // ---- THE ANCHOR NAME TABLE ----------------------------------------------------------
+        // A DELIBERATE COPY of src/GloomhavenVR/Cards/BoardAnchors.cs. This file compiles into the
+        // Unity companion project, a different assembly that cannot reference the mod, so the table
+        // cannot be shared the way the mod's three readers share it. Keep the two in step: the
+        // resolver in BoardAnchors.cs is the one the runtime obeys, this one only decides what the
+        // assembler VERIFIES and PROJECTS.
+
+        /// The four anchors the board's ORIENTATION FRAME is derived from. Slot1->Slot2 is the long
+        /// axis, ShortRestToken->LongRestToken the short one, their cross product the decorated-face
+        /// normal. The derivation below reads these four BY NAME and nothing else, so it is
+        /// unaffected by how many button seats a board carries.
+        private static readonly string[] FrameAnchorNames =
+            { "Slot1", "Slot2", "ShortRestToken", "LongRestToken" };
+
+        /// Accepted names per BUTTON SEAT, most preferred first. The boards carry THREE physical
+        /// button recesses (user, 2026-08: "3 statt 2 Slots fuer die buttons"); the legacy
+        /// ConfirmButton/UndoButton spelling stays accepted forever so an un-regenerated FBX still
+        /// assembles, and seat 3 is additive — no old board has one.
+        private static readonly string[][] SeatAliases =
+        {
+            new[] { "ButtonSeat1", "ConfirmButton" },
+            new[] { "ButtonSeat2", "UndoButton" },
+            new[] { "ButtonSeat3", "SkipButton" },
+        };
+
+        /// Every name an anchor empty may carry — what the scan below matches against.
         private static readonly string[] AnchorNames =
-            { "Slot1", "Slot2", "ShortRestToken", "LongRestToken", "ConfirmButton", "UndoButton" };
+            FrameAnchorNames.Concat(SeatAliases.SelectMany(a => a)).ToArray();
 
         public static void Build()
         {
@@ -147,14 +175,45 @@ namespace GloomhavenVR
             var inst = (GameObject)PrefabUtility.InstantiatePrefab(model);
             inst.name = "Board";
 
-            // --- resolve the six anchors (any depth, by name) ---
-            var anchors = new System.Collections.Generic.Dictionary<string, Transform>();
+            // --- resolve the anchors (any depth, by name; seats by alias) ---
+            // `found` is keyed by the name as AUTHORED; `anchors` by the CANONICAL name, so every
+            // step below (orientation, centring, projection, logging) speaks one vocabulary whether
+            // the FBX says ButtonSeat1 or ConfirmButton.
+            var found = new System.Collections.Generic.Dictionary<string, Transform>();
             foreach (Transform t in inst.GetComponentsInChildren<Transform>(true))
-                if (System.Array.IndexOf(AnchorNames, t.name) >= 0 && !anchors.ContainsKey(t.name))
-                    anchors[t.name] = t;
-            foreach (string n in AnchorNames)
-                if (!anchors.ContainsKey(n))
-                    Debug.LogWarning($"[GloomhavenVR] Anchor '{n}' MISSING from the model — the mod will synthesize a procedural one.");
+                if (System.Array.IndexOf(AnchorNames, t.name) >= 0 && !found.ContainsKey(t.name))
+                    found[t.name] = t;
+
+            var anchors = new System.Collections.Generic.Dictionary<string, Transform>();
+            foreach (string n in FrameAnchorNames)
+            {
+                if (found.TryGetValue(n, out Transform ft)) anchors[n] = ft;
+                else Debug.LogWarning($"[GloomhavenVR] Frame anchor '{n}' MISSING from the model — orientation, centring and projection all fall back (see below).");
+            }
+
+            // The three button seats, in seat order. A null seat is not fatal: seats 0/1 get a
+            // procedural anchor at runtime, and seat 2 simply does not exist on a board the mesh
+            // lane has not regenerated (every board shipped so far).
+            var seats = new Transform[SeatAliases.Length];
+            for (int i = 0; i < SeatAliases.Length; i++)
+            {
+                foreach (string alias in SeatAliases[i])
+                {
+                    if (!found.TryGetValue(alias, out Transform st)) continue;
+                    seats[i] = st;
+                    anchors[SeatAliases[i][0]] = st;   // canonical key
+                    if (alias != SeatAliases[i][0])
+                        Debug.Log($"[GloomhavenVR] Button seat {i} resolved under the LEGACY name '{alias}' (canonical: '{SeatAliases[i][0]}').");
+                    break;
+                }
+                if (seats[i] == null)
+                    Debug.LogWarning($"[GloomhavenVR] Button seat {i} MISSING — the model carries none of {string.Join("/", SeatAliases[i])}. "
+                                     + (i < 2 ? "The mod will synthesize a procedural anchor for it."
+                                              : "The board will run as a TWO-seat one; regenerate the FBX with a third button recess to give it three."));
+            }
+            int seatCount = seats.Count(t => t != null);
+            Debug.Log($"[GloomhavenVR] Anchors resolved: {anchors.Count} of {FrameAnchorNames.Length + SeatAliases.Length} "
+                      + $"({FrameAnchorNames.Count(n => anchors.ContainsKey(n))} frame + {seatCount} button seat(s)).");
 
             // --- deterministic orientation from the anchor frame ---
             // Slot1->Slot2 = board long (X) axis; rest pads span the short (Y) axis;
@@ -201,11 +260,12 @@ namespace GloomhavenVR
             }
 
             // --- centre the anchor plane at local z=0, body toward +z, XY-centred ---
-            Vector3 planeCentre = Vector3.zero;
-            int c = 0;
-            foreach (var kv in anchors) { planeCentre += kv.Value.position; c++; }
-            if (c > 0) planeCentre /= c;
-            inst.transform.position -= planeCentre; // anchors' centroid -> origin
+            // COUNT-INDEPENDENT ON PURPOSE — see AnchorPlaneCentre. The old form averaged EVERY
+            // resolved anchor, so adding a third button recess would have moved the prefab origin
+            // (and with it the whole board relative to every _root-anchored mount) by a few
+            // millimetres, silently, as a side effect of an unrelated addition.
+            Vector3 planeCentre = AnchorPlaneCentre(anchors, seats);
+            inst.transform.position -= planeCentre; // anchor-plane centre -> origin
 
             // If the solid body ended up in FRONT of the cards (min z < 0 well past the
             // anchor plane), flip 180° about Y so the body sits behind (z>0) and the
@@ -215,9 +275,7 @@ namespace GloomhavenVR
             {
                 inst.transform.rotation = Quaternion.Euler(0f, 180f, 0f) * inst.transform.rotation;
                 inst.transform.position = Vector3.zero;
-                planeCentre = Vector3.zero; c = 0;
-                foreach (var kv in anchors) { planeCentre += kv.Value.position; c++; }
-                if (c > 0) inst.transform.position -= planeCentre / c;
+                inst.transform.position -= AnchorPlaneCentre(anchors, seats);
                 b = LocalBounds(inst);
                 Debug.Log("[GloomhavenVR] Body was in front of the cards — flipped 180° about Y.");
             }
@@ -270,9 +328,10 @@ namespace GloomhavenVR
                 // flat plate) — that would float the element centimetres proud. Reject any
                 // move beyond MaxProject and keep the authored face-plane position instead.
                 const float maxProject = 0.045f; // accept up to 45 mm (board A ≤28 mm, 9capjqp6 slots ~25 mm)
-                foreach (string name in AnchorNames)
+                foreach (var kv in anchors)
                 {
-                    if (!anchors.TryGetValue(name, out Transform a)) continue;
+                    string name = kv.Key;
+                    Transform a = kv.Value;
                     var ray = new Ray(a.position + outN * standoff, backN); // shoot back toward the board
                     float best = float.PositiveInfinity;
                     Vector3 bestPt = default;
@@ -310,9 +369,8 @@ namespace GloomhavenVR
 
             // Log the resolved geometry so orientation is verifiable from the log alone.
             Debug.Log($"[GloomhavenVR] Board bounds (local): center={b.center}, size={b.size}");
-            foreach (string n in AnchorNames)
-                if (anchors.ContainsKey(n))
-                    Debug.Log($"[GloomhavenVR]   anchor {n} local = {root.transform.InverseTransformPoint(anchors[n].position)}");
+            foreach (var kv in anchors)
+                Debug.Log($"[GloomhavenVR]   anchor {kv.Key} local = {root.transform.InverseTransformPoint(kv.Value.position)}");
 
             var saved = PrefabUtility.SaveAsPrefabAsset(root, board.Prefab, out bool ok);
             if (!ok) throw new System.Exception($"SaveAsPrefabAsset failed for {board.Prefab}");
@@ -320,6 +378,49 @@ namespace GloomhavenVR
             AssetDatabase.SaveAssets();
             Debug.Log($"[GloomhavenVR] Prefab written: {board.Prefab}");
             return saved;
+        }
+
+        /// <summary>
+        /// The point moved to the prefab origin: the mean of a FIXED SIX-TERM SET — the four frame
+        /// anchors plus the FIRST and LAST button seat.
+        ///
+        /// <para>WHY NOT "the mean of every anchor", which is what this used to be. That form makes
+        /// the prefab origin a function of HOW MANY anchors the FBX happens to carry, so the moment a
+        /// board gains a third button recess the whole mesh — and every anchor on it, and therefore
+        /// every card, keycap and rest disc parked on one — shifts a few millimetres against the
+        /// board root and against the mounts that are direct root children (DecisionMount, PileMount,
+        /// the handle bar, the native-widget docks at the hardcoded ButtonZoneX). That is a silent
+        /// retune of hand-dialled per-board geometry caused by an addition that has nothing to do
+        /// with it, and it would have been invisible in the log.</para>
+        ///
+        /// <para>WHY NOT "the four frame anchors" either, which looks like the tidy answer: those four
+        /// sit on the card slots and the rest pads, all on ONE side of the board's long axis, so on
+        /// the oak board their centroid is 126 mm off the six-anchor one. Every board in the shipped
+        /// bundle was assembled against the six-term value; reproducing it exactly for a two-seat
+        /// board is the requirement, and taking the first and last seat does that by construction
+        /// (with two seats, first and last ARE the two, and the mean of six terms is the mean of the
+        /// six anchors). With three seats it reads the button column's outer pair — the same
+        /// quantity, measured the same way.</para>
+        ///
+        /// <para>Degrades to the mean of whatever resolved when a term is missing, so a half-authored
+        /// FBX still assembles instead of throwing.</para>
+        /// </summary>
+        private static Vector3 AnchorPlaneCentre(
+            System.Collections.Generic.Dictionary<string, Transform> anchors, Transform[] seats)
+        {
+            var terms = new System.Collections.Generic.List<Vector3>(6);
+            foreach (string n in FrameAnchorNames)
+                if (anchors.TryGetValue(n, out Transform t)) terms.Add(t.position);
+
+            Transform first = seats.FirstOrDefault(t => t != null);
+            Transform last = seats.LastOrDefault(t => t != null);
+            if (first != null) terms.Add(first.position);
+            if (last != null) terms.Add(last.position);
+
+            if (terms.Count == 0) return Vector3.zero;
+            Vector3 sum = Vector3.zero;
+            foreach (Vector3 v in terms) sum += v;
+            return sum / terms.Count;
         }
 
         private static Bounds LocalBounds(GameObject go)
