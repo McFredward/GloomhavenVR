@@ -116,6 +116,15 @@ def new_scene():
     sc.view_settings.view_transform = "Standard"   # the sim is already display-referred sRGB
     sc.view_settings.look = "None"
     sc.eevee.taa_render_samples = SAMPLES
+    # Screen-space GI at 24 samples is pure grain on the big flat wall, and it buys nothing here -
+    # the room only has to read as solid geometry. Off, and cheaper.
+    if hasattr(sc.eevee, "use_raytracing"):
+        sc.eevee.use_raytracing = False
+    # The default light_threshold (0.01) computes an influence RADIUS for the key and cuts it off
+    # dead - on a 10 m wall that draws a visible arc across the render. Drop it so the falloff runs
+    # off the edge of frame instead.
+    if hasattr(sc.eevee, "light_threshold"):
+        sc.eevee.light_threshold = 0.0005
     world = bpy.data.worlds.new("w")
     sc.world = world
     world.use_nodes = True
@@ -324,11 +333,11 @@ def make_room():
 
     # ONE area light. The ROOM may be lit; the shards and the window may not, and they are not -
     # both are Emission and ignore this entirely.
-    pos = mathutils.Vector((-0.95, -1.05, 1.35))
+    pos = mathutils.Vector((0.38, -1.30, 1.18))
     bpy.ops.object.light_add(type="AREA", location=pos)
     lt = bpy.context.object
     lt.name = "key"
-    lt.data.energy = 78.0
+    lt.data.energy = 70.0
     lt.data.size = 0.9
     # An area light emits along its local -Z. Hand-rolled euler angles for this got the sign of the
     # tilt wrong on the first pass and lit the ceiling instead of the room - every occluder came

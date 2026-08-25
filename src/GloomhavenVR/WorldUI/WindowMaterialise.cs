@@ -8,7 +8,8 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// <b>A FLOATING WINDOW MATERIALISES OUT OF WIND-BORNE FLAKES, AND BLOWS AWAY INTO THEM.</b>
+/// <b>A FLOATING WINDOW BREAKS INTO REAL DEBRIS THAT FLIES THROUGH THE ROOM, AND FORMS OUT OF
+/// IT.</b>
 /// User, 2026-08-24: <i>"Ich möchte nicht mehr, dass die Fenster einfach aufploppen und urplötzlich
 /// wieder von einem Frame auf den anderen verschwinden. ... Ich stelle mir ein verschwindendes
 /// Fenster vor, das in Partikel von Wind verweht. Und Auftauchen eventuell andersrum ... Aber
@@ -37,7 +38,10 @@ namespace GloomhavenVR.WorldUI;
 ///   writes is recorded before it is written and restored from that record on completion,
 ///   cancellation, disable, destroy and watchdog. And the field is EXACT at both ends
 ///   (<see cref="WindowMaterialiseField.Presence"/>), so "restored" means literally the number that
-///   was there, not 0.98.</item>
+///   was there, not 0.98. The debris is exact the same way and needs no restore at all: it is
+///   mod-owned geometry that is destroyed with the carrier, and its size is exactly zero at the end
+///   of both directions, so a completed appear leaves nothing sitting on the finished
+///   window.</item>
 /// </list>
 ///
 /// <para><b>HOW IT LOOKS, IN TWO HALVES THAT SHARE ONE FIELD.</b> The window's own uGUI elements
