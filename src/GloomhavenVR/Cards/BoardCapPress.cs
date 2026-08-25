@@ -22,12 +22,16 @@ namespace GloomhavenVR.Cards;
 /// are distinguished by a 2-bit SEQUENCE, because the receiver animates the field CHANGING (it is
 /// a latch, not a pulse) and two identical latch values would otherwise be one event.</para>
 ///
-/// <para>WHO REPORTS. The two press commit points on the board:
-/// <c>PlayTray.BoardButton.Press</c> (CONFIRM / UNDO / item-USE / the two rest discs / the
-/// FOLLOW-PIN toggle) and <c>WorldUI.ButtonCluster.PhysicalButton.Fire</c> (the turn-flow SKIP cap).
-/// Both call at the point where the press has already passed every gate — disabled, activation
-/// guard, debounce, grip chord — so a refused attempt is never mirrored. Caps that are not on the
-/// wire report <see cref="Net.NetProtocol.CapPressNone"/> and are ignored here.</para>
+/// <para>WHO REPORTS. ONE press commit point, since 2026-08-25: <c>PlayTray.BoardButton.Press</c>
+/// — CONFIRM, UNDO, the turn-flow SKIP, item-USE, the two rest discs and the FOLLOW-PIN toggle. It
+/// was two until the user retired the turn-flow cap group ("Ich möchte daher, dass die Button-Gruppe
+/// der 'Überspringen Buttons' komplett verschwindet"); the skip cap was a
+/// <c>WorldUI.ButtonCluster.PhysicalButton</c> with a <c>Fire</c> of its own, and it is an ordinary
+/// board keycap on the board's third recess now, so it reports through the same line as its
+/// siblings with the same <c>CapPressSkip</c> id. The call sits where the press has already passed
+/// every gate — disabled, activation guard, debounce, grip chord — so a refused attempt is never
+/// mirrored. Caps that are not on the wire report <see cref="Net.NetProtocol.CapPressNone"/> and are
+/// ignored here.</para>
 ///
 /// <para>NOTHING ABOUT THIS MAKES A REMOTE BOARD INTERACTIVE. What crosses is "this cap was
 /// pressed"; the receiver replays the owner's dip on a colliderless copy and invokes nothing. See

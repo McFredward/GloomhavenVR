@@ -24,18 +24,20 @@ S="$ROOT/src/GloomhavenVR"
 
 # group-name : file:ConstName [file:ConstName ...]
 #
-# Note the FOUR-way group. REVIEW-Hands-Board-Core §P3 named three PAIRS; a repo-wide
+# Note the THREE-way group. REVIEW-Hands-Board-Core §P3 named three PAIRS; a repo-wide
 # sweep for the value found two more copies of the fingertip radius — WorldUI's
 # ButtonCluster and Cards' PlayTray — each of whose doc comment already says
-# "mirror of PokeInteractor.FingertipRadius". So the fingertip radius has FOUR copies
-# across FOUR subsystems (Hands/Board/WorldUI/Cards), not the two the review named: the
-# review undercounted, which makes the lint worth more, not less.
+# "mirror of PokeInteractor.FingertipRadius". The review undercounted, which makes the
+# lint worth more, not less. The WorldUI copy went with ButtonCluster.cs on 2026-08-25
+# (the turn-flow cap group the user retired), so the radius now has THREE copies across
+# THREE subsystems — one FEWER place to retune, which is the direction this file wants.
 #
 # Re-verified at Batch D by sweeping every `const float ... = 0.008f` in src/. The only
-# other 8 mm constants are DecisionDockSurface.BarClearanceMeters (grab-bar-to-prompt gap)
-# and ButtonTuning.DefaultRoundTravel (authored cluster-cap travel) — same number, unrelated
-# meaning, deliberately NOT in this group. An earlier draft of this header said "FIVE-way";
-# the table below has always listed four sites and four is correct.
+# other 8 mm constant is DecisionDockSurface.BarClearanceMeters (grab-bar-to-prompt gap) —
+# same number, unrelated meaning, deliberately NOT in this group. (ButtonTuning's
+# DefaultRoundTravel was a second such near-miss and retired with [RoundButtons].) An earlier
+# draft of this header said "FIVE-way"; the table below listed four sites until the WorldUI
+# one was deleted with its file, and lists three now.
 MIRRORS=(
   # THIRD site added 2026-08 with the fan-sweep unification: Cards/FanSweep.PalmReachMeters is the
   # PALM candidacy gate of every card fan's hand sweep, and its whole contract is "a card the sweep
@@ -44,7 +46,7 @@ MIRRORS=(
   # other silently re-opens "what lights up is not what I grab". (It replaced THREE unlinted copies:
   # CardsDriver.ContactPalmReach, PileBrowser.ContactPalmReach, ItemsPile.ContactPalmReach.)
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
-  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth WorldUI/ButtonCluster.cs:FingertipRadius Cards/PlayTray.7.Nested.cs:FingertipRadius"
+  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
   # ModBuild 200: the fixed-fit branch reports legibility in arc-minutes, which needs the reading
   # distance. ModalFallback owns the real one and keeps it private, so the fit carries a copy. The
@@ -149,8 +151,15 @@ MIRRORS=(
   "item-use clip settle seconds : Cards/ItemsPile.cs:ClipSettleSeconds Net/RemoteItemFan.cs:ClipSettleSeconds"
   "item chip release glide seconds : Cards/ItemsPile.cs:ReleaseGlideSeconds Net/RemoteItemFan.cs:ReleaseGlideSeconds"
 
-  "cluster proud seat : WorldUI/ButtonCluster.cs:ClusterProudOffset Net/RemoteBoardFurniture.cs:ClusterProudLift"
-  "cluster dock scale : Cards/PlayTray.1.Core.cs:ButtonClusterMountScale Net/RemoteBoardFurniture.cs:ClusterDockScale"
+  # THE TWO "cluster" GROUPS ARE GONE (2026-08-25), and this is what deleting a group looks
+  # like when the ORIGINAL is deleted rather than retuned. "cluster proud seat" paired
+  # ButtonCluster.ClusterProudOffset with RemoteBoardFurniture.ClusterProudLift, and "cluster dock
+  # scale" paired PlayTray.ButtonClusterMountScale with RemoteBoardFurniture.ClusterDockScale. Both
+  # existed so the peer's copy of the turn-flow SKIP cap could be seated exactly where the owner's
+  # docked cluster put it. The user retired that cluster ("Ich möchte daher, dass die Button-Gruppe
+  # der 'Überspringen Buttons' komplett verschwindet"); the skip cap is a generic board keycap in
+  # the board's own third recess, so BOTH sides now solve its seat through the ONE shared
+  # Cards.BoardAnchors — no constant, no copy, and therefore nothing left to lint.
 
   # The graphics-jobs handshake: the PRELOADER publishes what the engine actually booted
   # with (read before it edits boot.config) and the PLUGIN reports it. They are separate

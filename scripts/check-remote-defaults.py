@@ -71,13 +71,15 @@ PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "_dashCapH", "BoardDashboard", "Height"),
     ("Net/RemoteBoardFurniture.cs", "_dashCapD", "BoardDashboard", "Depth"),
     ("Net/RemoteBoardFurniture.cs", "_restCapD", "RestButtons", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "_transientCapR", "RoundButtons", "CapSize"),
-    ("Net/RemoteBoardFurniture.cs", "_transientCapD", "RoundButtons", "Depth"),
     # The turn-flow (SKIP) cap's SQUARE side lengths. They were not on this list at all before —
-    # they were BARE `Defaults.RoundButtons_Width/Height` reads inlined at the build site, which is
+    # EIGHT PAIRS LEFT THIS TABLE ON 2026-08-25 — the four [RoundButtons] cap sizes, its travel and
+    # the three [ButtonColors] cluster tints. They pinned the mirrored turn-flow SKIP cap's frozen
+    # constants against the defaults they copied; that cap is a generic board keycap now and reads
+    # the [BoardButtons] / BoardCapTint copies that are still listed below, so there is nothing left
+    # to drift.
+    # (The note that stood here explained that two of them had once been BARE
+    # `Defaults.RoundButtons_Width/Height` reads inlined at the build site, which is
     # the shape of drift this file exists to catch and which nothing could have caught.
-    ("Net/RemoteBoardFurniture.cs", "_transientCapW", "RoundButtons", "Width"),
-    ("Net/RemoteBoardFurniture.cs", "_transientCapH", "RoundButtons", "Height"),
     # The REST keycap's square side lengths (record 28 ids 99..100). They existed nowhere in Net/
     # until 2026-08-09 because the mirrored rest cap had no Square branch to need them; it has one
     # now (RemoteBoardFurniture.RestCap dispatches on the owner's [Cards] RestButtonShape_{board}),
@@ -108,9 +110,6 @@ PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "_dashCapTintR", "ButtonColors", "DashCapTintR"),
     ("Net/RemoteBoardFurniture.cs", "_dashCapTintG", "ButtonColors", "DashCapTintG"),
     ("Net/RemoteBoardFurniture.cs", "_dashCapTintB", "ButtonColors", "DashCapTintB"),
-    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintR", "ButtonColors", "ClusterCapTintR"),
-    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintG", "ButtonColors", "ClusterCapTintG"),
-    ("Net/RemoteBoardFurniture.cs", "_clusterCapTintB", "ButtonColors", "ClusterCapTintB"),
     ("Net/RemoteBoardFurniture.cs", "_restCapTintR", "ButtonColors", "RestCapTintR"),
     ("Net/RemoteBoardFurniture.cs", "_restCapTintG", "ButtonColors", "RestCapTintG"),
     ("Net/RemoteBoardFurniture.cs", "_restCapTintB", "ButtonColors", "RestCapTintB"),
@@ -124,7 +123,6 @@ PAIRS = [
     ("Net/RemoteBoardFurniture.cs", "_boardCapTravel", "BoardButtons", "Travel"),
     ("Net/RemoteBoardFurniture.cs", "_dashCapTravel", "BoardDashboard", "Travel"),
     ("Net/RemoteBoardFurniture.cs", "_restCapTravel", "RestButtons", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "_transientCapTravel", "RoundButtons", "Travel"),
     ("Net/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
     ("Net/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
     # The hand fan's geometry: wire-overridable fields (record 28) whose INITIALISER is what an

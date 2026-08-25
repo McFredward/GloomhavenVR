@@ -95,7 +95,13 @@ NO byte count — only wrapper format 7 and the writing editor; it prints the si
   axis, or a view-dependent term).
 * `BoardLit.shader`'s ModBuild-248 comment is stale (it says the boards do not opt into specular;
   all three now do). `_Cull: 0` on all three board materials though the comment says Back(2).
-* Everything under "STILL OPEN" from round 1 below, including **SEAT 3 HAS NO OCCUPANT**.
+* Everything under "STILL OPEN" from round 1 below, EXCEPT **SEAT 3 HAS NO OCCUPANT** — that
+  one is CLOSED (2026-08-25, the button-group unification lane). The turn-flow SKIP sits in
+  `ButtonSeat3` on the owner's board and on every peer's mirror of it; `WorldUI/ButtonCluster.cs`,
+  the whole `[RoundButtons]` config section, the `[WorldUI] ButtonCluster` switch, the cluster
+  dock mount and its two per-board dials are deleted, and record 28's ids 81..88 / 228 / 16 / 133
+  / 52 are retired-and-reserved. The same round collapsed the per-board keycap SEAT family onto
+  the mesh anchors (see `CardsConfig`'s seat-family note).
 
 ---
 
@@ -266,13 +272,18 @@ now **147,378** (was 146,857; +521 for the two board clamps, and no script gates
 
 ## STILL OPEN
 
-- **SEAT 3 HAS NO OCCUPANT.** The boards have three recesses; the mod fills two. Confirm (or the
-  item "Use" cap) sits in seat 0, Undo in seat 1, and seat 2 is empty — the turn-flow SKIP that it
-  exists for is still drawn by `WorldUI.ButtonCluster` from its own `[RoundButtons]` column at
-  board-local (0.148, −0.124). Moving it is a PlayTray + ButtonCluster + RemoteBoardFurniture round
-  that changes what record 28's ids 81..88 MEAN (`RemoteBoardFurniture.cs:880-884` states this),
-  and it was deliberately not attempted here. **This is the half of the user's request that is not
-  finished, and he must be told so plainly.** The mesh half is done.
+- ~~**SEAT 3 HAS NO OCCUPANT.**~~ **CLOSED 2026-08-25** by the button-group unification lane, and
+  the way it closed is worth recording because it is not what this entry predicted. The entry read:
+  seat 2 is empty, the turn-flow SKIP it exists for is drawn by `WorldUI.ButtonCluster` from its own
+  `[RoundButtons]` column at board-local (0.148, −0.124), and moving it "changes what record 28's
+  ids 81..88 MEAN". The user then asked for the group itself to go ("Ich möchte daher, dass die
+  Button-Gruppe der 'Überspringen Buttons' komplett verschwindet … so dass all diese buttons gleich
+  aussehen und untereinander in den jeweiligen Slots sitzen"), which turns out to be the cheaper
+  change rather than the more expensive one: with the skip built by the same `GenericCap` /
+  `BuildButtons` call as Confirm and Undo, there is no second geometry solve left to keep in step,
+  so ids 81..88 (and 228) were RETIRED rather than re-interpreted. `WorldUI/ButtonCluster.cs`, the
+  `[RoundButtons]` section, the `[WorldUI] ButtonCluster` switch and the cluster dock mount are all
+  deleted. **Both halves of the user's request are finished.**
 - `Cull Off` is kept on all three boards although its justification is stale (the meshes are closed
   and correctly wound). Taking the overdraw back needs a rig round; the measurement is in the
   commit that added `gen_winding.py`.

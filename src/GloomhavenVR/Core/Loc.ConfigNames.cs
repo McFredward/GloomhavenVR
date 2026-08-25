@@ -452,15 +452,15 @@ internal static partial class Loc
             ["Cards/FanGazeApexFollow"] = Pair("Fan: gaze lifts bow", "Fächer: Blick hebt Bogen"),
             ["Cards/FanGazeSmoothing"] = Pair("Fan: gaze smoothing", "Fächer: Blick-Glättung"),
             // Per-board geometry families (Debug ▸ Brett-Geometrie; heading names the board).
-            ["Cards/RestButtonOffset_*"] = Pair("Rest buttons: position", "Rast-Tasten: Position"),
-            ["Cards/RestButtonDiameter_*"] = Pair("Rest buttons: size (m)", "Rast-Tasten: Größe (m)"),
-            ["Cards/RestButtonSpacing_*"] = Pair("Rest buttons: gap (m)", "Rast-Tasten: Abstand (m)"),
+            ["Cards/RestButtonOffset"] = Pair("Rest buttons: position", "Rast-Tasten: Position"),
+            ["Cards/RestButtonDiameter"] = Pair("Rest buttons: size (m)", "Rast-Tasten: Größe (m)"),
+            ["Cards/RestStackSpacing"] = Pair("Rest buttons: gap (x)", "Rast-Tasten: Abstand (x)"),
             ["Cards/RestButtonShape_*"] = Pair("Rest buttons: shape", "Rast-Tasten: Form"),
-            ["Cards/ConfirmUndoOffset_*"] = Pair("Confirm/Undo: position", "Best./Zurück: Position"),
+            ["Cards/ConfirmUndoOffset"] = Pair("Board keys: position", "Brett-Tasten: Position"),
             // Cards/ConfirmUndoSize_* ("Best./Zurück: Größe") is GONE — retired 2026-08 with the
             // entry itself (user report: the dial had no effect; [BoardButtons] Width/Height is
             // the Confirm/Undo size for both cap shapes now).
-            ["Cards/GenericButtonSpacing_*"] = Pair("Confirm/Undo: gap (m)", "Best./Zurück: Abstand"),
+            ["Cards/ButtonStackSpacing"] = Pair("Board keys: gap (x)", "Brett-Tasten: Abstand (x)"),
             ["Cards/GenericButtonShape_*"] = Pair("Confirm/Undo: shape", "Bestätigen/Zurück: Form"),
             ["Cards/ItemUseSlotOffset_*"] = Pair("Item-use slot: position", "Item-Slot: Position"),
             ["Cards/ItemCardOffset_*"] = Pair("Item cards: position", "Item-Karten: Position"),
@@ -495,8 +495,6 @@ internal static partial class Loc
             ["Cards/ElementsScale_*"] = Pair("Elements: size", "Elemente: Größe"),
             ["Cards/PinOffset_*"] = Pair("Pin button: position", "Fixier-Taste: Position"),
             ["Cards/ReadoutOffset_*"] = Pair("Round readout: position", "Runden-Anzeige: Position"),
-            ["Cards/ClusterOffset_*"] = Pair("Button cluster: position", "Tastengruppe: Position"),
-            ["Cards/ClusterScale_*"] = Pair("Button cluster: size", "Tastengruppe: Größe"),
             ["Cards/DecisionOffset_*"] = Pair("Decision dock: position", "Entscheidung: Position"),
             ["Cards/DecisionScale_*"] = Pair("Decision dock: size", "Entscheidungsdock: Größe"),
             ["Cards/DecisionGap_*"] = Pair("Decision: text gap (m)", "Entscheidung: Textlücke"),
@@ -626,7 +624,6 @@ internal static partial class Loc
 
             // ---- [WorldUI] — panels, screen, input ------------------------------------------
             // 2026-08 naming pass: "Physische Oberfläche" was opaque and unrelated to the EN name.
-            ["WorldUI/ButtonCluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
             ["WorldUI/CombatLog"] = Pair("Show combat log", "Kampflog anzeigen"),
             ["WorldUI/Dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
             ["WorldUI/DecisionDock"] = Pair("Decision dock", "Entscheidungsleiste"),
@@ -695,26 +692,10 @@ internal static partial class Loc
             ["Keyboard/AutoCapitalise"] = Pair("Capitalise words", "Wörter großschreiben"),
 
             // ---- [RoundButtons] / [BoardButtons] / [BoardDashboard] / [RestButtons] ---------
-            // THE [RoundButtons] ROWS SAY "SKIP" / "Überspringen" NOW (user, hardware ModBuild 96:
-            // "Weiterhin vermisse ich die Einstellungen im Debug Menu für genau diese
-            // 'Überspringen'-Tasten (offsets, Form, Größe, etc..)"). They were captioned after the
-            // config SECTION — "Rundentasten", the transient round-phase button GROUP — and that
-            // group has exactly one visible member on a docked board: the skip cap. Every twin it
-            // could have shared the name with is forced permanently off (ButtonCluster.Tick calls
-            // MirrorReady(null)/MirrorUndo(null) so the board never shows a duplicate Fortfahren or
-            // Undo beside the right-hand pads). So the section name described an internal grouping
-            // and the row said nothing about the button the player was looking at. Naming the
-            // CONTROL rather than the container is what the sibling families already do
-            // ("Best./Zurück", "Rast-Tasten"), and it is the whole of the user's complaint.
-            ["RoundButtons/OffsetX"] = Pair("Skip key: sideways (m)", "Überspringen: quer (m)"),
-            ["RoundButtons/OffsetY"] = Pair("Skip key: up-board (m)", "Überspringen: hoch (m)"),
-            ["RoundButtons/OffsetZ"] = Pair("Skip key: proud (m)", "Überspringen: heraus (m)"),
-            ["RoundButtons/Shape"] = Pair("Skip key: shape", "Überspringen: Form"),
-            ["RoundButtons/CapSize"] = Pair("Skip key: cap size (m)", "Überspringen: Größe (m)"),
-            ["RoundButtons/Width"] = Pair("Skip key: width (m)", "Überspringen: Breite (m)"),
-            ["RoundButtons/Height"] = Pair("Skip key: height (m)", "Überspringen: Höhe (m)"),
-            ["RoundButtons/Depth"] = Pair("Skip key: depth (m)", "Überspringen: Tiefe (m)"),
-            ["RoundButtons/Travel"] = Pair("Skip key: travel (m)", "Überspringen: Hub (m)"),
+            // THE NINE [RoundButtons] ROWS ARE GONE (2026-08-25). They named the SKIP cap's own
+            // seat, shape, size and travel while that cap was a group of its own; it is a generic
+            // board keycap now, so the rows that name it are the [BoardButtons] ones below, which it
+            // shares with Confirm and Undo.
             ["BoardButtons/Width"] = Pair("Confirm/Undo: width (m)", "Best./Zurück: Breite"),
             ["BoardButtons/Height"] = Pair("Confirm/Undo: height (m)", "Best./Zurück: Höhe"),
             ["BoardButtons/Depth"] = Pair("Confirm/Undo: depth (m)", "Best./Zurück: Tiefe"),
@@ -747,9 +728,6 @@ internal static partial class Loc
             ["ButtonColors/DashCapTintR"] = Pair("Gear/pin tint: red", "Zahnrad-Ton: Rot"),
             ["ButtonColors/DashCapTintG"] = Pair("Gear/pin tint: green", "Zahnrad-Ton: Grün"),
             ["ButtonColors/DashCapTintB"] = Pair("Gear/pin tint: blue", "Zahnrad-Ton: Blau"),
-            ["ButtonColors/ClusterCapTintR"] = Pair("Round-btn tint: red", "Rundenknopf-Ton: Rot"),
-            ["ButtonColors/ClusterCapTintG"] = Pair("Round-btn tint: green", "Rundenknopf-Ton: Grün"),
-            ["ButtonColors/ClusterCapTintB"] = Pair("Round-btn tint: blue", "Rundenknopf-Ton: Blau"),
             ["ButtonColors/RestCapTintR"] = Pair("Rest-key tint: red", "Rast-Tasten-Ton: Rot"),
             ["ButtonColors/RestCapTintG"] = Pair("Rest-key tint: green", "Rast-Tasten-Ton: Grün"),
             ["ButtonColors/RestCapTintB"] = Pair("Rest-key tint: blue", "Rast-Tasten-Ton: Blau"),

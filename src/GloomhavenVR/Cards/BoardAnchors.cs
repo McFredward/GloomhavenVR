@@ -45,18 +45,164 @@ namespace GloomhavenVR.Cards;
 /// forever), and seat 2 is genuinely ADDITIVE — no old board has a third recess, so its absence is
 /// the normal case a two-anchor board must survive, not an error. Naming seat 2's alias
 /// <c>SkipButton</c> costs nothing and covers the one other name a mesh author would plausibly reach
-/// for, since Skip is the control the third recess exists for (see the three-cap enumeration in
-/// <c>WorldUI/ButtonCluster.cs</c>).</para>
+/// for, since Skip is the control the third recess exists for — and, since 2026-08-25, the control
+/// that actually sits in it (see the three-cap enumeration at <see cref="ButtonSeatCount"/>).</para>
 /// </summary>
 internal static class BoardAnchors
 {
-    /// <summary>How many button seats the cluster can address. THREE, and the number is a finding,
-    /// not a preference: <c>WorldUI/ButtonCluster.cs</c> enumerated every
-    /// <c>readyButton</c>/<c>m_UndoButton</c>/<c>m_SkipButton</c> toggle site in the decompiled
-    /// <c>Choreographer</c> and found six states where all three are live at once, and none where a
-    /// fourth mod cap could join (<c>m_selectButton</c> is mutually exclusive with the ready button
-    /// at every site that raises it, and the mod draws no cap for it).</summary>
+    /// <summary>How many button seats the generic cluster addresses. THREE, and the number is a
+    /// finding, not a preference: every <c>readyButton</c>/<c>m_UndoButton</c>/<c>m_SkipButton</c>
+    /// toggle site in the decompiled <c>Choreographer</c> was read, six states have all three live
+    /// at once, and none reaches four for the caps this board draws (<c>m_selectButton</c> is
+    /// mutually exclusive with the ready button at every site that raises it, and the mod draws no
+    /// cap for it). The whole reading is the block below.</summary>
     internal const int ButtonSeatCount = 3;
+
+    // ---- THE FINDING BEHIND ButtonSeatCount = 3, MOVED HERE 2026-08-25 ------------------------
+    //
+    // This enumeration was written in WorldUI/ButtonCluster.cs, which no longer exists: the user
+    // retired the turn-flow cap group that file drew ("Ich möchte daher, dass die Button-Gruppe der
+    // 'Überspringen Buttons' komplett verschwindet. Stattdessen will ich dass die Gruppe der
+    // generischen Buttons mit diesen Überspringen-Buttons ergänzt wird, so dass all diese buttons
+    // gleich aussehen und untereinander in den jeweiligen Slots sitzen."), and the skip cap is a
+    // member of the generic cluster on ButtonSeat3. The table below is the READING OF THE GAME'S
+    // OWN SOURCE that says three seats are enough and that a third one is genuinely needed — the
+    // fact ButtonSeatCount asserts — so it moves to the constant it justifies rather than dying
+    // with its old home. Its closing paragraph ("So: reported, not built") described the state of
+    // 2026-08-24; what follows it now is that it WAS built, exactly in the shape that paragraph
+    // named: "a THREE-seat generic cluster (Skip taking seat 2, order Confirm/Use · Undo · Skip so
+    // seat 0 never moves)".
+    //
+    // ---- WHY THE SKIP WAS STILL ITS OWN GROUP (investigated 2026-08-24, ModBuild 242) -------
+    //
+    // User, verbatim: "Aktuell sind die Überspringen-Buttons eine eigene Button-Gruppe an einem
+    // anderen Ort als die anderen generischen Buttons. Für die generischen Buttons gibt es immer
+    // zwei Button-Plätze. Untersuche die Hypothese: Ich denke es ist möglich, dass der
+    // 'Überspringen'-Button zu den generischen Buttons hinzugefügt werden [kann], da trotzdem nie
+    // mehr als 2 Buttons gleichzeitig angezeigt werden (z.B. Angriff überspringen und Auswahl
+    // rückgängig). Gibt es jemals den Fall dass mehr als 2 Buttons gleichzeitig angezeigt werden
+    // müssten, wenn die Überspringen-Buttons Teil der generischen Buttons werden?"
+    //
+    // ANSWER: JA — es gibt ihn. THE MAXIMUM IS THREE, and it is not a corner case: it is ordinary
+    // movement, ordinary AoE targeting and every summon/object placement. THE HYPOTHESIS IS
+    // FALSIFIED and the merge was NOT built. The three mod caps in question are one-to-one with
+    // three DIFFERENT global game widgets, so the question reduces exactly to "can
+    // Choreographer.readyButton, m_UndoButton and m_SkipButton be live at the same time":
+    //   CONFIRM cap  ⟵ Choreographer.readyButton   (CardsGameApi.CanConfirm: active + ButtonComponent
+    //                                               .enabled + no warningMask + IsInteractable)
+    //   UNDO cap     ⟵ Choreographer.m_UndoButton  (CardsGameApi.CanUndo: active + m_UndoButton.interactable)
+    //   SKIP cap     ⟵ Choreographer.m_SkipButton  (MirrorSkip: active + canvasGroup.alpha > 0.5)
+    // and all three are HIDDEN, not merely dimmed, when their game widget is dead — PlayTray.5.
+    // Status.cs items 7 ("wenn es nicht drückbar ist dann soll es dort auch nicht erscheinen") and
+    // MirrorSkip above. So "visible" and "pressable" are the same question for all three, and a
+    // third live widget IS a third cap that must be seated somewhere. The FLAT game agrees, which
+    // is worth knowing before anyone argues the mod is stricter than the 2D UI: all three derive
+    // from ButtonOnBlockingPanel and every one of them ends its per-frame recheck with
+    // ChangeCanvasAlpha(interactable) — ReadyButton.cs:502, SkipButton.cs:163, UndoButton.cs:295 —
+    // so a non-interactable widget is at ALPHA 0 there too. Nobody ever sees a greyed-out one.
+    //
+    // THE ENUMERATION IS FROM THE GAME'S SOURCE, NOT FROM A SESSION. A log shows what happened; it
+    // cannot show what cannot happen. Every m_SkipButton / readyButton / m_UndoButton toggle site in
+    // decompiled/GH.Runtime/Choreographer.cs (364 of them) was clustered by proximity and read.
+    // The one gate that decides most of them: ReadyButton.Toggle (ReadyButton.cs:462) is
+    //     SetInteractable(active && interactable && state != EREADYBUTTONCONFIRMDISABLED)
+    // — so every site that raises CONFIRM in EREADYBUTTONCONFIRMDISABLED (enum ordinal 11; the
+    // recheck at ReadyButton.cs:171 skips that state too) leaves the mod's Confirm cap HIDDEN and
+    // cannot reach three. Those sites are the majority, and they are where "nie mehr als 2" comes
+    // from — the impression is well-founded, it is just not the whole set.
+    //
+    // THE SHORTEST PROOF, if a future round wants one line instead of a table: there are FIVE
+    // sites where the game recomputes all three interactabilities in ONE block from three
+    // INDEPENDENT predicates — Choreographer.cs:10428-10430, :11332-11336, :11528-11530,
+    // :12337+12345-12346 and :12375-12378, each of the shape
+    //     readyButton.SetInteractable(<enough targets / waypoint placed>);
+    //     m_UndoButton.SetInteractable(ability.CanUndo && FirstAbility);
+    //     m_SkipButton.SetInteractable(ability.CanSkip);
+    // Three unrelated predicates evaluated together only makes sense if all three can be true
+    // together, and CanSkip/CanUndo are per-ability flags that no confirm condition constrains.
+    //
+    // THE STATES THAT REACH THREE (all three caps visible AND interactable at once):
+    //
+    // | # | game state / message               | Choreo   | SKIP cap            | CONFIRM cap                | UNDO cap                 | n |
+    // |---|------------------------------------|----------|---------------------|----------------------------|--------------------------|---|
+    // | 1 | CActorIsSelectingMoveTile, after    | :4353-60 | GUI_SKIP_MOVEMENT   | EREADYBUTTONCONFIRMMOVEMENT| GUI_UNDO,                | 3 |
+    // |   | the FIRST waypoint (Waypoints > 0), |          | (CanSkip)           | (state is CONFIRMMOVEMENT  | interactable = CanUndo   |   |
+    // |   | first ability of the card           |          |                     | exactly when Waypoints > 0)| && FirstAbility          |   |
+    // | 2 | CActorIsSelectingAttackFocus, AoE   | :4903-10 | GUI_SKIP_ATTACK     | EREADYBUTTONCONFIRMTARGETS | EUNDOBUTTONCLEARTARGETS, |   |
+    // |   | attack with the AoE locked, enough  |          | (CanSkip)           | interactable =             | GUI_CLEARTARGETS,        | 3 |
+    // |   | targets picked                      |          |                     | EnoughTargetsSelected()    | Toggle(true) ⇒ live      |   |
+    // | 3 | CActorIsSelectingObjectPosition     | :8222-37 | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM        | GUI_UNDO,                | 3 |
+    // |   | (summon / object placement) with    |          | (CanSkip)           | (TilesSelected.Count > 0;  | interactable = CanUndo   |   |
+    // |   | at least one tile selected          |          |                     | else CONFIRMDISABLED ⇒ 2)  | && FirstAbility          |   |
+    // | 4 | ActorWantsAnActionConfirmation with | :5951-56 | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM iff    | Toggle(true) + CanUndo   | 3 |
+    // |   | AllowContinueForNullAbility == true |          | (CanSkip)           | AllowContinueForNullAbility| && FirstAbility          |   |
+    // | 5 | ActorIsSelectingTargetingFocus, AoE | :6141-57 | term: SKIP_ABILITY  | EREADYBUTTONCONFIRM,       | left standing — only     | 3 |
+    // |   | branch, ability CanUndo             |          | /SKIP_PUSH/SKIP_PULL| interactable unless Disarm | toggled OFF if !CanUndo  |   |
+    // | 6 | ActorIsSelectingDamageFocus with    | :6197-   | GUI_SKIP_ABILITY    | EREADYBUTTONCONFIRM once   | CLEARTARGETS, FirstAbility| 3 |
+    // |   | at least one target                 |    6206  | (CanSkip)           | ActorsToTarget.Count > 0   | && CanUndo               |   |
+    //
+    // Six is a floor, not a ceiling of the search: the question was "gibt es JEMALS den Fall",
+    // and one state answers it. The five SetInteractable-trio sites above are the general reason.
+    //
+    // …and the near misses, so a future round does not re-litigate them:
+    //
+    // | game state                          | Choreo   | why it is only TWO                                          |
+    // |-------------------------------------|----------|-------------------------------------------------------------|
+    // | ReturnToSummoner (a summon acting)  | :6305-09 | all three RAISED, but :6306 m_UndoButton.SetInteractable     |
+    // |                                     |          | (false) immediately after ⇒ Undo hidden. Skip + Confirm.     |
+    // | Push / Pull tile selection          | :9918-21 | readyButton state is EREADYBUTTONCONFIRMDISABLED ⇒ Confirm   |
+    // |                                     | :10054-7 | hidden. Skip + Undo — the pair the user has actually seen.   |
+    // | CFinishedProcessingTileSelected     | :11285-9 | CONFIRMDISABLED again, and :11294/:11296/:11299 stand Undo   |
+    // |                                     |          | down. One or two, never three.                              |
+    // | StartActorAbility                   | :4211-14 | Undo + Skip + the SELECT button — but the mod does not draw  |
+    // |                                     |          | m_selectButton at all, so it is two caps here today.         |
+    // | Card selection / END SELECTION      | :10984-  | ready and undo are both explicitly SetInteractable(false) at |
+    // |                                     |  11008   | :10996/:10998 while the skip is raised.                     |
+    //
+    // SKIP WORDINGS, all of them (SkipButton.buttonText, the string that already rides
+    // ExtIdCapLabels bit 1 and that a peer renders verbatim): GUI_SKIP_MOVEMENT (the Start()
+    // default), GUI_SKIP_ATTACK, GUI_SKIP_ABILITY, GUI_SKIP_PULL (:9918), GUI_SKIP_PUSH (:10054),
+    // plus a computed `term` for targeting focus (:6156/:6164) and two sites that pass null and
+    // keep the previous wording (:4917, :11008). Six distinct wordings, one cap.
+    //
+    // IS FOUR POSSIBLE? Not for the mod, and this corrects the note at PlayTray.6.Build.cs:268-274
+    // ("The game can show up to FOUR turn-flow buttons at once … and occasionally m_selectButton").
+    // m_selectButton is a fourth GAME control, but it is mutually exclusive with the ready button
+    // at every site that raises it beside one — SetActiveSelectButton(!readyButton.gameObject
+    // .activeInHierarchy && …) — and the mod mirrors no cap for it at all. Three is the ceiling
+    // for the caps this board actually draws.
+    //
+    // WHAT WAS NOT BUILT, AND WHY IT IS NOT A ONE-LINE FOLLOW-UP EITHER. Beyond the count:
+    //   - THE GENERIC CLUSTER HAS EXACTLY TWO SEATS BY CONSTRUCTION, not by coincidence:
+    //     PlayTray.3.Pose.cs GenericButtonCount = 2 (const), and SetConfirmUndoOffset only ever
+    //     evaluates GenericPrimarySlot (0) and count-1 (1). Confirm and the item USE cap SHARE
+    //     seat 0 precisely because they are mutually exclusive; Skip is not exclusive with either.
+    //     A third seat is a PlayTray change, and PlayTray is not this file.
+    //   - HIS TUNED GEOMETRY IS TWO DIFFERENT SHAPES. The skip cap is [RoundButtons] 89 × 35 mm at
+    //     offset (-0.045, +0.260, +0.005); the generic caps are [BoardButtons] 63 × 65 mm at the
+    //     per-board ConfirmUndoOffset with GenericButtonSpacing 10 mm. Both sets are HIS values,
+    //     baked into Defaults by scripts/rebase-defaults.py. Merging retires the whole
+    //     [RoundButtons] family — the debug page "Tasten ▸ Überspringen- & Fixier-Taste" — and his
+    //     +260 mm up-board seat (the position in brille.jpg) becomes inert. That is the anchor
+    //     lesson: a replacement must not silently re-interpret the values a hand-tuned config is
+    //     measured from.
+    //   - THE PEER MIRROR PLACES THE SKIP BY GEOMETRY, NOT BY SLOT. RemoteBoardFurniture.cs:985-988
+    //     solves skipSeat = ClusterMount + tuning.ClusterOffset + (RoundOffsetX, RoundOffsetY, …)
+    //     from extension record 28 (ids 81..88 + shape 228) — i.e. it reproduces THIS column's
+    //     solve term for term. Move the cap locally and a peer keeps drawing it at the old seat:
+    //     the 1:1 rule breaks, and repairing it means changing what those wire fields MEAN. That
+    //     is a wire change, and it is in RemoteBoardFurniture.cs, which this round does not own.
+    // So: reported, not built. If he still wants one place for all of them, the shape of it is a
+    //
+    // AND IT WAS BUILT (2026-08-25), in that shape and for that reason. The three objections the
+    // closing paragraph raised were each answered rather than argued away: the generic cluster has
+    // THREE seats by construction (this constant, and one anchor per seat in the mesh); the two
+    // geometry families became ONE, which is the user's actual requirement ("so dass all diese
+    // buttons gleich aussehen") rather than a cost; and the peer mirror no longer places the skip
+    // by a geometry solve of its own — Net/RemoteBoardFurniture builds it through the same
+    // GenericCap call as Confirm and Undo, so record 28's ids 81..88 are not re-interpreted, they
+    // are retired.
+
 
     /// <summary>
     /// The four anchors the board's ORIENTATION FRAME is derived from — <c>Slot1→Slot2</c> is the
@@ -274,6 +420,138 @@ internal static class BoardAnchors
         return new Vector2(Mathf.Max(0.020f, w), Mathf.Max(0.015f, h));
     }
 
+    // --------------------------------------------------------- the stack the MESH already is --
+
+    /// <summary>
+    /// THE ANCHOR PITCH: how far apart this board seats two consecutive members of a stack, in the
+    /// FIRST anchor's own local units — the step DOWN the board's short axis from
+    /// <paramref name="anchors"/>[i] to <paramref name="anchors"/>[i+1], averaged over every
+    /// consecutive pair the board actually supplies. Null when fewer than two anchors resolve, or
+    /// when they are coincident (a degenerate board, where a "pitch" would be a division by nothing).
+    ///
+    /// <para><b>WHY THE MESH IS THE SOURCE AND A CONFIG ENTRY IS NOT.</b> The three re-authored
+    /// boards are the same 0.640 × 0.320 m plate on the outside and NOT the same layout on the
+    /// inside: the button recesses are pitched 76.5 mm on Oak, 80.1 on Steel and 70.1 on Bronze,
+    /// and the rest pads 114.8 / 120.2 / 105.0. That spread is up to 8 % and it is SHAPE, not size —
+    /// no single scale factor reproduces two of the three from the third, which is exactly why the
+    /// old answer was three hand-dialled numbers per dial per board. The board itself knows the
+    /// answer for all three; it is cut into the mesh and exported as these anchors. Reading it is
+    /// therefore both shorter and correct by construction for a board nobody has dialled in yet —
+    /// including the fourth one, the day the asset lane emits it.</para>
+    ///
+    /// <para><b>IT IS MEASURED IN THE ANCHOR'S OWN FRAME</b> (<c>InverseTransformPoint</c>) rather
+    /// than from <c>localPosition</c>, and that is load-bearing twice. All seat anchors are
+    /// re-rotated to the single board-face frame and then PINNED back through the asset-pose move
+    /// (<c>PlayTray.EnsureBuilt</c>, <c>Net.RemoteTrayVisual.Build</c>), so their localPositions are
+    /// not comparable after a mesh nudge while their relative world positions are. And the number
+    /// this returns is consumed as a cap's <c>localPosition.y</c> under one of these very anchors,
+    /// so measuring it in that frame makes the units cancel — a board rendered at any rig scale
+    /// yields the same pitch.</para>
+    ///
+    /// <para><b>IT COSTS NO WIRE FIELD</b>, for the same reason <see cref="SeatExtent"/> does not: a
+    /// peer clones the SAME prefab out of the SAME bundle, so it measures the identical pitch and
+    /// <see cref="StackDelta"/> gives the identical answer. Owner and peer cannot disagree about a
+    /// number neither of them sends.</para>
+    /// </summary>
+    internal static float? StackPitch(params Transform?[] anchors)
+    {
+        if (anchors == null)
+            return null;
+        float sum = 0f;
+        int pairs = 0;
+        for (int i = 0; i + 1 < anchors.Length; i++)
+        {
+            Transform? a = anchors[i];
+            Transform? b = anchors[i + 1];
+            if (a == null || b == null)
+                continue;
+            // NEGATED: seat 0 is the TOP one (the assembler emits k = 0 highest — see
+            // unity/board-prep/gen_board.py), so the next seat is at a LOWER y and a positive pitch
+            // is the natural "one step down the stack".
+            sum += -a.InverseTransformPoint(b.position).y;
+            pairs++;
+        }
+        if (pairs == 0)
+            return null;
+        float pitch = sum / pairs;
+        return Mathf.Abs(pitch) < 1e-4f ? (float?)null : pitch;
+    }
+
+    /// <summary>
+    /// THE STACK TERM, and the whole of what the SPACING dial is allowed to be now: the anchor-local
+    /// Y a member seated at <paramref name="index"/> of a <paramref name="count"/>-member stack takes
+    /// ON TOP OF its own anchor, given the board's own <paramref name="pitch"/> and the user's
+    /// dimensionless <paramref name="scale"/>.
+    ///
+    /// <para><b>ZERO AT SCALE 1, ON EVERY BOARD.</b> That is the property the whole restructure turns
+    /// on: every cap hangs off its OWN recess anchor, so at the shipped default the mesh's own
+    /// layout is what renders and there is nothing for a per-board number to correct. The dial only
+    /// expresses how much WIDER (or tighter) than the authored recesses the player wants the stack —
+    /// which is taste, is the same taste on all three boards, and therefore is ONE setting.</para>
+    ///
+    /// <para><b>CENTRE-ANCHORED, NOT TOP-ANCHORED.</b> The centre index is
+    /// <c>(count − 1) / 2</c> — seat 1 of three — so spreading the stack moves seat 0 up and seat 2
+    /// down by equal amounts and the group's centroid stays on the middle recess. The predecessor
+    /// (<c>(0.5 − index) · spacing</c>) was top-anchored, and top-anchoring was the RIGHT answer to
+    /// the question it was asked: with all members hanging off ONE anchor, pinning seat 0 was what
+    /// stopped a change in the member COUNT from moving the caps the user had dialled in. That
+    /// question is gone — the count is fixed at <see cref="ButtonSeatCount"/> and every member has
+    /// its own anchor — and top-anchoring now has a defect of its own: it TRANSLATES the whole stack
+    /// down the board as the dial grows, so a "spacing" control would also be a "move the group"
+    /// control. Centre-anchoring makes it purely a spread.</para>
+    ///
+    /// <para>A stack of TWO (the rest pads) falls out of the same expression with centre 0.5, i.e.
+    /// the ±half-step pair those discs have always used — so the two families share one function
+    /// rather than two conventions that can drift.</para>
+    /// </summary>
+    internal static float StackDelta(int index, int count, float pitch, float scale) =>
+        count > 1 ? pitch * (scale - 1f) * ((count - 1) * 0.5f - index) : 0f;
+
+    /// <summary>
+    /// The index of the RESOLVED seat nearest to <paramref name="seat"/>, or -1 when the board
+    /// supplies none at all. Ties break toward the LOWER index, which on this board means toward
+    /// Confirm — the seat a player is most likely to have dialled in.
+    /// </summary>
+    internal static int NearestResolvedSeat(Transform?[] seats, int seat)
+    {
+        int best = -1;
+        int bestDistance = int.MaxValue;
+        for (int i = 0; i < seats.Length; i++)
+        {
+            if (seats[i] == null)
+                continue;
+            int d = Mathf.Abs(i - seat);
+            if (d < bestDistance)
+            {
+                bestDistance = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// WHERE A MISSING SEAT GOES: the offset from resolved seat <paramref name="from"/> to absent
+    /// seat <paramref name="seat"/>, in <paramref name="from"/>'s own local frame, at the board's
+    /// measured <paramref name="pitch"/>. Seats descend, so a HIGHER index is further down.
+    ///
+    /// <para><b>WHY EXTRAPOLATE RATHER THAN INVENT.</b> The case that needs it is real and is on
+    /// somebody's disk right now: a board with the two OLD anchors and no third recess, running
+    /// against a plugin whose skip cap lives in seat 2. Placing that cap at a hardcoded procedural
+    /// position would put it at a fixed y regardless of where the board's own two anchors are — and
+    /// the two anchors are exactly what says how this board is laid out. Continuing their own step
+    /// puts the cap where the third recess WOULD have been cut, which is the closest thing to right
+    /// that an unmeasured board can offer.</para>
+    ///
+    /// <para><b>AND IT IS WHY THE MIRROR DOES NOT DIVERGE.</b> Both sides call this one function
+    /// with the same pitch measured off the same prefab, so an old-bundle board draws the skip cap
+    /// in the same place on the owner's screen and on every peer's. Falling back independently —
+    /// the owner to an extrapolated anchor, the peer to its own authored mount — is precisely the
+    /// class of 1:1 break this file exists to prevent.</para>
+    /// </summary>
+    internal static Vector3 SeatExtrapolation(int seat, int from, float pitch) =>
+        new(0f, -(seat - from) * pitch, 0f);
+
     // ------------------------------------------------------ keeping a cap in its own seat --
 
     /// <summary>
@@ -319,15 +597,18 @@ internal static class BoardAnchors
     /// the geometry of the seat the cap sits in, measured off the same mesh that decides the cap's
     /// size.</para>
     ///
-    /// <para><b>THE SPACING FALLS OUT OF THE SAME RULE.</b> <paramref name="seatY"/> is folded in
-    /// BEFORE the clamp, so the stack term is bounded by the same wall. That is deliberate rather
-    /// than a second decision about <c>GenericButtonSpacing</c> / <c>RestButtonSpacing</c>: on a board
-    /// with authored seats the anchor pitch already IS the spacing, so any spacing on top of it is
-    /// double-counting — and the honest remedy for a double count is not to let it leave the well.
-    /// Ignoring those dials outright was the alternative; it needs a second condition (a measured
-    /// board can still supply only two seats), it throws away the DIRECTION of a tuning that this
-    /// preserves as far as the geometry allows, and it lands within the same few millimetres. The
-    /// residual is at most the slack, which is the margin <see cref="FitCapSize"/> already reserved.</para>
+    /// <para><b>THE SPACING IS NO LONGER DOUBLE-COUNTED, AND THIS PARAGRAPH IS WHERE THAT WAS
+    /// DIAGNOSED.</b> It used to read: "on a board with authored seats the anchor pitch already IS
+    /// the spacing, so any spacing on top of it is double-counting — and the honest remedy for a
+    /// double count is not to let it leave the well." The observation was exactly right and the
+    /// remedy was a containment: <c>GenericButtonSpacing_Bronze</c> = 60 mm was an inter-cap gap
+    /// tuned against anchors 110 mm apart, applied on top of a 70 mm recess pitch, and the clamp's
+    /// job was to stop the result leaving the well. The 2026-08-25 restructure removed the double
+    /// count at its source instead — the spacing dial is a dimensionless MULTIPLIER on the board's
+    /// own measured pitch now (<see cref="StackDelta"/>), so at the shipped 1 the term this method
+    /// receives is identically ZERO and the anchor pitch is the whole layout. What is left for the
+    /// clamp is what it was always best at: bounding the tuned OFFSET, and bounding a spread the
+    /// player deliberately dialled past what the recess can hold.</para>
     ///
     /// <para><b>IT IS DERIVED, SO IT COSTS NO WIRE FIELD.</b> Every term — the tuned offset and
     /// spacing (already synced through record 28), the measured recess, the fitted cap — is available

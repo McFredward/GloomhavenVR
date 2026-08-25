@@ -957,6 +957,40 @@ internal sealed partial class PlayTray
         }
     }
 
+    // ---- the turn-flow SKIP's three wire read seams ------------------------------------------
+    //
+    // THEY MOVED HERE FROM `WorldUI.ButtonCluster`, WHERE THEY WERE STATICS, and the move is the
+    // whole reason the wire needed no new field: the three facts a peer draws its skip cap from —
+    // is it shown, is it pressable, what does it say — are the same three facts, sampled by the same
+    // NetAvatarDriver lines, into the same bit of the same record. All that changed is which object
+    // owns the cap they are read off. `BoardSkipShown` / `BoardSkipEnabled` / `BoardSkipLabel` were
+    // statics because the cluster instance was a private of WorldUIModule; the cap is a member of
+    // the tray now, and `PlayTray.Current` is how every other board seam is already reached.
+
+    /// <summary>True while the turn-flow SKIP keycap is visible on this board — the multiplayer
+    /// board-UI read seam (record bit <c>NetProtocol.BoardUiSkipBit</c>). Reads the LOGICAL state,
+    /// so it flips on the edge the owner's own crumble/assemble starts on.</summary>
+    internal bool SkipCapShown => _skip != null && _skip.LogicalVisible;
+
+    /// <summary>True while that cap is also PRESSABLE — the cap-STATE byte's
+    /// <c>NetProtocol.BoardUiCapSkipEnabledBit</c>. The disabled look is not a palette swap but a
+    /// lerp toward dark wood with a faded label, and a peer drawing the enabled look for a dead skip
+    /// is the same picture for two different states.</summary>
+    internal bool SkipCapEnabled => SkipCapShown && _skip!.StateEnabled;
+
+    /// <summary>
+    /// The wording the shown SKIP cap displays — cap-label read seam (wire record
+    /// <c>NetProtocol.ExtIdCapLabels</c> bit 1). Null while the cap is down, so the record is
+    /// omitted exactly then.
+    ///
+    /// <para>The game gives this ONE widget six wordings (GUI_SKIP_MOVEMENT / _ATTACK / _ABILITY /
+    /// _PUSH / _PULL plus a computed targeting term), which is why it has a wire slot at all: peers
+    /// render the owner's string verbatim on their copy — their board, their language, the
+    /// pick-banner rule — and the neutral GUI_SKIP_MOVEMENT re-localization is only their no-record
+    /// fallback.</para>
+    /// </summary>
+    internal string? SkipCapLabel => SkipCapShown ? _skip!.CurrentLabel : null;
+
     /// <summary>
     /// The text the item-USE cap currently displays — the multiplayer cap-label read seam (wire
     /// record <c>NetProtocol.ExtIdCapLabels</c> bit 3). Null while the cap is not up, so the

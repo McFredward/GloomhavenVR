@@ -56,7 +56,6 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "Dialogs", perBoard: false),
                         new BoardRef("WorldUI", "DecisionDock", perBoard: false),
                         new BoardRef("WorldUI", "TrayNativeControls", perBoard: false),
-                        new BoardRef("WorldUI", "ButtonCluster", perBoard: false),
                         new BoardRef("WorldUI", "WristHud", perBoard: false),
                         // [WorldUI] MapRoomHand moved to the "Karte 3D" heading at the bottom of
                         // this tree (2026-08-22 settings audit): it is a show/hide switch, but the

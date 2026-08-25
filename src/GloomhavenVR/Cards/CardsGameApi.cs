@@ -2558,6 +2558,111 @@ internal static class CardsGameApi
         return Localize("GUI_UNDO", "Undo");
     }
 
+    // ---------------------------------------------------------------- the turn-flow SKIP --
+    //
+    // THE SKIP IS A BOARD KEYCAP NOW (user, 2026-08-25: "Ich möchte daher, dass die Button-Gruppe
+    // der 'Überspringen Buttons' komplett verschwindet. Stattdessen will ich dass die Gruppe der
+    // generischen Buttons mit diesen Überspringen-Buttons ergänzt wird"). These four members are the
+    // Skip's half of the Confirm/Undo trio above, and they are deliberately written as its
+    // siblings — same shape, same sources, same diagnostic — because the cap they drive is built
+    // from the same geometry as Confirm and Undo and must not start behaving differently from them.
+    //
+    // WHAT IS NOT COPIED, and why: the visibility predicate. Confirm and Undo are shown from
+    // CanConfirm()/CanUndo(), which deliberately IGNORE the widget's canvasGroup alpha (test #14 —
+    // VR hides the 2D stack, so alpha is not a functional signal there). The Skip is the one control
+    // where the alpha IS the signal, and it was measured rather than assumed: the Choreographer
+    // toggles m_SkipButton ACTIVE on EVERY client whenever a PLAYER actor gets a skippable step
+    // (Choreographer.cs:4353, no owner gate), and what hides it for the non-acting players is the
+    // per-frame recheck driving the CanvasGroup alpha to 0 (SkipButton.CheckButtonInteractability →
+    // ChangeCanvasAlpha, SkipButton.cs:163). Reading activeInHierarchy alone is what once put a skip
+    // cap on the local board while a MITSPIELER was moving (hardware test 2026-08-04). The threshold
+    // is the game's own — ButtonOnBlockingPanel.IsInteractable() reads alpha > 0.5f.
+
+    /// <summary>Verified: <c>public SkipButton m_SkipButton</c> (Choreographer.cs:188).</summary>
+    private static SkipButton? SkipWidget()
+    {
+        Choreographer c = Choreographer.s_Choreographer;
+        return c != null && c.m_SkipButton != null ? c.m_SkipButton : null;
+    }
+
+    /// <summary>
+    /// Is the game SHOWING a skippable step to THIS client right now? Active object AND the game's
+    /// own visibility threshold — see the block note for why the alpha is load-bearing here and
+    /// nowhere else in this family.
+    /// </summary>
+    internal static bool SkipShown()
+    {
+        SkipButton? s = SkipWidget();
+        return s != null && s.gameObject.activeInHierarchy
+               && s.canvasGroup != null && s.canvasGroup.alpha > 0.5f;
+    }
+
+    /// <summary>Can the skip actually be pressed? Mirrors the guard of the 2D widget's own click
+    /// path (<c>SkipButton.OnClickFromButton</c> → <c>OnClick</c>), i.e. its Button's
+    /// interactability, on top of <see cref="SkipShown"/>.</summary>
+    internal static bool CanSkip()
+    {
+        SkipButton? s = SkipWidget();
+        return SkipShown() && s!.skipButton != null && s.skipButton.interactable;
+    }
+
+    /// <summary>Diagnostic counterpart of <see cref="CanSkip"/> — built only on a rejected press,
+    /// never per frame, exactly like <see cref="DescribeUndoGate"/>.</summary>
+    internal static string DescribeSkipGate()
+    {
+        SkipButton? s = SkipWidget();
+        if (s == null)
+            return "skipButton=null (no Choreographer.m_SkipButton)";
+        return $"active={s.gameObject.activeInHierarchy} " +
+               $"interactable={(s.skipButton != null ? s.skipButton.interactable.ToString() : "null")} " +
+               $"alpha={(s.canvasGroup != null ? s.canvasGroup.alpha.ToString("F2") : "null")}";
+    }
+
+    /// <summary>
+    /// The live localized wording of the skip control — GUI_SKIP_MOVEMENT / _ATTACK / _ABILITY /
+    /// _PUSH / _PULL plus the computed targeting term, six wordings on one widget. Read off the
+    /// game's own <c>buttonText</c> so the cap says exactly what the 2D UI would say, and so a peer
+    /// rendering the synced string sees the owner's word.
+    /// </summary>
+    internal static string SkipLabel()
+    {
+        SkipButton? s = SkipWidget();
+        if (s != null && s.buttonText != null && !string.IsNullOrEmpty(s.buttonText.text))
+            return s.buttonText.text;
+        return Localize("GUI_SKIP_MOVEMENT", "Skip");
+    }
+
+    /// <summary>
+    /// Fire the 2D Skip button's own click path.
+    ///
+    /// <para>THROUGH <c>NativeUiPress</c>, NOT through a direct <c>OnClick()</c> — and that is the
+    /// one place this cap deliberately does NOT follow its Confirm/Undo siblings. The retired
+    /// cluster committed the skip with the game's full left-mouse sequence for a reason the user
+    /// ruled on (ModBuild 195: "ich will das die selben Geräusche kommen die auch im normalen Spiel
+    /// hörbar sind"): on a button authored like this one the press sound lives in
+    /// <c>OnPointerDown</c>/<c>Up</c>, not in the click, and the down half is additionally gated on
+    /// <c>isHighlighted</c>, which only <c>OnPointerEnter</c> sets. A click-only dispatch is mute by
+    /// construction. Moving the cap to the board must not silently take its sound away, so the
+    /// commit path moves with it. Still exactly ONE commit: the <c>pointerClick</c>.</para>
+    /// </summary>
+    internal static bool ClickSkip()
+    {
+        SkipButton? s = SkipWidget();
+        if (s == null || s.skipButton == null || !CanSkip())
+            return false;
+        // The MODALITY gate the retired cluster applied here too, carried over verbatim:
+        // NativeUiPress dispatches through ExecuteEvents, which bypasses GraphicRaycasters, so the
+        // game's own raycaster-based UI lock would NOT stop this press (UI-ARCH §9.3).
+        if (WorldUI.CanvasConversion.IsLockedNow)
+        {
+            Core.VRLog.Debug("Cards", "Board: SKIP press swallowed — UI locked (modality respected).");
+            return false;
+        }
+        WorldUI.NativeUiPress.Press(s.skipButton.gameObject, alreadyHovered: false,
+                                    "control-board SKIP keycap");
+        return true;
+    }
+
     // ------------------------------------------------ ready state (confirm/revoke) --
 
     /// <summary>

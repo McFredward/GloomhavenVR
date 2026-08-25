@@ -10,11 +10,12 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// PER-CATEGORY bind sets (user: "every value must apply ONLY to its own category"):
 ///
-/// [RoundButtons] — the TRANSIENT round-phase button group (the ButtonCluster column that
-/// shows the game's turn-flow buttons like "Bewegung überspringen"): position offset in the
-/// tray-root frame (X sideways, Y up-board, Z out of the board toward the player), cap shape
-/// (round puck / square keycap), cap size, and — for its Square shape — its OWN cap
-/// width/height/depth and press travel. Consumed by <see cref="ButtonCluster"/> ONLY.
+/// [RoundButtons] IS GONE (2026-08-25) and there are three geometry categories now, not four. It
+/// described the TRANSIENT round-phase group — the separate column that drew the game's turn-flow
+/// "Bewegung überspringen" cap — and the user retired that group: the skip is a generic board keycap
+/// on the board's third recess, built from [BoardButtons] with Confirm and Undo. A category exists
+/// to keep one family of caps from resizing another; a category for a cap that is now a MEMBER of
+/// another family would do the opposite.
 ///
 /// [BoardButtons] — the Confirm/Undo ("Fortfahren"/"Rückgängig machen") keycaps on the
 /// control board: cap width/height/depth and press travel. Consumed by
@@ -55,11 +56,6 @@ internal static class ButtonTuning
     private static ConfigFile? _file;
 
     // ---- authored defaults (the exact values each bind replaced — see the consumers) ------
-    internal const float DefaultRoundCapSize = Defaults.RoundButtons_CapSize;  // ButtonCluster column cap-radius ceiling
-    internal const float DefaultRoundWidth = 0.084f;    // square cluster cap = 2 × the 42 mm radius
-    internal const float DefaultRoundHeight = 0.084f;
-    internal const float DefaultRoundDepth = 0.012f;    // authored square cluster-cap extrusion
-    internal const float DefaultRoundTravel = Defaults.RoundButtons_Travel;   // authored 8 mm cluster cap travel
     internal const float DefaultBoardWidth = 0.073f;    // authored Confirm/Undo cap side (was [Cards] ConfirmUndoSize_Bronze until its 2026-08 retirement; also the round-cap diameter now)
     internal const float DefaultBoardHeight = 0.073f;
     internal const float DefaultBoardDepth = 0.036f;    // PlayTray.SquareCapThickness
@@ -94,18 +90,14 @@ internal static class ButtonTuning
     /// <summary>Keycap category whose [ButtonColors] cap-face TINT applies (see <see cref="CapTint"/>).
     /// Matches the geometry categories; <see cref="CapCategory.Rest"/> is the default so the
     /// RestControls call site (which does not pass one) picks up the rest tint automatically.</summary>
-    internal enum CapCategory { Board, Dashboard, Cluster, Rest }
+    internal enum CapCategory { Board, Dashboard, Rest }
 
-    // ---- [RoundButtons] — transient round-phase button group (ButtonCluster ONLY) ---------
-    internal static ConfigEntry<float>? RoundOffsetX;
-    internal static ConfigEntry<float>? RoundOffsetY;
-    internal static ConfigEntry<float>? RoundOffsetZ;
-    internal static ConfigEntry<Cards.ButtonShape>? RoundShape;
-    internal static ConfigEntry<float>? RoundCapSize;
-    internal static ConfigEntry<float>? RoundWidth;
-    internal static ConfigEntry<float>? RoundHeight;
-    internal static ConfigEntry<float>? RoundDepth;
-    internal static ConfigEntry<float>? RoundTravel;
+    // THE [RoundButtons] SECTION IS GONE (2026-08-25) — nine entries that sized, seated, shaped and
+    // tuned the press of ONE cap: the turn-flow SKIP, drawn by the retired WorldUI/ButtonCluster.cs
+    // in its own column. That cap is a generic board keycap on the board's third recess now and is
+    // built from [BoardButtons] Width/Height/Depth/Travel together with Confirm and Undo, which is
+    // what the user's "so dass all diese buttons gleich aussehen" requires. Keeping a second
+    // geometry family for one of three identical caps could only make them differ again.
 
     // ---- [BoardButtons] — Confirm/Undo keycaps (PlayTray.BuildButtons ONLY) ---------------
     internal static ConfigEntry<float>? BoardWidth;
@@ -141,7 +133,6 @@ internal static class ButtonTuning
     internal static ConfigEntry<bool>? LabelUnderlay;
     internal static ConfigEntry<float>? BoardCapTintR, BoardCapTintG, BoardCapTintB;      // Confirm/Undo
     internal static ConfigEntry<float>? DashCapTintR, DashCapTintG, DashCapTintB;         // gear/Fixiert
-    internal static ConfigEntry<float>? ClusterCapTintR, ClusterCapTintG, ClusterCapTintB; // round-phase cluster
     internal static ConfigEntry<float>? RestCapTintR, RestCapTintG, RestCapTintB;         // short/long rest
 
     /// <summary>Raised on every entry write (the options tab's steppers bind here).</summary>
@@ -189,40 +180,6 @@ internal static class ButtonTuning
         if (_file != null)
             return;
         ConfigFile config = _file = ModuleConfig.Create("buttons");
-
-        RoundOffsetX = config.Bind("RoundButtons", "OffsetX", Defaults.RoundButtons_OffsetX,
-            "Sideways offset (tray-ROOT-local meters, +X = toward the board's right edge / the " +
-            "Undo-gear pads) of the docked SKIP key ('Skip movement' / 'Skip attack') from its " +
-            "default anchor \u2014 the only visible member of the transient round-phase button " +
-            "group. Live; clamped -0.30..0.30.");
-        RoundOffsetY = config.Bind("RoundButtons", "OffsetY", Defaults.RoundButtons_OffsetY,
-            "Up-board offset (tray-ROOT-local meters, +Y = toward the card slots / far edge, " +
-            "-Y = toward the bottom edge and handle) of the docked SKIP key from its " +
-            "default anchor. Live; clamped -0.30..0.30.");
-        RoundOffsetZ = config.Bind("RoundButtons", "OffsetZ", Defaults.OffsetZ,
-            "Out-of-plane offset (tray-ROOT-local meters, +Z = OUT of the board toward the " +
-            "player, -Z = sunk toward/behind the board face) of the docked SKIP key " +
-            "from its default proud seat. Live; clamped -0.30..0.30.");
-        RoundShape = config.Bind("RoundButtons", "Shape", Defaults.RoundButtons_Shape,
-            "Cap shape of the docked SKIP key: Round = flattened puck, Square = boxy keycap " +
-            "(then this section's Width/Height/Depth apply; Square is the shipped default). Live.");
-        RoundCapSize = config.Bind("RoundButtons", "CapSize", Defaults.RoundButtons_CapSize,
-            "Cap radius (cluster-local meters) of the docked SKIP key. The column auto-fit only " +
-            "SHRINKS below this when several buttons must share the column; a single button uses " +
-            "exactly this size, which docked is always the case. Live; clamped 0.015..0.09.");
-        RoundWidth = config.Bind("RoundButtons", "Width", Defaults.RoundButtons_Width,
-            "Cap width (meters) of the docked SKIP key while Shape=Square. Applies ONLY to " +
-            "this group. Live; clamped 0.02..0.20.");
-        RoundHeight = config.Bind("RoundButtons", "Height", Defaults.RoundButtons_Height,
-            "Cap height (meters) of the docked SKIP key while Shape=Square. Applies ONLY to " +
-            "this group. Live; clamped 0.015..0.20.");
-        RoundDepth = config.Bind("RoundButtons", "Depth", Defaults.RoundButtons_Depth,
-            "Cap depth/extrusion (meters toward the player) of the docked SKIP key while " +
-            "Shape=Square. Applies ONLY to this group. Live; clamped 0.006..0.08.");
-        RoundTravel = config.Bind("RoundButtons", "Travel", Defaults.RoundButtons_Travel,
-            "Press travel (meters) of the docked SKIP key — how far the cap sinks under the " +
-            "fingertip before the depth-fire press commits (fires at 90% of travel). Applies " +
-            "ONLY to this group. Live; clamped 0.002..0.02.");
 
         BoardWidth = config.Bind("BoardButtons", "Width", Defaults.BoardButtons_Width,
             "Cap width (meters, along the board's X) of the Confirm/Undo keycaps on the control " +
@@ -302,12 +259,11 @@ internal static class ButtonTuning
             "Dashboard gear + Fixiert plate FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
         DashCapTintB = config.Bind("ButtonColors", "DashCapTintB", Defaults.DashCapTintB,
             "Dashboard gear + Fixiert plate FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintR = config.Bind("ButtonColors", "ClusterCapTintR", Defaults.ClusterCapTintR,
-            "Round-phase cluster (Ready/Undo/Skip) cap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintG = config.Bind("ButtonColors", "ClusterCapTintG", Defaults.ClusterCapTintG,
-            "Round-phase cluster cap FACE tint — GREEN channel (0..1). 1 = unchanged. Live.");
-        ClusterCapTintB = config.Bind("ButtonColors", "ClusterCapTintB", Defaults.ClusterCapTintB,
-            "Round-phase cluster cap FACE tint — BLUE channel (0..1). 1 = unchanged. Live.");
+        // [ButtonColors] ClusterCapTintR/G/B went with the group they tinted (2026-08-25): they
+        // multiplied the round-phase cluster caps' faces, and the only one of those ever drawn was
+        // the turn-flow SKIP. It is a generic board keycap now and takes BoardCapTint with its two
+        // siblings, so a surviving cluster tint would have been a debug-menu dial that changes
+        // nothing — the failure mode this file's own category split exists to prevent.
         RestCapTintR = config.Bind("ButtonColors", "RestCapTintR", Defaults.RestCapTintR,
             "Short/long REST keycap FACE tint — RED channel (0..1). 1 = unchanged. Live.");
         RestCapTintG = config.Bind("ButtonColors", "RestCapTintG", Defaults.RestCapTintG,
@@ -337,15 +293,6 @@ internal static class ButtonTuning
 
         MigrateLegacy(config);
 
-        Hook(RoundOffsetX);
-        Hook(RoundOffsetY);
-        Hook(RoundOffsetZ);
-        Hook(RoundShape);
-        Hook(RoundCapSize);
-        Hook(RoundWidth);
-        Hook(RoundHeight);
-        Hook(RoundDepth);
-        Hook(RoundTravel);
         Hook(BoardWidth);
         Hook(BoardHeight);
         Hook(BoardDepth);
@@ -369,7 +316,6 @@ internal static class ButtonTuning
         Hook(LabelUnderlay);
         Hook(BoardCapTintR); Hook(BoardCapTintG); Hook(BoardCapTintB);
         Hook(DashCapTintR); Hook(DashCapTintG); Hook(DashCapTintB);
-        Hook(ClusterCapTintR); Hook(ClusterCapTintG); Hook(ClusterCapTintB);
         Hook(RestCapTintR); Hook(RestCapTintG); Hook(RestCapTintB);
         Hook(AnimEnable); Hook(AnimAppearParticles); Hook(AnimDissolveDuration); Hook(AnimAppearDuration);
     }
@@ -379,10 +325,11 @@ internal static class ButtonTuning
     /// [TransientButtons] OffsetX/OffsetY/Shape/CapSize plus a SHARED [SquareCaps]
     /// Width/Height/Depth/Travel where 0 = "authored default" ("Auto") — and the shared
     /// entries leaked across button categories. Rules:
-    /// - [TransientButtons] values move 1:1 into [RoundButtons] (same semantics).
-    /// - A NONZERO [SquareCaps] value is copied into EVERY category it used to affect
-    ///   (RoundButtons + BoardButtons + BoardDashboard) so the user's current look is
-    ///   preserved exactly; the categories are then independently adjustable.
+    /// - [TransientButtons] values are CONSUMED AND DROPPED: their only destination was
+    ///   [RoundButtons], and that section was retired with the cap group it sized (2026-08-25).
+    /// - A NONZERO [SquareCaps] value is copied into EVERY surviving category it used to affect
+    ///   (BoardButtons + BoardDashboard) so the user's current look is preserved exactly; the
+    ///   categories are then independently adjustable.
     /// - A saved 0 was the old "Auto" sentinel: it is NOT copied (a literal 0 would build
     ///   0-sized caps) — the new numeric per-category defaults, which ARE the authored
     ///   values 0 used to mean, take over. Logged.
@@ -437,19 +384,15 @@ internal static class ButtonTuning
             }
         }
 
-        if (RoundOffsetX != null && offX.Value != 0f)
-            RoundOffsetX.Value = offX.Value;
-        if (RoundOffsetY != null && offY.Value != 0f)
-            RoundOffsetY.Value = offY.Value;
-        if (RoundShape != null && shape.Value != Cards.ButtonShape.Round)
-            RoundShape.Value = shape.Value;
-        if (RoundCapSize != null && capSize.Value > 0f)
-            RoundCapSize.Value = capSize.Value;
-
-        Copy("Width", width.Value, RoundWidth, BoardWidth, DashPinWidth);
-        Copy("Height", height.Value, RoundHeight, BoardHeight, DashHeight);
-        Copy("Depth", depth.Value, RoundDepth, BoardDepth, DashDepth);
-        Copy("Travel", travel.Value, RoundTravel, BoardTravel, DashTravel);
+        // The four [TransientButtons] entries (OffsetX/OffsetY/Shape/CapSize) had exactly ONE
+        // destination — [RoundButtons] — and that section is retired, so they are consumed and
+        // dropped rather than copied anywhere. Consuming them is still the point of this pass: it is
+        // what removes them from the cfg. The SHARED [SquareCaps] geometry is unaffected; it always
+        // fanned out to several categories and still reaches the two that survive.
+        Copy("Width", width.Value, BoardWidth, DashPinWidth);
+        Copy("Height", height.Value, BoardHeight, DashHeight);
+        Copy("Depth", depth.Value, BoardDepth, DashDepth);
+        Copy("Travel", travel.Value, BoardTravel, DashTravel);
 
         config.Remove(offX.Definition);
         config.Remove(offY.Definition);
@@ -462,7 +405,8 @@ internal static class ButtonTuning
         config.Save();
 
         VRLog.Info("WorldUI", "ButtonTuning: migrated legacy [TransientButtons]/[SquareCaps] entries to the " +
-                              "per-category sections (RoundButtons/BoardButtons/BoardDashboard) — " +
+                              "per-category sections (BoardButtons/BoardDashboard; the old " +
+                              "[TransientButtons] group was retired with its cap and is dropped) — " +
                               (moved.Length > 0
                                   ? $"copied {moved} into every category the shared entry used to affect; "
                                   : "no nonzero shared geometry to copy; ") +
@@ -480,31 +424,6 @@ internal static class ButtonTuning
         };
 
     // ---- clamped live accessors (safe before Bind — fall back to authored defaults) --------
-
-    /// <summary>Tray-root-frame offset of the transient button group (user #8): X sideways, Y up-board, Z toward the player.</summary>
-    internal static Vector3 TransientOffset => new(
-        Clamped(RoundOffsetX, 0f, -0.30f, 0.30f),
-        Clamped(RoundOffsetY, 0f, -0.30f, 0.30f),
-        Clamped(RoundOffsetZ, 0f, -0.30f, 0.30f));
-
-    /// <summary>Whether the transient cluster caps are round pucks (default) or square keycaps.</summary>
-    internal static bool TransientRound =>
-        RoundShape == null || RoundShape.Value == Cards.ButtonShape.Round;
-
-    /// <summary>Configured transient cap radius, cluster-local meters (auto-fit ceiling).</summary>
-    internal static float TransientCapRadius => Clamped(RoundCapSize, DefaultRoundCapSize, 0.015f, 0.09f);
-
-    /// <summary>[RoundButtons] square-shape cap width (transient cluster ONLY).</summary>
-    internal static float RoundCapWidth => Clamped(RoundWidth, DefaultRoundWidth, 0.02f, 0.20f);
-
-    /// <summary>[RoundButtons] square-shape cap height (transient cluster ONLY).</summary>
-    internal static float RoundCapHeight => Clamped(RoundHeight, DefaultRoundHeight, 0.015f, 0.20f);
-
-    /// <summary>[RoundButtons] square-shape cap depth (transient cluster ONLY).</summary>
-    internal static float RoundCapDepth => Clamped(RoundDepth, DefaultRoundDepth, 0.006f, 0.08f);
-
-    /// <summary>[RoundButtons] press travel (transient cluster ONLY).</summary>
-    internal static float RoundCapTravel => Clamped(RoundTravel, DefaultRoundTravel, 0.002f, 0.02f);
 
     /// <summary>[BoardButtons] cap width (Confirm/Undo keycaps ONLY).</summary>
     internal static float BoardCapWidth => Clamped(BoardWidth, DefaultBoardWidth, 0.02f, 0.20f);
@@ -591,11 +510,6 @@ internal static class ButtonTuning
         Tint3(DashCapTintR, DashCapTintG, DashCapTintB,
               Defaults.DashCapTintR, Defaults.DashCapTintG, Defaults.DashCapTintB);
 
-    /// <summary>Round-phase cluster (Ready/Undo/Skip) cap FACE tint.</summary>
-    internal static Color ClusterCapTint =>
-        Tint3(ClusterCapTintR, ClusterCapTintG, ClusterCapTintB,
-              Defaults.ClusterCapTintR, Defaults.ClusterCapTintG, Defaults.ClusterCapTintB);
-
     /// <summary>Short/long REST keycap FACE tint.</summary>
     internal static Color RestCapTint =>
         Tint3(RestCapTintR, RestCapTintG, RestCapTintB,
@@ -606,7 +520,6 @@ internal static class ButtonTuning
     {
         CapCategory.Board => BoardCapTint,
         CapCategory.Dashboard => DashCapTint,
-        CapCategory.Cluster => ClusterCapTint,
         _ => RestCapTint,
     };
 
@@ -676,14 +589,14 @@ internal static class ButtonTuning
     //
     // THE INVARIANT THAT MAKES IT TINT-PROOF. <see cref="AssemblyColor"/> never renders a cap DARKER
     // THAN ITS OWN REST COLOUR in any channel: the hot end is a per-channel MAX of the rest colour and
-    // the dust pull. So whatever the player dials BoardCapTint / RestCapTint / ClusterCapTint to, an
+    // the dust pull. So whatever the player dials BoardCapTint / RestCapTint / DashCapTint to, an
     // assembling cap is at least as visible as the settled cap they configured — and the settled cap
     // is by definition the look they chose. The ANIMATION is the dust; the BUTTON is theirs again the
     // moment it lands. There is no floor left to re-guess, at any tint, in either lighting.
     //
-    // ONE HOME, THREE CONSUMERS. <c>Cards.PlayTray.BoardButton</c> (the board keycaps),
-    // <see cref="ButtonCluster"/>'s PhysicalButton (the round-phase caps) and <c>Net.RemoteCapFx</c>
-    // (a peer's mirrored board) all call these two methods, so the MULTIPLAYER 1:1 rule holds by
+    // ONE HOME, TWO CONSUMERS. <c>Cards.PlayTray.BoardButton</c> (every keycap on the board, the
+    // turn-flow SKIP included since it joined that family) and <c>Net.RemoteCapFx</c>
+    // (a peer's mirrored board) both call these two methods, so the MULTIPLAYER 1:1 rule holds by
     // construction rather than by a lint: one recipe, nothing to drift. This deliberately RETIRES the
     // AppearFadeFloor mirror pair that scripts/check-mirrors.sh described in prose — the same
     // resolution DecisionDockSurface.BarClearanceMeters got, and the one that file itself recommends:
@@ -890,10 +803,7 @@ internal static class ButtonTuning
     /// <summary>One-line value dump for the "geometry config applied" log (all values numeric — no Auto).</summary>
     internal static string Describe()
     {
-        Vector3 off = TransientOffset;
-        return $"round offset ({off.x:F3}, {off.y:F3}, {off.z:F3}) m, shape {(TransientRound ? "Round" : "Square")}, " +
-               $"cap size {TransientCapRadius:F3} m, W/H/D {RoundCapWidth:F3}/{RoundCapHeight:F3}/{RoundCapDepth:F3} m, " +
-               $"travel {RoundCapTravel:F3} m; board W/H/D {BoardCapWidth:F3}/{BoardCapHeight:F3}/{BoardCapDepth:F3} m, " +
+        return $"board W/H/D {BoardCapWidth:F3}/{BoardCapHeight:F3}/{BoardCapDepth:F3} m, " +
                $"travel {BoardCapTravel:F3} m; dashboard pin W {DashboardPinWidth:F3} m, " +
                $"H/D {DashboardHeight:F3}/{DashboardDepth:F3} m, travel {DashboardTravel:F3} m; " +
                $"rest W/H/D {RestCapWidth:F3}/{RestCapHeight:F3}/{RestCapDepth:F3} m, travel {RestCapTravel:F3} m";

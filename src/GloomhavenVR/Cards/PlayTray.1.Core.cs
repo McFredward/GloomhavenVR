@@ -62,9 +62,9 @@ namespace GloomhavenVR.Cards;
 ///   stacks on <see cref="PileMount"/> (test #21 A, built by <see cref="PileViewer"/>),
 /// - TOP-RIGHT corner: the round readout (test #18 — replaces the floating
 ///   PhaseBanner box; same "Runde N" text, fed from the same game state),
-/// - BOTTOM-CENTER, under the slots: the WorldUI turn-flow ButtonCluster docks on
-///   <see cref="ButtonClusterMount"/> (test #19 — Undo | Ready | Skip with the
-///   game's live labels/states, no longer floating at the table edge).
+/// - The BOTTOM-CENTER strip is EMPTY since 2026-08-25: the WorldUI turn-flow ButtonCluster
+///   docked there (test #19 — Undo | Ready | Skip), and the user retired that group. Its one live
+///   member, the turn-flow SKIP, is a generic keycap in the board's third button recess now.
 /// Poke AND laser work on every element: pokes via the P2 registry, laser via
 /// <see cref="LaserTargets"/> which CardsDriver ray-tests geometrically each frame.
 /// Every interaction is logged. Slot order == initiative order:
@@ -128,7 +128,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     private Transform? _initiativeMount;
     private Transform? _objectivesMount;
     private Transform? _elementMount;
-    private Transform? _clusterMount;
     private Transform? _decisionMount;
     private Transform? _pileMount;
     private Transform? _activeMount;
@@ -152,6 +151,14 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     private TextMeshPro? _roundLabel;
     private BoardButton? _confirm;
     private BoardButton? _undo;
+    /// <summary>The turn-flow SKIP keycap — the generic cluster's THIRD member since 2026-08-25,
+    /// seated in the board's own <c>ButtonSeat3</c> recess and built from the identical
+    /// <c>[BoardButtons]</c> size, depth, travel and shape as Confirm and Undo. It used to be a
+    /// <c>WorldUI.ButtonCluster.PhysicalButton</c> in a separate column with a separate geometry
+    /// family; the user retired that group outright ("Ich möchte daher, dass die Button-Gruppe der
+    /// 'Überspringen Buttons' komplett verschwindet … so dass all diese buttons gleich aussehen und
+    /// untereinander in den jeweiligen Slots sitzen").</summary>
+    private BoardButton? _skip;
 
     // Event-discard pick flow (pre-scenario "Begegnungen" mali + every modal card pick):
     // the hovering progress banner ("<Charakter>: Wähle 2 von 3 Karten zum Abwerfen —
@@ -360,45 +367,13 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// </summary>
     internal Transform? ElementMount => _elementMount;
 
-    /// <summary>
-    /// Mount for the WorldUI turn-flow ButtonCluster (Undo | Ready | Skip — the
-    /// game's live mid-turn buttons incl. "skip movement"/"end turn" states), docked
-    /// beside the right-hand pads (test #19). Since the lag fix the cluster is
-    /// RIGIDLY parented under <see cref="Root"/> (it is MOD-owned geometry, so the
-    /// mount-seam reversibility rule for game-owned canvases does not apply; the
-    /// cluster detects its own destruction on a tray teardown and rebuilds) — this
-    /// mount supplies the docked rotation/scale frame at attach time, and (via
-    /// <see cref="ButtonClusterOffset"/>) the per-board seat the player tuned.
-    /// Null until built.
-    /// </summary>
-    internal Transform? ButtonClusterMount => _clusterMount;
-
-    /// <summary>
-    /// The per-board <c>[Cards] ClusterOffset_{board}</c> ("Tastengruppe: Position") the mount is
-    /// currently carrying, in tray-ROOT-local meters — the same frame and the same unit as the
-    /// cluster's own column anchor and as the <c>[RoundButtons]</c> group offset that adds beside
-    /// it, so ±0.01 on either stepper is the same centimetre on the board.
-    ///
-    /// <para>USER REPORT 2026-08-09: "Die Offsets bei den Überspringen-Tasten haben keinen
-    /// Einfluss. Alles andere scheint zu funktionieren, aber die Offsets verändern nichts." The
-    /// fresh hardware log is unambiguous about WHICH offset: it carries ~25 lines of
-    /// "[Cards] Debug live-apply [Oak]: cluster offset (-0.01, 0.00, 0.00)" — the user walking all
-    /// three axes of this dial out and back to zero — while the neighbouring ClusterScale (1.00 →
-    /// 1.15 → 1.00) and the [RoundButtons] Height/Depth steppers in the same debug-menu block moved
-    /// the cap every time. The dial did nothing because the rigid-dock lag fix reparented the
-    /// cluster from THIS MOUNT to the tray root and kept only the mount's rotation and scale: the
-    /// translation the player was tuning was written to a transform that had stopped having
-    /// children. This property is the seam that puts it back into the pose solve.</para>
-    ///
-    /// <para>IT IS A DELTA OFF THE MOUNT, NOT A CONFIG READ, and that is what keeps it from being
-    /// applied twice. <c>ButtonCluster</c> is still forbidden to read
-    /// <c>CardsConfig.ClusterOffset</c> — the warning its <c>ClusterProudOffset</c> comment has
-    /// carried since the dock was written — because <see cref="SetClusterLayout"/> already turns
-    /// that config into meters here. Asking the mount what it ended up at keeps exactly one
-    /// conversion in the mod, so the live-apply path and the build path can never disagree.</para>
-    /// </summary>
-    internal Vector3 ButtonClusterOffset =>
-        _clusterMount != null ? _clusterMount.localPosition - ClusterMountBase : Vector3.zero;
+    // THE ButtonClusterMount ACCESSORS ARE GONE (2026-08-25). `ButtonClusterMount` handed the
+    // turn-flow cluster its docked parent and `ButtonClusterOffset` handed it the per-board seat as
+    // a DELTA off that mount's base — the shape the old rule "ButtonCluster is forbidden to read
+    // CardsConfig.ClusterOffset itself, or the offset is applied twice" forced. There is no cluster
+    // to dock: the turn-flow SKIP is a generic keycap in the board's own third recess, so it is
+    // seated by SetConfirmUndoOffset with its two siblings and neither the mount nor the delta has a
+    // reader left.
 
     /// <summary>
     /// SHARED DECISION DOCK (test #22): the reserved zone where the REAL interactive
@@ -539,6 +514,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     /// <summary>Raised by the UNDO button (CardsDriver queues the game's Undo click).</summary>
     internal System.Action? UndoRequested;
+
+    /// <summary>Raised by the turn-flow SKIP keycap (CardsDriver queues the game's Skip click).</summary>
+    internal System.Action? SkipRequested;
 
     // ------------------------------------------------------------------ laser targets --
 
@@ -786,12 +764,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         AdoptFurniture(readoutGo);
     }
 
-    /// <summary>Cluster dock scale: the cluster's real-meter layout shrunk onto the button strip.</summary>
-    private const float ButtonClusterMountScale = 0.7f;
-
-    /// <summary>Cluster mount board-Y (collision math in <see cref="BuildMounts"/>).</summary>
-    private const float ButtonClusterMountY = -0.115f;
-
     private void BuildMounts()
     {
         _initiativeMount = new GameObject("InitiativeMount").transform;
@@ -839,11 +811,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // Items 4/6: the turn-flow ButtonCluster mount position + size are PER-BOARD (debug-menu
         // tunable), base + ClusterOffset / × ClusterScale (on top of the fixed 0.7× dock scale;
         // seeded 0 / 1 → Oak unchanged).
-        _clusterMount = new GameObject("ButtonClusterMount").transform;
-        _clusterMount.SetParent(_root, worldPositionStays: false);
-        _clusterMount.localPosition = ClusterMountBase + CardsConfig.ClusterOffset(CardsConfig.CurrentBoard).Value;
-        _clusterMount.localRotation = Quaternion.Euler(-90f, 0f, 0f);
-        _clusterMount.localScale = Vector3.one * (ButtonClusterMountScale * CardsConfig.ClusterScale(CardsConfig.CurrentBoard).Value);
 
         // Test #22: the SHARED DECISION DOCK hangs BELOW the board, off the bottom
         // edge — a drop-down "decision drawer", the mirror of the initiative track's
@@ -1248,6 +1215,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _confirmedLabel = null;
         _confirm = null;
         _undo = null;
+        _skip = null;
         _pickBannerRoot = null;  // child of _root, destroyed with it
         _pickBannerLabel = null;
         _pickBannerText = null;
@@ -1270,7 +1238,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _initiativeMount = null;
         _objectivesMount = null;
         _elementMount = null;
-        _clusterMount = null; // child of _root, destroyed with it
         _decisionMount = null;
         _pileMount = null; // child of _root, destroyed with it (incl. the pile stacks)
         _activeMount = null; // child of _root, destroyed with it (incl. the active-card column)

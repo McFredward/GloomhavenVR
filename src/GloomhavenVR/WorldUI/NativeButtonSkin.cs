@@ -11,7 +11,7 @@ namespace GloomhavenVR.WorldUI;
 /// originaler button"). Every mod button that has no native uGUI counterpart to dock
 /// (the LONG REST control, the tray gear/SET + FOLLOW/PINNED frame buttons, the
 /// CONFIRM/UNDO twins when their native widget is unavailable, and the WorldUI
-/// <see cref="ButtonCluster"/> caps) skins itself from here.
+/// the board keycaps, the turn-flow SKIP among them) skins itself from here.
 ///
 /// WHAT IS SAMPLED at runtime off a real <c>Selectable</c> (the game's
 /// <c>ExtendedButton : Button</c> inherits the whole uGUI <c>Selectable</c> visual

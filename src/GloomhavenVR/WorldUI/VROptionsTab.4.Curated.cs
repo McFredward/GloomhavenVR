@@ -880,16 +880,16 @@ internal static partial class VROptionsTab
                     // because switching any of them off released the panel back to its 2D home,
                     // which in VR is nowhere. What is left is what the flat game also lets you
                     // hide, or what the mod ADDED and nobody needs: the combat log, the wrist
-                    // HUD, the table-edge button cluster (the board's own CONFIRM/UNDO keycaps
-                    // are always there), the loading spinner, and the two presentation choices
-                    // (Dialoge / Entscheidungsleiste) whose off-state shows the SAME prompt as a
-                    // floating window.
+                    // HUD, the loading spinner, and the two presentation choices (Dialoge /
+                    // Entscheidungsleiste) whose off-state shows the SAME prompt as a floating
+                    // window. The table-edge button cluster's switch left this list on 2026-08-25
+                    // with the cluster itself — its one live member is a board keycap now and
+                    // follows the board, exactly as CONFIRM and UNDO always have.
                     LocKey = "vr_sec_panels",
                     Entries = new CuratedEntry[]
                     {
                         new("WorldUI", "CombatLog", "show_combat_log"),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
-                        new("WorldUI", "ButtonCluster", "vr_o_buttoncluster"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
                         new("WorldUI", "LoadingIndicator", "vr_o_loading"),

@@ -258,34 +258,67 @@ internal sealed partial class PlayTray
     /// recess), each entry the bundled anchor resolved by <see cref="BoardAnchors.ResolveSeats"/> or
     /// null when this board has no such recess.</para>
     ///
-    /// <para><b>THE TWO-ANCHOR FALLBACK, STATED.</b> A board that supplies only seats 0 and 1 — every
-    /// board in the shipped bundle, and any board the asset lane has not regenerated — is built
-    /// EXACTLY as it was before this change: Confirm on seat 0, the item "Use" cap sharing it, Undo
-    /// on seat 1, at the same offsets from the same dials. Seat 2 simply has no anchor and no
-    /// occupant, and <see cref="SeatAnchor"/> answers null for it, so nothing is built there and
-    /// nothing is synthesised there either. A procedural anchor is created ONLY for seats 0 and 1
-    /// and ONLY when they are missing (the no-bundle procedural board), at the same
-    /// <see cref="ButtonZoneX"/> positions the two hardcoded fallbacks always used — an invented
-    /// third anchor would be a keycap floating on a board with no recess under it, which is worse
-    /// than not having the seat.</para>
+    /// <para><b>A MISSING SEAT IS FILLED, AND SEAT 2 IS THE ONE THAT NEEDS IT.</b> Every seat has an
+    /// occupant now — Confirm/Use, Undo and the turn-flow SKIP — so "absent means absent" is no
+    /// longer an option for any of them: it would mean a control the player cannot reach. Two
+    /// ladders, in order:
+    /// <list type="number">
+    ///   <item><b>SOME seats resolved</b> — the OLD TWO-ANCHOR BOARD, which is the case that is on
+    ///     somebody's disk right now (the plugin ships against whatever bundle is installed). The
+    ///     missing seat is EXTRAPOLATED from the resolved ones at the board's own measured pitch
+    ///     (<see cref="BoardAnchors.SeatExtrapolation"/>), i.e. seat 2 lands where that board's
+    ///     third recess would have been cut, and the peer mirror extrapolates identically from the
+    ///     same numbers.</item>
+    ///   <item><b>NO seats at all</b> — the no-bundle PROCEDURAL board. All three are synthesised at
+    ///     <see cref="ButtonZoneX"/>, evenly spaced by <see cref="Defaults.StackPitchFallback"/>
+    ///     about the midpoint the old hardcoded pair straddled (y −0.0075). The two synthesised
+    ///     seats therefore MOVE relative to the previous build (seat 0 +0.045 → +0.069, seat 1
+    ///     −0.060 → −0.0075) — on a mod-drawn slab whose two anchors were arbitrary literals.</item>
+    /// </list>
+    /// On a fully authored board neither ladder is reached.</para>
     /// </summary>
     private void BuildButtons(Transform?[] seats)
     {
         if (_root == null)
             return;
 
-        // Seats 0/1 must exist for the cluster to work at all, so they fall back to the authored
-        // procedural anchors. Seat 2 does NOT: absent means absent (see the summary).
-        Transform confirmParent = seats.Length > 0 && seats[0] != null
-            ? seats[0]!
-            : NewAnchor(BoardAnchors.SeatName(0), new Vector3(ButtonZoneX, 0.045f, -0.006f));
-        Transform undoParent = seats.Length > 1 && seats[1] != null
-            ? seats[1]!
-            : NewAnchor(BoardAnchors.SeatName(1), new Vector3(ButtonZoneX, -0.06f, -0.006f));
-        // Remember what the cluster actually got, so SetConfirmUndoOffset and the seat accessors
-        // read the SAME transforms the caps were parented to — including the synthesised ones.
-        if (seats.Length > 0) seats[0] = confirmParent;
-        if (seats.Length > 1) seats[1] = undoParent;
+        // ---- THIS BOARD'S OWN RECESS PITCH, measured BEFORE anything is synthesised --------------
+        // The per-board term that used to be three hand-dialled GenericButtonSpacing_{board}
+        // constants, read off the anchors the board itself exports (76.5 mm Oak, 80.1 Steel, 70.1
+        // Bronze — a spread no single scale factor reproduces, which is exactly why a constant could
+        // not do this job for three boards). A peer's copy of the same prefab measures the same
+        // number, so it costs no wire field; see BoardAnchors.StackPitch.
+        //
+        // BEFORE, not after: a synthesised seat's step is a number this file chose, and averaging it
+        // in with the board's own would let the fallback contaminate the measurement on exactly the
+        // board that still has a real one to give (the two-anchor case below).
+        float? measuredPitch = BoardAnchors.StackPitch(seats);
+        _seatPitch = measuredPitch ?? Defaults.StackPitchFallback;
+
+        // ALL THREE SEATS MUST EXIST, because all three have an occupant now (Confirm/Use, Undo, the
+        // turn-flow SKIP) — see the summary for the two fallback ladders and why "absent means
+        // absent" stopped being an option for seat 2.
+        const float fallbackMidY = -0.0075f;   // the old (+0.045, −0.060) pair's own midpoint
+        for (int s = 0; s < seats.Length && s < BoardAnchors.ButtonSeatCount; s++)
+        {
+            if (seats[s] != null)
+                continue;
+            int from = BoardAnchors.NearestResolvedSeat(seats, s);
+            if (from >= 0 && measuredPitch != null)
+            {
+                // The two-anchor board: continue ITS OWN step rather than inventing a position.
+                // Parented to the resolved neighbour so the extrapolation is one local offset — the
+                // very expression Net/RemoteBoardFurniture adds on its side, from the same pitch.
+                seats[s] = NewSeatUnder(seats[from]!, BoardAnchors.SeatName(s),
+                                        BoardAnchors.SeatExtrapolation(s, from, measuredPitch.Value));
+                continue;
+            }
+            float y = fallbackMidY + Defaults.StackPitchFallback * ((BoardAnchors.ButtonSeatCount - 1) * 0.5f - s);
+            seats[s] = NewAnchor(BoardAnchors.SeatName(s), new Vector3(ButtonZoneX, y, -0.006f));
+        }
+        Transform confirmParent = seats[0]!;
+        Transform undoParent = seats[1]!;
+        Transform skipParent = seats[2]!;
 
         // PART B + C: Confirm/Undo are real 3D keycaps, sized and positioned from the ACTIVE
         // board's config. The full X/Y/Z offset (X/Y in plane, Z = proud toward the player)
@@ -303,12 +336,14 @@ internal sealed partial class PlayTray
         // and the mod mirrors no cap for it). Believe the ButtonCluster table.
         // The layout is SetConfirmUndoOffset's; it does NOT auto-scale the caps from the live count —
         // see the paragraph below for why that was taken out.
-        // Today the mod owns Confirm + Undo here, on seats 0 and 1; SEAT 2 IS RESOLVED BUT UNOCCUPIED
-        // — the real Skip/Select turn-flow buttons still dock via the WorldUI ButtonCluster mount (not
-        // one of these files), and moving Skip onto seat 2 changes the meaning of wire fields a peer
-        // already derives its copy of that cap from (Net/RemoteBoardFurniture's skipSeat solve, ids
-        // 81..88). That is a cross-lane round, not this one. The item
-        // "Use" confirm built below is a fourth cap but NOT a fourth seat — it shares Confirm's
+        // The mod owns all three seats now: Confirm on 0, Undo on 1, the turn-flow SKIP on 2. Seat 2
+        // was resolved-but-unoccupied until 2026-08-25 because the Skip was drawn by
+        // WorldUI/ButtonCluster.cs from a separate [RoundButtons] column and a peer solved its copy
+        // term for term from record 28's ids 81..88. The user retired that group outright ("Ich
+        // möchte daher, dass die Button-Gruppe der 'Überspringen Buttons' komplett verschwindet"), so
+        // the cluster, the column, the geometry family and those wire fields are gone and the cap is
+        // an ordinary board keycap built from the same [BoardButtons] set as its two siblings. The
+        // item "Use" confirm built below is a fourth cap but NOT a fourth seat — it shares Confirm's
         // (PlayTray.GenericPrimarySlot), which is what makes "Auswahl beenden" and "Benutzen" land in
         // the same place. Nothing here reads the count: SetConfirmUndoOffset owns the layout.
         // Cap size is the TUNED size at every count (user: "der Use-Button soll genauso groß sein und
@@ -318,8 +353,8 @@ internal sealed partial class PlayTray
         // whole cluster stopped matching the dialled-in values. The stack now makes room by SPACING
         // (GenericClusterY), which is itself a tuned value, so every member is exactly the size the
         // player asked for and the geometry stays theirs.
-        Vector3 off = CardsConfig.ConfirmUndoOffset(active).Value;
-        float spacing = CardsConfig.GenericButtonSpacing(active).Value;
+        Vector3 off = CardsConfig.ConfirmUndoOffset.Value;
+        float spacing = CardsConfig.ButtonStackSpacing.Value;
         bool round = CardsConfig.GenericButtonShape(active).Value == ButtonShape.Round;
 
         // Category split (user: "every value applies ONLY to its own category"): the
@@ -409,6 +444,24 @@ internal sealed partial class PlayTray
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
 
+        // THE TURN-FLOW SKIP, on the board's third recess. Built from the SAME rectSize, the SAME
+        // depth, the SAME travel, the SAME shape branch and the same cap category as Confirm and
+        // Undo — that identity is the requirement, not an implementation detail ("so dass all diese
+        // buttons gleich aussehen"). What it keeps of its old self is its ACCENT COLOUR, verbatim
+        // the (0.37, 0.44, 0.56) antique slate-blue the retired cluster built its skip cap in
+        // (WorldUI/ButtonCluster.Build) — so the one thing a player recognised the control by
+        // survives the move, and the peer mirror's own SkipColor already holds that exact triple.
+        // Its two siblings keep theirs the same way: sage "go" for Confirm, worn leather for Undo.
+        _skip = BoardButton.Create(skipParent, rectSize,
+            new Color(0.37f, 0.44f, 0.56f), // antique slate-blue — the retired cluster cap's accent
+            Core.Loc.Game("GUI_SKIP_MOVEMENT", "Skip"),
+            () => SkipRequested?.Invoke(),
+            round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
+            capCategory: WorldUI.ButtonTuning.CapCategory.Board);
+        _skip.WireCap = Net.NetProtocol.CapPressSkip;
+        _skip.DisabledReason = CardsGameApi.DescribeSkipGate;
+        RegisterLaserTarget(_skip.Collider!, _skip);
+
         // Requirement 9a: while the item "Use" confirm is a live cluster member, it is a GENERIC
         // cluster board button in THIS column — same board keycap look as Confirm/Undo (never the old
         // bespoke keycap beside the slot); onClick routes to the ItemsPile-supplied use action.
@@ -466,22 +519,26 @@ internal sealed partial class PlayTray
             _confirm?.SetVisible(false);
         if (_undoShownBeforeRebuild == false)
             _undo?.SetVisible(false);
+        // The SKIP cap's resting state is HIDDEN — the game raises its widget only on a skippable
+        // step — so a first build (null) hides it too rather than showing a cap for one frame.
+        if (_skipShownBeforeRebuild != true)
+            _skip?.SetVisible(false);
         _confirmShownBeforeRebuild = null;
         _undoShownBeforeRebuild = null;
+        _skipShownBeforeRebuild = null;
         // The item-use cap is the one whose resting state is HIDDEN: it exists on every board from
         // frame one and only shows while a usable card is clipped into the recess.
         if (!_itemUseActive)
             _itemUseConfirm?.SetVisible(false);
 
-        SetConfirmUndoOffset(off, spacing); // Confirm+Use share the top seat, Undo the bottom one, Z proud
-        string seatTwo = seats.Length > 2 && seats[2] != null
-            ? $"'{seats[2]!.name}' y{GenericSeatY(2, spacing) * 1000f:+0.0;-0.0} mm (no occupant yet)"
-            : "ABSENT on this board";
-        VRLog.Info("Cards", $"Board: Confirm/Undo built as 3D {(round ? "round" : "square")} keycaps " +
-                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} (offset {off}, spacing {spacing:F3} m; " +
+        SetConfirmUndoOffset(off, spacing); // Confirm+Use share the top seat, Undo the middle, Skip the bottom
+        VRLog.Info("Cards", $"Board: Confirm/Undo/Skip built as 3D {(round ? "round" : "square")} keycaps " +
+                            $"{rectSize.x:F3}×{rectSize.y:F3} m for {active} ([Cards] ConfirmUndoOffset {off}, " +
+                            $"ButtonStackSpacing ×{spacing:F3} on this board's own measured " +
+                            $"{_seatPitch * 1000f:F1} mm recess pitch; " +
                             $"seat 0 '{confirmParent.name}' y{GenericSeatY(0, spacing) * 1000f:+0.0;-0.0} mm, " +
                             $"seat 1 '{undoParent.name}' y{GenericSeatY(1, spacing) * 1000f:+0.0;-0.0} mm, " +
-                            $"seat 2 {seatTwo})" +
+                            $"seat 2 '{skipParent.name}' y{GenericSeatY(2, spacing) * 1000f:+0.0;-0.0} mm)" +
                             (round ? "." : " — square caps are beveled keycaps: state-colour top + BRIGHT lit bevel ring + dark warm walls (3-submesh, high contrast) for unmistakable 3D."));
         VRLog.Info("Cards", _seatMinHalf != null
             ? $"Board: cap size FITTED to the '{active}' seat recess — tuned " +
@@ -526,15 +583,14 @@ internal sealed partial class PlayTray
         if (_root == null || _confirm == null)
             return;
         MeasureBoardLocalExtents(_root, out float topLocalY, out float halfLocalX);
-        ControlBoard board = CardsConfig.CurrentBoard;
-        Vector3 dialled = CardsConfig.ConfirmUndoOffset(board).Value;
+        Vector3 dialled = CardsConfig.ConfirmUndoOffset.Value;
 
         for (int seat = 0; seat < seats.Length; seat++)
         {
             Transform? anchor = seat == 0 ? confirmParent : seat == 1 ? undoParent : seats[seat];
             if (anchor == null)
                 continue;
-            BoardButton? cap = seat == 0 ? _confirm : seat == 1 ? _undo : null;
+            BoardButton? cap = seat == 0 ? _confirm : seat == 1 ? _undo : _skip;
             Vector3 anchorLocal = _root.InverseTransformPoint(anchor.position);
             Vector3 capLocal = cap != null
                 ? _root.InverseTransformPoint(cap.transform.position)
@@ -543,7 +599,7 @@ internal sealed partial class PlayTray
             float overX = Mathf.Abs(capLocal.x) + capSize.x * 0.5f - halfLocalX;
             float overY = Mathf.Abs(capLocal.y) + capSize.y * 0.5f - topLocalY;
             bool offBoard = overX > 0f || overY > 0f;
-            string who = seat == 0 ? "CONFIRM/USE" : seat == 1 ? "UNDO" : "seat 2 (no occupant)";
+            string who = seat == 0 ? "CONFIRM/USE" : seat == 1 ? "UNDO" : "SKIP";
             string line = $"Board: {who} seat {seat} — anchor local ({anchorLocal.x:F4}, {anchorLocal.y:F4}), " +
                           $"cap local ({capLocal.x:F4}, {capLocal.y:F4}), board half-extent " +
                           $"({halfLocalX:F4}, {topLocalY:F4}) m.";
@@ -552,17 +608,17 @@ internal sealed partial class PlayTray
                 VRLog.Info("Cards", line);
                 continue;
             }
-            // The correction is stated, not applied: what ConfirmUndoOffset_{board} would have to be
+            // The correction is stated, not applied: what [Cards] ConfirmUndoOffset would have to be
             // for this cap to sit centred in its own recess (i.e. cancel the anchor-relative drift
             // and keep only the tuned Z proud depth).
             VRLog.Warn("Cards", line +
                 $" OFF THE BOARD by ({Mathf.Max(0f, overX) * 1000f:F0}, {Mathf.Max(0f, overY) * 1000f:F0}) mm. " +
-                $"[Cards] ConfirmUndoOffset_{board} is currently ({dialled.x:F3}, {dialled.y:F3}, {dialled.z:F3}); " +
+                $"[Cards] ConfirmUndoOffset is currently ({dialled.x:F3}, {dialled.y:F3}, {dialled.z:F3}); " +
                 $"an offset of (0.000, 0.000, {dialled.z:F3}) would centre the cap in its authored recess. " +
                 "This value was tuned against a board whose button zone was on the OTHER side — it is a " +
                 "46 cm relocation, not a nudge — and the re-authored boards put the seats where the " +
                 "offset used to have to reach. NOT auto-corrected: it is a tuned value, and the same " +
-                $"applies to [Cards] RestButtonOffset_{board}.");
+                "applies to [Cards] RestButtonOffset.");
         }
     }
 
@@ -597,6 +653,27 @@ internal sealed partial class PlayTray
     /// </summary>
     private bool? _confirmShownBeforeRebuild;
     private bool? _undoShownBeforeRebuild;
+    private bool? _skipShownBeforeRebuild;
+
+    /// <summary>
+    /// A synthesised button seat hung off a RESOLVED one, at a local offset — the two-anchor board's
+    /// extrapolated third recess. Unlike <see cref="NewAnchor"/> this keeps the parent's own Z (the
+    /// offset carries none), because the neighbour is a real authored anchor already seated at the
+    /// board's own proud depth: re-seating it at <c>FixedProudZ</c> would put one cap of the column
+    /// at a different depth from the other two.
+    /// </summary>
+    private Transform NewSeatUnder(Transform parent, string name, Vector3 localOffset)
+    {
+        var t = new GameObject(name).transform;
+        t.SetParent(parent, worldPositionStays: false);
+        t.localPosition = localOffset;
+        t.localRotation = Quaternion.identity;   // the parent anchor already faces the board face
+        VRLog.Info("Cards", $"Board: '{name}' EXTRAPOLATED from '{parent.name}' at " +
+                            $"({localOffset.x:F4}, {localOffset.y:F4}, {localOffset.z:F4}) m — this board " +
+                            "supplies no such recess, so the seat continues the pitch its own anchors " +
+                            "define. A peer's mirror extrapolates from the same two numbers.");
+        return t;
+    }
 
     private Transform NewAnchor(string name, Vector3 localPos)
     {
@@ -689,6 +766,7 @@ internal sealed partial class PlayTray
         // Item A: conclusive square-cap wall diagnostic (real mm thickness + shader + queue).
         _confirm?.LogCapDiagnostics("Confirm");
         _undo?.LogCapDiagnostics("Undo");
+        _skip?.LogCapDiagnostics("Skip");
         // Item 7b: prove the gear/pin caps are now SOLID OPAQUE beveled keycaps (BoardLit, opaque
         // queue, no alpha-blend, no Overlay/RenderOnTop) like the other keycaps — the diag reports
         // "OPAQUE: YES" for both, settling the old see-through look.

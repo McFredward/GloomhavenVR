@@ -504,7 +504,6 @@ internal static partial class Loc
         // are gone with their dials, because the pair clamped a factor that is 1.0 at the shipped
         // zoom and therefore did nothing a player could see (ActorBars.ZoomFollowMin has the proof).
         ["vr_o_barsize"] = Pair("Health bars: size", "Lebensbalken: Größe"),
-        ["vr_o_buttoncluster"] = Pair("Wrist buttons", "Handgelenk-Tasten"),
         ["vr_o_dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
         ["vr_o_decisiondock"] = Pair("Decision dock", "Entscheidungsleiste"),
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
@@ -818,7 +817,6 @@ internal static partial class Loc
         // The hint now carries what the two removed bound-dials used to claim to configure: the
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
-        ["h_vr_o_buttoncluster"] = Pair("Buttons on your wrist for the things you press most.", "Tasten am Handgelenk für das, was du am häufigsten drückst."),
         ["h_vr_o_dialogs"] = Pair("Show the game's dialogs as panels in front of you.", "Zeigt die Dialoge des Spiels als Tafeln vor dir."),
         ["h_vr_o_decisiondock"] = Pair("A bar within reach for choices you have to make.", "Eine Leiste in Reichweite für Entscheidungen."),
         ["h_control_board"] = Pair("Which control board model sits in front of you.", "Welches Kontrollbrett-Modell vor dir steht."),
@@ -1042,7 +1040,6 @@ internal static partial class Loc
         ["items"] = Pair("Items", "Gegenstände"),
 
         // ---- Debug element / sub-category labels (previously hardcoded German) ----
-        ["round_buttons"] = Pair("Skip key (round phase)", "Überspringen-Taste"),
         ["board_dashboard"] = Pair("Gear & Pin (size)", "Zahnrad & Fixiert (Größe)"),
         ["wall_fade"] = Pair("Wall see-through", "Wandüberblendung"),
         ["figure_offsets"] = Pair("Figure offsets", "Figuren-Offsets"),
@@ -1108,33 +1105,34 @@ internal static partial class Loc
         // VROptionsTab.6.BoardTopic.cs.
         ["vr_bg_buttons"] = Pair("Buttons", "Tasten"),
         ["h_vr_bg_buttons"] = Pair(
-            "The pressable keycaps on the control board: Confirm/Undo, the rest keys, the docked "
-            + "SKIP key and the FOLLOW/PINNED key — position, size, gap, shape and press travel.",
-            "Die drückbaren Tasten auf dem Steuerbrett: Bestätigen/Zurück, Rast-Tasten, die "
-            + "angedockte ÜBERSPRINGEN-Taste und die FOLGEN/FIXIERT-Taste — Lage, Größe, Abstand, "
-            + "Form und Hub."),
-        ["vr_bg_cu"] = Pair("Confirm/Undo", "Best./Zurück"),
+            "The pressable keycaps on the control board: the three stacked keys (Confirm, Undo and "
+            + "SKIP), the rest keys and the FOLLOW/PINNED key — position, size, gap, shape and "
+            + "press travel.",
+            "Die drückbaren Tasten auf dem Steuerbrett: die drei übereinander sitzenden Tasten "
+            + "(Bestätigen, Zurück und ÜBERSPRINGEN), die Rast-Tasten und die FOLGEN/FIXIERT-Taste "
+            + "— Lage, Größe, Abstand, Form und Hub."),
+        ["vr_bg_cu"] = Pair("Board keys", "Brett-Tasten"),
         ["h_vr_bg_cu"] = Pair(
-            "The Confirm and Undo keycaps: position, gap and shape per board, plus their "
-            + "width/height/depth/travel (shared by all boards; the width doubles as the diameter "
-            + "when the shape is round).",
-            "Die Bestätigen- und Zurück-Tasten: Position, Abstand und Form pro Brett, dazu "
-            + "Breite/Höhe/Tiefe/Hub (gelten für alle Bretter; bei runder Form ist die Breite "
-            + "zugleich der Durchmesser)."),
+            "The three keycaps stacked in the board's button recesses — Confirm, Undo and SKIP, "
+            + "which sits in the third recess since it stopped being a group of its own: where the "
+            + "column sits, how far apart the keys are, their shape and their "
+            + "width/height/depth/travel (the width doubles as the diameter when the shape is "
+            + "round).",
+            "Die drei Tasten in den Tastenmulden des Bretts — Bestätigen, Zurück und "
+            + "ÜBERSPRINGEN, das seit dem Ende seiner eigenen Gruppe in der dritten Mulde sitzt: "
+            + "wo die Spalte sitzt, wie weit die Tasten auseinander stehen, ihre Form und "
+            + "Breite/Höhe/Tiefe/Hub (bei runder Form ist die Breite zugleich der Durchmesser)."),
         ["vr_bg_rest"] = Pair("Rest keys", "Rast-Tasten"),
         ["h_vr_bg_rest"] = Pair(
-            "The short/long rest keys: seat, size, gap and shape per board, plus the keycap "
-            + "geometry shared by all boards.",
-            "Die Tasten für kurze/lange Rast: Sitz, Größe, Abstand und Form pro Brett, dazu die "
-            + "für alle Bretter gemeinsame Kappen-Geometrie."),
-        ["vr_bg_cluster"] = Pair("Skip key & pin", "Überspringen- & Fixier-Taste"),
+            "The short/long rest keys: seat, size, gap and shape, plus the keycap geometry.",
+            "Die Tasten für kurze/lange Rast: Sitz, Größe, Abstand und Form, dazu die "
+            + "Kappen-Geometrie."),
+        ["vr_bg_cluster"] = Pair("Pin key", "Fixier-Taste"),
         ["h_vr_bg_cluster"] = Pair(
-            "The docked SKIP key ('Skip movement' / 'Skip attack') and the FOLLOW/PINNED key: "
-            + "where they dock on the board, how large they are, the skip cap's own shape, "
-            + "width/height/depth and press travel.",
-            "Die angedockte ÜBERSPRINGEN-Taste ('Bewegung überspringen' / 'Angriff "
-            + "überspringen') und die FOLGEN/FIXIERT-Taste: wo sie am Brett andocken, wie groß "
-            + "sie sind, dazu Form, Breite/Höhe/Tiefe und Hub der Überspringen-Kappe."),
+            "The FOLLOW/PINNED key: where it sits on the board. The SKIP key used to share this "
+            + "heading because it was a group of its own; it is one of the board keys now.",
+            "Die FOLGEN/FIXIERT-Taste: wo sie am Brett sitzt. Die ÜBERSPRINGEN-Taste stand hier, "
+            + "solange sie eine eigene Gruppe war — sie ist jetzt eine der Brett-Tasten."),
         ["vr_bg_board"] = Pair("Board & alignment", "Brett & Ausrichtung"),
         ["h_vr_bg_board"] = Pair(
             "The control board itself: how it hangs in front of you, and the decorative board "

@@ -905,6 +905,20 @@ internal sealed partial class PlayTray
         /// class.</summary>
         internal bool StateAccent => _accent;
 
+        /// <summary>
+        /// This cap's live ENABLED state — the multiplayer cap-STATE read seam for the turn-flow
+        /// SKIP (board-UI record byte 2's <c>BoardUiCapSkipEnabledBit</c>, via
+        /// <c>PlayTray.SkipCapEnabled</c>).
+        ///
+        /// <para>The sentence above ("the ENABLED flag has no such reader") was true while the skip
+        /// cap belonged to <c>WorldUI.ButtonCluster</c> and published its own static. It does not
+        /// any more: the skip is a BoardButton on seat 2, and the enabled/disabled distinction is
+        /// the one cap state a peer genuinely has to reproduce for it, because a dead skip is drawn
+        /// as a lerp toward dark wood with a faded label rather than being hidden. Reading the flag
+        /// the renderer itself obeys is the same argument <see cref="StateAccent"/> makes.</para>
+        /// </summary>
+        internal bool StateEnabled => _enabledState;
+
         /// <summary>This cap's live CONFIRMED (readied) state — see <see cref="StateAccent"/>.</summary>
         internal bool StateConfirmed => _confirmed;
 

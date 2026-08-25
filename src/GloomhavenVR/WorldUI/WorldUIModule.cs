@@ -194,7 +194,6 @@ internal sealed class WorldUIModule : IVRModule
     /// </summary>
     private sealed class WorldUIDriver : MonoBehaviour
     {
-        private readonly ButtonCluster _buttons = new();
         private readonly WorldSurface[] _slotSurfaces =
         {
             new InitiativeTrackSurface(),
@@ -279,7 +278,6 @@ internal sealed class WorldUIModule : IVRModule
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
                 ("VRKeyboard", VRKeyboard.Tick),            // reads the settled uGUI focus, so after the windows have had their say
-                ("ButtonCluster", _buttons.Tick),
             };
             for (int i = 0; i < _slotSurfaces.Length; i++)
             {
@@ -440,7 +438,6 @@ internal sealed class WorldUIModule : IVRModule
         private void OnDestroy()
         {
             TickGuard.Run("WorldUI.Shutdown.CameraInventory", CameraInventory.Detach, "WorldUI");
-            TickGuard.Run("WorldUI.Shutdown.Buttons", _buttons.Shutdown, "WorldUI");
             for (int i = 0; i < _slotSurfaces.Length; i++)
             {
                 WorldSurface surface = _slotSurfaces[i];

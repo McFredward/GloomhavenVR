@@ -88,13 +88,19 @@ internal static partial class VROptionsTab
             {
                 new()
                 {
-                    // EVERY "Best./Zurück" dial in one block (the report's literal ask): the three
-                    // per-board dials, then the shared [BoardButtons] keycap geometry.
+                    // EVERY generic-keycap dial in one block (the report's literal ask). It covers
+                    // all THREE caps now — Confirm, Undo and the turn-flow SKIP, which joined this
+                    // cluster on 2026-08-25 — and two of its rows stopped being per-board on the same
+                    // day: the seat NUDGE and the stack SPACING are single shared entries, because
+                    // the per-board part of a keycap seat is the recess the board itself cut (see
+                    // CardsConfig's seat-family note). Only the SHAPE is still per board, and that is
+                    // taste rather than geometry: no anchor can say whether this player wants round
+                    // pucks on their bronze board.
                     LocKey = "vr_bg_cu",
                     Entries = new[]
                     {
-                        new BoardRef("Cards", "ConfirmUndoOffset"),
-                        new BoardRef("Cards", "GenericButtonSpacing"),
+                        new BoardRef("Cards", "ConfirmUndoOffset", perBoard: false),
+                        new BoardRef("Cards", "ButtonStackSpacing", perBoard: false),
                         new BoardRef("Cards", "GenericButtonShape"),
                         new BoardRef("BoardButtons", "Width", perBoard: false),
                         new BoardRef("BoardButtons", "Height", perBoard: false),
@@ -108,9 +114,9 @@ internal static partial class VROptionsTab
                     LocKey = "vr_bg_rest",
                     Entries = new[]
                     {
-                        new BoardRef("Cards", "RestButtonOffset"),
-                        new BoardRef("Cards", "RestButtonDiameter"),
-                        new BoardRef("Cards", "RestButtonSpacing"),
+                        new BoardRef("Cards", "RestButtonOffset", perBoard: false),
+                        new BoardRef("Cards", "RestButtonDiameter", perBoard: false),
+                        new BoardRef("Cards", "RestStackSpacing", perBoard: false),
                         new BoardRef("Cards", "RestButtonShape"),
                         new BoardRef("RestButtons", "Width", perBoard: false),
                         new BoardRef("RestButtons", "Height", perBoard: false),
@@ -120,35 +126,22 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
-                    // The SKIP cap's block, and the third repetition of the same shape: per-board
-                    // seat + scale, then the shared [RoundButtons] geometry.
+                    // THE SKIP CAP'S OWN BLOCK IS GONE (2026-08-25), and its rows with it. It held
+                    // [Cards] ClusterOffset/ClusterScale plus the nine [RoundButtons] entries — the
+                    // seat, size, shape and travel of a cap that had a geometry family of its own
+                    // because it was drawn by a separate group. The user retired that group ("Ich
+                    // möchte daher, dass die Button-Gruppe der 'Überspringen Buttons' komplett
+                    // verschwindet ... so dass all diese buttons gleich aussehen"), so the skip's
+                    // dials ARE the Best./Zurück block's dials above: same seat nudge, same stack
+                    // spacing, same [BoardButtons] size, same shape. The ModBuild-96 report this
+                    // block answered ("die Einstellungen sollen unter der Tasten-Kategorie genauso
+                    // einstellbar sein") is satisfied more completely than it was: the cap is
+                    // reachable in the same place as its siblings because it IS one of them.
                     //
-                    // THE REPORT (user, hardware ModBuild 96): "Weiterhin vermisse ich die
-                    // Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten (offsets,
-                    // Form, Größe, etc..) - die Einstellungen sollen unter der Tasten-Kategorie
-                    // genauso einstellbar sein." The nine [RoundButtons] entries were bound, named,
-                    // described and reachable — in the OTHER topic (Tasten ▸ Rundentasten), while
-                    // this block held only their per-board halves. That is precisely the split this
-                    // file's own header calls the report it was created to answer ("Best./Zurück:
-                    // Breite/Höhe/Tiefe/Hub lived in one topic while Position/Abstand/Form lived in
-                    // another"), repeated for the one keycap family nobody had walked yet. The
-                    // docked cluster shows a single member — the SKIP cap; ButtonCluster.Tick forces
-                    // the Ready/Undo twins permanently off — so [RoundButtons] IS that cap's dial
-                    // set, and "genauso einstellbar" means: in the same place as its siblings.
+                    // What is left here is the one control that never belonged to the cluster.
                     LocKey = "vr_bg_cluster",
                     Entries = new[]
                     {
-                        new BoardRef("Cards", "ClusterOffset"),
-                        new BoardRef("Cards", "ClusterScale"),
-                        new BoardRef("RoundButtons", "OffsetX", perBoard: false),
-                        new BoardRef("RoundButtons", "OffsetY", perBoard: false),
-                        new BoardRef("RoundButtons", "OffsetZ", perBoard: false),
-                        new BoardRef("RoundButtons", "Shape", perBoard: false),
-                        new BoardRef("RoundButtons", "CapSize", perBoard: false),
-                        new BoardRef("RoundButtons", "Width", perBoard: false),
-                        new BoardRef("RoundButtons", "Height", perBoard: false),
-                        new BoardRef("RoundButtons", "Depth", perBoard: false),
-                        new BoardRef("RoundButtons", "Travel", perBoard: false),
                         new BoardRef("Cards", "PinOffset"),
                     },
                 },

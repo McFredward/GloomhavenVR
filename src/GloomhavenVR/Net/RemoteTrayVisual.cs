@@ -78,6 +78,25 @@ internal sealed class RemoteTrayVisual
     /// <summary>Seat 1 — the UNDO seat.</summary>
     public Transform? UndoAnchor => SeatAnchor(1);
 
+    /// <summary>Seat 2 — the turn-flow SKIP seat. It has an occupant since 2026-08-25: the skip cap
+    /// left <c>WorldUI.ButtonCluster</c>'s own column and became a generic keycap here, exactly as
+    /// it did on the owner's board.</summary>
+    public Transform? SkipAnchor => SeatAnchor(2);
+
+    /// <summary>
+    /// This board's own button-recess PITCH — the step down the stack from one seat anchor to the
+    /// next, in the anchors' own frame — or null when the prefab supplies fewer than two seats.
+    ///
+    /// <para>THE OTHER HALF OF <see cref="SeatMinHalf"/>'S ARGUMENT, and it needs no wire field for
+    /// the same reason: this peer cloned the SAME prefab out of the SAME bundle, so it measures the
+    /// identical pitch, and <c>Cards.BoardAnchors.StackDelta</c> is one function called on both
+    /// sides. What DOES ride the wire is the owner's dimensionless spacing multiplier
+    /// (<c>[Cards] ButtonStackSpacing</c>, record 28); the per-board number it multiplies is
+    /// measured, not sent — which is exactly what lets one shared dial be correct on three boards
+    /// whose recess pitches differ by 8 %.</para>
+    /// </summary>
+    public float? SeatPitch => Cards.BoardAnchors.StackPitch(_buttonSeats);
+
     /// <summary>
     /// The TIGHTEST button-seat recess this board carries (smallest half-extent over its seats, in
     /// board metres), or null when the prefab has no <c>SeatExtent1/2/3</c> measurement.

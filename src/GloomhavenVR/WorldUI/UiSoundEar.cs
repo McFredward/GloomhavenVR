@@ -714,7 +714,7 @@ internal static class UiSoundEar
 ///   <c>mouseClickAudioItem</c> field at all. EVERY sound it owns hangs off
 ///   <c>OnPointerDown</c> / <c>OnPointerUp</c> / <c>OnPointerEnter</c> / <c>OnPointerExit</c>.
 ///   A click-only dispatch is therefore silent BY CONSTRUCTION, at any listener distance.</item>
-/// <item><see cref="ButtonCluster"/>'s Ready/Undo/Skip target <c>ExtendedButton</c>s.
+/// <item>The board keycaps' Ready/Undo/Skip targets are <c>ExtendedButton</c>s.
 ///   <c>ExtendedButton.OnPointerClick</c> does play an item (:182) — but only
 ///   <c>mouseClickAudioItem</c>, and the ModBuild 194 log's own <c>UI SOUND STATE</c> line shows a
 ///   real game button whose click item is <c>&lt;none&gt;</c> while its shared profile

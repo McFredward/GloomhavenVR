@@ -1417,21 +1417,55 @@ internal static partial class Loc
                 + "auf Oak zurück, und fehlt auch Oak, wird das prozedurale Brett benutzt — jede Auswahl ist "
                 + "also gefahrlos. Eine Änderung baut das Brett live ab und neu auf (CardsDriver) und setzt "
                 + "dabei die Karten auf dem neu geladenen Brett neu ein.",
-            ["Cards/RestButtonOffset_*"] =
-                "Versatz der RUNDEN Rast-Scheiben vom Rast-Anker, board-lokale Meter. X/Y liegen in der "
-                + "Board-Ebene (+X zur Board-Mitte), Z = Herausstehen zum Spieler hin (NEGATIV = steht weiter "
-                + "heraus). Ersetzt den Raycast-Sitz — stelle Z ein, bis die Scheiben sauber in den "
-                + "Aussparungen sitzen. Von Oak übernommen (RestButtonInsetX 0.024, −5 mm heraus).",
-            ["Cards/RestButtonDiameter_*"] =
-                "Durchmesser (Meter) der runden Scheiben für kurze/lange Rast. Von Oak übernommen (0.105).",
-            ["Cards/ConfirmUndoOffset_*"] =
-                "Versatz der ECKIGEN Fortfahren/Rückgängig-Knöpfe von ihren Knopf-Ankern, board-lokale Meter. "
-                + "X/Y in der Ebene (−X von der rechten Spalte zur Board-Mitte), Z = Herausstehen zum Spieler "
-                + "hin (NEGATIV = steht weiter heraus). Von Oak übernommen (ConfirmUndoInsetX −0.014, −5 mm "
-                + "heraus).",
-            // Cards/ConfirmUndoSize_* ist WEG — 2026-08 mit dem Eintrag selbst stillgelegt
-            // (Nutzerbericht: der Regler hatte keinen Effekt; die Größe der Bestätigen/Zurück-
-            // Tasten kommt jetzt für beide Formen aus [BoardButtons] Breite/Höhe).
+            // ---- die geteilte Tastensitz-Familie (früher fünfzehn brettweise Einträge) ----
+            ["Cards/ConfirmUndoOffset"] =
+                "VERSCHIEBUNG jeder ALLGEMEINEN Taste — Fortfahren, Rückgängig, Überspringen und die "
+                + "Gegenstands-Taste \"Benutzen\" — zusätzlich zu der Tastenmulde, die das Brett selbst "
+                + "dafür ausgeschnitten hat, board-lokale Meter. X/Y liegen in der Brettebene, Z ist das "
+                + "Herausstehen zum Spieler hin (NEGATIV = steht weiter heraus). 0 = jede Taste genau "
+                + "mittig in ihrer eigenen Mulde — dort, wo das Brett sie haben will, und das ist der "
+                + "Auslieferungswert; ein paar Millimeter verschieben die ganze Spalte gemeinsam. Eine "
+                + "Taste kann damit nicht aus ihrer Mulde geschoben werden: auf einem Brett mit "
+                + "vermessener Mulde wird der Anteil in der Ebene auf das Spiel zwischen Taste und "
+                + "Muldenwand begrenzt (Z nie). EIN Eintrag für alle drei Bretter — der brettweise "
+                + "Unterschied ist der Anker, nicht diese Zahl.",
+            ["Cards/ButtonStackSpacing"] =
+                "Der Y-ABSTAND zwischen den allgemeinen Tasten, die untereinander in den drei "
+                + "Tastenmulden des Bretts sitzen (Fortfahren/Benutzen oben, Rückgängig in der Mitte, "
+                + "Überspringen unten) — als VIELFACHES des Muldenabstands, den das Brett selbst hat. "
+                + "1 = genau dieser Abstand, jede Taste also mittig in ihrer Mulde; das ist der "
+                + "Auslieferungswert und er stimmt ohne brettweise Zahl auf allen drei Brettern, weil "
+                + "jedes Brett seinen eigenen Abstand mitbringt (76,5 mm Oak, 80,1 Steel, 70,1 Bronze). "
+                + "Unter 1 rücken die drei Tasten zur mittleren hin zusammen, überlappen und verlassen "
+                + "ihre Mulden; bei 0,25 liegen sie fast aufeinander. Über 1 rücken sie auseinander, ab "
+                + "etwa 1,2 stehen die äußeren beiden schon neben ihren Mulden auf dem flachen Brett, "
+                + "bei 3 liegt ein Drittel des Bretts zwischen ihnen. Die mittlere Taste bewegt sich "
+                + "nie — der Stapel spreizt sich um sie —, und auf einem Brett mit vermessenen Mulden "
+                + "darf keine Taste weiter wandern als ihr Spiel in der eigenen Mulde.",
+            ["Cards/RestButtonOffset"] =
+                "VERSCHIEBUNG der Scheiben für kurze/lange RAST zusätzlich zu den Rastfeldern, die das "
+                + "Brett selbst dafür ausgeschnitten hat, board-lokale Meter. X/Y in der Brettebene, Z = "
+                + "Herausstehen zum Spieler hin (NEGATIV = steht weiter heraus). 0 = jede Scheibe mittig "
+                + "in ihrem Feld; das wird ausgeliefert. Auf einem vermessenen Brett durch das Spiel im "
+                + "Feld begrenzt, genau wie die Tastensitze. EIN Eintrag für alle drei Bretter — die "
+                + "Lage der Felder ist der brettweise Anteil und kommt aus dem Mesh.",
+            ["Cards/RestStackSpacing"] =
+                "Der Y-Abstand zwischen der KURZ- und der LANG-Rast-Scheibe, als VIELFACHES des "
+                + "Feldabstands, den das Brett selbst hat. 1 = genau dieser Abstand (114,8 mm Oak, "
+                + "120,2 Steel, 105,0 Bronze), beide Scheiben also mittig in ihren Feldern — das wird "
+                + "ausgeliefert. Unter 1 rücken sie zur Mitte zwischen den Feldern zusammen und von "
+                + "ihren Mulden herunter; bei 0,25 fallen sie fast zusammen. Über 1 rücken sie "
+                + "auseinander auf das flache Brett, bei 3 liegt fast die ganze Bretthöhe dazwischen. "
+                + "Auf einem vermessenen Brett durch das Spiel jeder Scheibe im eigenen Feld begrenzt.",
+            ["Cards/RestButtonDiameter"] =
+                "Durchmesser (Meter) der runden Scheiben für kurze/lange Rast. Das ist eine OBERGRENZE, "
+                + "nicht die Endgröße: das vermessene Rastfeld jedes Bretts verkleinert die Scheibe "
+                + "weiter, damit sie nie über ihre Mulde hinausragt — genau deshalb ist eine geteilte "
+                + "Zahl für drei Bretter mit drei verschiedenen Feldern richtig. Bei den "
+                + "ausgelieferten 0,091 ist jede Scheibe so groß, wie ihr eigenes Feld erlaubt "
+                + "(73,6 mm Oak und Steel, 60,1 Bronze). BEGRENZT (Nutzer-Entscheid 2026-08-13): bei 0 "
+                + "wären die Rast-Scheiben ein Punkt, den niemand drücken kann, und Rasten ist ein Zug, "
+                + "den das Spiel verlangt. Bereich 0,02-0,25.",
             ["Cards/ItemUseSlotOffset_*"] =
                 "Versatz, der zur lokalen Position des Einsteck-Slots GEGENSTAND BENUTZEN ADDIERT wird "
                 + "(zusätzlich zu seiner festen Basis UNTER dem Board neben den Fortfahren/Rückgängig-Knöpfen), "
@@ -1570,15 +1604,6 @@ internal static partial class Loc
             ["Cards/BoardPosOffset_*"] =
                 "Positions-Versatz des Boards, der auf den kopfrelativen Versatz des Trays ADDIERT wird, "
                 + "echte Meter im Kopf-Bezugssystem (X = rechts, Y = hoch, Z = vorne). Startwert 0 (Oak).",
-            ["Cards/RestButtonSpacing_*"] =
-                "ZUSÄTZLICHER Abstand (board-lokale Meter), der zwischen den RAST-Knöpfen für kurze/lange "
-                + "Rast entlang der kurzen Board-Achse ADDIERT wird — die Scheibe für die kurze Rast (oben) "
-                + "wandert +½, die für die lange (unten) −½. Startwert 0 (die Anker im Bundle verteilen sie "
-                + "bereits; positiv zieht sie auseinander).",
-            ["Cards/GenericButtonSpacing_*"] =
-                "ZUSÄTZLICHER Abstand (board-lokale Meter), der zwischen den GENERISCHEN "
-                + "Fortfahren/Rückgängig-Knöpfen entlang der kurzen Board-Achse ADDIERT wird — Fortfahren "
-                + "(oben) +½, Rückgängig (unten) −½. Startwert 0.",
             ["Cards/RestButtonShape_*"] =
                 "FORM der Kappen der RAST-Knopfgruppe (kurze/lange Rast). Round = Scheiben in den "
                 + "Aussparungen (heutiges Aussehen); Square = eckige Tastenkappen. Startwert Round.",
@@ -1641,15 +1666,6 @@ internal static partial class Loc
                 "Versatz, der zur lokalen Position der RUNDEN-Anzeige ('Runde N') ADDIERT wird (zusätzlich zu "
                 + "ihrer festen Basis oben rechts), board-lokale Meter (Z = Herausstehen zum Spieler hin). "
                 + "Startwert 0 (Oak).",
-            ["Cards/ClusterOffset_*"] =
-                "Versatz, der zur lokalen Position der KNOPFGRUPPE für den Zugablauf ADDIERT wird — am Board "
-                + "ist das die ÜBERSPRINGEN-Taste ('Bewegung/Angriff überspringen') — zusätzlich zu ihrer "
-                + "festen Basis, board-lokale Meter (Z = Herausstehen zum Spieler hin). Addiert sich im "
-                + "selben Bezugssystem und derselben Einheit zu [RoundButtons] OffsetX/Y/Z. Live. "
-                + "Startwert 0 (Oak).",
-            ["Cards/ClusterScale_*"] =
-                "Größen-MULTIPLIKATOR der KNOPFGRUPPE für den Zugablauf (zusätzlich zu ihrer festen "
-                + "Dock-Skalierung von 0.7x). Startwert 1 (Oak).",
             ["Cards/DecisionOffset_*"] =
                 "Versatz, der zur lokalen Position der Aufhängung des gemeinsamen ENTSCHEIDUNGS-DOCKS ADDIERT "
                 + "wird, board-lokale Meter — er verschiebt den GESAMTEN Entscheidungsbereich als einen Block: "
@@ -1987,7 +2003,6 @@ internal static partial class Loc
                 + "und völlig unempfindlich gegen Kopfzittern; höher = der Fächer präsentiert die angeschaute "
                 + "Karte schneller. 8 erreicht ~90 % einer Kopfdrehung in ~0.3 s.",
             // ---- [WorldUI] ----
-            ["WorldUI/ButtonCluster"] = "Physische Knöpfe für Bereit/Rückgängig/Überspringen am Tischrand.",
             ["WorldUI/CombatLog"] = "Kampflog als Welt-Tafel an der gegenüberliegenden Tischseite.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
             ["WorldUI/DecisionDock"] =
@@ -2550,44 +2565,6 @@ internal static partial class Loc
                 "Abstand der Arm-Anzeige VON DER HANDFLÄCHE WEG (echte Meter) — wie weit die Tafel vor "
                 + "der Hand schwebt. PRO STIL absoluter Wert, während dieser Handstil getragen wird. "
                 + "Live änderbar — WristHud wendet die Pose bei jedem Tick neu an.",
-            // ---- [RoundButtons] ----
-            ["RoundButtons/OffsetX"] =
-                "Seitlicher Versatz (Meter im WURZEL-Frame des Boards, +X = zur rechten Board-Kante / zu den "
-                + "Rückgängig-Zahnrad-Feldern) der angedockten ÜBERSPRINGEN-Taste ('Bewegung überspringen' / "
-                + "'Angriff überspringen') gegenüber ihrem Standard-Anker — sie ist das einzige sichtbare "
-                + "Mitglied der Kurzzeit-Knopfgruppe der Rundenphase. Live änderbar; begrenzt auf -0.30..0.30.",
-            ["RoundButtons/OffsetY"] =
-                "Versatz das Board hinauf (Meter im WURZEL-Frame des Boards, +Y = zu den Kartenplätzen / zur "
-                + "fernen Kante, -Y = zur unteren Kante und zum Haltegriff) der angedockten ÜBERSPRINGEN-Taste "
-                + "gegenüber ihrem Standard-Anker. Live änderbar; begrenzt auf -0.30..0.30.",
-            ["RoundButtons/OffsetZ"] =
-                "Versatz aus der Ebene heraus (Meter im WURZEL-Frame des Boards, +Z = AUS dem Board heraus "
-                + "zum Spieler, -Z = versenkt in bzw. hinter die Board-Fläche) der angedockten "
-                + "ÜBERSPRINGEN-Taste gegenüber ihrem standardmäßig erhabenen Sitz. Live änderbar; begrenzt "
-                + "auf -0.30..0.30.",
-            ["RoundButtons/Shape"] =
-                "Kappenform der angedockten ÜBERSPRINGEN-Taste: Round = abgeflachter Puck, Square = kantige "
-                + "Tastenkappe (dann gelten Width/Height/Depth dieses Abschnitts; Square ist der "
-                + "Auslieferungsstandard). Live änderbar.",
-            ["RoundButtons/CapSize"] =
-                "Kappenradius (Meter im Cluster-Frame) der ÜBERSPRINGEN-Taste. Die automatische Spaltenanpassung "
-                + "VERKLEINERT nur unter diesen Wert, wenn sich mehrere Knöpfe die Spalte teilen müssen; ein "
-                + "einzelner Knopf nutzt genau diese Größe — am Steuerbrett immer der Fall. Live änderbar; "
-                + "begrenzt auf 0.015..0.09.",
-            ["RoundButtons/Width"] =
-                "Kappenbreite (Meter) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt NUR für diese Gruppe. Live "
-                + "änderbar; begrenzt auf 0.02..0.20.",
-            ["RoundButtons/Height"] =
-                "Kappenhöhe (Meter) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt NUR für diese Gruppe. Live "
-                + "änderbar; begrenzt auf 0.015..0.20.",
-            ["RoundButtons/Depth"] =
-                "Kappentiefe/-extrusion (Meter zum Spieler hin) der ÜBERSPRINGEN-Taste bei Shape=Square. Gilt "
-                + "NUR für diese Gruppe. Live änderbar; begrenzt auf 0.006..0.08.",
-            ["RoundButtons/Travel"] =
-                "Druckweg (Meter) der ÜBERSPRINGEN-Taste — wie weit die Kappe unter der Fingerspitze einsinkt, "
-                + "bevor der tiefenbasierte Druck auslöst (löst bei 90% des Wegs aus). Gilt NUR für diese "
-                + "Gruppe. Live änderbar; begrenzt auf 0.002..0.02.",
-            // ---- [BoardButtons] ----
             ["BoardButtons/Width"] =
                 "Kappenbreite (Meter, entlang der X-Achse des Boards) der Fortfahren/Rückgängig-Tastenkappen "
                 + "auf dem Kontrollbrett. Gilt NUR für Fortfahren/Rückgängig (eckige Form). Live änderbar; "
@@ -2683,15 +2660,6 @@ internal static partial class Loc
             ["ButtonColors/DashCapTintB"] =
                 "Farbton der Fläche der Dashboard-Platten Zahnrad + Fixiert — BLAU-Kanal (0..1). 1 = "
                 + "unverändert. Live änderbar.",
-            ["ButtonColors/ClusterCapTintR"] =
-                "Farbton der Kappenfläche im Rundenphasen-Cluster (Bereit/Rückgängig/Überspringen) — "
-                + "ROT-Kanal (0..1). 1 = unverändert. Live änderbar.",
-            ["ButtonColors/ClusterCapTintG"] =
-                "Farbton der Kappenfläche im Rundenphasen-Cluster — GRÜN-Kanal (0..1). 1 = unverändert. Live "
-                + "änderbar.",
-            ["ButtonColors/ClusterCapTintB"] =
-                "Farbton der Kappenfläche im Rundenphasen-Cluster — BLAU-Kanal (0..1). 1 = unverändert. Live "
-                + "änderbar.",
             ["ButtonColors/RestCapTintR"] =
                 "Farbton der Kappenfläche der Tastenkappen für kurze/lange RAST — ROT-Kanal (0..1). 1 = "
                 + "unverändert. Live änderbar.",

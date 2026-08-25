@@ -61,14 +61,134 @@ internal static class BoardSeatVectors
         t.True(Mathf.Abs(expected - actual) <= tol,
                $"{what}: expected {expected:F6}, got {actual:F6} (tolerance {tol:G})");
 
+    // ---- the three boards' own recess / pad PITCHES, as the assembler cuts them ---------------
+    // unity/board-prep/gen_board.py lays the three button seats at `usable_h/2 - pitch*(k+0.5)`,
+    // k = 0 the TOP one, so the step is constant and the middle seat is the console's centre.
+    // Read off the built boards 2026-08-25.
+    private const float OakSeatPitch = 0.0765f;
+    private const float SteelSeatPitch = 0.0801f;
+    private const float BronzeSeatPitch = 0.0701f;
+
     internal static void Run(Harness t)
     {
+        StackIsTheMeshAtTheDefault(t);
+        StackSpreadsAboutItsMiddle(t);
+        StackDeltaCoversTheRestPair(t);
         FitOnlyShrinks(t);
         SeatClampContainsTheMirrorCompensation(t);
         SeatClampIsInertWithoutAMeasurement(t);
         AssetPoseClampContainsTheBronzeDials(t);
         AssetPoseClampIsInertWithoutAMeasurement(t);
         AssetPoseClampLeavesSmallCorrectionsAlone(t);
+    }
+
+    // ------------------------------------------------- the stack the MESH already is -----------
+
+    /// <summary>
+    /// THE PROPERTY THE WHOLE PER-BOARD RETIREMENT RESTS ON: at the shipped spacing of 1, the stack
+    /// term is EXACTLY ZERO on every seat of every board. That is what makes one shared
+    /// <c>[Cards] ButtonStackSpacing</c> correct on three boards whose recess pitches differ by 8 % —
+    /// the board's own anchors carry the layout and the dial adds nothing until the player turns it.
+    ///
+    /// <para>It is worth a test rather than an eye: the fifteen per-board constants this replaced
+    /// were each individually plausible, and the defect they produced (Bronze's 60 mm inter-cap gap
+    /// applied on top of a 70 mm anchor pitch) was invisible until somebody measured a board.</para>
+    /// </summary>
+    private static void StackIsTheMeshAtTheDefault(Harness t)
+    {
+        foreach (float pitch in new[] { OakSeatPitch, SteelSeatPitch, BronzeSeatPitch })
+        {
+            for (int seat = 0; seat < BoardAnchors.ButtonSeatCount; seat++)
+            {
+                Near(t, $"stack/default seat {seat} @{pitch:F4}", 0f,
+                     BoardAnchors.StackDelta(seat, BoardAnchors.ButtonSeatCount, pitch, 1f), 1e-7f);
+            }
+        }
+        // …and the same for the two-member rest pair, which shares the expression.
+        Near(t, "stack/default rest short", 0f, BoardAnchors.StackDelta(0, 2, 0.1148f, 1f), 1e-7f);
+        Near(t, "stack/default rest long", 0f, BoardAnchors.StackDelta(1, 2, 0.1148f, 1f), 1e-7f);
+    }
+
+    /// <summary>
+    /// CENTRE-ANCHORED, NOT TOP-ANCHORED — the change the third seat forced, checked as the property
+    /// the user asked for rather than as three numbers. "Der y-Abstand zwischen den Buttons" is a
+    /// SPREAD: turning it must not also translate the column. So the middle seat may not move at
+    /// any spacing, and the outer two must move by equal and opposite amounts.
+    ///
+    /// <para>The predecessor <c>(0.5 - index) * spacing</c> fails both halves: at three seats it put
+    /// seat 0 at +s/2, seat 1 at -s/2 and seat 2 at -3s/2, i.e. a centroid that walks down the board
+    /// as s grows.</para>
+    /// </summary>
+    private static void StackSpreadsAboutItsMiddle(Harness t)
+    {
+        const int n = BoardAnchors.ButtonSeatCount;
+        for (int i = -20; i <= 20; i++)
+        {
+            float scale = 1f + i * 0.1f;
+            float top = BoardAnchors.StackDelta(0, n, OakSeatPitch, scale);
+            float mid = BoardAnchors.StackDelta(1, n, OakSeatPitch, scale);
+            float bot = BoardAnchors.StackDelta(2, n, OakSeatPitch, scale);
+            Near(t, $"stack/middle fixed @{scale:F2}", 0f, mid, 1e-7f);
+            Near(t, $"stack/symmetric @{scale:F2}", 0f, top + bot, 1e-6f);
+            t.True(scale <= 1f || top > 0f, $"stack/spreads up @{scale:F2}");
+            t.True(scale <= 1f || bot < 0f, $"stack/spreads down @{scale:F2}");
+        }
+
+        // THE STEP IS THE BOARD'S OWN PITCH, so the same dial produces a different metre gap on each
+        // board — which is the entire point, and the thing a shared METRE entry could not have done.
+        Near(t, "stack/oak at 2x", OakSeatPitch,
+             BoardAnchors.StackDelta(0, n, OakSeatPitch, 2f), 1e-6f);
+        Near(t, "stack/steel at 2x", SteelSeatPitch,
+             BoardAnchors.StackDelta(0, n, SteelSeatPitch, 2f), 1e-6f);
+        Near(t, "stack/bronze at 2x", BronzeSeatPitch,
+             BoardAnchors.StackDelta(0, n, BronzeSeatPitch, 2f), 1e-6f);
+    }
+
+    /// <summary>
+    /// The TWO-member form is the same function with count 2, and it reproduces the ±half-step pair
+    /// the rest discs have always used — so the keycaps and the rest pads share one convention
+    /// instead of two that can drift.
+    /// </summary>
+    private static void StackDeltaCoversTheRestPair(Harness t)
+    {
+        const float pad = 0.1148f;   // Oak's measured rest-pad pitch
+        Near(t, "stack/rest short at 1.5x", pad * 0.25f,
+             BoardAnchors.StackDelta(0, 2, pad, 1.5f), 1e-6f);
+        Near(t, "stack/rest long at 1.5x", -pad * 0.25f,
+             BoardAnchors.StackDelta(1, 2, pad, 1.5f), 1e-6f);
+
+        // A ONE-MEMBER stack has no spread to express, at any dial — the guard against a
+        // divide-by-nothing dressed up as a layout.
+        Near(t, "stack/single member", 0f, BoardAnchors.StackDelta(0, 1, pad, 3f), 1e-7f);
+
+        // THE TWO-ANCHOR BOARD'S THIRD SEAT. The old bundle supplies ConfirmButton and UndoButton
+        // and no third recess, and the skip cap has to go somewhere; both the owner and the peer
+        // mirror continue THAT board's own step rather than falling back to an authored mount, and
+        // they do it through this one function so they cannot land in different places.
+        Near(t, "extrapolate/seat 2 from seat 1", -OakSeatPitch,
+             BoardAnchors.SeatExtrapolation(2, 1, OakSeatPitch).y, 1e-7f);
+        Near(t, "extrapolate/seat 2 from seat 0", -2f * OakSeatPitch,
+             BoardAnchors.SeatExtrapolation(2, 0, OakSeatPitch).y, 1e-7f);
+        // It descends, like the seats themselves — a sign flip here would put the skip cap ABOVE
+        // Confirm, which is the one arrangement the user's "untereinander" rules out.
+        t.True(BoardAnchors.SeatExtrapolation(2, 1, OakSeatPitch).y < 0f, "extrapolate/descends");
+        Near(t, "extrapolate/in plane only",
+             0f, Mathf.Abs(BoardAnchors.SeatExtrapolation(2, 1, OakSeatPitch).x)
+                 + Mathf.Abs(BoardAnchors.SeatExtrapolation(2, 1, OakSeatPitch).z), 1e-7f);
+
+        // AND THE CLAMP STILL BOUNDS IT. An extreme spacing may not walk a cap out of its own well
+        // on a board whose recess was measured — the same guarantee the tuned OFFSET already has.
+        Vector2 cap = BoardAnchors.FitCapSize(TunedCap, OakSeat, Margin);
+        Vector2 slack = BoardAnchors.SeatSlack(OakSeat, cap);
+        for (int i = 1; i <= 30; i++)
+        {
+            float scale = i * 0.1f;
+            Vector3 p = BoardAnchors.ClampSeatPose(
+                Vector3.zero,
+                BoardAnchors.StackDelta(0, BoardAnchors.ButtonSeatCount, OakSeatPitch, scale),
+                OakSeat, cap);
+            t.True(Mathf.Abs(p.y) <= slack.y + 1e-6f, $"stack/clamped inside the well @{scale:F1}");
+        }
     }
 
     // ------------------------------------------------------------------ the fit ----------------

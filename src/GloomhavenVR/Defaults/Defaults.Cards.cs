@@ -302,12 +302,11 @@ internal static partial class Defaults
     internal const float ElementsScale_Oak = 1f;                                                      // => [Cards] ElementsScale_Oak
     internal const float ElementsScale_Steel = 1f;                                                    // => [Cards] ElementsScale_Steel
     internal const float ElementsScale_Bronze = 1f;                                                   // => [Cards] ElementsScale_Bronze
-    internal static readonly Vector3 ClusterOffset_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] ClusterOffset_Oak
-    internal static readonly Vector3 ClusterOffset_Steel = new Vector3(0f, 0f, -0.02f);               // => [Cards] ClusterOffset_Steel
-    internal static readonly Vector3 ClusterOffset_Bronze = new Vector3(1e-10f, 0.01f, 0.02f);        // => [Cards] ClusterOffset_Bronze
-    internal const float ClusterScale_Oak = 1f;                                                       // => [Cards] ClusterScale_Oak
-    internal const float ClusterScale_Steel = 1f;                                                     // => [Cards] ClusterScale_Steel
-    internal const float ClusterScale_Bronze = 1f;                                                    // => [Cards] ClusterScale_Bronze
+    // ClusterOffset_{board} and ClusterScale_{board} stood here — the seat and the size of the
+    // turn-flow BUTTON CLUSTER's dock mount on the board. The mount went with the cluster
+    // (2026-08-25) and neither dial has anything left to move: the turn-flow SKIP is a generic
+    // keycap in the board's own third recess, seated by [Cards] ConfirmUndoOffset and sized by
+    // [BoardButtons] with Confirm and Undo.
     internal const float DecisionScale_Oak = 1.6f;                                                    // => [Cards] DecisionScale_Oak
     internal const float DecisionScale_Steel = 1.6f;                                                  // => [Cards] DecisionScale_Steel
     internal const float DecisionScale_Bronze = 1.6f;                                                 // => [Cards] DecisionScale_Bronze
@@ -396,18 +395,30 @@ internal static partial class Defaults
     internal static readonly float[] PileScale_ByBoard = { PileScale_Oak, PileScale_Steel, PileScale_Bronze };
     internal static readonly float[] PileSpacing_ByBoard = { PileSpacing_Oak, PileSpacing_Steel, PileSpacing_Bronze };
     internal static readonly float[] ElementsScale_ByBoard = { ElementsScale_Oak, ElementsScale_Steel, ElementsScale_Bronze };
-    internal static readonly Vector3[] ClusterOffset_ByBoard = { ClusterOffset_Oak, ClusterOffset_Steel, ClusterOffset_Bronze };
-    internal static readonly float[] ClusterScale_ByBoard = { ClusterScale_Oak, ClusterScale_Steel, ClusterScale_Bronze };
     internal static readonly float[] DecisionScale_ByBoard = { DecisionScale_Oak, DecisionScale_Steel, DecisionScale_Bronze };
-    internal static readonly Vector3 RestButtonOffset_Oak = new Vector3(0.008f, 0f, -0.007f);         // => [Cards] RestButtonOffset_Oak
-    internal static readonly Vector3 RestButtonOffset_Steel = new Vector3(-0.44f, 0f, -0.047f);       // => [Cards] RestButtonOffset_Steel
-    internal static readonly Vector3 RestButtonOffset_Bronze = new Vector3(-0.445f, 0.02f, -0.017f);  // => [Cards] RestButtonOffset_Bronze
-    internal const float RestButtonDiameter_Oak = 0.091f;                                             // => [Cards] RestButtonDiameter_Oak
-    internal const float RestButtonDiameter_Steel = 0.071f;                                           // => [Cards] RestButtonDiameter_Steel
-    internal const float RestButtonDiameter_Bronze = 0.071f;                                          // => [Cards] RestButtonDiameter_Bronze
-    internal static readonly Vector3 ConfirmUndoOffset_Oak = new Vector3(-0.008f, 0f, 0.009f);        // => [Cards] ConfirmUndoOffset_Oak
-    internal static readonly Vector3 ConfirmUndoOffset_Steel = new Vector3(0.462f, 0.006f, -0.047f);  // => [Cards] ConfirmUndoOffset_Steel
-    internal static readonly Vector3 ConfirmUndoOffset_Bronze = new Vector3(0.447f, 0.011f, -0.007f);  // => [Cards] ConfirmUndoOffset_Bronze
+    // ---- THE KEYCAP SEAT FAMILY IS NO LONGER PER BOARD (2026-08-25) -----------------------------
+    //
+    // Five dials stood here as fifteen _Oak/_Steel/_Bronze constants: RestButtonOffset,
+    // RestButtonDiameter, ConfirmUndoOffset, RestButtonSpacing and GenericButtonSpacing. They were
+    // split per board because the boards differed, and the split was correct for the boards that
+    // existed when it was made. It is not correct for the ones that exist now: all three are the
+    // same 0.640 x 0.320 m plate and each of them CARRIES ITS OWN LAYOUT as named anchor empties —
+    // ButtonSeat1/2/3, ShortRestToken/LongRestToken, SeatExtent1/2/3, RestExtentShort/Long. The
+    // caps hang off those anchors and are fitted to those extents, so the per-board component of
+    // every one of these dials is already in the mesh and a per-board CONSTANT can only repeat it
+    // or contradict it. It contradicted it: ConfirmUndoOffset_Steel = +0.462 and _Bronze = +0.447
+    // were 44 cm mirror compensations for a board layout that no longer ships, and
+    // GenericButtonSpacing_Bronze = 0.06 was an inter-cap gap tuned against anchors 110 mm apart
+    // being applied on top of a 70 mm recess pitch.
+    //
+    // So each is ONE shared entry now, and each is a DELTA on what the mesh says rather than an
+    // absolute: the offsets ship ZERO (the cap sits in the recess the board cut for it) and the two
+    // spacings became dimensionless multipliers on the board's own anchor pitch, shipping 1
+    // (BoardAnchors.StackDelta). A fresh board is right before anybody touches a dial, which is the
+    // property the fifteen constants were trying and failing to buy.
+    internal static readonly Vector3 RestButtonOffset = new Vector3(0f, 0f, 0f);                      // => [Cards] RestButtonOffset
+    internal const float RestButtonDiameter = 0.091f;                                                 // => [Cards] RestButtonDiameter
+    internal static readonly Vector3 ConfirmUndoOffset = new Vector3(0f, 0f, 0f);                     // => [Cards] ConfirmUndoOffset
     // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08: the dial only fed the non-default
     // ROUND cap shape after the button-family split; the cap size is [BoardButtons] Width/Height
     // now, for both shapes). No lines here on purpose — a tuned cfg that still carries the keys is
@@ -447,12 +458,19 @@ internal static partial class Defaults
     internal const float AssetPitchDegrees_Oak = 0f;                                                  // => [Cards] AssetPitchDegrees_Oak
     internal const float AssetPitchDegrees_Steel = 0f;                                                // => [Cards] AssetPitchDegrees_Steel
     internal const float AssetPitchDegrees_Bronze = 57f;                                              // => [Cards] AssetPitchDegrees_Bronze
-    internal const float RestButtonSpacing_Oak = 0f;                                                  // => [Cards] RestButtonSpacing_Oak
-    internal const float RestButtonSpacing_Steel = -0.044f;                                           // => [Cards] RestButtonSpacing_Steel
-    internal const float RestButtonSpacing_Bronze = 0.026f;                                           // => [Cards] RestButtonSpacing_Bronze
-    internal const float GenericButtonSpacing_Oak = -0.008f;                                          // => [Cards] GenericButtonSpacing_Oak
-    internal const float GenericButtonSpacing_Steel = 0.01f;                                          // => [Cards] GenericButtonSpacing_Steel
-    internal const float GenericButtonSpacing_Bronze = 0.06f;                                         // => [Cards] GenericButtonSpacing_Bronze
+    // THE TWO STACK SPACINGS, dimensionless and shared — see the seat-family note above. 1 = the
+    // board's own authored recess pitch, i.e. every cap dead centre in its own well on every board.
+    internal const float ButtonStackSpacing = 1f;                                                     // => [Cards] ButtonStackSpacing
+    internal const float RestStackSpacing = 1f;                                                       // => [Cards] RestStackSpacing
+
+    /// <summary>
+    /// The anchor pitch a board that supplies NO usable anchor pair falls back to (board-local
+    /// metres): the no-bundle procedural board, and any future asset that loses its seats. Oak's
+    /// own measured 76.5 mm, because Oak is the canonical board and a fallback that matches a real
+    /// one is the fallback whose look somebody has actually seen. Not a config entry: nothing can
+    /// tune the pitch of anchors that do not exist, and the moment they do exist the mesh wins.
+    /// </summary>
+    internal const float StackPitchFallback = 0.0765f;
     internal static readonly Vector3 ActiveOffset_Oak = new Vector3(0f, 0f, 0f);                      // => [Cards] ActiveOffset_Oak
     internal static readonly Vector3 ActiveOffset_Steel = new Vector3(0f, 0f, -0.04f);                // => [Cards] ActiveOffset_Steel
     internal static readonly Vector3 ActiveOffset_Bronze = new Vector3(0f, 0.09f, -0.005f);           // => [Cards] ActiveOffset_Bronze

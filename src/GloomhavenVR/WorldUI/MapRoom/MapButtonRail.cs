@@ -36,13 +36,13 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   frame for frame, with no knowledge of the animator's curves;</item>
 /// <item>the <c>newNotification</c> tip's active state, as a badge.</item>
 /// </list>
-/// Sampling beats re-implementing here for the same reason it does in <see cref="ButtonCluster"/>
+/// Sampling beats re-implementing here for the same reason it does on the control board
 /// (which mirrors the live TMP label rather than localising anything itself): a copy of an
 /// animation drifts from it, a sample cannot.</para>
 ///
 /// <para>SAME CLICK SEAM AS EVERY OTHER PHYSICAL BUTTON IN THIS MOD. A press dispatches
 /// <c>ExecuteEvents.pointerClickHandler</c> on the real uGUI <c>Toggle</c>, exactly as
-/// <see cref="ButtonCluster"/> does for Ready/Undo/Skip and as the game's own hotkey bridge does
+/// the control board's keycaps do for Ready/Undo/Skip and as the game's own hotkey bridge does
 /// (<c>BaseButtons.clickButton</c>). The full guard chain runs — interactability, the game's own
 /// <c>canToggle</c> predicate, whatever it does about multiplayer authority — because this is the
 /// game's click path and not a shortcut past it. Nothing goes on the wire.</para>
@@ -828,7 +828,7 @@ internal sealed class MapButtonRail
 
     /// <summary>
     /// A lit, depth-honest material for the cap bodies — the same helper path
-    /// <see cref="ButtonCluster"/> uses for its keycaps, so the table buttons are made of the same
+    /// <c>Cards.PlayTray.BoardButton</c> uses for its keycaps, so the table buttons are made of the same
     /// material as every other physical button in the mod (carved-grain <c>_MainTex</c> × tint when
     /// the bundle ships it, plain tint otherwise). Depth-writing and LEqual, so a cap is occluded
     /// by anything genuinely in front of it instead of floating over the room.

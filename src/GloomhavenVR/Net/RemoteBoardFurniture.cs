@@ -146,11 +146,32 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>PlayTray "ContinueMount" (0.235, 0.045, −0.006) — the CONFIRM keycap / native
     /// Continue dock (fallback board).</summary>
-    private static readonly Vector3 ConfirmMount = new(ButtonZoneX, 0.045f, -0.006f);
+    private static readonly Vector3 ConfirmMount = SeatMount(0);
 
-    /// <summary>PlayTray "UndoDockMount" (0.235, −0.06, −0.006) — the UNDO keycap / native Undo
-    /// dock (fallback board).</summary>
-    private static readonly Vector3 UndoMount = new(ButtonZoneX, -0.06f, -0.006f);
+    /// <summary>The UNDO keycap's fallback seat — the middle of the three.</summary>
+    private static readonly Vector3 UndoMount = SeatMount(1);
+
+    /// <summary>The turn-flow SKIP keycap's fallback seat — the bottom of the three. It exists at
+    /// all only since the skip joined the generic cluster (2026-08-25); before that the mirror drew
+    /// that cap from the retired [RoundButtons] column solve instead.</summary>
+    private static readonly Vector3 SkipMount = SeatMount(2);
+
+    /// <summary>
+    /// The procedural fallback anchor of button seat <paramref name="seat"/> — VERBATIM the
+    /// expression <c>PlayTray.BuildButtons</c> synthesises when a board supplies no anchors of its
+    /// own: <c>ButtonZoneX</c>, evenly spaced by <see cref="Defaults.StackPitchFallback"/> about the
+    /// midpoint the old hardcoded Confirm/Undo pair straddled (−0.0075), a hair proud of the face.
+    ///
+    /// <para>It has to be the same expression on both sides and not merely the same NUMBERS,
+    /// because this is the one board where nothing is measured: the owner and the peer are each
+    /// inventing an anchor, and the only thing that makes them invent the same one is that they
+    /// compute it the same way. (On every bundled board this is unreachable — the anchors are
+    /// authored and both sides resolve them through <c>Cards.BoardAnchors</c>.)</para>
+    /// </summary>
+    private static Vector3 SeatMount(int seat) => new(
+        ButtonZoneX,
+        -0.0075f + Defaults.StackPitchFallback * ((Cards.BoardAnchors.ButtonSeatCount - 1) * 0.5f - seat),
+        -0.006f);
 
     // The VR-settings gear cap is gone from both boards: the mod's settings live in the game's own
     // options window now, so there is no local button for a remote board to mirror.
@@ -165,31 +186,15 @@ internal sealed class RemoteBoardFurniture
     /// trigger BoxCollider — the remote copy is the BAR ONLY, no zone, no <c>PanelGrabHandle</c>.</summary>
     private static readonly Vector3 HandleMount = new(0f, -BoardH * 0.5f - 0.030f, 0.004f);
 
-    /// <summary>ButtonCluster's docked right-column anchor (ColumnCenterX/Y/RootZ).</summary>
-    private static readonly Vector3 ClusterMount = new(0.148f, -0.124f, -0.006f);
-
-    /// <summary>Mirror of <c>PlayTray.ButtonClusterMountScale</c> — the fixed 0.7× dock shrink
-    /// every docked cluster button renders under (on TOP of the OWNER's own
-    /// <c>RemoteBoardTuning.ClusterScale</c>, extension record 28). Dropping it is half of why the
-    /// remote skip cap rendered 43 % too big (task 3(b)).</summary>
-    private const float ClusterDockScale = 0.7f;
-
-    /// <summary>Mirror of <c>ButtonCluster.ClusterProudOffset</c> — the depth-correct proud seat
-    /// the docked cluster is lifted toward the viewer, scaled by the dock factor.</summary>
-    private const float ClusterProudLift = 0.010f;
-
-    // THE [RoundButtons] GROUP OFFSET — the seat term ButtonCluster.AttachDocked adds to the column
-    // anchor in tray-root-local metres (X/Y straight, Z along the outward normal). The shipped
-    // values are NOT zero (build 34 rebased the tuned cfg into the defaults: x −0.045, y +0.26,
-    // z 0.005 — the skip cap lives UP-BOARD beside the card slots, not in the authored bottom-right
-    // column), and dropping them was half of task 3(b)'s "wrongly positioned round button".
-    //
-    // THE "DELIBERATELY-NOT" NOTE THAT STOOD HERE IS GONE. It said these were the AUTHORED defaults
-    // and never the peer's live [RoundButtons] tuning. Under the 1:1 ruling that is not a policy,
-    // it is the defect: a player who drags their skip cap across their own board was the only
-    // person who could see it move. The three offsets ride extension record 28 now (ids 81..83)
-    // and are read off RemoteBoardTuning below, whose fallback for each is the very default this
-    // note used to name — so an UNTUNED peer is drawn exactly as before, byte for byte.
+    // THE WHOLE TURN-FLOW CLUSTER MIRROR IS GONE FROM THIS FILE (2026-08-25). Five constants stood
+    // here — the column anchor, the 0.7 dock shrink, the proud lift and the [RoundButtons] group
+    // offset — and their only job was to reproduce, term for term, where WorldUI/ButtonCluster drew
+    // the SKIP cap on the owner's board. The user retired that group ("Ich möchte daher, dass die
+    // Button-Gruppe der 'Überspringen Buttons' komplett verschwindet"). The skip cap is a generic
+    // board keycap on the board's own ButtonSeat3 recess now, so this file mirrors it the way it
+    // already mirrors Confirm and Undo: same anchor table, same clamp, same [BoardButtons] size —
+    // which is both less code and a stronger 1:1 guarantee, because the three caps can no longer be
+    // solved differently from one another.
 
     /// <summary>PlayTray.ItemUseSlotBase (ButtonZoneX, −BoardH/2 − 0.095, −0.020).</summary>
     private static readonly Vector3 ItemUseMount = new(ButtonZoneX, -BoardH * 0.5f - 0.095f, -0.020f);
@@ -238,10 +243,6 @@ internal sealed class RemoteBoardFurniture
     private readonly float _dashCapH = Defaults.BoardDashboard_Height;
     private readonly float _dashCapD = Defaults.BoardDashboard_Depth;
     private readonly float _restCapD = Defaults.RestButtons_Depth;
-    private readonly float _transientCapR = Defaults.RoundButtons_CapSize; // cap RADIUS
-    private readonly float _transientCapD = Defaults.RoundButtons_Depth;
-    private readonly float _transientCapW = Defaults.RoundButtons_Width;
-    private readonly float _transientCapH = Defaults.RoundButtons_Height;
     private readonly float _restCapW = Defaults.RestButtons_Width;
     private readonly float _restCapH = Defaults.RestButtons_Height;
 
@@ -292,9 +293,6 @@ internal sealed class RemoteBoardFurniture
     private readonly float _dashCapTintR = Defaults.DashCapTintR;
     private readonly float _dashCapTintG = Defaults.DashCapTintG;
     private readonly float _dashCapTintB = Defaults.DashCapTintB;
-    private readonly float _clusterCapTintR = Defaults.ClusterCapTintR;
-    private readonly float _clusterCapTintG = Defaults.ClusterCapTintG;
-    private readonly float _clusterCapTintB = Defaults.ClusterCapTintB;
     private readonly float _restCapTintR = Defaults.RestCapTintR;
     private readonly float _restCapTintG = Defaults.RestCapTintG;
     private readonly float _restCapTintB = Defaults.RestCapTintB;
@@ -305,10 +303,6 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>…for the follow/pin plate (<c>CapCategory.Dashboard</c>).</summary>
     private Color DashCapTint => new(_dashCapTintR, _dashCapTintG, _dashCapTintB, 1f);
-
-    /// <summary>…for the turn-flow SKIP cap — the one that mirrors a <c>ButtonCluster</c>
-    /// PhysicalButton, whose own <c>applied *= ButtonTuning.ClusterCapTint</c> this reproduces.</summary>
-    private Color ClusterCapTint => new(_clusterCapTintR, _clusterCapTintG, _clusterCapTintB, 1f);
 
     /// <summary>…for the short/long rest pair.</summary>
     private Color RestCapTint => new(_restCapTintR, _restCapTintG, _restCapTintB, 1f);
@@ -329,7 +323,6 @@ internal sealed class RemoteBoardFurniture
     private readonly float _boardCapTravel = Defaults.BoardButtons_Travel;
     private readonly float _dashCapTravel = Defaults.BoardDashboard_Travel;
     private readonly float _restCapTravel = Defaults.RestButtons_Travel;
-    private readonly float _transientCapTravel = Defaults.RoundButtons_Travel;
 
     /// <summary>Authored seconds a vanishing cap's dust dissolve runs
     /// (<c>[ButtonAnim] DisappearSeconds</c> — the duration <c>PlayTray.BoardButton.SetVisible</c>
@@ -399,31 +392,6 @@ internal sealed class RemoteBoardFurniture
     /// <summary>Verbatim <c>PlayTray.BoardButton.ConfirmedColor</c> — worn brass, the "you ARE
     /// ready, pressing this REVOKES" look of the CONFIRM cap.</summary>
     private static readonly Color CapConfirmedColor = new(0.68f, 0.52f, 0.24f);
-
-    /// <summary>Verbatim the dark wood <c>ButtonCluster.PhysicalButton</c> lerps a DISABLED cluster
-    /// cap toward — a different recipe from the board keycaps' flat
-    /// <see cref="CapDisabledColor"/> (it keeps a trace of the cap's own accent), which is why the
-    /// mirrored SKIP cap needs its own branch rather than the shared palette.</summary>
-    private static readonly Color ClusterDisabledWood = new(0.17f, 0.13f, 0.09f);
-
-    /// <summary>Mirror of the lerp factor <c>ButtonCluster.PhysicalButton</c> disables a cap
-    /// with.</summary>
-    private const float ClusterDisabledLerp = 0.75f;
-
-    /// <summary>Mirror of the alpha <c>ButtonCluster.PhysicalButton</c> fades a DISABLED cap's
-    /// label to.</summary>
-    private const float ClusterDisabledLabelAlpha = 0.35f;
-
-    /// <summary>Per-style ButtonCluster mount SCALE (<c>Defaults.ClusterScale_*</c>) — the last
-    /// survivor of a family of per-dial switches over the SHIPPED per-board layout, the rest of
-    /// which the owner's own tuning record replaced (see the note below). Its POSITION half
-    /// (<c>ClusterOffset_*</c>) rides record 28 and is added at the skip cap's seat.</summary>
-    private static float ClusterScaleFor(Cards.ControlBoard s) => s switch
-    {
-        Cards.ControlBoard.Steel => Defaults.ClusterScale_Steel,
-        Cards.ControlBoard.Bronze => Defaults.ClusterScale_Bronze,
-        _ => Defaults.ClusterScale_Oak,
-    };
 
     // ---------------------------------------------------------------- the owner's own seats --
     // These used to be a switch per dial over the SHIPPED per-board layout
@@ -826,11 +794,6 @@ internal sealed class RemoteBoardFurniture
         _restCapH = Mathf.Max(0.002f, tuning.RestCapHeight);
         _restShape = tuning.RestCapShape;
         _genericShape = tuning.GenericCapShape;
-        _transientCapR = Mathf.Max(0.002f, tuning.RoundCapSize);
-        _transientCapD = Mathf.Max(0.002f, tuning.RoundCapDepth);
-        _transientCapW = Mathf.Max(0.002f, tuning.RoundCapWidth);
-        _transientCapH = Mathf.Max(0.002f, tuning.RoundCapHeight);
-        _transientCapTravel = Mathf.Max(0f, tuning.RoundCapTravel);
 
         // ---- …and the owner's CAP COLOURS, before the first material is minted ------------------
         // Record 28 ids 48..53 / 170 / 229..230 (see the field block above for the defect these
@@ -855,9 +818,6 @@ internal sealed class RemoteBoardFurniture
         _dashCapTintR = Mathf.Clamp01(tuning.DashCapTint.r);
         _dashCapTintG = Mathf.Clamp01(tuning.DashCapTint.g);
         _dashCapTintB = Mathf.Clamp01(tuning.DashCapTint.b);
-        _clusterCapTintR = Mathf.Clamp01(tuning.ClusterCapTint.r);
-        _clusterCapTintG = Mathf.Clamp01(tuning.ClusterCapTint.g);
-        _clusterCapTintB = Mathf.Clamp01(tuning.ClusterCapTint.b);
         _restCapTintR = Mathf.Clamp01(tuning.RestCapTint.r);
         _restCapTintG = Mathf.Clamp01(tuning.RestCapTint.g);
         _restCapTintB = Mathf.Clamp01(tuning.RestCapTint.b);
@@ -869,23 +829,40 @@ internal sealed class RemoteBoardFurniture
         var labels = new CapLabelStyle(LabelFill, LabelOutline, _labelOutlineWidth,
                                        _labelOutlineOn, _labelUnderlayOn);
 
-        // ---- right-hand control column: CONFIRM / [USE] / UNDO -------------------------------
-        // Real tray: on the prefab's own BUTTON SEATS 0 and 1 (RemoteTrayVisual resolves them through
-        // Cards.BoardAnchors, so ButtonSeat1/2 and the legacy ConfirmButton/UndoButton both land here)
-        // + the authored per-style offset + the authored generic spacing (± spacing/2 — exactly
-        // PlayTray.GenericSeatY at seats 0 and 1, which is TOP-ANCHORED and therefore unchanged by the
-        // boards gaining a third recess), i.e. exactly the seat PlayTray.BuildButtons gives the live
-        // keycaps. Fallback: the Oak mounts.
+        // ---- right-hand control column: CONFIRM / [USE] / UNDO / SKIP ------------------------
+        // Real tray: on the prefab's own BUTTON SEATS 0, 1 and 2 (RemoteTrayVisual resolves them
+        // through Cards.BoardAnchors, so ButtonSeat1/2/3 and the legacy
+        // ConfirmButton/UndoButton/SkipButton spellings all land here) + the shared seat nudge + the
+        // stack spread — exactly PlayTray.GenericSeatY, which is the SAME BoardAnchors.StackDelta
+        // call on both sides and is identically zero at the shipped spacing of 1. Fallback: the
+        // procedural mounts, which are the owner's own synthesised anchors expression.
         //
-        // SEAT 2 IS NOT DRAWN HERE, and that is correct rather than a gap: the owner's board puts no
-        // cap in it either. The control the third recess exists for is the turn-flow SKIP, which is
-        // still mirrored below from the [RoundButtons] geometry through its own skipSeat solve. Moving
-        // it into the cluster is a PlayTray + ButtonCluster + RemoteBoardFurniture round that changes
-        // what record 28's ids 81..88 MEAN — until then owner and peer agree by both not drawing it.
+        // SEAT 2 IS DRAWN HERE NOW — the turn-flow SKIP, built by the SAME GenericCap call as its
+        // two siblings, on the SAME anchor table, through the SAME clamp. That is the whole of what
+        // "moving it into the cluster" cost on this side, and it is what makes record 28's ids
+        // 81..88 unnecessary rather than merely changed: there is no second solve left to keep in
+        // step with the owner's.
         Vector3 cuOff = tuning.ConfirmUndoOffset;
-        float cuSpacing = tuning.GenericButtonSpacing;
+        float cuSpacing = tuning.ButtonStackSpacing;
+        // The board's OWN recess pitch, measured off this peer's clone of the very prefab the owner
+        // instantiated — so it needs no wire field and cannot disagree (RemoteTrayVisual.SeatPitch).
+        float? measuredPitch = tray?.SeatPitch;
+        float seatPitch = measuredPitch ?? Defaults.StackPitchFallback;
         Transform confirmParent = tray?.ConfirmAnchor ?? _root;
         Transform undoParent = tray?.UndoAnchor ?? _root;
+        // SEAT 2 ON A TWO-ANCHOR BOARD — the case the old bundle still on somebody's disk produces,
+        // and the one place this file could silently break the 1:1 rule on the control the whole
+        // round is about. The owner does not fall back to an authored mount there: PlayTray
+        // EXTRAPOLATES the missing recess from the two the board does supply, at the board's own
+        // measured pitch. Doing anything else here would draw the peer's skip cap somewhere the
+        // owner's never goes, so this is the same BoardAnchors.SeatExtrapolation call, from the same
+        // pitch, off the same anchor.
+        bool skipExtrapolated = tray != null && tray.SkipAnchor == null
+                                && tray.UndoAnchor != null && measuredPitch != null;
+        Vector3 skipExtra = skipExtrapolated
+            ? Cards.BoardAnchors.SeatExtrapolation(2, 1, measuredPitch!.Value)
+            : Vector3.zero;
+        Transform skipParent = tray?.SkipAnchor ?? (skipExtrapolated ? tray!.UndoAnchor! : _root);
         // …AND THE SEAT POSE GOES THROUGH THE ONE CLAMP, term for term with
         // PlayTray.SetConfirmUndoOffset: on a board whose recesses the assembler measured, the
         // in-plane part of the synced offset and the whole spacing term are bounded by the slack
@@ -897,11 +874,24 @@ internal sealed class RemoteBoardFurniture
         // function, same answer.
         var capSize = new Vector2(_boardCapW, _boardCapH);
         Vector3 confirmPos = tray?.ConfirmAnchor != null
-            ? Cards.BoardAnchors.ClampSeatPose(cuOff, cuSpacing * 0.5f, tray.SeatMinHalf, capSize)
+            ? Cards.BoardAnchors.ClampSeatPose(cuOff, SeatY(0), tray.SeatMinHalf, capSize)
             : ConfirmMount;
         Vector3 undoPos = tray?.UndoAnchor != null
-            ? Cards.BoardAnchors.ClampSeatPose(cuOff, -cuSpacing * 0.5f, tray.SeatMinHalf, capSize)
+            ? Cards.BoardAnchors.ClampSeatPose(cuOff, SeatY(1), tray.SeatMinHalf, capSize)
             : UndoMount;
+        Vector3 skipPos = tray?.SkipAnchor != null
+            ? Cards.BoardAnchors.ClampSeatPose(cuOff, SeatY(2), tray.SeatMinHalf, capSize)
+            : skipExtrapolated
+                // The extrapolation is added OUTSIDE the clamp on purpose: it is not a tuned nudge
+                // but the seat itself, and the clamp bounds a cap inside a recess this board does
+                // not have. (A board that supplies no ButtonSeat3 also carries no SeatExtent3, so
+                // tray.SeatMinHalf is null there and the clamp is inert anyway — this only makes the
+                // reason explicit rather than incidental.)
+                ? Cards.BoardAnchors.ClampSeatPose(cuOff, SeatY(2), tray!.SeatMinHalf, capSize) + skipExtra
+                : SkipMount;
+
+        float SeatY(int seat) => Cards.BoardAnchors.StackDelta(
+            seat, Cards.BoardAnchors.ButtonSeatCount, seatPitch, cuSpacing);
         // BUILT AT THE IDLE COLOUR, NOT THE ACCENT — half of the "every cap looks accented" gap,
         // and it costs nothing. The colour a local keycap is CREATED with is its _accentColor, the
         // look it wears only while SetState(accent: true); its resting look is the shared parchment
@@ -959,7 +949,9 @@ internal sealed class RemoteBoardFurniture
             // disc keeps the per-board DIAMETER while a SQUARE cap takes the [RestButtons] W/H,
             // which is exactly the split RestControls.EnsureBuilt makes on the owner's own board.
             Vector3 restOff = tuning.RestButtonOffset;
-            float restSpacing = tuning.RestButtonSpacing;
+            float restSpacing = tuning.RestStackSpacing;
+            float restPitch = Cards.BoardAnchors.StackPitch(tray.ShortRestAnchor, tray.LongRestAnchor)
+                              ?? Defaults.StackPitchFallback;
             float restD = tuning.RestButtonDiameter;
             // …AND FITTED + CLAMPED TO THE AUTHORED PAD, term for term with RestControls: the tuned
             // diameters overhang two of the three pads, and RestButtonOffset_Steel/_Bronze carry the
@@ -983,10 +975,14 @@ internal sealed class RemoteBoardFurniture
                 _restCapH = restSize.y;
             }
             _shortRest = RestCap(tray.ShortRestAnchor, "ShortRest",
-                Cards.BoardAnchors.ClampSeatPose(restOff, restSpacing * 0.5f, tray.RestMinHalf, restSize),
+                Cards.BoardAnchors.ClampSeatPose(
+                    restOff, Cards.BoardAnchors.StackDelta(0, 2, restPitch, restSpacing),
+                    tray.RestMinHalf, restSize),
                 restD, ShortRestColor, labels);
             _longRest = RestCap(tray.LongRestAnchor, "LongRest",
-                Cards.BoardAnchors.ClampSeatPose(restOff, -restSpacing * 0.5f, tray.RestMinHalf, restSize),
+                Cards.BoardAnchors.ClampSeatPose(
+                    restOff, Cards.BoardAnchors.StackDelta(1, 2, restPitch, restSpacing),
+                    tray.RestMinHalf, restSize),
                 restD, LongRestColor, labels);
         }
 
@@ -1007,70 +1003,26 @@ internal sealed class RemoteBoardFurniture
         handle.localPosition = HandleMount;
         LitCube(handle, "Bar", new Vector3(BoardW * 0.55f, 0.024f, 0.024f), HandleColor);
 
-        // ---- turn-flow ButtonCluster ----------------------------------------------------------
-        // FIDELITY NOTE (this is why only ONE cap is drawn, not three): on a DOCKED board the
-        // cluster's Ready and Undo twins are forced permanently OFF — ButtonCluster.Tick calls
-        // MirrorReady(null, …) / MirrorUndo(null, …) precisely so the board never shows a duplicate
-        // "Fortfahren"/Undo next to the right-hand pads. ONLY Skip is mirrored there.
+        // ---- the turn-flow SKIP cap — seat 2 of the generic cluster ---------------------------
+        // Built by the SAME GenericCap call as Confirm and Undo, so it is their size, their depth,
+        // their travel, their shape and their [ButtonColors] tint by construction. Ninety lines of
+        // column-anchor / dock-scale / proud-lift / [RoundButtons] arithmetic stood here to
+        // reproduce a solve that no longer exists on the owner's side either; the whole of it is
+        // this one line now, and that is the point rather than a side effect — two caps that are
+        // built by one expression cannot be positioned or shaped differently from each other.
         //
-        // SEAT + SHAPE + SIZE are the local rigid dock's, reproduced term for term (task 3(b) —
-        // "der runde Button ist falsch positioniert und ignoriert die Offsets des Boards"): the
-        // column anchor + the [RoundButtons] group offset (shipped x −0.045, y +0.26 — up-board
-        // beside the card slots, where the owner actually sees it), lifted along −Z by the proud
-        // seat + that group's OffsetZ, at the 0.7× dock shrink × the per-style cluster scale, in
-        // its own shape (the shipped default is a SQUARE keycap of the [RoundButtons] W/H/D, not a
-        // round disc). The previous revision drew an unscaled round disc at the bare column anchor
-        // — wrong spot, wrong shape, 1.43× too big.
-        //
-        // …AND ALL OF IT IS THE OWNER'S NOW, not the shipped set (extension record 28, ids 81..88
-        // + the shape at 228). The immediately preceding revision read every one of those terms out
-        // of `Defaults`, so an owner who moved their skip cap, squared it off, resized it or changed
-        // how deep it presses was the ONLY person who saw any of it — the exact divergence the 1:1
-        // ruling names, on the exact control the user's ModBuild-96 report is about. The fallback
-        // inside RemoteBoardTuning is that same `Defaults` value for every absent field, so an
-        // UNTUNED peer's cap is drawn precisely where and how it was drawn before.
-        //
-        // …AND THE PER-BOARD SEAT JOINS THEM (user, hardware ModBuild 97: "Die Offsets bei den
-        // Überspringen-Tasten haben keinen Einfluss"). `tuning.ClusterOffset` is the missing third
-        // term, and the note that used to stand two screens up — "the mount's position never moves
-        // the RENDERED cluster, so mirroring it would move the copy where the original never goes"
-        // — was an accurate description of a LOCAL bug, not of a design. ButtonCluster.AttachDocked
-        // now adds the mount's translation to its own pose solve, so the sentence is false in both
-        // directions and the mirror follows the original again. It adds RAW, in the same
-        // tray-root-local meters as the column anchor, exactly as it does locally.
-        float clusterScale = ClusterDockScale * tuning.ClusterScale;
-        Vector3 skipSeat = ClusterMount
-                           + tuning.ClusterOffset
-                           + new Vector3(tuning.RoundOffsetX, tuning.RoundOffsetY, 0f)
-                           + new Vector3(0f, 0f, -(ClusterProudLift * clusterScale + tuning.RoundOffsetZ));
-        // …AND THE SHAPE ITSELF IS THE CLUSTER'S NOW, not the board keycaps' (user 2026-08-13:
-        // "Die Überspringen Knöpfe sehen nicht 1:1 genauso aus, wie auf dem echten board, etwas
-        // andere Form und der Text ist etwas transparenter"). clusterScale is handed down so
-        // InertCap can express ButtonCluster's own unscaled constants — see InertCap.Square.
-        _skip = tuning.RoundCapShape == Cards.ButtonShape.Round
-            ? InertCap.Round(_root, "TurnFlowSkip", skipSeat,
-                _transientCapR * 2f * clusterScale, _transientCapD * clusterScale, SkipColor,
-                ClusterCapTint, labels,
-                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true,
-                clusterScale: clusterScale)
-            : InertCap.Square(_root, "TurnFlowSkip", skipSeat,
-                new Vector2(_transientCapW, _transientCapH) * clusterScale,
-                _transientCapD * clusterScale, SkipColor, ClusterCapTint, labels,
-                travel: _transientCapTravel * clusterScale, accent: SkipColor, clusterStyle: true,
-                clusterScale: clusterScale);
-        Core.VRLog.Info("Net", "SKIP CAP: mirrored turn-flow cap built as a " +
-            (tuning.RoundCapShape == Cards.ButtonShape.Round
-                ? $"ButtonCluster ROUND disc — diameter {_transientCapR * 2f * clusterScale * 1000f:F1} mm, " +
-                  "height the original's own hard-coded 18 mm x the cluster scale (its round branch " +
-                  "ignores RoundCapDepth, so this one must too)"
-                : $"ButtonCluster SQUARE cube — {_transientCapW * clusterScale * 1000f:F1} x " +
-                  $"{_transientCapH * clusterScale * 1000f:F1} x {_transientCapD * clusterScale * 1000f:F1} mm, " +
-                  "FLAT top, sharp edges, ONE material, no chamfer and no 12 mm thickness floor") +
-            $" at the owner's cluster scale x{clusterScale:F2}. Label: the harvested game HUD font " +
-            "(ApplyFont) on a depth-honest material, sortingOrder 3, fitted in the original's own " +
-            "docked box — was TMP's default font, no sorting order and roughly half the point size, " +
-            "which is what read as 'der Text ist etwas transparenter'. Its ENABLED/dimmed state now " +
-            "arrives too (see NetAvatarDriver's BoardCapStateMask note).");
+        // Its ACCENT is SkipColor — the (0.37, 0.44, 0.56) antique slate-blue the retired cluster
+        // built its skip cap in, which this palette already held verbatim and which
+        // PlayTray.BuildButtons now hands the local cap. So the one thing a player recognises the
+        // control by survives the move, on both screens, from the same triple. Its state arrives on
+        // the board-UI record's cap-state byte exactly as before.
+        _skip = GenericCap(skipParent, "TurnFlowSkip", skipPos, CapIdleColor, SkipColor, labels);
+        Core.VRLog.Info("Net", "SKIP CAP: mirrored on the board's own ButtonSeat3 recess as an " +
+            $"ordinary generic keycap ({_genericShape}, {_boardCapW * 1000f:F1} x " +
+            $"{_boardCapH * 1000f:F1} mm before the seat fit) — the owner builds it from the same " +
+            "[BoardButtons] family and seats it through the same BoardAnchors clamp, so the two " +
+            "pictures agree without a geometry family or a wire field of its own. The retired " +
+            "[RoundButtons] column solve (record 28 ids 81..88 + shape 228) is gone from both ends.");
 
         // ---- item-USE clip-in recess ----------------------------------------------------------
         // The owner's own berth dials FIRST (record 28, ids 80 / 166..169): BuildItemUseRecess reads
@@ -1648,9 +1600,14 @@ internal sealed class RemoteBoardFurniture
             enabled: (states & NetProtocol.BoardUiCapLongRestEnabledBit) != 0,
             accent: (states & NetProtocol.BoardUiCapLongRestAccentBit) != 0,
             confirmed: false);
+        // THE SKIP CAP IS AN ORDINARY BOARD KEYCAP NOW, so its dead look is the board keycaps' own
+        // disabled plaque rather than the retired cluster's accent-preserving lerp toward dark wood.
+        // Kept ACCENTED while enabled: the owner's TickStatus shows this cap only while the game is
+        // showing the control, and drives it with SetState(CanSkip(), accent: false) — the accent
+        // here is what carries its authored brass, exactly as the item-USE cap's does.
         _skip.SetCapState(
             enabled: (states & NetProtocol.BoardUiCapSkipEnabledBit) != 0,
-            accent: true, // a cluster cap has no idle look; its accent IS its enabled colour
+            accent: true,
             confirmed: false);
         VRLog.Info("Net", $"Remote cap states applied: 0x{states:X2} — confirm=" +
                           ((states & NetProtocol.BoardUiCapConfirmReadyBit) != 0 ? "CONFIRMED"
@@ -3207,39 +3164,13 @@ internal sealed class RemoteBoardFurniture
         /// chamfer at all (see <see cref="Square"/>).</summary>
         private const float CapBevel = 0.007f;
 
-        // ---- ButtonCluster.PhysicalButton's own geometry constants, mirrored verbatim ----------
-        // Stated in the ORIGINAL's unscaled frame (its cluster root carries the 0.7 dock scale), so
-        // every one of them is multiplied by the mirror's clusterScale at the call site. Named
-        // rather than inlined because the originals are INLINE LITERALS inside ButtonCluster's own
-        // BuildProcedural — there is nothing for check-mirrors.sh to pair them with, so the only
-        // defence a retune has is that each one here says exactly which line it copies.
-
-        /// <summary>Mirror of ButtonCluster's square base plate thickness (its Cube's Y).</summary>
-        private const float ClusterWellThickness = 0.012f;
-
-        /// <summary>Mirror of ButtonCluster's square base-plate footprint factor (capW x 1.2,
-        /// capH x 1.2). The board keycaps use an additive +8 mm margin instead — a different
-        /// original, a different rule.</summary>
-        private const float ClusterWellMargin = 1.2f;
-
-        /// <summary>Mirror of the gap ButtonCluster leaves between its well top (y 0.012) and its
-        /// cap bottom (y 0.015).</summary>
-        private const float ClusterCapStandoff = 0.003f;
-
-        /// <summary>Mirror of ButtonCluster.DockedLabelProud — the 2 mm the docked label stands off
-        /// the cap top, the constant its per-eye z-fight fix introduced.</summary>
-        private const float ClusterLabelProud = 0.002f;
-
-        /// <summary>Mirror of the docked fit box ButtonCluster gives its label
-        /// (<c>TmpFit.Fit(_label, 0.105f, 0.045f, maxFontSize: 0.30f)</c>).</summary>
-        private const float ClusterLabelBoxW = 0.105f;
-        private const float ClusterLabelBoxH = 0.045f;
-        private const float ClusterLabelMaxFont = 0.30f;
-
-        /// <summary>Mirror of the ROUND branch's hard-coded disc height
-        /// (<c>GetRoundCap(capW, 2f * 0.009f)</c>) — see <see cref="Round"/> for why the dial is
-        /// deliberately not used here either.</summary>
-        private const float ClusterRoundCapHeight = 0.018f;
+        // THE MIRRORED ButtonCluster GEOMETRY CONSTANTS ARE GONE (2026-08-25). Eight of them stood
+        // here — well thickness, well margin, cap standoff, label proud, the three label-box numbers
+        // and the round disc height — copied out of WorldUI/ButtonCluster's own BuildProcedural so
+        // that the mirrored turn-flow SKIP cap could be built to that cluster's proportions rather
+        // than the board keycaps'. There is no cluster to copy any more: the skip is a generic board
+        // keycap, so it takes the beveled-keycap branch below with Confirm and Undo. A copy whose
+        // original has been deleted is the worst kind of constant to leave behind.
 
         // Mirrors of PlayTray.BoardButton's wall/bevel tint recipe (checked by check-mirrors.sh).
         private const float WallTintFactor = 0.50f;
@@ -3267,12 +3198,6 @@ internal sealed class RemoteBoardFurniture
         /// <c>BoardButton.Create</c> was handed — the ACCENT entry of the state palette, and the
         /// only one of the four looks a peer's board used to be able to show.</summary>
         private Color _accentColor;
-
-        /// <summary>True for the turn-flow SKIP cap, which mirrors a <c>ButtonCluster</c>
-        /// PhysicalButton rather than a <c>BoardButton</c> and therefore has its OWN disabled
-        /// recipe (an accent-preserving lerp toward dark wood plus a faded label) instead of the
-        /// board keycaps' flat disabled plaque.</summary>
-        private bool _clusterStyle;
 
         /// <summary>Last applied (enabled, accent, confirmed) triple, packed — the change gate for
         /// <see cref="SetCapState"/>. -1 = nothing applied yet, so the first refresh always paints.</summary>
@@ -3315,117 +3240,62 @@ internal sealed class RemoteBoardFurniture
         }
 
         /// <summary>
-        /// The square keycap. TWO SHAPES, because the two originals are two different objects and
-        /// the 1:1 rule is about what the player sees, not about code reuse:
-        /// <list type="bullet">
-        ///   <item>BOARD keycaps (Confirm/Undo/Use/Pin) mirror <c>PlayTray.BoardButton</c> — dark
-        ///     base plate + the 3-submesh CHAMFERED cap mesh (state top / bright bevel / dark warm
-        ///     walls), <c>capThick = Max(0.012, depth)</c>, bevel <see cref="CapBevel"/>. That is
-        ///     term-for-term what PlayTray.7.Nested builds, and it is untouched here.</item>
-        ///   <item>The turn-flow SKIP cap (<paramref name="clusterStyle"/>) mirrors a
-        ///     <c>WorldUI.ButtonCluster.PhysicalButton</c>, which is NOT that object: it is a plain
-        ///     <c>PrimitiveType.Cube</c> — one material, flat top, sharp 90-degree edges, no bevel
-        ///     ring — scaled (capW, capD, capH) with NO thickness clamp, over a base plate of
-        ///     (capW x 1.2) x 0.012 x (capH x 1.2).</item>
-        /// </list>
+        /// The square keycap: dark base plate + the 3-submesh CHAMFERED cap mesh (state top /
+        /// bright bevel / dark warm walls), <c>capThick = Max(0.012, depth)</c>, bevel
+        /// <see cref="CapBevel"/> — term for term what <c>PlayTray.BoardButton</c> builds.
         ///
-        /// <para>USER REPORT 2026-08-13, verbatim: "Die Überspringen Knöpfe sehen nicht 1:1 genauso
-        /// aus, wie auf dem echten board, etwas andere Form und der Text ist etwas transparenter."
-        /// The FORM half is this branch. Measured against the shipped tuning (cluster root x0.7):
-        /// the mirror wore a 7 mm chamfer the original does not have at all; its cap was 0.012
-        /// instead of 0.0105 thick, because the <c>Max(0.012, ...)</c> floor silently overrode the
-        /// owner's own RoundCapDepth dial by +14 %; and its well read 0.0703 x 0.0325 x 0.006
-        /// against the original's 0.0748 x 0.0294 x 0.0084 — narrower, taller, half as thick. The
-        /// TEXT half of the report is in <see cref="BuildLabel"/> and in the cap-state byte the
-        /// sender never packed (see <c>NetAvatarDriver</c>'s BoardCapStateMask note).</para>
-        ///
-        /// <para><paramref name="clusterScale"/> is the factor the ORIGINAL's cluster root carries
-        /// (<c>ClusterDockScale x tuning.ClusterScale</c>). The mirror has no such root — every cap
-        /// is seated directly in board-local metres — so the constants the original states in its
-        /// own unscaled frame (the 0.012 well, its 3 mm standoff, the 2 mm label proud, the
-        /// 0.105 x 0.045 fit box) are multiplied by it here. Board keycaps pass 1 and see none of
-        /// this.</para>
+        /// <para>IT USED TO HAVE TWO SHAPES, and losing the second one is the point rather than a
+        /// simplification. The other branch built a plain <c>PrimitiveType.Cube</c> — one material,
+        /// flat top, sharp edges, no bevel ring, no thickness clamp, over a (capW x 1.2) x 0.012
+        /// well — because the turn-flow SKIP cap mirrored a
+        /// <c>WorldUI.ButtonCluster.PhysicalButton</c>, which was a different object from a board
+        /// keycap and had to be reproduced as one (user report 2026-08-13: "Die Überspringen Knöpfe
+        /// sehen nicht 1:1 genauso aus, wie auf dem echten board, etwas andere Form"). The user then
+        /// retired the group outright and asked for the opposite property — "so dass all diese
+        /// buttons gleich aussehen" — so the skip cap IS a board keycap on both sides now, and one
+        /// branch is the accurate mirror of one original.</para>
         /// </summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
             float depth, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null, bool clusterStyle = false,
-            float clusterScale = 1f)
+            float travel = 0f, Color? accent = null)
         {
             GameObject go = NewRoot(parent, name, localPos);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
             // colour in this mod (2026-08-09 round 3): the build writes this straight onto the
             // materials, so it must clear the WELL behind it before SetTint ever runs.
             Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
-            float cs = clusterScale > 0f ? clusterScale : 1f;
 
-            // Base plate: the recessed well the cap sits in — BoardButton's non-round branch for a
-            // board keycap, ButtonCluster's own proportions for the skip cap.
+            // Base plate: the recessed well the cap sits in — BoardButton's own non-round branch.
             var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
             basePlate.name = "Base";
             Object.Destroy(basePlate.GetComponent<Collider>());
             basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-            float wellThick = clusterStyle ? ClusterWellThickness * cs : 0.006f;
-            basePlate.transform.localScale = clusterStyle
-                ? new Vector3(size.x * ClusterWellMargin, size.y * ClusterWellMargin, wellThick)
-                : new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
-            basePlate.transform.localPosition = new Vector3(0f, 0f, clusterStyle
-                ? CapRestZ + ClusterCapStandoff * cs + wellThick * 0.5f
-                : 0.004f);
+            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
             TintLit(basePlate, WorldUI.ButtonTuning.CapWellColor); // the colour SeatedCapColor floors against
 
-            // NO THICKNESS FLOOR ON THE CLUSTER CAP: the original applies none, and the floor was
-            // overriding the owner's own RoundCapDepth dial — which record 28 already carries, so
-            // the clamp was quietly discarding a value that had travelled correctly.
-            float capThick = clusterStyle ? Mathf.Max(0.001f, depth) : Mathf.Max(0.012f, depth);
+            float capThick = Mathf.Max(0.012f, depth);
             var capMesh = new GameObject("CapMesh");
             capMesh.transform.SetParent(go.transform, worldPositionStays: false);
             capMesh.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
             Shader? shader = CapShader();
             Material? top = null, bevel = null, wall = null;
-            MeshRenderer mr;
-            if (clusterStyle)
+            capMesh.AddComponent<MeshFilter>().sharedMesh =
+                Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
+            MeshRenderer mr = capMesh.AddComponent<MeshRenderer>();
+            if (shader != null)
             {
-                // ONE material, one flat box. Unity's cube mesh is centred on its origin and spans
-                // one unit, so this child is SCALED — and the holder above is what RemoteCapFx dips,
-                // exactly as in the beveled branch, so the press animation is unchanged. Offsetting
-                // the child by half the thickness puts the FRONT face at -capThick in the holder's
-                // frame, i.e. precisely where BuildBeveledKeycap authors its plateau, which keeps
-                // the label seat and the FX travel ONE formula for both shapes.
-                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                cube.name = "Cap";
-                Object.Destroy(cube.GetComponent<Collider>());
-                cube.transform.SetParent(capMesh.transform, worldPositionStays: false);
-                cube.transform.localScale = new Vector3(size.x, size.y, capThick);
-                cube.transform.localPosition = new Vector3(0f, 0f, -capThick * 0.5f);
-                mr = cube.GetComponent<MeshRenderer>();
-                if (shader != null)
-                {
-                    top = Cards.PlayTray.NewKeycapMaterial(shader, face);
-                    mr.sharedMaterial = top;
-                }
-            }
-            else
-            {
-                capMesh.AddComponent<MeshFilter>().sharedMesh =
-                    Cards.CardMesh.BuildBeveledKeycap(size.x, size.y, capThick, CapBevel);
-                mr = capMesh.AddComponent<MeshRenderer>();
-                if (shader != null)
-                {
-                    top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
-                    bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
-                    wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
-                    mr.sharedMaterials = new[] { top, bevel, wall };
-                }
+                top = Cards.PlayTray.NewKeycapMaterial(shader, face);            // [0] top plateau
+                bevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face)); // [1] bright bevel
+                wall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face));   // [2] dark warm wall
+                mr.sharedMaterials = new[] { top, bevel, wall };
             }
 
             // The LABEL hangs off the CAP holder on the local board precisely so it travels with
             // the cap on a press ("it used to hang off the static root while only the cap sank,
             // reading as detached"). Same parenting here, so the mirrored dip moves the same parts.
-            // The standoff is the ORIGINAL's own: ButtonCluster.DockedLabelProud (2 mm, the constant
-            // its per-eye z-fight fix introduced) for a cluster cap, 1 mm for a board keycap.
             TextMeshPro label = BuildLabel(capMesh.transform, size,
-                new Vector3(0f, 0f, -capThick - (clusterStyle ? ClusterLabelProud * cs : 0.001f)),
-                in labels, clusterStyle ? cs : 0f);
+                new Vector3(0f, 0f, -capThick - 0.001f), in labels);
             var cap = new InertCap(go, label)
             {
                 _topMat = top,
@@ -3435,27 +3305,24 @@ internal sealed class RemoteBoardFurniture
                 _tint = face,
                 _capMesh = capMesh.transform,
                 _accentColor = accent ?? color,
-                _clusterStyle = clusterStyle,
                 _labelBase = label.color,
             };
             cap.AttachFx(travel, Mathf.Max(size.x, size.y));
             return cap;
         }
 
-        /// <summary>The round disc cap (rest discs, turn-flow Skip): recessed well ring + smooth
-        /// generated disc, in the same carved-grain keycap material family.
+        /// <summary>The round disc cap (rest discs, and any generic keycap whose board style is
+        /// Round): recessed well ring + smooth generated disc, in the same carved-grain keycap
+        /// material family.
         ///
-        /// <para>CLUSTER-STYLE DEPTH (the skip cap under [WorldUI] RoundCapShape = Round): the
-        /// ORIGINAL's round branch does NOT use its RoundCapDepth dial at all — ButtonCluster builds
-        /// <c>CardMesh.GetRoundCap(capW, 2f * 0.009f)</c>, a hard-coded 18 mm disc height in its own
-        /// unscaled frame. Mirroring the dial instead drew a disc ~42 % thinner than the original.
-        /// This is copied rather than corrected on purpose: 1:1 means "what the owner sees", and
-        /// what the owner sees is the constant. If the local branch ever starts honouring the dial,
-        /// this is the line that follows it (there is no lint pairing them: the original is an inline literal).</para></summary>
+        /// <para>THE CLUSTER-STYLE DEPTH BRANCH IS GONE (2026-08-25). It hard-coded an 18 mm disc
+        /// height for the turn-flow SKIP cap because WorldUI/ButtonCluster's own round branch
+        /// ignored its depth dial and built <c>GetRoundCap(capW, 2f * 0.009f)</c> — copied rather
+        /// than corrected, because 1:1 means "what the owner sees". The owner sees a board keycap
+        /// now, so the honest mirror is this method's ordinary thickness.</para></summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
             float thickness, Color color, Color capTint, in CapLabelStyle labels,
-            float travel = 0f, Color? accent = null, bool clusterStyle = false,
-            float clusterScale = 1f)
+            float travel = 0f, Color? accent = null)
         {
             GameObject go = NewRoot(parent, name, localPos);
             // The owner's cap-face tint — see InertCap._capTint — SEATED like every other cap
@@ -3470,10 +3337,7 @@ internal sealed class RemoteBoardFurniture
                 Cards.CardMesh.GetRoundCap(diameter + 0.006f, 0.006f);
             var baseMr = basePlate.AddComponent<MeshRenderer>();
 
-            float cs = clusterScale > 0f ? clusterScale : 1f;
-            float capThick = clusterStyle
-                ? ClusterRoundCapHeight * cs   // the original's own constant — see the method doc
-                : Mathf.Max(0.002f, thickness);
+            float capThick = Mathf.Max(0.002f, thickness);
             var capDisc = new GameObject("CapMesh");
             capDisc.transform.SetParent(go.transform, worldPositionStays: false);
             capDisc.transform.localPosition = new Vector3(0f, 0f, CapRestZ);
@@ -3491,9 +3355,7 @@ internal sealed class RemoteBoardFurniture
             }
 
             TextMeshPro label = BuildLabel(capDisc.transform, new Vector2(diameter, diameter),
-                new Vector3(0f, 0f, -capThick * 0.5f
-                                    - (clusterStyle ? ClusterLabelProud * cs : 0.001f)),
-                in labels, clusterStyle ? cs : 0f);
+                new Vector3(0f, 0f, -capThick * 0.5f - 0.001f), in labels);
             var cap = new InertCap(go, label)
             {
                 // A disc has ONE cap material (no bevel/wall submeshes) — exactly like the local
@@ -3503,7 +3365,6 @@ internal sealed class RemoteBoardFurniture
                 _tint = face,
                 _capMesh = capDisc.transform,
                 _accentColor = accent ?? color,
-                _clusterStyle = clusterStyle,
                 _labelBase = label.color,
             };
             cap.AttachFx(travel, diameter);
@@ -3536,8 +3397,7 @@ internal sealed class RemoteBoardFurniture
         /// auto-size is what the label is finally measured at.</para>
         /// </summary>
         /// <summary>
-        /// A mirrored cap's engraved label. <paramref name="clusterScale"/> &gt; 0 means "this is a
-        /// ButtonCluster cap" and switches the FIT BOX to the original's docked one.
+        /// A mirrored cap's engraved label.
         ///
         /// <para>THE OTHER HALF OF THE SKIP REPORT (user 2026-08-13: "der Text ist etwas
         /// transparenter"). Three causes, all of them here, none of them a colour constant — the
@@ -3554,17 +3414,15 @@ internal sealed class RemoteBoardFurniture
         ///   <item><b>No sorting order.</b> The originals set <c>sortingOrder = 3</c> on the label
         ///     renderer so it always resolves in front of the cap face; without it the label
         ///     arbitrates by depth alone against an opaque plateau one or two millimetres away.</item>
-        ///   <item><b>Half the point size, on the skip cap.</b> The docked original fits into
-        ///     0.105 x 0.045 at maxFont 0.30; this mirror fitted every cap into
-        ///     <c>size x (0.92, 0.85)</c> at 0.40 — which is right for a BOARD keycap (PlayTray uses
-        ///     those very numbers) and wrong for a cluster cap, whose own size is much smaller than
-        ///     its authored label box. A German "Bewegen überspringen" then auto-shrank to roughly
-        ///     half the original's point size, and an SDF glyph at half size with an unchanged
-        ///     outline width simply has less ink.</item>
         /// </list>
+        ///
+        /// <para>A third cause used to be listed here — the skip cap was fitted into the BOARD
+        /// keycap box while its original used the cluster's own smaller 0.105 x 0.045 at maxFont
+        /// 0.30 — and it retired with the cluster: every cap this mirror draws is a board keycap
+        /// now, so there is one fit box and it is the right one for all of them.</para>
         /// </summary>
         private static TextMeshPro BuildLabel(Transform parent, Vector2 size, Vector3 localPos,
-                                              in CapLabelStyle labels, float clusterScale = 0f)
+                                              in CapLabelStyle labels)
         {
             var labelGo = new GameObject("Label");
             labelGo.transform.SetParent(parent, worldPositionStays: false);
@@ -3585,11 +3443,7 @@ internal sealed class RemoteBoardFurniture
             var labelRenderer = tmp.GetComponent<MeshRenderer>();
             if (labelRenderer != null)
                 labelRenderer.sortingOrder = 3; // the originals' own order, above the cap face
-            if (clusterScale > 0f)
-                TmpFit.Fit(tmp, ClusterLabelBoxW * clusterScale, ClusterLabelBoxH * clusterScale,
-                    maxFontSize: ClusterLabelMaxFont * clusterScale);
-            else
-                TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
+            TmpFit.Fit(tmp, size.x * 0.92f, size.y * 0.85f, maxFontSize: 0.40f);
             return tmp;
         }
 
@@ -3694,8 +3548,8 @@ internal sealed class RemoteBoardFurniture
         /// Apply the owner's live cap STATE — the inert counterpart of
         /// <c>PlayTray.BoardButton.SetState</c> + <c>UpdateColor</c>, resolving the same four looks
         /// in the same precedence (disabled beats confirmed beats accent beats idle) out of the
-        /// same palette. The SKIP cap mirrors a cluster button instead and takes its accent-
-        /// preserving disabled lerp plus the faded label. Change-gated on the packed triple.
+        /// same palette — the turn-flow SKIP cap included, since it became one of them.
+        /// Change-gated on the packed triple.
         /// </summary>
         public void SetCapState(bool enabled, bool accent, bool confirmed)
         {
@@ -3704,25 +3558,12 @@ internal sealed class RemoteBoardFurniture
                 return;
             _shownState = key;
             SetTint(StateColor(enabled, accent, confirmed));
-            if (_clusterStyle && _label != null)
-            {
-                Color c = _labelBase;
-                c.a = enabled ? _labelBase.a : ClusterDisabledLabelAlpha;
-                _label.color = c;
-            }
         }
 
         /// <summary>The colour this cap should rest at for a state triple — see
         /// <see cref="SetCapState"/>.</summary>
         private Color StateColor(bool enabled, bool accent, bool confirmed)
         {
-            // A cluster cap has TWO looks, not four: its authored accent, or that accent lerped
-            // toward dark wood. ButtonCluster.PhysicalButton has no idle/confirmed states at all —
-            // MirrorSkip only ever hands it visible + interactable.
-            if (_clusterStyle)
-                return enabled
-                    ? _accentColor
-                    : Color.Lerp(_accentColor, ClusterDisabledWood, ClusterDisabledLerp);
             return !enabled ? CapDisabledColor
                 : confirmed ? CapConfirmedColor
                 : accent ? _accentColor

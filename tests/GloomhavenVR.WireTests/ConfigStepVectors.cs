@@ -67,7 +67,7 @@ internal static class ConfigStepVectors
         // The tag is stripped for the unit lookup AND remembered: a per-board default is that
         // board's geometry, so it may coarsen the step but never sharpen it.
         t.Case("configsteps/variant-tag");
-        Unit(t, "RestButtonDiameter_Steel", 0.01d, ConfigSteps.UnitScope.Variant);
+        Unit(t, "PileSpacing_Steel", 0.01d, ConfigSteps.UnitScope.Variant);
         Unit(t, "SlotOverlaySpacing_Bronze", 0.01d, ConfigSteps.UnitScope.Variant);
         Unit(t, "DecisionGap_Oak", 0.01d, ConfigSteps.UnitScope.Variant);
         // The slot-overlay SIZE (2026-08-11). Its retired predecessor was called SlotCardFill, and
@@ -261,10 +261,13 @@ internal static class ConfigStepVectors
         // only correct response was to look at WHY the count fell and confirm each loss. It fell
         // again to 7 in the 2026-08 dead-settings sweep, which DELETED the retired
         // `WristHudOffsetX/Y/Z` binds (and their Defaults annotations) outright — another
-        // confirmed, legitimate loss. Re-based to 5 against the 7 that remain, so a silent loss
-        // of the sweep still fails loudly.
-        t.True(axisKeys >= 5,
-               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 7, so either "
+        // confirmed, legitimate loss. It fell to 4 on 2026-08-25, when the whole [RoundButtons]
+        // section retired with the turn-flow cap group it sized and took OffsetX/OffsetY/OffsetZ
+        // with it — a THIRD confirmed loss, and each of the three was checked the way this guard
+        // asks: look at WHY the count fell, and confirm each key individually. Re-based to 3
+        // against the 4 that remain, so a silent loss of the sweep still fails loudly.
+        t.True(axisKeys >= 3,
+               $"the sweep found only {axisKeys} axis-suffixed keys; it used to find 4, so either "
                + "the Defaults annotations moved or this guard has stopped reading them");
 
         // (b) TWO DIALS OF ONE VECTOR MUST STEP ALIKE. That invariant is what the user notices when

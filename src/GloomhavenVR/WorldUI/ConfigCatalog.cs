@@ -878,22 +878,28 @@ internal static class ConfigCatalog
         // families ([Cards] RestButton*_{board} + [RestButtons] W/H/D/T), so leaving them behind
         // would recreate the exact misfiling one report later.
         //
-        // …AND [RoundButtons] JOINS THEM (user, hardware ModBuild 96): "Weiterhin vermisse ich die
-        // Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten (offsets, Form, Größe,
-        // etc..) — die Einstellungen sollen unter der Tasten-Kategorie genauso einstellbar sein."
-        // The dials existed and were never missing from the menu — they were in the OTHER of the two
-        // places a keycap family can live, which is the very misfiling the two lines above were
-        // written to end. The docked turn-flow cluster shows exactly one member, the SKIP cap
-        // (ButtonCluster.Tick forces the Ready/Undo twins off), and its geometry is split across the
-        // same two families every sibling is: [Cards] ClusterOffset_*/ClusterScale_* on the
-        // control-board page and [RoundButtons] Offset/Shape/CapSize/W/H/D/Travel over in Tasten. A
-        // player who opens the board page's "Tasten" heading and finds Best./Zurück and Rast-Tasten
-        // complete has every reason to conclude the skip cap simply has no dials. Now all nine sit
-        // in the "Rundenknöpfe & Fixier-Taste" block beside ClusterOffset/ClusterScale — see
-        // VROptionsTab.6.BoardTopic.cs, whose tree claims them.
+        // [RoundButtons] USED TO BE THE THIRD NAME HERE (user, hardware ModBuild 96: "Weiterhin
+        // vermisse ich die Einstellungen im Debug Menu für genau diese 'Überspringen'-Tasten"), and
+        // it is gone because the section is. The skip cap's dials WERE its siblings' dials all
+        // along in the misfiled sense that report described; since 2026-08-25 they are its siblings'
+        // dials literally — the cap is a generic board keycap and reads [BoardButtons], which the
+        // first name below already claims.
         if (string.Equals(section, "BoardButtons", StringComparison.Ordinal)
-            || string.Equals(section, "RestButtons", StringComparison.Ordinal)
-            || string.Equals(section, "RoundButtons", StringComparison.Ordinal))
+            || string.Equals(section, "RestButtons", StringComparison.Ordinal))
+            return ConfigTopic.BoardGeometry;
+
+        // …AND THE SHARED KEYCAP SEAT FAMILY, BY NAME, because it stopped carrying a board suffix on
+        // 2026-08-25 and would otherwise fall all the way through to the module table and file under
+        // "Karten & Brett". These five were fifteen per-board entries (ConfirmUndoOffset_{board} and
+        // friends) that the HasBoardSuffix test above claimed automatically; collapsing them to one
+        // shared entry each — the per-board part of a keycap seat is the recess the board itself cut,
+        // see CardsConfig's seat-family note — took that claim away with the suffix. Naming them is
+        // the price of the collapse, and the alternative was leaving a dial the control-board page
+        // shows in its own tree ALSO listed on a second page, which is the exact duplication this
+        // method exists to prevent.
+        if (string.Equals(section, "Cards", StringComparison.Ordinal)
+            && (key is "ConfirmUndoOffset" or "ButtonStackSpacing"
+                    or "RestButtonOffset" or "RestStackSpacing" or "RestButtonDiameter"))
             return ConfigTopic.BoardGeometry;
 
         // SECTION BEATS MODULE for the four sections that RIDE ALONG on another module's file
@@ -1298,7 +1304,6 @@ internal static class ConfigCatalog
         "Comfort" => Loc.Mod("cfg_sec_comfort"),
         "WristHud" => Loc.Mod("cat_wrist"),
         "RestButtons" => Loc.Mod("rest"),
-        "RoundButtons" => Loc.Mod("round_buttons"),
         "BoardButtons" => Loc.Mod("generic"),
         "BoardDashboard" => Loc.Mod("board_dashboard"),
         "ButtonColors" => Loc.Mod("button_colors"),

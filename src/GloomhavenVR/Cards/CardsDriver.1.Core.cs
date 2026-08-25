@@ -393,6 +393,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
         _tray.SwapRequested += OnSwapRequested;
         _tray.ConfirmRequested += OnConfirmRequested;
         _tray.UndoRequested += OnUndoRequested;
+        _tray.SkipRequested += OnSkipRequested;
         _rest.ShortRestRequested += OnShortRestRequested;
         _rest.LongRestRequested += OnLongRestRequested;
         _half.PlayRequested += OnPlayRequested;
@@ -446,24 +447,39 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private bool _applyObjectives;       // items 4/6: objectives ('Aufgaben') dock offset / scale
     private bool _applyElements;         // items 4/6: element infusion ('Elemente') dock offset / scale
     private bool _applyHudWidgets;       // items 4/6: gear / follow-pin / round-readout offsets (in place)
-    private bool _applyCluster;          // items 4/6: turn-flow ButtonCluster offset / scale
     private bool _applyDecision;         // item C: shared decision-dock offset / scale
     private bool _applyFan;              // GLOBAL hand-fan geometry (step / arc / radius / hover-split)
 
     /// <summary>Subscribe/unsubscribe every per-board tuning entry's SettingChanged (both boards' menu AND cfg edits live-apply).</summary>
     private void SubscribeBoardTuning(bool subscribe)
     {
+        // THE KEYCAP SEAT FAMILY IS SUBSCRIBED ONCE, NOT ONCE PER BOARD. These five used to be
+        // per-board entries and were hooked inside the loop below; they are single shared entries
+        // now (the per-board part of a keycap seat comes off the board's own anchors — see
+        // CardsConfig's seat-family note), and hooking a shared entry three times would fire its
+        // handler three times per edit.
+        if (subscribe)
+        {
+            CardsConfig.RestButtonOffset.SettingChanged += OnControlOffsetChanged;
+            CardsConfig.ConfirmUndoOffset.SettingChanged += OnControlOffsetChanged;
+            CardsConfig.RestStackSpacing.SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
+            CardsConfig.ButtonStackSpacing.SettingChanged += OnControlOffsetChanged;
+            CardsConfig.RestButtonDiameter.SettingChanged += OnControlSizeChanged;
+        }
+        else
+        {
+            CardsConfig.RestButtonOffset.SettingChanged -= OnControlOffsetChanged;
+            CardsConfig.ConfirmUndoOffset.SettingChanged -= OnControlOffsetChanged;
+            CardsConfig.RestStackSpacing.SettingChanged -= OnControlOffsetChanged;
+            CardsConfig.ButtonStackSpacing.SettingChanged -= OnControlOffsetChanged;
+            CardsConfig.RestButtonDiameter.SettingChanged -= OnControlSizeChanged;
+        }
         foreach (ControlBoard b in System.Enum.GetValues(typeof(ControlBoard)))
         {
             if (subscribe)
             {
-                CardsConfig.RestButtonOffset(b).SettingChanged += OnControlOffsetChanged;
-                CardsConfig.ConfirmUndoOffset(b).SettingChanged += OnControlOffsetChanged;
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged += OnControlOffsetChanged;   // item-use slot = in-place move
                 CardsConfig.ItemCardOffset(b).SettingChanged += OnControlOffsetChanged;      // item fan/held pose (read live by ItemsPile)
-                CardsConfig.RestButtonSpacing(b).SettingChanged += OnControlOffsetChanged;   // spacing = in-place move
-                CardsConfig.GenericButtonSpacing(b).SettingChanged += OnControlOffsetChanged;
-                CardsConfig.RestButtonDiameter(b).SettingChanged += OnControlSizeChanged;
                 // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08): the Confirm/Undo cap
                 // size lives in [BoardButtons] for BOTH shapes now, and those edits already reach
                 // the caps via the ButtonTuning.Version watch (PlayTray.ApplyButtonTuningIfChanged).
@@ -498,20 +514,13 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.ElementsScale(b).SettingChanged += OnElementsTuningChanged;
                 CardsConfig.PinOffset(b).SettingChanged += OnHudWidgetTuningChanged;
                 CardsConfig.ReadoutOffset(b).SettingChanged += OnHudWidgetTuningChanged;
-                CardsConfig.ClusterOffset(b).SettingChanged += OnClusterTuningChanged;
-                CardsConfig.ClusterScale(b).SettingChanged += OnClusterTuningChanged;
                 CardsConfig.DecisionOffset(b).SettingChanged += OnDecisionTuningChanged;
                 CardsConfig.DecisionScale(b).SettingChanged += OnDecisionTuningChanged;
             }
             else
             {
-                CardsConfig.RestButtonOffset(b).SettingChanged -= OnControlOffsetChanged;
-                CardsConfig.ConfirmUndoOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ItemUseSlotOffset(b).SettingChanged -= OnControlOffsetChanged;
                 CardsConfig.ItemCardOffset(b).SettingChanged -= OnControlOffsetChanged;
-                CardsConfig.RestButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
-                CardsConfig.GenericButtonSpacing(b).SettingChanged -= OnControlOffsetChanged;
-                CardsConfig.RestButtonDiameter(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.RestButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.GenericButtonShape(b).SettingChanged -= OnControlSizeChanged;
                 CardsConfig.SlotOverlayOffset(b).SettingChanged -= OnOverlayOffsetChanged;
@@ -540,8 +549,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
                 CardsConfig.ElementsScale(b).SettingChanged -= OnElementsTuningChanged;
                 CardsConfig.PinOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
                 CardsConfig.ReadoutOffset(b).SettingChanged -= OnHudWidgetTuningChanged;
-                CardsConfig.ClusterOffset(b).SettingChanged -= OnClusterTuningChanged;
-                CardsConfig.ClusterScale(b).SettingChanged -= OnClusterTuningChanged;
                 CardsConfig.DecisionOffset(b).SettingChanged -= OnDecisionTuningChanged;
                 CardsConfig.DecisionScale(b).SettingChanged -= OnDecisionTuningChanged;
             }
@@ -598,7 +605,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private void OnObjectivesTuningChanged(object sender, System.EventArgs e) => _applyObjectives = true;
     private void OnElementsTuningChanged(object sender, System.EventArgs e) => _applyElements = true;
     private void OnHudWidgetTuningChanged(object sender, System.EventArgs e) => _applyHudWidgets = true;
-    private void OnClusterTuningChanged(object sender, System.EventArgs e) => _applyCluster = true;
     private void OnDecisionTuningChanged(object sender, System.EventArgs e) => _applyDecision = true;
     private void OnFanTuningChanged(object sender, System.EventArgs e) => _applyFan = true;
 
@@ -623,7 +629,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _restTuningVersion = WorldUI.ButtonTuning.Version; // this rebuild already reflects current [RestButtons] geometry
             VRLog.Info("Cards", $"Debug live-apply [{b}]: rebuilt Generic Confirm/Undo ({CardsConfig.GenericButtonShape(b).Value}, " +
                                 $"[BoardButtons] width {WorldUI.ButtonTuning.BoardCapWidth:F3} m) + Rest buttons ({CardsConfig.RestButtonShape(b).Value}, " +
-                                $"diameter {CardsConfig.RestButtonDiameter(b).Value:F3} m).");
+                                $"diameter {CardsConfig.RestButtonDiameter.Value:F3} m).");
         }
         // [RestButtons] geometry live-apply (W/H/D/Travel): the rest keycaps read ButtonTuning in
         // EnsureBuilt, so a settings-panel stepper edit (ButtonTuning.Version bump) rebuilds JUST the
@@ -642,14 +648,16 @@ internal sealed partial class CardsDriver : MonoBehaviour
         if (_applyControlOffsets)
         {
             _applyControlOffsets = false;
-            _rest.SetOffset(CardsConfig.RestButtonOffset(b).Value, CardsConfig.RestButtonSpacing(b).Value);
-            _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset(b).Value, CardsConfig.GenericButtonSpacing(b).Value);
+            _rest.SetOffset(CardsConfig.RestButtonOffset.Value, CardsConfig.RestStackSpacing.Value);
+            _tray.SetConfirmUndoOffset(CardsConfig.ConfirmUndoOffset.Value, CardsConfig.ButtonStackSpacing.Value);
             _tray.SetItemUseSlotOffset(CardsConfig.ItemUseSlotOffset(b).Value); // items rework: move the use slot in place
             // ItemCardOffset (req #2) is read LIVE by ItemsPile every Tick, so an open item fan moves
             // immediately with no push needed here — logged for parity with the other control offsets.
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset(b).Value} " +
-                                $"(spacing {CardsConfig.RestButtonSpacing(b).Value:F3} m), confirm/undo offset " +
-                                $"{CardsConfig.ConfirmUndoOffset(b).Value} (spacing {CardsConfig.GenericButtonSpacing(b).Value:F3} m), " +
+            VRLog.Info("Cards", $"Debug live-apply [{b}]: rest offset {CardsConfig.RestButtonOffset.Value} " +
+                                $"(spacing ×{CardsConfig.RestStackSpacing.Value:F3} of the board's own pad pitch), " +
+                                $"generic keycap offset {CardsConfig.ConfirmUndoOffset.Value} " +
+                                $"(spacing ×{CardsConfig.ButtonStackSpacing.Value:F3} of the board's own " +
+                                $"{_tray.SeatPitch * 1000f:F1} mm recess pitch), " +
                                 $"item-use slot offset {CardsConfig.ItemUseSlotOffset(b).Value}, " +
                                 $"item-card offset {CardsConfig.ItemCardOffset(b).Value}.");
         }
@@ -734,13 +742,6 @@ internal sealed partial class CardsDriver : MonoBehaviour
             _tray.SetReadoutOffset(CardsConfig.ReadoutOffset(b).Value);
             VRLog.Info("Cards", $"Debug live-apply [{b}]: pin offset {CardsConfig.PinOffset(b).Value}, " +
                                 $"readout offset {CardsConfig.ReadoutOffset(b).Value}.");
-        }
-        if (_applyCluster)
-        {
-            _applyCluster = false;
-            _tray.SetClusterLayout(CardsConfig.ClusterOffset(b).Value, CardsConfig.ClusterScale(b).Value);
-            VRLog.Info("Cards", $"Debug live-apply [{b}]: cluster offset {CardsConfig.ClusterOffset(b).Value}, " +
-                                $"scale {CardsConfig.ClusterScale(b).Value:F2}×.");
         }
         if (_applyDecision)
         {

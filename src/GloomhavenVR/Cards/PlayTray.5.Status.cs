@@ -146,12 +146,16 @@ internal sealed partial class PlayTray
         // standing no-pop rule, and the defect an earlier round of this same area was reported for
         // ("die Knöpfe verschwinden ohne die Animation").
         //
-        // The Ready/Undo/Skip cluster at the table edge is the OTHER half of "die allgemeinen
-        // Buttons" and stands down on the same predicate — see WorldUI.ButtonCluster.Tick.
+        // THE SKIP CAP IS INSIDE THIS RULE NOW, not beside it. It used to be a member of the
+        // separate WorldUI.ButtonCluster, which stood down on a COPY of this predicate read back out
+        // of PlayTray (`Cards.PlayTray.Current?.ItemUseCapShown == true`). The cluster is gone and
+        // the cap is a generic keycap on seat 2, so "only USE remains" is one hide next to the other
+        // two rather than the same rule written twice in two files.
         if (_itemUseActive)
         {
             _confirm?.SetVisible(false);
             _undo?.SetVisible(false);
+            _skip?.SetVisible(false);
             return;
         }
 
@@ -261,6 +265,50 @@ internal sealed partial class PlayTray
             {
                 _undo.SetState(true, accent: false);
                 _undo.SetLabel(CardsGameApi.UndoLabel());
+            }
+        }
+
+        // ---- the turn-flow SKIP, seat 2 ------------------------------------------------------
+        //
+        // ONE CHARACTER OWNS THE SKIP (user, hardware ModBuild 96): "…bleibt trotzdem der 'Angriff
+        // überspringen' bzw. 'Bewegung überspringen' Knopf noch am Board sichtbar, obwohl ein
+        // anderer Character ausgewählt wurde — er soll wie die anderen Buttons auch nur bei dem
+        // Character angezeigt werden, der diese Wahl aktuell treffen muss." That rule used to live
+        // in WorldUI.ButtonCluster as a term-for-term RE-DERIVATION of ConfirmCapsForeignView,
+        // rebuilt from the same static CardsGameApi members because the original was private to this
+        // class. It is the same `foreignView` local the two caps above use now — the duplicate is
+        // gone with the cluster, which is the strongest form of "they cannot disagree".
+        //
+        // VISIBLE means the GAME is showing it, not that its GameObject is active — see
+        // CardsGameApi.SkipShown for the measured reason (the Choreographer raises m_SkipButton on
+        // EVERY client and hides it for the non-acting ones through the canvas alpha).
+        //
+        // AND IT IS DIMMED RATHER THAN HIDDEN WHEN DEAD, which is where it legitimately differs from
+        // Confirm and Undo: those two are hidden when unpressable (item 7, "wenn es nicht drückbar
+        // ist dann soll es dort auch nicht erscheinen") because their own predicates ignore the
+        // widget's alpha and can therefore report "not pressable" while the game is still showing
+        // the control. The skip's visibility IS the game's own alpha, so a visible-but-dead skip is
+        // the game's own picture and the cap reproduces it — and the state the peer mirror draws
+        // from the cap-state byte.
+        //
+        // ACCENTED WHENEVER SHOWN, which is the retired cluster cap's own behaviour ported rather
+        // than a new choice: a ButtonCluster.PhysicalButton had exactly TWO looks, its authored
+        // accent and that accent lerped toward dark wood, and MirrorSkip only ever handed it
+        // visible+interactable. Passing accent:false here would rest the cap at the shared parchment
+        // idle instead and silently retire the slate-blue the player recognises the control by. The
+        // peer's ApplyCapStates passes the same true for the same reason, so the two agree.
+        if (_skip != null && foreignView)
+        {
+            _skip.SetVisible(false);
+        }
+        else if (_skip != null)
+        {
+            bool shown = hand != null && CardsGameApi.SkipShown();
+            _skip.SetVisible(shown);
+            if (shown)
+            {
+                _skip.SetState(CardsGameApi.CanSkip(), accent: true);
+                _skip.SetLabel(CardsGameApi.SkipLabel());
             }
         }
     }

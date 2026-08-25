@@ -189,9 +189,14 @@ internal static class CardsConfig
     // Offset convention: X/Y lie in the board plane, Z is the "proud" depth toward the
     // player (the board's −Z face) — NEGATIVE Z = toward the player (prouder). Seeded from
     // the current global Oak values so Oak keeps today's look minus the raycast wobble.
-    private static readonly ConfigEntry<Vector3>[] _restButtonOffset = new ConfigEntry<Vector3>[3];
-    private static readonly ConfigEntry<float>[] _restButtonDiameter = new ConfigEntry<float>[3];
-    private static readonly ConfigEntry<Vector3>[] _confirmUndoOffset = new ConfigEntry<Vector3>[3];
+    // NOT PER BOARD ANY MORE (2026-08-25) — one shared entry each. The per-board component of a
+    // keycap seat is carried by the BOARD, as the ButtonSeat1/2/3 and ShortRest/LongRestToken anchor
+    // empties every re-authored plate exports; what is left for the player to dial is a DELTA on
+    // top of that, and a delta is the same delta on all three. See Defaults.Cards' seat-family note
+    // and BoardAnchors.StackDelta.
+    private static ConfigEntry<Vector3> _restButtonOffset = null!;
+    private static ConfigEntry<float> _restButtonDiameter = null!;
+    private static ConfigEntry<Vector3> _confirmUndoOffset = null!;
     // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08, user report "hat keinen Effekt").
     // It was the square Confirm/Undo side length until the button-family split (e0432fe) moved the
     // square caps onto [BoardButtons] Width/Height EXCLUSIVELY; after that only the non-default
@@ -244,8 +249,11 @@ internal static class CardsConfig
     // pile stacks' gap, the active grid col/row step), each button GROUP carries a per-board SHAPE
     // (Round/Square), and the Active area + the Discard/Burn piles have their own per-board
     // offset/scale. All seeded so the current look is unchanged until tuned.
-    private static readonly ConfigEntry<float>[] _restButtonSpacing = new ConfigEntry<float>[3];
-    private static readonly ConfigEntry<float>[] _genericButtonSpacing = new ConfigEntry<float>[3];
+    // The two STACK SPACINGS. Dimensionless multipliers on the board's own anchor pitch now, not
+    // per-board metre gaps — see BoardAnchors.StackDelta for why that is the only form that can be
+    // one shared setting across three boards whose recess pitches differ by 8 %.
+    private static ConfigEntry<float> _restStackSpacing = null!;
+    private static ConfigEntry<float> _buttonStackSpacing = null!;
     private static readonly ConfigEntry<ButtonShape>[] _restButtonShape = new ConfigEntry<ButtonShape>[3];
     private static readonly ConfigEntry<ButtonShape>[] _genericButtonShape = new ConfigEntry<ButtonShape>[3];
     private static readonly ConfigEntry<Vector3>[] _activeOffset = new ConfigEntry<Vector3>[3];
@@ -272,8 +280,6 @@ internal static class CardsConfig
     private static readonly ConfigEntry<float>[] _elementsScale = new ConfigEntry<float>[3];
     private static readonly ConfigEntry<Vector3>[] _pinOffset = new ConfigEntry<Vector3>[3];
     private static readonly ConfigEntry<Vector3>[] _readoutOffset = new ConfigEntry<Vector3>[3];
-    private static readonly ConfigEntry<Vector3>[] _clusterOffset = new ConfigEntry<Vector3>[3];
-    private static readonly ConfigEntry<float>[] _clusterScale = new ConfigEntry<float>[3];
     // Item C: the shared DECISION DOCK (the interactive widget row of any in-scenario decision
     // prompt — take-damage burn choice, burn-confirm dialog — that hangs below the board). Offset
     // ADDED on top of its fixed base + a size MULTIPLIER, so the text+buttons under the board dial
@@ -539,9 +545,13 @@ internal static class CardsConfig
     /// </summary>
     internal static class BoardDefaults
     {
-        internal static readonly Vector3[] RestButtonOffset = { Defaults.RestButtonOffset_Oak, Defaults.RestButtonOffset_Steel, Defaults.RestButtonOffset_Bronze };
-        internal static readonly float[] RestButtonDiameter = { Defaults.RestButtonDiameter_Oak, Defaults.RestButtonDiameter_Steel, Defaults.RestButtonDiameter_Bronze };
-        internal static readonly Vector3[] ConfirmUndoOffset = { Defaults.ConfirmUndoOffset_Oak, Defaults.ConfirmUndoOffset_Steel, Defaults.ConfirmUndoOffset_Bronze };
+        // RestButtonOffset / RestButtonDiameter / ConfirmUndoOffset / RestButtonSpacing /
+        // GenericButtonSpacing STOOD HERE as five three-entry rows and are GONE (2026-08-25). They
+        // are single shared Defaults constants now — Defaults.RestButtonOffset,
+        // Defaults.RestButtonDiameter, Defaults.ConfirmUndoOffset, Defaults.RestStackSpacing,
+        // Defaults.ButtonStackSpacing — because the per-board part of a keycap seat comes off the
+        // board's own anchors now. A remote board reads the shared constants directly, so the
+        // reason this table is `internal` still holds for everything left in it.
         // ConfirmUndoSize is GONE (retired 2026-08) — the Confirm/Undo cap size is [BoardButtons]
         // Width/Height for both shapes now; see the tombstone at the _confirmUndoOffset field.
         internal static readonly Vector3[] SlotOverlayOffset = { Defaults.SlotOverlayOffset_Oak, Defaults.SlotOverlayOffset_Steel, Defaults.SlotOverlayOffset_Bronze };
@@ -551,8 +561,6 @@ internal static class CardsConfig
         internal static readonly float[] DecisionGap = { Defaults.DecisionGap_Oak, Defaults.DecisionGap_Steel, Defaults.DecisionGap_Bronze };
         internal static readonly Vector3[] PickBannerOffset = { Defaults.PickBannerOffset_Oak, Defaults.PickBannerOffset_Steel, Defaults.PickBannerOffset_Bronze };
         internal static readonly Vector3[] HoverHintOffset = { Defaults.HoverHintOffset_Oak, Defaults.HoverHintOffset_Steel, Defaults.HoverHintOffset_Bronze };
-        internal static readonly float[] RestButtonSpacing = { Defaults.RestButtonSpacing_Oak, Defaults.RestButtonSpacing_Steel, Defaults.RestButtonSpacing_Bronze };
-        internal static readonly float[] GenericButtonSpacing = { Defaults.GenericButtonSpacing_Oak, Defaults.GenericButtonSpacing_Steel, Defaults.GenericButtonSpacing_Bronze };
         internal static readonly Vector3[] ActiveOffset = { Defaults.ActiveOffset_Oak, Defaults.ActiveOffset_Steel, Defaults.ActiveOffset_Bronze };
         internal static readonly float[] ActiveCardScale = { Defaults.ActiveCardScale_Oak, Defaults.ActiveCardScale_Steel, Defaults.ActiveCardScale_Bronze };
         internal static readonly Vector3[] PileOffset = { Defaults.PileOffset_Oak, Defaults.PileOffset_Steel, Defaults.PileOffset_Bronze };
@@ -1045,26 +1053,77 @@ internal static class CardsConfig
         // seeded from Oak, so Steel and Bronze started with Oak's element placement on a board of a
         // different size and shape — every element sat wrong until someone dialled it in by hand
         // from the debug menu. The tables below are those dial-ins.
+        // ---- THE KEYCAP SEAT FAMILY — SHARED, because the per-board part is the BOARD ------------
+        //
+        // These five were fifteen entries (_Oak/_Steel/_Bronze x five dials) until 2026-08-25. The
+        // user's question that retired them: are the three boards proportionally identical now, and
+        // if so can the per-board offsets go. The measurement says the boards are the same
+        // 0.640 x 0.320 m plate but NOT a uniform scale of one another — the button recesses are
+        // pitched 76.5 / 80.1 / 70.1 mm and the rest pads 114.8 / 120.2 / 105.0, a spread of up to
+        // 8 % that no single factor reproduces. So the answer is better than "yes": he does not need
+        // per-board dials, because the MESH carries the per-board layout as named anchor empties and
+        // the code reads them (BoardAnchors.StackPitch / StackDelta / FitCapSize). What is left for
+        // a dial is the taste on top of the board's own layout, and that is one taste.
+        _confirmUndoOffset = _file.Bind("Cards", "ConfirmUndoOffset", Defaults.ConfirmUndoOffset,
+            "NUDGE added to every GENERIC keycap's seat — Confirm, Undo, the turn-flow Skip and the " +
+            "item 'Use' cap — on top of the button recess the board itself cut for it, board-local " +
+            "meters. X/Y lie in the board plane, Z is proud depth toward the player (NEGATIVE = " +
+            "prouder). 0 = each cap dead centre in its own well, which is where the board says it " +
+            "goes and is what ships; a few millimetres shifts the whole column together. It cannot " +
+            "push a cap out of its recess: on a board that carries a measured seat the in-plane part " +
+            "is bounded by the slack between this cap and the recess wall (Z is never bounded). ONE " +
+            "entry for all three boards on purpose — the per-board difference is the anchor, not " +
+            "this number.");
+        _buttonStackSpacing = _file.Bind("Cards", "ButtonStackSpacing",
+            Defaults.ButtonStackSpacing,
+            new ConfigDescription(
+                "The Y GAP between the generic keycaps stacked in the board's three button recesses " +
+                "(Confirm/Use on top, Undo in the middle, the turn-flow Skip at the bottom), as a " +
+                "MULTIPLE of the board's own recess pitch. 1 = exactly the pitch the board was cut " +
+                "with, so every cap sits centred in its own well — this is what ships, and it is " +
+                "correct on all three boards without a per-board number because each board supplies " +
+                "its own pitch (76.5 mm Oak, 80.1 Steel, 70.1 Bronze). Below 1 the three caps close " +
+                "up toward the middle one until they overlap and start leaving their wells; at 0.25 " +
+                "they are nearly on top of each other. Above 1 they spread apart, and past roughly " +
+                "1.2 the outer two already stand on the flat board beside their recesses; at 3 they " +
+                "are a third of the board apart. The middle cap never moves — the stack spreads " +
+                "about it — and on a board with measured recesses no cap may travel further than " +
+                "the slack it has in its own well, so an extreme value is bounded rather than thrown " +
+                "off the board.",
+                new AcceptableValueRange<float>(0.25f, 3f)));
+        _restButtonOffset = _file.Bind("Cards", "RestButtonOffset", Defaults.RestButtonOffset,
+            "NUDGE added to the short/long REST discs' seats on top of the rest pads the board " +
+            "itself cut for them, board-local meters. X/Y in the board plane, Z = proud depth toward " +
+            "the player (NEGATIVE = prouder). 0 = each disc dead centre in its own pad, which is what " +
+            "ships. Bounded by the pad's own slack on a board that carries a measurement, exactly " +
+            "like the keycap seats. ONE entry for all three boards — the pads' positions are the " +
+            "per-board part and they come from the mesh.");
+        _restStackSpacing = _file.Bind("Cards", "RestStackSpacing",
+            Defaults.RestStackSpacing,
+            new ConfigDescription(
+                "The Y gap between the SHORT and LONG rest discs, as a MULTIPLE of the board's own " +
+                "rest-pad pitch. 1 = exactly the pitch the board was cut with (114.8 mm Oak, 120.2 " +
+                "Steel, 105.0 Bronze), so both discs sit centred in their pads — what ships. Below " +
+                "1 they close up toward the midpoint between the pads and off their notches; at 0.25 " +
+                "they nearly coincide. Above 1 they spread apart onto the flat board; at 3 they are " +
+                "most of the board's height apart. Bounded by each disc's slack in its own pad on a " +
+                "measured board, so the extremes are refused rather than rendered.",
+                new AcceptableValueRange<float>(0.25f, 3f)));
+        _restButtonDiameter = _file.Bind("Cards", "RestButtonDiameter",
+            Defaults.RestButtonDiameter,
+            new ConfigDescription(
+                "Diameter (meters) of the round short/long-rest discs. A CEILING, not the final " +
+                "size: each board's own measured rest pad shrinks the disc further so it never " +
+                "overhangs the notch it sits in, which is why one shared number is right for three " +
+                "boards with three different pads. At the shipped 0.091 every disc is as large as " +
+                "its own pad allows (73.6 mm Oak and Steel, 60.1 Bronze). BOUNDED (user ruling " +
+                "2026-08-13): at 0 the rest discs are a point nobody can press, and resting is a " +
+                "move the game requires. Range 0.02-0.25.",
+                new AcceptableValueRange<float>(0.02f, 0.25f)));
+
         foreach (ControlBoard board in System.Enum.GetValues(typeof(ControlBoard)))
         {
             int i = (int)board;
-            _restButtonOffset[i] = _file.Bind("Cards", $"RestButtonOffset_{board}",
-                BoardDefaults.RestButtonOffset[i],
-                $"[{board}] ROUND rest-disc offset from the rest anchor, board-local meters. " +
-                "X/Y lie in the board plane (+X toward board center), Z = proud depth toward the " +
-                "player (NEGATIVE = prouder). Replaces the raycast seat — dial Z until the discs " +
-                "rest cleanly in the notches. Ships this board's own measured seat.");
-            _restButtonDiameter[i] = _file.Bind("Cards", $"RestButtonDiameter_{board}", BoardDefaults.RestButtonDiameter[i],
-                new ConfigDescription(
-                    $"[{board}] diameter (meters) of the round short/long-rest discs. Per-board " +
-                    "measured. BOUNDED (user ruling 2026-08-13): at 0 the rest discs are a point " +
-                    "nobody can press, and resting is a move the game requires. Range 0.02-0.25.",
-                    new AcceptableValueRange<float>(0.02f, 0.25f)));
-            _confirmUndoOffset[i] = _file.Bind("Cards", $"ConfirmUndoOffset_{board}",
-                BoardDefaults.ConfirmUndoOffset[i],
-                $"[{board}] SQUARE Confirm/Undo offset from their button anchors, board-local meters. " +
-                "X/Y in plane (−X toward board center from the right column), Z = proud depth toward " +
-                "the player (NEGATIVE = prouder). Ships this board's own measured seat.");
             // ConfirmUndoSize_{board} is deliberately NOT bound any more — see the tombstone at
             // the _confirmUndoOffset field. The cap size is [BoardButtons] Width/Height.
             _itemUseSlotOffset[i] = _file.Bind("Cards", $"ItemUseSlotOffset_{board}", Defaults.ItemUseSlotOffset_ByBoard[i],
@@ -1182,13 +1241,6 @@ internal static class CardsConfig
                 "meters in the head frame (X = right, Y = up, Z = forward). Seeded 0 (Oak).");
 
             // Round-2 group spacing + shape + Active/Piles (all seeded so today's look is unchanged).
-            _restButtonSpacing[i] = _file.Bind("Cards", $"RestButtonSpacing_{board}", BoardDefaults.RestButtonSpacing[i],
-                $"[{board}] EXTRA gap (board-local meters) ADDED between the short/long REST buttons " +
-                "along the board's short axis — the short (upper) disc moves +½, the long (lower) −½. " +
-                "Seeded 0 (the bundle anchors already space them; positive spreads them apart).");
-            _genericButtonSpacing[i] = _file.Bind("Cards", $"GenericButtonSpacing_{board}", BoardDefaults.GenericButtonSpacing[i],
-                $"[{board}] EXTRA gap (board-local meters) ADDED between the GENERIC Confirm/Undo buttons " +
-                "along the board's short axis — Confirm (upper) +½, Undo (lower) −½. Seeded 0.");
             _restButtonShape[i] = _file.Bind("Cards", $"RestButtonShape_{board}", Defaults.RestButtonShape_ByBoard[i],
                 $"[{board}] cap SHAPE of the REST button group (short/long rest). Round = notch discs " +
                 "(today's look); Square = boxy keycaps. Seeded Round.");
@@ -1263,16 +1315,6 @@ internal static class CardsConfig
             _readoutOffset[i] = _file.Bind("Cards", $"ReadoutOffset_{board}", BoardDefaults.ReadoutOffset[i],
                 $"[{board}] offset ADDED to the ROUND readout ('Runde N') local position (on top of its fixed " +
                 "top-right base), board-local meters (Z = proud toward the player). Seeded 0 (Oak).");
-            _clusterOffset[i] = _file.Bind("Cards", $"ClusterOffset_{board}", Defaults.ClusterOffset_ByBoard[i],
-                $"[{board}] offset ADDED to the turn-flow BUTTON CLUSTER — docked, that is the SKIP key " +
-                "('Bewegung/Angriff überspringen') — on top of its fixed base, board-local meters " +
-                "(Z = proud toward the player). Adds to the shared [RoundButtons] OffsetX/Y/Z in the same " +
-                "frame and the same unit. Live. Seeded 0 (Oak).");
-            _clusterScale[i] = _file.Bind("Cards", $"ClusterScale_{board}", Defaults.ClusterScale_ByBoard[i],
-                new ConfigDescription(
-                    $"[{board}] size MULTIPLIER of the turn-flow BUTTON CLUSTER (on top of its " +
-                    "fixed 0.7x dock scale). Seeded 1 (Oak). " + BoundedNote + "Range 0.25-3.",
-                    new AcceptableValueRange<float>(0.25f, 3f)));
 
             // Item C: the shared DECISION DOCK (text + buttons UNDER the board — the decision/confirm
             // prompt row) offset + size, per board.
@@ -1755,9 +1797,15 @@ internal static class CardsConfig
     /// <summary>The board the tray currently uses (drives every per-board resolver below).</summary>
     internal static ControlBoard CurrentBoard => Board.Value;
 
-    internal static ConfigEntry<Vector3> RestButtonOffset(ControlBoard b) => _restButtonOffset[(int)b];
-    internal static ConfigEntry<float> RestButtonDiameter(ControlBoard b) => _restButtonDiameter[(int)b];
-    internal static ConfigEntry<Vector3> ConfirmUndoOffset(ControlBoard b) => _confirmUndoOffset[(int)b];
+    /// <summary>[Cards] RestButtonOffset — the shared nudge on top of the board's own rest-pad
+    /// anchors. No <c>ControlBoard</c> parameter any more: the per-board part is the anchor.</summary>
+    internal static ConfigEntry<Vector3> RestButtonOffset => _restButtonOffset;
+    /// <summary>[Cards] RestButtonDiameter — the shared rest-disc size CEILING; each board's own
+    /// measured pad shrinks it further through <c>BoardAnchors.FitCapSize</c>.</summary>
+    internal static ConfigEntry<float> RestButtonDiameter => _restButtonDiameter;
+    /// <summary>[Cards] ConfirmUndoOffset — the shared nudge on top of the board's own button-seat
+    /// anchors, for every member of the generic cluster.</summary>
+    internal static ConfigEntry<Vector3> ConfirmUndoOffset => _confirmUndoOffset;
     // ConfirmUndoSize(b) accessor is GONE with its entry (retired 2026-08) — the cap size is
     // WorldUI.ButtonTuning.BoardCapWidth/Height ([BoardButtons]) for both shapes.
     internal static ConfigEntry<Vector3> ItemUseSlotOffset(ControlBoard b) => _itemUseSlotOffset[(int)b];
@@ -1811,8 +1859,11 @@ internal static class CardsConfig
     internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];
 
     // ---- Round-2 group spacing / shape / Active / Piles resolvers ----
-    internal static ConfigEntry<float> RestButtonSpacing(ControlBoard b) => _restButtonSpacing[(int)b];
-    internal static ConfigEntry<float> GenericButtonSpacing(ControlBoard b) => _genericButtonSpacing[(int)b];
+    /// <summary>[Cards] RestStackSpacing — multiplier on the board's own rest-pad anchor pitch.</summary>
+    internal static ConfigEntry<float> RestStackSpacing => _restStackSpacing;
+    /// <summary>[Cards] ButtonStackSpacing — multiplier on the board's own button-recess pitch: the
+    /// Y gap between the stacked generic keycaps.</summary>
+    internal static ConfigEntry<float> ButtonStackSpacing => _buttonStackSpacing;
     internal static ConfigEntry<ButtonShape> RestButtonShape(ControlBoard b) => _restButtonShape[(int)b];
     internal static ConfigEntry<ButtonShape> GenericButtonShape(ControlBoard b) => _genericButtonShape[(int)b];
     internal static ConfigEntry<Vector3> ActiveOffset(ControlBoard b) => _activeOffset[(int)b];
@@ -1830,8 +1881,6 @@ internal static class CardsConfig
     internal static ConfigEntry<float> ElementsScale(ControlBoard b) => _elementsScale[(int)b];
     internal static ConfigEntry<Vector3> PinOffset(ControlBoard b) => _pinOffset[(int)b];
     internal static ConfigEntry<Vector3> ReadoutOffset(ControlBoard b) => _readoutOffset[(int)b];
-    internal static ConfigEntry<Vector3> ClusterOffset(ControlBoard b) => _clusterOffset[(int)b];
-    internal static ConfigEntry<float> ClusterScale(ControlBoard b) => _clusterScale[(int)b];
     internal static ConfigEntry<Vector3> DecisionOffset(ControlBoard b) => _decisionOffset[(int)b];
     internal static ConfigEntry<float> DecisionScale(ControlBoard b) => _decisionScale[(int)b];
 }

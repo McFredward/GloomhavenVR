@@ -1023,7 +1023,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             if (trayNow.ItemUseCapShown) buttons |= NetProtocol.BoardUiItemUseCapBit;
             if (RestControls.ShortRestShown) buttons |= NetProtocol.BoardUiShortRestBit;
             if (RestControls.LongRestShown) buttons |= NetProtocol.BoardUiLongRestBit;
-            if (WorldUI.ButtonCluster.BoardSkipShown) buttons |= NetProtocol.BoardUiSkipBit;
+            // THE SKIP BIT MEANS EXACTLY WHAT IT ALWAYS MEANT — "a turn-flow skip control is
+            // visible on this board" — and is read off the same cap for the same reason; only its
+            // OWNER moved. It used to be WorldUI.ButtonCluster's static, because that cap belonged
+            // to a separate cluster whose instance was a private of WorldUIModule. The cap is a
+            // generic board keycap on the board's third recess now, so the fact is a tray property
+            // like every other bit in this byte, and it is guarded by the same `trayNow != null`.
+            if (trayNow.SkipCapShown) buttons |= NetProtocol.BoardUiSkipBit;
             // THE DECISION DRAWER BIT — "a prompt is docked AND the owner can see it".
             //
             // The second half is new (user ruling 2026-08-08: "generell gilt die Regel, das man
@@ -1075,7 +1081,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             if (RestControls.ShortRestAccent) capStates |= NetProtocol.BoardUiCapShortRestAccentBit;
             if (RestControls.LongRestEnabled) capStates |= NetProtocol.BoardUiCapLongRestEnabledBit;
             if (RestControls.LongRestAccent) capStates |= NetProtocol.BoardUiCapLongRestAccentBit;
-            if (WorldUI.ButtonCluster.BoardSkipEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
+            if (trayNow.SkipCapEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
             // …AND THE ONE BIT IN THIS BYTE THAT IS NOT A CAP (bit 7, the last free bit in the whole
             // record): the owner's CLOSED items pile is wearing its "something in here is playable"
             // cue. It rides here rather than in a record of its own because it has to arrive in the
@@ -1527,7 +1533,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         string? confirmLabelNow = trayNow != null && trayNow.ConfirmControlShown
             ? trayNow.ConfirmControlLabel
             : null;
-        string? skipLabelNow = WorldUI.ButtonCluster.BoardSkipLabel;
+        string? skipLabelNow = trayNow != null ? trayNow.SkipCapLabel : null;
         // …and the two wordings that never travelled (mask bits 2/3): the UNDO cap, whose pick-flow
         // override turns it into the confirm dialog's CANCEL, and the item-USE cap, whose
         // surrender-demand override must never read as an ordinary "USE" on a peer's screen. Same

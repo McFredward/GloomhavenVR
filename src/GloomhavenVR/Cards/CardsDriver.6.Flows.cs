@@ -1288,6 +1288,31 @@ internal sealed partial class CardsDriver
             () => _dirty = true);
     }
 
+    /// <summary>
+    /// The turn-flow SKIP keycap's press. Queued through <c>CardActionQueue</c> exactly like its
+    /// CONFIRM and UNDO siblings — the commit is a game action and every game action on this board
+    /// goes through the one queue, so a skip can never overtake a confirm the player pressed a frame
+    /// earlier.
+    ///
+    /// <para>NO PICK-FLOW BRANCH, and that is a fact about the game rather than an omission: the
+    /// event-discard pick flow overrides the CONFIRM and UNDO caps because the confirm dialog's two
+    /// options have to be reachable in VR, and it has exactly two. The skip widget is not part of
+    /// that dialog at all — <c>m_SkipButton</c> is a turn-flow control the Choreographer raises on
+    /// skippable ability steps — so its press has one meaning in every state it is shown in.</para>
+    /// </summary>
+    private void OnSkipRequested()
+    {
+        ForeignInteraction("tray SKIP");
+        CardActionQueue.Enqueue(
+            () =>
+            {
+                bool fired = CardsGameApi.ClickSkip();
+                VRLog.Info("Cards", $"Board: SKIP → SkipButton {(fired ? "clicked" : "rejected")} " +
+                                    $"({CardsGameApi.DescribeSkipGate()}).");
+            },
+            () => _dirty = true);
+    }
+
     private void OnShortRestRequested()
     {
         ForeignInteraction("short rest toggle");

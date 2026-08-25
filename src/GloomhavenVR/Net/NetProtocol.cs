@@ -416,7 +416,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 276;
+    public const ushort ModBuild = 277;
+    // Build 277: THE SEPARATE SKIP-BUTTON GROUP IS GONE, AND THE PER-BOARD BUTTON DIALS WITH IT.
+    // Bundle UNCHANGED at 68,522,833 — DLL-only. ***34 CONFIG KEYS ARE RETIRED; TUNED VALUES FOR
+    // THEM ARE LOST*** (they are listed in the commit message and were reported to the user).
+    //   "Ich möchte daher, dass die Button-Gruppe der 'Überspringen Buttons' komplett verschwindet.
+    //   Stattdessen will ich dass die Gruppe der generischen Buttons mit diesen Überspringen-Buttons
+    //   ergänzt wird … Entferne den jeweiligen Code und die Einstellungen der alten Button Gruppe
+    //   und füge auch hinzu, dass man den y-Abstand zwischen den Buttons … einstellen kann."
+    //   WorldUI/ButtonCluster.cs (1885 lines) is DELETED. The skip cap now hangs off ButtonSeat3
+    //   like its siblings hang off seats 1 and 2 — the mesh already placed it there on all three
+    //   boards, and the alias table already mapped it.
+    //   HIS QUESTION, ANSWERED BY MEASUREMENT, AND THE ANSWER IS BETTER THAN "YES". The three
+    //   boards are the same 0.640 x 0.320 m plate but are NOT a uniform scale of one another: seat
+    //   pitch 76.5 / 80.1 / 70.1 mm, pad pitch 114.8 / 120.2 / 105.0 — ~8% of spread that no single
+    //   factor reproduces. He nevertheless no longer needs per-board BUTTON and REST settings, not
+    //   because the boards are identical but because THE MESH CARRIES THE PER-BOARD LAYOUT AND THE
+    //   CODE NOW READS IT. Seven entries collapse to five shared ones (offset dials become nudges
+    //   on an anchor; the two spacings become MULTIPLIERS on the mesh's own pitch). Sixteen other
+    //   per-board dials STAY per-board and the reason is stated rather than implied: the boards
+    //   export ten anchors and five extents, and none of them describes the initiative track, the
+    //   decision drawer, the pile column, the objectives/elements docks, the pin cap or the round
+    //   readout. A shared entry for those would be a guess, not a derivation.
+    //   A MULTIPLIER, NOT METRES, and the wire makes the reason concrete: a metre gap correct on
+    //   Oak is wrong on Steel and Bronze — that is HOW it became three per-board entries. One wire
+    //   field replaces three config entries, and the per-board pitch never travels; each client
+    //   measures it off its own clone of the same prefab.
+    //   THE STACK TERM IS CENTRE-ANCHORED, NOT TOP-ANCHORED, and this is a real correction. The
+    //   predecessor `(0.5 - index) * spacing` was right for the question it was asked (one anchor
+    //   for the whole column, so pinning seat 0 stopped a COUNT change from moving hand-dialled
+    //   caps). Both halves of that question are gone. Top-anchoring now TRANSLATES the column down
+    //   the board as the dial grows, so a control asked for as "der y-Abstand zwischen den Buttons"
+    //   would silently also be a "move the group" control. Centre-anchoring keeps the middle cap
+    //   still and makes it purely a spread — pinned as a PROPERTY in the wire tests (middle fixed,
+    //   outer two equal and opposite, swept over 41 spacings).
+    //   RECORD 28 ids 81..88 ARE RETIRED AND RESERVED, NOT RE-POINTED. They sampled the eight
+    //   [RoundButtons] geometry dials of the separate group; those dials no longer exist. The skip
+    //   cap now rides the SAME ids Confirm and Undo already used. Retiring was cheaper than
+    //   re-interpreting because there is no second solve left to keep in step. Ids 16, 52, 66, 67,
+    //   133 and 228 retire with it; 172/173 are added in the FACTOR range. THE WIRE FORMAT IS
+    //   UNTOUCHED: record 28 is TLV, an unsampled field is simply absent, every retired id keeps
+    //   its declaration and width so a stray field is skipped rather than abandoning the record,
+    //   and no id is ever recycled.
+    //   GATE NUMBERS THAT MOVED, each for a stated reason: build warnings 6 -> 4 (ButtonCluster.cs
+    //   took its two CS8602 sites with it; ci-build.sh's EXPECT_WARNINGS updated to 4 with the
+    //   reason in its header). Wire tests 147379 -> 147588. Mirrors 21 -> 19 (two groups deleted
+    //   because BOTH originals were deleted). rebase-defaults 525 -> 491 (exactly the 34 retired
+    //   keys). check-remote-defaults 84 -> 76. Wire coverage 200 -> 172 covered board dials.
+    //   ONE THING THAT COULD NOT BE VERIFIED FROM HERE, and it was designed around rather than
+    //   assumed: the compressed shipped bundle could not be read to confirm the INSTALLED board
+    //   carries ButtonSeat3. A missing seat is therefore EXTRAPOLATED from the board's own resolved
+    //   anchors at its own measured pitch, and the peer mirror extrapolates through the identical
+    //   call from the identical pitch — so an old-bundle board cannot draw the skip cap in two
+    //   different places on two machines. (276 ships a fresh bundle, so this is a belt-and-braces
+    //   path, not the expected one.)
     // Build 276: *** A NEW BUNDLE — 68,522,833 BYTES (was 67,234,683). NOT A DLL-ONLY INSTALL. ***
     // THE BACK AND THE SIDES OF THE BOARDS GET A MATERIAL. "Die Seiten und die Rückseite die
     // Textur ist kaputt … Auch dort soll eine entsprechende Textur sein" (kaputte_rueckseite.jpg).
@@ -15034,9 +15087,14 @@ internal static class NetProtocol
     public const byte TunePickBannerOffset = 7;
     /// <summary>[Cards] HoverHintOffset_{board} — the board's tooltip AREA corner.</summary>
     public const byte TuneHoverHintOffset = 8;
-    /// <summary>[Cards] ConfirmUndoOffset_{board} — the confirm/undo keycap column.</summary>
+    /// <summary>[Cards] ConfirmUndoOffset — the shared nudge on top of every generic keycap's own
+    /// recess anchor (Confirm, Undo, the turn-flow Skip and the item "Use" cap). NOT per-board any
+    /// more (2026-08-25): the per-board part of a keycap seat is the anchor the board itself
+    /// exports, so the dial behind this id is one shared entry and the field carries it for whatever
+    /// style the sender is on.</summary>
     public const byte TuneConfirmUndoOffset = 9;
-    /// <summary>[Cards] RestButtonOffset_{board} — the short/long rest disc pair.</summary>
+    /// <summary>[Cards] RestButtonOffset — the shared nudge on top of the rest pads the board
+    /// itself cut. One entry, not three; see <see cref="TuneConfirmUndoOffset"/>.</summary>
     public const byte TuneRestButtonOffset = 10;
     /// <summary>[Cards] PinOffset_{board} — the FOLLOW/PIN keycap.</summary>
     public const byte TunePinOffset = 11;
@@ -15051,21 +15109,10 @@ internal static class NetProtocol
     /// is a live field, not a hypothetical one.</summary>
     public const byte TuneAssetOffset = 15;
     /// <summary>
-    /// [Cards] ClusterOffset_{board} — the turn-flow button cluster's per-board seat, i.e. where
-    /// the docked SKIP cap ("Bewegung überspringen") stands on the board.
-    ///
-    /// <para>THIS ID IS A DEBT BEING PAID, NOT A NEW DIAL. It stood in
-    /// <c>scripts/check-wire-coverage.py</c> as a NO-OP exemption reading "ButtonCluster.
-    /// AttachDocked reads the mount's ROTATION and SCALE only — the position never moves the
-    /// rendered cluster, locally or remotely", which was TRUE and was itself the bug the user
-    /// reported (ModBuild 97: "Die Offsets bei den Überspringen-Tasten haben keinen Einfluss").
-    /// The rigid-dock lag fix had reparented the cluster off the mount and dropped the mount's
-    /// translation. Now that <c>ButtonCluster.AttachDocked</c> consumes it again, the exemption is
-    /// gone and the dial rides record 28 like its ClusterScale twin (id 133) — the alternative
-    /// being a wire field whose receiver draws nothing, which is the trap
-    /// <c>FanCloseDuration</c> was un-wired to avoid.</para>
-    ///
-    /// <para>Covers [Cards] ClusterOffset_{board} for every style.</para>
+    /// RESERVED, not reusable. It carried ClusterOffset_{board} — the turn-flow button cluster's
+    /// per-board dock seat — and there is no cluster and no mount to seat since 2026-08-25. The one
+    /// control that group ever drew, the turn-flow SKIP cap, is a generic board keycap in the
+    /// board's own third recess: its seat is id 9 with Confirm's and Undo's.
     /// </summary>
     public const byte TuneClusterOffset = 16;
 
@@ -15099,8 +15146,13 @@ internal static class NetProtocol
     public const byte TuneBoardCapTint = 50;
     /// <summary>[ButtonColors] DashCapTint{rgb} — the gear / Fixiert (follow-pin) plate face tint.</summary>
     public const byte TuneDashCapTint = 51;
-    /// <summary>[ButtonColors] ClusterCapTint{rgb} — the round-phase cluster (turn-flow SKIP) cap
-    /// face tint.</summary>
+    /// <summary>
+    /// RESERVED, and it may not be reused for another dial. It carried the round-phase cluster's
+    /// cap face tint, whose three ButtonColors entries were retired on 2026-08-25 with the group
+    /// they tinted: the turn-flow SKIP is a generic board keycap now and takes the Confirm/Undo
+    /// tint at id 50. Nothing samples this id, so no receiver ever sees it; the number stays
+    /// spoken-for because a record is only append-only if a retired id is never recycled.
+    /// </summary>
     public const byte TuneClusterCapTint = 52;
     /// <summary>[ButtonColors] RestCapTint{rgb} — the short / long REST keycap face tint.</summary>
     public const byte TuneRestCapTint = 53;
@@ -15109,11 +15161,25 @@ internal static class NetProtocol
 
     /// <summary>[Cards] PileSpacing_{board} — distance between two stack centres.</summary>
     public const byte TunePileSpacing = 64;
-    /// <summary>[Cards] RestButtonDiameter_{board}.</summary>
+    /// <summary>[Cards] RestButtonDiameter — the rest-disc size CEILING. One shared entry since
+    /// 2026-08-25 (each board's own measured pad shrinks the disc below it locally, identically on
+    /// every client, so the per-board part costs no wire).</summary>
     public const byte TuneRestButtonDiameter = 65;
-    /// <summary>[Cards] RestButtonSpacing_{board}.</summary>
+
+    /// <summary>
+    /// RESERVED, not reusable. It carried [Cards] RestButtonSpacing_{board}, a per-board metre gap
+    /// added between the two rest discs. That dial was retired on 2026-08-25: the board's own pad
+    /// anchors ARE the gap, so the surviving control is a dimensionless multiplier on them and rides
+    /// the FACTOR range instead (<see cref="TuneRestStackSpacing"/>). A LENGTH id cannot carry a
+    /// factor — the range fixes the encoding — so this one is retired rather than re-pointed.
+    /// </summary>
     public const byte TuneRestButtonSpacing = 66;
-    /// <summary>[Cards] GenericButtonSpacing_{board} — the confirm/undo pair spacing.</summary>
+
+    /// <summary>
+    /// RESERVED, not reusable — the exact twin of <see cref="TuneRestButtonSpacing"/> one dial over.
+    /// It carried [Cards] GenericButtonSpacing_{board}, the per-board metre gap between the Confirm
+    /// and Undo keycaps; its successor is <see cref="TuneButtonStackSpacing"/>.
+    /// </summary>
     public const byte TuneGenericButtonSpacing = 67;
     /// <summary>[Cards] SlotOverlaySpacing_{board} — the glow pair's spread inside a recess.</summary>
     public const byte TuneSlotOverlaySpacing = 68;
@@ -15188,33 +15254,50 @@ internal static class NetProtocol
     // a player who re-shapes their skip cap must be seen re-shaping it, and a peer's copy currently
     // draws the shipped square regardless.
     //
-    // WHY LENGTHS RATHER THAN ONE VEC3 FOR THE OFFSETS. [RoundButtons] OffsetX/Y/Z are three
-    // SEPARATE config entries (ButtonTuning binds them individually; only the accessor composes a
-    // Vector3), and scripts/check-wire-coverage.py resolves coverage per (section, key) from a
-    // field id's own doc comment — one id can name exactly one key. Three length fields therefore
-    // cost one byte more than a vec3 and buy honest per-dial coverage; the vec3 range is for dials
-    // that are ONE config entry holding three components.
+    // IDS 81..88 ARE RETIRED AND RESERVED (2026-08-25) — THIS IS WHAT THEY MEANT AND WHY THEY
+    // STOPPED MEANING IT.
+    //
+    // BEFORE: the eight [RoundButtons] geometry dials of the turn-flow SKIP cap group —
+    // 81 OffsetX, 82 OffsetY, 83 OffsetZ (the group's seat, tray-root-local metres, added to
+    // WorldUI/ButtonCluster's own fixed column anchor at board-local (0.148, −0.124)), 84 CapSize
+    // (its puck radius), 85 Width, 86 Height, 87 Depth (its box while the shape was Square) and
+    // 88 Travel (how far it sank under a press). Their receiver was
+    // Net/RemoteBoardFurniture, which solved the mirrored cap's seat as
+    //     ClusterMount + ClusterOffset + (RoundOffsetX, RoundOffsetY, 0) + (0, 0, −(proud + RoundOffsetZ))
+    // and built it at that group's own size, shape and travel. Id 228 carried the shape.
+    //
+    // AFTER: NOTHING. The user retired the group ("Ich möchte daher, dass die Button-Gruppe der
+    // 'Überspringen Buttons' komplett verschwindet … so dass all diese buttons gleich aussehen und
+    // untereinander in den jeweiligen Slots sitzen"), and with it the eight config entries these ids
+    // sampled. The skip cap is a member of the GENERIC cluster now, on the board's own ButtonSeat3
+    // recess: its seat is the already-synced [Cards] ConfirmUndoOffset (id 9) plus the stack term
+    // derived from anchors every client measures for itself, and its size, depth, travel and shape
+    // are the already-synced [BoardButtons] family (ids 89..92) and [Cards] GenericButtonShape
+    // (id 232) it now shares with Confirm and Undo. Every term a peer needs is still on the wire —
+    // it is simply the SAME terms its two siblings ride, which is the wire-level statement of "they
+    // all look the same".
+    //
+    // THE RECORD FORMAT IS UNCHANGED. Record 28 is a TLV list; a field that is no longer sampled is
+    // a field that is not present, which the reader has always handled (that is what makes an
+    // untuned dial cost zero bytes). The ids stay declared, keep their widths in
+    // BoardTuneFieldWidth, and are never recycled: append-only is a property of the id SPACE, not of
+    // the fields that happen to be alive.
 
-    /// <summary>[RoundButtons] OffsetX — sideways seat of the docked turn-flow cap group (the SKIP
-    /// cap), tray-root-local metres. Added to <c>ButtonCluster</c>'s fixed column anchor.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] OffsetX.</summary>
     public const byte TuneRoundOffsetX = 81;
-    /// <summary>[RoundButtons] OffsetY — up-board seat of the same group.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] OffsetY.</summary>
     public const byte TuneRoundOffsetY = 82;
-    /// <summary>[RoundButtons] OffsetZ — how far out of the board face the group is seated, on top
-    /// of the depth-correct proud lift.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] OffsetZ.</summary>
     public const byte TuneRoundOffsetZ = 83;
-    /// <summary>[RoundButtons] CapSize — the turn-flow cap RADIUS ceiling (its exact radius while a
-    /// single cap occupies the column, which docked is always the case).</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] CapSize.</summary>
     public const byte TuneRoundCapSize = 84;
-    /// <summary>[RoundButtons] Width — the turn-flow cap's width while its shape is Square.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] Width.</summary>
     public const byte TuneRoundCapWidth = 85;
-    /// <summary>[RoundButtons] Height — the same cap's height while Square.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] Height.</summary>
     public const byte TuneRoundCapHeight = 86;
-    /// <summary>[RoundButtons] Depth — the turn-flow cap's extrusion toward the player.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] Depth.</summary>
     public const byte TuneRoundCapDepth = 87;
-    /// <summary>[RoundButtons] Travel — how far the turn-flow cap sinks under a press. A peer's
-    /// mirrored cap dips this far on the synced press edge, so a re-tuned press looks the same on
-    /// every screen.</summary>
+    /// <summary>RESERVED — see the block above. Was [RoundButtons] Travel.</summary>
     public const byte TuneRoundCapTravel = 88;
 
     /// <summary>[BoardButtons] Width — the Confirm/Undo keycap width.</summary>
@@ -15265,7 +15348,9 @@ internal static class NetProtocol
     public const byte TunePileScale = 131;
     /// <summary>[Cards] ActiveCardScale_{board}.</summary>
     public const byte TuneActiveCardScale = 132;
-    /// <summary>[Cards] ClusterScale_{board} — the docked turn-flow button cluster.</summary>
+    /// <summary>RESERVED, not reusable — the SIZE twin of <see cref="TuneClusterOffset"/>, retired
+    /// with the same group on the same day. The skip cap takes the [BoardButtons] size (ids 89..92)
+    /// with the rest of its cluster.</summary>
     public const byte TuneClusterScale = 133;
     /// <summary>[Cards] DecisionScale_{board}.</summary>
     public const byte TuneDecisionScale = 134;
@@ -15438,6 +15523,23 @@ internal static class NetProtocol
     /// </summary>
     public const byte TuneSlotOverlayScale = 171;
 
+    // A FACTOR AND NOT A LENGTH, deliberately, and the choice is what lets ONE field cover three
+    // boards. The button recesses are pitched 76.5 mm on Oak, 80.1 on Steel and 70.1 on Bronze and
+    // the rest pads 114.8 / 120.2 / 105.0, so a metre gap that looks right on one board is wrong on
+    // the others — which is exactly how the two predecessors (retired ids 66 and 67) ended up as
+    // three per-board entries each. A multiplier is the same number on every board, and each client
+    // already measures its own pitch off the prefab it cloned, so the product is identical on both
+    // ends without the pitch ever going on the wire.
+
+    /// <summary>[Cards] ButtonStackSpacing — the Y gap between the three generic keycaps stacked in
+    /// the board's own button recesses, as a MULTIPLE of that board's recess pitch.</summary>
+    public const byte TuneButtonStackSpacing = 172;
+
+    /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
+    /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see
+    /// <see cref="TuneButtonStackSpacing"/> for why it is a factor.</summary>
+    public const byte TuneRestStackSpacing = 173;
+
     // ANGLE (2 B, hundredth-degrees).
 
     /// <summary>[Cards] AssetPitchDegrees_{board} — the board MESH's pitch inside the board root.</summary>
@@ -15503,8 +15605,13 @@ internal static class NetProtocol
     // them and the FanCloseDuration rule is satisfied on all three: every shape that rides this
     // record has a mirror that can actually DRAW both of its members.
 
-    /// <summary>[RoundButtons] Shape — whether the docked turn-flow (SKIP) cap is a ROUND puck
-    /// (code 0) or a SQUARE keycap (code 1): <c>Cards.ButtonShape</c> as its integer value.</summary>
+    /// <summary>
+    /// RESERVED, not reusable. It carried the docked turn-flow (SKIP) cap's own shape — ROUND puck
+    /// (0) or SQUARE keycap (1) — while that cap had a geometry family of its own. It has not since
+    /// 2026-08-25: the cap is a generic board keycap and takes its shape from
+    /// <see cref="TuneGenericCapShape"/> with Confirm, Undo and the item "Use" cap. See the ids
+    /// 81..88 block for the whole retirement.
+    /// </summary>
     public const byte TuneRoundCapShape = 228;
 
     /// <summary>[ButtonColors] LabelOutline — whether the dark keyline is drawn around keycap

@@ -4662,160 +4662,184 @@ internal static class GoldenVectors
                      / NetProtocol.TuneItemCueEmberRateScale,
                 "an ABSENT ember rate resolves to the shipped rate exactly, never to a tenth of it");
 
-        // -- 7v. THE KEYCAP GEOMETRY FAMILY (record 28 ids 81..98 + 228) ------------------------
-        // Every 3D keycap standing on a control board — the turn-flow SKIP cap, the Confirm/Undo
-        // pads, the gear/Fixiert plates and the rest discs — was mirrored on a peer's board from a
-        // FROZEN constant in RemoteBoardFurniture, and scripts/check-wire-coverage.py carried the
-        // whole set as ONE PENDING debt reading "the renderer is owned by a parallel round — wire
-        // it when that lands". It landed. The user report that cashed it in is about the SKIP cap
-        // (hardware ModBuild 96: "vermisse ich die Einstellungen im Debug Menu für genau diese
-        // 'Überspringen'-Tasten (offsets, Form, Größe, etc..)"), and under the 1:1 ruling a dial the
-        // player can find is a dial every peer must see them turn.
+        // -- 7v. THE KEYCAP GEOMETRY FAMILY (record 28 ids 89..98 + 231/232) -------------------
+        // Every 3D keycap standing on a control board — the Confirm/Undo/SKIP column, the
+        // gear/Fixiert plates and the rest discs — was mirrored on a peer's board from a FROZEN
+        // constant in RemoteBoardFurniture, and scripts/check-wire-coverage.py carried the whole set
+        // as ONE PENDING debt reading "the renderer is owned by a parallel round — wire it when that
+        // lands". It landed.
+        //
+        // NINE OF THOSE IDS ARE RETIRED AS OF 2026-08-25, and this block is where that is asserted
+        // rather than described. Ids 81..88 carried the [RoundButtons] geometry of the turn-flow
+        // SKIP cap — a seat, a radius, a W/H/D and a travel that belonged to that cap ALONE because
+        // it was drawn by its own group (WorldUI/ButtonCluster) in its own column — and id 228
+        // carried that cap's own shape. The user retired the group: "Ich möchte daher, dass die
+        // Button-Gruppe der 'Überspringen Buttons' komplett verschwindet … so dass all diese buttons
+        // gleich aussehen und untereinander in den jeweiligen Slots sitzen." The skip cap is a
+        // generic board keycap in the board's third recess now, so its size, depth, travel and shape
+        // ARE ids 89..92 and 232 — the ones its two siblings already ride.
         t.Case("7v. extras, board-tuning: the keycap geometry family");
 
         // THE ID RANGES ARE THE CONTRACT, and getting one wrong is the single unrecoverable mistake
         // here: an id, once shipped, can never be renumbered. Assert the WIDTHS the ranges imply
         // rather than the numbers alone, because that is what a receiver actually walks.
-        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneRoundOffsetX),
-                "the [RoundButtons] offsets are LENGTHS (2 B, tenth-mm), not a vec3 — they are three "
-                + "separate config entries and the coverage guard resolves one key per field id");
+        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneBoardCapWidth),
+                "the keycap sizes are LENGTHS (2 B, tenth-mm)");
         t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneRestCapTravel),
                 "…and so is the last of them, id 98, still inside the length range");
-        t.Equal(1, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneRoundCapShape),
-                "the turn-flow cap's SHAPE is a one-byte COUNT-range id: the range fixes the WIDTH, "
-                + "never the unit");
-        t.Equal(81, NetProtocol.TuneRoundOffsetX, "the family starts one past the item berth's id 80");
+        t.Equal(1, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneGenericCapShape),
+                "a cap SHAPE is a one-byte COUNT-range id: the range fixes the WIDTH, never the unit");
+        t.Equal(89, NetProtocol.TuneBoardCapWidth, "the surviving family starts at 89");
         t.Equal(98, NetProtocol.TuneRestCapTravel, "and ends at 98, leaving 99..127 free");
-        t.Equal(228, NetProtocol.TuneRoundCapShape, "the shape takes the first free count id");
 
-        // A SKIP CAP THE OWNER HAS RESHAPED, end to end. Negative offsets matter here and nowhere
-        // else in this record's length family: the shipped [RoundButtons] OffsetX is -0.045, so a
-        // sign bug would put every peer's skip cap 90 mm from where its owner sees it.
-        //   id 81 offsetX -0.060 m -> -600 tenth-mm -> A8 FD
-        //   id 84 capSize  0.050 m ->  500          -> F4 01
-        //   id 88 travel   0.012 m ->  120          -> 78 00
-        //   id 228 shape   Square (1)               -> 01
+        // A RETIRED ID IS STILL SPOKEN FOR. Append-only is a property of the id SPACE, so the eight
+        // [RoundButtons] lengths and their shape keep their numbers and their widths forever — a
+        // future dial that "reused" 81 would be indistinguishable on the wire from an old sender's
+        // skip-cap seat. This is the assertion that makes that a rule instead of a comment.
+        t.Equal(81, NetProtocol.TuneRoundOffsetX, "id 81 stays reserved at 81 — never recycled");
+        t.Equal(88, NetProtocol.TuneRoundCapTravel, "…through 88");
+        t.Equal(228, NetProtocol.TuneRoundCapShape, "and the shape stays reserved at 228");
+        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneRoundOffsetX),
+                "a reserved id keeps its width, so a stray field can still be SKIPPED rather than "
+                + "abandoning the rest of the record");
+        t.Equal(6, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneClusterOffset),
+                "…and so does the retired cluster SEAT at id 16, a vec3");
+        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneClusterScale),
+                "…and its retired SCALE twin at 133, a factor");
+
+        // A KEYCAP FAMILY THE OWNER HAS RESIZED, end to end — the ids that survived.
+        //   id 89 width  0.050 m ->  500 -> F4 01
+        //   id 92 travel 0.012 m ->  120 -> 78 00
+        //   id 232 generic shape Square (1) -> 01
         byte[] capFields =
         {
-            NetProtocol.TuneRoundOffsetX,  0xA8, 0xFD,
-            NetProtocol.TuneRoundCapSize,  0xF4, 0x01,
-            NetProtocol.TuneRoundCapTravel, 0x78, 0x00,
-            NetProtocol.TuneRoundCapShape, 0x01,
+            NetProtocol.TuneBoardCapWidth,  0xF4, 0x01,
+            NetProtocol.TuneBoardCapTravel, 0x78, 0x00,
+            NetProtocol.TuneGenericCapShape, 0x01,
         };
         ushort capSig = BoardTunePages.Signature(capFields, 0, capFields.Length);
         var capPage = new byte[255];
         int capLen = BoardTunePages.WritePage(capFields, capFields.Length, 0, capSig, capPage);
         var capAsm = new BoardTunePageAssembler();
-        t.True(capAsm.Accept(capPage, 0, capLen), "the reshaped skip cap converges on one page");
+        t.True(capAsm.Accept(capPage, 0, capLen), "the resized keycap family converges on one page");
         byte[] capTune = capAsm.Assembled;
         int capTuneLen = capAsm.AssembledLength;
-        t.Equal(-0.06f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
-                                                    NetProtocol.TuneRoundOffsetX, 0f),
-                "the skip cap's sideways seat decodes SIGNED — its shipped default is itself "
-                + "negative (-0.045), so an unsigned read would be wrong for every untuned player too");
         t.Equal(0.05f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
-                                                   NetProtocol.TuneRoundCapSize, 0f),
-                "its cap radius");
+                                                   NetProtocol.TuneBoardCapWidth, 0f),
+                "the keycap width — one number for Confirm, Undo AND the turn-flow Skip, which is "
+                + "the wire-level statement of \"they all look the same\"");
         t.Equal(0.012f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
-                                                    NetProtocol.TuneRoundCapTravel, 0f),
-                "and its press travel — the depth a peer's mirrored cap dips on the synced press edge");
+                                                    NetProtocol.TuneBoardCapTravel, 0f),
+                "and their press travel — the depth a peer's mirrored cap dips on the synced press edge");
         t.Equal(1, NetProtocol.BoardTuneCount(capTune, 0, capTuneLen,
-                                              NetProtocol.TuneRoundCapShape, 0),
+                                              NetProtocol.TuneGenericCapShape, 0),
                 "the shape arrives as its enum's integer value (1 = Square)");
 
-        // ABSENCE STILL MEANS "THE VALUE YOU ALREADY HAVE" for the dials this owner did NOT move —
-        // which is the whole reason nineteen new fields cost an untuned player nothing.
-        t.Equal(0.035f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
-                                                    NetProtocol.TuneRoundCapHeight, 0.035f),
+        // ABSENCE STILL MEANS "THE VALUE YOU ALREADY HAVE" for the dials this owner did NOT move.
+        t.Equal(0.065f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
+                                                    NetProtocol.TuneBoardCapHeight, 0.065f),
                 "an absent cap height yields the receiver's own shipped default, never zero — a zero "
                 + "would build a degenerate keycap mesh on every peer's board");
         t.Equal(0, NetProtocol.BoardTuneCount(capTune, 0, capTuneLen,
-                                              NetProtocol.TuneRoundCapShape + 1, 0),
-                "and an id this generation does not carry reads as the fallback, not as a neighbour");
+                                              NetProtocol.TuneRoundCapShape, 0),
+                "and a RETIRED id reads as the fallback, not as a neighbour — which is exactly what "
+                + "a peer must do with a field nobody sends any more");
 
-        // THE SKIP CAP'S OTHER SEAT — [Cards] ClusterOffset_{board}, id 16 (ModBuild 97).
+        // -- THE TWO STACK SPACINGS (ids 172/173) ----------------------------------------------
         //
-        // The cap is placed by TWO offsets that add in the same tray-root-local frame: the shared
-        // [RoundButtons] group offset asserted above (ids 81..83) and this PER-BOARD one. Only the
-        // first was ever wired, because the second moved nothing on either end — the rigid-dock lag
-        // fix had reparented the local cluster off ButtonClusterMount and dropped the mount's
-        // translation, so the dial the user was turning wrote to a transform with no children
-        // ("Die Offsets bei den Überspringen-Tasten haben keinen Einfluss"). It rode
-        // check-wire-coverage.py as a NO-OP exemption, which is how a bug survives as documentation.
-        // With ButtonCluster.AttachDocked and RemoteBoardFurniture both consuming it, it is an
-        // ordinary vec3 field — and it takes the FIRST FREE VEC ID, which is the part that can
-        // never be taken back.
-        t.Equal(16, NetProtocol.TuneClusterOffset,
-                "the cluster seat takes id 16, one past the board mesh's own offset at 15");
-        t.Equal(6, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneClusterOffset),
-                "and it is a VEC3 (6 B, three signed tenth-mm i16s) — one field for a Vector3 dial, "
-                + "unlike the [RoundButtons] triple, which is three separate config entries");
-        t.True(NetProtocol.TuneClusterOffset <= NetProtocol.TuneVecIdMax,
-                "…inside the vec range, whose tail was trimmed to 47 and must not be overrun");
+        // WHY THEY ARE FACTORS AND NOT LENGTHS, asserted rather than argued: their predecessors
+        // (retired ids 66 and 67) were per-board METRE gaps, and they had to be per-board because
+        // the three boards cut their recesses at three different pitches — 76.5 mm on Oak, 80.1 on
+        // Steel, 70.1 on Bronze. A multiplier on the board's OWN pitch is the same number on all
+        // three, so one field replaces three entries, and the pitch it multiplies never travels: a
+        // peer measures it off its own clone of the same prefab (RemoteTrayVisual.SeatPitch).
+        t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneButtonStackSpacing),
+                "a FACTOR is 2 B (i16 thousandths) — enough for a 0.001 step over the dial's "
+                + "0.25..3 band");
+        t.True(NetProtocol.TuneButtonStackSpacing >= NetProtocol.TuneFactorIdMin
+               && NetProtocol.TuneRestStackSpacing <= NetProtocol.TuneFactorIdMax,
+               "…and both live INSIDE the factor range, which is what fixes that width — the retired "
+               + "ids 66/67 are LENGTHS and could not have carried a multiplier at all");
+        t.True(NetProtocol.TuneButtonStackSpacing != NetProtocol.TuneRestStackSpacing,
+               "two dials, two ids: the keycap stack and the rest pair spread independently");
 
-        //   id 16 vec3 cluster offset (-0.012, 0.030, -0.004) -> -120, 300, -40
-        byte[] seatFields =
+        //   id 172 buttonStackSpacing 1.250 -> 1250 -> E2 04
+        //   id 173 restStackSpacing   0.800 ->  800 -> 20 03
+        byte[] stackFields =
         {
-            NetProtocol.TuneClusterOffset, 0x88, 0xFF, 0x2C, 0x01, 0xD8, 0xFF,
+            NetProtocol.TuneButtonStackSpacing, 0xE2, 0x04,
+            NetProtocol.TuneRestStackSpacing, 0x20, 0x03,
         };
-        ushort seatSig = BoardTunePages.Signature(seatFields, 0, seatFields.Length);
-        var seatPage = new byte[255];
-        int seatLen = BoardTunePages.WritePage(seatFields, seatFields.Length, 0, seatSig, seatPage);
-        var seatAsm = new BoardTunePageAssembler();
-        t.True(seatAsm.Accept(seatPage, 0, seatLen), "the moved cluster seat converges on one page");
-        Vector3 seat = NetProtocol.BoardTuneVector(seatAsm.Assembled, 0, seatAsm.AssembledLength,
-                                                   NetProtocol.TuneClusterOffset, Vector3.zero);
-        t.Equal(-0.012f, seat.x, "the peer sees the owner's cluster nudged LEFT — signed, like every "
-                                + "other seat: the user's own probe in the ModBuild-97 log was -0.01");
-        t.Equal(0.03f, seat.y, "up-board on y");
-        t.Equal(-0.004f, seat.z, "and toward the board face on z — the raw frame the local mount uses");
-        t.True(NetProtocol.BoardTuneVector(seatAsm.Assembled, 0, seatAsm.AssembledLength,
-                                           NetProtocol.TuneClusterOffset, Vector3.zero)
-               != NetProtocol.BoardTuneVector(capTune, 0, capTuneLen,
-                                              NetProtocol.TuneClusterOffset, Vector3.zero),
-               "and a record that does NOT carry it leaves the receiver on its own shipped seat — "
-               + "all three boards ship (0,0,0), so an untuned peer is drawn exactly as before");
+        ushort stackSig = BoardTunePages.Signature(stackFields, 0, stackFields.Length);
+        var stackPage = new byte[255];
+        int stackLen = BoardTunePages.WritePage(stackFields, stackFields.Length, 0, stackSig, stackPage);
+        var stackAsm = new BoardTunePageAssembler();
+        t.True(stackAsm.Accept(stackPage, 0, stackLen), "the spread stack converges on one page");
+        t.Equal(1.25f, NetProtocol.BoardTuneFactor(stackAsm.Assembled, 0, stackAsm.AssembledLength,
+                                                   NetProtocol.TuneButtonStackSpacing, 1f),
+                "the owner has spread their three board keys to 1.25x their board's own recess pitch");
+        t.Equal(0.8f, NetProtocol.BoardTuneFactor(stackAsm.Assembled, 0, stackAsm.AssembledLength,
+                                                  NetProtocol.TuneRestStackSpacing, 1f),
+                "…and closed their rest discs to 0.8x their board's own pad pitch");
+        t.Equal(1f, NetProtocol.BoardTuneFactor(capTune, 0, capTuneLen,
+                                                NetProtocol.TuneButtonStackSpacing, 1f),
+                "an ABSENT spacing means 1 — every cap dead centre in its own recess, on every "
+                + "board, which is the shipped picture and the reason the default costs no bytes");
 
-        // THE CONVERGENCE BOUND IS UNCHANGED BY THESE NINETEEN, and that is a claim about page
-        // ARITHMETIC rather than about bytes, so it is checked rather than asserted in a comment.
-        // This is the sampler's complete field run at its worst case — every dial moved — in the
-        // id-width census Sample() produces: 15 vec3 + 35 length + 41 factor + 9 angle + 5 count.
-        var census = new byte[418];
+        // THE CONVERGENCE BOUND, recomputed for the field run the sampler ACTUALLY writes. This is
+        // a claim about page ARITHMETIC rather than about bytes, so it is checked rather than
+        // asserted in a comment — and it is built from the live id set (108 fields, 381 bytes)
+        // rather than from ranges, because nine ids inside those ranges are retired and a range
+        // sweep would silently over-count them.
+        byte[] censusIds =
+        {
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,                       // vec3   (16 retired)
+            48, 49, 50, 51, 53,                                                       // colour (52 retired)
+            64, 65, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80,               // length (66/67 retired)
+            89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,                          //        (81..88 retired)
+            128, 129, 130, 131, 132, 134, 135, 136, 137, 138, 139, 140, 141, 142,     // factor (133 retired,
+            143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 157,     //         156 unsampled)
+            158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171,
+            172, 173,
+            192, 193, 194, 195, 196, 197, 198, 199, 200,                              // angle
+            224, 225, 226, 227, 229, 230, 231, 232,                                   // count  (228 retired)
+        };
+        var census = new byte[381];
         int cAt = 0;
-        void Field(byte id, int width)
+        foreach (byte id in censusIds)
         {
             census[cAt] = id;
-            cAt += 1 + width;
+            cAt += 1 + NetProtocol.BoardTuneFieldWidth(id);
         }
-        for (byte id = 1; id <= 16; id++) Field(id, 6);        // vec3   (ids 1..16, 16 = cluster seat)
-        for (byte id = 48; id <= 53; id++) Field(id, 3);       // colour (ids 48..53, all new)
-        for (byte id = 64; id <= 100; id++) Field(id, 2);      // length (ids 64..100, 99..100 new)
-        for (byte id = 128; id <= 169; id++) Field(id, 2);     // factor (170 is new; 156 unsampled)
-        for (byte id = 192; id <= 200; id++) Field(id, 2);     // angle
-        for (byte id = 224; id <= 232; id++) Field(id, 1);     // count  (228..232 are the shapes/bools)
-        t.Equal(418, cAt,
-                "the sampler's worst case is 418 field bytes over 119 dials — 411 over 118 before " +
-                "the cluster seat rejoined it, and it was 370 over 105 " +
-                "before the colours and shapes, 314 over 86 before the keycap geometry family, 284 " +
-                "over 76 before the item-cue ten, and under the OLD scheme none of it could have " +
-                "grown at all: the whole payload had to fit 255");
+        t.Equal(108, censusIds.Length,
+                "108 dials ride record 28 — 119 before the turn-flow cluster's own family (ids "
+                + "81..88, 228), its dock seat and scale (16, 133), its cap tint (52) and the two "
+                + "per-board stack gaps (66, 67) retired, and +2 for the shared stack multipliers "
+                + "that replaced the last pair");
+        t.Equal(381, cAt,
+                "the sampler's worst case is 381 field bytes over those 108 dials — 418 over 119 "
+                + "before the retirement, 370 over 105 before the colours and shapes, 314 over 86 "
+                + "before the keycap geometry family, and under the OLD scheme none of it could have "
+                + "grown at all: the whole payload had to fit 255");
         t.Equal(2, BoardTunePages.PageCount(census, cAt),
-                "and it STILL splits into two pages, so the convergence guarantee written down in " +
-                "BoardTunePages — complete state by T + pageCount x 200 ms — is unchanged at <=400 ms");
+                "and it STILL splits into two pages, so the convergence guarantee written down in "
+                + "BoardTunePages — complete state by T + pageCount x 200 ms — is unchanged at <=400 ms");
         int cp0 = BoardTunePages.WritePage(census, cAt, 0, 1, cuePage);
-        t.Equal(254, cp0,
-                "page 0 fills to 7 header + 247 field bytes (was 246 through three earlier " +
-                "censuses): the sixteenth vec3 shifts the run by 7, and 247 is where the next " +
-                "field stops fitting the 248-byte budget — the packing rule is unchanged, only " +
-                "WHICH dials spill onto page 1");
+        t.Equal(255, cp0,
+                "page 0 fills to 7 header + 248 field bytes — one MORE than the 247 of the previous "
+                + "census, and that is the packing rule holding rather than moving: the retirement "
+                + "took the 6-byte cluster seat out of the vec3 run, so the field that used to "
+                + "straddle the 248-byte budget now lands exactly on it");
         int cp1 = BoardTunePages.WritePage(census, cAt, 1, 1, cuePage);
-        t.Equal(178, cp1,
-                "…and page 1 now holds 171 of its own 248 field bytes (was 165): ~25 more 3-byte " +
-                "dials before the bound would go to <=600 ms");
+        t.Equal(140, cp1,
+                "…and page 1 holds 133 of its own 248 field bytes (was 171): the retired ids bought "
+                + "back 38 bytes of headroom before the bound would go to <=600 ms");
 
         // AND THE SIX COLOURS COST 24 BYTES, WHICH IS THE WHOLE ARGUMENT FOR THE NEW WIDTH — pinned
         // as arithmetic rather than left in a comment, because the alternative it beat (three FACTOR
         // fields per colour) is the one somebody refactoring "for consistency" would reach for.
+        // (FIVE of the six are still sampled; the sixth, the cluster cap tint at id 52, retired with
+        // the group it tinted. The WIDTH argument is about the container, not the census.)
         t.Equal(24, 6 * (1 + NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneLabelColor)),
                 "six colours as 3-byte COLOUR fields: 24 bytes and 6 of the 247 field ids");
         t.Equal(54, 18 * (1 + NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneObjectivesScale)),

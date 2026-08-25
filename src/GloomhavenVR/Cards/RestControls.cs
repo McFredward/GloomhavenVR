@@ -87,7 +87,7 @@ internal sealed class RestControls
         // the old unreliable raycast auto-seating, so the buttons seat at a PREDICTABLE anchor +
         // per-board offset depth. Round-2: an extra per-board SPACING spreads the two apart.
         ControlBoard active = CardsConfig.CurrentBoard;
-        float diameter = CardsConfig.RestButtonDiameter(active).Value;
+        float diameter = CardsConfig.RestButtonDiameter.Value;
         bool round = CardsConfig.RestButtonShape(active).Value == ButtonShape.Round;
 
         // Category split ([RestButtons], user: "every value applies ONLY to its own category" —
@@ -103,7 +103,7 @@ internal sealed class RestControls
         // ---- FIT THE DISC TO THIS BOARD'S REST PAD, exactly as PlayTray.BuildButtons fits the
         // keycaps to their recess, and for the same reason: the tuned per-board diameters (91 / 71 /
         // 71 mm) overhang two of the three AUTHORED pads (floors measured at 81.6 / 81.7 / 68.1 mm).
-        // Only ever shrinks — RestButtonDiameter_{board} and [RestButtons] W/H stay the ceiling — and
+        // Only ever shrinks — [Cards] RestButtonDiameter and [RestButtons] W/H stay the ceiling — and
         // does nothing at all on a board that carries no measurement, which is every bundle shipped so
         // far. The margin is this family's OWN [RestButtons] Travel, the same rule the board caps use
         // with theirs.
@@ -122,8 +122,14 @@ internal sealed class RestControls
         _capSize = size;
         // Per-board disc offset: X/Y in the board plane, Z = proud depth toward the player
         // (NEGATIVE = prouder). Replaces the old localPosition(insetX,0,0) + raycast reseat.
-        Vector3 offset = CardsConfig.RestButtonOffset(active).Value;
-        float spacing = CardsConfig.RestButtonSpacing(active).Value;
+        Vector3 offset = CardsConfig.RestButtonOffset.Value;
+        float spacing = CardsConfig.RestStackSpacing.Value;
+        // THIS BOARD'S OWN REST-PAD PITCH, read off the two pad anchors the board itself exports —
+        // the per-board term that used to be three hand-dialled RestButtonSpacing_{board} constants
+        // (114.8 mm Oak, 120.2 Steel, 105.0 Bronze). The dial on top of it is a dimensionless
+        // multiplier, so one shared entry is right on every board. See BoardAnchors.StackPitch.
+        _padPitch = BoardAnchors.StackPitch(tray.ShortRestAnchor, tray.LongRestAnchor)
+                    ?? Defaults.StackPitchFallback;
         int built = 0;
 
         if (_shortButton == null && tray.ShortRestAnchor != null)
@@ -150,7 +156,7 @@ internal sealed class RestControls
             built++;
         }
 
-        SetOffset(offset, spacing); // per-board X/Y in plane, Z proud, ± spacing/2 along Y
+        SetOffset(offset, spacing); // shared X/Y nudge in plane, Z proud, ± the scaled pad pitch along Y
 
         // Live language following: the rest-button captions are built once, so re-read them
         // whenever the game language changes (subscribe once; Destroy detaches).
@@ -169,9 +175,11 @@ internal sealed class RestControls
     }
 
     /// <summary>
-    /// Live-apply (Part F): move both rest buttons to a new per-board X/Y/Z offset + inter-button
-    /// spacing in place (no rebuild). The short (upper) button takes +spacing/2 along the board's
-    /// short axis, the long (lower) button −spacing/2.
+    /// Live-apply (Part F): move both rest buttons to a new shared X/Y/Z nudge + stack spacing in
+    /// place (no rebuild). <paramref name="spacing"/> is a MULTIPLE of this board's own measured pad
+    /// pitch, not a metre gap: the short (upper) disc takes +half a scaled step along the board's
+    /// short axis, the long (lower) disc −half, so at the shipped 1 both sit dead centre in their
+    /// own authored pads on every board and the term contributes exactly nothing.
     /// </summary>
     internal void SetOffset(Vector3 offset, float spacing)
     {
@@ -181,8 +189,10 @@ internal sealed class RestControls
         // this disc and the pad rim; Z is untouched. On an unmeasured board nothing is bounded and
         // this is bit-identical to the previous build — including Oak's tuned +8 mm X nudge, which a
         // canonical/mirrored test would have thrown away on the bundle he is running right now.
-        Vector3 shortPose = BoardAnchors.ClampSeatPose(offset, spacing * 0.5f, _padMinHalf, _capSize);
-        Vector3 longPose = BoardAnchors.ClampSeatPose(offset, -spacing * 0.5f, _padMinHalf, _capSize);
+        Vector3 shortPose = BoardAnchors.ClampSeatPose(
+            offset, BoardAnchors.StackDelta(0, 2, _padPitch, spacing), _padMinHalf, _capSize);
+        Vector3 longPose = BoardAnchors.ClampSeatPose(
+            offset, BoardAnchors.StackDelta(1, 2, _padPitch, spacing), _padMinHalf, _capSize);
         if (_shortButton != null)
             _shortButton.transform.localPosition = shortPose;
         if (_longButton != null)
@@ -192,6 +202,11 @@ internal sealed class RestControls
 
     /// <summary>The tighter authored rest pad's half-extents, or null on an unmeasured board.</summary>
     private Vector2? _padMinHalf;
+
+    /// <summary>This board's own rest-pad PITCH, measured off its two pad anchors at build time —
+    /// the per-board term the retired <c>RestButtonSpacing_{board}</c> constants used to guess at.
+    /// The fallback until a board has been measured.</summary>
+    private float _padPitch = Defaults.StackPitchFallback;
 
     /// <summary>The disc size actually built (already pad-fitted) — the clamp's bound is the gap
     /// between THIS disc and the pad rim.</summary>
@@ -205,8 +220,8 @@ internal sealed class RestControls
     {
         if (_padMinHalf == null)
             return;
-        Vector3 wantShort = offset + new Vector3(0f, spacing * 0.5f, 0f);
-        Vector3 wantLong = offset + new Vector3(0f, -spacing * 0.5f, 0f);
+        Vector3 wantShort = offset + new Vector3(0f, BoardAnchors.StackDelta(0, 2, _padPitch, spacing), 0f);
+        Vector3 wantLong = offset + new Vector3(0f, BoardAnchors.StackDelta(1, 2, _padPitch, spacing), 0f);
         if (!BoardAnchors.SeatPoseWasClamped(wantShort, shortPose)
             && !BoardAnchors.SeatPoseWasClamped(wantLong, longPose))
             return;
@@ -214,11 +229,11 @@ internal sealed class RestControls
             return;
         _padClampLogged = shortPose;
         Vector2 slack = BoardAnchors.SeatSlack(_padMinHalf.Value, _capSize);
-        ControlBoard board = CardsConfig.CurrentBoard;
         Core.VRLog.Info("Cards", "RestControls: PAD CLAMP — the tuned in-plane offset would have put a rest " +
             $"disc outside its own pad, so it was bounded to the ±({slack.x * 1000f:F1}, {slack.y * 1000f:F1}) mm " +
-            $"of slack the disc has in the pad. [Cards] RestButtonOffset_{board} = " +
-            $"({offset.x:F3}, {offset.y:F3}, {offset.z:F3}), RestButtonSpacing_{board} = {spacing:F3} m ⇒ " +
+            "of slack the disc has in the pad. [Cards] RestButtonOffset = " +
+            $"({offset.x:F3}, {offset.y:F3}, {offset.z:F3}), RestStackSpacing = {spacing:F3}× this board's " +
+            $"own {_padPitch * 1000f:F1} mm pad pitch ⇒ " +
             $"short wanted ({wantShort.x:F4}, {wantShort.y:F4}) got ({shortPose.x:F4}, {shortPose.y:F4}), " +
             $"long wanted ({wantLong.x:F4}, {wantLong.y:F4}) got ({longPose.x:F4}, {longPose.y:F4}) m. " +
             "Z untouched. Those values were measured against the board asset installed when they were " +

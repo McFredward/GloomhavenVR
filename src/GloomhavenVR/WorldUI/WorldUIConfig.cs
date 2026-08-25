@@ -87,17 +87,23 @@ internal static class WorldUIConfig
     // game always shows), ClickLatch + ClickMode + ForceMouseMode (their off/non-default states
     // are the documented no-click failure modes), [Keyboard] Enabled (off = a text field with no
     // way to type in a headset), DemoteOverlaySolidClears (off = the campaign map can be wiped
-    // to black). Kept on purpose: ButtonCluster, WristHud, CombatLog, LoadingIndicator (mod-
-    // invented extras the flat game has no equivalent of), Dialogs / DecisionDock / ModalStyle /
+    // to black). Kept on purpose: WristHud, CombatLog, LoadingIndicator (mod-invented extras the
+    // flat game has no equivalent of), Dialogs / DecisionDock / ModalStyle /
     // TrayNativeControls / ScreenLayerSplit (both states present the SAME content, a real
     // fallback path each). None of the removed keys is re-bound: a stale cfg line is an inert
     // BepInEx orphan and is dropped on the next save, so it can never resurrect the behaviour.
+    //
+    // AND [WorldUI] ButtonCluster IS GONE TOO (2026-08-25), for a different reason than any of
+    // the above: not a ruling about which toggles are legitimate, but the disappearance of the
+    // thing it toggled. It gated the turn-flow SKIP cap group, whose only live member is a
+    // generic board keycap on the board's own third recess now (user: "Ich möchte daher, dass die
+    // Button-Gruppe der 'Überspringen Buttons' komplett verschwindet"). It follows the board like
+    // its two siblings and has no switch of its own, exactly as Confirm and Undo never had one.
 
     /// <summary>The module's config file (for late binders like FlatScreenStereo). Valid after <see cref="Bind"/>.</summary>
     internal static ConfigFile FileHandle => _file!;
 
     // ---- surfaces (each individually toggleable) ---------------------------------------
-    internal static ConfigEntry<bool> ButtonCluster = null!;
     internal static ConfigEntry<bool> CombatLog = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
@@ -527,8 +533,6 @@ internal static class WorldUIConfig
 
         _file = ModuleConfig.Create("worldui");
 
-        ButtonCluster = _file.Bind("WorldUI", "ButtonCluster", Defaults.ButtonCluster,
-            "Physical Ready/Undo/Skip buttons at the table edge.");
         // InitiativeTrack / ElementBoard / Objectives / StatPanels / PropInfoCards / EnemyReveal:
         // always on — user ruling 2026-08-13 (his named example is the initiative order). Each
         // OFF released the panel back to its 2D home, which in VR lives on the hidden flat stack:

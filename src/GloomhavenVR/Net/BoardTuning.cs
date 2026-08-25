@@ -53,7 +53,8 @@ namespace GloomhavenVR.Net;
 /// It went 76 → 86 when the item-cue / item-berth re-art's ten dials were wired (ids 80 / 161..169),
 /// which is worth stating because under the OLD scheme it could not have: those ten are the exact
 /// dials that had to ship as frozen constants while the record stood at 255 bytes. It went 86 → 105
-/// when the KEYCAP GEOMETRY family joined (ids 81..98 + 228) — the [RoundButtons] / [BoardButtons] /
+/// when the KEYCAP GEOMETRY family joined (ids 81..98 + 228; 81..88 and 228 have since been
+/// retired with the [RoundButtons] group) — the [BoardButtons] /
 /// [BoardDashboard] / [RestButtons] cap sizes, seats and press travels, which were the single
 /// largest block of PENDING debt <c>scripts/check-wire-coverage.py</c> was carrying and were frozen
 /// constants in <c>RemoteBoardFurniture</c> for exactly as long as the ceiling stood. It went
@@ -143,10 +144,14 @@ internal static class BoardTuningSampler
                  CardsConfig.PickBannerOffset(style), CardsConfig.BoardDefaults.PickBannerOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneHoverHintOffset,
                  CardsConfig.HoverHintOffset(style), CardsConfig.BoardDefaults.HoverHintOffset[b]);
+        // THE KEYCAP SEAT FAMILY IS SHARED NOW, so these read the ONE entry and compare against the
+        // ONE shipped constant — no `[b]` index. The per-board part of a seat is the board's own
+        // anchor, which every client measures for itself (Cards.BoardAnchors), so it never was and
+        // now cannot be a wire field.
         n += Vec(payload, ref i, NetProtocol.TuneConfirmUndoOffset,
-                 CardsConfig.ConfirmUndoOffset(style), CardsConfig.BoardDefaults.ConfirmUndoOffset[b]);
+                 CardsConfig.ConfirmUndoOffset, Defaults.ConfirmUndoOffset);
         n += Vec(payload, ref i, NetProtocol.TuneRestButtonOffset,
-                 CardsConfig.RestButtonOffset(style), CardsConfig.BoardDefaults.RestButtonOffset[b]);
+                 CardsConfig.RestButtonOffset, Defaults.RestButtonOffset);
         n += Vec(payload, ref i, NetProtocol.TunePinOffset,
                  CardsConfig.PinOffset(style), CardsConfig.BoardDefaults.PinOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneItemUseSlotOffset,
@@ -157,10 +162,8 @@ internal static class BoardTuningSampler
                  CardsConfig.SlotOverlayOffset(style), CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         n += Vec(payload, ref i, NetProtocol.TuneAssetOffset,
                  CardsConfig.AssetOffset(style), CardsConfig.BoardDefaults.AssetOffset[b]);
-        // The turn-flow cluster's per-board seat — the SKIP cap's spot on the board. See
-        // NetProtocol.TuneClusterOffset for why this arrived a round after its ClusterScale twin.
-        n += Vec(payload, ref i, NetProtocol.TuneClusterOffset,
-                 CardsConfig.ClusterOffset(style), Defaults.ClusterOffset_ByBoard[b]);
+        // ids 16 and 133 (the turn-flow cluster's dock seat and size) are NOT sampled any more —
+        // the mount they moved went with the cluster; see their NetProtocol tombstones.
 
         // ---- COLOUR fields (ids 48..53) — the [ButtonColors] family --------------------------
         // SIX FIELDS, EIGHTEEN CHANNELS, TWENTY-FOUR BYTES. Sampled from the same ButtonTuning
@@ -183,9 +186,6 @@ internal static class BoardTuningSampler
         n += Col(payload, ref i, NetProtocol.TuneDashCapTint,
                  WorldUI.ButtonTuning.DashCapTint,
                  new Color(Defaults.DashCapTintR, Defaults.DashCapTintG, Defaults.DashCapTintB, 1f));
-        n += Col(payload, ref i, NetProtocol.TuneClusterCapTint,
-                 WorldUI.ButtonTuning.ClusterCapTint,
-                 new Color(Defaults.ClusterCapTintR, Defaults.ClusterCapTintG, Defaults.ClusterCapTintB, 1f));
         n += Col(payload, ref i, NetProtocol.TuneRestCapTint,
                  WorldUI.ButtonTuning.RestCapTint,
                  new Color(Defaults.RestCapTintR, Defaults.RestCapTintG, Defaults.RestCapTintB, 1f));
@@ -194,11 +194,10 @@ internal static class BoardTuningSampler
         n += Len(payload, ref i, NetProtocol.TunePileSpacing,
                  CardsConfig.PileSpacing(style), Defaults.PileSpacing_ByBoard[b]);
         n += Len(payload, ref i, NetProtocol.TuneRestButtonDiameter,
-                 CardsConfig.RestButtonDiameter(style), CardsConfig.BoardDefaults.RestButtonDiameter[b]);
-        n += Len(payload, ref i, NetProtocol.TuneRestButtonSpacing,
-                 CardsConfig.RestButtonSpacing(style), CardsConfig.BoardDefaults.RestButtonSpacing[b]);
-        n += Len(payload, ref i, NetProtocol.TuneGenericButtonSpacing,
-                 CardsConfig.GenericButtonSpacing(style), CardsConfig.BoardDefaults.GenericButtonSpacing[b]);
+                 CardsConfig.RestButtonDiameter, Defaults.RestButtonDiameter);
+        // ids 66/67 (RestButtonSpacing / GenericButtonSpacing) are NOT sampled any more — the two
+        // stack spacings are dimensionless multipliers and ride the FACTOR range instead
+        // (TuneRestStackSpacing / TuneButtonStackSpacing, below). See their NetProtocol tombstones.
         n += Len(payload, ref i, NetProtocol.TuneSlotOverlaySpacing,
                  CardsConfig.SlotOverlaySpacing(style), CardsConfig.BoardDefaults.SlotOverlaySpacing[b]);
         n += Len(payload, ref i, NetProtocol.TuneDecisionGap,
@@ -245,25 +244,12 @@ internal static class BoardTuningSampler
         // 'Überspringen'-Tasten (offsets, Form, Größe, etc..)") — and under the 1:1 ruling, a dial
         // the player can now find is a dial every peer must see them turn.
         //
-        // The three [RoundButtons] offsets are sampled as three SEPARATE lengths rather than one
-        // vec3 because they ARE three separate config entries; see NetProtocol's block comment on
-        // TuneRoundOffsetX for why that matters to the coverage guard.
-        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetX,
-                 WorldUI.ButtonTuning.RoundOffsetX, Defaults.RoundButtons_OffsetX);
-        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetY,
-                 WorldUI.ButtonTuning.RoundOffsetY, Defaults.RoundButtons_OffsetY);
-        n += Len(payload, ref i, NetProtocol.TuneRoundOffsetZ,
-                 WorldUI.ButtonTuning.RoundOffsetZ, Defaults.OffsetZ);
-        n += Len(payload, ref i, NetProtocol.TuneRoundCapSize,
-                 WorldUI.ButtonTuning.RoundCapSize, Defaults.RoundButtons_CapSize);
-        n += Len(payload, ref i, NetProtocol.TuneRoundCapWidth,
-                 WorldUI.ButtonTuning.RoundWidth, Defaults.RoundButtons_Width);
-        n += Len(payload, ref i, NetProtocol.TuneRoundCapHeight,
-                 WorldUI.ButtonTuning.RoundHeight, Defaults.RoundButtons_Height);
-        n += Len(payload, ref i, NetProtocol.TuneRoundCapDepth,
-                 WorldUI.ButtonTuning.RoundDepth, Defaults.RoundButtons_Depth);
-        n += Len(payload, ref i, NetProtocol.TuneRoundCapTravel,
-                 WorldUI.ButtonTuning.RoundTravel, Defaults.RoundButtons_Travel);
+        // THE EIGHT [RoundButtons] LENGTHS (ids 81..88) ARE NO LONGER SAMPLED, and the record
+        // carries no replacement for them because it does not need one: the turn-flow SKIP cap is a
+        // member of the GENERIC cluster now, so its seat rides id 9 and its size, depth and travel
+        // ride the [BoardButtons] ids immediately below, together with Confirm's and Undo's. The
+        // paragraph above still describes what those eight ids paid for; NetProtocol's own 81..88
+        // block records what they meant and why nothing may reuse them.
         n += Len(payload, ref i, NetProtocol.TuneBoardCapWidth,
                  WorldUI.ButtonTuning.BoardWidth, Defaults.BoardButtons_Width);
         n += Len(payload, ref i, NetProtocol.TuneBoardCapHeight,
@@ -310,10 +296,15 @@ internal static class BoardTuningSampler
         // The blinking slot overlays AND the card resting in them are ONE size (2026-08-11) — the
         // peer draws both from this factor, which is why it travels even though the card metric
         // itself already rides record 11. See NetProtocol.TuneSlotOverlayScale.
+        // THE TWO STACK SPACINGS - dimensionless multipliers on the board's own anchor pitch, which
+        // is why they are FACTORS and why one field each covers all three boards (the pitches differ
+        // by 8 %; the multiplier does not).
+        n += Fac(payload, ref i, NetProtocol.TuneButtonStackSpacing,
+                 CardsConfig.ButtonStackSpacing, Defaults.ButtonStackSpacing);
+        n += Fac(payload, ref i, NetProtocol.TuneRestStackSpacing,
+                 CardsConfig.RestStackSpacing, Defaults.RestStackSpacing);
         n += Fac(payload, ref i, NetProtocol.TuneSlotOverlayScale,
                  CardsConfig.SlotOverlayScale(style), CardsConfig.BoardDefaults.SlotOverlayScale[b]);
-        n += Fac(payload, ref i, NetProtocol.TuneClusterScale,
-                 CardsConfig.ClusterScale(style), Defaults.ClusterScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneDecisionScale,
                  CardsConfig.DecisionScale(style), Defaults.DecisionScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneFanFlatCurvatureFactor,
@@ -455,8 +446,8 @@ internal static class BoardTuningSampler
         // other two were a stated PENDING debt, not a decision. RemoteBoardFurniture branches
         // Round/Square for the rest pair and the Confirm/Undo/USE column now, so all three ride and
         // none of them is a field that reports "covered" while a peer still sees the wrong shape.
-        n += Enum8(payload, ref i, NetProtocol.TuneRoundCapShape,
-                   WorldUI.ButtonTuning.RoundShape, Defaults.RoundButtons_Shape);
+        // TWO CAP SHAPES RIDE, not three: id 228 went with the [RoundButtons] family it belonged
+        // to. The skip cap takes TuneGenericCapShape with the rest of its cluster.
         // …and the two BOOLS of the [ButtonColors] family, which is what a two-state dial is in a
         // one-byte container. A bool has no quantization to speak of, so "differs from the shipped
         // default" is the code comparison every other kind here makes, trivially.
@@ -650,10 +641,6 @@ internal readonly struct RemoteBoardTuning
     public Vector3 DecisionOffset { get; }
     public Vector3 SlotOverlayOffset { get; }
 
-    /// <summary>[Cards] ClusterOffset_{board} — where the owner's docked turn-flow SKIP cap
-    /// stands. Its ClusterScale twin has ridden the wire since record 28 shipped; the position
-    /// could not, because until ModBuild 97 neither end applied it (NetProtocol.TuneClusterOffset).</summary>
-    public Vector3 ClusterOffset { get; }
 
     /// <summary>The BOARD MESH's own pose offset inside the board root
     /// (<c>PlayTray.SetAssetPose</c>). The bronze board ships a non-zero default, so a peer on
@@ -663,8 +650,6 @@ internal readonly struct RemoteBoardTuning
     // ---- LENGTH dials (metres) --------------------------------------------------------------
     public float PileSpacing { get; }
     public float RestButtonDiameter { get; }
-    public float RestButtonSpacing { get; }
-    public float GenericButtonSpacing { get; }
     public float SlotOverlaySpacing { get; }
     public float DecisionGap { get; }
     public float CardWidth { get; }
@@ -690,31 +675,14 @@ internal readonly struct RemoteBoardTuning
     /// berth, in metres.</summary>
     public float ItemBerthRingThickness { get; }
 
-    // ---- the KEYCAP GEOMETRY family (ids 81..98 + the shape at 228). Every one of these was a
-    // frozen constant in RemoteBoardFurniture until this build; see NetProtocol's block comment on
-    // TuneRoundOffsetX for the debt they pay off and the report that cashed it in.
-
-    /// <summary>[RoundButtons] OffsetX — the turn-flow SKIP cap group's sideways seat.</summary>
-    public float RoundOffsetX { get; }
-    /// <summary>[RoundButtons] OffsetY — that group's up-board seat.</summary>
-    public float RoundOffsetY { get; }
-    /// <summary>[RoundButtons] OffsetZ — how far out of the board face it is seated.</summary>
-    public float RoundOffsetZ { get; }
-    /// <summary>[RoundButtons] CapSize — the turn-flow cap radius.</summary>
-    public float RoundCapSize { get; }
-    /// <summary>[RoundButtons] Width — its width while the shape is Square.</summary>
-    public float RoundCapWidth { get; }
-    /// <summary>[RoundButtons] Height — its height while the shape is Square.</summary>
-    public float RoundCapHeight { get; }
-    /// <summary>[RoundButtons] Depth — its extrusion toward the player.</summary>
-    public float RoundCapDepth { get; }
-    /// <summary>[RoundButtons] Travel — how far it sinks under a press.</summary>
-    public float RoundCapTravel { get; }
-
-    /// <summary>[RoundButtons] Shape — Round puck or Square keycap. Resolved through a KNOWN-MEMBER
-    /// test, never by casting the wire byte: an unrecognised code falls back to the shipped shape,
-    /// so a corrupt or future sender can only ever make the cap look like this build's default.</summary>
-    public ButtonShape RoundCapShape { get; }
+    // ---- the KEYCAP GEOMETRY family (ids 89..98 + the shapes at 231/232). Every one of these was
+    // a frozen constant in RemoteBoardFurniture until they were wired.
+    //
+    // NINE MEMBERS LEFT THIS BLOCK ON 2026-08-25 — the eight [RoundButtons] lengths and their shape.
+    // They described the turn-flow SKIP cap's OWN geometry family, and the cap no longer has one: it
+    // is a generic board keycap on the board's third recess, so a peer builds it from the
+    // [BoardButtons] members immediately below and the [Cards] GenericButtonShape further down,
+    // exactly as it builds Confirm and Undo. See NetProtocol's ids 81..88 block.
 
     /// <summary>[BoardButtons] Width — the Confirm/Undo keycap width.</summary>
     public float BoardCapWidth { get; }
@@ -774,8 +742,6 @@ internal readonly struct RemoteBoardTuning
     public Color BoardCapTint { get; }
     /// <summary>[ButtonColors] DashCapTint — the follow/pin plate face multiplier.</summary>
     public Color DashCapTint { get; }
-    /// <summary>[ButtonColors] ClusterCapTint — the turn-flow SKIP cap face multiplier.</summary>
-    public Color ClusterCapTint { get; }
     /// <summary>[ButtonColors] RestCapTint — the short/long rest cap face multiplier.</summary>
     public Color RestCapTint { get; }
 
@@ -785,10 +751,18 @@ internal readonly struct RemoteBoardTuning
     public float ElementsScale { get; }
     public float PileScale { get; }
     public float ActiveCardScale { get; }
+
+    /// <summary>[Cards] ButtonStackSpacing — the owner's generic-keycap stack spread, as a multiple
+    /// of THEIR board's own recess pitch. The pitch itself never travels: the peer measures it off
+    /// its own clone of the same prefab, so the product is identical on both ends (the same argument
+    /// that keeps the fitted cap SIZE off the wire — see RemoteTrayVisual.SeatMinHalf).</summary>
+    public float ButtonStackSpacing { get; }
+
+    /// <summary>[Cards] RestStackSpacing — the same for the short/long rest discs.</summary>
+    public float RestStackSpacing { get; }
     /// <summary>The owner's slot-overlay size — the blinking wanted-glow AND the card that rests in
     /// it, one number (<c>[Cards] SlotOverlayScale_{board}</c>). See NetProtocol's field doc.</summary>
     public float SlotOverlayScale { get; }
-    public float ClusterScale { get; }
     public float DecisionScale { get; }
     public float FanFlatCurvatureFactor { get; }
     public float FanTiltFactor { get; }
@@ -914,9 +888,9 @@ internal readonly struct RemoteBoardTuning
         HoverHintOffset = V(payload, len, NetProtocol.TuneHoverHintOffset,
                             CardsConfig.BoardDefaults.HoverHintOffset[b]);
         ConfirmUndoOffset = V(payload, len, NetProtocol.TuneConfirmUndoOffset,
-                              CardsConfig.BoardDefaults.ConfirmUndoOffset[b]);
+                              Defaults.ConfirmUndoOffset);
         RestButtonOffset = V(payload, len, NetProtocol.TuneRestButtonOffset,
-                             CardsConfig.BoardDefaults.RestButtonOffset[b]);
+                             Defaults.RestButtonOffset);
         PinOffset = V(payload, len, NetProtocol.TunePinOffset,
                       CardsConfig.BoardDefaults.PinOffset[b]);
         ItemUseSlotOffset = V(payload, len, NetProtocol.TuneItemUseSlotOffset,
@@ -927,16 +901,10 @@ internal readonly struct RemoteBoardTuning
                               CardsConfig.BoardDefaults.SlotOverlayOffset[b]);
         AssetOffset = V(payload, len, NetProtocol.TuneAssetOffset,
                         CardsConfig.BoardDefaults.AssetOffset[b]);
-        ClusterOffset = V(payload, len, NetProtocol.TuneClusterOffset,
-                          Defaults.ClusterOffset_ByBoard[b]);
 
         PileSpacing = L(payload, len, NetProtocol.TunePileSpacing, Defaults.PileSpacing_ByBoard[b]);
         RestButtonDiameter = L(payload, len, NetProtocol.TuneRestButtonDiameter,
-                               CardsConfig.BoardDefaults.RestButtonDiameter[b]);
-        RestButtonSpacing = L(payload, len, NetProtocol.TuneRestButtonSpacing,
-                              CardsConfig.BoardDefaults.RestButtonSpacing[b]);
-        GenericButtonSpacing = L(payload, len, NetProtocol.TuneGenericButtonSpacing,
-                                 CardsConfig.BoardDefaults.GenericButtonSpacing[b]);
+                               Defaults.RestButtonDiameter);
         SlotOverlaySpacing = L(payload, len, NetProtocol.TuneSlotOverlaySpacing,
                                CardsConfig.BoardDefaults.SlotOverlaySpacing[b]);
         DecisionGap = L(payload, len, NetProtocol.TuneDecisionGap,
@@ -957,21 +925,6 @@ internal readonly struct RemoteBoardTuning
         FanRadius = L(payload, len, NetProtocol.TuneFanRadius, Defaults.FanRadius);
         ItemBerthRingThickness = L(payload, len, NetProtocol.TuneItemBerthRingThickness,
                                    Defaults.ItemBerthRingThickness);
-
-        RoundOffsetX = L(payload, len, NetProtocol.TuneRoundOffsetX, Defaults.RoundButtons_OffsetX);
-        RoundOffsetY = L(payload, len, NetProtocol.TuneRoundOffsetY, Defaults.RoundButtons_OffsetY);
-        RoundOffsetZ = L(payload, len, NetProtocol.TuneRoundOffsetZ, Defaults.OffsetZ);
-        RoundCapSize = L(payload, len, NetProtocol.TuneRoundCapSize, Defaults.RoundButtons_CapSize);
-        RoundCapWidth = L(payload, len, NetProtocol.TuneRoundCapWidth, Defaults.RoundButtons_Width);
-        RoundCapHeight = L(payload, len, NetProtocol.TuneRoundCapHeight, Defaults.RoundButtons_Height);
-        RoundCapDepth = L(payload, len, NetProtocol.TuneRoundCapDepth, Defaults.RoundButtons_Depth);
-        RoundCapTravel = L(payload, len, NetProtocol.TuneRoundCapTravel, Defaults.RoundButtons_Travel);
-        // KNOWN-MEMBER test, not a cast: the wire byte selects a shape only when it names one this
-        // build has. Anything else — a corrupt packet, a future sender's third shape — resolves to
-        // the SHIPPED member, which is the same picture every pre-record build drew.
-        RoundCapShape = Shape(C(payload, len, NetProtocol.TuneRoundCapShape,
-                                (int)Defaults.RoundButtons_Shape),
-                              Defaults.RoundButtons_Shape);
 
         BoardCapWidth = L(payload, len, NetProtocol.TuneBoardCapWidth, Defaults.BoardButtons_Width);
         BoardCapHeight = L(payload, len, NetProtocol.TuneBoardCapHeight, Defaults.BoardButtons_Height);
@@ -1017,9 +970,6 @@ internal readonly struct RemoteBoardTuning
         DashCapTint = Cl(payload, len, NetProtocol.TuneDashCapTint,
                          new Color(Defaults.DashCapTintR, Defaults.DashCapTintG,
                                    Defaults.DashCapTintB, 1f));
-        ClusterCapTint = Cl(payload, len, NetProtocol.TuneClusterCapTint,
-                            new Color(Defaults.ClusterCapTintR, Defaults.ClusterCapTintG,
-                                      Defaults.ClusterCapTintB, 1f));
         RestCapTint = Cl(payload, len, NetProtocol.TuneRestCapTint,
                          new Color(Defaults.RestCapTintR, Defaults.RestCapTintG,
                                    Defaults.RestCapTintB, 1f));
@@ -1034,7 +984,10 @@ internal readonly struct RemoteBoardTuning
                             CardsConfig.BoardDefaults.ActiveCardScale[b]);
         SlotOverlayScale = F(payload, len, NetProtocol.TuneSlotOverlayScale,
                              CardsConfig.BoardDefaults.SlotOverlayScale[b]);
-        ClusterScale = F(payload, len, NetProtocol.TuneClusterScale, Defaults.ClusterScale_ByBoard[b]);
+        ButtonStackSpacing = F(payload, len, NetProtocol.TuneButtonStackSpacing,
+                               Defaults.ButtonStackSpacing);
+        RestStackSpacing = F(payload, len, NetProtocol.TuneRestStackSpacing,
+                             Defaults.RestStackSpacing);
         DecisionScale = F(payload, len, NetProtocol.TuneDecisionScale, Defaults.DecisionScale_ByBoard[b]);
         FanFlatCurvatureFactor = F(payload, len, NetProtocol.TuneFanFlatCurvatureFactor,
                                    Defaults.FanFlatCurvatureFactor);
@@ -1162,7 +1115,7 @@ internal readonly struct RemoteBoardTuning
         Tuned
             ? $"style={Style}, {FieldCount} tuned dial(s): objectives={ObjectivesOffset:F3}" +
               $"(×{ObjectivesScale:F2}), piles={PileOffset:F3}(step {PileSpacing:F3}, ×{PileScale:F2}), " +
-              $"initiative={InitiativeOffset:F3}, cluster={ClusterOffset:F3}(×{ClusterScale:F2}), " +
+              $"initiative={InitiativeOffset:F3}, " +
               $"mesh={AssetOffset:F3}" +
               $"(pitch {AssetPitchDegrees:F1}°, yaw {AssetYawDegrees:F1}°, roll {AssetRollDegrees:F1}°), " +
               $"fan r={FanEffectiveRadius:F3} sweep={FanArcSweepDegrees:F1}° step={FanPerCardStepDegrees:F1}°"

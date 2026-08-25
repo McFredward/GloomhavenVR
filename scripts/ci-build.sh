@@ -9,10 +9,14 @@
 # The tree builds with EXACTLY six warnings and they are all pre-existing
 # nullable-analysis complaints:
 #
-#   CS8602  WorldUI/ButtonCluster.cs                 (two sites)
 #   CS8602  Net/RemotePickBanner.cs
 #   CS8602  Net/RemoteHandFan.cs
 #   CS8604  WorldUI/Surfaces/StatPanelSurface.cs     (two sites)
+#
+# It was SIX until 2026-08-25, when WorldUI/ButtonCluster.cs was deleted outright (the user
+# retired the turn-flow cap group it drew) and took its two CS8602 sites with it. That is the
+# ratchet turning in the intended direction — a warning that goes away because its file does is
+# still one fewer place a seventh can hide.
 #
 # `TreatWarningsAsErrors` is not on and cannot be turned on while those six exist, so
 # without a gate a seventh warning is invisible — it scrolls past in a log nobody
@@ -20,8 +24,8 @@
 #
 # Line numbers are deliberately NOT checked: they move whenever the surrounding code
 # is edited and a gate that cries wolf gets switched off. What IS checked is the
-# count (6), the diagnostic codes (only CS8602/CS8604) and the FILES (only those
-# four). A new warning of any other kind, in any other file, or a seventh of the same
+# count (4), the diagnostic codes (only CS8602/CS8604) and the FILES (only those
+# three). A new warning of any other kind, in any other file, or a fifth of the same
 # kind, fails the build.
 #
 # Fix the six and this script tells you to lower the number — that is the intended
@@ -32,9 +36,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-Release}"
 LOG="$ROOT/build-ci.log"
 
-EXPECT_WARNINGS=6
+EXPECT_WARNINGS=4
 EXPECT_CODES="CS8602 CS8604"
-EXPECT_FILES="ButtonCluster.cs RemotePickBanner.cs RemoteHandFan.cs StatPanelSurface.cs"
+EXPECT_FILES="RemotePickBanner.cs RemoteHandFan.cs StatPanelSurface.cs"
 
 set -o pipefail
 bash "$ROOT/scripts/build.sh" "$CONFIG" 2>&1 | tee "$LOG"

@@ -17,15 +17,17 @@ internal static partial class Defaults
     internal const bool BarsOccluded = false;  // => [WorldUI] BarsOccluded
 
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
-    internal const float RoundButtons_OffsetX = -0.045f;                                // => [RoundButtons] OffsetX
-    internal const float RoundButtons_OffsetY = 0.26f;                                  // => [RoundButtons] OffsetY
-    internal const float OffsetZ = 0.005f;                                              // => [RoundButtons] OffsetZ
-    internal const Cards.ButtonShape RoundButtons_Shape = Cards.ButtonShape.Square;     // => [RoundButtons] Shape
-    internal const float RoundButtons_CapSize = 0.042f;                                 // => [RoundButtons] CapSize
-    internal const float RoundButtons_Width = 0.089f;                                   // => [RoundButtons] Width
-    internal const float RoundButtons_Height = 0.035f;                                  // => [RoundButtons] Height
-    internal const float RoundButtons_Depth = 0.015f;                                   // => [RoundButtons] Depth
-    internal const float RoundButtons_Travel = 0.008f;                                  // => [RoundButtons] Travel
+    // THE WHOLE [RoundButtons] FAMILY IS GONE (2026-08-25), and so is the group it sized. Nine
+    // constants stood here — OffsetX/Y/Z, Shape, CapSize, Width, Height, Depth, Travel — and every
+    // one of them described the SEPARATE turn-flow SKIP cap group WorldUI/ButtonCluster.cs drew in
+    // its own column at board-local (0.148, -0.124). User ruling, verbatim: "Ich moechte daher,
+    // dass die Button-Gruppe der 'Ueberspringen Buttons' komplett verschwindet ... so dass all
+    // diese buttons gleich aussehen und untereinander in den jeweiligen Slots sitzen." The skip cap
+    // is a member of the GENERIC cluster now, on the board's own ButtonSeat3 recess, built from the
+    // same [BoardButtons] Width/Height/Depth/Travel as Confirm and Undo — which is what "gleich
+    // aussehen" means expressed as code. A second geometry family for one of three identical caps
+    // could only make them differ again. The keys stay in a tuned cfg as UNMAPPED entries
+    // (scripts/rebase-defaults.py), which is what retirement looks like here.
     internal const float BoardButtons_Width = 0.063f;                                   // => [BoardButtons] Width
     internal const float BoardButtons_Height = 0.065f;                                  // => [BoardButtons] Height
     internal const float BoardButtons_Depth = 0.014f;                                   // => [BoardButtons] Depth
@@ -53,9 +55,9 @@ internal static partial class Defaults
     internal const float DashCapTintR = 0.5f;                                           // => [ButtonColors] DashCapTintR
     internal const float DashCapTintG = 0.5f;                                           // => [ButtonColors] DashCapTintG
     internal const float DashCapTintB = 0.5f;                                           // => [ButtonColors] DashCapTintB
-    internal const float ClusterCapTintR = 0.5f;                                        // => [ButtonColors] ClusterCapTintR
-    internal const float ClusterCapTintG = 0.5f;                                        // => [ButtonColors] ClusterCapTintG
-    internal const float ClusterCapTintB = 0.5f;                                        // => [ButtonColors] ClusterCapTintB
+    // ClusterCapTintR/G/B stood here and went with the [RoundButtons] group they tinted — the
+    // round-phase cluster caps' face multiplier, whose only ever-drawn member was the turn-flow
+    // SKIP. That cap takes BoardCapTint with its two siblings now.
     internal const float RestCapTintR = 0.5f;                                           // => [ButtonColors] RestCapTintR
     internal const float RestCapTintG = 0.5f;                                           // => [ButtonColors] RestCapTintG
     internal const float RestCapTintB = 0.5f;                                           // => [ButtonColors] RestCapTintB
@@ -99,7 +101,9 @@ internal static partial class Defaults
     // Master, UseBars, DoomPicker, DistributePanel, FlatScreen, FlatScreenAutoShow,
     // CatchAllModals, MenuPopupFloat and ManualScreenChord are GONE (user ruling 2026-08-11:
     // essential — those features are unconditional now; see WorldUIConfig.cs).
-    internal const bool ButtonCluster = true;                // => [WorldUI] ButtonCluster
+    // ButtonCluster (the [WorldUI] master switch over the turn-flow cap group) went with the
+    // group itself — see the [RoundButtons] tombstone above. The skip cap it gated is a
+    // generic board keycap now and follows the board.
     internal const bool CombatLog = true;                    // => [WorldUI] CombatLog
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
