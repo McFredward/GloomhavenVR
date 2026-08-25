@@ -771,11 +771,22 @@ internal static class ActorBars
     /// THE HARD CEILING on a bar's anchor offset, world units.
     ///
     /// <para>Its original comment read "the tallest boss mini is ~5 wu, so any larger figure
-    /// height is a mismeasured bound, not a figure". That is an ASSUMPTION ABOUT THE GAME'S
-    /// CONTENT, and the boss-dragon report (Drachen.jpg, ModBuild 290) is the first case that
-    /// could falsify it — so the number is now named, and <see cref="MeasureAnchorOffsetWU"/>
-    /// says in its log line WHEN this arm is the one that bound the result. Nobody should move
-    /// it again without a hardware line naming it as the binding arm.</para>
+    /// height is a mismeasured bound, not a figure". ModBuild 291's hardware log is the first
+    /// measurement of that claim and it cuts both ways. The claim is FALSE about the box — the
+    /// boss's mesh AABB is 6.84 wu tall — and very nearly TRUE about the figure: once the box's
+    /// own admitted slack is removed (<see cref="FigureBody.TrustedTopY"/>) the boss's top is
+    /// 4.26 wu and its bar lands at 4.77. So the ceiling is right about content and was wrong
+    /// only about what it was measuring.</para>
+    ///
+    /// <para><b>IT NO LONGER BINDS ANYTHING, AND IT STAYS.</b> In ModBuild 291 this arm bound the
+    /// boss (raw 6.37 -> 6.00) and that clamp was the visible defect. Under the trusted-top rule
+    /// the largest figure in the log clears it by 1.23 wu. What it still guards is the case the
+    /// trusted-top rule cannot see: a renderer whose bounds are garbage in a way the underhang
+    /// does NOT reveal (a mesh folded into a foreign batch that survives the isPartOfStaticBatch
+    /// filter, a VFX mesh that is neither particle nor trail). A bar 6 wu up is wrong; a bar 40 wu
+    /// up is a bar the player will never find again. <see cref="MeasureAnchorOffsetWU"/> still
+    /// names this arm in its line when it bites, and a hardware line naming it is now genuine news
+    /// rather than the expected case.</para>
     /// </summary>
     private const float AnchorHardCeilingWU = 6f;
 
@@ -795,16 +806,48 @@ internal static class ActorBars
     /// that frame can see a hierarchy that is not yet the figure the player will look at, and the
     /// one value it produced was then kept forever.</para>
     ///
-    /// <para>The resample is self-cancelling and self-reporting: as soon as two consecutive samples
-    /// agree AND the later one is a real measurement (not the vanilla fallback), the budget drops
-    /// to zero and the figure's renderers are never walked again. A bar whose adopt-time reading
-    /// was already right pays exactly ONE extra walk and changes by exactly nothing — and a bar
-    /// that DOES change writes the line that proves it.</para>
+    /// <para><b>WHAT THE HARDWARE LOG SAID ABOUT THAT MECHANISM (ModBuild 291) — the guess above
+    /// is not what happened.</b> The boss WAS measured mid-assembly and the resample DID correct
+    /// it (box 2.37 -> 6.84 wu, head joint 1.52 -> 3.41), so the remedy works. But the renderer
+    /// census is BIT-IDENTICAL across the two samples — "5 mesh renderer(s) measured of 36 on
+    /// ACTIVE objects (48 incl. inactive) ... 2 measured with Renderer.enabled=false" both times.
+    /// The same renderers reported bounds 2.89x apart. Nothing was streamed in between; the
+    /// figure was RESCALED (or its skeleton re-posed) under a renderer set that never changed.
+    /// The material-loader story is a real mechanism and it is not this one, and a census that
+    /// does not move is exactly the evidence that would otherwise have been read as "nothing
+    /// happened".</para>
+    ///
+    /// <para><b>THE BUDGET IS SPENT IN FULL, AND THAT IS A CHANGE.</b> The original latch dropped
+    /// the budget to zero as soon as two consecutive samples agreed. In the log it never fired for
+    /// an ANIMATED figure: BruteID's samples read 2.59, 2.55, 2.54, 2.55, 2.54, 2.55, 2.54 — its
+    /// skinned bounds breathe with the animation, <c>Mathf.Approximately</c> is a relative epsilon
+    /// of about 1e-6, and so the Brute burned all eight samples and wrote seven log lines, which
+    /// is seven of the sixteen anchor lines in that session. So the latch is gone: the budget is
+    /// always spent, and the ADOPT-AND-LOG step is gated on
+    /// <see cref="AnchorResampleTolerance"/> instead. That trades six extra subtree walks per
+    /// figure over four seconds (48 objects at the largest, ~40 walks per second across a full
+    /// board, none of them a scene sweep) for two things worth more: the log stops repeating
+    /// itself, and a figure that finishes assembling LATER than its first two samples can no
+    /// longer latch a wrong number forever.</para>
     /// </summary>
     private const int AnchorSampleBudget = 8;
 
     /// <summary>Seconds between anchor resamples; see <see cref="AnchorSampleBudget"/>.</summary>
     private const float AnchorSampleIntervalSeconds = 0.5f;
+
+    /// <summary>
+    /// How much a resample must move the anchor, AS A FRACTION OF THE ANCHOR ITSELF, before it is
+    /// adopted and written to the log.
+    ///
+    /// <para>Replaces <c>Mathf.Approximately</c>, which asked "are these two floats the same
+    /// number?" when the question is "is this a different ANSWER?". A skinned figure's bounds
+    /// breathe with its animation — BruteID's eight samples in the ModBuild 291 log span 2.54 to
+    /// 2.59 wu — so the float test is never true and every sample logged. 2 % of the anchor height
+    /// is 5 cm of board on a Brute and 10 cm on the boss: below the width of the bar itself, and
+    /// far below anything a player could see move. Compared against the ADOPTED value, never the
+    /// previous sample, so a slow drift still accumulates until it crosses.</para>
+    /// </summary>
+    private const float AnchorResampleTolerance = 0.02f;
 
     /// <summary>
     /// Board-space anchor height above the track point, from the miniature's renderer
@@ -820,28 +863,32 @@ internal static class ActorBars
     /// returned, i.e. when the bounds rule never ran at all.</para>
     /// </summary>
     private static float MeasureAnchorOffsetWU(
-        WorldspacePanelUIController controller, out string report, out bool measured)
+        WorldspacePanelUIController controller, bool wantReport, out string report, out bool measured)
     {
         measured = false;
+        report = string.Empty;
         float fallback = Mathf.Max(controller.m_WorldspaceOffsetY, 0.2f);
 
         GameObject tracked = controller.m_ObjectToTrack;
         if (tracked == null)
         {
-            report = "MEASUREMENT NEVER RAN — the controller has no object to track; "
-                     + $"vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            if (wantReport)
+                report = "MEASUREMENT NEVER RAN — the controller has no object to track; "
+                         + $"vanilla fallback {fallback:F2} wu{Hex(fallback)}";
             return fallback;
         }
         if (!TryGetTrackPoint(controller, out Vector3 track))
         {
-            report = "MEASUREMENT NEVER RAN — no track point (head bone AND base are both "
-                     + $"missing); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            if (wantReport)
+                report = "MEASUREMENT NEVER RAN — no track point (head bone AND base are both "
+                         + $"missing); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
             return fallback;
         }
 
-        string trackMode =
-            controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.HeadBone
-            && controller.m_HeadBonePoint != null
+        string trackMode = !wantReport
+            ? string.Empty
+            : controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.HeadBone
+              && controller.m_HeadBonePoint != null
                 ? "HeadBone"
                 : controller.m_PointToTrackOnActor == WorldspaceDisplayPanelBase.PoinToTrack.Base
                     ? "Base"
@@ -859,6 +906,16 @@ internal static class ActorBars
         float minY = float.MaxValue;
         string tallest = "?";
         string tallestKind = "?";
+        // THE LOWEST RENDERER, BY NAME. The slack correction rests on one fact — that the box
+        // reaches below the floor the figure stands on — and on one assumption: that the padding
+        // which produced that underhang is roughly symmetric, so the same distance can be taken
+        // off the top. This field is what can falsify the assumption in ONE reading. If the
+        // lowest renderer is the SAME object as the tallest, the underhang and the overhang are
+        // one baked box and the symmetry argument holds. If it is a DIFFERENT object — a ground
+        // decal, a shadow blob, a socket mesh under the base — then the underhang says nothing
+        // about the top and this correction is measuring the wrong thing. Nothing in the
+        // ModBuild 291 log could tell those two apart.
+        string lowest = "?";
         for (int i = 0; i < RendererScratch.Count; i++)
         {
             Renderer r = RendererScratch[i];
@@ -900,37 +957,99 @@ internal static class ActorBars
                     ? $"SkinnedMeshRenderer, updateWhenOffscreen={smr.updateWhenOffscreen}"
                     : "MeshRenderer";
             }
-            if (b.min.y < minY) minY = b.min.y;
+            if (b.min.y < minY)
+            {
+                minY = b.min.y;
+                lowest = r.name;
+            }
             used++;
         }
         RendererScratch.Clear();
 
-        string census = $"{used} mesh renderer(s) measured of {onActiveObjects} on ACTIVE objects "
-                        + $"({CountAllRenderers(tracked)} incl. inactive), {batched} static-batched "
-                        + $"and {notMesh} non-mesh skipped, {componentDisabled} measured with "
-                        + "Renderer.enabled=false (materials still streaming)";
+        // THE SECOND WALK IS NOW PAID FOR ONLY BY THE LINES THAT PRINT. This string used to be
+        // built on EVERY call — including the seven silent resamples per figure — and
+        // CountAllRenderers inside it is a full includeInactive subtree walk, so the "walked only
+        // on a frame that is about to LOG" claim in its own doc comment was false. It is true now.
+        string census = !wantReport
+            ? string.Empty
+            : $"{used} mesh renderer(s) measured of {onActiveObjects} on ACTIVE objects "
+              + $"({CountAllRenderers(tracked)} incl. inactive), {batched} static-batched "
+              + $"and {notMesh} non-mesh skipped, {componentDisabled} measured with "
+              + "Renderer.enabled=false (materials still streaming)";
 
         if (used == 0)
         {
-            report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — no usable renderer: "
-                     + $"{census}; vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            if (wantReport)
+                report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — no usable "
+                         + $"renderer: {census}; vanilla fallback {fallback:F2} wu{Hex(fallback)}";
             return fallback;
         }
 
-        float height = maxY - minY;
-        if (height <= 0.01f)
+        float boxHeight = maxY - minY;
+        if (boxHeight <= 0.01f)
         {
-            report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — degenerate height "
-                     + $"{height:F3} wu ({census}); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+            if (wantReport)
+                report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — degenerate height "
+                         + $"{boxHeight:F3} wu ({census}); vanilla fallback {fallback:F2} "
+                         + $"wu{Hex(fallback)}";
             return fallback;
         }
 
+        // ── THE TOP OF THE FIGURE, WHICH IS NOT THE TOP OF THE BOX ────────────────────────
+        // ModBuild 291, his hardware, ElderDrakeID: bounds y -1.29..5.55 over a track base at
+        // y 0.00. The box claims 1.29 wu of dragon below the floor it is standing on, so 1.29 wu
+        // of that box is provably empty and the box is admitting its own padding. Subtract the
+        // same slack off the top. See FigureBody.TrustedTopY for the full argument, for why the
+        // head joint is a FLOOR here and not the anchor (a drake's head joint sits at 37 % of its
+        // box — anchoring there would bury the small drakes' bars inside their own backs), and
+        // for what happens on a figure with no head joint (nothing: the floor is simply absent).
+        //
+        // THE BASE, NOT THE TRACK POINT. The slack is measured against the GROUND under the
+        // figure. m_PointToTrackOnActor may put the track point on the HEAD BONE, and measuring
+        // an "underhang" from a head would subtract the whole body. No base point => no
+        // correction, and the line says so.
+        //
+        // HOW THE GAME RESOLVES BOTH, read out of WorldspaceDisplayPanelBase.Init (decompiled,
+        // lines 103-124) — the brief for this round asked and the answer is not a guess:
+        //   * the head joint is found BY NAME, once, at Init: FindInChildren("C_headSkel01_JNT").
+        //     A character without that transform simply leaves m_HeadBonePoint null — UNLESS the
+        //     panel is set to track the head bone, in which case the game logs "Unable to find
+        //     head bone on character" and DEACTIVATES THE PANEL. So "no head joint" never means a
+        //     bar in the wrong place; it means either this floor is absent (everything else
+        //     unchanged) or there is no bar at all.
+        //   * the base is found the same way, FindInChildren("Base"), and its absence likewise
+        //     DEACTIVATES THE PANEL. m_BasePoint is therefore never null on a bar that is drawing,
+        //     and the baseKnown guard below is a belt rather than a live branch. It is kept
+        //     because this method also runs on panels mid-Init.
+        //   * m_HeadBaseOffset is captured ONCE at Init as (head - base). On a figure that
+        //     rescales after Init — and the boss's own mesh grew 2.89x half a second after this
+        //     class first measured it — that offset is stale for the whole session. It only feeds
+        //     the HeadBoneStatic track mode, which none of the five figures in the log use, but a
+        //     bar parked oddly on some future figure in THAT mode has a cause waiting here.
+        Transform? basePoint = controller.m_BasePoint;
+        bool baseKnown = basePoint != null;
+        float baseY = baseKnown ? basePoint!.position.y : track.y;
+        Transform? headBone = controller.m_HeadBonePoint;
+        bool headKnown = headBone != null;
+        float headY = headKnown ? headBone!.position.y : 0f;
+
+        float top = FigureBody.TrustedTopY(
+            minY, maxY, baseY, baseKnown, headY, headKnown, out bool fromSlack);
+        float underhang = FigureBody.Underhang(minY, baseY);
+
+        // The height the clearance is a percentage OF is now the corrected figure, not the padded
+        // box: 12 % of a box that is 60 % padding is not 12 % of a dragon.
+        float height = Mathf.Max(top - track.y, 0.01f);
         // Clear the top of the mini by ~12% of its own height, everything in board units.
         float clearance = 0.12f * height;
-        float raw = (maxY - track.y) + clearance;
+        float raw = (top - track.y) + clearance;
         float softCeiling = fallback + height;
         float hi = Mathf.Min(softCeiling, AnchorHardCeilingWU);
         float clamped = Mathf.Clamp(raw, AnchorFloorWU, hi);
+
+        measured = true;
+        if (!wantReport)
+            return clamped;
 
         string arm =
             raw < AnchorFloorWU
@@ -942,22 +1061,33 @@ internal static class ActorBars
                           + $"allowed {softCeiling:F2})")
                     : "NOTHING — the raw offset stands";
 
-        measured = true;
-        // WHERE THE HEAD IS. The rule above anchors on the BOUNDING BOX top, which on a humanoid
-        // mini IS the head and on a winged one is a wing tip several figure-heights higher. The
-        // game hands us the head joint itself (C_headSkel01_JNT, WorldspaceDisplayPanelBase.Init),
-        // so the line reports it beside the box: "box top 9.3, head joint 3.1" is the whole
-        // argument for or against a head-anchored rule, and it must not cost another build to get.
-        Transform? headBone = controller.m_HeadBonePoint;
-        string head = headBone != null
-            ? $"head joint at {headBone.position.y - track.y:F2} wu above the track point"
-            : "no head joint on this character";
+        // WHICH TERM PRODUCED THE TOP. A correction that silently stops applying is a correction
+        // nobody can falsify, so the line names the winner rather than leaving it to arithmetic.
+        string topWhy = !baseKnown
+            ? "the RAW BOX TOP — no base point on this controller, so the slack correction was "
+              + "skipped entirely (pre-ModBuild-292 behaviour)"
+            : fromSlack
+                ? $"the SLACK-CORRECTED BOX: box top {maxY:F2} minus {underhang:F2} wu of box "
+                  + $"reaching below the base at y {baseY:F2}"
+                : headKnown && headY >= maxY - 1e-4f
+                    ? "the RAW BOX TOP (the head joint is at or above it — a figure that IS its head)"
+                    : underhang <= 0f
+                        ? "the RAW BOX TOP — the box admits no slack (it does not reach below the base)"
+                        : "the HEAD JOINT FLOOR — the slack correction fell BELOW the head, which "
+                          + "means the box is padded asymmetrically and the head is all we trust";
 
-        report = $"track {trackMode} y={track.y:F2}; {census}; {head}; bounds y {minY:F2}..{maxY:F2} => "
-                 + $"height {height:F2} wu{Hex(height)}; TALLEST '{tallest}' ({tallestKind}); "
-                 + $"raw offset = (top-track) {maxY - track.y:F2} + 12% clearance {clearance:F2} "
-                 + $"= {raw:F2} wu; BOUND BY {arm} => {clamped:F2} wu{Hex(clamped)}; vanilla "
-                 + $"fallback would have been {fallback:F2} wu";
+        string head = headKnown
+            ? $"head joint at {headY - track.y:F2} wu above the track point"
+            : "no head joint on this character (the floor is absent; nothing else changes)";
+
+        report = $"track {trackMode} y={track.y:F2}; {census}; {head}; box y {minY:F2}..{maxY:F2} "
+                 + $"=> box height {boxHeight:F2} wu{Hex(boxHeight)}; TALLEST '{tallest}' "
+                 + $"({tallestKind}); LOWEST '{lowest}'{(lowest == tallest ? " — THE SAME RENDERER, so the underhang and the box top are one baked box" : " — a DIFFERENT renderer from the tallest, so the underhang may say nothing about the top")}; "
+                 + $"TOP {top:F2} wu from {topWhy}; raw offset = (top-track) "
+                 + $"{top - track.y:F2} + 12% clearance {clearance:F2} = {raw:F2} wu; BOUND BY "
+                 + $"{arm} => {clamped:F2} wu{Hex(clamped)}; the RAW BOX TOP would have given "
+                 + $"{(maxY - track.y) + 0.12f * boxHeight:F2} wu and the vanilla fallback "
+                 + $"{fallback:F2} wu";
         return clamped;
     }
 
@@ -1020,9 +1150,10 @@ internal static class ActorBars
 
     /// <summary>
     /// Re-measure this bar's anchor while its sample budget lasts (see
-    /// <see cref="AnchorSampleBudget"/>), and adopt the new value if it differs. Silent unless the
-    /// answer CHANGES — a resample that agrees with the shipped value is not news, and the budget
-    /// is dropped the moment a real measurement repeats itself, so the steady state is zero work.
+    /// <see cref="AnchorSampleBudget"/>), and adopt the new value when it moves by more than
+    /// <see cref="AnchorResampleTolerance"/>. Silent otherwise — a resample that agrees with the
+    /// shipped value is not news, and in ModBuild 291 that silence was what the old float-equality
+    /// test failed to produce for every animated figure on the board.
     /// </summary>
     private static void ResampleAnchor(Adopted adopted, WorldspacePanelUIController controller, float now)
     {
@@ -1031,18 +1162,17 @@ internal static class ActorBars
         adopted.AnchorSamplesLeft--;
         adopted.NextAnchorSample = now + AnchorSampleIntervalSeconds;
 
-        float offset = MeasureAnchorOffsetWU(controller, out string report, out bool measured);
-        if (Mathf.Approximately(offset, adopted.AnchorOffsetWU))
-        {
-            // Two agreeing readings and the later one is a REAL measurement => the figure has
-            // finished arriving. Stop walking it. (Two agreeing FALLBACKS prove nothing — the
-            // bounds rule still has not run — so those keep their remaining budget.)
-            if (measured)
-                adopted.AnchorSamplesLeft = 0;
+        // Silent sample: no census walk, no strings. The report costs a SECOND subtree walk and is
+        // paid for only by the samples that turn out to be news.
+        float offset = MeasureAnchorOffsetWU(controller, wantReport: false, out _, out _);
+        float current = adopted.AnchorOffsetWU;
+        if (Mathf.Abs(offset - current) <= AnchorResampleTolerance * Mathf.Max(Mathf.Abs(offset), Mathf.Abs(current)))
             return;
-        }
 
-        LogAnchor($"RESAMPLED (was {adopted.AnchorOffsetWU:F2} wu)",
+        // It moved. Measure once more WITH the report so the line explains the value it prints
+        // rather than the one before it, and adopt that reading.
+        offset = MeasureAnchorOffsetWU(controller, wantReport: true, out string report, out _);
+        LogAnchor($"RESAMPLED (was {current:F2} wu)",
                   LabelOf(controller, adopted.Actor), offset, report);
         adopted.AnchorOffsetWU = offset;
     }
@@ -1073,7 +1203,7 @@ internal static class ActorBars
                       * (s_depthScanPhaseSeq++ & (DepthScanPhaseBuckets - 1))
                       / DepthScanPhaseBuckets;
 
-        float anchorOffset = MeasureAnchorOffsetWU(controller, out string anchorReport, out _);
+        float anchorOffset = MeasureAnchorOffsetWU(controller, wantReport: true, out string anchorReport, out _);
 
         Adoptions[controller] = new Adopted
         {
