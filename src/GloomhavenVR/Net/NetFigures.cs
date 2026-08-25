@@ -781,8 +781,8 @@ internal static class NetFigures
         if (t.localScale != rec.HomeLocalScale)
             t.localScale = rec.HomeLocalScale;
         // Back at board size — tell FigureCloth so the cape's authored coefficients are restored
-        // verbatim and its simulation faded back in. Unconditional (not gated on the write above)
-        // because the size may already be home while the cloth is still mid-correction.
+        // verbatim and its simulation ramped back to full. Unconditional (not gated on the write
+        // above) because the size may already be home while the cloth is still mid-correction.
         FigureCloth.Note(t.gameObject, 1f);
     }
 

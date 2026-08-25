@@ -416,7 +416,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 284;
+    public const ushort ModBuild = 285;
+    // Build 285: SCALING A HELD FIGURE NO LONGER RE-COOKS ITS CAPE.
+    // Bundle UNCHANGED at 70,938,157 — DLL-only on top of 284.
+    //   "Wenn ich die Figuren in meiner Hand groesser skaliere hat es immer angefangen zu haengen
+    //   bzw. hatte ich kleinere Haenger."
+    //   MY ATTRIBUTION WAS WRONG AND THE LANE MEASURED IT INSTEAD OF ARGUING. I said the cost was
+    //   the `Cloth.coefficients` write. It is not. A Cloth microbenchmark built as a HEADLESS
+    //   UNITY 2021.3.5f1 LINUX PLAYER — the same editor the bundle uses — timed each call on its
+    //   own frame with a NULL control and a known-positive control, at 3721 cloth vertices:
+    //       NULL control (instrument floor)          0.0001 ms
+    //       coefficients = next (enabled)            0.0069
+    //       SetEnabledFading(false, .12)             0.0008
+    //       enabled = false                          0.0023
+    //       SetEnabledFading(TRUE, .12)             19.37      <-- the whole cost
+    //       known-positive: first cook          19.2-20.3
+    //   Linear in vertex count (2.8 / 8.0 / 18.6 / 34.7 ms at 441 / 1681 / 3721 / 6561, about
+    //   5.3 us/vertex), which puts HIS capes near 11,000 vertices: 172.93 ms / 3 cloths / 5.3 us.
+    //   THE MECHANISM: SetEnabledFading(false, ...) lets the component go enabled=false BY ITSELF
+    //   (measured: reads False 40 frames later with nobody having written it), so the fade back IN
+    //   is an ENABLE TRANSITION and PhysX re-cooks the fabric. Dropping the explicit `enabled`
+    //   writes and keeping only the fades still measured 20.45 ms — unchanged. It was never the
+    //   coefficients and never the enable flag; it was the cook behind the fade-in.
+    //   TWO MORE OF MY PREMISES THE LOG CONTRADICTS. There is NO steady component:
+    //   FigureGrab.HeldSize is absent from the STEPS TAIL line (floor 1.0 ms/s) in all three
+    //   preceding windows — under 0.011 ms/frame — in windows where FigureGrab.OffsetAnchorSelect
+    //   shows a grab was active, so the 2.046 ms average is spikes divided by 2044 frames. And
+    //   NINE SPIKES IS NOT THE COUNT: that window logged "spikes 104 (49 lines rate-limited)" and
+    //   p99 178.39 at n=2044 means ~20 frames above 178 ms, i.e. ~3.4 s of the step's 4.18 s
+    //   total. "Re-seed less often" was never the fix — one 172 ms frame is already 15x budget.
+    //   THE FIX: the enable/disable suspension is replaced by a maxDistance = 0 PIN, ramped over
+    //   the same 0.12 s, so the component never leaves the enabled state and never re-cooks.
+    //   THE ModBuild 137 GUARANTEE IS PRESERVED BY MEASUREMENT, NOT BY ARGUMENT: four arms, root
+    //   scaled 1.345x, sampled at +1/+2/+5/+15/+45/+90 frames — a DISABLED cloth reads 0.48790
+    //   flat, the PINNED cloth reads 0.48788/0.48793/0.48790/0.48790 (indistinguishable to five
+    //   decimals), while a cloth left simulating oscillates 0.408-0.542.
+    //   HEAD-TO-HEAD, the shipped algorithm transcribed back into the player against the new one
+    //   over a scripted stretch (105 frames):
+    //       REFERENCE (disabled)   worst 0.45 ms   total  0.47   enables 0   drift 0.00000
+    //       OLD (137-283)          worst 29.12     total 32.17   enables 1   drift 1.72018
+    //       NEW (285)              worst  0.97     total  3.77   enables 0   drift 0.06880
+    //   NEW's 0.97 ms is its cold first upload; p50 0.101 / p90 0.119 ms across working frames.
+    //   Settled coefficients equal pristine x settled factor to 1.0e-9. Desktop Linux
+    //   milliseconds — read the RATIO, and scale about 3x for his vertex counts.
+    //   A LATENT BUG FOUND ON THE WAY: UNITY'S UNCONSTRAINED SENTINEL IS float.MaxValue, NOT
+    //   Infinity. All 1681/3721/6561 defaults read back 3.402823E+38 and none is infinite, so the
+    //   shipped `float.IsInfinity(max) ? max : max * factor` guard NEVER FIRED and overflowed
+    //   float.MaxValue to a real +Infinity on every unpainted vertex. Harmless to the solver, but
+    //   the guard was not doing what its comment said. Fixed, and the once-per-session census now
+    //   reports the finite/unconstrained split.
+    //   TWO HOT-LOOP FLATTENINGS, MEASURED not assumed: hoisting the loop-invariant weight branch
+    //   and inlining the sentinel test took one upload from 0.49 ms to 0.101 ms (Mono does not
+    //   inline; 7442 calls per upload).
+    //   MULTIPLAYER: Note()'s contract, FactorEpsilon, SettleFrames and every call site are
+    //   untouched — only what a re-seed DOES changed. Both sides still settle on the same frame
+    //   rule from the same record-30 factor, and the ramp is unscaledDeltaTime-based so machines
+    //   at different frame rates ramp at the same wall-clock rate. Zero wire bytes moved.
+    //   NEEDS HIS HARDWARE: the ramp is a CONSTRAINT ramp, not the position-space blend
+    //   SetEnabledFading did. Same 0.12 s, not the same animation. If it reads wrong on a figure
+    //   at arm's length the dial is FigureCloth.FadeSeconds, not the mechanism. The confirming
+    //   number is FigureGrab.HeldSize's worst (was 172.93 ms), now flanked by
+    //   FigureGrab.Cloth.Seed and the counter FigureGrab.ClothSeeds, registered to PRINT AT ZERO
+    //   so an absent row cannot pass for a silent instrument.
+    //   NO GATE NUMBER MOVED, and NO NEW CONFIG: a dial defaulted to the new behaviour would have
+    //   churned four gate scripts for something a log line answers. Harness preserved at
+    //   .planning/perf/cloth-cook-harness/, write-up in .planning/perf/CLOTH-COOK.md.
     // Build 284: THE WALL TOPIC IS CLOSED — documented, and the spent instruments retired.
     // Bundle UNCHANGED at 70,938,157 — DLL-only on top of 283.
     //   "Ich bemerke keine Ruckler mehr bei der noch genausogut vorhandenen Logik mit den
