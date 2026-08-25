@@ -633,6 +633,14 @@ internal static partial class WindowMaterialise
     /// <para>The UV half of the usual gate is <b>not applicable here and is not faked</b>: a shard
     /// carries no texture coordinates and the shader samples no texture, so a UV signed area would
     /// be a number with no referent. Reporting one would be worse than reporting its absence.</para>
+    ///
+    /// <para><b>Why gating the CANONICAL shard is enough for every built one.</b> Each shard is the
+    /// canonical solid put through two transforms and only two: a per-shard squash
+    /// <c>(1, 1, squash)</c> with <c>squash</c> in 0.30..0.72, and a rotation. A diagonal scale with
+    /// all-positive entries has a positive determinant and a rotation has determinant 1, so neither
+    /// can flip winding — the gate on the canonical shard therefore holds for all of them. If
+    /// <c>squash</c> were ever allowed to reach zero or go negative that reasoning would break, which
+    /// is why its range is written as a literal pair rather than derived.</para>
     /// </summary>
     private static void GateShardWinding(out float signedVolume, out float worstOutward)
     {

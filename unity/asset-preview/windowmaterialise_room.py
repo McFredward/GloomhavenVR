@@ -283,18 +283,18 @@ def make_room():
     obs = []
 
     # table top - the window floats above it, debris flies over it
-    bpy.ops.mesh.primitive_plane_add(size=4.0, location=(0.0, 0.30, -0.34))
+    bpy.ops.mesh.primitive_plane_add(size=8.0, location=(0.0, 0.30, -0.34))
     t = bpy.context.object
     t.name = "table"
-    t.data.materials.append(grey("table", (0.30, 0.245, 0.185)))
+    t.data.materials.append(grey("table", (0.245, 0.200, 0.150)))
     obs.append(t)
 
     # back wall at y = +0.60, upright, filling the frame
-    bpy.ops.mesh.primitive_plane_add(size=4.0, location=(0.0, 0.60, 0.6))
+    bpy.ops.mesh.primitive_plane_add(size=10.0, location=(0.0, 0.60, 0.6))
     w = bpy.context.object
     w.name = "wall"
     w.rotation_euler = (math.radians(90), 0, 0)
-    w.data.materials.append(grey("wall", (0.235, 0.230, 0.245)))
+    w.data.materials.append(grey("wall", (0.205, 0.200, 0.215)))
     obs.append(w)
 
     # stone column IN FRONT of the window plane, on the side the wind blows toward. Debris passing
@@ -303,16 +303,23 @@ def make_room():
                                         vertices=48)
     c = bpy.context.object
     c.name = "column"
-    c.data.materials.append(grey("column", (0.46, 0.445, 0.415)))
+    c.data.materials.append(grey("column", (0.42, 0.405, 0.375)))
     bpy.ops.object.shade_smooth()
     obs.append(c)
 
     # crate BEHIND the window plane - debris that went through/behind the window is hidden by it.
-    bpy.ops.mesh.primitive_cube_add(size=0.16, location=(0.26, 0.34, 0.10))
+    #
+    # MEASURED, NOT ASSUMED. The brief put this at y=+0.34. From the oblique camera a box there
+    # occludes 5 shard-frames out of 16005 in the vanish and 0 out of 6402 in the appear: the
+    # debris cloud's own y never reaches past it, so every ray that clears the crate has already
+    # left the debris behind. Pulling it to y=+0.16 (front face still a clear +0.07 BEHIND the
+    # window plane, so it is still an unambiguously-behind occluder) takes that to 542 and 64.
+    # Re-run the count if the sim's wind is retuned; the number is what matters, not the position.
+    bpy.ops.mesh.primitive_cube_add(size=0.18, location=(0.26, 0.16, 0.12))
     k = bpy.context.object
     k.name = "crate"
     k.rotation_euler = (0, 0, math.radians(11))
-    k.data.materials.append(grey("crate", (0.38, 0.28, 0.185)))
+    k.data.materials.append(grey("crate", (0.335, 0.245, 0.160)))
     obs.append(k)
 
     # ONE area light. The ROOM may be lit; the shards and the window may not, and they are not -
@@ -321,8 +328,8 @@ def make_room():
     bpy.ops.object.light_add(type="AREA", location=pos)
     lt = bpy.context.object
     lt.name = "key"
-    lt.data.energy = 260.0
-    lt.data.size = 1.4
+    lt.data.energy = 78.0
+    lt.data.size = 0.9
     # An area light emits along its local -Z. Hand-rolled euler angles for this got the sign of the
     # tilt wrong on the first pass and lit the ceiling instead of the room - every occluder came
     # out a black silhouette and the depth proof read as nothing at all. to_track_quat cannot make
@@ -471,7 +478,7 @@ def main():
     print("parallax_A/B   %.3f m apart laterally (az %+.1f/%+.1f deg), same instant, aimed at centre"
           % (lat, -PARALLAX_AZ, PARALLAX_AZ))
     print("occluders      table z=-0.34 | wall y=+0.60 | column x=+0.40 y=-0.24 (IN FRONT) |"
-          " crate x=+0.26 y=+0.34 z=+0.10 (BEHIND)")
+          " crate x=+0.26 y=+0.16 z=+0.12 (BEHIND, front face y=+0.07)")
     print("renders        %d images in %.1f s (%.2f s each)" % (n_render, dt, dt / max(n_render, 1)))
     print("files          %d written, first/last:" % len(written))
     print("               %s" % written[0])
