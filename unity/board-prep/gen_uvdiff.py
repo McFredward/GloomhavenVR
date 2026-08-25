@@ -36,10 +36,11 @@ on the mesh's minimum-Y plane: the flat back plate. On all three shipped boards 
 exactly one complete UV island, which is what makes it safe to move (no island boundary is created
 or destroyed), and `gen_backuv.py` asserts that before it writes anything.
 
-Exit code is 0 only when checks 1-6 all pass.
+Exit code is 0 only when checks 1-6 and 8 all pass.
 """
 
 import os
+import struct
 import sys
 
 import bpy
@@ -334,7 +335,38 @@ def main():
         x0, x1, z0, z1 = B["plate_bbox"]
         print(f"       7  plate {(x1 - x0) * 1000:.2f} x {(z1 - z0) * 1000:.2f} mm")
 
-    hard = [k for k in (1, 2, 3, "3c", 4, 5, 6, "6b") if k in ok and not ok[k]]
+    # ---- 8 FBX UnitScaleFactor -- THE CHECK EVERY OTHER CHECK HERE IS BLIND TO
+    #
+    # Checks 1-7 all read the mesh THROUGH BLENDER, and Blender normalises the file's unit
+    # scale on import. So two FBXes that differ only in UnitScaleFactor read back
+    # bit-identical in every field above, and this comparator reported ALL PASS on a pair
+    # that Unity imported at a factor of 100 apart: BoardBuilder rewrote every anchor
+    # override in all three prefabs (-0.23360015 -> -0.0023359999) plus a quaternion sign
+    # flip, from what was supposed to be a UV-only edit. The shipped boards carry
+    # UnitScaleFactor 100; exporting with apply_unit_scale=True writes 1.0. Export with
+    # apply_unit_scale=False and apply_scale_options='FBX_SCALE_UNITS'.
+    #
+    # This one is read from the FILE BYTES on purpose. A check that goes through the same
+    # importer as the thing it is checking cannot see what that importer normalises.
+    def unit_scale(path):
+        blob = open(path, "rb").read()
+        i = blob.find(b"UnitScaleFactor")
+        if i < 0:
+            return None
+        seg = blob[i:i + 80]
+        vals = [struct.unpack("<d", seg[j:j + 8])[0] for j in range(len(seg) - 8)]
+        cand = [v for v in vals if 0.0001 < abs(v) < 100000 and abs(v - round(v)) < 1e-9]
+        return cand[0] if cand else None
+
+    us_ref, us_cand = unit_scale(ref), unit_scale(cand)
+    uok = (us_ref is not None and us_ref == us_cand)
+    print(f"[{'PASS' if uok else 'FAIL'}] 8  FBX UnitScaleFactor preserved: "
+          f"reference {us_ref} -> candidate {us_cand}"
+          + ("" if uok else "   <- Unity will re-import at a DIFFERENT SCALE; "
+                            "export with apply_scale_options='FBX_SCALE_UNITS'"))
+    ok[8] = uok
+
+    hard = [k for k in (1, 2, 3, "3c", 4, 5, 6, "6b", 8) if k in ok and not ok[k]]
     print(f"RESULT {os.path.basename(cand)}: {'ALL PASS' if not hard else 'FAILED ' + str(hard)}")
     if hard:
         sys.exit(1)

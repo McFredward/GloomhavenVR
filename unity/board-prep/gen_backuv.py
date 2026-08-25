@@ -378,7 +378,27 @@ def main():
         o.select_set(True)
     fd, tmp = tempfile.mkstemp(suffix=".fbx", dir=os.path.dirname(os.path.abspath(dst)))
     os.close(fd)
-    bpy.ops.export_scene.fbx(filepath=tmp, use_selection=True, apply_unit_scale=True,
+    # apply_scale_options='FBX_SCALE_UNITS' IS LOAD-BEARING AND WAS GOT WRONG ONCE.
+    #
+    # The shipped board FBXes carry UnitScaleFactor = 100 (centimetres). Exporting with
+    # apply_unit_scale=True (or with the exporter's FBX_SCALE_NONE default) bakes the unit
+    # into the coordinates and writes UnitScaleFactor = 1.0 instead. Blender reads both
+    # files back identically -- it normalises the unit on import -- so a Blender-level
+    # bit-identity check CANNOT SEE THE DIFFERENCE and passes every field.
+    #
+    # Unity can see it. With the unchanged .meta (useFileScale), the first attempt at this
+    # repack re-imported at a different scale and BoardBuilder rewrote every anchor
+    # override in all three prefabs by a factor of 100 -- 0.23360015 became 0.0023359999 --
+    # plus a quaternion sign flip from the changed transform decomposition. That is what a
+    # UV-only edit must never do, and the proof harness of the day reported ALL PASS.
+    #
+    # FBX_SCALE_UNITS puts the scene's unit scale into the FBX unit scale where it started.
+    # Verified against the shipped files: UnitScaleFactor stays 100, and the null round
+    # trip is bit-identical on vertices, loops, polygons, UVs, split normals AND anchor
+    # LOCAL transforms -- check 3b, which apply_unit_scale=True failed with a 1.39e-17 m
+    # residue on two anchors of oak and bronze. That residue was this setting, not the edit.
+    bpy.ops.export_scene.fbx(filepath=tmp, use_selection=True, apply_unit_scale=False,
+                             apply_scale_options='FBX_SCALE_UNITS', global_scale=1.0,
                              add_leaf_bones=False, bake_space_transform=False,
                              mesh_smooth_type='OFF', use_mesh_modifiers=False, path_mode='COPY')
     shutil.move(tmp, dst)

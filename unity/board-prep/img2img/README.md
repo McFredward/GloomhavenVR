@@ -252,3 +252,72 @@ a defect on the faces it does not point at, and this one shipped — the first p
 it was the user, from behind, in a dark forest. `gen_render.py` is still ~2 stops
 overexposed and is an iteration loop, not a verdict; `PreviewBoard.cs` is the calibrated
 station.
+
+## THE GENERATED BACK PLATES — the money is spent, do not spend more
+
+    unity/board-prep/out/board_back_oak.png
+    unity/board-prep/out/board_back_steel.png
+    unity/board-prep/out/board_back_bronze.png
+
+Three images, one per style, all accepted first time. `out/` is gitignored, so they are NOT
+in any diff — if they are ever lost, the prompts are in the commit that added
+`tex_backfill.py` and reproducing them costs three more generations. Nothing here was
+regenerated on a hunch, and the one measured flaw (steel's 1.324x rivet stretch) was
+accepted rather than re-rolled.
+
+## The back island was repacked, and the trap that nearly shipped with it
+
+`../gen_backuv.py` rewrites **only** the back plate's UV loops into a free rectangle of the
+atlas. The back plate is exactly one whole UV island on all three boards, so moving it
+creates no seam and destroys none; the script asserts that and aborts rather than shear a
+shared island.
+
+| board | before | after | gain |
+|---|---|---|---|
+| oak | 0.450 tex/mm, 0.97 % of atlas | **1.213 tex/mm, 7.06 %** | 2.69× linear |
+| steel | 0.419 tex/mm, 0.84 % | **1.246 tex/mm, 7.45 %** | 2.97× linear |
+| bronze | 0.462 tex/mm, 1.02 % | **1.186 tex/mm, 6.73 %** | 2.57× linear |
+
+1.6 tex/mm — front parity — is **not reachable** and was not faked. An exact free-rectangle
+search at an 8-texel gutter finds no 1024×512 hole in any of the three atlases: the unused
+74–78 % is fragmented, and the wide holes are shallow (landscape placement scores
+0.84–0.94 tex/mm, worse than portrait). Front parity needs a full repack of front + rim,
+which is not worth moving locked UVs for.
+
+### A BLENDER-LEVEL BIT-IDENTITY PROOF CANNOT SEE A UNIT-SCALE CHANGE
+
+The first version of the repack exported with `apply_unit_scale=True`. Every Blender-side
+check passed — vertices, loop indices, polygon sizes, split normals, UVs outside the back
+face, anchor `matrix_world`, island overlap. The harness said ALL PASS.
+
+It was wrong, and Unity said so. The shipped FBXes carry `UnitScaleFactor = 100`; that
+export writes `1.0`. Blender normalises the unit on import, so it reads both files back
+identically and **no Blender-side comparison can distinguish them**. Unity, with the
+unchanged `.meta`, re-imported at a different scale, and `BoardBuilder` rewrote every
+anchor override in all three prefabs by a factor of 100 — `-0.23360015` became
+`-0.0023359999` — plus a quaternion sign flip from the changed transform decomposition.
+That is precisely what a UV-only edit must never do.
+
+The fix is `apply_unit_scale=False, apply_scale_options='FBX_SCALE_UNITS'`, which leaves
+the unit scale where it started. Verified after the fix:
+
+* `UnitScaleFactor` 100 → 100 on all three;
+* rebuilt prefabs: the **same 13 modification targets**, and the worst numeric change
+  anywhere is **2.0 × 10⁻⁷ m — 0.2 micrometres**, the float32 quantisation of a 0.22 m
+  coordinate. Six oak overrides disappear only because they now equal the model's own
+  value exactly, so Unity stops storing them;
+* `BoardBuilder` re-measures the locked table exactly: seat floors 74.6 × 64.3 / 81.0 ×
+  70.1 / 61.2 × 51.9 mm, rest pads 81.6 / 81.7 / 68.1 mm, 7 of 7 anchors, one MeshCollider,
+  bounds 0.640 × 0.320;
+* `PreviewBoard` run over the built bundle before and after the repack: **every anchor,
+  every extent, every bound, every collider count and every bound texture identical**, the
+  only differences being single-pixel anti-aliasing counts in the stereo statistics.
+
+**The lesson generalises past FBX: a round-trip proof taken inside one tool cannot see what
+that tool normalises on the way in.** What caught it was rebuilding the artefact the OTHER
+tool produces and diffing that.
+
+`gen_uvdiff.py` check 8 now reads `UnitScaleFactor` **from the file bytes**, deliberately
+not through Blender — a check that goes through the same importer as the thing it is
+checking cannot see what that importer normalises. Its positive control is the FBX that
+caused this: checks 1–7 all report PASS on it and only check 8 fires.

@@ -42,13 +42,32 @@ point it actually is, not the colour a picture thinks belongs there.
              derived from its own art: the plank seams and rivets ARE the relief, there is
              no competing mesh-registered version of them to double.
 
-    RIM   -- a depth blend from the front material to the back material across the board's
-             own thickness.  The rim is literally the surface that runs from one face to
-             the other, so at t=0 it is the front's material and at t=1 it is the back's,
-             both sampled at the rim texel's own (long, short) position.  Nothing is
-             invented, both edges match their neighbour by construction, and there is no
-             fill direction to smear along.  The rim's RELIEF is left alone: the studded
-             border is real mesh geometry and is already registered in the shipped map.
+    RIM   -- the rim is UNROLLED into the board plane and the two faces' materials are
+             blended across it.  A rim texel at board point p with in-plane outward
+             direction n takes
+
+                 lerp( front(p - n * t * W),  back(p - n * (1-t) * W),  smoothstep(t) )
+
+             where t is its depth through the board (0 at the front face, 1 at the back)
+             and W is the board's own thickness.  At t=0 the first term is front(p), the
+             very texel its front neighbour has; at t=1 the second is back(p), the very
+             texel its back neighbour has.  So both boundaries match by construction, and
+             in between the sample point WALKS INWARD and out again, which is what gives
+             the rim two dimensions of variation instead of one.
+
+             THE FIRST VERSION OF THIS WAS WRONG AND IT LOOKED EXACTLY LIKE THE DEFECT IT
+             REPLACED.  It sampled both faces at the rim texel's own (long, short) position
+             with no inward walk.  Every texel on the bottom edge has the SAME short
+             coordinate -- it IS the edge -- so the whole band drew from a single row of
+             the art and varied only along its length: constant down the rim's width,
+             different in the next column.  That is a streak field, and the station's new
+             `_edge` shot showed it as vertical smear on all three boards, indistinguishable
+             from the push-pull smear it was meant to fix.  A blend is only as good as the
+             coordinate it is addressed by, and a coordinate that is constant across the
+             band cannot produce structure across the band.
+
+             The rim's RELIEF is left alone: the studded border is real mesh geometry and is
+             already registered in the shipped map.
 
     INTERIOR -- untouched.  Recess floors and walls measure 90-127% of the front's
              high-pass energy already, because there push-pull travels one or two texels
@@ -198,14 +217,37 @@ def run(a):
         stats["back_texels"] = int(mb.sum())
 
     if mr.any():
-        f = bilinear(front_lin, U[mr], V[mr])
-        b = bilinear(back_lin, U[mr], V[mr])
-        t = np.clip(depth[mr], 0.0, 1.0)[..., None]
-        t = t * t * (3.0 - 2.0 * t)                      # smoothstep, so neither face steps
-        v = f * (1.0 - t) + b * t
+        # in-plane outward direction, from the mesh's own normal with the thickness
+        # component dropped.  At a rounded corner it rotates smoothly, so the unroll
+        # follows the perimeter round the corner instead of stepping.
+        nrm_buf = np.load(os.path.join(a.geo, "nrm.npy")).astype(np.float64)
+        nl = nrm_buf[..., lng][mr]
+        ns = nrm_buf[..., srt][mr]
+        nn = np.hypot(nl, ns)
+        ok = nn > 1e-6
+        nl = np.where(ok, nl / np.maximum(nn, 1e-9), 0.0)
+        ns = np.where(ok, ns / np.maximum(nn, 1e-9), 0.0)
+
+        t = np.clip(depth[mr], 0.0, 1.0)
+        # the unroll distance is the board's OWN thickness, so the material keeps the
+        # scale it has on the two faces rather than being stretched or tiled
+        wl = ext[thin] / max(ext[lng], 1e-9)             # thickness in U units
+        ws = ext[thin] / max(ext[srt], 1e-9)             # thickness in V units
+        uf = U[mr] - nl * t * wl
+        vf = V[mr] + ns * t * ws                         # V runs opposite to the short axis
+        ub = U[mr] - nl * (1.0 - t) * wl
+        vb = V[mr] + ns * (1.0 - t) * ws
+
+        f = bilinear(front_lin, uf, vf)
+        b = bilinear(back_lin, ub, vb)
+        ts = (t * t * (3.0 - 2.0 * t))[..., None]        # smoothstep, so neither face steps
+        v = f * (1.0 - ts) + b * ts
         alb[mr] = v
         alb_u8[mr] = np.clip(np.rint(lin2srgb(v)), 0, 255).astype(np.uint8)
         stats["rim_texels"] = int(mr.sum())
+        stats["rim_unroll_U"] = round(float(wl), 5)
+        stats["rim_unroll_V"] = round(float(ws), 5)
+        stats["rim_inplane_normal_ok"] = float(ok.mean())
 
     Image.fromarray(alb_u8).save(os.path.join(a.out, os.path.basename(a.albedo)))
 
