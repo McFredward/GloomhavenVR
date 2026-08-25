@@ -177,6 +177,21 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// </summary>
     private readonly Transform?[] _buttonSeats = new Transform?[BoardAnchors.ButtonSeatCount];
 
+    /// <summary>
+    /// The TIGHTEST button-seat recess on the live board — the smallest half-extent over every seat
+    /// it supplies, in board metres (x along the long axis, y along the short one). Null when the
+    /// board carries no measurement: every bundle built before the assembler started writing
+    /// <c>SeatExtent1/2/3</c>, and the procedural fallback board. Resolved ONCE per board build,
+    /// never per frame.
+    ///
+    /// <para>The SMALLEST is the right reduction because every cap in the generic cluster is one
+    /// size — Confirm, Undo and the item "Use" cap have to stay identical to each other (the
+    /// standing "der Use-Button soll genauso groß sein" ruling), so the cluster's cap must fit the
+    /// worst seat it can be asked to sit in. On all three shipped boards the three seats are cut to
+    /// the same size, so today this is a no-op; it is the correct rule the day one is not.</para>
+    /// </summary>
+    private Vector2? _seatMinHalf;
+
     /// <summary>Reused list for <see cref="LiveBoardAnchors"/> — the four frame anchors plus
     /// whichever button seats the live board supplies. Build-time only (EnsureBuilt), never per
     /// frame.</summary>
@@ -204,6 +219,27 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     }
 
     /// <summary>
+    /// The tightest seat recess this board carries — see <see cref="_seatMinHalf"/>. Reads the
+    /// <c>SeatExtent1/2/3</c> empties the editor assembler measured and wrote into the prefab; a
+    /// board with none (every bundle shipped so far) answers null and its caps keep the tuned
+    /// <c>[BoardButtons]</c> size unchanged, which is exactly today's behaviour.
+    /// </summary>
+    private static Vector2? ResolveSeatMinHalf(Transform visualRoot)
+    {
+        Vector2? min = null;
+        for (int i = 0; i < BoardAnchors.ButtonSeatCount; i++)
+        {
+            Vector2? e = BoardAnchors.SeatExtent(visualRoot, i);
+            if (e == null)
+                continue;
+            min = min == null
+                ? e
+                : new Vector2(Mathf.Min(min.Value.x, e.Value.x), Mathf.Min(min.Value.y, e.Value.y));
+        }
+        return min;
+    }
+
+    /// <summary>
     /// One line per board build naming WHICH seat resolved under WHICH spelling — the field the
     /// "name the blocker, not the number" lesson asks for. "2 of 3" alone cannot tell a board that
     /// legitimately has two recesses from one whose third anchor was misspelled by the asset lane;
@@ -221,7 +257,10 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                          : "; the cluster runs as a two-seat one (every board shipped so far)."));
         }
         VRLog.Info("Cards", $"Board: {seatsFound} of {BoardAnchors.ButtonSeatCount} button seats " +
-                            $"supplied by the '{CardsConfig.CurrentBoard}' asset.");
+                            $"supplied by the '{CardsConfig.CurrentBoard}' asset; tightest recess " +
+                            (_seatMinHalf != null
+                                ? $"{_seatMinHalf.Value.x * 2000f:F1} × {_seatMinHalf.Value.y * 2000f:F1} mm (measured by the assembler)."
+                                : "NOT MEASURED (no SeatExtent empties — a bundle built before the assembler wrote them); the caps keep the tuned [BoardButtons] size."));
     }
 
     // Items rework (requirement 3): the ITEM-USE clip-in slot — a card-sized recess UNDER the
@@ -532,6 +571,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             _shortRestAnchor = FindDeep(visual.transform, "ShortRestToken");
             _longRestAnchor = FindDeep(visual.transform, "LongRestToken");
             int seatsFound = BoardAnchors.ResolveSeats(visual.transform, _buttonSeats);
+            _seatMinHalf = ResolveSeatMinHalf(visual.transform);
             LogSeatResolution(seatsFound);
 
             // The bundled PlayTray anchors carry a 90° twist from the FBX empty export
@@ -1173,6 +1213,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _confirmAnchor = null; // child of _root, destroyed with it
         for (int i = 0; i < _buttonSeats.Length; i++)
             _buttonSeats[i] = null; // descendants of the visual, destroyed with _root
+        _seatMinHalf = null;        // re-measured from the next board's own prefab
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
         _itemUseSlotGlow = null;

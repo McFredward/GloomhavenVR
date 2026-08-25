@@ -446,6 +446,72 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
+    /// ONE LINE PER CAP SAYING WHERE IT ACTUALLY LANDED — cap centre in board-local metres, the seat
+    /// anchor it hangs off, the gap between them, and whether the cap is still ON THE BOARD.
+    ///
+    /// <para><b>WHY THIS EXISTS, and it is not decoration.</b> The keycaps are seated at
+    /// <c>seat anchor + [Cards] ConfirmUndoOffset_{board}</c>. Those offsets are hand-tuned, and two
+    /// of the three shipped ones are not nudges at all: <c>ConfirmUndoOffset_Steel.x = +0.462</c> and
+    /// <c>_Bronze.x = +0.447</c> — 46 cm, on a board 64 cm wide. They are that large because the
+    /// SHIPPED Steel and Bronze boards had their zones MIRRORED against Oak (button pads on the −X
+    /// side, rest pads on +X), so the user dialled the whole cluster across the board to put it back
+    /// on the right-hand side. The re-authored boards are canonical — seats on +X on all three — and
+    /// the same dial now pushes the cluster 46 cm FURTHER right, i.e. ~37 cm clear off the board.
+    /// The identical trap sits on <c>RestButtonOffset_Steel.x = −0.44</c> / <c>_Bronze.x = −0.445</c>.</para>
+    ///
+    /// <para>Nothing here CHANGES a value — those are his numbers and a silent flip is the defect
+    /// this project keeps paying for. What it does is make the failure NAMED instead of a board with
+    /// invisible buttons: it prints the offending dial, the measured board half-width, and the exact
+    /// offset that would put the cap back in its recess. A log line beats a screenshot, and a
+    /// screenshot beats a bug report.</para>
+    /// </summary>
+    private void LogSeatOccupancy(Transform confirmParent, Transform undoParent, Transform?[] seats,
+                                  Vector2 capSize)
+    {
+        if (_root == null || _confirm == null)
+            return;
+        MeasureBoardLocalExtents(_root, out float topLocalY, out float halfLocalX);
+        ControlBoard board = CardsConfig.CurrentBoard;
+        Vector3 dialled = CardsConfig.ConfirmUndoOffset(board).Value;
+
+        for (int seat = 0; seat < seats.Length; seat++)
+        {
+            Transform? anchor = seat == 0 ? confirmParent : seat == 1 ? undoParent : seats[seat];
+            if (anchor == null)
+                continue;
+            BoardButton? cap = seat == 0 ? _confirm : seat == 1 ? _undo : null;
+            Vector3 anchorLocal = _root.InverseTransformPoint(anchor.position);
+            Vector3 capLocal = cap != null
+                ? _root.InverseTransformPoint(cap.transform.position)
+                : anchorLocal + SeatLocalPose(seat);   // an unoccupied seat: where a cap WOULD land
+
+            float overX = Mathf.Abs(capLocal.x) + capSize.x * 0.5f - halfLocalX;
+            float overY = Mathf.Abs(capLocal.y) + capSize.y * 0.5f - topLocalY;
+            bool offBoard = overX > 0f || overY > 0f;
+            string who = seat == 0 ? "CONFIRM/USE" : seat == 1 ? "UNDO" : "seat 2 (no occupant)";
+            string line = $"Board: {who} seat {seat} — anchor local ({anchorLocal.x:F4}, {anchorLocal.y:F4}), " +
+                          $"cap local ({capLocal.x:F4}, {capLocal.y:F4}), board half-extent " +
+                          $"({halfLocalX:F4}, {topLocalY:F4}) m.";
+            if (!offBoard)
+            {
+                VRLog.Info("Cards", line);
+                continue;
+            }
+            // The correction is stated, not applied: what ConfirmUndoOffset_{board} would have to be
+            // for this cap to sit centred in its own recess (i.e. cancel the anchor-relative drift
+            // and keep only the tuned Z proud depth).
+            VRLog.Warn("Cards", line +
+                $" OFF THE BOARD by ({Mathf.Max(0f, overX) * 1000f:F0}, {Mathf.Max(0f, overY) * 1000f:F0}) mm. " +
+                $"[Cards] ConfirmUndoOffset_{board} is currently ({dialled.x:F3}, {dialled.y:F3}, {dialled.z:F3}); " +
+                $"an offset of (0.000, 0.000, {dialled.z:F3}) would centre the cap in its authored recess. " +
+                "This value was tuned against a board whose button zone was on the OTHER side — it is a " +
+                "46 cm relocation, not a nudge — and the re-authored boards put the seats where the " +
+                "offset used to have to reach. NOT auto-corrected: it is a tuned value, and the same " +
+                $"applies to [Cards] RestButtonOffset_{board}.");
+        }
+    }
+
+    /// <summary>
     /// What the live Confirm/Undo/Use caps were BUILT from — everything <see cref="BuildButtons"/>
     /// bakes into the geometry of a cap and therefore cannot change without a real rebuild: the
     /// active board, the cap SHAPE, and the <c>[BoardButtons]</c> W/H/D/travel + <c>[ButtonColors]</c>

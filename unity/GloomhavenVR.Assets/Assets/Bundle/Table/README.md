@@ -65,9 +65,30 @@ Authoring rules for the seats:
   `+spacing/2`, seat 2 at `−spacing/2`, seat 3 at `−3·spacing/2` from the tuned
   `[Cards] ConfirmUndoOffset_{board}` — so seat 1 and seat 2 land exactly where they
   always did and a board that gains seat 3 does not move the other two.
-- The runtime cap size is the tuned `[BoardButtons]` W×H (shipped 63 × 65 mm), the same
-  at every seat; nothing auto-shrinks. Size the recesses for that, not for a smaller
-  three-up fit.
+- The runtime cap size is the tuned `[BoardButtons]` W×H (shipped 73 × 73 mm) **fitted
+  down to this board's own recess**. `BuildBoard.cs` measures each recess FLOOR off the
+  mesh and writes `SeatExtent1/2/3` empties into the prefab (their localPosition x/y are
+  the recess HALF-width and HALF-height in metres, not a position); the mod builds
+  `min(tuned, floor − 2 × margin)` per axis, where the margin is `[BoardButtons] Travel`
+  clamped to 1–8 mm. The fit only ever SHRINKS — the global stays the ceiling the user
+  dialled in. A board with no `SeatExtent` empties (any bundle built before this) gets
+  the tuned size unchanged.
+- Measured on the three committed FBXes — recess **floor**, which is what a keycap rests
+  on; the rim is 2–10 mm wider and is not usable room:
+
+  | board | recess floor (mm) | fitted cap at 4 mm margin (mm) |
+  |---|---|---|
+  | Oak | 74.6 × 64.3 | 66.6 × 56.3 |
+  | Steel | 81.0 × 70.1 | 73.0 × 62.1 |
+  | Bronze | 61.2 × 51.9 | 53.2 × 43.9 |
+
+  If a rebuild's log disagrees with the middle column, the measurement code is wrong,
+  not the boards.
+- **Both spellings are shipped in the FBX** (`ButtonSeat1/2/3` plus `ConfirmButton` /
+  `UndoButton` / `SkipButton` at bit-identical positions), so one asset works with every
+  DLL. `BuildBoard.cs` projects *every* authored anchor empty onto the recess floor, not
+  just the canonical one, so an older DLL that resolves only the legacy names seats its
+  keycaps in exactly the same place.
 - Seat 3 has **no occupant yet**: the mod resolves and poses it, and the turn-flow Skip
   cap moves into it in a later round (it is currently drawn from its own
   `[RoundButtons]` geometry, and a peer's copy of it is derived from wire fields whose

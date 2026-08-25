@@ -799,10 +799,23 @@ internal sealed class RemoteBoardFurniture
         // trusted to be sane, and a zero or negative side length would build a degenerate mesh the
         // renderer cannot recover from. An absent field already resolved to the shipped default in
         // RemoteBoardTuning, so these clamps only ever fire on a corrupt sender.
-        _boardCapW = Mathf.Max(0.002f, tuning.BoardCapWidth);
-        _boardCapH = Mathf.Max(0.002f, tuning.BoardCapHeight);
         _boardCapD = Mathf.Max(0.002f, tuning.BoardCapDepth);
         _boardCapTravel = Mathf.Max(0f, tuning.BoardCapTravel);
+        // …AND THE GENERIC CAP IS FITTED TO THIS BOARD'S SEAT RECESS, term for term with
+        // PlayTray.BuildButtons. The owner's keycaps shrink to fit the button recess of the board
+        // style they are on (the three re-authored boards cut them at 74.6 × 64.3 / 81.0 × 70.1 /
+        // 61.2 × 51.9 mm of usable floor, and the tuned 73 × 73 mm cap does not fit two of them).
+        // The fit is DERIVED, never sent: this peer clones the SAME prefab out of the SAME bundle,
+        // so it measures the same recess and calls the same BoardAnchors.FitCapSize with the same
+        // margin rule — which is exactly why a third seat and a fitted cap cost no wire field. The
+        // wire still carries only the owner's tuned [BoardButtons] W/H (ids 89/90), i.e. the CEILING
+        // the fit is measured against, so an owner who retunes is still seen retuning.
+        float seatMargin = Mathf.Clamp(_boardCapTravel, 0.001f, 0.008f);
+        Vector2 fittedCap = Cards.BoardAnchors.FitCapSize(
+            new Vector2(Mathf.Max(0.002f, tuning.BoardCapWidth), Mathf.Max(0.002f, tuning.BoardCapHeight)),
+            tray?.SeatMinHalf, seatMargin);
+        _boardCapW = fittedCap.x;
+        _boardCapH = fittedCap.y;
         _pinCapW = Mathf.Max(0.002f, tuning.DashPinWidth);
         _dashCapH = Mathf.Max(0.002f, tuning.DashCapHeight);
         _dashCapD = Mathf.Max(0.002f, tuning.DashCapDepth);
@@ -1188,14 +1201,19 @@ internal sealed class RemoteBoardFurniture
 
     /// <summary>
     /// One cap of the generic Confirm / Undo / item-USE column, in the OWNER's [Cards]
-    /// GenericButtonShape_{board}. Reproduces <c>PlayTray.BuildButtons</c> term for term: the ROUND
-    /// branch takes [BoardButtons] WIDTH as its diameter (that dial sizes both shapes since [Cards]
-    /// ConfirmUndoSize_{board} was retired), and both branches take the same depth and travel.
+    /// GenericButtonShape_{board}. Reproduces <c>PlayTray.BuildButtons</c> term for term: both
+    /// branches take the same depth and travel, and both take the SEAT-FITTED W/H solved in the
+    /// constructor — the ROUND branch's diameter is <c>min(W, H)</c>, because a disc has to fit the
+    /// recess in BOTH axes and the button recesses are wider than they are tall on all three boards.
+    /// (It used to be WIDTH alone, on the reading that [BoardButtons] Width sizes both shapes since
+    /// [Cards] ConfirmUndoSize_{board} was retired. That is still where the number comes from; it
+    /// was only ever correct because nothing constrained it, and the local builder has the same
+    /// min() now.)
     /// </summary>
     private InertCap GenericCap(Transform parent, string name, Vector3 localPos,
                                 Color rest, Color accent, in CapLabelStyle labels) =>
         _genericShape == Cards.ButtonShape.Round
-            ? InertCap.Round(parent, name, localPos, _boardCapW, _boardCapD, rest,
+            ? InertCap.Round(parent, name, localPos, Mathf.Min(_boardCapW, _boardCapH), _boardCapD, rest,
                              BoardCapTint, labels, travel: _boardCapTravel, accent: accent)
             : InertCap.Square(parent, name, localPos, new Vector2(_boardCapW, _boardCapH),
                               _boardCapD, rest, BoardCapTint, labels,

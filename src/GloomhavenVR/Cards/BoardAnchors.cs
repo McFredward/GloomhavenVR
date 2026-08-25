@@ -1,3 +1,4 @@
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Cards;
@@ -152,6 +153,102 @@ internal static class BoardAnchors
                 found++;
         }
         return found;
+    }
+
+    // ------------------------------------------------------------ seat recess extents --
+
+    /// <summary>
+    /// Name of the empty that carries button seat <paramref name="seat"/>'s MEASURED RECESS SIZE.
+    /// Written by the editor assembler (<c>unity/…/Editor/BuildBoard.cs</c>), read here.
+    /// </summary>
+    internal static string SeatExtentName(int seat) => $"SeatExtent{seat + 1}";
+
+    /// <summary>
+    /// The measured HALF-EXTENTS of button seat <paramref name="seat"/>'s recess FLOOR, in board
+    /// metres — x along the board's long axis, y along its short axis. Null when the board carries
+    /// no measurement (every bundle built before this, and the procedural fallback board).
+    ///
+    /// <para><b>WHY THE PREFAB CARRIES A MEASUREMENT AT ALL.</b> The keycaps are sized from
+    /// <c>[BoardButtons] Width/Height</c>, one global pair the user dialled in (shipped
+    /// 0.073 × 0.073 m). The three re-authored boards cut their button recesses at three different
+    /// sizes, and two of the three are SMALLER than that cap — so a cap that fits the tuning
+    /// overhangs its own seat. The size therefore has to be fitted PER BOARD, and the only honest
+    /// source for "how big is this recess" is the board itself.</para>
+    ///
+    /// <para><b>WHY MEASURED AT IMPORT RATHER THAN BAKED AS CONSTANTS.</b> The alternative was three
+    /// pairs of authored numbers in <c>Defaults</c>. It was rejected on evidence: the numbers this
+    /// round was handed for the three recesses (79.0 × 68.7 / 83.2 × 72.3 / 71.6 × 62.3 mm) turned
+    /// out to describe the recess at its top RIM, while a keycap sits on its FLOOR — which a
+    /// ray-cast sweep of the three committed FBXes measures at 74.6 × 64.3 / 81.0 × 70.1 /
+    /// 61.2 × 51.9 mm. Bronze is 10.4 mm narrower than the number that would have been baked. A
+    /// second-hand figure about geometry went stale before it was even written down; the assembler
+    /// reads the geometry it is already ray-casting for the anchor projection, so it cannot.</para>
+    ///
+    /// <para><b>IT COSTS NO WIRE FIELD.</b> A peer clones the SAME prefab out of the SAME bundle
+    /// (<c>Net.RemoteTrayVisual</c>), so the peer measures the identical extents and
+    /// <see cref="FitCapSize"/> gives the identical answer. The fitted size is derived on every
+    /// client from data every client already has, exactly like the seat POSES are.</para>
+    /// </summary>
+    internal static Vector2? SeatExtent(Transform visualRoot, int seat)
+    {
+        Transform? t = visualRoot != null ? FindDeep(visualRoot, SeatExtentName(seat)) : null;
+        if (t == null)
+            return null;
+        Vector3 p = t.localPosition;
+        float hx = Mathf.Abs(p.x);
+        float hy = Mathf.Abs(p.y);
+        // A measurement is only usable if it is SANE. Rejecting an absurd one and falling back to
+        // the tuned size is the difference between an instrument and an instrument that lies: the
+        // assembler runs in an editor nobody watches, and a mis-measured seat would silently resize
+        // every keycap on the board. Band: 10 mm (smaller than any pressable recess) to 200 mm (the
+        // upper clamp ButtonTuning already puts on the cap itself).
+        if (hx < 0.005f || hy < 0.005f || hx > 0.100f || hy > 0.100f)
+        {
+            VRLog.Warn("Cards", $"Board: '{SeatExtentName(seat)}' carries an out-of-band recess " +
+                                $"half-extent ({hx:F4}, {hy:F4}) m — ignored; the seat's cap keeps " +
+                                "the tuned [BoardButtons] size.");
+            return null;
+        }
+        return new Vector2(hx, hy);
+    }
+
+    /// <summary>
+    /// THE FIT. The cap size actually built, given the user's tuned <paramref name="tuned"/> W×H and
+    /// the tightest seat recess on this board (<paramref name="minHalf"/>, null = no measurement).
+    ///
+    /// <para><b>IT ONLY EVER SHRINKS.</b> <c>[BoardButtons] Width/Height</c> stays the ceiling — the
+    /// value the fit is measured AGAINST, never a value the fit rewrites. A board whose recesses are
+    /// roomier than the tuning gets exactly the tuned cap, which is why raising the global still
+    /// does what he expects up to the point where the seat runs out. Lowering the GLOBAL to make
+    /// Bronze fit would have made Oak and Steel wear Bronze's cap and would have re-seated a number
+    /// he dialled in himself as a side effect of an asset change — the same class of defect as the
+    /// centred cluster stack that had to be made top-anchored last round.</para>
+    ///
+    /// <para><b>ONE SIZE FOR THE WHOLE CLUSTER.</b> The caller passes the SMALLEST half-extent over
+    /// the board's seats, so Confirm, Undo and the item "Use" cap stay identical to each other —
+    /// the standing ruling ("der Use-Button soll genauso groß sein und sich nach den Werten richten,
+    /// die die generischen Buttons vorgegeben haben"). It is a no-op on the three shipped boards,
+    /// whose three seats are cut to the same size, and it is the right rule the day one is not.</para>
+    ///
+    /// <para><b>THE MARGIN IS THE CAP'S OWN TRAVEL</b> (<paramref name="margin"/> —
+    /// <c>[BoardButtons] Travel</c>, shipped 4 mm). It is not invented: it is the only LENGTH in the
+    /// cap's own tuning family that describes CLEARANCE rather than SIZE, and it is already the
+    /// distance the cap moves inside this well every time it is pressed. Reusing it laterally makes
+    /// the clearance isotropic — the same gap all round the cap that the cap travels through — so
+    /// the well reads as a well instead of a slot the cap fills edge to edge, and a user who dials a
+    /// deeper press gets a deeper-looking seat to match. The caller clamps it into a sane band so a
+    /// zero travel cannot produce an edge-to-edge cap.</para>
+    /// </summary>
+    internal static Vector2 FitCapSize(Vector2 tuned, Vector2? minHalf, float margin)
+    {
+        if (minHalf == null)
+            return tuned;
+        float w = Mathf.Min(tuned.x, 2f * (minHalf.Value.x - margin));
+        float h = Mathf.Min(tuned.y, 2f * (minHalf.Value.y - margin));
+        // Floor at ButtonTuning's own lower clamps (0.020 / 0.015 m): a cap smaller than that is
+        // not pressable in VR, and if a recess is genuinely that tight the honest failure is a cap
+        // that overhangs slightly, not one nobody can hit.
+        return new Vector2(Mathf.Max(0.020f, w), Mathf.Max(0.015f, h));
     }
 
     /// <summary>Depth-first name lookup — the same one every board reader already used privately.</summary>

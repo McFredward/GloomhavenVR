@@ -78,6 +78,20 @@ internal sealed class RemoteTrayVisual
     /// <summary>Seat 1 — the UNDO seat.</summary>
     public Transform? UndoAnchor => SeatAnchor(1);
 
+    /// <summary>
+    /// The TIGHTEST button-seat recess this board carries (smallest half-extent over its seats, in
+    /// board metres), or null when the prefab has no <c>SeatExtent1/2/3</c> measurement.
+    ///
+    /// <para>THIS IS WHY THE FITTED CAP SIZE NEEDS NO WIRE FIELD. The peer clones the SAME prefab
+    /// out of the SAME bundle the owner loaded, so it measures the identical recess and
+    /// <c>Cards.BoardAnchors.FitCapSize</c> — one function, called on both sides — returns the
+    /// identical cap. The size is DERIVED on every client from data every client already has,
+    /// exactly the way the seat POSES are derived from the synced offset/spacing dials. A peer on an
+    /// older bundle measures nothing, gets null, and draws the tuned size — which is also what its
+    /// own local board would draw, so the two stay consistent with each other.</para>
+    /// </summary>
+    public Vector2? SeatMinHalf { get; private set; }
+
     public Transform? ShortRestAnchor { get; private set; }
     public Transform? LongRestAnchor { get; private set; }
 
@@ -140,6 +154,16 @@ internal sealed class RemoteTrayVisual
         // UndoMount — a divergence in the picture on the exact control the 1:1 rule is about, and
         // one no wire field could have repaired because the seat is DERIVED on each client.
         int seatsFound = Cards.BoardAnchors.ResolveSeats(go.transform, visual._buttonSeats);
+        for (int i = 0; i < Cards.BoardAnchors.ButtonSeatCount; i++)
+        {
+            Vector2? e = Cards.BoardAnchors.SeatExtent(go.transform, i);
+            if (e == null)
+                continue;
+            visual.SeatMinHalf = visual.SeatMinHalf == null
+                ? e
+                : new Vector2(Mathf.Min(visual.SeatMinHalf.Value.x, e.Value.x),
+                              Mathf.Min(visual.SeatMinHalf.Value.y, e.Value.y));
+        }
 
         if (visual._slots[0] == null || visual._slots[1] == null
             || visual.ShortRestAnchor == null || visual.LongRestAnchor == null)
@@ -204,7 +228,11 @@ internal sealed class RemoteTrayVisual
                           $"{assetOffset:F3} / euler {assetEuler:F1}° (the owner's own, extension " +
                           "record 28 where they tuned it), anchors pinned back so nothing docked " +
                           $"moved, {seatsFound} of {Cards.BoardAnchors.ButtonSeatCount} button seats " +
-                          "supplied by the asset, all colliders stripped (pure display).");
+                          "supplied by the asset, tightest recess " +
+                          (visual.SeatMinHalf != null
+                              ? $"{visual.SeatMinHalf.Value.x * 2000f:F1} × {visual.SeatMinHalf.Value.y * 2000f:F1} mm"
+                              : "not measured (older bundle)") +
+                          ", all colliders stripped (pure display).");
         return visual;
     }
 

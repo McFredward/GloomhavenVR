@@ -16,7 +16,9 @@
 //     rest pads span the short axis, their cross product is the decorated normal), so
 //     it is correct regardless of FBX axis quirks. Verifies the SEVEN named anchors:
 //     the four frame anchors plus the three button seats ButtonSeat1/2/3, whose legacy
-//     spelling ConfirmButton/UndoButton still resolves (see AnchorNames below).
+//     spelling ConfirmButton/UndoButton still resolves (see AnchorNames below). Also
+//     MEASURES each button recess off the mesh and writes SeatExtent1/2/3 into the
+//     prefab, which is what lets the mod fit its keycaps to the board they sit on.
 //  4. Optionally renders a viewer-side preview PNG (skipped under -nographics).
 //  5. Builds gloomhavenvr.bundle via AssetsBuilder.
 using System.IO;
@@ -328,7 +330,13 @@ namespace GloomhavenVR
                 // flat plate) — that would float the element centimetres proud. Reject any
                 // move beyond MaxProject and keep the authored face-plane position instead.
                 const float maxProject = 0.045f; // accept up to 45 mm (board A ≤28 mm, 9capjqp6 slots ~25 mm)
-                foreach (var kv in anchors)
+                // EVERY AUTHORED ANCHOR EMPTY, aliases included — `found`, not `anchors`. The
+                // re-authored FBXes ship both spellings of every seat at bit-identical positions so
+                // one asset works with every DLL; projecting only the canonical one would have left
+                // ConfirmButton/UndoButton a few millimetres off the recess floor, so an older DLL
+                // (which resolves only those names) would seat its keycaps proud of the seat the
+                // new DLL seats them in. Same anchor, same treatment.
+                foreach (var kv in found)
                 {
                     string name = kv.Key;
                     Transform a = kv.Value;
@@ -355,6 +363,75 @@ namespace GloomhavenVR
                 }
             }
 
+            // --- MEASURE each button recess off the mesh (for the mod's cap fit) ---
+            // The mod sizes its keycaps from ONE global tuned pair ([BoardButtons] Width/Height,
+            // 0.073 x 0.073 m) that the user dialled in himself, but the three boards cut their
+            // button recesses at three different sizes and two are smaller than that cap. Lowering
+            // the global would make every board wear the smallest board's cap and would re-seat a
+            // hand-tuned value as a side effect of an asset change; so the cap is FITTED per board
+            // instead, and the fit needs to know how big this board's recess actually is.
+            //
+            // WHY MEASURED HERE rather than baked as three pairs of constants in the mod: the
+            // numbers are a property of the FBX, and the FBX changes without the code. The figures
+            // this round was handed for the three recesses turned out to describe the top RIM while
+            // a keycap sits on the FLOOR (Bronze: 71.6 mm quoted, 61.2 mm of actual floor) — a
+            // second-hand geometry number went stale before it was written down. The ray-caster
+            // that projects the anchors is already here and already pointed at the right surface.
+            //
+            // EXPECTED OUTPUT, so this instrument can be checked rather than believed. Measured on
+            // the three committed FBXes with the identical walk (Blender, 0.25 mm plateau
+            // tolerance, bisected): Oak 0.0746 x 0.0643, Steel 0.0810 x 0.0701,
+            // Bronze 0.0612 x 0.0519 m. If the log below disagrees with those, THIS CODE is wrong,
+            // not the boards.
+            var seatHalf = new Vector2[SeatAliases.Length];
+            if (meshColliders.Count > 0 && anchors.ContainsKey("Slot1") && anchors.ContainsKey("Slot2")
+                && anchors.ContainsKey("ShortRestToken") && anchors.ContainsKey("LongRestToken"))
+            {
+                Physics.SyncTransforms();
+                Vector3 backN2 = Vector3.Cross(
+                    anchors["Slot2"].position - anchors["Slot1"].position,
+                    anchors["ShortRestToken"].position - anchors["LongRestToken"].position).normalized;
+                Vector3 outN2 = -backN2;
+                Vector3 uAxis = (anchors["Slot2"].position - anchors["Slot1"].position).normalized;
+                Vector3 vAxis = Vector3.Cross(backN2, uAxis).normalized;
+                for (int i = 0; i < seats.Length; i++)
+                {
+                    if (seats[i] == null) continue;
+                    Vector3 c = seats[i].position;
+                    // THE FLOOR REFERENCE IS THE SURFACE UNDER THE SEAT, NOT THE ANCHOR'S OWN DEPTH.
+                    // The projection above deliberately parks each anchor `proud` (0.5 mm) ABOVE the
+                    // face it landed on, and it also SKIPS anchors whose projection was out of band —
+                    // so the anchor's depth is 0.5 mm off the floor at best and arbitrary at worst.
+                    // Reading the surface back at the seat centre makes this measurement independent
+                    // of what the projection did, which is the whole point of measuring.
+                    float? floorAt = SurfaceDepth(meshColliders, c, outN2, backN2);
+                    if (floorAt == null)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Button seat {i} recess floor did not raycast — NOT written.");
+                        continue;
+                    }
+                    float floor = floorAt.Value;
+                    float hx = Mathf.Min(FloorRun(meshColliders, c, uAxis, outN2, backN2, floor),
+                                         FloorRun(meshColliders, c, -uAxis, outN2, backN2, floor));
+                    float hy = Mathf.Min(FloorRun(meshColliders, c, vAxis, outN2, backN2, floor),
+                                         FloorRun(meshColliders, c, -vAxis, outN2, backN2, floor));
+                    if (hx < 0.005f || hy < 0.005f || hx > 0.100f || hy > 0.100f)
+                    {
+                        Debug.LogWarning($"[GloomhavenVR] Button seat {i} recess measured "
+                            + $"{hx * 2000f:F1} x {hy * 2000f:F1} mm — out of band, NOT written. The mod "
+                            + "will keep the tuned [BoardButtons] cap size on this board.");
+                        continue;
+                    }
+                    seatHalf[i] = new Vector2(hx, hy);
+                    Debug.Log($"[GloomhavenVR]   button seat {i} recess floor {hx * 2000f:F1} x {hy * 2000f:F1} mm.");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("[GloomhavenVR] Seat recesses NOT measured (no collider or no frame anchors) — "
+                                 + "the mod will keep the tuned [BoardButtons] cap size on this board.");
+            }
+
             // --- material onto every renderer ---
             foreach (var r in inst.GetComponentsInChildren<MeshRenderer>(true))
             {
@@ -366,6 +443,23 @@ namespace GloomhavenVR
             // --- wrap under the contract root "PlayTray" ---
             var root = new GameObject("PlayTray");
             inst.transform.SetParent(root.transform, worldPositionStays: true);
+
+            // --- carry the measurement into the prefab ---
+            // SeatExtentN's localPosition is NOT a position: its x and y are the recess's HALF-WIDTH
+            // and HALF-HEIGHT in metres (x along the board's long axis, y along its short one, which
+            // is the basis the keycap's rectSize is expressed in on both the local board and a
+            // peer's mirrored copy). An empty is the carrier because the mod cannot ship a
+            // MonoBehaviour into this bundle — the mod assembly is not part of the Unity project —
+            // and because a child of the prefab can never go out of sync with the board it
+            // describes. `root` is at the origin with an identity rotation here, so these two
+            // numbers land in the prefab exactly as measured.
+            for (int i = 0; i < seatHalf.Length; i++)
+            {
+                if (seatHalf[i] == Vector2.zero) continue;
+                var se = new GameObject($"SeatExtent{i + 1}").transform;
+                se.SetParent(root.transform, false);
+                se.localPosition = new Vector3(seatHalf[i].x, seatHalf[i].y, 0f);
+            }
 
             // Log the resolved geometry so orientation is verifiable from the log alone.
             Debug.Log($"[GloomhavenVR] Board bounds (local): center={b.center}, size={b.size}");
@@ -421,6 +515,72 @@ namespace GloomhavenVR
             Vector3 sum = Vector3.zero;
             foreach (Vector3 v in terms) sum += v;
             return sum / terms.Count;
+        }
+
+        /// <summary>
+        /// The functional-face surface depth (along <paramref name="outN"/>) directly at
+        /// <paramref name="p"/>, or null if the ray misses the board — the same standoff-and-shoot-back
+        /// ray the anchor projection uses, so it reads the same surface.
+        /// </summary>
+        private static float? SurfaceDepth(System.Collections.Generic.List<MeshCollider> colliders,
+                                           Vector3 p, Vector3 outN, Vector3 backN)
+        {
+            const float standoff = 0.15f;
+            var ray = new Ray(p + outN * standoff, backN);
+            float best = float.PositiveInfinity;
+            Vector3 bestPt = default;
+            foreach (var mc in colliders)
+                if (mc.Raycast(ray, out RaycastHit hit, standoff * 2f) && hit.distance < best)
+                { best = hit.distance; bestPt = hit.point; }
+            return float.IsInfinity(best) ? (float?)null : Vector3.Dot(bestPt, outN);
+        }
+
+        /// <summary>
+        /// How far the RECESS FLOOR runs from <paramref name="centre"/> in direction
+        /// <paramref name="dir"/>, in metres: walk outward sampling the surface (the same
+        /// standoff-and-shoot-back ray the anchor projection uses) and stop where the surface leaves
+        /// the floor plane, then bisect.
+        ///
+        /// <para>The FLOOR, deliberately, and not the rim. A keycap is a solid block that rests in
+        /// the well; a cap wider than the floor has its lower corners inside the chamfered wall.
+        /// Measuring at the rim instead reports 2-10 mm more room than a cap can actually use
+        /// (Bronze: 71.6 mm at the rim, 61.2 mm of floor), which is the difference between a cap
+        /// that seats and one that perches.</para>
+        /// </summary>
+        private static float FloorRun(System.Collections.Generic.List<MeshCollider> colliders,
+                                      Vector3 centre, Vector3 dir, Vector3 outN, Vector3 backN,
+                                      float floorDepth)
+        {
+            const float tol = 0.00025f;   // 0.25 mm — the authored floors are flat to far better
+            const float step = 0.0005f;   // 0.5 mm coarse walk
+            const float limit = 0.080f;   // no button recess on a 0.32 m board is wider than this
+
+            bool OnFloor(float d)
+            {
+                float? z = SurfaceDepth(colliders, centre + dir * d, outN, backN);
+                return z != null && Mathf.Abs(z.Value - floorDepth) <= tol;
+            }
+
+            float lo = 0f, hi = 0f;
+            bool bounded = false;
+            while (hi < limit)
+            {
+                hi += step;
+                if (!OnFloor(hi)) { bounded = true; break; }
+                lo = hi;
+            }
+            // Never found a wall inside the limit: the ray is not reading a recess at all (a flat
+            // pad, a board with no seat cut, a degenerate normal). Report 0 so the caller's band
+            // check rejects it and the mod keeps the tuned cap size, rather than returning `limit`
+            // and quietly declaring an 160 mm seat.
+            if (!bounded)
+                return 0f;
+            for (int i = 0; i < 18; i++)
+            {
+                float mid = 0.5f * (lo + hi);
+                if (OnFloor(mid)) lo = mid; else hi = mid;
+            }
+            return lo;
         }
 
         private static Bounds LocalBounds(GameObject go)
