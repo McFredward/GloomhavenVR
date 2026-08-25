@@ -40,6 +40,12 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 261: let a split-run piece that the standing-prop FLOOR arm refuses ride
     /// its run as a PASSENGER (see WallSegmentFade.cs, SplitPieceRefusalReason).</summary>
     internal static ConfigEntry<bool>? SplitRunAdoptGroundScenery;
+    /// <summary>ModBuild 271: while the player has zoomed himself INTO the play field, every wall
+    /// is held solid and nothing fades (see the record on WallSegmentFade.Inside.cs).</summary>
+    internal static ConfigEntry<bool>? WalkInsideStandDown;
+    /// <summary>ModBuild 271: the board's wall crest in REAL METRES that separates "standing in a
+    /// room" from "leaning over a 61 cm diorama" — the term both retired attempts lacked.</summary>
+    internal static ConfigEntry<float>? WalkInsideMinCrestMetres;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -95,6 +101,30 @@ internal static class WallFadeTuning
             "stone formation) — turn it on only to see the hedge go, and read the SPLIT-RUN " +
             "LEFTOVER line's ALLOWED/FLOATING/OBSTRUCTING split for what it costs. " +
             "Live (applies at the next 2s rescan).");
+        WalkInsideStandDown = config.Bind("WallFade", "WalkInStandDown", Defaults.WalkInStandDown,
+            "When you zoom in far enough that you are STANDING INSIDE the play field — head " +
+            "inside the board's footprint AND below the wall crests, on a board whose walls are " +
+            "at least WalkInMinCrestMetres tall in real metres — a special mode engages in which " +
+            "EVERY wall is held fully visible and nothing fades any more, for as long as you are " +
+            "in there. Walls that were already faded come back through exactly the same animated " +
+            "un-fade as always (nothing snaps), and while the mode holds neither a teammate's " +
+            "synced fade nor a gate lift can hide a wall again. Step back out, or zoom out, and " +
+            "every wall returns to its own coverage decision. OFF = walls keep fading around you " +
+            "while you stand between them, which is the ModBuild 270 behaviour. Live (the very " +
+            "next frame).");
+        WalkInsideMinCrestMetres = config.Bind("WallFade", "WalkInMinCrestMetres",
+            Defaults.WalkInMinCrestMetres,
+            "How tall the board's walls have to be, in REAL METRES at your live zoom, before " +
+            "'inside the play field' is allowed to mean it. This one number is the whole " +
+            "safeguard: at a tabletop zoom the board is a diorama with 60 cm walls, so merely " +
+            "LEANING OVER your own table already puts your head inside its volume — an earlier " +
+            "build shipped a stand-down that fired on exactly that and was rejected in one " +
+            "session. Standing between the walls of a room reads 1.6-1.9 m. Raise it if the mode " +
+            "still engages when you only lean in; lower it if it refuses while you are plainly " +
+            "standing inside. The INSIDE THE MAP log line prints the live metre reading against " +
+            "this bar every time, and names the term that refused when it did. The mode releases " +
+            "only below 0.85x this value, so it cannot flicker on the boundary. " +
+            "Live; clamped 0.30-5.00.");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -272,6 +302,15 @@ internal static class WallFadeTuning
     /// reason as the one above: a remedy that silently did not run has cost this project a build.</summary>
     internal static bool AdoptGroundScenery =>
         SplitRunAdoptGroundScenery != null && SplitRunAdoptGroundScenery.Value;
+    /// <summary>ModBuild 271 kill switch ("Das soll in Erweitert deaktivierbar sein"). Read live
+    /// every frame and printed live on the INSIDE THE MAP line, because a remedy that silently
+    /// did not run has cost this project a whole build before.</summary>
+    internal static bool WalkInStandDown =>
+        WalkInsideStandDown == null || WalkInsideStandDown.Value;
+    /// <summary>ModBuild 271 — the real-metre crest bar. The number inside Clamped() is only the
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.WalkInMinCrestMetres</c>.</summary>
+    internal static float WalkInMinCrestMetres =>
+        Clamped(WalkInsideMinCrestMetres, 1.2f, 0.30f, 5f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
@@ -1417,6 +1456,15 @@ internal static partial class WallSegmentFade
             // world units, compared against world-unit geometry.
             float rigScale = headT.lossyScale.x;
             bool insideBoard = UpdateInsideBoard(headPos, now, rigScale);
+            // WALK-IN STAND-DOWN (ModBuild 271, user request 2026-08-25: "Wenn ein Spieler IN das
+            // Spielfeld geht weil er so nah ranzoomed und dann im Spielfeld ist … ausnahmslos
+            // alle Wände sichtbar und nichts mehr faded"). The verdict above is STILL an
+            // observation; this strictly narrower latch is the only thing in this subsystem that
+            // gates a fade, and the term that makes a third attempt defensible is the board's
+            // wall crest in REAL METRES — see UpdateWalkInside and the record on
+            // WallSegmentFade.Inside.cs. Same frequency as the verdict it refines: it reads two
+            // dials and four cached numbers, and its edge must not wait out a skipped evaluation.
+            bool walkInside = UpdateWalkInside(now, rigScale);
 
             // [Optimize] WallFadeEvalInterval (2026-07 perf pass). The expensive half of this tick
             // is the DECISION: UpdateSampleVisibility projects every room's floor samples through
@@ -1469,10 +1517,12 @@ internal static partial class WallSegmentFade
             float offFraction = WallFadeTuning.Off;
             float exitDwellMoved = WallFadeTuning.DwellMoved;
             float exitDwellStationary = WallFadeTuning.DwellStationary;
-            // INSIDE THE MAP is an OBSERVATION now and gates nothing — see the retirement
-            // record in WallSegmentFade.Inside.cs. Two builds tried to make it a policy (a
-            // raised bar in 241-250, a hard stand-down in 251) and both were rejected; the
-            // per-wall metric below is the whole decision.
+            // INSIDE THE MAP is still an OBSERVATION and still gates nothing — see the record
+            // in WallSegmentFade.Inside.cs. Two builds tried to make THAT term a policy (a
+            // raised bar in 241-250, a hard stand-down in 251) and both were rejected. What
+            // gates, since ModBuild 271, is `walkInside`: the same verdict AND a real-metre
+            // crest bar AND the HEIGHT slab AND a readable rig scale. Outside that mode the
+            // per-wall metric below is the whole decision, exactly as before.
             BeginPerWallCensus();
             _lastHeadPos = headPos;
             // ModBuild 259 (user ruling 2026-08-24: "Entweder verschwindet die ganze Wand mit
@@ -1528,6 +1578,52 @@ internal static partial class WallSegmentFade
                 {
                     seg.State = false;
                     seg.PendingRaw = false;
+                }
+                // WALK-IN STAND-DOWN (ModBuild 271). The player has zoomed himself INTO the
+                // play field; every wall is held fully solid while he is in there, without
+                // exception. Two assignments and nothing else — the SAME pair every other
+                // forced-solid arm above uses — so the fade ramp below delivers the ordinary
+                // ANIMATED un-fade and no renderer is ever snapped. The 251 failure was not
+                // this mechanism (it "worked exactly as designed"); it was a trigger that fired
+                // when the user leaned over a 61 cm tabletop diorama.
+                //
+                // WHY IT SITS ABOVE THE SPLIT-RUN BRANCH AND NOT BELOW IT. A split-run member's
+                // verdict belongs to its run, and EvaluateSplitRuns above has already written
+                // that run's state for this pass. If this branch were below RunDriven, a faded
+                // run would re-assert `State = true` on every one of its ~40 members one branch
+                // later and the mode would visibly fail on exactly the biggest walls in the
+                // scenario. Placing it above makes the member unreachable by its run while the
+                // mode holds — and the run itself is deliberately left RUNNING (it keeps
+                // measuring, keeps its EMA and keeps its own verdict), so when the latch
+                // releases the member resumes from a LIVE reading rather than a stale one and
+                // the wall does not snap back to a verdict taken minutes ago.
+                //
+                // It sits BELOW the two fail-safe arms above because those are unconditional:
+                // a boundless segment, a doorway and a room with no valid floor grid must be
+                // solid whatever this dial says, and routing them through here would make their
+                // safety depend on a config entry.
+                else if (walkInside)
+                {
+                    // Counted BEFORE the assignment, so on the engaging pass this is what was
+                    // genuinely hidden at the moment the mode took over — the walls the user is
+                    // about to watch reappear.
+                    if (seg.State || seg.Fade > 0.01f)
+                        _walkHeldHidden++;
+                    _walkHeld++;
+                    seg.State = false;
+                    seg.PendingRaw = false;
+                    // A FROZEN EMA IS THE 251 SYMPTOM WITH A DELAY. This branch skips the
+                    // coverage evaluation, so an unsplit wall's Smooth would sit at whatever it
+                    // read the moment the mode engaged — and if the player stood inside for a
+                    // minute, every wall would come out of the mode holding the SAME minute-old
+                    // reading and could re-fade together on the next dwell. That is exactly the
+                    // "alle auf einmal" he rejected. Dropping SmoothInit costs nothing while the
+                    // mode holds (Smooth keeps its last value for the diag lines) and makes the
+                    // first evaluation after the release re-seed from that wall's OWN live
+                    // coverage, so the walls leave the mode disagreeing, as they entered it.
+                    // Split runs need no equivalent: EvaluateSplitRuns keeps running above, so
+                    // their EMA is already live when the latch drops.
+                    seg.SmoothInit = false;
                 }
                 // SPLIT-RUN MEMBER (ModBuild 259): its coverage was already measured in
                 // EvaluateSplitRuns and its verdict belongs to the RUN, not to it. The flow is
@@ -1593,8 +1689,13 @@ internal static partial class WallSegmentFade
                 // and a synced fade is visually indistinguishable from a local one;
                 // dwell-free by design (the deciding peer already dwelled). Doorway segments
                 // stay exempt here too — they never fade anywhere, on any machine.
+                // ModBuild 271: "ausnahmslos alle Wände sichtbar" has to hold in MULTIPLAYER
+                // too, so while the walk-in mode holds a PEER's synced fade may not resurrect a
+                // wall this pass just forced solid. RECEIVER SIDE ONLY — our own fades are still
+                // broadcast unchanged, the wire format is untouched, and each client's mode
+                // decides only what THAT client sees, so nothing needs renegotiating.
                 int peerFadeId = 0;
-                bool remoteFade = seg.DoorRoot == null
+                bool remoteFade = seg.DoorRoot == null && !walkInside
                     && RemoteWantsFade(seg, now, out peerFadeId);
                 LogRemoteFadeEdge(seg, remoteFade, peerFadeId);
                 // GATE LIFT (round 12): the embedding wall fades with its gate column's
@@ -1602,7 +1703,12 @@ internal static partial class WallSegmentFade
                 // Round-13 LINGER: the lift survives the gate segment's death (Apparance
                 // prop churn destroys/rebirths the door prop every few seconds) so the
                 // embedding wall does not flap with the prop lifecycle.
-                bool gateLift = seg.DoorRoot == null
+                // ModBuild 271: the gate lift is suppressed by the walk-in mode for the same
+                // reason as the peer fade. The gate column's own State is already forced false
+                // above, but the lift LINGERS GateLiftLingerSeconds past it, so without this
+                // term an embedding wall would stay hidden for seconds after the mode engaged —
+                // an exception, and the user asked for none.
+                bool gateLift = seg.DoorRoot == null && !walkInside
                     && ((seg.GateLift != null && seg.GateLift.State)
                         || now < seg.GateLiftUntil);
                 if (seg.DoorRoot == null && seg.GateLift != null && seg.GateLift.State)
@@ -1624,6 +1730,14 @@ internal static partial class WallSegmentFade
 
                 Apply(seg);
             }
+
+            // WALK-IN EDGE (ModBuild 271) — unthrottled and NOT gated by QuietDiagnostics: a
+            // mode that overrules every wall in the scenario may never engage or release
+            // silently. Printed HERE, after the loop, because the census it carries (how many
+            // walls it held, how many of those were hidden at that moment) can only be counted
+            // by the loop that just ran.
+            if (_walkEdgePending)
+                LogWalkInsideEdge(headPos);
 
             // [Optimize] QuietDiagnostics: the 2 Hz 'diag:' sweep is by far the mod's longest
             // log line (it names every tracked wall with eight numbers each) and it was the single

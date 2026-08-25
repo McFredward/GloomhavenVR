@@ -573,6 +573,9 @@ internal static partial class Loc
             ["WallFade/StackedShellFade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
             // 2026-08 naming pass: "Fades" is jargon; the name now says what the toggle does.
             ["WallFade/SyncPeerFades"] = Pair("Walls: sync with teammates", "Wände: mit Mitspielern synchron"),
+            // ModBuild 271 — the walk-in stand-down and the one number that arms it.
+            ["WallFade/WalkInStandDown"] = Pair("All walls solid when inside", "Im Spielfeld: alle Wände massiv"),
+            ["WallFade/WalkInMinCrestMetres"] = Pair("Inside needs wall height (m)", "Im Spielfeld ab Wandhöhe (m)"),
 
             // ---- [PeerBoardFade] — a peer's board yields when it hides the play field --------
             ["PeerBoardFade/Mode"] = Pair("Boards blocking the view", "Boards vor dem Spielfeld"),

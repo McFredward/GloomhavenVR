@@ -513,6 +513,27 @@ internal static partial class Loc
                 + "Wand-Ausblendungen. Empfänger-Einstellung: Die eigenen Ausblendungen werden immer "
                 + "gesendet; jeder Spieler entscheidet mit diesem Schalter nur, was ER sieht — Umschalten "
                 + "mitten in der Sitzung braucht keine Neuverhandlung. Live änderbar.",
+            ["WallFade/WalkInStandDown"] =
+                "Sobald du so weit hineinzoomst, dass du IM Spielfeld stehst — der Kopf innerhalb der "
+                + "Grundfläche des Bretts UND unterhalb der Mauerkronen, auf einem Brett, dessen Wände in "
+                + "echten Metern mindestens so hoch sind wie unter \"Im Spielfeld ab Wandhöhe\" eingestellt —, "
+                + "schaltet ein besonderer Modus ein: AUSNAHMSLOS jede Wand bleibt voll sichtbar und nichts "
+                + "wird mehr ausgeblendet, solange du drin bist. Wände, die schon ausgeblendet waren, "
+                + "kommen mit genau derselben Animation zurück wie sonst auch (nichts springt), und solange "
+                + "der Modus hält, kann auch die Ausblendung eines MITSPIELERS keine Wand mehr verstecken. "
+                + "Trittst du wieder heraus oder zoomst hinaus, entscheidet jede Wand sofort wieder selbst. "
+                + "AUS = Wände blenden weiter um dich herum aus, während du zwischen ihnen stehst. Live "
+                + "änderbar (greift im nächsten Einzelbild).",
+            ["WallFade/WalkInMinCrestMetres"] =
+                "Wie hoch die Wände des Bretts in ECHTEN METERN bei deinem aktuellen Zoom sein müssen, "
+                + "bevor \"ich stehe im Spielfeld\" auch so gemeint sein darf. Diese eine Zahl ist die "
+                + "ganze Absicherung: Bei Tischzoom ist das Brett ein Diorama mit 60 cm hohen Wänden — "
+                + "schon das bloße VORBEUGEN über den eigenen Tisch steckt deinen Kopf in sein Volumen, "
+                + "und genau darauf ist eine frühere Fassung hereingefallen. Zwischen den Wänden eines "
+                + "Raumes zu stehen misst 1,6-1,9 m. Höher stellen, wenn der Modus beim bloßen Vorbeugen "
+                + "noch einschaltet; niedriger, wenn er sich weigert, obwohl du eindeutig drinstehst. Der "
+                + "Modus schaltet erst unter dem 0,85-fachen dieses Wertes wieder ab, kann an der Grenze "
+                + "also nicht flackern. Live änderbar; begrenzt auf 0.30-5.00.",
             // ---- [PeerBoardFade] ----
             // Sechs Nachträge des Einstellungs-Audits vom 2026-08-22: Die Sektion kam mit
             // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.

@@ -4,9 +4,10 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// BOARD VOLUME — an OBSERVATION of where the player's head is relative to the board, and a
-/// RETIREMENT RECORD for the two policies that were built on it. Nothing in this file gates a
-/// fade any more. Read the retirement record before proposing a third one.
+/// BOARD VOLUME — an OBSERVATION of where the player's head is relative to the board, the
+/// RETIREMENT RECORD of the two policies that were built on it, and (ModBuild 271) the ONE latch
+/// derived from it that does gate a fade. Read the whole record before touching any of it: this
+/// is the third attempt at this feature and the first two were rejected on hardware.
 ///
 /// <para>WHAT WAS TRIED, AND WHAT THE HARDWARE SAID.
 /// <list type="number">
@@ -23,8 +24,10 @@ namespace GloomhavenVR.Core;
 ///   einzeln verschwinden kann und andere bleiben."</i></item>
 /// </list></para>
 ///
-/// <para>WHY BOTH FAILED — ONE CAUSE, TWO SYMPTOMS. A scene-wide switch cannot express a
-/// per-wall fact, and the trigger was never measuring what it claimed to. In the ModBuild 251
+/// <para>WHY BOTH FAILED — AND THE 2026-08-25 CORRECTION TO THAT DIAGNOSIS. The verdict written
+/// here after ModBuild 251 was "a scene-wide switch cannot express a per-wall fact". That is
+/// half of it, and it is the half that was WRONG about the mechanism. The record's own numbers
+/// say the rest, and they say it about the TRIGGER. In the ModBuild 251
 /// log the verdict flips YES/no four times in one session, and the deciding term is
 /// <c>FOOTPRINT</c> as often as <c>HEIGHT</c> (27 against 26):
 /// <c>INSIDE THE MAP: YES — head (0.1, 2.78, 12.4) … deciding term FOOTPRINT (the head is over
@@ -36,7 +39,18 @@ namespace GloomhavenVR.Core;
 /// is exactly the "alle auf einmal" he reported, and is also a prime suspect for the un-animated
 /// return he reported in the same breath.</para>
 ///
-/// <para>WHAT REPLACES IT: NOTHING. The per-wall coverage metric is the whole decision, which is
+/// <para>SO: 0.61 m WALLS ARE A MAN LEANING OVER HIS OWN TABLE. The board at a tabletop zoom is
+/// a diorama, its volume is knee-high in real metres, and the head enters it during ordinary
+/// play. Compare the ModBuild 270 log, taken while he really had zoomed himself in:
+/// <c>INSIDE THE MAP: YES [EDGE] … deciding term HEIGHT … at rig scale 1.66 wu per metre:
+/// 1.06 m above the floor plane, walls 1.62 m tall</c>, and a second at rig scale 1.42 reading
+/// <c>1.57 m above the floor plane, walls 1.88 m tall</c>. Two populations, no overlap: 0.61 m
+/// against 1.62-1.88 m. The discriminator the old trigger lacked is THE BOARD'S SCALE IN REAL
+/// METRES, and it was printed on every one of those lines while nothing read it.</para>
+///
+/// <para>WHAT REPLACED IT OUTSIDE THE WALK-IN MODE: NOTHING, and that is still true. The
+/// per-wall coverage metric is the whole decision everywhere the walk-in latch is not engaged,
+/// which is
 /// what the user asked for in his own words — <i>"Es sollte anhand der verdeckten Boden-tiles des
 /// jeweiligen Raumes berechnet werden, oder?"</i> — and what the subsystem was always designed to
 /// do. The narrow case the stand-down existed to protect (his head genuinely inside masonry) is
@@ -47,16 +61,50 @@ namespace GloomhavenVR.Core;
 /// <see cref="FadeDriver.HeadInsideWallMesh"/> survives only as the observation printed on the
 /// PER-WALL line. A global rule was never needed for any of it.</para>
 ///
-/// <para>THE STANDING RULE FOR ANYONE READING THIS LATER: this subsystem may not acquire a
-/// scene-wide fade switch. If a future symptom seems to want one, it is a per-wall measurement
-/// that is wrong. Two builds have now been spent proving that.</para>
+/// <para>THE THIRD ATTEMPT — ModBuild 271, AND THE REQUEST THAT AUTHORISED IT. The standing rule
+/// that used to sit here said this subsystem may not acquire a scene-wide fade switch. The user
+/// lifted it himself on 2026-08-25, in as many words: <i>"Wenn ein Spieler IN das Spielfeld geht
+/// weil er so nah ranzoomed und dann im Spielfeld ist will ich, dass ein spezieller Modus
+/// aktiviert wird in dem ausnahmslos alle Wände sichtbar sind und nichts mehr faded. Das soll in
+/// Erweitert deaktivierbar sein."</i> The rule is therefore lifted DELIBERATELY, once, for this
+/// one mode — not forgotten. Everything outside the mode is still decided per wall, by that
+/// wall's own coverage, and both of his earlier rulings still hold there.</para>
+///
+/// <para>WHAT THE THIRD ATTEMPT DOES DIFFERENTLY. Not the mechanism: forcing every wall's state
+/// off and letting the ordinary ramp animate them back is exactly what ModBuild 251 did and the
+/// record above says it "worked exactly as designed". What changes is the TRIGGER.
+/// <see cref="FadeDriver.UpdateWalkInside"/> derives a second, strictly narrower latch —
+/// <c>_walkInside</c> — that requires ALL of:
+/// <list type="number">
+/// <item>the ordinary <c>_insideBoard</c> verdict, with its Schmitt pair and dwells untouched;</item>
+/// <item>the board's wall crest at <see cref="WallFadeTuning.WalkInMinCrestMetres"/> or more IN
+///   REAL METRES (<c>_boardCrestWU / rigScale</c>), default 1.20 m, with its own release band at
+///   0.85 of the bar. THIS is the term the two failures lacked, and it is the one that refuses a
+///   0.61 m tabletop outright;</item>
+/// <item>the HEIGHT slab genuinely inside (<c>_lastInsideMarginY &lt; 0</c>) — the FOOTPRINT term
+///   alone, which decided the 251 verdict 27 times against HEIGHT's 26, means "the head is over
+///   the board" and is never enough;</item>
+/// <item>a readable rig scale, because a metre column computed from an unreadable scale is not a
+///   measurement.</item>
+/// </list>
+/// It is switchable off at <c>[WallFade] WalkInStandDown</c> (Erweitert ▸ Bild &amp; Darstellung), which
+/// is the second half of the same request, and both terms are printed live on the
+/// <c>INSIDE THE MAP</c> line with PASS/FAIL — including, when the latch refuses while INSIDE
+/// holds, the NAME and VALUE of the term that refused.</para>
+///
+/// <para>THE RULE THAT SURVIVES: no OTHER scene-wide fade switch. This one exists because the
+/// user asked for a mode, by name, and gave it a config switch in the same sentence. If a future
+/// symptom that is NOT this mode seems to want a global rule, it is still a per-wall measurement
+/// that is wrong — two builds were spent proving that and neither is being re-run.</para>
 ///
 /// <para>WHAT SURVIVES, AND WHY. The board volume and the INSIDE verdict are kept as a pure
 /// DIAGNOSTIC. Their commit phase is already priced in the BUDGET line, the test is ~15 float
 /// ops, and "where was his head relative to the board, in real metres" is the single question
 /// that would have caught both failures above in round one — the metre column is what shows a
-/// 0.61 m wall and a head 0.34 m up. The <c>INSIDE THE MAP</c> line says explicitly that it
-/// gates nothing, so it can never again be mistaken for a policy.</para>
+/// 0.61 m wall and a head 0.34 m up — the very column ModBuild 271 promoted to a decider. The
+/// <c>INSIDE THE MAP</c> line still says explicitly that THIS verdict gates nothing, and now
+/// also carries the walk-in latch that does, term by term, so neither can be mistaken for the
+/// other.</para>
 ///
 /// <para>THE TEST ITSELF (unchanged, diagnostic only). INSIDE means the head is inside the BOARD
 /// VOLUME — the union XZ footprint of every decision-valid room and its walls, from the board's
@@ -91,6 +139,12 @@ internal static partial class WallSegmentFade
         private const float BoardCrestMinWU = 0.5f;
         /// <summary>Cadence of the falsifier line while INSIDE holds. Edges print unthrottled.</summary>
         private const float InsideLogIntervalSeconds = 2f;
+        /// <summary>WALK-IN hysteresis on the REAL-METRE crest term (ModBuild 271). The mode
+        /// engages at <see cref="WallFadeTuning.WalkInMinCrestMetres"/> and releases only below
+        /// this fraction of it, so a zoom parked on the bar cannot make it chatter. It is a
+        /// fraction and not a second constant for the same reason the INSIDE bars are: the bar
+        /// itself is a live dial, and a band expressed as a fraction of it moves with it.</summary>
+        private const float WalkInCrestReleaseFraction = 0.85f;
 
         // --- cached board volume (rebuilt once per rescan, read O(1) per frame) --------------
         /// <summary>The board's own volume: union XZ footprint of every decision-valid room and
@@ -122,6 +176,34 @@ internal static partial class WallSegmentFade
         private float _lastInsideMarginY;
         private float _lastInsideMarginXZ;
         private float _nextInsideLogTime;
+
+        // --- WALK-IN STAND-DOWN state (ModBuild 271 — see the class header) -----------------
+        /// <summary>THE ONLY LATCH IN THIS SUBSYSTEM THAT GATES A FADE. True while the player has
+        /// zoomed himself INTO the play field; every wall is then held solid. Strictly narrower
+        /// than <see cref="_insideBoard"/>, which still gates nothing.</summary>
+        private bool _walkInside;
+        private bool _walkInsidePending;
+        private float _walkInsidePendingSince;
+        /// <summary>Live value of every term the latch is a conjunction of, kept as fields so the
+        /// falsifier can print WHICH term refused and at WHAT value — not merely that it did.
+        /// A change-gated line whose reason string is constant prints once and then reads like a
+        /// dead instrument, so all of these travel on the line as numbers.</summary>
+        private float _walkCrestMetres = -1f;
+        private float _walkRigScale;
+        private float _walkCrestBar;
+        private bool _walkTermScale, _walkTermCrest, _walkTermHeight;
+        /// <summary>The first term that refused, by NAME and VALUE, whenever the walk-in latch is
+        /// false. "-" only while it holds.</summary>
+        private string _walkRefusal = "not evaluated yet";
+        /// <summary>Set on a latch EDGE, consumed after the decision loop — the census it carries
+        /// (how many walls the latch held, how many of them were hidden at that moment) can only
+        /// be counted by the loop itself.</summary>
+        private bool _walkEdgePending;
+        /// <summary>Per-pass census written by the walk-in branch of the decision loop.</summary>
+        private int _walkHeld, _walkHeldHidden;
+        /// <summary>Session tally of walk-in edges, so a log with no edges is distinguishable
+        /// from a log where the instrument never ran.</summary>
+        private int _walkEdges;
 
         // --- R2 PER-WALL INDEPENDENCE CENSUS (measured per pass, never intended) ------------
         /// <summary>Fadeable walls judged this pass, and how many of them ended up faded. The
@@ -1372,9 +1454,10 @@ internal static partial class WallSegmentFade
                 VRLog.Info(Name,
                     "BOARD VOLUME: none — "
                     + $"{_boardVolumeRooms} decision-valid room(s), {_boardVolumeWalls} wall(s) "
-                    + "with a decision AABB. The INSIDE-the-map stand-down cannot fire until a "
-                    + "room is tile-anchored with a non-empty floor grid; this is also the "
-                    + "steady state of the 3D map room, which has no occlusion volumes at all.");
+                    + "with a decision AABB. The WALK-IN stand-down cannot fire until a room is "
+                    + "tile-anchored with a non-empty floor grid; this is also the steady state "
+                    + "of the 3D map room, which has no occlusion volumes at all, so the mode "
+                    + "can never engage there.");
                 return;
             }
             Vector3 mn = _boardVolume.min, mx = _boardVolume.max;
@@ -1386,10 +1469,15 @@ internal static partial class WallSegmentFade
                 + $"{_crestScratch.Count} wall(s). INSIDE bars: enter at signed distance "
                 + $"<= {-InsideEnterDepthFraction * _boardCrestWU:F2} wu, leave at "
                 + $">= {InsideExitDepthFraction * _boardCrestWU:F2} wu (dwell "
-                + $"{EnterDwellSeconds:F2}s in / {WallFadeTuning.DwellMoved:F2}s out). The "
-                + "verdict is DIAGNOSTIC — it gates no fade; every wall is decided solely by its "
-                + $"own coverage against the live bars {WallFadeTuning.On:F2}/"
-                + $"{WallFadeTuning.Off:F2}.");
+                + $"{EnterDwellSeconds:F2}s in / {WallFadeTuning.DwellMoved:F2}s out). That "
+                + "verdict is DIAGNOSTIC and gates no fade by itself. What gates, since ModBuild "
+                + "271, is the strictly narrower WALK-IN latch built on top of it: [WallFade] "
+                + $"WalkInStandDown {(WallFadeTuning.WalkInStandDown ? "ON" : "OFF")}, and it "
+                + "additionally needs the HEIGHT slab inside AND this board's crest to measure "
+                + $"at least {WallFadeTuning.WalkInMinCrestMetres:F2} m in REAL METRES — the "
+                + "term that tells standing in a room from leaning over a diorama. Outside that "
+                + "mode every wall is decided solely by its own coverage against the live bars "
+                + $"{WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}.");
         }
 
         /// <summary>
@@ -1447,6 +1535,151 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
+        /// THE WALK-IN LATCH (ModBuild 271) — the one verdict in this subsystem that gates a
+        /// fade. It is <see cref="_insideBoard"/> AND three more terms, and the third of them is
+        /// the whole reason a third attempt was allowed at all: the board's wall crest converted
+        /// to REAL METRES by the live rig scale. Read the class header before touching any of it.
+        ///
+        /// <para>THE TERMS, all four required, all four printed by <see cref="LogInsideState"/>:
+        /// <list type="number">
+        /// <item>the debounced <see cref="_insideBoard"/> verdict holds — its Schmitt pair and
+        ///   dwells are untouched and deliberately not retuned;</item>
+        /// <item>the crest is at least <see cref="WallFadeTuning.WalkInMinCrestMetres"/> in real
+        ///   metres, with its own release band at <see cref="WalkInCrestReleaseFraction"/> of
+        ///   that. THIS is the term that kills the tabletop false positive: 0.61 m walls are a
+        ///   man leaning over his own diorama, 1.6-1.9 m walls are a man standing in a room;</item>
+        /// <item>the HEIGHT slab is genuinely inside (<c>_lastInsideMarginY &lt; 0</c>) — being
+        ///   merely OVER the board, which is what the FOOTPRINT term alone says and what decided
+        ///   the ModBuild 251 verdict 27 times against HEIGHT's 26, is never enough;</item>
+        /// <item>the rig scale is readable. An unreadable scale makes the metre column
+        ///   meaningless, and a latch that engages on a meaningless number is the ModBuild 241
+        ///   failure with different arithmetic.</item>
+        /// </list></para>
+        ///
+        /// <para>DWELLS ARE REUSED, NOT INVENTED: <see cref="EnterDwellSeconds"/> in and
+        /// <see cref="WallFadeTuning.DwellMoved"/> out, the same pair the INSIDE verdict uses.
+        /// Turning the dial off, or losing the board volume, releases WITHOUT the exit dwell —
+        /// neither is a moving head, so neither is what that dwell debounces.</para>
+        /// </summary>
+        private bool UpdateWalkInside(float now, float rigScale)
+        {
+            _walkRigScale = rigScale;
+            _walkCrestBar = WallFadeTuning.WalkInMinCrestMetres;
+
+            // GROUND GONE, not a boundary crossing. The 3D map room is the standing case for the
+            // second arm: it owns no occlusion volumes at all, so CommitBoardVolume never marks
+            // the volume valid there and this mode can never engage in it.
+            if (!WallFadeTuning.WalkInStandDown || !_boardVolumeValid)
+            {
+                _walkTermScale = rigScale > 1e-4f;
+                _walkTermCrest = false;
+                _walkTermHeight = false;
+                _walkCrestMetres = -1f;
+                _walkRefusal = !WallFadeTuning.WalkInStandDown
+                    ? "CONFIG — [WallFade] WalkInStandDown is OFF"
+                    : $"BOARD — the board volume is invalid ({_boardVolumeRooms} decision-valid "
+                      + "room(s)); the 3D map room has no occlusion volumes at all, so the mode "
+                      + "can never engage there";
+                if (_walkInside || _walkInsidePending)
+                    ReleaseWalkInside();
+                return false;
+            }
+
+            _walkTermScale = rigScale > 1e-4f;
+            _walkCrestMetres = _walkTermScale ? _boardCrestWU / rigScale : -1f;
+            float need = _walkInside ? _walkCrestBar * WalkInCrestReleaseFraction : _walkCrestBar;
+            _walkTermCrest = _walkTermScale && _walkCrestMetres >= need;
+            _walkTermHeight = _lastInsideMarginY < 0f;
+
+            bool want = _insideBoard && _walkTermScale && _walkTermCrest && _walkTermHeight;
+
+            // LOG FAILURES, NOT ONLY SUCCESSES. Name the FIRST term that refused, with its live
+            // value — a reason string that cannot change is an instrument that prints once and
+            // then looks dead.
+            _walkRefusal = want
+                ? "-"
+                : !_insideBoard
+                    ? "INSIDE — the head is not inside the board volume (signed distance "
+                      + $"{_lastInsideSigned:F2} wu, needs <= "
+                      + $"{-InsideEnterDepthFraction * _boardCrestWU:F2})"
+                    : !_walkTermScale
+                        ? $"SCALE — the rig scale is unreadable ({rigScale:G4} wu per metre)"
+                        : !_walkTermCrest
+                            ? $"CREST — the board's walls are {_walkCrestMetres:F2} m tall, under "
+                              + $"the {need:F2} m bar ([WallFade] WalkInMinCrestMetres "
+                              + $"{_walkCrestBar:F2}"
+                              + (_walkInside
+                                  ? $" x {WalkInCrestReleaseFraction:F2} release band"
+                                  : string.Empty)
+                              + "); this is a board you are LEANING OVER, not one you stand in"
+                            : $"HEIGHT — the eye is at or above the wall crest (Y slab "
+                              + $"{_lastInsideMarginY:F2} wu, needs < 0); being merely OVER the "
+                              + "board is the FOOTPRINT term, and that is never enough";
+
+            if (want != _walkInsidePending)
+            {
+                _walkInsidePending = want;
+                _walkInsidePendingSince = now;
+            }
+            if (_walkInsidePending != _walkInside)
+            {
+                float dwell = _walkInsidePending ? EnterDwellSeconds : WallFadeTuning.DwellMoved;
+                if (now - _walkInsidePendingSince >= dwell)
+                {
+                    _walkInside = _walkInsidePending;
+                    _walkEdgePending = true;
+                    _walkEdges++;
+                }
+            }
+            return _walkInside;
+        }
+
+        /// <summary>Drop the walk-in latch without waiting out an exit dwell (dial off, board
+        /// volume gone, scenario teardown). The edge still prints: a mode that stops holding
+        /// walls must never do so silently.</summary>
+        private void ReleaseWalkInside()
+        {
+            if (_walkInside)
+            {
+                _walkEdgePending = true;
+                _walkEdges++;
+            }
+            _walkInside = false;
+            _walkInsidePending = false;
+            _walkInsidePendingSince = 0f;
+        }
+
+        /// <summary>
+        /// THE WALK-IN EDGE LINE — unthrottled, printed after the decision loop of the pass the
+        /// edge landed on, so the counts it carries are what the latch ACTUALLY did on that pass
+        /// and not what it intended to do. <c>held</c> is every segment the walk-in branch forced
+        /// solid; <c>of which hidden</c> is how many of those were faded or mid-ramp at that
+        /// moment — i.e. exactly what the user is about to watch reappear.
+        /// </summary>
+        private void LogWalkInsideEdge(Vector3 headPos)
+        {
+            _walkEdgePending = false;
+            VRLog.Info(Name,
+                $"WALK-IN STAND-DOWN: {(_walkInside ? "ENGAGED" : "RELEASED")} "
+                + $"[EDGE #{_walkEdges}] — {_walkHeld} wall segment(s) held fully solid on this "
+                + $"pass, of which {_walkHeldHidden} were faded or mid-ramp at the moment it "
+                + $"{(_walkInside ? "engaged" : "released")} (those are the ones that "
+                + $"{(_walkInside ? "reappear" : "may fade again")}, through the ordinary "
+                + "animated ramp — nothing snaps). Head "
+                + $"({headPos.x:F1}, {headPos.y:F2}, {headPos.z:F1}); board crest "
+                + $"{_boardCrestWU:F2} wu = {_walkCrestMetres:F2} m at rig scale "
+                + $"{_walkRigScale:F2} wu/m, bar {_walkCrestBar:F2} m (release below "
+                + $"{_walkCrestBar * WalkInCrestReleaseFraction:F2} m); INSIDE "
+                + $"{(_insideBoard ? "YES" : "no")}, signed distance {_lastInsideSigned:F2} wu, "
+                + $"Y slab {_lastInsideMarginY:F2}, XZ slab {_lastInsideMarginXZ:F2}. "
+                + (_walkInside
+                    ? "While this holds, EVERY wall is solid without exception — coverage, split "
+                      + "runs, a teammate's synced fade and a gate lift are all overruled."
+                    : $"Refused by {_walkRefusal}. Every wall is back on its own coverage "
+                      + $"against the live bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}."));
+        }
+
+        /// <summary>
         /// Drop the cached volume AND the verdict that was measured against it. Called on a
         /// scene load: a box measured in the previous scenario is not evidence about this one,
         /// and between the load and the first commit the head could sit anywhere relative to it.
@@ -1470,6 +1703,9 @@ internal static partial class WallSegmentFade
             _insideBoard = false;
             _insidePending = false;
             _insidePendingSince = 0f;
+            // The walk-in latch (ModBuild 271) is a strict refinement of the verdict above, so
+            // it can never outlive it.
+            ReleaseWalkInside();
         }
 
         /// <summary>
@@ -1498,6 +1734,10 @@ internal static partial class WallSegmentFade
             _admitNames.Clear();
             _pwRunPieceNames.Clear();
             _pwRunPieceTotal = 0;
+            // ModBuild 271: the walk-in census is strictly PER PASS — the edge line is printed
+            // from the very pass that flipped the latch, so these must describe that pass only.
+            _walkHeld = 0;
+            _walkHeldHidden = 0;
             // NB: the STEP counters are deliberately NOT reset here. An edge is a rare event —
             // seven fade-ON events in the whole ModBuild 254 session — and this census resets
             // every frame while the falsifier prints every two seconds, so per-frame counters
@@ -1977,10 +2217,17 @@ internal static partial class WallSegmentFade
         /// live bars, how many walls the raised bar spared this evaluation, and the coverage of
         /// the worst offender among them. Every number is an outcome, not an intention.
         ///
-        /// <para>The real-metre column is a CONVERSION of the world-unit numbers by the live rig
-        /// scale and nothing in the decision reads it — the decision's bars are world units
-        /// compared against world-unit geometry. It is here because "wie tief stehe ich drin" is
-        /// unanswerable in world units at a zoom the player rides from 8.28 to 1.15.</para>
+        /// <para>The real-metre column WAS a pure conversion of the world-unit numbers and read
+        /// by nothing. Since ModBuild 271 one of its terms — the crest in metres — is a DECIDER:
+        /// it is term (b) of the walk-in latch, and it is the term that separates a man standing
+        /// between 1.6-1.9 m walls from a man leaning over a 0.61 m diorama. The INSIDE bars
+        /// themselves are still world units against world-unit geometry.</para>
+        ///
+        /// <para>THE LINE MUST BE ABLE TO DISAGREE WITH ITSELF, so it carries the walk-in verdict
+        /// AND every one of its four terms with its live value and its own PASS/FAIL, and when
+        /// the latch is off while INSIDE holds it names the term that refused. A change-gated
+        /// line whose reason string is constant prints once and then reads like a dead
+        /// instrument; every number here is an outcome, not an intention.</para>
         /// </summary>
         private void LogInsideState(Vector3 headPos, float rigScale, bool edge)
         {
@@ -2011,11 +2258,31 @@ internal static partial class WallSegmentFade
                 + $"<= {-InsideEnterDepthFraction * _boardCrestWU:F2} / leave "
                 + $">= {InsideExitDepthFraction * _boardCrestWU:F2} wu. In real metres at rig "
                 + $"scale {rigScale:F2} wu per metre: {metres}. "
-                + "THIS VERDICT GATES NOTHING — it is an observation, not a policy (two builds "
-                + "were spent proving a scene-wide switch cannot express a per-wall fact; see "
-                + "the retirement record on WallSegmentFade.Inside.cs). Every wall is decided "
-                + $"solely by its own coverage against the live bars {WallFadeTuning.On:F2}/"
-                + $"{WallFadeTuning.Off:F2} — the PER-WALL line carries that pass's verdicts.");
+                + "THIS VERDICT STILL GATES NOTHING BY ITSELF — two builds were spent proving a "
+                + "scene-wide switch on THIS term cannot express a per-wall fact (see the record "
+                + "on WallSegmentFade.Inside.cs). What gates is the strictly narrower WALK-IN "
+                + $"latch: {(_walkInside ? "ENGAGED" : "off")} (edges this session {_walkEdges}"
+                + $"{(_walkInside ? $", holding {_walkHeld} wall(s) solid on this pass, "
+                    + $"{_walkHeldHidden} of them still faded or mid-ramp" : string.Empty)}). "
+                + "Its four terms right now — "
+                + $"(a) INSIDE {(_insideBoard ? "PASS" : "FAIL")}; "
+                + $"(b) CREST {(_walkTermCrest ? "PASS" : "FAIL")} at "
+                + $"{(_walkCrestMetres >= 0f ? $"{_walkCrestMetres:F2}" : "n/a")} m against the "
+                + $"{_walkCrestBar:F2} m bar (release below "
+                + $"{_walkCrestBar * WalkInCrestReleaseFraction:F2} m) — THE term that separates "
+                + "standing in a room from leaning over a 61 cm diorama; "
+                + $"(c) HEIGHT slab {(_walkTermHeight ? "PASS" : "FAIL")} at "
+                + $"{_lastInsideMarginY:F2} wu (must be < 0 — the FOOTPRINT term alone never "
+                + $"counts); (d) SCALE {(_walkTermScale ? "PASS" : "FAIL")} at {rigScale:G4} wu "
+                + $"per metre. Dial [WallFade] WalkInStandDown is "
+                + $"{(WallFadeTuning.WalkInStandDown ? "ON" : "OFF")}"
+                + (_walkInside
+                    ? ". While the latch holds, EVERY wall is held solid without exception and "
+                      + "no coverage, split run, peer fade or gate lift can hide one."
+                    : $". REFUSED BY {_walkRefusal}. Every wall is therefore decided solely by "
+                      + $"its own coverage against the live bars {WallFadeTuning.On:F2}/"
+                      + $"{WallFadeTuning.Off:F2} — the PER-WALL line carries that pass's "
+                      + "verdicts."));
         }
     }
 }

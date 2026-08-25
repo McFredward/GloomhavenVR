@@ -210,4 +210,19 @@ internal static partial class Defaults
     // FLOATING / OBSTRUCTING with its blocked-sample count, so the next log sizes that rule before
     // it is written. NEW key ⇒ BepInEx cannot keep an old value ⇒ no migration marker needed.
     internal const bool SplitRunAdoptGroundScenery = false;  // => [WallFade] SplitRunAdoptGroundScenery
+
+    // ModBuild 271 — THE WALK-IN STAND-DOWN (user request 2026-08-25: "Wenn ein Spieler IN das
+    // Spielfeld geht weil er so nah ranzoomed und dann im Spielfeld ist will ich, dass ein
+    // spezieller Modus aktiviert wird in dem ausnahmslos alle Wände sichtbar sind und nichts
+    // mehr faded. Das soll in Erweitert deaktivierbar sein."). Shipped ON: it IS the requested
+    // feature, and the dial is the "deaktivierbar" half of the same sentence. NEW keys, so
+    // BepInEx's keep-existing-values rule is not in the way and no migration marker is needed.
+    internal const bool WalkInStandDown = true;              // => [WallFade] WalkInStandDown
+    // THE TERM THE WHOLE DESIGN RESTS ON, and the one the two retired attempts lacked. The
+    // ModBuild 251 log fired "INSIDE THE MAP: YES" on a board whose walls were 0.61 m tall in
+    // real metres — the player was leaning over his own tabletop diorama, not standing in a
+    // room. The ModBuild 270 log, where he really had zoomed himself in, reads 1.62 m and
+    // 1.88 m. 1.20 m sits between the two populations with ~2x margin below and ~1.35x above,
+    // and the latch releases only under 0.85 x this (1.02 m) so it cannot chatter on the bar.
+    internal const float WalkInMinCrestMetres = 1.2f;        // => [WallFade] WalkInMinCrestMetres
 }
