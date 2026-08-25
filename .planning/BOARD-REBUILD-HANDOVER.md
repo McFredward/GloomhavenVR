@@ -57,7 +57,28 @@ shipped boards' own 1.04 / 1.26 / 4.63.
 
 **Pictures** (gitignored, local): `.planning/debug/boards_before_after.png` (flat-on, identical
 lighting), `boards_ingame_before_after.png` (all three in the screenshot's own scene),
-`boards_shader_rake.png` (real prefabs through the real shader from the rebuilt bundle).
+`boards_shader_rake.png` (real prefabs through the real shader from the rebuilt bundle),
+`boards_reuse_error_{oak,bronze}.png` (which pixels of the in-scene picture to distrust).
+
+**TWO TRAPS IN THE IN-SCENE STATION, both hit and both caught by something other than its own
+self-test.**
+
+1. **"The old atlas" stopped being old the moment the new maps were installed.** A second lane
+   was pointed at `Assets/Bundle/Table/*_albedo.png` for the BEFORE picture after those files had
+   already been overwritten, so its shade field divided the screenshot by the very atlas it was
+   previewing. **Its round-trip test passed anyway** — the round trip is exact by construction and
+   cannot see this. What caught it was a selection over nine candidate atlases: the working-tree
+   file scored r = -0.055 and implied-shade cv 124.9, the `git show HEAD:` blob r = +0.334 and
+   cv 0.576. Pin the old atlas to a HEAD blob; never read the working tree for a "before".
+2. **The oak and bronze in-scene pictures reuse STEEL's relief.** There is no oak/bronze
+   screenshot, so the illumination is the steel measurement reused per screen pixel. The albedo is
+   placed through each style's own UV map and is correct (verified to <=0.001 atlas texels), but
+   the rim and bevel highlights are steel's: **20 % of oak and 34 % of bronze board pixels** carry
+   a doubled edge at rims and bevels. Judge colour, material and motif there; do not judge edges.
+
+A picture built from an intermediate state of that lane was published for ~10 minutes and then
+replaced. The STEEL numbers in this record are unaffected: they came from the first station, whose
+cached shade field is bit-identical to one built from the HEAD blob.
 
 **Bundle 65,626,956 → 67,234,683 bytes.** NOT a DLL-only install. `check-bundle-format.sh` asserts
 NO byte count — only wrapper format 7 and the writing editor; it prints the size.
